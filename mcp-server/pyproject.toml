@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "weknora-mcp-server"
 version = "1.0.0"
-description = "WeKnora MCP Server - Model Context Protocol server for WeKnora API"
+description = "睿乐大脑 MCP Server - Model Context Protocol server for 睿乐大脑 API"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "WeKnora Team", email = "support@weknora.com"}
+    {name = "睿乐大脑 Team", email = "support@weknora.com"}
 ]
 maintainers = [
-    {name = "WeKnora Team", email = "support@weknora.com"}
+    {name = "睿乐大脑 Team", email = "support@weknora.com"}
 ]
 keywords = ["mcp", "model-context-protocol", "weknora", "knowledge-management", "api-server"]
 classifiers = [

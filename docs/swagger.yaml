@@ -2168,7 +2168,7 @@ definitions:
       api_key:
         type: string
       app_id:
-        description: WeKnoraCloud 厂商专用凭证
+        description: 睿乐大脑云厂商专用凭证
         type: string
       app_secret:
         description: AES-256 加密存储，实际承载上游 API Key
@@ -3415,7 +3415,7 @@ definitions:
       credentials:
         allOf:
         - $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.CredentialsConfig'
-        description: 'Credentials config: third-party provider credentials (e.g. WeKnoraCloud
+        description: 'Credentials config: third-party provider credentials (e.g. 睿乐大脑云
           AppID/AppSecret)'
       default_storage_backend_id:
         description: DefaultStorageBackendID is the workspace default concrete storage
@@ -5632,11 +5632,11 @@ definitions:
     type: object
 info:
   contact:
-    name: WeKnora Github
+    name: 睿乐大脑 Github
     url: https://github.com/Tencent/WeKnora
-  description: WeKnora 知识库管理系统 API 文档
+  description: 睿乐大脑知识库管理系统 API 文档
   termsOfService: http://swagger.io/terms/
-  title: WeKnora API
+  title: 睿乐大脑 API
   version: "1.0"
 paths:
   /agent/mcp-oauth-resolutions/{pending_id}:
@@ -11335,7 +11335,7 @@ paths:
       - 模型管理
   /models/weknoracloud/status:
     get:
-      description: 检查当前空间的 WeKnoraCloud 凭证是否完好；needs_reinit=true 表示需要重新保存
+      description: 检查当前空间的睿乐大脑云凭证是否完好；needs_reinit=true 表示需要重新保存
       produces:
       - application/json
       responses:
@@ -11352,9 +11352,9 @@ paths:
       security:
       - Bearer: []
       - ApiKeyAuth: []
-      summary: 检查 WeKnoraCloud 凭证状态
+      summary: 检查睿乐大脑云凭证状态
       tags:
-      - WeKnoraCloud
+      - 睿乐大脑云
   /organizations:
     get:
       description: 获取当前空间所属的所有组织，并附带各空间内知识库/智能体数量
@@ -14822,9 +14822,9 @@ paths:
       security:
       - Bearer: []
       - ApiKeyAuth: []
-      summary: 保存 WeKnoraCloud 凭证
+      summary: 保存睿乐大脑云凭证
       tags:
-      - WeKnoraCloud
+      - 睿乐大脑云
 securityDefinitions:
   ApiKeyAuth:
     description: 空间身份认证：输入 sk- 开头的 API Key

@@ -1,12 +1,12 @@
 ---
-title: WeKnora Wiki 首页
+title: 睿乐大脑 Wiki 首页
 tags: [首页, 导航, MOC]
 aliases: [Home, Index, wiki首页]
 ---
 
-# WeKnora Wiki
+# 睿乐大脑 Wiki
 
-欢迎使用 WeKnora 知识库 wiki！这里是 WeKnora 项目文档的互联知识网络，所有页面通过双向链接关联，帮助你从任意入口探索整个知识体系。
+欢迎使用 睿乐大脑知识库 wiki！这里是 睿乐大脑项目文档的互联知识网络，所有页面通过双向链接关联，帮助你从任意入口探索整个知识体系。
 
 ---
 
@@ -70,7 +70,7 @@ aliases: [Home, Index, wiki首页]
 
 ```mermaid
 graph TB
-    Home[WeKnora Wiki]
+    Home[睿乐大脑 Wiki]
     Home --> 项目概述
     Home --> 核心功能
     Home --> 集成扩展

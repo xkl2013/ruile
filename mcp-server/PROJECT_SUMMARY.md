@@ -1,4 +1,4 @@
-# WeKnora MCP Server 可运行模组包 - 项目总结
+# 睿乐大脑 MCP Server 可运行模组包 - 项目总结
 
 ## 🎉 项目完成状态
 
@@ -168,7 +168,7 @@ python test_module.py
 
 ### 测试结果
 ```
-WeKnora MCP Server 模组测试
+睿乐大脑 MCP Server 模组测试
 ==================================================
 ✓ 模块导入测试通过
 ✓ 环境配置测试通过  
@@ -230,7 +230,7 @@ CMD ["weknora-mcp-server"]
 ### 4. 系统服务
 ```ini
 [Unit]
-Description=WeKnora MCP Server
+Description=睿乐大脑 MCP Server
 
 [Service]
 ExecStart=/usr/local/bin/weknora-mcp-server

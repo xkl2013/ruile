@@ -2,7 +2,7 @@
 
 # Show help
 help:
-	@echo "WeKnora Makefile 帮助"
+	@echo "睿乐大脑 Makefile 帮助"
 	@echo ""
 	@echo "基础命令:"
 	@echo "  build             构建应用"
@@ -331,5 +331,4 @@ dev-app:
 
 dev-frontend:
 	./scripts/dev.sh frontend
-
 

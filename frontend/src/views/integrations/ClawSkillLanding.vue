@@ -4,19 +4,6 @@
     :subtitle="$t('integrations.claw.subtitle')"
     variant="claw"
   >
-    <template #actions>
-      <IntegrationExternalCta
-        variant="claw"
-        :label="$t('integrations.claw.installCta')"
-        :hint="$t('integrations.claw.installCtaHint')"
-        @click="openClawHub"
-      >
-        <template #icon>
-          <span class="ext-cta-emoji" role="img" :aria-label="$t('common.clawhubSkill')">🦞</span>
-        </template>
-      </IntegrationExternalCta>
-    </template>
-
     <template #main>
       <div class="landing-group">
         <section class="setting-drawer__section">
@@ -93,12 +80,6 @@
       </div>
     </template>
 
-    <template #footer>
-      <div class="landing-footer-bar" role="note">
-        <p class="landing-footer-bar__note">{{ $t('integrations.claw.ecosystemNote') }}</p>
-        <span class="landing-meta">{{ $t('integrations.claw.hubMeta') }}</span>
-      </div>
-    </template>
   </IntegrationLandingLayout>
 </template>
 
@@ -107,11 +88,9 @@ import { computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { CLAWHUB_SKILL_URL } from '@/config/integrations'
 import { useApiBaseUrlDisplay } from '@/composables/useApiBaseUrlDisplay'
 import { useUIStore } from '@/stores/ui'
 import IntegrationLandingLayout from './IntegrationLandingLayout.vue'
-import IntegrationExternalCta from './IntegrationExternalCta.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -135,10 +114,6 @@ const envExample = computed(() => {
   const base = apiBaseUrlDisplay.value || 'https://your-server.com/api/v1'
   return `export WEKNORA_BASE_URL="${base}"\nexport WEKNORA_API_KEY="sk-your-api-key"`
 })
-
-const openClawHub = () => {
-  window.open(CLAWHUB_SKILL_URL, '_blank', 'noopener,noreferrer')
-}
 
 const openApiSettings = () => {
   router.push({ path: '/platform/settings', query: { section: 'integrations', tab: 'api' } })

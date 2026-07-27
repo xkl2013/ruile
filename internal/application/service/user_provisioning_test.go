@@ -64,7 +64,7 @@ func TestUserServiceRegisterTenantlessSkipsTenantCreation(t *testing.T) {
 	user, err := svc.Register(context.Background(), &types.RegisterRequest{
 		Username:           "alice",
 		Email:              "alice@example.com",
-		Password:           "supersecret",
+		Password:           "supersecret1",
 		TenantProvisioning: types.TenantProvisioningTenantless,
 	})
 	if err != nil {
@@ -75,6 +75,31 @@ func TestUserServiceRegisterTenantlessSkipsTenantCreation(t *testing.T) {
 	}
 	if user.TenantID != 0 || repo.created == nil || repo.created.TenantID != 0 {
 		t.Fatalf("tenantless user persisted with tenant: user=%d created=%v", user.TenantID, repo.created)
+	}
+}
+
+func TestUserServiceRegisterUsesPhoneAsAccountIdentity(t *testing.T) {
+	repo := &provisioningUserRepo{}
+	tenantSvc := &provisioningTenantService{}
+	svc := &userService{userRepo: repo, tenantService: tenantSvc}
+
+	user, err := svc.Register(context.Background(), &types.RegisterRequest{
+		Username:           "alice",
+		Phone:              "13258978288",
+		Password:           "supersecret1",
+		TenantProvisioning: types.TenantProvisioningTenantless,
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if user.Email != "13258978288" {
+		t.Fatalf("user email identity = %q, want phone", user.Email)
+	}
+	if repo.created == nil || repo.created.Email != "13258978288" {
+		t.Fatalf("created user email identity = %v, want phone", repo.created)
+	}
+	if tenantSvc.createCalls != 0 {
+		t.Fatalf("tenant create calls = %d, want 0", tenantSvc.createCalls)
 	}
 }
 

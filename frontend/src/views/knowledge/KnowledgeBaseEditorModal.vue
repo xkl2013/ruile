@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="visible" class="settings-overlay" @click.self="handleClose">
-        <div class="settings-modal">
+        <div class="settings-modal" :class="{ 'simple-create': isSimpleCreateMode }">
           <!-- 关闭按钮 -->
           <button class="close-btn" @click="handleClose" :aria-label="$t('general.close')">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
@@ -10,9 +10,9 @@
             </svg>
           </button>
 
-          <div class="settings-container">
+          <div class="settings-container" :class="{ 'simple-create': isSimpleCreateMode }">
             <!-- 左侧导航 -->
-            <div class="settings-sidebar">
+            <div v-if="!isSimpleCreateMode" class="settings-sidebar">
               <div class="sidebar-header">
                 <h2 class="sidebar-title">{{ mode === 'create' ? $t('knowledgeEditor.titleCreate') : $t('knowledgeEditor.titleEdit') }}</h2>
               </div>
@@ -59,7 +59,7 @@
                         </div>
                       </div>
 
-                      <div class="form-item">
+                      <div v-if="showConfigurationFields" class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.basic.typeLabel') }}</label>
                         <t-radio-group
                           v-model="formData.type"
@@ -73,7 +73,7 @@
                       </div>
 
                       <!-- 索引策略 (紧跟类型选择) -->
-                      <div v-if="!isFAQ" class="form-item">
+                      <div v-if="showConfigurationFields && !isFAQ" class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.indexing.title') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.indexing.description') }}</p>
                         <div class="indexing-checks" :class="{ 'is-locked': isIndexingLocked }"
@@ -114,7 +114,7 @@
                       </div>
 
                       <!-- Wiki 提取粒度 (仅当 Wiki 启用时显示) -->
-                      <div v-if="!isFAQ && formData.indexingStrategy.wikiEnabled" class="form-item">
+                      <div v-if="showConfigurationFields && !isFAQ && formData.indexingStrategy.wikiEnabled" class="form-item">
                         <label class="form-label">{{ $t('knowledgeEditor.wiki.extractionGranularityLabel') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.wiki.extractionGranularityTip') }}</p>
                         <t-radio-group
@@ -135,7 +135,7 @@
                         <p class="form-tip granularity-hint">{{ granularityHint }}</p>
                       </div>
 
-                      <div v-if="!isFAQ && formData.indexingStrategy.wikiEnabled" class="form-item">
+                      <div v-if="showConfigurationFields && !isFAQ && formData.indexingStrategy.wikiEnabled" class="form-item">
                         <label class="form-label">{{ $t('knowledgeEditor.wiki.contentInstructionsLabel') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.wiki.contentInstructionsTip') }}</p>
                         <t-textarea
@@ -146,7 +146,7 @@
                         />
                       </div>
 
-                      <div v-if="!isFAQ && formData.indexingStrategy.wikiEnabled" class="form-item">
+                      <div v-if="showConfigurationFields && !isFAQ && formData.indexingStrategy.wikiEnabled" class="form-item">
                         <label class="form-label">{{ $t('knowledgeEditor.wiki.extractionInstructionsLabel') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.wiki.extractionInstructionsTip') }}</p>
                         <t-textarea
@@ -441,7 +441,7 @@
     </Transition>
   </Teleport>
 
-  <KbCreateContextualGuide :when="visible && mode === 'create'" :is-faq="isFAQ"
+  <KbCreateContextualGuide :when="visible && mode === 'create' && !isSimpleCreateMode" :is-faq="isFAQ"
     :needs-embedding="kbCreateNeedsEmbedding" />
 </template>
 
@@ -457,6 +457,11 @@ import { useChatResourcesStore } from '@/stores/chatResources'
 import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
+import {
+  createDefaultKnowledgeBaseFormData,
+  DEFAULT_KB_CHUNKING_PRESET,
+  WIKI_ONLY_KB_CHUNKING_PRESET,
+} from '@/config/knowledgeBaseDefaults'
 import KBModelConfig from './settings/KBModelConfig.vue'
 import KBParserSettings from './settings/KBParserSettings.vue'
 import KBStorageSettings from './settings/KBStorageSettings.vue'
@@ -557,33 +562,21 @@ const canShareKB = computed(() => {
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
 
-// 仅 Wiki 索引模式下的分块预设：更大 chunk、无 overlap、关闭父子分块。
-// 该预设只在「创建模式」下、且用户尚未手动调整分块参数时生效，避免覆盖既有 KB 的配置。
-const WIKI_ONLY_CHUNKING_PRESET = {
-  chunkSize: 2048,
-  chunkOverlap: 0,
-  enableParentChild: false,
-} as const
-
-// Non-Wiki-only fallback. Mirrors chunker.DefaultChunkSize and
-// DefaultChunkOverlap on the backend so a freshly created KB uses
-// the same numbers whether the editor sets them or the splitter
-// falls back to its package defaults.
-const DEFAULT_CHUNKING_PRESET = {
-  chunkSize: 512,
-  chunkOverlap: 80,
-  enableParentChild: true,
-} as const
+const isSimpleCreateMode = computed(() => props.mode === 'create' && !authStore.hasRole('admin'))
+const showConfigurationFields = computed(() => !isSimpleCreateMode.value)
 
 const navItems = computed(() => {
   const items: { key: string; icon: string; label: string; badge?: number }[] = [
     { key: 'basic', icon: 'info-circle', label: t('knowledgeEditor.sidebar.basic') },
+  ]
+  if (isSimpleCreateMode.value) return items
+  items.push(
     { key: 'models', icon: 'control-platform', label: t('knowledgeEditor.sidebar.models') },
     // VectorStore binding section — present in both create and edit
     // modes. Create mode shows a dropdown; edit mode shows the bound
     // store read-only with an immutability hint.
-    { key: 'vectorStore', icon: 'data-base', label: t('knowledgeEditor.sidebar.vectorStore') }
-  ]
+    { key: 'vectorStore', icon: 'data-base', label: t('knowledgeEditor.sidebar.vectorStore') },
+  )
   if (formData.value?.type === 'faq') {
     items.push({ key: 'faq', icon: 'help-circle', label: t('knowledgeEditor.sidebar.faq') })
   } else {
@@ -684,92 +677,7 @@ watch(
 
 // 初始化表单数据
 const initFormData = (type: 'document' | 'faq' = 'document') => {
-  return {
-    type,
-    name: '',
-    description: '',
-    faqConfig: {
-      indexMode: 'question_only',
-      questionIndexMode: 'separate'
-    },
-    modelConfig: {
-      llmModelId: '',
-      embeddingModelId: '',
-      wikiSynthesisModelId: '',
-    },
-    chunkingConfig: {
-      chunkSize: 512,
-      // 80 ≈ 15% of chunkSize — community-recommended sweet spot.
-      // Aligned with chunker.DefaultChunkOverlap on the backend.
-      chunkOverlap: 80,
-      separators: ['\n\n', '\n', '。', '！', '？', ';', '；'],
-      parserEngineRules: undefined as any,
-      enableParentChild: true,
-      parentChunkSize: 4096,
-      childChunkSize: 384,
-      // New KBs default to the adaptive auto-strategy. User can change in the UI.
-      strategy: 'auto' as string,
-      tokenLimit: 0,
-      languages: [] as string[],
-      tableMetadataInstructions: ''
-    },
-    storageBackendId: '' as string,
-    storageProvider: '' as string,
-    multimodalConfig: {
-      enabled: false,
-      vllmModelId: '',
-      descriptionLanguage: '',
-      customInstructions: ''
-    },
-    asrConfig: {
-      enabled: false,
-      modelId: '',
-      language: ''
-    },
-    nodeExtractConfig: {
-      enabled: false,
-      text: '',
-      tags: [] as string[],
-      nodes: [] as Array<{
-        name: string
-        attributes: string[]
-      }>,
-      relations: [] as Array<{
-        node1: string
-        node2: string
-        type: string
-      }>,
-      customInstructions: ''
-    },
-    questionGenerationConfig: {
-      enabled: true,
-      questionCount: 3,
-      customInstructions: ''
-    },
-    wikiConfig: {
-      synthesisModelId: '',
-      maxPagesPerIngest: 0,
-      extractionGranularity: 'standard' as 'focused' | 'standard' | 'exhaustive',
-      contentInstructions: '',
-      extractionInstructions: '',
-    },
-    indexingStrategy: {
-      vectorEnabled: true,
-      keywordEnabled: true,
-      wikiEnabled: false,
-      graphEnabled: false,
-    },
-    // Vector-store binding. Empty string means "use the env-configured
-    // store"; create mode defaults to that, edit mode loads the
-    // existing binding from the KB response below.
-    vectorStoreId: '' as string,
-    vectorStoreInfo: {
-      source: undefined as string | undefined,
-      name: undefined as string | undefined,
-      engineType: undefined as string | undefined,
-      status: undefined as string | undefined,
-    },
-  }
+  return createDefaultKnowledgeBaseFormData(type)
 }
 
 // 加载所有模型
@@ -984,7 +892,7 @@ watch(isWikiOnlyStrategy, (wikiOnly) => {
   if (props.mode !== 'create') return
   if (!formData.value) return
   if (chunkingDirty.value) return
-  const preset = wikiOnly ? WIKI_ONLY_CHUNKING_PRESET : DEFAULT_CHUNKING_PRESET
+  const preset = wikiOnly ? WIKI_ONLY_KB_CHUNKING_PRESET : DEFAULT_KB_CHUNKING_PRESET
   formData.value.chunkingConfig = {
     ...formData.value.chunkingConfig,
     ...preset,

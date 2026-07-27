@@ -130,7 +130,8 @@ type AuthToken struct {
 
 // LoginRequest represents a login request
 type LoginRequest struct {
-	Email    string `json:"email"    binding:"required,email"`
+	Phone    string `json:"phone,omitempty"`
+	Email    string `json:"email,omitempty"`
 	Password string `json:"password" binding:"required,min=6"`
 }
 
@@ -178,7 +179,8 @@ type OIDCUserInfo struct {
 // RegisterRequest represents a registration request
 type RegisterRequest struct {
 	Username string `json:"username" binding:"required,min=2,max=50"`
-	Email    string `json:"email"    binding:"required,email"`
+	Phone    string `json:"phone,omitempty"`
+	Email    string `json:"email,omitempty"`
 	Password string `json:"password" binding:"required,min=6"`
 
 	// TenantProvisioning is server-controlled registration context. It is

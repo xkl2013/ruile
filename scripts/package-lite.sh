@@ -2,7 +2,7 @@
 set -euo pipefail
 
 #
-# 本地构建 + 打包 WeKnora Lite 发行包
+# 本地构建 + 打包睿乐大脑 Lite 发行包
 #
 # 用法:
 #   ./scripts/package-lite.sh              # 自动检测版本
@@ -28,7 +28,7 @@ GOARCH=$(go env GOARCH)
 ARCHIVE="WeKnora-lite_${VERSION}_${GOOS}_${GOARCH}"
 DIST_DIR="dist/${ARCHIVE}"
 
-echo "=== WeKnora Lite Packager ==="
+echo "=== 睿乐大脑 Lite Packager ==="
 echo "  Version : ${VERSION}"
 echo "  Platform: ${GOOS}/${GOARCH}"
 echo "  Output  : dist/${ARCHIVE}.tar.gz"
@@ -51,7 +51,7 @@ if [ ! -f web/index.html ]; then
 fi
 
 # ── Step 2: Build Go binary ──
-echo ">> Building WeKnora-lite binary..."
+echo ">> Building 睿乐大脑 Lite binary..."
 export EDITION=lite
 eval "$(./scripts/get_version.sh env)"
 LDFLAGS="-w -s $(./scripts/get_version.sh ldflags)"

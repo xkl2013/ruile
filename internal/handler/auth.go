@@ -126,6 +126,25 @@ func (h *AuthHandler) resolveDefaultTenantMode(ctx context.Context) types.Tenant
 	return types.TenantProvisioningCreatePersonal
 }
 
+func normalizePhoneOrEmail(phone, email string) string {
+	if trimmed := strings.TrimSpace(phone); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(strings.ToLower(email))
+}
+
+func isChinaMobilePhone(phone string) bool {
+	if len(phone) != 11 || phone[0] != '1' || phone[1] < '3' || phone[1] > '9' {
+		return false
+	}
+	for i := 0; i < len(phone); i++ {
+		if phone[i] < '0' || phone[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // Register godoc
 // @Summary      用户注册
 // @Description  注册新用户账号
@@ -162,19 +181,30 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
-	req.Username = secutils.SanitizeForLog(req.Username)
-	req.Email = secutils.SanitizeForLog(req.Email)
-	req.Password = secutils.SanitizeForLog(req.Password)
+	req.Username = strings.TrimSpace(secutils.SanitizeForLog(req.Username))
+	req.Phone = strings.TrimSpace(secutils.SanitizeForLog(req.Phone))
+	req.Email = strings.TrimSpace(secutils.SanitizeForLog(req.Email))
+	phoneProvided := req.Phone != ""
+	identity := normalizePhoneOrEmail(req.Phone, req.Email)
 
 	// Validate required fields
-	if req.Username == "" || req.Email == "" || req.Password == "" {
+	if req.Username == "" || identity == "" || req.Password == "" {
 		logger.Error(ctx, "Missing required registration fields")
-		appErr := errors.NewValidationError("Username, email and password are required")
+		appErr := errors.NewValidationError("Username, phone and password are required")
 		c.Error(appErr)
 		return
 	}
-	req.Username = secutils.SanitizeForLog(req.Username)
-	req.Email = secutils.SanitizeForLog(req.Email)
+	if phoneProvided && !isChinaMobilePhone(identity) {
+		logger.Error(ctx, "Invalid registration phone number")
+		appErr := errors.NewValidationError("Invalid phone number")
+		c.Error(appErr)
+		return
+	}
+	if phoneProvided {
+		req.Phone = identity
+	} else {
+		req.Email = identity
+	}
 	req.TenantProvisioning = h.resolveDefaultTenantMode(ctx)
 	// Call service to register user
 	user, err := h.userService.Register(ctx, &req)
@@ -218,14 +248,28 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
-	email := secutils.SanitizeForLog(req.Email)
+	req.Phone = strings.TrimSpace(secutils.SanitizeForLog(req.Phone))
+	req.Email = strings.TrimSpace(secutils.SanitizeForLog(req.Email))
+	phoneProvided := req.Phone != ""
+	identity := normalizePhoneOrEmail(req.Phone, req.Email)
 
 	// Validate required fields
-	if req.Email == "" || req.Password == "" {
+	if identity == "" || req.Password == "" {
 		logger.Error(ctx, "Missing required login fields")
-		appErr := errors.NewValidationError("Email and password are required")
+		appErr := errors.NewValidationError("Phone and password are required")
 		c.Error(appErr)
 		return
+	}
+	if phoneProvided && !isChinaMobilePhone(identity) {
+		logger.Error(ctx, "Invalid login phone number")
+		appErr := errors.NewValidationError("Invalid phone number")
+		c.Error(appErr)
+		return
+	}
+	if phoneProvided {
+		req.Phone = identity
+	} else {
+		req.Email = identity
 	}
 
 	// Call service to authenticate user
@@ -246,7 +290,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// User is already in the correct format from service
 
-	logger.Infof(ctx, "User logged in successfully, email: %s", email)
+	logger.Infof(ctx, "User logged in successfully, identity: %s", secutils.SanitizeForLog(identity))
 	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(response))
 }
 
@@ -790,7 +834,7 @@ func (h *AuthHandler) AutoSetup(c *gin.Context) {
 			c.Error(appErr)
 			return
 		}
-		randomPassword := base64.RawURLEncoding.EncodeToString(randomBytes)
+		randomPassword := "A1" + base64.RawURLEncoding.EncodeToString(randomBytes[:22])
 		randomUsername := fmt.Sprintf("user_%s", base64.RawURLEncoding.EncodeToString(randomBytes[:6]))
 
 		_, err := h.userService.Register(ctx, &types.RegisterRequest{

@@ -27,7 +27,7 @@ services:
     image: redis:7.0-alpine
     container_name: WeKnora-redis-dev
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-6381}:6379"
     volumes:
       - redis_data_dev:/data
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}

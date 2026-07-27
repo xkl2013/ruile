@@ -51,7 +51,7 @@ detect_compose_cmd() {
 
 # 显示帮助信息
 show_help() {
-    printf "%b\n" "${GREEN}WeKnora 开发环境脚本${NC}"
+    printf "%b\n" "${GREEN}睿乐大脑开发环境脚本${NC}"
     echo "用法: $0 [命令] [选项]"
     echo ""
     echo "命令:"
@@ -263,8 +263,8 @@ start_services() {
         log_success "基础设施服务已启动"
         echo ""
         log_info "服务访问地址:"
-        echo "  - PostgreSQL:    localhost:5432"
-        echo "  - Redis:         localhost:6379"
+        echo "  - PostgreSQL:    localhost:${DB_PORT:-5432}"
+        echo "  - Redis:         localhost:${REDIS_PORT:-6381}"
         echo "  - DocReader:     localhost:50051"
         
         # 根据启用的 profile 显示额外服务
@@ -360,7 +360,7 @@ check_remote_dev_connectivity() {
     local redis_port
     redis_port="${REDIS_ADDR#*:}"
     if [ "$redis_port" = "$REDIS_ADDR" ]; then
-        redis_port=6379
+        redis_port="${REDIS_PORT:-6381}"
     fi
     local docreader_port="${DOCREADER_PORT:-50051}"
 
@@ -390,7 +390,7 @@ check_remote_dev_connectivity() {
         echo "  1. 确认远程机器 Docker 容器在运行 (postgres/redis/docreader)"
         echo "  2. 确认本机与 ${host} 在同一局域网 (本机: $(ipconfig getifaddr en0 2>/dev/null || echo '未知'))"
         echo "  3. 在远程检查端口映射: docker ps --format 'table {{.Names}}\t{{.Ports}}'"
-        echo "  4. 检查远程防火墙是否放行 5432/6379/50051"
+        echo "  4. 检查远程防火墙是否放行 5432/${REDIS_PORT:-6381}/50051"
         return 1
     fi
     return 0
@@ -419,7 +419,7 @@ start_app() {
     if [ -n "${DEV_REMOTE_HOST:-}" ]; then
         log_info "远程开发模式: 基础设施 → ${DEV_REMOTE_HOST}"
         export DB_HOST="${DB_HOST:-$DEV_REMOTE_HOST}"
-        export REDIS_ADDR="${REDIS_ADDR:-$DEV_REMOTE_HOST:6379}"
+        export REDIS_ADDR="${REDIS_ADDR:-$DEV_REMOTE_HOST:${REDIS_PORT:-6381}}"
         export DOCREADER_ADDR="${DOCREADER_ADDR:-$DEV_REMOTE_HOST:50051}"
         export MINIO_ENDPOINT="${MINIO_ENDPOINT:-$DEV_REMOTE_HOST:9000}"
         export MILVUS_ADDRESS="${MILVUS_ADDRESS:-$DEV_REMOTE_HOST:19530}"
@@ -432,7 +432,7 @@ start_app() {
         export DB_HOST=localhost
         export DOCREADER_ADDR=localhost:50051
         export MINIO_ENDPOINT=localhost:9000
-        export REDIS_ADDR=localhost:6379
+        export REDIS_ADDR=localhost:${REDIS_PORT:-6381}
         export MILVUS_ADDRESS=localhost:19530
         export NEO4J_URI=bolt://localhost:7687
         export QDRANT_HOST=localhost
@@ -505,7 +505,7 @@ start_frontend() {
     fi
     
     log_info "启动 Vite 开发服务器..."
-    log_info "前端将运行在 http://localhost:5173"
+    log_info "前端将运行在 http://localhost:8081"
     log_info "前端 API 代理目标: ${VITE_DEV_PROXY_TARGET:-${FRONTEND_BACKEND_URL:-http://localhost:8080}}"
     
     # 运行开发服务器

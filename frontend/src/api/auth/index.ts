@@ -5,7 +5,8 @@ const t = (key: string) => i18n.global.t(key)
 
 // 用户登录接口
 export interface LoginRequest {
-  email: string
+  phone?: string
+  email?: string
   password: string
 }
 
@@ -71,7 +72,8 @@ export interface OIDCConfigResponse {
 // 用户注册接口
 export interface RegisterRequest {
   username: string
-  email: string
+  phone?: string
+  email?: string
   password: string
 }
 
@@ -454,7 +456,8 @@ export interface InviteLookupResponse {
 
 export interface RegisterByInviteRequest {
   token: string
-  email: string
+  phone?: string
+  email?: string
   username: string
   password: string
 }
@@ -478,7 +481,7 @@ export async function getInvitationByToken(token: string): Promise<InviteLookupR
 
 /**
  * Complete registration via a share-link token. The invitee supplies
- * their own email — the token is the authorisation, not an identity
+ * their own phone number — the token is the authorisation, not an identity
  * lock.
  */
 export async function registerByInvite(data: RegisterByInviteRequest): Promise<LoginResponse> {

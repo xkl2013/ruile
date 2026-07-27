@@ -299,7 +299,7 @@ const addModels = async (kinds: WkcModelKind[]) => {
         existingKinds.value = new Set([...existingKinds.value, kind])
         success += 1
       } catch (err: any) {
-        console.error(`Failed to create WeKnoraCloud ${kind} model:`, err)
+        console.error(`Failed to create 睿乐大脑云 ${kind} model:`, err)
         failed += 1
       }
     }

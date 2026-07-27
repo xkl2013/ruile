@@ -1,6 +1,6 @@
-# WeKnora HTTP Client
+# 睿乐大脑 HTTP Client
 
-This package provides a client library for interacting with WeKnora services, supporting all HTTP-based interface calls, making it easier for other modules to integrate with WeKnora services without having to write HTTP request code directly.
+This package provides a client library for interacting with 睿乐大脑 services, supporting all HTTP-based interface calls, making it easier for other modules to integrate with 睿乐大脑 services without having to write HTTP request code directly.
 
 ## Main Features
 

@@ -10,19 +10,6 @@
       </span>
     </template>
 
-    <template #actions>
-      <IntegrationExternalCta
-        variant="chrome"
-        :label="$t('integrations.chrome.installCta')"
-        :hint="$t('integrations.chrome.installCtaHint')"
-        @click="openChromeStore"
-      >
-        <template #icon>
-          <t-icon name="extension" size="18px" />
-        </template>
-      </IntegrationExternalCta>
-    </template>
-
     <template #main>
       <div class="landing-group">
         <section class="setting-drawer__section">
@@ -82,9 +69,6 @@
       </div>
     </template>
 
-    <template #footer>
-      <span class="landing-meta">{{ $t('integrations.chrome.storeMeta') }}</span>
-    </template>
   </IntegrationLandingLayout>
 </template>
 
@@ -92,11 +76,9 @@
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { CHROME_EXTENSION_URL } from '@/config/integrations'
 import { useApiBaseUrlDisplay } from '@/composables/useApiBaseUrlDisplay'
 import { useUIStore } from '@/stores/ui'
 import IntegrationLandingLayout from './IntegrationLandingLayout.vue'
-import IntegrationExternalCta from './IntegrationExternalCta.vue'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -112,10 +94,6 @@ const capabilityIcons: Record<(typeof capabilityKeys)[number], string> = {
   clip: 'file-copy',
   notes: 'edit',
   shortcuts: 'jump',
-}
-
-const openChromeStore = () => {
-  window.open(CHROME_EXTENSION_URL, '_blank', 'noopener,noreferrer')
 }
 
 const openApiSettings = () => {

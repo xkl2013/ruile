@@ -11,7 +11,7 @@ const docTemplate = `{
         "title": "{{.Title}}",
         "termsOfService": "http://swagger.io/terms/",
         "contact": {
-            "name": "WeKnora Github",
+            "name": "睿乐大脑 Github",
             "url": "https://github.com/Tencent/WeKnora"
         },
         "version": "{{.Version}}"
@@ -8829,14 +8829,14 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "检查当前空间的 WeKnoraCloud 凭证是否完好；needs_reinit=true 表示需要重新保存",
+                "description": "检查当前空间的睿乐大脑云凭证是否完好；needs_reinit=true 表示需要重新保存",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "WeKnoraCloud"
+                    "睿乐大脑云"
                 ],
-                "summary": "检查 WeKnoraCloud 凭证状态",
+                "summary": "检查睿乐大脑云凭证状态",
                 "responses": {
                     "200": {
                         "description": "凭证状态",
@@ -14327,9 +14327,9 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "WeKnoraCloud"
+                    "睿乐大脑云"
                 ],
-                "summary": "保存 WeKnoraCloud 凭证",
+                "summary": "保存睿乐大脑云凭证",
                 "parameters": [
                     {
                         "description": "{app_id, app_secret}",
@@ -17119,7 +17119,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "app_id": {
-                    "description": "WeKnoraCloud 厂商专用凭证",
+                    "description": "睿乐大脑云厂商专用凭证",
                     "type": "string"
                 },
                 "app_secret": {
@@ -18770,7 +18770,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "credentials": {
-                    "description": "Credentials config: third-party provider credentials (e.g. WeKnoraCloud AppID/AppSecret)",
+                    "description": "Credentials config: third-party provider credentials (e.g. 睿乐大脑云 AppID/AppSecret)",
                     "allOf": [
                         {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.CredentialsConfig"
@@ -21855,8 +21855,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "",
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
-	Title:            "WeKnora API",
-	Description:      "WeKnora 知识库管理系统 API 文档",
+	Title:            "睿乐大脑 API",
+	Description:      "睿乐大脑知识库管理系统 API 文档",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

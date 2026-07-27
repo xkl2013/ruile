@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WeKnora MCP Server 模组测试脚本
+睿乐大脑 MCP Server 模组测试脚本
 
 测试模组的各种启动方式和功能
 """
@@ -224,7 +224,7 @@ def test_package_installation():
 
 def main():
     """运行所有测试"""
-    print("WeKnora MCP Server 模组测试")
+    print("睿乐大脑 MCP Server 模组测试")
     print("=" * 50)
 
     tests = [

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-WeKnora MCP Server
+睿乐大脑 MCP Server
 
-A Model Context Protocol server that provides access to the WeKnora knowledge management API.
+A Model Context Protocol server that provides access to the 睿乐大脑 knowledge management API.
 """
 
 import argparse
@@ -98,10 +98,10 @@ class MCPAuthMiddleware:
 
 
 class WeKnoraClient:
-    """Client for interacting with WeKnora API"""
+    """Client for interacting with 睿乐大脑 API"""
 
     def __init__(self, base_url: str, api_key: str):
-        """Initialize the WeKnora API client with base URL and authentication"""
+        """Initialize the 睿乐大脑 API client with base URL and authentication"""
         self.base_url = base_url
         self.api_key = api_key
         # SSL verification: enabled by default. Set WEKNORA_VERIFY_SSL=false to disable
@@ -125,7 +125,7 @@ class WeKnoraClient:
         )
 
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
-        """Make a request to the WeKnora API
+        """Make a request to the 睿乐大脑 API
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE)
@@ -542,19 +542,19 @@ class WeKnoraClient:
 
 # Initialize MCP server instance
 app = Server("weknora-server")
-# Initialize WeKnora API client with configuration
+# Initialize 睿乐大脑 API client with configuration
 client = WeKnoraClient(WEKNORA_BASE_URL, WEKNORA_API_KEY)
 
 
 # Tool definitions - Register all available tools for the MCP protocol
 @app.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
-    """List all available WeKnora tools with their schemas"""
+    """List all available 睿乐大脑 tools with their schemas"""
     return [
         # Tenant Management
         types.Tool(
             name="create_tenant",
-            description="Create a new tenant in WeKnora",
+            description="Create a new tenant in 睿乐大脑",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1422,7 +1422,7 @@ def main():
       2. MCP_TRANSPORT environment variable
       3. Default: stdio
     """
-    parser = argparse.ArgumentParser(description="WeKnora MCP Server")
+    parser = argparse.ArgumentParser(description="睿乐大脑 MCP Server")
     parser.add_argument(
         "--transport",
         choices=["stdio", "sse", "http"],

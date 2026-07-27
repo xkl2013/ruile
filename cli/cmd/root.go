@@ -136,7 +136,7 @@ func NewRootCmd(f *cmdutil.Factory) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "weknora",
 		Short: "WeKnora CLI",
-		Long: `Command-line client for the WeKnora RAG server. Manage knowledge bases
+		Long: `Command-line client for the 睿乐大脑 RAG server. Manage knowledge bases
 and documents, run hybrid search, chat with grounded answers, or expose
 a curated read-only MCP tool surface for AI agents.`,
 		Example: `  weknora profile add prod --host=https://kb.example.com --use

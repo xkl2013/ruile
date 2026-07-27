@@ -167,7 +167,7 @@
         </section>
 
         <!--
-          Section 2 — 状态信息（DocReader 连接 / WeKnoraCloud 凭证）
+          Section 2 — 状态信息（DocReader 连接 / 睿乐大脑云凭证）
           只有有内容时才渲染，避免空 section 空底部分隔线。
         -->
         <section
@@ -397,10 +397,7 @@ const CONFIGURABLE_ENGINES = new Set(['mineru', 'mineru_cloud', 'paddleocr_vl', 
 /** 各解析引擎的项目/官方文档地址 */
 const ENGINE_DOC_LINKS: Record<string, string> = {
   weknoracloud: 'https://developers.weixin.qq.com/doc/aispeech/knowledge/atomic_capability/atomic_interface.html',
-  markitdown: 'https://github.com/microsoft/markitdown',
-  mineru: 'https://github.com/opendatalab/MinerU',
   mineru_cloud: 'https://mineru.net/apiManage/docs',
-  paddleocr_vl: 'https://github.com/PaddlePaddle/PaddleOCR',
   paddleocr_vl_cloud: 'https://aistudio.baidu.com/paddleocr',
 }
 
@@ -675,7 +672,7 @@ async function onSave() {
   }
 }
 
-// ---- WeKnoraCloud 凭证状态 ----
+// ---- 睿乐大脑云凭证状态 ----
 const wkcState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
 
 async function checkWkcStatus() {

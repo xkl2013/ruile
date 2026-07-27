@@ -1,12 +1,12 @@
-// Package main is the main package for the WeKnora server
+// Package main is the main package for the 睿乐大脑 server
 // It contains the main function and the entry point for the server
 //
-// @title           WeKnora API
+// @title           睿乐大脑 API
 // @version         1.0
-// @description     WeKnora 知识库管理系统 API 文档
+// @description     睿乐大脑知识库管理系统 API 文档
 // @termsOfService  http://swagger.io/terms/
 //
-// @contact.name   WeKnora Github
+// @contact.name   睿乐大脑 Github
 // @contact.url    https://github.com/Tencent/WeKnora
 //
 // @BasePath  /api/v1

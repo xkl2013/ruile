@@ -31,7 +31,7 @@ log_warning() {
 
 echo ""
 printf "%b\n" "${GREEN}========================================${NC}"
-printf "%b\n" "${GREEN}  WeKnora 快速开发环境启动${NC}"
+printf "%b\n" "${GREEN}  睿乐大脑快速开发环境启动${NC}"
 printf "%b\n" "${GREEN}========================================${NC}"
 echo ""
 
@@ -96,7 +96,7 @@ printf "%b\n" "${GREEN}========================================${NC}"
 echo ""
 
 log_info "访问地址:"
-echo "  - 前端: http://localhost:5173"
+echo "  - 前端: http://localhost:8081"
 echo "  - 后端 API: http://localhost:8080"
 echo "  - MinIO Console: http://localhost:9001"
 echo ""
@@ -120,4 +120,3 @@ fi
 echo ""
 log_success "开发环境已就绪，开始编码吧！"
 echo ""
-

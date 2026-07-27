@@ -107,19 +107,31 @@ func NewUserService(
 	}
 }
 
+func normalizePhoneOrEmail(phone, email string) string {
+	if trimmed := strings.TrimSpace(phone); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(strings.ToLower(email))
+}
+
 // Register creates a new user account
 func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
 	logger.Info(ctx, "Start user registration")
+	identity := normalizePhoneOrEmail(req.Phone, req.Email)
 
 	// Validate input
-	if req.Username == "" || req.Email == "" || req.Password == "" {
-		return nil, errors.New("username, email and password are required")
+	if req.Username == "" || identity == "" || req.Password == "" {
+		return nil, errors.New("username, phone and password are required")
 	}
+	if err := ValidatePasswordPolicy(req.Password); err != nil {
+		return nil, err
+	}
+	req.Email = identity
 
 	// Check if user already exists
 	existingUser, _ := s.userRepo.GetUserByEmail(ctx, req.Email)
 	if existingUser != nil {
-		return nil, errors.New("user with this email already exists")
+		return nil, errors.New("user with this phone already exists")
 	}
 
 	existingUser, _ = s.userRepo.GetUserByUsername(ctx, req.Username)
@@ -206,20 +218,23 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 // Login authenticates a user and returns tokens
 func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*types.LoginResponse, error) {
 	logger.Info(ctx, "Start user login")
-	// Get user by email
-	user, err := s.userRepo.GetUserByEmail(ctx, req.Email)
+	identity := normalizePhoneOrEmail(req.Phone, req.Email)
+	// Get user by login identifier. The repository method is still named
+	// GetUserByEmail because the existing schema stores the unique account
+	// identifier in users.email; phone login reuses that column for now.
+	user, err := s.userRepo.GetUserByEmail(ctx, identity)
 	if err != nil {
-		logger.Errorf(ctx, "Failed to get user by email: %v", err)
+		logger.Errorf(ctx, "Failed to get user by login identifier: %v", err)
 		return &types.LoginResponse{
 			Success: false,
-			Message: "Invalid email or password",
+			Message: "Invalid phone or password",
 		}, nil
 	}
 	if user == nil {
-		logger.Warn(ctx, "User not found for email")
+		logger.Warn(ctx, "User not found for login identifier")
 		return &types.LoginResponse{
 			Success: false,
-			Message: "Invalid email or password",
+			Message: "Invalid phone or password",
 		}, nil
 	}
 
@@ -238,7 +253,7 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 		logger.Warn(ctx, "Password verification failed")
 		return &types.LoginResponse{
 			Success: false,
-			Message: "Invalid email or password",
+			Message: "Invalid phone or password",
 		}, nil
 	}
 	logger.Info(ctx, "Password verification successful")
@@ -1412,7 +1427,7 @@ func (s *userService) provisionOIDCUser(
 	provisioning types.TenantProvisioningMode,
 ) (*types.User, error) {
 	username := s.generateOIDCUsername(ctx, info)
-	randomPassword, err := generateRandomString(32)
+	randomPassword, err := generateRandomPassword()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate password for OIDC user: %w", err)
 	}
@@ -1458,6 +1473,18 @@ func generateRandomString(length int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buffer), nil
+}
+
+func generateRandomPassword() (string, error) {
+	random, err := generateRandomString(22)
+	if err != nil {
+		return "", err
+	}
+	password := "A1" + random
+	if err := ValidatePasswordPolicy(password); err != nil {
+		return "", err
+	}
+	return password, nil
 }
 
 func decodeJWTClaims(token string) (map[string]interface{}, error) {

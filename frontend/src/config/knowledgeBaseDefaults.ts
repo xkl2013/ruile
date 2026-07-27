@@ -1,0 +1,97 @@
+export type KnowledgeBaseCreationType = 'document' | 'faq'
+export type WikiExtractionGranularity = 'focused' | 'standard' | 'exhaustive'
+
+export const DEFAULT_KB_CHUNKING_PRESET = {
+  chunkSize: 512,
+  chunkOverlap: 80,
+  enableParentChild: true,
+} as const
+
+export const WIKI_ONLY_KB_CHUNKING_PRESET = {
+  chunkSize: 2048,
+  chunkOverlap: 0,
+  enableParentChild: false,
+} as const
+
+const DEFAULT_KB_SEPARATORS = ['\n\n', '\n', '。', '！', '？', ';', '；'] as const
+
+export const createDefaultKnowledgeBaseFormData = (
+  type: KnowledgeBaseCreationType = 'document',
+) => ({
+  type,
+  name: '',
+  description: '',
+  faqConfig: {
+    indexMode: 'question_only',
+    questionIndexMode: 'separate',
+  },
+  modelConfig: {
+    llmModelId: '',
+    embeddingModelId: '',
+    wikiSynthesisModelId: '',
+  },
+  chunkingConfig: {
+    ...DEFAULT_KB_CHUNKING_PRESET,
+    separators: [...DEFAULT_KB_SEPARATORS],
+    parserEngineRules: undefined as any,
+    parentChunkSize: 4096,
+    childChunkSize: 384,
+    strategy: 'auto' as string,
+    tokenLimit: 0,
+    languages: [] as string[],
+    tableMetadataInstructions: '',
+  },
+  storageBackendId: '' as string,
+  storageProvider: '' as string,
+  multimodalConfig: {
+    enabled: false,
+    vllmModelId: '',
+    descriptionLanguage: '',
+    customInstructions: '',
+  },
+  asrConfig: {
+    enabled: false,
+    modelId: '',
+    language: '',
+  },
+  nodeExtractConfig: {
+    enabled: false,
+    text: '',
+    tags: [] as string[],
+    nodes: [] as Array<{
+      name: string
+      attributes: string[]
+    }>,
+    relations: [] as Array<{
+      node1: string
+      node2: string
+      type: string
+    }>,
+    customInstructions: '',
+  },
+  questionGenerationConfig: {
+    enabled: true,
+    questionCount: 3,
+    customInstructions: '',
+  },
+  wikiConfig: {
+    synthesisModelId: '',
+    maxPagesPerIngest: 0,
+    extractionGranularity: 'standard' as WikiExtractionGranularity,
+    contentInstructions: '',
+    extractionInstructions: '',
+  },
+  indexingStrategy: {
+    vectorEnabled: true,
+    keywordEnabled: true,
+    wikiEnabled: false,
+    graphEnabled: false,
+  },
+  vectorStoreId: '' as string,
+  vectorStoreInfo: {
+    source: undefined as string | undefined,
+    name: undefined as string | undefined,
+    engineType: undefined as string | undefined,
+    status: undefined as string | undefined,
+  },
+})

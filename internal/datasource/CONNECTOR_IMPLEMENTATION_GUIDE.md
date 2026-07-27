@@ -4,7 +4,7 @@ This guide walks you through implementing a new connector (e.g., Feishu, Notion,
 
 ## Overview
 
-A connector is an adapter that translates between WeKnora's data model and an external platform's API. It handles:
+A connector is an adapter that translates between 睿乐大脑's data model and an external platform's API. It handles:
 - Connection validation (credentials, connectivity)
 - Resource listing (documents, spaces, folders the user can choose from)
 - Full sync (fetch all items from selected resources)
@@ -478,7 +478,7 @@ type Item struct {
 
 The Feishu connector would be a good first implementation since:
 1. Feishu API is well-documented
-2. WeKnora already has `internal/im/feishu/` for reference
+2. 睿乐大脑 already has `internal/im/feishu/` for reference
 3. Popular in China (key market)
 4. Has webhook support for real-time sync
 

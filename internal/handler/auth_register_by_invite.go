@@ -15,13 +15,14 @@ import (
 
 // registerByInviteRequest is the body for /auth/register-by-invite.
 //
-// Email is collected from the invitee themselves: share-link rows have
+// Phone is collected from the invitee themselves: share-link rows have
 // no specific invitee, so we cannot pre-bind any address. The token
-// IS the authorisation; the email is whatever account the invitee
+// IS the authorisation; the phone number is whatever account the invitee
 // wants to register.
 type registerByInviteRequest struct {
 	Token    string `json:"token"    binding:"required"`
-	Email    string `json:"email"    binding:"required,email"`
+	Phone    string `json:"phone,omitempty"`
+	Email    string `json:"email,omitempty"`
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required,min=6"`
 }
@@ -107,14 +108,14 @@ func (h *AuthHandler) LookupInvitationByToken(c *gin.Context) {
 // RegisterByInvite godoc
 // @Summary      使用共享链接注册
 // @Description  通过 Owner 生成的共享邀请链接 token 完成注册，绕过 invite_only 模式拦截。
-// @Description  注册者自填邮箱（与 token 不绑定）；注册成功后自动加入对应空间。
+// @Description  注册者自填手机号（与 token 不绑定）；注册成功后自动加入对应空间。
 // @Tags         认证
 // @Accept       json
 // @Produce      json
 // @Param        request  body      registerByInviteRequest  true  "邀请注册请求"
 // @Success      201      {object}  types.LoginResponse
 // @Failure      400      {object}  apperrors.AppError  "请求参数错误"
-// @Failure      409      {object}  apperrors.AppError  "邮箱已注册"
+// @Failure      409      {object}  apperrors.AppError  "手机号已注册"
 // @Failure      410      {object}  apperrors.AppError  "链接无效或已撤销"
 // @Router       /auth/register-by-invite [post]
 //
@@ -135,15 +136,22 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		return
 	}
 	req.Token = strings.TrimSpace(req.Token)
+	req.Phone = strings.TrimSpace(req.Phone)
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	req.Username = strings.TrimSpace(req.Username)
+	phoneProvided := req.Phone != ""
+	identity := normalizePhoneOrEmail(req.Phone, req.Email)
 	// Password is intentionally NOT sanitized: SanitizeForLog strips
 	// \n, \r, \t and control chars to make a string safe to write into
 	// a log line — applying it to a real password would silently
 	// rewrite the stored credential and lock the user out. Passwords
 	// must never be logged, so they don't need that defence here.
-	if req.Token == "" || req.Email == "" || req.Username == "" || req.Password == "" {
-		c.Error(apperrors.NewValidationError("token, email, username and password are required"))
+	if req.Token == "" || identity == "" || req.Username == "" || req.Password == "" {
+		c.Error(apperrors.NewValidationError("token, phone, username and password are required"))
+		return
+	}
+	if phoneProvided && !isChinaMobilePhone(identity) {
+		c.Error(apperrors.NewValidationError("Invalid phone number"))
 		return
 	}
 
@@ -157,27 +165,33 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		return
 	}
 
-	// If the email already has an account we shouldn't quietly succeed
-	// here: register would fail with a duplicate-email error, but the
+	// If the phone already has an account we shouldn't quietly succeed
+	// here: register would fail with a duplicate-identity error, but the
 	// share-link flow is "create new account + join tenant", not "join
 	// my existing account". Surface 409 so the SPA can prompt them to
 	// log in instead, and the invitation can be applied to their
 	// existing account via /me/invitations once we wire that path.
-	if existing, _ := h.userService.GetUserByEmail(ctx, req.Email); existing != nil {
+	if existing, _ := h.userService.GetUserByEmail(ctx, identity); existing != nil {
 		c.Error(apperrors.NewConflictError(
-			"this email already has an account; please log in to join the workspace"))
+			"this phone already has an account; please log in to join the workspace"))
 		return
 	}
 
-	user, err := h.userService.Register(ctx, &types.RegisterRequest{
+	registerReq := &types.RegisterRequest{
 		Username:           req.Username,
-		Email:              req.Email,
 		Password:           req.Password,
 		TenantProvisioning: types.TenantProvisioningTenantless,
-	})
+	}
+	if phoneProvided {
+		registerReq.Phone = identity
+	} else {
+		registerReq.Email = identity
+	}
+
+	user, err := h.userService.Register(ctx, registerReq)
 	if err != nil {
 		logger.Errorf(ctx, "register-by-invite: user create failed for %s: %v",
-			secutils.SanitizeForLog(req.Email), err)
+			secutils.SanitizeForLog(identity), err)
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 		return
 	}

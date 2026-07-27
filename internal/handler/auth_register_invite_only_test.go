@@ -71,7 +71,7 @@ func validRegisterBody() map[string]string {
 	return map[string]string{
 		"username": "alice",
 		"email":    "alice@example.com",
-		"password": "supersecret",
+		"password": "supersecret1",
 	}
 }
 
@@ -97,6 +97,40 @@ func TestRegister_InviteOnlyRejects(t *testing.T) {
 	}
 	if called {
 		t.Fatalf("UserService.Register must not be called when invite_only blocks the request")
+	}
+}
+
+func TestRegister_PhonePayloadReachesUserService(t *testing.T) {
+	called := false
+	us := &stubRegisterUserService{
+		register: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
+			called = true
+			if req.Phone != "13258978288" {
+				t.Fatalf("phone = %q, want 13258978288", req.Phone)
+			}
+			if req.Email != "" {
+				t.Fatalf("email = %q, want empty for phone registration", req.Email)
+			}
+			if req.TenantProvisioning != types.TenantProvisioningCreatePersonal {
+				t.Fatalf("default provisioning = %q, want create_personal", req.TenantProvisioning)
+			}
+			return &types.User{ID: "u1", Email: req.Phone}, nil
+		},
+	}
+	h := NewAuthHandler(&config.Config{
+		Auth: &config.AuthConfig{RegistrationMode: config.AuthRegistrationModeSelfServe},
+	}, us, nil, nil, nil)
+
+	w := doRegister(t, newRegisterTestRouter(h), map[string]string{
+		"username": "alice",
+		"phone":    "13258978288",
+		"password": "supersecret1",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("phone registration got %d body=%s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatalf("UserService.Register should have been invoked")
 	}
 }
 

@@ -173,7 +173,7 @@
             </t-select>
           </div>
 
-          <!-- WeKnoraCloud 提示信息 -->
+          <!-- 睿乐大脑云提示信息 -->
           <template v-if="formData.provider === 'weknoracloud'">
             <!-- 凭证已配置 -->
             <div v-if="wkcCredentialState === 'configured'" class="weknoracloud-hint weknoracloud-hint--ok">
@@ -801,7 +801,7 @@ let downloadInterval: any = null
 const ollamaServiceStatus = ref<boolean | null>(null)
 const checkingOllamaStatus = ref(false)
 
-// WeKnoraCloud 凭证状态
+// 睿乐大脑云凭证状态
 const wkcCredentialState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
 
 const checkWkcCredentialStatus = async () => {
@@ -1050,7 +1050,7 @@ watch(() => props.visible, (val) => {
         formData.value.source = 'remote'
       }
 
-      // 如果当前 provider 是 WeKnoraCloud，检查凭证状态
+      // 如果当前 provider 是睿乐大脑云，检查凭证状态
       if (formData.value.provider === 'weknoracloud') {
         checkWkcCredentialStatus()
       }
@@ -1118,7 +1118,7 @@ const handleProviderChange = (value: string) => {
     remoteAvailable.value = false
     remoteMessage.value = ''
   }
-  // WeKnoraCloud: 检查凭证状态
+  // 睿乐大脑云：检查凭证状态
   if (value === 'weknoracloud') {
     checkWkcCredentialStatus()
   }
@@ -1469,7 +1469,7 @@ const handleConfirm = async () => {
       return
     }
 
-    // 如果是 remote 类型且非 WeKnoraCloud，必须填写 baseUrl
+    // 如果是 remote 类型且非睿乐大脑云，必须填写 baseUrl
     if (formData.value.source === 'remote' && formData.value.provider !== 'weknoracloud') {
       if (!formData.value.baseUrl || !formData.value.baseUrl.trim()) {
         MessagePlugin.warning(t('model.editor.remoteBaseUrlRequired'))
@@ -1926,7 +1926,7 @@ const handleCancel = () => {
   }
 }
 
-// WeKnoraCloud 提示信息
+// 睿乐大脑云提示信息
 .weknoracloud-hint {
   display: flex;
   align-items: flex-start;

@@ -1,5 +1,5 @@
 {
-  "description": "WeKnora Mini Program plugin",
+  "description": "睿乐大脑 Mini Program plugin",
   "setting": {
     "urlCheck": true,
     "es6": true,
@@ -9,6 +9,6 @@
   },
   "compileType": "miniprogram",
   "libVersion": "latest",
-  "projectname": "WeKnora Mini Program",
+  "projectname": "睿乐大脑 Mini Program",
   "condition": {}
 }

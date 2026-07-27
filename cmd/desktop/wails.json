@@ -1,19 +1,19 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "WeKnora Lite",
-  "outputfilename": "WeKnora Lite",
+  "name": "睿乐大脑 Lite",
+  "outputfilename": "睿乐大脑 Lite",
   "frontend:dir": "../../frontend",
   "wailsjsdir": "../../frontend/src",
   "author": {
-    "name": "WeKnora Team",
+    "name": "睿乐大脑 Team",
     "email": ""
   },
   "info": {
     "companyName": "Tencent",
-    "productName": "WeKnora Lite",
+    "productName": "睿乐大脑 Lite",
     "productVersion": "1.0.0",
     "copyright": "Copyright 2026 Tencent",
-    "comments": "WeKnora Desktop Edition"
+    "comments": "睿乐大脑 Desktop Edition"
   },
   "mac": {
     "category": "public.app-category.productivity",
