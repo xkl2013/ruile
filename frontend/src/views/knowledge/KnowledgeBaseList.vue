@@ -1,8 +1,5 @@
 <template>
   <div class="kb-list-container">
-    <ListSpaceSidebar v-if="!authStore.isLiteMode" v-model="spaceSelection" :count-all="allKnowledgeBases"
-      :count-mine="kbs.length" :count-by-org="effectiveSharedCountByOrg" :count-favorites="kbFavoritesCount"
-      :count-recents="kbRecentsCount" />
     <div class="kb-list-content">
       <div class="header" style="--wails-draggable: drag">
         <div class="header-title" style="--wails-draggable: drag">
@@ -794,14 +791,12 @@ import { mergeAllScopeKnowledgeBases, type OwnedKnowledgeBase, type SharedKnowle
 import KnowledgeBaseEditorModal from './KnowledgeBaseEditorModal.vue'
 import KbWikiBadge from './components/KbWikiBadge.vue'
 import ShareKnowledgeBaseDialog from '@/components/ShareKnowledgeBaseDialog.vue'
-import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
 import ResourceOriginBadge from '@/components/ResourceOriginBadge.vue'
 import { shouldShowResourceOriginBadge } from '@/utils/card-list-badge'
 import ContextualGuide from '@/components/ContextualGuide.vue'
 import { isContextualGuideDone, markContextualGuideDone } from '@/config/contextualGuides'
 import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
 import { useI18n } from 'vue-i18n'
-import { useListUrlState } from '@/composables/useListUrlState'
 import { useResourcePins } from '@/composables/useResourcePins'
 
 const router = useRouter()
@@ -813,31 +808,14 @@ const orgStore = useOrganizationStore()
 const chatResources = useChatResourcesStore()
 const { t } = useI18n()
 
-// 左侧空间选择：默认根据当前角色决定。
-// Viewer 在该空间里通常 0 KB owned，"我的"会显示空状态、又把共享 KB 藏起来，
-// 体验非常误导；所以 Viewer 默认落到 "all"（我的 + 共享给我都显示）。
-// Contributor 及以上一进来主要管理自己创建的 KB，仍默认 "mine"。
-//
-// State lives in `?scope=` so links are shareable/bookmarkable; the
-// composable handles two-way sync with the URL. We keep "mine" as the
-// stored value (not "workspace") for back-compat with any external link
-// that might point at the old query — its display label is rebranded
-// via ListSpaceSidebar's workspaceLabel computed.
-const defaultScope: 'all' | 'mine' = authStore.hasRole('contributor') ? 'mine' : 'all'
-const { scope: spaceSelection, creator: creatorFilter } = useListUrlState({
-  defaultScope,
-  defaultCreator: 'all',
-})
+// Scope selector UI has been removed; the list always shows the aggregate
+// "all" view.
+const spaceSelection = ref('all')
+const creatorFilter = ref<'all' | 'mine' | 'others'>('all')
 
 // Per-user favorites + recents (localStorage-backed). isFavorite & touchRecent
 // are wired into card render and click handlers below.
 const pins = useResourcePins()
-const kbFavoritesCount = computed(
-  () => pins.favorites.value.filter((e) => e.type === 'kb').length
-)
-const kbRecentsCount = computed(
-  () => pins.recents.value.filter((e) => e.type === 'kb').length
-)
 
 interface KB {
   id: string;
@@ -892,13 +870,9 @@ const sharingKbName = ref('')
 // not editable.
 const sharedKbs = computed<SharedKnowledgeBase[]>(() => orgStore.sharedKnowledgeBases || [])
 
-const allKnowledgeBases = computed(() => kbs.value.length + sharedKbs.value.length)
-
 // 当前选中的是空间 ID（非全部、非我的、非收藏/最近这类伪 scope）
-// NB: keep the reserved-scope list in sync with ListSpaceSidebar's
-// non-org buckets — otherwise a new pseudo-scope (e.g. "favorites")
-// falls through here and triggers the per-space code paths, which
-// renders an extra "no shared KB" empty state on top of the real view.
+// The selector UI was removed, but these guards stay for stale in-memory
+// values while this component instance is alive.
 const RESERVED_SCOPES = new Set(['all', 'mine', 'favorites', 'recents'])
 const spaceSelectionOrgId = computed(() => {
   const s = spaceSelection.value
@@ -961,28 +935,6 @@ const sortedSpaceKbsList = computed(() => {
   })
 })
 const spaceCountByOrg = ref<Record<string, number>>({})
-
-// 各空间下的共享知识库数量（用于侧栏展示）：优先用接口返回的该空间总数，否则用「共享给我」数量
-const sharedCountByOrg = computed<Record<string, number>>(() => {
-  const map: Record<string, number> = {}
-  sharedKbs.value.forEach(s => {
-    const id = s.organization_id
-    if (!id) return
-    map[id] = (map[id] || 0) + 1
-  })
-    ; (orgStore.organizations || []).forEach(org => {
-      if (map[org.id] === undefined) map[org.id] = 0
-    })
-  return map
-})
-const effectiveSharedCountByOrg = computed<Record<string, number>>(() => {
-  const base = sharedCountByOrg.value
-  const merged = { ...base }
-  Object.keys(spaceCountByOrg.value).forEach(orgId => {
-    merged[orgId] = spaceCountByOrg.value[orgId]
-  })
-  return merged
-})
 
 // Favorites / Recents views: hydrate pin entries by id against every KB
 // the user can already see in this page (own + cross-tenant shared). KBs
@@ -1241,6 +1193,12 @@ const fetchList = (force = false) => {
   })
 }
 
+const clearHiddenListQuery = () => {
+  if (route.query.scope === undefined && route.query.creator === undefined) return
+  const { scope: _scope, creator: _creator, ...rest } = route.query
+  router.replace({ query: rest }).catch(() => {})
+}
+
 // 选中空间时请求该空间内全部知识库（含我共享的）
 watch(spaceSelection, (val) => {
   // Stale URL guard: an older "协作" view used scope=shared; that view
@@ -1276,6 +1234,7 @@ watch(creatorFilter, () => {
 })
 
 onMounted(() => {
+  clearHiddenListQuery()
   fetchList().then(() => {
     // 检查路由参数中是否有需要高亮的知识库ID
     const highlightKbId = route.query.highlightKbId as string
@@ -1694,10 +1653,7 @@ const goSettings = (id: string) => {
 // 创建知识库
 const handleCreateKnowledgeBase = () => {
   markContextualGuideDone('kbList')
-  // 无模型时仍打开创建向导，并定位到模型配置页；用户可在向导内添加模型，无需先跳转系统设置
-  const initialSection =
-    modelsReadyLoaded.value && !isReadyForDocumentKb.value ? 'models' : undefined
-  uiStore.openCreateKB('document', initialSection)
+  uiStore.openCreateKB('document')
 }
 
 // 知识库编辑器成功回调（创建或编辑成功）

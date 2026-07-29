@@ -7,7 +7,6 @@ import { useRoute, useRouter } from 'vue-router';
 import EmptyKnowledge from '@/components/empty-knowledge.vue';
 import ContextualGuide from '@/components/ContextualGuide.vue';
 import KBInfoPopover from '@/components/KBInfoPopover.vue';
-import KBSwitcherDropdown from '@/components/KBSwitcherDropdown.vue';
 import { getSessionsList, createSessions, generateSessionsTitle } from "@/api/chat/index";
 import { useMenuStore } from '@/stores/menu';
 import { useUIStore } from '@/stores/ui';
@@ -300,7 +299,6 @@ const canMutateKnowledge = computed(() => {
 // Effective permission: from direct org share list or from GET /knowledge-bases/:id (e.g. agent-visible KB)
 const effectiveKBPermission = computed(() => orgStore.getKBPermission(kbId.value) || kbInfo.value?.my_permission || '');
 
-const knowledgeList = ref<Array<{ id: string; name: string; type?: string }>>([]);
 let { cardList, total, moreIndex, details, getKnowled, delKnowledge, openMore, onVisibleChange: _onVisibleChange, getCardDetails, getfDetails } = useKnowledgeBase(kbId.value)
 
 const showKbDetailContextualGuide = computed(() => {
@@ -393,8 +391,8 @@ type DocViewMode = 'grid' | 'list';
 const VIEW_MODE_KEY = 'weknora.kb.docs.viewMode';
 const initViewMode = (): DocViewMode => {
   try {
-    return localStorage.getItem(VIEW_MODE_KEY) === 'list' ? 'list' : 'grid';
-  } catch { return 'grid'; }
+    return localStorage.getItem(VIEW_MODE_KEY) === 'grid' ? 'grid' : 'list';
+  } catch { return 'list'; }
 };
 const viewMode = ref<DocViewMode>(initViewMode());
 watch(viewMode, (v) => {
@@ -536,39 +534,413 @@ const parseStatusOptions = computed(() => [
   { label: t('knowledgeBase.parseStatusFinalizing'), value: 'finalizing' },
   { label: t('knowledgeBase.parseStatusDraft'), value: 'draft' },
 ]);
-const selectedSource = ref('');
-// Source filter combines ingestion channels and the "manual"/"url" virtual
-// sources that the backend routes onto the `type` column.
-const sourceOptions = computed(() => [
-  { label: t('knowledgeBase.allSources'), value: '' },
-  { label: t('knowledgeBase.sourceUpload'), value: 'web' },
-  { label: t('knowledgeBase.sourceUrl'), value: 'url' },
-  { label: t('knowledgeBase.sourceManual'), value: 'manual' },
-  { label: t('knowledgeBase.sourceApi'), value: 'api' },
-  { label: t('knowledgeBase.sourceBrowserExtension'), value: 'browser_extension' },
-  { label: t('knowledgeBase.channelFeishu'), value: 'feishu' },
-  { label: t('knowledgeBase.channelNotion'), value: 'notion' },
-  { label: t('knowledgeBase.channelYuque'), value: 'yuque' },
-  { label: t('knowledgeBase.channelWechat'), value: 'wechat' },
-  { label: t('knowledgeBase.channelWecom'), value: 'wecom' },
-  { label: t('knowledgeBase.channelDingtalk'), value: 'dingtalk' },
-  { label: t('knowledgeBase.channelSlack'), value: 'slack' },
-  { label: t('knowledgeBase.channelIm'), value: 'im' },
-]);
-// Date range as [start, end] in "YYYY-MM-DD" form (t-date-range-picker default).
-const updatedTimeRange = ref<string[]>([]);
-// Disable any date after today so users cannot filter into the future.
-const disableFutureDate = { after: new Date(new Date().setHours(23, 59, 59, 999)) };
+const DIRECTORY_ROOT_PATH = '';
+const DIRECTORY_STORAGE_PREFIX = 'knowledge-document-directories';
+const activeDirectoryPath = ref(DIRECTORY_ROOT_PATH);
+
+type DirectoryNode = {
+  path: string;
+  name: string;
+  depth: number;
+  count: number;
+  description?: string;
+  manual?: boolean;
+};
+
+type DirectoryTreeRow = DirectoryNode & {
+  hasChildren: boolean;
+  collapsed: boolean;
+};
+
+type DirectorySourceItem = {
+  original_file_name?: string;
+  file_name: string;
+  title?: string;
+  source?: string;
+};
+
+type ManualDirectoryNode = {
+  path: string;
+  name: string;
+  description: string;
+  parentPath: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type DirectoryDialogMode = 'create' | 'settings';
+
+const manualDirectoryNodes = ref<ManualDirectoryNode[]>([]);
+const rootDirectoryDescription = ref('');
+const directoryDialogVisible = ref(false);
+const directoryDialogMode = ref<DirectoryDialogMode>('create');
+const directoryDialogParentPath = ref(DIRECTORY_ROOT_PATH);
+const directoryDialogTargetPath = ref(DIRECTORY_ROOT_PATH);
+const directoryForm = reactive({
+  name: '',
+  description: '',
+});
+const collapsedDirectoryPaths = ref<Set<string>>(new Set());
+
+const normalizeDocumentPath = (item: DirectorySourceItem) => {
+  const candidates = [
+    item.original_file_name,
+    item.file_name,
+    item.title,
+    item.source,
+  ];
+  const raw = candidates.find((value) => typeof value === 'string' && value.trim()) || '';
+  return String(raw)
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .map(part => part.trim())
+    .filter(Boolean);
+};
+
+const getDocumentDirectoryPath = (item: DirectorySourceItem) => {
+  const parts = normalizeDocumentPath(item);
+  if (parts.length <= 1) return '';
+  return parts.slice(0, -1).join('/');
+};
+
+const getDirectoryDepth = (path: string) => {
+  if (!path) return 0;
+  return path.split('/').filter(Boolean).length - 1;
+};
+
+const getDirectoryParentPath = (path: string) => {
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length <= 1) return DIRECTORY_ROOT_PATH;
+  return parts.slice(0, -1).join('/');
+};
+
+const getDirectoryDisplayName = (path: string) => {
+  if (path === DIRECTORY_ROOT_PATH) return t('knowledgeBase.rootDirectory');
+  return path.split('/').filter(Boolean).pop() || path;
+};
+
+const sortDirectoryNodes = (nodes: DirectoryNode[]) => nodes.sort((a, b) => {
+  const aParts = a.path.split('/');
+  const bParts = b.path.split('/');
+  const min = Math.min(aParts.length, bParts.length);
+  for (let i = 0; i < min; i += 1) {
+    const cmp = aParts[i].localeCompare(bParts[i], undefined, { numeric: true });
+    if (cmp !== 0) return cmp;
+  }
+  return aParts.length - bParts.length;
+});
+
+const directoryStorageKey = computed(() =>
+  kbId.value ? `${DIRECTORY_STORAGE_PREFIX}:${kbId.value}` : '',
+);
+
+const loadManualDirectoryState = () => {
+  manualDirectoryNodes.value = [];
+  rootDirectoryDescription.value = '';
+  if (!directoryStorageKey.value) return;
+  try {
+    const raw = window.localStorage.getItem(directoryStorageKey.value);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const rawDirectories = Array.isArray(parsed) ? parsed : parsed?.directories;
+    rootDirectoryDescription.value = Array.isArray(parsed)
+      ? ''
+      : String(parsed?.rootDescription || '');
+    manualDirectoryNodes.value = (Array.isArray(rawDirectories) ? rawDirectories : [])
+      .filter((item: any) => item && typeof item.path === 'string' && item.path.trim())
+      .map((item: any) => {
+        const path = String(item.path).replace(/\\/g, '/').split('/').map(part => part.trim()).filter(Boolean).join('/');
+        return {
+          path,
+          name: String(item.name || getDirectoryDisplayName(path)),
+          description: String(item.description || ''),
+          parentPath: typeof item.parentPath === 'string' ? item.parentPath : getDirectoryParentPath(path),
+          createdAt: String(item.createdAt || new Date().toISOString()),
+          updatedAt: String(item.updatedAt || new Date().toISOString()),
+        };
+      })
+      .filter((item: ManualDirectoryNode, index: number, array: ManualDirectoryNode[]) =>
+        array.findIndex(candidate => candidate.path === item.path) === index,
+      );
+  } catch (error) {
+    console.error('[KnowledgeBase] Failed to load document directories:', error);
+  }
+};
+
+const persistManualDirectoryState = () => {
+  if (!directoryStorageKey.value) return;
+  try {
+    window.localStorage.setItem(directoryStorageKey.value, JSON.stringify({
+      rootDescription: rootDirectoryDescription.value,
+      directories: manualDirectoryNodes.value,
+    }));
+  } catch (error) {
+    console.error('[KnowledgeBase] Failed to persist document directories:', error);
+  }
+};
+
+const documentDirectoryNodes = computed<DirectoryNode[]>(() => {
+  const map = new Map<string, DirectoryNode>();
+
+  for (const item of cardList.value || []) {
+    const directoryPath = getDocumentDirectoryPath(item);
+    if (!directoryPath) continue;
+    const parts = directoryPath.split('/').filter(Boolean);
+    parts.forEach((_, index) => {
+      const path = parts.slice(0, index + 1).join('/');
+      const existing = map.get(path);
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+      map.set(path, {
+        path,
+        name: parts[index],
+        depth: index,
+        count: 1,
+      });
+    });
+  }
+
+  for (const directory of manualDirectoryNodes.value) {
+    const existing = map.get(directory.path);
+    if (existing) {
+      existing.description = directory.description;
+      existing.manual = true;
+      continue;
+    }
+    map.set(directory.path, {
+      path: directory.path,
+      name: directory.name,
+      depth: getDirectoryDepth(directory.path),
+      count: 0,
+      description: directory.description,
+      manual: true,
+    });
+  }
+
+  return sortDirectoryNodes([...map.values()]);
+});
+
+const rootDirectoryCount = computed(() => (cardList.value || []).length);
+
+const rootHasChildren = computed(() => documentDirectoryNodes.value.length > 0);
+
+const isDirectoryCollapsed = (path: string) => collapsedDirectoryPaths.value.has(path);
+
+const toggleDirectoryCollapsed = (path: string) => {
+  const next = new Set(collapsedDirectoryPaths.value);
+  if (next.has(path)) {
+    next.delete(path);
+  } else {
+    next.add(path);
+  }
+  collapsedDirectoryPaths.value = next;
+};
+
+const expandDirectoryAncestors = (path: string) => {
+  if (!path) return;
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length <= 1) return;
+  const next = new Set(collapsedDirectoryPaths.value);
+  for (let index = 1; index < parts.length; index += 1) {
+    next.delete(parts.slice(0, index).join('/'));
+  }
+  collapsedDirectoryPaths.value = next;
+};
+
+const visibleDirectoryTreeRows = computed<DirectoryTreeRow[]>(() => {
+  const childrenByParent = new Map<string, DirectoryNode[]>();
+  for (const directory of documentDirectoryNodes.value) {
+    const parentPath = getDirectoryParentPath(directory.path);
+    const children = childrenByParent.get(parentPath) || [];
+    children.push(directory);
+    childrenByParent.set(parentPath, children);
+  }
+
+  childrenByParent.forEach(children => sortDirectoryNodes(children));
+
+  const rows: DirectoryTreeRow[] = [];
+  const appendChildren = (parentPath: string) => {
+    if (parentPath === DIRECTORY_ROOT_PATH && isDirectoryCollapsed(DIRECTORY_ROOT_PATH)) return;
+    const children = childrenByParent.get(parentPath) || [];
+    for (const child of children) {
+      const hasChildren = (childrenByParent.get(child.path) || []).length > 0;
+      const collapsed = isDirectoryCollapsed(child.path);
+      rows.push({
+        ...child,
+        hasChildren,
+        collapsed,
+      });
+      if (hasChildren && !collapsed) appendChildren(child.path);
+    }
+  };
+
+  appendChildren(DIRECTORY_ROOT_PATH);
+  return rows;
+});
+
+const visibleDocumentItems = computed<KnowledgeCard[]>(() => {
+  const items = cardList.value || [];
+  if (docSearchKeyword.value.trim()) {
+    return items;
+  }
+  if (activeDirectoryPath.value === DIRECTORY_ROOT_PATH) {
+    return items;
+  }
+  const active = activeDirectoryPath.value;
+  return items.filter((item: DirectorySourceItem) => {
+    const path = getDocumentDirectoryPath(item);
+    return path === active || path.startsWith(`${active}/`);
+  });
+});
+
+const activeDirectoryName = computed(() => {
+  return getDirectoryDisplayName(activeDirectoryPath.value);
+});
+
+const showDirectorySidebar = computed(() => true);
+
+const activeDirectoryParentName = computed(() =>
+  getDirectoryDisplayName(directoryDialogParentPath.value),
+);
+
+const directoryDialogTitle = computed(() =>
+  directoryDialogMode.value === 'create'
+    ? t('knowledgeBase.createSubdirectoryTitle')
+    : t('knowledgeBase.directorySettingsTitle'),
+);
+
+const directoryNameDisabled = computed(() => directoryDialogMode.value === 'settings');
+
+const selectDirectory = (path: string) => {
+  activeDirectoryPath.value = path;
+  expandDirectoryAncestors(path);
+};
+
+const directoryPathExists = (path: string) => {
+  if (path === DIRECTORY_ROOT_PATH) return true;
+  return documentDirectoryNodes.value.some(directory => directory.path === path);
+};
+
+const openCreateSubdirectoryDialog = (parentPath: string) => {
+  directoryDialogMode.value = 'create';
+  directoryDialogParentPath.value = parentPath;
+  directoryDialogTargetPath.value = DIRECTORY_ROOT_PATH;
+  directoryForm.name = '';
+  directoryForm.description = '';
+  directoryDialogVisible.value = true;
+};
+
+const openDirectorySettingsDialog = (path: string) => {
+  const directory = documentDirectoryNodes.value.find(item => item.path === path);
+  const manualDirectory = manualDirectoryNodes.value.find(item => item.path === path);
+  directoryDialogMode.value = 'settings';
+  directoryDialogParentPath.value = path === DIRECTORY_ROOT_PATH ? DIRECTORY_ROOT_PATH : getDirectoryParentPath(path);
+  directoryDialogTargetPath.value = path;
+  directoryForm.name = getDirectoryDisplayName(path);
+  directoryForm.description = path === DIRECTORY_ROOT_PATH
+    ? rootDirectoryDescription.value
+    : manualDirectory?.description || directory?.description || '';
+  directoryDialogVisible.value = true;
+};
+
+const closeDirectoryDialog = () => {
+  directoryDialogVisible.value = false;
+};
+
+const handleDirectoryDialogConfirm = () => {
+  if (directoryDialogMode.value === 'settings') {
+    if (directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH) {
+      rootDirectoryDescription.value = directoryForm.description.trim();
+    } else {
+      const targetPath = directoryDialogTargetPath.value;
+      const now = new Date().toISOString();
+      const existingIndex = manualDirectoryNodes.value.findIndex(item => item.path === targetPath);
+      const nextDirectory = {
+        path: targetPath,
+        name: getDirectoryDisplayName(targetPath),
+        description: directoryForm.description.trim(),
+        parentPath: getDirectoryParentPath(targetPath),
+        createdAt: existingIndex >= 0 ? manualDirectoryNodes.value[existingIndex].createdAt : now,
+        updatedAt: now,
+      };
+      if (existingIndex >= 0) {
+        manualDirectoryNodes.value.splice(existingIndex, 1, nextDirectory);
+      } else {
+        manualDirectoryNodes.value.push(nextDirectory);
+      }
+    }
+    persistManualDirectoryState();
+    MessagePlugin.success(t('knowledgeBase.directorySaveSuccess'));
+    closeDirectoryDialog();
+    return;
+  }
+
+  const name = directoryForm.name.trim();
+  if (!name) {
+    MessagePlugin.warning(t('knowledgeBase.directoryNameRequired'));
+    return;
+  }
+  if (/[\\/]/.test(name)) {
+    MessagePlugin.warning(t('knowledgeBase.directoryNameInvalid'));
+    return;
+  }
+  const parentPath = directoryDialogParentPath.value;
+  const newPath = parentPath ? `${parentPath}/${name}` : name;
+  if (directoryPathExists(newPath)) {
+    MessagePlugin.warning(t('knowledgeBase.directoryDuplicate'));
+    return;
+  }
+  const now = new Date().toISOString();
+  manualDirectoryNodes.value.push({
+    path: newPath,
+    name,
+    description: directoryForm.description.trim(),
+    parentPath,
+    createdAt: now,
+    updatedAt: now,
+  });
+  persistManualDirectoryState();
+  expandDirectoryAncestors(newPath);
+  selectDirectory(newPath);
+  MessagePlugin.success(t('knowledgeBase.directoryCreateSuccess'));
+  closeDirectoryDialog();
+};
+
+const getDirectoryTitle = (directory: DirectoryNode) => {
+  const title = directory.path || t('knowledgeBase.rootDirectory');
+  return directory.description ? `${title}\n${directory.description}` : title;
+};
+
+watch(kbId, () => {
+  activeDirectoryPath.value = DIRECTORY_ROOT_PATH;
+  collapsedDirectoryPaths.value = new Set();
+  loadManualDirectoryState();
+}, { immediate: true });
+
+watch([manualDirectoryNodes, rootDirectoryDescription], persistManualDirectoryState, { deep: true });
+
+watch([documentDirectoryNodes, rootDirectoryCount], () => {
+  if (activeDirectoryPath.value === DIRECTORY_ROOT_PATH) return;
+  if (documentDirectoryNodes.value.some(directory => directory.path === activeDirectoryPath.value)) return;
+  activeDirectoryPath.value = DIRECTORY_ROOT_PATH;
+});
+
+watch(documentDirectoryNodes, (directories) => {
+  const availablePaths = new Set(directories.map(directory => directory.path));
+  const next = new Set([...collapsedDirectoryPaths.value].filter(path => availablePaths.has(path)));
+  if (next.size !== collapsedDirectoryPaths.value.size) {
+    collapsedDirectoryPaths.value = next;
+  }
+});
 const filterParams = computed(() => {
-  const [start, end] = updatedTimeRange.value || [];
   return {
     tag_ids: selectedTagIds.value.length > 0 ? selectedTagIds.value.join(',') : undefined,
     keyword: docSearchKeyword.value ? docSearchKeyword.value.trim() : undefined,
     file_type: selectedFileType.value || undefined,
     parse_status: selectedParseStatus.value || undefined,
-    source: selectedSource.value || undefined,
-    start_time: start ? `${start} 00:00:00` : undefined,
-    end_time: end ? `${end} 23:59:59` : undefined,
   };
 });
 const tagMap = computed<Record<string, any>>(() => {
@@ -841,34 +1213,6 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
   }
 };
 
-const loadKnowledgeList = async () => {
-  try {
-    await chatResources.ensureKnowledgeBases();
-    const myKbs = chatResources.rawKnowledgeBases.map((item: any) => ({
-      id: String(item.id),
-      name: item.name,
-      type: item.type || 'document',
-    }));
-
-    // Also include shared knowledge bases from orgStore
-    const sharedKbs = (orgStore.sharedKnowledgeBases || [])
-      .filter(s => s.knowledge_base != null)
-      .map(s => ({
-        id: String(s.knowledge_base.id),
-        name: s.knowledge_base.name,
-        type: s.knowledge_base.type || 'document',
-      }));
-
-    // Merge and deduplicate by id (my KBs take precedence)
-    const myKbIds = new Set(myKbs.map(kb => kb.id));
-    const uniqueSharedKbs = sharedKbs.filter(kb => !myKbIds.has(kb.id));
-
-    knowledgeList.value = [...myKbs, ...uniqueSharedKbs];
-  } catch (error) {
-    console.error('Failed to load knowledge list:', error);
-  }
-};
-
 // 监听路由参数变化，重新获取知识库内容
 // Sync activeKbTab to URL query so it survives page refresh
 watch(activeKbTab, (tab) => {
@@ -945,13 +1289,13 @@ watch(selectedFileType, (newVal, oldVal) => {
   }
 });
 
-// 监听解析状态/来源/更新时间范围筛选变化（与文件类型行为一致）
-watch([selectedParseStatus, selectedSource, updatedTimeRange], () => {
+// 监听解析状态筛选变化（与文件类型行为一致）
+watch(selectedParseStatus, () => {
   if (kbId.value) {
     resetPage();
     loadKnowledgeFiles(kbId.value);
   }
-}, { deep: true });
+});
 
 // 监听文件上传事件
 const handleFileUploaded = (event: CustomEvent) => {
@@ -1028,7 +1372,6 @@ const handleOpenKnowledgeEvent = (e: Event) => {
 };
 
 onMounted(() => {
-  loadKnowledgeList();
   editorResources.ensureParserEngines();
 
   window.addEventListener('knowledgeFileUploaded', handleFileUploaded as EventListener);
@@ -1073,7 +1416,7 @@ type KnowledgeCard = {
   parse_status: string;
   summary_status?: string;
   description?: string;
-  file_name?: string;
+  file_name: string;
   original_file_name?: string;
   display_name?: string;
   title?: string;
@@ -1309,13 +1652,6 @@ const manualEditorSuccess = ({ kbId: savedKbId }: { kbId: string; knowledgeId: s
     loadKnowledgeFiles(savedKbId);
   }
 };
-
-const documentTitle = computed(() => {
-  if (kbInfo.value?.name) {
-    return `${kbInfo.value.name} · ${t('knowledgeEditor.document.title')}`;
-  }
-  return t('knowledgeEditor.document.title');
-});
 
 const ensureDocumentKbReady = () => {
   if (isFAQ.value) {
@@ -1579,21 +1915,6 @@ const handleOpenKBSettings = () => {
   uiStore.openKBSettings(kbId.value);
 };
 
-const handleNavigateToKbList = () => {
-  router.push('/platform/knowledge-bases');
-};
-
-const handleNavigateToCurrentKB = () => {
-  if (!kbId.value) return;
-  router.push(`/platform/knowledge-bases/${kbId.value}`);
-};
-
-const handleKnowledgeDropdownSelect = (data: { value: string }) => {
-  if (!data?.value) return;
-  if (data.value === kbId.value) return;
-  router.push(`/platform/knowledge-bases/${data.value}`);
-};
-
 const handleManualEdit = (index: number, item: KnowledgeCard) => {
   if (isFAQ.value) return;
   if (cardList.value[index]) {
@@ -1720,7 +2041,7 @@ const getDoc = (page: number) => {
 };
 
 const toggleSelectRow = (id: string, checked: boolean, shiftKey?: boolean) => {
-  const items = cardList.value || [];
+  const items = visibleDocumentItems.value || [];
   const idx = items.findIndex((i: KnowledgeCard) => i.id === id);
   if (shiftKey && lastSelectedIndex >= 0 && idx >= 0) {
     const [s, e] = idx < lastSelectedIndex
@@ -1744,9 +2065,9 @@ const onCardGridCheckboxChange = (id: string, checked: boolean, ctx?: { e?: Even
 
 const toggleSelectAll = (checked: boolean) => {
   if (checked) {
-    for (const item of cardList.value || []) selectedIds.value.add(item.id);
+    for (const item of visibleDocumentItems.value || []) selectedIds.value.add(item.id);
   } else {
-    for (const item of cardList.value || []) selectedIds.value.delete(item.id);
+    for (const item of visibleDocumentItems.value || []) selectedIds.value.delete(item.id);
   }
 };
 
@@ -1893,7 +2214,7 @@ const handleListAction = (
 
 // Clear selection on filter/tag/kb change to avoid acting on hidden items.
 watch(
-  [selectedTagIds, docSearchKeyword, selectedFileType, selectedParseStatus, selectedSource, updatedTimeRange, kbId],
+  [selectedTagIds, docSearchKeyword, selectedFileType, selectedParseStatus, activeDirectoryPath, kbId],
   () => {
     clearSelection();
   },
@@ -1920,7 +2241,6 @@ watch(cardList, () => {
 const handleKBEditorSuccess = (kbIdValue: string) => {
   chatResources.invalidateKnowledgeBaseDetail(kbIdValue);
   chatResources.invalidate('knowledgeBases');
-  loadKnowledgeList();
   if (kbIdValue === kbId.value) {
     loadKnowledgeBaseInfo(kbIdValue, true);
   }
@@ -1965,31 +2285,10 @@ async function createNewSession(value: string): Promise<void> {
         <div class="document-header-title">
           <div class="document-title-row">
             <h2 class="document-breadcrumb">
-              <button type="button" class="breadcrumb-link" @click="handleNavigateToKbList">
-                {{ $t('menu.knowledgeBase') }}
-              </button>
-              <t-icon name="chevron-right" class="breadcrumb-separator" />
-              <KBSwitcherDropdown v-if="knowledgeList.length" :kb-list="knowledgeList" :current-kb-id="kbId"
-                @select="(id) => handleKnowledgeDropdownSelect({ value: id })">
-                <button type="button" class="breadcrumb-link dropdown" :disabled="!kbId">
-                  <template v-if="!kbInfo">
-                    <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
-                  </template>
-                  <template v-else>
-                    <span>{{ kbInfo.name }}</span>
-                    <t-icon name="chevron-down" />
-                  </template>
-                </button>
-              </KBSwitcherDropdown>
-              <button v-else type="button" class="breadcrumb-link" :disabled="!kbId" @click="handleNavigateToCurrentKB">
-                <template v-if="!kbInfo">
-                  <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
-                </template>
-                <template v-else>
-                  {{ kbInfo.name }}
-                </template>
-              </button>
-              <t-icon name="chevron-right" class="breadcrumb-separator" />
+              <template v-if="!kbInfo">
+                <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
+              </template>
+              <span v-else class="breadcrumb-title">{{ kbInfo.name }}</span>
               <template v-if="isWiki">
                 <span :class="['breadcrumb-tab', { active: activeKbTab === 'documents' }]"
                   @click="activeKbTab = 'documents'">{{ $t('knowledgeEditor.wikiBrowser.tabDocuments') }}</span>
@@ -2012,7 +2311,6 @@ async function createNewSession(value: string): Promise<void> {
                   </span>
                 </t-tooltip>
               </template>
-              <span v-else class="breadcrumb-current">{{ $t('knowledgeEditor.document.title') }}</span>
             </h2>
             <!-- 标题行右侧的动作锚点：聚拢"信息"和"设置"两个圆形按钮。 -->
             <div class="kb-title-actions">
@@ -2025,7 +2323,6 @@ async function createNewSession(value: string): Promise<void> {
               </t-tooltip>
             </div>
           </div>
-          <p class="document-subtitle">{{ $t('knowledgeEditor.document.subtitle') }}</p>
           <p v-if="unsupportedFileTypes.length" class="parser-hint" @click="goToParserSettings">
             <t-icon name="info-circle" class="parser-hint-icon" />
             <span>{{$t('knowledgeBase.unsupportedTypesHint', {
@@ -2040,6 +2337,15 @@ async function createNewSession(value: string): Promise<void> {
             <span class="warning-link">{{ $t('knowledgeBase.goToStorageSettings') }} →</span>
           </p>
         </div>
+        <div v-if="activeKbTab === 'documents' || !isWiki" class="document-header-search">
+          <t-input v-model.trim="docSearchKeyword" :placeholder="$t('knowledgeBase.docSearchPlaceholder')"
+            clearable class="doc-search-input" @clear="loadKnowledgeFiles(kbId)"
+            @enter="loadKnowledgeFiles(kbId)">
+            <template #prefix-icon>
+              <t-icon name="search" size="16px" />
+            </template>
+          </t-input>
+        </div>
       </div>
 
       <!-- Wiki Browser / Graph (shown when wiki or graph tab is active) -->
@@ -2051,17 +2357,69 @@ async function createNewSession(value: string): Promise<void> {
 
       <template v-if="activeKbTab === 'documents' || !isWiki">
         <div class="knowledge-main">
+          <aside v-if="showDirectorySidebar" class="document-directory-sidebar">
+            <div class="directory-sidebar-header">
+              <span>{{ $t('knowledgeBase.directory') }}</span>
+              <span class="directory-sidebar-count">{{ cardList.length }}</span>
+            </div>
+            <div class="directory-tree">
+              <div role="button" tabindex="0" class="directory-tree-item"
+                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH }"
+                :title="$t('knowledgeBase.rootDirectory')"
+                @click="selectDirectory(DIRECTORY_ROOT_PATH)"
+                @keydown.enter.prevent="selectDirectory(DIRECTORY_ROOT_PATH)"
+                @keydown.space.prevent="selectDirectory(DIRECTORY_ROOT_PATH)">
+                <button
+                  type="button"
+                  class="directory-tree-toggle"
+                  :class="{ 'is-placeholder': !rootHasChildren }"
+                  :aria-label="isDirectoryCollapsed(DIRECTORY_ROOT_PATH) ? $t('common.expand') : $t('common.collapse')"
+                  :disabled="!rootHasChildren"
+                  @click.stop="toggleDirectoryCollapsed(DIRECTORY_ROOT_PATH)"
+                >
+                  <t-icon v-if="rootHasChildren"
+                    :name="isDirectoryCollapsed(DIRECTORY_ROOT_PATH) ? 'chevron-right' : 'chevron-down'" size="14px" />
+                </button>
+                <t-icon name="folder" class="directory-tree-icon" />
+                <span class="directory-tree-name">{{ $t('knowledgeBase.rootDirectory') }}</span>
+                <span class="directory-tree-count">{{ rootDirectoryCount }}</span>
+              </div>
+              <div v-for="directory in visibleDirectoryTreeRows" :key="directory.path" role="button" tabindex="0"
+                class="directory-tree-item"
+                :class="{ active: activeDirectoryPath === directory.path }"
+                :style="{ '--directory-indent': `${(directory.depth + 1) * 16}px` }" :title="getDirectoryTitle(directory)"
+                @click="selectDirectory(directory.path)"
+                @keydown.enter.prevent="selectDirectory(directory.path)"
+                @keydown.space.prevent="selectDirectory(directory.path)">
+                <button
+                  type="button"
+                  class="directory-tree-toggle"
+                  :class="{ 'is-placeholder': !directory.hasChildren }"
+                  :aria-label="directory.collapsed ? $t('common.expand') : $t('common.collapse')"
+                  :disabled="!directory.hasChildren"
+                  @click.stop="toggleDirectoryCollapsed(directory.path)"
+                >
+                  <t-icon v-if="directory.hasChildren"
+                    :name="directory.collapsed ? 'chevron-right' : 'chevron-down'" size="14px" />
+                </button>
+                <t-icon name="folder" class="directory-tree-icon" />
+                <span class="directory-tree-name">{{ directory.name }}</span>
+                <span class="directory-tree-count">{{ directory.count }}</span>
+              </div>
+            </div>
+          </aside>
           <div class="tag-content">
             <div class="doc-card-area">
               <div class="doc-filter-bar">
-                <t-input v-model.trim="docSearchKeyword" :placeholder="$t('knowledgeBase.docSearchPlaceholder')"
-                  clearable class="doc-search-input" @clear="loadKnowledgeFiles(kbId)"
-                  @enter="loadKnowledgeFiles(kbId)">
-                  <template #prefix-icon>
-                    <t-icon name="search" size="16px" />
-                  </template>
-                </t-input>
                 <div class="doc-filter-bar__filters">
+                  <div v-if="canEdit" class="doc-filter-actions">
+                    <KbUploadSourceDropdown ref="uploadSourceRef" :accept-file-types="acceptFileTypes"
+                      :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="file-add"
+                      trigger-class="content-bar-solid-btn" :trigger-text="t('knowledgeBase.addDocument')"
+                      trigger-theme="primary" trigger-variant="base" data-guide="kb-detail-add-doc"
+                      :tooltip="t('knowledgeBase.addDocument')" placement="bottom-left" @files="handleUploadSourceFiles"
+                      @url="handleUploadSourceUrl" @manual="handleManualCreate" />
+                  </div>
                 <t-popup v-model:visible="tagFilterPanelVisible" trigger="click" placement="bottom-left"
                   overlay-class-name="tag-filter-popup" :overlay-inner-style="{ padding: 0 }">
                   <template #content>
@@ -2172,25 +2530,6 @@ async function createNewSession(value: string): Promise<void> {
                     </template>
                   </t-select>
                 </div>
-                <div class="doc-filter-field">
-                  <t-select v-model="selectedSource" :options="sourceOptions"
-                    :placeholder="$t('knowledgeBase.sourceFilter')" class="doc-type-select doc-filter-field__control"
-                    clearable>
-                    <template #prefixIcon>
-                      <t-icon name="link" size="16px" />
-                    </template>
-                  </t-select>
-                </div>
-                <div class="doc-filter-field doc-filter-field--wide">
-                  <t-date-range-picker v-model="updatedTimeRange"
-                    :placeholder="[$t('knowledgeBase.updatedTimeFrom'), $t('knowledgeBase.updatedTimeTo')]"
-                    :disable-date="disableFutureDate" class="doc-date-range doc-filter-field__control" clearable
-                    allow-input>
-                    <template #prefixIcon>
-                      <t-icon name="time" size="16px" />
-                    </template>
-                  </t-date-range-picker>
-                </div>
                 </div>
                 <div class="doc-filter-bar__trailing">
                   <div class="doc-view-toggle" role="group" :aria-label="$t('knowledgeBase.viewModeToggle')">
@@ -2207,17 +2546,10 @@ async function createNewSession(value: string): Promise<void> {
                       </button>
                     </t-tooltip>
                   </div>
-                  <div v-if="canEdit" class="doc-filter-actions">
-                    <KbUploadSourceDropdown ref="uploadSourceRef" :accept-file-types="acceptFileTypes"
-                      :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="file-add"
-                      trigger-class="content-bar-icon-btn" data-guide="kb-detail-add-doc"
-                      :tooltip="t('knowledgeBase.addDocument')" placement="bottom-right" @files="handleUploadSourceFiles"
-                      @url="handleUploadSourceUrl" @manual="handleManualCreate" />
-                  </div>
                 </div>
               </div>
               <div class="doc-scroll-container"
-                :class="{ 'is-empty': !cardList.length && !docListLoading, 'is-marquee-active': docMarqueeVisible }"
+                :class="{ 'is-empty': !visibleDocumentItems.length && !docListLoading, 'is-marquee-active': docMarqueeVisible }"
                 ref="knowledgeScroll" @scroll="handleScroll" @mousedown="onDocMarqueeMouseDown">
                 <div v-if="docMarqueeVisible" class="doc-marquee-box"
                   :class="{ 'is-add': docMarqueeMode === 'add', 'is-subtract': docMarqueeMode === 'subtract' }"
@@ -2238,9 +2570,9 @@ async function createNewSession(value: string): Promise<void> {
                     </div>
                   </div>
                 </div>
-                <template v-else-if="cardList.length && viewMode === 'grid'">
+                <template v-else-if="visibleDocumentItems.length && viewMode === 'grid'">
                   <DocumentCardView
-                    :items="cardList"
+                    :items="visibleDocumentItems"
                     :selected-ids="selectedIds"
                     :batch-mode="batchMode"
                     :can-edit="canEdit"
@@ -2264,8 +2596,8 @@ async function createNewSession(value: string): Promise<void> {
                     @update:move-mode="(mode: any) => moveMode = mode"
                   />
                 </template>
-                <template v-else-if="cardList.length && viewMode === 'list'">
-                  <DocumentListView :items="cardList" :selected-ids="selectedIds" :tag-list="tagList"
+                <template v-else-if="visibleDocumentItems.length && viewMode === 'list'">
+                  <DocumentListView :items="visibleDocumentItems" :selected-ids="selectedIds" :tag-list="tagList"
                     :can-edit="canEdit" :can-mutate-knowledge="canMutateKnowledge"
                     :trace-visible-ids="traceAvailableById"
                     :move-menu-mode="moveMenuMode"
@@ -2286,7 +2618,15 @@ async function createNewSession(value: string): Promise<void> {
                 </template>
                 <template v-else-if="!docListLoading">
                   <div class="doc-empty-state">
-                    <EmptyKnowledge />
+                    <EmptyKnowledge v-if="!cardList.length" />
+                    <div v-else class="directory-empty-state">
+                      <t-icon name="folder-open" />
+                      <strong>{{ activeDirectoryName }}</strong>
+                      <span>{{ $t('knowledgeBase.directoryEmpty') }}</span>
+                      <button type="button" @click="selectDirectory(DIRECTORY_ROOT_PATH)">
+                        {{ $t('knowledgeBase.rootDirectory') }}
+                      </button>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -2316,6 +2656,45 @@ async function createNewSession(value: string): Promise<void> {
   <KnowledgeBaseEditorModal :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
     :kb-id="uiStore.currentKBId || undefined" :initial-type="uiStore.kbEditorType"
     @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
+
+  <t-dialog
+    v-model:visible="directoryDialogVisible"
+    :header="directoryDialogTitle"
+    width="460px"
+    dialog-class-name="document-directory-dialog"
+    :confirm-btn="{ content: $t('common.confirm'), theme: 'primary' }"
+    :cancel-btn="{ content: $t('common.cancel') }"
+    @confirm="handleDirectoryDialogConfirm"
+    @cancel="closeDirectoryDialog"
+    @close="closeDirectoryDialog"
+  >
+    <div class="directory-form">
+      <div v-if="directoryDialogMode === 'create'" class="directory-form-parent">
+        <span>{{ $t('knowledgeBase.parentDirectory') }}</span>
+        <strong :title="activeDirectoryParentName">{{ activeDirectoryParentName }}</strong>
+      </div>
+      <t-form label-align="top" @submit.prevent>
+        <t-form-item :label="$t('knowledgeBase.directoryName')">
+          <t-input
+            v-model="directoryForm.name"
+            :placeholder="$t('knowledgeBase.directoryNamePlaceholder')"
+            :maxlength="80"
+            :disabled="directoryNameDisabled"
+            autofocus
+            @enter="handleDirectoryDialogConfirm"
+          />
+        </t-form-item>
+        <t-form-item :label="$t('knowledgeBase.directoryDescription')">
+          <t-textarea
+            v-model="directoryForm.description"
+            :placeholder="$t('knowledgeBase.directoryDescriptionPlaceholder')"
+            :maxlength="300"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </t-form-item>
+      </t-form>
+    </div>
+  </t-dialog>
 
   <ContextualGuide tour="kbDetail" :when="showKbDetailContextualGuide" />
 
@@ -2387,7 +2766,7 @@ async function createNewSession(value: string): Promise<void> {
   flex: 1;
   width: 100%;
   min-width: 0;
-  padding: 24px 32px 0px;
+  padding: 20px 20px 0px;
   box-sizing: border-box;
 }
 
@@ -2438,6 +2817,7 @@ async function createNewSession(value: string): Promise<void> {
 // 与列表页一致：浅灰底圆角区，左侧筛选为白底卡片
 .knowledge-main {
   display: flex;
+  gap: 12px;
   flex: 1;
   min-height: 0;
   background: transparent;
@@ -2669,6 +3049,192 @@ async function createNewSession(value: string): Promise<void> {
   background: transparent;
 }
 
+.document-directory-sidebar {
+  width: 220px;
+  flex: 0 0 220px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 12px 0 0;
+  border-right: 1px solid var(--td-component-stroke);
+  overflow: hidden;
+}
+
+.directory-sidebar-header {
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.directory-sidebar-count {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.directory-tree {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 4px 8px 0;
+  scrollbar-width: thin;
+}
+
+.directory-tree-item {
+  width: 100%;
+  min-height: 32px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 calc(8px + var(--directory-indent, 0px));
+  color: var(--td-text-color-secondary);
+  font-family: var(--app-font-family);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  position: relative;
+  outline: none;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--td-bg-color-container-hover);
+    color: var(--td-text-color-primary);
+  }
+
+  &.active {
+    background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
+    color: var(--td-brand-color);
+    font-weight: 500;
+  }
+
+}
+
+.directory-tree-toggle {
+  width: 16px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--td-text-color-placeholder);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    color: var(--td-text-color-primary);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+
+  &.is-placeholder {
+    visibility: hidden;
+  }
+}
+
+.directory-tree-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.directory-tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-tree-count {
+  flex-shrink: 0;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 0.15s ease;
+}
+
+.directory-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--td-text-color-placeholder);
+  font-size: 13px;
+
+  strong {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--td-text-color-secondary);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .t-icon {
+    font-size: 28px;
+    color: var(--td-text-color-disabled);
+  }
+
+  button {
+    border: 0;
+    background: transparent;
+    color: var(--td-brand-color);
+    font: inherit;
+    cursor: pointer;
+    padding: 2px 4px;
+  }
+}
+
+.directory-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.directory-form-parent {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--td-text-color-primary);
+    font-weight: 500;
+  }
+}
+
 .doc-card-area {
   flex: 1;
   display: flex;
@@ -2678,22 +3244,43 @@ async function createNewSession(value: string): Promise<void> {
   /* 作为批量工具栏悬浮的定位上下文 */
 }
 
+@media (max-width: 960px) {
+  .knowledge-main {
+    flex-direction: column;
+  }
+
+  .document-directory-sidebar {
+    width: 100%;
+    flex: 0 0 auto;
+    max-height: 156px;
+    padding: 0 0 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--td-component-stroke);
+  }
+
+  .directory-tree {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 2px 0 4px;
+  }
+
+  .directory-tree-item {
+    width: auto;
+    min-width: 132px;
+    padding-left: 8px;
+  }
+
+}
+
 .doc-filter-bar {
   padding: 0 0 12px 0;
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    'search trailing'
-    'filters filters';
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'filters trailing';
   gap: 8px 12px;
   align-items: center;
-
-  .doc-search-input {
-    grid-area: search;
-    min-width: 0;
-    width: 100%;
-  }
 
   &__filters {
     grid-area: filters;
@@ -2821,26 +3408,8 @@ async function createNewSession(value: string): Promise<void> {
     }
   }
 
-  @media (min-width: 1280px) {
-    .doc-search-input {
-      flex: 1 1 220px;
-      min-width: 220px;
-    }
-  }
-
   .doc-type-select {
     width: 100%;
-  }
-
-  .doc-date-range {
-    width: 100%;
-
-    // TDesign focuses both the outer popup reference and inner inputs, which
-    // visually stacks into a "double border" — drop the inner shadow.
-    :deep(.t-input--focused),
-    :deep(.t-is-focused) {
-      box-shadow: none;
-    }
   }
 
   .doc-view-toggle {
@@ -2879,17 +3448,6 @@ async function createNewSession(value: string): Promise<void> {
 
   .doc-filter-actions {
     flex-shrink: 0;
-
-    :deep(.content-bar-icon-btn) {
-      color: var(--td-text-color-secondary);
-      background: transparent;
-      border: none;
-
-      &:hover {
-        color: var(--td-brand-color);
-        background: var(--td-bg-color-secondarycontainer);
-      }
-    }
   }
 
   :deep(.t-input) {
@@ -2995,6 +3553,8 @@ async function createNewSession(value: string): Promise<void> {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    flex: 1;
+    min-width: 0;
   }
 
   .document-title-row {
@@ -3022,52 +3582,11 @@ async function createNewSession(value: string): Promise<void> {
     color: var(--td-text-color-primary);
   }
 
-  .breadcrumb-link {
-    border: none;
-    background: transparent;
-    padding: 4px 8px;
-    margin: -4px -8px;
-    font: inherit;
-    color: var(--td-text-color-secondary);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    border-radius: 6px;
-    transition: all 0.12s ease;
-
-    &:hover:not(:disabled) {
-      color: var(--td-success-color);
-      background: var(--td-bg-color-container);
-    }
-
-    &:disabled {
-      cursor: not-allowed;
-      color: var(--td-text-color-placeholder);
-    }
-
-    &.dropdown {
-      padding-right: 6px;
-
-      :deep(.t-icon) {
-        font-size: 14px;
-        transition: transform 0.12s ease;
-      }
-
-      &:hover:not(:disabled) {
-        :deep(.t-icon) {
-          transform: translateY(1px);
-        }
-      }
-    }
-  }
-
-  .breadcrumb-separator {
-    font-size: 14px;
-    color: var(--td-text-color-placeholder);
-  }
-
-  .breadcrumb-current {
+  .breadcrumb-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--td-text-color-primary);
     font-weight: 600;
   }
@@ -3079,15 +3598,6 @@ async function createNewSession(value: string): Promise<void> {
     font-size: 24px;
     font-weight: 600;
     line-height: 32px;
-  }
-
-  .document-subtitle {
-    margin: 0;
-    color: var(--td-text-color-placeholder);
-    font-family: var(--app-font-family);
-    font-size: 14px;
-    font-weight: 400;
-    line-height: 20px;
   }
 
   .parser-hint {
@@ -3150,6 +3660,17 @@ async function createNewSession(value: string): Promise<void> {
       margin-left: 2px;
       white-space: nowrap;
     }
+  }
+}
+
+
+.document-header-search {
+  width: min(360px, 38vw);
+  min-width: 260px;
+  flex-shrink: 0;
+
+  .doc-search-input {
+    width: 100%;
   }
 }
 

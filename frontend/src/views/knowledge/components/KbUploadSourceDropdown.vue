@@ -25,13 +25,14 @@
         @click="handleActionSelect"
       >
         <t-button
-          variant="text"
-          theme="default"
+          :variant="triggerVariant"
+          :theme="triggerTheme"
           :class="['kb-upload-source-trigger', triggerClass]"
           :data-guide="dataGuide || undefined"
           size="small"
         >
           <template #icon><t-icon :name="triggerIcon" size="16px" /></template>
+          <span v-if="triggerText" class="kb-upload-source-trigger__text">{{ triggerText }}</span>
         </t-button>
       </t-dropdown>
     </t-tooltip>
@@ -72,6 +73,9 @@ const props = withDefaults(defineProps<{
   includeManual?: boolean
   triggerIcon?: string
   triggerClass?: string
+  triggerText?: string
+  triggerTheme?: 'default' | 'primary'
+  triggerVariant?: 'base' | 'outline' | 'dashed' | 'text'
   dataGuide?: string
   tooltip?: string
   placement?: 'top' | 'bottom' | 'bottom-right' | 'bottom-left'
@@ -81,6 +85,9 @@ const props = withDefaults(defineProps<{
   includeManual: false,
   triggerIcon: 'file-add',
   triggerClass: '',
+  triggerText: '',
+  triggerTheme: 'default',
+  triggerVariant: 'text',
   dataGuide: '',
   tooltip: '',
   placement: 'bottom-right',
@@ -226,11 +233,45 @@ defineExpose({ openUrlDialog })
 }
 
 .kb-upload-source-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--td-text-color-secondary);
 
   &:hover {
     color: var(--td-brand-color);
   }
+
+  &.content-bar-solid-btn {
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--td-text-color-anti);
+    background: var(--td-brand-color);
+    border-color: var(--td-brand-color);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.24);
+
+    &:hover {
+      color: var(--td-text-color-anti);
+      background: var(--td-brand-color-hover);
+      border-color: var(--td-brand-color-hover);
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.28);
+    }
+
+    &:active {
+      color: var(--td-text-color-anti);
+      background: var(--td-brand-color-active);
+      border-color: var(--td-brand-color-active);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+    }
+  }
+}
+
+.kb-upload-source-trigger__text {
+  line-height: 1;
 }
 
 .url-import-form {

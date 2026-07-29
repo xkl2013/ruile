@@ -76,29 +76,50 @@
                     </div>
                 </t-tooltip>
             </div>
-            <div class="menu_box" :class="{ 'menu_box--sticky': item.children && !uiStore.sidebarCollapsed }"
-                v-for="(item, index) in topMenuItems" :key="index">
-                <t-tooltip :content="item.title" placement="right" :disabled="!uiStore.sidebarCollapsed">
-                    <div @click="handleMenuClick(item.path)" @mouseenter="mouseenteMenu(item.path)"
-                        @mouseleave="mouseleaveMenu(item.path)" :data-guide="`nav-${item.path}`"
-                        :class="['menu_item', item.childrenPath && item.childrenPath == currentpath ? 'menu_item_c_active' : isMenuItemActive(item.path) ? 'menu_item_active' : '']">
-                        <div class="menu_item-box">
-                            <div class="menu_icon">
-                                <img class="icon"
-                                    :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
-                                    alt="">
-                            </div>
-                            <template v-if="!uiStore.sidebarCollapsed">
-                                <span class="menu_title" :title="item.title">{{ item.title }}</span>
-                                <span v-if="item.path === 'organizations' && orgStore.totalPendingJoinRequestCount > 0"
-                                    class="menu-pending-badge"
-                                    :title="t('organization.settings.pendingJoinRequestsBadge')">{{
-                                        orgStore.totalPendingJoinRequestCount }}</span>
-                            </template>
-                        </div>
+            <template v-for="(item, index) in topMenuItems" :key="index">
+                <template v-if="item.path === 'knowledge-bases'">
+                    <div class="menu_box">
+                        <template v-if="uiStore.sidebarCollapsed">
+                            <t-tooltip :content="item.title" placement="right">
+                                <div @click="handleMenuClick(item.path)" @mouseenter="mouseenteMenu(item.path)"
+                                    @mouseleave="mouseleaveMenu(item.path)" :data-guide="`nav-${item.path}`"
+                                    :class="['menu_item', isMenuItemActive(item.path) ? 'menu_item_active' : '']">
+                                    <div class="menu_item-box">
+                                        <div class="menu_icon">
+                                            <img class="icon" :src="getImgSrc(knowledgeIcon)" alt="">
+                                        </div>
+                                    </div>
+                                </div>
+                            </t-tooltip>
+                        </template>
+                        <template v-else>
+                            <KnowledgeBaseMenu />
+                        </template>
                     </div>
-                </t-tooltip>
-            </div>
+                </template>
+                <div v-else class="menu_box" :class="{ 'menu_box--sticky': item.children && !uiStore.sidebarCollapsed }">
+                    <t-tooltip :content="item.title" placement="right" :disabled="!uiStore.sidebarCollapsed">
+                        <div @click="handleMenuClick(item.path)" @mouseenter="mouseenteMenu(item.path)"
+                            @mouseleave="mouseleaveMenu(item.path)" :data-guide="`nav-${item.path}`"
+                            :class="['menu_item', item.childrenPath && item.childrenPath == currentpath ? 'menu_item_c_active' : isMenuItemActive(item.path) ? 'menu_item_active' : '']">
+                            <div class="menu_item-box">
+                                <div class="menu_icon">
+                                    <img class="icon"
+                                        :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
+                                        alt="">
+                                </div>
+                                <template v-if="!uiStore.sidebarCollapsed">
+                                    <span class="menu_title" :title="item.title">{{ item.title }}</span>
+                                    <span v-if="item.path === 'organizations' && orgStore.totalPendingJoinRequestCount > 0"
+                                        class="menu-pending-badge"
+                                        :title="t('organization.settings.pendingJoinRequestsBadge')">{{
+                                            orgStore.totalPendingJoinRequestCount }}</span>
+                                </template>
+                            </div>
+                        </div>
+                    </t-tooltip>
+                </div>
+            </template>
 
             <!-- 历史会话：按来源筛选后统一按日期分组展示 -->
             <div class="submenu" v-if="!uiStore.sidebarCollapsed"
@@ -255,6 +276,7 @@ import { useCommandPaletteStore } from '@/stores/commandPalette';
 import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
 import UserMenu from '@/components/UserMenu.vue';
 import TenantSelector from '@/components/TenantSelector.vue';
+import KnowledgeBaseMenu from '@/components/KnowledgeBaseMenu.vue';
 import { useI18n } from 'vue-i18n';
 import { getSystemInfo } from '@/api/system';
 

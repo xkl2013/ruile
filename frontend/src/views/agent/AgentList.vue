@@ -1,8 +1,5 @@
 <template>
   <div class="agent-list-container">
-    <ListSpaceSidebar v-if="!authStore.isLiteMode" v-model="spaceSelection" :count-all="allAgentsCount"
-      :count-mine="agents.length" :count-by-org="effectiveSharedCountByOrg" :count-favorites="agentFavoritesCount"
-      :count-recents="agentRecentsCount" />
     <div class="agent-list-content">
       <div class="header" style="--wails-draggable: drag">
         <div class="header-title" style="--wails-draggable: drag">
@@ -60,10 +57,8 @@
           </div>
         </div>
 
-        <!-- 全部 / 收藏 / 最近：共用同一份卡片模板 -->
-        <div
-          v-if="(spaceSelection === 'all' || spaceSelection === 'favorites' || spaceSelection === 'recents') && filteredAgents.length > 0"
-          class="agent-card-wrap">
+        <!-- 全部：共用同一份卡片模板 -->
+        <div v-if="filteredAgents.length > 0" class="agent-card-wrap">
           <template v-for="(agent, index) in filteredAgents"
             :key="agent.isMine ? agent.id : `shared-${agent.share_id}`">
             <!-- 内置：始终置顶。filteredAgents 在 all 视图里已经把
@@ -666,17 +661,6 @@
           </t-button>
         </div>
 
-        <!-- 空状态：收藏 / 最近 — 不放创建按钮，参见 KnowledgeBaseList 的同处理由 -->
-        <div v-if="spaceSelection === 'favorites' && filteredAgents.length === 0 && !loading" class="empty-state">
-          <t-icon name="star" size="48px" class="empty-icon" />
-          <span class="empty-txt">{{ $t('agent.empty.favoritesTitle') }}</span>
-          <span class="empty-desc">{{ $t('agent.empty.favoritesDescription') }}</span>
-        </div>
-        <div v-if="spaceSelection === 'recents' && filteredAgents.length === 0 && !loading" class="empty-state">
-          <t-icon name="history" size="48px" class="empty-icon" />
-          <span class="empty-txt">{{ $t('agent.empty.recentsTitle') }}</span>
-          <span class="empty-desc">{{ $t('agent.empty.recentsDescription') }}</span>
-        </div>
         <!-- 空状态：我的 -->
         <div v-if="spaceSelection === 'mine' && agents.length === 0 && !loading" class="empty-state">
           <img class="empty-img" src="@/assets/img/upload.svg" alt="">
@@ -832,11 +816,9 @@ import { markContextualGuideDone } from '@/config/contextualGuides'
 import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
 import { useUIStore } from '@/stores/ui'
 import AgentAvatar from '@/components/AgentAvatar.vue'
-import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
 import ResourceOriginBadge from '@/components/ResourceOriginBadge.vue'
 import { shouldShowResourceOriginBadge } from '@/utils/card-list-badge'
 import { useAuthStore } from '@/stores/auth'
-import { useListUrlState } from '@/composables/useListUrlState'
 import { useResourcePins } from '@/composables/useResourcePins'
 
 const { t } = useI18n()
@@ -859,34 +841,24 @@ interface AgentWithUI extends CustomAgent {
  *  `permission` drives the「可编辑 / 仅查看」分组，仅在 shared 分支携带。 */
 type DisplayAgent = (AgentWithUI & { isMine: true }) | (CustomAgent & { isMine: false; org_name: string; source_tenant_id: number; share_id: string; permission?: string; showMore?: boolean; disabled_by_me?: boolean })
 
-// 左侧空间选择：默认根据当前角色决定。
-// 与 KnowledgeBaseList 同款逻辑：Viewer 在当前空间里通常没有自建智能体，
-// 默认落到 "all" 才能看到内置 + 共享给我的；Contributor 以上仍默认 "mine"。
-// State synced to `?scope=` so links are shareable. The "mine" value is
-// retained for back-compat with existing links; its display label is
-// rebranded to the active tenant name inside ListSpaceSidebar.
-const defaultScope: 'all' | 'mine' = authStore.hasRole('contributor') ? 'mine' : 'all'
-const { scope: spaceSelection, creator: creatorFilter } = useListUrlState({
-  defaultScope,
-  defaultCreator: 'all',
-})
+const spaceSelection = ref('all')
+const creatorFilter = ref<'all' | 'mine' | 'others'>('all')
+const HIDDEN_BUILTIN_AGENT_IDS = new Set(['builtin-data-analyst'])
+const isHiddenBuiltinAgent = (agent: CustomAgent) =>
+  !!agent.is_builtin && (
+    HIDDEN_BUILTIN_AGENT_IDS.has(agent.id) ||
+    agent.config?.agent_type === 'data-analysis'
+  )
 
 // Per-user favorites + recents (localStorage-backed). See useResourcePins.
 const pins = useResourcePins()
-const agentFavoritesCount = computed(
-  () => pins.favorites.value.filter((e) => e.type === 'agent').length
-)
-const agentRecentsCount = computed(
-  () => pins.recents.value.filter((e) => e.type === 'agent').length
-)
 const agents = ref<AgentWithUI[]>([])
-const sharedAgents = computed<SharedAgentInfo[]>(() => orgStore.sharedAgents || [])
-const allAgentsCount = computed(() => agents.value.length + sharedAgents.value.length)
+const sharedAgents = computed<SharedAgentInfo[]>(() =>
+  (orgStore.sharedAgents || []).filter(s => !s.agent || !isHiddenBuiltinAgent(s.agent as CustomAgent))
+)
 
-// Same gotcha as KnowledgeBaseList: keep the reserved-scope set in sync
-// with ListSpaceSidebar's pseudo-scopes (favorites / recents / shared /
-// mine / all). Anything not in here is treated as an org/space id, which
-// is what triggers the per-space fetch + "no shared agents" empty state.
+// Left scope navigation is hidden; keep the historical scope machinery fixed
+// to "all" so old links cannot switch this page into favorites / recents / space views.
 const RESERVED_SCOPES = new Set(['all', 'mine', 'shared', 'favorites', 'recents'])
 const spaceSelectionOrgId = computed(() => {
   const s = spaceSelection.value
@@ -926,65 +898,7 @@ const effectiveSharedCountByOrg = computed<Record<string, number>>(() => {
   return merged
 })
 
-// Favorites / Recents view: hydrate pinned ids against own + shared agents.
-const agentResourceIndex = computed(() => {
-  const map = new Map<string, { agent: any; isMine: boolean; shared?: SharedAgentInfo }>()
-  for (const a of agents.value) map.set(a.id, { agent: a, isMine: true })
-  for (const s of sharedAgents.value) {
-    if (s.agent && !map.has(s.agent.id)) map.set(s.agent.id, { agent: s.agent, isMine: false, shared: s })
-  }
-  return map
-})
-
-const favoritesAgentList = computed<DisplayAgent[]>(() => {
-  return pins.favorites.value
-    .filter((e) => e.type === 'agent')
-    .map((e) => {
-      const entry = agentResourceIndex.value.get(e.id)
-      if (!entry) return null
-      if (entry.isMine) return { ...entry.agent, isMine: true as const, showMore: false }
-      const s = entry.shared!
-      return {
-        ...entry.agent,
-        isMine: false as const,
-        org_name: s.org_name,
-        source_tenant_id: s.source_tenant_id,
-        share_id: s.share_id,
-        disabled_by_me: s.disabled_by_me,
-        showMore: false,
-      } as DisplayAgent
-    })
-    .filter((x): x is DisplayAgent => x !== null)
-})
-
-const recentsAgentList = computed<DisplayAgent[]>(() => {
-  return pins.recents.value
-    .filter((e) => e.type === 'agent')
-    .map((e) => {
-      const entry = agentResourceIndex.value.get(e.id)
-      if (!entry) return null
-      if (entry.isMine) return { ...entry.agent, isMine: true as const, showMore: false }
-      const s = entry.shared!
-      return {
-        ...entry.agent,
-        isMine: false as const,
-        org_name: s.org_name,
-        source_tenant_id: s.source_tenant_id,
-        share_id: s.share_id,
-        disabled_by_me: s.disabled_by_me,
-        showMore: false,
-      } as DisplayAgent
-    })
-    .filter((x): x is DisplayAgent => x !== null)
-})
-
 const filteredAgents = computed<DisplayAgent[]>(() => {
-  if (spaceSelection.value === 'favorites') return favoritesAgentList.value
-  if (spaceSelection.value === 'recents') return recentsAgentList.value
-  if (spaceSelection.value === 'mine') {
-    return agents.value.map(a => ({ ...a, isMine: true as const }))
-  }
-  if (spaceSelection.value !== 'all') return []
   const list: DisplayAgent[] = []
   // 本空间内的 agent 拆成 内置 → 我创建 → 同事创建 三段。
   // 内置（is_builtin=true）和"个人所有权"是两个维度的概念，置顶为单独
@@ -1102,11 +1016,13 @@ const showAgentListContextualGuide = computed(
 
 const applyAgentListData = (res: { data: CustomAgent[]; disabled_own_agent_ids: string[] }) => {
   const disabledOwnIds = res.disabled_own_agent_ids || []
-  agents.value = (res.data || []).map((agent: CustomAgent) => ({
-    ...agent,
-    showMore: false,
-    disabled_by_me: disabledOwnIds.includes(agent.id)
-  }))
+  agents.value = (res.data || [])
+    .filter((agent: CustomAgent) => !isHiddenBuiltinAgent(agent))
+    .map((agent: CustomAgent) => ({
+      ...agent,
+      showMore: false,
+      disabled_by_me: disabledOwnIds.includes(agent.id)
+    }))
   checkAndOpenEditModal()
 }
 
@@ -1122,6 +1038,12 @@ const fetchList = (force = false) => {
     const counts = orgStore.resourceCounts?.agents?.by_organization
     if (counts) spaceAgentCountByOrg.value = { ...counts }
   })
+}
+
+const clearHiddenAgentListQuery = () => {
+  if (route.query.scope === undefined && route.query.creator === undefined) return
+  const { scope: _scope, creator: _creator, ...rest } = route.query
+  router.replace({ path: route.path, query: rest }).catch(() => {})
 }
 
 // 检查 URL 参数并打开编辑模态框
@@ -1212,6 +1134,7 @@ watch(creatorFilter, () => {
 })
 
 onMounted(() => {
+  clearHiddenAgentListQuery()
   fetchList()
   window.addEventListener('openAgentEditor', handleOpenAgentEditor as EventListener)
 })
