@@ -215,6 +215,57 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	return user, nil
 }
 
+// AdminCreateUser creates an active tenantless account for administrator-driven
+// onboarding. The caller controls authorization and membership assignment; this
+// method only owns identity uniqueness, hashing, and persistence.
+func (s *userService) AdminCreateUser(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
+	logger.Info(ctx, "Start admin user creation")
+	if req == nil {
+		return nil, errors.New("username, phone and password are required")
+	}
+	identity := normalizePhoneOrEmail(req.Phone, req.Email)
+
+	if strings.TrimSpace(req.Username) == "" || identity == "" || req.Password == "" {
+		return nil, errors.New("username, phone and password are required")
+	}
+	username := strings.TrimSpace(req.Username)
+
+	existingUser, _ := s.userRepo.GetUserByEmail(ctx, identity)
+	if existingUser != nil {
+		return nil, errors.New("user with this phone already exists")
+	}
+
+	existingUser, _ = s.userRepo.GetUserByUsername(ctx, username)
+	if existingUser != nil {
+		return nil, errors.New("user with this username already exists")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to hash admin-created user password: %v", err)
+		return nil, errors.New("failed to process password")
+	}
+
+	now := time.Now()
+	user := &types.User{
+		ID:           uuid.New().String(),
+		Username:     username,
+		Email:        identity,
+		PasswordHash: string(hashedPassword),
+		TenantID:     0,
+		IsActive:     true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := s.userRepo.CreateUser(ctx, user); err != nil {
+		logger.Errorf(ctx, "Failed to create admin-created user: %v", err)
+		return nil, errors.New("failed to create user")
+	}
+
+	logger.Info(ctx, "Admin user created successfully")
+	return user, nil
+}
+
 // Login authenticates a user and returns tokens
 func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*types.LoginResponse, error) {
 	logger.Info(ctx, "Start user login")

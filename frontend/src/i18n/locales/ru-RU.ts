@@ -399,7 +399,7 @@ export default {
     noValidFilesSelected: 'Все выбранные файлы не поддерживаются',
     hiddenFilesFiltered: 'Отфильтровано {count} скрытых файлов',
     imagesFilteredNoVLM: 'Отфильтровано {count} изображений (VLM не включен)',
-    videosFilteredNoVLM: 'Пропущено {count} видеофайлов (загрузка видео не поддерживается)',
+    videosFilteredNoVLM: 'Пропущено {count} видеофайлов',
     audiosFilteredNoASR: 'Отфильтровано {count} аудиофайлов (ASR не включен)',
     invalidFilesFiltered: 'Отфильтровано {count} неподдерживаемых файлов',
     unsupportedFileType: 'Неподдерживаемый тип файла',
@@ -409,7 +409,7 @@ export default {
     andMoreFiles: '...и ещё {count} файлов',
     duplicateFilesSkipped: 'Пропущено {count} повторяющихся файлов',
     uploadFile: 'Загрузить файл',
-    uploadFileDesc: 'Поддерживает PDF, Word, TXT, изображения, аудио и т.д.',
+    uploadFileDesc: 'Поддерживает PDF, Word, TXT, изображения, аудио, видео и т.д.',
     importURL: 'Импорт из URL',
     importURLDesc: 'Импорт по ссылке URL',
     importURLTitle: 'Импорт из URL',
@@ -737,7 +737,7 @@ export default {
     tabParser: 'Парсер',
     tabChunking: 'Разбиение',
     tabMultimodal: 'Мультимодальность',
-    tabAsr: 'Аудио',
+    tabAsr: 'Аудио/видео',
     tabQuestion: 'Генерация вопросов',
     tabGraph: 'Граф знаний',
     noFiles: 'Оставьте хотя бы один файл для загрузки',
@@ -748,8 +748,8 @@ export default {
     addUrl: 'Добавить',
     vlmModelRequired: 'В партии есть изображения. Включите мультимодальность и выберите модель VLM.',
     multimodalRequiredForImages: 'Выкл. (в партии есть изображения)',
-    asrModelRequired: 'В партии есть аудио. Включите ASR и выберите модель распознавания речи.',
-    asrRequiredForAudio: 'Выкл. (в партии есть аудио)',
+    asrModelRequired: 'В партии есть аудио или видео. Включите ASR и выберите модель распознавания речи.',
+    asrRequiredForAudio: 'Выкл. (в партии есть аудио/видео)',
     vlmModelSelectRequired: 'Мультимодальность включена. Выберите модель VLM.',
     asrModelSelectRequired: 'Распознавание речи включено. Выберите модель ASR.',
     pdfForceScanned: {
@@ -1144,6 +1144,10 @@ export default {
       smartReasoning: {
         name: 'Smart Reasoning',
         description: 'ReAct reasoning framework with multi-step thinking and tool calling'
+      },
+      salesDirector: {
+        name: 'Sales Director',
+        description: 'Education and training sales strategy agent for frontline consultants, providing sales playbooks, talk tracks, objection handling and follow-up plans'
       },
       deepResearcher: {
         name: 'Deep Researcher',
@@ -2931,6 +2935,7 @@ export default {
       downloadStartFailed: 'Не удалось запустить загрузку',
       ollamaUnavailable: 'Сервис Ollama недоступен, локальные модели недоступны для выбора',
       ollamaNotSupportRerank: 'Ollama не поддерживает модели ReRank, используйте удалённый API',
+      ollamaNotSupportAsr: 'Модели ASR используют OpenAI-совместимый API транскрибации, используйте удалённый API',
       goToOllamaSettings: 'Открыть настройки',
       validation: {
         modelNameRequired: 'Введите название модели',
@@ -4424,7 +4429,7 @@ export default {
       embedding: 'Embedding',
       rerank: 'ReRank',
       vllm: 'Зрение',
-      asr: 'Речь',
+      asr: 'Речь/ASR',
     },
     actions: {
       addModel: 'Добавить модель',
@@ -5016,7 +5021,7 @@ export default {
       fileTypeText: 'Текстовые файлы',
       fileTypeJson: 'Файлы JSON',
       fileTypeImage: 'Изображения',
-      fileTypeAudiovisual: 'Аудио',
+      fileTypeAudiovisual: 'Аудио/видео',
       engines: {
         builtin: {
           name: 'Встроенный',
@@ -5483,6 +5488,7 @@ export default {
         wikiQa: 'Wiki отключён',
         hybridRagWiki: 'Поиск не включён',
         dataAnalysis: 'Требуется RAG (не FAQ)',
+        educationSales: 'Требуется RAG-поиск',
         quickAnswer: 'Быстрый ответ требует RAG-поиск',
         generic: 'Несовместимо с типом',
       },
@@ -6516,11 +6522,22 @@ export default {
     add: {
       button: 'Пригласить',
       dialogTitle: 'Пригласить участника',
-      emailLabel: 'Email',
-      emailPlaceholder: "invitee{'@'}example.com",
+      phoneLabel: 'Номер телефона',
+      phonePlaceholder: 'Введите номер телефона',
       roleLabel: 'Роль',
       submit: 'Пригласить',
       success: 'Участник добавлен',
+    },
+    create: {
+      button: 'Добавить участника',
+      dialogTitle: 'Добавить участника',
+      nameLabel: 'Имя',
+      namePlaceholder: 'Введите имя',
+      phoneLabel: 'Номер телефона',
+      phonePlaceholder: 'Введите номер телефона',
+      passwordHint: 'Пароль по умолчанию: rl + последние 4 цифры:',
+      submit: 'Добавить',
+      success: 'Участник добавлен. Пароль по умолчанию: {password}',
     },
     remove: {
       button: 'Удалить',
@@ -6540,10 +6557,14 @@ export default {
       success: 'Роль обновлена',
     },
     errors: {
-      emailRequired: 'Укажите email',
-      emailFormat: 'Неверный формат email',
+      nameRequired: 'Укажите имя',
+      nameTooLong: 'Имя должно быть не длиннее 50 символов',
+      phoneRequired: 'Укажите номер телефона',
+      phoneFormat: 'Неверный формат номера телефона',
+      phoneExists: 'Аккаунт с этим номером телефона уже существует.',
+      nameExists: 'Аккаунт с таким именем уже существует. Используйте различимое имя.',
       roleRequired: 'Выберите роль',
-      userNotFound: 'Пользователь с таким email не зарегистрирован. Попросите его зарегистрироваться.',
+      userNotFound: 'Пользователь с таким номером телефона не зарегистрирован. Попросите его зарегистрироваться.',
       alreadyMember: 'Этот пользователь уже участник пространства.',
       lastOwner: 'Нельзя понизить, удалить или покинуть как последний Владелец. Сначала повысьте кого-то ещё до Владельца.',
       notFound: 'Участник не найден.',

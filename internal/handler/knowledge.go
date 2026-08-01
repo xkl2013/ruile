@@ -126,7 +126,17 @@ func (h *KnowledgeHandler) validateKnowledgeBaseAccessWithKBID(c *gin.Context, k
 		return nil, kbID, 0, "", errors.NewInternalServerError(err.Error())
 	}
 	if kb.TenantID == tenantID {
-		return kb, kbID, tenantID, types.OrgRoleAdmin, nil
+		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
+			types.IsSystemAdminFromContext(ctx) ||
+			callerTenantRole.HasPermission(types.TenantRoleAdmin) {
+			return kb, kbID, tenantID, types.OrgRoleAdmin, nil
+		}
+		if userExists {
+			if userIDStr, ok := userID.(string); ok && kb.CreatorID != "" && kb.CreatorID == userIDStr {
+				return kb, kbID, tenantID, types.OrgRoleAdmin, nil
+			}
+		}
+		return nil, kbID, 0, "", errors.NewForbiddenError("Permission denied to access this knowledge base")
 	}
 	if h.kbShareService != nil {
 		permission, isShared, permErr := h.kbShareService.CheckTenantKBPermission(ctx, kbID, tenantID, callerTenantRole)
@@ -146,8 +156,6 @@ func (h *KnowledgeHandler) validateKnowledgeBaseAccessWithKBID(c *gin.Context, k
 			return kb, kbID, kb.TenantID, types.OrgRoleViewer, nil
 		}
 	}
-	_ = userID
-	_ = userExists
 	logger.Warnf(ctx, "Permission denied to access KB %s, tenant ID: %d, KB tenant: %d", kbID, tenantID, kb.TenantID)
 	return nil, kbID, 0, "", errors.NewForbiddenError("Permission denied to access this knowledge base")
 }
@@ -171,11 +179,25 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
 		return nil, ctx, err
 	}
 
-	// Owner: knowledge belongs to caller's tenant
+	// Same-tenant knowledge: Admin+ can access all tenant KB content;
+	// ordinary members only access content in KBs they created.
 	if knowledge.TenantID == tenantID {
-		return knowledge, context.WithValue(ctx, types.TenantIDContextKey, tenantID), nil
+		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
+			types.IsSystemAdminFromContext(ctx) ||
+			callerTenantRole.HasPermission(types.TenantRoleAdmin) {
+			return knowledge, context.WithValue(ctx, types.TenantIDContextKey, tenantID), nil
+		}
+		if userExists {
+			userIDStr, ok := userID.(string)
+			if ok && userIDStr != "" && h.kbService != nil {
+				kb, kbErr := h.kbService.GetKnowledgeBaseByID(ctx, knowledge.KnowledgeBaseID)
+				if kbErr == nil && kb != nil && kb.CreatorID != "" && kb.CreatorID == userIDStr {
+					return knowledge, context.WithValue(ctx, types.TenantIDContextKey, tenantID), nil
+				}
+			}
+		}
+		return nil, ctx, errors.NewForbiddenError("Permission denied to access this knowledge")
 	}
-
 	// Shared KB: check organization permission
 	if h.kbShareService != nil {
 		permission, isShared, permErr := h.kbShareService.CheckTenantKBPermission(ctx, knowledge.KnowledgeBaseID, tenantID, callerTenantRole)
@@ -217,8 +239,6 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
 			}
 		}
 	}
-	_ = userID
-	_ = userExists
 	return nil, ctx, errors.NewForbiddenError("Permission denied to access this knowledge")
 }
 

@@ -5,6 +5,7 @@ import { get, post, put, del } from '@/utils/request'
 export type TenantRole = 'owner' | 'admin' | 'contributor' | 'viewer'
 
 export type TenantMemberStatus = 'active' | 'invited' | 'suspended'
+export type TenantMemberSource = 'manual' | 'invite' | 'sso' | 'scim' | 'ldap' | 'hris'
 
 // TenantMember is the API projection of a (user, tenant) membership row,
 // already joined with the user's email/username/avatar by the backend.
@@ -15,8 +16,13 @@ export interface TenantMember {
   avatar?: string
   role: TenantRole
   status: TenantMemberStatus
+  source?: TenantMemberSource
+  external_user_id?: string
+  department?: string
   invited_by?: string | null
   joined_at: string
+  expires_at?: string | null
+  suspended_at?: string | null
 }
 
 export interface ListMembersResponse {
@@ -35,6 +41,10 @@ export interface ListMembersParams {
   page_size?: number
   /** 按邮箱/用户名筛选（服务端模糊匹配） */
   q?: string
+  role?: TenantRole | ''
+  status?: TenantMemberStatus | ''
+  source?: TenantMemberSource | ''
+  department?: string
 }
 
 function buildMembersQuery(params: ListMembersParams | undefined): string {
@@ -44,6 +54,11 @@ function buildMembersQuery(params: ListMembersParams | undefined): string {
   if (params.page_size != null && params.page_size > 0) u.set('page_size', String(params.page_size))
   const q = params.q?.trim()
   if (q) u.set('q', q)
+  if (params.role) u.set('role', params.role)
+  if (params.status) u.set('status', params.status)
+  if (params.source) u.set('source', params.source)
+  const department = params.department?.trim()
+  if (department) u.set('department', department)
   const qs = u.toString()
   return qs ? `?${qs}` : ''
 }
@@ -51,6 +66,12 @@ function buildMembersQuery(params: ListMembersParams | undefined): string {
 export interface AddMemberRequest {
   email: string
   role: TenantRole
+}
+
+export interface AdminCreateMemberRequest {
+  phone: string
+  name: string
+  role?: TenantRole
 }
 
 export interface AddMemberResponse {
@@ -66,7 +87,8 @@ export interface SimpleResponse {
 
 /**
  * 分页列出空间成员。
- * Backend: GET /api/v1/tenants/:id/members (Viewer+)。查询参数：`q`、`page`、`page_size`。
+ * Backend: GET /api/v1/tenants/:id/members (Viewer+)。
+ * 查询参数：`q`、`role`、`status`、`source`、`department`、`page`、`page_size`。
  */
 export async function listMembers(
   tenantId: number,
@@ -102,7 +124,7 @@ export async function fetchAllTenantMembers(tenantId: number): Promise<TenantMem
 
 /**
  * Invite an existing user (by email) to the tenant with the given role.
- * Backend: POST /api/v1/tenants/:id/members (Owner+).
+ * Backend: POST /api/v1/tenants/:id/members (Admin+; Owner role still needs Owner/system admin).
  *
  * Returns 404 when the email does not match any registered user — the
  * caller should ask the invitee to register first. PR 3 does not yet
@@ -116,8 +138,24 @@ export async function addMember(
 }
 
 /**
+ * Create an account from the admin member-management screen and immediately
+ * add it to the current tenant. Backend sets the initial password to
+ * `rl` + the last four digits of the phone number.
+ * Backend: POST /api/v1/tenants/:id/members/admin-create (Admin+).
+ */
+export async function adminCreateMember(
+  tenantId: number,
+  body: AdminCreateMemberRequest,
+): Promise<AddMemberResponse> {
+  return (await post(
+    `/api/v1/tenants/${tenantId}/members/admin-create`,
+    body,
+  )) as unknown as AddMemberResponse
+}
+
+/**
  * Change an existing member's role.
- * Backend: PUT /api/v1/tenants/:id/members/:user_id (Owner+).
+ * Backend: PUT /api/v1/tenants/:id/members/:user_id (Admin+; Owner role still needs Owner/system admin).
  *
  * Returns 409 when this would demote the last active Owner of the tenant.
  */
@@ -131,7 +169,7 @@ export async function updateMemberRole(
 
 /**
  * Remove a member from the tenant.
- * Backend: DELETE /api/v1/tenants/:id/members/:user_id (Owner+).
+ * Backend: DELETE /api/v1/tenants/:id/members/:user_id (Admin+; removing Owner still needs Owner/system admin).
  *
  * Returns 409 when this would remove the last active Owner.
  */
@@ -140,6 +178,28 @@ export async function removeMember(
   userId: string,
 ): Promise<SimpleResponse> {
   return (await del(`/api/v1/tenants/${tenantId}/members/${userId}`)) as unknown as SimpleResponse
+}
+
+/**
+ * Suspend a member's workspace access and revoke active sessions.
+ * Backend: POST /api/v1/tenants/:id/members/:user_id/suspend (Admin+).
+ */
+export async function suspendMember(
+  tenantId: number,
+  userId: string,
+): Promise<SimpleResponse> {
+  return (await post(`/api/v1/tenants/${tenantId}/members/${userId}/suspend`)) as unknown as SimpleResponse
+}
+
+/**
+ * Restore a suspended member's workspace access.
+ * Backend: POST /api/v1/tenants/:id/members/:user_id/reactivate (Admin+).
+ */
+export async function reactivateMember(
+  tenantId: number,
+  userId: string,
+): Promise<SimpleResponse> {
+  return (await post(`/api/v1/tenants/${tenantId}/members/${userId}/reactivate`)) as unknown as SimpleResponse
 }
 
 /**

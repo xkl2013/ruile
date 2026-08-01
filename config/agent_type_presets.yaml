@@ -182,6 +182,39 @@ agent_type_presets:
       none_of: ["faq"]
 
   # --------------------------------------------------------------------------
+  # Education Sales — sales strategy and frontline talk tracks for education /
+  # training businesses. Uses KB retrieval for company/course facts while the
+  # prompt supplies consultative sales playbooks and compliance boundaries.
+  # --------------------------------------------------------------------------
+  - id: "education-sales"
+    i18n:
+      default:
+        label: "Education Sales"
+        description: "Sales strategy, talk tracks, objection handling and follow-up plans for education/training frontline teams. Company facts come from the KB."
+      zh-CN:
+        label: "教培销售"
+        description: "面向教培一线招生/顾问场景，提供销售策略、沟通话术、异议处理和跟进计划；课程、价格、政策等事实以知识库为准。"
+      zh-TW:
+        label: "教培銷售"
+        description: "面向教培一線招生/顧問場景，提供銷售策略、溝通話術、異議處理和跟進計畫；課程、價格、政策等事實以知識庫為準。"
+    config:
+      system_prompt_id: "education_sales_director"
+      temperature: 0.6
+      max_iterations: 30
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "list_knowledge_chunks"
+        - "get_document_info"
+      retain_retrieval_history: false
+      faq_priority_enabled: true
+      web_search_enabled: false
+      kb_selection_mode: "all"
+    # kb_filter derived from allowed_tools: any_of = [vector, keyword].
+    # FAQ KBs are allowed because sales scripts, objection handling and policy
+    # answers often live as Q&A pairs.
+
+  # --------------------------------------------------------------------------
   # Custom — no preset; user configures everything by hand.
   # --------------------------------------------------------------------------
   - id: "custom"

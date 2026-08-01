@@ -274,6 +274,7 @@ import type {
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'ogg']
+const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv']
 
 interface ChunkingUIConfig {
   chunkSize: number
@@ -516,7 +517,7 @@ const overviewLines = computed(() => {
       title: t('uploadConfirm.tabAsr'),
       value: asr.enabled
         ? `${t('uploadConfirm.statusOn')} · ${asr.modelId ? getModelName(asr.modelId) : t('uploadConfirm.notSet')}`
-        : (hasAudio.value ? t('uploadConfirm.asrRequiredForAudio') : t('uploadConfirm.statusOff')),
+        : (hasAudiovisual.value ? t('uploadConfirm.asrRequiredForAudio') : t('uploadConfirm.statusOff')),
     },
     {
       key: 'question',
@@ -574,8 +575,8 @@ const hasImages = computed(() => {
   return batchFileExts.value.some(ext => IMAGE_EXTENSIONS.includes(ext))
 })
 
-const hasAudio = computed(() => {
-  return batchFileExts.value.some(ext => AUDIO_EXTENSIONS.includes(ext))
+const hasAudiovisual = computed(() => {
+  return batchFileExts.value.some(ext => AUDIO_EXTENSIONS.includes(ext) || VIDEO_EXTENSIONS.includes(ext))
 })
 
 const showMultimodalModelError = computed(() => {
@@ -595,7 +596,7 @@ const issueSectionKeys = computed(() => {
   } else if (showMultimodalModelError.value) {
     keys.add('multimodal')
   }
-  if (hasAudio.value) {
+  if (hasAudiovisual.value) {
     if (!uiState.value.asrConfig.enabled || !uiState.value.asrConfig.modelId) {
       keys.add('asr')
     }
@@ -613,7 +614,7 @@ const canConfirm = computed(() => {
       return false
     }
   }
-  if (hasAudio.value) {
+  if (hasAudiovisual.value) {
     if (!uiState.value.asrConfig.enabled || !uiState.value.asrConfig.modelId) {
       return false
     }
@@ -920,7 +921,7 @@ const validateBeforeConfirm = (): boolean => {
     return false
   }
 
-  if (hasAudio.value) {
+  if (hasAudiovisual.value) {
     if (!uiState.value.asrConfig.enabled || !uiState.value.asrConfig.modelId) {
       MessagePlugin.warning(t('uploadConfirm.asrModelRequired'))
       activeSection.value = 'asr'

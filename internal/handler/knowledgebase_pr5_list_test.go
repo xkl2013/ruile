@@ -79,18 +79,99 @@ func newListKBRouter(
 	svc interfaces.KnowledgeBaseService,
 	vss interfaces.VectorStoreService,
 ) *gin.Engine {
+	return newListKBRouterWithRole(t, svc, vss, types.TenantRoleAdmin, "u-test")
+}
+
+func newListKBRouterWithRole(
+	t *testing.T,
+	svc interfaces.KnowledgeBaseService,
+	vss interfaces.VectorStoreService,
+	role types.TenantRole,
+	userID string,
+) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.ErrorHandler())
 	r.Use(func(c *gin.Context) {
 		c.Set(types.TenantIDContextKey.String(), uint64(1))
-		c.Set(types.UserIDContextKey.String(), "u-test")
+		c.Set(types.UserIDContextKey.String(), userID)
+		ctx := c.Request.Context()
+		ctx = context.WithValue(ctx, types.TenantIDContextKey, uint64(1))
+		ctx = context.WithValue(ctx, types.UserIDContextKey, userID)
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, role)
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})
 	h := &KnowledgeBaseHandler{service: svc, vectorStoreService: vss}
 	r.GET("/knowledge-bases", h.ListKnowledgeBases)
 	return r
+}
+
+func TestListKB_HidesTenantKBsWithoutReadPermission(t *testing.T) {
+	kbs := []*types.KnowledgeBase{
+		{ID: "mine", Name: "mine", TenantID: 1, CreatorID: "u-test"},
+		{ID: "teammate", Name: "teammate", TenantID: 1, CreatorID: "u-other"},
+		{ID: "legacy", Name: "legacy", TenantID: 1},
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/knowledge-bases", nil)
+	newListKBRouterWithRole(t, &stubListKBService{kbs: kbs}, &stubVectorStoreService{}, types.TenantRoleViewer, "u-test").
+		ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Success bool                     `json:"success"`
+		Data    []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v body=%s", err, w.Body.String())
+	}
+	if !envelope.Success || len(envelope.Data) != 1 {
+		t.Fatalf("expected only caller-owned KB, got %d rows body=%s", len(envelope.Data), w.Body.String())
+	}
+	if envelope.Data[0]["id"] != "mine" {
+		t.Fatalf("expected mine, got %v", envelope.Data[0]["id"])
+	}
+}
+
+func TestOrganizationKBVisibility_HidesCurrentTenantKBsWithoutReadPermission(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantRoleContextKey, types.TenantRoleViewer)
+	ctx = context.WithValue(ctx, types.UserIDContextKey, "u-test")
+
+	list := []*types.OrganizationSharedKnowledgeBaseItem{
+		{
+			SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
+				KnowledgeBase:  &types.KnowledgeBase{ID: "mine", Name: "mine", TenantID: 1, CreatorID: "u-test"},
+				SourceTenantID: 1,
+			},
+			IsMine: true,
+		},
+		{
+			SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
+				KnowledgeBase:  &types.KnowledgeBase{ID: "teammate", Name: "teammate", TenantID: 1, CreatorID: "u-other"},
+				SourceTenantID: 1,
+			},
+			IsMine: true,
+		},
+		{
+			SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
+				KnowledgeBase:  &types.KnowledgeBase{ID: "shared-in", Name: "shared-in", TenantID: 2, CreatorID: "u-owner"},
+				SourceTenantID: 2,
+			},
+		},
+	}
+
+	got := filterOrganizationKnowledgeBasesForCallerVisibility(ctx, 1, list)
+	if len(got) != 2 {
+		t.Fatalf("expected own KB plus shared-in KB, got %d rows", len(got))
+	}
+	if got[0].KnowledgeBase.ID != "mine" || got[1].KnowledgeBase.ID != "shared-in" {
+		t.Fatalf("unexpected visible KBs: %s, %s", got[0].KnowledgeBase.ID, got[1].KnowledgeBase.ID)
+	}
 }
 
 func TestListKB_EnrichesEnvBoundAndSharedDistinctly(t *testing.T) {

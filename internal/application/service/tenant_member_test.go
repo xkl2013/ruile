@@ -92,15 +92,29 @@ func (r *fakeTenantMemberRepo) ListByTenant(ctx context.Context, tenantID uint64
 	return out, nil
 }
 
-func (r *fakeTenantMemberRepo) filterTenantRows(tenantID uint64, search string) []*types.TenantMember {
-	search = strings.TrimSpace(strings.ToLower(search))
+func (r *fakeTenantMemberRepo) filterTenantRows(tenantID uint64, filter types.TenantMemberListFilter) []*types.TenantMember {
+	search := strings.TrimSpace(strings.ToLower(filter.Query))
+	department := strings.TrimSpace(strings.ToLower(filter.Department))
 	var out []*types.TenantMember
 	for _, e := range r.rows {
 		if e.TenantID != tenantID || e.DeletedAt.Valid {
 			continue
 		}
+		if filter.Role.IsValid() && e.Role != filter.Role {
+			continue
+		}
+		if filter.Status != "" && e.Status != filter.Status {
+			continue
+		}
+		if filter.Source.IsValid() && e.Source != filter.Source {
+			continue
+		}
+		if department != "" && strings.ToLower(e.Department) != department {
+			continue
+		}
 		if search != "" {
-			if !strings.Contains(strings.ToLower(e.UserID), search) {
+			if !strings.Contains(strings.ToLower(e.UserID), search) &&
+				!strings.Contains(strings.ToLower(e.ExternalUserID), search) {
 				continue
 			}
 		}
@@ -117,15 +131,15 @@ func (r *fakeTenantMemberRepo) filterTenantRows(tenantID uint64, search string) 
 }
 
 func (r *fakeTenantMemberRepo) CountFilteredByTenant(
-	ctx context.Context, tenantID uint64, search string,
+	ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter,
 ) (int64, error) {
-	return int64(len(r.filterTenantRows(tenantID, search))), nil
+	return int64(len(r.filterTenantRows(tenantID, filter))), nil
 }
 
 func (r *fakeTenantMemberRepo) ListPagedByTenant(
-	ctx context.Context, tenantID uint64, search string, offset, limit int,
+	ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter, offset, limit int,
 ) ([]*types.TenantMember, error) {
-	all := r.filterTenantRows(tenantID, search)
+	all := r.filterTenantRows(tenantID, filter)
 	if offset >= len(all) {
 		return []*types.TenantMember{}, nil
 	}
@@ -160,6 +174,23 @@ func (r *fakeTenantMemberRepo) SoftDelete(ctx context.Context, userID string, te
 		}
 	}
 	return errors.New("not found")
+}
+
+func (r *fakeTenantMemberRepo) UpdateStatus(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	status types.TenantMemberStatus,
+	suspendedAt *time.Time,
+) error {
+	for _, e := range r.rows {
+		if e.UserID == userID && e.TenantID == tenantID && !e.DeletedAt.Valid {
+			e.Status = status
+			e.SuspendedAt = suspendedAt
+			return nil
+		}
+	}
+	return gormErrRecordNotFound
 }
 
 func (r *fakeTenantMemberRepo) CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error) {
@@ -257,7 +288,7 @@ func newServiceWithRepo() (interfaces.TenantMemberService, *fakeTenantMemberRepo
 	// and exercise membership invariants only. The service's audit
 	// hooks are nil-safe (see emitAudit), so passing nil keeps existing
 	// coverage intact without forcing a stub.
-	return NewTenantMemberService(r, nil), r
+	return NewTenantMemberService(r, nil, nil), r
 }
 
 func TestTenantMemberService_AddMember_RejectsInvalidRole(t *testing.T) {
@@ -277,6 +308,19 @@ func TestTenantMemberService_AddMember_RejectsDuplicate(t *testing.T) {
 	_, err := svc.AddMember(ctx, "u1", 1, types.TenantRoleContributor, nil)
 	if !errors.Is(err, ErrMembershipAlreadyExists) {
 		t.Fatalf("want ErrMembershipAlreadyExists, got %v", err)
+	}
+}
+
+func TestTenantMemberService_AddMember_MarksInvitedSource(t *testing.T) {
+	svc, _ := newServiceWithRepo()
+	ctx := context.Background()
+	inviter := "owner"
+	member, err := svc.AddMember(ctx, "u1", 1, types.TenantRoleContributor, &inviter)
+	if err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if member.Source != types.TenantMemberSourceInvite {
+		t.Fatalf("source = %q, want invite", member.Source)
 	}
 }
 
@@ -403,6 +447,72 @@ func TestTenantMemberService_RemoveMember_ReturnsNotFound(t *testing.T) {
 	svc, _ := newServiceWithRepo()
 	if err := svc.RemoveMember(context.Background(), "ghost", 1); !errors.Is(err, ErrMembershipNotFound) {
 		t.Fatalf("want ErrMembershipNotFound, got %v", err)
+	}
+}
+
+func TestTenantMemberService_SuspendMember_RevokesSessionsAndSetsStatus(t *testing.T) {
+	repo := newFakeRepo()
+	tokens := &stubAuthTokenRepo{}
+	svc := NewTenantMemberService(repo, nil, tokens)
+	ctx := context.Background()
+	if _, err := svc.EnsureOwner(ctx, "owner", 1); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	if _, err := svc.AddMember(ctx, "member", 1, types.TenantRoleContributor, nil); err != nil {
+		t.Fatalf("seed member: %v", err)
+	}
+	if err := svc.SuspendMember(ctx, "member", 1); err != nil {
+		t.Fatalf("SuspendMember: %v", err)
+	}
+	got, err := svc.GetMembership(ctx, "member", 1)
+	if err != nil {
+		t.Fatalf("GetMembership: %v", err)
+	}
+	if got.Status != types.TenantMemberStatusSuspended {
+		t.Fatalf("status = %q, want suspended", got.Status)
+	}
+	if got.SuspendedAt == nil {
+		t.Fatal("SuspendedAt should be set")
+	}
+	if len(tokens.revokedUserIDs) != 1 || tokens.revokedUserIDs[0] != "member" {
+		t.Fatalf("revoked users = %v, want [member]", tokens.revokedUserIDs)
+	}
+}
+
+func TestTenantMemberService_SuspendMember_BlocksLastOwner(t *testing.T) {
+	svc, _ := newServiceWithRepo()
+	ctx := context.Background()
+	if _, err := svc.EnsureOwner(ctx, "owner", 1); err != nil {
+		t.Fatalf("seed owner: %v", err)
+	}
+	if err := svc.SuspendMember(ctx, "owner", 1); !errors.Is(err, ErrLastOwner) {
+		t.Fatalf("want ErrLastOwner, got %v", err)
+	}
+}
+
+func TestTenantMemberService_ReactivateMember_SetsActiveAndClearsSuspendedAt(t *testing.T) {
+	svc, repo := newServiceWithRepo()
+	suspendedAt := time.Now().Add(-time.Hour)
+	repo.rows = append(repo.rows, &types.TenantMember{
+		ID:          1,
+		UserID:      "member",
+		TenantID:    1,
+		Role:        types.TenantRoleContributor,
+		Status:      types.TenantMemberStatusSuspended,
+		SuspendedAt: &suspendedAt,
+	})
+	if err := svc.ReactivateMember(context.Background(), "member", 1); err != nil {
+		t.Fatalf("ReactivateMember: %v", err)
+	}
+	got, err := svc.GetMembership(context.Background(), "member", 1)
+	if err != nil {
+		t.Fatalf("GetMembership: %v", err)
+	}
+	if got.Status != types.TenantMemberStatusActive {
+		t.Fatalf("status = %q, want active", got.Status)
+	}
+	if got.SuspendedAt != nil {
+		t.Fatalf("SuspendedAt = %v, want nil", got.SuspendedAt)
 	}
 }
 

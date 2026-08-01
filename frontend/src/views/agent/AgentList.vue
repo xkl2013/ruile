@@ -5,7 +5,7 @@
         <div class="header-title" style="--wails-draggable: drag">
           <div class="title-row" style="--wails-draggable: drag">
             <h2 style="--wails-draggable: drag">{{ $t('agent.title') }}</h2>
-            <t-tooltip v-if="authStore.hasRole('contributor')" :content="$t('agent.createAgent')" placement="bottom">
+            <t-tooltip v-if="authStore.hasRole('admin')" :content="$t('agent.createAgent')" placement="bottom">
               <t-button variant="text" theme="default" size="small" class="header-action-btn"
                 data-guide="agent-list-create" style="--wails-draggable: no-drag" @click="handleCreateAgent">
                 <template #icon>
@@ -190,7 +190,7 @@
                   <span class="card-title" :title="agent.name">{{ agent.name }}</span>
                 </div>
                 <t-popup
-                  v-if="agent.isMine && (canManageAgent(agent) || authStore.hasRole('contributor') || authStore.hasRole('admin'))"
+                  v-if="agent.isMine && authStore.hasRole('admin')"
                   :visible="openMoreAgentId === agent.id" trigger="hover" overlayClassName="card-more-popup"
                   destroy-on-close placement="bottom-right" @visible-change="onVisibleChange"
                   @update:visible="(v: boolean) => { if (!v) openMoreAgentId = null }">
@@ -202,7 +202,7 @@
                     <div class="popup-menu">
                       <div v-if="canManageAgent(agent)" class="popup-menu-item" @click="handleEdit(agent)"><t-icon
                           class="menu-icon" name="edit" /><span>{{ $t('common.edit') }}</span></div>
-                      <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
+                      <div v-if="authStore.hasRole('admin')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" /><span>{{ $t('common.copy') }}</span>
                       </div>
                       <div v-if="authStore.hasRole('admin')" class="popup-menu-item"
@@ -391,7 +391,7 @@
                   <AgentAvatar v-else :name="agent.name" size="small" />
                   <span class="card-title" :title="agent.name">{{ agent.name }}</span>
                 </div>
-                <t-popup v-if="canManageAgent(agent) || authStore.hasRole('contributor') || authStore.hasRole('admin')"
+                <t-popup v-if="authStore.hasRole('admin')"
                   :visible="openMoreAgentId === agent.id" trigger="hover" overlayClassName="card-more-popup"
                   destroy-on-close placement="bottom-right" @visible-change="onVisibleChange"
                   @update:visible="(v: boolean) => { if (!v) openMoreAgentId = null }">
@@ -405,7 +405,7 @@
                         <t-icon class="menu-icon" name="edit" />
                         <span>{{ $t('common.edit') }}</span>
                       </div>
-                      <div v-if="authStore.hasRole('contributor')" class="popup-menu-item" @click="handleCopy(agent)">
+                      <div v-if="authStore.hasRole('admin')" class="popup-menu-item" @click="handleCopy(agent)">
                         <t-icon class="menu-icon" name="file-copy" />
                         <span>{{ $t('common.copy') }}</span>
                       </div>
@@ -636,7 +636,7 @@
           <img class="empty-img" src="@/assets/img/upload.svg" alt="">
           <span class="empty-txt">{{ $t('agent.empty.title') }}</span>
           <span class="empty-desc">{{ $t('agent.empty.description') }}</span>
-          <t-button v-if="authStore.hasRole('contributor')" class="agent-create-btn empty-state-btn"
+          <t-button v-if="authStore.hasRole('admin')" class="agent-create-btn empty-state-btn"
             data-guide="agent-list-create" @click="handleCreateAgent">
             <template #icon>
               <span class="btn-icon-wrapper">
@@ -666,7 +666,7 @@
           <img class="empty-img" src="@/assets/img/upload.svg" alt="">
           <span class="empty-txt">{{ $t('agent.empty.title') }}</span>
           <span class="empty-desc">{{ $t('agent.empty.description') }}</span>
-          <t-button v-if="authStore.hasRole('contributor')" class="agent-create-btn empty-state-btn"
+          <t-button v-if="authStore.hasRole('admin')" class="agent-create-btn empty-state-btn"
             @click="handleCreateAgent">
             <template #icon>
               <span class="btn-icon-wrapper">
@@ -1000,7 +1000,7 @@ const openMoreAgentId = ref<string | null>(null)
 
 const showAgentListEmpty = computed(() => {
   if (loading.value) return false
-  if (!authStore.hasRole('contributor')) return false
+  if (!authStore.hasRole('admin')) return false
   if (spaceSelection.value === 'all' && filteredAgents.value.length === 0) return true
   if (spaceSelection.value === 'mine' && agents.value.length === 0) return true
   return false
@@ -1046,6 +1046,15 @@ const clearHiddenAgentListQuery = () => {
   router.replace({ path: route.path, query: rest }).catch(() => {})
 }
 
+const resolveAgentEditorSectionFromRoute = () => {
+  const agentSection = route.query.agentSection
+  if (typeof agentSection === 'string') return agentSection
+  if (route.path !== '/platform/settings' && typeof route.query.section === 'string') {
+    return route.query.section
+  }
+  return ''
+}
+
 // 检查 URL 参数并打开编辑模态框
 const resolveAgentForEdit = (editId: string, sourceTenantId?: string): CustomAgent | null => {
   const own = agents.value.find(a => a.id === editId)
@@ -1061,7 +1070,7 @@ const resolveAgentForEdit = (editId: string, sourceTenantId?: string): CustomAge
 
 const checkAndOpenEditModal = () => {
   const editId = route.query.edit as string
-  const section = route.query.section as string
+  const section = resolveAgentEditorSectionFromRoute()
   const sourceTenantId = route.query.sourceTenantId as string | undefined
   if (editId && (section === 'im' || section === 'embed' || section === 'integrations')) {
     const tab = section === 'embed' ? 'embed' : 'im'
@@ -1082,7 +1091,12 @@ const checkAndOpenEditModal = () => {
     }
     // Drop the transient edit/section params but preserve other filter
     // state (scope / creator / q) so refreshing doesn't reset the view.
-    const { edit: _e, section: _s, highlight: _h, sourceTenantId: _st, ...rest } = route.query
+    const { edit: _e, agentSection: _as, highlight: _h, sourceTenantId: _st, ...rest } = route.query
+    if (route.path !== '/platform/settings') {
+      const { section: _s, ...legacyRest } = rest
+      router.replace({ path: route.path, query: legacyRest })
+      return
+    }
     router.replace({ path: route.path, query: rest })
   }
 }
@@ -1103,7 +1117,7 @@ watch(
 // 监听菜单创建智能体事件
 const handleOpenAgentEditor = (event: CustomEvent) => {
   if (event.detail?.mode === 'create') {
-    openCreateModal()
+    handleCreateAgent()
   }
 }
 
@@ -1164,7 +1178,9 @@ const handleCardClick = (agent: DisplayAgent | AgentWithUI) => {
     if (shared) openSharedAgentDetail(shared)
     return
   }
-  handleEdit(agent as AgentWithUI)
+  if (canManageAgent(agent as AgentWithUI)) {
+    handleEdit(agent as AgentWithUI)
+  }
 }
 
 const toggleFavoriteAgent = (agentId: string, evt?: Event) => {
@@ -1180,7 +1196,7 @@ function openSharedAgentDetail(shared: SharedAgentInfo) {
 
 /** 空间视角下点击卡片：我共享的进编辑，他人共享的打开详情抽屉 */
 function handleSpaceAgentCardClick(shared: OrganizationSharedAgentItem) {
-  if (shared.is_mine && shared.agent) {
+  if (shared.is_mine && shared.agent && authStore.hasRole('admin')) {
     handleEdit({ ...shared.agent, showMore: false, disabled_by_me: shared.disabled_by_me } as AgentWithUI)
   } else {
     openSharedAgentDetail(shared)
@@ -1228,6 +1244,7 @@ async function handleUseSharedAgentInChat(shared: SharedAgentInfo) {
 }
 
 const handleEdit = (agent: AgentWithUI) => {
+  if (!canManageAgent(agent)) return
   openMoreAgentId.value = null
   editingAgent.value = agent
   editorMode.value = 'edit'
@@ -1236,17 +1253,10 @@ const handleEdit = (agent: AgentWithUI) => {
   editorVisible.value = true
 }
 
-// canManageAgent mirrors the server-side OwnedAgentOrAdmin guard
-// (PR 5 #1303): the agent's creator may always edit / delete; otherwise
-// Admin+ is required. Built-in agents have created_by="" → only Admin+
-// matches, which lines up with the "Admin can mutate tenant-owned
-// agents" rule. The server still enforces the same matrix on every
-// mutation; this gate just hides buttons the user has no authority
-// to use.
+// Agent configuration is a tenant-level management surface: only Admin+
+// can create, edit, copy, delete, share or disable agents. The server
+// enforces the same floor on the mutating routes; this gate only controls UI.
 function canManageAgent(agent: AgentWithUI): boolean {
-  const userId = authStore.user?.id || ''
-  const creatorId = (agent as any).created_by || ''
-  if (creatorId && userId && creatorId === userId) return true
   return authStore.hasRole('admin')
 }
 
@@ -1382,12 +1392,14 @@ const spaceAgentSectionCounts = computed<Record<AgentSectionKey, number>>(() => 
 })
 
 const handleDelete = (agent: AgentWithUI) => {
+  if (!canManageAgent(agent)) return
   openMoreAgentId.value = null
   deletingAgent.value = agent
   deleteVisible.value = true
 }
 
 const handleCopy = (agent: AgentWithUI) => {
+  if (!authStore.hasRole('admin')) return
   openMoreAgentId.value = null
   copyAgent(agent.id).then((res: any) => {
     if (res.data) {
@@ -1403,6 +1415,7 @@ const handleCopy = (agent: AgentWithUI) => {
 
 /** 切换「我的」智能体停用状态（仅影响当前空间对话下拉显示） */
 const handleToggleDisabled = (agent: AgentWithUI) => {
+  if (!authStore.hasRole('admin')) return
   openMoreAgentId.value = null
   const nextDisabled = !agent.disabled_by_me
   setSharedAgentDisabledByMe(agent.id, nextDisabled).then((res: any) => {
@@ -1420,6 +1433,7 @@ const handleToggleDisabled = (agent: AgentWithUI) => {
 /** 切换共享智能体“停用”状态（仅影响当前用户对话下拉显示） */
 const handleToggleSharedDisabled = (agent: DisplayAgent) => {
   if (agent.isMine) return
+  if (!authStore.hasRole('admin')) return
   openMoreAgentId.value = null
   const nextDisabled = !agent.disabled_by_me
   setSharedAgentDisabledByMe(agent.id, nextDisabled).then((res: any) => {
@@ -1436,6 +1450,7 @@ const handleToggleSharedDisabled = (agent: DisplayAgent) => {
 
 const handleToggleSharedDisabledFromShared = (shared: SharedAgentInfo) => {
   if (!shared.agent) return
+  if (!authStore.hasRole('admin')) return
   openMoreAgentId.value = null
   const nextDisabled = !shared.disabled_by_me
   setSharedAgentDisabledByMe(shared.agent.id, nextDisabled).then((res: any) => {
@@ -1482,6 +1497,7 @@ const formatDate = (dateStr: string) => {
 
 // 暴露创建方法供外部调用
 const openCreateModal = () => {
+  if (!authStore.hasRole('admin')) return
   editingAgent.value = null
   editorMode.value = 'create'
   editorInitialSection.value = 'basic'
@@ -1491,6 +1507,7 @@ const openCreateModal = () => {
 
 // 创建智能体
 const handleCreateAgent = () => {
+  if (!authStore.hasRole('admin')) return
   if (!isReadyForAgent.value) {
     MessagePlugin.warning(t('contextualGuide.tenantModels.needChatModelFirst'))
     uiStore.openSettings('models')

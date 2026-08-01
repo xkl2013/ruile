@@ -10,6 +10,10 @@ import (
 type UserService interface {
 	// Register creates a new user account
 	Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error)
+	// AdminCreateUser creates a tenantless account from an administrator
+	// workflow. It accepts a server-chosen initial password and therefore
+	// does not apply the public self-serve registration password policy.
+	AdminCreateUser(ctx context.Context, req *types.RegisterRequest) (*types.User, error)
 	// Login authenticates a user and returns tokens
 	Login(ctx context.Context, req *types.LoginRequest) (*types.LoginResponse, error)
 	// GetOIDCAuthorizationURL builds the third-party OIDC authorization URL

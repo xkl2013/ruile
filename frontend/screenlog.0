@@ -1,0 +1,15643 @@
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+7:00:26 PM [vite] http proxy error: /api/v1/user/favorites?type=kb
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/user/favorites?type=agent
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/shared-knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:26 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:40 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/system/parser-engines
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/mcp-services
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:00:55 PM [vite] http proxy error: /api/v1/agents/builtin-quick-answer/suggested-questions?limit=6
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:02:26 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:04:26 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+7:06:09 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:06:09 PM [vite] http proxy error: /api/v1/tenants/kv/storage-engine-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:06:09 PM [vite] http proxy error: /api/v1/system/storage-engine-status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:06:09 PM [vite] http proxy error: /api/v1/vector-stores
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:06:26 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+7:07:46 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/system/parser-engines
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/mcp-services
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/agents/builtin-quick-answer/suggested-questions?limit=6
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:07:46 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+2:13:34 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+7:16:14 AM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/system/parser-engines
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/mcp-services
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/agents/builtin-quick-answer/suggested-questions?limit=6
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:16:14 AM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+7:33:33 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:35:33 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:37:33 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:39:33 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:41:33 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:43:33 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:45:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:47:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x8)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:49:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x9)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:51:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x10)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:53:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x11)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:55:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x12)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:57:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x13)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:59:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x14)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:01:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x15)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:03:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x16)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:05:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x17)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:07:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x18)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:09:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x19)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:11:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x20)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:13:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x21)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:15:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x22)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:17:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x23)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:19:59 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x24)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+8:39:36 AM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/system/parser-engines
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/mcp-services
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/agents/builtin-quick-answer/suggested-questions?limit=6
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:39:36 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:54:28 AM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+8:55:40 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:57:40 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:59:40 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:01:40 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:03:40 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:05:40 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:07:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:09:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x8)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:11:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x9)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:13:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x10)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:15:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x11)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:17:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x12)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:19:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x13)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:21:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x14)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:23:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x15)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:25:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x16)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:27:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x17)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:29:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x18)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:31:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x19)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:33:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x20)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:35:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x21)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:37:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x22)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:39:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x23)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:41:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x24)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:43:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x25)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:45:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x26)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:47:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x27)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:49:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x28)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:51:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x29)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:53:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x30)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:55:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x31)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:57:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x32)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:59:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x33)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:01:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x34)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:03:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x35)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:05:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x36)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:07:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x37)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:09:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x38)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:11:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x39)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:13:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x40)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:15:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x41)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:17:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x42)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:19:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x43)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:21:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x44)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:23:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x45)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:25:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x46)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:27:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x47)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:29:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x48)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:31:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x49)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:33:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x50)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:35:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x51)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:37:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x52)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:39:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x53)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:41:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x54)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:43:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x55)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:45:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x56)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:47:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x57)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:49:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x58)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:51:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x59)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:53:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x60)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:55:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x61)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:57:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x62)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:59:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x63)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:01:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x64)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:03:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x65)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:05:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x66)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:07:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x67)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:09:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x68)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:11:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x69)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:13:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x70)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:15:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x71)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:17:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x72)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:19:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x73)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:21:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x74)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:23:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x75)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:25:55 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x76)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:27:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x77)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:29:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x78)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:31:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x79)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:33:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x80)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:35:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x81)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:37:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x82)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:39:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x83)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:41:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x84)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:43:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x85)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:45:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x86)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:47:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x87)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:49:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x88)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:51:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x89)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:53:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x90)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:55:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x91)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:57:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x92)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:59:56 AM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x93)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:01:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x94)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:03:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x95)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:05:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x96)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:07:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x97)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:09:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x98)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:11:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x99)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:13:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x100)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:15:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x101)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:17:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x102)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:19:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x103)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:21:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x104)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:23:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x105)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:25:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x106)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:27:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x107)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:29:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x108)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:31:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x109)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:33:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x110)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:35:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x111)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:37:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x112)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:39:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x113)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:41:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x114)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:43:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x115)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:45:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x116)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:47:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x117)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:49:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x118)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:51:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x119)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:53:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x120)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:55:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x121)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:57:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x122)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J12:59:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x123)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:01:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x124)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:03:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x125)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:05:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x126)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:07:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x127)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:09:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x128)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:11:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x129)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:13:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x130)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:15:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x131)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:17:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x132)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:19:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x133)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:21:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x134)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:23:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x135)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:25:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x136)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:27:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x137)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:29:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x138)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:31:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x139)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:33:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x140)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:35:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x141)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:37:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x142)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:39:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x143)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:41:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x144)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:43:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x145)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:45:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x146)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:47:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x147)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:49:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x148)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:51:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x149)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:53:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x150)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:55:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x151)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:57:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x152)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J1:59:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x153)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:01:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x154)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:03:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x155)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:05:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x156)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:07:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x157)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:09:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x158)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:11:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x159)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:13:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x160)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:15:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x161)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:17:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x162)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:19:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x163)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:21:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x164)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:23:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x165)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:25:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x166)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:27:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x167)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:29:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x168)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:31:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x169)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:33:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x170)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:35:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x171)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:37:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x172)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:39:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x173)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:41:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x174)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:43:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x175)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:45:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x176)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:47:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x177)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:49:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x178)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:51:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x179)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:53:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x180)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:55:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x181)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:57:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x182)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J2:59:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x183)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:01:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x184)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:03:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x185)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:05:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x186)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:07:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x187)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:09:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x188)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:11:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x189)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:13:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x190)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:15:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x191)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:17:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x192)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:19:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x193)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:21:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x194)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:23:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x195)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:25:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x196)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:27:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x197)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:29:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x198)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:31:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x199)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:33:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x200)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:35:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x201)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:37:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x202)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:39:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x203)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:41:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x204)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:43:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x205)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:45:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x206)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:47:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x207)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:49:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x208)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:51:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x209)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:53:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x210)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:55:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x211)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:57:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x212)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:59:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x213)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:01:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x214)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:03:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x215)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:05:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x216)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:07:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x217)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:09:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x218)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:11:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x219)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:13:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x220)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:15:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x221)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:17:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x222)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:19:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x223)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:21:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x224)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:23:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x225)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:25:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x226)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:27:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x227)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:29:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x228)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:31:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x229)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:33:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x230)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:35:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x231)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:37:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x232)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:39:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x233)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:41:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x234)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:43:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x235)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:45:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x236)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:47:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x237)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:49:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x238)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x239)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:53:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x240)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:55:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x241)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:57:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x242)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:59:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x243)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:01:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x244)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:03:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x245)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:05:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x246)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:07:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x247)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:09:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x248)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:11:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x249)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:13:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x250)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:15:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x251)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:17:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x252)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:19:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x253)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:21:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x254)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:23:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x255)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:25:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x256)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:27:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x257)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:29:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x258)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:31:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x259)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:33:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x260)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:35:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x261)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:37:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x262)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:39:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x263)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:41:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x264)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:43:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x265)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:45:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x266)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:47:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x267)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:49:56 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x268)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+5:50:04 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/system/parser-engines
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/mcp-services
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/agents/builtin-quick-answer/suggested-questions?limit=6
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:04 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:38 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:38 PM [vite] http proxy error: /api/v1/tenants/kv/storage-engine-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:38 PM [vite] http proxy error: /api/v1/system/storage-engine-status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:50:38 PM [vite] http proxy error: /api/v1/vector-stores
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:52:04 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:53:16 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:53:16 PM [vite] http proxy error: /api/v1/tenants/kv/storage-engine-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:53:16 PM [vite] http proxy error: /api/v1/system/storage-engine-status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:53:16 PM [vite] http proxy error: /api/v1/vector-stores
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:54:04 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:54:49 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:54:49 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+5:54:58 PM [vite] http proxy error: /api/v1/initialization/ollama/status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:54:58 PM [vite] http proxy error: /api/v1/models/providers?model_type=chat
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+5:56:05 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:58:05 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+5:59:49 PM [vite] http proxy error: /api/v1/initialization/remote/check
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:00:04 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:00:38 PM [vite] http proxy error: /api/v1/initialization/remote/check
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:01:05 PM [vite] http proxy error: /api/v1/models/providers?model_type=chat
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:01:05 PM [vite] http proxy error: /api/v1/initialization/ollama/status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:01:28 PM [vite] http proxy error: /api/v1/initialization/embedding/test
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:01:35 PM [vite] http proxy error: /api/v1/initialization/ollama/status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:01:35 PM [vite] http proxy error: /api/v1/models/providers?model_type=embedding
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:04 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:37 PM [vite] http proxy error: /api/v1/initialization/embedding/test
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:02:45 PM [vite] http proxy error: /api/v1/initialization/embedding/test
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:02:52 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:52 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:02:57 PM [vite] http proxy error: /api/v1/initialization/ollama/status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:03:03 PM [vite] http proxy error: /api/v1/initialization/ollama/status
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+6:03:51 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:00 PM [vite] http proxy error: /api/v1/system/parser-engines
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:00 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:00 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:00 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:00 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:00 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:01 PM [vite] http proxy error: /api/v1/mcp-services
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:01 PM [vite] http proxy error: /api/v1/agents/builtin-quick-answer/suggested-questions?limit=6
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:03 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:04:06 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/system/parser-engines
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/mcp-services
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/agents/builtin-quick-answer/suggested-questions?limit=6
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:06 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:22 PM [vite] http proxy error: /api/v1/tenants/10001/members?page=1&page_size=20
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:22 PM [vite] http proxy error: /api/v1/tenants/10001/invitations?page=1&page_size=20
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:22 PM [vite] http proxy error: /api/v1/tenants/10001/members?page=1&page_size=20
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:04:22 PM [vite] http proxy error: /api/v1/tenants/10001/invitations?page=1&page_size=20
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:06:06 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:07:20 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:07:20 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:09:20 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:11:20 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:13:20 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7) (x3)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:13:30 PM [vite] http proxy error: /api/v1/knowledge-bases
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/auth/me
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/system/info
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/web-search-providers
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/shared-agents
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/im-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/models
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/embed-channels
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+6:13:30 PM [vite] http proxy error: /api/v1/organizations
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1128:18)
+    at afterConnectMultiple (node:net:1693:7)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:15:00 PM [vite] http proxy error: /api/v1/agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/knowledge-bases
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/system/info
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/im-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/web-search-providers
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/shared-agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/embed-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:15:00 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:17:00 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:19:00 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) (x2)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:19:21 PM [vite] http proxy error: /api/v1/system/info
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/knowledge-bases
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/web-search-providers
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/shared-agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/im-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/embed-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:21 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:19:50 PM [vite] http proxy error: /api/v1/system/info
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/knowledge-bases
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/shared-agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/web-search-providers
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/im-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/embed-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:19:50 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:21:50 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:23:50 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) (x2)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+6:24:43 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/knowledge-bases
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/tenants/kv/retrieval-config
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/system/info
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/shared-agents
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/web-search-providers
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/models
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/im-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/embed-channels
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/sessions?page=1&page_size=30&source=web
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:43 PM [vite] http proxy error: /api/v1/organizations
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+6:24:47 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:24:49 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:24:50 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:24:50 PM [vite] http proxy error: /api/v1/auth/me
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) (x4)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:35:32 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:35:32 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseEditorModal.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:36:09 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseEditorModal.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:40:49 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue, /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:46:19 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:46:34 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:47:02 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:47:13 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:47:57 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:48:42 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:49:31 PM [vite] (client) hmr update /src/views/platform/index.vue, /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:49:48 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:50:16 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:50:31 PM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:50:31 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:50:31 PM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:50:31 PM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:51:00 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue, /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:51:48 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:52:45 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:10:30 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:11:12 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:12:17 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:12:49 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:13:06 PM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:13:19 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:13:36 PM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:13:47 PM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:16:17 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:27:05 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:27:24 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:27:37 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:27:54 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:31:22 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:05:04 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue, /src/components/KnowledgeBaseMenu.vue?vue&type=style&index=0&scoped=62bdd3f4&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:05:49 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:07:10 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:15:45 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue, /src/components/KnowledgeBaseMenu.vue?vue&type=style&index=0&scoped=62bdd3f4&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:17:38 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue?vue&type=style&index=0&scoped=62bdd3f4&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:21:14 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:22:08 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:23:45 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue?vue&type=style&index=0&scoped=62bdd3f4&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:26:49 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:27:07 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:28:00 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:35:58 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:36:21 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:43:59 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:46:48 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:47:12 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:47:50 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:50:38 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:52:21 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:52:40 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:52:49 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:52:59 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:53:33 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:55:27 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:55:40 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:56:02 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:56:11 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:58:15 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:02:40 PM [vite] (client) hmr update /src/views/knowledge/components/KbUploadSourceDropdown.vue, /src/views/knowledge/components/KbUploadSourceDropdown.vue?vue&type=style&index=0&scoped=337ed379&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:02:56 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue, /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:06:47 PM [vite] (client) hmr update /src/views/knowledge/components/KbUploadSourceDropdown.vue?vue&type=style&index=0&scoped=337ed379&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:08:49 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:19:43 PM [vite] (client) hmr update /src/views/agent/AgentList.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:03 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:17 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:30 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:21:56 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:21:48 PM [vite] (client) page reload src/api/agent/index.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:21:58 PM [vite] (client) hmr update /src/views/agent/AgentEditorModal.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:22:17 PM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:22:28 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:22:44 PM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:23:02 PM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:25:24 PM [vite] (client) page reload src/api/agent/index.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x2)
+6:38:07 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:40:07 PM [vite] http proxy error: /api/v1/me/invitations/pending-count
+Error: socket hang up
+    at Socket.socketOnEnd (node:_http_client:536:25)
+    at Socket.emit (node:events:536:35)
+    at endReadableNT (node:internal/streams/readable:1698:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) (x2)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:46:34 PM [vite] (client) page reload src/utils/index.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:46:34 PM [vite] (client) hmr update /src/views/knowledge/components/UploadConfirmDialog.vue, /src/views/knowledge/components/KbUploadSourceDropdown.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:46:34 PM [vite] (client) hmr update /src/views/knowledge/components/KbUploadSourceDropdown.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:47:04 PM [vite] (client) hmr update /src/views/knowledge/components/UploadConfirmDialog.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:47:21 PM [vite] (client) hmr update /src/views/knowledge/settings/KBParserSettings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:48:59 PM [vite] (client) hmr update /src/views/knowledge/components/UploadConfirmDialog.vue, /src/views/knowledge/components/KbUploadSourceDropdown.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:44 PM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:44 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:44 PM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:44 PM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:55:27 PM [vite] (client) hmr update /src/views/knowledge/settings/KBParserSettings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:57:04 PM [vite] (client) hmr update /src/views/knowledge/components/UploadConfirmDialog.vue, /src/views/knowledge/components/KbUploadSourceDropdown.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:19:13 PM [vite] (client) hmr update /src/views/settings/Settings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:28 PM [vite] (client) hmr update /src/views/settings/ModelSettings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:43 PM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:43 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:43 PM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:43 PM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:20:56 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:24:31 PM [vite] (client) hmr update /src/components/ModelEditorDialog.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:24:31 PM [vite] (client) hmr update /src/components/ModelEditorDialog.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:25:03 PM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:25:03 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:25:03 PM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:25:03 PM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:27:29 PM [vite] (client) hmr update /src/components/ModelEditorDialog.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:55:56 PM [vite] (client) hmr update /src/components/ModelEditorDialog.vue (x2)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:11:58 PM [vite] (client) hmr update /src/views/auth/Login.vue, /src/views/auth/Login.vue?vue&type=style&index=0&scoped=fa254d35&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:21:39 PM [vite] (client) hmr update /src/views/auth/Login.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:21:57 PM [vite] (client) hmr update /src/views/auth/Login.vue?vue&type=style&index=0&scoped=fa254d35&lang.less, /src/views/auth/Login.vue?vue&type=style&index=1&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:32:03 PM [vite] (client) hmr update /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:32:48 PM [vite] (client) page reload src/api/tenant/invitations.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:34:46 PM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:34:46 PM [vite] (client) page reload src/i18n/locales/en-US.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:34:46 PM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:34:46 PM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J6:35:17 PM [vite] (client) page reload src/api/tenant/invitations.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J7:12:22 PM [vite] (client) hmr update /src/views/settings/TenantInfo.vue, /src/views/settings/TenantMembers.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:08:18 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:08:29 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:08:42 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:08:59 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:09:08 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:09:20 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:09:38 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:09:51 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x8)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:10:09 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x9)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:10:21 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x10)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:10:49 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x11)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:11:23 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x12)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:11:35 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x13)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:11:54 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x14)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:12:17 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue?vue&type=style&index=0&scoped=8f6696e3&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:12:50 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:13:39 AM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:14:18 AM [vite] (client) page reload src/i18n/locales/en-US.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:14:59 AM [vite] (client) hmr update /src/views/settings/TenantInfo.vue, /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:20:17 AM [vite] (client) page reload src/api/auth/index.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:20:48 AM [vite] (client) hmr update /src/views/auth/Login.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:21:20 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J10:25:20 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:27:23 AM [vite] (client) hmr update /src/views/settings/Settings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J11:27:46 AM [vite] (client) hmr update /src/components/UserMenu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:29:57 PM [vite] (client) hmr update /src/views/settings/Settings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:30:11 PM [vite] (client) hmr update /src/components/UserMenu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:34:10 PM [vite] (client) hmr update /src/views/settings/Settings.vue, /src/views/integrations/IntegrationSettingsSection.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:34:25 PM [vite] (client) hmr update /src/views/settings/Settings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:41:59 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:42:17 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:43:18 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:44:00 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:45:48 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J3:46:05 PM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue?vue&type=style&index=1&scoped=9e314c75&lang.less
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x8)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x9)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x10)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x11)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x12)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x13)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x14)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x15)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x16)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x17)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x18)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x19)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x20)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x21)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x22)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:43:28 AM [vite] (client) hmr update /src/views/settings/TenantInfo.vue, /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:43:57 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:44:17 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:44:33 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:44:44 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:44:56 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:45:24 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:45:36 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue?vue&type=style&index=0&scoped=8f6696e3&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:45:52 AM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:46:07 AM [vite] (client) page reload src/i18n/locales/en-US.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:46:24 AM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:46:37 AM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:48:45 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:49:28 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:51:37 AM [vite] (client) page reload src/i18n/locales/en-US.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:51:59 AM [vite] (client) page reload src/i18n/locales/zh-CN.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:52:18 AM [vite] (client) page reload src/i18n/locales/ko-KR.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:52:37 AM [vite] (client) page reload src/i18n/locales/ru-RU.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J8:54:57 AM [vite] (client) hmr update /src/views/settings/TenantMembers.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:17:33 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:17:52 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:18:01 AM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:18:16 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:18:35 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:22:25 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:23:55 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:24:08 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:24:19 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBase.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:31:50 AM [vite] (client) hmr update /src/views/chat/components/AgentStreamDisplay.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:32:15 AM [vite] (client) hmr update /src/views/chat/components/botmsg.vue, /src/views/chat/components/AgentStreamDisplay.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:32:59 AM [vite] (client) hmr update /src/views/chat/components/botmsg.vue, /src/views/chat/components/AgentStreamDisplay.vue, /src/components/ChatHeader.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:34:06 AM [vite] (client) hmr update /src/views/chat/components/AgentStreamDisplay.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:34:15 AM [vite] (client) hmr update /src/views/chat/components/botmsg.vue, /src/views/chat/components/AgentStreamDisplay.vue, /src/components/ChatHeader.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x6)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x7)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x8)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x9)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:39:31 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:39:44 AM [vite] (client) hmr update /src/views/knowledge/KnowledgeBaseList.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:40:04 AM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:50:51 PM [vite] (client) page reload src/router/index.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:05 PM [vite] (client) hmr update /src/views/settings/Settings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:20 PM [vite] (client) hmr update /src/views/settings/Settings.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:32 PM [vite] (client) hmr update /src/views/settings/Settings.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:48 PM [vite] (client) hmr update /src/components/menu.vue, /src/components/GlobalCommandPalette.vue, /src/views/creatChat/creatChat.vue, /src/components/Input-field.vue, /src/views/agent/AgentList.vue, /src/views/knowledge/KnowledgeBase.vue, /src/views/knowledge/wiki/WikiBrowser.vue, /src/views/chat/index.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:51:59 PM [vite] (client) hmr update /src/components/GlobalCommandPalette.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:52:24 PM [vite] (client) hmr update /src/components/GlobalCommandPalette.vue (x2)
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J4:54:20 PM [vite] (client) hmr update /src/views/settings/Settings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:00:49 PM [vite] (client) hmr update /src/views/organization/OrganizationList.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:01:23 PM [vite] (client) hmr update /src/views/organization/OrganizationList.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:03:21 PM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue?vue&type=style&index=0&scoped=62bdd3f4&lang.less
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0JFiles in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico. (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:27:21 PM [vite] (client) hmr update /src/components/menu.vue, /src/components/GlobalCommandPalette.vue, /src/views/creatChat/creatChat.vue, /src/components/Input-field.vue, /src/views/agent/AgentList.vue, /src/views/knowledge/KnowledgeBase.vue, /src/views/knowledge/wiki/WikiBrowser.vue, /src/views/chat/index.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:27:41 PM [vite] (client) page reload src/router/index.ts
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:28:01 PM [vite] (client) hmr update /src/views/settings/Settings.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:28:14 PM [vite] (client) hmr update /src/views/settings/Settings.vue?vue&type=style&index=0&scoped=89bb02f8&lang.less
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:28:49 PM [vite] (client) hmr update /src/views/agent/AgentList.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:29:44 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:29:56 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:30:11 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x4)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:30:21 PM [vite] (client) hmr update /src/views/agent/AgentList.vue (x5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:30:41 PM [vite] (client) hmr update /src/components/GlobalCommandPalette.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:30:55 PM [vite] (client) hmr update /src/components/AgentSelector.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:31:23 PM [vite] (client) hmr update /src/components/AgentSelector.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:32:09 PM [vite] (client) hmr update /src/components/Input-field.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:32:20 PM [vite] (client) hmr update /src/components/menu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:34:34 PM [vite] (client) hmr update /src/components/UserMenu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:36:00 PM [vite] (client) hmr update /src/components/GlobalCommandPalette.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:36:16 PM [vite] (client) hmr update /src/components/GlobalCommandPalette.vue (x2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:42:40 PM [vite] (client) hmr update /src/components/UserMenu.vue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J5:42:55 PM [vite] (client) hmr update /src/views/settings/Settings.vue

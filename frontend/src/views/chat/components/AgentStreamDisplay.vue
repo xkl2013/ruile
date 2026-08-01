@@ -614,9 +614,9 @@ const sanitizeForDisplay = (text: string): string => {
   result = result.replace(ID_LABEL_RE, '');
   result = result.replace(UUID_RE, '');
   // Remove empty inline code like `` or ` ` while preserving triple-backtick
-  // fenced code blocks (```). Without the lookaround the greedy pair match
-  // would eat two of the three fence backticks and break code block rendering.
-  result = result.replace(/(?<!`)`[ \t]*`(?!`)/g, '');
+  // fenced code blocks (```). The adjacent-char captures avoid lookbehind so
+  // this still parses in older WebKit/Wails runtimes.
+  result = result.replace(/(^|[^`])`[ \t]*`($|[^`])/g, (_match, before: string, after: string) => `${before}${after}`);
   result = result.replace(/\(\s*\)/g, '');
   return result;
 };

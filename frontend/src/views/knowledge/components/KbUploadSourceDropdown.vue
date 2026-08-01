@@ -157,15 +157,12 @@ const handleActionSelect = (data: { value: string }) => {
 }
 
 const notifyFilterResult = (result: ReturnType<typeof filterUploadFiles>, emptyAllSkippedKey: string) => {
-  const { validFiles, skippedCount, videoFilteredCount } = result
+  const { validFiles, skippedCount } = result
   if (validFiles.length === 0) {
     if (skippedCount > 0) {
       MessagePlugin.warning(t(emptyAllSkippedKey))
     }
     return false
-  }
-  if (videoFilteredCount > 0) {
-    MessagePlugin.warning(t('knowledgeBase.videosFilteredNoVLM', { count: videoFilteredCount }))
   }
   if (skippedCount > 0) {
     MessagePlugin.warning(t('knowledgeBase.filesSkippedNoEngine', { count: skippedCount }))

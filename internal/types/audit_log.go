@@ -25,6 +25,13 @@ const (
 	// AuditActionMemberLeft fires on POST /tenants/:id/leave — the
 	// actor and target are the same user.
 	AuditActionMemberLeft AuditAction = "rbac.member_left"
+	// AuditActionMemberSuspended fires when an operator disables a
+	// membership without deleting it. The Details payload records whether
+	// sessions were revoked.
+	AuditActionMemberSuspended AuditAction = "rbac.member_suspended"
+	// AuditActionMemberReactivated fires when an operator restores a
+	// suspended membership to active.
+	AuditActionMemberReactivated AuditAction = "rbac.member_reactivated"
 	// AuditActionAccessDenied fires when middleware/rbac.go's
 	// RequireRole or RequireOwnershipOrRole rejects a request under
 	// EnableRBAC=true. Subject to 1-minute sliding-window dedup so a

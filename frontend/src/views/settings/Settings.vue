@@ -72,6 +72,7 @@
               <div class="content-wrapper" :class="{
                 'content-wrapper--wide': currentSection === 'members',
                 'content-wrapper--full': SYSTEM_ADMIN_SECTIONS.has(currentSection) || isIntegrationSection(currentSection),
+                'content-wrapper--agent-list': currentSection === 'agents',
               }">
                 <!-- 角色不允许访问当前 section（deep-link 进来 / 跨空间切换后角色降级）—— 优先于具体 section 渲染。
                      正常导航走 navItems filter 不会到这里，但 watch(navItems) 的 fallback 会在角色降级
@@ -101,7 +102,7 @@
 
                   <!-- 模型配置 -->
                   <div v-if="currentSection === 'models'" class="section">
-                    <ModelSettings />
+                    <ModelSettings :initial-type="currentSubSection" />
                   </div>
 
                   <!-- 网络搜索配置 -->
@@ -160,6 +161,11 @@
                     <TenantMembers />
                   </div>
 
+                  <!-- 智能体管理 -->
+                  <div v-if="currentSection === 'agents'" class="section section--fill">
+                    <AgentList />
+                  </div>
+
                   <!-- 发布集成 -->
                   <div v-if="isIntegrationSection(currentSection)" class="section">
                     <IntegrationSettingsSection :tab="integrationTabFromSection(currentSection)" />
@@ -201,6 +207,7 @@ import WeKnoraCloudSettings from './WeKnoraCloudSettings.vue'
 import TenantMembers from './TenantMembers.vue'
 import SystemSettings from '@/views/system/SystemSettings.vue'
 import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
+import AgentList from '@/views/agent/AgentList.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
 import {
   INTEGRATION_PREVIEW_ITEMS,
@@ -235,24 +242,24 @@ type NavGroup = {
 
 // 设置二级导航的最低可见角色：和 internal/router/router.go 的守卫矩阵对齐。
 // 以「页面里至少有 1 个有意义的写操作所要求的最低角色」为基准，把基础设
-// 施配置（models 写、ollama 下载、websearch 写、parser/storage/vector/mcp
-// CRUD、chat-history 配置）统一收到 admin；只读类（general / system info /
-// tenant-info / members 名册）保留 viewer 可见；最高敏感的 reset api
+// 施配置（models 写、ollama 下载、agents 管理、websearch 写、
+// parser/storage/vector/mcp CRUD、chat-history 配置）统一收到 admin；
+// 只读类（general / system info / tenant-info）保留 viewer 可见；成员管理含
+// 邀请、角色调整、挂起/恢复，入口收敛到 admin；最高敏感的 reset api
 // key 是 owner-only。改这张表前请在 router.go 里复核对应路由组。
 //
 // 特别说明：
 // - chathistory 页面唯一的「启用消息索引」开关 PUT /tenants/kv/chat-history-config
 //   后端走 g.Admin()。给 viewer/contributor 看到入口、点开开关、保存时
 //   403，体验很差，所以入口本身归 admin。
-// - models 列表 viewer 可读，页面内的「+ 添加模型 / 编辑 / 删除」按钮在
-//   ModelSettings.vue 里另用 hasRole('admin') 自己 gate，所以入口保留
-//   viewer 是合理的（contributor 也能浏览模型列表）。
+// - models 页面承担模型供应商配置职责，入口本身归 admin，避免普通成员
+//   进入后只能看到被隐藏的设置能力。
 type RoleKey = 'viewer' | 'contributor' | 'admin' | 'owner'
 const SECTION_MIN_ROLE: Record<string, RoleKey> = {
   general: 'viewer',
   ollama: 'admin',
   weknoracloud: 'admin',
-  models: 'viewer',
+  models: 'admin',
   websearch: 'admin',
   chathistory: 'admin',
   vectorstore: 'admin',
@@ -262,7 +269,9 @@ const SECTION_MIN_ROLE: Record<string, RoleKey> = {
   system: 'viewer',
   userprofile: 'viewer',
   tenant: 'viewer',
-  members: 'viewer',
+  members: 'admin',
+  agents: 'admin',
+  sharedSpace: 'admin',
 }
 
 const SYSTEM_ADMIN_SECTIONS = new Set(['system-global', 'runtime-queues'])
@@ -285,6 +294,19 @@ const isIntegrationSection = (section: string) => {
     INTEGRATION_TABS.includes(integrationTabFromSection(section))
 }
 
+const normalizeModelSubSection = (subSection?: string | null) => {
+  const aliases: Record<string, string> = {
+    knowledgeqa: 'chat',
+    llm: 'chat',
+    chat: 'chat',
+    embedding: 'embedding',
+    rerank: 'rerank',
+    vllm: 'vllm',
+    asr: 'asr',
+  }
+  return aliases[(subSection || '').toLowerCase()] || ''
+}
+
 const normalizeSettingsSection = (section: string) => {
   if (section === 'api') {
     return integrationSectionKey('api')
@@ -298,9 +320,8 @@ const normalizeSettingsSection = (section: string) => {
 const canSeeSection = (key: string): boolean => {
   if (isIntegrationSection(key)) {
     const min = INTEGRATION_TAB_MIN_ROLE[integrationTabFromSection(key)]
-    if (!min) return true
     if (authStore.canAccessAllTenants) return true
-    return authStore.hasRole(min)
+    return authStore.hasRole(min ?? 'admin')
   }
   if (SYSTEM_ADMIN_SECTIONS.has(key)) {
     return authStore.isSystemAdmin
@@ -339,6 +360,8 @@ const navItems = computed(() => {
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
     { key: 'members', icon: 'usergroup', label: t('tenantMember.title') },
+    { key: 'agents', icon: 'user-circle', label: t('agent.title') },
+    { key: 'sharedSpace', icon: 'usergroup', label: t('organization.title') },
     ...integrationItems,
   ]
   // currentTenantRole 为空表示「membership 还没加载」—— 比起渲染整套
@@ -366,7 +389,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'workspace',
       label: t('settings.navGroups.workspace'),
-      items: pickItems(['tenant', 'members', 'chathistory']),
+      items: pickItems(['tenant', 'members', 'agents', 'sharedSpace', 'chathistory']),
     },
     {
       key: 'models_runtime',
@@ -417,6 +440,12 @@ const handleNavClick = (item: any) => {
     currentSubSection.value = ''
   }
 
+  if (item.key === 'sharedSpace') {
+    uiStore.closeSettings()
+    router.push('/platform/organizations')
+    return
+  }
+
   // 切换到对应页面
   currentSection.value = item.key
   if (route.path === '/platform/settings' && isIntegrationSection(item.key)) {
@@ -431,6 +460,17 @@ const handleNavClick = (item: any) => {
   } else if (route.path === '/platform/settings' && SYSTEM_ADMIN_SECTIONS.has(item.key)) {
     const query = { ...route.query }
     delete query.tab
+    router.replace({
+      path: '/platform/settings',
+      query: { ...query, section: item.key },
+    })
+  } else if (route.path === '/platform/settings') {
+    const query = { ...route.query }
+    delete query.tab
+    delete query.agentSection
+    delete query.edit
+    delete query.highlight
+    delete query.sourceTenantId
     router.replace({
       path: '/platform/settings',
       query: { ...query, section: item.key },
@@ -475,7 +515,16 @@ const handleClose = () => {
 watch(() => uiStore.settingsInitialSection, (section) => {
   if (section && visible.value) {
     const normalizedSection = normalizeSettingsSection(section)
+    if (normalizedSection === 'sharedSpace') {
+      uiStore.closeSettings()
+      router.push('/platform/organizations')
+      return
+    }
     currentSection.value = normalizedSection
+    if (normalizedSection === 'models') {
+      currentSubSection.value = normalizeModelSubSection(uiStore.settingsInitialSubSection)
+      return
+    }
     const navItem = (navItems.value as any[]).find((item) => item.key === normalizedSection)
     if (navItem && navItem.children && navItem.children.length > 0) {
       if (!expandedMenus.value.includes(section)) {
@@ -497,11 +546,19 @@ watch(() => uiStore.settingsInitialSection, (section) => {
 }, { immediate: true })
 
 watch(
-  () => [visible.value, route.query.section],
-  ([isVisible, section]) => {
+  () => [visible.value, route.query.section, route.query.tab],
+  ([isVisible, section, tab]) => {
     if (!isVisible || typeof section !== 'string') return
-    currentSection.value = normalizeSettingsSection(section)
-    currentSubSection.value = ''
+    const normalizedSection = normalizeSettingsSection(section)
+    if (normalizedSection === 'sharedSpace') {
+      uiStore.closeSettings()
+      router.push('/platform/organizations')
+      return
+    }
+    currentSection.value = normalizedSection
+    currentSubSection.value = currentSection.value === 'models' && typeof tab === 'string'
+      ? normalizeModelSubSection(tab)
+      : ''
   },
   { immediate: true },
 )
@@ -527,7 +584,16 @@ const handleSettingsNav = (e: CustomEvent) => {
   const { section, subsection } = e.detail
   if (section) {
     const normalizedSection = normalizeSettingsSection(section)
+    if (normalizedSection === 'sharedSpace') {
+      uiStore.closeSettings()
+      router.push('/platform/organizations')
+      return
+    }
     currentSection.value = normalizedSection
+    if (normalizedSection === 'models') {
+      currentSubSection.value = normalizeModelSubSection(subsection)
+      return
+    }
     // 如果有子菜单，自动展开
     const navItem = (navItems.value as any[]).find((item: any) => item.key === normalizedSection)
     if (navItem && navItem.children && navItem.children.length > 0) {
@@ -794,10 +860,22 @@ onUnmounted(() => {
     padding: 30px 34px 40px;
     box-sizing: border-box;
   }
+
+  &--agent-list {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    box-sizing: border-box;
+  }
 }
 
 .section {
   animation: fadeIn 0.3s ease;
+}
+
+.section--fill {
+  height: 100%;
 }
 
 @keyframes fadeIn {

@@ -7,6 +7,7 @@ import { MessagePlugin } from "tdesign-vue-next";
 import { useSettingsStore } from '@/stores/settings';
 import { useUIStore } from '@/stores/ui';
 import { useMenuStore } from '@/stores/menu';
+import { useAuthStore } from '@/stores/auth';
 import { listKnowledgeBases, searchKnowledge, batchQueryKnowledge, listKnowledgeTags } from '@/api/knowledge-base';
 import { listMCPServices, type MCPService } from '@/api/mcp-service';
 import { stopSession } from '@/api/chat';
@@ -47,6 +48,7 @@ const route = useRoute();
 const router = useRouter();
 const settingsStore = useSettingsStore();
 const uiStore = useUIStore();
+const authStore = useAuthStore();
 const orgStore = useOrganizationStore();
 const menuStore = useMenuStore();
 const chatResources = useChatResourcesStore();
@@ -2262,16 +2264,17 @@ const handleGoToWebSearchConfig = () => {
 };
 
 const handleGoToAgentSettings = (section?: string) => {
+  if (!authStore.hasRole('admin')) return;
   const agent = selectedAgent.value;
   if (!agent) {
-    router.push('/platform/agents');
+    router.push({ path: '/platform/settings', query: { section: 'agents' } });
     return;
   }
-  const query: Record<string, string> = { edit: agent.id };
+  const query: Record<string, string> = { section: 'agents', edit: agent.id };
   if (section) {
-    query.section = section;
+    query.agentSection = section;
   }
-  router.push({ path: '/platform/agents', query });
+  router.push({ path: '/platform/settings', query });
 };
 
 const formatAgentNotReadyReasons = (
@@ -2315,11 +2318,13 @@ const goToAgentEditor = (
   highlight?: AgentNotReadyReasonKey,
   sourceTenantId?: string,
 ) => {
+  if (!authStore.hasRole('admin')) return;
   router.push({
-    path: '/platform/agents',
+    path: '/platform/settings',
     query: {
+      section: 'agents',
       edit: agent.id,
-      section,
+      agentSection: section,
       ...(highlight ? { highlight } : {}),
       ...(sourceTenantId ? { sourceTenantId } : {}),
     },
@@ -2344,7 +2349,7 @@ const showAgentNotReadyMessage = (
         ? t('input.sharedAgentNotReadyDetail', { agentName: agent.name, reasons: reasonsText })
         : t('input.agentNotReadyDetail', { agentName: agent.name, reasons: reasonsText }),
     ),
-    ...(isRemoteShared ? [] : [
+    ...(isRemoteShared || !authStore.hasRole('admin') ? [] : [
       h('a', {
         href: '#',
         onClick: (e: Event) => {
@@ -2605,7 +2610,7 @@ defineExpose({
             <template #content>
               <div v-if="isMentionDisabled && isKnowledgeBaseDisabledByAgent" class="tooltip-with-link">
                 <span>{{ $t('input.kbDisabledByAgent') }}</span>
-                <a href="#" @click.prevent="handleGoToAgentSettings('knowledge')">{{ $t('input.goToAgentSettings')
+                <a v-if="authStore.hasRole('admin')" href="#" @click.prevent="handleGoToAgentSettings('knowledge')">{{ $t('input.goToAgentSettings')
                 }}</a>
               </div>
               <span v-else>{{ allSelectedItems.length > 0 ? $t('input.knowledgeBaseWithCount', {

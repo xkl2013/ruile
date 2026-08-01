@@ -4,7 +4,8 @@
       <div class="agent-selector-dropdown" :style="dropdownStyle" @click.stop>
         <div class="agent-selector-header">
           <span>{{ $t('agent.selectAgent') }}</span>
-          <router-link to="/platform/agents" class="agent-selector-add" @click="$emit('close')">
+          <router-link v-if="authStore.hasRole('admin')" :to="{ path: '/platform/settings', query: { section: 'agents' } }"
+            class="agent-selector-add" @click="$emit('close')">
             <span class="add-icon">+</span>
             <span class="add-text">{{ $t('agent.manageAgents') }}</span>
           </router-link>
@@ -188,6 +189,7 @@ import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID }
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import { useOrganizationStore } from '@/stores/organization';
 import { useSettingsStore } from '@/stores/settings';
+import { useAuthStore } from '@/stores/auth';
 import type { SharedAgentInfo } from '@/api/organization';
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
@@ -210,6 +212,7 @@ const router = useRouter();
 const orgStore = useOrganizationStore();
 const settingsStore = useSettingsStore();
 const chatResources = useChatResourcesStore();
+const authStore = useAuthStore();
 
 const props = defineProps<{
   visible: boolean;
@@ -301,6 +304,7 @@ const activeDetailNotReadyLabels = computed(() => {
 });
 
 const canShowDetailHeaderAction = computed(() => {
+  if (!authStore.hasRole('admin')) return false;
   const detail = activeDetail.value;
   if (!detail) return false;
   if (canLocallyConfigureAgent(detail.sourceTenantId)) return true;
@@ -517,6 +521,7 @@ const selectSharedAgent = (shared: SharedAgentSelection) => {
 };
 
 const goToSettings = (agent: CustomAgent, sourceTenantId?: string) => {
+  if (!authStore.hasRole('admin')) return;
   if (!canLocallyConfigureAgent(sourceTenantId) && getAgentNotReadyLabels(agent, sourceTenantId).length > 0) {
     return;
   }
@@ -526,10 +531,11 @@ const goToSettings = (agent: CustomAgent, sourceTenantId?: string) => {
   hideDetailPanel();
   emit('close');
   router.push({
-    path: '/platform/agents',
+    path: '/platform/settings',
     query: {
+      section: 'agents',
       edit: agent.id,
-      section,
+      agentSection: section,
       ...(highlight ? { highlight } : {}),
       ...(sourceTenantId ? { sourceTenantId } : {}),
     },

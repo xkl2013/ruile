@@ -129,7 +129,7 @@ var registry = map[string]settingSpec{
 	"auth.registration_mode": {
 		Type:     "string",
 		EnvName:  "", // No env fallback — handler passes cfg.Auth.RegistrationMode as default
-		Default:  "self_serve",
+		Default:  "invite_only",
 		Enum:     []string{"self_serve", "invite_only"},
 		Category: "auth",
 		Description: "自助注册模式。self_serve = 任何人可注册账号；invite_only = 关闭公网注册，" +
@@ -138,7 +138,7 @@ var registry = map[string]settingSpec{
 	"auth.default_tenant_mode": {
 		Type:     "string",
 		EnvName:  "WEKNORA_AUTH_DEFAULT_TENANT_MODE",
-		Default:  "create_personal",
+		Default:  "tenantless",
 		Enum:     []string{"create_personal", "tenantless"},
 		Category: "auth",
 		Description: "公开注册成功后的默认空间策略。create_personal = 自动创建个人空间并设为 Owner；" +
@@ -162,7 +162,7 @@ var registry = map[string]settingSpec{
 	"tenant.self_service_creation_enabled": {
 		Type:     "bool",
 		EnvName:  "WEKNORA_TENANT_SELF_SERVICE_CREATION_ENABLED",
-		Default:  true,
+		Default:  false,
 		Category: "tenant",
 		Description: "是否允许非超管用户主动创建空间。关闭后，普通用户只能通过邀请加入已有空间；" +
 			"跨空间超管仍可创建。修改后立即生效。",
@@ -828,7 +828,7 @@ func (s *systemSettingService) fallbackJSONForSpec(key string, spec settingSpec)
 		}
 	}
 	if key == "auth.registration_mode" {
-		mode := config.AuthRegistrationModeSelfServe
+		mode := config.AuthRegistrationModeInviteOnly
 		if s.cfg != nil && s.cfg.Auth != nil {
 			if configured := strings.TrimSpace(s.cfg.Auth.RegistrationMode); configured != "" {
 				mode = configured
@@ -854,11 +854,27 @@ func isBootstrapDefaultRow(row *types.SystemSetting, spec settingSpec) bool {
 	if row == nil || strings.TrimSpace(row.LastModifiedBy) != "" {
 		return false
 	}
+	if isLegacyEnterpriseBootstrapDefaultRow(row) {
+		return true
+	}
 	def, err := encodeDefault(spec)
 	if err != nil {
 		return false
 	}
 	return jsonEqual(row.Value, def)
+}
+
+func isLegacyEnterpriseBootstrapDefaultRow(row *types.SystemSetting) bool {
+	switch row.Key {
+	case "auth.registration_mode":
+		return jsonEqual(row.Value, types.JSON(`"self_serve"`))
+	case "auth.default_tenant_mode":
+		return jsonEqual(row.Value, types.JSON(`"create_personal"`))
+	case "tenant.self_service_creation_enabled":
+		return jsonEqual(row.Value, types.JSON(`true`))
+	default:
+		return false
+	}
 }
 
 func jsonEqual(a, b types.JSON) bool {

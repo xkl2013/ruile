@@ -445,21 +445,16 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 	kb := g.apiKeyGroup(kbgrp, apiKeyRetrieve(apiKeyFullAccess()))
 	kbManagement := kb.With(apiKeyManageKnowledgeBases(apiKeyFullAccess()))
 	{
-		// 创建知识库 — JWT Contributor+；API key 需 manage_kbs 或 full-access。
-		kbManagement.POST("", g.Contributor(), handler.CreateKnowledgeBase)
+		// 创建知识库 — JWT Admin+；API key 需 manage_kbs 或 full-access。
+		kbManagement.POST("", g.Admin(), handler.CreateKnowledgeBase)
 		// 获取知识库列表 — Viewer+ for JWT callers; retrieve-capable API keys pass via the gate.
 		kb.GET("", g.Viewer(), handler.ListKnowledgeBases)
 		// 获取知识库详情 — Viewer+ 且对 KB 有 read 权限
 		kb.GET("/:id", g.Viewer(), g.KBAccessRead("id"), handler.GetKnowledgeBase)
-		// 更新/删除知识库 — 两层正交鉴权，缺一不可：
-		//   OwnedKBOrAdmin  管「租户内」归属：非创建者的 Contributor 改不了
-		//                   同事的 KB（跨租户 KB 在此走 lookup=NotFound → 交给
-		//                   下游处理，不在此拦）。
-		//   KBAccessWrite   管「跨租户」访问级：自有 KB 或被组织共享(editor)。
-		// handler 内再按 permission/所有者租户做最终判定 —— 尤其 DeleteKnowledgeBase
-		// 以调用者「自身」租户(c.Keys，未被 KBAccess 改写)校验 kb.TenantID，
-		// 把删除锁死为「所有者租户 + Admin」，共享 editor 无法删除源 KB。
-		kbManagement.PUT("/:id", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.UpdateKnowledgeBase)
+		// 更新知识库设置 — JWT Admin+，且跨租户共享场景需要 KB admin 级权限；
+		// API key 需 manage_kbs 或 full-access。
+		kbManagement.PUT("/:id", g.Admin(), g.KBAccessManage("id"), handler.UpdateKnowledgeBase)
+		// 删除知识库 — 保持原有「创建者 OR Admin+」矩阵。
 		kbManagement.DELETE("/:id", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.DeleteKnowledgeBase)
 		// 置顶/取消置顶知识库 — 创建者本人 OR Admin+ 且对 KB 有 write 权限
 		// Pin state is now per-(user, kb) (migration 000050). Anyone with
@@ -473,15 +468,15 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		// POST is preferred; GET with JSON body is kept for backward compatibility (#1727).
 		kb.POST("/:id/hybrid-search", g.Viewer(), g.KBAccessRead("id"), handler.HybridSearch)
 		kb.GET("/:id/hybrid-search", g.Viewer(), g.KBAccessRead("id"), handler.HybridSearch)
-		// 拷贝知识库 — 产出新 KB，与 create 同档：JWT Contributor+，API key 需 manage_kbs 或 full-access。
+		// 拷贝知识库 — 产出新 KB，与 create 同档：JWT Admin+，API key 需 manage_kbs 或 full-access。
 		// 源 KB 通过 body 里的 source_id 传入（非 :id 路径参数），无法套用基于路径参数
 		// 的 KBAccessRead，故源/目标 KB 的租户归属与 allow-list 校验在 handler 内完成
 		// （requireTenantAPIKeyKnowledgeBases 会把 source_id/target_id 兜进 allow-list）。
 		// 副本归调用者所有，不需要原 KB 的所有权。
-		kbManagement.POST("/copy", g.Contributor(), handler.CopyKnowledgeBase)
-		// 创建知识库副本 — 产出新 KB，与 create 同档：JWT Contributor+，API key 需 manage_kbs 或 full-access；
+		kbManagement.POST("/copy", g.Admin(), handler.CopyKnowledgeBase)
+		// 创建知识库副本 — 产出新 KB，与 create 同档：JWT Admin+，API key 需 manage_kbs 或 full-access；
 		// 且对源 KB 有 read 权限（KBAccessRead 会对限定 key 兜住源 KB）。只创建新的 KB 设置记录，不复制内容/索引/分享。
-		kbManagement.POST("/:id/duplicate", g.Contributor(), g.KBAccessRead("id"), handler.DuplicateKnowledgeBase)
+		kbManagement.POST("/:id/duplicate", g.Admin(), g.KBAccessRead("id"), handler.DuplicateKnowledgeBase)
 		// 获取知识库复制进度 — Viewer+；只读。manage_kbs（发起 copy 的 key）或
 		// retrieve 均可轮询；任务按租户隔离（requireTaskProgressTenant），key 只能
 		// 查本租户任务。
@@ -625,9 +620,12 @@ func RegisterChatRoutes(r *gin.RouterGroup, handler *session.Handler, g *rbacGua
 //   - DELETE /:id         Owner+ (also normally a CanAccessAllTenants op)
 //   - GET/POST/DELETE /:id/api-keys   Owner+ (scoped API key management)
 //   - GET    /:id/members            Viewer+ (any member can see who else is in)
-//   - POST   /:id/members            Owner+ (only Owner can add new members)
-//   - PUT    /:id/members/:user_id   Owner+ (only Owner can change roles)
-//   - DELETE /:id/members/:user_id   Owner+ (only Owner can remove members)
+//   - POST   /:id/members            Admin+ (Owner role assignment stays Owner/SystemAdmin-only in handler)
+//   - POST   /:id/members/admin-create Admin+ (create an account and add it as a member)
+//   - PUT    /:id/members/:user_id   Admin+ (Owner role changes stay Owner/SystemAdmin-only in handler)
+//   - POST   /:id/members/:user_id/suspend    Admin+ (Owner suspension stays Owner/SystemAdmin-only in handler)
+//   - POST   /:id/members/:user_id/reactivate Admin+ (Owner reactivation stays Owner/SystemAdmin-only in handler)
+//   - DELETE /:id/members/:user_id   Admin+ (Owner removal stays Owner/SystemAdmin-only in handler)
 //   - POST   /:id/leave              Viewer+ (any member can quit on their own)
 //
 // All /tenants/:id endpoints share g.PathTenantMatch() at the group
@@ -700,17 +698,21 @@ func RegisterTenantRoutes(
 			tenantByID.PUT("/api-principal-config", g.Owner(), handler.UpdateAPIPrincipalConfig)
 			tenantByID.POST("/api-principal-test-token", g.Owner(), handler.CreateAPIPrincipalTestToken)
 
-			// Tenant member management (PR 3 of #1303). Listing is
-			// Viewer+ so any active member can see the roster; mutation
-			// is Owner+ because membership changes are the highest-impact
-			// tenant op. /:id/leave is Viewer+ — any member can quit on
-			// their own; the service still rejects when it would leave
-			// the tenant without an Owner.
+			// Tenant member management. Listing is Viewer+ so any active
+			// member can see the roster; mutation is Admin+ for delegated
+			// enterprise administration. Owner role assignment / demotion /
+			// removal remains guarded inside TenantMemberHandler so Admins
+			// cannot self-escalate or remove tenant owners. /:id/leave is
+			// Viewer+ — any member can quit on their own; the service still
+			// rejects when it would leave the tenant without an Owner.
 			if memberHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.ListMembers)
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.AddMember)
-				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.UpdateMemberRole)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.RemoveMember)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.AddMember)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/admin-create", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.AdminCreateMember)
+				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.UpdateMemberRole)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/suspend", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.SuspendMember)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/reactivate", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.ReactivateMember)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.RemoveMember)
 				tenantByID.POST("/leave", g.Viewer(), memberHandler.LeaveTenant)
 			}
 
@@ -719,19 +721,20 @@ func RegisterTenantRoutes(
 			// so the invitee gets to confirm via /me/invitations
 			// before any tenant_members row is written. List is
 			// Viewer+ so any member can see pending invites in the
-			// management view; create/revoke are Owner+ to match the
-			// existing /members mutation gates. nil-skip pattern
+			// management view; create/revoke are Admin+ for delegated
+			// enterprise administration, while Owner invites and high-risk
+			// share-link roles are blocked inside the handler. nil-skip pattern
 			// mirrors memberHandler above for environments built
 			// without the invitation dependency wired.
 			if invitationHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), invitationHandler.ListTenantInvitations)
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), invitationHandler.CreateInvitation)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), invitationHandler.RevokeInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), invitationHandler.CreateInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), invitationHandler.RevokeInvitation)
 				// Share-link create lives under /invite-links so the URL
 				// reads as "create a link" rather than another flavour
 				// of /invitations; the underlying row still lives in the
 				// tenant_invitations table and shows up in the GET above.
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), invitationHandler.CreateInviteLink)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), invitationHandler.CreateInviteLink)
 			}
 
 			// Audit log feed (PR 6 of #1303). Admin+ so denied-action
@@ -851,12 +854,13 @@ func RegisterInitializationRoutes(r *gin.RouterGroup, handler *handler.Initializ
 	g.apiKeyRoute(r, http.MethodGet, "/initialization/config/:kbId",
 		apiKeyRetrieve(apiKeyFullAccess()), g.Viewer(), g.KBAccessRead("kbId"), handler.GetCurrentConfigByKB)
 	// InitializeByKB / UpdateKBConfig 都是改 KB 的核心模型/storage 配置 —
-	// 跟 PUT /knowledge-bases/:id 同等敏感，挂同款 OwnedKB 矩阵 + KBAccessWrite
-	//（API-key 主体短路 Owned* 守卫，KB allow-list 只能靠 KBAccess 兜底）。
+	// 跟 PUT /knowledge-bases/:id 同等敏感，JWT 侧要求 Admin+；共享 KB
+	// 还需要 admin 级 KB 权限（API-key 主体短路角色守卫，KB allow-list
+	// 只能靠 KBAccess 兜底）。
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/initialize/:kbId",
-		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.OwnedKBOrAdminFromKbIDParam(), g.KBAccessWrite("kbId"), handler.InitializeByKB)
+		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.Admin(), g.KBAccessManage("kbId"), handler.InitializeByKB)
 	g.apiKeyRoute(r, http.MethodPut, "/initialization/config/:kbId",
-		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.OwnedKBOrAdminFromKbIDParam(), g.KBAccessWrite("kbId"), handler.UpdateKBConfig)
+		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.Admin(), g.KBAccessManage("kbId"), handler.UpdateKBConfig)
 
 	// Ollama / 远程 API / 抽取等系统级检测/下载操作。这些不绑某个 KB，
 	// 会改空间级模型配置或拉远端模型；JWT 侧只读探测 Viewer+、变更 Admin+。
@@ -1122,36 +1126,36 @@ func RegisterStorageBackendRoutes(r *gin.RouterGroup, h *handler.StorageBackendH
 
 // RegisterCustomAgentRoutes registers custom agent routes.
 //
-// Mutating routes use OwnedAgentOrAdmin: the original creator can edit
-// their agent, otherwise Admin+ is required. Built-in agents
-// (IsBuiltin=true) have an empty creator and are always Admin+. Reads
-// are Viewer+, copy is Contributor+ (the copy is owned by the caller).
+// Mutating routes require Admin+: agent configuration controls models,
+// prompts, tools, MCP services, external search and sharing, so it is treated
+// as a workspace management surface rather than a contributor-owned resource.
+// Reads stay Viewer+.
 func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomAgentHandler, g *rbacGuards) {
 	agents := g.apiKeyGroup(r.Group("/agents"), apiKeyFullAccess())
 	// agentsRead are the agent read endpoints. They stay full-access only for
 	// plain scoped keys (agent config can carry sensitive model/MCP bindings),
 	// but read_agents, chat, or manage_agents may read them.
 	agentsRead := agents.With(apiKeyReadAgents(apiKeyManageAgents(apiKeyChat(apiKeyFullAccess()))))
-	// agentsWrite are the agent authoring endpoints. Owner by default, but a
-	// key granted manage_agents may author agents without full Owner.
+	// agentsWrite are the agent authoring endpoints. JWT callers need Admin+;
+	// API keys need manage_agents or full access.
 	agentsWrite := agents.With(apiKeyManageAgents(apiKeyFullAccess()))
 	{
 		// Get placeholder definitions (must be before /:id to avoid conflict) — Viewer+
 		agentsRead.GET("/placeholders", g.Viewer(), agentHandler.GetPlaceholders)
 		// List smart-reasoning agent type presets (rag-qa / wiki-qa / hybrid / custom) — Viewer+
 		agentsRead.GET("/type-presets", g.Viewer(), agentHandler.GetAgentTypePresets)
-		// Create custom agent — Contributor+
-		agentsWrite.POST("", g.Contributor(), agentHandler.CreateAgent)
+		// Create custom agent — Admin+
+		agentsWrite.POST("", g.Admin(), agentHandler.CreateAgent)
 		// List all agents (including built-in) — Viewer+
 		agentsRead.GET("", g.Viewer(), agentHandler.ListAgents)
 		// Get agent by ID — Viewer+
 		agentsRead.GET("/:id", g.Viewer(), agentHandler.GetAgent)
-		// Update agent — creator OR Admin+
-		agentsWrite.PUT("/:id", g.OwnedAgentOrAdmin(), agentHandler.UpdateAgent)
-		// Delete agent — creator OR Admin+
-		agentsWrite.DELETE("/:id", g.OwnedAgentOrAdmin(), agentHandler.DeleteAgent)
-		// Copy agent — Contributor+ (copy is owned by the caller)
-		agentsWrite.POST("/:id/copy", g.Contributor(), agentHandler.CopyAgent)
+		// Update agent — Admin+
+		agentsWrite.PUT("/:id", g.Admin(), agentHandler.UpdateAgent)
+		// Delete agent — Admin+
+		agentsWrite.DELETE("/:id", g.Admin(), agentHandler.DeleteAgent)
+		// Copy agent — Admin+
+		agentsWrite.POST("/:id/copy", g.Admin(), agentHandler.CopyAgent)
 	}
 	// Registered outside the group to avoid Gin route conflict with /agents/:id/shares in organization routes
 	g.apiKeyRoute(r, http.MethodGet, "/agents/:id/suggested-questions",
@@ -1286,20 +1290,17 @@ func RegisterOrganizationRoutes(r *gin.RouterGroup, orgHandler *handler.Organiza
 		kbShares.DELETE("/:share_id", g.OwnedKBOrAdmin(), orgHandler.RemoveShare)
 	}
 
-	// Agent sharing routes — same rationale as KB shares: 分享/取消分享
-	// 跟修改 agent 同等敏感，挂 OwnedAgentOrAdmin。
-	//
-	// GET 走 OwnedAgentOrAdmin 作为 JWT 侧的 owner 校验；service 层
-	// ListSharesByAgent 现在也强制 tenant 归属（与 ListSharesByKnowledgeBase
-	// 对齐），这样 full-access API key（会短路路由 guard）也无法跨空间
-	// 枚举他人 agent 的分享。
+	// Agent sharing routes — same rationale as other agent mutations:
+	// 分享/取消分享跟修改 agent 同等敏感，统一要求 Admin+。service 层
+	// ListSharesByAgent 仍强制 tenant 归属（与 ListSharesByKnowledgeBase 对齐），
+	// 这样 full-access API key（会短路路由 guard）也无法跨空间枚举他人 agent 的分享。
 	// 同 KB 分享：分享管理不通过 capability 授予；仅 full-access key
 	// （空间级全权）可管理 agent 分享，scoped key 保持 default-deny。
 	agentShares := g.apiKeyGroup(r.Group("/agents/:id/shares"), apiKeyFullAccess())
 	{
-		agentShares.POST("", g.OwnedAgentOrAdmin(), orgHandler.ShareAgent)
-		agentShares.GET("", g.OwnedAgentOrAdmin(), orgHandler.ListAgentShares)
-		agentShares.DELETE("/:share_id", g.OwnedAgentOrAdmin(), orgHandler.RemoveAgentShare)
+		agentShares.POST("", g.Admin(), orgHandler.ShareAgent)
+		agentShares.GET("", g.Admin(), orgHandler.ListAgentShares)
+		agentShares.DELETE("/:share_id", g.Admin(), orgHandler.RemoveAgentShare)
 	}
 
 	// Shared knowledge bases route — Viewer+

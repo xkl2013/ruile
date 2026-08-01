@@ -188,11 +188,33 @@
                 <template #prefix-icon><t-icon name="search" /></template>
               </t-input>
             </div>
+            <t-select v-model="roleFilter" size="small" class="members-list-filter"
+              :placeholder="$t('tenantMember.filters.role')" clearable :options="roleOptions"
+              :popup-props="roleSelectPopupProps" />
+            <t-select v-model="statusFilter" size="small" class="members-list-filter members-list-filter--narrow"
+              :placeholder="$t('tenantMember.filters.status')" clearable :options="statusOptions"
+              :popup-props="roleSelectPopupProps" />
+            <t-select v-model="sourceFilter" size="small" class="members-list-filter members-list-filter--narrow"
+              :placeholder="$t('tenantMember.filters.source')" clearable :options="sourceOptions"
+              :popup-props="roleSelectPopupProps" />
+            <div class="members-list-department">
+              <t-input v-model="departmentFilter" size="small" :placeholder="$t('tenantMember.filters.department')"
+                clearable>
+                <template #prefix-icon><t-icon name="usergroup" /></template>
+              </t-input>
+            </div>
+            <t-tooltip v-if="canManage" :content="$t('tenantMember.create.button')" placement="top">
+              <t-button theme="primary" shape="square" size="small" class="members-list-add-btn"
+                :title="$t('tenantMember.create.button')" :aria-label="$t('tenantMember.create.button')"
+                @click="createMemberDialogVisible = true">
+                <template #icon><t-icon name="user-add" /></template>
+              </t-button>
+            </t-tooltip>
             <t-popup v-if="canManage" v-model="invitePopupVisible" trigger="click" placement="bottom-end"
               destroy-on-close overlay-class-name="member-invite-popup-overlay">
-              <t-button theme="primary" variant="outline" shape="square" size="small" class="members-list-add-btn"
+              <t-button theme="default" variant="outline" shape="square" size="small" class="members-list-add-btn"
                 :title="$t('tenantMember.add.button')" :aria-label="$t('tenantMember.add.button')">
-                <template #icon><t-icon name="user-add" /></template>
+                <template #icon><t-icon name="mail" /></template>
               </t-button>
               <template #content>
                 <div class="member-invite-popup-inner" @click.stop>
@@ -205,17 +227,18 @@
                   </div>
                   <t-form v-if="addDialogStep === 'form'" ref="addFormRef" :data="addForm" :rules="addFormRules"
                     :label-width="80" class="member-invite-form">
-                    <t-form-item :label="$t('tenantMember.add.emailLabel')" name="email">
-                      <t-input v-model="addForm.email" :placeholder="$t('tenantMember.add.emailPlaceholder')"
+                    <t-form-item :label="$t('tenantMember.add.phoneLabel')" name="phone">
+                      <t-input v-model="addForm.phone" :placeholder="$t('tenantMember.add.phonePlaceholder')"
                         clearable />
                     </t-form-item>
                     <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
-                      <t-select v-model="addForm.role" :options="roleOptions" :popup-props="roleSelectPopupProps" />
+                      <t-select v-model="addForm.role" :options="assignableRoleOptions"
+                        :popup-props="roleSelectPopupProps" />
                     </t-form-item>
                   </t-form>
                   <div v-else class="invite-confirm-body">
                     {{ $t('tenantInvitation.confirmInviteBody', {
-                      email: addConfirmEmail,
+                      phone: addConfirmPhone,
                       role: addConfirmRoleLabel,
                     }) }}
                   </div>
@@ -259,7 +282,7 @@
                     </p>
                     <t-form :data="shareLinkForm" :label-width="80">
                       <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
-                        <t-select v-model="shareLinkForm.role" :options="roleOptions"
+                        <t-select v-model="shareLinkForm.role" :options="shareLinkRoleOptions"
                           :popup-props="roleSelectPopupProps" />
                       </t-form-item>
                     </t-form>
@@ -309,8 +332,8 @@
           </t-alert>
         </div>
         <div v-else-if="membersTotal === 0" class="empty-state">
-          <t-empty :description="searchQuery.trim()
-            ? $t('tenantMember.emptySearch', { q: searchQuery })
+          <t-empty :description="hasMemberFilters
+            ? $t('tenantMember.emptyFiltered')
             : $t('tenantMember.empty')
             " />
         </div>
@@ -325,10 +348,10 @@
               </template>
               <template #role="{ row }">
                 <div class="role-cell">
-                  <t-select v-if="canManage && row.user_id !== currentUserId" :model-value="row.role"
+                  <t-select v-if="canManageMemberRow(row)" :model-value="row.role"
                     class="member-role-select" size="small" :popup-props="roleSelectPopupProps"
                     @change="(val: string) => onRoleChange(row, val)">
-                    <t-option v-for="opt in roleOptions" :key="opt.value" :value="opt.value" :label="opt.label">
+                    <t-option v-for="opt in assignableRoleOptions" :key="opt.value" :value="opt.value" :label="opt.label">
                       <span class="role-option">
                         <t-icon :name="roleIcon(opt.value)" class="role-option-icon" />
                         <span>{{ opt.label }}</span>
@@ -340,10 +363,53 @@
                   </t-tag>
                 </div>
               </template>
+              <template #status="{ row }">
+                <div class="status-cell">
+                  <t-tag :theme="memberStatusTheme(row.status)" size="small" variant="light">
+                    {{ $t('tenantMember.status.' + row.status) }}
+                  </t-tag>
+                  <span v-if="row.suspended_at" class="status-timestamp">{{ formatDate(row.suspended_at) }}</span>
+                </div>
+              </template>
+              <template #source="{ row }">
+                <t-tag :theme="memberSourceTheme(row.source)" size="small" variant="light-outline">
+                  {{ memberSourceLabel(row.source) }}
+                </t-tag>
+              </template>
+              <template #department="{ row }">
+                <span class="department-cell">{{ row.department?.trim() || '-' }}</span>
+              </template>
               <template #joined_at="{ row }">{{ formatDate(row.joined_at) }}</template>
               <template #actions="{ row }">
                 <t-popconfirm
-                  v-if="canManage && row.user_id !== currentUserId"
+                  v-if="canManageMemberRow(row) && row.status !== 'suspended'"
+                  theme="warning"
+                  :content="$t('tenantMember.suspend.confirmBody', { name: row.username || row.email })"
+                  :confirm-btn="{ content: $t('tenantMember.suspend.confirm'), theme: 'warning' }"
+                  :cancel-btn="{ content: $t('common.cancel') }"
+                  placement="left"
+                  @confirm="suspendRow(row)">
+                  <t-tooltip :content="$t('tenantMember.suspend.button')" placement="top">
+                    <t-button theme="warning" shape="square" variant="text" size="small" @click.stop>
+                      <template #icon><t-icon name="lock-on" /></template>
+                    </t-button>
+                  </t-tooltip>
+                </t-popconfirm>
+                <t-popconfirm
+                  v-if="canManageMemberRow(row) && row.status === 'suspended'"
+                  :content="$t('tenantMember.reactivate.confirmBody', { name: row.username || row.email })"
+                  :confirm-btn="{ content: $t('tenantMember.reactivate.confirm'), theme: 'primary' }"
+                  :cancel-btn="{ content: $t('common.cancel') }"
+                  placement="left"
+                  @confirm="reactivateRow(row)">
+                  <t-tooltip :content="$t('tenantMember.reactivate.button')" placement="top">
+                    <t-button theme="primary" shape="square" variant="text" size="small" @click.stop>
+                      <template #icon><t-icon name="refresh" /></template>
+                    </t-button>
+                  </t-tooltip>
+                </t-popconfirm>
+                <t-popconfirm
+                  v-if="canManageMemberRow(row)"
                   :content="$t('tenantMember.remove.confirmBody', { name: row.username || row.email })"
                   :confirm-btn="{ content: $t('tenantMember.remove.confirm'), theme: 'danger' }"
                   :cancel-btn="{ content: $t('common.cancel') }"
@@ -366,11 +432,45 @@
         </div>
       </div>
 
-    </div>
+	    </div>
 
-    <!-- Audit log drawer. Only rendered for Admin+ because the backend
-         route is g.Admin()-gated; rendering it for lower roles would
-         just produce an unhelpful 403. Lazy-loaded on first open. -->
+	    <t-dialog
+	      v-if="canManage"
+	      v-model:visible="createMemberDialogVisible"
+	      :header="$t('tenantMember.create.dialogTitle')"
+	      width="420px"
+	      :confirm-btn="{ content: $t('tenantMember.create.submit'), theme: 'primary', loading: creatingMember }"
+	      :cancel-btn="{ content: $t('common.cancel'), disabled: creatingMember }"
+	      :close-on-overlay-click="!creatingMember"
+	      destroy-on-close
+	      @confirm="submitCreateMember"
+	      @cancel="createMemberDialogVisible = false"
+	      @close="createMemberDialogVisible = false"
+	    >
+	      <div class="member-create-dialog">
+	        <t-form ref="createMemberFormRef" :data="createMemberForm" :rules="createMemberRules" label-align="top"
+	          @submit.prevent>
+	          <t-form-item :label="$t('tenantMember.create.nameLabel')" name="name">
+	            <t-input v-model="createMemberForm.name" :placeholder="$t('tenantMember.create.namePlaceholder')"
+	              :maxlength="50" clearable />
+	          </t-form-item>
+	          <t-form-item :label="$t('tenantMember.create.phoneLabel')" name="phone">
+	            <t-input v-model="createMemberForm.phone" :placeholder="$t('tenantMember.create.phonePlaceholder')"
+	              clearable @enter="submitCreateMember" />
+	          </t-form-item>
+	        </t-form>
+	        <p class="member-create-password-hint">
+	          {{ $t('tenantMember.create.passwordHint') }}
+	          <span v-if="createMemberDefaultPassword" class="member-create-password-value">
+	            {{ createMemberDefaultPassword }}
+	          </span>
+	        </p>
+	      </div>
+	    </t-dialog>
+
+	    <!-- Audit log drawer. Only rendered for Admin+ because the backend
+	         route is g.Admin()-gated; rendering it for lower roles would
+	         just produce an unhelpful 403. Lazy-loaded on first open. -->
     <t-drawer v-if="canViewAudit" v-model:visible="auditDrawerVisible" :header="$t('tenantMember.audit.tabLabel')"
       drawer-class-name="tenant-members-audit-drawer" size="880px" :footer="false" placement="right" destroy-on-close>
       <div class="audit-drawer-inner audit-panel audit-panel--drawer">
@@ -508,10 +608,15 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import {
   listMembers,
+  adminCreateMember,
   updateMemberRole,
   removeMember,
+  suspendMember,
+  reactivateMember,
   type TenantMember,
   type TenantRole,
+  type TenantMemberStatus,
+  type TenantMemberSource,
 } from '@/api/tenant/members'
 import {
   listTenantInvitations,
@@ -545,22 +650,30 @@ const members = ref<TenantMember[]>([])
 const loading = ref(false)
 const error = ref('')
 const adding = ref(false)
+const creatingMember = ref(false)
+const createMemberDialogVisible = ref(false)
+const createMemberFormRef = ref<any>(null)
 /** 邀请流程：锚在列表头「+」按钮旁的弹出层（非居中模态）。 */
 const invitePopupVisible = ref(false)
-// share-link generator state (separate popup next to the email
+// share-link generator state (separate popup next to the phone
 // invite). shareLinkResult is non-null after a successful create —
 // the popup then switches into "here's your link, copy it" mode.
 const shareLinkPopupVisible = ref(false)
 const shareLinkForm = reactive<{ role: TenantRole }>({ role: 'contributor' })
 const creatingShareLink = ref(false)
 const shareLinkResult = ref<TenantInvitation | null>(null)
-// Two-step invite inside the popup: 'form' renders the email/role inputs;
+// Two-step invite inside the popup: 'form' renders the phone/role inputs;
 // 'confirm' swaps the body for an in-place summary; primary CTA toggles label.
 const addDialogStep = ref<'form' | 'confirm'>('form')
 const addFormRef = ref<any>(null)
 const searchQuery = ref('')
 /** 已应用到服务端筛选的检索词（相对输入框防抖） */
 const memberSearchQ = ref('')
+const roleFilter = ref<TenantRole | ''>('')
+const statusFilter = ref<TenantMemberStatus | ''>('')
+const sourceFilter = ref<TenantMemberSource | ''>('')
+const departmentFilter = ref('')
+const memberDepartmentQ = ref('')
 let memberSearchDebounceTimer: number | undefined
 
 const membersTotal = ref(0)
@@ -620,21 +733,31 @@ let auditScrollObserver: IntersectionObserver | null = null
 // inviting a fresh member with viewer is too restrictive for the
 // expected "let them collaborate on KBs" use case, and admin/owner
 // should be a deliberate promote step after the user accepts.
-const addForm = reactive<{ email: string; role: TenantRole }>({
-  email: '',
+const addForm = reactive<{ phone: string; role: TenantRole }>({
+  phone: '',
   role: 'contributor',
+})
+const createMemberForm = reactive<{ name: string; phone: string }>({
+  name: '',
+  phone: '',
 })
 
 // Role-aware gates. The server enforces every mutation; UI gates here
 // are presentational only, matching the security note in stores/auth.ts.
 const currentRole = computed<TenantRole | ''>(() => (authStore.currentTenantRole || '') as TenantRole | '')
-// Cross-tenant superusers (org-level operators) bypass the Owner gate
-// on the server (see middleware/rbac.go RequireRole). The UI must
-// mirror that or the buttons would be invisible to the exact admins
-// who actually need them. Local Owners of their own tenant come in via
-// the role branch.
+// Admin+ can manage ordinary memberships. Owner-role operations are
+// narrowed by canManageOwnerRoles below, mirroring the handler guards.
 const canManage = computed(
-  () => currentRole.value === 'owner' || authStore.canAccessAllTenants === true,
+  () =>
+    currentRole.value === 'owner' ||
+    currentRole.value === 'admin' ||
+    authStore.canAccessAllTenants === true,
+)
+const canManageOwnerRoles = computed(
+  () =>
+    currentRole.value === 'owner' ||
+    authStore.canAccessAllTenants === true ||
+    authStore.isSystemAdmin === true,
 )
 // Admin+ (and cross-tenant superusers) can view the audit log. Mirrors
 // the server's g.Admin() guard on /tenants/:id/audit-log so we don't
@@ -652,11 +775,32 @@ const currentUserId = computed(() => authStore.user?.id ?? '')
 // don't expose a tenant picker here.
 const activeTenantId = computed(() => Number(authStore.currentTenantId ?? 0))
 
-const roleOptions = computed(() => [
+type SelectOption<T extends string = string> = { label: string; value: T }
+
+const roleOptions = computed<Array<SelectOption<TenantRole>>>(() => [
   { label: t('tenantMember.role.owner'), value: 'owner' },
   { label: t('tenantMember.role.admin'), value: 'admin' },
   { label: t('tenantMember.role.contributor'), value: 'contributor' },
   { label: t('tenantMember.role.viewer'), value: 'viewer' },
+])
+const assignableRoleOptions = computed<Array<SelectOption<TenantRole>>>(() =>
+  roleOptions.value.filter((opt) => opt.value !== 'owner' || canManageOwnerRoles.value),
+)
+const shareLinkRoleOptions = computed<Array<SelectOption<TenantRole>>>(() =>
+  roleOptions.value.filter((opt) => opt.value === 'contributor' || opt.value === 'viewer'),
+)
+const statusOptions = computed<Array<SelectOption<TenantMemberStatus>>>(() => [
+  { label: t('tenantMember.status.active'), value: 'active' },
+  { label: t('tenantMember.status.invited'), value: 'invited' },
+  { label: t('tenantMember.status.suspended'), value: 'suspended' },
+])
+const sourceOptions = computed<Array<SelectOption<TenantMemberSource>>>(() => [
+  { label: t('tenantMember.source.manual'), value: 'manual' },
+  { label: t('tenantMember.source.invite'), value: 'invite' },
+  { label: t('tenantMember.source.sso'), value: 'sso' },
+  { label: t('tenantMember.source.scim'), value: 'scim' },
+  { label: t('tenantMember.source.ldap'), value: 'ldap' },
+  { label: t('tenantMember.source.hris'), value: 'hris' },
 ])
 
 /** 下拉层须高于邀请浮层（3050）与组织设置全屏遮罩，否则会被压住 */
@@ -681,7 +825,7 @@ const roleMatrix: Record<TenantRole, RolePerm[]> = {
     { key: 'readAll', has: true },
   ],
   admin: [
-    { key: 'manageMembers', has: false },
+    { key: 'manageMembers', has: true },
     { key: 'manageTenantConfig', has: false },
     { key: 'manageInfra', has: true },
     { key: 'createOwnKB', has: true },
@@ -719,8 +863,11 @@ function roleMatrixIcon(role: TenantRole): string {
 const columns = computed(() => [
   { colKey: 'member', title: t('tenantMember.columns.member'), ellipsis: true, minWidth: 132 },
   { colKey: 'role', title: t('tenantMember.columns.role'), width: 128 },
+  { colKey: 'status', title: t('tenantMember.columns.status'), width: 118 },
+  { colKey: 'source', title: t('tenantMember.columns.source'), width: 106 },
+  { colKey: 'department', title: t('tenantMember.columns.department'), ellipsis: true, minWidth: 116 },
   { colKey: 'joined_at', title: t('tenantMember.columns.joinedAt'), width: 154 },
-  { colKey: 'actions', title: t('tenantMember.columns.operations'), width: 88, align: 'left' },
+  { colKey: 'actions', title: t('tenantMember.columns.operations'), width: 132, align: 'left' },
 ])
 
 function memberPrimary(row: { username?: string; email?: string }) {
@@ -735,11 +882,30 @@ function memberSecondary(row: { username?: string; email?: string }) {
 }
 
 const addFormRules = {
-  email: [
-    { required: true, message: t('tenantMember.errors.emailRequired'), trigger: 'blur' },
-    { email: true, message: t('tenantMember.errors.emailFormat'), trigger: 'blur' },
+  phone: [
+    { required: true, message: t('tenantMember.errors.phoneRequired'), trigger: 'blur' },
+    { pattern: /^1[3-9]\d{9}$/, message: t('tenantMember.errors.phoneFormat'), trigger: 'blur' },
   ],
   role: [{ required: true, message: t('tenantMember.errors.roleRequired'), trigger: 'change' }],
+}
+
+const createMemberRules = {
+  name: [
+    {
+      validator: (val: string) => (val ?? '').trim().length > 0,
+      message: t('tenantMember.errors.nameRequired'),
+      trigger: 'blur',
+    },
+    {
+      validator: (val: string) => Array.from((val ?? '').trim()).length <= 50,
+      message: t('tenantMember.errors.nameTooLong'),
+      trigger: 'blur',
+    },
+  ],
+  phone: [
+    { required: true, message: t('tenantMember.errors.phoneRequired'), trigger: 'blur' },
+    { pattern: /^1[3-9]\d{9}$/, message: t('tenantMember.errors.phoneFormat'), trigger: 'blur' },
+  ],
 }
 
 // Pretty role tag colour: Owner stands out, Admin is warning, the rest
@@ -765,7 +931,47 @@ function roleIcon(role: TenantRole | string): string {
   return 'user'
 }
 
-function formatDate(s: string | undefined): string {
+function canManageMemberRow(row: TenantMember): boolean {
+  if (!canManage.value || row.user_id === currentUserId.value) return false
+  if (row.role === 'owner' && !canManageOwnerRoles.value) return false
+  return true
+}
+
+function memberStatusTheme(status: TenantMemberStatus): 'success' | 'warning' | 'danger' | 'default' {
+  switch (status) {
+    case 'active':
+      return 'success'
+    case 'invited':
+      return 'warning'
+    case 'suspended':
+      return 'danger'
+    default:
+      return 'default'
+  }
+}
+
+function memberSourceTheme(source?: TenantMemberSource): 'primary' | 'success' | 'warning' | 'default' {
+  switch (source) {
+    case 'sso':
+    case 'scim':
+    case 'ldap':
+    case 'hris':
+      return 'primary'
+    case 'invite':
+      return 'success'
+    case 'manual':
+      return 'default'
+    default:
+      return 'default'
+  }
+}
+
+function memberSourceLabel(source?: TenantMemberSource): string {
+  if (!source) return t('tenantMember.source.manual')
+  return t('tenantMember.source.' + source)
+}
+
+function formatDate(s: string | null | undefined): string {
   if (!s) return '-'
   try {
     const d = new Date(s)
@@ -787,6 +993,15 @@ function rememberMembersForAudit(rows: TenantMember[]) {
   }
 }
 
+const hasMemberFilters = computed(
+  () =>
+    !!memberSearchQ.value ||
+    !!roleFilter.value ||
+    !!statusFilter.value ||
+    !!sourceFilter.value ||
+    !!memberDepartmentQ.value,
+)
+
 async function loadMembers() {
   if (!activeTenantId.value) {
     return
@@ -798,6 +1013,10 @@ async function loadMembers() {
       page: membersPage.value,
       page_size: membersPageSize.value,
       q: memberSearchQ.value || undefined,
+      role: roleFilter.value || undefined,
+      status: statusFilter.value || undefined,
+      source: sourceFilter.value || undefined,
+      department: memberDepartmentQ.value || undefined,
     })
     if (resp.success && resp.data) {
       const total = resp.data.total ?? 0
@@ -833,14 +1052,21 @@ function onMembersPageChange() {
   void loadMembers()
 }
 
-watch(searchQuery, () => {
+watch([searchQuery, departmentFilter], () => {
   if (!activeTenantId.value) return
   window.clearTimeout(memberSearchDebounceTimer)
   memberSearchDebounceTimer = window.setTimeout(() => {
     memberSearchQ.value = searchQuery.value.trim()
+    memberDepartmentQ.value = departmentFilter.value.trim()
     membersPage.value = 1
     loadMembers()
   }, 320)
+})
+
+watch([roleFilter, statusFilter, sourceFilter], () => {
+  if (!activeTenantId.value) return
+  membersPage.value = 1
+  void loadMembers()
 })
 
 // ---- Pending invitations ------------------------------------------------
@@ -1024,10 +1250,12 @@ function auditActionTheme(
     case 'rbac.access_denied':
       return 'danger'
     case 'rbac.member_added':
+    case 'rbac.member_reactivated':
       return 'success'
     case 'rbac.member_removed':
     case 'rbac.member_left':
     case 'rbac.member_role_changed':
+    case 'rbac.member_suspended':
       return 'warning'
     default:
       return 'default'
@@ -1087,6 +1315,9 @@ function auditTargetDiff(row: AuditLog): string {
   if (!d) return ''
   if (row.action === 'rbac.member_role_changed') {
     if (d.old_role && d.new_role) return `${d.old_role} → ${d.new_role}`
+  }
+  if (row.action === 'rbac.member_suspended' || row.action === 'rbac.member_reactivated') {
+    if (d.old_status && d.new_status) return `${d.old_status} → ${d.new_status}`
   }
   if (row.action === 'rbac.access_denied') {
     if (typeof d.required_role === 'string') {
@@ -1229,11 +1460,14 @@ watch(
   { flush: 'post' },
 )
 
-onUnmounted(() => detachAuditInfiniteScroll())
+onUnmounted(() => {
+  window.clearTimeout(memberSearchDebounceTimer)
+  detachAuditInfiniteScroll()
+})
 
 watch(invitePopupVisible, (open) => {
   if (!open) return
-  addForm.email = ''
+  addForm.phone = ''
   addForm.role = 'contributor'
   addDialogStep.value = 'form'
 })
@@ -1244,6 +1478,19 @@ watch(shareLinkPopupVisible, (open) => {
   if (!open) return
   shareLinkForm.role = 'contributor'
   shareLinkResult.value = null
+})
+
+watch(createMemberDialogVisible, (open) => {
+  if (!open) return
+  createMemberForm.name = ''
+  createMemberForm.phone = ''
+  nextTick(() => createMemberFormRef.value?.clearValidate?.())
+})
+
+const createMemberDefaultPassword = computed(() => {
+  const phone = createMemberForm.phone.trim()
+  if (!/^1[3-9]\d{9}$/.test(phone)) return ''
+  return `rl${phone.slice(-4)}`
 })
 
 // absoluteInviteURL turns the backend's potentially-host-relative
@@ -1268,6 +1515,11 @@ async function copyText(text: string) {
 }
 
 async function submitShareLink() {
+  if (!shareLinkRoleOptions.value.some((opt) => opt.value === shareLinkForm.role)) {
+    MessagePlugin.error(t('tenantInvitation.shareLink.roleRestricted'))
+    shareLinkForm.role = 'contributor'
+    return
+  }
   creatingShareLink.value = true
   try {
     const resp = await createInviteLink(activeTenantId.value, { role: shareLinkForm.role })
@@ -1279,16 +1531,70 @@ async function submitShareLink() {
     invitationsPage.value = 1
     await loadInvitations()
   } catch (err: any) {
-    MessagePlugin.error(err?.message || t('tenantInvitation.errors.generic'))
+    if (err?.status === 400 || err?.status === 403) {
+      MessagePlugin.error(err?.message || t('tenantInvitation.shareLink.roleRestricted'))
+    } else {
+      MessagePlugin.error(err?.message || t('tenantInvitation.errors.generic'))
+    }
   } finally {
     creatingShareLink.value = false
+  }
+}
+
+function createMemberConflictMessage(message: string): string {
+  const lower = message.toLowerCase()
+  if (lower.includes('phone')) return t('tenantMember.errors.phoneExists')
+  if (lower.includes('username')) return t('tenantMember.errors.nameExists')
+  return message || t('tenantMember.errors.alreadyMember')
+}
+
+async function submitCreateMember() {
+  if (creatingMember.value) return
+  if (!activeTenantId.value) {
+    MessagePlugin.error(t('tenantMember.errors.noTenant'))
+    return
+  }
+  const valid = await createMemberFormRef.value?.validate?.()
+  if (valid !== true) return
+
+  const phone = createMemberForm.phone.trim()
+  const name = createMemberForm.name.trim()
+  creatingMember.value = true
+  try {
+    const resp = await adminCreateMember(activeTenantId.value, {
+      phone,
+      name,
+      role: 'contributor',
+    })
+    if (!resp.success) {
+      MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
+      return
+    }
+    createMemberDialogVisible.value = false
+    membersPage.value = 1
+    await loadMembers()
+    if (auditLoadedOnce.value) reloadAuditLog()
+    MessagePlugin.success(t('tenantMember.create.success', { password: `rl${phone.slice(-4)}` }))
+  } catch (err: any) {
+    const status = err?.status
+    if (status === 409) {
+      MessagePlugin.error(createMemberConflictMessage(err?.message || ''))
+    } else if (status === 400) {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.phoneFormat'))
+    } else if (status === 403) {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.ownerRequiresOwner'))
+    } else {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
+    }
+  } finally {
+    creatingMember.value = false
   }
 }
 
 // Live display strings for the in-place confirm step. Recomputed
 // every time the user goes Back, tweaks the form, and re-advances —
 // the summary always mirrors the current form state.
-const addConfirmEmail = computed(() => addForm.email.trim())
+const addConfirmPhone = computed(() => addForm.phone.trim())
 const addConfirmRoleLabel = computed(() => t('tenantMember.role.' + addForm.role))
 
 // submitAdd is wired to the popup footer primary CTA. On step='form' it
@@ -1300,7 +1606,7 @@ async function submitAdd() {
     addDialogStep.value = 'confirm'
     return
   }
-  await sendInvitation(addForm.email.trim(), addForm.role)
+  await sendInvitation(addForm.phone.trim(), addForm.role)
 }
 
 // goBackToForm un-advances from confirm to form inside the popup.
@@ -1316,10 +1622,14 @@ const dialogConfirmLabel = computed(() =>
 )
 
 // sendInvitation actually fires the create-invitation API call.
-async function sendInvitation(email: string, role: TenantRole) {
+async function sendInvitation(phone: string, role: TenantRole) {
+  if (role === 'owner' && !canManageOwnerRoles.value) {
+    MessagePlugin.error(t('tenantMember.errors.ownerRequiresOwner'))
+    return
+  }
   adding.value = true
   try {
-    const resp = await createInvitation(activeTenantId.value, { email, role })
+    const resp = await createInvitation(activeTenantId.value, { phone, role })
     if (resp.success) {
       invitationsPage.value = 1
       await loadInvitations()
@@ -1345,6 +1655,8 @@ async function sendInvitation(email: string, role: TenantRole) {
       )
     } else if (status === 400) {
       MessagePlugin.error(err?.message || t('tenantMember.errors.invalidRole'))
+    } else if (status === 403) {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.ownerRequiresOwner'))
     } else {
       MessagePlugin.error(err?.message || t('tenantInvitation.errors.generic'))
     }
@@ -1357,6 +1669,14 @@ async function onRoleChange(row: TenantMember, newRole: string) {
   const prev = row.role
   const next = newRole as TenantRole
   if (prev === next) return
+  if (next === 'owner' && !canManageOwnerRoles.value) {
+    MessagePlugin.error(t('tenantMember.errors.ownerRequiresOwner'))
+    return
+  }
+  if (!canManageMemberRow(row)) {
+    MessagePlugin.error(t('tenantMember.errors.ownerRequiresOwner'))
+    return
+  }
 
   try {
     const resp = await updateMemberRole(activeTenantId.value, row.user_id, next)
@@ -1388,6 +1708,8 @@ async function onRoleChange(row: TenantMember, newRole: string) {
       MessagePlugin.error(t('tenantMember.errors.lastOwner'))
     } else if (status === 404) {
       MessagePlugin.error(t('tenantMember.errors.notFound'))
+    } else if (status === 403) {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.ownerRequiresOwner'))
     } else {
       MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
     }
@@ -1414,6 +1736,54 @@ async function removeRow(row: TenantMember) {
       MessagePlugin.error(t('tenantMember.errors.lastOwner'))
     } else if (status === 404) {
       MessagePlugin.error(t('tenantMember.errors.notFound'))
+    } else if (status === 403) {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.ownerRequiresOwner'))
+    } else {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
+    }
+  }
+}
+
+async function suspendRow(row: TenantMember) {
+  try {
+    const resp = await suspendMember(activeTenantId.value, row.user_id)
+    if (resp.success) {
+      await loadMembers()
+      if (auditLoadedOnce.value) reloadAuditLog()
+      MessagePlugin.success(t('tenantMember.suspend.success'))
+    } else {
+      MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
+    }
+  } catch (err: any) {
+    const status = err?.status
+    if (status === 409) {
+      MessagePlugin.error(t('tenantMember.errors.lastOwner'))
+    } else if (status === 404) {
+      MessagePlugin.error(t('tenantMember.errors.notFound'))
+    } else if (status === 403) {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.ownerRequiresOwner'))
+    } else {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
+    }
+  }
+}
+
+async function reactivateRow(row: TenantMember) {
+  try {
+    const resp = await reactivateMember(activeTenantId.value, row.user_id)
+    if (resp.success) {
+      await loadMembers()
+      if (auditLoadedOnce.value) reloadAuditLog()
+      MessagePlugin.success(t('tenantMember.reactivate.success'))
+    } else {
+      MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
+    }
+  } catch (err: any) {
+    const status = err?.status
+    if (status === 404) {
+      MessagePlugin.error(t('tenantMember.errors.notFound'))
+    } else if (status === 403) {
+      MessagePlugin.error(err?.message || t('tenantMember.errors.ownerRequiresOwner'))
     } else {
       MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
     }
@@ -1430,6 +1800,11 @@ watch(
     if (id) {
       searchQuery.value = ''
       memberSearchQ.value = ''
+      roleFilter.value = ''
+      statusFilter.value = ''
+      sourceFilter.value = ''
+      departmentFilter.value = ''
+      memberDepartmentQ.value = ''
       window.clearTimeout(memberSearchDebounceTimer)
       membersPage.value = 1
       invitationsPage.value = 1
@@ -1484,7 +1859,7 @@ watch(
     font-weight: 600;
     color: var(--td-text-color-primary);
     margin: 0;
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
   }
 
   .section-description {
@@ -1640,6 +2015,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   flex: 0 1 auto;
   min-width: 0;
 }
@@ -1650,6 +2026,27 @@ watch(
      的 × 图标、边框态切换），导致整行横向抖动。 */
   flex: 0 0 14rem;
   width: 14rem;
+  min-width: 0;
+
+  :deep(.t-input) {
+    width: 100%;
+  }
+}
+
+.members-list-filter {
+  flex: 0 0 7.5rem;
+  width: 7.5rem;
+  min-width: 0;
+
+  &.members-list-filter--narrow {
+    flex-basis: 6.5rem;
+    width: 6.5rem;
+  }
+}
+
+.members-list-department {
+  flex: 0 0 8.5rem;
+  width: 8.5rem;
   min-width: 0;
 
   :deep(.t-input) {
@@ -1673,6 +2070,13 @@ watch(
     flex: 1 1 auto;
     width: auto;
     max-width: none;
+  }
+
+  .members-list-filter,
+  .members-list-filter.members-list-filter--narrow,
+  .members-list-department {
+    flex: 1 1 calc(50% - 4px);
+    width: auto;
   }
 }
 
@@ -1705,6 +2109,30 @@ watch(
   &:deep(.member-role-select.t-select) {
     width: 100%;
   }
+
+  &:deep(.status-cell) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+  }
+}
+
+.status-timestamp {
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--td-text-color-secondary);
+  white-space: nowrap;
+}
+
+.department-cell {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--td-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Audit drawer's data-table-shell variant: only used inside the audit
@@ -1952,6 +2380,29 @@ watch(
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+.member-create-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.member-create-password-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.member-create-password-value {
+  margin-left: 4px;
+  color: var(--td-text-color-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Share-link result panel — single-row layout: input field stretches,
@@ -2264,7 +2715,7 @@ watch(
   font-weight: 600;
   color: var(--td-text-color-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
 }
 
 .audit-expanded-value {

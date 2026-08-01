@@ -33,9 +33,9 @@ type TenantMemberService interface {
 	// ListByTenant returns every active membership inside the tenant.
 	ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error)
 
-	// ListMembersPage lists members with pagination. Query matches email or
-	// username case-insensitively; empty query returns full tenant list slice.
-	ListMembersPage(ctx context.Context, tenantID uint64, query string, page, pageSize int) ([]*types.TenantMember, int64, error)
+	// ListMembersPage lists members with pagination. Filters match email or
+	// username case-insensitively plus enterprise lifecycle fields.
+	ListMembersPage(ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter, page, pageSize int) ([]*types.TenantMember, int64, error)
 
 	// HasAnyMembers reports whether the tenant has at least one active
 	// member. The auth middleware uses this to recover orphan tenants
@@ -51,4 +51,12 @@ type TenantMemberService interface {
 	// RemoveMember soft-deletes the membership while enforcing the
 	// "cannot remove the last active Owner" invariant.
 	RemoveMember(ctx context.Context, userID string, tenantID uint64) error
+
+	// SuspendMember disables a membership without deleting the row. It enforces
+	// the last-Owner invariant and revokes the target user's sessions when a
+	// token repository is wired into the service.
+	SuspendMember(ctx context.Context, userID string, tenantID uint64) error
+
+	// ReactivateMember returns a suspended membership to active status.
+	ReactivateMember(ctx context.Context, userID string, tenantID uint64) error
 }

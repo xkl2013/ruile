@@ -322,6 +322,11 @@ CREATE TABLE IF NOT EXISTS tenant_members (
     role VARCHAR(20) NOT NULL DEFAULT 'contributor',
     status VARCHAR(20) NOT NULL DEFAULT 'active',
     invited_by VARCHAR(36),
+    source VARCHAR(32) NOT NULL DEFAULT 'manual',
+    external_user_id VARCHAR(128) NOT NULL DEFAULT '',
+    department VARCHAR(128) NOT NULL DEFAULT '',
+    expires_at DATETIME,
+    suspended_at DATETIME,
     joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -331,6 +336,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_members_user_tenant_unique
     ON tenant_members(user_id, tenant_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_members_tenant_role
     ON tenant_members(tenant_id, role);
+CREATE INDEX IF NOT EXISTS idx_tenant_members_tenant_status
+    ON tenant_members(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_tenant_members_tenant_source
+    ON tenant_members(tenant_id, source);
+CREATE INDEX IF NOT EXISTS idx_tenant_members_tenant_department
+    ON tenant_members(tenant_id, department);
 CREATE INDEX IF NOT EXISTS idx_tenant_members_user
     ON tenant_members(user_id);
 

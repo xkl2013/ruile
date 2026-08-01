@@ -58,6 +58,14 @@ var (
 	// without an active Owner. Demoting the last Owner or removing them
 	// is forbidden; an explicit ownership transfer must happen first.
 	ErrLastOwner = errors.New("cannot demote or remove the last active owner of the tenant")
+
+	// ErrOwnerOperationRequiresOwner is returned when a non-Owner manager
+	// attempts a high-risk Owner lifecycle action: adding an Owner,
+	// demoting an Owner, removing an Owner, or otherwise assigning the
+	// Owner role. Enterprise deployments commonly delegate day-to-day
+	// member administration to Admins, but ownership changes remain an
+	// Owner / system-admin responsibility.
+	ErrOwnerOperationRequiresOwner = errors.New("owner role changes require a workspace owner or system administrator")
 )
 
 const (
@@ -67,8 +75,9 @@ const (
 
 // tenantMemberService implements interfaces.TenantMemberService.
 type tenantMemberService struct {
-	repo  interfaces.TenantMemberRepository
-	audit interfaces.AuditLogService // optional; nil ⇒ no audit, business ops still succeed
+	repo      interfaces.TenantMemberRepository
+	audit     interfaces.AuditLogService      // optional; nil ⇒ no audit, business ops still succeed
+	tokenRepo interfaces.AuthTokenRepository // optional; nil ⇒ suspend keeps membership state only
 }
 
 // NewTenantMemberService constructs the service. Wired up via the DI
@@ -81,8 +90,9 @@ type tenantMemberService struct {
 func NewTenantMemberService(
 	repo interfaces.TenantMemberRepository,
 	audit interfaces.AuditLogService,
+	tokenRepo interfaces.AuthTokenRepository,
 ) interfaces.TenantMemberService {
-	return &tenantMemberService{repo: repo, audit: audit}
+	return &tenantMemberService{repo: repo, audit: audit, tokenRepo: tokenRepo}
 }
 
 // emitAudit is the per-mutation audit hook. Best-effort: a nil audit
@@ -131,11 +141,16 @@ func (s *tenantMemberService) AddMember(
 	if existing != nil {
 		return nil, ErrMembershipAlreadyExists
 	}
+	source := types.TenantMemberSourceManual
+	if invitedBy != nil && strings.TrimSpace(*invitedBy) != "" {
+		source = types.TenantMemberSourceInvite
+	}
 	member := &types.TenantMember{
 		UserID:    userID,
 		TenantID:  tenantID,
 		Role:      role,
 		Status:    types.TenantMemberStatusActive,
+		Source:    source,
 		InvitedBy: invitedBy,
 		JoinedAt:  time.Now(),
 	}
@@ -183,6 +198,7 @@ func (s *tenantMemberService) EnsureOwner(
 		TenantID: tenantID,
 		Role:     types.TenantRoleOwner,
 		Status:   types.TenantMemberStatusActive,
+		Source:   types.TenantMemberSourceManual,
 		JoinedAt: time.Now(),
 	}
 	if err := s.repo.Create(ctx, member); err != nil {
@@ -231,10 +247,11 @@ func (s *tenantMemberService) ListByTenant(ctx context.Context, tenantID uint64)
 func (s *tenantMemberService) ListMembersPage(
 	ctx context.Context,
 	tenantID uint64,
-	query string,
+	filter types.TenantMemberListFilter,
 	page, pageSize int,
 ) ([]*types.TenantMember, int64, error) {
-	query = strings.TrimSpace(query)
+	filter.Query = strings.TrimSpace(filter.Query)
+	filter.Department = strings.TrimSpace(filter.Department)
 	if page < 1 {
 		page = 1
 	}
@@ -244,12 +261,12 @@ func (s *tenantMemberService) ListMembersPage(
 	if pageSize > listMembersMaxPageSize {
 		pageSize = listMembersMaxPageSize
 	}
-	total, err := s.repo.CountFilteredByTenant(ctx, tenantID, query)
+	total, err := s.repo.CountFilteredByTenant(ctx, tenantID, filter)
 	if err != nil {
 		return nil, 0, err
 	}
 	offset := (page - 1) * pageSize
-	members, err := s.repo.ListPagedByTenant(ctx, tenantID, query, offset, pageSize)
+	members, err := s.repo.ListPagedByTenant(ctx, tenantID, filter, offset, pageSize)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -367,6 +384,99 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 	}
 	s.emitRemovalAudit(ctx, tenantID, userID)
 	return nil
+}
+
+// SuspendMember disables a membership without deleting the row. This is the
+// enterprise offboarding path: access is immediately denied by auth middleware,
+// the roster keeps the historical row, and all current sessions are revoked
+// when tokenRepo is available.
+func (s *tenantMemberService) SuspendMember(ctx context.Context, userID string, tenantID uint64) error {
+	current, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrMembershipNotFound
+	}
+	if current.Status == types.TenantMemberStatusSuspended {
+		return nil
+	}
+	if current.Role == types.TenantRoleOwner {
+		owners, err := s.repo.CountActiveOwners(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		if owners <= 1 {
+			return ErrLastOwner
+		}
+	}
+	now := time.Now()
+	if err := s.repo.UpdateStatus(ctx, userID, tenantID, types.TenantMemberStatusSuspended, &now); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrMembershipNotFound
+		}
+		return err
+	}
+	sessionsRevoked := false
+	if s.tokenRepo != nil {
+		if err := s.tokenRepo.RevokeTokensByUserID(ctx, userID); err != nil {
+			logger.Warnf(ctx, "failed to revoke sessions for suspended member user=%s tenant=%d: %v", userID, tenantID, err)
+		} else {
+			sessionsRevoked = true
+		}
+	}
+	s.emitMemberStatusAudit(ctx, tenantID, userID, types.AuditActionMemberSuspended, map[string]any{
+		"old_status":       string(current.Status),
+		"new_status":       string(types.TenantMemberStatusSuspended),
+		"sessions_revoked": sessionsRevoked,
+	})
+	return nil
+}
+
+// ReactivateMember restores a suspended membership to active status. It does
+// not issue tokens; the user must sign in again.
+func (s *tenantMemberService) ReactivateMember(ctx context.Context, userID string, tenantID uint64) error {
+	current, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrMembershipNotFound
+	}
+	if current.Status == types.TenantMemberStatusActive {
+		return nil
+	}
+	if err := s.repo.UpdateStatus(ctx, userID, tenantID, types.TenantMemberStatusActive, nil); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrMembershipNotFound
+		}
+		return err
+	}
+	s.emitMemberStatusAudit(ctx, tenantID, userID, types.AuditActionMemberReactivated, map[string]any{
+		"old_status": string(current.Status),
+		"new_status": string(types.TenantMemberStatusActive),
+	})
+	return nil
+}
+
+func (s *tenantMemberService) emitMemberStatusAudit(
+	ctx context.Context,
+	tenantID uint64,
+	targetUserID string,
+	action types.AuditAction,
+	details map[string]any,
+) {
+	b, _ := json.Marshal(details)
+	s.emitAudit(ctx, &types.AuditLog{
+		TenantID:     tenantID,
+		ActorUserID:  auditActor(ctx),
+		ActorRole:    auditActorRole(ctx),
+		Action:       action,
+		TargetType:   "tenant_member",
+		TargetUserID: targetUserID,
+		Outcome:      types.AuditOutcomeSuccess,
+		Details:      types.JSON(b),
+	})
 }
 
 // emitRemovalAudit picks AuditActionMemberLeft when the caller is

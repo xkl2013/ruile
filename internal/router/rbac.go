@@ -44,18 +44,19 @@ import (
 //	      There is no "creator-of-the-vector-store" concept; configuring
 //	      it affects everyone, so only Admin+ may touch it.
 //
-//	ENTRY POINT — Routes that CREATE a new owned resource (POST
-//	      /knowledge-bases, POST /agents).
-//	      => Use Contributor() (or whatever the floor is).
-//	      No resource exists yet, so we can only gate on role. Once
-//	      created, future mutations on /:id flip to OwnedXxxOrAdmin.
+//	ENTRY POINT — Routes that CREATE a new owned resource.
+//	      No resource exists yet, so we can only gate on role. Use the
+//	      role floor for that resource family: knowledge bases and agents
+//	      are Admin+ because their configuration changes workspace-visible
+//	      behavior; lower-risk contributor-owned resources can use
+//	      Contributor() when a route explicitly says so.
 //
 // Q2. Is the side effect "private to me" or "visible to others"?
 //
-//	PRIVATE — Action only affects the caller's own state (e.g.
-//	      POST /agents/:id/copy creates a copy that belongs to the
-//	      caller; the source agent is untouched).
-//	      => Contributor() is fine.
+//	PRIVATE — Action only affects the caller's own state.
+//	      => Contributor() can be fine when the route is deliberately
+//	      contributor-scoped; agent copy is still Admin+ because creating
+//	      an agent exposes a new configurable assistant in the workspace.
 //
 //	PUBLIC — Action exposes a resource beyond its current scope or
 //	      changes state visible to other tenants/users (sharing a KB
@@ -72,11 +73,11 @@ import (
 // The user never sees the guard names. They see this:
 //
 //   - As Owner / Admin: I can manage everything in my tenant.
-//   - As Contributor: I can manage what I created. Other people's
-//     resources behave like read-only, regardless of which UI tab.
-//   - As Viewer: read everything, mutate nothing.
-//   - Creating new resources (KB, agent, chat session) requires being
-//     at least Contributor.
+//   - As Contributor: I can manage what I created plus resources
+//     explicitly shared with me.
+//   - As Viewer: I can read explicitly visible resources, mutate nothing.
+//   - Creating KBs and agents requires Admin+; creating chat sessions
+//     requires being at least Contributor unless a route says otherwise.
 //   - Configuring tenant infrastructure (models, vector stores, IM,
 //     etc.) requires Admin+.
 //
@@ -438,10 +439,7 @@ func (g *rbacGuards) OwnedKBOrAdmin() gin.HandlerFunc {
 }
 
 // OwnedKBOrAdminFromKbIDParam is the same matrix as OwnedKBOrAdmin but
-// addresses the KB via :kbId (used by /initialization/* routes). KB
-// configuration changes — picking the embedding/parser/storage
-// engine, materialising indexes — are at least as sensitive as
-// updating the KB itself, so they share the "creator OR Admin+" rule.
+// addresses the KB via :kbId for routes that still use that parameter name.
 func (g *rbacGuards) OwnedKBOrAdminFromKbIDParam() gin.HandlerFunc {
 	return middleware.RequireOwnershipOrRole(types.TenantRoleAdmin, g.kbCreatorFromKbIDParam, g.cfg)
 }
@@ -537,10 +535,11 @@ func (g *rbacGuards) PathTenantMatch() gin.HandlerFunc {
 // (middleware/kb_access.go).
 
 // KBAccessRead gates a KB-scoped read route on the caller having at
-// least Viewer-level access. The agent-share fallback only activates
-// at this level — Editor/Admin reads never go through "I just see it
-// because someone shared an agent". The kbID is read from the gin
-// param named in `param` (typically "id" for /knowledge-bases/:id/...).
+// least Viewer-level access. Same-tenant KBs require Admin+ or creator
+// ownership; cross-tenant KBs require org/agent sharing. The agent-share
+// fallback only activates at this level — Editor/Admin reads never go
+// through "I just see it because someone shared an agent". The kbID is read
+// from the gin param named in `param` (typically "id" for /knowledge-bases/:id/...).
 func (g *rbacGuards) KBAccessRead(param string) gin.HandlerFunc {
 	return middleware.RequireKBAccess(
 		middleware.KBIDFromParam(param),
@@ -553,12 +552,25 @@ func (g *rbacGuards) KBAccessRead(param string) gin.HandlerFunc {
 }
 
 // KBAccessWrite gates a KB-scoped mutating route on the caller having
-// at least Editor-level access (own KB or org-shared with editor).
+// at least Editor-level access (same-tenant Admin+/creator or org-shared with editor).
 // Used by FAQ upsert, tag CRUD, chunk update/delete, etc.
 func (g *rbacGuards) KBAccessWrite(param string) gin.HandlerFunc {
 	return middleware.RequireKBAccess(
 		middleware.KBIDFromParam(param),
 		types.OrgRoleEditor,
+		g.kbService,
+		g.kbShareService,
+		g.agentShareService,
+		g.cfg,
+	)
+}
+
+// KBAccessManage gates KB settings/lifecycle metadata mutations on the caller
+// having Admin-level access to the KB scope (own KB or org-shared with admin).
+func (g *rbacGuards) KBAccessManage(param string) gin.HandlerFunc {
+	return middleware.RequireKBAccess(
+		middleware.KBIDFromParam(param),
+		types.OrgRoleAdmin,
 		g.kbService,
 		g.kbShareService,
 		g.agentShareService,

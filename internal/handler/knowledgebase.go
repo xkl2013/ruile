@@ -444,9 +444,20 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 		return nil, id, 0, "", apperrors.NewInternalServerError(err.Error())
 	}
 
-	// Check 1: Verify tenant ownership (owner has full access)
+	// Check 1: same-tenant access. Admin+ can access all tenant KBs;
+	// ordinary members only access KBs they created.
 	if kb.TenantID == tenantID.(uint64) {
-		return kb, id, tenantID.(uint64), types.OrgRoleAdmin, nil
+		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
+			types.IsSystemAdminFromContext(ctx) ||
+			callerTenantRole.HasPermission(types.TenantRoleAdmin) {
+			return kb, id, tenantID.(uint64), types.OrgRoleAdmin, nil
+		}
+		if userExists {
+			if userIDStr, ok := userID.(string); ok && kb.CreatorID != "" && kb.CreatorID == userIDStr {
+				return kb, id, tenantID.(uint64), types.OrgRoleAdmin, nil
+			}
+		}
+		return nil, id, 0, "", apperrors.NewForbiddenError("No permission to operate")
 	}
 
 	// Check 2: If not owner, check organization shared access
@@ -499,9 +510,6 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 			}
 		}
 	}
-	_ = userID
-	_ = userExists
-
 	// No permission: not owner and no shared access
 	logger.Warnf(
 		ctx,
@@ -549,7 +557,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 
 // ListKnowledgeBases godoc
 // @Summary      获取知识库列表
-// @Description  获取当前空间的所有知识库；或当传入 agent_id（共享智能体）时，校验权限后返回该智能体配置的知识库范围（用于 @ 提及）
+// @Description  获取当前用户可见的知识库；或当传入 agent_id（共享智能体）时，校验权限后返回该智能体配置的知识库范围（用于 @ 提及）
 // @Tags         知识库
 // @Accept       json
 // @Produce      json
@@ -646,13 +654,16 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBases(c *gin.Context) {
 		return
 	}
 
-	// Get all knowledge bases for this tenant
+	// Get knowledge bases visible to this caller. Admin+ can see the whole
+	// tenant; ordinary members only see KBs they created. Cross-tenant shares
+	// are returned by the organization-sharing endpoint and merged by clients.
 	kbs, err := h.service.ListKnowledgeBases(ctx)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
 		c.Error(apperrors.NewInternalServerError(err.Error()))
 		return
 	}
+	kbs = filterKnowledgeBasesForCallerVisibility(ctx, kbs)
 
 	// Optional creator filter — drives the [All | Mine | Others] segmented
 	// control on the list page. We filter in-process rather than pushing
@@ -724,6 +735,33 @@ func filterKnowledgeBasesForAPIKeyScope(ctx context.Context, kbs []*types.Knowle
 		}
 	}
 	return filtered
+}
+
+func filterKnowledgeBasesForCallerVisibility(ctx context.Context, kbs []*types.KnowledgeBase) []*types.KnowledgeBase {
+	filtered := make([]*types.KnowledgeBase, 0, len(kbs))
+	for _, kb := range kbs {
+		if callerCanViewTenantKnowledgeBase(ctx, kb) {
+			filtered = append(filtered, kb)
+		}
+	}
+	return filtered
+}
+
+func callerCanViewTenantKnowledgeBase(ctx context.Context, kb *types.KnowledgeBase) bool {
+	if kb == nil {
+		return false
+	}
+	if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
+		return true
+	}
+	if types.IsSystemAdminFromContext(ctx) || types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) {
+		return true
+	}
+	userID, ok := types.UserIDFromContext(ctx)
+	if !ok || userID == "" {
+		return false
+	}
+	return kb.CreatorID != "" && kb.CreatorID == userID
 }
 
 // enrichKBCreatorNames 把 KB 列表里的 CreatorID 批量解析成展示名（username

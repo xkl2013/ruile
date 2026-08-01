@@ -76,7 +76,7 @@ func NewAuthHandler(configInfo *config.Config,
 
 // resolveRegistrationMode returns the currently active registration mode.
 // Priority: DB system_settings > cfg (which already absorbed the legacy
-// DISABLE_REGISTRATION env coerce at startup) > "self_serve" hard default.
+// DISABLE_REGISTRATION env coerce at startup) > "invite_only" hard default.
 //
 // Centralised here so /auth/register and /auth/config stay in lock-step —
 // otherwise a SystemAdmin's UI edit could affect one path and not the other.
@@ -84,7 +84,7 @@ func (h *AuthHandler) resolveRegistrationMode(ctx context.Context) string {
 	// cfg-derived default: empty is impossible after applyAuthAndTenantDefaults,
 	// but be defensive in case AuthHandler was constructed before that ran
 	// (the NewAuthHandler guard already logged in that case).
-	def := config.AuthRegistrationModeSelfServe
+	def := config.AuthRegistrationModeInviteOnly
 	if h.configInfo != nil && h.configInfo.Auth != nil {
 		if m := strings.TrimSpace(h.configInfo.Auth.RegistrationMode); m != "" {
 			def = m
@@ -105,7 +105,7 @@ func (h *AuthHandler) resolveRegistrationMode(ctx context.Context) string {
 // public password registrations. Invitation registration never uses this
 // value: the invitation itself supplies the target tenant.
 func (h *AuthHandler) resolveDefaultTenantMode(ctx context.Context) types.TenantProvisioningMode {
-	def := config.AuthDefaultTenantModeCreatePersonal
+	def := config.AuthDefaultTenantModeTenantless
 	if h.configInfo != nil && h.configInfo.Auth != nil {
 		if mode := strings.TrimSpace(h.configInfo.Auth.DefaultTenantMode); mode != "" {
 			def = mode

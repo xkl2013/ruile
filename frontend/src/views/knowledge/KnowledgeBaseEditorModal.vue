@@ -562,7 +562,7 @@ const canShareKB = computed(() => {
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
 
-const isSimpleCreateMode = computed(() => props.mode === 'create' && !authStore.hasRole('admin'))
+const isSimpleCreateMode = computed(() => props.mode === 'create')
 const showConfigurationFields = computed(() => !isSimpleCreateMode.value)
 
 const navItems = computed(() => {
@@ -656,6 +656,12 @@ const applyDefaultModelsIfEmpty = () => {
   if (!formData.value.modelConfig.embeddingModelId && embedding?.id) {
     formData.value.modelConfig.embeddingModelId = embedding.id
   }
+}
+
+const applyDefaultCreateConfig = () => {
+  if (!formData.value || props.mode !== 'create') return
+  applyDefaultModelsIfEmpty()
+  formData.value.storageProvider = tenantDefaultStorageProvider.value
 }
 
 watch(
@@ -1007,6 +1013,11 @@ const validateForm = (): boolean => {
     }
   }
 
+  if (props.mode === 'create') {
+    applyDefaultCreateConfig()
+    return true
+  }
+
   // 验证模型配置 - embedding 模型仅在检索索引启用时必须
   const needsEmbedding = formData.value.indexingStrategy?.vectorEnabled || formData.value.indexingStrategy?.keywordEnabled
   if (needsEmbedding && !formData.value.modelConfig.embeddingModelId) {
@@ -1220,6 +1231,11 @@ const doSubmit = async () => {
       }
       MessagePlugin.success(t('knowledgeEditor.messages.createSuccess'))
       markContextualGuideDone('kbCreate')
+      try {
+        await chatResources.ensureKnowledgeBases(true)
+      } catch (refreshError) {
+        console.error('Failed to refresh knowledge bases after creation:', refreshError)
+      }
       emit('success', result.data.id)
     } else {
       // 编辑模式：分别更新基本信息和配置
@@ -1393,8 +1409,8 @@ watch(() => props.visible, async (newVal) => {
     // 打开弹窗时，先重置状态
     resetState()
     
-    // 检查是否有初始 section，如果有则跳转
-    if (uiStore.kbEditorInitialSection) {
+    // 新建知识库只填写基础信息；编辑模式仍支持按指定 section 打开完整配置。
+    if (props.mode === 'edit' && uiStore.kbEditorInitialSection) {
       currentSection.value = uiStore.kbEditorInitialSection
     }
     
@@ -1407,9 +1423,8 @@ watch(() => props.visible, async (newVal) => {
     } else {
       // 创建模式：初始化空表单，并预填空间默认存储引擎
       formData.value = initFormData(props.initialType || 'document')
-      formData.value.storageProvider = tenantDefaultStorageProvider.value
+      applyDefaultCreateConfig()
       hasFiles.value = false
-      applyDefaultModelsIfEmpty()
     }
   } else {
     // 关闭弹窗时，延迟重置状态（等待动画结束）
@@ -1461,6 +1476,13 @@ watch(
   overflow: hidden;
 }
 
+.settings-modal.simple-create {
+  width: min(560px, calc(100vw - 32px));
+  height: auto;
+  max-width: 560px;
+  max-height: min(90vh, 520px);
+}
+
 .close-btn {
   position: absolute;
   top: 20px;
@@ -1489,6 +1511,32 @@ watch(
   height: 100%;
   width: 100%;
   overflow: hidden;
+}
+
+.settings-container.simple-create {
+  height: auto;
+  min-height: 0;
+
+  .settings-content {
+    min-height: 0;
+  }
+
+  .content-wrapper {
+    padding: 28px 32px 20px;
+    overflow-y: auto;
+  }
+
+  .section {
+    margin-bottom: 0;
+  }
+
+  .section-header {
+    padding-right: 40px;
+  }
+
+  .settings-footer {
+    padding: 16px 32px 20px;
+  }
 }
 
 /* 左侧导航：与 AgentEditorModal 对齐 */

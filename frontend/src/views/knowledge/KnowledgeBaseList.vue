@@ -5,7 +5,7 @@
         <div class="header-title" style="--wails-draggable: drag">
           <div class="title-row" style="--wails-draggable: drag">
             <h2 style="--wails-draggable: drag">{{ $t('knowledgeBase.title') }}</h2>
-            <t-tooltip v-if="authStore.hasRole('contributor')" :content="$t('knowledgeList.create')" placement="bottom">
+            <t-tooltip v-if="canCreateKnowledgeBase" :content="$t('knowledgeList.create')" placement="bottom">
               <t-button variant="text" theme="default" size="small" class="header-action-btn"
                 data-guide="kb-list-create" style="--wails-draggable: no-drag" @click="handleCreateKnowledgeBase">
                 <template #icon><t-icon name="folder-add" size="16px" /></template>
@@ -221,11 +221,12 @@
                         <t-icon class="menu-icon" name="file-copy" />
                         <span>{{ $t('knowledgeList.menu.duplicate') }}</span>
                       </div>
+                      <div v-if="canEditKBSettingsCard(kb)" class="popup-menu-item"
+                        @click.stop="handleSettingsById(kb.id)">
+                        <t-icon class="menu-icon" name="setting" />
+                        <span>{{ $t('knowledgeBase.settings') }}</span>
+                      </div>
                       <template v-if="canManageKBCard(kb)">
-                        <div class="popup-menu-item" @click.stop="handleSettingsById(kb.id)">
-                          <t-icon class="menu-icon" name="setting" />
-                          <span>{{ $t('knowledgeBase.settings') }}</span>
-                        </div>
                         <div class="popup-menu-item delete" @click.stop="handleDeleteById(kb.id)">
                           <t-icon class="menu-icon" name="delete" />
                           <span>{{ $t('common.delete') }}</span>
@@ -454,11 +455,11 @@
                         <t-icon class="menu-icon" name="file-copy" />
                         <span>{{ $t('knowledgeList.menu.duplicate') }}</span>
                       </div>
+                      <div v-if="canEditKBSettingsCard(kb)" class="popup-menu-item" @click.stop="handleSettings(kb)">
+                        <t-icon class="menu-icon" name="setting" />
+                        <span>{{ $t('knowledgeBase.settings') }}</span>
+                      </div>
                       <template v-if="canManageKBCard(kb)">
-                        <div class="popup-menu-item" @click.stop="handleSettings(kb)">
-                          <t-icon class="menu-icon" name="setting" />
-                          <span>{{ $t('knowledgeBase.settings') }}</span>
-                        </div>
                         <div class="popup-menu-item delete" @click.stop="handleDelete(kb)">
                           <t-icon class="menu-icon" name="delete" />
                           <span>{{ $t('common.delete') }}</span>
@@ -632,7 +633,7 @@
           <img class="empty-img" src="@/assets/img/upload.svg" alt="">
           <span class="empty-txt">{{ $t('knowledgeList.empty.title') }}</span>
           <span class="empty-desc">{{ $t('knowledgeList.empty.description') }}</span>
-          <t-button v-if="authStore.hasRole('contributor')" class="kb-create-btn empty-state-btn"
+          <t-button v-if="canCreateKnowledgeBase" class="kb-create-btn empty-state-btn"
             data-guide="kb-list-create" @click="handleCreateKnowledgeBase">
             <template #icon><t-icon name="folder-add" /></template>
             {{ $t('knowledgeList.create') }}
@@ -660,7 +661,7 @@
           <img class="empty-img" src="@/assets/img/upload.svg" alt="">
           <span class="empty-txt">{{ $t('knowledgeList.empty.title') }}</span>
           <span class="empty-desc">{{ $t('knowledgeList.empty.description') }}</span>
-          <t-button v-if="authStore.hasRole('contributor')" class="kb-create-btn empty-state-btn"
+          <t-button v-if="canCreateKnowledgeBase" class="kb-create-btn empty-state-btn"
             data-guide="kb-list-create" @click="handleCreateKnowledgeBase">
             <template #icon><t-icon name="folder-add" /></template>
             {{ $t('knowledgeList.create') }}
@@ -807,6 +808,8 @@ const { loaded: modelsReadyLoaded, isReadyForDocumentKb } = useTenantModelReadin
 const orgStore = useOrganizationStore()
 const chatResources = useChatResourcesStore()
 const { t } = useI18n()
+const canCreateKnowledgeBase = computed(() => authStore.hasRole('admin'))
+const canEditKnowledgeBaseSettings = computed(() => authStore.hasRole('admin'))
 
 // Scope selector UI has been removed; the list always shows the aggregate
 // "all" view.
@@ -1138,7 +1141,7 @@ const filteredKnowledgeBases = computed(() => {
 
 const showKbListEmpty = computed(() => {
   if (loading.value) return false
-  if (!authStore.hasRole('contributor')) return false
+  if (!canCreateKnowledgeBase.value) return false
   if (spaceSelection.value === 'all' && filteredKnowledgeBases.value.length === 0) return true
   if (spaceSelection.value === 'mine' && kbs.value.length === 0) return true
   return false
@@ -1167,13 +1170,15 @@ interface UploadSummary {
 }
 
 const applyKbListData = (data: any[]) => {
-  kbs.value = data.map((kb: any) => ({
-    ...kb,
-    updated_at: kb.updated_at ? formatStringDate(new Date(kb.updated_at)) : '',
-    showMore: false,
-    isProcessing: kb.is_processing || false,
-    processing_count: kb.processing_count || 0
-  }))
+  kbs.value = data
+    .filter(canReadTenantKnowledgeBase)
+    .map((kb: any) => ({
+      ...kb,
+      updated_at: kb.updated_at ? formatStringDate(new Date(kb.updated_at)) : '',
+      showMore: false,
+      isProcessing: kb.is_processing || false,
+      processing_count: kb.processing_count || 0
+    }))
 }
 
 const fetchList = (force = false) => {
@@ -1290,17 +1295,25 @@ const onVisibleChange = (visible: boolean) => {
 }
 
 const handleSettings = (kb: KB) => {
+  if (!canEditKBSettingsCard(kb)) return
   // 手动关闭弹窗
   kb.showMore = false
   goSettings(kb.id)
 }
 
-// canManageKBCard mirrors KnowledgeBase.vue's `canManage`, gating the
-// destructive items of the per-card menu — Settings, Delete — so a
-// Viewer cannot click into them for a KB they don't own. The server
-// still rejects the call (PR 5 guards every such mutation with
-// OwnedKBOrAdmin) but the UI shouldn't surface buttons the user has
-// no authority to use.
+function canEditKBSettingsCard(kb: any): boolean {
+  if (!canEditKnowledgeBaseSettings.value) return false
+  if (kb.isMine === false) return kb.permission === 'admin'
+  return true
+}
+
+function canReadTenantKnowledgeBase(kb: { creator_id?: string }): boolean {
+  if (authStore.hasRole('admin')) return true
+  return isMyKb(kb)
+}
+
+// canManageKBCard gates destructive card actions such as delete. KB settings
+// are stricter now: only workspace Admin+ can open them.
 //
 // The pin item is intentionally NOT gated by this predicate any more:
 // pin state is per (user, kb) as of migration 000050 and the backend
@@ -1317,7 +1330,7 @@ function canManageKBCard(kb: KB): boolean {
 }
 
 function canDuplicateKBCard(kb: any): boolean {
-  return authStore.hasRole('contributor') && kb.isMine !== false
+  return authStore.hasRole('admin') && kb.isMine !== false
 }
 
 // isMyKb 仅用于卡片右下角徽章在「我创建」与「同空间其他成员创建」之间切换。
@@ -1351,6 +1364,8 @@ function showKbOriginBadge(kb: { creator_id?: string; creator_name?: string }): 
 
 // 通过 ID 处理设置（用于全部 Tab 下的知识库）
 const handleSettingsById = (id: string) => {
+  const kb = filteredKnowledgeBases.value.find(item => item.id === id)
+  if (kb && !canEditKBSettingsCard(kb)) return
   goSettings(id)
 }
 
@@ -1402,6 +1417,7 @@ const handleDuplicateById = async (id: string) => {
 }
 
 const duplicateKB = async (id: string) => {
+  if (!canCreateKnowledgeBase.value) return
   try {
     const res: any = await duplicateKnowledgeBase(id)
     if (res?.success) {
@@ -1627,8 +1643,10 @@ const handleCardClick = (kb: KB) => {
   pins.touchRecent('kb', kb.id)
   if (isInitialized(kb)) {
     goDetail(kb.id)
-  } else {
+  } else if (canEditKBSettingsCard(kb)) {
     goSettings(kb.id)
+  } else {
+    goDetail(kb.id)
   }
 }
 
@@ -1646,12 +1664,14 @@ const goDetail = (id: string) => {
 }
 
 const goSettings = (id: string) => {
+  if (!canEditKnowledgeBaseSettings.value) return
   // 使用模态框打开设置
   uiStore.openKBSettings(id)
 }
 
 // 创建知识库
 const handleCreateKnowledgeBase = () => {
+  if (!canCreateKnowledgeBase.value) return
   markContextualGuideDone('kbList')
   uiStore.openCreateKB('document')
 }

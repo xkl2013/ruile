@@ -104,11 +104,17 @@ const activeKbId = computed(() => {
   return ''
 })
 
-const canCreateKnowledgeBase = computed(() => authStore.hasRole('contributor'))
+const canCreateKnowledgeBase = computed(() => authStore.hasRole('admin'))
+
+const canReadTenantKnowledgeBase = (kb: SidebarKnowledgeBase): boolean => {
+  if (authStore.hasRole('admin')) return true
+  const userId = authStore.user?.id || ''
+  return !!(kb.creator_id && userId && kb.creator_id === userId)
+}
 
 const knowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
   const merged = mergeAllScopeKnowledgeBases(
-    rawKnowledgeBases.value as unknown as SidebarKnowledgeBase[],
+    (rawKnowledgeBases.value as unknown as SidebarKnowledgeBase[]).filter(canReadTenantKnowledgeBase),
     sharedKnowledgeBases.value as any[],
     authStore.user?.id,
   )
@@ -154,6 +160,7 @@ const openKnowledgeBase = async (kbId: string) => {
 }
 
 const openCreateKnowledgeBase = async (type: 'document' | 'faq' = 'document') => {
+  if (!canCreateKnowledgeBase.value) return
   if (!createHostRoutes.has(currentRouteName.value)) {
     await router.push('/platform/knowledge-bases')
   }
@@ -207,7 +214,7 @@ onMounted(() => {
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--td-text-color-secondary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 20px;
 }
@@ -307,7 +314,7 @@ onMounted(() => {
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--td-text-color-primary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 18px;
 }
@@ -324,7 +331,7 @@ onMounted(() => {
 .kb-menu-empty {
   padding: 8px 14px 6px var(--sidebar-inset-x);
   color: var(--td-text-color-placeholder);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .kb-menu-loading {

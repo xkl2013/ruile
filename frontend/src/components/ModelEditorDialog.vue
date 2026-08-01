@@ -74,8 +74,8 @@
             <button
               type="button"
               class="source-option"
-              :class="{ 'is-active': formData.source === 'local', 'is-disabled': ollamaServiceStatus === false || activeModelType === 'rerank' }"
-              :disabled="ollamaServiceStatus === false || activeModelType === 'rerank'"
+              :class="{ 'is-active': formData.source === 'local', 'is-disabled': !isLocalSourceSelectable }"
+              :disabled="!isLocalSourceSelectable"
               role="radio"
               :aria-checked="formData.source === 'local'"
               @click="formData.source = 'local'"
@@ -85,10 +85,10 @@
             </button>
           </div>
 
-          <!-- ReRank模型不支持Ollama的提示信息 -->
-          <div v-if="activeModelType === 'rerank'" class="ollama-unavailable-tip rerank-tip">
+          <!-- ReRank / ASR 模型不支持 Ollama 的提示信息 -->
+          <div v-if="!isLocalSourceSupported" class="ollama-unavailable-tip rerank-tip">
             <t-icon name="info-circle-filled" class="tip-icon info" />
-            <span class="tip-text">{{ $t('model.editor.ollamaNotSupportRerank') }}</span>
+            <span class="tip-text">{{ $t(localSourceUnavailableKey) }}</span>
           </div>
 
           <!-- Ollama不可用时的提示信息 -->
@@ -626,11 +626,10 @@ const fallbackProviderOptions = computed(() => [
 // 从 API 获取 Provider 列表
 const loadProviders = async () => {
   loadingProviders.value = true
+  apiProviderOptions.value = []
   try {
     const providers = await listModelProviders(activeModelType.value)
-    if (providers.length > 0) {
-      apiProviderOptions.value = providers
-    }
+    apiProviderOptions.value = providers
   } catch (error) {
     console.error('Failed to load providers from API, using fallback', error)
   } finally {
@@ -643,15 +642,17 @@ const loadProviders = async () => {
 const providerOptions = computed(() => {
   // API 数据可用时，用 API 的结构数据 + i18n 的显示文本
   if (apiProviderOptions.value.length > 0) {
-    return apiProviderOptions.value.map(p => ({
-      ...p,
-      label: te(`model.editor.providers.${p.value}.label`)
-        ? t(`model.editor.providers.${p.value}.label`)
-        : p.label,
-      description: te(`model.editor.providers.${p.value}.description`)
-        ? t(`model.editor.providers.${p.value}.description`)
-        : p.description,
-    }))
+    return apiProviderOptions.value
+      .filter(p => p.modelTypes.includes(activeModelType.value))
+      .map(p => ({
+        ...p,
+        label: te(`model.editor.providers.${p.value}.label`)
+          ? t(`model.editor.providers.${p.value}.label`)
+          : p.label,
+        description: te(`model.editor.providers.${p.value}.description`)
+          ? t(`model.editor.providers.${p.value}.description`)
+          : p.description,
+      }))
   }
   // 回退到硬编码值，按 modelTypes 过滤
   return fallbackProviderOptions.value.filter(p =>
@@ -725,6 +726,18 @@ const modelTypeIcon = computed(() => {
 
 const isLkeapRerank = computed(
   () => activeModelType.value === 'rerank' && formData.value.provider === 'lkeap',
+)
+
+const isLocalSourceSupported = computed(() => !['rerank', 'asr'].includes(activeModelType.value))
+
+const isLocalSourceSelectable = computed(() =>
+  isLocalSourceSupported.value && ollamaServiceStatus.value !== false,
+)
+
+const localSourceUnavailableKey = computed(() =>
+  activeModelType.value === 'asr'
+    ? 'model.editor.ollamaNotSupportAsr'
+    : 'model.editor.ollamaNotSupportRerank',
 )
 
 // Credential resource binding for the shared <CredentialResource> component.
@@ -968,7 +981,7 @@ const selectModelType = async (type: EditorModelType) => {
   if (isEdit.value || draftModelType.value === type) return
   draftModelType.value = type
 
-  if (type === 'rerank') {
+  if (!isLocalSourceSupported.value) {
     formData.value.source = 'remote'
   }
   if (type !== 'embedding') {
@@ -1045,8 +1058,8 @@ watch(() => props.visible, (val) => {
 
       lastOpenedModelId.value = currentId
 
-      // ReRank 模型强制使用 remote 来源（Ollama 不支持 ReRank）
-      if (activeModelType.value === 'rerank') {
+      // ReRank / ASR 模型强制使用 remote 来源（后端没有 Ollama 实现）
+      if (!isLocalSourceSupported.value) {
         formData.value.source = 'remote'
       }
 

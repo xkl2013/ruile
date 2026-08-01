@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { AddIcon, PlayCircleIcon } from 'tdesign-icons-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -149,6 +149,12 @@ const { t, te } = useI18n()
 const authStore = useAuthStore()
 type ModelType = 'chat' | 'embedding' | 'rerank' | 'vllm' | 'asr'
 type FilterType = 'all' | ModelType
+
+const props = withDefaults(defineProps<{
+  initialType?: string | null
+}>(), {
+  initialType: null,
+})
 
 const showDialog = ref(false)
 const showDebugDrawer = ref(false)
@@ -210,6 +216,31 @@ const filteredModels = computed(() => {
 })
 
 const countByType = (type: ModelType) => allLegacyModels.value.filter(m => m._modelType === type).length
+
+const normalizeTypeFilter = (type?: string | null): FilterType => {
+  const aliases: Record<string, FilterType> = {
+    all: 'all',
+    knowledgeqa: 'chat',
+    llm: 'chat',
+    chat: 'chat',
+    embedding: 'embedding',
+    rerank: 'rerank',
+    vllm: 'vllm',
+    asr: 'asr',
+  }
+  return aliases[(type || '').toLowerCase()] || 'all'
+}
+
+watch(
+  () => props.initialType,
+  (type) => {
+    const normalized = normalizeTypeFilter(type)
+    if (normalized !== 'all') {
+      activeTypeFilter.value = normalized
+    }
+  },
+  { immediate: true },
+)
 
 // 类型徽章图标。沿用 TDesign 自带 icon name，避免再引第三方图标包。
 const typeIcon = (type: ModelType): string => {

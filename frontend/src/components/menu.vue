@@ -1078,7 +1078,8 @@ const handleMenuClick = async (path: string) => {
             router.push('/platform/knowledge-bases')
         }
     } else if (path === 'agents') {
-        router.push('/platform/agents')
+        uiStore.openSettings('agents')
+        router.push({ path: '/platform/settings', query: { section: 'agents' } })
     } else if (path === 'organizations') {
         // 组织菜单项：跳转到组织列表
         router.push('/platform/organizations')

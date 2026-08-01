@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -30,15 +31,13 @@ type TenantMemberRepository interface {
 	// ordered by joined_at ascending.
 	ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error)
 
-	// CountFilteredByTenant counts active memberships in tenant. Optional
-	// search matches user email/username (join users table); empty search
-	// counts all memberships.
-	CountFilteredByTenant(ctx context.Context, tenantID uint64, search string) (int64, error)
+	// CountFilteredByTenant counts memberships in tenant. Optional filters match
+	// user email/username, role, lifecycle status, source, and department.
+	CountFilteredByTenant(ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter) (int64, error)
 
-	// ListPagedByTenant returns active memberships sorted joined_at ASC, id ASC.
-	// search filters by user email/username (join users table); empty
-	// search lists all memberships in tenant.
-	ListPagedByTenant(ctx context.Context, tenantID uint64, search string, offset, limit int) ([]*types.TenantMember, error)
+	// ListPagedByTenant returns memberships sorted joined_at ASC, id ASC.
+	// Empty filters list all non-deleted memberships in tenant.
+	ListPagedByTenant(ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter, offset, limit int) ([]*types.TenantMember, error)
 
 	// UpdateRole changes the role of an existing active membership. Returns
 	// gorm.ErrRecordNotFound if no active row matches.
@@ -47,6 +46,10 @@ type TenantMemberRepository interface {
 	// SoftDelete marks the active membership as deleted. The user record
 	// itself is untouched.
 	SoftDelete(ctx context.Context, userID string, tenantID uint64) error
+
+	// UpdateStatus changes a membership lifecycle status and optionally stamps
+	// suspended_at. Used for reversible enterprise suspension/reactivation.
+	UpdateStatus(ctx context.Context, userID string, tenantID uint64, status types.TenantMemberStatus, suspendedAt *time.Time) error
 
 	// CountActiveOwners reports how many active rows in the tenant carry
 	// the owner role. Used by service-layer invariant checks ("cannot

@@ -19,6 +19,8 @@ func TestAuditAction_DotNamespaceConvention(t *testing.T) {
 		AuditActionMemberRemoved,
 		AuditActionMemberRoleChanged,
 		AuditActionMemberLeft,
+		AuditActionMemberSuspended,
+		AuditActionMemberReactivated,
 		AuditActionAccessDenied,
 		AuditActionInvitationSent,
 		AuditActionInvitationAccepted,
@@ -108,6 +110,8 @@ func TestAuditAction_NoCollisionsAcrossNamespaces(t *testing.T) {
 	register("AuditActionMemberRemoved", AuditActionMemberRemoved)
 	register("AuditActionMemberRoleChanged", AuditActionMemberRoleChanged)
 	register("AuditActionMemberLeft", AuditActionMemberLeft)
+	register("AuditActionMemberSuspended", AuditActionMemberSuspended)
+	register("AuditActionMemberReactivated", AuditActionMemberReactivated)
 	register("AuditActionAccessDenied", AuditActionAccessDenied)
 	register("AuditActionInvitationSent", AuditActionInvitationSent)
 	register("AuditActionInvitationAccepted", AuditActionInvitationAccepted)

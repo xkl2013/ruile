@@ -137,7 +137,8 @@ const fileTypeGroups = computed(() => {
   const jsonExts = ['json'].filter(e => ft.has(e))
   const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp'].filter(e => ft.has(e))
   const audioExts = ['mp3', 'wav', 'm4a', 'flac', 'ogg'].filter(e => ft.has(e))
-  const audiovisualExts = [...audioExts]
+  const videoExts = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv'].filter(e => ft.has(e))
+  const audiovisualExts = [...audioExts, ...videoExts]
 
   if (pdfExts.length) groups.push({ key: 'pdf', label: t('kbSettings.parser.fileTypePdf'), icon: 'file-pdf', extensions: pdfExts })
   if (officeExts.length) groups.push({ key: 'office', label: t('kbSettings.parser.fileTypeWord'), icon: 'file-word', extensions: officeExts })
@@ -177,7 +178,7 @@ const fileTypeGroups = computed(() => {
 function getEngineOptions(extensions: string[]): EngineOption[] {
   const raw: { name: string; desc: string; fileTypes: string[]; available: boolean; reason: string }[] = []
   for (const engine of parserEngines.value) {
-    const supports = extensions.some(ext => (engine.FileTypes || []).includes(ext))
+    const supports = extensions.every(ext => (engine.FileTypes || []).includes(ext))
     if (supports) {
       raw.push({
         name: engine.Name,

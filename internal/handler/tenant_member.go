@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -18,8 +20,8 @@ import (
 )
 
 // TenantMemberHandler exposes /tenants/:id/members CRUD. The route layer
-// enforces RBAC (Viewer for list, Owner for any mutation) — see
-// router.RegisterTenantRoutes — so we don't re-check role here.
+// enforces RBAC (Viewer for list, Admin for ordinary mutations) — see
+// router.RegisterTenantRoutes — while Owner-role changes are guarded here.
 //
 // Tenant scoping: the auth middleware resolves the caller's role against
 // the *active* tenant (JWT / X-Tenant-ID switch / API-key). The URL :id
@@ -62,9 +64,34 @@ type addMemberRequest struct {
 	Role  types.TenantRole `json:"role" binding:"required"`
 }
 
+// adminCreateMemberRequest is the JSON body for the administrator-driven
+// account creation flow. Role is optional; ordinary members default to
+// contributor and can be adjusted from the member table after creation.
+type adminCreateMemberRequest struct {
+	Phone string           `json:"phone" binding:"required"`
+	Name  string           `json:"name" binding:"required"`
+	Role  types.TenantRole `json:"role"`
+}
+
 // updateMemberRoleRequest is the JSON body for PUT /tenants/:id/members/:user_id.
 type updateMemberRoleRequest struct {
 	Role types.TenantRole `json:"role" binding:"required"`
+}
+
+// callerCanManageOwnerRoles keeps delegated Admins useful for daily member
+// operations while reserving Owner role changes for true tenant owners,
+// platform system administrators, and cross-tenant superusers.
+func callerCanManageOwnerRoles(ctx context.Context) bool {
+	if types.IsSystemAdminFromContext(ctx) {
+		return true
+	}
+	if role := types.TenantRoleFromContext(ctx); role == types.TenantRoleOwner {
+		return true
+	}
+	if u, ok := ctx.Value(types.UserContextKey).(*types.User); ok && u != nil && u.CanAccessAllTenants {
+		return true
+	}
+	return false
 }
 
 // parseTenantIDFromPath reads :id from the gin route and validates it as
@@ -84,13 +111,24 @@ func parseTenantIDFromPath(c *gin.Context) (uint64, bool) {
 	return v, true
 }
 
+func defaultAdminCreatedPassword(phone string) string {
+	if len(phone) <= 4 {
+		return "rl" + phone
+	}
+	return "rl" + phone[len(phone)-4:]
+}
+
 // ListMembers godoc
 // @Summary      列出空间成员
-// @Description  分页返回当前空间内 active 成员（含每位成员的角色、邮箱、头像）；支持 q 按邮箱/用户名筛选
+// @Description  分页返回当前空间成员（含角色、状态、来源、邮箱、头像）；支持 q/role/status/source/department 筛选
 // @Tags         空间成员
 // @Produce      json
 // @Param        id         path   string  true   "空间 ID"
-// @Param        q          query  string  false  "按邮箱/用户名模糊筛选"
+// @Param        q          query  string  false  "按邮箱/用户名/外部 ID 模糊筛选"
+// @Param        role       query  string  false  "按角色筛选"
+// @Param        status     query  string  false  "按成员状态筛选"
+// @Param        source     query  string  false  "按成员来源筛选"
+// @Param        department query  string  false  "按部门筛选"
 // @Param        page       query  int     false  "页码（从 1 起）"  default(1)
 // @Param        page_size  query  int     false  "每页数量（最大 100）"  default(20)
 // @Success      200  {object}  map[string]interface{}
@@ -104,12 +142,37 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 	}
 
 	q := strings.TrimSpace(c.Query("q"))
+	filter := types.TenantMemberListFilter{Query: q}
+	if role := types.TenantRole(strings.TrimSpace(c.Query("role"))); role != "" {
+		if !role.IsValid() {
+			c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+			return
+		}
+		filter.Role = role
+	}
+	if status := types.TenantMemberStatus(strings.TrimSpace(c.Query("status"))); status != "" {
+		switch status {
+		case types.TenantMemberStatusActive, types.TenantMemberStatusInvited, types.TenantMemberStatusSuspended:
+			filter.Status = status
+		default:
+			c.Error(apperrors.NewValidationError("status must be one of active/invited/suspended"))
+			return
+		}
+	}
+	if source := types.TenantMemberSource(strings.TrimSpace(c.Query("source"))); source != "" {
+		if !source.IsValid() {
+			c.Error(apperrors.NewValidationError("source must be one of manual/invite/sso/scim/ldap/hris"))
+			return
+		}
+		filter.Source = source
+	}
+	filter.Department = strings.TrimSpace(c.Query("department"))
 	page, pageSize, ok := parseListPagination(c)
 	if !ok {
 		return
 	}
 
-	members, total, err := h.memberService.ListMembersPage(ctx, tenantID, q, page, pageSize)
+	members, total, err := h.memberService.ListMembersPage(ctx, tenantID, filter, page, pageSize)
 	if err != nil {
 		logger.Errorf(ctx, "ListMembersPage failed: tenant=%d err=%v", tenantID, err)
 		c.Error(apperrors.NewInternalServerError("failed to list members").WithDetails(err.Error()))
@@ -136,11 +199,16 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 	resp := make([]types.TenantMemberResponse, 0, len(members))
 	for _, m := range members {
 		row := types.TenantMemberResponse{
-			UserID:    m.UserID,
-			Role:      m.Role,
-			Status:    m.Status,
-			InvitedBy: m.InvitedBy,
-			JoinedAt:  m.JoinedAt,
+			UserID:         m.UserID,
+			Role:           m.Role,
+			Status:         m.Status,
+			Source:         m.Source,
+			ExternalUserID: m.ExternalUserID,
+			Department:     m.Department,
+			InvitedBy:      m.InvitedBy,
+			JoinedAt:       m.JoinedAt,
+			ExpiresAt:      m.ExpiresAt,
+			SuspendedAt:    m.SuspendedAt,
 		}
 		if u, ok := usersByID[m.UserID]; ok && u != nil {
 			row.Email = u.Email
@@ -165,7 +233,7 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 // @Summary      直接添加空间成员（直加路径）
 // @Description
 //
-//	Owner 通过 email 直接把用户作为 active 成员添加进当前空间。
+//	Admin 通过 email 直接把用户作为 active 成员添加进当前空间；授予 Owner 仍需要 Owner 或系统管理员。
 //
 //	这是【直加路径】，被加入的用户没有任何确认机会就出现在空间里——
 //	保留它是为了三类不需要走邀请确认的场景：
@@ -203,6 +271,10 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 	// sentinel-mapped 400.
 	if !req.Role.IsValid() {
 		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		return
+	}
+	if req.Role == types.TenantRoleOwner && !callerCanManageOwnerRoles(ctx) {
+		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
 		return
 	}
 
@@ -255,14 +327,125 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 	// list endpoint uses, so the UI can swap "Add Member" UX into the
 	// table without an extra round-trip.
 	resp := types.TenantMemberResponse{
-		UserID:    member.UserID,
-		Email:     user.Email,
-		Username:  user.Username,
-		Avatar:    user.Avatar,
-		Role:      member.Role,
-		Status:    member.Status,
-		InvitedBy: member.InvitedBy,
-		JoinedAt:  member.JoinedAt,
+		UserID:         member.UserID,
+		Email:          user.Email,
+		Username:       user.Username,
+		Avatar:         user.Avatar,
+		Role:           member.Role,
+		Status:         member.Status,
+		Source:         member.Source,
+		ExternalUserID: member.ExternalUserID,
+		Department:     member.Department,
+		InvitedBy:      member.InvitedBy,
+		JoinedAt:       member.JoinedAt,
+		ExpiresAt:      member.ExpiresAt,
+		SuspendedAt:    member.SuspendedAt,
+	}
+	c.JSON(http.StatusCreated, gin.H{
+		"success": true,
+		"data":    resp,
+	})
+}
+
+// AdminCreateMember godoc
+// @Summary      管理员创建账号并加入空间
+// @Description  Admin 录入姓名和手机号创建 tenantless 账号，并以默认密码 rl+手机号后四位加入当前空间；默认角色为 Contributor。
+// @Tags         空间成员
+// @Accept       json
+// @Produce      json
+// @Param        id        path  string                   true  "空间 ID"
+// @Param        request   body  adminCreateMemberRequest true  "成员信息"
+// @Success      201  {object}  map[string]interface{}
+// @Security     Bearer
+// @Router       /tenants/{id}/members/admin-create [post]
+func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+
+	var req adminCreateMemberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	phone := strings.TrimSpace(req.Phone)
+	name := strings.TrimSpace(req.Name)
+	if !isChinaMobilePhone(phone) {
+		c.Error(apperrors.NewValidationError("phone must be a valid mobile number"))
+		return
+	}
+	if name == "" {
+		c.Error(apperrors.NewValidationError("name is required"))
+		return
+	}
+	if utf8.RuneCountInString(name) > 50 {
+		c.Error(apperrors.NewValidationError("name must be 50 characters or fewer"))
+		return
+	}
+
+	role := req.Role
+	if role == "" {
+		role = types.TenantRoleContributor
+	}
+	if !role.IsValid() {
+		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		return
+	}
+	if role == types.TenantRoleOwner && !callerCanManageOwnerRoles(ctx) {
+		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
+		return
+	}
+
+	user, err := h.userService.AdminCreateUser(ctx, &types.RegisterRequest{
+		Username:           name,
+		Phone:              phone,
+		Password:           defaultAdminCreatedPassword(phone),
+		TenantProvisioning: types.TenantProvisioningTenantless,
+	})
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			c.Error(apperrors.NewConflictError(err.Error()))
+			return
+		}
+		logger.Errorf(ctx, "AdminCreateUser failed: phone=%s err=%v", secutils.SanitizeForLog(phone), err)
+		c.Error(apperrors.NewInternalServerError("failed to create user").WithDetails(err.Error()))
+		return
+	}
+
+	member, err := h.memberService.AddMember(ctx, user.ID, tenantID, role, nil)
+	if err != nil {
+		if cleanupErr := h.userService.DeleteUser(ctx, user.ID); cleanupErr != nil {
+			logger.Warnf(ctx, "failed to roll back admin-created user %s after member add failure: %v", user.ID, cleanupErr)
+		}
+		switch {
+		case errors.Is(err, service.ErrInvalidTenantRole):
+			c.Error(apperrors.NewValidationError(err.Error()))
+		case errors.Is(err, service.ErrMembershipAlreadyExists):
+			c.Error(apperrors.NewConflictError(err.Error()))
+		default:
+			logger.Errorf(ctx, "AdminCreateMember AddMember failed: user=%s tenant=%d err=%v",
+				user.ID, tenantID, err)
+			c.Error(apperrors.NewInternalServerError("failed to add member").WithDetails(err.Error()))
+		}
+		return
+	}
+
+	resp := types.TenantMemberResponse{
+		UserID:         member.UserID,
+		Email:          user.Email,
+		Username:       user.Username,
+		Avatar:         user.Avatar,
+		Role:           member.Role,
+		Status:         member.Status,
+		Source:         member.Source,
+		ExternalUserID: member.ExternalUserID,
+		Department:     member.Department,
+		InvitedBy:      member.InvitedBy,
+		JoinedAt:       member.JoinedAt,
+		ExpiresAt:      member.ExpiresAt,
+		SuspendedAt:    member.SuspendedAt,
 	}
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -272,7 +455,7 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 
 // UpdateMemberRole godoc
 // @Summary      修改空间成员角色
-// @Description  Owner 修改某位成员在当前空间内的角色；不能将最后一位 Owner 降级
+// @Description  Admin 修改某位成员在当前空间内的角色；Owner 角色变更需要 Owner 或系统管理员；不能将最后一位 Owner 降级
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json
@@ -304,6 +487,22 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
+	current, err := h.memberService.GetMembership(ctx, userID, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed before role update: user=%s tenant=%d err=%v",
+			userID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load membership").WithDetails(err.Error()))
+		return
+	}
+	if current == nil {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+	if (current.Role == types.TenantRoleOwner || req.Role == types.TenantRoleOwner) && !callerCanManageOwnerRoles(ctx) {
+		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
+		return
+	}
+
 	if err := h.memberService.UpdateRole(ctx, userID, tenantID, req.Role); err != nil {
 		switch {
 		case errors.Is(err, service.ErrMembershipNotFound):
@@ -325,7 +524,7 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 
 // RemoveMember godoc
 // @Summary      移除空间成员
-// @Description  Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；不能移除最后一位 Owner
+// @Description  Admin 将某位成员从当前空间中移除（软删除 tenant_members 行）；移除 Owner 需要 Owner 或系统管理员；不能移除最后一位 Owner
 // @Tags         空间成员
 // @Produce      json
 // @Param        id       path  string  true  "空间 ID"
@@ -345,6 +544,22 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 		return
 	}
 
+	current, err := h.memberService.GetMembership(ctx, userID, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed before member removal: user=%s tenant=%d err=%v",
+			userID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load membership").WithDetails(err.Error()))
+		return
+	}
+	if current == nil {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+	if current.Role == types.TenantRoleOwner && !callerCanManageOwnerRoles(ctx) {
+		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
+		return
+	}
+
 	if err := h.memberService.RemoveMember(ctx, userID, tenantID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrMembershipNotFound):
@@ -355,6 +570,64 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 			logger.Errorf(ctx, "RemoveMember failed: user=%s tenant=%d err=%v",
 				userID, tenantID, err)
 			c.Error(apperrors.NewInternalServerError("failed to remove member").WithDetails(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *TenantMemberHandler) SuspendMember(c *gin.Context) {
+	h.changeMemberLifecycle(c, true)
+}
+
+func (h *TenantMemberHandler) ReactivateMember(c *gin.Context) {
+	h.changeMemberLifecycle(c, false)
+}
+
+func (h *TenantMemberHandler) changeMemberLifecycle(c *gin.Context, suspend bool) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+	userID := strings.TrimSpace(c.Param("user_id"))
+	if userID == "" {
+		c.Error(apperrors.NewValidationError("user_id is required"))
+		return
+	}
+
+	current, err := h.memberService.GetMembership(ctx, userID, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed before lifecycle change: user=%s tenant=%d err=%v",
+			userID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load membership").WithDetails(err.Error()))
+		return
+	}
+	if current == nil {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+	if current.Role == types.TenantRoleOwner && !callerCanManageOwnerRoles(ctx) {
+		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
+		return
+	}
+
+	if suspend {
+		err = h.memberService.SuspendMember(ctx, userID, tenantID)
+	} else {
+		err = h.memberService.ReactivateMember(ctx, userID, tenantID)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrMembershipNotFound):
+			c.Error(apperrors.NewNotFoundError("membership not found"))
+		case errors.Is(err, service.ErrLastOwner):
+			c.Error(apperrors.NewConflictError(err.Error()))
+		default:
+			logger.Errorf(ctx, "member lifecycle change failed: suspend=%v user=%s tenant=%d err=%v",
+				suspend, userID, tenantID, err)
+			c.Error(apperrors.NewInternalServerError("failed to update member status").WithDetails(err.Error()))
 		}
 		return
 	}

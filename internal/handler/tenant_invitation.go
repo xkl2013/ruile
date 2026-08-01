@@ -20,8 +20,9 @@ import (
 
 // TenantInvitationHandler exposes the tenant-scoped CRUD on the
 // `tenant_invitations` table plus the user-self-service inbox endpoints
-// (/me/invitations*). Route-level RBAC: tenant routes are Owner-gated
-// (POST/DELETE) or Viewer-gated (GET); inbox routes only require
+// (/me/invitations*). Route-level RBAC: tenant write routes are Admin-gated,
+// with Owner role assignment blocked below unless the caller is an Owner,
+// system admin, or cross-tenant superuser. Inbox routes only require
 // authentication (the service enforces "only invitee can act").
 type TenantInvitationHandler struct {
 	invitationService interfaces.TenantInvitationService
@@ -49,11 +50,12 @@ func NewTenantInvitationHandler(
 }
 
 // createInvitationRequest is the JSON body for POST /tenants/:id/invitations.
-// Email is the user-facing identifier; the handler resolves it to a
-// User row before delegating to the service. The optional Message is
-// surfaced in the invitee's inbox.
+// Phone is the user-facing identifier for the current phone-login flow.
+// Email remains accepted for backwards compatibility with older clients.
+// The optional Message is surfaced in the invitee's inbox.
 type createInvitationRequest struct {
-	Email   string           `json:"email" binding:"required,email"`
+	Phone   string           `json:"phone"`
+	Email   string           `json:"email,omitempty"`
 	Role    types.TenantRole `json:"role" binding:"required"`
 	Message string           `json:"message"`
 }
@@ -245,7 +247,7 @@ func (h *TenantInvitationHandler) ListTenantInvitations(c *gin.Context) {
 
 // CreateInvitation godoc
 // @Summary      发出空间邀请
-// @Description  Owner 通过邮箱邀请已注册用户加入当前空间；被邀请人需要在 /me/invitations 接受后才会成为成员。
+// @Description  Owner 通过手机号邀请已注册用户加入当前空间；被邀请人需要在 /me/invitations 接受后才会成为成员。
 // @Tags         空间邀请
 // @Accept       json
 // @Produce      json
@@ -270,16 +272,34 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
 		return
 	}
+	if req.Role == types.TenantRoleOwner && !callerCanManageOwnerRoles(ctx) {
+		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
+		return
+	}
 
-	user, err := h.userService.GetUserByEmail(ctx, strings.TrimSpace(req.Email))
+	identifier := strings.TrimSpace(req.Phone)
+	if identifier != "" {
+		if !isChinaMobilePhone(identifier) {
+			c.Error(apperrors.NewValidationError("phone must be a valid mobile number"))
+			return
+		}
+	} else {
+		identifier = strings.TrimSpace(strings.ToLower(req.Email))
+	}
+	if identifier == "" {
+		c.Error(apperrors.NewValidationError("phone is required"))
+		return
+	}
+
+	user, err := h.userService.GetUserByEmail(ctx, identifier)
 	if err != nil {
 		if errors.Is(err, apprepo.ErrUserNotFound) {
 			c.Error(apperrors.NewNotFoundError(
-				"user with this email is not registered; ask them to sign up first"))
+				"user with this identifier is not registered; ask them to sign up first"))
 			return
 		}
-		logger.Errorf(ctx, "GetUserByEmail failed: email=%s err=%v",
-			secutils.SanitizeForLog(req.Email), err)
+		logger.Errorf(ctx, "GetUserByEmail failed: identifier=%s err=%v",
+			secutils.SanitizeForLog(identifier), err)
 		c.Error(apperrors.NewInternalServerError("failed to look up user").WithDetails(err.Error()))
 		return
 	}

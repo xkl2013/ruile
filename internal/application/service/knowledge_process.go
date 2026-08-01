@@ -2809,23 +2809,12 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 		return nil
 	}
 
-	// 检查音频ASR配置（仅对文件导入）
-	if payload.FilePath != "" && IsAudioType(payload.FileType) && !eff.ASRConfig.IsASREnabled() {
+	// 检查音视频ASR配置（仅对文件导入）
+	if payload.FilePath != "" && IsAudiovisualType(payload.FileType) && !eff.ASRConfig.IsASREnabled() {
 		logger.GetLogger(ctx).WithField("knowledge_id", knowledge.ID).
-			Errorf("processDocument audio without ASR model configured")
+			Errorf("processDocument audiovisual media without ASR model configured")
 		knowledge.ParseStatus = "failed"
-		knowledge.ErrorMessage = "上传音频文件需要设置ASR语音识别模型"
-		knowledge.UpdatedAt = time.Now()
-		s.repo.UpdateKnowledge(ctx, knowledge)
-		return nil
-	}
-
-	// 视频文件不再支持入库解析
-	if payload.FilePath != "" && IsVideoType(payload.FileType) {
-		logger.GetLogger(ctx).WithField("knowledge_id", knowledge.ID).
-			Errorf("processDocument video not supported")
-		knowledge.ParseStatus = "failed"
-		knowledge.ErrorMessage = "暂不支持视频文件"
+		knowledge.ErrorMessage = "上传音视频文件需要设置ASR语音识别模型"
 		knowledge.UpdatedAt = time.Now()
 		s.repo.UpdateKnowledge(ctx, knowledge)
 		return nil
@@ -2954,18 +2943,18 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 		}
 	}
 
-	// Step 1.5: ASR transcription for audio files
+	// Step 1.5: ASR transcription for audio/video media files
 	if convertResult != nil && convertResult.IsAudio && len(convertResult.AudioData) > 0 {
 		if !eff.ASRConfig.IsASREnabled() {
-			logger.Error(ctx, "Audio file detected but ASR is not configured")
+			logger.Error(ctx, "Audio/video media file detected but ASR is not configured")
 			knowledge.ParseStatus = "failed"
-			knowledge.ErrorMessage = "ASR model is not configured for audio transcription"
+			knowledge.ErrorMessage = "ASR model is not configured for audio/video transcription"
 			knowledge.UpdatedAt = time.Now()
 			s.repo.UpdateKnowledge(ctx, knowledge)
 			return nil
 		}
 
-		logger.Infof(ctx, "[ASR] Starting audio transcription for knowledge %s, audio size=%d bytes",
+		logger.Infof(ctx, "[ASR] Starting audio/video transcription for knowledge %s, media size=%d bytes",
 			knowledge.ID, len(convertResult.AudioData))
 
 		asrModel, err := s.modelService.GetASRModel(ctx, eff.ASRConfig.ModelID)
@@ -2983,11 +2972,11 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 			logger.Errorf(ctx, "[ASR] Transcription failed: %v", err)
 			if isLastRetry {
 				knowledge.ParseStatus = "failed"
-				knowledge.ErrorMessage = fmt.Sprintf("audio transcription failed: %v", err)
+				knowledge.ErrorMessage = fmt.Sprintf("audio/video transcription failed: %v", err)
 				knowledge.UpdatedAt = time.Now()
 				s.repo.UpdateKnowledge(ctx, knowledge)
 			}
-			return fmt.Errorf("audio transcription failed: %w", err)
+			return fmt.Errorf("audio/video transcription failed: %w", err)
 		}
 
 		var transcribedText string
@@ -2997,11 +2986,11 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 
 		if transcribedText == "" {
 			logger.Warn(ctx, "[ASR] Transcription returned empty text")
-			transcribedText = "[No speech detected in audio file]"
+			transcribedText = "[No speech detected in audio/video file]"
 		}
 
 		logger.Infof(ctx, "[ASR] Transcription completed, text length=%d", len(transcribedText))
-		// Replace the audio placeholder with the transcribed text
+		// Replace the media placeholder with the transcribed text
 		convertResult.MarkdownContent = transcribedText
 		convertResult.IsAudio = false
 		convertResult.AudioData = nil

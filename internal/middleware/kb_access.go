@@ -339,13 +339,34 @@ func resolveKBAccessOnce(
 		return nil, errKBAccessNotFound
 	}
 
-	// 1. Own KB.
+	// 1. Same-tenant KB. Admin+ can access all tenant KBs; ordinary
+	// members only access KBs they created. Legacy rows without CreatorID
+	// are tenant-owned and therefore Admin+ only.
 	if kb.TenantID == tenantID {
-		return &KBAccess{
-			KnowledgeBase:     kb,
-			EffectiveTenantID: tenantID,
-			Permission:        types.OrgRoleAdmin,
-		}, nil
+		// API-key principals are already constrained by their KB allow-list.
+		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
+			return &KBAccess{
+				KnowledgeBase:     kb,
+				EffectiveTenantID: tenantID,
+				Permission:        types.OrgRoleAdmin,
+			}, nil
+		}
+		if types.IsSystemAdminFromContext(ctx) || callerTenantRole.HasPermission(types.TenantRoleAdmin) {
+			return &KBAccess{
+				KnowledgeBase:     kb,
+				EffectiveTenantID: tenantID,
+				Permission:        types.OrgRoleAdmin,
+			}, nil
+		}
+		userID, _ := types.UserIDFromContext(ctx)
+		if kb.CreatorID != "" && userID != "" && kb.CreatorID == userID {
+			return &KBAccess{
+				KnowledgeBase:     kb,
+				EffectiveTenantID: tenantID,
+				Permission:        types.OrgRoleAdmin,
+			}, nil
+		}
+		return nil, errKBAccessForbidden
 	}
 
 	// 2. Org-shared KB. Plan 3's 3-D cap is applied inside

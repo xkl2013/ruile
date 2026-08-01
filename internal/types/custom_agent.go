@@ -16,6 +16,8 @@ const (
 	BuiltinQuickAnswerID = "builtin-quick-answer"
 	// BuiltinSmartReasoningID is the ID for the built-in smart reasoning (ReAct) agent
 	BuiltinSmartReasoningID = "builtin-smart-reasoning"
+	// BuiltinSalesDirectorID is the ID for the built-in education sales director agent
+	BuiltinSalesDirectorID = "builtin-sales-director"
 	// BuiltinDeepResearcherID is the ID for the built-in deep researcher agent
 	BuiltinDeepResearcherID = "builtin-deep-researcher"
 	// BuiltinDataAnalystID is the ID for the built-in data analyst agent
@@ -55,6 +57,9 @@ const (
 	// uploaded into the KB. Retrieval semantics (vector/wiki/…) are largely
 	// irrelevant — this type is about data_schema + data_analysis tools.
 	AgentTypeDataAnalysis = "data-analysis"
+	// AgentTypeEducationSales supports education/training sales strategy and
+	// frontline talk-track generation grounded in KB facts.
+	AgentTypeEducationSales = "education-sales"
 	// AgentTypeCustom is the "no preset" option; user-configured end to end.
 	AgentTypeCustom = "custom"
 )
@@ -99,7 +104,8 @@ type CustomAgentConfig struct {
 	AgentMode string `yaml:"agent_mode" json:"agent_mode"`
 	// AgentType is a preset category under smart-reasoning mode that pre-fills
 	// system prompt, allowed tools and recommended KB compatibility.
-	// Valid values: "rag-qa", "wiki-qa", "hybrid-rag-wiki", "custom".
+	// Valid values: "rag-qa", "wiki-qa", "hybrid-rag-wiki",
+	// "data-analysis", "education-sales", "custom".
 	// Empty / unknown values are treated as "custom" (no preset applied).
 	// Ignored for quick-answer mode.
 	AgentType string `yaml:"agent_type" json:"agent_type,omitempty"`
@@ -559,6 +565,7 @@ var BuiltinAgentRegistry = map[string]func(uint64) *CustomAgent{}
 var builtinAgentIDsOrdered = []string{
 	BuiltinQuickAnswerID,
 	BuiltinSmartReasoningID,
+	BuiltinSalesDirectorID,
 	BuiltinWikiResearcherID,
 	BuiltinDeepResearcherID,
 	BuiltinDataAnalystID,

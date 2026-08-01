@@ -43,10 +43,35 @@ func (r *tenantMemberRepository) Create(ctx context.Context, member *types.Tenan
 	if member.Status == "" {
 		member.Status = types.TenantMemberStatusActive
 	}
+	if member.Source == "" {
+		member.Source = types.TenantMemberSourceManual
+	}
 	if member.JoinedAt.IsZero() {
 		member.JoinedAt = time.Now()
 	}
 	return r.db.WithContext(ctx).Create(member).Error
+}
+
+func applyTenantMemberListFilter(q *gorm.DB, filter types.TenantMemberListFilter) *gorm.DB {
+	if filter.Role.IsValid() {
+		q = q.Where("tenant_members.role = ?", filter.Role)
+	}
+	if filter.Status != "" {
+		q = q.Where("tenant_members.status = ?", filter.Status)
+	}
+	if filter.Source.IsValid() {
+		q = q.Where("tenant_members.source = ?", filter.Source)
+	}
+	if d := strings.TrimSpace(filter.Department); d != "" {
+		q = q.Where("LOWER(tenant_members.department) = LOWER(?)", d)
+	}
+	if search := strings.TrimSpace(filter.Query); search != "" {
+		like := "%" + escapeLikePattern(search) + "%"
+		q = q.
+			Joins(`INNER JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL`).
+			Where(`(LOWER(users.email) LIKE LOWER(?) OR LOWER(users.username) LIKE LOWER(?) OR LOWER(tenant_members.external_user_id) LIKE LOWER(?))`, like, like, like)
+	}
+	return q
 }
 
 // Get returns the active membership for (userID, tenantID), or (nil, nil)
@@ -96,30 +121,19 @@ func (r *tenantMemberRepository) ListByTenant(ctx context.Context, tenantID uint
 // CountFilteredByTenant counts active tenant membership rows, optionally
 // restricted to users whose email or username matches search.
 func (r *tenantMemberRepository) CountFilteredByTenant(
-	ctx context.Context, tenantID uint64, search string,
+	ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter,
 ) (int64, error) {
-	search = strings.TrimSpace(search)
 	q := r.db.WithContext(ctx).Model(&types.TenantMember{}).
 		Where("tenant_members.tenant_id = ?", tenantID)
 	var total int64
-	var err error
-	if search == "" {
-		err = q.Count(&total).Error
-	} else {
-		like := "%" + escapeLikePattern(search) + "%"
-		err = q.
-			Joins(`INNER JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL`).
-			Where(`(LOWER(users.email) LIKE LOWER(?) OR LOWER(users.username) LIKE LOWER(?))`, like, like).
-			Count(&total).Error
-	}
+	err := applyTenantMemberListFilter(q, filter).Count(&total).Error
 	return total, err
 }
 
 // ListPagedByTenant lists active memberships with stable sort.
 func (r *tenantMemberRepository) ListPagedByTenant(
-	ctx context.Context, tenantID uint64, search string, offset, limit int,
+	ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter, offset, limit int,
 ) ([]*types.TenantMember, error) {
-	search = strings.TrimSpace(search)
 	var members []*types.TenantMember
 	q := r.db.WithContext(ctx).Model(&types.TenantMember{}).
 		Where("tenant_members.tenant_id = ?", tenantID).
@@ -127,16 +141,7 @@ func (r *tenantMemberRepository) ListPagedByTenant(
 		Offset(offset).
 		Limit(limit)
 
-	var err error
-	if search == "" {
-		err = q.Find(&members).Error
-	} else {
-		like := "%" + escapeLikePattern(search) + "%"
-		err = q.
-			Joins(`INNER JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL`).
-			Where(`(LOWER(users.email) LIKE LOWER(?) OR LOWER(users.username) LIKE LOWER(?))`, like, like).
-			Find(&members).Error
-	}
+	err := applyTenantMemberListFilter(q, filter).Find(&members).Error
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +172,31 @@ func (r *tenantMemberRepository) SoftDelete(ctx context.Context, userID string, 
 	return r.db.WithContext(ctx).
 		Where("user_id = ? AND tenant_id = ?", userID, tenantID).
 		Delete(&types.TenantMember{}).Error
+}
+
+// UpdateStatus changes the reversible membership lifecycle status.
+func (r *tenantMemberRepository) UpdateStatus(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	status types.TenantMemberStatus,
+	suspendedAt *time.Time,
+) error {
+	res := r.db.WithContext(ctx).
+		Model(&types.TenantMember{}).
+		Where("user_id = ? AND tenant_id = ?", userID, tenantID).
+		Updates(map[string]any{
+			"status":       status,
+			"suspended_at": suspendedAt,
+			"updated_at":   time.Now(),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 // CountActiveOwners reports the number of active owner rows in the tenant.

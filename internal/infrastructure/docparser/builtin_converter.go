@@ -28,11 +28,18 @@ var audioFormats = map[string]bool{
 	"mp3": true, "wav": true, "m4a": true, "flac": true, "ogg": true,
 }
 
+var videoFormats = map[string]bool{
+	"mp4": true, "mov": true, "avi": true, "mkv": true, "webm": true, "wmv": true, "flv": true,
+}
+
 func init() {
 	for k := range imageFormats {
 		simpleFormats[k] = true
 	}
 	for k := range audioFormats {
+		simpleFormats[k] = true
+	}
+	for k := range videoFormats {
 		simpleFormats[k] = true
 	}
 }
@@ -73,7 +80,9 @@ func (b *SimpleFormatReader) Read(_ context.Context, req *types.ReadRequest) (*t
 	case imageFormats[ft]:
 		return imageToResult(req.FileName, req.FileContent), nil
 	case audioFormats[ft]:
-		return audioToResult(req.FileName, req.FileContent), nil
+		return audiovisualToResult(req.FileName, req.FileContent, "audio"), nil
+	case videoFormats[ft]:
+		return audiovisualToResult(req.FileName, req.FileContent, "video"), nil
 	default:
 		return nil, fmt.Errorf("unsupported simple format: %s", ft)
 	}
@@ -114,18 +123,35 @@ func IsAudioFormat(fileType string) bool {
 	return audioFormats[strings.ToLower(strings.TrimPrefix(fileType, "."))]
 }
 
-// audioToResult wraps a standalone audio file. The actual transcription is
+// IsVideoFormat returns true if the file type is a recognized video format.
+func IsVideoFormat(fileType string) bool {
+	return videoFormats[strings.ToLower(strings.TrimPrefix(fileType, "."))]
+}
+
+// IsAudiovisualFormat returns true if the file type can be sent to ASR.
+func IsAudiovisualFormat(fileType string) bool {
+	return IsAudioFormat(fileType) || IsVideoFormat(fileType)
+}
+
+// audiovisualToResult wraps a standalone audio/video file. The actual transcription is
 // handled by the ASR model in the knowledge service pipeline. Here we just
 // return a placeholder markdown with the raw bytes preserved for upstream
 // processing.
-func audioToResult(fileName string, data []byte) *types.ReadResult {
+func audiovisualToResult(fileName string, data []byte, mediaKind string) *types.ReadResult {
 	if fileName == "" {
 		fileName = "audio.mp3"
+		if mediaKind == "video" {
+			fileName = "video.mp4"
+		}
+	}
+	label := "Audio"
+	if mediaKind == "video" {
+		label = "Video"
 	}
 	// Return a placeholder; the knowledge service will replace this with
 	// the ASR transcription result.
 	return &types.ReadResult{
-		MarkdownContent: fmt.Sprintf("[Audio file: %s]", fileName),
+		MarkdownContent: fmt.Sprintf("[%s file: %s]", label, fileName),
 		IsAudio:         true,
 		AudioData:       data,
 	}

@@ -159,6 +159,8 @@ func (s *stubAgentShareForGuard) CountByOrganizations(context.Context, []string)
 type guardOpts struct {
 	agentID    string                  // ?agent_id query param
 	agentShare *stubAgentShareForGuard // nil means "no agent-share service"
+	userID     string
+	role       types.TenantRole
 }
 
 // runGuard fires a single request through the guard and returns the
@@ -186,6 +188,12 @@ func runGuard(
 	}
 	req := httptest.NewRequest("GET", url, nil)
 	ctx := context.WithValue(req.Context(), types.TenantIDContextKey, tenantID)
+	if opts.userID != "" {
+		ctx = context.WithValue(ctx, types.UserIDContextKey, opts.userID)
+	}
+	if opts.role.IsValid() {
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, opts.role)
+	}
 	c.Request = req.WithContext(ctx)
 
 	kbsvc := &stubKBLookup{kbs: map[string]*types.KnowledgeBase{}}
@@ -221,9 +229,9 @@ func runGuard(
 func TestRequireKBAccess_OwnKB(t *testing.T) {
 	rec, c := runGuard(t, 100, "kb-1",
 		types.OrgRoleViewer,
-		&types.KnowledgeBase{ID: "kb-1", TenantID: 100},
+		&types.KnowledgeBase{ID: "kb-1", TenantID: 100, CreatorID: "u-owner"},
 		nil,
-		guardOpts{},
+		guardOpts{userID: "u-owner", role: types.TenantRoleViewer},
 	)
 	require.False(t, c.IsAborted(), "should pass through")
 	require.Equal(t, 200, rec.Code) // gin's default; nothing wrote a status
@@ -235,6 +243,16 @@ func TestRequireKBAccess_OwnKB(t *testing.T) {
 	got, ok := types.TenantIDFromContext(c.Request.Context())
 	require.True(t, ok)
 	require.Equal(t, uint64(100), got)
+}
+
+func TestRequireKBAccess_SameTenantNonCreator_Aborts(t *testing.T) {
+	_, c := runGuard(t, 100, "kb-1",
+		types.OrgRoleViewer,
+		&types.KnowledgeBase{ID: "kb-1", TenantID: 100, CreatorID: "u-owner"},
+		nil,
+		guardOpts{userID: "u-other", role: types.TenantRoleViewer},
+	)
+	require.True(t, c.IsAborted())
 }
 
 // TestIsResourceNotFound_RecognisesKnowledgeSentinel pins that a missing

@@ -9,7 +9,7 @@
 在 RBAC 引入之前，只要通过 `X-API-Key` 或 JWT 认证成功，调用方在空间内基本等同于管理员。这在单人自部署场景没问题，但只要一个空间里出现两个及以上的真人成员（团队共享一套知识库），就必须区分：
 
 - 谁可以删除知识库、撤销 API Key（管理员/Owner）；
-- 谁可以上传文档、编辑「自己」的知识库（Contributor）；
+- 谁可以上传文档、编辑「自己」的知识库（Contributor），谁可以管理智能体配置（Admin）；
 - 谁只能读取与提问（Viewer）。
 
 RBAC 在原有 JWT / API Key 认证之上，叠加了一层**空间内角色矩阵**，使三种状态都成为一等公民。
@@ -21,7 +21,7 @@ RBAC 在原有 JWT / API Key 认证之上，叠加了一层**空间内角色矩�
 | 角色 | 标识 | 典型场景 | 关键能力 |
 |------|------|----------|----------|
 | 只读 | `viewer` | 只查阅、提问的成员 | 仅读，不可发起任何变更 |
-| 贡献者 | `contributor` | 上传文档、维护自己的 KB / Agent | 可变更 `creator_id == 自己` 的资源；他人资源等同 Viewer |
+| 贡献者 | `contributor` | 上传文档、维护自己的 KB | 可变更 `creator_id == 自己` 的知识库内容；他人资源等同 Viewer |
 | 管理员 | `admin` | 空间内运维 | 可变更空间内任意资源；管理成员；配置共享基础设施（模型、解析器、存储、向量库等） |
 | Owner | `owner` | 空间创建者 | Admin 的全部权限 + 可删除空间；不会被其他 Admin 降级；每个空间**有且只有一位** |
 
@@ -38,7 +38,7 @@ RBAC 在原有 JWT / API Key 认证之上，叠加了一层**空间内角色矩�
 光有角色矩阵不够，否则 Contributor 之间可以互相破坏。为此在迁移 `000043` 中给关键表加了 `creator_id`：
 
 - `knowledge_bases.creator_id` —— 老数据回填为该空间的 Owner；空串/NULL 表示「空间共有，仅 Admin+ 可变更」。
-- `custom_agents.creator_id` —— Agent 创建者。
+- `custom_agents.creator_id` —— Agent 创建者，仅用于来源展示和审计；Agent 创建、编辑、删除、复制及分享管理统一要求 Admin+。
 - `custom_agents.runnable_by_viewer` —— 默认 `true`，允许 Viewer 在对话中调用该 Agent；置 `false` 则提升到 Contributor 起步。
 
 子资源沿着归属链回溯到 KB 的 `creator_id`：
@@ -52,7 +52,7 @@ FAQ 条目、生成的问题、KB 标签、Wiki 页面同理。
 由此衍生出两类守卫：
 
 - **角色守卫**：`Viewer()` / `Contributor()` / `Admin()` / `Owner()` —— 只看角色。用于空间级基础设施（模型、向量库、IM 通道等）。
-- **归属守卫**：`OwnedKBOrAdmin()` / `OwnedAgentOrAdmin()` / `OwnedChunkKBOrAdmin()` …… —— 「我是这条资源的 `creator_id`」**或**「我至少是 Admin」二者满足其一即可。用于具体资源的写操作。
+- **归属守卫**：`OwnedKBOrAdmin()` / `OwnedChunkKBOrAdmin()` …… —— 「我是这条资源的 `creator_id`」**或**「我至少是 Admin」二者满足其一即可。用于知识库及其子资源的写操作。Agent 配置属于空间管理面，使用 `Admin()`。
 
 这样可以让「Contributor 在自己的 KB 里像 Owner，在别人的 KB 里像 Viewer」自然成立。
 

@@ -115,7 +115,7 @@ func (f *fakeMemberService) ListByTenant(ctx context.Context, tenantID uint64) (
 	return nil, nil
 }
 func (f *fakeMemberService) ListMembersPage(
-	ctx context.Context, tenantID uint64, query string, page, pageSize int,
+	ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter, page, pageSize int,
 ) ([]*types.TenantMember, int64, error) {
 	return nil, 0, nil
 }
@@ -136,6 +136,12 @@ func (f *fakeMemberService) UpdateRole(
 	return nil
 }
 func (f *fakeMemberService) RemoveMember(ctx context.Context, userID string, tenantID uint64) error {
+	return nil
+}
+func (f *fakeMemberService) SuspendMember(ctx context.Context, userID string, tenantID uint64) error {
+	return nil
+}
+func (f *fakeMemberService) ReactivateMember(ctx context.Context, userID string, tenantID uint64) error {
 	return nil
 }
 

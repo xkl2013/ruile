@@ -1,7 +1,5 @@
 <template>
   <div class="org-list-container">
-    <ListSpaceSidebar mode="organization" v-model="spaceSelection" :count-all="organizations.length"
-      :count-created="createdCount" :count-joined="joinedCount" />
     <div class="org-list-content">
       <div class="header" style="--wails-draggable: drag">
         <div class="header-title" style="--wails-draggable: drag">
@@ -28,7 +26,7 @@
       </div>
       <div class="org-list-main">
         <!-- 骨架屏占位 -->
-        <div v-if="loading && filteredOrganizations.length === 0" class="org-card-wrap">
+        <div v-if="loading && displayOrganizations.length === 0" class="org-card-wrap">
           <div v-for="n in 4" :key="'skel-' + n" class="org-card org-card-skeleton">
             <div class="card-header">
               <t-skeleton animation="gradient"
@@ -46,33 +44,9 @@
         </div>
 
         <!-- 卡片网格 -->
-        <div v-if="filteredOrganizations.length > 0" class="org-card-wrap">
-          <template v-for="(org, index) in filteredOrganizations" :key="org.id">
-            <!-- 我创建的：仅在 all 视图下出现；created/joined 子视图自身已经
-                 隐含了语义，再加标题反而冗余。-->
-            <div v-if="spaceSelection === 'all' && org.is_owner && index === 0" class="org-section-header"
-              role="button" tabindex="0" @click="toggleOrgSection('created')"
-              @keydown.enter.prevent="toggleOrgSection('created')"
-              @keydown.space.prevent="toggleOrgSection('created')">
-              <t-icon name="user" size="14px" />
-              <span>{{ $t('organization.createdByMe') }}</span>
-              <span class="org-section-count">{{ orgSectionCounts.created }}</span>
-              <t-icon class="org-section-toggle"
-                :name="isOrgSectionCollapsed('created') ? 'chevron-right' : 'chevron-down'" size="14px" />
-            </div>
-            <!-- 我加入的：第一张非 owner 卡片前打标题（all 视图下） -->
-            <div v-if="spaceSelection === 'all' && !org.is_owner
-              && (index === 0 || filteredOrganizations[index - 1].is_owner)" class="org-section-header" role="button"
-              tabindex="0" @click="toggleOrgSection('joined')"
-              @keydown.enter.prevent="toggleOrgSection('joined')"
-              @keydown.space.prevent="toggleOrgSection('joined')">
-              <t-icon name="usergroup" size="14px" />
-              <span>{{ $t('organization.joinedByMe') }}</span>
-              <span class="org-section-count">{{ orgSectionCounts.joined }}</span>
-              <t-icon class="org-section-toggle"
-                :name="isOrgSectionCollapsed('joined') ? 'chevron-right' : 'chevron-down'" size="14px" />
-            </div>
-            <div v-show="!isOrgRowHidden(org)" class="org-card"
+        <div v-if="displayOrganizations.length > 0" class="org-card-wrap">
+          <template v-for="org in displayOrganizations" :key="org.id">
+            <div class="org-card"
             :class="{ 'joined-org': !org.is_owner }" @click="handleCardClick(org)">
             <!-- 装饰：协作网络感图形 -->
             <div class="card-decoration">
@@ -161,7 +135,7 @@
                     $t('organization.settings.pendingReview') }}</span>
                 </t-tooltip>
               </div>
-              <div v-if="showOrgRelationTag(org)" class="bottom-right">
+              <div class="bottom-right">
                 <div class="relation-role-tag" :class="org.is_owner ? 'owner' : (org.my_role || '')">
                   <t-icon :name="org.is_owner ? 'usergroup-add' : 'usergroup'" size="14px" />
                   <span>{{ org.is_owner ? $t('organization.owner') : (org.my_role ?
@@ -177,8 +151,8 @@
         <!-- 空状态（按筛选显示不同文案） -->
         <div v-else-if="!loading" class="empty-state">
           <img class="empty-img" src="@/assets/img/upload.svg" alt="">
-          <span class="empty-txt">{{ emptyStateTitle }}</span>
-          <span class="empty-desc">{{ emptyStateDesc }}</span>
+          <span class="empty-txt">{{ $t('organization.empty') }}</span>
+          <span class="empty-desc">{{ $t('organization.emptyDesc') }}</span>
           <div class="empty-state-actions">
             <t-tooltip :content="noPermissionTip" placement="top" :disabled="canManageOrg">
               <t-button theme="default" variant="outline" class="org-join-btn" :disabled="!canManageOrg"
@@ -556,8 +530,6 @@ import { previewOrganization, joinOrganization, submitJoinRequest, searchSearcha
 import { useI18n } from 'vue-i18n'
 import OrganizationSettingsModal from './OrganizationSettingsModal.vue'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
-import ListSpaceSidebar from '@/components/ListSpaceSidebar.vue'
-import { shouldShowOrgRelationTag } from '@/utils/card-list-badge'
 
 interface OrgWithUI extends Organization {
   showMore?: boolean
@@ -771,64 +743,13 @@ const handleOrganizationDialogEvent = ((event: CustomEvent<{ type: 'create' | 'j
   }
 }) as EventListener
 
-// 左侧筛选：'all' | 'created' | 'joined'
-const spaceSelection = ref<'all' | 'created' | 'joined'>('all')
-
 // Computed
 const loading = computed(() => orgStore.loading)
 const organizations = ref<OrgWithUI[]>([])
-
-const createdCount = computed(() => organizations.value.filter(o => o.is_owner).length)
-const joinedCount = computed(() => organizations.value.filter(o => !o.is_owner).length)
-
-const filteredOrganizations = computed(() => {
-  if (spaceSelection.value === 'created') return organizations.value.filter(o => o.is_owner)
-  if (spaceSelection.value === 'joined') return organizations.value.filter(o => !o.is_owner)
-  // 「全部」视图下把我创建的 owner 排在前面、我加入的排在后面，方便上面的
-  // 分组标题在过渡处一次性打出来——和 KB / Agent 列表口径一致。
-  return [...organizations.value].sort((a, b) => {
-    if (a.is_owner === b.is_owner) return 0
-    return a.is_owner ? -1 : 1
-  })
-})
-
-type OrgSectionKey = 'created' | 'joined'
-const collapsedOrgSections = ref<Set<OrgSectionKey>>(new Set())
-const isOrgSectionCollapsed = (key: OrgSectionKey) => collapsedOrgSections.value.has(key)
-const toggleOrgSection = (key: OrgSectionKey) => {
-  const next = new Set(collapsedOrgSections.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  collapsedOrgSections.value = next
-}
-const orgSectionOf = (org: { is_owner?: boolean }): OrgSectionKey => (org.is_owner ? 'created' : 'joined')
-const isOrgRowHidden = (org: { is_owner?: boolean }) =>
-  spaceSelection.value === 'all' && isOrgSectionCollapsed(orgSectionOf(org))
-const orgSectionCounts = computed<Record<OrgSectionKey, number>>(() => {
-  const c: Record<OrgSectionKey, number> = { created: 0, joined: 0 }
-  filteredOrganizations.value.forEach(o => { c[orgSectionOf(o)]++ })
-  return c
-})
-
-function showOrgRelationTag(org: { is_owner?: boolean; my_role?: string }): boolean {
-  return shouldShowOrgRelationTag({
-    spaceSelection: spaceSelection.value,
-    isOwner: !!org.is_owner,
-    myRole: org.my_role,
-  })
-}
-
-const emptyStateTitle = computed(() => {
-  if (spaceSelection.value === 'created') return t('organization.emptyCreated')
-  if (spaceSelection.value === 'joined') return t('organization.emptyJoined')
-  return t('organization.empty')
-})
-
-const emptyStateDesc = computed(() => {
-  if (spaceSelection.value === 'created') return t('organization.emptyCreatedDesc')
-  if (spaceSelection.value === 'joined') return t('organization.emptyJoinedDesc')
-  return t('organization.emptyDesc')
-})
+const displayOrganizations = computed(() => [...organizations.value].sort((a, b) => {
+  if (a.is_owner === b.is_owner) return 0
+  return a.is_owner ? -1 : 1
+}))
 
 // Watch store changes and update local organizations
 watch(

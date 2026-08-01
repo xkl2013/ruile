@@ -45,11 +45,16 @@ func buildInviteRegisterURL(cfg *config.Config, plainToken string) string {
 }
 
 // createInviteLinkRequest is the body for POST /tenants/:id/invite-links.
-// Only role + optional message — share-link rows have no specific
-// invitee, so the Owner just picks "what role does the holder get".
+// Only role + optional message — share-link rows have no specific invitee.
+// Enterprise safety rule: links may grant Viewer or Contributor only; Admin
+// and Owner require a targeted invitation so the invitee identity is explicit.
 type createInviteLinkRequest struct {
 	Role    types.TenantRole `json:"role"    binding:"required"`
 	Message string           `json:"message"`
+}
+
+func isShareLinkRoleAllowed(role types.TenantRole) bool {
+	return role == types.TenantRoleViewer || role == types.TenantRoleContributor
 }
 
 // CreateInviteLink godoc
@@ -75,8 +80,8 @@ func (h *TenantInvitationHandler) CreateInviteLink(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
 		return
 	}
-	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+	if !req.Role.IsValid() || !isShareLinkRoleAllowed(req.Role) {
+		c.Error(apperrors.NewValidationError("share links can only grant viewer or contributor"))
 		return
 	}
 

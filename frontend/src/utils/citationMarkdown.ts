@@ -260,16 +260,17 @@ export function joinCitationTagsToPreviousLine(content: string): string {
 
   // Single newline before citation when it follows text or another citation (not after a blank line)
   result = result.replace(
-    /(?<!\n)(<(?:kb|web)\b[^>]*?\s*\/?>|[ \t]*\S[^\n]*?)\n([ \t]*<(?:kb|web)\b)/g,
-    (match, beforePart: string, kbStart: string, offset: number, full: string) => {
-      // Resolve the full preceding line: lazy capture + lookbehind can grab only a
-      // partial line (e.g. ``` captured as ``), which would skip the fence check.
-      const lineStart = full.lastIndexOf('\n', offset - 1) + 1
-      const fullPrevLine = full.slice(lineStart, offset + beforePart.length)
+    /(^|[^\n])(<(?:kb|web)\b[^>]*?\s*\/?>|[ \t]*\S[^\n]*?)\n([ \t]*<(?:kb|web)\b)/g,
+    (match, prefix: string, beforePart: string, kbStart: string, offset: number, full: string) => {
+      // Resolve the full preceding line: the lazy capture can grab only a partial
+      // line (e.g. ``` captured as ``), which would skip the fence check.
+      const beforePartOffset = offset + prefix.length
+      const lineStart = full.lastIndexOf('\n', beforePartOffset - 1) + 1
+      const fullPrevLine = full.slice(lineStart, beforePartOffset + beforePart.length)
       if (isFencedCodeDelimiterLine(fullPrevLine)) {
         return match
       }
-      return `${beforePart} ${kbStart.trimStart()}`
+      return `${prefix}${beforePart} ${kbStart.trimStart()}`
     },
   )
 

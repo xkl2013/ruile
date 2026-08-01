@@ -310,4 +310,13 @@ func TestListByModelType(t *testing.T) {
 
 		assert.True(t, found, "Gemini should support embedding via the native Gemini API")
 	})
+
+	t.Run("asr models exclude aliyun dashscope", func(t *testing.T) {
+		providers := ListByModelType(types.ModelTypeASR)
+		assert.NotEmpty(t, providers)
+
+		for _, p := range providers {
+			assert.NotEqual(t, ProviderAliyun, p.Name, "DashScope compatible-mode does not expose /audio/transcriptions")
+		}
+	})
 }

@@ -23,12 +23,11 @@ const (
 	// configuration such as model providers, vector stores, MCP services
 	// and IM channels, but cannot delete the tenant or change Owners.
 	TenantRoleAdmin TenantRole = "admin"
-	// TenantRoleContributor can create knowledge bases and agents, and edit
-	// the ones they created. They have read access to everything else in
-	// the tenant.
+	// TenantRoleContributor can edit resources they created, plus resources
+	// explicitly shared with them.
 	TenantRoleContributor TenantRole = "contributor"
-	// TenantRoleViewer has read-only access to tenant resources and can
-	// run agents that are explicitly marked as runnable by viewers.
+	// TenantRoleViewer has read-only access to resources explicitly visible to
+	// them and can run agents that are marked as runnable by viewers.
 	TenantRoleViewer TenantRole = "viewer"
 )
 
@@ -77,6 +76,34 @@ const (
 	TenantMemberStatusSuspended TenantMemberStatus = "suspended"
 )
 
+// TenantMemberSource records how a membership is managed. Manual rows are
+// created inside WeKnora; SSO/SCIM/LDAP/HRIS rows are owned by an enterprise
+// directory sync and should generally be edited at the source system.
+type TenantMemberSource string
+
+const (
+	TenantMemberSourceManual TenantMemberSource = "manual"
+	TenantMemberSourceInvite TenantMemberSource = "invite"
+	TenantMemberSourceSSO    TenantMemberSource = "sso"
+	TenantMemberSourceSCIM   TenantMemberSource = "scim"
+	TenantMemberSourceLDAP   TenantMemberSource = "ldap"
+	TenantMemberSourceHRIS   TenantMemberSource = "hris"
+)
+
+func (s TenantMemberSource) IsValid() bool {
+	switch s {
+	case TenantMemberSourceManual,
+		TenantMemberSourceInvite,
+		TenantMemberSourceSSO,
+		TenantMemberSourceSCIM,
+		TenantMemberSourceLDAP,
+		TenantMemberSourceHRIS:
+		return true
+	default:
+		return false
+	}
+}
+
 // TenantMember represents the (user, tenant) membership record that
 // carries the user's TenantRole for that specific tenant.
 //
@@ -99,6 +126,17 @@ type TenantMember struct {
 	// InvitedBy records the user ID of the admin who created this row via
 	// an invitation flow. Nil for rows created by self-service registration.
 	InvitedBy *string `json:"invited_by,omitempty" gorm:"type:varchar(36)"`
+	// Source records the system that owns or created the membership.
+	Source TenantMemberSource `json:"source" gorm:"type:varchar(32);not null;default:'manual';index"`
+	// ExternalUserID links the membership to an IdP/SCIM/LDAP/HRIS identity.
+	ExternalUserID string `json:"external_user_id,omitempty" gorm:"type:varchar(128);not null;default:''"`
+	// Department is a lightweight enterprise directory attribute for member
+	// filtering and future group/ACL mapping.
+	Department string `json:"department,omitempty" gorm:"type:varchar(128);not null;default:'';index"`
+	// ExpiresAt supports guest / contractor access windows.
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	// SuspendedAt records when an operator or directory sync disabled access.
+	SuspendedAt *time.Time `json:"suspended_at,omitempty"`
 	// JoinedAt is when the membership became active.
 	JoinedAt  time.Time      `json:"joined_at"`
 	CreatedAt time.Time      `json:"created_at"`
@@ -126,12 +164,27 @@ type Membership struct {
 // the model directly would leak DeletedAt/UpdatedAt and lock the DB
 // schema into the public API. Use this for `/tenants/:id/members` only.
 type TenantMemberResponse struct {
-	UserID    string             `json:"user_id"`
-	Email     string             `json:"email"`
-	Username  string             `json:"username"`
-	Avatar    string             `json:"avatar,omitempty"`
-	Role      TenantRole         `json:"role"`
-	Status    TenantMemberStatus `json:"status"`
-	InvitedBy *string            `json:"invited_by,omitempty"`
-	JoinedAt  time.Time          `json:"joined_at"`
+	UserID         string             `json:"user_id"`
+	Email          string             `json:"email"`
+	Username       string             `json:"username"`
+	Avatar         string             `json:"avatar,omitempty"`
+	Role           TenantRole         `json:"role"`
+	Status         TenantMemberStatus `json:"status"`
+	Source         TenantMemberSource `json:"source"`
+	ExternalUserID string             `json:"external_user_id,omitempty"`
+	Department     string             `json:"department,omitempty"`
+	InvitedBy      *string            `json:"invited_by,omitempty"`
+	JoinedAt       time.Time          `json:"joined_at"`
+	ExpiresAt      *time.Time         `json:"expires_at,omitempty"`
+	SuspendedAt    *time.Time         `json:"suspended_at,omitempty"`
+}
+
+// TenantMemberListFilter is the server-side filter set for enterprise member
+// lists. Empty fields mean "all".
+type TenantMemberListFilter struct {
+	Query      string
+	Role       TenantRole
+	Status     TenantMemberStatus
+	Source     TenantMemberSource
+	Department string
 }

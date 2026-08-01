@@ -251,16 +251,12 @@ const flatMessageItems = computed<FlatMsgItem[]>(() => {
 // All palette commands live in a shared module so quick-action (empty state)
 // and the "commands" tab can use the same data.
 const allCommands = computed(() => {
-  const cmds = buildCommands({
+  return buildCommands({
     router,
     t,
     close: () => commandPaletteStore.closePalette(),
+    canManageAgents: authStore.hasRole('admin'),
   })
-  // 共享空间入口与侧栏菜单保持一致：viewer / contributor 看不到。
-  if (!authStore.hasRole('admin')) {
-    return cmds.filter((c) => c.id !== 'open-organizations')
-  }
-  return cmds
 })
 
 const filteredCommands = computed(() => filterCommands(allCommands.value, query.value))

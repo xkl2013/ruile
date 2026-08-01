@@ -212,6 +212,7 @@ const unsupportedFileTypes = computed<string[]>(() => {
 })
 
 const goToParserSettings = () => {
+  if (!canEditKnowledgeBaseSettings.value) return
   if (kbId.value) {
     uiStore.openKBSettings(kbId.value, 'parser')
   }
@@ -271,14 +272,13 @@ const canEdit = computed(() => {
   return orgStore.canEditKB(kbId.value, false);
 });
 
-// Can manage (delete, settings, etc.): same isViaShare-first rule. For
-// shared KBs only an 'admin' share grant qualifies — editor/viewer (and
-// even being the creator viewed via share) never grant delete/settings.
-const canManage = computed(() => {
+// Knowledge-base settings are workspace administration now. Keep content
+// editing (`canEdit`) separate so document operations can retain their
+// existing creator/share-editor behaviour.
+const canEditKnowledgeBaseSettings = computed(() => {
+  if (!authStore.hasRole('admin')) return false;
   if (isViaShare.value) return orgStore.canManageKB(kbId.value, false);
-  if (isOwner.value) return true;
-  if (authStore.hasRole('admin')) return true;
-  return orgStore.canManageKB(kbId.value, false);
+  return true;
 });
 
 // Can mutate knowledge (move / batch-delete): the backend gate for these
@@ -742,8 +742,8 @@ const toggleDirectoryCollapsed = (path: string) => {
 const expandDirectoryAncestors = (path: string) => {
   if (!path) return;
   const parts = path.split('/').filter(Boolean);
-  if (parts.length <= 1) return;
   const next = new Set(collapsedDirectoryPaths.value);
+  next.delete(DIRECTORY_ROOT_PATH);
   for (let index = 1; index < parts.length; index += 1) {
     next.delete(parts.slice(0, index).join('/'));
   }
@@ -1912,6 +1912,7 @@ const handleOpenKBSettings = () => {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
     return;
   }
+  if (!canEditKnowledgeBaseSettings.value) return;
   uiStore.openKBSettings(kbId.value);
 };
 
@@ -2316,14 +2317,15 @@ async function createNewSession(value: string): Promise<void> {
             <div class="kb-title-actions">
               <KBInfoPopover v-if="kbInfo && !authStore.isLiteMode" :kb-info="kbInfo"
                 :supported-file-types="[...supportedFileTypes]" />
-              <t-tooltip v-if="canManage" :content="$t('knowledgeBase.settings')" placement="top">
+              <t-tooltip v-if="canEditKnowledgeBaseSettings" :content="$t('knowledgeBase.settings')" placement="top">
                 <button type="button" class="kb-settings-button" :disabled="!kbId" @click="handleOpenKBSettings">
                   <t-icon name="setting" size="16px" />
                 </button>
               </t-tooltip>
             </div>
           </div>
-          <p v-if="unsupportedFileTypes.length" class="parser-hint" @click="goToParserSettings">
+          <p v-if="canEditKnowledgeBaseSettings && unsupportedFileTypes.length" class="parser-hint"
+            @click="goToParserSettings">
             <t-icon name="info-circle" class="parser-hint-icon" />
             <span>{{$t('knowledgeBase.unsupportedTypesHint', {
               types: unsupportedFileTypes.map(t => '.' + t).join('、')
@@ -2331,7 +2333,8 @@ async function createNewSession(value: string): Promise<void> {
               }}</span>
             <span class="parser-hint-link">{{ $t('knowledgeBase.goToParserSettings') }} →</span>
           </p>
-          <p v-if="missingStorageEngine" class="storage-engine-warning" @click="handleOpenKBSettings">
+          <p v-if="canEditKnowledgeBaseSettings && missingStorageEngine" class="storage-engine-warning"
+            @click="handleOpenKBSettings">
             <t-icon name="info-circle" class="warning-icon" />
             <span>{{ $t('knowledgeBase.missingStorageEngine') }}</span>
             <span class="warning-link">{{ $t('knowledgeBase.goToStorageSettings') }} →</span>
@@ -2364,7 +2367,7 @@ async function createNewSession(value: string): Promise<void> {
             </div>
             <div class="directory-tree">
               <div role="button" tabindex="0" class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH }"
+                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-create': canEdit }"
                 :title="$t('knowledgeBase.rootDirectory')"
                 @click="selectDirectory(DIRECTORY_ROOT_PATH)"
                 @keydown.enter.prevent="selectDirectory(DIRECTORY_ROOT_PATH)"
@@ -2383,10 +2386,22 @@ async function createNewSession(value: string): Promise<void> {
                 <t-icon name="folder" class="directory-tree-icon" />
                 <span class="directory-tree-name">{{ $t('knowledgeBase.rootDirectory') }}</span>
                 <span class="directory-tree-count">{{ rootDirectoryCount }}</span>
+                <button
+                  v-if="canEdit"
+                  type="button"
+                  class="directory-tree-add"
+                  :title="$t('knowledgeBase.addSubdirectory')"
+                  :aria-label="$t('knowledgeBase.addSubdirectory')"
+                  @click.stop="openCreateSubdirectoryDialog(DIRECTORY_ROOT_PATH)"
+                  @keydown.enter.stop
+                  @keydown.space.stop
+                >
+                  <t-icon name="folder-add" size="14px" />
+                </button>
               </div>
               <div v-for="directory in visibleDirectoryTreeRows" :key="directory.path" role="button" tabindex="0"
                 class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === directory.path }"
+                :class="{ active: activeDirectoryPath === directory.path, 'can-create': canEdit }"
                 :style="{ '--directory-indent': `${(directory.depth + 1) * 16}px` }" :title="getDirectoryTitle(directory)"
                 @click="selectDirectory(directory.path)"
                 @keydown.enter.prevent="selectDirectory(directory.path)"
@@ -2405,6 +2420,18 @@ async function createNewSession(value: string): Promise<void> {
                 <t-icon name="folder" class="directory-tree-icon" />
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
+                <button
+                  v-if="canEdit"
+                  type="button"
+                  class="directory-tree-add"
+                  :title="$t('knowledgeBase.addSubdirectory')"
+                  :aria-label="$t('knowledgeBase.addSubdirectory')"
+                  @click.stop="openCreateSubdirectoryDialog(directory.path)"
+                  @keydown.enter.stop
+                  @keydown.space.stop
+                >
+                  <t-icon name="folder-add" size="14px" />
+                </button>
               </div>
             </div>
           </aside>
@@ -3116,6 +3143,17 @@ async function createNewSession(value: string): Promise<void> {
   &:focus-visible {
     background: var(--td-bg-color-container-hover);
     color: var(--td-text-color-primary);
+
+    .directory-tree-add {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    &.can-create {
+      .directory-tree-count {
+        opacity: 0;
+      }
+    }
   }
 
   &.active {
@@ -3173,6 +3211,34 @@ async function createNewSession(value: string): Promise<void> {
   font-weight: 400;
   font-variant-numeric: tabular-nums;
   transition: opacity 0.15s ease;
+}
+
+.directory-tree-add {
+  width: 22px;
+  height: 22px;
+  position: absolute;
+  right: 4px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--td-text-color-placeholder);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    color: var(--td-brand-color);
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+    outline: none;
+  }
 }
 
 .directory-empty-state {

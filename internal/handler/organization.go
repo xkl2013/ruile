@@ -1638,9 +1638,33 @@ func (h *OrganizationHandler) listSpaceKnowledgeBasesInOrganization(ctx context.
 	return merged, nil
 }
 
-// ListOrganizationSharedKnowledgeBases lists all knowledge bases in the given organization (including those shared by the current tenant and those from shared agents), for the list page when a space is selected.
-// @Summary      获取空间内全部知识库（含我共享的、含智能体携带的）
-// @Description  获取指定空间下所有共享知识库，包含直接共享的与通过共享智能体可见的，用于列表页空间视角
+func filterOrganizationKnowledgeBasesForCallerVisibility(
+	ctx context.Context,
+	tenantID uint64,
+	list []*types.OrganizationSharedKnowledgeBaseItem,
+) []*types.OrganizationSharedKnowledgeBaseItem {
+	filtered := make([]*types.OrganizationSharedKnowledgeBaseItem, 0, len(list))
+	for _, item := range list {
+		if item == nil || item.KnowledgeBase == nil {
+			continue
+		}
+		// Current-tenant rows still need tenant KB visibility checks. Rows from
+		// other tenants are already present only because org/agent sharing granted
+		// visibility to this caller's tenant.
+		if item.IsMine || item.KnowledgeBase.TenantID == tenantID || item.SourceTenantID == tenantID {
+			if callerCanViewTenantKnowledgeBase(ctx, item.KnowledgeBase) {
+				filtered = append(filtered, item)
+			}
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
+}
+
+// ListOrganizationSharedKnowledgeBases lists visible knowledge bases in the given organization (including those shared by the current tenant and those from shared agents), for the list page when a space is selected.
+// @Summary      获取空间内当前用户可见的知识库（含我共享的、含智能体携带的）
+// @Description  获取指定空间下当前用户可见的共享知识库，包含直接共享的与通过共享智能体可见的，用于列表页空间视角
 // @Tags         组织管理
 // @Produce      json
 // @Param        id  path  string  true  "组织ID"
@@ -1663,6 +1687,7 @@ func (h *OrganizationHandler) ListOrganizationSharedKnowledgeBases(c *gin.Contex
 		c.Error(apperrors.NewInternalServerError("Failed to list shared knowledge bases"))
 		return
 	}
+	list = filterOrganizationKnowledgeBasesForCallerVisibility(ctx, tenantID, list)
 
 	// Project each row through sharedKBRow so cross-tenant strip applies
 	// uniformly across the space view as well. is_mine and the optional

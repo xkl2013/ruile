@@ -2684,6 +2684,7 @@ const presetKbMismatchKeyMap: Record<string, string> = {
   'wiki-qa': 'wikiQa',
   'hybrid-rag-wiki': 'hybridRagWiki',
   'data-analysis': 'dataAnalysis',
+  'education-sales': 'educationSales',
 };
 const presetKbMismatchReason = (preset: AgentTypePreset): string => {
   const subKey = presetKbMismatchKeyMap[preset.id];

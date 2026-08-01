@@ -580,13 +580,33 @@ func TestSimpleFormatReader_JSON_Invalid(t *testing.T) {
 	})
 }
 
+func TestSimpleFormatReader_VideoReturnsASRInput(t *testing.T) {
+	reader := &SimpleFormatReader{}
+	input := []byte("fake video bytes")
+	req := &types.ReadRequest{
+		FileName:    "demo.mp4",
+		FileType:    "mp4",
+		FileContent: input,
+	}
+
+	result, err := reader.Read(context.Background(), req)
+
+	visualReport(t, "SimpleFormatReader.Read() with .mp4 file", string(input), "", err, []checkResult{
+		check("no error", err == nil),
+		check("result not nil", result != nil),
+		check("marked as ASR input", result != nil && result.IsAudio),
+		check("preserves media bytes", result != nil && string(result.AudioData) == string(input)),
+		check("placeholder mentions video", result != nil && strings.Contains(result.MarkdownContent, "Video file")),
+	})
+}
+
 func TestIsSimpleFormat_JSON(t *testing.T) {
 	cases := []struct {
 		input string
 		want  bool
 	}{
 		{"json", true}, {"JSON", true}, {".json", true}, {"Json", true},
-		{"txt", true}, {"csv", true},
+		{"txt", true}, {"csv", true}, {"mp4", true}, {".webm", true},
 		{"pdf", false}, {"docx", false},
 	}
 

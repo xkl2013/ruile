@@ -95,22 +95,18 @@
       </svg>
     </div>
 
-    <!-- Logo - Top Left -->
-    <div class="header-logo" aria-label="睿乐大脑">
-      <img src="@/assets/img/weknora.png" alt="睿乐大脑" class="logo-image" />
-    </div>
-
     <!-- Form Section -->
     <div class="form-section">
       <div class="form-panel">
         <!-- Login Card -->
         <div class="form-card" v-if="!isRegisterMode">
           <div class="form-header">
-            <h2 class="form-title">{{ $t('auth.login') }}</h2>
+            <h2 class="form-title">登录睿乐大脑</h2>
           </div>
 
           <div class="form-content">
-            <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical">
+            <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
+              label-align="top" class="auth-form">
               <t-form-item :label="$t('auth.phone')" name="phone">
                 <t-input v-model="formData.phone" :placeholder="$t('auth.phonePlaceholder')" type="tel"
                   autocomplete="tel" inputmode="tel" size="large" :disabled="loading" />
@@ -177,7 +173,7 @@
 
           <div class="form-content">
             <t-form ref="registerFormRef" :data="registerData" :rules="registerRules" @submit="handleRegister"
-              layout="vertical">
+              layout="vertical" label-align="top" class="auth-form">
               <t-form-item :label="$t('auth.username')" name="username">
                 <t-input v-model="registerData.username" :placeholder="$t('auth.usernamePlaceholder')" size="large"
                   :disabled="loading" />
@@ -253,10 +249,10 @@ const oidcLoading = ref(false)
 const isRegisterMode = ref(false)
 const oidcEnabled = ref(false)
 const oidcProviderName = ref('')
-// registrationEnabled defaults to true so that on first paint the Register
-// link is visible; the actual mode is fetched from /auth/config in onMounted.
-// In invite_only mode the link/card are hidden.
-const registrationEnabled = ref(true)
+// registrationEnabled fails closed until /auth/config says self-service
+// registration is enabled. Invitation tokens can still switch the form into
+// invitation registration mode.
+const registrationEnabled = ref(false)
 
 // invite-link state. When the URL carries ?token=xxx we resolve it to
 // the originating tenant + role and switch the form into a "register
@@ -416,14 +412,14 @@ const loadOIDCConfig = async () => {
 }
 
 // loadAuthConfig fetches /auth/config and caches whether self-service
-// registration is allowed. Failures fall back to "enabled" so a transient
-// network glitch doesn't lock new users out of an open deployment.
+// registration is allowed. Failures stay disabled to avoid exposing public
+// sign-up on enterprise deployments.
 const loadAuthConfig = async () => {
   try {
     const response = await getAuthConfig()
     registrationEnabled.value = response.registration_mode !== 'invite_only'
   } catch {
-    registrationEnabled.value = true
+    registrationEnabled.value = false
   }
 }
 
@@ -844,19 +840,6 @@ onMounted(async () => {
   z-index: 2;
 }
 
-.header-logo {
-  position: fixed;
-  top: 32px;
-  left: 50px;
-  z-index: 100;
-  cursor: pointer;
-
-  .logo-image {
-    width: 120px;
-    height: auto;
-  }
-}
-
 .form-card {
   background: rgba(255, 255, 255, 0.97);
   border-radius: 16px;
@@ -985,17 +968,52 @@ onMounted(async () => {
 }
 
 .form-content {
-  :deep(.t-form-item__label) {
+  :deep(.auth-form) {
+    .t-form__item {
+      margin-bottom: 18px;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+
+    .t-form__label {
+      float: none;
+      width: 100%;
+      padding: 0;
+      margin-bottom: 8px;
+      line-height: 22px;
+      white-space: normal;
+    }
+
+    .t-form__label--top {
+      min-height: auto;
+    }
+
+    .t-form__controls {
+      width: 100%;
+      min-height: auto;
+      margin-left: 0 !important;
+    }
+
+    .t-form__controls-content {
+      width: 100%;
+      min-height: auto;
+    }
+  }
+
+  :deep(.t-form-item__label),
+  :deep(.t-form__label) {
     font-size: 14px;
     color: var(--td-text-color-primary);
     font-weight: 500;
-    margin-bottom: 8px;
     font-family: var(--app-font-family);
     display: block;
     text-align: left;
   }
 
   :deep(.t-input) {
+    width: 100%;
     border: 1px solid var(--td-component-stroke);
     border-radius: 8px;
     background: var(--td-bg-color-container);
@@ -1123,15 +1141,6 @@ onMounted(async () => {
     display: none;
   }
 
-  .header-logo {
-    top: 26px;
-    left: 40px;
-
-    .logo-image {
-      width: 100px;
-    }
-  }
-
 }
 
 @media (max-width: 768px) {
@@ -1145,15 +1154,6 @@ onMounted(async () => {
 
   .connection-line:nth-of-type(n + 9) {
     display: none;
-  }
-
-  .header-logo {
-    top: 22px;
-    left: 30px;
-
-    .logo-image {
-      width: 80px;
-    }
   }
 
   .form-section {
@@ -1174,15 +1174,6 @@ onMounted(async () => {
 @media (max-width: 480px) {
   .animated-bg {
     display: none;
-  }
-
-  .header-logo {
-    top: 18px;
-    left: 20px;
-
-    .logo-image {
-      width: 70px;
-    }
   }
 
   .form-section {
@@ -1226,10 +1217,6 @@ html[theme-mode="dark"] {
 
   .connection-line {
     stroke: rgba(255, 255, 255, 0.25);
-  }
-
-  .header-logo .logo-image {
-    filter: invert(1) hue-rotate(180deg) brightness(1.1);
   }
 
   .form-card {

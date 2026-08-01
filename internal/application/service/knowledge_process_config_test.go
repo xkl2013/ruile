@@ -299,6 +299,29 @@ func TestValidateProcessOverrides_AudioWithEffectiveASR(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestValidateProcessOverrides_VideoRequiresASR(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		ASRConfig: types.ASRConfig{Enabled: false},
+	}
+	err := ValidateProcessOverrides(context.Background(), kb, &types.KnowledgeProcessOverrides{}, []string{"mp4"})
+	require.Error(t, err)
+}
+
+func TestValidateProcessOverrides_VideoWithEffectiveASR(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		ASRConfig: types.ASRConfig{Enabled: false},
+	}
+	overrides := &types.KnowledgeProcessOverrides{
+		ASRConfig: &types.ASRConfig{Enabled: true, ModelID: "asr-1"},
+	}
+	err := ValidateProcessOverrides(context.Background(), kb, overrides, []string{"webm"})
+	require.NoError(t, err)
+}
+
 func TestValidateProcessOverrides_NonMediaFileTypes(t *testing.T) {
 	t.Parallel()
 

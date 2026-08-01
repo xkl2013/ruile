@@ -70,8 +70,8 @@
             :title="$t('tenant.switcher.menuLabel')" />
         </div>
         <div class="menu-divider"></div>
-        <!-- QuickNav 入口与 Settings 的最低角色对齐：members/models/websearch/mcp/api
-             分别对应 viewer/viewer/admin/admin/owner（详情见 Settings.vue 的
+        <!-- QuickNav 入口与 Settings 的最低角色对齐：members/models/agents/websearch/mcp/api
+             分别对应 admin/admin/admin/admin/admin/owner（详情见 Settings.vue 的
              SECTION_MIN_ROLE）。低角色用户看到这些入口点进去也只能看到
              role-denied 兜底页，索性藏起来。 -->
         <div v-if="canSeeQuickNav('members')" class="menu-item" @click="handleQuickNav('members')">
@@ -81,6 +81,10 @@
         <div v-if="canSeeQuickNav('models')" class="menu-item" @click="handleQuickNav('models')">
           <t-icon name="control-platform" class="menu-icon" />
           <span>{{ $t('settings.modelManagement') }}</span>
+        </div>
+        <div v-if="canSeeQuickNav('agents')" class="menu-item" @click="handleQuickNav('agents')">
+          <t-icon name="user-circle" class="menu-icon" />
+          <span>{{ $t('agent.title') }}</span>
         </div>
         <div v-if="canSeeQuickNav('websearch')" class="menu-item" @click="handleQuickNav('websearch')">
           <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"
@@ -235,10 +239,11 @@ const showTenantIdentityLine = computed(() => {
 })
 
 // 与 Settings.vue 的 SECTION_MIN_ROLE 同步；这里只挂 quickNav 直接跳转的
-// 那 4 项。改这张表前请同步 Settings.vue 的对照注释。
+// 那 5 项。改这张表前请同步 Settings.vue 的对照注释。
 const QUICKNAV_MIN_ROLE: Record<string, 'viewer' | 'contributor' | 'admin' | 'owner'> = {
-  members: 'viewer',
-  models: 'viewer',
+  members: 'admin',
+  models: 'admin',
+  agents: 'admin',
   websearch: 'admin',
   mcp: 'admin',
   'integration-api': 'owner',

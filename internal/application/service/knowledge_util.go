@@ -23,7 +23,7 @@ import (
 func isValidFileType(filename string) bool {
 	switch strings.ToLower(getFileType(filename)) {
 	case "pdf", "txt", "docx", "doc", "epub", "mhtml", "md", "markdown", "png", "jpg", "jpeg", "gif", "csv", "xlsx", "xls", "pptx", "ppt", "json",
-		"mp3", "wav", "m4a", "flac", "ogg":
+		"mp3", "wav", "m4a", "flac", "ogg", "mp4", "mov", "avi", "mkv", "webm", "wmv", "flv":
 		return true
 	default:
 		return false
@@ -378,6 +378,10 @@ func IsVideoType(fileType string) bool {
 	default:
 		return false
 	}
+}
+
+func IsAudiovisualType(fileType string) bool {
+	return IsAudioType(fileType) || IsVideoType(fileType)
 }
 
 // downloadFileFromURL downloads a remote file to a temp file and returns its binary content.

@@ -24,6 +24,7 @@ export interface CommandContext {
   t: Composer['t']
   /** Closes the palette; typically wires to commandPaletteStore.closePalette. */
   close: () => void
+  canManageAgents?: boolean
 }
 
 /**
@@ -32,7 +33,7 @@ export interface CommandContext {
  */
 export function buildCommands(ctx: CommandContext): CmdkCommand[] {
   const { router, t, close } = ctx
-  return [
+  const commands: CmdkCommand[] = [
     {
       id: 'new-chat',
       label: t('commandPalette.quick.newChat'),
@@ -53,26 +54,16 @@ export function buildCommands(ctx: CommandContext): CmdkCommand[] {
         router.push('/platform/knowledge-bases')
       },
     },
-    {
+    ...(ctx.canManageAgents ? [{
       id: 'open-agents',
       label: t('commandPalette.quick.agents'),
       icon: 'user-circle',
       keywords: ['agent', 'bot', '智能体', '助手'],
       run: () => {
         close()
-        router.push('/platform/agents')
+        router.push({ path: '/platform/settings', query: { section: 'agents' } })
       },
-    },
-    {
-      id: 'open-organizations',
-      label: t('commandPalette.quick.organizations'),
-      icon: 'usergroup',
-      keywords: ['org', 'organization', 'team', 'space', '组织', '共享'],
-      run: () => {
-        close()
-        router.push('/platform/organizations')
-      },
-    },
+    }] : []),
     {
       id: 'open-settings',
       label: t('commandPalette.quick.settings'),
@@ -94,6 +85,7 @@ export function buildCommands(ctx: CommandContext): CmdkCommand[] {
       },
     },
   ]
+  return commands
 }
 
 /**

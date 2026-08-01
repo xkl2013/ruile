@@ -282,9 +282,9 @@ export function closeDanglingStreamingEmphasis(text: string): string {
   return working.slice(0, cut) + closers + working.slice(cut)
 }
 
-const FLANKING_BOLD = /(?<!\*)\*\*(?=\S)([^*\n]*?\p{P})\*\*(?=[\p{L}\p{N}])/gu
-const FLANKING_STRIKE = /(?<!~)~~(?=\S)([^~\n]*?\p{P})~~(?=[\p{L}\p{N}])/gu
-const FLANKING_ITALIC = /(?<![*\p{L}\p{N}])\*(?=\S)([^*\n]*?\p{P})\*(?=[\p{L}\p{N}])/gu
+const FLANKING_BOLD = /(^|[^\*])\*\*(?=\S)([^*\n]*?\p{P})\*\*(?=[\p{L}\p{N}])/gu
+const FLANKING_STRIKE = /(^|[^~])~~(?=\S)([^~\n]*?\p{P})~~(?=[\p{L}\p{N}])/gu
+const FLANKING_ITALIC = /(^|[^*\p{L}\p{N}])\*(?=\S)([^*\n]*?\p{P})\*(?=[\p{L}\p{N}])/gu
 
 // Opening-delimiter variant of the rule above. CommonMark also refuses to *open*
 // emphasis when the run is preceded by a letter/number and immediately followed
@@ -292,16 +292,16 @@ const FLANKING_ITALIC = /(?<![*\p{L}\p{N}])\*(?=\S)([^*\n]*?\p{P})\*(?=[\p{L}\p{
 // closing `**` is fine. The `(?=\p{P})` guard keeps exponent/glob/math markers
 // like `x**2`, `2**3**4`, and `**/*.js` untouched (those are followed by a
 // number or slash-as-content, not an emphasis-opening punctuation run).
-const FLANKING_BOLD_OPEN = /(?<=[\p{L}\p{N}])\*\*(?=\p{P})([^*\n]+?)\*\*/gu
-const FLANKING_STRIKE_OPEN = /(?<=[\p{L}\p{N}])~~(?=\p{P})([^~\n]+?)~~/gu
+const FLANKING_BOLD_OPEN = /([\p{L}\p{N}])\*\*(?=\p{P})([^*\n]+?)\*\*/gu
+const FLANKING_STRIKE_OPEN = /([\p{L}\p{N}])~~(?=\p{P})([^~\n]+?)~~/gu
 
 function repairFlankingEmphasisSegment(segment: string): string {
   return segment
-    .replace(FLANKING_BOLD, '<strong>$1</strong>')
-    .replace(FLANKING_BOLD_OPEN, '<strong>$1</strong>')
-    .replace(FLANKING_STRIKE, '<del>$1</del>')
-    .replace(FLANKING_STRIKE_OPEN, '<del>$1</del>')
-    .replace(FLANKING_ITALIC, '<em>$1</em>')
+    .replace(FLANKING_BOLD, '$1<strong>$2</strong>')
+    .replace(FLANKING_BOLD_OPEN, '$1<strong>$2</strong>')
+    .replace(FLANKING_STRIKE, '$1<del>$2</del>')
+    .replace(FLANKING_STRIKE_OPEN, '$1<del>$2</del>')
+    .replace(FLANKING_ITALIC, '$1<em>$2</em>')
 }
 
 /**

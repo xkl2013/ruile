@@ -131,7 +131,20 @@ const router = createRouter({
         {
           path: "agents",
           name: "agentList",
-          component: () => import("../views/agent/AgentList.vue"),
+          redirect: (to) => {
+            const query: Record<string, any> = { ...to.query }
+            if (typeof query.section === 'string') {
+              query.agentSection = query.section
+              delete query.section
+            }
+            return {
+              path: "/platform/settings",
+              query: {
+                ...query,
+                section: "agents",
+              },
+            }
+          },
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -167,7 +180,7 @@ const router = createRouter({
           path: "organizations",
           name: "organizationList",
           component: () => import("../views/organization/OrganizationList.vue"),
-          meta: { requiresInit: true, requiresAuth: true }
+          meta: { requiresInit: true, requiresAuth: true, requiresAdmin: true }
         },
         // Compatibility redirects for /platform/system/* URLs. System
         // administration surfaces live as dedicated sections inside the
@@ -389,6 +402,13 @@ router.beforeEach(async (to, from, next) => {
   // the bounce. This is UI-only; the server enforces the real check.
   if (to.meta.requiresSystemAdmin === true) {
     if (!authStore.isSystemAdmin) {
+      next('/platform/knowledge-bases')
+      return
+    }
+  }
+
+  if (to.meta.requiresAdmin === true) {
+    if (isLiteEdition(authStore) || !authStore.hasRole('admin')) {
       next('/platform/knowledge-bases')
       return
     }

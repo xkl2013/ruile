@@ -66,11 +66,12 @@ func IsCrossTenantSuperuser(ctx context.Context, cfg *config.Config) bool {
 // IsTenantAccessible reports whether `user` is allowed to operate inside
 // `targetTenantID`. The decision order is:
 //
-//  1. Home tenant (user.TenantID == targetTenantID): always.
-//  2. Cross-tenant superuser: governed by IsCrossTenantSuperuser.
-//  3. Multi-tenant member: an active tenant_members row in the target
+//  1. Cross-tenant superuser: governed by IsCrossTenantSuperuser.
+//  2. Active tenant member: an active tenant_members row in the target
 //     tenant grants access (this is what makes cross-tenant browsing
 //     work for non-superusers added via PR 3's member management).
+//  3. Legacy fallback: home tenant is allowed only when RBAC is explicitly
+//     disabled or the membership service is unavailable.
 //
 // Lookup errors are treated as "not a member" — the safest fallback
 // that doesn't expose other tenants on a transient DB hiccup.
@@ -84,20 +85,20 @@ func IsTenantAccessible(
 	if user == nil || targetTenantID == 0 {
 		return false
 	}
-	if user.TenantID == targetTenantID {
-		return true
-	}
 	if cfg != nil && cfg.Tenant != nil && cfg.Tenant.EnableCrossTenantAccess && user.CanAccessAllTenants {
 		return true
 	}
 	if memberService == nil {
-		return false
+		return user.TenantID == targetTenantID
 	}
 	m, err := memberService.GetMembership(ctx, user.ID, targetTenantID)
-	if err != nil || m == nil {
-		return false
+	if err == nil && m != nil {
+		return m.Status == types.TenantMemberStatusActive
 	}
-	return m.Status == types.TenantMemberStatusActive
+	if cfg != nil && cfg.Tenant != nil && !cfg.Tenant.IsRBACEnforced() && user.TenantID == targetTenantID {
+		return true
+	}
+	return false
 }
 
 // RequireCrossTenantAccess gates a route on the caller being an

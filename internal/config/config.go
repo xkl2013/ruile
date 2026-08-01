@@ -227,8 +227,8 @@ type TenantConfig struct {
 	// applyAuthAndTenantDefaults for the semantics of <0 / 0 / >0.
 	MaxOwnedPerUser int `yaml:"max_owned_per_user" json:"max_owned_per_user" mapstructure:"max_owned_per_user"`
 	// SelfServiceCreationEnabled controls whether ordinary authenticated
-	// users may create a workspace for themselves. Nil preserves the
-	// historical default (enabled); cross-tenant superusers are exempt.
+	// users may create a workspace for themselves. Nil follows the
+	// enterprise default (disabled); cross-tenant superusers are exempt.
 	SelfServiceCreationEnabled *bool `yaml:"self_service_creation_enabled" json:"self_service_creation_enabled" mapstructure:"self_service_creation_enabled"`
 }
 
@@ -246,9 +246,9 @@ func (t *TenantConfig) IsRBACEnforced() bool {
 }
 
 // IsSelfServiceCreationEnabled reports whether ordinary users may create
-// tenants. Nil keeps the historical behaviour enabled.
+// tenants. Nil keeps the enterprise default disabled.
 func (t *TenantConfig) IsSelfServiceCreationEnabled() bool {
-	return t == nil || t.SelfServiceCreationEnabled == nil || *t.SelfServiceCreationEnabled
+	return t != nil && t.SelfServiceCreationEnabled != nil && *t.SelfServiceCreationEnabled
 }
 
 // AuditConfig governs durable audit log behaviour. Writes happen on
@@ -268,17 +268,16 @@ type AuditConfig struct {
 // AuthConfig governs the user authentication entry points.
 type AuthConfig struct {
 	// RegistrationMode controls who may call POST /auth/register.
-	//   "self_serve" (default) — anyone may register; a new tenant is
-	//                            auto-created and the registrant becomes
-	//                            its Owner. Preserves existing behaviour.
-	//   "invite_only"          — public registration is rejected; new
-	//                            users only enter through the invitation
-	//                            flow added in PR 3.
+	//   "invite_only" (default) — public registration is rejected; new users
+	//                             enter through invitations or admin-managed
+	//                             onboarding.
+	//   "self_serve"           — anyone may register; provisioning then follows
+	//                             DefaultTenantMode.
 	RegistrationMode string `yaml:"registration_mode" json:"registration_mode"`
 	// DefaultTenantMode controls public password-registration provisioning.
-	// create_personal preserves the historical one-user-one-workspace default;
 	// tenantless creates only the identity and waits for an invitation or an
-	// explicit self-service tenant creation.
+	// explicit self-service tenant creation; create_personal auto-creates a
+	// workspace and makes the registrant its Owner.
 	DefaultTenantMode string `yaml:"default_tenant_mode" json:"default_tenant_mode"`
 }
 
@@ -291,12 +290,10 @@ const (
 )
 
 // IsInviteOnly returns true when registration is gated behind invitations.
-// Treats nil receiver and empty/unknown values as "not invite-only" so the
-// default keeps current behaviour even if the section is missing from the
-// config file.
+// Treats nil receiver as invite-only so missing config fails closed.
 func (c *AuthConfig) IsInviteOnly() bool {
 	if c == nil {
-		return false
+		return true
 	}
 	return c.RegistrationMode == AuthRegistrationModeInviteOnly
 }
@@ -795,14 +792,13 @@ func applyAgentEnvOverrides(cfg *Config) {
 // to enable RBAC or switch registration mode without editing config.yaml.
 //
 // Defaults:
-//   - auth.registration_mode  -> "self_serve" (preserves pre-RBAC behaviour)
-//   - auth.default_tenant_mode -> "create_personal" (preserves the
-//     historical registration behaviour)
+//   - auth.registration_mode  -> "invite_only" (enterprise default)
+//   - auth.default_tenant_mode -> "tenantless" (no automatic personal workspace)
 //   - tenant.enable_rbac      -> true (enforce role checks unless an
 //     operator explicitly opts into the logging-only rollout window via
 //     config.yaml `enable_rbac: false` or `WEKNORA_TENANT_ENABLE_RBAC=false`).
-//   - tenant.self_service_creation_enabled -> true (preserves ordinary
-//     authenticated users' ability to create workspaces).
+//   - tenant.self_service_creation_enabled -> false (ordinary users join
+//     existing workspaces through invitation).
 //
 // Env overrides (when set and non-empty):
 //   - WEKNORA_AUTH_DEFAULT_TENANT_MODE ("create_personal"/"tenantless")
@@ -839,13 +835,13 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 	}
 
 	if strings.TrimSpace(cfg.Auth.RegistrationMode) == "" {
-		cfg.Auth.RegistrationMode = AuthRegistrationModeSelfServe
+		cfg.Auth.RegistrationMode = AuthRegistrationModeInviteOnly
 	}
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_AUTH_DEFAULT_TENANT_MODE")); value != "" {
 		cfg.Auth.DefaultTenantMode = value
 	}
 	if strings.TrimSpace(cfg.Auth.DefaultTenantMode) == "" {
-		cfg.Auth.DefaultTenantMode = AuthDefaultTenantModeCreatePersonal
+		cfg.Auth.DefaultTenantMode = AuthDefaultTenantModeTenantless
 	}
 
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_TENANT_ENABLE_RBAC")); value != "" {
@@ -870,8 +866,8 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 		}
 	}
 	if cfg.Tenant.SelfServiceCreationEnabled == nil {
-		on := true
-		cfg.Tenant.SelfServiceCreationEnabled = &on
+		off := false
+		cfg.Tenant.SelfServiceCreationEnabled = &off
 	}
 
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_TENANT_MAX_OWNED_PER_USER")); value != "" {

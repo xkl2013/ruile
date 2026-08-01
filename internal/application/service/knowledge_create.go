@@ -39,11 +39,6 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 
 	logger.Infof(ctx, "Knowledge base ID: %s, file: %s", kbID, fileName)
 
-	if IsVideoType(getFileType(fileName)) {
-		logger.Error(ctx, "Video file upload is not supported")
-		return nil, werrors.NewBadRequestError("暂不支持上传视频文件")
-	}
-
 	// Get knowledge base configuration
 	logger.Info(ctx, "Getting knowledge base configuration")
 	kb, err := s.kbService.GetKnowledgeBaseByID(ctx, kbID)
@@ -177,11 +172,9 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 			}
 		}
 
-		if IsAudioType(getFileType(safeFilename)) {
-			if !kb.ASRConfig.IsASREnabled() {
-				logger.Error(ctx, "ASR model is not configured")
-				return nil, werrors.NewBadRequestError("上传音频文件需要设置ASR语音识别模型")
-			}
+		if IsAudiovisualType(getFileType(safeFilename)) && !kb.ASRConfig.IsASREnabled() {
+			logger.Error(ctx, "ASR model is not configured")
+			return nil, werrors.NewBadRequestError("上传音视频文件需要设置ASR语音识别模型")
 		}
 	}
 
@@ -480,6 +473,13 @@ var allowedFileURLExtensions = map[string]bool{
 	"m4a":  true,
 	"flac": true,
 	"ogg":  true,
+	"mp4":  true,
+	"mov":  true,
+	"avi":  true,
+	"mkv":  true,
+	"webm": true,
+	"wmv":  true,
+	"flv":  true,
 }
 
 // maxFileURLSize is the maximum allowed file size for file URL import (10MB)
@@ -567,7 +567,7 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 	if fileType != "" {
 		if !allowedFileURLExtensions[strings.ToLower(fileType)] {
 			logger.Errorf(ctx, "Unsupported file type for file URL import: %s", fileType)
-			return nil, werrors.NewBadRequestError(fmt.Sprintf("不支持的文件类型: %s，仅支持 txt, md, pdf, docx, doc", fileType))
+			return nil, werrors.NewBadRequestError(fmt.Sprintf("不支持的文件类型: %s", fileType))
 		}
 	}
 
@@ -649,6 +649,10 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 	)
 	if err != nil {
 		return nil, err
+	}
+	if IsAudiovisualType(resolvedFileType) && !eff.ASRConfig.IsASREnabled() {
+		logger.Error(ctx, "ASR model is not configured")
+		return nil, werrors.NewBadRequestError("上传音视频文件需要设置ASR语音识别模型")
 	}
 
 	if err := s.repo.CreateKnowledge(ctx, knowledge); err != nil {

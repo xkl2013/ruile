@@ -112,13 +112,16 @@ func TestRegister_PhonePayloadReachesUserService(t *testing.T) {
 				t.Fatalf("email = %q, want empty for phone registration", req.Email)
 			}
 			if req.TenantProvisioning != types.TenantProvisioningCreatePersonal {
-				t.Fatalf("default provisioning = %q, want create_personal", req.TenantProvisioning)
+				t.Fatalf("provisioning = %q, want create_personal", req.TenantProvisioning)
 			}
 			return &types.User{ID: "u1", Email: req.Phone}, nil
 		},
 	}
 	h := NewAuthHandler(&config.Config{
-		Auth: &config.AuthConfig{RegistrationMode: config.AuthRegistrationModeSelfServe},
+		Auth: &config.AuthConfig{
+			RegistrationMode:  config.AuthRegistrationModeSelfServe,
+			DefaultTenantMode: config.AuthDefaultTenantModeCreatePersonal,
+		},
 	}, us, nil, nil, nil)
 
 	w := doRegister(t, newRegisterTestRouter(h), map[string]string{
@@ -135,16 +138,14 @@ func TestRegister_PhonePayloadReachesUserService(t *testing.T) {
 }
 
 func TestRegister_SelfServeAllowsRegistration(t *testing.T) {
-	// Default registration_mode keeps PR 1 behaviour intact: the gate
-	// is dormant and the request reaches the user service. We don't
-	// exercise the real service here — just confirm the gate let it
-	// through by observing the stub being invoked.
+	// Explicit self_serve keeps public registration available, but the
+	// enterprise default provisioning is tenantless.
 	called := false
 	us := &stubRegisterUserService{
 		register: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
 			called = true
-			if req.TenantProvisioning != types.TenantProvisioningCreatePersonal {
-				t.Fatalf("default provisioning = %q, want create_personal", req.TenantProvisioning)
+			if req.TenantProvisioning != types.TenantProvisioningTenantless {
+				t.Fatalf("default provisioning = %q, want tenantless", req.TenantProvisioning)
 			}
 			return &types.User{ID: "u1", Email: "alice@example.com"}, nil
 		},
@@ -185,19 +186,22 @@ func TestRegister_TenantlessProvisioningFromConfig(t *testing.T) {
 }
 
 func TestRegister_NilAuthConfigDoesNotPanic(t *testing.T) {
-	// Defensive: a nil Auth section means the operator hasn't set the
-	// registration mode at all, which must not crash and must keep the
-	// legacy "registration enabled" behaviour. Mirrors the nil guard in
-	// the handler so a config-loading bug doesn't take the server down.
+	// Defensive: a nil Auth section must not crash, and now fails closed
+	// to the enterprise invite-only default.
+	called := false
 	us := &stubRegisterUserService{
 		register: func(_ context.Context, _ *types.RegisterRequest) (*types.User, error) {
+			called = true
 			return &types.User{ID: "u1", Email: "alice@example.com"}, nil
 		},
 	}
 	h := NewAuthHandler(&config.Config{}, us, nil, nil, nil)
 
 	w := doRegister(t, newRegisterTestRouter(h), validRegisterBody())
-	if w.Code != http.StatusCreated {
-		t.Fatalf("nil Auth config must fall back to allow, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("nil Auth config must fall back to invite_only, got %d body=%s", w.Code, w.Body.String())
+	}
+	if called {
+		t.Fatalf("UserService.Register must not be called when nil Auth config fails closed")
 	}
 }
