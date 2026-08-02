@@ -2042,9 +2042,9 @@ const toggleAgentModeSelector = () => {
 
   showAgentModeSelector.value = !showAgentModeSelector.value;
   if (showAgentModeSelector.value) {
-    if (!chatResources.isFresh('agents')) {
-      void loadAgents(true);
-    }
+    // Opening the selector is an explicit refresh point so newly created or
+    // newly shared agents appear immediately instead of waiting for cache TTL.
+    void loadAgents(true);
     // 多次更新位置确保准确
     nextTick(() => {
       updateAgentModeDropdownPosition();

@@ -24,3 +24,14 @@ test('selecting an agent leaves web search off until the user enables it', () =>
   assert.doesNotMatch(handleSelectAgent, /agentWebSearch/)
   assert.doesNotMatch(handleSelectAgent, /settingsStore\.toggleWebSearch/)
 })
+
+test('opening the agent selector force refreshes agents', () => {
+  const toggleStart = inputField.indexOf('const toggleAgentModeSelector = () =>')
+  const toggleEnd = inputField.indexOf('const selectAgentMode = async', toggleStart)
+  const toggleAgentModeSelector = inputField.slice(toggleStart, toggleEnd)
+
+  assert.notEqual(toggleStart, -1)
+  assert.notEqual(toggleEnd, -1)
+  assert.match(toggleAgentModeSelector, /void loadAgents\(true\)/)
+  assert.doesNotMatch(toggleAgentModeSelector, /isFresh\('agents'\)/)
+})
