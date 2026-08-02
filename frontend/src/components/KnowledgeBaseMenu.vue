@@ -188,7 +188,7 @@ onMounted(() => {
 .kb-menu {
   display: flex;
   flex-direction: column;
-  padding: 2px 0 8px;
+  padding: 1px 0 5px;
 }
 
 .kb-menu-header {
@@ -196,7 +196,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 34px;
+  min-height: 28px;
   padding: 0 8px 0 var(--sidebar-inset-x);
   border-radius: 8px;
   cursor: pointer;
@@ -216,7 +216,7 @@ onMounted(() => {
   color: var(--td-text-color-secondary);
   font-size: 13px;
   font-weight: 500;
-  line-height: 20px;
+  line-height: 18px;
 }
 
 .kb-menu-actions {
@@ -236,8 +236,8 @@ onMounted(() => {
 }
 
 .kb-menu-action-btn {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: 0;
   border-radius: 6px;
   padding: 0;
@@ -272,7 +272,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 2px 0 6px;
+  padding: 1px 0 4px;
 }
 
 .kb-menu-item {
@@ -280,7 +280,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 34px;
+  min-height: 28px;
   padding: 0 12px 0 calc(var(--sidebar-inset-x) + 12px);
   border: 0;
   border-radius: 8px;

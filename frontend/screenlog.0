@@ -15641,3 +15641,53 @@ Instead of /public/favicon.ico, use /favicon.ico.
 
 
 [1;1H[0J5:42:55 PM [vite] (client) hmr update /src/views/settings/Settings.vue
+Files in the public directory are served at the root path.
+Instead of /public/favicon.ico, use /favicon.ico.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:29:45 AM [vite] (client) hmr update /src/views/knowledge/components/TagEditDialog.vue?vue&type=style&index=0&lang.css
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J9:32:12 AM [vite] (client) hmr update /src/components/KnowledgeBaseMenu.vue?vue&type=style&index=0&scoped=62bdd3f4&lang.less

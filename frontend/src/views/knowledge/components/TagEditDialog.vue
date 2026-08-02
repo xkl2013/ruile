@@ -250,6 +250,7 @@ function handleOpenManage() {
 }
 
 .tag-edit-dialog .t-dialog__close {
+  position: absolute;
   top: 16px;
   right: 16px;
   width: 28px;
