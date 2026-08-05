@@ -2,10 +2,18 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { autoSetup, getCurrentUser, userInfoFromApi } from '@/api/auth'
+import {
+  ORGANIZE_MEMORY_ASSET_ROUTES,
+  ORGANIZE_MENU_ROUTES,
+  resolveOrganizeRoutePath,
+} from '@/views/organize/organizeRoutes'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
 const AUTO_SETUP_FAILED_KEY = 'weknora_auto_setup_failed'
+const organizeWorkspaceComponent = () => import("../views/organize/OrganizeWorkspace.vue")
+const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
+const toPlatformChildPath = (path: string) => path.replace(/^\/platform\//, '')
 
 function shouldTryAutoSetup() {
   return localStorage.getItem(AUTO_SETUP_FAILED_KEY) !== 'true'
@@ -117,6 +125,23 @@ const router = createRouter({
           component: () => import("../views/knowledge/KnowledgeBase.vue"),
           meta: { requiresInit: true, requiresAuth: true }
         },
+        {
+          path: "organize",
+          redirect: (to) => resolveOrganizeRoutePath(to.query.tab, to.query.asset),
+          meta: organizeRouteMeta,
+        },
+        ...ORGANIZE_MENU_ROUTES.map((item) => ({
+          path: toPlatformChildPath(item.path),
+          name: item.routeName,
+          component: organizeWorkspaceComponent,
+          meta: { ...organizeRouteMeta, organizeTab: item.key },
+        })),
+        ...ORGANIZE_MEMORY_ASSET_ROUTES.map((item) => ({
+          path: toPlatformChildPath(item.path),
+          name: item.routeName,
+          component: organizeWorkspaceComponent,
+          meta: { ...organizeRouteMeta, organizeTab: 'memory', memoryAsset: item.key },
+        })),
         {
           path: "knowledge-search",
           // 旧路径保留为重定向，打开全局命令面板（⌘K），带上可选的 q 参数

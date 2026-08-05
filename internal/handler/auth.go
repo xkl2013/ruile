@@ -214,6 +214,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
+	h.promoteFirstRegisteredUserToSystemAdmin(ctx, user)
 
 	// Return success response
 	response := &types.RegisterResponse{
@@ -224,6 +225,39 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	logger.Infof(ctx, "User registered successfully: %s", secutils.SanitizeForLog(user.Email))
 	c.JSON(http.StatusCreated, response)
+}
+
+// promoteFirstRegisteredUserToSystemAdmin closes the bootstrap gap for fresh
+// deployments: after an operator temporarily opens public registration, the
+// first successful self-serve account must be able to reach system settings.
+func (h *AuthHandler) promoteFirstRegisteredUserToSystemAdmin(ctx context.Context, user *types.User) {
+	if user == nil || h.userService == nil || user.IsSystemAdmin {
+		return
+	}
+	_, total, err := h.userService.ListSystemAdmins(ctx, 0, 1)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to check system-admin bootstrap state after registration: %v", err)
+		return
+	}
+	if total > 0 {
+		return
+	}
+	users, err := h.userService.ListUsers(ctx, 0, 2)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to verify first-user bootstrap state after registration: %v", err)
+		return
+	}
+	if len(users) != 1 || users[0] == nil || users[0].ID != user.ID {
+		logger.Warnf(ctx, "Skipping system-admin bootstrap for user %s: deployment already has users", user.ID)
+		return
+	}
+	user.IsSystemAdmin = true
+	if err := h.userService.UpdateUser(ctx, user); err != nil {
+		logger.Warnf(ctx, "Failed to promote first registered user %s to system admin: %v", user.ID, err)
+		user.IsSystemAdmin = false
+		return
+	}
+	logger.Infof(ctx, "Promoted first registered user %s to system admin", user.ID)
 }
 
 // Login godoc
@@ -606,7 +640,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	// 同步返回当前用户的 memberships，让前端在页面刷新（仅命中 /auth/me）
 	// 后也能恢复 currentTenantRole，避免角色信息只在 login 那一刻可用。
 	memberships := h.userService.BuildLoginMemberships(ctx, user, tenant)
-	canCreateTenant := user.CanAccessAllTenants ||
+	canCreateTenant := user.IsSystemAdmin || user.CanAccessAllTenants ||
 		resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

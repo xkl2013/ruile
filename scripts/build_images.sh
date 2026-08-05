@@ -77,7 +77,13 @@ check_docker() {
 # 检测平台
 check_platform() {
     log_info "检测系统平台信息..."
-    if [ "$(uname -m)" = "x86_64" ]; then
+    if [ -n "${PLATFORM:-}" ]; then
+        case "$PLATFORM" in
+            linux/amd64) export TARGETARCH="${TARGETARCH:-amd64}" ;;
+            linux/arm64) export TARGETARCH="${TARGETARCH:-arm64}" ;;
+            *) export TARGETARCH="${TARGETARCH:-$(printf '%s' "$PLATFORM" | awk -F/ '{print $2}')}" ;;
+        esac
+    elif [ "$(uname -m)" = "x86_64" ]; then
         export PLATFORM="linux/amd64"
         export TARGETARCH="amd64"
     elif [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then
@@ -135,6 +141,10 @@ build_app_image() {
     
     docker build \
         --platform $PLATFORM \
+        --build-arg GO_BASE=${GO_BASE:-golang:1.26-bookworm} \
+        --build-arg DEBIAN_BASE=${DEBIAN_BASE:-debian:12.12-slim} \
+        --build-arg TARGETOS=linux \
+        --build-arg TARGETARCH=$TARGETARCH \
         --build-arg GOPRIVATE_ARG=${GOPRIVATE:-""} \
         --build-arg GOPROXY_ARG=${GOPROXY:-"https://goproxy.cn,direct"} \
         --build-arg GOSUMDB_ARG=${GOSUMDB:-"off"} \
@@ -163,6 +173,7 @@ build_docreader_image() {
     
     docker build \
         --platform $PLATFORM \
+        --build-arg PYTHON_BASE=${DOCREADER_PYTHON_BASE:-${PYTHON_BASE:-python:3.10.18-bookworm}} \
         --build-arg PLATFORM=$PLATFORM \
         --build-arg TARGETARCH=$TARGETARCH \
         --build-arg APT_MIRROR=${APT_MIRROR:-} \
@@ -193,6 +204,7 @@ build_frontend_image() {
 
     docker build \
         --platform $PLATFORM \
+        --build-arg NGINX_BASE=${NGINX_BASE:-nginx:stable-alpine} \
         -f frontend/Dockerfile \
         -t wechatopenai/weknora-ui:latest \
         frontend/
@@ -214,6 +226,8 @@ build_sandbox_image() {
 
     docker build \
         --platform $PLATFORM \
+        --build-arg NODE_BASE=${SANDBOX_NODE_BASE:-${NODE_BASE:-node:20-slim}} \
+        --build-arg PYTHON_BASE=${SANDBOX_PYTHON_BASE:-python:3.11-slim} \
         -f docker/Dockerfile.sandbox \
         -t wechatopenai/weknora-sandbox:latest \
         .

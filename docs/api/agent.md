@@ -17,7 +17,6 @@
 |----|------|------|------|
 | `builtin-quick-answer` | 快速问答 | 基于知识库的 RAG 问答，快速准确地回答问题 | quick-answer |
 | `builtin-smart-reasoning` | 智能推理 | ReAct 推理框架，支持多步思考和工具调用 | smart-reasoning |
-| `builtin-data-analyst` | 数据分析师 | 专业数据分析智能体，支持 CSV/Excel 文件的 SQL 查询与统计分析 | smart-reasoning |
 
 ### 智能体模式
 
@@ -543,7 +542,7 @@ curl --location 'http://localhost:8080/api/v1/agent-chat/session-123' \
 --data '{
     "query": "帮我分析一下这份数据",
     "agent_enabled": true,
-    "agent_id": "builtin-data-analyst"
+    "agent_id": "builtin-smart-reasoning"
 }'
 ```
 

@@ -42,6 +42,9 @@ func TestPreviewKnowledgeFileForcesActiveContentDownload(t *testing.T) {
 	router.Use(middleware.ErrorHandler())
 	router.Use(func(c *gin.Context) {
 		c.Set(types.TenantIDContextKey.String(), uint64(42))
+		ctx := context.WithValue(c.Request.Context(), types.TenantIDContextKey, uint64(42))
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleAdmin)
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})
 

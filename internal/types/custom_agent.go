@@ -20,14 +20,10 @@ const (
 	BuiltinSalesDirectorID = "builtin-sales-director"
 	// BuiltinDeepResearcherID is the ID for the built-in deep researcher agent
 	BuiltinDeepResearcherID = "builtin-deep-researcher"
-	// BuiltinDataAnalystID is the ID for the built-in data analyst agent
-	BuiltinDataAnalystID = "builtin-data-analyst"
 	// BuiltinKnowledgeGraphExpertID is the ID for the built-in knowledge graph expert agent
 	BuiltinKnowledgeGraphExpertID = "builtin-knowledge-graph-expert"
 	// BuiltinDocumentAssistantID is the ID for the built-in document assistant agent
 	BuiltinDocumentAssistantID = "builtin-document-assistant"
-	// BuiltinWikiResearcherID is the ID for the built-in wiki researcher agent
-	BuiltinWikiResearcherID = "builtin-wiki-researcher"
 	// BuiltinWikiFixerID is the ID for the built-in wiki fixer agent
 	BuiltinWikiFixerID = "builtin-wiki-fixer"
 )
@@ -67,8 +63,8 @@ const (
 // CustomAgent represents a configurable AI agent (similar to GPTs)
 type CustomAgent struct {
 	// Unique identifier of the agent (composite primary key with TenantID)
-	// For built-in agents, this is 'builtin-quick-answer' or 'builtin-smart-reasoning'
-	// For custom agents, this is a UUID
+	// For built-in agents, this is a stable preset ID.
+	// For custom agents, this is a UUID.
 	ID string `yaml:"id" json:"id" gorm:"type:varchar(36);primaryKey"`
 	// Name of the agent
 	Name string `yaml:"name" json:"name" gorm:"type:varchar(255);not null"`
@@ -566,9 +562,7 @@ var builtinAgentIDsOrdered = []string{
 	BuiltinQuickAnswerID,
 	BuiltinSmartReasoningID,
 	BuiltinSalesDirectorID,
-	BuiltinWikiResearcherID,
 	BuiltinDeepResearcherID,
-	BuiltinDataAnalystID,
 	BuiltinKnowledgeGraphExpertID,
 	BuiltinDocumentAssistantID,
 }

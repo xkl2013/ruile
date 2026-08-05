@@ -307,8 +307,32 @@ func isFileURL(rawURL, fileName, fileType string) bool {
 	return fileName != "" || fileType != ""
 }
 
+func validateDisplayPath(displayPath string) (string, error) {
+	if displayPath == "" {
+		return "", nil
+	}
+	value, valid := secutils.ValidateInput(displayPath)
+	if !valid {
+		return "", werrors.NewValidationError("display path contains invalid characters")
+	}
+	value = strings.ReplaceAll(value, "\\", "/")
+	if strings.HasPrefix(value, "/") || strings.HasSuffix(value, "/") || strings.Contains(value, "//") {
+		return "", werrors.NewValidationError("display path must be a relative document path")
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) < 2 {
+		return "", werrors.NewValidationError("display path must contain a directory and document name")
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return "", werrors.NewValidationError("display path cannot contain relative segments")
+		}
+	}
+	return strings.Join(parts, "/"), nil
+}
+
 func (s *knowledgeService) CreateKnowledgeFromURL(ctx context.Context,
-	kbID string, rawURL string, fileName string, fileType string, enableMultimodel *bool, title string, tagIDs []string, channel string,
+	kbID string, rawURL string, fileName string, fileType string, enableMultimodel *bool, title string, displayPath string, tagIDs []string, channel string,
 	processOverrides *types.KnowledgeProcessOverrides,
 ) (*types.Knowledge, error) {
 	logger.Info(ctx, "Start creating knowledge from URL")
@@ -317,9 +341,14 @@ func (s *knowledgeService) CreateKnowledgeFromURL(ctx context.Context,
 	// Route to file_url logic when the URL points to a downloadable file
 	if isFileURL(rawURL, fileName, fileType) {
 		return s.createKnowledgeFromFileURL(
-			ctx, kbID, rawURL, fileName, fileType, enableMultimodel, title, tagIDs, channel, processOverrides,
+			ctx, kbID, rawURL, fileName, fileType, enableMultimodel, title, displayPath, tagIDs, channel, processOverrides,
 		)
 	}
+	normalizedDisplayPath, err := validateDisplayPath(displayPath)
+	if err != nil {
+		return nil, err
+	}
+	displayPath = normalizedDisplayPath
 
 	url := rawURL
 
@@ -389,6 +418,7 @@ func (s *knowledgeService) CreateKnowledgeFromURL(ctx context.Context,
 		Type:             "url",
 		Channel:          defaultChannel(channel),
 		Title:            title,
+		FileName:         displayPath,
 		Source:           url,
 		FileType:         "html",
 		FileHash:         fileHash,
@@ -525,6 +555,7 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 	fileType string,
 	enableMultimodel *bool,
 	title string,
+	displayPath string,
 	tagIDs []string,
 	channel string,
 	processOverrides *types.KnowledgeProcessOverrides,
@@ -583,6 +614,9 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 	if displayName == "" {
 		displayName = fileURL
 	}
+	if displayPath, err = validateDisplayPath(displayPath); err != nil {
+		return nil, err
+	}
 
 	// Check for duplicate (by URL hash)
 	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
@@ -631,6 +665,9 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
 		EmbeddingModelID: kb.EmbeddingModelID,
+	}
+	if displayPath != "" {
+		knowledge.FileName = displayPath
 	}
 	if knowledge.Title == "" {
 		knowledge.Title = displayName

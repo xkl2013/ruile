@@ -76,6 +76,8 @@ type UserService interface {
 	Logout(ctx context.Context, token string) error
 	// GetCurrentUser gets current user from context
 	GetCurrentUser(ctx context.Context) (*types.User, error)
+	// ListUsers lists users with pagination
+	ListUsers(ctx context.Context, offset, limit int) ([]*types.User, error)
 	// SearchUsers searches users by username or email
 	SearchUsers(ctx context.Context, query string, limit int) ([]*types.User, error)
 	// ListSystemAdmins lists users with IsSystemAdmin=true.

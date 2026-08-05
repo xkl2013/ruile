@@ -1,7 +1,14 @@
 # Build stage
-FROM golang:1.26-bookworm AS builder
+ARG GO_BASE=golang:1.26-bookworm
+ARG DEBIAN_BASE=debian:12.12-slim
+FROM --platform=$BUILDPLATFORM ${GO_BASE} AS builder
 
 WORKDIR /app
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG BUILDPLATFORM
+ARG TARGETPLATFORM
 
 # 通过构建参数接收敏感信息
 ARG GOPRIVATE_ARG
@@ -13,22 +20,33 @@ ARG APK_MIRROR_ARG
 ENV GOPRIVATE=${GOPRIVATE_ARG}
 ENV GOPROXY=${GOPROXY_ARG}
 ENV GOSUMDB=${GOSUMDB_ARG}
+ENV PATH="/usr/local/go/bin:/go/bin:${PATH}"
 
 # Install dependencies
 RUN if [ -n "$APK_MIRROR_ARG" ]; then \
         sed -i "s@deb.debian.org@${APK_MIRROR_ARG}@g" /etc/apt/sources.list.d/debian.sources; \
     fi && \
     apt-get update && \
-    apt-get install -y git build-essential libsqlite3-dev
+    apt-get install -y git build-essential libsqlite3-dev gcc-x86-64-linux-gnu g++-x86-64-linux-gnu libc6-dev-amd64-cross
+
+RUN echo "build platform: ${BUILDPLATFORM}, target platform: ${TARGETPLATFORM}"
 
 # Install migrate tool
-RUN go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+RUN --mount=type=cache,target=/go/pkg/mod \
+    if [ "${TARGETARCH}" = "amd64" ]; then \
+        export CC=x86_64-linux-gnu-gcc CXX=x86_64-linux-gnu-g++; \
+    fi && \
+    GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=1 \
+    go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 && \
+    if [ -f "/go/bin/${TARGETOS}_${TARGETARCH}/migrate" ]; then \
+        cp "/go/bin/${TARGETOS}_${TARGETARCH}/migrate" /app/migrate; \
+    else \
+        cp /go/bin/migrate /app/migrate; \
+    fi
 
 # Copy go mod and sum files
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY cmd/download cmd/download
-RUN go run cmd/download/duckdb/duckdb.go
 COPY . .
 
 # Get version and commit info for build injection
@@ -42,13 +60,20 @@ ENV VERSION=${VERSION_ARG}
 ENV COMMIT_ID=${COMMIT_ID_ARG}
 ENV BUILD_TIME=${BUILD_TIME_ARG}
 ENV GO_VERSION=${GO_VERSION_ARG}
+ENV GOOS=${TARGETOS:-linux}
+ENV GOARCH=${TARGETARCH:-amd64}
+ENV CGO_ENABLED=1
 
 # Build the application with version info
-RUN --mount=type=cache,target=/go/pkg/mod make build-prod
+RUN --mount=type=cache,target=/go/pkg/mod \
+    if [ "${TARGETARCH}" = "amd64" ]; then \
+        export CC=x86_64-linux-gnu-gcc CXX=x86_64-linux-gnu-g++; \
+    fi && \
+    make build-prod
 RUN --mount=type=cache,target=/go/pkg/mod cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/
 
 # Final stage
-FROM debian:12.12-slim
+FROM --platform=$TARGETPLATFORM ${DEBIAN_BASE}
 
 WORKDIR /app
 
@@ -88,7 +113,7 @@ RUN mkdir -p /data/files && \
     chown -R appuser:appuser /app /data/files
 
 # Copy migrate tool from builder stage
-COPY --from=builder /go/bin/migrate /usr/local/bin/
+COPY --from=builder /app/migrate /usr/local/bin/migrate
 COPY --from=builder /app/yanyiwu/ /go/pkg/mod/github.com/yanyiwu/
 
 # Copy the binary from the builder stage
@@ -99,7 +124,6 @@ COPY --from=builder /app/dataset/samples ./dataset/samples
 COPY --from=builder /app/skills/preloaded ./skills/preloaded
 # Keep a read-only backup so bind-mount cannot erase built-in skills
 COPY --from=builder /app/skills/preloaded ./skills/_builtin
-COPY --from=builder /root/.duckdb /home/appuser/.duckdb
 COPY --from=builder /app/WeKnora .
 
 # Copy and make entrypoint script executable

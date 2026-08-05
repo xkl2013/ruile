@@ -146,6 +146,7 @@ func TestOrganizationKBVisibility_HidesCurrentTenantKBsWithoutReadPermission(t *
 		{
 			SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
 				KnowledgeBase:  &types.KnowledgeBase{ID: "mine", Name: "mine", TenantID: 1, CreatorID: "u-test"},
+				ShareID:        "share-mine",
 				SourceTenantID: 1,
 			},
 			IsMine: true,
@@ -153,9 +154,18 @@ func TestOrganizationKBVisibility_HidesCurrentTenantKBsWithoutReadPermission(t *
 		{
 			SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
 				KnowledgeBase:  &types.KnowledgeBase{ID: "teammate", Name: "teammate", TenantID: 1, CreatorID: "u-other"},
+				ShareID:        "share-teammate",
 				SourceTenantID: 1,
 			},
 			IsMine: true,
+		},
+		{
+			SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
+				KnowledgeBase:  &types.KnowledgeBase{ID: "agent-carried-teammate", Name: "agent-carried-teammate", TenantID: 1, CreatorID: "u-other"},
+				SourceTenantID: 1,
+			},
+			IsMine:          true,
+			SourceFromAgent: &types.SourceFromAgentInfo{AgentID: "agent-1"},
 		},
 		{
 			SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
@@ -166,11 +176,14 @@ func TestOrganizationKBVisibility_HidesCurrentTenantKBsWithoutReadPermission(t *
 	}
 
 	got := filterOrganizationKnowledgeBasesForCallerVisibility(ctx, 1, list)
-	if len(got) != 2 {
-		t.Fatalf("expected own KB plus shared-in KB, got %d rows", len(got))
+	if len(got) != 3 {
+		t.Fatalf("expected direct own-tenant shares plus shared-in KB, got %d rows", len(got))
 	}
-	if got[0].KnowledgeBase.ID != "mine" || got[1].KnowledgeBase.ID != "shared-in" {
-		t.Fatalf("unexpected visible KBs: %s, %s", got[0].KnowledgeBase.ID, got[1].KnowledgeBase.ID)
+	if got[0].KnowledgeBase.ID != "mine" ||
+		got[1].KnowledgeBase.ID != "teammate" ||
+		got[2].KnowledgeBase.ID != "shared-in" {
+		t.Fatalf("unexpected visible KBs: %s, %s, %s",
+			got[0].KnowledgeBase.ID, got[1].KnowledgeBase.ID, got[2].KnowledgeBase.ID)
 	}
 }
 

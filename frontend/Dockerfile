@@ -1,6 +1,7 @@
 # Production image. Build static assets on the host first:
 #   ./scripts/build_frontend_dist.sh
-FROM nginx:stable-alpine
+ARG NGINX_BASE=nginx:stable-alpine
+FROM ${NGINX_BASE}
 
 COPY dist /usr/share/nginx/html
 

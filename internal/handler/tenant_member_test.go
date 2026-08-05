@@ -521,8 +521,8 @@ func TestTenantMember_AdminCreateMember_DefaultPasswordAndRole(t *testing.T) {
 	if capturedReq.Username != "地平线" || capturedReq.Phone != "13258978288" {
 		t.Fatalf("unexpected create request: %+v", capturedReq)
 	}
-	if capturedReq.Password != "rl8288" {
-		t.Fatalf("default password = %q, want rl8288", capturedReq.Password)
+	if capturedReq.Password != "rl978288" {
+		t.Fatalf("default password = %q, want rl978288", capturedReq.Password)
 	}
 	if capturedReq.TenantProvisioning != types.TenantProvisioningTenantless {
 		t.Fatalf("tenant provisioning = %s, want tenantless", capturedReq.TenantProvisioning)

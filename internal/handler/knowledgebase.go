@@ -445,7 +445,9 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 	}
 
 	// Check 1: same-tenant access. Admin+ can access all tenant KBs;
-	// ordinary members only access KBs they created.
+	// ordinary members access KBs they created. Non-creators fall through
+	// to the organization-share check below so a shared space can grant
+	// access to teammate-owned KBs in the same workspace.
 	if kb.TenantID == tenantID.(uint64) {
 		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
 			types.IsSystemAdminFromContext(ctx) ||
@@ -457,7 +459,6 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 				return kb, id, tenantID.(uint64), types.OrgRoleAdmin, nil
 			}
 		}
-		return nil, id, 0, "", apperrors.NewForbiddenError("No permission to operate")
 	}
 
 	// Check 2: If not owner, check organization shared access

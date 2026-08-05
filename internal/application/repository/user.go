@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -256,14 +257,16 @@ func (r *userRepository) RevokeSystemAdmin(ctx context.Context, userID, actorID 
 	return revoked, nil
 }
 
-// SearchUsers searches users by username or email
+// SearchUsers searches users by username or login identifier.
+// The current phone-login flow stores the phone number in users.email, so
+// matching email also covers phone-number searches. Keep the SQL portable:
+// SQLite/MySQL do not support PostgreSQL's ILIKE operator.
 func (r *userRepository) SearchUsers(ctx context.Context, query string, limit int) ([]*types.User, error) {
 	var users []*types.User
-	searchPattern := "%" + query + "%"
+	searchPattern := "%" + strings.ToLower(strings.TrimSpace(query)) + "%"
 
 	dbQuery := r.db.WithContext(ctx).
-		Where("username ILIKE ? OR email ILIKE ?", searchPattern, searchPattern).
-		Where("is_active = ?", true).
+		Where("LOWER(username) LIKE ? OR LOWER(email) LIKE ?", searchPattern, searchPattern).
 		Order("username ASC")
 
 	if limit > 0 {

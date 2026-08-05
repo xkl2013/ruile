@@ -36,6 +36,7 @@ type KnowledgeService interface {
 		fileType string,
 		enableMultimodel *bool,
 		title string,
+		displayPath string,
 		tagIDs []string,
 		channel string,
 		processOverrides *types.KnowledgeProcessOverrides,

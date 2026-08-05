@@ -204,7 +204,13 @@ export function uploadKnowledgeFile(
 // data.tag_ids: 可选，指定知识所属的多个标签 ID
 export function createKnowledgeFromURL(
   kbId: string,
-  data: { url: string; enable_multimodel?: boolean; tag_ids?: string[]; process_config?: KnowledgeProcessOverrides },
+  data: {
+    url: string;
+    display_path?: string;
+    enable_multimodel?: boolean;
+    tag_ids?: string[];
+    process_config?: KnowledgeProcessOverrides;
+  },
 ) {
   return post(`/api/v1/knowledge-bases/${kbId}/knowledge/url`, data);
 }

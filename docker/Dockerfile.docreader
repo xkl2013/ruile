@@ -1,7 +1,8 @@
 # =========================
 # 构建阶段（轻量化：仅文档解析 + 图片提取，无 OCR/VLM）
 # =========================
-FROM python:3.10.18-bookworm AS builder
+ARG PYTHON_BASE=python:3.10.18-bookworm
+FROM ${PYTHON_BASE} AS builder
 
 ARG APT_MIRROR=""
 RUN if [ -n "$APT_MIRROR" ]; then \
@@ -79,7 +80,7 @@ RUN chmod +x docreader/scripts/generate_proto.sh && \
 # =========================
 # 运行阶段（轻量化）
 # =========================
-FROM python:3.10.18-bookworm AS runner
+FROM ${PYTHON_BASE} AS runner
 
 ARG APT_MIRROR=""
 RUN if [ -n "$APT_MIRROR" ]; then \
@@ -90,7 +91,7 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 WORKDIR /app
 
 # 安装运行时依赖（已移除 OCR/PaddleOCR 相关依赖）
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg62-turbo \
     wget \
     gnupg \
@@ -107,7 +108,14 @@ RUN apt-get update && apt-get install -y \
     libcups2 \
     libglu1-mesa \
     libsm6 \
+    fonts-dejavu-core \
+    fonts-liberation \
+    fonts-noto-cjk \
     libreoffice \
+    libreoffice-calc \
+    libreoffice-draw \
+    libreoffice-impress \
+    libreoffice-writer \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

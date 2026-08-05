@@ -1,0 +1,47 @@
+# Declarative built-in models generated from current runtime model records.
+# Secret values are sourced from .env and may be stored there as enc:v1 values.
+
+builtin_models:
+  - id: ${QWEN37_MAX_MODEL_ID}
+    tenant_id: ${WEKNORA_BUILTIN_MODEL_TENANT_ID}
+    name: ${QWEN37_MAX_MODEL_NAME}
+    type: KnowledgeQA
+    source: remote
+    description: Current qwen3.7-max chat model
+    is_default: true
+    parameters:
+      base_url: ${QWEN37_CHAT_BASE_URL}
+      api_key: ${QWEN37_MAX_API_KEY}
+      provider: ${QWEN37_CHAT_PROVIDER}
+      extra_config:
+        thinking_control: ${QWEN37_CHAT_THINKING_CONTROL}
+
+  - id: ${QWEN37_PLUS_MODEL_ID}
+    tenant_id: ${WEKNORA_BUILTIN_MODEL_TENANT_ID}
+    name: ${QWEN37_PLUS_MODEL_NAME}
+    type: KnowledgeQA
+    source: remote
+    description: Current qwen3.7-plus chat model
+    is_default: false
+    parameters:
+      base_url: ${QWEN37_CHAT_BASE_URL}
+      api_key: ${QWEN37_PLUS_API_KEY}
+      provider: ${QWEN37_CHAT_PROVIDER}
+      extra_config:
+        thinking_control: ${QWEN37_CHAT_THINKING_CONTROL}
+
+  - id: ${QWEN37_EMBEDDING_MODEL_ID}
+    tenant_id: ${WEKNORA_BUILTIN_MODEL_TENANT_ID}
+    name: ${QWEN37_EMBEDDING_MODEL_NAME}
+    type: Embedding
+    source: remote
+    description: Current qwen3.7 embedding model
+    is_default: true
+    parameters:
+      base_url: ${QWEN37_EMBEDDING_BASE_URL}
+      api_key: ${QWEN37_EMBEDDING_API_KEY}
+      provider: ${QWEN37_EMBEDDING_PROVIDER}
+      embedding_parameters:
+        dimension: ${QWEN37_EMBEDDING_DIMENSION}
+        truncate_prompt_tokens: 0
+        supports_dimension_override: false

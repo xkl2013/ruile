@@ -143,11 +143,10 @@
           </div>
         </div>
 
-        <!-- Register Card. Renders when the user is in register mode
-             AND either self-service registration is enabled OR they
-             arrived with a valid share-link token (which bypasses the
-             invite_only gate). -->
-        <div class="form-card" v-if="isRegisterMode && (registrationEnabled || inviteLookup)">
+        <!-- Register Card. Direct /register navigation is an explicit
+             request to render the form; the server still enforces whether
+             public registration is currently allowed. -->
+        <div class="form-card" v-if="showRegisterCard">
           <!-- Share-link banner: shown only when ?token= resolved to a
                real invitation row. Sits above the form header so the
                invitee instantly sees who invited them and into which
@@ -253,6 +252,10 @@ const oidcProviderName = ref('')
 // registration is enabled. Invitation tokens can still switch the form into
 // invitation registration mode.
 const registrationEnabled = ref(false)
+const isRegisterRoute = computed(() => route.path === '/register')
+const showRegisterCard = computed(() => (
+  isRegisterMode.value && (registrationEnabled.value || !!inviteLookup.value || isRegisterRoute.value)
+))
 
 // invite-link state. When the URL carries ?token=xxx we resolve it to
 // the originating tenant + role and switch the form into a "register
@@ -530,6 +533,10 @@ const handleRegister = async () => {
 
 // Check if already logged in; for lite edition, attempt transparent auto-setup
 onMounted(async () => {
+  if (isRegisterRoute.value) {
+    isRegisterMode.value = true
+  }
+
   // Share-link landing: ?token=xxx switches the form into invite-
   // register mode before any other auto-flow (logged-in redirect /
   // auto-setup / OIDC) gets a chance to redirect. Resolution failure

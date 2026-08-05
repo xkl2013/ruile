@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/config"
@@ -21,11 +22,35 @@ import (
 // branching logic without dragging in the entire user service surface.
 type stubRegisterUserService struct {
 	interfaces.UserService
-	register func(ctx context.Context, req *types.RegisterRequest) (*types.User, error)
+	register         func(ctx context.Context, req *types.RegisterRequest) (*types.User, error)
+	listSystemAdmins func(ctx context.Context, offset, limit int) ([]*types.User, int64, error)
+	listUsers        func(ctx context.Context, offset, limit int) ([]*types.User, error)
+	updateUser       func(ctx context.Context, user *types.User) error
 }
 
 func (s *stubRegisterUserService) Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
 	return s.register(ctx, req)
+}
+
+func (s *stubRegisterUserService) ListSystemAdmins(ctx context.Context, offset, limit int) ([]*types.User, int64, error) {
+	if s.listSystemAdmins == nil {
+		return nil, 1, nil
+	}
+	return s.listSystemAdmins(ctx, offset, limit)
+}
+
+func (s *stubRegisterUserService) UpdateUser(ctx context.Context, user *types.User) error {
+	if s.updateUser == nil {
+		return nil
+	}
+	return s.updateUser(ctx, user)
+}
+
+func (s *stubRegisterUserService) ListUsers(ctx context.Context, offset, limit int) ([]*types.User, error) {
+	if s.listUsers == nil {
+		return nil, nil
+	}
+	return s.listUsers(ctx, offset, limit)
 }
 
 // errorCapture mirrors gin's default ErrorHandler behaviour for tests:
@@ -160,6 +185,96 @@ func TestRegister_SelfServeAllowsRegistration(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("UserService.Register should have been invoked")
+	}
+}
+
+func TestRegister_FirstSelfServeUserBecomesSystemAdmin(t *testing.T) {
+	var updatedUser *types.User
+	us := &stubRegisterUserService{
+		register: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
+			return &types.User{ID: "u1", Email: "alice@example.com"}, nil
+		},
+		listSystemAdmins: func(context.Context, int, int) ([]*types.User, int64, error) {
+			return nil, 0, nil
+		},
+		listUsers: func(context.Context, int, int) ([]*types.User, error) {
+			return []*types.User{{ID: "u1"}}, nil
+		},
+		updateUser: func(_ context.Context, user *types.User) error {
+			updatedUser = user
+			return nil
+		},
+	}
+	h := NewAuthHandler(&config.Config{
+		Auth: &config.AuthConfig{RegistrationMode: config.AuthRegistrationModeSelfServe},
+	}, us, nil, nil, nil)
+
+	w := doRegister(t, newRegisterTestRouter(h), validRegisterBody())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("self_serve registration got %d body=%s", w.Code, w.Body.String())
+	}
+	if updatedUser == nil || !updatedUser.IsSystemAdmin {
+		t.Fatalf("first registered user was not promoted to system admin: %+v", updatedUser)
+	}
+	if !strings.Contains(w.Body.String(), `"is_system_admin":true`) {
+		t.Fatalf("response did not include promoted system-admin flag: %s", w.Body.String())
+	}
+}
+
+func TestRegister_DoesNotPromoteWhenSystemAdminExists(t *testing.T) {
+	updateCalled := false
+	us := &stubRegisterUserService{
+		register: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
+			return &types.User{ID: "u2", Email: "bob@example.com"}, nil
+		},
+		listSystemAdmins: func(context.Context, int, int) ([]*types.User, int64, error) {
+			return []*types.User{{ID: "admin", IsSystemAdmin: true}}, 1, nil
+		},
+		updateUser: func(_ context.Context, user *types.User) error {
+			updateCalled = true
+			return nil
+		},
+	}
+	h := NewAuthHandler(&config.Config{
+		Auth: &config.AuthConfig{RegistrationMode: config.AuthRegistrationModeSelfServe},
+	}, us, nil, nil, nil)
+
+	w := doRegister(t, newRegisterTestRouter(h), validRegisterBody())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("self_serve registration got %d body=%s", w.Code, w.Body.String())
+	}
+	if updateCalled {
+		t.Fatalf("registration should not promote users when a system admin already exists")
+	}
+}
+
+func TestRegister_DoesNotPromoteWhenExistingUsersHaveNoSystemAdmin(t *testing.T) {
+	updateCalled := false
+	us := &stubRegisterUserService{
+		register: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
+			return &types.User{ID: "u3", Email: "carol@example.com"}, nil
+		},
+		listSystemAdmins: func(context.Context, int, int) ([]*types.User, int64, error) {
+			return nil, 0, nil
+		},
+		listUsers: func(context.Context, int, int) ([]*types.User, error) {
+			return []*types.User{{ID: "u3"}, {ID: "existing"}}, nil
+		},
+		updateUser: func(_ context.Context, user *types.User) error {
+			updateCalled = true
+			return nil
+		},
+	}
+	h := NewAuthHandler(&config.Config{
+		Auth: &config.AuthConfig{RegistrationMode: config.AuthRegistrationModeSelfServe},
+	}, us, nil, nil, nil)
+
+	w := doRegister(t, newRegisterTestRouter(h), validRegisterBody())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("self_serve registration got %d body=%s", w.Code, w.Body.String())
+	}
+	if updateCalled {
+		t.Fatalf("registration should not promote users when the deployment already has accounts")
 	}
 }
 

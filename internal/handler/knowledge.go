@@ -136,7 +136,6 @@ func (h *KnowledgeHandler) validateKnowledgeBaseAccessWithKBID(c *gin.Context, k
 				return kb, kbID, tenantID, types.OrgRoleAdmin, nil
 			}
 		}
-		return nil, kbID, 0, "", errors.NewForbiddenError("Permission denied to access this knowledge base")
 	}
 	if h.kbShareService != nil {
 		permission, isShared, permErr := h.kbShareService.CheckTenantKBPermission(ctx, kbID, tenantID, callerTenantRole)
@@ -180,7 +179,9 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
 	}
 
 	// Same-tenant knowledge: Admin+ can access all tenant KB content;
-	// ordinary members only access content in KBs they created.
+	// ordinary members access content in KBs they created. Non-creators
+	// fall through to organization sharing below so shared spaces can grant
+	// access to teammate-owned KB content in the same workspace.
 	if knowledge.TenantID == tenantID {
 		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
 			types.IsSystemAdminFromContext(ctx) ||
@@ -196,7 +197,6 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
 				}
 			}
 		}
-		return nil, ctx, errors.NewForbiddenError("Permission denied to access this knowledge")
 	}
 	// Shared KB: check organization permission
 	if h.kbShareService != nil {
@@ -459,7 +459,7 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 // @Accept       json
 // @Produce      json
 // @Param        id       path      string  true  "知识库ID"
-// @Param        request  body      object{url=string,file_name=string,file_type=string,enable_multimodel=bool,title=string,tag_ids=[]string}  true  "URL请求"
+// @Param        request  body      object{url=string,file_name=string,file_type=string,enable_multimodel=bool,title=string,display_path=string,tag_ids=[]string}  true  "URL请求"
 // @Success      201      {object}  map[string]interface{}  "创建的知识"
 // @Failure      400      {object}  errors.AppError         "请求参数错误"
 // @Failure      409      {object}  map[string]interface{}  "URL重复"
@@ -491,6 +491,7 @@ func (h *KnowledgeHandler) CreateKnowledgeFromURL(c *gin.Context) {
 		FileType         string                           `json:"file_type"`
 		EnableMultimodel *bool                            `json:"enable_multimodel"`
 		Title            string                           `json:"title"`
+		DisplayPath      string                           `json:"display_path"`
 		TagIDs           []string                         `json:"tag_ids"`
 		Channel          string                           `json:"channel"`
 		ProcessConfig    *types.KnowledgeProcessOverrides `json:"process_config"`
@@ -500,7 +501,6 @@ func (h *KnowledgeHandler) CreateKnowledgeFromURL(c *gin.Context) {
 		c.Error(errors.NewBadRequestError(err.Error()))
 		return
 	}
-
 	logger.Infof(ctx, "Received URL request: %s, file_name: %s, file_type: %s",
 		secutils.SanitizeForLog(req.URL),
 		secutils.SanitizeForLog(req.FileName),
@@ -522,7 +522,7 @@ func (h *KnowledgeHandler) CreateKnowledgeFromURL(c *gin.Context) {
 
 	// Create knowledge entry from the URL
 	knowledge, err := h.kgService.CreateKnowledgeFromURL(
-		ctx, kbID, req.URL, req.FileName, req.FileType, req.EnableMultimodel, req.Title, req.TagIDs, req.Channel, req.ProcessConfig,
+		ctx, kbID, req.URL, req.FileName, req.FileType, req.EnableMultimodel, req.Title, req.DisplayPath, req.TagIDs, req.Channel, req.ProcessConfig,
 	)
 	// Check for duplicate knowledge error
 	if err != nil {

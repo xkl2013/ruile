@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
 )
 
 func TestParseOssFilePath(t *testing.T) {
@@ -199,5 +201,28 @@ func TestOssEnsureBucket_CreateFails(t *testing.T) {
 	err = ossEnsureBucket(client, "weknora-nonexistent-bucket-create-fails-12345")
 	if err == nil {
 		t.Error("ossEnsureBucket with invalid credentials should return an error")
+	}
+}
+
+func TestOssBucketExists_RejectsAuthenticationErrors(t *testing.T) {
+	tests := []struct {
+		code             string
+		shouldRejectAuth bool
+	}{
+		{code: "SignatureDoesNotMatch", shouldRejectAuth: true},
+		{code: "InvalidAccessKeyId", shouldRejectAuth: true},
+		{code: "InvalidSecurityToken", shouldRejectAuth: true},
+		{code: "SecurityTokenExpired", shouldRejectAuth: true},
+		{code: "AccessDenied", shouldRejectAuth: false},
+		{code: "NoSuchBucket", shouldRejectAuth: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.code, func(t *testing.T) {
+			err := &oss.ServiceError{Code: tt.code}
+			if got := ossIsAuthenticationError(err); got != tt.shouldRejectAuth {
+				t.Errorf("ossIsAuthenticationError(%q) = %t, want %t", tt.code, got, tt.shouldRejectAuth)
+			}
+		})
 	}
 }

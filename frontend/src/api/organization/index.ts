@@ -52,6 +52,7 @@ export interface OrganizationMember {
   user_id: string
   representative_user_id?: string
   username: string
+  phone?: string
   email: string
   avatar?: string
   role: 'admin' | 'editor' | 'viewer'
@@ -252,10 +253,20 @@ export interface InviteMemberRequest {
 }
 
 export interface UserSearchResult {
-  id: string
-  username: string
-  email: string
+  id?: string
+  user_id?: string
+  username?: string
+  phone?: string
+  email?: string
   avatar?: string
+  tenant_id?: number
+  tenant_name?: string
+  is_already_member?: boolean
+  representative_user_id?: string
+  representative_username?: string
+  representative_phone?: string
+  representative_email?: string
+  representative_avatar?: string
 }
 
 /**
@@ -268,6 +279,7 @@ export interface TenantInviteCandidate {
   tenant_name: string
   representative_user_id: string
   representative_username: string
+  representative_phone?: string
   representative_email: string
   representative_avatar?: string
 }
@@ -737,7 +749,7 @@ export async function listOrgAgentShares(orgId: string): Promise<ApiResponse<Lis
 /**
  * Search candidate tenants for inviting to organization (excludes tenants
  * already in the org). The endpoint matches by tenant name, username, or
- * email and de-duplicates results by tenant_id.
+ * phone/login identifier and de-duplicates results by tenant_id.
  */
 export async function searchTenantsForInvite(
   orgId: string,
@@ -752,17 +764,17 @@ export async function searchTenantsForInvite(
   }
 }
 
-/**
- * @deprecated Use `searchTenantsForInvite`. Kept for callers that haven't
- * migrated yet; the backend serves the tenant-grouped shape from the
- * legacy `/search-users` path as well.
- */
 export async function searchUsersForInvite(
   orgId: string,
-  query: string,
+  query: string = '',
   limit: number = 10
-): Promise<ApiResponse<TenantInviteCandidate[]>> {
-  return searchTenantsForInvite(orgId, query, limit)
+): Promise<ApiResponse<UserSearchResult[]>> {
+  try {
+    const response = await get(`/api/v1/organizations/${orgId}/search-users?q=${encodeURIComponent(query)}&limit=${limit}`)
+    return response as unknown as ApiResponse<UserSearchResult[]>
+  } catch (error: any) {
+    return { success: false, message: error.message || 'Failed to search users' }
+  }
 }
 
 /**

@@ -8,6 +8,7 @@
 .cursor/
 .claude/
 .codebuddy/
+.cache/
 .vscode/
 .idea/
 *.swp
@@ -26,6 +27,7 @@
 # 其它镜像(app/docreader/sandbox)的 Dockerfile 都不引用 frontend/,
 # 所以这里可以直接排除整个 frontend/ 目录。
 **/node_modules/
+frontend/dist/
 frontend/
 WeKnora-Chrome-Extension/
 
@@ -55,6 +57,7 @@ test/data/mswag.txt
 # 敏感文件
 .env
 .env.lite
+.acr.env
 *.pem
 *.key
 *.crt
@@ -71,6 +74,7 @@ packages/protoc-*.zip
 configure-ollama.sh
 fix-docker.sh
 /scripts/scale_dev_jobs.sh
+*.local.sh
 
 # 注意:不要排除 docs/ —— 里面的 docs.go / swagger.json 是 Go 代码依赖的 swagger 包
 # 注意:不要用 *.md 通配排除 —— skills/preloaded/**/SKILL.md 会被打进镜像给 agent 用

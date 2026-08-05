@@ -56,6 +56,7 @@ import { listMoveTargets, moveKnowledge, getKnowledgeMoveProgress } from '@/api/
 import { useI18n } from 'vue-i18n';
 import { useMarqueeSelect } from '@/hooks/useMarqueeSelect';
 import type { ParserEngineInfo } from '@/api/system';
+import { getURLDisplayPath, getUploadDisplayFileName } from './utils/documentDirectory';
 const route = useRoute();
 const { t } = useI18n();
 const kbId = computed(() => (route.params as any).kbId as string || '');
@@ -1686,15 +1687,6 @@ const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'ogg'];
 
 const uploadConfirmStore = useUploadConfirmStore();
 
-const getFolderUploadFileName = (file: File) => {
-  const relativePath = (file as any).webkitRelativePath;
-  if (!relativePath) return undefined;
-  const pathParts = relativePath.split('/');
-  if (pathParts.length <= 2) return undefined;
-  const subPath = pathParts.slice(1, -1).join('/');
-  return `${subPath}/${file.name}`;
-};
-
 const showUploadResultMessages = (
   successCount: number,
   failCount: number,
@@ -1755,8 +1747,11 @@ const executeUploadBatch = async (
         process_config?: KnowledgeProcessOverrides
       } = { file, tag_ids: tagIdsToUpload };
 
-      const fileName = getFolderUploadFileName(file);
-      if (fileName) uploadData.fileName = fileName;
+      uploadData.fileName = getUploadDisplayFileName(
+        file.name,
+        activeDirectoryPath.value,
+        (file as File & { webkitRelativePath?: string }).webkitRelativePath,
+      );
       if (options.processConfig) {
         uploadData.process_config = options.processConfig;
       }
@@ -1813,6 +1808,7 @@ const executeUrlImport = async (url: string, processConfig?: KnowledgeProcessOve
   try {
     const responseData: any = await createKnowledgeFromURL(targetKbId, {
       url,
+      display_path: getURLDisplayPath(url, activeDirectoryPath.value) || undefined,
       tag_ids: tagIdsToUpload,
       process_config: processConfig,
     });

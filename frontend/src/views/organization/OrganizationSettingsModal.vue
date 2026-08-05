@@ -325,7 +325,7 @@
                           </template>
                         </t-input>
                       </div>
-                      <t-button v-if="isAdmin" variant="outline" size="small" @click="showAddMemberDialog = true">
+                      <t-button v-if="isAdmin" variant="outline" size="small" @click="openAddMemberDialog">
                         <template #icon><t-icon name="user-add" /></template>
                         {{ $t('organization.addMember.button') }}
                       </t-button>
@@ -641,19 +641,18 @@
       </div>
     </t-dialog>
 
-    <!-- 添加成员弹窗（按空间邀请） -->
+    <!-- 添加成员弹窗（从用户列表选择，按用户所属空间授权） -->
     <t-dialog v-model:visible="showAddMemberDialog" :header="$t('organization.addMember.dialogTitle')"
-      :confirm-btn="{ content: $t('organization.addMember.confirmBtn'), loading: addMemberSubmitting, disabled: selectedTenantId == null }"
+      :confirm-btn="{ content: $t('organization.addMember.confirmBtn'), loading: addMemberSubmitting, disabled: selectedUserId == null }"
       :cancel-btn="$t('common.cancel')" @confirm="handleAddMember" @close="resetAddMemberDialog" width="420px">
       <div class="add-member-dialog">
-        <p class="add-member-tip">{{ $t('organization.addMember.tipTenant') }}</p>
-
         <div class="add-member-field">
-          <label>{{ $t('organization.addMember.searchTenant') }}</label>
-          <t-select v-model="selectedTenantId" :placeholder="$t('organization.addMember.searchTenantPlaceholder')"
-            filterable :filter="() => true" :loading="tenantSearchLoading" @search="handleTenantSearch" clearable
-            :options="tenantSearchOptions" />
-          <p class="field-hint">{{ $t('organization.addMember.searchTenantHint') }}</p>
+          <label>{{ $t('organization.addMember.searchUser') }}</label>
+          <t-select v-model="selectedUserId" :placeholder="$t('organization.addMember.searchPlaceholder')"
+            filterable :filter="() => true" :loading="userSearchLoading" @search="handleUserSearch" clearable
+            :options="userSearchOptions" @focus="loadDefaultUserList"
+            @visible-change="handleUserSelectVisibleChange" />
+          <p class="field-hint">{{ $t('organization.addMember.searchHint') }}</p>
         </div>
 
         <div class="add-member-field">
@@ -685,14 +684,14 @@ import {
   removeShare,
   removeAgentShare,
   requestRoleUpgrade,
-  searchTenantsForInvite,
+  searchUsersForInvite,
   inviteMember,
   type Organization,
   type OrganizationMember,
   type KnowledgeBaseShare,
   type AgentShareResponse,
   type JoinRequestResponse,
-  type TenantInviteCandidate
+  type UserSearchResult
 } from '@/api/organization'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
@@ -746,14 +745,13 @@ const upgradeForm = ref({
   message: ''
 })
 
-// 添加成员（按空间邀请）相关状态。Plan 3 之后，邀请实际上是把
-// 一整个空间拉进空间；这里的「搜索结果」是空间候选列表，每条带一个
-// 代表用户用于展示。`selectedTenantId` 是真正提交给后端的 tenant_id。
+// 添加成员从用户列表选择；后端会根据 user_id 解析其所属空间并建立共享空间成员关系。
 const showAddMemberDialog = ref(false)
 const addMemberSubmitting = ref(false)
-const tenantSearchLoading = ref(false)
-const tenantSearchResults = ref<TenantInviteCandidate[]>([])
-const selectedTenantId = ref<number | null>(null)
+const userSearchLoading = ref(false)
+const userSearchResults = ref<UserSearchResult[]>([])
+const userSearchBootstrapped = ref(false)
+const selectedUserId = ref<string | null>(null)
 const addMemberRole = ref<'admin' | 'editor' | 'viewer'>('viewer')
 
 const formData = ref({
@@ -840,18 +838,20 @@ const addMemberRoleOptions = computed(() => [
   { label: t('organization.role.admin'), value: 'admin' },
 ])
 
-// 空间搜索结果选项。主标签展示空间名，括号里附带代表用户名（不再展示
-// 邮箱、不带"代表："前缀，避免冗长和译文别扭）；空间名缺失时回退到
-// 代表用户名 / 空间 ID。
-const tenantSearchOptions = computed(() =>
-  tenantSearchResults.value.map((c) => {
-    const tenantLabel = c.tenant_name || c.representative_username || `tenant#${c.tenant_id}`
-    const showsTenantName = !!c.tenant_name
-    const label =
-      showsTenantName && c.representative_username
-        ? `${tenantLabel}（${c.representative_username}）`
-        : tenantLabel
-    return { label, value: c.tenant_id }
+const userSearchOptions = computed(() =>
+  userSearchResults.value.flatMap((u) => {
+    const userId = u.user_id || u.id || u.representative_user_id || ''
+    if (!userId) return []
+    const username = u.username || u.representative_username || ''
+    const phone = u.phone || u.representative_phone || u.email || u.representative_email || ''
+    const userLabel = username || phone || userId
+    const contact = phone && phone !== userLabel ? ` / ${phone}` : ''
+    const joined = u.is_already_member ? ` (${t('organization.addMember.alreadyInSpace')})` : ''
+    return [{
+      label: `${userLabel}${contact}${joined}`,
+      value: userId,
+      disabled: !!u.is_already_member,
+    }]
   })
 )
 
@@ -904,7 +904,7 @@ const filteredMembers = computed(() => {
   return members.value.filter((m) =>
     (m.tenant_name || '').toLowerCase().includes(query) ||
     (m.username || '').toLowerCase().includes(query) ||
-    (m.email || '').toLowerCase().includes(query)
+    (m.phone || m.email || '').toLowerCase().includes(query)
   )
 })
 
@@ -917,7 +917,7 @@ const memberPrimaryLabel = (m: OrganizationMember): string => {
 
 // 副标题：主标题展示的是空间名时，副标题展示代表用户名；如果主标题已经
 // 是用户名（无 tenant_name 时的回退），副标题留空，避免重复信息。
-// 邮箱在空间成员列表里没什么用（不是邀请人需要联系的对象），不展示。
+// 手机号在空间成员列表里不是主要身份；当前行已经按空间聚合，副标题只展示代表用户。
 const memberSecondaryLabel = (m: OrganizationMember): string => {
   if (m.tenant_name && m.username) {
     return m.username
@@ -1218,46 +1218,58 @@ const handleSubmitUpgrade = async () => {
   }
 }
 
-// 添加成员：搜索空间（按空间名 / 用户名 / 邮箱模糊匹配，按 tenant_id 去重）
-let tenantSearchTimer: ReturnType<typeof setTimeout> | null = null
-const handleTenantSearch = (query: string) => {
-  if (tenantSearchTimer) {
-    clearTimeout(tenantSearchTimer)
-  }
-  if (!query || query.length < 2) {
-    tenantSearchResults.value = []
-    return
-  }
-  tenantSearchTimer = setTimeout(async () => {
-    if (!props.orgId) return
-    tenantSearchLoading.value = true
-    try {
-      const res = await searchTenantsForInvite(props.orgId, query, 10)
-      if (res.success && res.data) {
-        tenantSearchResults.value = res.data
-      }
-    } catch (error) {
-      console.error('Failed to search tenants:', error)
-    } finally {
-      tenantSearchLoading.value = false
+// 添加成员：唤起用户列表，并支持用户名 / 手机号模糊搜索。
+let userSearchTimer: ReturnType<typeof setTimeout> | null = null
+const fetchUserInviteCandidates = async (query = '') => {
+  if (!props.orgId) return
+  userSearchLoading.value = true
+  try {
+    const res = await searchUsersForInvite(props.orgId, query, 20)
+    if (res.success && res.data) {
+      userSearchResults.value = res.data
     }
+  } catch (error) {
+    console.error('Failed to search users:', error)
+  } finally {
+    userSearchLoading.value = false
+  }
+}
+
+const loadDefaultUserList = () => {
+  if (userSearchLoading.value || userSearchBootstrapped.value) return
+  userSearchBootstrapped.value = true
+  fetchUserInviteCandidates()
+}
+
+const handleUserSelectVisibleChange = (visible: boolean) => {
+  if (visible) {
+    loadDefaultUserList()
+  }
+}
+
+const openAddMemberDialog = () => {
+  showAddMemberDialog.value = true
+  loadDefaultUserList()
+}
+
+const handleUserSearch = (query: string) => {
+  if (userSearchTimer) {
+    clearTimeout(userSearchTimer)
+  }
+  userSearchTimer = setTimeout(async () => {
+    const keyword = query.trim()
+    await fetchUserInviteCandidates(keyword.length >= 2 ? keyword : '')
   }, 300)
 }
 
-// 添加成员：把选中的空间拉入空间。后端要求 tenant_id；representative_user_id
-// 仅做展示/审计用，所以把搜索结果中代表用户也一并带上。
+// 添加成员：提交选中的用户，后端按该用户所属空间建立共享空间成员关系。
 const handleAddMember = async () => {
-  if (!props.orgId || selectedTenantId.value == null) return
-
-  const candidate = tenantSearchResults.value.find(
-    (c) => c.tenant_id === selectedTenantId.value
-  )
+  if (!props.orgId || selectedUserId.value == null) return
 
   addMemberSubmitting.value = true
   try {
     const res = await inviteMember(props.orgId, {
-      tenant_id: selectedTenantId.value,
-      representative_user_id: candidate?.representative_user_id,
+      user_id: selectedUserId.value,
       role: addMemberRole.value,
     })
     if (res.success) {
@@ -1277,9 +1289,10 @@ const handleAddMember = async () => {
 
 // 重置添加成员弹窗
 const resetAddMemberDialog = () => {
-  selectedTenantId.value = null
+  selectedUserId.value = null
   addMemberRole.value = 'viewer'
-  tenantSearchResults.value = []
+  userSearchResults.value = []
+  userSearchBootstrapped.value = false
 }
 
 const fallbackCopyText = (text: string) => {
@@ -2710,16 +2723,6 @@ watch(currentSection, (section) => {
 }
 
 .add-member-dialog {
-  .add-member-tip {
-    margin: 0 0 20px;
-    padding: 10px 12px;
-    background: var(--td-bg-color-container);
-    border-radius: 6px;
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
-    line-height: 1.5;
-  }
-
   .add-member-field {
     margin-bottom: 20px;
 

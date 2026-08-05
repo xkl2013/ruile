@@ -1,24 +1,12 @@
 <template>
     <div class="aside_box" :class="{ 'aside_box--collapsed': uiStore.sidebarCollapsed }">
-        <!-- 展开时：Logo + 搜索/折叠按钮同行 -->
+        <!-- 展开时：Logo + 折叠按钮同行 -->
         <div class="logo_row" v-if="!uiStore.sidebarCollapsed">
             <div class="logo_box" @click="router.push('/platform/knowledge-bases')" style="cursor: pointer;">
                 <img class="logo" src="@/assets/img/weknora.png" alt="">
                 <sup v-if="isLiteEdition" class="lite-badge">Lite</sup>
             </div>
             <div class="logo_actions">
-                <t-tooltip placement="bottom">
-                    <template #content>
-                        <span class="cmdk-tip">
-                            <span class="cmdk-tip-label">{{ t('menu.search') }}</span>
-                            <span class="cmdk-tip-keys">{{ cmdModKeyLabel }}K</span>
-                        </span>
-                    </template>
-                    <div class="header-icon-btn" @click="commandPaletteStore.openPalette('')"
-                        :aria-label="t('menu.search')">
-                        <img class="header-icon-img" :src="getImgSrc('search.svg')" alt="">
-                    </div>
-                </t-tooltip>
                 <div class="sidebar-toggle" @click="uiStore.toggleSidebar" :title="t('menu.collapseSidebar')">
                     <svg viewBox="0 0 20 20" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor" stroke-width="1.2" />
@@ -57,25 +45,6 @@
 
         <!-- 上半部分：新对话吸顶 + 知识库/智能体/共享空间/历史会话随滚动一起滚走 -->
         <div class="menu_top" ref="scrollContainer" @scroll="handleScroll">
-            <!-- 全局搜索入口：点击打开命令面板（⌘K）。展开态移至顶部 logo_row 的图标按钮；
-                 折叠态在此处保留为图标项 + 深色 tooltip。 -->
-            <div class="menu_box menu_box--cmdk" v-if="uiStore.sidebarCollapsed">
-                <t-tooltip placement="right">
-                    <template #content>
-                        <span class="cmdk-tip">
-                            <span class="cmdk-tip-label">{{ t('menu.search') }}</span>
-                            <span class="cmdk-tip-keys">{{ cmdModKeyLabel }}K</span>
-                        </span>
-                    </template>
-                    <div class="menu_item menu_item--cmdk" @click="commandPaletteStore.openPalette('')">
-                        <div class="menu_item-box">
-                            <div class="menu_icon">
-                                <img class="icon" :src="getImgSrc('search.svg')" alt="">
-                            </div>
-                        </div>
-                    </div>
-                </t-tooltip>
-            </div>
             <template v-for="(item, index) in topMenuItems" :key="index">
                 <template v-if="item.path === 'knowledge-bases'">
                     <div class="menu_box">
@@ -94,6 +63,7 @@
                         </template>
                         <template v-else>
                             <KnowledgeBaseMenu />
+                            <OrganizeMenu />
                         </template>
                     </div>
                 </template>
@@ -106,6 +76,7 @@
                                 <div class="menu_icon">
                                     <img class="icon"
                                         :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
+                                        :class="{ 'icon--avatar': item.path === 'creatChat' }"
                                         alt="">
                                 </div>
                                 <template v-if="!uiStore.sidebarCollapsed">
@@ -272,11 +243,11 @@ import { useMenuStore } from '@/stores/menu';
 import { useAuthStore } from '@/stores/auth';
 import { useOrganizationStore } from '@/stores/organization';
 import { useUIStore } from '@/stores/ui';
-import { useCommandPaletteStore } from '@/stores/commandPalette';
 import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
 import UserMenu from '@/components/UserMenu.vue';
 import TenantSelector from '@/components/TenantSelector.vue';
 import KnowledgeBaseMenu from '@/components/KnowledgeBaseMenu.vue';
+import OrganizeMenu from '@/components/OrganizeMenu.vue';
 import { useI18n } from 'vue-i18n';
 import { getSystemInfo } from '@/api/system';
 
@@ -312,13 +283,6 @@ const usemenuStore = useMenuStore();
 const authStore = useAuthStore();
 const orgStore = useOrganizationStore();
 const uiStore = useUIStore();
-const commandPaletteStore = useCommandPaletteStore();
-
-// Platform-aware label for the ⌘K hint. navigator.platform is deprecated but
-// the alternatives (userAgentData.platform) aren't universally available yet;
-// this check is good enough for Mac vs. non-Mac.
-const isMacLike = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || '');
-const cmdModKeyLabel = isMacLike ? '⌘' : 'Ctrl';
 const route = useRoute();
 const router = useRouter();
 const currentpath = ref('');
@@ -1035,7 +999,7 @@ watch([() => route.name, () => route.params], (newvalue, oldvalue) => {
     }
 });
 let knowledgeIcon = ref('zhishiku-green.svg');
-let prefixIcon = ref('prefixIcon.svg');
+let prefixIcon = ref('xiaorui-ai.png');
 let logoutIcon = ref('logout.svg');
 let settingIcon = ref('setting.svg');
 let agentIcon = ref('agent.svg');
@@ -1044,7 +1008,6 @@ let pathPrefix = ref(route.name)
 const getIcon = (path: string) => {
     // 根据当前路由状态更新所有图标
     const kbActiveState = getIconActiveState('knowledge-bases');
-    const creatChatActiveState = getIconActiveState('creatChat');
     const settingsActiveState = getIconActiveState('settings');
     const agentsActiveState = route.name === 'agentList';
     const organizationsActiveState = route.name === 'organizationList';
@@ -1058,8 +1021,8 @@ const getIcon = (path: string) => {
     // 组织图标：只在组织页面显示绿色
     organizationIcon.value = organizationsActiveState ? 'organization-green.svg' : 'organization.svg';
 
-    // 对话图标：只在对话创建页面显示绿色，其他情况显示默认
-    prefixIcon.value = creatChatActiveState.isCreatChatActive ? 'prefixIcon-green.svg' : 'prefixIcon.svg';
+    // 小睿 AI 使用品牌头像，激活态由菜单背景承载。
+    prefixIcon.value = 'xiaorui-ai.png';
 
     // 设置图标：只在设置页面显示绿色
     settingIcon.value = settingsActiveState.isSettingsActive ? 'setting-green.svg' : 'setting.svg';
@@ -1456,6 +1419,8 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
 
     .menu_icon {
         display: flex;
+        align-items: center;
+        justify-content: center;
         flex: 0 0 var(--sidebar-icon-size);
         width: var(--sidebar-icon-size);
         margin-right: var(--sidebar-icon-gap);
@@ -1465,6 +1430,13 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
             width: 18px;
             height: 18px;
             overflow: hidden;
+
+            &--avatar {
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                object-fit: cover;
+            }
         }
     }
 
@@ -1843,54 +1815,12 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
     user-select: none;
 }
 
-// 顶部 logo_row 右侧的图标按钮组（搜索 + 折叠），与折叠按钮风格一致
+// 顶部 logo_row 右侧的折叠按钮容器
 .logo_actions {
     display: flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
-}
-
-.header-icon-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    flex-shrink: 0;
-    cursor: pointer;
-    border-radius: 6px;
-    color: var(--td-text-color-secondary);
-    transition: background-color 0.2s ease;
-    box-sizing: border-box;
-
-    &:hover {
-        background: var(--td-bg-color-container-hover);
-    }
-
-    .header-icon-img {
-        width: 18px;
-        height: 18px;
-        display: block;
-    }
-}
-
-// 深色 tooltip 内容：标签 + 浅灰快捷键内联
-.cmdk-tip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    white-space: nowrap;
-
-    .cmdk-tip-label {
-        font-size: 13px;
-    }
-
-    .cmdk-tip-keys {
-        font-size: 13px;
-        opacity: 0.6;
-        letter-spacing: 0.5px;
-    }
 }
 
 .menu-pending-badge {
@@ -1931,20 +1861,15 @@ html[theme-mode="dark"] .aside_box .menu_top::-webkit-scrollbar-thumb:hover {
     background-color: rgba(255, 255, 255, 0.38);
 }
 
-// Dark mode: invert the top search icon button image to match text color
-html[theme-mode="dark"] .aside_box .header-icon-img {
-    filter: invert(1);
-    opacity: 0.55;
-}
-
-html[theme-mode="dark"] .aside_box .header-icon-btn:hover .header-icon-img {
-    opacity: 0.9;
-}
-
 // Dark mode: make SVG icons match text color (loaded via <img>, currentColor won't work)
 html[theme-mode="dark"] .aside_box .menu_icon img.icon {
     filter: invert(1);
     opacity: 0.55;
+}
+
+html[theme-mode="dark"] .aside_box .menu_icon img.icon--avatar {
+    filter: none;
+    opacity: 1;
 }
 
 // Hover state: brighter icon like text

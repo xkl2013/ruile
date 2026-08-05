@@ -1243,6 +1243,11 @@ func (s *userService) GetCurrentUser(ctx context.Context) (*types.User, error) {
 	return user, nil
 }
 
+// ListUsers lists users with pagination.
+func (s *userService) ListUsers(ctx context.Context, offset, limit int) ([]*types.User, error) {
+	return s.userRepo.ListUsers(ctx, offset, limit)
+}
+
 // SearchUsers searches users by username or email
 func (s *userService) SearchUsers(ctx context.Context, query string, limit int) ([]*types.User, error) {
 	if query == "" {

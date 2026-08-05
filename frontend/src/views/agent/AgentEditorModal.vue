@@ -3230,7 +3230,7 @@ watch(agentMode, (val, _oldVal) => {
 //     （切 agent_type / 切 agent_mode / 手勾工具）时变更。
 // 历史背景：旧版本在 KB 能力消失时会擦除 KB/Wiki 工具，导致用户切换
 // `kb_selection_mode` 到 "selected"、但尚未勾具体 KB 的过渡期里静默丢失工具，
-// 对默认工具全是 wiki_* 的内置"维基问答"智能体尤为致命。
+// 对默认工具全是 wiki_* 的智能体尤为致命。
 watch(hasKnowledgeBase, (hasKB, oldHasKB) => {
   // 如果当前在检索策略页面但没有知识库能力了，切换到基础设置
   if (!hasKB && currentSection.value === 'retrieval') {

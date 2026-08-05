@@ -429,7 +429,7 @@ type OrganizationResponse struct {
 // OrganizationMemberResponse represents a member in API responses.
 //
 // Post-Plan-3: every row is a (org, tenant) tuple. TenantID + TenantName
-// are the primary identity; UserID / Username / Email / Avatar describe
+// are the primary identity; UserID / Username / Phone / Email / Avatar describe
 // the representative user (informational, may be empty if the rep user
 // was soft-deleted). RepresentativeUserID is the same value as UserID,
 // kept as an explicit alias so frontends can stop relying on the
@@ -439,6 +439,7 @@ type OrganizationMemberResponse struct {
 	UserID               string    `json:"user_id"`
 	RepresentativeUserID string    `json:"representative_user_id"`
 	Username             string    `json:"username"`
+	Phone                string    `json:"phone,omitempty"`
 	Email                string    `json:"email"`
 	Avatar               string    `json:"avatar"`
 	Role                 string    `json:"role"`
@@ -457,8 +458,27 @@ type TenantInviteCandidate struct {
 	TenantName             string `json:"tenant_name"`
 	RepresentativeUserID   string `json:"representative_user_id"`
 	RepresentativeUsername string `json:"representative_username"`
+	RepresentativePhone    string `json:"representative_phone,omitempty"`
 	RepresentativeEmail    string `json:"representative_email"`
 	RepresentativeAvatar   string `json:"representative_avatar,omitempty"`
+}
+
+// UserInviteCandidate is one row in the search-users-for-invite picker.
+// The UI lets admins choose a user from the global user list, while the
+// write model still enrols that user's tenant into the organization.
+// IsAlreadyMember is true when the user's tenant is already present in
+// the org; selecting another user from that tenant would not create a
+// second membership row.
+type UserInviteCandidate struct {
+	ID              string `json:"id"`
+	UserID          string `json:"user_id"`
+	Username        string `json:"username"`
+	Phone           string `json:"phone,omitempty"`
+	Email           string `json:"email"`
+	Avatar          string `json:"avatar,omitempty"`
+	TenantID        uint64 `json:"tenant_id"`
+	TenantName      string `json:"tenant_name,omitempty"`
+	IsAlreadyMember bool   `json:"is_already_member"`
 }
 
 // KnowledgeBaseShareResponse represents a share record in API responses

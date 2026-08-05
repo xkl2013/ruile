@@ -4,11 +4,10 @@ import "testing"
 
 // TestApplyAuthAndTenantDefaults_DisableRegistrationDrivesRegistrationMode
 // pins down the env-vs-YAML contract for DISABLE_REGISTRATION. Without this,
-// DISABLE_REGISTRATION=true would block /auth/register at the handler layer
-// but leave /auth/config reporting self_serve, so the frontend would keep
-// showing the (broken) Register entry. Coercing registration_mode here keeps
-// both gates in sync, and matches the docs/RBAC说明.md "env always wins over
-// YAML" rule.
+// the legacy env var could leave the handler's /auth/register gate and the
+// frontend's /auth/config-driven register entry disagreeing. Coercing
+// registration_mode here keeps both gates in sync, and matches the
+// docs/RBAC说明.md "env always wins over YAML" rule.
 func TestApplyAuthAndTenantDefaults_DisableRegistrationDrivesRegistrationMode(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -21,6 +20,8 @@ func TestApplyAuthAndTenantDefaults_DisableRegistrationDrivesRegistrationMode(t 
 		{"true overrides explicit self_serve YAML", "true", AuthRegistrationModeSelfServe, AuthRegistrationModeInviteOnly},
 		{"true is a no-op when YAML already invite_only", "true", AuthRegistrationModeInviteOnly, AuthRegistrationModeInviteOnly},
 		{"false leaves YAML untouched", "false", AuthRegistrationModeSelfServe, AuthRegistrationModeSelfServe},
+		{"false coerces empty YAML to self_serve", "false", "", AuthRegistrationModeSelfServe},
+		{"false overrides explicit invite_only YAML", "false", AuthRegistrationModeInviteOnly, AuthRegistrationModeSelfServe},
 		{"unset falls back to enterprise default invite_only", "", "", AuthRegistrationModeInviteOnly},
 		{"unset keeps explicit invite_only YAML", "", AuthRegistrationModeInviteOnly, AuthRegistrationModeInviteOnly},
 	}

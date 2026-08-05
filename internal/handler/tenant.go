@@ -231,8 +231,8 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 	// Deployment-level policy: ordinary users may be restricted to joining
 	// existing workspaces by invitation. This check is authoritative; the
 	// frontend capability only improves UX and cannot bypass it. Cross-tenant
-	// superusers retain the catalog-management create path.
-	if !caller.CanAccessAllTenants &&
+	// superusers and system administrators retain the create path.
+	if !caller.IsSystemAdmin && !caller.CanAccessAllTenants &&
 		!resolveTenantSelfServiceCreationEnabled(ctx, h.config, h.systemSettingSvc) {
 		logger.Warnf(ctx, "Self-service tenant creation denied by policy for user %s", caller.ID)
 		c.Error(errors.NewTenantCreationDisabledError())

@@ -46,7 +46,7 @@ func newOSSClient(endpoint, region, accessKey, secretKey string) (*oss.Client, e
 
 // ossEnsureBucket checks if the bucket exists and creates it if missing.
 func ossEnsureBucket(client *oss.Client, bucketName string) error {
-	exists, err := client.IsBucketExist(context.Background(), bucketName)
+	exists, err := ossBucketExists(context.Background(), client, bucketName)
 	if err != nil {
 		return fmt.Errorf("failed to check OSS bucket: %w", err)
 	}
@@ -65,6 +65,47 @@ func ossEnsureBucket(client *oss.Client, bucketName string) error {
 		return fmt.Errorf("failed to create OSS bucket: %w", err)
 	}
 	return nil
+}
+
+// ossBucketExists preserves the SDK's permission-tolerant existence check while
+// rejecting authentication failures. IsBucketExist treats every OSS service
+// error except NoSuchBucket as an existing bucket, including bad signatures.
+func ossBucketExists(ctx context.Context, client *oss.Client, bucketName string) (bool, error) {
+	_, err := client.GetBucketAcl(ctx, &oss.GetBucketAclRequest{Bucket: oss.Ptr(bucketName)})
+	if err == nil {
+		return true, nil
+	}
+
+	var svcErr *oss.ServiceError
+	if !errors.As(err, &svcErr) {
+		return false, err
+	}
+
+	if ossIsAuthenticationError(err) {
+		return false, fmt.Errorf("OSS authentication failed (%s): %w", svcErr.Code, err)
+	}
+
+	switch svcErr.Code {
+	case "NoSuchBucket":
+		return false, nil
+	default:
+		// A valid key without GetBucketAcl permission returns AccessDenied. The
+		// bucket still exists and object-level permissions can be more specific.
+		return true, nil
+	}
+}
+
+func ossIsAuthenticationError(err error) bool {
+	var svcErr *oss.ServiceError
+	if !errors.As(err, &svcErr) {
+		return false
+	}
+	switch svcErr.Code {
+	case "SignatureDoesNotMatch", "InvalidAccessKeyId", "InvalidSecurityToken", "SecurityTokenExpired":
+		return true
+	default:
+		return false
+	}
 }
 
 // NewOssFileService creates an Aliyun OSS file service.
@@ -119,7 +160,7 @@ func CheckOssConnectivity(ctx context.Context, endpoint, region, accessKey, secr
 		return err
 	}
 
-	exists, err := client.IsBucketExist(ctx, bucketName)
+	exists, err := ossBucketExists(ctx, client, bucketName)
 	if err != nil {
 		return fmt.Errorf("failed to check OSS bucket: %w", err)
 	}
@@ -148,7 +189,7 @@ func (s *ossFileService) CheckConnectivity(ctx context.Context) error {
 	checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	exists, err := s.client.IsBucketExist(checkCtx, s.bucketName)
+	exists, err := ossBucketExists(checkCtx, s.client, s.bucketName)
 	if err != nil {
 		return fmt.Errorf("failed to check OSS bucket: %w", err)
 	}

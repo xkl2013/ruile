@@ -140,7 +140,7 @@ export async function addMember(
 /**
  * Create an account from the admin member-management screen and immediately
  * add it to the current tenant. Backend sets the initial password to
- * `rl` + the last four digits of the phone number.
+ * `rl` + the last six digits of the phone number.
  * Backend: POST /api/v1/tenants/:id/members/admin-create (Admin+).
  */
 export async function adminCreateMember(

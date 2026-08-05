@@ -1,0 +1,4 @@
+services:
+  app:
+    volumes:
+      - ./config/builtin_models.yaml:/app/config/builtin_models.yaml:ro

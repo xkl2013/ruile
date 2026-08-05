@@ -1490,7 +1490,7 @@ watch(createMemberDialogVisible, (open) => {
 const createMemberDefaultPassword = computed(() => {
   const phone = createMemberForm.phone.trim()
   if (!/^1[3-9]\d{9}$/.test(phone)) return ''
-  return `rl${phone.slice(-4)}`
+  return `rl${phone.slice(-6)}`
 })
 
 // absoluteInviteURL turns the backend's potentially-host-relative
@@ -1574,7 +1574,7 @@ async function submitCreateMember() {
     membersPage.value = 1
     await loadMembers()
     if (auditLoadedOnce.value) reloadAuditLog()
-    MessagePlugin.success(t('tenantMember.create.success', { password: `rl${phone.slice(-4)}` }))
+    MessagePlugin.success(t('tenantMember.create.success', { password: `rl${phone.slice(-6)}` }))
   } catch (err: any) {
     const status = err?.status
     if (status === 409) {

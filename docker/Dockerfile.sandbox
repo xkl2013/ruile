@@ -3,10 +3,12 @@
 # Multi-stage build, minimal dependencies
 
 # Stage 1: Get Node.js binaries
-FROM node:20-slim AS node-base
+ARG NODE_BASE=node:20-slim
+ARG PYTHON_BASE=python:3.11-slim
+FROM ${NODE_BASE} AS node-base
 
 # Stage 2: Final image
-FROM python:3.11-slim
+FROM ${PYTHON_BASE}
 
 # Copy Node.js from node image (avoids NodeSource install overhead)
 COPY --from=node-base /usr/local/bin/node /usr/local/bin/

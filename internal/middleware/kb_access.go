@@ -340,8 +340,10 @@ func resolveKBAccessOnce(
 	}
 
 	// 1. Same-tenant KB. Admin+ can access all tenant KBs; ordinary
-	// members only access KBs they created. Legacy rows without CreatorID
-	// are tenant-owned and therefore Admin+ only.
+	// members access KBs they created. If a same-tenant KB is explicitly
+	// shared to an organization the caller's tenant belongs to, fall through
+	// to the org-share check below so shared spaces can grant teammate-owned
+	// KB access without making every tenant KB globally visible.
 	if kb.TenantID == tenantID {
 		// API-key principals are already constrained by their KB allow-list.
 		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
@@ -366,7 +368,6 @@ func resolveKBAccessOnce(
 				Permission:        types.OrgRoleAdmin,
 			}, nil
 		}
-		return nil, errKBAccessForbidden
 	}
 
 	// 2. Org-shared KB. Plan 3's 3-D cap is applied inside

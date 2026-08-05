@@ -116,6 +116,22 @@ spec:
               value: {{ .Values.app.env.STORAGE_TYPE | quote }}
             - name: LOCAL_STORAGE_BASE_DIR
               value: {{ .Values.app.env.LOCAL_STORAGE_BASE_DIR | quote }}
+            - name: OSS_ENDPOINT
+              value: {{ .Values.app.env.OSS_ENDPOINT | quote }}
+            - name: OSS_REGION
+              value: {{ .Values.app.env.OSS_REGION | quote }}
+            - name: OSS_ACCESS_KEY
+              value: {{ .Values.app.env.OSS_ACCESS_KEY | quote }}
+            - name: OSS_SECRET_KEY
+              value: {{ .Values.app.env.OSS_SECRET_KEY | quote }}
+            - name: OSS_BUCKET_NAME
+              value: {{ .Values.app.env.OSS_BUCKET_NAME | quote }}
+            - name: OSS_PATH_PREFIX
+              value: {{ .Values.app.env.OSS_PATH_PREFIX | quote }}
+            - name: OSS_TEMP_BUCKET_NAME
+              value: {{ .Values.app.env.OSS_TEMP_BUCKET_NAME | quote }}
+            - name: OSS_TEMP_REGION
+              value: {{ .Values.app.env.OSS_TEMP_REGION | quote }}
             # Document reader
             - name: DOCREADER_ADDR
               value: "docreader:50051"

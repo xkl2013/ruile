@@ -947,6 +947,7 @@ func (s *DataSourceService) ingestItem(ctx context.Context, ds *types.DataSource
 			"",  // auto-detect file type
 			nil, // use KB default for multimodal
 			item.Title,
+			"",
 			tagIDs, // auto-tag from data source
 			channel,
 			nil,

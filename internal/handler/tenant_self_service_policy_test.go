@@ -49,6 +49,11 @@ func (s *tenantPolicyUserService) GetCurrentUser(context.Context) (*types.User, 
 	return s.user, nil
 }
 
+func (s *tenantPolicyUserService) UpdateUser(_ context.Context, user *types.User) error {
+	s.user = user
+	return nil
+}
+
 func (s *tenantPolicyUserService) BuildLoginMemberships(context.Context, *types.User, *types.Tenant) []types.Membership {
 	return []types.Membership{}
 }
@@ -121,6 +126,34 @@ func TestCreateTenantAllowsCrossTenantSuperuserWhenSelfServiceDisabled(t *testin
 	}
 }
 
+func TestCreateTenantAllowsSystemAdminWhenSelfServiceDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tenants := &tenantPolicyTenantService{}
+	h := &TenantHandler{
+		service: tenants,
+		userService: &tenantPolicyUserService{user: &types.User{
+			ID:            "system-admin",
+			IsSystemAdmin: true,
+		}},
+		config:           &config.Config{Tenant: &config.TenantConfig{}},
+		systemSettingSvc: &tenantPolicySettingService{enabled: false},
+	}
+	r := gin.New()
+	r.Use(errorCapture())
+	r.POST("/tenants", h.CreateTenant)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/tenants", bytes.NewBufferString(`{"name":"first-workspace"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if tenants.createCalls != 1 {
+		t.Fatalf("CreateTenant called %d times, want 1", tenants.createCalls)
+	}
+}
+
 func TestAuthMeProjectsTenantCreationCapability(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &AuthHandler{
@@ -142,5 +175,30 @@ func TestAuthMeProjectsTenantCreationCapability(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"can_create_tenant":false`) {
 		t.Fatalf("response missing capability: %s", w.Body.String())
+	}
+}
+
+func TestAuthMeAllowsSystemAdminTenantCreation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &AuthHandler{
+		userService: &tenantPolicyUserService{user: &types.User{
+			ID:            "system-admin",
+			Username:      "system-admin",
+			Email:         "system-admin@example.com",
+			IsSystemAdmin: true,
+		}},
+		configInfo:       &config.Config{Tenant: &config.TenantConfig{}},
+		systemSettingSvc: &tenantPolicySettingService{enabled: false},
+	}
+	r := gin.New()
+	r.GET("/auth/me", h.GetCurrentUser)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/auth/me", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"can_create_tenant":true`) {
+		t.Fatalf("response missing system-admin create capability: %s", w.Body.String())
 	}
 }

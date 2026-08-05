@@ -269,6 +269,19 @@ func TestCreateKnowledgeFromFile_PersistsProcessOverrides(t *testing.T) {
 	require.Equal(t, "test", metadataMap["source"])
 }
 
+func TestValidateDisplayPath(t *testing.T) {
+	t.Parallel()
+
+	path, err := validateDisplayPath("目录/子目录/网页")
+	require.NoError(t, err)
+	require.Equal(t, "目录/子目录/网页", path)
+
+	for _, invalid := range []string{"网页", "目录/../网页", "目录//网页", "/目录/网页"} {
+		_, err := validateDisplayPath(invalid)
+		require.Error(t, err, invalid)
+	}
+}
+
 func newCreateKnowledgeFileContext() context.Context {
 	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(1))
 	ctx = context.WithValue(ctx, types.TenantInfoContextKey, &types.Tenant{})

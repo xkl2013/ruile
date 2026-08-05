@@ -14,7 +14,7 @@
 |---|---|---|
 | 腾讯云轻量应用服务器 / CVM | [tencent-lighthouse.md](./tencent-lighthouse.md) | ✅ |
 | AWS EC2 (AMI) | _欢迎贡献_ | ⏳ |
-| 阿里云 ECS | _欢迎贡献_ | ⏳ |
+| 阿里云 ECS | [ACR + ECS 部署](../aliyun-acr-compose-deployment.md) / [完整 ECS 部署](../aliyun-ecs-deployment.md) | ✅ |
 | 火山引擎 ECS | _欢迎贡献_ | ⏳ |
 | 华为云 ECS | _欢迎贡献_ | ⏳ |
 | 本地 KVM / Proxmox | _欢迎贡献_ | ⏳ |

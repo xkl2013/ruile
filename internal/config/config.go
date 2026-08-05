@@ -810,11 +810,10 @@ func applyAgentEnvOverrides(cfg *Config) {
 //     can't silently disable the quota for a future deployment.
 //
 // Note: auth.registration_mode has no dedicated env override. The
-// long-standing DISABLE_REGISTRATION=true env var is the single env-layer
-// knob and, when set, coerces registration_mode to invite_only here. That
-// way both the API gate (handler) and the /auth/config-driven UI gate
-// (frontend hides the register entry) stay consistent — without needing
-// two parallel env vars.
+// long-standing DISABLE_REGISTRATION env var is the single env-layer
+// knob: true maps to invite_only, false maps to self_serve. That way both
+// the API gate (handler) and the /auth/config-driven UI gate (frontend hides
+// the register entry) stay consistent — without needing two parallel env vars.
 func applyAuthAndTenantDefaults(cfg *Config) {
 	if cfg.Auth == nil {
 		cfg.Auth = &AuthConfig{}
@@ -823,14 +822,23 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 		cfg.Tenant = &TenantConfig{}
 	}
 
-	if legacy := strings.TrimSpace(os.Getenv("DISABLE_REGISTRATION")); strings.EqualFold(legacy, "true") {
-		prev := strings.TrimSpace(cfg.Auth.RegistrationMode)
-		cfg.Auth.RegistrationMode = AuthRegistrationModeInviteOnly
-		if prev != "" && prev != AuthRegistrationModeInviteOnly {
-			fmt.Printf(
-				"[config] DISABLE_REGISTRATION=true overrides auth.registration_mode=%q -> %q\n",
-				prev, AuthRegistrationModeInviteOnly,
-			)
+	if legacy := strings.TrimSpace(os.Getenv("DISABLE_REGISTRATION")); legacy != "" {
+		disabled, err := strconv.ParseBool(legacy)
+		if err != nil {
+			fmt.Printf("[config] DISABLE_REGISTRATION=%q is not a boolean, ignoring\n", legacy)
+		} else {
+			targetMode := AuthRegistrationModeSelfServe
+			if disabled {
+				targetMode = AuthRegistrationModeInviteOnly
+			}
+			prev := strings.TrimSpace(cfg.Auth.RegistrationMode)
+			cfg.Auth.RegistrationMode = targetMode
+			if prev != "" && prev != targetMode {
+				fmt.Printf(
+					"[config] DISABLE_REGISTRATION=%s overrides auth.registration_mode=%q -> %q\n",
+					strconv.FormatBool(disabled), prev, targetMode,
+				)
+			}
 		}
 	}
 

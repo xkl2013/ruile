@@ -230,6 +230,9 @@ type CreateKnowledgeFromURLRequest struct {
 	EnableMultimodel *bool `json:"enable_multimodel,omitempty"`
 	// Title is the optional title for the knowledge entry
 	Title string `json:"title,omitempty"`
+	// DisplayPath is an optional relative document path used to place the entry
+	// in a knowledge-base directory without changing its source URL or title.
+	DisplayPath string `json:"display_path,omitempty"`
 	// TagID is the optional tag ID to associate with the knowledge entry
 	TagID string `json:"tag_id,omitempty"`
 	// Channel identifies the ingestion channel (e.g. "web", "browser_extension", "api")

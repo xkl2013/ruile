@@ -112,10 +112,10 @@ func parseTenantIDFromPath(c *gin.Context) (uint64, bool) {
 }
 
 func defaultAdminCreatedPassword(phone string) string {
-	if len(phone) <= 4 {
+	if len(phone) <= 6 {
 		return "rl" + phone
 	}
-	return "rl" + phone[len(phone)-4:]
+	return "rl" + phone[len(phone)-6:]
 }
 
 // ListMembers godoc
@@ -349,7 +349,7 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 
 // AdminCreateMember godoc
 // @Summary      管理员创建账号并加入空间
-// @Description  Admin 录入姓名和手机号创建 tenantless 账号，并以默认密码 rl+手机号后四位加入当前空间；默认角色为 Contributor。
+// @Description  Admin 录入姓名和手机号创建 tenantless 账号，并以默认密码 rl+手机号后六位加入当前空间；默认角色为 Contributor。
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json

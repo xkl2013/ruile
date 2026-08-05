@@ -111,7 +111,7 @@ func TestUserServiceAdminCreateUserAllowsDefaultPhonePassword(t *testing.T) {
 	user, err := svc.AdminCreateUser(context.Background(), &types.RegisterRequest{
 		Username: "地平线",
 		Phone:    "13258978288",
-		Password: "rl8288",
+		Password: "rl978288",
 	})
 	if err != nil {
 		t.Fatalf("AdminCreateUser: %v", err)
@@ -119,10 +119,10 @@ func TestUserServiceAdminCreateUserAllowsDefaultPhonePassword(t *testing.T) {
 	if user.TenantID != 0 || repo.created == nil || repo.created.TenantID != 0 {
 		t.Fatalf("admin-created user must be tenantless: user=%d created=%v", user.TenantID, repo.created)
 	}
-	if repo.created.PasswordHash == "rl8288" || repo.created.PasswordHash == "" {
+	if repo.created.PasswordHash == "rl978288" || repo.created.PasswordHash == "" {
 		t.Fatalf("password was not hashed: %q", repo.created.PasswordHash)
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(repo.created.PasswordHash), []byte("rl8288")); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(repo.created.PasswordHash), []byte("rl978288")); err != nil {
 		t.Fatalf("password hash does not match default password: %v", err)
 	}
 	if user.Email != "13258978288" || user.Username != "地平线" {

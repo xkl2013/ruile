@@ -843,19 +843,11 @@ type DisplayAgent = (AgentWithUI & { isMine: true }) | (CustomAgent & { isMine: 
 
 const spaceSelection = ref('all')
 const creatorFilter = ref<'all' | 'mine' | 'others'>('all')
-const HIDDEN_BUILTIN_AGENT_IDS = new Set(['builtin-data-analyst'])
-const isHiddenBuiltinAgent = (agent: CustomAgent) =>
-  !!agent.is_builtin && (
-    HIDDEN_BUILTIN_AGENT_IDS.has(agent.id) ||
-    agent.config?.agent_type === 'data-analysis'
-  )
 
 // Per-user favorites + recents (localStorage-backed). See useResourcePins.
 const pins = useResourcePins()
 const agents = ref<AgentWithUI[]>([])
-const sharedAgents = computed<SharedAgentInfo[]>(() =>
-  (orgStore.sharedAgents || []).filter(s => !s.agent || !isHiddenBuiltinAgent(s.agent as CustomAgent))
-)
+const sharedAgents = computed<SharedAgentInfo[]>(() => orgStore.sharedAgents || [])
 
 // Left scope navigation is hidden; keep the historical scope machinery fixed
 // to "all" so old links cannot switch this page into favorites / recents / space views.
@@ -1016,13 +1008,11 @@ const showAgentListContextualGuide = computed(
 
 const applyAgentListData = (res: { data: CustomAgent[]; disabled_own_agent_ids: string[] }) => {
   const disabledOwnIds = res.disabled_own_agent_ids || []
-  agents.value = (res.data || [])
-    .filter((agent: CustomAgent) => !isHiddenBuiltinAgent(agent))
-    .map((agent: CustomAgent) => ({
-      ...agent,
-      showMore: false,
-      disabled_by_me: disabledOwnIds.includes(agent.id)
-    }))
+  agents.value = (res.data || []).map((agent: CustomAgent) => ({
+    ...agent,
+    showMore: false,
+    disabled_by_me: disabledOwnIds.includes(agent.id)
+  }))
   checkAndOpenEditModal()
 }
 
