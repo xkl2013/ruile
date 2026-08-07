@@ -27,6 +27,7 @@ export const ORGANIZE_ROUTE_NAMES = {
   memory: 'organizeMemory',
   output: 'organizeOutput',
   sprout: 'organizeSprout',
+  editor: 'organizeEditor',
   memoryNotes: 'organizeMemoryNotes',
   memoryAudio: 'organizeMemoryAudio',
   memoryAudioCards: 'organizeMemoryAudioCards',
@@ -51,7 +52,7 @@ export const ORGANIZE_MENU_ROUTES: readonly OrganizeMenuRouteItem[] = [
   },
   {
     key: 'sprout',
-    label: '发芽报告',
+    label: '发芽',
     icon: 'tree-list',
     count: 6,
     routeName: ORGANIZE_ROUTE_NAMES.sprout,

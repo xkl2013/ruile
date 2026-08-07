@@ -48,6 +48,28 @@ func TestTenantResponse_AdminGetsRedactedIntegrationConfigs(t *testing.T) {
 	assert.Equal(t, types.RedactedSecretPlaceholder, resp.StorageEngineConfig.MinIO.SecretAccessKey)
 }
 
+func TestTenantResponseIncludesStorageUsageWarning(t *testing.T) {
+	tenant := sampleSecretTenant()
+	tenant.StorageUsed = 85
+	tenant.StorageQuota = 100
+
+	resp := NewTenantResponse(viewerContext(), tenant)
+	require.NotNil(t, resp.StorageUsage)
+	assert.Equal(t, int64(85), resp.StorageUsage.UsedBytes)
+	assert.Equal(t, int64(100), resp.StorageUsage.QuotaBytes)
+	assert.Equal(t, int64(15), resp.StorageUsage.RemainingBytes)
+	assert.Equal(t, 85.0, resp.StorageUsage.UsagePercent)
+	assert.Equal(t, "warning", resp.StorageUsage.Status)
+	assert.True(t, resp.StorageUsage.RequiresQuotaIncrease)
+}
+
+func TestTenantStorageUsageUnlimited(t *testing.T) {
+	usage := NewTenantStorageUsageResponse(1024, 0)
+	assert.Equal(t, "unlimited", usage.Status)
+	assert.True(t, usage.Unlimited)
+	assert.False(t, usage.RequiresQuotaIncrease)
+}
+
 func TestTenantResponsesCrossTenant_RedactsEvenForOwnerContext(t *testing.T) {
 	tenant := sampleSecretTenant()
 	body, err := json.Marshal(NewTenantResponsesCrossTenant([]*types.Tenant{tenant}))

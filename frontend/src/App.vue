@@ -64,6 +64,7 @@ const syncOIDCUserContext = async () => {
       business: tenant.business,
       storage_quota: tenant.storage_quota,
       storage_used: tenant.storage_used,
+      storage_usage: tenant.storage_usage,
       created_at: tenant.created_at || new Date().toISOString(),
       updated_at: tenant.updated_at || new Date().toISOString()
     })

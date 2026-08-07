@@ -38,6 +38,10 @@ function listKnowledgeBases() {
   return request("/api/v1/knowledge-bases");
 }
 
+function listTenants() {
+  return request("/api/v1/tenants");
+}
+
 function createKnowledgeFromURL(knowledgeBaseId, url, enableMultimodel = false) {
   return request(`/api/v1/knowledge-bases/${knowledgeBaseId}/knowledge/url`, {
     method: "POST",
@@ -72,5 +76,6 @@ module.exports = {
   createSession,
   knowledgeChat,
   listKnowledgeBases,
+  listTenants,
   request
 };

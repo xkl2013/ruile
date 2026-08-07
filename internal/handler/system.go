@@ -20,6 +20,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/database"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/handler/dto"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser"
 	"github.com/Tencent/WeKnora/internal/logger"
 	modellimiter "github.com/Tencent/WeKnora/internal/models/limiter"
@@ -36,6 +37,8 @@ import (
 type runtimeKnowledgeCanceller interface {
 	CancelKnowledgeParse(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
 }
+
+const storageQuotaBytesPerGiB int64 = 1024 * 1024 * 1024
 
 // SystemHandler handles system-related requests
 type SystemHandler struct {
@@ -2073,6 +2076,131 @@ func (h *SystemHandler) UpdateSystemSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, row)
 }
 
+// UpdateTenantStorageQuotaRequest is the body for
+// PUT /system/admin/tenants/:id/storage-quota. storage_quota uses bytes to
+// match the tenants table; storage_quota_gb is accepted for admin UIs.
+type UpdateTenantStorageQuotaRequest struct {
+	StorageQuota   *int64 `json:"storage_quota,omitempty"`
+	StorageQuotaGB *int64 `json:"storage_quota_gb,omitempty"`
+}
+
+func (r UpdateTenantStorageQuotaRequest) quotaBytes() (int64, int64, error) {
+	hasBytes := r.StorageQuota != nil
+	hasGB := r.StorageQuotaGB != nil
+	if hasBytes == hasGB {
+		return 0, 0, errors.New("provide exactly one of storage_quota or storage_quota_gb")
+	}
+	if hasBytes {
+		return *r.StorageQuota, 0, nil
+	}
+	if *r.StorageQuotaGB > (1<<63-1)/storageQuotaBytesPerGiB {
+		return 0, 0, errors.New("storage_quota_gb is too large")
+	}
+	return *r.StorageQuotaGB * storageQuotaBytesPerGiB, *r.StorageQuotaGB, nil
+}
+
+// UpdateTenantStorageQuota godoc
+// @Summary      Update one workspace's storage quota
+// @Description  Set storage_quota for a single workspace. SystemAdmin only.
+// @Description  The new quota must be positive and cannot be lower than current storage_used.
+// @Tags         System Admin
+// @Accept       json
+// @Produce      json
+// @Param        id       path      int                              true  "Workspace ID"
+// @Param        request  body      UpdateTenantStorageQuotaRequest  true  "Storage quota"
+// @Success      200      {object}  map[string]interface{}           "Updated workspace"
+// @Failure      400      {object}  map[string]interface{}           "Invalid quota"
+// @Failure      404      {object}  map[string]interface{}           "Workspace not found"
+// @Failure      500      {object}  map[string]interface{}           "DB write failed"
+// @Router       /system/admin/tenants/{id}/storage-quota [put]
+func (h *SystemHandler) UpdateTenantStorageQuota(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+
+	tenantID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || tenantID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid workspace ID"})
+		return
+	}
+
+	var req UpdateTenantStorageQuotaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+	quotaBytes, quotaGB, err := req.quotaBytes()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if quotaBytes <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "storage quota must be positive"})
+		return
+	}
+
+	tenant, err := h.tenantSvc.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		if appErr, ok := apperrors.IsAppError(err); ok {
+			c.JSON(appErr.HTTPCode, gin.H{"error": appErr})
+			return
+		}
+		if errors.Is(err, repository.ErrTenantNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+			return
+		}
+		logger.Errorf(ctx, "UpdateTenantStorageQuota load tenant failed: tenant=%d err=%v", tenantID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load workspace"})
+		return
+	}
+	if tenant == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "workspace not found"})
+		return
+	}
+	if quotaBytes < tenant.StorageUsed {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":        "storage quota cannot be lower than current storage used",
+			"storage_used": tenant.StorageUsed,
+		})
+		return
+	}
+
+	oldQuota := tenant.StorageQuota
+	tenant.StorageQuota = quotaBytes
+	updated, err := h.tenantSvc.UpdateTenant(ctx, tenant)
+	if err != nil {
+		logger.Errorf(ctx, "UpdateTenantStorageQuota failed: tenant=%d err=%v", tenantID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update storage quota"})
+		return
+	}
+
+	if h.auditSvc != nil {
+		actorID, _ := types.UserIDFromContext(ctx)
+		details := map[string]any{
+			"old_quota_bytes": oldQuota,
+			"new_quota_bytes": quotaBytes,
+			"storage_used":    updated.StorageUsed,
+		}
+		if quotaGB > 0 {
+			details["new_quota_gb"] = quotaGB
+		}
+		detailsJSON, _ := json.Marshal(details)
+		_ = h.auditSvc.Log(ctx, &types.AuditLog{
+			TenantID:    0,
+			ActorUserID: actorID,
+			ActorRole:   "system_admin",
+			Action:      types.AuditActionTenantStorageQuotaUpdated,
+			TargetType:  "tenant_storage_quota",
+			TargetID:    strconv.FormatUint(tenantID, 10),
+			Outcome:     types.AuditOutcomeSuccess,
+			Details:     types.JSON(detailsJSON),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    dto.NewTenantResponse(ctx, updated),
+	})
+}
+
 // ApplyDefaultStorageQuotaToAllTenants godoc
 // @Summary      Apply the default storage quota to every existing workspace
 // @Description  Reads the current value of `tenant.default_storage_quota_gb`
@@ -2100,7 +2228,7 @@ func (h *SystemHandler) ApplyDefaultStorageQuotaToAllTenants(c *gin.Context) {
 	if gb <= 0 {
 		gb = 10
 	}
-	quotaBytes := gb * 1024 * 1024 * 1024
+	quotaBytes := gb * storageQuotaBytesPerGiB
 
 	affected, err := h.tenantSvc.BulkSetStorageQuota(ctx, quotaBytes)
 	if err != nil {

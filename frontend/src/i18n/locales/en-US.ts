@@ -3483,9 +3483,19 @@ export default {
       quotaLabel: 'Storage Quota',
       quotaDescription: 'Total storage capacity allocated to the workspace',
       usedLabel: 'Used Storage',
-      usedDescription: 'Storage space that has been used',
+      usedDescription: 'Storage already used by the current workspace',
+      remainingLabel: 'Remaining Storage',
+      remainingDescription: 'Storage still available under the current quota',
       usageLabel: 'Storage Usage',
-      usageDescription: 'Percentage of storage capacity used'
+      usageDescription: 'Percentage of storage capacity used',
+      unlimited: 'Unlimited',
+      usedOfUnlimited: '{used} used',
+      statusOk: 'Normal',
+      statusWarning: 'Near limit',
+      statusExceeded: 'Over quota',
+      statusUnlimited: 'Unlimited',
+      warningHint: 'This workspace has reached the {threshold} warning threshold. Contact an administrator to review whether the storage quota should be increased.',
+      exceededHint: 'This workspace is over its storage quota. Contact an administrator to increase the quota before continuing uploads or imports.'
     },
     leaveDangerZone: {
       title: 'Leave this workspace',

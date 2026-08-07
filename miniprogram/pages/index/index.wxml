@@ -32,12 +32,37 @@
     <button bindtap="loadKnowledgeBases" loading="{{loading}}">Refresh knowledge bases</button>
   </view>
 
+  <view wx:if="{{storageUsage}}" class="card section storage-card {{storageUsage.statusClass}}">
+    <view class="storage-head">
+      <view>
+        <view class="label">Storage Usage</view>
+        <view class="storage-percent">{{storageUsage.percentText}}</view>
+      </view>
+      <view class="storage-quota">{{storageUsage.usedText}} / {{storageUsage.quotaText}}</view>
+    </view>
+    <progress
+      wx:if="{{storageUsage.status != 'unlimited'}}"
+      percent="{{storageUsage.progressPercent}}"
+      stroke-width="8"
+      activeColor="#07c05f"
+      backgroundColor="#e5e7eb"
+    />
+    <view class="storage-meta">Remaining {{storageUsage.remainingText}}</view>
+    <view wx:if="{{storageUsage.notice}}" class="storage-notice">{{storageUsage.notice}}</view>
+  </view>
+
   <view class="card section">
     <view class="field">
       <text class="label">URL</text>
       <input value="{{url}}" placeholder="https://example.com/article" bindinput="onUrlInput" />
     </view>
 
-    <button bindtap="importURL" loading="{{importing}}" disabled="{{!selectedKnowledgeBaseId || !url}}">Import URL</button>
+    <button
+      bindtap="importURL"
+      loading="{{importing}}"
+      disabled="{{!selectedKnowledgeBaseId || !url || storageBlocked}}"
+    >
+      Import URL
+    </button>
   </view>
 </view>

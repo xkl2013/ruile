@@ -1,5 +1,10 @@
 DROP TABLE IF EXISTS tenant_invitations;
 DROP TABLE IF EXISTS tenant_api_keys;
+DROP TABLE IF EXISTS organize_sprout_memories;
+DROP TABLE IF EXISTS organize_sprout_reports;
+DROP TABLE IF EXISTS organize_output_memories;
+DROP TABLE IF EXISTS organize_outputs;
+DROP TABLE IF EXISTS organize_memories;
 DROP TABLE IF EXISTS user_kb_pins;
 DROP TABLE IF EXISTS user_resource_favorites;
 DROP TABLE IF EXISTS tenant_disabled_shared_agents;

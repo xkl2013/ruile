@@ -3,6 +3,18 @@ import i18n from '@/i18n'
 
 const t = (key: string) => i18n.global.t(key)
 
+export interface TenantStorageUsage {
+  quota_bytes: number
+  used_bytes: number
+  remaining_bytes: number
+  usage_ratio: number
+  usage_percent: number
+  warning_threshold_percent: number
+  status: 'ok' | 'warning' | 'exceeded' | 'unlimited' | string
+  unlimited: boolean
+  requires_quota_increase: boolean
+}
+
 // 用户登录接口
 export interface LoginRequest {
   phone?: string
@@ -33,6 +45,7 @@ export interface LoginResponse {
     business: string
     storage_quota: number
     storage_used: number
+    storage_usage?: TenantStorageUsage
     created_at: string
     updated_at: string
   } | null
@@ -47,6 +60,7 @@ export interface LoginResponse {
     business?: string
     storage_quota?: number
     storage_used?: number
+    storage_usage?: TenantStorageUsage
     created_at?: string
     updated_at?: string
   } | null
@@ -168,6 +182,7 @@ export interface TenantInfo {
   owner_id: string
   storage_quota?: number
   storage_used?: number
+  storage_usage?: TenantStorageUsage
   created_at: string
   updated_at: string
   knowledge_bases?: KnowledgeBaseInfo[]

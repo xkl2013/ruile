@@ -6,7 +6,13 @@
           <div class="organize-title-row">
             <h2>{{ activeMeta.title }}</h2>
             <t-tooltip :content="activeMeta.actionLabel" placement="bottom">
-              <t-button variant="text" theme="default" size="small" class="organize-header-action-btn">
+              <t-button
+                variant="text"
+                theme="default"
+                size="small"
+                class="organize-header-action-btn"
+                @click="handleHeaderAction"
+              >
                 <template #icon><t-icon :name="activeMeta.actionIcon" size="16px" /></template>
               </t-button>
             </t-tooltip>
@@ -30,7 +36,7 @@
           <div class="asset-summary" aria-label="记忆资产">
             <div class="section-heading">
               <t-icon name="folder" />
-              <span>记忆资产（31 条）</span>
+              <span>记忆资产（{{ allMemoryItems.length }} 条）</span>
               <t-icon name="info-circle" class="section-heading-info" />
             </div>
             <div class="asset-grid">
@@ -60,7 +66,16 @@
             </div>
 
             <div class="memory-asset-list">
-              <article v-for="item in filteredMemoryAssetItems" :key="item.id" class="memory-list-card">
+              <article
+                v-for="item in filteredMemoryAssetItems"
+                :key="item.id"
+                class="memory-list-card"
+                :class="{ 'memory-list-card--editable': isEditableMemory(item) }"
+                :role="isEditableMemory(item) ? 'button' : undefined"
+                :tabindex="isEditableMemory(item) ? 0 : undefined"
+                @click="openMemoryEditor(item)"
+                @keydown.enter.self="openMemoryEditor(item)"
+              >
                 <div class="memory-list-card-main">
                   <div class="memory-row-meta">
                     <span class="type-badge">{{ activeMemoryAssetMeta.itemTypeLabel }}</span>
@@ -80,7 +95,13 @@
                     <span class="audio-duration">{{ item.duration }}</span>
                   </div>
                 </div>
-                <button type="button" class="icon-button" :aria-label="`打开 ${item.title}`">
+                <button
+                  v-if="isEditableMemory(item)"
+                  type="button"
+                  class="icon-button"
+                  :aria-label="`编辑 ${item.title}`"
+                  @click.stop="openMemoryEditor(item)"
+                >
                   <t-icon name="chevron-right" />
                 </button>
               </article>
@@ -105,7 +126,16 @@
                   <h2>{{ group.date }}</h2>
                   <t-icon name="chevron-up" />
                 </div>
-                <article v-for="item in group.items" :key="item.id" class="memory-row">
+                <article
+                  v-for="item in group.items"
+                  :key="item.id"
+                  class="memory-row"
+                  :class="{ 'memory-row--editable': isEditableMemory(item) }"
+                  :role="isEditableMemory(item) ? 'button' : undefined"
+                  :tabindex="isEditableMemory(item) ? 0 : undefined"
+                  @click="openMemoryEditor(item)"
+                  @keydown.enter.self="openMemoryEditor(item)"
+                >
                   <div class="memory-row-time">{{ item.time }}</div>
                   <div class="memory-row-body">
                     <div class="memory-row-meta">
@@ -146,7 +176,15 @@
           </div>
 
           <div class="output-grid">
-            <article v-for="item in outputs" :key="item.id" class="output-card">
+            <article
+              v-for="item in filteredOutputs"
+              :key="item.id"
+              class="output-card output-card--editable"
+              role="button"
+              tabindex="0"
+              @click="openOutputEditor(item)"
+              @keydown.enter.self="openOutputEditor(item)"
+            >
               <div class="output-card-icon">
                 <t-icon :name="item.icon" />
               </div>
@@ -156,12 +194,13 @@
                   <span class="output-status" :class="`output-status--${item.statusKey}`">{{ item.status }}</span>
                 </div>
                 <h2>{{ item.title }}</h2>
+                <p class="document-excerpt">{{ contentExcerpt(item.content, item.title) }}</p>
                 <div class="output-meta">
                   <span>{{ item.source }}</span>
                   <span>{{ item.updated }}</span>
                 </div>
               </div>
-              <button type="button" class="icon-button" :aria-label="`打开 ${item.title}`">
+              <button type="button" class="icon-button" :aria-label="`编辑 ${item.title}`" @click.stop="openOutputEditor(item)">
                 <t-icon name="chevron-right" />
               </button>
             </article>
@@ -170,13 +209,22 @@
 
         <section v-else class="organize-section">
           <div class="report-list">
-            <article v-for="report in sproutReports" :key="report.id" class="report-card">
+            <article
+              v-for="report in filteredSproutReports"
+              :key="report.id"
+              class="report-card report-card--editable"
+              role="button"
+              tabindex="0"
+              @click="openSproutEditor(report)"
+              @keydown.enter.self="openSproutEditor(report)"
+            >
               <div class="report-main">
                 <div class="report-topline">
                   <span class="type-badge">{{ report.stage }}</span>
                   <span>{{ report.updated }}</span>
                 </div>
                 <h2>{{ report.title }}</h2>
+                <p class="document-excerpt">{{ contentExcerpt(report.content, report.title) }}</p>
                 <div class="report-chips">
                   <span v-for="chip in report.chips" :key="chip">{{ chip }}</span>
                 </div>
@@ -185,7 +233,7 @@
                   <span>{{ report.outputHint }}</span>
                 </div>
               </div>
-              <button type="button" class="report-action">
+              <button type="button" class="report-action" @click.stop="openSproutEditor(report)">
                 <t-icon name="edit-1" />
                 继续整理
               </button>
@@ -194,12 +242,25 @@
         </section>
       </div>
     </main>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  listOrganizeMemories,
+  listOrganizeOutputs,
+  listOrganizeSproutReports,
+  type OrganizeMemory,
+  type OrganizeMemoryKind,
+  type OrganizeOutput,
+  type OrganizeOutputStatus,
+  type OrganizeSproutReport,
+  type OrganizeSproutStage,
+} from '@/api/organize'
 import {
   ORGANIZE_MEMORY_ASSET_ROUTES,
   findMemoryAssetRoute,
@@ -209,8 +270,9 @@ import {
   type MemoryAssetKey,
   type OrganizeTab,
 } from './organizeRoutes'
+import { saveOrganizeEditorDraft, type OrganizeEditorDraft } from './editorDraftStorage'
 
-type MemoryType = 'note' | 'record' | 'audio'
+type MemoryType = 'note' | 'record' | 'audio' | 'audio-card'
 
 interface MemoryItem {
   id: string
@@ -218,8 +280,13 @@ interface MemoryItem {
   type: MemoryType
   typeLabel: string
   title: string
+  content: string
   source?: string
   duration?: string
+  occurredAt?: string
+  durationSeconds?: number
+  metadata?: Record<string, unknown>
+  persisted: boolean
 }
 
 interface MemoryListItem extends MemoryItem {
@@ -229,6 +296,36 @@ interface MemoryListItem extends MemoryItem {
 interface MemoryGroup {
   date: string
   items: MemoryItem[]
+}
+
+interface OutputItem {
+  id: string
+  title: string
+  content: string
+  type: string
+  source: string
+  updated: string
+  status: string
+  statusKey: OrganizeOutputStatus
+  icon: string
+  memoryIds: string[]
+  metadata?: Record<string, unknown>
+  persisted: boolean
+}
+
+interface SproutReportItem {
+  id: string
+  title: string
+  content: string
+  stage: string
+  stageKey: OrganizeSproutStage
+  updated: string
+  memoryCount: number
+  memoryIds: string[]
+  outputHint: string
+  chips: string[]
+  metadata?: Record<string, unknown>
+  persisted: boolean
 }
 
 const route = useRoute()
@@ -242,67 +339,102 @@ const activeTab = computed<OrganizeTab>(() => {
   return isOrganizeTab(tab) ? tab : 'memory'
 })
 
-const memoryAssets = ORGANIZE_MEMORY_ASSET_ROUTES
-
 const activeMemoryAsset = computed<MemoryAssetKey | ''>(() => {
   if (activeTab.value !== 'memory') return ''
   const asset = route.meta.memoryAsset
   return isMemoryAssetKey(asset) ? asset : ''
 })
 
+const escapeHtml = (value: string) => {
+  const node = document.createElement('div')
+  node.textContent = value
+  return node.innerHTML
+}
+
+const placeholderContent = (title: string) => `<p>${escapeHtml(title)}</p><p></p>`
+
+const fallbackMemoryGroups: MemoryGroup[] = [
+  {
+    date: '6月29日',
+    items: [
+      { id: 'demo-m1', time: '11:41', type: 'record', typeLabel: '记录', title: '创建了笔记电力行业相关企业分析及功率半导体产业链解读', content: '<p>围绕电力行业企业和功率半导体产业链，补充重点公司、供需关系及国产替代进展。</p>', persisted: false },
+      { id: 'demo-m2', time: '11:27', type: 'record', typeLabel: '记录', title: '创建了笔记能源行业公司分析及中国电力结构探讨', content: '<p>整理能源行业公司基本面，以及中国电力结构变化带来的机会。</p>', persisted: false },
+      { id: 'demo-m3', time: '11:13', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机核心配件与光储行业分析', content: '<p>梳理燃气轮机核心配件、光伏和储能行业的关键数据。</p>', persisted: false },
+      { id: 'demo-m4', time: '10:58', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机行业分析及国内企业发展情况', content: '<p>记录燃气轮机市场格局和国内主要企业的发展情况。</p>', persisted: false },
+      { id: 'demo-m5', time: '10:22', type: 'audio', typeLabel: '录音', title: '客户访谈：设备更新预算与项目推进节奏', content: '', source: '会议录音', duration: '08:36', persisted: false },
+    ],
+  },
+  {
+    date: '6月28日',
+    items: [
+      { id: 'demo-m6', time: '18:05', type: 'note', typeLabel: '笔记', title: '整理储能项目投标材料中的常见技术指标', content: '<p>整理储能项目投标材料中的效率、循环寿命、安全和并网指标。</p>', source: '手动输入', persisted: false },
+      { id: 'demo-m7', time: '15:42', type: 'note', typeLabel: '笔记', title: '政策口径：新型电力系统与源网荷储协同', content: '<p>记录新型电力系统政策中的源网荷储协同要点。</p>', source: '网页摘录', persisted: false },
+      { id: 'demo-m8', time: '09:18', type: 'audio', typeLabel: '录音', title: '内部同步：半导体设备国产替代机会', content: '', source: '语音记录', duration: '12:04', persisted: false },
+    ],
+  },
+]
+
+const memoryGroups = ref<MemoryGroup[]>(fallbackMemoryGroups)
+
+const fallbackOutputs: OutputItem[] = [
+  { id: 'demo-o1', title: '电力行业相关企业分析及功率半导体产业链解读', content: '<h2>行业概览</h2><p>从电力设备需求出发，梳理功率半导体产业链及重点企业的竞争位置。</p>', type: '分析报告', source: '来自 8 条记忆', updated: '今天 11:48', status: '可交付', statusKey: 'ready', icon: 'file-word', memoryIds: [], persisted: false },
+  { id: 'demo-o2', title: '能源行业公司分析及中国电力结构探讨', content: '<p>分析中国电力结构变化，并比较相关能源公司的业务布局。</p>', type: '研究文档', source: '来自 6 条记忆', updated: '今天 11:31', status: '草稿', statusKey: 'draft', icon: 'file', memoryIds: [], persisted: false },
+  { id: 'demo-o3', title: '燃气轮机核心配件供应链梳理', content: '<p>梳理燃气轮机核心配件的供应商、交付周期和国产化进度。</p>', type: '方案材料', source: '来自 5 条记忆', updated: '昨天 19:20', status: '评审中', statusKey: 'review', icon: 'file-paste', memoryIds: [], persisted: false },
+  { id: 'demo-o4', title: '光储行业重点企业与政策机会清单', content: '<p>汇总光伏、储能行业重点企业和近期政策机会。</p>', type: '工作清单', source: '来自 9 条记忆', updated: '6月27日', status: '可交付', statusKey: 'ready', icon: 'file-excel', memoryIds: [], persisted: false },
+]
+
+const outputs = ref<OutputItem[]>(fallbackOutputs)
+
+const fallbackSproutReports: SproutReportItem[] = [
+  { id: 'demo-r1', title: '功率半导体产业链的国产替代机会', content: '<p>从上游材料、晶圆制造、封装测试和下游应用四个环节，继续扩写国产替代机会。</p>', stage: '可扩写', stageKey: 'expandable', updated: '今天 12:10', memoryCount: 11, memoryIds: [], outputHint: '可生成分析报告', chips: ['产业链', '国产替代', '设备采购'], persisted: false },
+  { id: 'demo-r2', title: '燃气轮机核心配件的供需缺口与企业机会', content: '<p>当前素材已覆盖核心配件供需情况，仍需补充国内外企业对比。</p>', stage: '梳理中', stageKey: 'organizing', updated: '今天 10:46', memoryCount: 7, memoryIds: [], outputHint: '缺少企业对比', chips: ['核心配件', '进口替代', '项目节奏'], persisted: false },
+  { id: 'demo-r3', title: '新型电力系统政策口径下的储能选题', content: '<p>围绕源网荷储协同和储能商业模式形成后续研究选题。</p>', stage: '已成型', stageKey: 'formed', updated: '昨天 18:22', memoryCount: 9, memoryIds: [], outputHint: '已关联成果 2 份', chips: ['源网荷储', '储能', '政策'], persisted: false },
+]
+
+const sproutReports = ref<SproutReportItem[]>(fallbackSproutReports)
+
+const allMemoryItems = computed<MemoryListItem[]>(() => {
+  return memoryGroups.value.flatMap((group) => group.items.map((item) => ({ ...item, date: group.date })))
+})
+
+const memoryAssets = computed(() => {
+  const items = allMemoryItems.value
+  return ORGANIZE_MEMORY_ASSET_ROUTES.map((asset) => ({
+    ...asset,
+    count:
+      asset.key === 'note'
+        ? items.filter((item) => item.type === 'note' || item.type === 'record').length
+        : asset.key === 'audio'
+          ? items.filter((item) => item.type === 'audio').length
+          : items.filter((item) => item.type === 'audio-card').length,
+  }))
+})
+
 const activeMemoryAssetMeta = computed(() => {
-  return memoryAssets.find((asset) => asset.key === activeMemoryAsset.value) || memoryAssets[0]
+  return memoryAssets.value.find((asset) => asset.key === activeMemoryAsset.value) || memoryAssets.value[0]
 })
 
 const openMemoryAssetList = async (asset: MemoryAssetKey) => {
   const nextRoute = findMemoryAssetRoute(asset)
-  if (nextRoute && route.path !== nextRoute.path) {
-    await router.push(nextRoute.path)
-  }
+  if (nextRoute && route.path !== nextRoute.path) await router.push(nextRoute.path)
 }
 
 const openMemoryOverview = async () => {
   const memoryRoute = findOrganizeMenuRoute('memory')
-  if (memoryRoute && route.path !== memoryRoute.path) {
-    await router.push(memoryRoute.path)
-  }
+  if (memoryRoute && route.path !== memoryRoute.path) await router.push(memoryRoute.path)
 }
 
 const activeMeta = computed(() => {
   if (activeTab.value === 'output') {
-    return {
-      title: '成果',
-      countLabel: '12 份文档',
-      updatedLabel: '今日更新 3 份',
-      actionIcon: 'file-add',
-      actionLabel: '新建成果',
-    }
+    return { title: '成果', countLabel: `${outputs.value.length} 份文档`, updatedLabel: '点击内容即可编辑', actionIcon: 'file-add', actionLabel: '新建成果' }
   }
   if (activeTab.value === 'sprout') {
-    return {
-      title: '发芽报告',
-      countLabel: '6 份梳理',
-      updatedLabel: '待完善 2 份',
-      actionIcon: 'setting',
-      actionLabel: '发芽报告设置',
-    }
+    return { title: '发芽', countLabel: `${sproutReports.value.length} 份梳理`, updatedLabel: '点击内容即可编辑', actionIcon: 'add', actionLabel: '新建发芽' }
   }
   if (activeMemoryAsset.value) {
-    return {
-      title: `${activeMemoryAssetMeta.value.label}列表`,
-      countLabel: `${activeMemoryAssetMeta.value.count} ${activeMemoryAssetMeta.value.unit}`,
-      updatedLabel: '记忆资产',
-      actionIcon: 'add',
-      actionLabel: `新建${activeMemoryAssetMeta.value.label}`,
-    }
+    return { title: `${activeMemoryAssetMeta.value.label}列表`, countLabel: `${activeMemoryAssetMeta.value.count} ${activeMemoryAssetMeta.value.unit}`, updatedLabel: '记忆资产', actionIcon: 'add', actionLabel: '添加笔记' }
   }
-  return {
-    title: '记忆',
-    countLabel: '31 条记忆',
-    updatedLabel: '今日新增 4 条',
-    actionIcon: 'add',
-    actionLabel: '新建记忆',
-  }
+  return { title: '记忆', countLabel: `${allMemoryItems.value.length} 条记忆`, updatedLabel: '笔记支持创建和编辑', actionIcon: 'add', actionLabel: '添加笔记' }
 })
 
 const memoryFilterOptions = [
@@ -312,31 +444,10 @@ const memoryFilterOptions = [
   { label: '录音', value: 'audio' },
 ]
 
-const memoryGroups: MemoryGroup[] = [
-  {
-    date: '6月29日',
-    items: [
-      { id: 'm1', time: '11:41', type: 'record', typeLabel: '记录', title: '创建了笔记电力行业相关企业分析及功率半导体产业链解读' },
-      { id: 'm2', time: '11:27', type: 'record', typeLabel: '记录', title: '创建了笔记能源行业公司分析及中国电力结构探讨' },
-      { id: 'm3', time: '11:13', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机核心配件与光储行业分析' },
-      { id: 'm4', time: '10:58', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机行业分析及国内企业发展情况' },
-      { id: 'm5', time: '10:22', type: 'audio', typeLabel: '录音', title: '客户访谈：设备更新预算与项目推进节奏', source: '会议录音', duration: '08:36' },
-    ],
-  },
-  {
-    date: '6月28日',
-    items: [
-      { id: 'm6', time: '18:05', type: 'note', typeLabel: '笔记', title: '整理储能项目投标材料中的常见技术指标', source: '手动输入' },
-      { id: 'm7', time: '15:42', type: 'note', typeLabel: '笔记', title: '政策口径：新型电力系统与源网荷储协同', source: '网页摘录' },
-      { id: 'm8', time: '09:18', type: 'audio', typeLabel: '录音', title: '内部同步：半导体设备国产替代机会', source: '语音记录', duration: '12:04' },
-    ],
-  },
-]
-
 const filteredMemoryGroups = computed(() => {
   const type = memoryFilter.value
   const q = keyword.value.trim().toLowerCase()
-  return memoryGroups
+  return memoryGroups.value
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
@@ -348,105 +459,225 @@ const filteredMemoryGroups = computed(() => {
     .filter((group) => group.items.length > 0)
 })
 
-const allMemoryItems = computed<MemoryListItem[]>(() => {
-  return memoryGroups.flatMap((group) =>
-    group.items.map((item) => ({
-      ...item,
-      date: group.date,
-    })),
-  )
-})
-
 const filteredMemoryAssetItems = computed(() => {
   const asset = activeMemoryAsset.value
   const q = keyword.value.trim().toLowerCase()
-
   return allMemoryItems.value.filter((item) => {
     const assetMatched =
       asset === 'note'
-        ? item.type !== 'audio'
-        : asset === 'audio' || asset === 'audio-card'
+        ? item.type === 'note' || item.type === 'record'
+        : asset === 'audio'
           ? item.type === 'audio'
-          : false
-    const keywordMatched = !q || item.title.toLowerCase().includes(q) || item.typeLabel.toLowerCase().includes(q)
-    return assetMatched && keywordMatched
+          : item.type === 'audio-card'
+    return assetMatched && (!q || item.title.toLowerCase().includes(q) || item.typeLabel.toLowerCase().includes(q))
   })
+})
+
+const filteredOutputs = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  return outputs.value.filter((item) => !q || `${item.title} ${item.type} ${item.source}`.toLowerCase().includes(q))
+})
+
+const filteredSproutReports = computed(() => {
+  const q = keyword.value.trim().toLowerCase()
+  return sproutReports.value.filter((item) => !q || `${item.title} ${item.chips.join(' ')}`.toLowerCase().includes(q))
 })
 
 const waveHeights = [10, 18, 14, 24, 12, 28, 18, 22]
 
-const outputs = [
-  {
-    id: 'o1',
-    title: '电力行业相关企业分析及功率半导体产业链解读',
-    type: '分析报告',
-    source: '来自 8 条记忆',
-    updated: '今天 11:48',
-    status: '可交付',
-    statusKey: 'ready',
-    icon: 'file-word',
-  },
-  {
-    id: 'o2',
-    title: '能源行业公司分析及中国电力结构探讨',
-    type: '研究文档',
-    source: '来自 6 条记忆',
-    updated: '今天 11:31',
-    status: '草稿',
-    statusKey: 'draft',
-    icon: 'file',
-  },
-  {
-    id: 'o3',
-    title: '燃气轮机核心配件供应链梳理',
-    type: '方案材料',
-    source: '来自 5 条记忆',
-    updated: '昨天 19:20',
-    status: '评审中',
-    statusKey: 'review',
-    icon: 'file-paste',
-  },
-  {
-    id: 'o4',
-    title: '光储行业重点企业与政策机会清单',
-    type: '工作清单',
-    source: '来自 9 条记忆',
-    updated: '6月27日',
-    status: '可交付',
-    statusKey: 'ready',
-    icon: 'file-excel',
-  },
-]
+const formatDateLabel = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '未知日期'
+  return `${date.getMonth() + 1}月${date.getDate()}日`
+}
 
-const sproutReports = [
-  {
-    id: 'r1',
-    title: '功率半导体产业链的国产替代机会',
-    stage: '可扩写',
-    updated: '今天 12:10',
-    memoryCount: 11,
-    outputHint: '可生成分析报告',
-    chips: ['产业链', '国产替代', '设备采购'],
-  },
-  {
-    id: 'r2',
-    title: '燃气轮机核心配件的供需缺口与企业机会',
-    stage: '梳理中',
-    updated: '今天 10:46',
-    memoryCount: 7,
-    outputHint: '缺少企业对比',
-    chips: ['核心配件', '进口替代', '项目节奏'],
-  },
-  {
-    id: 'r3',
-    title: '新型电力系统政策口径下的储能选题',
-    stage: '已成型',
-    updated: '昨天 18:22',
-    memoryCount: 9,
-    outputHint: '已关联成果 2 份',
-    chips: ['源网荷储', '储能', '政策'],
-  },
-]
+const formatTimeLabel = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--:--'
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date)
+}
+
+const formatUpdatedLabel = (value: string) => `${formatDateLabel(value)} ${formatTimeLabel(value)}`
+
+const formatDuration = (seconds?: number) => {
+  const safeSeconds = Math.max(0, seconds || 0)
+  const minutes = Math.floor(safeSeconds / 60)
+  return `${String(minutes).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`
+}
+
+const memoryTypeFromApi = (kind: OrganizeMemoryKind): MemoryType => (kind === 'audio_card' ? 'audio-card' : kind)
+const memoryTypeToApi = (kind: MemoryType): OrganizeMemoryKind => (kind === 'audio-card' ? 'audio_card' : kind)
+
+const memoryTypeLabel = (type: MemoryType) => {
+  if (type === 'audio') return '录音'
+  if (type === 'audio-card') return '录音卡'
+  return type === 'record' ? '记录' : '笔记'
+}
+
+const statusLabel = (status: OrganizeOutputStatus) => ({ draft: '草稿', review: '评审中', ready: '可交付', archived: '已归档' })[status]
+const stageLabel = (stage: OrganizeSproutStage) => ({ organizing: '梳理中', expandable: '可扩写', formed: '已成型' })[stage]
+
+const mapMemory = (item: OrganizeMemory): MemoryListItem => {
+  const type = memoryTypeFromApi(item.kind)
+  return {
+    id: item.id,
+    date: formatDateLabel(item.occurred_at),
+    time: formatTimeLabel(item.occurred_at),
+    type,
+    typeLabel: memoryTypeLabel(type),
+    title: item.title,
+    content: item.content || placeholderContent(item.title),
+    source: item.source,
+    duration: type === 'audio' ? formatDuration(item.duration_seconds) : undefined,
+    occurredAt: item.occurred_at,
+    durationSeconds: item.duration_seconds,
+    metadata: item.metadata,
+    persisted: true,
+  }
+}
+
+const mapOutput = (item: OrganizeOutput): OutputItem => ({
+  id: item.id,
+  title: item.title,
+  content: item.content || placeholderContent(item.title),
+  type: item.output_type || '研究文档',
+  source: item.source_summary || (item.memory_count ? `来自 ${item.memory_count} 条记忆` : '手动创建'),
+  updated: formatUpdatedLabel(item.updated_at),
+  status: statusLabel(item.status),
+  statusKey: item.status,
+  icon: item.icon || 'file-word',
+  memoryIds: item.memory_ids || [],
+  metadata: item.metadata,
+  persisted: true,
+})
+
+const mapSproutReport = (item: OrganizeSproutReport): SproutReportItem => ({
+  id: item.id,
+  title: item.title,
+  content: item.summary || placeholderContent(item.title),
+  stage: stageLabel(item.stage),
+  stageKey: item.stage,
+  updated: formatUpdatedLabel(item.updated_at),
+  memoryCount: item.memory_count || 0,
+  memoryIds: item.memory_ids || [],
+  outputHint: item.output_hint || '可继续整理',
+  chips: item.chips || [],
+  metadata: item.metadata,
+  persisted: true,
+})
+
+const groupMemoryItems = (items: MemoryListItem[]) => {
+  const groups: MemoryGroup[] = []
+  items.forEach(({ date, ...item }) => {
+    let group = groups.find((candidate) => candidate.date === date)
+    if (!group) {
+      group = { date, items: [] }
+      groups.push(group)
+    }
+    group.items.push(item)
+  })
+  return groups
+}
+
+const loadOrganizeData = async () => {
+  const results = await Promise.allSettled([
+    listOrganizeMemories({ page_size: 100 }),
+    listOrganizeOutputs({ page_size: 100 }),
+    listOrganizeSproutReports({ page_size: 100 }),
+  ])
+
+  const [memoryResult, outputResult, sproutResult] = results
+  if (memoryResult.status === 'fulfilled' && memoryResult.value.success && memoryResult.value.data.items.length) {
+    memoryGroups.value = groupMemoryItems(memoryResult.value.data.items.map(mapMemory))
+  }
+  if (outputResult.status === 'fulfilled' && outputResult.value.success && outputResult.value.data.items.length) {
+    outputs.value = outputResult.value.data.items.map(mapOutput)
+  }
+  if (sproutResult.status === 'fulfilled' && sproutResult.value.success && sproutResult.value.data.items.length) {
+    sproutReports.value = sproutResult.value.data.items.map(mapSproutReport)
+  }
+
+  if (results.some((result) => result.status === 'rejected')) {
+    MessagePlugin.warning('部分文档数据加载失败，当前展示示例内容')
+  }
+}
+
+const contentExcerpt = (html: string, fallback: string) => {
+  if (!html) return fallback
+  const body = new DOMParser().parseFromString(html, 'text/html').body
+  const firstBlock = Array.from(body.children)[0]
+  if (firstBlock?.tagName.toLowerCase() === 'h1') {
+    firstBlock.remove()
+  }
+  const parsed = body.textContent?.trim() || ''
+  return parsed.length > 96 ? `${parsed.slice(0, 96)}...` : parsed || fallback
+}
+
+type EditorDocumentType = 'memory' | 'output' | 'sprout'
+
+const editorPath = (documentType: EditorDocumentType, id: string) => {
+  return `/platform/organize/editor/${documentType}/${encodeURIComponent(id)}`
+}
+
+const editorDraft = (item: MemoryItem | OutputItem | SproutReportItem | undefined): OrganizeEditorDraft | null => {
+  if (!item || item.persisted) return null
+
+  const draft: OrganizeEditorDraft = {
+    title: item.title,
+    content: item.content,
+    metadata: item.metadata,
+  }
+  if ('statusKey' in item) {
+    draft.output_type = item.type
+    draft.status = item.statusKey
+    draft.source_summary = item.source
+    draft.icon = item.icon
+    draft.memory_ids = item.memoryIds
+  } else if ('stageKey' in item) {
+    draft.stage = item.stageKey
+    draft.output_hint = item.outputHint
+    draft.chips = item.chips
+    draft.memory_ids = item.memoryIds
+  } else {
+    draft.kind = memoryTypeToApi(item.type)
+    draft.duration_seconds = item.durationSeconds
+    if (item.source) draft.source = item.source
+  }
+  return draft
+}
+
+const openDocumentEditor = async (
+  documentType: EditorDocumentType,
+  id = 'new',
+  item?: MemoryItem | OutputItem | SproutReportItem,
+) => {
+  const draft = editorDraft(item)
+  if (draft) {
+    saveOrganizeEditorDraft(documentType, id, draft)
+  }
+  await router.push({ path: editorPath(documentType, id) })
+}
+
+const handleHeaderAction = () => {
+  void openDocumentEditor(activeTab.value === 'output' ? 'output' : activeTab.value === 'sprout' ? 'sprout' : 'memory')
+}
+
+const isEditableMemory = (item: MemoryItem) => item.type === 'note' || item.type === 'record'
+
+const openMemoryEditor = (item: MemoryListItem | MemoryItem) => {
+  if (!isEditableMemory(item)) return
+  void openDocumentEditor('memory', item.id, item)
+}
+
+const openOutputEditor = (item: OutputItem) => {
+  void openDocumentEditor('output', item.id, item)
+}
+
+const openSproutEditor = (item: SproutReportItem) => {
+  void openDocumentEditor('sprout', item.id, item)
+}
+
+onMounted(loadOrganizeData)
 </script>
 
 <style scoped lang="less">
@@ -702,6 +933,18 @@ button.asset-card {
   }
 }
 
+.memory-list-card--editable,
+.memory-row--editable,
+.output-card--editable,
+.report-card--editable {
+  cursor: pointer;
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color-focus);
+    outline-offset: 2px;
+  }
+}
+
 .memory-list-card-main {
   flex: 1;
   min-width: 0;
@@ -924,6 +1167,17 @@ button.asset-card {
     line-height: 23px;
     letter-spacing: 0;
   }
+}
+
+.document-excerpt {
+  display: -webkit-box;
+  margin: -4px 0 12px;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .output-meta,

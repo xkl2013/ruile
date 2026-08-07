@@ -414,6 +414,37 @@ func TestOrganizationRoutesDeclareManageSpacesCapability(t *testing.T) {
 	}
 }
 
+func TestOrganizeRoutesRequireFullAccessAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	g := &rbacGuards{}
+	v1 := gin.New().Group("/api/v1")
+
+	RegisterOrganizeRoutes(v1, &handler.OrganizeHandler{}, g)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/organize/overview"},
+		{http.MethodGet, "/api/v1/organize/memories"},
+		{http.MethodPost, "/api/v1/organize/memories"},
+		{http.MethodPut, "/api/v1/organize/outputs/:id"},
+		{http.MethodDelete, "/api/v1/organize/sprout-reports/:id"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			policy := mustLookupAPIKeyPolicy(t, g, tc.method, tc.path)
+			if !policy.RequireFullAccess {
+				t.Fatal("organize routes should require full access for API keys")
+			}
+			if len(policy.Capabilities) != 0 {
+				t.Fatalf("organize routes must not be granted by a narrow capability: %#v", policy.Capabilities)
+			}
+		})
+	}
+}
+
 func TestChunkerPreviewRouteRequiresRetrieveOrIngestCapability(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	g := &rbacGuards{}

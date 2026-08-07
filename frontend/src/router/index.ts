@@ -5,6 +5,7 @@ import { autoSetup, getCurrentUser, userInfoFromApi } from '@/api/auth'
 import {
   ORGANIZE_MEMORY_ASSET_ROUTES,
   ORGANIZE_MENU_ROUTES,
+  ORGANIZE_ROUTE_NAMES,
   resolveOrganizeRoutePath,
 } from '@/views/organize/organizeRoutes'
 
@@ -12,6 +13,7 @@ import {
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
 const AUTO_SETUP_FAILED_KEY = 'weknora_auto_setup_failed'
 const organizeWorkspaceComponent = () => import("../views/organize/OrganizeWorkspace.vue")
+const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const toPlatformChildPath = (path: string) => path.replace(/^\/platform\//, '')
 
@@ -143,6 +145,12 @@ const router = createRouter({
           meta: { ...organizeRouteMeta, organizeTab: 'memory', memoryAsset: item.key },
         })),
         {
+          path: "organize/editor/:documentType/:id",
+          name: ORGANIZE_ROUTE_NAMES.editor,
+          component: organizeEditorComponent,
+          meta: { ...organizeRouteMeta, organizeEditor: true },
+        },
+        {
           path: "knowledge-search",
           // 旧路径保留为重定向，打开全局命令面板（⌘K），带上可选的 q 参数
           redirect: (to) => {
@@ -258,6 +266,12 @@ function persistLoginResponse(authStore: ReturnType<typeof useAuthStore>, respon
       id: String(response.tenant.id) || '',
       name: response.tenant.name || '',
       owner_id: response.user.id || '',
+      description: response.tenant.description,
+      status: response.tenant.status,
+      business: response.tenant.business,
+      storage_quota: response.tenant.storage_quota,
+      storage_used: response.tenant.storage_used,
+      storage_usage: response.tenant.storage_usage,
       created_at: response.tenant.created_at || new Date().toISOString(),
       updated_at: response.tenant.updated_at || new Date().toISOString()
     })
@@ -297,6 +311,7 @@ async function hydrateSessionFromToken(authStore: ReturnType<typeof useAuthStore
         business: tenant.business,
         storage_quota: tenant.storage_quota,
         storage_used: tenant.storage_used,
+        storage_usage: tenant.storage_usage,
         created_at: tenant.created_at || new Date().toISOString(),
         updated_at: tenant.updated_at || new Date().toISOString(),
       })

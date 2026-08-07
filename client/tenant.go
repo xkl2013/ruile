@@ -42,6 +42,8 @@ type Tenant struct {
 	StorageQuota int64 `yaml:"storage_quota"     json:"storage_quota"     gorm:"default:10737418240"`
 	// Storage used (Bytes)
 	StorageUsed int64 `yaml:"storage_used"      json:"storage_used"      gorm:"default:0"`
+	// Storage usage summary, computed from quota and used bytes
+	StorageUsage *TenantStorageUsage `yaml:"storage_usage,omitempty" json:"storage_usage,omitempty"`
 	// APIKey is only populated by CreateTenant when the server has
 	// tenant.auto_create_api_key (env WEKNORA_TENANT_AUTO_CREATE_API_KEY)
 	// enabled: it carries the plaintext token of an auto-created full_access
@@ -51,6 +53,20 @@ type Tenant struct {
 	CreatedAt time.Time `yaml:"created_at"        json:"created_at"`
 	// Last update timestamp
 	UpdatedAt time.Time `yaml:"updated_at"        json:"updated_at"`
+}
+
+// TenantStorageUsage is the display-ready storage quota summary returned by
+// tenant APIs.
+type TenantStorageUsage struct {
+	QuotaBytes              int64   `json:"quota_bytes"`
+	UsedBytes               int64   `json:"used_bytes"`
+	RemainingBytes          int64   `json:"remaining_bytes"`
+	UsageRatio              float64 `json:"usage_ratio"`
+	UsagePercent            float64 `json:"usage_percent"`
+	WarningThresholdPercent float64 `json:"warning_threshold_percent"`
+	Status                  string  `json:"status"`
+	Unlimited               bool    `json:"unlimited"`
+	RequiresQuotaIncrease   bool    `json:"requires_quota_increase"`
 }
 
 // TenantResponse represents the API response structure for tenant operations
@@ -84,10 +100,10 @@ type TenantAPIKey struct {
 	APIKey           string           `json:"api_key"`
 	Role             TenantAPIKeyRole `json:"role"`
 	KnowledgeBaseIDs []string         `json:"knowledge_base_ids"`
-	LastUsedAt       *time.Time          `json:"last_used_at,omitempty"`
-	ExpiresAt        *time.Time          `json:"expires_at,omitempty"`
-	CreatedAt        time.Time           `json:"created_at"`
-	UpdatedAt        time.Time           `json:"updated_at"`
+	LastUsedAt       *time.Time       `json:"last_used_at,omitempty"`
+	ExpiresAt        *time.Time       `json:"expires_at,omitempty"`
+	CreatedAt        time.Time        `json:"created_at"`
+	UpdatedAt        time.Time        `json:"updated_at"`
 }
 
 // CreateTenantAPIKeyRequest creates a revocable tenant API key.
@@ -150,6 +166,34 @@ func (c *Client) GetTenant(ctx context.Context, tenantID uint64) (*Tenant, error
 func (c *Client) UpdateTenant(ctx context.Context, tenant *Tenant) (*Tenant, error) {
 	path := fmt.Sprintf("/api/v1/tenants/%d", tenant.ID)
 	resp, err := c.doRequest(ctx, http.MethodPut, path, tenant, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var response TenantResponse
+	if err := parseResponse(resp, &response); err != nil {
+		return nil, err
+	}
+
+	return &response.Data, nil
+}
+
+// UpdateTenantStorageQuotaRequest updates one tenant's storage quota through
+// the SystemAdmin API. Provide exactly one of StorageQuota or StorageQuotaGB.
+type UpdateTenantStorageQuotaRequest struct {
+	StorageQuota   *int64 `json:"storage_quota,omitempty"`
+	StorageQuotaGB *int64 `json:"storage_quota_gb,omitempty"`
+}
+
+// UpdateTenantStorageQuota updates one tenant's storage quota. The caller must
+// authenticate as a SystemAdmin.
+func (c *Client) UpdateTenantStorageQuota(
+	ctx context.Context,
+	tenantID uint64,
+	req UpdateTenantStorageQuotaRequest,
+) (*Tenant, error) {
+	path := fmt.Sprintf("/api/v1/system/admin/tenants/%d/storage-quota", tenantID)
+	resp, err := c.doRequest(ctx, http.MethodPut, path, req, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,342 @@
+package handler
+
+import (
+	stderrors "errors"
+	"net/http"
+	"strings"
+
+	"github.com/Tencent/WeKnora/internal/application/service"
+	apperrors "github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/gin-gonic/gin"
+)
+
+type OrganizeHandler struct {
+	service interfaces.OrganizeService
+}
+
+func NewOrganizeHandler(svc interfaces.OrganizeService) *OrganizeHandler {
+	return &OrganizeHandler{service: svc}
+}
+
+func organizeScope(c *gin.Context) (uint64, string, bool) {
+	tenantID := c.GetUint64(types.TenantIDContextKey.String())
+	if tenantID == 0 {
+		c.Error(apperrors.NewUnauthorizedError("workspace ID not found"))
+		return 0, "", false
+	}
+	userID := strings.TrimSpace(c.GetString(types.UserIDContextKey.String()))
+	if userID == "" {
+		c.Error(apperrors.NewUnauthorizedError("user ID not found"))
+		return 0, "", false
+	}
+	return tenantID, userID, true
+}
+
+func (h *OrganizeHandler) GetOverview(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	overview, err := h.service.GetOverview(ctx, tenantID, userID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": overview})
+}
+
+func (h *OrganizeHandler) ListMemories(c *gin.Context) {
+	ctx := c.Request.Context()
+	query, ok := h.listQuery(c)
+	if !ok {
+		return
+	}
+	query.Kind = c.Query("kind")
+	items, total, err := h.service.ListMemories(ctx, query)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, listPayload(items, total, query.Page, query.PageSize))
+}
+
+func (h *OrganizeHandler) CreateMemory(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeMemoryInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.CreateMemory(ctx, tenantID, userID, req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) GetMemory(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.GetMemory(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) UpdateMemory(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeMemoryInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.UpdateMemory(ctx, tenantID, userID, c.Param("id"), req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) DeleteMemory(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteMemory(ctx, tenantID, userID, c.Param("id")); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *OrganizeHandler) ListOutputs(c *gin.Context) {
+	ctx := c.Request.Context()
+	query, ok := h.listQuery(c)
+	if !ok {
+		return
+	}
+	query.Status = c.Query("status")
+	items, total, err := h.service.ListOutputs(ctx, query)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, listPayload(items, total, query.Page, query.PageSize))
+}
+
+func (h *OrganizeHandler) CreateOutput(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeOutputInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.CreateOutput(ctx, tenantID, userID, req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) GetOutput(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.GetOutput(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) UpdateOutput(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeOutputInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.UpdateOutput(ctx, tenantID, userID, c.Param("id"), req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) DeleteOutput(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteOutput(ctx, tenantID, userID, c.Param("id")); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *OrganizeHandler) ListSproutReports(c *gin.Context) {
+	ctx := c.Request.Context()
+	query, ok := h.listQuery(c)
+	if !ok {
+		return
+	}
+	query.Stage = c.Query("stage")
+	items, total, err := h.service.ListSproutReports(ctx, query)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, listPayload(items, total, query.Page, query.PageSize))
+}
+
+func (h *OrganizeHandler) CreateSproutReport(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeSproutReportInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.CreateSproutReport(ctx, tenantID, userID, req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) GetSproutReport(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.GetSproutReport(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) UpdateSproutReport(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeSproutReportInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.UpdateSproutReport(ctx, tenantID, userID, c.Param("id"), req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) DeleteSproutReport(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteSproutReport(ctx, tenantID, userID, c.Param("id")); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (h *OrganizeHandler) listQuery(c *gin.Context) (types.OrganizeListQuery, bool) {
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return types.OrganizeListQuery{}, false
+	}
+	page, pageSize, ok := parseListPagination(c)
+	if !ok {
+		return types.OrganizeListQuery{}, false
+	}
+	keyword := strings.TrimSpace(c.Query("q"))
+	if keyword == "" {
+		keyword = strings.TrimSpace(c.Query("keyword"))
+	}
+	return types.OrganizeListQuery{
+		TenantID: tenantID,
+		UserID:   userID,
+		Keyword:  keyword,
+		Page:     page,
+		PageSize: pageSize,
+	}, true
+}
+
+func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
+	switch {
+	case stderrors.Is(err, service.ErrOrganizeInvalidScope):
+		c.Error(apperrors.NewUnauthorizedError(err.Error()))
+	case stderrors.Is(err, service.ErrOrganizeNotFound):
+		c.Error(apperrors.NewNotFoundError(err.Error()))
+	case stderrors.Is(err, service.ErrOrganizeTitleRequired),
+		stderrors.Is(err, service.ErrOrganizeInvalidMemoryKind),
+		stderrors.Is(err, service.ErrOrganizeInvalidStatus),
+		stderrors.Is(err, service.ErrOrganizeInvalidStage),
+		stderrors.Is(err, service.ErrOrganizeInvalidMemoryRefs):
+		c.Error(apperrors.NewBadRequestError(err.Error()))
+	default:
+		logger.ErrorWithFields(c.Request.Context(), err, nil)
+		c.Error(apperrors.NewInternalServerError(err.Error()))
+	}
+}
+
+func listPayload(items interface{}, total int64, page, pageSize int) gin.H {
+	return gin.H{
+		"success": true,
+		"data": gin.H{
+			"items":     items,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	}
+}

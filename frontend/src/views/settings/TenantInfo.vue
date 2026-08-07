@@ -146,39 +146,57 @@
         </div>
 
         <!-- Storage quota -->
-        <div v-if="tenantInfo?.storage_quota !== undefined" class="setting-row">
+        <div v-if="storageUsage" class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.storage.quotaLabel') }}</label>
             <p class="desc">{{ $t('tenant.storage.quotaDescription') }}</p>
           </div>
           <div class="setting-control">
-            <span class="info-value">{{ formatBytes(tenantInfo.storage_quota) }}</span>
+            <span class="info-value">{{ storageQuotaText }}</span>
           </div>
         </div>
 
         <!-- Used storage -->
-        <div v-if="tenantInfo?.storage_quota !== undefined" class="setting-row">
+        <div v-if="storageUsage" class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.storage.usedLabel') }}</label>
             <p class="desc">{{ $t('tenant.storage.usedDescription') }}</p>
           </div>
           <div class="setting-control">
-            <span class="info-value">{{ formatBytes(tenantInfo.storage_used || 0) }}</span>
+            <span class="info-value">{{ storageUsedText }}</span>
+          </div>
+        </div>
+
+        <!-- Remaining storage -->
+        <div v-if="storageUsage" class="setting-row">
+          <div class="setting-info">
+            <label>{{ $t('tenant.storage.remainingLabel') }}</label>
+            <p class="desc">{{ $t('tenant.storage.remainingDescription') }}</p>
+          </div>
+          <div class="setting-control">
+            <span class="info-value">{{ storageRemainingText }}</span>
           </div>
         </div>
 
         <!-- Storage usage -->
-        <div v-if="tenantInfo?.storage_quota !== undefined" class="setting-row">
+        <div v-if="storageUsage" class="setting-row">
           <div class="setting-info">
             <label>{{ $t('tenant.storage.usageLabel') }}</label>
             <p class="desc">{{ $t('tenant.storage.usageDescription') }}</p>
           </div>
           <div class="setting-control">
             <div class="usage-control">
-              <span class="usage-text">{{ getUsagePercentage() }}%</span>
-              <!-- t-progress: theme = 形态（line/plump/circle）；颜色用 status -->
-              <t-progress :percentage="getUsagePercentage()" :show-info="false" size="small"
-                :status="getUsagePercentage() > 80 ? 'warning' : 'success'" style="flex: 1;" />
+              <div class="usage-summary">
+                <span class="usage-text">{{ storageUsagePercentText }}</span>
+                <t-tag :theme="storageStatusTheme" variant="light" size="small">
+                  {{ storageStatusText }}
+                </t-tag>
+              </div>
+              <t-progress v-if="!storageUsage.unlimited" :percentage="storageProgressPercentage"
+                :show-info="false" size="small" :status="storageProgressStatus" class="usage-progress" />
+              <p v-if="storageQuotaIncreaseHint" class="usage-hint">
+                {{ storageQuotaIncreaseHint }}
+              </p>
             </div>
           </div>
         </div>
@@ -271,6 +289,139 @@ const error = ref('')
 // 仅 owner 可改空间名（与后端 router.go 中 g.Owner() 守卫一致；
 // 服务端始终是权限的最终裁判，这里只决定 UI 是否露出入口）。
 const canEditTenant = computed(() => authStore.hasRole('owner'))
+
+interface NormalizedTenantStorageUsage {
+  quotaBytes: number
+  usedBytes: number
+  remainingBytes: number
+  usagePercent: number
+  warningThresholdPercent: number
+  status: 'ok' | 'warning' | 'exceeded' | 'unlimited' | string
+  unlimited: boolean
+  requiresQuotaIncrease: boolean
+}
+
+const toFiniteNumber = (value: unknown, fallback = 0) => {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+const storageUsage = computed<NormalizedTenantStorageUsage | null>(() => {
+  const tenant = tenantInfo.value
+  if (!tenant) return null
+
+  const raw = tenant.storage_usage
+  if (!raw && tenant.storage_quota === undefined && tenant.storage_used === undefined) {
+    return null
+  }
+
+  const quotaBytes = toFiniteNumber(raw?.quota_bytes ?? tenant.storage_quota, 0)
+  const usedBytes = Math.max(0, toFiniteNumber(raw?.used_bytes ?? tenant.storage_used, 0))
+  const unlimited = raw?.unlimited === true || quotaBytes <= 0
+  const warningThresholdPercent = toFiniteNumber(raw?.warning_threshold_percent, 80)
+  const usagePercent = unlimited
+    ? 0
+    : Math.max(0, toFiniteNumber(raw?.usage_percent, quotaBytes > 0 ? (usedBytes / quotaBytes) * 100 : 0))
+  const status =
+    raw?.status ||
+    (unlimited ? 'unlimited' : usedBytes >= quotaBytes ? 'exceeded' : usagePercent >= warningThresholdPercent ? 'warning' : 'ok')
+
+  return {
+    quotaBytes,
+    usedBytes,
+    remainingBytes: unlimited
+      ? 0
+      : Math.max(0, toFiniteNumber(raw?.remaining_bytes, quotaBytes - usedBytes)),
+    usagePercent,
+    warningThresholdPercent,
+    status,
+    unlimited,
+    requiresQuotaIncrease:
+      raw?.requires_quota_increase === true || status === 'warning' || status === 'exceeded',
+  }
+})
+
+const formatPercent = (value: number) => {
+  if (!Number.isFinite(value)) return '0%'
+  const rounded = Math.round(value * 100) / 100
+  return `${String(rounded).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
+}
+
+const storageQuotaText = computed(() => {
+  const usage = storageUsage.value
+  if (!usage) return '-'
+  return usage.unlimited ? t('tenant.storage.unlimited') : formatBytes(usage.quotaBytes)
+})
+
+const storageUsedText = computed(() => {
+  const usage = storageUsage.value
+  return usage ? formatBytes(usage.usedBytes) : '-'
+})
+
+const storageRemainingText = computed(() => {
+  const usage = storageUsage.value
+  if (!usage) return '-'
+  return usage.unlimited ? t('tenant.storage.unlimited') : formatBytes(usage.remainingBytes)
+})
+
+const storageUsagePercentText = computed(() => {
+  const usage = storageUsage.value
+  if (!usage) return '-'
+  return usage.unlimited ? t('tenant.storage.usedOfUnlimited', { used: formatBytes(usage.usedBytes) }) : formatPercent(usage.usagePercent)
+})
+
+const storageProgressPercentage = computed(() => {
+  const percent = storageUsage.value?.usagePercent ?? 0
+  return Math.min(Math.round(percent * 100) / 100, 100)
+})
+
+const storageProgressStatus = computed(() => {
+  switch (storageUsage.value?.status) {
+    case 'exceeded':
+      return 'error'
+    case 'warning':
+      return 'warning'
+    default:
+      return 'success'
+  }
+})
+
+const storageStatusTheme = computed(() => {
+  switch (storageUsage.value?.status) {
+    case 'exceeded':
+      return 'danger'
+    case 'warning':
+      return 'warning'
+    case 'unlimited':
+      return 'default'
+    default:
+      return 'success'
+  }
+})
+
+const storageStatusText = computed(() => {
+  switch (storageUsage.value?.status) {
+    case 'exceeded':
+      return t('tenant.storage.statusExceeded')
+    case 'warning':
+      return t('tenant.storage.statusWarning')
+    case 'unlimited':
+      return t('tenant.storage.statusUnlimited')
+    default:
+      return t('tenant.storage.statusOk')
+  }
+})
+
+const storageQuotaIncreaseHint = computed(() => {
+  const usage = storageUsage.value
+  if (!usage || usage.unlimited || !usage.requiresQuotaIncrease) return ''
+  if (usage.status === 'exceeded') {
+    return t('tenant.storage.exceededHint')
+  }
+  return t('tenant.storage.warningHint', {
+    threshold: formatPercent(usage.warningThresholdPercent),
+  })
+})
 
 /** 与原 TenantMembers.vue 一致：最后一位 Owner 不展示退出，避免与服务端 last-owner 对齐失败。 */
 const activeTenantNumericId = computed(() => Number(authStore.currentTenantId ?? 0))
@@ -649,23 +800,14 @@ const formatDate = (dateStr: string | undefined) => {
 }
 
 const formatBytes = (bytes: number) => {
-  if (bytes === 0) return '0 B'
+  const normalized = Math.max(0, toFiniteNumber(bytes, 0))
+  if (normalized === 0) return '0 B'
 
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  const i = Math.min(Math.floor(Math.log(normalized) / Math.log(k)), sizes.length - 1)
 
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
-const getUsagePercentage = () => {
-  if (!tenantInfo.value?.storage_quota || tenantInfo.value.storage_quota === 0) {
-    return 0
-  }
-
-  const used = tenantInfo.value.storage_used || 0
-  const percentage = (used / tenantInfo.value.storage_quota) * 100
-  return Math.min(Math.round(percentage * 100) / 100, 100)
+  return parseFloat((normalized / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 // Lifecycle
@@ -895,16 +1037,35 @@ onMounted(() => {
 }
 
 .usage-control {
-  //   width: 100%;
-  //   display: flex;
-  //   align-items: center;
-  //   gap: 12px;
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+
+  .usage-summary {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+  }
 
   .usage-text {
     font-size: 14px;
     font-weight: 500;
     color: var(--td-text-color-primary);
-    min-width: 50px;
+    text-align: right;
+  }
+
+  .usage-progress {
+    width: 100%;
+  }
+
+  .usage-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--td-warning-color);
     text-align: right;
   }
 }

@@ -4,6 +4,18 @@ import i18n from '@/i18n'
 const t = (key: string) => i18n.global.t(key)
 
 // 空间信息接口
+export interface TenantStorageUsage {
+  quota_bytes: number
+  used_bytes: number
+  remaining_bytes: number
+  usage_ratio: number
+  usage_percent: number
+  warning_threshold_percent: number
+  status: 'ok' | 'warning' | 'exceeded' | 'unlimited' | string
+  unlimited: boolean
+  requires_quota_increase: boolean
+}
+
 export interface TenantInfo {
   id: number
   name: string
@@ -12,6 +24,7 @@ export interface TenantInfo {
   business?: string
   storage_quota?: number
   storage_used?: number
+  storage_usage?: TenantStorageUsage
   created_at: string
   updated_at: string
 }

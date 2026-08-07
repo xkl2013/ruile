@@ -81,6 +81,7 @@ type RouterParams struct {
 	TagHandler                   *handler.TagHandler
 	CustomAgentHandler           *handler.CustomAgentHandler
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
+	OrganizeHandler              *handler.OrganizeHandler
 	SkillHandler                 *handler.SkillHandler
 	OrganizationHandler          *handler.OrganizationHandler
 	IMHandler                    *handler.IMHandler
@@ -260,6 +261,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterStorageBackendRoutes(v1, params.StorageBackendHandler, rbacGuards)
 		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
+		RegisterOrganizeRoutes(v1, params.OrganizeHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
 		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
@@ -671,7 +673,13 @@ func RegisterTenantRoutes(
 		// 空间，所以越过 PathTenantMatch 守卫不会扩大攻击面。
 		// 创建空间不对 API key 开放（注册在原始 group，默认拒绝）。
 		tenantRoutes.POST("", handler.CreateTenant)
-		g.apiKeyRoute(tenantRoutes, http.MethodGet, "", apiKeyManageTenantSettings(apiKeyFullAccess()), handler.ListTenants)
+		g.apiKeyRoute(
+			tenantRoutes,
+			http.MethodGet,
+			"",
+			apiKeyRetrieve(apiKeyManageTenantSettings(apiKeyFullAccess())),
+			handler.ListTenants,
+		)
 
 		// Generic KV configuration management (tenant-level). Tenant ID
 		// is obtained from authentication context; the URL :key is a
@@ -962,6 +970,10 @@ func RegisterSystemAdminRoutes(
 		// Bulk action — write the current default-quota setting onto
 		// every existing tenant. Lives under /tenants instead of
 		// /settings because it changes tenants, not the setting row.
+		adminRoutes.PUT(
+			"/tenants/:id/storage-quota",
+			handler.UpdateTenantStorageQuota,
+		)
 		adminRoutes.POST(
 			"/tenants/apply-default-storage-quota",
 			handler.ApplyDefaultStorageQuotaToAllTenants,
@@ -1176,6 +1188,41 @@ func RegisterUserFavoriteRoutes(r *gin.RouterGroup, h *handler.UserResourceFavor
 		favs.GET("", g.Viewer(), h.ListFavorites)
 		favs.POST("", g.Viewer(), h.AddFavorite)
 		favs.DELETE("/:type/:id", g.Viewer(), h.RemoveFavorite)
+	}
+}
+
+// RegisterOrganizeRoutes wires the user-scoped Organize section API.
+//
+// Organize items are private to the caller inside the active workspace. The
+// handler derives both user_id and tenant_id from auth context, so Viewer+ is
+// sufficient for JWT callers. API keys are admitted only when full-access; the
+// module has no narrow capability yet and should not be exposed through chat or
+// retrieve scoped keys by accident.
+func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *rbacGuards) {
+	if h == nil {
+		return
+	}
+	org := g.apiKeyGroup(r.Group("/organize"), apiKeyFullAccess())
+	{
+		org.GET("/overview", g.Viewer(), h.GetOverview)
+
+		org.GET("/memories", g.Viewer(), h.ListMemories)
+		org.POST("/memories", g.Viewer(), h.CreateMemory)
+		org.GET("/memories/:id", g.Viewer(), h.GetMemory)
+		org.PUT("/memories/:id", g.Viewer(), h.UpdateMemory)
+		org.DELETE("/memories/:id", g.Viewer(), h.DeleteMemory)
+
+		org.GET("/outputs", g.Viewer(), h.ListOutputs)
+		org.POST("/outputs", g.Viewer(), h.CreateOutput)
+		org.GET("/outputs/:id", g.Viewer(), h.GetOutput)
+		org.PUT("/outputs/:id", g.Viewer(), h.UpdateOutput)
+		org.DELETE("/outputs/:id", g.Viewer(), h.DeleteOutput)
+
+		org.GET("/sprout-reports", g.Viewer(), h.ListSproutReports)
+		org.POST("/sprout-reports", g.Viewer(), h.CreateSproutReport)
+		org.GET("/sprout-reports/:id", g.Viewer(), h.GetSproutReport)
+		org.PUT("/sprout-reports/:id", g.Viewer(), h.UpdateSproutReport)
+		org.DELETE("/sprout-reports/:id", g.Viewer(), h.DeleteSproutReport)
 	}
 }
 

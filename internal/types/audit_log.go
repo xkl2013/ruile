@@ -129,6 +129,11 @@ const (
 	// session revocation, but never contain the old or new password.
 	AuditActionSystemUserPasswordReset AuditAction = "system.user_password_reset"
 
+	// AuditActionTenantStorageQuotaUpdated fires when a SystemAdmin changes a
+	// single workspace's storage quota. TenantID=0 because the action is
+	// performed from the platform admin surface.
+	AuditActionTenantStorageQuotaUpdated AuditAction = "tenant.storage_quota_updated"
+
 	// Runtime queue mutations are privileged SystemAdmin actions. Retrying an
 	// archived task can repeat its original side effects; deleting one removes
 	// the Redis failure record. Both must leave a platform audit trail.
