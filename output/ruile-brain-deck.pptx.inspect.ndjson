@@ -1,0 +1,76 @@
+{"kind":"deck","id":"pr/ymkhr0","name":"Deck"}
+{"kind":"layout","layoutId":"6237f48d-7965-4cb3-a366-a2f7cbf5a903","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"6774e4c2-b199-4cb1-801e-e6b97a917b62","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/ajj6ut","slide":1,"title":"集团 AI 启动宣讲","textShapes":5}
+{"kind":"shape","id":"sh/s32p8bil","slide":1,"bbox":[0,0,1280,720]}
+{"kind":"textbox","id":"sh/61k76l0f","slide":1,"text":"集团 AI 启动宣讲","textPreview":"集团 AI 启动宣讲","textChars":10,"textLines":1,"bbox":[72,64,300,24]}
+{"kind":"shape","id":"sh/18vql0j2","slide":1,"bbox":[72,104,72,4]}
+{"kind":"textbox","id":"sh/g7mpcvih","slide":1,"text":"睿乐大脑","textPreview":"睿乐大脑","textChars":4,"textLines":1,"bbox":[72,124,480,66]}
+{"kind":"textbox","id":"sh/f6d8jq1w","slide":1,"text":"赋能成长，驱动增长","textPreview":"赋能成长，驱动增长","textChars":9,"textLines":1,"bbox":[72,190,540,52]}
+{"kind":"textbox","id":"sh/e547al0r","slide":1,"text":"集团级知识库与智能辅助决策平台","textPreview":"集团级知识库与智能辅助决策平台","textChars":15,"textLines":1,"bbox":[72,250,520,30]}
+{"kind":"textbox","id":"sh/hcr69wjy","slide":1,"text":"让知识沉淀为能力，让 AI 转化为增长。","textPreview":"让知识沉淀为能力，让 AI 转化为增长。","textChars":20,"textLines":1,"bbox":[72,286,520,34]}
+{"kind":"image","id":"im/udwv29k3","slide":1,"name":"","alt":"codex-clipboard-fc70cce6-3d9a-4c64-9e1a-0e9b995d307c.png","bbox":[0,0,1280,720]}
+{"kind":"notes","id":"nt/ajj6ut","slide":1,"text":"[Sources]\n- User-provided login screenshot from the prompt.\n- No external sources used."}
+{"kind":"slide","id":"sl/n5725m","slide":2,"title":"01 / 平台定位","textShapes":15}
+{"kind":"textbox","id":"sh/ob2horml","slide":2,"text":"01 / 平台定位","textPreview":"01 / 平台定位","textChars":9,"textLines":1,"bbox":[72,64,320,24]}
+{"kind":"textbox","id":"sh/natgfml0","slide":2,"text":"睿乐大脑是什么","textPreview":"睿乐大脑是什么","textChars":7,"textLines":1,"bbox":[72,94,430,56]}
+{"kind":"textbox","id":"sh/29kzmh4v","slide":2,"text":"集团级知识库 + 智能辅助决策工具","textPreview":"集团级知识库 + 智能辅助决策工具","textChars":17,"textLines":1,"bbox":[72,154,380,42]}
+{"kind":"textbox","id":"sh/18bydw3a","slide":2,"text":"把分散的经验、制度、流程和案例，整理成可检索、可复用、可判断的知识资产。","textPreview":"把分散的经验、制度、流程和案例，整理成可检索、可复用、可判断的知识资产。","textChars":36,"textLines":1,"bbox":[72,214,380,72]}
+{"kind":"textbox","id":"sh/07ihkrmp","slide":2,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[72,316,48,32]}
+{"kind":"textbox","id":"sh/f69gbml4","slide":2,"text":"知识沉淀","textPreview":"知识沉淀","textChars":4,"textLines":1,"bbox":[128,314,300,28]}
+{"kind":"textbox","id":"sh/e50zih4j","slide":2,"text":"把制度、流程、案例和方法集中归档。","textPreview":"把制度、流程、案例和方法集中归档。","textChars":17,"textLines":1,"bbox":[128,346,360,50]}
+{"kind":"textbox","id":"sh/dkry9c3y","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[72,408,48,32]}
+{"kind":"textbox","id":"sh/sjihg7md","slide":2,"text":"快速调用","textPreview":"快速调用","textChars":4,"textLines":1,"bbox":[128,406,300,28]}
+{"kind":"textbox","id":"sh/a9g7qx8n","slide":2,"text":"文档检索 + 问答式获取，减少重复沟通。","textPreview":"文档检索 + 问答式获取，减少重复沟通。","textChars":20,"textLines":1,"bbox":[128,438,360,50]}
+{"kind":"textbox","id":"sh/vap8z298","slide":2,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[72,500,48,32]}
+{"kind":"textbox","id":"sh/wbypsnqt","slide":2,"text":"辅助决策","textPreview":"辅助决策","textChars":4,"textLines":1,"bbox":[128,498,300,28]}
+{"kind":"textbox","id":"sh/xc7q1sre","slide":2,"text":"基于信息快速比对，支撑判断和选择。","textPreview":"基于信息快速比对，支撑判断和选择。","textChars":17,"textLines":1,"bbox":[128,530,360,50]}
+{"kind":"textbox","id":"sh/m5w7md8r","slide":2,"text":"知识找得到，答案问得准，决策有依据。","textPreview":"知识找得到，答案问得准，决策有依据。","textChars":18,"textLines":1,"bbox":[72,610,390,28]}
+{"kind":"shape","id":"sh/n658vi9w","slide":2,"bbox":[516,112,692,374]}
+{"kind":"textbox","id":"sh/987qxsr2","slide":2,"text":"知识库首页：统一管理组织知识，支持文档型和问答型知识库","textPreview":"知识库首页：统一管理组织知识，支持文档型和问答型知识库","textChars":27,"textLines":1,"bbox":[516,506,692,24]}
+{"kind":"image","id":"im/byxgzqp0","slide":2,"name":"","geometry":"roundRect","alt":"codex-clipboard-f2ad328a-5163-45f1-8c9a-0bd43eec5136.png","bbox":[516,112,692,374]}
+{"kind":"notes","id":"nt/n5725m","slide":2,"text":"[Sources]\n- User-provided knowledge-base home screenshot from the prompt.\n- No external sources used."}
+{"kind":"slide","id":"sl/s9zg2r","slide":3,"title":"02 / 团队成长","textShapes":12}
+{"kind":"textbox","id":"sh/fa10nqtw","slide":3,"text":"02 / 团队成长","textPreview":"02 / 团队成长","textChars":9,"textLines":1,"bbox":[72,64,320,24]}
+{"kind":"textbox","id":"sh/gba1gvah","slide":3,"text":"它如何赋能团队成长","textPreview":"它如何赋能团队成长","textChars":9,"textLines":1,"bbox":[72,94,460,56]}
+{"kind":"textbox","id":"sh/1cjip0r2","slide":3,"text":"让每个人都能更快上手、更稳输出、更好复盘。","textPreview":"让每个人都能更快上手、更稳输出、更好复盘。","textChars":21,"textLines":1,"bbox":[72,154,470,38]}
+{"kind":"textbox","id":"sh/6l8za1sf","slide":3,"text":"新人","textPreview":"新人","textChars":2,"textLines":1,"bbox":[72,228,100,28]}
+{"kind":"textbox","id":"sh/r6h0j6t0","slide":3,"text":"快速理解岗位、业务和制度，缩短上手周期。","textPreview":"快速理解岗位、业务和制度，缩短上手周期。","textChars":20,"textLines":1,"bbox":[176,228,350,40]}
+{"kind":"textbox","id":"sh/s7qhcbal","slide":3,"text":"员工","textPreview":"员工","textChars":2,"textLines":1,"bbox":[72,314,100,28]}
+{"kind":"textbox","id":"sh/t8zilgbq","slide":3,"text":"随时查资料、写方案、提效率，把时间用在关键工作上。","textPreview":"随时查资料、写方案、提效率，把时间用在关键工作上。","textChars":25,"textLines":1,"bbox":[176,314,350,40]}
+{"kind":"textbox","id":"sh/ihoz61s3","slide":3,"text":"骨干","textPreview":"骨干","textChars":2,"textLines":1,"bbox":[72,400,100,28]}
+{"kind":"textbox","id":"sh/jih0f6to","slide":3,"text":"沉淀方法论，复制成功经验，形成可复用打法。","textPreview":"沉淀方法论，复制成功经验，形成可复用打法。","textChars":21,"textLines":1,"bbox":[176,400,350,40]}
+{"kind":"textbox","id":"sh/76p8fi5s","slide":3,"text":"管理者","textPreview":"管理者","textChars":3,"textLines":1,"bbox":[72,486,100,28]}
+{"kind":"textbox","id":"sh/65g76d47","slide":3,"text":"依据事实和数据做判断，让决策更稳、更快。","textPreview":"依据事实和数据做判断，让决策更稳、更快。","textChars":20,"textLines":1,"bbox":[176,486,350,40]}
+{"kind":"textbox","id":"sh/ts7qhsni","slide":3,"text":"一份知识，多次复用；一套经验，全员受益。","textPreview":"一份知识，多次复用；一套经验，全员受益。","textChars":20,"textLines":1,"bbox":[72,588,520,30]}
+{"kind":"shape","id":"sh/sryp8nmx","slide":3,"bbox":[598,112,610,331]}
+{"kind":"shape","id":"sh/utgrax43","slide":3,"bbox":[788,482,420,227]}
+{"kind":"image","id":"im/gnat4b2t","slide":3,"name":"","geometry":"roundRect","alt":"codex-clipboard-8228cb00-15a5-4886-8b41-8628b9247365.png","bbox":[598,112,610,331]}
+{"kind":"image","id":"im/u1sr21kn","slide":3,"name":"","geometry":"roundRect","alt":"codex-clipboard-0b45c092-4f88-4a03-b667-282b6d1132d9.png","bbox":[788,482,420,227]}
+{"kind":"notes","id":"nt/s9zg2r","slide":3,"text":"[Sources]\n- User-provided screenshots of knowledge-base organization and navigation from the prompt.\n- No external sources used."}
+{"kind":"slide","id":"sl/uuygdb","slide":4,"title":"03 / 驱动增长","textShapes":16}
+{"kind":"textbox","id":"sh/a9sre5c7","slide":4,"text":"03 / 驱动增长","textPreview":"03 / 驱动增长","textChars":9,"textLines":1,"bbox":[72,60,320,24]}
+{"kind":"textbox","id":"sh/xc3a90bi","slide":4,"text":"我们如何把睿乐大脑真正用起来","textPreview":"我们如何把睿乐大脑真正用起来","textChars":14,"textLines":1,"bbox":[72,92,700,54]}
+{"kind":"textbox","id":"sh/wba9gvud","slide":4,"text":"先沉淀，再调用；先在高频场景跑通，再推广到更多团队。","textPreview":"先沉淀，再调用；先在高频场景跑通，再推广到更多团队。","textChars":26,"textLines":1,"bbox":[72,148,820,34]}
+{"kind":"textbox","id":"sh/n6183qtg","slide":4,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[72,198,48,32]}
+{"kind":"textbox","id":"sh/m5sralcv","slide":4,"text":"整理核心知识","textPreview":"整理核心知识","textChars":6,"textLines":1,"bbox":[128,196,300,28]}
+{"kind":"textbox","id":"sh/98jq50bm","slide":4,"text":"把制度、流程、模板和案例统一沉淀。","textPreview":"把制度、流程、模板和案例统一沉淀。","textChars":17,"textLines":1,"bbox":[128,228,360,50]}
+{"kind":"textbox","id":"sh/87a9cvu1","slide":4,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[536,198,48,32]}
+{"kind":"textbox","id":"sh/zih8zqtk","slide":4,"text":"养成使用习惯","textPreview":"养成使用习惯","textChars":6,"textLines":1,"bbox":[592,196,300,28]}
+{"kind":"textbox","id":"sh/yh8r6lcz","slide":4,"text":"把 AI 用到查找、写作、协作和复盘。","textPreview":"把 AI 用到查找、写作、协作和复盘。","textChars":19,"textLines":1,"bbox":[592,228,360,50]}
+{"kind":"textbox","id":"sh/cj2dkj2p","slide":4,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[72,288,48,32]}
+{"kind":"textbox","id":"sh/d4buto3a","slide":4,"text":"管理层带头用","textPreview":"管理层带头用","textChars":6,"textLines":1,"bbox":[128,286,300,28]}
+{"kind":"textbox","id":"sh/qh0vi94z","slide":4,"text":"用于分析、判断和决策，形成示范效应。","textPreview":"用于分析、判断和决策，形成示范效应。","textChars":18,"textLines":1,"bbox":[128,318,360,50]}
+{"kind":"textbox","id":"sh/ritcrelk","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[536,288,48,32]}
+{"kind":"textbox","id":"sh/4fidgjmt","slide":4,"text":"持续反馈优化","textPreview":"持续反馈优化","textChars":6,"textLines":1,"bbox":[592,286,300,28]}
+{"kind":"textbox","id":"sh/pgrup43e","slide":4,"text":"让知识库越用越完整，越用越懂业务。","textPreview":"让知识库越用越完整，越用越懂业务。","textChars":17,"textLines":1,"bbox":[592,318,360,50]}
+{"kind":"textbox","id":"sh/2d0ve94n","slide":4,"text":"让知识沉淀为能力，让 AI 转化为增长。","textPreview":"让知识沉淀为能力，让 AI 转化为增长。","textChars":20,"textLines":1,"bbox":[72,384,600,28]}
+{"kind":"shape","id":"sh/3e9cnel8","slide":4,"bbox":[72,442,272,147]}
+{"kind":"shape","id":"sh/9cve183i","slide":4,"bbox":[360,442,272,147]}
+{"kind":"shape","id":"sh/wfylwzq5","slide":4,"bbox":[648,442,272,147]}
+{"kind":"shape","id":"sh/adg3u98z","slide":4,"bbox":[936,442,272,147]}
+{"kind":"image","id":"im/re5cbyhg","slide":4,"name":"","geometry":"roundRect","alt":"codex-clipboard-9b147978-1145-4033-aac7-a369004af55f.png","bbox":[72,442,272,147]}
+{"kind":"image","id":"im/utkfq10j","slide":4,"name":"","geometry":"roundRect","alt":"codex-clipboard-5a4f2977-31f2-4dd2-978b-5c9822567b93.png","bbox":[360,442,272,147]}
+{"kind":"image","id":"im/gvmxsbi9","slide":4,"name":"","geometry":"roundRect","alt":"codex-clipboard-f33663cc-3c18-4d43-ab81-fabbda94320f.png","bbox":[648,442,272,147]}
+{"kind":"image","id":"im/65kfm107","slide":4,"name":"","geometry":"roundRect","alt":"codex-clipboard-0b45c092-4f88-4a03-b667-282b6d1132d9.png","bbox":[936,442,272,147]}
+{"kind":"notes","id":"nt/uuygdb","slide":4,"text":"[Sources]\n- User-provided screenshots from the prompt used as the final evidence strip.\n- No external sources used."}

@@ -19,12 +19,17 @@ export interface OrganizeMemory {
 
 export interface OrganizeOutput {
   id: string
+  tenant_id?: number | string
+  user_id?: string
   title: string
   output_type: string
   content: string
   source_summary?: string
   status: OrganizeOutputStatus
   icon?: string
+  creator_name?: string
+  creator_avatar?: string
+  is_subscribed?: boolean
   memory_count?: number
   memory_ids?: string[]
   metadata?: Record<string, unknown>

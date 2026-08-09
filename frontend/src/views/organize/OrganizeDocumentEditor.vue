@@ -81,6 +81,7 @@ import {
   readOrganizeEditorDraft,
   type OrganizeEditorDraft,
 } from './editorDraftStorage'
+import { sproutReportContentForEditor } from './sproutReport'
 
 type OrganizeDocumentType = 'memory' | 'output' | 'sprout'
 type SaveState = 'idle' | 'saving' | 'saved' | 'waiting' | 'error'
@@ -301,10 +302,11 @@ const outputFromDraft = (draft: OrganizeEditorDraft): OrganizeOutput | null => {
 const sproutFromDraft = (draft: OrganizeEditorDraft): OrganizeSproutReport | null => {
   const draftTitle = normalizeTitle(draft.title || extractTitleFromContent(draft.content))
   if (documentType.value !== 'sprout' || !draftTitle) return null
+  const editableSummary = sproutReportContentForEditor(draft.content)
   return {
     id: documentId.value,
     title: draftTitle,
-    summary: normalizeDocumentContent(draftTitle, draft.content),
+    summary: normalizeDocumentContent(draftTitle, editableSummary),
     stage: draft.stage || 'organizing',
     output_hint: draft.output_hint,
     chips: draft.chips || [],
@@ -326,8 +328,11 @@ const clearAutosaveTimer = () => {
 const resetDraft = () => {
   const draft = readInitialDraft()
   const draftTitle = normalizeTitle(draft.title || extractTitleFromContent(draft.content))
+  const draftContent = documentType.value === 'sprout'
+    ? sproutReportContentForEditor(draft.content)
+    : draft.content
   title.value = draftTitle
-  content.value = normalizeDocumentContent(draftTitle, draft.content)
+  content.value = normalizeDocumentContent(draftTitle, draftContent)
   memoryKind.value = draft.kind || 'note'
   memorySource.value = draft.source || '手动输入'
   memoryDurationSeconds.value = draft.duration_seconds || 0
@@ -381,7 +386,7 @@ const loadDocument = async () => {
       if (!response.success || !response.data) throw new Error(response.message || '发芽加载失败')
       const item = response.data
       title.value = item.title
-      content.value = normalizeDocumentContent(item.title, item.summary)
+      content.value = normalizeDocumentContent(item.title, sproutReportContentForEditor(item.summary))
       sproutDraft.value = item
     }
     editorKey.value += 1
@@ -782,11 +787,7 @@ watch(
 }
 
 .document-editor-shell :deep(.ProseMirror > h1:first-child) {
-  min-height: 57px;
   margin: 0 0 18px;
-  padding: 0;
-  font-size: 48px;
-  line-height: 1.18;
 }
 
 .document-editor-shell :deep(.ProseMirror > h1:first-child.is-empty::before) {
@@ -918,12 +919,6 @@ watch(
 
   .document-editor-shell {
     min-height: 460px;
-  }
-
-  .document-editor-shell :deep(.ProseMirror > h1:first-child) {
-    min-height: 43px;
-    margin-bottom: 18px;
-    font-size: 36px;
   }
 
   .document-editor-shell :deep(.word-content-multi .ProseMirror) {

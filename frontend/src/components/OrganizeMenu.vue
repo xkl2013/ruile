@@ -21,7 +21,6 @@
         :aria-current="isOrganizeRoute && activeTab === item.key ? 'page' : undefined" @click="openRoute(item.path)">
         <t-icon :name="item.icon" class="organize-menu-item-icon" />
         <span class="organize-menu-item-name">{{ item.label }}</span>
-        <span class="organize-menu-item-count">{{ item.count }}</span>
       </button>
     </div>
   </section>
@@ -204,25 +203,4 @@ const openDefaultRoute = async () => {
   line-height: 18px;
 }
 
-.organize-menu-item-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: var(--td-bg-color-secondarycontainer);
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 18px;
-  box-sizing: border-box;
-  flex-shrink: 0;
-}
-
-.organize-menu-item.active .organize-menu-item-count {
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-primary);
-}
 </style>

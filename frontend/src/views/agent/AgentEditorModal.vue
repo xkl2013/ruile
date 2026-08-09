@@ -4300,7 +4300,9 @@ const handleSave = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  // Must sit above the global settings modal (1100) because AgentList is
+  // rendered inside that modal.
+  z-index: 3200;
   backdrop-filter: blur(4px);
 }
 

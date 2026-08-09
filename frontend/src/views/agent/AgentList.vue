@@ -152,7 +152,8 @@
               'is-builtin': agent.is_builtin,
               'agent-mode-normal': agent.config?.agent_mode === 'quick-answer',
               'agent-mode-agent': agent.config?.agent_mode === 'smart-reasoning',
-              'shared-agent-card': !agent.isMine
+              'shared-agent-card': !agent.isMine,
+              'is-selected': isDisplayAgentSelected(agent)
             }" @click="handleCardClick(agent)">
               <!-- 装饰星星 -->
               <div class="card-decoration">
@@ -353,7 +354,8 @@
             <div v-show="!isAgentRowHidden(agent)" class="agent-card" :class="{
               'is-builtin': agent.is_builtin,
               'agent-mode-normal': agent.config?.agent_mode === 'quick-answer',
-              'agent-mode-agent': agent.config?.agent_mode === 'smart-reasoning'
+              'agent-mode-agent': agent.config?.agent_mode === 'smart-reasoning',
+              'is-selected': isOwnedAgentSelected(agent)
             }" @click="handleCardClick(agent)">
               <!-- 装饰星星 -->
               <div class="card-decoration">
@@ -540,7 +542,8 @@
             </div>
             <div v-show="!isSpaceAgentCollapsed(shared)" class="agent-card shared-agent-card" :class="{
               'agent-mode-normal': shared.agent?.config?.agent_mode === 'quick-answer',
-              'agent-mode-agent': shared.agent?.config?.agent_mode === 'smart-reasoning'
+              'agent-mode-agent': shared.agent?.config?.agent_mode === 'smart-reasoning',
+              'is-selected': isOrganizationSharedAgentSelected(shared)
             }" @click="handleSpaceAgentCardClick(shared)">
               <div class="card-decoration">
                 <svg class="star-icon" width="24" height="24" viewBox="0 0 20 20" fill="none"
@@ -827,6 +830,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 const uiStore = useUIStore()
 const orgStore = useOrganizationStore()
+const settingsStore = useSettingsStore()
 const chatResources = useChatResourcesStore()
 const { loaded: modelsReadyLoaded, isReadyForAgent } = useTenantModelReadiness()
 
@@ -989,6 +993,36 @@ const editorInitialSection = ref<string>('basic')
 const editorInitialHighlightField = ref<string>('')
 /** 当前打开三点菜单的卡片 agent.id（用于受控弹出层，避免 computed 项无持久引用导致菜单不响应） */
 const openMoreAgentId = ref<string | null>(null)
+
+const normalizedSelectedAgentSourceTenantId = computed(() =>
+  settingsStore.selectedAgentSourceTenantId != null ? String(settingsStore.selectedAgentSourceTenantId) : null
+)
+
+const isAgentSelected = (agentId?: string, sourceTenantId?: string | number | null) => {
+  if (!agentId || settingsStore.selectedAgentId !== agentId) return false
+  const normalizedSourceTenantId = sourceTenantId != null ? String(sourceTenantId) : null
+  return normalizedSelectedAgentSourceTenantId.value === normalizedSourceTenantId
+}
+
+const isOwnedAgentSelected = (agent: CustomAgent) => isAgentSelected(agent.id, null)
+
+const isDisplayAgentSelected = (agent: DisplayAgent) => {
+  return agent.isMine
+    ? isOwnedAgentSelected(agent)
+    : isAgentSelected(agent.id, agent.source_tenant_id)
+}
+
+const isOrganizationSharedAgentSelected = (shared: OrganizationSharedAgentItem) => {
+  return isAgentSelected(shared.agent?.id, shared.source_tenant_id)
+}
+
+const selectAgentForChat = (
+  agent: Pick<CustomAgent, 'id'> & { config?: CustomAgent['config'] },
+  sourceTenantId?: string | number | null,
+) => {
+  settingsStore.selectAgent(agent.id, sourceTenantId != null ? String(sourceTenantId) : null)
+  settingsStore.toggleAgent(agent.config?.agent_mode === 'smart-reasoning')
+}
 
 const showAgentListEmpty = computed(() => {
   if (loading.value) return false
@@ -1159,7 +1193,7 @@ const toggleMore = (e: Event, agentId: string) => {
 }
 
 const handleCardClick = (agent: DisplayAgent | AgentWithUI) => {
-  if (openMoreAgentId.value === agent.id) return
+  openMoreAgentId.value = null
   // Track recency before any branch — Recents should reflect what the
   // user *looked at*, not only what they edited.
   pins.touchRecent('agent', agent.id)
@@ -1168,9 +1202,7 @@ const handleCardClick = (agent: DisplayAgent | AgentWithUI) => {
     if (shared) openSharedAgentDetail(shared)
     return
   }
-  if (canManageAgent(agent as AgentWithUI)) {
-    handleEdit(agent as AgentWithUI)
-  }
+  handleEdit(agent as AgentWithUI)
 }
 
 const toggleFavoriteAgent = (agentId: string, evt?: Event) => {
@@ -1184,9 +1216,12 @@ function openSharedAgentDetail(shared: SharedAgentInfo) {
   sharedDetailVisible.value = true
 }
 
-/** 空间视角下点击卡片：我共享的进编辑，他人共享的打开详情抽屉 */
+/** 空间视角下点击卡片：我共享的进编辑，他人共享的打开详情抽屉。 */
 function handleSpaceAgentCardClick(shared: OrganizationSharedAgentItem) {
-  if (shared.is_mine && shared.agent && authStore.hasRole('admin')) {
+  if (!shared.agent?.id) return
+  openMoreAgentId.value = null
+  pins.touchRecent('agent', shared.agent.id)
+  if (shared.is_mine && authStore.hasRole('admin')) {
     handleEdit({ ...shared.agent, showMore: false, disabled_by_me: shared.disabled_by_me } as AgentWithUI)
   } else {
     openSharedAgentDetail(shared)
@@ -1202,9 +1237,8 @@ function closeSharedAgentDetail() {
 async function handleUseSharedAgentInChat(shared: SharedAgentInfo) {
   if (!shared.agent?.id) return
   closeSharedAgentDetail()
-  const settingsStore = useSettingsStore()
   const menuStore = useMenuStore()
-  settingsStore.selectAgent(shared.agent.id, String(shared.source_tenant_id))
+  selectAgentForChat(shared.agent, shared.source_tenant_id)
   try {
     const res = await createSessions({})
     if (res?.data?.id) {
@@ -1234,7 +1268,6 @@ async function handleUseSharedAgentInChat(shared: SharedAgentInfo) {
 }
 
 const handleEdit = (agent: AgentWithUI) => {
-  if (!canManageAgent(agent)) return
   openMoreAgentId.value = null
   editingAgent.value = agent
   editorMode.value = 'edit'
@@ -1906,6 +1939,11 @@ defineExpose({
   &:hover {
     border-color: var(--td-brand-color);
     box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12);
+  }
+
+  &.is-selected {
+    border-color: var(--td-brand-color);
+    box-shadow: 0 0 0 1px var(--td-brand-color), 0 4px 12px rgba(7, 192, 95, 0.12);
   }
 
   .agent-favorite-star {

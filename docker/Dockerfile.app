@@ -33,9 +33,12 @@ RUN echo "build platform: ${BUILDPLATFORM}, target platform: ${TARGETPLATFORM}"
 
 # Install migrate tool
 RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/tmp/go-build \
     if [ "${TARGETARCH}" = "amd64" ]; then \
         export CC=x86_64-linux-gnu-gcc CXX=x86_64-linux-gnu-g++; \
     fi && \
+    export GOTMPDIR=/tmp/go-build GOCACHE=/root/.cache/go-build && \
     GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=1 \
     go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.19.1 && \
     if [ -f "/go/bin/${TARGETOS}_${TARGETARCH}/migrate" ]; then \
@@ -66,9 +69,12 @@ ENV CGO_ENABLED=1
 
 # Build the application with version info
 RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/tmp/go-build \
     if [ "${TARGETARCH}" = "amd64" ]; then \
         export CC=x86_64-linux-gnu-gcc CXX=x86_64-linux-gnu-g++; \
     fi && \
+    export GOTMPDIR=/tmp/go-build GOCACHE=/root/.cache/go-build && \
     make build-prod
 RUN --mount=type=cache,target=/go/pkg/mod cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/
 
