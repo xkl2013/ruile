@@ -453,9 +453,12 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		kb.GET("", g.Viewer(), handler.ListKnowledgeBases)
 		// 获取知识库详情 — Viewer+ 且对 KB 有 read 权限
 		kb.GET("/:id", g.Viewer(), g.KBAccessRead("id"), handler.GetKnowledgeBase)
-		// 更新知识库设置 — JWT Admin+，且跨租户共享场景需要 KB admin 级权限；
-		// API key 需 manage_kbs 或 full-access。
-		kbManagement.PUT("/:id", g.Admin(), g.KBAccessManage("id"), handler.UpdateKnowledgeBase)
+		// 更新知识库名称/描述和轻量配置 — JWT Viewer+ 进入后由 KBAccessWrite
+		// 统一判定：同空间 Admin+/KB 创建者，或跨空间共享 editor+。这与
+		// handler 内的 admin/editor 权限检查和 API 文档保持一致。
+		kbManagement.PUT("/:id", g.Viewer(), g.KBAccessWrite("id"), handler.UpdateKnowledgeBase)
+		// 更新知识库文档目录配置 — 与知识库设置更新同档。
+		kbManagement.PUT("/:id/directory-config", g.Admin(), g.KBAccessManage("id"), handler.UpdateKnowledgeBaseDirectoryConfig)
 		// 删除知识库 — 保持原有「创建者 OR Admin+」矩阵。
 		kbManagement.DELETE("/:id", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.DeleteKnowledgeBase)
 		// 置顶/取消置顶知识库 — 创建者本人 OR Admin+ 且对 KB 有 write 权限

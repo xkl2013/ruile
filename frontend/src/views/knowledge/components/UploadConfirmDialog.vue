@@ -272,7 +272,6 @@ import type {
   UploadConfirmResult,
 } from '@/stores/uploadConfirm'
 
-const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'ogg']
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv']
 
@@ -510,7 +509,7 @@ const overviewLines = computed(() => {
       title: t('uploadConfirm.tabMultimodal'),
       value: mm.enabled
         ? `${t('uploadConfirm.statusOn')} · ${mm.vllmModelId ? getModelName(mm.vllmModelId) : t('uploadConfirm.notSet')}`
-        : (hasImages.value ? t('uploadConfirm.multimodalRequiredForImages') : t('uploadConfirm.statusOff')),
+        : t('uploadConfirm.statusOff'),
     },
     {
       key: 'asr',
@@ -567,14 +566,6 @@ const ragEnabled = computed(() => {
   return (strategy?.vector_enabled ?? true) || (strategy?.keyword_enabled ?? true)
 })
 
-const hasImages = computed(() => {
-  if (props.mode === 'manual' && props.manualPreview?.content) {
-    const content = props.manualPreview.content
-    if (/data:image\/|!\[[^\]]*\]\([^)]+\)/i.test(content)) return true
-  }
-  return batchFileExts.value.some(ext => IMAGE_EXTENSIONS.includes(ext))
-})
-
 const hasAudiovisual = computed(() => {
   return batchFileExts.value.some(ext => AUDIO_EXTENSIONS.includes(ext) || VIDEO_EXTENSIONS.includes(ext))
 })
@@ -589,11 +580,7 @@ const showAsrModelError = computed(() => {
 
 const issueSectionKeys = computed(() => {
   const keys = new Set<string>()
-  if (hasImages.value) {
-    if (!uiState.value.multimodalConfig.enabled || !uiState.value.multimodalConfig.vllmModelId) {
-      keys.add('multimodal')
-    }
-  } else if (showMultimodalModelError.value) {
+  if (showMultimodalModelError.value) {
     keys.add('multimodal')
   }
   if (hasAudiovisual.value) {
@@ -609,11 +596,6 @@ const issueSectionKeys = computed(() => {
 const canConfirm = computed(() => {
   if (props.mode === 'file' && batchItemCount.value === 0) return false
   if (props.mode === 'manual' && !props.manualPreview?.content?.trim()) return false
-  if (hasImages.value) {
-    if (!uiState.value.multimodalConfig.enabled || !uiState.value.multimodalConfig.vllmModelId) {
-      return false
-    }
-  }
   if (hasAudiovisual.value) {
     if (!uiState.value.asrConfig.enabled || !uiState.value.asrConfig.modelId) {
       return false
@@ -661,6 +643,7 @@ function initFromKbInfo(kb: any) {
     uiState.value = createDefaultUIState()
     return
   }
+  const defaultMultimodalEnabled = props.mode === 'file' ? false : !!kb.vlm_config?.enabled
 
   uiState.value = {
     chunkingConfig: {
@@ -677,7 +660,7 @@ function initFromKbInfo(kb: any) {
       tableMetadataInstructions: kb.chunking_config?.table_metadata_instructions || '',
     },
     multimodalConfig: {
-      enabled: !!kb.vlm_config?.enabled,
+      enabled: defaultMultimodalEnabled,
       vllmModelId: kb.vlm_config?.model_id || '',
       descriptionLanguage: kb.vlm_config?.description_language || '',
       customInstructions: kb.vlm_config?.custom_instructions || '',
@@ -909,13 +892,7 @@ const handleNodeExtractUpdate = (config: UploadUIState['nodeExtractConfig']) => 
 }
 
 const validateBeforeConfirm = (): boolean => {
-  if (hasImages.value) {
-    if (!uiState.value.multimodalConfig.enabled || !uiState.value.multimodalConfig.vllmModelId) {
-      MessagePlugin.warning(t('uploadConfirm.vlmModelRequired'))
-      activeSection.value = 'multimodal'
-      return false
-    }
-  } else if (showMultimodalModelError.value) {
+  if (showMultimodalModelError.value) {
     MessagePlugin.warning(t('uploadConfirm.vlmModelSelectRequired'))
     activeSection.value = 'multimodal'
     return false

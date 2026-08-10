@@ -468,6 +468,7 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 	name string,
 	description string,
 	config *types.KnowledgeBaseConfig,
+	directoryConfig *types.KnowledgeBaseDirectoryConfig,
 ) (*types.KnowledgeBase, error) {
 	if id == "" {
 		logger.Error(ctx, "Knowledge base ID is empty")
@@ -515,6 +516,9 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 				kb.ExtractConfig = &types.ExtractConfig{Enabled: true}
 			}
 		}
+	}
+	if directoryConfig != nil {
+		kb.DirectoryConfig = directoryConfig
 	}
 	kb.UpdatedAt = time.Now()
 	kb.EnsureDefaults()

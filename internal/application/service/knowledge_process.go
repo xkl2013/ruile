@@ -2798,17 +2798,6 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 	}
 	ctx = withAttempt(ctx, attempt)
 
-	// 检查多模态配置（仅对文件导入）
-	if payload.FilePath != "" && !payload.EnableMultimodel && IsImageType(payload.FileType) {
-		logger.GetLogger(ctx).WithField("knowledge_id", knowledge.ID).
-			WithField("error", ErrImageNotParse).Errorf("processDocument image without enable multimodel")
-		knowledge.ParseStatus = "failed"
-		knowledge.ErrorMessage = ErrImageNotParse.Error()
-		knowledge.UpdatedAt = time.Now()
-		s.repo.UpdateKnowledge(ctx, knowledge)
-		return nil
-	}
-
 	// 检查音视频ASR配置（仅对文件导入）
 	if payload.FilePath != "" && IsAudiovisualType(payload.FileType) && !eff.ASRConfig.IsASREnabled() {
 		logger.GetLogger(ctx).WithField("knowledge_id", knowledge.ID).

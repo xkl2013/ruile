@@ -34,6 +34,10 @@ import {
   batchReparseKnowledge,
   getKnowledgeSpans,
   getKnowledgeDetails,
+  updateKnowledgeBase,
+  updateKnowledgeBaseDirectoryConfig,
+  type KnowledgeBaseDirectoryConfigPayload,
+  type KnowledgeBaseDirectoryNodePayload,
 } from "@/api/knowledge-base/index";
 import { knowledgeSpansPayloadHasTrace } from '@/utils/knowledgeTrace';
 import FAQEntryManager from './components/FAQEntryManager.vue';
@@ -272,6 +276,61 @@ const canEdit = computed(() => {
   if (authStore.hasRole('admin')) return true;
   return orgStore.canEditKB(kbId.value, false);
 });
+
+const canRenameKnowledgeBase = computed(() => canEdit.value);
+const renameDialogVisible = ref(false);
+const renameSaving = ref(false);
+const renameForm = reactive({
+  name: '',
+  description: '',
+});
+
+const openRenameDialog = () => {
+  if (!canRenameKnowledgeBase.value || !kbInfo.value) return;
+  renameForm.name = String(kbInfo.value.name || '');
+  renameForm.description = String(kbInfo.value.description || '');
+  renameDialogVisible.value = true;
+};
+
+const closeRenameDialog = () => {
+  renameDialogVisible.value = false;
+};
+
+const handleRenameConfirm = async () => {
+  if (!kbId.value || renameSaving.value) return;
+  const name = renameForm.name.trim();
+  if (!name) {
+    MessagePlugin.warning(t('knowledgeEditor.messages.nameRequired'));
+    return;
+  }
+
+  renameSaving.value = true;
+  try {
+    const result: any = await updateKnowledgeBase(kbId.value, {
+      name,
+      description: renameForm.description,
+    });
+    const updatedKb = result?.data;
+    if (updatedKb) {
+      kbInfo.value = updatedKb;
+    } else if (kbInfo.value) {
+      kbInfo.value = {
+        ...kbInfo.value,
+        name,
+        description: renameForm.description,
+      };
+    }
+    chatResources.invalidateKnowledgeBaseDetail(kbId.value);
+    chatResources.invalidate('knowledgeBases');
+    void chatResources.ensureKnowledgeBases(true);
+    MessagePlugin.success(t('knowledgeEditor.messages.updateSuccess'));
+    closeRenameDialog();
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || error?.error?.message || t('common.operationFailed'));
+  } finally {
+    renameSaving.value = false;
+  }
+};
 
 // Knowledge-base settings are workspace administration now. Keep content
 // editing (`canEdit`) separate so document operations can retain their
@@ -536,7 +595,7 @@ const parseStatusOptions = computed(() => [
   { label: t('knowledgeBase.parseStatusDraft'), value: 'draft' },
 ]);
 const DIRECTORY_ROOT_PATH = '';
-const DIRECTORY_STORAGE_PREFIX = 'knowledge-document-directories';
+const LEGACY_DIRECTORY_STORAGE_PREFIX = 'knowledge-document-directories';
 const activeDirectoryPath = ref(DIRECTORY_ROOT_PATH);
 
 type DirectoryNode = {
@@ -571,6 +630,18 @@ type ManualDirectoryNode = {
 
 type DirectoryDialogMode = 'create' | 'settings';
 
+type DirectoryStateSnapshot = {
+  rootDescription: string;
+  directories: ManualDirectoryNode[];
+};
+
+type DirectoryPersistResult = {
+  ok: true;
+} | {
+  ok: false;
+  error?: any;
+};
+
 const manualDirectoryNodes = ref<ManualDirectoryNode[]>([]);
 const rootDirectoryDescription = ref('');
 const directoryDialogVisible = ref(false);
@@ -582,6 +653,7 @@ const directoryForm = reactive({
   description: '',
 });
 const collapsedDirectoryPaths = ref<Set<string>>(new Set());
+const directorySaving = ref(false);
 
 const normalizeDocumentPath = (item: DirectorySourceItem) => {
   const candidates = [
@@ -632,52 +704,168 @@ const sortDirectoryNodes = (nodes: DirectoryNode[]) => nodes.sort((a, b) => {
   return aParts.length - bParts.length;
 });
 
-const directoryStorageKey = computed(() =>
-  kbId.value ? `${DIRECTORY_STORAGE_PREFIX}:${kbId.value}` : '',
-);
+const getLegacyDirectoryStorageKey = (targetKbId = kbId.value) =>
+  targetKbId ? `${LEGACY_DIRECTORY_STORAGE_PREFIX}:${targetKbId}` : '';
 
-const loadManualDirectoryState = () => {
-  manualDirectoryNodes.value = [];
-  rootDirectoryDescription.value = '';
-  if (!directoryStorageKey.value) return;
+const normalizeDirectoryPath = (value: unknown) => String(value || '')
+  .replace(/\\/g, '/')
+  .split('/')
+  .map(part => part.trim())
+  .filter(Boolean)
+  .join('/');
+
+const normalizeManualDirectoryNode = (item: any): ManualDirectoryNode | null => {
+  const path = normalizeDirectoryPath(item?.path);
+  if (!path) return null;
+  const now = new Date().toISOString();
+  const name = String(item?.name || getDirectoryDisplayName(path)).trim() || getDirectoryDisplayName(path);
+  return {
+    path,
+    name,
+    description: String(item?.description ?? '').trim(),
+    parentPath: getDirectoryParentPath(path),
+    createdAt: String(item?.createdAt || item?.created_at || now),
+    updatedAt: String(item?.updatedAt || item?.updated_at || now),
+  };
+};
+
+const normalizeManualDirectoryNodes = (items: any[]): ManualDirectoryNode[] => {
+  const nodes: ManualDirectoryNode[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const node = normalizeManualDirectoryNode(item);
+    if (!node || seen.has(node.path)) continue;
+    seen.add(node.path);
+    nodes.push(node);
+  }
+  return nodes;
+};
+
+const applyDirectoryState = (snapshot: DirectoryStateSnapshot) => {
+  rootDirectoryDescription.value = snapshot.rootDescription;
+  manualDirectoryNodes.value = snapshot.directories.map(item => ({ ...item }));
+};
+
+const parseDirectoryConfig = (
+  config?: KnowledgeBaseDirectoryConfigPayload | null,
+): DirectoryStateSnapshot => {
+  if (!config) {
+    return { rootDescription: '', directories: [] };
+  }
+  return {
+    rootDescription: String(config.root_description || '').trim(),
+    directories: normalizeManualDirectoryNodes(
+      Array.isArray(config.directories) ? config.directories : [],
+    ),
+  };
+};
+
+const serializeManualDirectoryNode = (node: ManualDirectoryNode): KnowledgeBaseDirectoryNodePayload => {
+  const path = normalizeDirectoryPath(node.path);
+  const now = new Date().toISOString();
+  return {
+    path,
+    name: String(node.name || getDirectoryDisplayName(path)).trim() || getDirectoryDisplayName(path),
+    description: String(node.description ?? '').trim(),
+    parent_path: getDirectoryParentPath(path),
+    created_at: String(node.createdAt || now),
+    updated_at: String(node.updatedAt || node.createdAt || now),
+  };
+};
+
+const buildDirectoryConfigPayload = (snapshot: DirectoryStateSnapshot): KnowledgeBaseDirectoryConfigPayload => ({
+  root_description: snapshot.rootDescription.trim(),
+  directories: snapshot.directories
+    .map(serializeManualDirectoryNode)
+    .filter(item => item.path),
+});
+
+const readLegacyDirectoryState = (targetKbId = kbId.value): DirectoryStateSnapshot | null => {
+  const storageKey = getLegacyDirectoryStorageKey(targetKbId);
+  if (!storageKey || typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(directoryStorageKey.value);
-    if (!raw) return;
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
     const rawDirectories = Array.isArray(parsed) ? parsed : parsed?.directories;
-    rootDirectoryDescription.value = Array.isArray(parsed)
-      ? ''
-      : String(parsed?.rootDescription || '');
-    manualDirectoryNodes.value = (Array.isArray(rawDirectories) ? rawDirectories : [])
-      .filter((item: any) => item && typeof item.path === 'string' && item.path.trim())
-      .map((item: any) => {
-        const path = String(item.path).replace(/\\/g, '/').split('/').map(part => part.trim()).filter(Boolean).join('/');
-        return {
-          path,
-          name: String(item.name || getDirectoryDisplayName(path)),
-          description: String(item.description || ''),
-          parentPath: typeof item.parentPath === 'string' ? item.parentPath : getDirectoryParentPath(path),
-          createdAt: String(item.createdAt || new Date().toISOString()),
-          updatedAt: String(item.updatedAt || new Date().toISOString()),
-        };
-      })
-      .filter((item: ManualDirectoryNode, index: number, array: ManualDirectoryNode[]) =>
-        array.findIndex(candidate => candidate.path === item.path) === index,
-      );
+    return {
+      rootDescription: Array.isArray(parsed) ? '' : String(parsed?.rootDescription || '').trim(),
+      directories: normalizeManualDirectoryNodes(Array.isArray(rawDirectories) ? rawDirectories : []),
+    };
   } catch (error) {
-    console.error('[KnowledgeBase] Failed to load document directories:', error);
+    console.error('[KnowledgeBase] Failed to read legacy document directories:', error);
+    return null;
   }
 };
 
-const persistManualDirectoryState = () => {
-  if (!directoryStorageKey.value) return;
+const clearLegacyDirectoryState = (targetKbId = kbId.value) => {
+  const storageKey = getLegacyDirectoryStorageKey(targetKbId);
+  if (!storageKey || typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(directoryStorageKey.value, JSON.stringify({
-      rootDescription: rootDirectoryDescription.value,
-      directories: manualDirectoryNodes.value,
-    }));
+    window.localStorage.removeItem(storageKey);
+  } catch (error) {
+    console.error('[KnowledgeBase] Failed to clear legacy document directories:', error);
+  }
+};
+
+const persistManualDirectoryState = async (
+  snapshot: DirectoryStateSnapshot,
+  targetKbId = kbId.value,
+): Promise<DirectoryPersistResult> => {
+  if (!targetKbId || directorySaving.value) return { ok: false };
+  directorySaving.value = true;
+  const directoryConfig = buildDirectoryConfigPayload(snapshot);
+  try {
+    const result: any = await updateKnowledgeBaseDirectoryConfig(targetKbId, {
+      name: String(kbInfo.value?.name || ''),
+      description: String(kbInfo.value?.description || ''),
+      directory_config: directoryConfig,
+    });
+    const updatedKb = result?.data;
+    const shouldApply = targetKbId === kbId.value;
+    chatResources.invalidateKnowledgeBaseDetail(targetKbId);
+    if (updatedKb) {
+      if (shouldApply) kbInfo.value = updatedKb;
+    } else if (kbInfo.value && shouldApply) {
+      kbInfo.value = { ...kbInfo.value, directory_config: directoryConfig };
+    }
+    if (shouldApply) {
+      applyDirectoryState(parseDirectoryConfig(updatedKb?.directory_config || directoryConfig));
+    }
+    clearLegacyDirectoryState(targetKbId);
+    return { ok: true };
   } catch (error) {
     console.error('[KnowledgeBase] Failed to persist document directories:', error);
+    return { ok: false, error };
+  } finally {
+    directorySaving.value = false;
+  }
+};
+
+const getDirectoryPersistErrorMessage = (error: any) =>
+  error?.message || error?.error?.message || t('common.operationFailed');
+
+const loadManualDirectoryState = async (knowledgeBase: any, targetKbId = kbId.value) => {
+  const directoryConfig = knowledgeBase?.directory_config;
+  if (directoryConfig) {
+    if (targetKbId === kbId.value) {
+      applyDirectoryState(parseDirectoryConfig(directoryConfig));
+    }
+    clearLegacyDirectoryState(targetKbId);
+    return;
+  }
+  const legacyState = readLegacyDirectoryState(targetKbId);
+  if (legacyState) {
+    if (targetKbId === kbId.value) {
+      applyDirectoryState(legacyState);
+    }
+    if (canEditKnowledgeBaseSettings.value) {
+      await persistManualDirectoryState(legacyState, targetKbId);
+    }
+    return;
+  }
+  if (targetKbId === kbId.value) {
+    applyDirectoryState({ rootDescription: '', directories: [] });
   }
 };
 
@@ -826,6 +1014,7 @@ const directoryPathExists = (path: string) => {
 };
 
 const openCreateSubdirectoryDialog = (parentPath: string) => {
+  if (!canEditKnowledgeBaseSettings.value) return;
   directoryDialogMode.value = 'create';
   directoryDialogParentPath.value = parentPath;
   directoryDialogTargetPath.value = DIRECTORY_ROOT_PATH;
@@ -835,6 +1024,7 @@ const openCreateSubdirectoryDialog = (parentPath: string) => {
 };
 
 const openDirectorySettingsDialog = (path: string) => {
+  if (!canEditKnowledgeBaseSettings.value) return;
   const directory = documentDirectoryNodes.value.find(item => item.path === path);
   const manualDirectory = manualDirectoryNodes.value.find(item => item.path === path);
   directoryDialogMode.value = 'settings';
@@ -851,29 +1041,47 @@ const closeDirectoryDialog = () => {
   directoryDialogVisible.value = false;
 };
 
-const handleDirectoryDialogConfirm = () => {
+const handleDirectoryDialogConfirm = async () => {
+  if (directorySaving.value) return;
+  if (!canEditKnowledgeBaseSettings.value) {
+    MessagePlugin.error(t('error.forbidden'));
+    closeDirectoryDialog();
+    return;
+  }
+
   if (directoryDialogMode.value === 'settings') {
+    const nextDirectories = manualDirectoryNodes.value.map(item => ({ ...item }));
+    let nextRootDescription = rootDirectoryDescription.value;
+
     if (directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH) {
-      rootDirectoryDescription.value = directoryForm.description.trim();
+      nextRootDescription = directoryForm.description.trim();
     } else {
       const targetPath = directoryDialogTargetPath.value;
       const now = new Date().toISOString();
-      const existingIndex = manualDirectoryNodes.value.findIndex(item => item.path === targetPath);
+      const existingIndex = nextDirectories.findIndex(item => item.path === targetPath);
       const nextDirectory = {
         path: targetPath,
         name: getDirectoryDisplayName(targetPath),
         description: directoryForm.description.trim(),
         parentPath: getDirectoryParentPath(targetPath),
-        createdAt: existingIndex >= 0 ? manualDirectoryNodes.value[existingIndex].createdAt : now,
+        createdAt: existingIndex >= 0 ? nextDirectories[existingIndex].createdAt : now,
         updatedAt: now,
       };
       if (existingIndex >= 0) {
-        manualDirectoryNodes.value.splice(existingIndex, 1, nextDirectory);
+        nextDirectories.splice(existingIndex, 1, nextDirectory);
       } else {
-        manualDirectoryNodes.value.push(nextDirectory);
+        nextDirectories.push(nextDirectory);
       }
     }
-    persistManualDirectoryState();
+
+    const saved = await persistManualDirectoryState({
+      rootDescription: nextRootDescription,
+      directories: nextDirectories,
+    });
+    if (!saved.ok) {
+      MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
+      return;
+    }
     MessagePlugin.success(t('knowledgeBase.directorySaveSuccess'));
     closeDirectoryDialog();
     return;
@@ -895,15 +1103,25 @@ const handleDirectoryDialogConfirm = () => {
     return;
   }
   const now = new Date().toISOString();
-  manualDirectoryNodes.value.push({
-    path: newPath,
-    name,
-    description: directoryForm.description.trim(),
-    parentPath,
-    createdAt: now,
-    updatedAt: now,
+  const nextDirectories = [
+    ...manualDirectoryNodes.value.map(item => ({ ...item })),
+    {
+      path: newPath,
+      name,
+      description: directoryForm.description.trim(),
+      parentPath,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+  const saved = await persistManualDirectoryState({
+    rootDescription: rootDirectoryDescription.value,
+    directories: nextDirectories,
   });
-  persistManualDirectoryState();
+  if (!saved.ok) {
+    MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
+    return;
+  }
   expandDirectoryAncestors(newPath);
   selectDirectory(newPath);
   MessagePlugin.success(t('knowledgeBase.directoryCreateSuccess'));
@@ -918,10 +1136,8 @@ const getDirectoryTitle = (directory: DirectoryNode) => {
 watch(kbId, () => {
   activeDirectoryPath.value = DIRECTORY_ROOT_PATH;
   collapsedDirectoryPaths.value = new Set();
-  loadManualDirectoryState();
+  applyDirectoryState({ rootDescription: '', directories: [] });
 }, { immediate: true });
-
-watch([manualDirectoryNodes, rootDirectoryDescription], persistManualDirectoryState, { deep: true });
 
 watch([documentDirectoryNodes, rootDirectoryCount], () => {
   if (activeDirectoryPath.value === DIRECTORY_ROOT_PATH) return;
@@ -1188,6 +1404,8 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     if (!isCurrentKb(targetKbId)) return;
 
     kbInfo.value = data;
+    await loadManualDirectoryState(data, targetKbId);
+    if (!isCurrentKb(targetKbId)) return;
     selectedTagIds.value = [];
     tagFilterCleared.value = false;
     uiStore.clearSelectedTagIds();
@@ -2311,6 +2529,11 @@ async function createNewSession(value: string): Promise<void> {
             </h2>
             <!-- 标题行右侧的动作锚点：聚拢"信息"和"设置"两个圆形按钮。 -->
             <div class="kb-title-actions">
+              <t-tooltip v-if="canRenameKnowledgeBase" :content="$t('knowledgeBase.rename')" placement="top">
+                <button type="button" class="kb-settings-button" :disabled="!kbId" @click="openRenameDialog">
+                  <t-icon name="edit-1" size="16px" />
+                </button>
+              </t-tooltip>
               <KBInfoPopover v-if="kbInfo && !authStore.isLiteMode" :kb-info="kbInfo"
                 :supported-file-types="[...supportedFileTypes]" />
               <t-tooltip v-if="canEditKnowledgeBaseSettings" :content="$t('knowledgeBase.settings')" placement="top">
@@ -2363,7 +2586,7 @@ async function createNewSession(value: string): Promise<void> {
             </div>
             <div class="directory-tree">
               <div role="button" tabindex="0" class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-create': canEdit }"
+                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-create': canEditKnowledgeBaseSettings }"
                 :title="$t('knowledgeBase.rootDirectory')"
                 @click="selectDirectory(DIRECTORY_ROOT_PATH)"
                 @keydown.enter.prevent="selectDirectory(DIRECTORY_ROOT_PATH)"
@@ -2383,7 +2606,7 @@ async function createNewSession(value: string): Promise<void> {
                 <span class="directory-tree-name">{{ $t('knowledgeBase.rootDirectory') }}</span>
                 <span class="directory-tree-count">{{ rootDirectoryCount }}</span>
                 <button
-                  v-if="canEdit"
+                  v-if="canEditKnowledgeBaseSettings"
                   type="button"
                   class="directory-tree-add"
                   :title="$t('knowledgeBase.addSubdirectory')"
@@ -2397,7 +2620,7 @@ async function createNewSession(value: string): Promise<void> {
               </div>
               <div v-for="directory in visibleDirectoryTreeRows" :key="directory.path" role="button" tabindex="0"
                 class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === directory.path, 'can-create': canEdit }"
+                :class="{ active: activeDirectoryPath === directory.path, 'can-create': canEditKnowledgeBaseSettings }"
                 :style="{ '--directory-indent': `${(directory.depth + 1) * 16}px` }" :title="getDirectoryTitle(directory)"
                 @click="selectDirectory(directory.path)"
                 @keydown.enter.prevent="selectDirectory(directory.path)"
@@ -2417,7 +2640,7 @@ async function createNewSession(value: string): Promise<void> {
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
                 <button
-                  v-if="canEdit"
+                  v-if="canEditKnowledgeBaseSettings"
                   type="button"
                   class="directory-tree-add"
                   :title="$t('knowledgeBase.addSubdirectory')"
@@ -2681,11 +2904,42 @@ async function createNewSession(value: string): Promise<void> {
     @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
 
   <t-dialog
+    v-model:visible="renameDialogVisible"
+    :header="$t('knowledgeBase.rename')"
+    width="420px"
+    :confirm-btn="{ content: $t('common.confirm'), theme: 'primary', loading: renameSaving }"
+    :cancel-btn="{ content: $t('common.cancel') }"
+    @confirm="handleRenameConfirm"
+    @cancel="closeRenameDialog"
+    @close="closeRenameDialog"
+  >
+    <t-form class="kb-rename-form" label-align="top" @submit.prevent>
+      <t-form-item :label="$t('knowledgeBase.name')">
+        <t-input
+          v-model="renameForm.name"
+          :placeholder="$t('knowledgeEditor.basic.namePlaceholder')"
+          :maxlength="50"
+          autofocus
+          @enter="handleRenameConfirm"
+        />
+      </t-form-item>
+      <t-form-item :label="$t('knowledgeBase.description')">
+        <t-textarea
+          v-model="renameForm.description"
+          :placeholder="$t('knowledgeEditor.basic.descriptionPlaceholder')"
+          :maxlength="200"
+          :autosize="{ minRows: 3, maxRows: 5 }"
+        />
+      </t-form-item>
+    </t-form>
+  </t-dialog>
+
+  <t-dialog
     v-model:visible="directoryDialogVisible"
     :header="directoryDialogTitle"
     width="460px"
     dialog-class-name="document-directory-dialog"
-    :confirm-btn="{ content: $t('common.confirm'), theme: 'primary' }"
+    :confirm-btn="{ content: $t('common.confirm'), theme: 'primary', loading: directorySaving }"
     :cancel-btn="{ content: $t('common.cancel') }"
     @confirm="handleDirectoryDialogConfirm"
     @cancel="closeDirectoryDialog"
@@ -2777,6 +3031,28 @@ async function createNewSession(value: string): Promise<void> {
 .tag-more-popup .tag-menu-item:hover {
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-primary);
+}
+
+.document-directory-dialog {
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+}
+
+.document-directory-dialog .t-dialog__body {
+  overflow-x: hidden;
+}
+
+.document-directory-dialog .directory-form,
+.document-directory-dialog .t-form,
+.document-directory-dialog .t-form__item,
+.document-directory-dialog .t-form__controls,
+.document-directory-dialog .t-form__controls-content,
+.document-directory-dialog .t-input,
+.document-directory-dialog .t-textarea,
+.document-directory-dialog .t-textarea__inner {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 </style>
 <style scoped lang="less">
@@ -3274,14 +3550,27 @@ async function createNewSession(value: string): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.kb-rename-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .directory-form-parent {
   min-height: 32px;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 10px;
+  box-sizing: border-box;
   border-radius: 6px;
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);

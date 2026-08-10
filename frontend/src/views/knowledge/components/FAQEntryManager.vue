@@ -45,7 +45,12 @@
                 v-if="kbInfo && !authStore.isLiteMode"
                 :kb-info="kbInfo"
               />
-              <t-tooltip v-if="canManage" :content="$t('knowledgeBase.settings')" placement="top">
+              <t-tooltip v-if="canRenameKnowledgeBase" :content="$t('knowledgeBase.rename')" placement="top">
+                <button type="button" class="kb-settings-button" @click="openRenameDialog">
+                  <t-icon name="edit-1" size="16px" />
+                </button>
+              </t-tooltip>
+              <t-tooltip v-if="canEditKnowledgeBaseSettings" :content="$t('knowledgeBase.settings')" placement="top">
                 <button type="button" class="kb-settings-button" @click="handleOpenKBSettings">
                   <t-icon name="setting" size="16px" />
                 </button>
@@ -913,6 +918,38 @@
         </div>
       </div>
     </t-drawer>
+
+    <t-dialog
+      v-model:visible="renameDialogVisible"
+      :header="$t('knowledgeBase.rename')"
+      width="420px"
+      :confirm-btn="{ content: $t('common.confirm'), theme: 'primary', loading: renameSaving }"
+      :cancel-btn="{ content: $t('common.cancel') }"
+      @confirm="handleRenameConfirm"
+      @cancel="closeRenameDialog"
+      @close="closeRenameDialog"
+    >
+      <t-form class="kb-rename-form" label-align="top" @submit.prevent>
+        <t-form-item :label="$t('knowledgeBase.name')">
+          <t-input
+            v-model="renameForm.name"
+            :placeholder="$t('knowledgeEditor.basic.namePlaceholder')"
+            :maxlength="50"
+            autofocus
+            @enter="handleRenameConfirm"
+          />
+        </t-form-item>
+        <t-form-item :label="$t('knowledgeBase.description')">
+          <t-textarea
+            v-model="renameForm.description"
+            :placeholder="$t('knowledgeEditor.basic.descriptionPlaceholder')"
+            :maxlength="200"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+
   </div>
 </template>
 
@@ -925,6 +962,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useOrganizationStore } from '@/stores/organization'
+import { useChatResourcesStore } from '@/stores/chatResources'
 import {
   listFAQEntries,
   upsertFAQEntries,
@@ -941,6 +979,7 @@ import {
   deleteKnowledgeBaseTag,
   getKnowledgeBaseById,
   listKnowledgeBases,
+  updateKnowledgeBase,
   getFAQImportProgress,
   updateFAQImportResultDisplayStatus,
 } from '@/api/knowledge-base'
@@ -994,6 +1033,7 @@ const router = useRouter()
 const uiStore = useUIStore()
 const authStore = useAuthStore()
 const orgStore = useOrganizationStore()
+const chatResources = useChatResourcesStore()
 
 // Permission control: check if current user owns this KB or has edit/manage permission.
 //
@@ -1037,6 +1077,64 @@ const canEdit = computed(() => {
   return orgStore.canEditKB(props.kbId, false)
 })
 
+const canRenameKnowledgeBase = computed(() => canEdit.value)
+const renameDialogVisible = ref(false)
+const renameSaving = ref(false)
+const renameForm = reactive({
+  name: '',
+  description: '',
+})
+
+const openRenameDialog = () => {
+  if (!canRenameKnowledgeBase.value || !kbInfo.value) return
+  renameForm.name = String(kbInfo.value.name || '')
+  renameForm.description = String(kbInfo.value.description || '')
+  renameDialogVisible.value = true
+}
+
+const closeRenameDialog = () => {
+  renameDialogVisible.value = false
+}
+
+const handleRenameConfirm = async () => {
+  if (!props.kbId || renameSaving.value) return
+  const name = renameForm.name.trim()
+  if (!name) {
+    MessagePlugin.warning(t('knowledgeEditor.messages.nameRequired'))
+    return
+  }
+
+  renameSaving.value = true
+  try {
+    const result: any = await updateKnowledgeBase(props.kbId, {
+      name,
+      description: renameForm.description,
+    })
+    const updatedKb = result?.data
+    if (updatedKb) {
+      kbInfo.value = updatedKb
+    } else if (kbInfo.value) {
+      kbInfo.value = {
+        ...kbInfo.value,
+        name,
+        description: renameForm.description,
+      }
+    }
+    knowledgeList.value = knowledgeList.value.map((kb) =>
+      kb.id === props.kbId ? { ...kb, name } : kb,
+    )
+    chatResources.invalidateKnowledgeBaseDetail(props.kbId)
+    chatResources.invalidate('knowledgeBases')
+    void chatResources.ensureKnowledgeBases(true)
+    MessagePlugin.success(t('knowledgeEditor.messages.updateSuccess'))
+    closeRenameDialog()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || error?.error?.message || t('common.operationFailed'))
+  } finally {
+    renameSaving.value = false
+  }
+}
+
 // Can manage (delete, settings, share): same isViaShare-first rule. For
 // shared KBs only an 'admin' share grant qualifies — editor/viewer (and
 // even being the creator viewed via share) never grant delete/settings.
@@ -1045,6 +1143,12 @@ const canManage = computed(() => {
   if (isOwner.value) return true
   if (authStore.hasRole('admin')) return true
   return orgStore.canManageKB(props.kbId, false)
+})
+
+const canEditKnowledgeBaseSettings = computed(() => {
+  if (!authStore.hasRole('admin')) return false
+  if (isViaShare.value) return orgStore.canManageKB(props.kbId, false)
+  return true
 })
 
 // FAQ 操作：新建组（新建条目 + 导入）
@@ -1517,6 +1621,7 @@ const handleOpenKBSettings = () => {
     MessagePlugin.warning(t('knowledgeEditor.messages.missingId'))
     return
   }
+  if (!canEditKnowledgeBaseSettings.value) return
   uiStore.openKBSettings(props.kbId)
 }
 
@@ -3860,6 +3965,18 @@ watch(() => entries.value.map(e => ({
   :deep(.t-icon) {
     font-size: 18px;
   }
+}
+
+.kb-rename-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kb-rename-label {
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  font-weight: 500;
 }
 
 // 滚动容器

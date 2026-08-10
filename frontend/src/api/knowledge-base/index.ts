@@ -132,6 +132,28 @@ export function updateKnowledgeBase(id: string, data: {
   return put(`/api/v1/knowledge-bases/${id}`, data);
 }
 
+export interface KnowledgeBaseDirectoryNodePayload {
+  path: string;
+  name: string;
+  description: string;
+  parent_path: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeBaseDirectoryConfigPayload {
+  root_description: string;
+  directories: KnowledgeBaseDirectoryNodePayload[];
+}
+
+export function updateKnowledgeBaseDirectoryConfig(id: string, data: {
+  name: string;
+  description?: string;
+  directory_config: KnowledgeBaseDirectoryConfigPayload;
+}) {
+  return put(`/api/v1/knowledge-bases/${id}`, data);
+}
+
 export function rebuildKBIndex(kbId: string) {
   return post(`/api/v1/knowledge-bases/${kbId}/rebuild-index`, {});
 }

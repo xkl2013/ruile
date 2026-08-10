@@ -91,10 +91,10 @@ func ValidateProcessOverrides(
 	eff := ResolveProcessConfig(kb, overrides)
 
 	if hasImage {
-		if err := validateImageMultimodalConfig(ctx, kb); err != nil {
+		if err := validateImageStorageConfig(ctx, kb); err != nil {
 			return err
 		}
-		if !eff.VLMConfig.IsEnabled() {
+		if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() {
 			return werrors.NewBadRequestError("上传图片文件需要设置VLM模型")
 		}
 	}
@@ -124,6 +124,7 @@ func ApplyKnowledgeProcessOverrides(
 	if enableMultimodel != nil && (processOverrides == nil || processOverrides.EnableMultimodel == nil) {
 		eff.EnableMultimodel = *enableMultimodel
 	}
+	eff = applyImageUploadMultimodalDefault(eff, fileTypes, processOverrides, enableMultimodel)
 	if processOverrides == nil {
 		return eff, nil
 	}
@@ -134,6 +135,44 @@ func ApplyKnowledgeProcessOverrides(
 		return eff, err
 	}
 	return eff, nil
+}
+
+func applyImageUploadMultimodalDefault(
+	eff types.EffectiveProcessConfig,
+	fileTypes []string,
+	processOverrides *types.KnowledgeProcessOverrides,
+	enableMultimodel *bool,
+) types.EffectiveProcessConfig {
+	if !hasImageFileType(fileTypes) {
+		return eff
+	}
+	if uploadExplicitlyEnablesMultimodal(processOverrides, enableMultimodel) {
+		return eff
+	}
+	eff.EnableMultimodel = false
+	return eff
+}
+
+func uploadExplicitlyEnablesMultimodal(
+	processOverrides *types.KnowledgeProcessOverrides,
+	enableMultimodel *bool,
+) bool {
+	if processOverrides != nil && processOverrides.EnableMultimodel != nil {
+		return *processOverrides.EnableMultimodel
+	}
+	if enableMultimodel != nil {
+		return *enableMultimodel
+	}
+	return false
+}
+
+func hasImageFileType(fileTypes []string) bool {
+	for _, ft := range fileTypes {
+		if IsImageType(ft) {
+			return true
+		}
+	}
+	return false
 }
 
 // reparseFileTypes derives the file types used to validate overrides on reparse.
@@ -234,9 +273,10 @@ func mergeExtractConfig(base types.ExtractConfig, override *types.ExtractConfig)
 	return result
 }
 
-func validateImageMultimodalConfig(ctx context.Context, kb *types.KnowledgeBase) error {
+func validateImageStorageConfig(ctx context.Context, kb *types.KnowledgeBase) error {
+	// Images can be uploaded without multimodal/VLM. This check only
+	// guards the storage prerequisites needed to persist image bytes.
 	// Concrete backends are validated and connectivity-tested when registered.
-	// The checks below only apply to unmigrated provider-only bindings.
 	if kb != nil && kb.StorageBackendID != nil && strings.TrimSpace(*kb.StorageBackendID) != "" {
 		return nil
 	}

@@ -397,6 +397,7 @@ export default {
     },
     create: 'Create Knowledge Base',
     edit: 'Edit Knowledge Base',
+    rename: 'Edit knowledge base name',
     delete: 'Delete Knowledge Base',
     name: 'Name',
     description: 'Description',

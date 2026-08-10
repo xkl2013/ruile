@@ -112,6 +112,10 @@ type KnowledgeBase struct {
 	// IndexingStrategy controls which indexing pipelines are active for this knowledge base.
 	// Pipelines: vector search, keyword search, wiki generation, knowledge graph extraction.
 	IndexingStrategy IndexingStrategy `yaml:"indexing_strategy"       json:"indexing_strategy"       gorm:"column:indexing_strategy;type:json"`
+	// DirectoryConfig stores manual document-directory metadata persisted from the KB UI.
+	// The actual document tree is still derived from knowledge paths; this only keeps
+	// user-authored folder descriptions and explicit subdirectory nodes across deploys.
+	DirectoryConfig *KnowledgeBaseDirectoryConfig `yaml:"directory_config"        json:"directory_config,omitempty" gorm:"column:directory_config;type:jsonb"`
 	// IsPinned and PinnedAt are computed per-caller from user_kb_pins
 	// (see migration 000050). They used to be stored on the row itself,
 	// which made pinning a workspace-wide ordering decision gated behind
@@ -596,6 +600,131 @@ func (f *FAQConfig) Scan(value interface{}) error {
 	return json.Unmarshal(b, f)
 }
 
+// KnowledgeBaseDirectoryNode stores one manual directory entry in a knowledge base.
+type KnowledgeBaseDirectoryNode struct {
+	Path        string `yaml:"path"         json:"path"`
+	Name        string `yaml:"name"         json:"name"`
+	Description string `yaml:"description"  json:"description"`
+	ParentPath  string `yaml:"parent_path"  json:"parent_path"`
+	CreatedAt   string `yaml:"created_at"   json:"created_at"`
+	UpdatedAt   string `yaml:"updated_at"   json:"updated_at"`
+}
+
+// KnowledgeBaseDirectoryConfig stores the persisted manual directory state for a KB.
+type KnowledgeBaseDirectoryConfig struct {
+	RootDescription string                       `yaml:"root_description" json:"root_description"`
+	Directories     []KnowledgeBaseDirectoryNode `yaml:"directories"      json:"directories"`
+}
+
+// Value implements driver.Valuer.
+func (c KnowledgeBaseDirectoryConfig) Value() (driver.Value, error) {
+	return json.Marshal(c)
+}
+
+// Scan implements sql.Scanner.
+func (c *KnowledgeBaseDirectoryConfig) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	switch v := value.(type) {
+	case []byte:
+		if len(v) == 0 {
+			return nil
+		}
+		return json.Unmarshal(v, c)
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(v), c)
+	default:
+		return nil
+	}
+}
+
+// Normalize trims directory metadata, derives missing parents, and removes duplicates.
+func (c *KnowledgeBaseDirectoryConfig) Normalize() {
+	if c == nil {
+		return
+	}
+	c.RootDescription = strings.TrimSpace(c.RootDescription)
+	if len(c.Directories) == 0 {
+		c.Directories = []KnowledgeBaseDirectoryNode{}
+		return
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	normalized := make([]KnowledgeBaseDirectoryNode, 0, len(c.Directories))
+	seen := make(map[string]struct{}, len(c.Directories))
+
+	for _, node := range c.Directories {
+		path := normalizeKnowledgeBaseDirectoryPath(node.Path)
+		if path == "" {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+
+		name := strings.TrimSpace(node.Name)
+		if name == "" {
+			name = knowledgeBaseDirectoryLeafName(path)
+		}
+
+		createdAt := strings.TrimSpace(node.CreatedAt)
+		if createdAt == "" {
+			createdAt = now
+		}
+		updatedAt := strings.TrimSpace(node.UpdatedAt)
+		if updatedAt == "" {
+			updatedAt = createdAt
+		}
+
+		normalized = append(normalized, KnowledgeBaseDirectoryNode{
+			Path:        path,
+			Name:        name,
+			Description: strings.TrimSpace(node.Description),
+			ParentPath:  knowledgeBaseDirectoryParentPath(path),
+			CreatedAt:   createdAt,
+			UpdatedAt:   updatedAt,
+		})
+	}
+
+	c.Directories = normalized
+}
+
+func normalizeKnowledgeBaseDirectoryPath(path string) string {
+	parts := strings.Split(strings.ReplaceAll(strings.TrimSpace(path), "\\", "/"), "/")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		normalized = append(normalized, part)
+	}
+	return strings.Join(normalized, "/")
+}
+
+func knowledgeBaseDirectoryLeafName(path string) string {
+	parts := strings.Split(path, "/")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if trimmed := strings.TrimSpace(parts[i]); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func knowledgeBaseDirectoryParentPath(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) <= 1 {
+		return ""
+	}
+	return strings.Join(parts[:len(parts)-1], "/")
+}
+
 // EnsureDefaults 确保类型与配置具备默认值
 func (kb *KnowledgeBase) EnsureDefaults() {
 	if kb == nil {
@@ -734,10 +863,9 @@ func (kb *KnowledgeBase) HasVectorStore() bool {
 	return kb != nil && kb.VectorStoreID != nil && *kb.VectorStoreID != ""
 }
 
-// Normalize folds the empty-string vector store id into nil so a single
-// representation reaches both the DB and the retrieve-engine factory, which
-// treats nil and `&""` as the same "no binding" signal. Idempotent and safe
-// to call repeatedly.
+// Normalize folds the empty-string vector store id into nil and normalizes
+// any persisted manual directory metadata so a single representation reaches
+// both the DB and the frontend. Idempotent and safe to call repeatedly.
 //
 // Callers that accept unvalidated user input (CreateKnowledgeBase, async
 // payload decoders) should invoke this before persistence or validation.
@@ -748,6 +876,9 @@ func (kb *KnowledgeBase) Normalize() {
 	}
 	if kb.VectorStoreID != nil && *kb.VectorStoreID == "" {
 		kb.VectorStoreID = nil
+	}
+	if kb.DirectoryConfig != nil {
+		kb.DirectoryConfig.Normalize()
 	}
 }
 

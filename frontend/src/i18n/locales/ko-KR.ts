@@ -397,6 +397,7 @@ export default {
     },
     create: "지식베이스 생성",
     edit: "지식베이스 편집",
+    rename: "지식베이스 이름 편집",
     delete: "지식베이스 삭제",
     name: "이름",
     description: "설명",

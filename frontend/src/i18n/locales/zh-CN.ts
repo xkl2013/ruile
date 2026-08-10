@@ -397,6 +397,7 @@ export default {
     },
     create: "创建知识库",
     edit: "编辑知识库",
+    rename: "编辑知识库名称",
     delete: "删除知识库",
     name: "名称",
     description: "描述",

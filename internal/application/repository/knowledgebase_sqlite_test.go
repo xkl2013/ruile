@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     extract_config TEXT NULL DEFAULT NULL,
     faq_config TEXT,
     question_generation_config TEXT NULL,
+    directory_config TEXT DEFAULT NULL,
     is_temporary BOOLEAN NOT NULL DEFAULT 0,
     is_pinned INTEGER NOT NULL DEFAULT 0,
     pinned_at DATETIME NULL,
@@ -218,6 +219,40 @@ func TestKnowledgeBase_VectorStoreID_Roundtrip_Value(t *testing.T) {
 	reloaded := reloadKB(t, db, original.ID)
 	require.NotNil(t, reloaded.VectorStoreID)
 	assert.Equal(t, "store-uuid-42", *reloaded.VectorStoreID)
+}
+
+// TestKnowledgeBase_DirectoryConfig_Roundtrip verifies that the manual
+// directory metadata survives a create/read cycle through SQLite.
+func TestKnowledgeBase_DirectoryConfig_Roundtrip(t *testing.T) {
+	db := setupKBTestDB(t)
+
+	original := makeKB(nil)
+	original.DirectoryConfig = &types.KnowledgeBaseDirectoryConfig{
+		RootDescription: "Root folder",
+		Directories: []types.KnowledgeBaseDirectoryNode{
+			{
+				Path:        "docs/reference",
+				Name:        "reference",
+				Description: "API docs",
+				ParentPath:  "docs",
+				CreatedAt:   "2026-08-09T00:00:00Z",
+				UpdatedAt:   "2026-08-09T00:00:01Z",
+			},
+		},
+	}
+	original.DirectoryConfig.Normalize()
+	require.NoError(t, db.Create(original).Error)
+
+	reloaded := reloadKB(t, db, original.ID)
+	require.NotNil(t, reloaded.DirectoryConfig)
+	assert.Equal(t, "Root folder", reloaded.DirectoryConfig.RootDescription)
+	require.Len(t, reloaded.DirectoryConfig.Directories, 1)
+	assert.Equal(t, "docs/reference", reloaded.DirectoryConfig.Directories[0].Path)
+	assert.Equal(t, "reference", reloaded.DirectoryConfig.Directories[0].Name)
+	assert.Equal(t, "API docs", reloaded.DirectoryConfig.Directories[0].Description)
+	assert.Equal(t, "docs", reloaded.DirectoryConfig.Directories[0].ParentPath)
+	assert.Equal(t, "2026-08-09T00:00:00Z", reloaded.DirectoryConfig.Directories[0].CreatedAt)
+	assert.Equal(t, "2026-08-09T00:00:01Z", reloaded.DirectoryConfig.Directories[0].UpdatedAt)
 }
 
 // TestCountByVectorStoreID covers the binding-count helper used by the

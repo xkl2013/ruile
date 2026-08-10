@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"mime/multipart"
 	"net/url"
-	"os"
 	"path"
 	"slices"
 	"strings"
@@ -119,60 +118,28 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		return nil, werrors.NewValidationError("文件名包含非法字符")
 	}
 
+	fileType := getFileType(safeFilename)
 	eff := ResolveProcessConfig(kb, processOverrides)
 	if enableMultimodel != nil && (processOverrides == nil || processOverrides.EnableMultimodel == nil) {
 		eff.EnableMultimodel = *enableMultimodel
 	}
+	eff = applyImageUploadMultimodalDefault(eff, []string{fileType}, processOverrides, enableMultimodel)
 
 	if processOverrides != nil {
-		if err := ValidateProcessOverrides(ctx, kb, processOverrides, []string{getFileType(safeFilename)}); err != nil {
+		if err := ValidateProcessOverrides(ctx, kb, processOverrides, []string{fileType}); err != nil {
 			return nil, err
 		}
 	} else {
-		// 检查多模态配置完整性 - 只在图片文件时校验
-		if IsImageType(getFileType(safeFilename)) {
-			provider := kb.GetStorageProvider()
-			tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-			if provider == "" && tenant != nil && tenant.StorageEngineConfig != nil {
-				provider = strings.ToLower(strings.TrimSpace(tenant.StorageEngineConfig.DefaultProvider))
+		if IsImageType(fileType) {
+			if err := validateImageStorageConfig(ctx, kb); err != nil {
+				return nil, err
 			}
-
-			concreteBackend := kb.StorageBackendID != nil && strings.TrimSpace(*kb.StorageBackendID) != ""
-			switch {
-			case concreteBackend:
-				// Registration already validated and tested the concrete instance.
-			case provider == "cos":
-				if tenant == nil || tenant.StorageEngineConfig == nil || tenant.StorageEngineConfig.COS == nil ||
-					tenant.StorageEngineConfig.COS.SecretID == "" || tenant.StorageEngineConfig.COS.SecretKey == "" ||
-					tenant.StorageEngineConfig.COS.Region == "" || tenant.StorageEngineConfig.COS.BucketName == "" {
-					logger.Error(ctx, "COS configuration incomplete for image multimodal processing")
-					return nil, werrors.NewBadRequestError("上传图片文件需要完整的对象存储配置信息, 请前往知识库存储设置或系统设置页面进行补全")
-				}
-			case provider == "minio":
-				ok := false
-				if tenant != nil && tenant.StorageEngineConfig != nil && tenant.StorageEngineConfig.MinIO != nil {
-					m := tenant.StorageEngineConfig.MinIO
-					if m.Mode == "remote" {
-						ok = m.Endpoint != "" && m.AccessKeyID != "" && m.SecretAccessKey != "" && m.BucketName != ""
-					} else {
-						ok = os.Getenv("MINIO_ENDPOINT") != "" && os.Getenv("MINIO_ACCESS_KEY_ID") != "" &&
-							os.Getenv("MINIO_SECRET_ACCESS_KEY") != "" &&
-							(m.BucketName != "" || os.Getenv("MINIO_BUCKET_NAME") != "")
-					}
-				}
-				if !ok {
-					logger.Error(ctx, "MinIO configuration incomplete for image multimodal processing")
-					return nil, werrors.NewBadRequestError("上传图片文件需要完整的对象存储配置信息, 请前往知识库存储设置或系统设置页面进行补全")
-				}
-			}
-
-			if !kb.VLMConfig.Enabled || kb.VLMConfig.ModelID == "" {
-				logger.Error(ctx, "VLM model is not configured")
+			if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() {
 				return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM模型")
 			}
 		}
 
-		if IsAudiovisualType(getFileType(safeFilename)) && !kb.ASRConfig.IsASREnabled() {
+		if IsAudiovisualType(fileType) && !kb.ASRConfig.IsASREnabled() {
 			logger.Error(ctx, "ASR model is not configured")
 			return nil, werrors.NewBadRequestError("上传音视频文件需要设置ASR语音识别模型")
 		}
@@ -188,7 +155,7 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		Channel:          defaultChannel(channel),
 		Title:            safeFilename,
 		FileName:         safeFilename,
-		FileType:         getFileType(safeFilename),
+		FileType:         fileType,
 		FileSize:         file.Size,
 		FileHash:         hash,
 		ParseStatus:      "pending",
@@ -249,7 +216,7 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		KnowledgeBaseID:          kbID,
 		FilePath:                 filePath,
 		FileName:                 safeFilename,
-		FileType:                 getFileType(safeFilename),
+		FileType:                 fileType,
 		EnableMultimodel:         enableMultimodelValue,
 		EnableQuestionGeneration: enableQuestionGeneration,
 		QuestionCount:            questionCount,
@@ -681,11 +648,20 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 		resolvedFileType = getFileType(extractFileNameFromURL(fileURL))
 	}
 
+	if IsImageType(resolvedFileType) {
+		if err := validateImageStorageConfig(ctx, kb); err != nil {
+			return nil, err
+		}
+	}
+
 	eff, err := ApplyKnowledgeProcessOverrides(
 		ctx, kb, knowledge, processOverrides, []string{resolvedFileType}, enableMultimodel,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if IsImageType(resolvedFileType) && eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() {
+		return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM模型")
 	}
 	if IsAudiovisualType(resolvedFileType) && !eff.ASRConfig.IsASREnabled() {
 		logger.Error(ctx, "ASR model is not configured")

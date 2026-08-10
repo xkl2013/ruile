@@ -228,6 +228,64 @@ func TestKnowledgeBase_Normalize(t *testing.T) {
 	})
 }
 
+func TestKnowledgeBaseDirectoryConfig_Normalize(t *testing.T) {
+	t.Run("normalizes paths and deduplicates", func(t *testing.T) {
+		cfg := &KnowledgeBaseDirectoryConfig{
+			RootDescription: "  Root docs  ",
+			Directories: []KnowledgeBaseDirectoryNode{
+				{
+					Path:        ` docs\\reference/ `,
+					Name:        " ",
+					Description: "  API docs  ",
+				},
+				{
+					Path:        "docs/reference",
+					Name:        "duplicate",
+					Description: "duplicate entry",
+				},
+				{
+					Path:       "single",
+					ParentPath: "ignored",
+				},
+			},
+		}
+
+		cfg.Normalize()
+
+		if cfg.RootDescription != "Root docs" {
+			t.Fatalf("unexpected root description: %q", cfg.RootDescription)
+		}
+		if len(cfg.Directories) != 2 {
+			t.Fatalf("expected 2 directories after dedupe, got %d", len(cfg.Directories))
+		}
+		first := cfg.Directories[0]
+		if first.Path != "docs/reference" || first.Name != "reference" || first.ParentPath != "docs" {
+			t.Fatalf("unexpected first directory after normalize: %#v", first)
+		}
+		if first.Description != "API docs" {
+			t.Fatalf("unexpected first description: %#v", first.Description)
+		}
+		if first.CreatedAt == "" || first.UpdatedAt == "" {
+			t.Fatalf("expected timestamps to be filled, got %#v", first)
+		}
+		second := cfg.Directories[1]
+		if second.Path != "single" || second.Name != "single" || second.ParentPath != "" {
+			t.Fatalf("unexpected second directory after normalize: %#v", second)
+		}
+	})
+
+	t.Run("empty config keeps empty slice", func(t *testing.T) {
+		cfg := &KnowledgeBaseDirectoryConfig{}
+		cfg.Normalize()
+		if cfg.Directories == nil {
+			t.Fatal("expected empty slice, got nil")
+		}
+		if len(cfg.Directories) != 0 {
+			t.Fatalf("expected empty directories slice, got %d", len(cfg.Directories))
+		}
+	})
+}
+
 // TestKnowledgeBase_SharesStoreWith covers the binding-equality helper used
 // by CopyKnowledgeBase's same-store defense. The empty-string cases are a
 // regression guard: rows persisted by callers that did not run Normalize

@@ -855,9 +855,16 @@ func (h *KnowledgeBaseHandler) TogglePinKnowledgeBase(c *gin.Context) {
 
 // UpdateKnowledgeBaseRequest defines the request body structure for updating a knowledge base
 type UpdateKnowledgeBaseRequest struct {
-	Name        string                     `json:"name"        binding:"required"`
-	Description string                     `json:"description"`
-	Config      *types.KnowledgeBaseConfig `json:"config"`
+	Name            string                              `json:"name"        binding:"required"`
+	Description     string                              `json:"description"`
+	Config          *types.KnowledgeBaseConfig          `json:"config"`
+	DirectoryConfig *types.KnowledgeBaseDirectoryConfig `json:"directory_config"`
+}
+
+// UpdateKnowledgeBaseDirectoryConfigRequest defines the request body for
+// persisting manual document-directory metadata.
+type UpdateKnowledgeBaseDirectoryConfigRequest struct {
+	DirectoryConfig *types.KnowledgeBaseDirectoryConfig `json:"directory_config" binding:"required"`
 }
 
 // UpdateKnowledgeBase godoc
@@ -908,12 +915,15 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 			return
 		}
 	}
+	if req.DirectoryConfig != nil {
+		req.DirectoryConfig.Normalize()
+	}
 
 	logger.Infof(ctx, "Updating knowledge base, ID: %s, name: %s",
 		secutils.SanitizeForLog(id), secutils.SanitizeForLog(req.Name))
 
 	// Update the knowledge base
-	kb, err := h.service.UpdateKnowledgeBase(ctx, id, req.Name, req.Description, req.Config)
+	kb, err := h.service.UpdateKnowledgeBase(ctx, id, req.Name, req.Description, req.Config, req.DirectoryConfig)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
 		c.Error(apperrors.NewInternalServerError(err.Error()))
@@ -922,6 +932,61 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 
 	logger.Infof(ctx, "Knowledge base updated successfully, ID: %s",
 		secutils.SanitizeForLog(id))
+	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    buildKBResponse(kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
+	})
+}
+
+// UpdateKnowledgeBaseDirectoryConfig godoc
+// @Summary      更新知识库目录配置
+// @Description  持久化知识库文档目录的根描述和手工目录节点
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                                        true  "知识库ID"
+// @Param        request   body      UpdateKnowledgeBaseDirectoryConfigRequest    true  "目录配置"
+// @Success      200      {object}  map[string]interface{}                      "更新后的知识库"
+// @Failure      400      {object}  errors.AppError                              "请求参数错误"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge-bases/{id}/directory-config [put]
+func (h *KnowledgeBaseHandler) UpdateKnowledgeBaseDirectoryConfig(c *gin.Context) {
+	ctx := c.Request.Context()
+	logger.Info(ctx, "Start updating knowledge base directory config")
+
+	kb, id, _, permission, err := h.validateAndGetKnowledgeBase(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	if permission != types.OrgRoleAdmin && permission != types.OrgRoleEditor {
+		c.Error(apperrors.NewForbiddenError("No permission to update knowledge base"))
+		return
+	}
+
+	var req UpdateKnowledgeBaseDirectoryConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error(ctx, "Failed to parse directory config request", err)
+		c.Error(apperrors.NewBadRequestError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+	if req.DirectoryConfig == nil {
+		c.Error(apperrors.NewBadRequestError("directory_config is required"))
+		return
+	}
+
+	req.DirectoryConfig.Normalize()
+	kb, err = h.service.UpdateKnowledgeBase(ctx, id, kb.Name, kb.Description, nil, req.DirectoryConfig)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"knowledge_base_id": id,
+		})
+		c.Error(apperrors.NewInternalServerError(err.Error()))
+		return
+	}
+
 	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

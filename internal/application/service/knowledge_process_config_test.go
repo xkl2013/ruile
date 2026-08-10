@@ -251,13 +251,26 @@ func TestValidateProcessOverrides_NilOverrides(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestValidateProcessOverrides_ImageRequiresVLM(t *testing.T) {
+func TestValidateProcessOverrides_ImageDoesNotRequireVLM(t *testing.T) {
 	t.Parallel()
 
 	kb := &types.KnowledgeBase{
 		VLMConfig: types.VLMConfig{Enabled: false},
 	}
 	err := ValidateProcessOverrides(context.Background(), kb, &types.KnowledgeProcessOverrides{}, []string{"png"})
+	require.NoError(t, err)
+}
+
+func TestValidateProcessOverrides_ImageRequiresVLMWhenMultimodalEnabled(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		VLMConfig: types.VLMConfig{Enabled: false},
+	}
+	overrides := &types.KnowledgeProcessOverrides{
+		EnableMultimodel: processConfigBoolPtr(true),
+	}
+	err := ValidateProcessOverrides(context.Background(), kb, overrides, []string{"png"})
 	require.Error(t, err)
 	var badReq *werrors.AppError
 	require.ErrorAs(t, err, &badReq)

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -116,7 +117,8 @@ func (s *createKnowledgeFileServiceStub) CopyFile(ctx context.Context, srcPath s
 }
 
 type createKnowledgeTaskEnqueuerStub struct {
-	calls int
+	calls       int
+	lastPayload []byte
 }
 
 func (s *createKnowledgeTaskEnqueuerStub) Enqueue(
@@ -124,6 +126,7 @@ func (s *createKnowledgeTaskEnqueuerStub) Enqueue(
 	opts ...asynq.Option,
 ) (*asynq.TaskInfo, error) {
 	s.calls++
+	s.lastPayload = append([]byte(nil), task.Payload()...)
 	return &asynq.TaskInfo{ID: "task-1", Queue: "default"}, nil
 }
 
@@ -267,6 +270,149 @@ func TestCreateKnowledgeFromFile_PersistsProcessOverrides(t *testing.T) {
 	metadataMap, err := repo.createdKnowledge.Metadata.Map()
 	require.NoError(t, err)
 	require.Equal(t, "test", metadataMap["source"])
+}
+
+func TestCreateKnowledgeFromFile_AllowsImageWithoutVLM(t *testing.T) {
+	t.Parallel()
+
+	repo := &createKnowledgeFileRepoStub{}
+	fileSvc := &createKnowledgeFileServiceStub{}
+	task := &createKnowledgeTaskEnqueuerStub{}
+	svc := &knowledgeService{
+		repo:      repo,
+		kbService: &createKnowledgeFileKBServiceStub{kb: &types.KnowledgeBase{ID: "kb-1"}},
+		fileSvc:   fileSvc,
+		task:      task,
+	}
+
+	knowledge, err := svc.CreateKnowledgeFromFile(
+		newCreateKnowledgeFileContext(),
+		"kb-1",
+		newMultipartFileHeader(t, "poster.png", "fake image bytes"),
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, knowledge)
+	require.Equal(t, 1, fileSvc.saveCalls)
+	require.Equal(t, 1, repo.createCalls)
+	require.Equal(t, 1, task.calls)
+}
+
+func TestCreateKnowledgeFromFile_ImageDefaultsMultimodalOffWhenKBHasVLM(t *testing.T) {
+	t.Parallel()
+
+	repo := &createKnowledgeFileRepoStub{}
+	fileSvc := &createKnowledgeFileServiceStub{}
+	task := &createKnowledgeTaskEnqueuerStub{}
+	svc := &knowledgeService{
+		repo: repo,
+		kbService: &createKnowledgeFileKBServiceStub{kb: &types.KnowledgeBase{
+			ID:        "kb-1",
+			VLMConfig: types.VLMConfig{Enabled: true, ModelID: "vlm-1"},
+		}},
+		fileSvc: fileSvc,
+		task:    task,
+	}
+
+	knowledge, err := svc.CreateKnowledgeFromFile(
+		newCreateKnowledgeFileContext(),
+		"kb-1",
+		newMultipartFileHeader(t, "poster.png", "fake image bytes"),
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, knowledge)
+	require.Equal(t, 1, task.calls)
+	var payload types.DocumentProcessPayload
+	require.NoError(t, json.Unmarshal(task.lastPayload, &payload))
+	require.False(t, payload.EnableMultimodel)
+}
+
+func TestCreateKnowledgeFromFile_ImageUsesExplicitMultimodal(t *testing.T) {
+	t.Parallel()
+
+	repo := &createKnowledgeFileRepoStub{}
+	fileSvc := &createKnowledgeFileServiceStub{}
+	task := &createKnowledgeTaskEnqueuerStub{}
+	svc := &knowledgeService{
+		repo: repo,
+		kbService: &createKnowledgeFileKBServiceStub{kb: &types.KnowledgeBase{
+			ID:        "kb-1",
+			VLMConfig: types.VLMConfig{Enabled: true, ModelID: "vlm-1"},
+		}},
+		fileSvc: fileSvc,
+		task:    task,
+	}
+	overrides := &types.KnowledgeProcessOverrides{
+		EnableMultimodel: processConfigBoolPtr(true),
+	}
+
+	knowledge, err := svc.CreateKnowledgeFromFile(
+		newCreateKnowledgeFileContext(),
+		"kb-1",
+		newMultipartFileHeader(t, "poster.png", "fake image bytes"),
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		overrides,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, knowledge)
+	require.Equal(t, 1, task.calls)
+	var payload types.DocumentProcessPayload
+	require.NoError(t, json.Unmarshal(task.lastPayload, &payload))
+	require.True(t, payload.EnableMultimodel)
+}
+
+func TestCreateKnowledgeFromFile_RejectsImageWhenMultimodalEnabledWithoutVLM(t *testing.T) {
+	t.Parallel()
+
+	repo := &createKnowledgeFileRepoStub{}
+	fileSvc := &createKnowledgeFileServiceStub{}
+	task := &createKnowledgeTaskEnqueuerStub{}
+	svc := &knowledgeService{
+		repo:      repo,
+		kbService: &createKnowledgeFileKBServiceStub{kb: &types.KnowledgeBase{ID: "kb-1"}},
+		fileSvc:   fileSvc,
+		task:      task,
+	}
+
+	overrides := &types.KnowledgeProcessOverrides{
+		EnableMultimodel: processConfigBoolPtr(true),
+	}
+
+	knowledge, err := svc.CreateKnowledgeFromFile(
+		newCreateKnowledgeFileContext(),
+		"kb-1",
+		newMultipartFileHeader(t, "poster.png", "fake image bytes"),
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		overrides,
+	)
+
+	require.Error(t, err)
+	require.Nil(t, knowledge)
+	require.Zero(t, fileSvc.saveCalls)
+	require.Zero(t, repo.createCalls)
+	require.Zero(t, task.calls)
 }
 
 func TestValidateDisplayPath(t *testing.T) {

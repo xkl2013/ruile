@@ -35,8 +35,6 @@ var (
 	ErrDuplicateFile = errors.New("file already exists")
 	// ErrDuplicateURL is returned when trying to add a URL that already exists
 	ErrDuplicateURL = errors.New("URL already exists")
-	// ErrImageNotParse is returned when trying to update image information without enabling multimodel
-	ErrImageNotParse = errors.New("image not parse without enable multimodel")
 )
 
 // knowledgeService implements the knowledge service interface
