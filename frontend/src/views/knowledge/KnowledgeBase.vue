@@ -335,8 +335,13 @@ const handleRenameConfirm = async () => {
 // Knowledge-base settings are workspace administration now. Keep content
 // editing (`canEdit`) separate so document operations can retain their
 // existing creator/share-editor behaviour.
+const canManageKnowledgeBaseSettingsByRole = computed(() =>
+  authStore.hasRole('admin') || authStore.isSystemAdmin,
+);
+
 const canEditKnowledgeBaseSettings = computed(() => {
-  if (!authStore.hasRole('admin')) return false;
+  if (!canManageKnowledgeBaseSettingsByRole.value) return false;
+  if (authStore.isSystemAdmin) return true;
   if (isViaShare.value) return orgStore.canManageKB(kbId.value, false);
   return true;
 });
@@ -2907,6 +2912,7 @@ async function createNewSession(value: string): Promise<void> {
     v-model:visible="renameDialogVisible"
     :header="$t('knowledgeBase.rename')"
     width="420px"
+    dialog-class-name="kb-rename-dialog"
     :confirm-btn="{ content: $t('common.confirm'), theme: 'primary', loading: renameSaving }"
     :cancel-btn="{ content: $t('common.cancel') }"
     @confirm="handleRenameConfirm"
@@ -3033,12 +3039,14 @@ async function createNewSession(value: string): Promise<void> {
   color: var(--td-text-color-primary);
 }
 
-.document-directory-dialog {
+.document-directory-dialog,
+.kb-rename-dialog {
   max-width: calc(100vw - 32px);
   overflow: hidden;
 }
 
-.document-directory-dialog .t-dialog__body {
+.document-directory-dialog .t-dialog__body,
+.kb-rename-dialog .t-dialog__body {
   overflow-x: hidden;
 }
 
@@ -3049,10 +3057,22 @@ async function createNewSession(value: string): Promise<void> {
 .document-directory-dialog .t-form__controls-content,
 .document-directory-dialog .t-input,
 .document-directory-dialog .t-textarea,
-.document-directory-dialog .t-textarea__inner {
+.document-directory-dialog .t-textarea__inner,
+.kb-rename-dialog .kb-rename-form,
+.kb-rename-dialog .t-form,
+.kb-rename-dialog .t-form__item,
+.kb-rename-dialog .t-form__controls,
+.kb-rename-dialog .t-form__controls-content,
+.kb-rename-dialog .t-input,
+.kb-rename-dialog .t-textarea,
+.kb-rename-dialog .t-textarea__inner {
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+
+.kb-rename-dialog .t-textarea__inner {
+  overflow-x: hidden;
 }
 </style>
 <style scoped lang="less">

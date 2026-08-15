@@ -549,15 +549,14 @@ const dsCount = ref(0)
 const kbCreatorId = ref<string>('')
 
 // Backend gate for /knowledge-bases/:id/shares (POST/PUT/DELETE) is
-// g.OwnedKBOrAdmin(): only the KB creator or tenant Admin+ may mutate
-// shares. Org-admins on a shared KB do NOT pass this guard, so they
-// would only see 403s if we let them try. Mirror the matrix here so
-// the buttons disappear instead of failing.
+// creator/Admin+ plus system admin. Org-admins on a shared KB do NOT pass
+// this guard, so they would only see 403s if we let them try. Mirror the
+// matrix here so the buttons disappear instead of failing.
 const canShareKB = computed(() => {
   if (!props.kbId) return false
   const userId = authStore.user?.id || ''
   if (kbCreatorId.value && userId && kbCreatorId.value === userId) return true
-  return authStore.hasRole('admin')
+  return authStore.hasRole('admin') || authStore.isSystemAdmin
 })
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)

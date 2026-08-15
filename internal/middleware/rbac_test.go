@@ -317,6 +317,36 @@ func TestRequireOwnershipOrRole_CrossTenantSuperuserBypass(t *testing.T) {
 	}
 }
 
+func TestRequireOwnershipOrRoleOrSystemAdmin_SystemAdminBypassesLookup(t *testing.T) {
+	calls := 0
+	lookup := func(c *gin.Context) (string, error) {
+		calls++
+		return "", errors.New("must not be called")
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		ctx := c.Request.Context()
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleViewer)
+		ctx = context.WithValue(ctx, types.UserIDContextKey, "sys1")
+		ctx = context.WithValue(ctx, types.SystemAdminContextKey, true)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+	router.GET("/protected",
+		RequireOwnershipOrRoleOrSystemAdmin(types.TenantRoleAdmin, lookup, cfgRBAC(true)),
+		func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{}) },
+	)
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("system admin must bypass ownership gate, got %d", w.Code)
+	}
+	if calls != 0 {
+		t.Fatalf("system admin bypass must skip lookup, got %d", calls)
+	}
+}
+
 func TestRequireOwnershipOrRole_FailOpenWhenRBACDisabled(t *testing.T) {
 	// Enforcement off: even a failing lookup + non-creator + low role lets
 	// the request through. This preserves today's "anyone in the tenant

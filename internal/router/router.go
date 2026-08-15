@@ -367,7 +367,7 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		k.PUT("/manual/:id", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.UpdateManualKnowledge)
 		k.POST("/:id/reparse", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.ReparseKnowledge)
 		k.POST("/:id/cancel-parse", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.CancelKnowledgeParse)
-		kRead.GET("/:id/download", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.DownloadKnowledgeFile)
+		kRead.GET("/:id/download", g.Admin(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.DownloadKnowledgeFile)
 		kRead.GET("/:id/preview", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.PreviewKnowledgeFile)
 		k.PUT("/image/:id/:chunk_id", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.UpdateImageInfo)
 		kRead.GET("/search", g.Viewer(), handler.SearchKnowledge)
@@ -457,8 +457,8 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		// 统一判定：同空间 Admin+/KB 创建者，或跨空间共享 editor+。这与
 		// handler 内的 admin/editor 权限检查和 API 文档保持一致。
 		kbManagement.PUT("/:id", g.Viewer(), g.KBAccessWrite("id"), handler.UpdateKnowledgeBase)
-		// 更新知识库文档目录配置 — 与知识库设置更新同档。
-		kbManagement.PUT("/:id/directory-config", g.Admin(), g.KBAccessManage("id"), handler.UpdateKnowledgeBaseDirectoryConfig)
+		// 更新知识库文档目录配置 — 与知识库设置更新同档；系统管理员也可维护。
+		kbManagement.PUT("/:id/directory-config", g.AdminOrSystemAdmin(), g.KBAccessManage("id"), handler.UpdateKnowledgeBaseDirectoryConfig)
 		// 删除知识库 — 保持原有「创建者 OR Admin+」矩阵。
 		kbManagement.DELETE("/:id", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.DeleteKnowledgeBase)
 		// 置顶/取消置顶知识库 — 创建者本人 OR Admin+ 且对 KB 有 write 权限
@@ -865,13 +865,14 @@ func RegisterInitializationRoutes(r *gin.RouterGroup, handler *handler.Initializ
 	g.apiKeyRoute(r, http.MethodGet, "/initialization/config/:kbId",
 		apiKeyRetrieve(apiKeyFullAccess()), g.Viewer(), g.KBAccessRead("kbId"), handler.GetCurrentConfigByKB)
 	// InitializeByKB / UpdateKBConfig 都是改 KB 的核心模型/storage 配置 —
-	// 跟 PUT /knowledge-bases/:id 同等敏感，JWT 侧要求 Admin+；共享 KB
-	// 还需要 admin 级 KB 权限（API-key 主体短路角色守卫，KB allow-list
-	// 只能靠 KBAccess 兜底）。
+	// 跟 PUT /knowledge-bases/:id 同等敏感，JWT 侧要求 Admin+ 或系统管理员；
+	// 普通跨空间共享 KB 还需要 admin 级 KB 权限（系统管理员由 KBAccess
+	// 直接按源空间管理）。API-key 主体短路角色守卫，KB allow-list 只能靠
+	// KBAccess 兜底。
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/initialize/:kbId",
-		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.Admin(), g.KBAccessManage("kbId"), handler.InitializeByKB)
+		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.AdminOrSystemAdmin(), g.KBAccessManage("kbId"), handler.InitializeByKB)
 	g.apiKeyRoute(r, http.MethodPut, "/initialization/config/:kbId",
-		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.Admin(), g.KBAccessManage("kbId"), handler.UpdateKBConfig)
+		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.AdminOrSystemAdmin(), g.KBAccessManage("kbId"), handler.UpdateKBConfig)
 
 	// Ollama / 远程 API / 抽取等系统级检测/下载操作。这些不绑某个 KB，
 	// 会改空间级模型配置或拉远端模型；JWT 侧只读探测 Viewer+、变更 Admin+。
@@ -1331,13 +1332,13 @@ func RegisterOrganizationRoutes(r *gin.RouterGroup, orgHandler *handler.Organiza
 	kbShares := g.apiKeyGroup(r.Group("/knowledge-bases/:id/shares"), apiKeyFullAccess())
 	{
 		// Share knowledge base
-		kbShares.POST("", g.OwnedKBOrAdmin(), orgHandler.ShareKnowledgeBase)
+		kbShares.POST("", g.OwnedKBOrAdminOrSystemAdmin(), orgHandler.ShareKnowledgeBase)
 		// List shares — Viewer+ 即可，纯读取
 		kbShares.GET("", g.Viewer(), orgHandler.ListKBShares)
 		// Update share permission
-		kbShares.PUT("/:share_id", g.OwnedKBOrAdmin(), orgHandler.UpdateSharePermission)
+		kbShares.PUT("/:share_id", g.OwnedKBOrAdminOrSystemAdmin(), orgHandler.UpdateSharePermission)
 		// Remove share
-		kbShares.DELETE("/:share_id", g.OwnedKBOrAdmin(), orgHandler.RemoveShare)
+		kbShares.DELETE("/:share_id", g.OwnedKBOrAdminOrSystemAdmin(), orgHandler.RemoveShare)
 	}
 
 	// Agent sharing routes — same rationale as other agent mutations:

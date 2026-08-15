@@ -809,7 +809,9 @@ const orgStore = useOrganizationStore()
 const chatResources = useChatResourcesStore()
 const { t } = useI18n()
 const canCreateKnowledgeBase = computed(() => authStore.hasRole('admin'))
-const canEditKnowledgeBaseSettings = computed(() => authStore.hasRole('admin'))
+const canEditKnowledgeBaseSettings = computed(() =>
+  authStore.hasRole('admin') || authStore.isSystemAdmin,
+)
 
 // Scope selector UI has been removed; the list always shows the aggregate
 // "all" view.
@@ -1034,7 +1036,7 @@ const showShareGroupHeaders = computed(() => true)
 // 自己改不了——这一段实际上是"工作空间里其他成员创建的 KB"，按所有权
 // 而非权限来标注更准确。
 const tenantSectionLabelKey = computed(() =>
-  authStore.hasRole('admin')
+  canEditKnowledgeBaseSettings.value
     ? 'knowledgeList.sections.tenantOthers'
     : 'knowledgeList.sections.tenantReadonly'
 )
@@ -1043,7 +1045,7 @@ const tenantSectionLabelKey = computed(() =>
 // 划分，配 usergroup（多人）更贴；contributor/viewer 看到的是"仅查看"，
 // 维持 browse（眼睛）传达"只能看不能改"的语义。
 const tenantSectionIconName = computed(() =>
-  authStore.hasRole('admin') ? 'usergroup' : 'browse'
+  canEditKnowledgeBaseSettings.value ? 'usergroup' : 'browse'
 )
 
 // 分组折叠：ephemeral，只在当前会话里生效，不落 localStorage/服务器。
@@ -1303,12 +1305,13 @@ const handleSettings = (kb: KB) => {
 
 function canEditKBSettingsCard(kb: any): boolean {
   if (!canEditKnowledgeBaseSettings.value) return false
+  if (authStore.isSystemAdmin) return true
   if (kb.isMine === false) return kb.permission === 'admin'
   return true
 }
 
 function canReadTenantKnowledgeBase(kb: { creator_id?: string }): boolean {
-  if (authStore.hasRole('admin')) return true
+  if (canEditKnowledgeBaseSettings.value) return true
   return isMyKb(kb)
 }
 

@@ -339,6 +339,16 @@ func resolveKBAccessOnce(
 		return nil, errKBAccessNotFound
 	}
 
+	// 0. System administrators can manage any KB and operate against the
+	//    KB's source tenant, independent of the active tenant role.
+	if types.IsSystemAdminFromContext(ctx) {
+		return &KBAccess{
+			KnowledgeBase:     kb,
+			EffectiveTenantID: kb.TenantID,
+			Permission:        types.OrgRoleAdmin,
+		}, nil
+	}
+
 	// 1. Same-tenant KB. Admin+ can access all tenant KBs; ordinary
 	// members access KBs they created. If a same-tenant KB is explicitly
 	// shared to an organization the caller's tenant belongs to, fall through
@@ -353,7 +363,7 @@ func resolveKBAccessOnce(
 				Permission:        types.OrgRoleAdmin,
 			}, nil
 		}
-		if types.IsSystemAdminFromContext(ctx) || callerTenantRole.HasPermission(types.TenantRoleAdmin) {
+		if callerTenantRole.HasPermission(types.TenantRoleAdmin) {
 			return &KBAccess{
 				KnowledgeBase:     kb,
 				EffectiveTenantID: tenantID,

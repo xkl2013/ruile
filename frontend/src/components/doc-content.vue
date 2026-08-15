@@ -31,6 +31,8 @@ const canDeleteGeneratedQuestion = computed(() => {
   return authStore.hasRole('admin');
 });
 
+const canDownloadFile = computed(() => authStore.hasRole('admin'));
+
 const detailTags = computed(() => {
   const tags = props.details?.tags;
   return Array.isArray(tags) ? tags : [];
@@ -1095,9 +1097,9 @@ const handleDetailsScroll = () => {
             <div class="doc-drawer-header-title">{{ getDisplayTitle() }}</div>
           </div>
           <div class="header-actions">
-            <t-button v-if="details.type === 'file' || details.type === 'manual'" class="header-action-btn" size="small"
-              variant="text" shape="square" theme="default" :title="$t('common.download') || 'Download'"
-              @click="downloadFile()">
+            <t-button v-if="canDownloadFile && (details.type === 'file' || details.type === 'manual')"
+              class="header-action-btn" size="small" variant="text" shape="square" theme="default"
+              :title="$t('common.download') || 'Download'" @click="downloadFile()">
               <template #icon>
                 <t-icon name="download" size="16px" />
               </template>

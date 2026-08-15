@@ -438,6 +438,13 @@ func (g *rbacGuards) OwnedKBOrAdmin() gin.HandlerFunc {
 	return middleware.RequireOwnershipOrRole(types.TenantRoleAdmin, g.kbCreator, g.cfg)
 }
 
+// OwnedKBOrAdminOrSystemAdmin is used for KB settings surfaces where a
+// platform system administrator must be able to repair/manage the KB even
+// without being its recorded creator or a member of the source tenant.
+func (g *rbacGuards) OwnedKBOrAdminOrSystemAdmin() gin.HandlerFunc {
+	return middleware.RequireOwnershipOrRoleOrSystemAdmin(types.TenantRoleAdmin, g.kbCreator, g.cfg)
+}
+
 // OwnedKBOrAdminFromKbIDParam is the same matrix as OwnedKBOrAdmin but
 // addresses the KB via :kbId for routes that still use that parameter name.
 func (g *rbacGuards) OwnedKBOrAdminFromKbIDParam() gin.HandlerFunc {

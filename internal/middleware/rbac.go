@@ -287,6 +287,21 @@ func RequireOwnershipOrRole(min types.TenantRole, lookup CreatorLookup, cfg *con
 	}
 }
 
+// RequireOwnershipOrRoleOrSystemAdmin is the ownership matrix with an
+// additional platform-admin bypass. Keep it separate from
+// RequireOwnershipOrRole so routes opt into the broader system-admin
+// capability explicitly.
+func RequireOwnershipOrRoleOrSystemAdmin(min types.TenantRole, lookup CreatorLookup, cfg *config.Config) gin.HandlerFunc {
+	ownershipGuard := RequireOwnershipOrRole(min, lookup, cfg)
+	return func(c *gin.Context) {
+		if types.IsSystemAdminFromContext(c.Request.Context()) {
+			c.Next()
+			return
+		}
+		ownershipGuard(c)
+	}
+}
+
 // rbacEnforcementEnabled reports whether middleware should actually
 // reject failed checks. When the flag is off the middleware still runs
 // role-only checks (logging, fast paths), but rejection is downgraded

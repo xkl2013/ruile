@@ -71,7 +71,8 @@ func applyTenantRoleCap(p types.OrgMemberRole, callerTenantRole types.TenantRole
 
 // ShareKnowledgeBase shares a knowledge base to an organization.
 // Caller must be in a tenant that owns the KB *and* be a member of the
-// target org with at least editor role.
+// target org with at least editor role. System administrators operate
+// against the KB source tenant for this ownership check.
 func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, orgID string, userID string, tenantID uint64, permission types.OrgMemberRole) (*types.KnowledgeBaseShare, error) {
 	logger.Infof(ctx, "Sharing knowledge base %s to organization %s", kbID, orgID)
 
@@ -79,7 +80,11 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 	if err != nil {
 		return nil, ErrKBNotFound
 	}
-	if kb.TenantID != tenantID {
+	sourceTenantID := tenantID
+	if types.IsSystemAdminFromContext(ctx) {
+		sourceTenantID = kb.TenantID
+	}
+	if kb.TenantID != sourceTenantID {
 		return nil, ErrNotKBOwner
 	}
 
@@ -91,8 +96,8 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 		return nil, err
 	}
 
-	// Caller's tenant must be an org member with editor+ role to share.
-	tm, err := s.orgRepo.GetTenantMember(ctx, orgID, tenantID)
+	// Source tenant must be an org member with editor+ role to share.
+	tm, err := s.orgRepo.GetTenantMember(ctx, orgID, sourceTenantID)
 	if err != nil {
 		if errors.Is(err, repository.ErrOrgMemberNotFound) {
 			return nil, ErrTenantNotInOrg
@@ -112,7 +117,7 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 		KnowledgeBaseID: kbID,
 		OrganizationID:  orgID,
 		SharedByUserID:  userID,
-		SourceTenantID:  tenantID,
+		SourceTenantID:  sourceTenantID,
 		Permission:      permission,
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
@@ -203,6 +208,9 @@ func (s *kbShareService) callerCanManageShare(
 	callerUserID string,
 	callerTenantID uint64,
 ) bool {
+	if types.IsSystemAdminFromContext(ctx) {
+		return true
+	}
 	// (1) Original sharer.
 	if shareSharedByUserID == callerUserID {
 		return true
@@ -227,7 +235,7 @@ func (s *kbShareService) ListSharesByKnowledgeBase(ctx context.Context, kbID str
 	if err != nil {
 		return nil, ErrKBNotFound
 	}
-	if kb.TenantID != tenantID {
+	if kb.TenantID != tenantID && !types.IsSystemAdminFromContext(ctx) {
 		return nil, ErrNotKBOwner
 	}
 	return s.shareRepo.ListByKnowledgeBase(ctx, kbID)

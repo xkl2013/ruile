@@ -923,6 +923,7 @@
       v-model:visible="renameDialogVisible"
       :header="$t('knowledgeBase.rename')"
       width="420px"
+      dialog-class-name="kb-rename-dialog"
       :confirm-btn="{ content: $t('common.confirm'), theme: 'primary', loading: renameSaving }"
       :cancel-btn="{ content: $t('common.cancel') }"
       @confirm="handleRenameConfirm"
@@ -1145,8 +1146,13 @@ const canManage = computed(() => {
   return orgStore.canManageKB(props.kbId, false)
 })
 
+const canManageKnowledgeBaseSettingsByRole = computed(() =>
+  authStore.hasRole('admin') || authStore.isSystemAdmin,
+)
+
 const canEditKnowledgeBaseSettings = computed(() => {
-  if (!authStore.hasRole('admin')) return false
+  if (!canManageKnowledgeBaseSettingsByRole.value) return false
+  if (authStore.isSystemAdmin) return true
   if (isViaShare.value) return orgStore.canManageKB(props.kbId, false)
   return true
 })
@@ -3053,6 +3059,31 @@ watch(() => entries.value.map(e => ({
 
 <style lang="less">
 /* 下拉菜单样式已统一至 @/assets/dropdown-menu.less */
+.kb-rename-dialog {
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+}
+
+.kb-rename-dialog .t-dialog__body {
+  overflow-x: hidden;
+}
+
+.kb-rename-dialog .kb-rename-form,
+.kb-rename-dialog .t-form,
+.kb-rename-dialog .t-form__item,
+.kb-rename-dialog .t-form__controls,
+.kb-rename-dialog .t-form__controls-content,
+.kb-rename-dialog .t-input,
+.kb-rename-dialog .t-textarea,
+.kb-rename-dialog .t-textarea__inner {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.kb-rename-dialog .t-textarea__inner {
+  overflow-x: hidden;
+}
 </style>
 <style scoped lang="less">
 .faq-manager {

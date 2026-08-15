@@ -157,10 +157,11 @@ func (s *stubAgentShareForGuard) CountByOrganizations(context.Context, []string)
 // guardOpts collects optional knobs for runGuard. Keeps the call site
 // readable when most tests only care about a couple of dimensions.
 type guardOpts struct {
-	agentID    string                  // ?agent_id query param
-	agentShare *stubAgentShareForGuard // nil means "no agent-share service"
-	userID     string
-	role       types.TenantRole
+	agentID     string                  // ?agent_id query param
+	agentShare  *stubAgentShareForGuard // nil means "no agent-share service"
+	userID      string
+	role        types.TenantRole
+	systemAdmin bool
 }
 
 // runGuard fires a single request through the guard and returns the
@@ -193,6 +194,9 @@ func runGuard(
 	}
 	if opts.role.IsValid() {
 		ctx = context.WithValue(ctx, types.TenantRoleContextKey, opts.role)
+	}
+	if opts.systemAdmin {
+		ctx = context.WithValue(ctx, types.SystemAdminContextKey, true)
 	}
 	c.Request = req.WithContext(ctx)
 
@@ -319,6 +323,22 @@ func TestRequireKBAccess_SharedKB_RewritesTenantContext(t *testing.T) {
 	require.Equal(t, uint64(200), access.EffectiveTenantID)
 	got, _ := types.TenantIDFromContext(c.Request.Context())
 	require.Equal(t, uint64(200), got, "guard must rewrite context to source tenant")
+}
+
+func TestRequireKBAccess_SystemAdminCanManageAnyKB(t *testing.T) {
+	_, c := runGuard(t, 100, "kb-system",
+		types.OrgRoleAdmin,
+		&types.KnowledgeBase{ID: "kb-system", TenantID: 200, CreatorID: "u-owner"},
+		nil,
+		guardOpts{userID: "u-system", role: types.TenantRoleViewer, systemAdmin: true},
+	)
+	require.False(t, c.IsAborted())
+	access, ok := KBAccessFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, uint64(200), access.EffectiveTenantID)
+	require.Equal(t, types.OrgRoleAdmin, access.Permission)
+	got, _ := types.TenantIDFromContext(c.Request.Context())
+	require.Equal(t, uint64(200), got, "system admin should operate in the KB source tenant")
 }
 
 func TestRequireKBAccess_SharedKB_PermissionBelowMin_Aborts(t *testing.T) {
