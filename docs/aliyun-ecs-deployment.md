@@ -204,6 +204,13 @@ set_env RERANK_MODEL_NAME "gte-rerank"
 set_env RERANK_BASE_URL "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
 set_env RERANK_API_KEY "sk-your-dashscope-api-key"
 set_env RERANK_PROVIDER "aliyun"
+
+set_env ASR_MODEL_NAME "qwen3-asr-flash"
+set_env ASR_BASE_URL "https://dashscope.aliyuncs.com/compatible-mode/v1"
+set_env ASR_API_KEY "sk-your-dashscope-api-key"
+set_env ASR_PROVIDER "aliyun"
+set_env ASR_LANGUAGE "zh"
+set_env ASR_ENABLE_ITN "false"
 ```
 
 创建 `config/builtin_models.yaml`：
@@ -241,6 +248,19 @@ builtin_models:
       base_url: ${RERANK_BASE_URL}
       api_key: ${RERANK_API_KEY}
       provider: ${RERANK_PROVIDER}
+
+  - id: builtin-aliyun-asr
+    type: ASR
+    source: remote
+    is_default: true
+    name: ${ASR_MODEL_NAME}
+    parameters:
+      base_url: ${ASR_BASE_URL}
+      api_key: ${ASR_API_KEY}
+      provider: ${ASR_PROVIDER}
+      extra_config:
+        language: ${ASR_LANGUAGE}
+        enable_itn: ${ASR_ENABLE_ITN}
 ```
 
 创建 `docker-compose.override.yml`，让 app 容器挂载该配置：

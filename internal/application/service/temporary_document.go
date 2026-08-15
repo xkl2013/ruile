@@ -153,16 +153,17 @@ func (s *temporaryDocumentService) Create(
 	if !s.supportsExtension(ctx, tenantID, ext) {
 		return nil, fmt.Errorf("unsupported file type: %s", ext)
 	}
-	maxSize := secutils.GetMaxFileSizeMB() * 1024 * 1024
+	maxSizeMB := secutils.GetMaxFileSizeMBForFileType(ext)
+	maxSize := maxSizeMB * 1024 * 1024
 	if fileSize <= 0 || fileSize > maxSize {
-		return nil, fmt.Errorf("file size must be between 1 byte and %dMB", secutils.GetMaxFileSizeMB())
+		return nil, fmt.Errorf("file size must be between 1 byte and %dMB", maxSizeMB)
 	}
 	data, err := io.ReadAll(io.LimitReader(reader, maxSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read attachment: %w", err)
 	}
 	if int64(len(data)) > maxSize {
-		return nil, fmt.Errorf("file exceeds size limit of %dMB", secutils.GetMaxFileSizeMB())
+		return nil, fmt.Errorf("file exceeds size limit of %dMB", maxSizeMB)
 	}
 	if int64(len(data)) != fileSize {
 		fileSize = int64(len(data))
@@ -343,11 +344,12 @@ func (s *temporaryDocumentService) parse(ctx context.Context, document *types.Te
 		return "", nil, nil, fmt.Errorf("open source file: %w", err)
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, secutils.GetMaxFileSizeMB()*1024*1024+1))
+	ext := document.FileType
+	maxSize := secutils.GetMaxFileSizeMBForFileType(ext)*1024*1024 + 1
+	data, err := io.ReadAll(io.LimitReader(file, maxSize))
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("read source file: %w", err)
 	}
-	ext := document.FileType
 	var options types.TemporaryDocumentCreateOptions
 	_ = json.Unmarshal(document.ProcessingOptions, &options)
 	if options.ParserEngine == "" || options.ParserEngine == "auto" {

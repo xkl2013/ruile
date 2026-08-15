@@ -190,11 +190,9 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 	if len(request.AttachmentUploads) > 0 {
 		logger.Infof(ctx, "[%s] processing %d attachment(s)", logPrefix, len(request.AttachmentUploads))
 
-		// MAX_FILE_SIZE_MB env (50MB default). See utils/filesize.go for
-		// why this is deploy-time-only rather than a runtime setting.
-		maxSizeMB := secutils.GetMaxFileSizeMB()
-		maxSize := maxSizeMB * 1024 * 1024
 		for i, upload := range request.AttachmentUploads {
+			maxSizeMB := secutils.GetMaxFileSizeMBForFileName(upload.FileName)
+			maxSize := maxSizeMB * 1024 * 1024
 			if upload.FileSize > maxSize {
 				return nil, nil, errors.NewBadRequestError(
 					fmt.Sprintf("attachment %d exceeds size limit of %dMB", i+1, maxSizeMB))

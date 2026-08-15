@@ -26,7 +26,7 @@
       <button v-for="kb in knowledgeBases" :key="kb.id" type="button" class="kb-menu-item"
         :class="{ active: kb.id === activeKbId }" :title="kb.name" :aria-current="kb.id === activeKbId ? 'page' : undefined"
         @click="openKnowledgeBase(kb.id)">
-        <t-icon name="folder" class="kb-menu-item-icon" />
+        <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-menu-item-icon" />
         <span class="kb-menu-item-name">{{ kb.name }}</span>
         <span v-if="kb.id === activeKbId" class="kb-menu-item-dot" />
       </button>
@@ -51,10 +51,12 @@ import { useUIStore } from '@/stores/ui'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useOrganizationStore } from '@/stores/organization'
 import { mergeAllScopeKnowledgeBases } from '@/views/knowledge/kbListMerge'
+import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 
 type SidebarKnowledgeBase = {
   id: string
   name: string
+  icon?: string
   type?: 'document' | 'faq'
   isMine?: boolean
   is_pinned?: boolean
@@ -124,6 +126,7 @@ const knowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
     .map((kb: any) => ({
       id: String(kb.id),
       name: String(kb.name || kb.id),
+      icon: kb.icon,
       type: kb.type,
       isMine: kb.isMine === true,
       is_pinned: !!kb.is_pinned,
@@ -300,11 +303,6 @@ onMounted(() => {
 
 .kb-menu-item-icon {
   flex-shrink: 0;
-  color: var(--td-text-color-secondary);
-}
-
-.kb-menu-item.active .kb-menu-item-icon {
-  color: var(--td-brand-color);
 }
 
 .kb-menu-item-name {

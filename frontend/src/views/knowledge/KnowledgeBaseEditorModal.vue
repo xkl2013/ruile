@@ -59,6 +59,66 @@
                         </div>
                       </div>
 
+                      <div class="form-item kb-icon-field">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.icon') }}</label>
+                        <t-popup
+                          v-model:visible="iconPickerVisible"
+                          trigger="click"
+                          placement="bottom-left"
+                          :overlay-style="{ padding: 0 }"
+                          :overlay-inner-style="{ padding: 0 }"
+                        >
+                          <button
+                            type="button"
+                            class="kb-icon-trigger"
+                            :aria-label="$t('knowledgeEditor.basic.icon')"
+                            :title="$t('knowledgeEditor.basic.icon')"
+                          >
+                            <KnowledgeBaseIcon :icon="formData.icon" :type="formData.type" size="large" />
+                            <t-icon name="chevron-down" size="16px" class="kb-icon-trigger-arrow" />
+                          </button>
+                          <template #content>
+                            <div class="kb-icon-picker" @click.stop>
+                              <button
+                                type="button"
+                                class="kb-icon-option kb-icon-upload-option"
+                                :class="{ active: isUploadedKnowledgeBaseIcon }"
+                                :aria-label="$t('knowledgeEditor.basic.iconUpload')"
+                                :title="$t('knowledgeEditor.basic.iconUpload')"
+                                @click="triggerKnowledgeBaseIconUpload"
+                              >
+                                <KnowledgeBaseIcon
+                                  v-if="isUploadedKnowledgeBaseIcon"
+                                  :icon="formData.icon"
+                                  :type="formData.type"
+                                  size="large"
+                                />
+                                <t-icon v-else name="upload" size="18px" />
+                              </button>
+                              <button
+                                v-for="icon in kbIconOptions"
+                                :key="icon"
+                                type="button"
+                                class="kb-icon-option"
+                                :class="{ active: formData.icon === icon }"
+                                :aria-label="icon"
+                                :title="icon"
+                                @click="selectKnowledgeBaseIcon(icon)"
+                              >
+                                <t-icon :name="icon" size="18px" />
+                              </button>
+                              <input
+                                ref="iconFileInputRef"
+                                type="file"
+                                class="kb-icon-file-input"
+                                accept="image/png,image/jpeg,image/webp,image/gif"
+                                @change="handleKnowledgeBaseIconFileChange"
+                              />
+                            </div>
+                          </template>
+                        </t-popup>
+                      </div>
+
                       <div v-if="showConfigurationFields" class="form-item">
                         <label class="form-label required">{{ $t('knowledgeEditor.basic.typeLabel') }}</label>
                         <t-radio-group
@@ -461,7 +521,10 @@ import {
   createDefaultKnowledgeBaseFormData,
   DEFAULT_KB_CHUNKING_PRESET,
   WIKI_ONLY_KB_CHUNKING_PRESET,
+  KNOWLEDGE_BASE_ICON_OPTIONS,
+  getDefaultKnowledgeBaseIcon,
 } from '@/config/knowledgeBaseDefaults'
+import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import KBModelConfig from './settings/KBModelConfig.vue'
 import KBParserSettings from './settings/KBParserSettings.vue'
 import KBStorageSettings from './settings/KBStorageSettings.vue'
@@ -560,9 +623,18 @@ const canShareKB = computed(() => {
 })
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
+const iconPickerVisible = ref(false)
+const iconCustomized = ref(false)
+const iconFileInputRef = ref<HTMLInputElement | null>(null)
+const kbIconOptions = KNOWLEDGE_BASE_ICON_OPTIONS
+const KB_ICON_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
+const KB_ICON_IMAGE_SIZE = 96
 
 const isSimpleCreateMode = computed(() => props.mode === 'create')
 const showConfigurationFields = computed(() => !isSimpleCreateMode.value)
+const isUploadedKnowledgeBaseIcon = computed(() =>
+  (formData.value?.icon || '').trim().startsWith('image:'),
+)
 
 const navItems = computed(() => {
   const items: { key: string; icon: string; label: string; badge?: number }[] = [
@@ -661,12 +733,21 @@ const applyDefaultCreateConfig = () => {
   if (!formData.value || props.mode !== 'create') return
   applyDefaultModelsIfEmpty()
   formData.value.storageProvider = tenantDefaultStorageProvider.value
+  if (!formData.value.icon) {
+    formData.value.icon = getDefaultKnowledgeBaseIcon(formData.value.type)
+  }
 }
 
 watch(
   () => formData.value?.type,
   (newType, oldType) => {
     if (!formData.value) return
+    const nextType = newType === 'faq' ? 'faq' : 'document'
+    const prevType = oldType === 'faq' ? 'faq' : 'document'
+    if (props.mode === 'create' && (!iconCustomized.value || formData.value.icon === getDefaultKnowledgeBaseIcon(prevType))) {
+      formData.value.icon = getDefaultKnowledgeBaseIcon(nextType)
+      iconCustomized.value = false
+    }
     if (newType === 'faq') {
       if (!formData.value.faqConfig) {
         formData.value.faqConfig = { indexMode: 'question_only', questionIndexMode: 'separate' }
@@ -720,6 +801,7 @@ const loadKBData = async () => {
     const kbType = (kb.type as 'document' | 'faq') || 'document'
     formData.value = {
       type: kbType,
+      icon: kb.icon || getDefaultKnowledgeBaseIcon(kbType),
       name: kb.name || '',
       description: kb.description || '',
       faqConfig: {
@@ -811,6 +893,7 @@ const loadKBData = async () => {
     }
     initialStorageProvider.value = formData.value.storageProvider
     initialIndexingStrategy.value = { ...formData.value.indexingStrategy }
+    iconCustomized.value = false
   } catch (error) {
     console.error('Failed to load knowledge base data:', error)
     MessagePlugin.error(t('knowledgeEditor.messages.loadDataFailed'))
@@ -991,6 +1074,97 @@ const handleNodeExtractUpdate = (config: any) => {
   }
 }
 
+const selectKnowledgeBaseIcon = (icon: string) => {
+  if (!formData.value) return
+  formData.value.icon = icon
+  iconCustomized.value = icon !== getDefaultKnowledgeBaseIcon(formData.value.type)
+  iconPickerVisible.value = false
+}
+
+const triggerKnowledgeBaseIconUpload = () => {
+  iconFileInputRef.value?.click()
+}
+
+const handleKnowledgeBaseIconFileChange = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !formData.value) return
+
+  if (!file.type.startsWith('image/')) {
+    MessagePlugin.warning(t('knowledgeEditor.basic.iconImageInvalid'))
+    return
+  }
+  if (file.size > KB_ICON_UPLOAD_MAX_BYTES) {
+    MessagePlugin.warning(t('knowledgeEditor.basic.iconImageTooLarge', { size: 5 }))
+    return
+  }
+
+  try {
+    const dataUrl = await resizeKnowledgeBaseIconImage(file)
+    formData.value.icon = `image:${dataUrl}`
+    iconCustomized.value = true
+    iconPickerVisible.value = false
+  } catch (error) {
+    console.error('Failed to process knowledge base icon image:', error)
+    MessagePlugin.error(t('knowledgeEditor.basic.iconImageProcessFailed'))
+  }
+}
+
+const resizeKnowledgeBaseIconImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    const url = URL.createObjectURL(file)
+
+    image.onload = () => {
+      try {
+        const sourceWidth = image.naturalWidth || image.width
+        const sourceHeight = image.naturalHeight || image.height
+        if (!sourceWidth || !sourceHeight) {
+          throw new Error('invalid image dimensions')
+        }
+
+        const sourceSize = Math.min(sourceWidth, sourceHeight)
+        const sourceX = Math.max(0, (sourceWidth - sourceSize) / 2)
+        const sourceY = Math.max(0, (sourceHeight - sourceSize) / 2)
+        const canvas = document.createElement('canvas')
+        canvas.width = KB_ICON_IMAGE_SIZE
+        canvas.height = KB_ICON_IMAGE_SIZE
+
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          throw new Error('canvas context is not available')
+        }
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.clearRect(0, 0, KB_ICON_IMAGE_SIZE, KB_ICON_IMAGE_SIZE)
+        ctx.drawImage(
+          image,
+          sourceX,
+          sourceY,
+          sourceSize,
+          sourceSize,
+          0,
+          0,
+          KB_ICON_IMAGE_SIZE,
+          KB_ICON_IMAGE_SIZE,
+        )
+        resolve(canvas.toDataURL('image/png'))
+      } catch (error) {
+        reject(error)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('failed to load image'))
+    }
+    image.src = url
+  })
+}
+
 // 验证表单
 const validateForm = (): boolean => {
   if (!formData.value) return false
@@ -1054,6 +1228,7 @@ const buildSubmitData = () => {
   const data: any = {
     name: formData.value.name,
     description: formData.value.description,
+    icon: formData.value.icon || getDefaultKnowledgeBaseIcon(formData.value.type),
     type: formData.value.type,
     chunking_config: {
       chunk_size: formData.value.chunkingConfig.chunkSize,
@@ -1270,6 +1445,7 @@ const doSubmit = async () => {
       await updateKnowledgeBase(props.kbId, {
         name: data.name,
         description: data.description,
+        icon: data.icon,
         config: updateConfig
       })
 
@@ -1392,6 +1568,8 @@ const resetState = () => {
   loading.value = false
   chunkingDirty.value = false
   kbCreatorId.value = ''
+  iconPickerVisible.value = false
+  iconCustomized.value = false
 }
 
 // 关闭弹窗
@@ -1748,6 +1926,75 @@ watch(
       color: var(--td-brand-color);
     }
   }
+}
+
+.kb-icon-field {
+  max-width: 480px;
+}
+
+.kb-icon-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+
+  &:hover {
+    border-color: var(--td-brand-color);
+    background: var(--td-bg-color-container-hover);
+  }
+}
+
+.kb-icon-trigger-arrow {
+  margin-left: auto;
+  color: var(--td-text-color-placeholder);
+}
+
+.kb-icon-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  width: 236px;
+  padding: 12px;
+}
+
+.kb-icon-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    border-color: var(--td-brand-color);
+    color: var(--td-brand-color);
+    background: var(--td-bg-color-container-hover);
+  }
+
+  &.active {
+    border-color: var(--td-brand-color);
+    background: var(--td-brand-color-light);
+    color: var(--td-brand-color);
+  }
+}
+
+.kb-icon-upload-option :deep(.kb-icon) {
+  border: none;
+}
+
+.kb-icon-file-input {
+  display: none;
 }
 
 .granularity-radio-group {

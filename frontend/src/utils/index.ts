@@ -15,7 +15,9 @@ declare global {
 export const MAX_FILE_SIZE_MB = window.__RUNTIME_CONFIG__?.MAX_FILE_SIZE_MB
   || Number(import.meta.env.VITE_MAX_FILE_SIZE_MB) 
   || 50;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+export const AUDIO_MAX_FILE_SIZE_MB = 100;
+export const REQUEST_MAX_FILE_SIZE_MB = Math.max(MAX_FILE_SIZE_MB, AUDIO_MAX_FILE_SIZE_MB);
+const AUDIO_FILE_TYPES = new Set(["mp3", "wav", "m4a", "flac", "ogg", "aac"]);
 
 export function generateRandomString(length: number) {
   let result = "";
@@ -42,6 +44,17 @@ export function formatStringDate(date: any) {
 }
 const DEFAULT_VALID_TYPES = new Set(["pdf", "txt", "md", "docx", "doc", "pptx", "ppt", "epub", "mhtml", "jpg", "jpeg", "png", "csv", "xlsx", "xls", "mp3", "wav", "m4a", "flac", "ogg", "mp4", "mov", "avi", "mkv", "webm", "wmv", "flv"]);
 
+export function getFileSizeLimitMBByExt(ext: string): number {
+  const normalized = ext.replace(/^\./, "").toLowerCase();
+  return AUDIO_FILE_TYPES.has(normalized) ? AUDIO_MAX_FILE_SIZE_MB : MAX_FILE_SIZE_MB;
+}
+
+export function getFileSizeLimitMB(fileName: string): number {
+  const dot = fileName.lastIndexOf(".");
+  const ext = dot >= 0 ? fileName.substring(dot + 1) : "";
+  return getFileSizeLimitMBByExt(ext);
+}
+
 /**
  * Returns true when the file should be **rejected**.
  * @param validTypes - override the default extension whitelist with a dynamic set (e.g. from engine registry).
@@ -61,9 +74,10 @@ export function kbFileTypeVerification(file: any, silent = false, validTypes?: S
     }
     return true;
   }
-  if (file.size > MAX_FILE_SIZE_BYTES) {
+  const maxSizeMB = getFileSizeLimitMB(file.name);
+  if (file.size > maxSizeMB * 1024 * 1024) {
     if (!silent) {
-      MessagePlugin.error(i18n.global.t('error.fileSizeExceeded', { size: MAX_FILE_SIZE_MB }));
+      MessagePlugin.error(i18n.global.t('error.fileSizeExceeded', { size: maxSizeMB }));
     }
     return true;
   }

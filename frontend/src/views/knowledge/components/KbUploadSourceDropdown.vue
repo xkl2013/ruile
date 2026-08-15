@@ -6,6 +6,7 @@
       class="hidden-file-input"
       multiple
       :accept="acceptFileTypes || undefined"
+      :disabled="isInteractionDisabled"
       @change="(e) => handleFilesChange(e, false)"
     />
     <input
@@ -14,6 +15,7 @@
       class="hidden-file-input"
       webkitdirectory
       multiple
+      :disabled="isInteractionDisabled"
       @change="(e) => handleFilesChange(e, true)"
     />
 
@@ -29,6 +31,8 @@
           :theme="triggerTheme"
           :class="['kb-upload-source-trigger', triggerClass]"
           :data-guide="dataGuide || undefined"
+          :loading="loading"
+          :disabled="isInteractionDisabled"
           size="small"
         >
           <template #icon><t-icon :name="triggerIcon" size="16px" /></template>
@@ -79,6 +83,8 @@ const props = withDefaults(defineProps<{
   dataGuide?: string
   tooltip?: string
   placement?: 'top' | 'bottom' | 'bottom-right' | 'bottom-left'
+  loading?: boolean
+  disabled?: boolean
 }>(), {
   acceptFileTypes: '',
   supportedFileTypes: () => [],
@@ -91,6 +97,8 @@ const props = withDefaults(defineProps<{
   dataGuide: '',
   tooltip: '',
   placement: 'bottom-right',
+  loading: false,
+  disabled: false,
 })
 
 const emit = defineEmits<{
@@ -107,6 +115,7 @@ const urlDialogVisible = ref(false)
 const urlInputValue = ref('')
 
 const tooltipText = computed(() => props.tooltip || t('knowledgeBase.addDocument'))
+const isInteractionDisabled = computed(() => props.disabled || props.loading)
 
 const dropdownOptions = computed(() => {
   const options = [
@@ -137,6 +146,8 @@ const dropdownOptions = computed(() => {
 })
 
 const handleActionSelect = (data: { value: string }) => {
+  if (isInteractionDisabled.value) return
+
   switch (data.value) {
     case 'upload':
       fileInputRef.value?.click()
@@ -172,6 +183,11 @@ const notifyFilterResult = (result: ReturnType<typeof filterUploadFiles>, emptyA
 
 const handleFilesChange = (event: Event, fromFolder: boolean) => {
   const input = event.target as HTMLInputElement
+  if (isInteractionDisabled.value) {
+    input.value = ''
+    return
+  }
+
   const files = input.files
   if (!files || files.length === 0) return
 
@@ -191,6 +207,8 @@ const handleFilesChange = (event: Event, fromFolder: boolean) => {
 }
 
 const handleUrlDialogConfirm = () => {
+  if (isInteractionDisabled.value) return
+
   const url = urlInputValue.value.trim()
   if (!url) {
     MessagePlugin.warning(t('knowledgeBase.urlRequired'))

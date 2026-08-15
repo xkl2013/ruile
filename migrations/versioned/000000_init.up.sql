@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    icon TEXT NOT NULL DEFAULT '',
     tenant_id INTEGER NOT NULL,
     chunking_config JSONB NOT NULL DEFAULT '{"chunk_size": 512, "chunk_overlap": 50, "split_markers": ["\n\n", "\n", "。"], "keep_separator": true}',
     image_processing_config JSONB NOT NULL DEFAULT '{"enable_multimodal": false, "model_id": ""}',

@@ -2,6 +2,8 @@ package asr
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -31,6 +33,7 @@ type ASR interface {
 // Config holds the configuration needed to create an ASR instance.
 type Config struct {
 	Source    types.ModelSource
+	Provider  string
 	BaseURL   string
 	ModelName string
 	APIKey    string
@@ -38,6 +41,7 @@ type Config struct {
 	Language  string // optional: specify language for transcription
 	// CustomHeaders 允许在调用远程 API 时附加自定义 HTTP 请求头（类似 OpenAI Python SDK 的 extra_headers）。
 	CustomHeaders map[string]string
+	ExtraConfig   map[string]string
 }
 
 // ConfigFromModel 根据 types.Model 构造 asr.Config。
@@ -53,13 +57,40 @@ func ConfigFromModel(m *types.Model) *Config {
 		BaseURL:       m.Parameters.BaseURL,
 		ModelName:     m.Name,
 		Source:        m.Source,
+		Provider:      strings.ToLower(strings.TrimSpace(m.Parameters.Provider)),
+		Language:      normalizeOptionalValue(m.Parameters.ExtraConfig["language"]),
 		CustomHeaders: m.Parameters.CustomHeaders,
+		ExtraConfig:   m.Parameters.ExtraConfig,
 	}
 }
 
 // NewASR creates an ASR instance based on the provided configuration.
-// All ASR vendors use the OpenAI-compatible /v1/audio/transcriptions API.
+// Most vendors use the OpenAI-compatible /v1/audio/transcriptions API.
+// Aliyun Qwen-ASR uses chat.completions + input_audio.
 func NewASR(config *Config) (ASR, error) {
-	a, err := NewOpenAIASR(config)
+	if config == nil {
+		return nil, fmt.Errorf("asr config cannot be nil")
+	}
+
+	var (
+		a   ASR
+		err error
+	)
+
+	switch strings.ToLower(strings.TrimSpace(config.Provider)) {
+	case "aliyun", "dashscope":
+		a, err = NewAliyunASR(config)
+	default:
+		a, err = NewOpenAIASR(config)
+	}
+
 	return wrapASRLangfuse(a, err)
+}
+
+func normalizeOptionalValue(value string) string {
+	v := strings.TrimSpace(value)
+	if strings.HasPrefix(v, "${") && strings.HasSuffix(v, "}") {
+		return ""
+	}
+	return v
 }

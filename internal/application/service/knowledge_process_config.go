@@ -35,13 +35,7 @@ func ResolveProcessConfig(kb *types.KnowledgeBase, overrides *types.KnowledgePro
 	}
 	if overrides.VLMConfig != nil {
 		base := eff.VLMConfig
-		eff.VLMConfig = *overrides.VLMConfig
-		if eff.VLMConfig.DescriptionLanguage == "" {
-			eff.VLMConfig.DescriptionLanguage = base.DescriptionLanguage
-		}
-		if eff.VLMConfig.CustomInstructions == "" {
-			eff.VLMConfig.CustomInstructions = base.CustomInstructions
-		}
+		eff.VLMConfig = mergeVLMConfig(base, *overrides.VLMConfig)
 	}
 	if overrides.ASRConfig != nil {
 		eff.ASRConfig = *overrides.ASRConfig
@@ -64,6 +58,34 @@ func ResolveProcessConfig(kb *types.KnowledgeBase, overrides *types.KnowledgePro
 	eff.GraphEnabled = eff.GraphEnabled && eff.ExtractConfig.Enabled
 
 	return eff
+}
+
+func mergeVLMConfig(base, override types.VLMConfig) types.VLMConfig {
+	merged := override
+	if merged.Enabled {
+		if merged.ModelID == "" {
+			merged.ModelID = base.ModelID
+		}
+		if merged.ModelName == "" {
+			merged.ModelName = base.ModelName
+		}
+		if merged.BaseURL == "" {
+			merged.BaseURL = base.BaseURL
+		}
+		if merged.APIKey == "" {
+			merged.APIKey = base.APIKey
+		}
+		if merged.InterfaceType == "" {
+			merged.InterfaceType = base.InterfaceType
+		}
+	}
+	if merged.DescriptionLanguage == "" {
+		merged.DescriptionLanguage = base.DescriptionLanguage
+	}
+	if merged.CustomInstructions == "" {
+		merged.CustomInstructions = base.CustomInstructions
+	}
+	return merged
 }
 
 // ValidateProcessOverrides validates batch overrides against file types in the upload.

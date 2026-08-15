@@ -23,7 +23,7 @@
 | -------------- | ---------------------------- | ------------------------------- |
 | `generic`      | 自定义 (OpenAI 兼容接口)     | Chat, Embedding, Rerank, VLLM   |
 | `openai`       | OpenAI                       | Chat, Embedding, Rerank, VLLM   |
-| `aliyun`       | 阿里云 DashScope             | Chat, Embedding, Rerank, VLLM   |
+| `aliyun`       | 阿里云 DashScope             | Chat, Embedding, Rerank, VLLM, ASR |
 | `zhipu`        | 智谱 BigModel                | Chat, Embedding, Rerank, VLLM   |
 | `volcengine`   | 火山引擎 Volcengine          | Chat, Embedding, VLLM           |
 | `hunyuan`      | 腾讯混元 Hunyuan             | Chat, Embedding                 |
@@ -75,13 +75,14 @@ curl --location 'http://localhost:8080/api/v1/models/providers?model_type=embedd
         {
             "value": "aliyun",
             "label": "阿里云 DashScope",
-            "description": "qwen-plus, tongyi-embedding-vision-plus, qwen3-rerank, etc.",
+            "description": "qwen-plus, tongyi-embedding-vision-plus, qwen3-rerank, qwen3-asr-flash, etc.",
             "defaultUrls": {
                 "chat": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "embedding": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                "rerank": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+                "rerank": "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
+                "asr": "https://dashscope.aliyuncs.com/compatible-mode/v1"
             },
-            "modelTypes": ["chat", "embedding", "rerank", "vllm"]
+            "modelTypes": ["chat", "embedding", "rerank", "vllm", "asr"]
         },
         {
             "value": "zhipu",

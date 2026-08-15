@@ -61,6 +61,19 @@ builtin_models: []
 #       api_key: ${RERANK_API_KEY}
 #       provider: ${RERANK_PROVIDER}
 #
+#   - id: builtin-asr-default
+#     type: ASR
+#     source: remote
+#     is_default: true
+#     name: ${ASR_MODEL_NAME}
+#     parameters:
+#       base_url: ${ASR_BASE_URL}
+#       api_key: ${ASR_API_KEY}
+#       provider: ${ASR_PROVIDER}
+#       extra_config:
+#         language: ${ASR_LANGUAGE}
+#         enable_itn: ${ASR_ENABLE_ITN}
+#
 # ----- Example: literal values (no env indirection) -------------------------
 #
 # builtin_models:

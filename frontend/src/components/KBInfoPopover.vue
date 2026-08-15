@@ -23,6 +23,12 @@
                   : t('knowledgeEditor.basic.typeDocument') }}
               </span>
             </div>
+            <div class="kb-info-card-row">
+              <span class="kb-info-card-label">{{ t('knowledgeEditor.basic.icon') }}</span>
+              <span class="kb-info-card-value">
+                <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
+              </span>
+            </div>
             <div v-if="kbInfo.description" class="kb-info-card-row">
               <span class="kb-info-card-label">{{ t('knowledgeBase.description') }}</span>
               <span class="kb-info-card-value kb-info-card-value-block">{{ kbInfo.description }}</span>
@@ -167,6 +173,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import VectorStoreBadge from '@/components/VectorStoreBadge.vue'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'

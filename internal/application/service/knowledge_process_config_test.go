@@ -229,6 +229,64 @@ func TestResolveProcessConfig_PreservesKnowledgeBasePromptInstructions(t *testin
 	require.Equal(t, "contract entities", eff.ExtractConfig.CustomInstructions)
 }
 
+func TestResolveProcessConfig_VLMOverrideInheritsKBModelID(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		VLMConfig: types.VLMConfig{
+			Enabled:             true,
+			ModelID:             "vlm-1",
+			DescriptionLanguage: "English",
+			CustomInstructions:  "read labels",
+			ModelName:           "legacy-model",
+			BaseURL:             "https://example.invalid",
+			APIKey:              "secret",
+			InterfaceType:       "openai",
+		},
+	}
+	overrides := &types.KnowledgeProcessOverrides{
+		VLMConfig: &types.VLMConfig{
+			Enabled: true,
+		},
+	}
+
+	eff := ResolveProcessConfig(kb, overrides)
+	require.True(t, eff.VLMConfig.IsEnabled())
+	require.Equal(t, "vlm-1", eff.VLMConfig.ModelID)
+	require.Equal(t, "legacy-model", eff.VLMConfig.ModelName)
+	require.Equal(t, "https://example.invalid", eff.VLMConfig.BaseURL)
+	require.Equal(t, "secret", eff.VLMConfig.APIKey)
+	require.Equal(t, "openai", eff.VLMConfig.InterfaceType)
+	require.Equal(t, "English", eff.VLMConfig.DescriptionLanguage)
+	require.Equal(t, "read labels", eff.VLMConfig.CustomInstructions)
+}
+
+func TestResolveProcessConfig_VLMDisableDoesNotInheritLegacyIdentity(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		VLMConfig: types.VLMConfig{
+			Enabled:       true,
+			ModelName:     "legacy-model",
+			BaseURL:       "https://example.invalid",
+			APIKey:        "secret",
+			InterfaceType: "openai",
+		},
+	}
+	overrides := &types.KnowledgeProcessOverrides{
+		VLMConfig: &types.VLMConfig{
+			Enabled: false,
+		},
+	}
+
+	eff := ResolveProcessConfig(kb, overrides)
+	require.False(t, eff.VLMConfig.IsEnabled())
+	require.Empty(t, eff.VLMConfig.ModelName)
+	require.Empty(t, eff.VLMConfig.BaseURL)
+	require.Empty(t, eff.VLMConfig.APIKey)
+	require.Empty(t, eff.VLMConfig.InterfaceType)
+}
+
 func TestValidateProcessOverrides_RejectsOversizedInstructions(t *testing.T) {
 	t.Parallel()
 

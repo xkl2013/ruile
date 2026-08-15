@@ -21,6 +21,7 @@
                     <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
                   </template>
                   <template v-else>
+                    <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
                     <span>{{ kbInfo.name }}</span>
                     <t-icon name="chevron-down" />
                   </template>
@@ -32,6 +33,7 @@
                   <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
                 </template>
                 <template v-else>
+                  <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
                   {{ kbInfo.name }}
                 </template>
               </button>
@@ -989,6 +991,7 @@ import Papa from 'papaparse'
 import FAQTagTooltip from '@/components/FAQTagTooltip.vue'
 import KBInfoPopover from '@/components/KBInfoPopover.vue'
 import KBSwitcherDropdown from '@/components/KBSwitcherDropdown.vue'
+import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import { useUIStore } from '@/stores/ui'
 
 interface FAQEntry {

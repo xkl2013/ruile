@@ -43,6 +43,7 @@ CREATE TABLE knowledge_bases (
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    icon TEXT,
     tenant_id INT NOT NULL,
     chunking_config JSON NOT NULL,
     image_processing_config JSON NOT NULL,

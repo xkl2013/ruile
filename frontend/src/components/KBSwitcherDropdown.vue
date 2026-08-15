@@ -16,10 +16,11 @@
             :class="{ active: item.id === currentKbId }"
             @click="handleSelect(item.id)"
           >
-            <t-icon
-              :name="iconFor(item.type)"
+            <KnowledgeBaseIcon
+              :icon="item.icon"
+              :type="item.type"
+              size="small"
               class="kb-switcher-row-icon"
-              size="16px"
             />
             <span class="kb-switcher-row-name" :title="item.name">{{ item.name }}</span>
             <t-icon
@@ -42,10 +43,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 
 interface KBEntry {
   id: string
   name: string
+  icon?: string
   type?: string
 }
 
@@ -71,11 +74,6 @@ const sortedList = computed<KBEntry[]>(() => {
   if (!current) return all
   return [current, ...all.filter((kb) => kb.id !== props.currentKbId)]
 })
-
-const iconFor = (type?: string): string => {
-  if (type === 'faq') return 'chat-bubble-help'
-  return 'folder'
-}
 
 const handleSelect = (id: string): void => {
   if (id === props.currentKbId) return
@@ -132,11 +130,6 @@ const handleSelect = (id: string): void => {
 
 .kb-switcher-row-icon {
   flex: 0 0 auto;
-  color: var(--td-text-color-placeholder);
-
-  .kb-switcher-row.active & {
-    color: var(--td-brand-color);
-  }
 }
 
 .kb-switcher-row-name {

@@ -25,6 +25,8 @@ import (
 // ErrInvalidTenantID represents an error for invalid tenant ID
 var ErrInvalidTenantID = errors.New("invalid tenant ID")
 
+const maxKnowledgeBaseIconBytes = 128 * 1024
+
 // knowledgeBaseService implements the knowledge base service interface
 type knowledgeBaseService struct {
 	repo            interfaces.KnowledgeBaseRepository
@@ -130,6 +132,10 @@ func (s *knowledgeBaseService) CreateKnowledgeBase(ctx context.Context,
 	// retrieve-engine factory's pre-condition share a single representation.
 	wasEmpty := kb.VectorStoreID != nil && *kb.VectorStoreID == ""
 	kb.Normalize()
+	kb.EnsureDefaults()
+	if err := validateKnowledgeBaseIcon(kb.Icon); err != nil {
+		return nil, err
+	}
 	if wasEmpty {
 		logger.Debugf(ctx,
 			"[kb.create] empty vector_store_id normalized to nil for tenant=%d",
@@ -467,6 +473,7 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 	id string,
 	name string,
 	description string,
+	icon *string,
 	config *types.KnowledgeBaseConfig,
 	directoryConfig *types.KnowledgeBaseDirectoryConfig,
 ) (*types.KnowledgeBase, error) {
@@ -489,6 +496,9 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 	// Update the knowledge base properties
 	kb.Name = name
 	kb.Description = description
+	if icon != nil {
+		kb.Icon = strings.TrimSpace(*icon)
+	}
 	if config != nil {
 		kb.ChunkingConfig = config.ChunkingConfig
 		kb.ImageProcessingConfig = config.ImageProcessingConfig
@@ -522,6 +532,9 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 	}
 	kb.UpdatedAt = time.Now()
 	kb.EnsureDefaults()
+	if err := validateKnowledgeBaseIcon(kb.Icon); err != nil {
+		return nil, err
+	}
 
 	logger.Info(ctx, "Saving knowledge base update")
 	if err := s.repo.UpdateKnowledgeBase(ctx, kb); err != nil {
@@ -533,6 +546,25 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 
 	logger.Infof(ctx, "Knowledge base updated successfully, ID: %s, name: %s", kb.ID, kb.Name)
 	return kb, nil
+}
+
+func validateKnowledgeBaseIcon(icon string) error {
+	if len(icon) > maxKnowledgeBaseIconBytes {
+		return errors.New("knowledge base icon is too large")
+	}
+	if !strings.HasPrefix(icon, "image:") {
+		return nil
+	}
+	src := strings.TrimSpace(strings.TrimPrefix(icon, "image:"))
+	lower := strings.ToLower(src)
+	if strings.HasPrefix(lower, "data:image/png;base64,") ||
+		strings.HasPrefix(lower, "data:image/jpeg;base64,") ||
+		strings.HasPrefix(lower, "data:image/jpg;base64,") ||
+		strings.HasPrefix(lower, "data:image/gif;base64,") ||
+		strings.HasPrefix(lower, "data:image/webp;base64,") {
+		return nil
+	}
+	return errors.New("knowledge base icon image format is invalid")
 }
 
 // TogglePinKnowledgeBase toggles whether the calling user has pinned
@@ -1045,6 +1077,7 @@ func (s *knowledgeBaseService) CopyKnowledgeBase(ctx context.Context,
 		targetKB = &types.KnowledgeBase{
 			ID:                    uuid.New().String(),
 			Name:                  sourceKB.Name,
+			Icon:                  sourceKB.Icon,
 			Type:                  sourceKB.Type,
 			Description:           sourceKB.Description,
 			TenantID:              tenantID,

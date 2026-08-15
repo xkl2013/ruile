@@ -198,6 +198,7 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
+                  <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -303,6 +304,7 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
+                  <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -434,6 +436,7 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
+                  <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -587,6 +590,8 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="shared.knowledge_base.name">
+                  <KnowledgeBaseIcon :icon="shared.knowledge_base.icon" :type="shared.knowledge_base.type"
+                    size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(shared.knowledge_base)" />
                   <span class="card-title-text">{{ shared.knowledge_base.name }}</span>
                 </span>
@@ -790,6 +795,7 @@ import { useOrganizationStore } from '@/stores/organization'
 import { listOrganizationSharedKnowledgeBases, type SharedKnowledgeBase, type OrganizationSharedKnowledgeBaseItem, type SourceFromAgentInfo } from '@/api/organization'
 import { mergeAllScopeKnowledgeBases, type OwnedKnowledgeBase, type SharedKnowledgeBaseLike } from './kbListMerge'
 import KnowledgeBaseEditorModal from './KnowledgeBaseEditorModal.vue'
+import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import KbWikiBadge from './components/KbWikiBadge.vue'
 import ShareKnowledgeBaseDialog from '@/components/ShareKnowledgeBaseDialog.vue'
 import ResourceOriginBadge from '@/components/ResourceOriginBadge.vue'
@@ -826,6 +832,7 @@ interface KB {
   id: string;
   name: string;
   description?: string;
+  icon?: string;
   updated_at?: string;
   created_at?: string;
   pinned_at?: string;
@@ -2452,6 +2459,10 @@ const handleUploadFinishedEvent = (event: Event) => {
     align-items: center;
     gap: 6px;
     min-width: 0;
+  }
+
+  .kb-card-icon {
+    flex-shrink: 0;
   }
 
   .card-title-text {

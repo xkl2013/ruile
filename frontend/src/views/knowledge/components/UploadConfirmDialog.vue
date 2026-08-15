@@ -272,6 +272,7 @@ import type {
   UploadConfirmResult,
 } from '@/stores/uploadConfirm'
 
+const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tif', 'tiff', 'heic', 'heif']
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'ogg']
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv']
 
@@ -570,6 +571,10 @@ const hasAudiovisual = computed(() => {
   return batchFileExts.value.some(ext => AUDIO_EXTENSIONS.includes(ext) || VIDEO_EXTENSIONS.includes(ext))
 })
 
+const hasImage = computed(() => {
+  return batchFileExts.value.some(ext => IMAGE_EXTENSIONS.includes(ext))
+})
+
 const showMultimodalModelError = computed(() => {
   return uiState.value.multimodalConfig.enabled && !uiState.value.multimodalConfig.vllmModelId
 })
@@ -643,7 +648,10 @@ function initFromKbInfo(kb: any) {
     uiState.value = createDefaultUIState()
     return
   }
-  const defaultMultimodalEnabled = props.mode === 'file' ? false : !!kb.vlm_config?.enabled
+  const defaultMultimodalEnabled =
+    props.mode === 'file'
+      ? (hasImage.value && !!kb.vlm_config?.enabled)
+      : !!kb.vlm_config?.enabled
 
   uiState.value = {
     chunkingConfig: {

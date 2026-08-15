@@ -24,6 +24,7 @@ interface KnowledgeItem {
   source?: string;
   description?: string;
   channel?: string;
+  error_message?: string;
   isMore?: boolean;
 }
 
@@ -290,7 +291,8 @@ const handleAction = (action: 'edit' | 'reparse' | 'cancel-parse' | 'move' | 'de
         <div class="cell cell-status">
           <template v-if="statusByRow.get(item.id) as StatusInfo | undefined">
             <t-tag v-if="statusByRow.get(item.id)!.label !== '--'" size="small" :theme="statusByRow.get(item.id)!.theme"
-              variant="light-outline" class="row-status-tag">
+              variant="light-outline" class="row-status-tag"
+              :title="item.parse_status === 'failed' ? item.error_message || t('knowledgeBase.statusFailed') : undefined">
               <template v-if="statusByRow.get(item.id)!.icon" #icon>
                 <t-icon :name="statusByRow.get(item.id)!.icon!"
                   :class="{ 'icon-spin': statusByRow.get(item.id)!.spin }" />

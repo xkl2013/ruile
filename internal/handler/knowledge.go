@@ -353,11 +353,19 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 		return
 	}
 
-	// Validate file size — read MAX_FILE_SIZE_MB env (50MB default).
+	// Get custom filename if provided (for folder uploads with path).
+	customFileName := strings.TrimSpace(c.PostForm("fileName"))
+
+	// Validate file size. This endpoint must accept the larger media upload
+	// cap before deeper file-type checks run; otherwise clients with generic
+	// multipart filenames still get capped by the default 50MB limit.
 	// Deliberately not a runtime system_setting; see filesize.go for the
 	// rationale (nginx / docreader / browser bundle all cache this at
 	// container startup, so a UI knob would silently mismatch).
 	maxSizeMB := utils.GetMaxFileSizeMB()
+	if audioMaxMB := utils.GetAudioMaxFileSizeMB(); audioMaxMB > maxSizeMB {
+		maxSizeMB = audioMaxMB
+	}
 	maxSize := maxSizeMB * 1024 * 1024
 	if file.Size > maxSize {
 		logger.Error(ctx, "File size too large")
@@ -365,8 +373,6 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 		return
 	}
 
-	// Get custom filename if provided (for folder uploads with path)
-	customFileName := c.PostForm("fileName")
 	customFileName = secutils.SanitizeForLog(customFileName)
 	displayFileName := file.Filename
 	displayFileName = secutils.SanitizeForLog(displayFileName)

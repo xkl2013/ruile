@@ -35,6 +35,11 @@ const (
 	KnowledgeBaseTypeWiki     = "wiki"
 )
 
+const (
+	knowledgeBaseDefaultDocumentIcon = "folder"
+	knowledgeBaseDefaultFAQIcon      = "chat-bubble-help"
+)
+
 // FAQIndexMode represents the FAQ index mode: only index questions or index questions and answers
 type FAQIndexMode string
 
@@ -61,6 +66,8 @@ type KnowledgeBase struct {
 	ID string `yaml:"id"                      json:"id"                      gorm:"type:varchar(36);primaryKey"`
 	// Name of the knowledge base
 	Name string `yaml:"name"                    json:"name"`
+	// Icon is the knowledge base display icon (TDesign icon name, emoji prefix, or image data prefix).
+	Icon string `yaml:"icon"                    json:"icon"                    gorm:"type:text"`
 	// Type of the knowledge base (document, faq, etc.)
 	Type string `yaml:"type"                    json:"type"                    gorm:"type:varchar(32);default:'document'"`
 	// Whether this knowledge base is temporary (ephemeral) and should be hidden from UI
@@ -733,6 +740,9 @@ func (kb *KnowledgeBase) EnsureDefaults() {
 	if kb.Type == "" {
 		kb.Type = KnowledgeBaseTypeDocument
 	}
+	if kb.Icon == "" {
+		kb.Icon = defaultKnowledgeBaseIcon(kb.Type)
+	}
 	// Clear type-specific configs that don't belong
 	if kb.Type != KnowledgeBaseTypeFAQ {
 		kb.FAQConfig = nil
@@ -879,6 +889,16 @@ func (kb *KnowledgeBase) Normalize() {
 	}
 	if kb.DirectoryConfig != nil {
 		kb.DirectoryConfig.Normalize()
+	}
+	kb.Icon = strings.TrimSpace(kb.Icon)
+}
+
+func defaultKnowledgeBaseIcon(kbType string) string {
+	switch kbType {
+	case KnowledgeBaseTypeFAQ:
+		return knowledgeBaseDefaultFAQIcon
+	default:
+		return knowledgeBaseDefaultDocumentIcon
 	}
 }
 

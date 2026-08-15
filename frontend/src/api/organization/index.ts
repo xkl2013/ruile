@@ -87,6 +87,7 @@ export interface SharedKnowledgeBase {
     id: string
     name: string
     description: string
+    icon?: string
     type: string
     knowledge_count?: number
     chunk_count?: number

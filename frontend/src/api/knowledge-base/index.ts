@@ -56,6 +56,7 @@ export interface KnowledgeBaseStoreView {
 export function createKnowledgeBase(data: {
   name: string;
   description?: string;
+  icon?: string;
   type?: 'document' | 'faq';
   chunking_config?: any;
   embedding_model_id?: string;
@@ -110,6 +111,8 @@ export function getKnowledgeBaseById(id: string, options?: { agent_id?: string }
 export function updateKnowledgeBase(id: string, data: {
   name: string;
   description?: string;
+  icon?: string;
+  directory_config?: KnowledgeBaseDirectoryConfigPayload;
   config?: {
     chunking_config?: any;
     image_processing_config?: any;
@@ -147,11 +150,15 @@ export interface KnowledgeBaseDirectoryConfigPayload {
 }
 
 export function updateKnowledgeBaseDirectoryConfig(id: string, data: {
-  name: string;
-  description?: string;
   directory_config: KnowledgeBaseDirectoryConfigPayload;
+  name?: string;
+  description?: string;
 }) {
-  return put(`/api/v1/knowledge-bases/${id}`, data);
+  return updateKnowledgeBase(id, {
+    name: data.name || '',
+    description: data.description || '',
+    directory_config: data.directory_config,
+  });
 }
 
 export function rebuildKBIndex(kbId: string) {

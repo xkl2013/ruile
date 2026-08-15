@@ -14,6 +14,8 @@ func TestConfigFromModel(t *testing.T) {
 		Parameters: types.ModelParameters{
 			BaseURL:       "https://api.example.com/v1",
 			APIKey:        "sk",
+			Provider:      "aliyun",
+			ExtraConfig:   map[string]string{"language": "zh", "enable_itn": "true"},
 			CustomHeaders: map[string]string{"X": "y"},
 		},
 	}
@@ -21,8 +23,17 @@ func TestConfigFromModel(t *testing.T) {
 	if cfg == nil || cfg.ModelID != "asr-1" || cfg.ModelName != "whisper-1" {
 		t.Fatalf("identity mismatch: %+v", cfg)
 	}
+	if cfg.Provider != "aliyun" {
+		t.Fatalf("provider mismatch: %+v", cfg)
+	}
 	if cfg.BaseURL != "https://api.example.com/v1" || cfg.APIKey != "sk" {
 		t.Errorf("connection fields mismatch: %+v", cfg)
+	}
+	if cfg.Language != "zh" {
+		t.Errorf("language not propagated: %+v", cfg)
+	}
+	if cfg.ExtraConfig["enable_itn"] != "true" {
+		t.Errorf("ExtraConfig not propagated: %+v", cfg.ExtraConfig)
 	}
 	if cfg.CustomHeaders["X"] != "y" {
 		t.Errorf("CustomHeaders not propagated: %+v", cfg.CustomHeaders)

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
-import { MAX_FILE_SIZE_MB } from '@/utils';
+import { getFileSizeLimitMB } from '@/utils';
 import { getParserEngines } from '@/api/system';
 import {
   deleteTemporaryAttachment,
@@ -73,9 +73,6 @@ onMounted(async () => {
 });
 
 const maxFiles = computed(() => props.maxFiles || 5);
-const maxSizeMB = computed(() => props.maxSize || MAX_FILE_SIZE_MB);
-const maxSize = computed(() => maxSizeMB.value * 1024 * 1024); // Convert MB to bytes
-
 const triggerFileSelect = () => {
   if (props.disabled) return;
   fileInputRef.value?.click();
@@ -100,8 +97,9 @@ const addFiles = async (files: File[]) => {
     }
     
     // Check file size
-    if (file.size > maxSize.value) {
-      MessagePlugin.warning(t('chat.attachmentTooLarge', { name: file.name, max: maxSizeMB.value }));
+    const maxSizeMB = props.maxSize || getFileSizeLimitMB(file.name);
+    if (file.size > maxSizeMB * 1024 * 1024) {
+      MessagePlugin.warning(t('chat.attachmentTooLarge', { name: file.name, max: maxSizeMB }));
       continue;
     }
     

@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router';
 import EmptyKnowledge from '@/components/empty-knowledge.vue';
 import ContextualGuide from '@/components/ContextualGuide.vue';
 import KBInfoPopover from '@/components/KBInfoPopover.vue';
+import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue';
 import { getSessionsList, createSessions, generateSessionsTitle } from "@/api/chat/index";
 import { useMenuStore } from '@/stores/menu';
 import { useUIStore } from '@/stores/ui';
@@ -633,7 +634,7 @@ type ManualDirectoryNode = {
   updatedAt: string;
 };
 
-type DirectoryDialogMode = 'create' | 'settings';
+type DirectoryDialogMode = 'create' | 'edit';
 
 type DirectoryStateSnapshot = {
   rootDescription: string;
@@ -822,9 +823,9 @@ const persistManualDirectoryState = async (
   const directoryConfig = buildDirectoryConfigPayload(snapshot);
   try {
     const result: any = await updateKnowledgeBaseDirectoryConfig(targetKbId, {
+      directory_config: directoryConfig,
       name: String(kbInfo.value?.name || ''),
       description: String(kbInfo.value?.description || ''),
-      directory_config: directoryConfig,
     });
     const updatedKb = result?.data;
     const shouldApply = targetKbId === kbId.value;
@@ -901,6 +902,7 @@ const documentDirectoryNodes = computed<DirectoryNode[]>(() => {
     const existing = map.get(directory.path);
     if (existing) {
       existing.description = directory.description;
+      existing.name = directory.name || existing.name;
       existing.manual = true;
       continue;
     }
@@ -991,22 +993,32 @@ const visibleDocumentItems = computed<KnowledgeCard[]>(() => {
 });
 
 const activeDirectoryName = computed(() => {
-  return getDirectoryDisplayName(activeDirectoryPath.value);
+  return getDirectoryVisibleName(activeDirectoryPath.value);
 });
 
 const showDirectorySidebar = computed(() => true);
 
 const activeDirectoryParentName = computed(() =>
-  getDirectoryDisplayName(directoryDialogParentPath.value),
+  getDirectoryVisibleName(directoryDialogParentPath.value),
 );
 
 const directoryDialogTitle = computed(() =>
   directoryDialogMode.value === 'create'
     ? t('knowledgeBase.createSubdirectoryTitle')
-    : t('knowledgeBase.directorySettingsTitle'),
+    : directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH
+      ? t('knowledgeBase.directorySettingsTitle')
+      : t('knowledgeBase.editDirectoryTitle'),
 );
 
-const directoryNameDisabled = computed(() => directoryDialogMode.value === 'settings');
+const directoryNameDisabled = computed(() =>
+  directoryDialogMode.value === 'edit' && directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH,
+);
+
+const getDirectoryVisibleName = (path: string) => {
+  if (path === DIRECTORY_ROOT_PATH) return t('knowledgeBase.rootDirectory');
+  return documentDirectoryNodes.value.find(directory => directory.path === path)?.name
+    || getDirectoryDisplayName(path);
+};
 
 const selectDirectory = (path: string) => {
   activeDirectoryPath.value = path;
@@ -1016,6 +1028,16 @@ const selectDirectory = (path: string) => {
 const directoryPathExists = (path: string) => {
   if (path === DIRECTORY_ROOT_PATH) return true;
   return documentDirectoryNodes.value.some(directory => directory.path === path);
+};
+
+const directorySiblingNameExists = (parentPath: string, name: string, excludePath = '') => {
+  const normalizedName = name.trim();
+  if (!normalizedName) return false;
+  return documentDirectoryNodes.value.some(directory =>
+    directory.path !== excludePath
+    && getDirectoryParentPath(directory.path) === parentPath
+    && directory.name.trim() === normalizedName,
+  );
 };
 
 const openCreateSubdirectoryDialog = (parentPath: string) => {
@@ -1032,10 +1054,12 @@ const openDirectorySettingsDialog = (path: string) => {
   if (!canEditKnowledgeBaseSettings.value) return;
   const directory = documentDirectoryNodes.value.find(item => item.path === path);
   const manualDirectory = manualDirectoryNodes.value.find(item => item.path === path);
-  directoryDialogMode.value = 'settings';
+  directoryDialogMode.value = 'edit';
   directoryDialogParentPath.value = path === DIRECTORY_ROOT_PATH ? DIRECTORY_ROOT_PATH : getDirectoryParentPath(path);
   directoryDialogTargetPath.value = path;
-  directoryForm.name = getDirectoryDisplayName(path);
+  directoryForm.name = path === DIRECTORY_ROOT_PATH
+    ? getDirectoryDisplayName(path)
+    : manualDirectory?.name || directory?.name || getDirectoryDisplayName(path);
   directoryForm.description = path === DIRECTORY_ROOT_PATH
     ? rootDirectoryDescription.value
     : manualDirectory?.description || directory?.description || '';
@@ -1054,21 +1078,35 @@ const handleDirectoryDialogConfirm = async () => {
     return;
   }
 
-  if (directoryDialogMode.value === 'settings') {
+  if (directoryDialogMode.value === 'edit') {
     const nextDirectories = manualDirectoryNodes.value.map(item => ({ ...item }));
     let nextRootDescription = rootDirectoryDescription.value;
 
     if (directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH) {
       nextRootDescription = directoryForm.description.trim();
     } else {
+      const name = directoryForm.name.trim();
+      if (!name) {
+        MessagePlugin.warning(t('knowledgeBase.directoryNameRequired'));
+        return;
+      }
+      if (/[\\/]/.test(name)) {
+        MessagePlugin.warning(t('knowledgeBase.directoryNameInvalid'));
+        return;
+      }
       const targetPath = directoryDialogTargetPath.value;
+      const parentPath = getDirectoryParentPath(targetPath);
+      if (directorySiblingNameExists(parentPath, name, targetPath)) {
+        MessagePlugin.warning(t('knowledgeBase.directoryDuplicate'));
+        return;
+      }
       const now = new Date().toISOString();
       const existingIndex = nextDirectories.findIndex(item => item.path === targetPath);
       const nextDirectory = {
         path: targetPath,
-        name: getDirectoryDisplayName(targetPath),
+        name,
         description: directoryForm.description.trim(),
-        parentPath: getDirectoryParentPath(targetPath),
+        parentPath,
         createdAt: existingIndex >= 0 ? nextDirectories[existingIndex].createdAt : now,
         updatedAt: now,
       };
@@ -1103,7 +1141,7 @@ const handleDirectoryDialogConfirm = async () => {
   }
   const parentPath = directoryDialogParentPath.value;
   const newPath = parentPath ? `${parentPath}/${name}` : name;
-  if (directoryPathExists(newPath)) {
+  if (directoryPathExists(newPath) || directorySiblingNameExists(parentPath, name)) {
     MessagePlugin.warning(t('knowledgeBase.directoryDuplicate'));
     return;
   }
@@ -2071,23 +2109,32 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
   const urls = result.urls || [];
   const processConfig = result.processConfig;
 
-  if (files.length > 0) {
-    const hasFolderPaths = files.some((file) => {
-      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-      return !!relativePath && relativePath.split('/').length > 2;
-    });
-    if (hasFolderPaths) {
-      MessagePlugin.info(t('knowledgeBase.uploadingFolder', { total: files.length }));
-    }
-    await executeUploadBatch(files, { processConfig });
-  }
+  if (files.length === 0 && urls.length === 0) return;
+  if (uploading.value) return;
 
-  for (const url of urls) {
-    await executeUrlImport(url, processConfig);
+  uploading.value = true;
+  try {
+    if (files.length > 0) {
+      const hasFolderPaths = files.some((file) => {
+        const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+        return !!relativePath && relativePath.split('/').length > 2;
+      });
+      if (hasFolderPaths) {
+        MessagePlugin.info(t('knowledgeBase.uploadingFolder', { total: files.length }));
+      }
+      await executeUploadBatch(files, { processConfig });
+    }
+
+    for (const url of urls) {
+      await executeUrlImport(url, processConfig);
+    }
+  } finally {
+    uploading.value = false;
   }
 };
 
 const openUploadConfirmDialog = async (files: File[], urls: string[] = []) => {
+  if (uploading.value) return;
   if (!kbInfo.value) return;
   if (files.length === 0 && urls.length === 0) return;
   try {
@@ -2106,17 +2153,20 @@ const openUploadConfirmDialog = async (files: File[], urls: string[] = []) => {
 };
 
 const handleUploadSourceFiles = (files: File[]) => {
+  if (uploading.value) return;
   if (!ensureDocumentKbReady()) return;
   if (files.length === 0) return;
   openUploadConfirmDialog(files);
 };
 
 const handleUploadSourceUrl = (url: string) => {
+  if (uploading.value) return;
   if (!ensureDocumentKbReady()) return;
   openUploadConfirmDialog([], [url]);
 };
 
 const handleManualCreate = () => {
+  if (uploading.value) return;
   if (!ensureDocumentKbReady()) return;
   uiStore.openManualEditor({
     mode: 'create',
@@ -2508,7 +2558,10 @@ async function createNewSession(value: string): Promise<void> {
               <template v-if="!kbInfo">
                 <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
               </template>
-              <span v-else class="breadcrumb-title">{{ kbInfo.name }}</span>
+              <template v-else>
+                <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
+                <span class="breadcrumb-title">{{ kbInfo.name }}</span>
+              </template>
               <template v-if="isWiki">
                 <span :class="['breadcrumb-tab', { active: activeKbTab === 'documents' }]"
                   @click="activeKbTab = 'documents'">{{ $t('knowledgeEditor.wikiBrowser.tabDocuments') }}</span>
@@ -2591,7 +2644,7 @@ async function createNewSession(value: string): Promise<void> {
             </div>
             <div class="directory-tree">
               <div role="button" tabindex="0" class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-create': canEditKnowledgeBaseSettings }"
+                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-manage-directories': canEditKnowledgeBaseSettings }"
                 :title="$t('knowledgeBase.rootDirectory')"
                 @click="selectDirectory(DIRECTORY_ROOT_PATH)"
                 @keydown.enter.prevent="selectDirectory(DIRECTORY_ROOT_PATH)"
@@ -2610,22 +2663,34 @@ async function createNewSession(value: string): Promise<void> {
                 <t-icon name="folder" class="directory-tree-icon" />
                 <span class="directory-tree-name">{{ $t('knowledgeBase.rootDirectory') }}</span>
                 <span class="directory-tree-count">{{ rootDirectoryCount }}</span>
-                <button
-                  v-if="canEditKnowledgeBaseSettings"
-                  type="button"
-                  class="directory-tree-add"
-                  :title="$t('knowledgeBase.addSubdirectory')"
-                  :aria-label="$t('knowledgeBase.addSubdirectory')"
-                  @click.stop="openCreateSubdirectoryDialog(DIRECTORY_ROOT_PATH)"
-                  @keydown.enter.stop
-                  @keydown.space.stop
-                >
-                  <t-icon name="folder-add" size="14px" />
-                </button>
+                <span v-if="canEditKnowledgeBaseSettings" class="directory-tree-actions">
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.directorySettings')"
+                    :aria-label="$t('knowledgeBase.directorySettings')"
+                    @click.stop="openDirectorySettingsDialog(DIRECTORY_ROOT_PATH)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="edit-1" size="14px" />
+                  </button>
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.addSubdirectory')"
+                    :aria-label="$t('knowledgeBase.addSubdirectory')"
+                    @click.stop="openCreateSubdirectoryDialog(DIRECTORY_ROOT_PATH)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="folder-add" size="14px" />
+                  </button>
+                </span>
               </div>
               <div v-for="directory in visibleDirectoryTreeRows" :key="directory.path" role="button" tabindex="0"
                 class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === directory.path, 'can-create': canEditKnowledgeBaseSettings }"
+                :class="{ active: activeDirectoryPath === directory.path, 'can-manage-directories': canEditKnowledgeBaseSettings }"
                 :style="{ '--directory-indent': `${(directory.depth + 1) * 16}px` }" :title="getDirectoryTitle(directory)"
                 @click="selectDirectory(directory.path)"
                 @keydown.enter.prevent="selectDirectory(directory.path)"
@@ -2644,18 +2709,30 @@ async function createNewSession(value: string): Promise<void> {
                 <t-icon name="folder" class="directory-tree-icon" />
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
-                <button
-                  v-if="canEditKnowledgeBaseSettings"
-                  type="button"
-                  class="directory-tree-add"
-                  :title="$t('knowledgeBase.addSubdirectory')"
-                  :aria-label="$t('knowledgeBase.addSubdirectory')"
-                  @click.stop="openCreateSubdirectoryDialog(directory.path)"
-                  @keydown.enter.stop
-                  @keydown.space.stop
-                >
-                  <t-icon name="folder-add" size="14px" />
-                </button>
+                <span v-if="canEditKnowledgeBaseSettings" class="directory-tree-actions">
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.editDirectory')"
+                    :aria-label="$t('knowledgeBase.editDirectory')"
+                    @click.stop="openDirectorySettingsDialog(directory.path)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="edit-1" size="14px" />
+                  </button>
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.addSubdirectory')"
+                    :aria-label="$t('knowledgeBase.addSubdirectory')"
+                    @click.stop="openCreateSubdirectoryDialog(directory.path)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="folder-add" size="14px" />
+                  </button>
+                </span>
               </div>
             </div>
           </aside>
@@ -2668,7 +2745,8 @@ async function createNewSession(value: string): Promise<void> {
                       :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="file-add"
                       trigger-class="content-bar-solid-btn" :trigger-text="t('knowledgeBase.addDocument')"
                       trigger-theme="primary" trigger-variant="base" data-guide="kb-detail-add-doc"
-                      :tooltip="t('knowledgeBase.addDocument')" placement="bottom-left" @files="handleUploadSourceFiles"
+                      :tooltip="t('knowledgeBase.addDocument')" placement="bottom-left" :loading="uploading"
+                      :disabled="uploading" @files="handleUploadSourceFiles"
                       @url="handleUploadSourceUrl" @manual="handleManualCreate" />
                   </div>
                 <t-popup v-model:visible="tagFilterPanelVisible" trigger="click" placement="bottom-left"
@@ -3432,16 +3510,17 @@ async function createNewSession(value: string): Promise<void> {
   outline: none;
 
   &:hover,
-  &:focus-visible {
+  &:focus-visible,
+  &:focus-within {
     background: var(--td-bg-color-container-hover);
     color: var(--td-text-color-primary);
 
-    .directory-tree-add {
+    .directory-tree-actions {
       opacity: 1;
       pointer-events: auto;
     }
 
-    &.can-create {
+    &.can-manage-directories {
       .directory-tree-count {
         opacity: 0;
       }
@@ -3452,6 +3531,10 @@ async function createNewSession(value: string): Promise<void> {
     background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
     color: var(--td-brand-color);
     font-weight: 500;
+  }
+
+  &.can-manage-directories {
+    padding-right: 56px;
   }
 
 }
@@ -3505,11 +3588,20 @@ async function createNewSession(value: string): Promise<void> {
   transition: opacity 0.15s ease;
 }
 
-.directory-tree-add {
-  width: 22px;
-  height: 22px;
+.directory-tree-actions {
   position: absolute;
   right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.directory-tree-action {
+  width: 22px;
+  height: 22px;
   border: 0;
   border-radius: 4px;
   padding: 0;
@@ -3519,14 +3611,10 @@ async function createNewSession(value: string): Promise<void> {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease;
 
   &:hover,
   &:focus-visible {
-    opacity: 1;
-    pointer-events: auto;
     color: var(--td-brand-color);
     background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
     outline: none;

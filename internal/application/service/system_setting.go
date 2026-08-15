@@ -105,7 +105,7 @@ var registry = map[string]settingSpec{
 	// systemSettingSvc.GetInt, the actual upload limit is gated end-to-end
 	// by three independent layers:
 	//   1. nginx client_max_body_size (templated at container startup
-	//      from the MAX_FILE_SIZE_MB env var; envsubst writes the
+	//      from the UPLOAD_REQUEST_MAX_FILE_SIZE_MB env var; envsubst writes the
 	//      computed value into nginx.conf; nginx is never reloaded
 	//      during the container's lifetime).
 	//   2. docreader gRPC max_send/recv_message_length (read from the
@@ -116,7 +116,7 @@ var registry = map[string]settingSpec{
 	//      docker-entrypoint at container start.
 	// Surfacing a UI knob whose effect is silently capped by nginx /
 	// docreader / the in-page bundle is worse than not having it.
-	// Keep MAX_FILE_SIZE_MB as a deploy-time env var until all four
+	// Keep file-size caps as deploy-time env vars until all four
 	// layers can be reconfigured in lockstep without restarts.
 	"ssrf.whitelist": {
 		Type:     "string_list",

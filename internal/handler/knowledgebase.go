@@ -857,6 +857,7 @@ func (h *KnowledgeBaseHandler) TogglePinKnowledgeBase(c *gin.Context) {
 type UpdateKnowledgeBaseRequest struct {
 	Name            string                              `json:"name"        binding:"required"`
 	Description     string                              `json:"description"`
+	Icon            *string                             `json:"icon"`
 	Config          *types.KnowledgeBaseConfig          `json:"config"`
 	DirectoryConfig *types.KnowledgeBaseDirectoryConfig `json:"directory_config"`
 }
@@ -923,7 +924,7 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 		secutils.SanitizeForLog(id), secutils.SanitizeForLog(req.Name))
 
 	// Update the knowledge base
-	kb, err := h.service.UpdateKnowledgeBase(ctx, id, req.Name, req.Description, req.Config, req.DirectoryConfig)
+	kb, err := h.service.UpdateKnowledgeBase(ctx, id, req.Name, req.Description, req.Icon, req.Config, req.DirectoryConfig)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
 		c.Error(apperrors.NewInternalServerError(err.Error()))
@@ -978,7 +979,7 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBaseDirectoryConfig(c *gin.Context
 	}
 
 	req.DirectoryConfig.Normalize()
-	kb, err = h.service.UpdateKnowledgeBase(ctx, id, kb.Name, kb.Description, nil, req.DirectoryConfig)
+	kb, err = h.service.UpdateKnowledgeBase(ctx, id, kb.Name, kb.Description, nil, nil, req.DirectoryConfig)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"knowledge_base_id": id,

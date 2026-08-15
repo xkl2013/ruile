@@ -1,6 +1,34 @@
 export type KnowledgeBaseCreationType = 'document' | 'faq'
 export type WikiExtractionGranularity = 'focused' | 'standard' | 'exhaustive'
 
+export const KNOWLEDGE_BASE_ICON_OPTIONS = [
+  'folder',
+  'chat-bubble-help',
+  'bookmark-add',
+  'file-copy',
+  'file-search',
+  'data-base',
+  'control-platform',
+  'cloud',
+  'share',
+  'relation',
+  'help-circle',
+  'setting',
+  'view-module',
+  'file',
+  'image',
+  'sound',
+] as const
+
+const DEFAULT_KB_ICON_BY_TYPE: Record<KnowledgeBaseCreationType, string> = {
+  document: 'folder',
+  faq: 'chat-bubble-help',
+}
+
+export const getDefaultKnowledgeBaseIcon = (
+  type: KnowledgeBaseCreationType = 'document',
+) => DEFAULT_KB_ICON_BY_TYPE[type] || DEFAULT_KB_ICON_BY_TYPE.document
+
 export const DEFAULT_KB_CHUNKING_PRESET = {
   chunkSize: 512,
   chunkOverlap: 80,
@@ -19,6 +47,7 @@ export const createDefaultKnowledgeBaseFormData = (
   type: KnowledgeBaseCreationType = 'document',
 ) => ({
   type,
+  icon: getDefaultKnowledgeBaseIcon(type),
   name: '',
   description: '',
   faqConfig: {

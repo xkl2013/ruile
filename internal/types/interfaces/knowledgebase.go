@@ -66,12 +66,13 @@ type KnowledgeBaseService interface {
 	//   - id: Unique identifier of the knowledge base
 	//   - name: New knowledge base name
 	//   - description: New knowledge base description
+	//   - icon: Optional new display icon (nil keeps the existing icon)
 	//   - config: Knowledge base configuration, including chunking strategy, vectorization settings, etc.
 	// Returns:
 	//   - Updated knowledge base object
 	//   - Possible errors such as not existing, insufficient permissions, etc.
 	UpdateKnowledgeBase(ctx context.Context,
-		id string, name string, description string, config *types.KnowledgeBaseConfig, directoryConfig *types.KnowledgeBaseDirectoryConfig,
+		id string, name string, description string, icon *string, config *types.KnowledgeBaseConfig, directoryConfig *types.KnowledgeBaseDirectoryConfig,
 	) (*types.KnowledgeBase, error)
 
 	// DeleteKnowledgeBase deletes a knowledge base

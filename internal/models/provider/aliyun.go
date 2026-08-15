@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	// AliyunChatBaseURL 阿里云 DashScope Chat/Embedding 的默认 BaseURL
+	// AliyunChatBaseURL 阿里云 DashScope OpenAI-compatible 默认 BaseURL
+	//（Chat / Embedding / VLLM / ASR）
 	AliyunChatBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	// AliyunRerankBaseURL 阿里云 DashScope Rerank 的默认 BaseURL
 	AliyunRerankBaseURL = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
@@ -26,18 +27,20 @@ func (p *AliyunProvider) Info() ProviderInfo {
 	return ProviderInfo{
 		Name:        ProviderAliyun,
 		DisplayName: "阿里云 DashScope",
-		Description: "qwen-plus, tongyi-embedding-vision-plus, qwen3-rerank, etc.",
+		Description: "qwen-plus, tongyi-embedding-vision-plus, qwen3-rerank, qwen3-asr-flash, etc.",
 		DefaultURLs: map[types.ModelType]string{
 			types.ModelTypeKnowledgeQA: AliyunChatBaseURL,
 			types.ModelTypeEmbedding:   AliyunChatBaseURL,
 			types.ModelTypeRerank:      AliyunRerankBaseURL,
 			types.ModelTypeVLLM:        AliyunChatBaseURL,
+			types.ModelTypeASR:         AliyunChatBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeASR,
 		},
 		RequiresAuth: true,
 	}

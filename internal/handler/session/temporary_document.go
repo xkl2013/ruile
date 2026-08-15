@@ -24,7 +24,11 @@ func (h *Handler) UploadTemporaryDocument(c *gin.Context) {
 		c.Error(apperrors.NewNotFoundError("Session not found"))
 		return
 	}
-	maxBytes := secutils.GetMaxFileSizeMB()*1024*1024 + 1024*1024
+	maxUploadMB := secutils.GetMaxFileSizeMB()
+	if audioMaxMB := secutils.GetAudioMaxFileSizeMB(); audioMaxMB > maxUploadMB {
+		maxUploadMB = audioMaxMB
+	}
+	maxBytes := maxUploadMB*1024*1024 + 1024*1024
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
