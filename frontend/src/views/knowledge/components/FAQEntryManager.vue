@@ -21,7 +21,7 @@
                     <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
                   </template>
                   <template v-else>
-                    <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
+                    <KnowledgeBaseIcon :icon="kbInfo.icon" :icon-url="kbInfo.icon_url" :type="kbInfo.type" size="small" />
                     <span>{{ kbInfo.name }}</span>
                     <t-icon name="chevron-down" />
                   </template>
@@ -33,7 +33,7 @@
                   <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
                 </template>
                 <template v-else>
-                  <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
+                  <KnowledgeBaseIcon :icon="kbInfo.icon" :icon-url="kbInfo.icon_url" :type="kbInfo.type" size="small" />
                   {{ kbInfo.name }}
                 </template>
               </button>

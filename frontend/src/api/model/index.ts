@@ -9,7 +9,7 @@ export interface ModelConfig {
   tenant_id?: number;
   name: string;
   display_name?: string;
-  type: 'KnowledgeQA' | 'Embedding' | 'Rerank' | 'VLLM' | 'ASR';
+  type: 'KnowledgeQA' | 'Embedding' | 'Rerank' | 'VLLM' | 'OCR' | 'ASR';
   source: 'local' | 'remote';
   description?: string;
   parameters: {
@@ -29,7 +29,7 @@ export interface ModelConfig {
     custom_headers?: Record<string, string>;
     supports_vision?: boolean; // Whether the model accepts image/multimodal input
     // 后台任务（入库/富化）对该模型的并发上限，按模型 ID 全副本共享。
-    // 0 或不填表示沿用全局默认（model.max_concurrency）；仅对 chat/embedding/vllm 生效。
+    // 0 或不填表示沿用全局默认（model.max_concurrency）；仅对 chat/embedding/vllm/ocr 生效。
     max_concurrency?: number;
     app_id?: string;
     // Secret fields (api_key, app_secret) are never returned by the server in

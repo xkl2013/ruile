@@ -158,7 +158,7 @@
                         <div class="setting-info">
                           <label>
                             {{ t('knowledgeEditor.advanced.multimodal.vllmLabel') }}
-                            <span class="required">*</span>
+                            <span v-if="!uiState.ocrConfig.enabled || !uiState.ocrConfig.modelId" class="required">*</span>
                           </label>
                         </div>
                         <div class="setting-control setting-control--full">
@@ -263,6 +263,7 @@ import { useChatResourcesStore } from '@/stores/chatResources'
 import { useUIStore } from '@/stores/ui'
 import { formatFileSize, getFileIcon } from '@/utils/files'
 import { getUploadFileKey } from '../utils/uploadSources'
+import { cloneDefaultParserEngineRules } from '@/config/knowledgeBaseDefaults'
 import KbUploadSourceDropdown from './KbUploadSourceDropdown.vue'
 import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess'
 import type {
@@ -272,7 +273,6 @@ import type {
   UploadConfirmResult,
 } from '@/stores/uploadConfirm'
 
-const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tif', 'tiff', 'heic', 'heif']
 const AUDIO_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'ogg']
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv']
 
@@ -293,6 +293,7 @@ interface ChunkingUIConfig {
 interface UploadUIState {
   chunkingConfig: ChunkingUIConfig
   multimodalConfig: { enabled: boolean; vllmModelId: string; descriptionLanguage?: string; customInstructions?: string }
+  ocrConfig: { enabled: boolean; modelId: string }
   asrConfig: { enabled: boolean; modelId: string; language: string }
   questionGenerationConfig: { enabled: boolean; questionCount: number; customInstructions?: string }
   nodeExtractConfig: {
@@ -498,6 +499,7 @@ const chunkingOverviewValue = computed(() => {
 
 const overviewLines = computed(() => {
   const mm = uiState.value.multimodalConfig
+  const ocr = uiState.value.ocrConfig
   const asr = uiState.value.asrConfig
   const qg = uiState.value.questionGenerationConfig
   const graph = uiState.value.nodeExtractConfig
@@ -509,7 +511,11 @@ const overviewLines = computed(() => {
       key: 'multimodal',
       title: t('uploadConfirm.tabMultimodal'),
       value: mm.enabled
-        ? `${t('uploadConfirm.statusOn')} · ${mm.vllmModelId ? getModelName(mm.vllmModelId) : t('uploadConfirm.notSet')}`
+        ? `${t('uploadConfirm.statusOn')} · ${
+            mm.vllmModelId
+              ? getModelName(mm.vllmModelId)
+              : (ocr.enabled && ocr.modelId ? getModelName(ocr.modelId) : t('uploadConfirm.notSet'))
+          }`
         : t('uploadConfirm.statusOff'),
     },
     {
@@ -571,12 +577,10 @@ const hasAudiovisual = computed(() => {
   return batchFileExts.value.some(ext => AUDIO_EXTENSIONS.includes(ext) || VIDEO_EXTENSIONS.includes(ext))
 })
 
-const hasImage = computed(() => {
-  return batchFileExts.value.some(ext => IMAGE_EXTENSIONS.includes(ext))
-})
-
 const showMultimodalModelError = computed(() => {
-  return uiState.value.multimodalConfig.enabled && !uiState.value.multimodalConfig.vllmModelId
+  return uiState.value.multimodalConfig.enabled &&
+    !uiState.value.multimodalConfig.vllmModelId &&
+    !(uiState.value.ocrConfig.enabled && uiState.value.ocrConfig.modelId)
 })
 
 const showAsrModelError = computed(() => {
@@ -618,7 +622,7 @@ function createDefaultUIState(): UploadUIState {
       chunkSize: 512,
       chunkOverlap: 80,
       separators: ['\n\n', '\n', '。', '！', '？', ';', '；'],
-      parserEngineRules: undefined,
+      parserEngineRules: cloneDefaultParserEngineRules(),
       enableParentChild: true,
       parentChunkSize: 4096,
       childChunkSize: 384,
@@ -628,6 +632,7 @@ function createDefaultUIState(): UploadUIState {
       tableMetadataInstructions: '',
     },
     multimodalConfig: { enabled: false, vllmModelId: '', descriptionLanguage: '', customInstructions: '' },
+    ocrConfig: { enabled: false, modelId: '' },
     asrConfig: { enabled: false, modelId: '', language: '' },
     questionGenerationConfig: { enabled: true, questionCount: 3, customInstructions: '' },
     nodeExtractConfig: {
@@ -648,17 +653,18 @@ function initFromKbInfo(kb: any) {
     uiState.value = createDefaultUIState()
     return
   }
-  const defaultMultimodalEnabled =
-    props.mode === 'file'
-      ? (hasImage.value && !!kb.vlm_config?.enabled)
-      : !!kb.vlm_config?.enabled
+  const parserEngineRules = kb.chunking_config?.parser_engine_rules?.length
+    ? kb.chunking_config.parser_engine_rules
+    : cloneDefaultParserEngineRules()
+  const hasImageProcessor = !!kb.vlm_config?.enabled || !!kb.ocr_config?.enabled
+  const defaultMultimodalEnabled = hasImageProcessor
 
   uiState.value = {
     chunkingConfig: {
       chunkSize: kb.chunking_config?.chunk_size || 512,
       chunkOverlap: kb.chunking_config?.chunk_overlap || 80,
       separators: kb.chunking_config?.separators || ['\n\n', '\n', '。', '！', '？', ';', '；'],
-      parserEngineRules: kb.chunking_config?.parser_engine_rules || undefined,
+      parserEngineRules,
       enableParentChild: kb.chunking_config?.enable_parent_child ?? false,
       parentChunkSize: kb.chunking_config?.parent_chunk_size || 4096,
       childChunkSize: kb.chunking_config?.child_chunk_size || 384,
@@ -672,6 +678,10 @@ function initFromKbInfo(kb: any) {
       vllmModelId: kb.vlm_config?.model_id || '',
       descriptionLanguage: kb.vlm_config?.description_language || '',
       customInstructions: kb.vlm_config?.custom_instructions || '',
+    },
+    ocrConfig: {
+      enabled: !!kb.ocr_config?.enabled,
+      modelId: kb.ocr_config?.model_id || '',
     },
     asrConfig: {
       enabled: !!kb.asr_config?.enabled,
@@ -723,6 +733,12 @@ function buildProcessOverrides(): KnowledgeProcessOverrides {
       model_id: state.multimodalConfig.vllmModelId,
       description_language: state.multimodalConfig.descriptionLanguage,
       custom_instructions: state.multimodalConfig.customInstructions,
+    },
+    ocr_config: {
+      enabled: state.multimodalConfig.enabled && state.ocrConfig.enabled,
+      model_id: state.multimodalConfig.enabled && state.ocrConfig.enabled
+        ? state.ocrConfig.modelId
+        : '',
     },
     asr_config: {
       enabled: state.asrConfig.enabled,
@@ -778,6 +794,13 @@ function applyOverridesToState(o?: KnowledgeProcessOverrides | null) {
     if (o.vlm_config.model_id != null) s.multimodalConfig.vllmModelId = o.vlm_config.model_id
     if (o.vlm_config.description_language != null) s.multimodalConfig.descriptionLanguage = o.vlm_config.description_language
     if (o.vlm_config.custom_instructions != null) s.multimodalConfig.customInstructions = o.vlm_config.custom_instructions
+  }
+  if (o.ocr_config) {
+    if (o.ocr_config.enabled != null) {
+      s.ocrConfig.enabled = o.ocr_config.enabled
+      if (o.ocr_config.enabled) s.multimodalConfig.enabled = true
+    }
+    if (o.ocr_config.model_id != null) s.ocrConfig.modelId = o.ocr_config.model_id
   }
   if (o.asr_config) {
     if (o.asr_config.enabled != null) s.asrConfig.enabled = o.asr_config.enabled

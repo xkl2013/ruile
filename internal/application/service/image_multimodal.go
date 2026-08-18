@@ -224,19 +224,37 @@ func (s *ImageMultimodalService) Handle(ctx context.Context, task *asynq.Task) e
 		}
 	}()
 
-	vlmModel, vlmCfg, err := s.resolveVLM(ctx, payload.KnowledgeBaseID, payload.KnowledgeID)
-	if err != nil {
-		handleErr = fmt.Errorf("resolve VLM: %w", err)
-		return handleErr
+	var (
+		ocrModel     vlm.VLM
+		ocrCfg       types.OCRConfig
+		ocrPromptCfg types.VLMConfig
+		captionModel vlm.VLM
+		captionCfg   types.VLMConfig
+	)
+	if payload.EnableOCR {
+		var resolveErr error
+		ocrModel, ocrCfg, ocrPromptCfg, resolveErr = s.resolveOCR(ctx, payload.KnowledgeBaseID, payload.KnowledgeID)
+		if resolveErr != nil {
+			handleErr = fmt.Errorf("resolve OCR: %w", resolveErr)
+			return handleErr
+		}
+		if id := strings.TrimSpace(ocrCfg.ModelID); id != "" {
+			imgOut["ocr_model_id"] = id
+		}
 	}
-	// Capture the resolved VLM model id (or "legacy_inline" for the
-	// legacy inline-config path) so the trace shows WHICH model handled
-	// this image. Without this, debugging "VLM is slow" requires a
-	// separate hop to the KB config.
-	if id := strings.TrimSpace(vlmCfg.ModelID); id != "" {
-		imgOut["vlm_model_id"] = id
-	} else {
-		imgOut["vlm_model_id"] = "legacy_inline"
+	if payload.EnableCaption {
+		var resolveErr error
+		captionModel, captionCfg, resolveErr = s.resolveVLM(ctx, payload.KnowledgeBaseID, payload.KnowledgeID)
+		if resolveErr != nil {
+			logger.Warnf(ctx, "[ImageMultimodal] Caption model unavailable for %s: %v", payload.ImageURL, resolveErr)
+			imgOut["caption_error"] = resolveErr.Error()
+		} else if id := strings.TrimSpace(captionCfg.ModelID); id != "" {
+			imgOut["vlm_model_id"] = id
+		} else {
+			// Capture the legacy inline-config path so traces still show which
+			// branch handled captions.
+			imgOut["vlm_model_id"] = "legacy_inline"
+		}
 	}
 
 	// Read image bytes. A provider:// URL must be resolved via FileService —
@@ -266,9 +284,9 @@ func (s *ImageMultimodalService) Handle(ctx context.Context, task *asynq.Task) e
 		} else {
 			imgOut["ocr_prompt"] = "default"
 		}
-		prompt = types.AppendCustomPromptInstructions(prompt, vlmCfg.CustomInstructions, "image_ocr")
+		prompt = types.AppendCustomPromptInstructions(prompt, ocrPromptCfg.CustomInstructions, "image_ocr")
 
-		ocrText, ocrErr := vlmModel.Predict(ctx, [][]byte{imgBytes}, prompt)
+		ocrText, ocrErr := ocrModel.Predict(ctx, [][]byte{imgBytes}, prompt)
 		if ocrErr != nil {
 			logger.Warnf(ctx, "[ImageMultimodal] OCR failed for %s: %v", payload.ImageURL, ocrErr)
 			imgOut["ocr_error"] = ocrErr.Error()
@@ -286,14 +304,16 @@ func (s *ImageMultimodalService) Handle(ctx context.Context, task *asynq.Task) e
 		}
 	}
 
-	caption, capErr := vlmModel.Predict(ctx, [][]byte{imgBytes}, buildVLMCaptionPrompt(ctx, vlmCfg))
-	if capErr != nil {
-		logger.Warnf(ctx, "[ImageMultimodal] Caption failed for %s: %v", payload.ImageURL, capErr)
-		imgOut["caption_error"] = capErr.Error()
-	} else if caption != "" {
-		imageInfo.Caption = caption
-		imgOut["caption_chars"] = len([]rune(caption))
-		imgOut["caption_preview"] = previewText(caption, 200)
+	if payload.EnableCaption && captionModel != nil {
+		caption, capErr := captionModel.Predict(ctx, [][]byte{imgBytes}, buildVLMCaptionPrompt(ctx, captionCfg))
+		if capErr != nil {
+			logger.Warnf(ctx, "[ImageMultimodal] Caption failed for %s: %v", payload.ImageURL, capErr)
+			imgOut["caption_error"] = capErr.Error()
+		} else if caption != "" {
+			imageInfo.Caption = caption
+			imgOut["caption_chars"] = len([]rune(caption))
+			imgOut["caption_preview"] = previewText(caption, 200)
+		}
 	}
 
 	// Build child chunks for OCR and caption results
@@ -543,6 +563,50 @@ func (s *ImageMultimodalService) resolveVLM(ctx context.Context, kbID, knowledge
 	// Legacy: create VLM from inline config
 	model, err := vlm.NewVLMFromLegacyConfig(vlmCfg, s.ollamaService)
 	return model, vlmCfg, err
+}
+
+// resolveOCR creates the image-capable model used for OCR extraction.
+// A dedicated OCR model wins when configured. If it cannot be loaded and a
+// VLM is available, OCR falls back to that VLM so existing multimodal setups
+// keep working during rollout.
+func (s *ImageMultimodalService) resolveOCR(
+	ctx context.Context,
+	kbID, knowledgeID string,
+) (vlm.VLM, types.OCRConfig, types.VLMConfig, error) {
+	kb, err := s.kbService.GetKnowledgeBaseByIDOnly(ctx, kbID)
+	if err != nil {
+		return nil, types.OCRConfig{}, types.VLMConfig{}, fmt.Errorf("get knowledge base %s: %w", kbID, err)
+	}
+	if kb == nil {
+		return nil, types.OCRConfig{}, types.VLMConfig{}, fmt.Errorf("knowledge base %s not found", kbID)
+	}
+
+	var processOverrides *types.KnowledgeProcessOverrides
+	if knowledgeID != "" && s.knowledgeRepo != nil {
+		if k, kerr := s.knowledgeRepo.GetKnowledgeByIDOnly(ctx, knowledgeID); kerr == nil && k != nil {
+			processOverrides, _ = k.ProcessOverrides()
+		}
+	}
+	eff := ResolveProcessConfig(kb, processOverrides)
+
+	if eff.OCRConfig.IsEnabled() {
+		model, modelErr := s.modelService.GetOCRModel(ctx, eff.OCRConfig.ModelID)
+		if modelErr == nil {
+			return model, eff.OCRConfig, eff.VLMConfig, nil
+		}
+		if !eff.VLMConfig.IsEnabled() {
+			return nil, types.OCRConfig{}, eff.VLMConfig, modelErr
+		}
+		logger.Warnf(ctx, "[ImageMultimodal] OCR model %s unavailable, falling back to VLM: %v",
+			eff.OCRConfig.ModelID, modelErr)
+	}
+
+	if eff.VLMConfig.IsEnabled() {
+		model, vlmCfg, vlmErr := s.resolveVLM(ctx, kbID, knowledgeID)
+		return model, types.OCRConfig{Enabled: true, ModelID: vlmCfg.ModelID}, vlmCfg, vlmErr
+	}
+
+	return nil, types.OCRConfig{}, eff.VLMConfig, fmt.Errorf("OCR/VLM is not enabled for knowledge base %s", kbID)
 }
 
 // resolveFileServiceForPayload resolves tenant/KB scoped file service for reading provider:// URLs.

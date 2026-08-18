@@ -130,6 +130,10 @@ func (s *stubModelService) GetVLMModel(context.Context, string) (vlm.VLM, error)
 	return nil, nil
 }
 
+func (s *stubModelService) GetOCRModel(context.Context, string) (vlm.VLM, error) {
+	return nil, nil
+}
+
 func (s *stubModelService) GetASRModel(context.Context, string) (asr.ASR, error) {
 	return nil, nil
 }

@@ -1317,7 +1317,7 @@ func (h *OrganizationHandler) ListSharedKnowledgeBases(c *gin.Context) {
 	// metadata (share_id, organization_id, etc.) is preserved as-is.
 	rows := make([]map[string]interface{}, 0, len(sharedKBs))
 	for _, info := range sharedKBs {
-		rows = append(rows, sharedKBRow(info, nil))
+		rows = append(rows, sharedKBRow(ctx, h.kbService, info, nil))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1716,7 +1716,7 @@ func (h *OrganizationHandler) ListOrganizationSharedKnowledgeBases(c *gin.Contex
 		if item.SourceFromAgent != nil {
 			extras["source_from_agent"] = item.SourceFromAgent
 		}
-		rows = append(rows, sharedKBRow(&item.SharedKnowledgeBaseInfo, extras))
+		rows = append(rows, sharedKBRow(ctx, h.kbService, &item.SharedKnowledgeBaseInfo, extras))
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows, "total": len(rows)})

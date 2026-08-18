@@ -64,6 +64,8 @@ X-Request-ID: unique_request_id
 
 ## API 概览
 
+面向移动 App / 小程序联调的推荐链路、鉴权头、SSE 解析和常见错误，见 [App 调试接口文档](../APP_API_DEBUG.md)。
+
 睿乐大脑 API 按功能分为以下几类：
 
 | 分类 | 描述 | 文档链接 |

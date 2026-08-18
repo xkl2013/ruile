@@ -29,6 +29,7 @@ func (p *OpenAIProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   OpenAIBaseURL,
 			types.ModelTypeRerank:      OpenAIBaseURL,
 			types.ModelTypeVLLM:        OpenAIBaseURL,
+			types.ModelTypeOCR:         OpenAIBaseURL,
 			types.ModelTypeASR:         OpenAIBaseURL,
 		},
 		ModelTypes: []types.ModelType{
@@ -36,6 +37,7 @@ func (p *OpenAIProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 			types.ModelTypeASR,
 		},
 		RequiresAuth: true,

@@ -198,7 +198,7 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
-                  <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-card-icon" />
+                  <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -266,7 +266,7 @@
                         <t-icon name="relation" size="14px" />
                       </div>
                     </t-tooltip>
-                    <t-tooltip v-if="kb.vlm_config?.enabled" :content="$t('knowledgeList.features.multimodal')"
+                    <t-tooltip v-if="kb.vlm_config?.enabled || kb.ocr_config?.enabled" :content="$t('knowledgeList.features.multimodal')"
                       placement="top">
                       <div class="feature-badge multimodal">
                         <t-icon name="image" size="14px" />
@@ -304,7 +304,7 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
-                  <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-card-icon" />
+                  <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -345,7 +345,7 @@
                       </div>
                     </t-tooltip>
                     <t-tooltip
-                      v-if="kb.vlm_config?.enabled || (kb.storage_provider_config?.provider && kb.storage_provider_config.provider !== 'local')"
+                      v-if="kb.vlm_config?.enabled || kb.ocr_config?.enabled || (kb.storage_provider_config?.provider && kb.storage_provider_config.provider !== 'local')"
                       :content="$t('knowledgeList.features.multimodal')" placement="top">
                       <div class="feature-badge multimodal">
                         <t-icon name="image" size="14px" />
@@ -436,7 +436,7 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
-                  <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-card-icon" />
+                  <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -502,7 +502,7 @@
                       </div>
                     </t-tooltip>
                     <t-tooltip
-                      v-if="kb.vlm_config?.enabled || (kb.storage_provider_config?.provider && kb.storage_provider_config.provider !== 'local')"
+                      v-if="kb.vlm_config?.enabled || kb.ocr_config?.enabled || (kb.storage_provider_config?.provider && kb.storage_provider_config.provider !== 'local')"
                       :content="$t('knowledgeList.features.multimodal')" placement="top">
                       <div class="feature-badge multimodal">
                         <t-icon name="image" size="14px" />
@@ -590,7 +590,7 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="shared.knowledge_base.name">
-                  <KnowledgeBaseIcon :icon="shared.knowledge_base.icon" :type="shared.knowledge_base.type"
+                  <KnowledgeBaseIcon :icon="shared.knowledge_base.icon" :icon-url="shared.knowledge_base.icon_url" :type="shared.knowledge_base.type"
                     size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(shared.knowledge_base)" />
                   <span class="card-title-text">{{ shared.knowledge_base.name }}</span>
@@ -833,6 +833,7 @@ interface KB {
   name: string;
   description?: string;
   icon?: string;
+  icon_url?: string;
   updated_at?: string;
   created_at?: string;
   pinned_at?: string;
@@ -841,6 +842,7 @@ interface KB {
   type?: 'document' | 'faq';
   showMore?: boolean;
   vlm_config?: { enabled?: boolean; model_id?: string };
+  ocr_config?: { enabled?: boolean; model_id?: string };
   extract_config?: { enabled?: boolean };
   storage_provider_config?: { provider?: string };
   storage_config?: { provider?: string; bucket_name?: string }; // legacy

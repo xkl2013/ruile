@@ -20,6 +20,7 @@ const (
 	ModelTypeKnowledgeQA ModelType = "KnowledgeQA" // KnowledgeQA model
 	ModelTypeVLLM        ModelType = "VLLM"        // VLLM model
 	ModelTypeASR         ModelType = "ASR"         // ASR (Automatic Speech Recognition) model
+	ModelTypeOCR         ModelType = "OCR"         // OCR model for document/image text extraction
 )
 
 // ModelStatus represents the status of the model
@@ -80,7 +81,7 @@ type ModelParameters struct {
 	// enrichment) calls to THIS specific model, keyed by model ID and shared
 	// across all replicas. 0 (the default) means "fall back to the
 	// process-wide model.max_concurrency". Interactive user-facing calls are
-	// never gated. Only chat / vlm / embedding honour this (see limiter.Gate).
+	// never gated. Only chat / vlm / ocr / embedding honour this (see limiter.Gate).
 	MaxConcurrency int `yaml:"max_concurrency,omitempty" json:"max_concurrency,omitempty"`
 	// WeKnoraCloud 厂商专用凭证
 	AppID     string `yaml:"app_id,omitempty"     json:"app_id,omitempty"`

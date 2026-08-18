@@ -194,6 +194,7 @@ export interface KnowledgeBaseInfo {
   name: string
   description: string
   icon?: string
+  icon_url?: string
   tenant_id: string
   // creator_id is the user id of whoever originally created the KB.
   // Set by PR 5 of the multi-tenant RBAC series; nullable for legacy

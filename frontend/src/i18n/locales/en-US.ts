@@ -2871,6 +2871,7 @@ export default {
       embeddingRequired: 'Please select an embedding model',
       summaryRequired: 'Please select a summary model',
       multimodalInvalid: 'Multimodal configuration validation failed',
+      ocrInvalid: 'Please select an OCR model',
       createSuccess: 'Knowledge base created successfully',
       createFailed: 'Failed to create knowledge base',
       missingId: 'Knowledge base ID is missing',
@@ -3109,6 +3110,13 @@ export default {
     multimodal: {
       title: 'Image Processing Configuration',
       description: 'Configure image content understanding for parsing and retrieving non-text content like images',
+    },
+    ocr: {
+      label: 'Enable OCR fallback',
+      desc: 'When parsed images or scanned pages need text extraction, OCR is used first; without OCR, the VLM-compatible path is still used.',
+      modelLabel: 'OCR Model',
+      modelDescription: 'Vision OCR model for document images, scanned pages, and PPT image pages',
+      modelPlaceholder: 'Select an OCR model',
     },
     asr: {
       title: 'Audio Speech Recognition',
@@ -4192,6 +4200,7 @@ export default {
         embedding: 'Configure embedding models for text vectorization',
         rerank: 'Configure models for result re-ranking',
         vllm: 'Configure vision-language models for multimodal understanding',
+        ocr: 'Configure OCR models for document image fallback recognition',
         asr: 'Configure speech-to-text models for audio transcription',
         default: 'Configure model information'
       },
@@ -4200,6 +4209,7 @@ export default {
         remote: 'e.g. gpt-4, claude-3-opus',
         localVllm: 'e.g. llava:latest',
         remoteVllm: 'e.g. gpt-4-vision-preview',
+        remoteOcr: 'e.g. qwen-vl-ocr, gpt-4o-mini',
         remoteAsr: 'e.g. whisper-1'
       },
       baseUrlLabel: 'Base URL',
@@ -4208,6 +4218,7 @@ export default {
       displayNameDesc: 'Used only in the UI. Runtime calls still use the model name above.',
       baseUrlPlaceholder: 'e.g. https://api.openai.com/v1',
       baseUrlPlaceholderVllm: 'e.g. http://localhost:11434/v1',
+      baseUrlPlaceholderOcr: 'e.g. https://api.openai.com/v1',
       baseUrlPlaceholderAsr: 'e.g. https://api.openai.com/v1',
       apiKeyOptional: 'API Key (optional)',
       apiKeyPlaceholder: 'Enter API Key',
@@ -4282,6 +4293,7 @@ export default {
       downloadStartFailed: 'Failed to start download',
       ollamaUnavailable: 'Ollama service is unavailable, local models cannot be selected',
       ollamaNotSupportRerank: 'Ollama does not support ReRank models, please use a remote API instead',
+      ollamaNotSupportOcr: 'OCR models require an OpenAI-compatible API with image input support. Please configure a remote API instead',
       ollamaNotSupportAsr: 'ASR models use an OpenAI-compatible transcription API. Please configure a remote API instead',
       goToOllamaSettings: 'Open Settings',
       validation: {
@@ -4788,6 +4800,7 @@ export default {
       embedding: 'Embedding',
       rerank: 'ReRank',
       vllm: 'Vision',
+      ocr: 'OCR',
       asr: 'Speech/ASR',
     },
     actions: {
@@ -4820,6 +4833,11 @@ export default {
       title: 'VLLM Vision Models',
       desc: 'Configure vision-language models for multimodal understanding',
       empty: 'No VLLM models'
+    },
+    ocr: {
+      title: 'OCR Models',
+      desc: 'Configure vision OCR models for document image fallback recognition',
+      empty: 'No OCR models'
     },
     asr: {
       title: 'ASR Speech Models',
@@ -4871,6 +4889,8 @@ export default {
       embeddingPlaceholder: 'Enter text to generate an embedding',
       vlmPrompt: 'Image prompt',
       vlmPromptPlaceholder: 'For example: Describe this image in detail',
+      ocrPrompt: 'OCR prompt',
+      ocrPromptPlaceholder: 'For example: extract text from the image and preserve table structure',
       documents: 'Candidate documents',
       documentsPlaceholder: 'Enter one candidate document per line',
       documentsHint: 'Each non-empty line is sent as a separate document to the ReRank model',

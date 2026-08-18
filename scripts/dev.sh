@@ -464,7 +464,12 @@ start_app() {
     
     export CGO_CFLAGS="-Wno-deprecated-declarations -Wno-gnu-folding-constant"
     if [[ "$(uname)" == "Darwin" ]]; then
-      export CGO_LDFLAGS="-Wl,-no_warn_duplicate_libraries"
+      if printf 'int main(){return 0;}\n' | cc -x c - -Wl,-no_warn_duplicate_libraries -o /tmp/weknora-linker-probe >/dev/null 2>&1; then
+        export CGO_LDFLAGS="-Wl,-no_warn_duplicate_libraries"
+      else
+        unset CGO_LDFLAGS
+      fi
+      rm -f /tmp/weknora-linker-probe
     fi
 
     # 检查是否安装了 Air（热重载工具）

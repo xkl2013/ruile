@@ -33,6 +33,7 @@ func (p *AliyunProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   AliyunChatBaseURL,
 			types.ModelTypeRerank:      AliyunRerankBaseURL,
 			types.ModelTypeVLLM:        AliyunChatBaseURL,
+			types.ModelTypeOCR:         AliyunChatBaseURL,
 			types.ModelTypeASR:         AliyunChatBaseURL,
 		},
 		ModelTypes: []types.ModelType{
@@ -40,6 +41,7 @@ func (p *AliyunProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 			types.ModelTypeASR,
 		},
 		RequiresAuth: true,

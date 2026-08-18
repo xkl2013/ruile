@@ -109,6 +109,31 @@ func buildKBResponse(
 	return m
 }
 
+func (h *KnowledgeBaseHandler) buildKBResponse(
+	ctx context.Context,
+	kb *types.KnowledgeBase,
+	storeView types.StoreDisplay,
+	extras map[string]interface{},
+) interface{} {
+	merged := extras
+	iconURL := ""
+	if h != nil && h.service != nil && knowledgeBaseUsesImageIcon(kb) {
+		iconURL = h.service.ResolveKnowledgeBaseIconURL(ctx, kb)
+	}
+	if iconURL != "" {
+		merged = make(map[string]interface{}, len(extras)+1)
+		for k, v := range extras {
+			merged[k] = v
+		}
+		merged["icon_url"] = iconURL
+	}
+	return buildKBResponse(kb, storeView, merged)
+}
+
+func knowledgeBaseUsesImageIcon(kb *types.KnowledgeBase) bool {
+	return kb != nil && strings.HasPrefix(strings.TrimSpace(kb.Icon), "image:")
+}
+
 // buildKBListResponse turns a slice of knowledge bases into a JSON-ready
 // slice that mirrors the single-KB enrichment in buildKBResponse. Store
 // views are batch-resolved once via BatchResolveStoreView to keep the
@@ -144,7 +169,7 @@ func (h *KnowledgeBaseHandler) buildKBListResponse(
 				view = v
 			}
 		}
-		out = append(out, buildKBResponse(kb, view, nil))
+		out = append(out, h.buildKBResponse(ctx, kb, view, nil))
 	}
 	return out
 }
@@ -166,9 +191,15 @@ func (h *KnowledgeBaseHandler) buildKBListResponse(
 // or duplicating the lookup logic — both larger than the security fix
 // warrants and easy to follow up on once needed.
 func sharedKBRow(
-	info *types.SharedKnowledgeBaseInfo, extras map[string]interface{},
+	ctx context.Context, kbService interfaces.KnowledgeBaseService, info *types.SharedKnowledgeBaseInfo, extras map[string]interface{},
 ) map[string]interface{} {
-	kbView := buildKBResponse(info.KnowledgeBase, types.SharedStoreDisplay(), nil)
+	var kbExtras map[string]interface{}
+	if kbService != nil && knowledgeBaseUsesImageIcon(info.KnowledgeBase) {
+		if iconURL := kbService.ResolveKnowledgeBaseIconURL(ctx, info.KnowledgeBase); iconURL != "" {
+			kbExtras = map[string]interface{}{"icon_url": iconURL}
+		}
+	}
+	kbView := buildKBResponse(info.KnowledgeBase, types.SharedStoreDisplay(), kbExtras)
 	row := map[string]interface{}{
 		"knowledge_base":   kbView,
 		"share_id":         info.ShareID,
@@ -396,7 +427,7 @@ func (h *KnowledgeBaseHandler) CreateKnowledgeBase(c *gin.Context) {
 	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
-		"data":    buildKBResponse(kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
+		"data":    h.buildKBResponse(ctx, kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
 	})
 }
 
@@ -536,6 +567,7 @@ func (h *KnowledgeBaseHandler) validateAndGetKnowledgeBase(c *gin.Context) (*typ
 // @Security     ApiKeyAuth
 // @Router       /knowledge-bases/{id} [get]
 func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
+	ctx := c.Request.Context()
 	// Validate and get the knowledge base
 	kb, _, _, permission, err := h.validateAndGetKnowledgeBase(c)
 	if err != nil {
@@ -543,17 +575,17 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 		return
 	}
 	// Fill counts (knowledge_count, chunk_count, is_processing) so hover/detail shows correct numbers
-	if fillErr := h.service.FillKnowledgeBaseCounts(c.Request.Context(), kb); fillErr != nil {
-		logger.Warnf(c.Request.Context(), "Failed to fill KB counts for %s: %v", kb.ID, fillErr)
+	if fillErr := h.service.FillKnowledgeBaseCounts(ctx, kb); fillErr != nil {
+		logger.Warnf(ctx, "Failed to fill KB counts for %s: %v", kb.ID, fillErr)
 	}
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-	storeView := h.resolveKBStoreView(c.Request.Context(), kb, tenantID)
+	storeView := h.resolveKBStoreView(ctx, kb, tenantID)
 	var extras map[string]interface{}
 	if kb.TenantID != tenantID && permission != "" {
 		// Include my_permission in data so frontend can show role (e.g. "只读") instead of "--" for agent-visible KBs
 		extras = map[string]interface{}{"my_permission": permission}
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": buildKBResponse(kb, storeView, extras)})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": h.buildKBResponse(ctx, kb, storeView, extras)})
 }
 
 // ListKnowledgeBases godoc
@@ -849,7 +881,7 @@ func (h *KnowledgeBaseHandler) TogglePinKnowledgeBase(c *gin.Context) {
 	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    buildKBResponse(kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
+		"data":    h.buildKBResponse(ctx, kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
 	})
 }
 
@@ -866,6 +898,46 @@ type UpdateKnowledgeBaseRequest struct {
 // persisting manual document-directory metadata.
 type UpdateKnowledgeBaseDirectoryConfigRequest struct {
 	DirectoryConfig *types.KnowledgeBaseDirectoryConfig `json:"directory_config" binding:"required"`
+}
+
+// UploadKnowledgeBaseIconForCreate uploads a custom icon image before a KB exists.
+func (h *KnowledgeBaseHandler) UploadKnowledgeBaseIconForCreate(c *gin.Context) {
+	h.uploadKnowledgeBaseIcon(c, "")
+}
+
+// UploadKnowledgeBaseIcon uploads a custom icon image for an existing KB.
+func (h *KnowledgeBaseHandler) UploadKnowledgeBaseIcon(c *gin.Context) {
+	_, id, _, permission, err := h.validateAndGetKnowledgeBase(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	if permission != types.OrgRoleAdmin && permission != types.OrgRoleEditor {
+		c.Error(apperrors.NewForbiddenError("No permission to update knowledge base"))
+		return
+	}
+	h.uploadKnowledgeBaseIcon(c, id)
+}
+
+func (h *KnowledgeBaseHandler) uploadKnowledgeBaseIcon(c *gin.Context, id string) {
+	ctx := c.Request.Context()
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.Error(apperrors.NewBadRequestError("icon image is required").WithDetails(err.Error()))
+		return
+	}
+	result, err := h.service.UploadKnowledgeBaseIcon(ctx, id, file)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"knowledge_base_id": id,
+		})
+		c.Error(apperrors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
 }
 
 // UpdateKnowledgeBase godoc
@@ -936,7 +1008,7 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    buildKBResponse(kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
+		"data":    h.buildKBResponse(ctx, kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
 	})
 }
 
@@ -991,7 +1063,7 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBaseDirectoryConfig(c *gin.Context
 	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    buildKBResponse(kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
+		"data":    h.buildKBResponse(ctx, kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
 	})
 }
 
@@ -1302,7 +1374,7 @@ func (h *KnowledgeBaseHandler) DuplicateKnowledgeBase(c *gin.Context) {
 			SourceID:      sourceID,
 			TargetID:      targetKB.ID,
 			Message:       "Knowledge base duplicate created",
-			KnowledgeBase: buildKBResponse(targetKB, h.resolveKBStoreView(ctx, targetKB, callerTenantID), nil),
+			KnowledgeBase: h.buildKBResponse(ctx, targetKB, h.resolveKBStoreView(ctx, targetKB, callerTenantID), nil),
 		},
 	})
 }

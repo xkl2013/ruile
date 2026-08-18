@@ -602,6 +602,12 @@ const parseStatusOptions = computed(() => [
 ]);
 const DIRECTORY_ROOT_PATH = '';
 const LEGACY_DIRECTORY_STORAGE_PREFIX = 'knowledge-document-directories';
+const DIRECTORY_TREE_INDENT_STEP = 14;
+const DIRECTORY_TREE_COMPACT_INDENT_STEP = 8;
+const DIRECTORY_TREE_COMPACT_AFTER_LEVEL = 4;
+const DIRECTORY_TREE_MAX_VISIBLE_INDENT = 96;
+const DIRECTORY_TREE_DEEP_MIN_NAME_WIDTH = 168;
+const DIRECTORY_TREE_ROW_CHROME_WIDTH = 144;
 const activeDirectoryPath = ref(DIRECTORY_ROOT_PATH);
 
 type DirectoryNode = {
@@ -660,6 +666,8 @@ const directoryForm = reactive({
 });
 const collapsedDirectoryPaths = ref<Set<string>>(new Set());
 const directorySaving = ref(false);
+const directorySourceItems = ref<KnowledgeCard[]>([]);
+const directoryRootTotal = ref(0);
 
 const normalizeDocumentPath = (item: DirectorySourceItem) => {
   const candidates = [
@@ -697,6 +705,27 @@ const getDirectoryParentPath = (path: string) => {
 const getDirectoryDisplayName = (path: string) => {
   if (path === DIRECTORY_ROOT_PATH) return t('knowledgeBase.rootDirectory');
   return path.split('/').filter(Boolean).pop() || path;
+};
+
+const getDirectoryTreeVisibleIndent = (depth: number) => {
+  const level = Math.max(0, depth + 1);
+  const regularLevels = Math.min(level, DIRECTORY_TREE_COMPACT_AFTER_LEVEL);
+  const compactLevels = Math.max(0, level - DIRECTORY_TREE_COMPACT_AFTER_LEVEL);
+  const indent = regularLevels * DIRECTORY_TREE_INDENT_STEP
+    + compactLevels * DIRECTORY_TREE_COMPACT_INDENT_STEP;
+  return Math.min(indent, DIRECTORY_TREE_MAX_VISIBLE_INDENT);
+};
+
+const getDirectoryTreeItemStyle = (directory: DirectoryNode) => {
+  const indent = getDirectoryTreeVisibleIndent(directory.depth);
+  const level = Math.max(0, directory.depth + 1);
+  const rowMinWidth = level > DIRECTORY_TREE_COMPACT_AFTER_LEVEL
+    ? indent + DIRECTORY_TREE_DEEP_MIN_NAME_WIDTH + DIRECTORY_TREE_ROW_CHROME_WIDTH
+    : 0;
+  return {
+    '--directory-indent': `${indent}px`,
+    '--directory-row-min-width': rowMinWidth ? `${rowMinWidth}px` : '100%',
+  };
 };
 
 const sortDirectoryNodes = (nodes: DirectoryNode[]) => nodes.sort((a, b) => {
@@ -878,7 +907,7 @@ const loadManualDirectoryState = async (knowledgeBase: any, targetKbId = kbId.va
 const documentDirectoryNodes = computed<DirectoryNode[]>(() => {
   const map = new Map<string, DirectoryNode>();
 
-  for (const item of cardList.value || []) {
+  for (const item of directorySourceItems.value || []) {
     const directoryPath = getDocumentDirectoryPath(item);
     if (!directoryPath) continue;
     const parts = directoryPath.split('/').filter(Boolean);
@@ -919,7 +948,7 @@ const documentDirectoryNodes = computed<DirectoryNode[]>(() => {
   return sortDirectoryNodes([...map.values()]);
 });
 
-const rootDirectoryCount = computed(() => (cardList.value || []).length);
+const rootDirectoryCount = computed(() => directoryRootTotal.value || (directorySourceItems.value || []).length);
 
 const rootHasChildren = computed(() => documentDirectoryNodes.value.length > 0);
 
@@ -979,9 +1008,6 @@ const visibleDirectoryTreeRows = computed<DirectoryTreeRow[]>(() => {
 
 const visibleDocumentItems = computed<KnowledgeCard[]>(() => {
   const items = cardList.value || [];
-  if (docSearchKeyword.value.trim()) {
-    return items;
-  }
   if (activeDirectoryPath.value === DIRECTORY_ROOT_PATH) {
     return items;
   }
@@ -1020,9 +1046,45 @@ const getDirectoryVisibleName = (path: string) => {
     || getDirectoryDisplayName(path);
 };
 
+const clearDirectorySource = () => {
+  directorySourceItems.value = [];
+  directoryRootTotal.value = 0;
+};
+
+const syncDirectorySourceFromCurrentList = () => {
+  directorySourceItems.value = [...(cardList.value || [])];
+  directoryRootTotal.value = total.value;
+};
+
+const mergeDirectorySourceItems = (items: KnowledgeCard[]) => {
+  if (!items.length) return;
+  const map = new Map(directorySourceItems.value.map(item => [item.id, item]));
+  for (const item of items) {
+    map.set(item.id, item);
+  }
+  directorySourceItems.value = [...map.values()];
+};
+
+const scrollDocumentListToTop = () => {
+  nextTick(() => {
+    if (knowledgeScroll.value) {
+      knowledgeScroll.value.scrollTop = 0;
+    }
+  });
+};
+
 const selectDirectory = (path: string) => {
-  activeDirectoryPath.value = path;
-  expandDirectoryAncestors(path);
+  const nextPath = normalizeDirectoryPath(path);
+  if (activeDirectoryPath.value === nextPath) return;
+  activeDirectoryPath.value = nextPath;
+  expandDirectoryAncestors(nextPath);
+  resetPage();
+  scrollDocumentListToTop();
+  cardList.value = [];
+  total.value = 0;
+  if (kbId.value && !isFAQ.value) {
+    void loadKnowledgeFiles(kbId.value);
+  }
 };
 
 const directoryPathExists = (path: string) => {
@@ -1179,6 +1241,7 @@ const getDirectoryTitle = (directory: DirectoryNode) => {
 watch(kbId, () => {
   activeDirectoryPath.value = DIRECTORY_ROOT_PATH;
   collapsedDirectoryPaths.value = new Set();
+  clearDirectorySource();
   applyDirectoryState({ rootDescription: '', directories: [] });
 }, { immediate: true });
 
@@ -1201,6 +1264,7 @@ const filterParams = computed(() => {
     keyword: docSearchKeyword.value ? docSearchKeyword.value.trim() : undefined,
     file_type: selectedFileType.value || undefined,
     parse_status: selectedParseStatus.value || undefined,
+    directory_path: activeDirectoryPath.value || undefined,
   };
 });
 const tagMap = computed<Record<string, any>>(() => {
@@ -1282,6 +1346,7 @@ const getTagName = (tagId?: string | number) => {
 
 const loadKnowledgeFiles = (kbIdValue: string): Promise<void> => {
   if (!kbIdValue) return Promise.resolve();
+  const requestDirectoryPath = activeDirectoryPath.value;
   if (!isFAQ.value) {
     docListLoading.value = true;
   }
@@ -1292,7 +1357,15 @@ const loadKnowledgeFiles = (kbIdValue: string): Promise<void> => {
       ...filterParams.value,
     },
     kbIdValue,
-  ).finally(() => {
+  ).then(() => {
+    if (!isCurrentKb(kbIdValue) || isFAQ.value) return;
+    if (requestDirectoryPath !== activeDirectoryPath.value) return;
+    if (requestDirectoryPath === DIRECTORY_ROOT_PATH && activeDirectoryPath.value === DIRECTORY_ROOT_PATH) {
+      syncDirectorySourceFromCurrentList();
+      return;
+    }
+    mergeDirectorySourceItems(cardList.value || []);
+  }).finally(() => {
     if (isCurrentKb(kbIdValue) && !isFAQ.value) {
       docListLoading.value = false;
     }
@@ -1439,6 +1512,7 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     kbInfo.value = null;
     cardList.value = [];
     total.value = 0;
+    clearDirectorySource();
     return;
   }
   kbLoading.value = true;
@@ -1459,6 +1533,7 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     } else {
       cardList.value = [];
       total.value = 0;
+      clearDirectorySource();
     }
     loadTags(targetKbId, true);
   } catch (error) {
@@ -1468,6 +1543,7 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     kbInfo.value = null;
     cardList.value = [];
     total.value = 0;
+    clearDirectorySource();
   } finally {
     if (isCurrentKb(targetKbId)) {
       kbLoading.value = false;
@@ -1492,6 +1568,7 @@ watch(() => kbId.value, (newKbId, oldKbId) => {
     kbInfo.value = null;
     cardList.value = [];
     total.value = 0;
+    clearDirectorySource();
     return;
   }
   if (newKbId === oldKbId && kbInfo.value) return;
@@ -1500,6 +1577,7 @@ watch(() => kbId.value, (newKbId, oldKbId) => {
     clearTraceAvailabilityCache();
     cardList.value = [];
     total.value = 0;
+    clearDirectorySource();
     docListLoading.value = true;
     resetPage();
     tagSearchQuery.value = '';
@@ -1512,6 +1590,8 @@ watch(() => kbId.value, (newKbId, oldKbId) => {
 watch(selectedTagIds, (newVal, oldVal) => {
   if (oldVal === undefined) return;
   if (kbId.value) {
+    resetPage();
+    scrollDocumentListToTop();
     loadKnowledgeFiles(kbId.value);
   }
 }, { deep: true });
@@ -2297,7 +2377,16 @@ const handleScroll = () => {
       if (cardList.value.length < total.value && page < pageNum) {
         page++;
         scrollLoading = true;
-        getKnowled({ page, page_size: pageSize, ...filterParams.value }, currentKbId).finally(() => {
+        const requestDirectoryPath = activeDirectoryPath.value;
+        getKnowled({ page, page_size: pageSize, ...filterParams.value }, currentKbId).then(() => {
+          if (!isCurrentKb(currentKbId)) return;
+          if (requestDirectoryPath !== activeDirectoryPath.value) return;
+          if (requestDirectoryPath === DIRECTORY_ROOT_PATH && activeDirectoryPath.value === DIRECTORY_ROOT_PATH) {
+            syncDirectorySourceFromCurrentList();
+            return;
+          }
+          mergeDirectorySourceItems(cardList.value || []);
+        }).finally(() => {
           if (isCurrentKb(currentKbId)) {
             scrollLoading = false;
           }
@@ -2559,7 +2648,7 @@ async function createNewSession(value: string): Promise<void> {
                 <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
               </template>
               <template v-else>
-                <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
+                <KnowledgeBaseIcon :icon="kbInfo.icon" :icon-url="kbInfo.icon_url" :type="kbInfo.type" size="small" />
                 <span class="breadcrumb-title">{{ kbInfo.name }}</span>
               </template>
               <template v-if="isWiki">
@@ -2638,10 +2727,6 @@ async function createNewSession(value: string): Promise<void> {
       <template v-if="activeKbTab === 'documents' || !isWiki">
         <div class="knowledge-main">
           <aside v-if="showDirectorySidebar" class="document-directory-sidebar">
-            <div class="directory-sidebar-header">
-              <span>{{ $t('knowledgeBase.directory') }}</span>
-              <span class="directory-sidebar-count">{{ cardList.length }}</span>
-            </div>
             <div class="directory-tree">
               <div role="button" tabindex="0" class="directory-tree-item"
                 :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-manage-directories': canEditKnowledgeBaseSettings }"
@@ -2667,17 +2752,6 @@ async function createNewSession(value: string): Promise<void> {
                   <button
                     type="button"
                     class="directory-tree-action"
-                    :title="$t('knowledgeBase.directorySettings')"
-                    :aria-label="$t('knowledgeBase.directorySettings')"
-                    @click.stop="openDirectorySettingsDialog(DIRECTORY_ROOT_PATH)"
-                    @keydown.enter.stop
-                    @keydown.space.stop
-                  >
-                    <t-icon name="edit-1" size="14px" />
-                  </button>
-                  <button
-                    type="button"
-                    class="directory-tree-action"
                     :title="$t('knowledgeBase.addSubdirectory')"
                     :aria-label="$t('knowledgeBase.addSubdirectory')"
                     @click.stop="openCreateSubdirectoryDialog(DIRECTORY_ROOT_PATH)"
@@ -2691,7 +2765,7 @@ async function createNewSession(value: string): Promise<void> {
               <div v-for="directory in visibleDirectoryTreeRows" :key="directory.path" role="button" tabindex="0"
                 class="directory-tree-item"
                 :class="{ active: activeDirectoryPath === directory.path, 'can-manage-directories': canEditKnowledgeBaseSettings }"
-                :style="{ '--directory-indent': `${(directory.depth + 1) * 16}px` }" :title="getDirectoryTitle(directory)"
+                :style="getDirectoryTreeItemStyle(directory)" :title="getDirectoryTitle(directory)"
                 @click="selectDirectory(directory.path)"
                 @keydown.enter.prevent="selectDirectory(directory.path)"
                 @keydown.space.prevent="selectDirectory(directory.path)">
@@ -2706,7 +2780,6 @@ async function createNewSession(value: string): Promise<void> {
                   <t-icon v-if="directory.hasChildren"
                     :name="directory.collapsed ? 'chevron-right' : 'chevron-down'" size="14px" />
                 </button>
-                <t-icon name="folder" class="directory-tree-icon" />
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
                 <span v-if="canEditKnowledgeBaseSettings" class="directory-tree-actions">
@@ -2947,7 +3020,7 @@ async function createNewSession(value: string): Promise<void> {
                 </template>
                 <template v-else-if="!docListLoading">
                   <div class="doc-empty-state">
-                    <EmptyKnowledge v-if="!cardList.length" />
+                    <EmptyKnowledge v-if="!cardList.length && activeDirectoryPath === DIRECTORY_ROOT_PATH" />
                     <div v-else class="directory-empty-state">
                       <t-icon name="folder-open" />
                       <strong>{{ activeDirectoryName }}</strong>
@@ -3447,33 +3520,15 @@ async function createNewSession(value: string): Promise<void> {
 }
 
 .document-directory-sidebar {
-  width: 220px;
-  flex: 0 0 220px;
+  --document-directory-sidebar-width: clamp(232px, 18vw, 288px);
+  width: var(--document-directory-sidebar-width);
+  flex: 0 0 var(--document-directory-sidebar-width);
   min-height: 0;
   display: flex;
   flex-direction: column;
   padding: 0 12px 0 0;
   border-right: 1px solid var(--td-component-stroke);
   overflow: hidden;
-}
-
-.directory-sidebar-header {
-  height: 32px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 8px;
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.directory-sidebar-count {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
 }
 
 .directory-tree {
@@ -3483,13 +3538,14 @@ async function createNewSession(value: string): Promise<void> {
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
-  overflow-x: hidden;
-  padding: 2px 4px 8px 0;
+  overflow-x: auto;
+  padding: 2px 4px 10px 0;
   scrollbar-width: thin;
 }
 
 .directory-tree-item {
   width: 100%;
+  min-width: max(100%, var(--directory-row-min-width, 100%));
   min-height: 32px;
   box-sizing: border-box;
   border: 0;
@@ -3497,7 +3553,7 @@ async function createNewSession(value: string): Promise<void> {
   background: transparent;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   padding: 0 8px 0 calc(8px + var(--directory-indent, 0px));
   color: var(--td-text-color-secondary);
   font-family: var(--app-font-family);
@@ -3531,10 +3587,6 @@ async function createNewSession(value: string): Promise<void> {
     background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
     color: var(--td-brand-color);
     font-weight: 500;
-  }
-
-  &.can-manage-directories {
-    padding-right: 56px;
   }
 
 }
@@ -3594,6 +3646,11 @@ async function createNewSession(value: string): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  height: 24px;
+  padding: 0 2px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 96%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--td-component-stroke) 60%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;

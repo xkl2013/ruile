@@ -26,7 +26,7 @@
       <button v-for="kb in knowledgeBases" :key="kb.id" type="button" class="kb-menu-item"
         :class="{ active: kb.id === activeKbId }" :title="kb.name" :aria-current="kb.id === activeKbId ? 'page' : undefined"
         @click="openKnowledgeBase(kb.id)">
-        <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-menu-item-icon" />
+        <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-menu-item-icon" />
         <span class="kb-menu-item-name">{{ kb.name }}</span>
         <span v-if="kb.id === activeKbId" class="kb-menu-item-dot" />
       </button>
@@ -57,6 +57,7 @@ type SidebarKnowledgeBase = {
   id: string
   name: string
   icon?: string
+  icon_url?: string
   type?: 'document' | 'faq'
   isMine?: boolean
   is_pinned?: boolean
@@ -127,6 +128,7 @@ const knowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
       id: String(kb.id),
       name: String(kb.name || kb.id),
       icon: kb.icon,
+      icon_url: kb.icon_url,
       type: kb.type,
       isMine: kb.isMine === true,
       is_pinned: !!kb.is_pinned,

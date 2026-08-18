@@ -35,6 +35,16 @@ export const DEFAULT_KB_CHUNKING_PRESET = {
   enableParentChild: true,
 } as const
 
+export const DEFAULT_KB_PARSER_ENGINE_RULES = [
+  { file_types: ['pptx', 'ppt'], engine: 'markitdown' },
+] as const
+
+export const cloneDefaultParserEngineRules = () =>
+  DEFAULT_KB_PARSER_ENGINE_RULES.map((rule) => ({
+    file_types: [...rule.file_types],
+    engine: rule.engine,
+  }))
+
 export const WIKI_ONLY_KB_CHUNKING_PRESET = {
   chunkSize: 2048,
   chunkOverlap: 0,
@@ -48,6 +58,7 @@ export const createDefaultKnowledgeBaseFormData = (
 ) => ({
   type,
   icon: getDefaultKnowledgeBaseIcon(type),
+  iconUrl: '',
   name: '',
   description: '',
   faqConfig: {
@@ -62,7 +73,7 @@ export const createDefaultKnowledgeBaseFormData = (
   chunkingConfig: {
     ...DEFAULT_KB_CHUNKING_PRESET,
     separators: [...DEFAULT_KB_SEPARATORS],
-    parserEngineRules: undefined as any,
+    parserEngineRules: cloneDefaultParserEngineRules(),
     parentChunkSize: 4096,
     childChunkSize: 384,
     strategy: 'auto' as string,
@@ -77,6 +88,10 @@ export const createDefaultKnowledgeBaseFormData = (
     vllmModelId: '',
     descriptionLanguage: '',
     customInstructions: '',
+  },
+  ocrConfig: {
+    enabled: false,
+    modelId: '',
   },
   asrConfig: {
     enabled: false,

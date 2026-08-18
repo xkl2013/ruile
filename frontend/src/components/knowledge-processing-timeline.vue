@@ -1360,7 +1360,7 @@ const processConfigLines = computed<string[]>(() => {
     lines.push(`${t(k('parser'))}: ${formatParserRulesForCurrentFile(rules)}`)
   }
 
-  const mm = o.vlm_config?.enabled ?? o.enable_multimodel
+  const mm = o.vlm_config?.enabled ?? o.ocr_config?.enabled ?? o.enable_multimodel
   if (mm != null) lines.push(`${t(k('multimodal'))}: ${onOff(mm)}`)
 
   if (o.asr_config?.enabled != null) lines.push(`${t(k('asr'))}: ${onOff(o.asr_config.enabled)}`)

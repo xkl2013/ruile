@@ -18,6 +18,7 @@
           >
             <KnowledgeBaseIcon
               :icon="item.icon"
+              :icon-url="item.icon_url"
               :type="item.type"
               size="small"
               class="kb-switcher-row-icon"
@@ -49,6 +50,7 @@ interface KBEntry {
   id: string
   name: string
   icon?: string
+  icon_url?: string
   type?: string
 }
 

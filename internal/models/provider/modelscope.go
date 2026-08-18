@@ -28,11 +28,13 @@ func (p *ModelScopeProvider) Info() ProviderInfo {
 			types.ModelTypeKnowledgeQA: ModelScopeBaseURL,
 			types.ModelTypeEmbedding:   ModelScopeBaseURL,
 			types.ModelTypeVLLM:        ModelScopeBaseURL,
+			types.ModelTypeOCR:         ModelScopeBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

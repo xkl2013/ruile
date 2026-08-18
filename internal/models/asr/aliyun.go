@@ -157,7 +157,7 @@ func (s *AliyunASR) Transcribe(ctx context.Context, audioBytes []byte, fileName 
 func (s *AliyunASR) transcribeInline(ctx context.Context, audioBytes []byte, fileName string) (*TranscriptionResult, error) {
 	dataURILength := aliyunASRDataURILength(audioBytes, fileName)
 	if dataURILength > aliyunASRInlineStringLimit {
-		return nil, fmt.Errorf("Aliyun ASR inline audio payload is too large: data URI length %d exceeds limit %d", dataURILength, aliyunASRInlineStringLimit)
+		return nil, fmt.Errorf("%w: Aliyun ASR inline audio payload is too large: data URI length %d exceeds limit %d", ErrNonRetryable, dataURILength, aliyunASRInlineStringLimit)
 	}
 	dataURI := formatAudioDataURI(fileName, audioBytes)
 
@@ -237,7 +237,7 @@ func prepareAliyunASRAudioInputs(ctx context.Context, audioBytes []byte, fileNam
 
 	transcoded, transcodedName, err := transcodeAudioForAliyunASR(ctx, audioBytes, fileName)
 	if err != nil {
-		return nil, fmt.Errorf("audio is too large for Aliyun ASR inline request and preprocessing failed: %w", err)
+		return nil, fmt.Errorf("%w: audio is too large for Aliyun ASR inline request and preprocessing failed: %v", ErrNonRetryable, err)
 	}
 	if fitsAliyunASRInlineLimit(transcoded, transcodedName) {
 		logger.Infof(ctx, "[ASR] Aliyun audio preprocessing completed, originalSize=%d, transcodedSize=%d, file=%s",
@@ -250,7 +250,7 @@ func prepareAliyunASRAudioInputs(ctx context.Context, audioBytes []byte, fileNam
 
 	segments, err := segmentAudioForAliyunASR(ctx, transcoded, transcodedName)
 	if err != nil {
-		return nil, fmt.Errorf("audio is too large for Aliyun ASR inline request and segmenting failed: %w", err)
+		return nil, fmt.Errorf("%w: audio is too large for Aliyun ASR inline request and segmenting failed: %v", ErrNonRetryable, err)
 	}
 	return segments, nil
 }

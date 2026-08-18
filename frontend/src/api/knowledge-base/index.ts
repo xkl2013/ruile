@@ -51,6 +51,7 @@ export interface KnowledgeBaseStoreView {
   vector_store_engine_type?: string;
   vector_store_source?: VectorStoreSource;
   vector_store_status?: VectorStoreStatus;
+  icon_url?: string;
 }
 
 export function createKnowledgeBase(data: {
@@ -74,6 +75,10 @@ export function createKnowledgeBase(data: {
     model_id?: string;
     description_language?: string;
     custom_instructions?: string;
+  };
+  ocr_config?: {
+    enabled: boolean;
+    model_id?: string;
   };
   storage_provider_config?: { provider: string };
   storage_config?: any; // legacy, kept for backward compat (dual-write)
@@ -133,6 +138,15 @@ export function updateKnowledgeBase(id: string, data: {
   }
 }) {
   return put(`/api/v1/knowledge-bases/${id}`, data);
+}
+
+export function uploadKnowledgeBaseIcon(file: Blob, kbId?: string) {
+  const formData = new FormData();
+  formData.append('image', file, 'knowledge-base-icon.png');
+  const path = kbId
+    ? `/api/v1/knowledge-bases/${kbId}/icon`
+    : '/api/v1/knowledge-bases/icon';
+  return postUpload(path, formData);
 }
 
 export interface KnowledgeBaseDirectoryNodePayload {
@@ -269,6 +283,7 @@ export function listKnowledgeFiles(
     file_type?: string;
     parse_status?: string;
     source?: string;
+    directory_path?: string;
     start_time?: string;
     end_time?: string;
   },
@@ -281,6 +296,7 @@ export function listKnowledgeFiles(
   if (params.file_type) query.append('file_type', params.file_type);
   if (params.parse_status) query.append('parse_status', params.parse_status);
   if (params.source) query.append('source', params.source);
+  if (params.directory_path) query.append('directory_path', params.directory_path);
   if (params.start_time) query.append('start_time', params.start_time);
   if (params.end_time) query.append('end_time', params.end_time);
   const qs = query.toString();

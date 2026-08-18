@@ -62,6 +62,16 @@ func TestCountByModelID_KnowledgeBase(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), count)
 
+	kb3 := makeKB(nil)
+	kb3.ID = uuid.New().String()
+	kb3.OCRConfig = types.OCRConfig{Enabled: true, ModelID: modelID}
+	require.NoError(t, db.Create(kb3).Error)
+
+	count, err = repo.CountByModelID(ctx, 1, modelID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), count)
+
+	require.NoError(t, db.Delete(kb3).Error)
 	require.NoError(t, db.Delete(kb2).Error)
 	count, err = repo.CountByModelID(ctx, 1, modelID)
 	require.NoError(t, err)

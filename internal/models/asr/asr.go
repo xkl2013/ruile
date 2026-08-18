@@ -2,11 +2,18 @@ package asr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
+
+var ErrNonRetryable = errors.New("non-retryable ASR error")
+
+func IsNonRetryable(err error) bool {
+	return errors.Is(err, ErrNonRetryable)
+}
 
 // Segment represents a transcribed segment with timestamps.
 type Segment struct {

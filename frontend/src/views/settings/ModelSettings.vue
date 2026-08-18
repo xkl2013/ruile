@@ -37,6 +37,7 @@
         :label="`${$t('modelSettings.typeShort.embedding')}(${countByType('embedding')})`" />
       <t-tab-panel value="rerank" :label="`${$t('modelSettings.typeShort.rerank')}(${countByType('rerank')})`" />
       <t-tab-panel value="vllm" :label="`${$t('modelSettings.typeShort.vllm')}(${countByType('vllm')})`" />
+      <t-tab-panel value="ocr" :label="`${$t('modelSettings.typeShort.ocr')}(${countByType('ocr')})`" />
       <t-tab-panel value="asr" :label="`${$t('modelSettings.typeShort.asr')}(${countByType('asr')})`" />
     </t-tabs>
 
@@ -147,7 +148,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const { t, te } = useI18n()
 const authStore = useAuthStore()
-type ModelType = 'chat' | 'embedding' | 'rerank' | 'vllm' | 'asr'
+type ModelType = 'chat' | 'embedding' | 'rerank' | 'vllm' | 'ocr' | 'asr'
 type FilterType = 'all' | ModelType
 
 const props = withDefaults(defineProps<{
@@ -172,6 +173,7 @@ const backendTypeToModelType: Record<string, ModelType> = {
   Embedding: 'embedding',
   Rerank: 'rerank',
   VLLM: 'vllm',
+  OCR: 'ocr',
   ASR: 'asr'
 }
 
@@ -226,6 +228,7 @@ const normalizeTypeFilter = (type?: string | null): FilterType => {
     embedding: 'embedding',
     rerank: 'rerank',
     vllm: 'vllm',
+    ocr: 'ocr',
     asr: 'asr',
   }
   return aliases[(type || '').toLowerCase()] || 'all'
@@ -249,6 +252,7 @@ const typeIcon = (type: ModelType): string => {
     embedding: 'chart-bubble',
     rerank: 'filter-sort',
     vllm: 'image',
+    ocr: 'file-search',
     asr: 'sound',
   }
   return map[type]
@@ -260,14 +264,15 @@ const typeLabel = (type: ModelType) => {
     embedding: t('modelSettings.typeShort.embedding'),
     rerank: t('modelSettings.typeShort.rerank'),
     vllm: t('modelSettings.typeShort.vllm'),
+    ocr: t('modelSettings.typeShort.ocr'),
     asr: t('modelSettings.typeShort.asr')
   }
   return map[type]
 }
 
 const sourceLabel = (type: ModelType) => {
-  // vllm / asr 的 remote 文案特殊，其余走通用 remote 文案
-  if (type === 'vllm' || type === 'asr') {
+  // vllm / ocr / asr 的 remote 文案特殊，其余走通用 remote 文案
+  if (type === 'vllm' || type === 'ocr' || type === 'asr') {
     return t('modelSettings.source.openaiCompatible')
   }
   return t('modelSettings.source.remote')
@@ -315,6 +320,7 @@ const emptyHint = computed(() => {
     embedding: t('modelSettings.embedding.empty'),
     rerank: t('modelSettings.rerank.empty'),
     vllm: t('modelSettings.vllm.empty'),
+    ocr: t('modelSettings.ocr.empty'),
     asr: t('modelSettings.asr.empty')
   }
   return map[activeTypeFilter.value as ModelType]
@@ -478,13 +484,13 @@ const handleModelSave = async (modelData: any) => {
             supports_dimension_override: modelData.supportsDimensionOverride ?? false
           }
         } : {}),
-        ...(saveType === 'vllm' ? {
+        ...(saveType === 'vllm' || saveType === 'ocr' ? {
           supports_vision: true
         } : saveType === 'chat' ? {
           supports_vision: modelData.supportsVision ?? false
         } : {}),
-        // 后台并发上限：仅 chat/embedding/vllm 受治理，>0 才写入（0/空沿用全局默认）。
-        ...(['chat', 'embedding', 'vllm'].includes(saveType)
+        // 后台并发上限：仅 chat/embedding/vllm/ocr 受治理，>0 才写入（0/空沿用全局默认）。
+        ...(['chat', 'embedding', 'vllm', 'ocr'].includes(saveType)
           && Number(modelData.maxConcurrency) > 0
           ? { max_concurrency: Number(modelData.maxConcurrency) }
           : {})
@@ -615,12 +621,13 @@ const copyModel = async (_type: ModelType, modelId: string) => {
 }
 
 // 获取后端模型类型
-function getModelType(type: ModelType): 'KnowledgeQA' | 'Embedding' | 'Rerank' | 'VLLM' | 'ASR' {
+function getModelType(type: ModelType): 'KnowledgeQA' | 'Embedding' | 'Rerank' | 'VLLM' | 'OCR' | 'ASR' {
   const typeMap = {
     chat: 'KnowledgeQA' as const,
     embedding: 'Embedding' as const,
     rerank: 'Rerank' as const,
     vllm: 'VLLM' as const,
+    ocr: 'OCR' as const,
     asr: 'ASR' as const
   }
   return typeMap[type]

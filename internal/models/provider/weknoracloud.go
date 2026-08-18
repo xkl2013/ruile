@@ -25,12 +25,14 @@ func (p *WeKnoraCloudProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   WeKnoraCloudBaseURL,
 			types.ModelTypeRerank:      WeKnoraCloudBaseURL,
 			types.ModelTypeVLLM:        WeKnoraCloudBaseURL,
+			types.ModelTypeOCR:         WeKnoraCloudBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

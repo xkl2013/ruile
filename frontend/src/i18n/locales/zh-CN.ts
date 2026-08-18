@@ -3195,6 +3195,7 @@ export default {
         embedding: "配置用于文本向量化的嵌入模型",
         rerank: "配置用于结果重排序的模型",
         vllm: "配置用于视觉理解和多模态的视觉语言模型",
+        ocr: "配置用于文档图片兜底识别的 OCR 模型",
         asr: "配置用于语音识别和音频转录的语音转文本模型",
         default: "配置模型信息",
       },
@@ -3203,6 +3204,7 @@ export default {
         remote: "例如：gpt-4, claude-3-opus",
         localVllm: "例如：llava:latest",
         remoteVllm: "例如：gpt-4-vision-preview",
+        remoteOcr: "例如：qwen-vl-ocr, gpt-4o-mini",
         remoteAsr: "例如：whisper-1",
       },
       baseUrlLabel: "Base URL",
@@ -3211,6 +3213,7 @@ export default {
       displayNameDesc: "仅用于界面展示，实际调用仍使用上面的模型名称。",
       baseUrlPlaceholder: "例如：https://api.openai.com/v1",
       baseUrlPlaceholderVllm: "例如：http://localhost:11434/v1",
+      baseUrlPlaceholderOcr: "例如：https://api.openai.com/v1",
       baseUrlPlaceholderAsr: "例如：https://api.openai.com/v1",
       apiKeyOptional: "API Key（可选）",
       apiKeyPlaceholder: "输入 API Key",
@@ -3285,6 +3288,7 @@ export default {
       downloadStartFailed: "启动下载失败",
       ollamaUnavailable: "Ollama服务不可用，无法选择本地模型",
       ollamaNotSupportRerank: "Ollama 不支持 ReRank 模型，请使用远程接口配置",
+      ollamaNotSupportOcr: "OCR 模型需要支持图片输入的 OpenAI 兼容接口，请使用远程接口配置",
       ollamaNotSupportAsr: "ASR 模型使用 OpenAI 兼容语音转写接口，请使用远程接口配置",
       goToOllamaSettings: "查看设置",
       validation: {
@@ -4125,6 +4129,7 @@ export default {
       embeddingRequired: "请选择 Embedding 模型",
       summaryRequired: "请选择 Summary 模型",
       multimodalInvalid: "多模态配置验证失败",
+      ocrInvalid: "请先选择 OCR 模型",
       createSuccess: "知识库创建成功",
       createFailed: "创建知识库失败",
       missingId: "缺少知识库 ID",
@@ -4360,6 +4365,13 @@ export default {
     multimodal: {
       title: "图像处理配置",
       description: "配置图像内容理解能力，启用后支持图片等非文本内容的解析和检索",
+    },
+    ocr: {
+      label: "启用 OCR 兜底",
+      desc: "当文档解析出的图片或扫描页需要抽取文字时，优先调用 OCR 模型；未配置时继续使用 VLM 兼容路径",
+      modelLabel: "OCR 模型",
+      modelDescription: "用于文档图片、扫描页、PPT 图片页文字识别的视觉 OCR 模型",
+      modelPlaceholder: "请选择 OCR 模型",
     },
     asr: {
       title: "音频语音识别",
@@ -4800,6 +4812,7 @@ export default {
       embedding: "Embedding",
       rerank: "ReRank",
       vllm: "视觉",
+      ocr: "OCR",
       asr: "语音/ASR",
     },
     actions: {
@@ -4832,6 +4845,11 @@ export default {
       title: "VLLM 视觉模型",
       desc: "配置用于视觉理解和多模态的视觉语言模型",
       empty: "暂无 VLLM 视觉模型",
+    },
+    ocr: {
+      title: "OCR 模型",
+      desc: "配置用于文档图片兜底识别的视觉 OCR 模型",
+      empty: "暂无 OCR 模型",
     },
     asr: {
       title: "ASR 语音模型",
@@ -4883,6 +4901,8 @@ export default {
       embeddingPlaceholder: "输入要生成 Embedding 的文本",
       vlmPrompt: "图片提示词",
       vlmPromptPlaceholder: "例如：请详细描述这张图片",
+      ocrPrompt: "OCR 提示词",
+      ocrPromptPlaceholder: "例如：请提取图片中的文字，保留表格结构",
       documents: "候选文档",
       documentsPlaceholder: "每行输入一个候选文档",
       documentsHint: "每个非空行会作为一个独立文档发送给 ReRank 模型",

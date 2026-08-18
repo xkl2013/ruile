@@ -172,6 +172,55 @@ func TestApplyKnowledgeListFilter_TagIDsOrSemantics(t *testing.T) {
 	assert.ElementsMatch(t, []string{docA, docB, docC}, ids)
 }
 
+func TestApplyKnowledgeListFilter_DirectoryPathIncludesDescendants(t *testing.T) {
+	db := setupKnowledgeTagTestDB(t)
+	ctx := context.Background()
+
+	kbID := uuid.New().String()
+	directDoc := uuid.New().String()
+	nestedDoc := uuid.New().String()
+	siblingPrefixDoc := uuid.New().String()
+	otherDoc := uuid.New().String()
+	wildcardDoc := uuid.New().String()
+	wildcardOtherDoc := uuid.New().String()
+
+	for _, row := range []struct {
+		id       string
+		fileName string
+	}{
+		{directDoc, "parents/handbook/a.pdf"},
+		{nestedDoc, "parents/handbook/child/b.pdf"},
+		{siblingPrefixDoc, "parents/handbook-extra/c.pdf"},
+		{otherDoc, "parents/other/d.pdf"},
+		{wildcardDoc, "literal_100%/child/e.pdf"},
+		{wildcardOtherDoc, "literalX100Z/child/f.pdf"},
+	} {
+		require.NoError(t, db.Exec(`
+			INSERT INTO knowledges (id, tenant_id, knowledge_base_id, type, title, file_name, parse_status)
+			VALUES (?, 1, ?, 'file', ?, ?, 'completed')
+		`, row.id, kbID, row.fileName, row.fileName).Error)
+	}
+
+	query := db.WithContext(ctx).Model(&types.Knowledge{}).
+		Where("tenant_id = ? AND knowledge_base_id = ?", uint64(1), kbID)
+	query = applyKnowledgeListFilter(query, types.KnowledgeListFilter{
+		DirectoryPath: "parents/handbook",
+	})
+
+	var ids []string
+	require.NoError(t, query.Pluck("id", &ids).Error)
+	assert.ElementsMatch(t, []string{directDoc, nestedDoc}, ids)
+
+	ids = nil
+	query = db.WithContext(ctx).Model(&types.Knowledge{}).
+		Where("tenant_id = ? AND knowledge_base_id = ?", uint64(1), kbID)
+	query = applyKnowledgeListFilter(query, types.KnowledgeListFilter{
+		DirectoryPath: "literal_100%/child",
+	})
+	require.NoError(t, query.Pluck("id", &ids).Error)
+	assert.ElementsMatch(t, []string{wildcardDoc}, ids)
+}
+
 func TestBatchCountReferences_ScopedToKnowledgeBase(t *testing.T) {
 	db := setupKnowledgeTagTestDB(t)
 	knowledgeRepo := &knowledgeRepository{db: db}

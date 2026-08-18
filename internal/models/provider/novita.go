@@ -28,11 +28,13 @@ func (p *NovitaProvider) Info() ProviderInfo {
 			types.ModelTypeKnowledgeQA: NovitaOpenAIBaseURL,
 			types.ModelTypeEmbedding:   NovitaOpenAIBaseURL,
 			types.ModelTypeVLLM:        NovitaOpenAIBaseURL,
+			types.ModelTypeOCR:         NovitaOpenAIBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

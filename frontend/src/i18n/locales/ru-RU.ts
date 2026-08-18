@@ -2870,6 +2870,7 @@ export default {
         embedding: 'Настройте модель встраивания для текстовой векторизации',
         rerank: 'Настройте модель для повторного ранжирования результатов',
         vllm: 'Настройте визуально-языковую модель для мультимодального понимания',
+        ocr: 'Настройте OCR-модель для резервного распознавания изображений в документах',
         asr: 'Настройте модель распознавания речи для транскрибации аудио',
         default: 'Настройте информацию о модели'
       },
@@ -2878,6 +2879,7 @@ export default {
         remote: 'например: gpt-4, claude-3-opus',
         localVllm: 'например: llava:latest',
         remoteVllm: 'например: gpt-4-vision-preview',
+        remoteOcr: 'например: qwen-vl-ocr, gpt-4o-mini',
         remoteAsr: 'например: whisper-1'
       },
       baseUrlLabel: 'Base URL',
@@ -2886,6 +2888,7 @@ export default {
       displayNameDesc: 'Используется только в интерфейсе. Для вызовов по-прежнему используется имя модели выше.',
       baseUrlPlaceholder: 'например: https://api.openai.com/v1',
       baseUrlPlaceholderVllm: 'например: http://localhost:11434/v1',
+      baseUrlPlaceholderOcr: 'например: https://api.openai.com/v1',
       baseUrlPlaceholderAsr: 'например: https://api.openai.com/v1',
       apiKeyOptional: 'API Key (опционально)',
       apiKeyPlaceholder: 'Введите API Key',
@@ -2949,6 +2952,7 @@ export default {
       downloadStartFailed: 'Не удалось запустить загрузку',
       ollamaUnavailable: 'Сервис Ollama недоступен, локальные модели недоступны для выбора',
       ollamaNotSupportRerank: 'Ollama не поддерживает модели ReRank, используйте удалённый API',
+      ollamaNotSupportOcr: 'OCR-моделям нужен OpenAI-совместимый API с поддержкой изображений, используйте удалённый API',
       ollamaNotSupportAsr: 'Модели ASR используют OpenAI-совместимый API транскрибации, используйте удалённый API',
       goToOllamaSettings: 'Открыть настройки',
       validation: {
@@ -3563,6 +3567,7 @@ export default {
       embeddingRequired: 'Пожалуйста, выберите модель встраивания',
       summaryRequired: 'Пожалуйста, выберите модель суммаризации',
       multimodalInvalid: 'Проверка мультимодальной конфигурации не удалась',
+      ocrInvalid: 'Выберите OCR модель',
       createSuccess: 'База знаний успешно создана',
       createFailed: 'Не удалось создать базу знаний',
       missingId: 'Отсутствует ID базы знаний',
@@ -3798,6 +3803,13 @@ export default {
     multimodal: {
       title: 'Обработка изображений',
       description: 'Настройте понимание изображений для парсинга и поиска нетекстового контента',
+    },
+    ocr: {
+      label: 'Включить резервный OCR',
+      desc: 'Если изображения или сканированные страницы требуют извлечения текста, сначала используется OCR; без OCR сохраняется VLM-совместимый путь.',
+      modelLabel: 'OCR модель',
+      modelDescription: 'Визуальная OCR-модель для изображений документов, сканов и страниц PPT',
+      modelPlaceholder: 'Выберите OCR модель',
     },
     asr: {
       title: 'Распознавание речи для аудио',
@@ -4448,6 +4460,7 @@ export default {
       embedding: 'Embedding',
       rerank: 'ReRank',
       vllm: 'Зрение',
+      ocr: 'OCR',
       asr: 'Речь/ASR',
     },
     actions: {
@@ -4480,6 +4493,11 @@ export default {
       title: 'VLLM модели зрения',
       desc: 'Визуально-языковые модели для мультимодального понимания',
       empty: 'Нет VLLM моделей'
+    },
+    ocr: {
+      title: 'OCR модели',
+      desc: 'Модели OCR для резервного распознавания изображений в документах',
+      empty: 'Нет OCR моделей'
     },
     asr: {
       title: 'ASR модели речи',
@@ -4531,6 +4549,8 @@ export default {
       embeddingPlaceholder: 'Введите текст для создания embedding',
       vlmPrompt: 'Промпт для изображения',
       vlmPromptPlaceholder: 'Например: подробно опишите это изображение',
+      ocrPrompt: 'OCR промпт',
+      ocrPromptPlaceholder: 'Например: извлеките текст с изображения и сохраните структуру таблицы',
       documents: 'Кандидаты документов',
       documentsPlaceholder: 'Введите один документ на строку',
       documentsHint: 'Каждая непустая строка отправляется в модель ReRank как отдельный документ',

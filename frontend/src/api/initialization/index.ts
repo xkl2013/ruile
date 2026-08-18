@@ -67,6 +67,13 @@ export interface InitializationConfig {
             pathPrefix?: string;
         };
     };
+    ocr?: {
+        enabled: boolean;
+        modelId?: string;
+        modelName?: string;
+        baseUrl?: string;
+        credentials?: ModelCredentialStatus;
+    };
     documentSplitting: {
         chunkSize: number;
         chunkOverlap: number;
@@ -111,6 +118,10 @@ export interface KBModelConfigRequest {
         model_id?: string
         description_language?: string
         custom_instructions?: string
+    }
+    ocr_config?: {
+        enabled: boolean
+        model_id?: string
     }
     asr_config?: {
         enabled: boolean
@@ -396,6 +407,29 @@ export function checkASRModel(modelConfig: {
             })
             .catch((error: any) => {
                 console.error('Failed to check ASR model:', error);
+                reject(error);
+            });
+    });
+}
+
+// 检查 OCR 模型连接（发送小图片验证图像输入链路）
+export function checkOCRModel(modelConfig: {
+    modelName: string;
+    baseUrl: string;
+    apiKey?: string;
+    provider?: string;
+    modelId?: string;
+} & BaseModelTestPayload): Promise<{
+    available: boolean;
+    message?: string;
+}> {
+    return new Promise((resolve, reject) => {
+        post('/api/v1/initialization/ocr/check', modelConfig)
+            .then((response: any) => {
+                resolve(response.data || {});
+            })
+            .catch((error: any) => {
+                console.error('Failed to check OCR model:', error);
                 reject(error);
             });
     });

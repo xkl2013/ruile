@@ -28,6 +28,7 @@ func (p *SiliconFlowProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   SiliconFlowBaseURL,
 			types.ModelTypeRerank:      SiliconFlowBaseURL,
 			types.ModelTypeVLLM:        SiliconFlowBaseURL,
+			types.ModelTypeOCR:         SiliconFlowBaseURL,
 			types.ModelTypeASR:         SiliconFlowBaseURL,
 		},
 		ModelTypes: []types.ModelType{
@@ -35,6 +36,7 @@ func (p *SiliconFlowProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 			types.ModelTypeASR,
 		},
 		RequiresAuth: true,

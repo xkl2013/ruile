@@ -410,6 +410,7 @@ func TestDuplicateKnowledgeBase_CreatesSettingsOnlyDuplicate(t *testing.T) {
 		EmbeddingModelID:      "embed-1",
 		SummaryModelID:        "summary-1",
 		VLMConfig:             types.VLMConfig{Enabled: true, ModelID: "vlm-1"},
+		OCRConfig:             types.OCRConfig{Enabled: true, ModelID: "ocr-1"},
 		ASRConfig:             types.ASRConfig{Enabled: true, ModelID: "asr-1", Language: "zh"},
 		StorageProviderConfig: &types.StorageProviderConfig{Provider: "local"},
 		ExtractConfig: &types.ExtractConfig{
@@ -451,6 +452,7 @@ func TestDuplicateKnowledgeBase_CreatesSettingsOnlyDuplicate(t *testing.T) {
 	assert.Equal(t, source.EmbeddingModelID, target.EmbeddingModelID)
 	assert.Equal(t, source.SummaryModelID, target.SummaryModelID)
 	assert.Equal(t, source.VLMConfig, target.VLMConfig)
+	assert.Equal(t, source.OCRConfig, target.OCRConfig)
 	assert.Equal(t, source.ASRConfig, target.ASRConfig)
 	require.NotNil(t, target.StorageProviderConfig)
 	assert.Equal(t, "local", target.StorageProviderConfig.Provider)

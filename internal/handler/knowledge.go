@@ -943,6 +943,7 @@ func buildSpanTree(knowledgeID string, attempt int, rows []types.KnowledgeProces
 // @Param        file_type     query     string  false  "文件类型筛选"
 // @Param        parse_status  query     string  false  "解析状态筛选 (pending/processing/completed/failed)"
 // @Param        source        query     string  false  "来源/渠道筛选 (web/api/feishu/notion/yuque/wechat/...，或 manual/url 按 type 过滤)"
+// @Param        directory_path query     string  false  "目录路径筛选，返回该目录及子目录下的文档"
 // @Param        start_time    query     string  false  "更新时间起点，RFC3339 格式"
 // @Param        end_time      query     string  false  "更新时间终点，RFC3339 格式"
 // @Success      200        {object}  map[string]interface{}  "知识列表"
@@ -973,12 +974,19 @@ func (h *KnowledgeHandler) ListKnowledge(c *gin.Context) {
 		return
 	}
 
+	directoryPath, err := normalizeDirectoryQueryPath(c.Query("directory_path"))
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+
 	filter := types.KnowledgeListFilter{
-		TagIDs:      parseCommaSeparatedTagIDs(c.Query("tag_ids")),
-		Keyword:     c.Query("keyword"),
-		FileType:    c.Query("file_type"),
-		ParseStatus: c.Query("parse_status"),
-		Source:      c.Query("source"),
+		TagIDs:        parseCommaSeparatedTagIDs(c.Query("tag_ids")),
+		Keyword:       c.Query("keyword"),
+		FileType:      c.Query("file_type"),
+		ParseStatus:   c.Query("parse_status"),
+		Source:        c.Query("source"),
+		DirectoryPath: directoryPath,
 	}
 	if raw := c.Query("start_time"); raw != "" {
 		t, err := parseFilterTime(raw)
@@ -999,13 +1007,14 @@ func (h *KnowledgeHandler) ListKnowledge(c *gin.Context) {
 
 	logger.Infof(
 		ctx,
-		"Retrieving knowledge list under knowledge base, kb_id=%s tag_ids=%s keyword=%s file_type=%s parse_status=%s source=%s start_time=%s end_time=%s page=%d page_size=%d effectiveTenantID=%d",
+		"Retrieving knowledge list under knowledge base, kb_id=%s tag_ids=%s keyword=%s file_type=%s parse_status=%s source=%s directory_path=%s start_time=%s end_time=%s page=%d page_size=%d effectiveTenantID=%d",
 		secutils.SanitizeForLog(kbID),
 		secutils.SanitizeForLog(strings.Join(filter.TagIDs, ",")),
 		secutils.SanitizeForLog(filter.Keyword),
 		secutils.SanitizeForLog(filter.FileType),
 		secutils.SanitizeForLog(filter.ParseStatus),
 		secutils.SanitizeForLog(filter.Source),
+		secutils.SanitizeForLog(filter.DirectoryPath),
 		secutils.SanitizeForLog(c.Query("start_time")),
 		secutils.SanitizeForLog(c.Query("end_time")),
 		pagination.Page,
@@ -2372,6 +2381,28 @@ func parseCommaSeparatedTagIDs(raw string) []string {
 		result = append(result, p)
 	}
 	return result
+}
+
+func normalizeDirectoryQueryPath(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+
+	parts := strings.Split(strings.ReplaceAll(raw, "\\", "/"), "/")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		switch part {
+		case "":
+			continue
+		case ".", "..":
+			return "", fmt.Errorf("directory_path contains invalid segment %q", part)
+		default:
+			normalized = append(normalized, part)
+		}
+	}
+	return strings.Join(normalized, "/"), nil
 }
 
 // parseFilterTime parses a query-string timestamp accepted by knowledge list

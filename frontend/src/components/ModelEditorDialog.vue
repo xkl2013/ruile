@@ -313,7 +313,7 @@
       </template>
 
       <!-- Section 3 — 高级选项（仅在有内容时渲染，避免空 section 出现底部分隔线） -->
-      <section v-if="['embedding', 'chat', 'vllm'].includes(activeModelType)" class="setting-drawer__section">
+      <section v-if="['embedding', 'chat', 'vllm', 'ocr'].includes(activeModelType)" class="setting-drawer__section">
         <h4 class="setting-drawer__section-title">{{ $t('model.editor.sectionAdvanced') }}</h4>
 
         <!-- Embedding 专用：维度 -->
@@ -378,7 +378,7 @@
         </div>
 
         <!--
-          Background concurrency cap for this model. Only chat / embedding / vllm
+          Background concurrency cap for this model. Only chat / embedding / vllm / ocr
           are gated by the governor (see internal/models/limiter), so we surface
           it just for those three. 0 = fall back to the global default.
         -->
@@ -397,7 +397,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted, nextTick } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { checkOllamaModels, checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, listOllamaModels, downloadOllamaModel, getDownloadProgress, checkOllamaStatus, listModelProviders, type OllamaModelInfo, type ModelProviderOption } from '@/api/initialization'
+import { checkOllamaModels, checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, checkOCRModel, listOllamaModels, downloadOllamaModel, getDownloadProgress, checkOllamaStatus, listModelProviders, type OllamaModelInfo, type ModelProviderOption } from '@/api/initialization'
 import {
   getWeKnoraCloudStatus,
   putModelCredentials,
@@ -437,7 +437,7 @@ interface ModelFormData {
   interfaceType?: 'ollama' | 'openai'
   isDefault: boolean
   supportsVision?: boolean
-  /** 后台任务对该模型的并发上限；0/undefined 表示沿用全局默认。仅 chat/embedding/vllm 生效。 */
+  /** 后台任务对该模型的并发上限；0/undefined 表示沿用全局默认。仅 chat/embedding/vllm/ocr 生效。 */
   maxConcurrency?: number
   /** extra_config.thinking_control — how agent thinking on/off maps to API fields. */
   thinkingControl?: string
@@ -449,7 +449,7 @@ interface ModelFormData {
   lkeapRegion?: string
 }
 
-type EditorModelType = 'chat' | 'embedding' | 'rerank' | 'vllm' | 'asr'
+type EditorModelType = 'chat' | 'embedding' | 'rerank' | 'vllm' | 'ocr' | 'asr'
 
 interface Props {
   visible: boolean
@@ -483,6 +483,7 @@ const modelTypeChoices = computed(() => ([
   { value: 'embedding' as const, label: t('modelSettings.typeShort.embedding'), icon: 'chart-bubble' },
   { value: 'rerank' as const, label: t('modelSettings.typeShort.rerank'), icon: 'filter-sort' },
   { value: 'vllm' as const, label: t('modelSettings.typeShort.vllm'), icon: 'image' },
+  { value: 'ocr' as const, label: t('modelSettings.typeShort.ocr'), icon: 'file-search' },
   { value: 'asr' as const, label: t('modelSettings.typeShort.asr'), icon: 'sound' },
 ]))
 
@@ -500,10 +501,11 @@ const fallbackProviderOptions = computed(() => [
       embedding: 'https://api.openai.com/v1',
       rerank: 'https://api.openai.com/v1',
       vllm: 'https://api.openai.com/v1',
+      ocr: 'https://api.openai.com/v1',
       asr: 'https://api.openai.com/v1'
     },
     description: t('model.editor.providers.openai.description'),
-    modelTypes: ['chat', 'embedding', 'vllm', 'asr']
+    modelTypes: ['chat', 'embedding', 'vllm', 'ocr', 'asr']
   },
   {
     value: 'azure_openai',
@@ -512,10 +514,11 @@ const fallbackProviderOptions = computed(() => [
       chat: 'https://{resource}.openai.azure.com',
       embedding: 'https://{resource}.openai.azure.com',
       vllm: 'https://{resource}.openai.azure.com',
+      ocr: 'https://{resource}.openai.azure.com',
       asr: 'https://{resource}.openai.azure.com'
     },
     description: t('model.editor.providers.azure_openai.description'),
-    modelTypes: ['chat', 'embedding', 'vllm', 'asr']
+    modelTypes: ['chat', 'embedding', 'vllm', 'ocr', 'asr']
   },
   {
     value: 'aliyun',
@@ -525,10 +528,11 @@ const fallbackProviderOptions = computed(() => [
       embedding: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       rerank: 'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank',
       vllm: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ocr: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       asr: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     },
     description: t('model.editor.providers.aliyun.description'),
-    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'ocr', 'asr']
   },
   {
     value: 'zhipu',
@@ -536,30 +540,35 @@ const fallbackProviderOptions = computed(() => [
     defaultUrls: {
       chat: 'https://open.bigmodel.cn/api/paas/v4',
       embedding: 'https://open.bigmodel.cn/api/paas/v4/embeddings',
-      vllm: 'https://open.bigmodel.cn/api/paas/v4'
+      vllm: 'https://open.bigmodel.cn/api/paas/v4',
+      ocr: 'https://open.bigmodel.cn/api/paas/v4'
     },
     description: t('model.editor.providers.zhipu.description'),
-    modelTypes: ['chat', 'embedding', 'vllm']
+    modelTypes: ['chat', 'embedding', 'vllm', 'ocr']
   },
   {
     value: 'openrouter',
     label: t('model.editor.providers.openrouter.label'),
     defaultUrls: {
       chat: 'https://openrouter.ai/api/v1',
-      embedding: 'https://openrouter.ai/api/v1'
+      embedding: 'https://openrouter.ai/api/v1',
+      vllm: 'https://openrouter.ai/api/v1',
+      ocr: 'https://openrouter.ai/api/v1'
     },
     description: t('model.editor.providers.openrouter.description'),
-    modelTypes: ['chat', 'embedding']
+    modelTypes: ['chat', 'embedding', 'vllm', 'ocr']
   },
   {
     value: 'requesty',
     label: t('model.editor.providers.requesty.label'),
     defaultUrls: {
       chat: 'https://router.requesty.ai/v1',
-      embedding: 'https://router.requesty.ai/v1'
+      embedding: 'https://router.requesty.ai/v1',
+      vllm: 'https://router.requesty.ai/v1',
+      ocr: 'https://router.requesty.ai/v1'
     },
     description: t('model.editor.providers.requesty.description'),
-    modelTypes: ['chat', 'embedding']
+    modelTypes: ['chat', 'embedding', 'vllm', 'ocr']
   },
   {
     value: 'gemini',
@@ -600,9 +609,10 @@ const fallbackProviderOptions = computed(() => [
       embedding: 'https://integrate.api.nvidia.com/v1',
       rerank: 'https://ai.api.nvidia.com/v1/retrieval/nvidia/reranking',
       vllm: 'https://integrate.api.nvidia.com/v1',
+      ocr: 'https://integrate.api.nvidia.com/v1',
     },
     description: t('model.editor.providers.nvidia.description'),
-    modelTypes: ['chat', 'embedding', 'rerank', 'vllm']
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'ocr']
   },
   {
     value: 'novita',
@@ -611,16 +621,17 @@ const fallbackProviderOptions = computed(() => [
       chat: 'https://api.novita.ai/openai/v1',
       embedding: 'https://api.novita.ai/openai/v1',
       vllm: 'https://api.novita.ai/openai/v1',
+      ocr: 'https://api.novita.ai/openai/v1',
     },
     description: t('model.editor.providers.novita.description'),
-    modelTypes: ['chat', 'embedding', 'vllm']
+    modelTypes: ['chat', 'embedding', 'vllm', 'ocr']
   },
   {
     value: 'generic',
     label: t('model.editor.providers.generic.label'),
     defaultUrls: {},
     description: t('model.editor.providers.generic.description'),
-    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'asr']
+    modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'ocr', 'asr']
   },
 ])
 
@@ -720,6 +731,7 @@ const modelTypeIcon = computed(() => {
     embedding: 'chart-bubble',
     rerank: 'filter-sort',
     vllm: 'image',
+    ocr: 'file-search',
     asr: 'sound',
   }
   return map[activeModelType.value] || 'setting'
@@ -729,7 +741,7 @@ const isLkeapRerank = computed(
   () => activeModelType.value === 'rerank' && formData.value.provider === 'lkeap',
 )
 
-const isLocalSourceSupported = computed(() => !['rerank', 'asr'].includes(activeModelType.value))
+const isLocalSourceSupported = computed(() => !['rerank', 'asr', 'ocr'].includes(activeModelType.value))
 
 const isLocalSourceSelectable = computed(() =>
   isLocalSourceSupported.value && ollamaServiceStatus.value !== false,
@@ -738,6 +750,8 @@ const isLocalSourceSelectable = computed(() =>
 const localSourceUnavailableKey = computed(() =>
   activeModelType.value === 'asr'
     ? 'model.editor.ollamaNotSupportAsr'
+    : activeModelType.value === 'ocr'
+      ? 'model.editor.ollamaNotSupportOcr'
     : 'model.editor.ollamaNotSupportRerank',
 )
 
@@ -920,6 +934,9 @@ const getModelNamePlaceholder = () => {
   if (activeModelType.value === 'asr') {
     return t('model.editor.modelNamePlaceholder.remoteAsr')
   }
+  if (activeModelType.value === 'ocr') {
+    return t('model.editor.modelNamePlaceholder.remoteOcr')
+  }
   return formData.value.source === 'local'
     ? t('model.editor.modelNamePlaceholder.local')
     : t('model.editor.modelNamePlaceholder.remote')
@@ -931,6 +948,9 @@ const getBaseUrlPlaceholder = () => {
   }
   if (activeModelType.value === 'asr') {
     return t('model.editor.baseUrlPlaceholderAsr')
+  }
+  if (activeModelType.value === 'ocr') {
+    return t('model.editor.baseUrlPlaceholderOcr')
   }
   return t('model.editor.baseUrlPlaceholder')
 }
@@ -1059,7 +1079,7 @@ watch(() => props.visible, (val) => {
 
       lastOpenedModelId.value = currentId
 
-      // ReRank / ASR 模型强制使用 remote 来源（后端没有 Ollama 实现）
+  // ReRank / OCR / ASR 模型强制使用 remote 来源（后端没有 Ollama 实现）
       if (!isLocalSourceSupported.value) {
         formData.value.source = 'remote'
       }
@@ -1414,6 +1434,18 @@ const checkRemoteAPI = async () => {
         // VLLM 模型（多模态）
         // VLLM 使用 checkRemoteModel 进行基础连接测试
         result = await checkRemoteModel({
+          modelName: formData.value.modelName,
+          baseUrl: formData.value.baseUrl || '',
+          apiKey: formData.value.apiKey || '',
+          provider: formData.value.provider,
+          ...idPayload,
+          ...headerPayload,
+        })
+        break
+
+      case 'ocr':
+        // OCR 模型（图像文字抽取）— 使用专用图片输入测试接口
+        result = await checkOCRModel({
           modelName: formData.value.modelName,
           baseUrl: formData.value.baseUrl || '',
           apiKey: formData.value.apiKey || '',

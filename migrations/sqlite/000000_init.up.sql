@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     cos_config TEXT NOT NULL DEFAULT '{}',
     storage_provider_config TEXT DEFAULT NULL,
     vlm_config TEXT NOT NULL DEFAULT '{}',
+    ocr_config TEXT NOT NULL DEFAULT '{}',
     extract_config TEXT NULL DEFAULT NULL,
     faq_config TEXT,
     question_generation_config TEXT NULL,

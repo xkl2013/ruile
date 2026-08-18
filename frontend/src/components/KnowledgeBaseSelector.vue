@@ -31,7 +31,7 @@
                 <path d="M10 3L4.5 8.5L2 6" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </div>
-            <KnowledgeBaseIcon :icon="kb.icon" :type="kb.type" size="small" class="kb-selector-icon" />
+            <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-selector-icon" />
             <div class="kb-name-wrap">
               <span class="kb-name">{{ kb.name }}</span>
               <span class="kb-docs">({{ kb.type === 'faq' ? (kb.chunk_count || 0) : (kb.knowledge_count || 0) }})</span>
@@ -65,6 +65,7 @@ interface KnowledgeBase {
   id: string
   name: string
   icon?: string
+  icon_url?: string
   type?: 'document' | 'faq'
   knowledge_count?: number
   chunk_count?: number

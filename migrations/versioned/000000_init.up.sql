@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     rerank_model_id VARCHAR(64) NOT NULL,
     cos_config JSONB NOT NULL DEFAULT '{}',
     vlm_config JSONB NOT NULL DEFAULT '{}',
+    ocr_config JSONB NOT NULL DEFAULT '{}',
     extract_config JSONB NULL DEFAULT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

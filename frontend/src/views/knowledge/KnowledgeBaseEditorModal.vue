@@ -74,7 +74,12 @@
                             :aria-label="$t('knowledgeEditor.basic.icon')"
                             :title="$t('knowledgeEditor.basic.icon')"
                           >
-                            <KnowledgeBaseIcon :icon="formData.icon" :type="formData.type" size="large" />
+                            <KnowledgeBaseIcon
+                              :icon="formData.icon"
+                              :icon-url="formData.iconUrl"
+                              :type="formData.type"
+                              size="large"
+                            />
                             <t-icon name="chevron-down" size="16px" class="kb-icon-trigger-arrow" />
                           </button>
                           <template #content>
@@ -90,6 +95,7 @@
                                 <KnowledgeBaseIcon
                                   v-if="isUploadedKnowledgeBaseIcon"
                                   :icon="formData.icon"
+                                  :icon-url="formData.iconUrl"
                                   :type="formData.type"
                                   size="large"
                                 />
@@ -401,6 +407,38 @@
                             :maxlength="4000" :autosize="{ minRows: 3, maxRows: 8 }" />
                         </div>
                       </div>
+
+                      <!-- OCR 兜底配置 -->
+                      <div class="setting-row" data-guide="kb-create-ocr-fallback">
+                        <div class="setting-info">
+                          <label>{{ $t('knowledgeEditor.ocr.label') }}</label>
+                          <p class="desc">{{ $t('knowledgeEditor.ocr.desc') }}</p>
+                        </div>
+                        <div class="setting-control">
+                          <t-switch
+                            v-model="formData.ocrConfig.enabled"
+                            @change="handleOCRToggle"
+                            size="medium"
+                          />
+                        </div>
+                      </div>
+
+                      <div v-if="formData.ocrConfig.enabled" class="setting-row">
+                        <div class="setting-info">
+                          <label>{{ $t('knowledgeEditor.ocr.modelLabel') }} <span class="required">*</span></label>
+                          <p class="desc">{{ $t('knowledgeEditor.ocr.modelDescription') }}</p>
+                        </div>
+                        <div class="setting-control">
+                          <ModelSelector
+                            model-type="OCR"
+                            :selected-model-id="formData.ocrConfig.modelId"
+                            :all-models="allModels"
+                            @update:selected-model-id="(val: string) => { if (formData) formData.ocrConfig.modelId = val }"
+                            @add-model="handleAddOCRModel"
+                            :placeholder="$t('knowledgeEditor.ocr.modelPlaceholder')"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -510,7 +548,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import KbCreateContextualGuide from '@/components/KbCreateContextualGuide.vue'
 import { KB_EDITOR_FOCUS_SECTION_EVENT, markContextualGuideDone } from '@/config/contextualGuides'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { createKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase, rebuildKBIndex } from '@/api/knowledge-base'
+import { createKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase, rebuildKBIndex, uploadKnowledgeBaseIcon } from '@/api/knowledge-base'
 import { updateKBConfig, type KBModelConfigRequest } from '@/api/initialization'
 import { type ModelConfig } from '@/api/model'
 import { useChatResourcesStore } from '@/stores/chatResources'
@@ -518,6 +556,7 @@ import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import {
+  cloneDefaultParserEngineRules,
   createDefaultKnowledgeBaseFormData,
   DEFAULT_KB_CHUNKING_PRESET,
   WIKI_ONLY_KB_CHUNKING_PRESET,
@@ -735,6 +774,7 @@ const applyDefaultCreateConfig = () => {
   formData.value.storageProvider = tenantDefaultStorageProvider.value
   if (!formData.value.icon) {
     formData.value.icon = getDefaultKnowledgeBaseIcon(formData.value.type)
+    formData.value.iconUrl = ''
   }
 }
 
@@ -746,6 +786,7 @@ watch(
     const prevType = oldType === 'faq' ? 'faq' : 'document'
     if (props.mode === 'create' && (!iconCustomized.value || formData.value.icon === getDefaultKnowledgeBaseIcon(prevType))) {
       formData.value.icon = getDefaultKnowledgeBaseIcon(nextType)
+      formData.value.iconUrl = ''
       iconCustomized.value = false
     }
     if (newType === 'faq') {
@@ -796,12 +837,16 @@ const loadKBData = async () => {
     const kb = kbInfo.data
     hasFiles.value = (filesResult as any)?.total > 0
     kbCreatorId.value = (kb as any).creator_id || ''
+    const parserEngineRules = kb.chunking_config?.parser_engine_rules?.length
+      ? kb.chunking_config.parser_engine_rules
+      : cloneDefaultParserEngineRules()
 
     // 设置表单数据
     const kbType = (kb.type as 'document' | 'faq') || 'document'
     formData.value = {
       type: kbType,
       icon: kb.icon || getDefaultKnowledgeBaseIcon(kbType),
+      iconUrl: kb.icon_url || '',
       name: kb.name || '',
       description: kb.description || '',
       faqConfig: {
@@ -819,7 +864,7 @@ const loadKBData = async () => {
         // Aligned with chunker.DefaultChunkOverlap on the backend.
         chunkOverlap: kb.chunking_config?.chunk_overlap || 80,
         separators: kb.chunking_config?.separators || ['\n\n', '\n', '。', '！', '？', ';', '；'],
-        parserEngineRules: kb.chunking_config?.parser_engine_rules || undefined,
+        parserEngineRules,
         enableParentChild: kb.chunking_config?.enable_parent_child || false,
         parentChunkSize: kb.chunking_config?.parent_chunk_size || 4096,
         childChunkSize: kb.chunking_config?.child_chunk_size || 384,
@@ -837,6 +882,10 @@ const loadKBData = async () => {
         vllmModelId: kb.vlm_config?.model_id || '',
         descriptionLanguage: kb.vlm_config?.description_language || '',
         customInstructions: kb.vlm_config?.custom_instructions || ''
+      },
+      ocrConfig: {
+        enabled: !!kb.ocr_config?.enabled,
+        modelId: kb.ocr_config?.model_id || ''
       },
       asrConfig: {
         enabled: !!kb.asr_config?.enabled,
@@ -1009,6 +1058,16 @@ const handleAddVLLMModel = () => {
   uiStore.openSettings('models', 'vllm')
 }
 
+const handleOCRToggle = () => {
+  if (formData.value && !formData.value.ocrConfig.enabled) {
+    formData.value.ocrConfig.modelId = ''
+  }
+}
+
+const handleAddOCRModel = () => {
+  uiStore.openSettings('models', 'ocr')
+}
+
 const handleAddASRModel = () => {
   uiStore.openSettings('models', 'asr')
 }
@@ -1077,6 +1136,7 @@ const handleNodeExtractUpdate = (config: any) => {
 const selectKnowledgeBaseIcon = (icon: string) => {
   if (!formData.value) return
   formData.value.icon = icon
+  formData.value.iconUrl = ''
   iconCustomized.value = icon !== getDefaultKnowledgeBaseIcon(formData.value.type)
   iconPickerVisible.value = false
 }
@@ -1101,8 +1161,17 @@ const handleKnowledgeBaseIconFileChange = async (event: Event) => {
   }
 
   try {
-    const dataUrl = await resizeKnowledgeBaseIconImage(file)
-    formData.value.icon = `image:${dataUrl}`
+    const imageBlob = await resizeKnowledgeBaseIconImage(file)
+    const response: any = await uploadKnowledgeBaseIcon(
+      imageBlob,
+      props.mode === 'edit' ? props.kbId : undefined,
+    )
+    const result = response?.data || response
+    if (!result?.icon) {
+      throw new Error('missing uploaded icon path')
+    }
+    formData.value.icon = result.icon
+    formData.value.iconUrl = result.url || ''
     iconCustomized.value = true
     iconPickerVisible.value = false
   } catch (error) {
@@ -1111,7 +1180,7 @@ const handleKnowledgeBaseIconFileChange = async (event: Event) => {
   }
 }
 
-const resizeKnowledgeBaseIconImage = (file: File): Promise<string> => {
+const resizeKnowledgeBaseIconImage = (file: File): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const image = new Image()
     const url = URL.createObjectURL(file)
@@ -1149,7 +1218,13 @@ const resizeKnowledgeBaseIconImage = (file: File): Promise<string> => {
           KB_ICON_IMAGE_SIZE,
           KB_ICON_IMAGE_SIZE,
         )
-        resolve(canvas.toDataURL('image/png'))
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error('failed to encode image'))
+            return
+          }
+          resolve(blob)
+        }, 'image/png')
       } catch (error) {
         reject(error)
       } finally {
@@ -1212,6 +1287,12 @@ const validateForm = (): boolean => {
     return false
   }
 
+  if (formData.value.ocrConfig.enabled && !formData.value.ocrConfig.modelId) {
+    MessagePlugin.warning(t('knowledgeEditor.messages.ocrInvalid'))
+    currentSection.value = 'multimodal'
+    return false
+  }
+
   if (formData.value.type === 'faq' && !formData.value.faqConfig?.indexMode) {
     MessagePlugin.warning(t('knowledgeEditor.messages.indexModeRequired'))
     currentSection.value = 'faq'
@@ -1269,6 +1350,13 @@ const buildSubmitData = () => {
       : '',
     description_language: formData.value.multimodalConfig.descriptionLanguage || '',
     custom_instructions: formData.value.multimodalConfig.customInstructions || ''
+  }
+
+  data.ocr_config = {
+    enabled: formData.value.ocrConfig?.enabled || false,
+    model_id: formData.value.ocrConfig?.enabled
+      ? (formData.value.ocrConfig?.modelId || '')
+      : ''
   }
 
   // 添加ASR语音识别配置
@@ -1454,6 +1542,7 @@ const doSubmit = async () => {
         llmModelId: data.summary_model_id,
         embeddingModelId: data.embedding_model_id,
         vlm_config: data.vlm_config,
+        ocr_config: data.ocr_config,
         asr_config: data.asr_config,
         documentSplitting: {
           chunkSize: data.chunking_config.chunk_size,

@@ -592,6 +592,45 @@ func (s *modelService) GetVLMModel(ctx context.Context, modelId string) (vlm.VLM
 	return vlmModel, nil
 }
 
+// GetOCRModel retrieves and initializes an OCR model instance.
+// OCR models share the image-capable VLM transport, but are configured and
+// selected separately so document parsing can use a dedicated extraction model.
+func (s *modelService) GetOCRModel(ctx context.Context, modelId string) (vlm.VLM, error) {
+	if modelId == "" {
+		return nil, errors.New("model ID cannot be empty")
+	}
+
+	tenantID := types.MustTenantIDFromContext(ctx)
+
+	model, err := s.repo.GetByID(ctx, tenantID, modelId)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"model_id":  modelId,
+			"tenant_id": tenantID,
+		})
+		return nil, err
+	}
+
+	if model == nil {
+		return nil, ErrModelNotFound
+	}
+
+	logger.Infof(ctx, "Getting OCR model: %s, source: %s", model.Name, model.Source)
+
+	appID, appSecret := s.resolveWeKnoraCloudCredentials(ctx, &model.Parameters)
+
+	ocrModel, err := vlm.NewVLM(vlm.ConfigFromModel(model, appID, appSecret), s.ollamaService)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"model_id":   model.ID,
+			"model_name": model.Name,
+		})
+		return nil, err
+	}
+
+	return ocrModel, nil
+}
+
 // Note: default model selection logic has been removed; models no longer
 // maintain a per-type default flag at the service layer.
 

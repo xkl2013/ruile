@@ -26,6 +26,11 @@ export interface VLMConfigOverride {
   custom_instructions?: string
 }
 
+export interface OCRConfigOverride {
+  enabled?: boolean
+  model_id?: string
+}
+
 export interface ASRConfigOverride {
   enabled?: boolean
   model_id?: string
@@ -63,6 +68,7 @@ export interface KnowledgeProcessOverrides {
   chunking_config?: ChunkingConfigOverride
   enable_multimodel?: boolean
   vlm_config?: VLMConfigOverride
+  ocr_config?: OCRConfigOverride
   asr_config?: ASRConfigOverride
   question_generation_config?: QuestionGenerationConfigOverride
   graph_enabled?: boolean

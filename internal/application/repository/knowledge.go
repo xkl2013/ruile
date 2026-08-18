@@ -113,6 +113,11 @@ func applyKnowledgeListFilter(query *gorm.DB, filter types.KnowledgeListFilter) 
 		escaped := strings.ToLower(escapeLikeKeyword(filter.Keyword))
 		query = query.Where("(LOWER(file_name) LIKE ? OR LOWER(title) LIKE ?)", "%"+escaped+"%", "%"+escaped+"%")
 	}
+	if filter.DirectoryPath != "" {
+		directoryPath := strings.Trim(filter.DirectoryPath, "/")
+		escapedPath := escapeLikeKeyword(directoryPath)
+		query = query.Where("file_name LIKE ? ESCAPE '\\'", escapedPath+"/%")
+	}
 	// FileType and Source share the same special-case routing onto `type` for
 	// the "manual" / "url" values, so callers can pick either control.
 	applyTypeOrFileType := func(q *gorm.DB, val string) *gorm.DB {

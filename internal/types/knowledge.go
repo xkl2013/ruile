@@ -100,6 +100,8 @@ type KnowledgeListFilter struct {
 	// The special values "manual" and "url" are routed to the `type` column to match
 	// FileType semantics, so callers can filter "manually created" / "URL imported" entries.
 	Source string
+	// DirectoryPath filters by the document display path prefix when non-empty.
+	DirectoryPath string
 	// UpdatedFrom, when non-zero, keeps rows with updated_at >= UpdatedFrom.
 	UpdatedFrom time.Time
 	// UpdatedTo, when non-zero, keeps rows with updated_at <= UpdatedTo.

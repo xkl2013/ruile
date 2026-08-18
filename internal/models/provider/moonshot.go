@@ -47,10 +47,12 @@ func (p *MoonshotProvider) Info() ProviderInfo {
 		DefaultURLs: map[types.ModelType]string{
 			types.ModelTypeKnowledgeQA: MoonshotBaseURL,
 			types.ModelTypeVLLM:        MoonshotBaseURL,
+			types.ModelTypeOCR:         MoonshotBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

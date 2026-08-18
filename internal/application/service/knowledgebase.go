@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -25,7 +30,8 @@ import (
 // ErrInvalidTenantID represents an error for invalid tenant ID
 var ErrInvalidTenantID = errors.New("invalid tenant ID")
 
-const maxKnowledgeBaseIconBytes = 128 * 1024
+const maxKnowledgeBaseIconBytes = 4096
+const maxKnowledgeBaseIconUploadBytes = 5 * 1024 * 1024
 
 // knowledgeBaseService implements the knowledge base service interface
 type knowledgeBaseService struct {
@@ -557,14 +563,201 @@ func validateKnowledgeBaseIcon(icon string) error {
 	}
 	src := strings.TrimSpace(strings.TrimPrefix(icon, "image:"))
 	lower := strings.ToLower(src)
-	if strings.HasPrefix(lower, "data:image/png;base64,") ||
-		strings.HasPrefix(lower, "data:image/jpeg;base64,") ||
-		strings.HasPrefix(lower, "data:image/jpg;base64,") ||
-		strings.HasPrefix(lower, "data:image/gif;base64,") ||
-		strings.HasPrefix(lower, "data:image/webp;base64,") {
+	if strings.HasPrefix(lower, "resource://") ||
+		strings.HasPrefix(lower, "storage://") ||
+		strings.HasPrefix(lower, "oss://") ||
+		strings.HasPrefix(lower, "s3://") ||
+		strings.HasPrefix(lower, "minio://") ||
+		strings.HasPrefix(lower, "cos://") ||
+		strings.HasPrefix(lower, "tos://") ||
+		strings.HasPrefix(lower, "ks3://") ||
+		strings.HasPrefix(lower, "obs://") ||
+		strings.HasPrefix(lower, "local://") ||
+		strings.HasPrefix(lower, "http://") ||
+		strings.HasPrefix(lower, "https://") ||
+		strings.HasPrefix(src, "/") {
 		return nil
 	}
 	return errors.New("knowledge base icon image format is invalid")
+}
+
+// UploadKnowledgeBaseIcon stores a custom image icon through the KB/tenant storage
+// backend and returns the compact icon value to persist. The database stores only
+// a stable storage reference (for example image:resource://...), not base64 data.
+func (s *knowledgeBaseService) UploadKnowledgeBaseIcon(ctx context.Context, kbID string, file *multipart.FileHeader) (*types.KnowledgeBaseIconUploadResult, error) {
+	if file == nil {
+		return nil, errors.New("icon image is required")
+	}
+	if file.Size <= 0 {
+		return nil, errors.New("icon image is empty")
+	}
+	if file.Size > maxKnowledgeBaseIconUploadBytes {
+		return nil, fmt.Errorf("icon image cannot exceed %dMB", maxKnowledgeBaseIconUploadBytes/(1024*1024))
+	}
+
+	var kb *types.KnowledgeBase
+	var err error
+	if strings.TrimSpace(kbID) != "" {
+		kb, err = s.repo.GetKnowledgeBaseByID(ctx, kbID)
+		if err != nil {
+			return nil, err
+		}
+		kb.EnsureDefaults()
+	}
+
+	tenantID := types.MustTenantIDFromContext(ctx)
+	if kb != nil && kb.TenantID != 0 {
+		tenantID = kb.TenantID
+	}
+
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open icon image: %w", err)
+	}
+	defer src.Close()
+
+	data, err := io.ReadAll(io.LimitReader(src, maxKnowledgeBaseIconUploadBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read icon image: %w", err)
+	}
+	if int64(len(data)) > maxKnowledgeBaseIconUploadBytes {
+		return nil, fmt.Errorf("icon image cannot exceed %dMB", maxKnowledgeBaseIconUploadBytes/(1024*1024))
+	}
+	ext, err := knowledgeBaseIconImageExt(data)
+	if err != nil {
+		return nil, err
+	}
+
+	fileSvc := s.resolveKnowledgeBaseIconFileService(ctx, kb)
+	if fileSvc == nil {
+		return nil, errors.New("file storage is not configured")
+	}
+
+	fileName := fmt.Sprintf("knowledge-base-icon-%d%s", time.Now().UnixNano(), ext)
+	storedPath, err := fileSvc.SaveBytes(ctx, data, tenantID, fileName, false)
+	if err != nil {
+		return nil, fmt.Errorf("save icon image: %w", err)
+	}
+
+	icon := "image:" + storedPath
+	if err := validateKnowledgeBaseIcon(icon); err != nil {
+		_ = fileSvc.DeleteFile(ctx, storedPath)
+		return nil, err
+	}
+
+	urlValue := resolveStoredKnowledgeBaseIconURL(ctx, fileSvc, storedPath)
+	return &types.KnowledgeBaseIconUploadResult{
+		Icon: icon,
+		URL:  urlValue,
+	}, nil
+}
+
+func knowledgeBaseIconImageExt(data []byte) (string, error) {
+	contentType := strings.ToLower(http.DetectContentType(data))
+	switch {
+	case contentType == "image/png":
+		return ".png", nil
+	case contentType == "image/jpeg" || contentType == "image/jpg":
+		return ".jpg", nil
+	case contentType == "image/gif":
+		return ".gif", nil
+	case contentType == "image/webp" || isWebPImage(data):
+		return ".webp", nil
+	default:
+		return "", errors.New("only png, jpg, webp, and gif icon images are supported")
+	}
+}
+
+func isWebPImage(data []byte) bool {
+	return len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP"
+}
+
+func (s *knowledgeBaseService) resolveKnowledgeBaseIconFileService(ctx context.Context, kb *types.KnowledgeBase) interfaces.FileService {
+	if s == nil {
+		return nil
+	}
+
+	var tenant *types.Tenant
+	if existing, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant); existing != nil {
+		tenant = existing
+	}
+	if kb != nil && kb.TenantID != 0 && (tenant == nil || tenant.ID != kb.TenantID) && s.tenantRepo != nil {
+		if loaded, err := s.tenantRepo.GetTenantByID(ctx, kb.TenantID); err == nil {
+			tenant = loaded
+		}
+	}
+
+	backendID := ""
+	provider := ""
+	if kb != nil {
+		provider = kb.GetStorageProvider()
+		if kb.StorageBackendID != nil {
+			backendID = strings.TrimSpace(*kb.StorageBackendID)
+		}
+	}
+	if provider == "" && tenant != nil && tenant.StorageEngineConfig != nil {
+		provider = strings.ToLower(strings.TrimSpace(tenant.StorageEngineConfig.DefaultProvider))
+	}
+
+	if s.storageResolver != nil && tenant != nil {
+		baseDir := strings.TrimSpace(os.Getenv("LOCAL_STORAGE_BASE_DIR"))
+		if svc, _, err := s.storageResolver.ResolveFileService(ctx, tenant, backendID, provider, baseDir); err == nil && svc != nil {
+			return svc
+		} else if err != nil {
+			logger.Warnf(ctx, "failed to resolve icon storage backend: kb=%s backend=%s provider=%s err=%v", knowledgeBaseIDForLog(kb), backendID, provider, err)
+		}
+	}
+	return s.fileSvc
+}
+
+func knowledgeBaseIDForLog(kb *types.KnowledgeBase) string {
+	if kb == nil {
+		return ""
+	}
+	return kb.ID
+}
+
+// ResolveKnowledgeBaseIconURL returns an HTTP/display URL for image icons stored
+// as image:<storage-ref>. Non-image icons return an empty string.
+func (s *knowledgeBaseService) ResolveKnowledgeBaseIconURL(ctx context.Context, kb *types.KnowledgeBase) string {
+	if kb == nil {
+		return ""
+	}
+	ref := strings.TrimSpace(strings.TrimPrefix(kb.Icon, "image:"))
+	if ref == kb.Icon || ref == "" {
+		return ""
+	}
+	if isDirectKnowledgeBaseIconURL(ref) {
+		return ref
+	}
+	fileSvc := s.resolveKnowledgeBaseIconFileService(ctx, kb)
+	if fileSvc == nil {
+		return ""
+	}
+	return resolveStoredKnowledgeBaseIconURL(ctx, fileSvc, ref)
+}
+
+func resolveStoredKnowledgeBaseIconURL(ctx context.Context, fileSvc interfaces.FileService, ref string) string {
+	if fileSvc == nil || strings.TrimSpace(ref) == "" {
+		return ""
+	}
+	resolved, err := fileSvc.GetFileURL(ctx, ref)
+	if err != nil {
+		logger.Warnf(ctx, "failed to resolve knowledge base icon url: %v", err)
+		return ""
+	}
+	return resolved
+}
+
+func isDirectKnowledgeBaseIconURL(value string) bool {
+	if strings.HasPrefix(value, "/") {
+		return true
+	}
+	u, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
 }
 
 // TogglePinKnowledgeBase toggles whether the calling user has pinned

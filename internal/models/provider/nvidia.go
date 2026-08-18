@@ -31,12 +31,14 @@ func (p *NvidiaProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   NvidiaChatBaseURL,
 			types.ModelTypeRerank:      NvidiaRerankBaseURL,
 			types.ModelTypeVLLM:        NvidiaChatBaseURL,
+			types.ModelTypeOCR:         NvidiaChatBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

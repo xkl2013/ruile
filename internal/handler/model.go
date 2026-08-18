@@ -501,6 +501,23 @@ func (h *ModelHandler) DebugModel(c *gin.Context) {
 		result, callErr := instance.Predict(ctx, [][]byte{fileBytes}, input)
 		observations["answer_characters"] = len([]rune(result))
 		writeModelDebugResult(c, started, requestPreview, result, callErr, observations)
+	case types.ModelTypeOCR:
+		if len(fileBytes) == 0 {
+			c.Error(errors.NewBadRequestError("image file is required"))
+			return
+		}
+		prompt := strings.TrimSpace(input)
+		if prompt == "" {
+			prompt = "Extract all readable text from this image and return Markdown only."
+		}
+		instance, callErr := h.service.GetOCRModel(ctx, id)
+		if callErr != nil {
+			writeModelDebugResult(c, started, requestPreview, nil, callErr, observations)
+			return
+		}
+		result, callErr := instance.Predict(ctx, [][]byte{fileBytes}, prompt)
+		observations["text_characters"] = len([]rune(result))
+		writeModelDebugResult(c, started, requestPreview, result, callErr, observations)
 	case types.ModelTypeASR:
 		if len(fileBytes) == 0 {
 			c.Error(errors.NewBadRequestError("audio file is required"))
@@ -718,6 +735,8 @@ func modelTypeToFrontend(mt types.ModelType) string {
 		return "vllm"
 	case types.ModelTypeASR:
 		return "asr"
+	case types.ModelTypeOCR:
+		return "ocr"
 	default:
 		return string(mt)
 	}
@@ -755,6 +774,8 @@ func (h *ModelHandler) ListModelProviders(c *gin.Context) {
 		backendModelType = types.ModelTypeVLLM
 	case "asr":
 		backendModelType = types.ModelTypeASR
+	case "ocr":
+		backendModelType = types.ModelTypeOCR
 	default:
 		backendModelType = types.ModelType(modelType)
 	}

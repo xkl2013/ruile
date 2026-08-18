@@ -230,6 +230,7 @@ var validBuiltinModelTypes = map[ModelType]struct{}{
 	ModelTypeEmbedding:   {},
 	ModelTypeRerank:      {},
 	ModelTypeVLLM:        {},
+	ModelTypeOCR:         {},
 	ModelTypeASR:         {},
 }
 

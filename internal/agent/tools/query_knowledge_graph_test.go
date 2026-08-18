@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -50,10 +51,19 @@ func (s *stubKnowledgeBaseService) UpdateKnowledgeBase(
 	string,
 	string,
 	string,
+	*string,
 	*types.KnowledgeBaseConfig,
 	*types.KnowledgeBaseDirectoryConfig,
 ) (*types.KnowledgeBase, error) {
 	return nil, nil
+}
+
+func (s *stubKnowledgeBaseService) UploadKnowledgeBaseIcon(context.Context, string, *multipart.FileHeader) (*types.KnowledgeBaseIconUploadResult, error) {
+	return nil, nil
+}
+
+func (s *stubKnowledgeBaseService) ResolveKnowledgeBaseIconURL(context.Context, *types.KnowledgeBase) string {
+	return ""
 }
 
 func (s *stubKnowledgeBaseService) DeleteKnowledgeBase(context.Context, string) error {

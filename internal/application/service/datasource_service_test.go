@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"strings"
 	"testing"
 	"time"
@@ -83,9 +84,15 @@ func (s *processSyncKBService) ListKnowledgeBasesByTenantID(context.Context, uin
 	return nil, nil
 }
 func (s *processSyncKBService) UpdateKnowledgeBase(
-	context.Context, string, string, string, *types.KnowledgeBaseConfig, *types.KnowledgeBaseDirectoryConfig,
+	context.Context, string, string, string, *string, *types.KnowledgeBaseConfig, *types.KnowledgeBaseDirectoryConfig,
 ) (*types.KnowledgeBase, error) {
 	return nil, nil
+}
+func (s *processSyncKBService) UploadKnowledgeBaseIcon(context.Context, string, *multipart.FileHeader) (*types.KnowledgeBaseIconUploadResult, error) {
+	return nil, nil
+}
+func (s *processSyncKBService) ResolveKnowledgeBaseIconURL(context.Context, *types.KnowledgeBase) string {
+	return ""
 }
 func (s *processSyncKBService) DeleteKnowledgeBase(context.Context, string) error { return nil }
 func (s *processSyncKBService) TogglePinKnowledgeBase(context.Context, string) (*types.KnowledgeBase, error) {

@@ -26,7 +26,7 @@
             <div class="kb-info-card-row">
               <span class="kb-info-card-label">{{ t('knowledgeEditor.basic.icon') }}</span>
               <span class="kb-info-card-value">
-                <KnowledgeBaseIcon :icon="kbInfo.icon" :type="kbInfo.type" size="small" />
+                <KnowledgeBaseIcon :icon="kbInfo.icon" :icon-url="kbInfo.icon_url" :type="kbInfo.type" size="small" />
               </span>
             </div>
             <div v-if="kbInfo.description" class="kb-info-card-row">
@@ -277,6 +277,9 @@ const capabilities = computed<Array<{ key: string; label: string; theme: Capabil
   const items: Array<{ key: string; label: string; theme: CapabilityTheme }> = []
   if (kb.vlm_config?.enabled) {
     items.push({ key: 'vlm', label: 'VLM', theme: 'primary' })
+  }
+  if (kb.ocr_config?.enabled) {
+    items.push({ key: 'ocr', label: 'OCR', theme: 'primary' })
   }
   if (kb.asr_config?.enabled) {
     items.push({ key: 'asr', label: 'ASR', theme: 'primary' })

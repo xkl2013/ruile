@@ -27,11 +27,13 @@ func (p *OpenRouterProvider) Info() ProviderInfo {
 			types.ModelTypeKnowledgeQA: OpenRouterBaseURL,
 			types.ModelTypeEmbedding:   OpenRouterBaseURL,
 			types.ModelTypeVLLM:        OpenRouterBaseURL,
+			types.ModelTypeOCR:         OpenRouterBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

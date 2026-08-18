@@ -30,11 +30,13 @@ func (p *VolcengineProvider) Info() ProviderInfo {
 			types.ModelTypeKnowledgeQA: VolcengineChatBaseURL,
 			types.ModelTypeEmbedding:   VolcengineEmbeddingBaseURL,
 			types.ModelTypeVLLM:        VolcengineChatBaseURL,
+			types.ModelTypeOCR:         VolcengineChatBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

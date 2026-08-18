@@ -161,6 +161,7 @@ func TestKnowledgeBaseManagementRoutesDeclareManageKBsCapability(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPut, "/api/v1/knowledge-bases/:id"},
+		{http.MethodPost, "/api/v1/knowledge-bases/:id/icon"},
 		{http.MethodPut, "/api/v1/knowledge-bases/:id/directory-config"},
 		{http.MethodDelete, "/api/v1/knowledge-bases/:id"},
 		{http.MethodPost, "/api/v1/initialization/initialize/:kbId"},
@@ -200,6 +201,7 @@ func TestKnowledgeBaseLifecycleRoutesDeclareManageCapability(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPost, "/api/v1/knowledge-bases"},
+		{http.MethodPost, "/api/v1/knowledge-bases/icon"},
 		{http.MethodPost, "/api/v1/knowledge-bases/copy"},
 		{http.MethodPost, "/api/v1/knowledge-bases/:id/duplicate"},
 	}

@@ -27,11 +27,13 @@ func (p *RequestyProvider) Info() ProviderInfo {
 			types.ModelTypeKnowledgeQA: RequestyBaseURL,
 			types.ModelTypeEmbedding:   RequestyBaseURL,
 			types.ModelTypeVLLM:        RequestyBaseURL,
+			types.ModelTypeOCR:         RequestyBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

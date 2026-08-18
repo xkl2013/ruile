@@ -3,10 +3,10 @@ package interfaces
 import (
 	"context"
 
+	"github.com/Tencent/WeKnora/internal/models/asr"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/models/embedding"
 	"github.com/Tencent/WeKnora/internal/models/rerank"
-	"github.com/Tencent/WeKnora/internal/models/asr"
 	"github.com/Tencent/WeKnora/internal/models/vlm"
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -42,6 +42,8 @@ type ModelService interface {
 	GetChatModel(ctx context.Context, modelId string) (chat.Chat, error)
 	// GetVLMModel gets a vision language model
 	GetVLMModel(ctx context.Context, modelId string) (vlm.VLM, error)
+	// GetOCRModel gets an OCR model backed by an image-capable model API
+	GetOCRModel(ctx context.Context, modelId string) (vlm.VLM, error)
 	// GetASRModel gets an automatic speech recognition model
 	GetASRModel(ctx context.Context, modelId string) (asr.ASR, error)
 }

@@ -48,6 +48,7 @@ export default function (knowledgeBaseId?: string) {
       file_type?: string;
       parse_status?: string;
       source?: string;
+      directory_path?: string;
       start_time?: string;
       end_time?: string;
     } = { page: 1, page_size: 35 },

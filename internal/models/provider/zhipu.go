@@ -33,12 +33,14 @@ func (p *ZhipuProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   ZhipuEmbeddingBaseURL,
 			types.ModelTypeRerank:      ZhipuRerankBaseURL,
 			types.ModelTypeVLLM:        ZhipuChatBaseURL,
+			types.ModelTypeOCR:         ZhipuChatBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

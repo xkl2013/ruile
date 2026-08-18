@@ -134,8 +134,8 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 			if err := validateImageStorageConfig(ctx, kb); err != nil {
 				return nil, err
 			}
-			if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() {
-				return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM模型")
+			if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() && !eff.OCRConfig.IsEnabled() {
+				return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM或OCR模型")
 			}
 		}
 
@@ -660,8 +660,8 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 	if err != nil {
 		return nil, err
 	}
-	if IsImageType(resolvedFileType) && eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() {
-		return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM模型")
+	if IsImageType(resolvedFileType) && eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() && !eff.OCRConfig.IsEnabled() {
+		return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM或OCR模型")
 	}
 	if IsAudiovisualType(resolvedFileType) && !eff.ASRConfig.IsASREnabled() {
 		logger.Error(ctx, "ASR model is not configured")

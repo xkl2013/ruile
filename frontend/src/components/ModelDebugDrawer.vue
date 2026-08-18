@@ -241,12 +241,13 @@ const selectedModel = computed(() => props.models.find(model => model.id === sel
 const filteredModels = computed(() => props.models.filter(model => model.type === selectedModelType.value))
 const isChat = computed(() => selectedModel.value?.type === 'KnowledgeQA')
 const supportsThinking = computed(() => selectedModel.value ? modelSupportsThinking(selectedModel.value) : false)
-const needsFile = computed(() => ['VLLM', 'ASR'].includes(selectedModel.value?.type || ''))
+const needsFile = computed(() => ['VLLM', 'OCR', 'ASR'].includes(selectedModel.value?.type || ''))
 const documents = computed(() => documentsText.value.split('\n').map(item => item.trim()).filter(Boolean))
 const canRun = computed(() => {
   if (!selectedModel.value) return false
   if (needsFile.value && !file.value) return false
   if (selectedModel.value.type === 'ASR') return true
+  if (selectedModel.value.type === 'OCR') return true
   if (selectedModel.value.type === 'Rerank') return !!input.value.trim() && documents.value.length > 0
   return !!input.value.trim()
 })
@@ -257,6 +258,7 @@ const allModelTypeOptions = computed(() => {
     Embedding: { short: 'embedding', icon: 'chart-bubble' },
     Rerank: { short: 'rerank', icon: 'filter-sort' },
     VLLM: { short: 'vllm', icon: 'image' },
+    OCR: { short: 'ocr', icon: 'file-search' },
     ASR: { short: 'asr', icon: 'sound' },
   }
   return (Object.keys(keys) as DebugModelType[]).map(value => ({
@@ -285,6 +287,7 @@ const vendorLabel = (model: ModelConfig) => {
 const inputLabel = computed(() => {
   if (selectedModel.value?.type === 'Embedding') return t('modelSettings.debug.embeddingInput')
   if (selectedModel.value?.type === 'VLLM') return t('modelSettings.debug.vlmPrompt')
+  if (selectedModel.value?.type === 'OCR') return t('modelSettings.debug.ocrPrompt')
   if (selectedModel.value?.type === 'Rerank') return t('modelSettings.debug.query')
   return t('modelSettings.debug.query')
 })
@@ -292,11 +295,12 @@ const inputLabel = computed(() => {
 const inputPlaceholder = computed(() => {
   if (selectedModel.value?.type === 'Embedding') return t('modelSettings.debug.embeddingPlaceholder')
   if (selectedModel.value?.type === 'VLLM') return t('modelSettings.debug.vlmPromptPlaceholder')
+  if (selectedModel.value?.type === 'OCR') return t('modelSettings.debug.ocrPromptPlaceholder')
   return t('modelSettings.debug.queryPlaceholder')
 })
 
 const fileLabel = computed(() =>
-  selectedModel.value?.type === 'VLLM'
+  selectedModel.value?.type === 'VLLM' || selectedModel.value?.type === 'OCR'
     ? t('modelSettings.debug.imageFile')
     : t('modelSettings.debug.audioFile'),
 )

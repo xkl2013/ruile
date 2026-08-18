@@ -6,6 +6,7 @@ type KnowledgeProcessOverrides struct {
 	ChunkingConfig           *ChunkingConfig           `json:"chunking_config,omitempty"`
 	EnableMultimodel         *bool                     `json:"enable_multimodel,omitempty"`
 	VLMConfig                *VLMConfig                `json:"vlm_config,omitempty"`
+	OCRConfig                *OCRConfig                `json:"ocr_config,omitempty"`
 	ASRConfig                *ASRConfig                `json:"asr_config,omitempty"`
 	QuestionGenerationConfig *QuestionGenerationConfig `json:"question_generation_config,omitempty"`
 	GraphEnabled             *bool                     `json:"graph_enabled,omitempty"`
@@ -21,6 +22,7 @@ type EffectiveProcessConfig struct {
 	ChunkingConfig           ChunkingConfig
 	EnableMultimodel         bool
 	VLMConfig                VLMConfig
+	OCRConfig                OCRConfig
 	ASRConfig                ASRConfig
 	QuestionGenerationConfig QuestionGenerationConfig
 	GraphEnabled             bool

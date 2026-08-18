@@ -66,7 +66,7 @@ type KnowledgeBase struct {
 	ID string `yaml:"id"                      json:"id"                      gorm:"type:varchar(36);primaryKey"`
 	// Name of the knowledge base
 	Name string `yaml:"name"                    json:"name"`
-	// Icon is the knowledge base display icon (TDesign icon name, emoji prefix, or image data prefix).
+	// Icon is the knowledge base display icon (TDesign icon name, emoji prefix, or image storage/url prefix).
 	Icon string `yaml:"icon"                    json:"icon"                    gorm:"type:text"`
 	// Type of the knowledge base (document, faq, etc.)
 	Type string `yaml:"type"                    json:"type"                    gorm:"type:varchar(32);default:'document'"`
@@ -92,6 +92,8 @@ type KnowledgeBase struct {
 	SummaryModelID string `yaml:"summary_model_id"        json:"summary_model_id"`
 	// VLM config
 	VLMConfig VLMConfig `yaml:"vlm_config"              json:"vlm_config"              gorm:"type:json"`
+	// OCR config for document/image text extraction fallback
+	OCRConfig OCRConfig `yaml:"ocr_config"              json:"ocr_config"              gorm:"type:json"`
 	// ASR config (Automatic Speech Recognition)
 	ASRConfig ASRConfig `yaml:"asr_config"              json:"asr_config"              gorm:"type:json"`
 	// Storage provider config (new): only stores provider selection; credentials from workspace StorageEngineConfig
@@ -172,11 +174,19 @@ type KnowledgeBaseConfig struct {
 	IndexingStrategy *IndexingStrategy `yaml:"indexing_strategy"       json:"indexing_strategy"`
 }
 
+// KnowledgeBaseIconUploadResult is returned after uploading a custom KB icon.
+type KnowledgeBaseIconUploadResult struct {
+	Icon string `json:"icon"`
+	URL  string `json:"url,omitempty"`
+}
+
 // ParserEngineRule maps a set of file types to a specific parser engine.
 type ParserEngineRule struct {
 	FileTypes []string `yaml:"file_types" json:"file_types"`
 	Engine    string   `yaml:"engine"     json:"engine"`
 }
+
+const parserEngineMarkitdown = "markitdown"
 
 // ChunkingConfig represents the document splitting configuration
 type ChunkingConfig struct {
@@ -187,7 +197,7 @@ type ChunkingConfig struct {
 	// Separators
 	Separators []string `yaml:"separators"    json:"separators"`
 	// ParserEngineRules configures which parser engine to use for each file type.
-	// When empty, the builtin engine is used for all types.
+	// Unmatched types use backend defaults: builtin for most formats, MarkItDown for PPT/PPTX.
 	ParserEngineRules []ParserEngineRule `yaml:"parser_engine_rules,omitempty" json:"parser_engine_rules,omitempty"`
 	// EnableParentChild enables two-level parent-child chunking strategy.
 	// When enabled, large parent chunks provide context while small child chunks
@@ -216,16 +226,29 @@ type ChunkingConfig struct {
 	TableMetadataInstructions string `yaml:"table_metadata_instructions,omitempty" json:"table_metadata_instructions,omitempty"`
 }
 
-// ResolveParserEngine returns the engine name for the given file type
-// based on the configured rules. Returns empty string (builtin) when
-// no rule matches.
+// ResolveParserEngine returns the engine name for the given file type based on
+// configured rules, falling back to format-specific backend defaults.
 func (c ChunkingConfig) ResolveParserEngine(fileType string) string {
+	fileType = normalizeParserFileType(fileType)
 	for _, rule := range c.ParserEngineRules {
 		for _, ft := range rule.FileTypes {
-			if ft == fileType {
-				return rule.Engine
+			if normalizeParserFileType(ft) == fileType {
+				return strings.TrimSpace(rule.Engine)
 			}
 		}
+	}
+
+	return defaultParserEngineForFileType(fileType)
+}
+
+func normalizeParserFileType(fileType string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fileType)), ".")
+}
+
+func defaultParserEngineForFileType(fileType string) string {
+	switch normalizeParserFileType(fileType) {
+	case "ppt", "pptx":
+		return parserEngineMarkitdown
 	}
 	return ""
 }
@@ -463,6 +486,34 @@ type VLMConfig struct {
 	APIKey string `yaml:"api_key" json:"api_key"`
 	// Interface Type: "ollama" or "openai"
 	InterfaceType string `yaml:"interface_type" json:"interface_type"`
+}
+
+// OCRConfig represents the OCR model configuration for document/image parsing fallback.
+type OCRConfig struct {
+	Enabled bool   `yaml:"enabled"  json:"enabled"`
+	ModelID string `yaml:"model_id" json:"model_id"`
+}
+
+// IsEnabled checks if OCR fallback is enabled with a valid model.
+func (c OCRConfig) IsEnabled() bool {
+	return c.Enabled && strings.TrimSpace(c.ModelID) != ""
+}
+
+// Value implements the driver.Valuer interface, used to convert OCRConfig to database value.
+func (c OCRConfig) Value() (driver.Value, error) {
+	return json.Marshal(c)
+}
+
+// Scan implements the sql.Scanner interface, used to convert database value to OCRConfig.
+func (c *OCRConfig) Scan(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	b, ok := value.([]byte)
+	if !ok {
+		return nil
+	}
+	return json.Unmarshal(b, c)
 }
 
 // IsEnabled 判断多模态是否启用（兼容新老版本）
@@ -856,12 +907,12 @@ func (kb *KnowledgeBase) NeedsEmbeddingModel() bool {
 	return kb != nil && kb.IndexingStrategy.NeedsEmbedding()
 }
 
-// IsMultimodalEnabled 判断多模态是否启用，由 VLMConfig.IsEnabled() 决定。
+// IsMultimodalEnabled 判断多模态/扫描件富化是否启用。
 func (kb *KnowledgeBase) IsMultimodalEnabled() bool {
 	if kb == nil {
 		return false
 	}
-	return kb.VLMConfig.IsEnabled()
+	return kb.VLMConfig.IsEnabled() || kb.OCRConfig.IsEnabled()
 }
 
 // HasVectorStore reports whether the KB is bound to a DB-managed VectorStore

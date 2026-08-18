@@ -449,6 +449,8 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 	{
 		// 创建知识库 — JWT Admin+；API key 需 manage_kbs 或 full-access。
 		kbManagement.POST("", g.Admin(), handler.CreateKnowledgeBase)
+		// 创建前上传知识库图标 — 产出可保存到 icon 字段的短存储引用。
+		kbManagement.POST("/icon", g.Admin(), handler.UploadKnowledgeBaseIconForCreate)
 		// 获取知识库列表 — Viewer+ for JWT callers; retrieve-capable API keys pass via the gate.
 		kb.GET("", g.Viewer(), handler.ListKnowledgeBases)
 		// 获取知识库详情 — Viewer+ 且对 KB 有 read 权限
@@ -457,6 +459,8 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		// 统一判定：同空间 Admin+/KB 创建者，或跨空间共享 editor+。这与
 		// handler 内的 admin/editor 权限检查和 API 文档保持一致。
 		kbManagement.PUT("/:id", g.Viewer(), g.KBAccessWrite("id"), handler.UpdateKnowledgeBase)
+		// 上传已有知识库图标 — 与更新知识库同权限。
+		kbManagement.POST("/:id/icon", g.Viewer(), g.KBAccessWrite("id"), handler.UploadKnowledgeBaseIcon)
 		// 更新知识库文档目录配置 — 与知识库设置更新同档；系统管理员也可维护。
 		kbManagement.PUT("/:id/directory-config", g.AdminOrSystemAdmin(), g.KBAccessManage("id"), handler.UpdateKnowledgeBaseDirectoryConfig)
 		// 删除知识库 — 保持原有「创建者 OR Admin+」矩阵。
@@ -889,6 +893,7 @@ func RegisterInitializationRoutes(r *gin.RouterGroup, handler *handler.Initializ
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/embedding/test", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.TestEmbeddingModel)
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/rerank/check", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.CheckRerankModel)
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/asr/check", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.CheckASRModel)
+	g.apiKeyRoute(r, http.MethodPost, "/initialization/ocr/check", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.CheckOCRModel)
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/multimodal/test", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.TestMultimodalFunction)
 
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/extract/text-relation", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.ExtractTextRelations)

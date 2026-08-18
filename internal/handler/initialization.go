@@ -27,6 +27,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/models/provider"
 	"github.com/Tencent/WeKnora/internal/models/rerank"
 	"github.com/Tencent/WeKnora/internal/models/utils/ollama"
+	"github.com/Tencent/WeKnora/internal/models/vlm"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/Tencent/WeKnora/internal/utils"
@@ -44,6 +45,18 @@ type DownloadTask struct {
 	Message   string     `json:"message"`
 	StartTime time.Time  `json:"startTime"`
 	EndTime   *time.Time `json:"endTime,omitempty"`
+}
+
+var ocrCheckPNG = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+	0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00,
+	0x02, 0x00, 0x01, 0xe5, 0x27, 0xde, 0xfc, 0x00,
+	0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+	0x42, 0x60, 0x82,
 }
 
 // 全局下载任务管理器
@@ -98,6 +111,7 @@ type KBModelConfigRequest struct {
 	LLMModelID       string           `json:"llmModelId"       binding:"required"`
 	EmbeddingModelID string           `json:"embeddingModelId"` // optional when RAG indexing is disabled
 	VLMConfig        *types.VLMConfig `json:"vlm_config"`
+	OCRConfig        *types.OCRConfig `json:"ocr_config"`
 	ASRConfig        *types.ASRConfig `json:"asr_config"`
 
 	// 文档分块配置
@@ -306,6 +320,18 @@ func (h *InitializationHandler) UpdateKBConfig(c *gin.Context) {
 	}
 	if !kb.VLMConfig.Enabled {
 		kb.VLMConfig.ModelID = ""
+	}
+
+	// 处理OCR兜底模型配置
+	kb.OCRConfig = types.OCRConfig{}
+	if req.OCRConfig != nil && req.OCRConfig.Enabled && req.OCRConfig.ModelID != "" {
+		ocrModel, err := h.modelService.GetModelByID(ctx, req.OCRConfig.ModelID)
+		if err != nil || ocrModel == nil {
+			logger.Warn(ctx, "OCR model not found")
+		} else {
+			kb.OCRConfig.Enabled = true
+			kb.OCRConfig.ModelID = req.OCRConfig.ModelID
+		}
 	}
 
 	// 处理ASR语音识别配置
@@ -1386,6 +1412,7 @@ func (h *InitializationHandler) GetCurrentConfigByKB(c *gin.Context) {
 		kb.EmbeddingModelID,
 		kb.SummaryModelID,
 		kb.VLMConfig.ModelID,
+		kb.OCRConfig.ModelID,
 	}
 
 	for _, modelID := range modelIDs {
@@ -1481,6 +1508,16 @@ func (h *InitializationHandler) buildConfigResponse(ctx context.Context, models 
 				"baseUrl":       baseURL,
 				"interfaceType": model.Parameters.InterfaceType,
 				"modelId":       model.ID,
+				"credentials": map[string]bool{
+					"apiKey": model.Parameters.APIKey != "" && !model.IsBuiltin,
+				},
+			}
+		case types.ModelTypeOCR:
+			config["ocr"] = map[string]interface{}{
+				"enabled":   kb.OCRConfig.IsEnabled(),
+				"modelName": model.Name,
+				"baseUrl":   baseURL,
+				"modelId":   model.ID,
 				"credentials": map[string]bool{
 					"apiKey": model.Parameters.APIKey != "" && !model.IsBuiltin,
 				},
@@ -1606,6 +1643,12 @@ func (h *InitializationHandler) buildConfigResponse(ctx context.Context, models 
 	} else {
 		config["questionGeneration"] = map[string]interface{}{
 			"enabled": false,
+		}
+	}
+	if config["ocr"] == nil {
+		config["ocr"] = map[string]interface{}{
+			"enabled": kb.OCRConfig.IsEnabled(),
+			"modelId": kb.OCRConfig.ModelID,
 		}
 	}
 
@@ -2120,6 +2163,86 @@ func (h *InitializationHandler) CheckASRModel(c *gin.Context) {
 		"data": gin.H{
 			"available": available,
 			"message":   message,
+		},
+	})
+}
+
+// CheckOCRModel godoc
+// @Summary      检查OCR模型
+// @Description  检查OCR模型是否支持图像输入与文本抽取调用路径
+// @Tags         初始化
+// @Accept       json
+// @Produce      json
+// @Param        request  body      handler.ModelTestRequest  true  "OCR检查请求"
+// @Success      200      {object}  map[string]interface{}  "检查结果"
+// @Failure      400      {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /initialization/ocr/check [post]
+func (h *InitializationHandler) CheckOCRModel(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	logger.Info(ctx, "Checking OCR model connection")
+
+	var req ModelTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error(ctx, "Failed to parse OCR model check request", err)
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	h.fillSecretsFromStoredModel(ctx, &req)
+
+	if req.ModelName == "" || req.BaseURL == "" {
+		logger.Error(ctx, "Model name and base URL are required for OCR check")
+		c.Error(errors.NewBadRequestError("模型名称和Base URL不能为空"))
+		return
+	}
+
+	if err := utils.ValidateURLForSSRF(req.BaseURL); err != nil {
+		logger.Warnf(ctx, "SSRF validation failed for OCR BaseURL: %v", err)
+		c.Error(errors.NewBadRequestError(utils.FormatSSRFError("Base URL", req.BaseURL, err)))
+		return
+	}
+
+	appID, appSecret, ok := h.resolveTenantWeKnoraCloudCreds(ctx)
+	if !ok {
+		logger.Error(ctx, "Tenant info not found")
+		c.Error(errors.NewBadRequestError("空间信息未找到"))
+		return
+	}
+
+	model := h.buildTestModel(&req, types.ModelTypeOCR, types.ModelSourceRemote)
+	ocrInstance, err := vlm.NewVLM(vlm.ConfigFromModel(model, appID, appSecret), h.ollamaService)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"available": false,
+				"message":   fmt.Sprintf("创建OCR实例失败: %v", err),
+			},
+		})
+		return
+	}
+
+	_, err = ocrInstance.Predict(ctx, [][]byte{ocrCheckPNG},
+		"Extract readable text from this image. If there is no text, reply: No text content.")
+	if err != nil {
+		errMsg := strings.ToLower(err.Error())
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"available": false,
+				"message":   fmt.Sprintf("%s：%v", classifyConnectionError(errMsg), err),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"available": true,
+			"message":   "OCR连接成功，图像输入可用",
 		},
 	})
 }

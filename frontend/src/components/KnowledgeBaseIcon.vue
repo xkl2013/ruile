@@ -12,10 +12,12 @@ import { getDefaultKnowledgeBaseIcon } from '@/config/knowledgeBaseDefaults'
 
 const props = withDefaults(defineProps<{
   icon?: string
+  iconUrl?: string
   type?: 'document' | 'faq' | string
   size?: 'small' | 'medium' | 'large'
 }>(), {
   icon: '',
+  iconUrl: '',
   type: 'document',
   size: 'medium',
 })
@@ -24,8 +26,11 @@ const variant = computed(() => (props.type === 'faq' ? 'faq' : 'document'))
 const normalizedIcon = computed(() => (props.icon || '').trim())
 const resolvedImageSrc = computed(() => {
   if (!normalizedIcon.value.startsWith('image:')) return ''
+  const explicitURL = (props.iconUrl || '').trim()
+  if (explicitURL) return explicitURL
   const src = normalizedIcon.value.slice(6).trim()
   if (/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(src)) return src
+  if (/^https?:\/\//i.test(src) || src.startsWith('/')) return src
   return ''
 })
 const resolvedIcon = computed(() => {

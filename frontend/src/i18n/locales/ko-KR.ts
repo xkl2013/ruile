@@ -3182,6 +3182,7 @@ export default {
         embedding: "텍스트 벡터화용 임베딩 모델 설정",
         rerank: "결과 재정렬용 모델 설정",
         vllm: "시각 이해 및 멀티모달용 비전 언어 모델 설정",
+        ocr: "문서 이미지 대체 인식을 위한 OCR 모델 설정",
         asr: "음성 인식 및 오디오 전사를 위한 음성 인식 모델 설정",
         default: "모델 정보 설정",
       },
@@ -3190,6 +3191,7 @@ export default {
         remote: "예: gpt-4, claude-3-opus",
         localVllm: "예: llava:latest",
         remoteVllm: "예: gpt-4-vision-preview",
+        remoteOcr: "예: qwen-vl-ocr, gpt-4o-mini",
         remoteAsr: "예: whisper-1",
       },
       baseUrlLabel: "Base URL",
@@ -3198,6 +3200,7 @@ export default {
       displayNameDesc: "UI 표시용으로만 사용되며 실제 호출은 위의 모델 이름을 사용합니다.",
       baseUrlPlaceholder: "예: https://api.openai.com/v1",
       baseUrlPlaceholderVllm: "예: http://localhost:11434/v1",
+      baseUrlPlaceholderOcr: "예: https://api.openai.com/v1",
       baseUrlPlaceholderAsr: "예: https://api.openai.com/v1",
       apiKeyOptional: "API 키 (선택)",
       apiKeyPlaceholder: "API 키 입력",
@@ -3263,6 +3266,8 @@ export default {
       ollamaUnavailable: "Ollama 서비스를 사용할 수 없어 로컬 모델을 선택할 수 없습니다",
       ollamaNotSupportRerank:
         "Ollama는 ReRank 모델을 지원하지 않습니다. 원격 인터페이스를 사용하여 설정해주세요",
+      ollamaNotSupportOcr:
+        "OCR 모델은 이미지 입력을 지원하는 OpenAI 호환 API가 필요합니다. 원격 인터페이스를 설정해주세요",
       ollamaNotSupportAsr:
         "ASR 모델은 OpenAI 호환 음성 전사 API를 사용합니다. 원격 인터페이스를 설정해주세요",
       goToOllamaSettings: "설정 보기",
@@ -4099,6 +4104,7 @@ export default {
       embeddingRequired: "Embedding 모델을 선택해주세요",
       summaryRequired: "Summary 모델을 선택해주세요",
       multimodalInvalid: "멀티모달 설정 검증 실패",
+      ocrInvalid: "OCR 모델을 선택해주세요",
       createSuccess: "지식베이스 생성 성공",
       createFailed: "지식베이스 생성 실패",
       missingId: "지식베이스 ID가 없습니다",
@@ -4345,6 +4351,13 @@ export default {
     multimodal: {
       title: "이미지 처리 설정",
       description: "이미지 콘텐츠 이해 기능을 설정하여 이미지 등 비텍스트 콘텐츠의 파싱 및 검색을 지원합니다",
+    },
+    ocr: {
+      label: "OCR 대체 처리 사용",
+      desc: "파싱된 이미지나 스캔 페이지에서 텍스트 추출이 필요하면 OCR 모델을 먼저 호출합니다. OCR이 없으면 VLM 호환 경로를 계속 사용합니다.",
+      modelLabel: "OCR 모델",
+      modelDescription: "문서 이미지, 스캔 페이지, PPT 이미지 페이지의 텍스트 인식을 위한 비전 OCR 모델",
+      modelPlaceholder: "OCR 모델을 선택해주세요",
     },
     asr: {
       title: "오디오 음성 인식",
@@ -4795,6 +4808,7 @@ export default {
       embedding: "Embedding",
       rerank: "ReRank",
       vllm: "비전",
+      ocr: "OCR",
       asr: "음성/ASR",
     },
     actions: {
@@ -4827,6 +4841,11 @@ export default {
       title: "VLLM 비전 모델",
       desc: "시각 이해 및 멀티모달용 비전 언어 모델 설정",
       empty: "VLLM 비전 모델 없음",
+    },
+    ocr: {
+      title: "OCR 모델",
+      desc: "문서 이미지 대체 인식을 위한 비전 OCR 모델 설정",
+      empty: "OCR 모델 없음",
     },
     asr: {
       title: "ASR 음성 모델",
@@ -4878,6 +4897,8 @@ export default {
       embeddingPlaceholder: "Embedding을 생성할 텍스트를 입력하세요",
       vlmPrompt: "이미지 프롬프트",
       vlmPromptPlaceholder: "예: 이 이미지를 자세히 설명해 주세요",
+      ocrPrompt: "OCR 프롬프트",
+      ocrPromptPlaceholder: "예: 이미지의 텍스트를 추출하고 표 구조를 유지해 주세요",
       documents: "후보 문서",
       documentsPlaceholder: "후보 문서를 한 줄에 하나씩 입력하세요",
       documentsHint: "비어 있지 않은 각 줄은 ReRank 모델에 별도 문서로 전송됩니다",

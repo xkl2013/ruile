@@ -86,6 +86,7 @@ func TestResolveProcessConfig_NilOverridesUsesKBDefaults(t *testing.T) {
 	kb := &types.KnowledgeBase{
 		ChunkingConfig: types.ChunkingConfig{ChunkSize: 512, ChunkOverlap: 50},
 		VLMConfig:      types.VLMConfig{Enabled: true, ModelID: "vlm-1"},
+		OCRConfig:      types.OCRConfig{Enabled: true, ModelID: "ocr-1"},
 		ASRConfig:      types.ASRConfig{Enabled: true, ModelID: "asr-1"},
 		QuestionGenerationConfig: &types.QuestionGenerationConfig{
 			Enabled:       true,
@@ -101,9 +102,11 @@ func TestResolveProcessConfig_NilOverridesUsesKBDefaults(t *testing.T) {
 	require.Equal(t, 50, eff.ChunkingConfig.ChunkOverlap)
 	require.True(t, eff.EnableMultimodel)
 	require.Equal(t, "vlm-1", eff.VLMConfig.ModelID)
+	require.Equal(t, "ocr-1", eff.OCRConfig.ModelID)
 	require.Equal(t, "asr-1", eff.ASRConfig.ModelID)
 	require.True(t, eff.QuestionGenerationConfig.Enabled)
 	require.Equal(t, 3, eff.QuestionGenerationConfig.QuestionCount)
+	require.Equal(t, "markitdown", eff.ChunkingConfig.ResolveParserEngine("pptx"))
 	require.True(t, eff.GraphEnabled)
 	require.True(t, eff.ExtractConfig.Enabled)
 	require.Equal(t, []string{"tag-a"}, eff.ExtractConfig.Tags)
@@ -177,6 +180,29 @@ func TestResolveProcessConfig_EnableMultimodelOverride(t *testing.T) {
 	}
 	eff := ResolveProcessConfig(kb, overrides)
 	require.False(t, eff.EnableMultimodel)
+}
+
+func TestResolveProcessConfig_OCRConfigEnablesMultimodel(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		OCRConfig: types.OCRConfig{Enabled: true, ModelID: "ocr-1"},
+	}
+	eff := ResolveProcessConfig(kb, nil)
+	require.True(t, eff.EnableMultimodel)
+	require.True(t, eff.OCRConfig.IsEnabled())
+	require.Equal(t, "ocr-1", eff.OCRConfig.ModelID)
+}
+
+func TestImageMultimodalModes_OCROnlyDisablesCaption(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		OCRConfig: types.OCRConfig{Enabled: true, ModelID: "ocr-1"},
+	}
+	enableOCR, enableCaption := imageMultimodalModes(kb, nil)
+	require.True(t, enableOCR)
+	require.False(t, enableCaption)
 }
 
 func TestResolveProcessConfig_ExtractConfigFieldMerge(t *testing.T) {
@@ -342,6 +368,19 @@ func TestValidateProcessOverrides_ImageWithEffectiveVLM(t *testing.T) {
 	}
 	overrides := &types.KnowledgeProcessOverrides{
 		VLMConfig: &types.VLMConfig{Enabled: true, ModelID: "vlm-1"},
+	}
+	err := ValidateProcessOverrides(context.Background(), kb, overrides, []string{"jpg"})
+	require.NoError(t, err)
+}
+
+func TestValidateProcessOverrides_ImageWithEffectiveOCR(t *testing.T) {
+	t.Parallel()
+
+	kb := &types.KnowledgeBase{
+		VLMConfig: types.VLMConfig{Enabled: false},
+	}
+	overrides := &types.KnowledgeProcessOverrides{
+		OCRConfig: &types.OCRConfig{Enabled: true, ModelID: "ocr-1"},
 	}
 	err := ValidateProcessOverrides(context.Background(), kb, overrides, []string{"jpg"})
 	require.NoError(t, err)

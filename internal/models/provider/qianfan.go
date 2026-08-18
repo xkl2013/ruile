@@ -28,12 +28,14 @@ func (p *QianfanProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   QianfanBaseURL,
 			types.ModelTypeRerank:      QianfanBaseURL,
 			types.ModelTypeVLLM:        QianfanBaseURL,
+			types.ModelTypeOCR:         QianfanBaseURL,
 		},
 		ModelTypes: []types.ModelType{
 			types.ModelTypeKnowledgeQA,
 			types.ModelTypeEmbedding,
 			types.ModelTypeRerank,
 			types.ModelTypeVLLM,
+			types.ModelTypeOCR,
 		},
 		RequiresAuth: true,
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/infrastructure/chunker"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser"
 	"github.com/Tencent/WeKnora/internal/logger"
+	asrmodel "github.com/Tencent/WeKnora/internal/models/asr"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/models/embedding"
 	"github.com/Tencent/WeKnora/internal/searchutil"
@@ -162,6 +163,15 @@ type ProcessChunksOptions struct {
 	// child's ParentIndex references an entry in this slice.
 	ParentChunks []types.ParsedParentChunk
 	Metadata     map[string]string
+}
+
+func imageMultimodalModes(kb *types.KnowledgeBase, knowledge *types.Knowledge) (enableOCR, enableCaption bool) {
+	var overrides *types.KnowledgeProcessOverrides
+	if knowledge != nil {
+		overrides, _ = knowledge.ProcessOverrides()
+	}
+	eff := ResolveProcessConfig(kb, overrides)
+	return eff.OCRConfig.IsEnabled() || eff.VLMConfig.IsEnabled(), eff.VLMConfig.IsEnabled()
 }
 
 // finalizeIndexedKnowledgeState makes a document retrievable as soon as chunks
@@ -642,8 +652,10 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 	// Check if this document has extracted images that will be processed asynchronously
 	isImage := IsImageType(knowledge.FileType)
 	isVideo := IsVideoType(knowledge.FileType)
-	pendingMultimodal := isImage && options.EnableMultimodel && len(options.StoredImages) > 0
-	pendingPDFMultimodal := !isImage && !isVideo && options.EnableMultimodel && len(options.StoredImages) > 0
+	enableOCR, enableCaption := imageMultimodalModes(kb, knowledge)
+	hasImageMultimodalWork := options.EnableMultimodel && len(options.StoredImages) > 0 && (enableOCR || enableCaption)
+	pendingMultimodal := isImage && hasImageMultimodalWork
+	pendingPDFMultimodal := !isImage && !isVideo && hasImageMultimodalWork
 
 	now := time.Now()
 	finalizeIndexedKnowledgeState(
@@ -659,11 +671,11 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 	}
 
 	// Enqueue multimodal tasks for images (async, non-blocking)
-	if options.EnableMultimodel && len(options.StoredImages) > 0 {
+	if hasImageMultimodalWork {
 		s.beginStage(ctx, knowledge.ID, types.StageMultimodal, types.JSONMap{
 			"image_count":    len(options.StoredImages),
-			"enable_ocr":     true,
-			"enable_caption": true,
+			"enable_ocr":     enableOCR,
+			"enable_caption": enableCaption,
 		})
 		s.enqueueImageMultimodalTasks(ctx, knowledge, kb, options.StoredImages, chunks, options.Metadata)
 	} else {
@@ -2959,6 +2971,13 @@ func (s *knowledgeService) ProcessDocument(ctx context.Context, t *asynq.Task) e
 		transcriptionResult, err := asrModel.Transcribe(ctx, convertResult.AudioData, knowledge.FileName)
 		if err != nil {
 			logger.Errorf(ctx, "[ASR] Transcription failed: %v", err)
+			if asrmodel.IsNonRetryable(err) {
+				knowledge.ParseStatus = "failed"
+				knowledge.ErrorMessage = fmt.Sprintf("audio/video transcription failed: %v", err)
+				knowledge.UpdatedAt = time.Now()
+				s.repo.UpdateKnowledge(ctx, knowledge)
+				return nil
+			}
 			if isLastRetry {
 				knowledge.ParseStatus = "failed"
 				knowledge.ErrorMessage = fmt.Sprintf("audio/video transcription failed: %v", err)
@@ -3321,6 +3340,11 @@ func (s *knowledgeService) enqueueImageMultimodalTasks(
 	if s.task == nil || len(images) == 0 {
 		return
 	}
+	enableOCR, enableCaption := imageMultimodalModes(kb, knowledge)
+	if !enableOCR && !enableCaption {
+		logger.Warnf(ctx, "Skip image multimodal tasks for knowledge %s: OCR/VLM not configured", knowledge.ID)
+		return
+	}
 
 	attempt := attemptFromCtx(ctx)
 	redisKey := fmt.Sprintf("multimodal:pending:%s", knowledge.ID)
@@ -3351,8 +3375,8 @@ func (s *knowledgeService) enqueueImageMultimodalTasks(
 			KnowledgeBaseID: kb.ID,
 			ChunkID:         chunkID,
 			ImageURL:        img.ServingURL,
-			EnableOCR:       true,
-			EnableCaption:   true,
+			EnableOCR:       enableOCR,
+			EnableCaption:   enableCaption,
 			Language:        lang,
 			ImageSourceType: metadata["image_source_type"],
 			Attempt:         attempt,

@@ -6,6 +6,7 @@ package interfaces
 
 import (
 	"context"
+	"mime/multipart"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -74,6 +75,15 @@ type KnowledgeBaseService interface {
 	UpdateKnowledgeBase(ctx context.Context,
 		id string, name string, description string, icon *string, config *types.KnowledgeBaseConfig, directoryConfig *types.KnowledgeBaseDirectoryConfig,
 	) (*types.KnowledgeBase, error)
+
+	// UploadKnowledgeBaseIcon uploads a custom image icon and returns the
+	// compact value that should be stored on KnowledgeBase.Icon plus a display URL.
+	// kbID may be empty during create flow; in that case the current tenant's
+	// default storage backend is used.
+	UploadKnowledgeBaseIcon(ctx context.Context, kbID string, file *multipart.FileHeader) (*types.KnowledgeBaseIconUploadResult, error)
+
+	// ResolveKnowledgeBaseIconURL returns a display URL for stored image icons.
+	ResolveKnowledgeBaseIconURL(ctx context.Context, kb *types.KnowledgeBase) string
 
 	// DeleteKnowledgeBase deletes a knowledge base
 	// Parameters:

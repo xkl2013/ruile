@@ -15,6 +15,7 @@ func ResolveProcessConfig(kb *types.KnowledgeBase, overrides *types.KnowledgePro
 		ChunkingConfig:           kb.ChunkingConfig,
 		EnableMultimodel:         kb.IsMultimodalEnabled(),
 		VLMConfig:                kb.VLMConfig,
+		OCRConfig:                kb.OCRConfig,
 		ASRConfig:                kb.ASRConfig,
 		QuestionGenerationConfig: defaultQuestionGenerationConfig(kb),
 		GraphEnabled:             kb.IsGraphEnabled(),
@@ -36,6 +37,9 @@ func ResolveProcessConfig(kb *types.KnowledgeBase, overrides *types.KnowledgePro
 	if overrides.VLMConfig != nil {
 		base := eff.VLMConfig
 		eff.VLMConfig = mergeVLMConfig(base, *overrides.VLMConfig)
+	}
+	if overrides.OCRConfig != nil {
+		eff.OCRConfig = *overrides.OCRConfig
 	}
 	if overrides.ASRConfig != nil {
 		eff.ASRConfig = *overrides.ASRConfig
@@ -116,8 +120,8 @@ func ValidateProcessOverrides(
 		if err := validateImageStorageConfig(ctx, kb); err != nil {
 			return err
 		}
-		if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() {
-			return werrors.NewBadRequestError("上传图片文件需要设置VLM模型")
+		if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() && !eff.OCRConfig.IsEnabled() {
+			return werrors.NewBadRequestError("上传图片文件需要设置VLM或OCR模型")
 		}
 	}
 
