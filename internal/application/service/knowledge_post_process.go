@@ -151,16 +151,19 @@ func (s *KnowledgePostProcessService) Handle(ctx context.Context, task *asynq.Ta
 	processOverrides, _ := knowledge.ProcessOverrides()
 	eff := ResolveProcessConfig(kb, processOverrides)
 
-	// 2. Fetch all chunks
-	chunks, err := s.chunkService.ListChunksByKnowledgeID(ctx, payload.KnowledgeID)
+	// 2. Fetch summary-capable chunks. The plain ListChunksByKnowledgeID path
+	// only returns text chunks, so standalone image uploads would never spawn
+	// summary even after OCR/caption chunks were created.
+	summaryChunks, err := listSummaryInputChunks(ctx, s.chunkService, payload.KnowledgeID)
 	if err != nil {
 		return fmt.Errorf("list chunks for knowledge %s: %w", payload.KnowledgeID, err)
 	}
 
-	// Gather all text-like chunks (including newly added OCR and Caption from multimodal tasks)
+	// Keep non-summary enrichments on the previous plain-text surface. Image
+	// OCR/caption chunks are used by summary generation only in this handler.
 	var textChunks []*types.Chunk
-	for _, c := range chunks {
-		if c.ChunkType == types.ChunkTypeText || c.ChunkType == types.ChunkTypeImageOCR || c.ChunkType == types.ChunkTypeImageCaption {
+	for _, c := range summaryChunks {
+		if c.ChunkType == types.ChunkTypeText {
 			textChunks = append(textChunks, c)
 		}
 	}
@@ -180,8 +183,8 @@ func (s *KnowledgePostProcessService) Handle(ctx context.Context, task *asynq.Ta
 	//    until wiki generation actually finishes instead of flipping to
 	//    completed while wiki runs minutes later. A wiki op that never
 	//    drains is bounded by the housekeeping finalizing sweep.
-	willSpawnSummary := len(textChunks) > 0
-	willSpawnQuestion := willSpawnSummary && kb.NeedsEmbeddingModel() &&
+	willSpawnSummary := len(summaryChunks) > 0
+	willSpawnQuestion := len(textChunks) > 0 && kb.NeedsEmbeddingModel() &&
 		eff.QuestionGenerationConfig.Enabled
 	willSpawnWiki := kb.IndexingStrategy.WikiEnabled && len(textChunks) > 0
 
@@ -442,10 +445,6 @@ func (s *KnowledgePostProcessService) Handle(ctx context.Context, task *asynq.Ta
 // when a task was actually placed on the queue, so the caller can release the
 // seeded pending-subtask slot when enqueue is skipped or fails.
 func (s *KnowledgePostProcessService) enqueueSummaryGenerationTask(ctx context.Context, payload types.KnowledgePostProcessPayload, attempt int) bool {
-	if s.taskEnqueuer == nil {
-		return false
-	}
-
 	taskPayload := types.SummaryGenerationPayload{
 		TenantID:        payload.TenantID,
 		KnowledgeBaseID: payload.KnowledgeBaseID,
@@ -453,6 +452,18 @@ func (s *KnowledgePostProcessService) enqueueSummaryGenerationTask(ctx context.C
 		Language:        payload.Language,
 		Attempt:         attempt,
 	}
+	return enqueueSummaryGenerationTask(ctx, s.taskEnqueuer, taskPayload)
+}
+
+func enqueueSummaryGenerationTask(
+	ctx context.Context,
+	taskEnqueuer interfaces.TaskEnqueuer,
+	taskPayload types.SummaryGenerationPayload,
+) bool {
+	if taskEnqueuer == nil {
+		return false
+	}
+
 	langfuse.InjectTracing(ctx, &taskPayload)
 	payloadBytes, err := json.Marshal(taskPayload)
 	if err != nil {
@@ -462,11 +473,11 @@ func (s *KnowledgePostProcessService) enqueueSummaryGenerationTask(ctx context.C
 
 	task := asynq.NewTask(types.TypeSummaryGeneration, payloadBytes,
 		asynq.Queue(types.QueueSummary), asynq.MaxRetry(3), asynq.Timeout(30*time.Minute))
-	if _, err := s.taskEnqueuer.Enqueue(task); err != nil {
-		logger.Warnf(ctx, "[KnowledgePostProcess] Failed to enqueue summary generation for %s: %v", payload.KnowledgeID, err)
+	if _, err := taskEnqueuer.Enqueue(task); err != nil {
+		logger.Warnf(ctx, "[KnowledgePostProcess] Failed to enqueue summary generation for %s: %v", taskPayload.KnowledgeID, err)
 		return false
 	}
-	logger.Infof(ctx, "[KnowledgePostProcess] Enqueued summary generation task for %s", payload.KnowledgeID)
+	logger.Infof(ctx, "[KnowledgePostProcess] Enqueued summary generation task for %s", taskPayload.KnowledgeID)
 	return true
 }
 

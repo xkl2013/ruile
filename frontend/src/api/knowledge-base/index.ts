@@ -163,6 +163,16 @@ export interface KnowledgeBaseDirectoryConfigPayload {
   directories: KnowledgeBaseDirectoryNodePayload[];
 }
 
+export interface KnowledgeDirectoryCount {
+  path: string;
+  count: number;
+}
+
+export interface KnowledgeDirectoryCountsPayload {
+  total: number;
+  directories: KnowledgeDirectoryCount[];
+}
+
 export function updateKnowledgeBaseDirectoryConfig(id: string, data: {
   directory_config: KnowledgeBaseDirectoryConfigPayload;
   name?: string;
@@ -173,6 +183,10 @@ export function updateKnowledgeBaseDirectoryConfig(id: string, data: {
     description: data.description || '',
     directory_config: data.directory_config,
   });
+}
+
+export function listKnowledgeDirectoryCounts(kbId: string) {
+  return get(`/api/v1/knowledge-bases/${kbId}/knowledge/directory-counts`);
 }
 
 export function rebuildKBIndex(kbId: string) {
@@ -319,6 +333,15 @@ export function updateManualKnowledge(
 
 export function reparseKnowledge(id: string, data?: { process_config?: KnowledgeProcessOverrides }) {
   return post(`/api/v1/knowledge/${id}/reparse`, data);
+}
+
+export type KnowledgeSummaryRegenerateMode = 'auto' | 'summary_only';
+
+export function regenerateKnowledgeSummary(
+  id: string,
+  data?: { mode?: KnowledgeSummaryRegenerateMode },
+) {
+  return post(`/api/v1/knowledge/${id}/regenerate-summary`, data);
 }
 
 export function cancelKnowledgeParse(id: string) {

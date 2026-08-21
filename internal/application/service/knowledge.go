@@ -554,6 +554,14 @@ func (s *knowledgeService) ListPagedKnowledgeByKnowledgeBaseID(ctx context.Conte
 	return types.NewPageResult(total, page, knowledges), nil
 }
 
+// ListKnowledgeDirectoryCounts returns root and per-directory document counts.
+func (s *knowledgeService) ListKnowledgeDirectoryCounts(
+	ctx context.Context,
+	kbID string,
+) (*types.KnowledgeDirectoryCountsResult, error) {
+	return s.repo.ListKnowledgeDirectoryCounts(ctx, ctx.Value(types.TenantIDContextKey).(uint64), kbID)
+}
+
 // GetKnowledgeFile retrieves the physical file associated with a knowledge entry
 func (s *knowledgeService) GetKnowledgeFile(ctx context.Context, id string) (io.ReadCloser, string, error) {
 	// Get knowledge record

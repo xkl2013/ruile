@@ -231,6 +231,7 @@
           <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
             <label class="form-label required">{{ $t('model.editor.baseUrlLabel') }}</label>
             <t-input v-model="formData.baseUrl" :placeholder="getBaseUrlPlaceholder()" />
+            <p v-if="getBaseUrlDescription()" class="form-desc">{{ getBaseUrlDescription() }}</p>
           </div>
 
           <div v-if="formData.provider !== 'weknoracloud'" class="form-item">
@@ -492,7 +493,8 @@ const apiProviderOptions = ref<ModelProviderOption[]>([])
 const loadingProviders = ref(false)
 
 // 硬编码的后备 Provider 配置 (当 API 不可用时使用)
-const fallbackProviderOptions = computed(() => [
+const fallbackProviderOptions = computed<ModelProviderOption[]>(() => {
+  const providers: ModelProviderOption[] = [
   {
     value: 'openai',
     label: t('model.editor.providers.openai.label'),
@@ -528,7 +530,7 @@ const fallbackProviderOptions = computed(() => [
       embedding: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       rerank: 'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank',
       vllm: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      ocr: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ocr: '',
       asr: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     },
     description: t('model.editor.providers.aliyun.description'),
@@ -633,7 +635,84 @@ const fallbackProviderOptions = computed(() => [
     description: t('model.editor.providers.generic.description'),
     modelTypes: ['chat', 'embedding', 'rerank', 'vllm', 'ocr', 'asr']
   },
-])
+  ]
+  return providers
+})
+
+const normalizeProviderModelType = (modelType: string): EditorModelType | null => {
+  const normalized = modelType.trim().toLowerCase()
+  const aliases: Record<string, EditorModelType> = {
+    knowledgeqa: 'chat',
+    chat: 'chat',
+    embedding: 'embedding',
+    rerank: 'rerank',
+    vllm: 'vllm',
+    ocr: 'ocr',
+    asr: 'asr',
+  }
+  return aliases[normalized] || null
+}
+
+const normalizeProviderOption = (provider: ModelProviderOption): ModelProviderOption => {
+  const defaultUrls = Object.fromEntries(
+    Object.entries(provider.defaultUrls || {}).map(([key, value]) => [
+      normalizeProviderModelType(key) || key,
+      value,
+    ]),
+  )
+
+  // 线上滚动发布或缓存命中旧 Provider 配置时，API 可能仍给阿里 OCR 返回
+  // 通用 DashScope 地址。OCR 这里不能自动填一个已知会 404 的默认值。
+  if (provider.value === 'aliyun') {
+    defaultUrls.ocr = ''
+  }
+
+  return {
+    ...provider,
+    defaultUrls,
+    modelTypes: (provider.modelTypes || [])
+      .map(type => normalizeProviderModelType(type))
+      .filter((type): type is EditorModelType => !!type),
+  }
+}
+
+const localizeProviderOption = (provider: ModelProviderOption): ModelProviderOption => ({
+  ...provider,
+  label: te(`model.editor.providers.${provider.value}.label`)
+    ? t(`model.editor.providers.${provider.value}.label`)
+    : provider.label,
+  description: te(`model.editor.providers.${provider.value}.description`)
+    ? t(`model.editor.providers.${provider.value}.description`)
+    : provider.description,
+})
+
+const filterProvidersByActiveType = (providers: ModelProviderOption[]): ModelProviderOption[] =>
+  providers.filter(p => p.modelTypes.includes(activeModelType.value))
+
+const isGenericDashScopeBaseUrl = (baseUrl?: string) => {
+  const raw = (baseUrl || '').trim()
+  if (!raw) return false
+  try {
+    const host = new URL(raw).hostname.toLowerCase()
+    return host === 'dashscope.aliyuncs.com' || host === 'dashscope-intl.aliyuncs.com'
+  } catch {
+    return false
+  }
+}
+
+const isAliyunOCRWithGenericBaseUrl = () => (
+  activeModelType.value === 'ocr'
+  && formData.value.provider === 'aliyun'
+  && isGenericDashScopeBaseUrl(formData.value.baseUrl)
+)
+
+const getProviderDefaultUrl = (provider: ModelProviderOption, modelType: EditorModelType) => {
+  const defaultUrl = provider.defaultUrls?.[modelType] || ''
+  if (provider.value === 'aliyun' && modelType === 'ocr' && isGenericDashScopeBaseUrl(defaultUrl)) {
+    return ''
+  }
+  return defaultUrl
+}
 
 // 从 API 获取 Provider 列表
 const loadProviders = async () => {
@@ -641,7 +720,7 @@ const loadProviders = async () => {
   apiProviderOptions.value = []
   try {
     const providers = await listModelProviders(activeModelType.value)
-    apiProviderOptions.value = providers
+    apiProviderOptions.value = providers.map(normalizeProviderOption)
   } catch (error) {
     console.error('Failed to load providers from API, using fallback', error)
   } finally {
@@ -654,22 +733,13 @@ const loadProviders = async () => {
 const providerOptions = computed(() => {
   // API 数据可用时，用 API 的结构数据 + i18n 的显示文本
   if (apiProviderOptions.value.length > 0) {
-    return apiProviderOptions.value
-      .filter(p => p.modelTypes.includes(activeModelType.value))
-      .map(p => ({
-        ...p,
-        label: te(`model.editor.providers.${p.value}.label`)
-          ? t(`model.editor.providers.${p.value}.label`)
-          : p.label,
-        description: te(`model.editor.providers.${p.value}.description`)
-          ? t(`model.editor.providers.${p.value}.description`)
-          : p.description,
-      }))
+    const filteredApiProviders = filterProvidersByActiveType(apiProviderOptions.value)
+    if (filteredApiProviders.length > 0) {
+      return filteredApiProviders.map(localizeProviderOption)
+    }
   }
   // 回退到硬编码值，按 modelTypes 过滤
-  return fallbackProviderOptions.value.filter(p =>
-    p.modelTypes.includes(activeModelType.value)
-  )
+  return filterProvidersByActiveType(fallbackProviderOptions.value)
 })
 
 const dialogVisible = computed({
@@ -950,9 +1020,19 @@ const getBaseUrlPlaceholder = () => {
     return t('model.editor.baseUrlPlaceholderAsr')
   }
   if (activeModelType.value === 'ocr') {
+    if (formData.value.provider === 'aliyun') {
+      return t('model.editor.baseUrlPlaceholderAliyunOcr')
+    }
     return t('model.editor.baseUrlPlaceholderOcr')
   }
   return t('model.editor.baseUrlPlaceholder')
+}
+
+const getBaseUrlDescription = () => {
+  if (activeModelType.value === 'ocr' && formData.value.provider === 'aliyun') {
+    return t('model.editor.baseUrlDescAliyunOcr')
+  }
+  return ''
 }
 
 // 检查Ollama服务状态
@@ -1140,9 +1220,11 @@ const handleProviderChange = (value: string) => {
   const provider = providerOptions.value.find(opt => opt.value === value)
   if (provider && provider.defaultUrls) {
     // 根据当前模型类型获取对应的默认 URL
-    const defaultUrl = provider.defaultUrls[activeModelType.value]
+    const defaultUrl = getProviderDefaultUrl(provider, activeModelType.value)
     if (defaultUrl) {
       formData.value.baseUrl = defaultUrl
+    } else if (!isEdit.value) {
+      formData.value.baseUrl = ''
     }
     if (value === 'lkeap' && activeModelType.value === 'rerank' && !formData.value.modelName?.trim()) {
       formData.value.modelName = 'lke-reranker-base'
@@ -1343,6 +1425,14 @@ const checkRemoteAPI = async () => {
     return
   }
 
+  if (isAliyunOCRWithGenericBaseUrl()) {
+    remoteChecked.value = true
+    remoteAvailable.value = false
+    remoteMessage.value = t('model.editor.aliyunOcrGenericBaseUrlError')
+    MessagePlugin.error(remoteMessage.value)
+    return
+  }
+
   checking.value = true
   remoteChecked.value = false
   remoteMessage.value = ''
@@ -1519,6 +1609,11 @@ const handleConfirm = async () => {
     if (formData.value.source === 'remote' && formData.value.provider !== 'weknoracloud') {
       if (!formData.value.baseUrl || !formData.value.baseUrl.trim()) {
         MessagePlugin.warning(t('model.editor.remoteBaseUrlRequired'))
+        return
+      }
+
+      if (isAliyunOCRWithGenericBaseUrl()) {
+        MessagePlugin.warning(t('model.editor.aliyunOcrGenericBaseUrlError'))
         return
       }
 

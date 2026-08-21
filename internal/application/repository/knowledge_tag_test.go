@@ -221,6 +221,55 @@ func TestApplyKnowledgeListFilter_DirectoryPathIncludesDescendants(t *testing.T)
 	assert.ElementsMatch(t, []string{wildcardDoc}, ids)
 }
 
+func TestListKnowledgeDirectoryCounts_IncludesAncestorsAndScopesRows(t *testing.T) {
+	db := setupKnowledgeTagTestDB(t)
+	repo := &knowledgeRepository{db: db}
+	ctx := context.Background()
+
+	kbID := uuid.New().String()
+	otherKBID := uuid.New().String()
+
+	for _, row := range []struct {
+		id        string
+		tenantID  uint64
+		kbID      string
+		fileName  any
+		deletedAt any
+	}{
+		{uuid.New().String(), 1, kbID, "parents/handbook/a.pdf", nil},
+		{uuid.New().String(), 1, kbID, "parents/handbook/child/b.pdf", nil},
+		{uuid.New().String(), 1, kbID, "parents/other/c.pdf", nil},
+		{uuid.New().String(), 1, kbID, "root-only.pdf", nil},
+		{uuid.New().String(), 1, kbID, nil, nil},
+		{uuid.New().String(), 1, kbID, "https://school.example.com/folder/page.html", nil},
+		{uuid.New().String(), 1, kbID, "parents/handbook/deleted.pdf", "2026-08-18 00:00:00"},
+		{uuid.New().String(), 2, kbID, "parents/handbook/other-tenant.pdf", nil},
+		{uuid.New().String(), 1, otherKBID, "parents/handbook/other-kb.pdf", nil},
+	} {
+		title := row.fileName
+		if title == nil {
+			title = "null-file-name"
+		}
+		require.NoError(t, db.Exec(`
+			INSERT INTO knowledges (id, tenant_id, knowledge_base_id, type, title, file_name, parse_status, deleted_at)
+			VALUES (?, ?, ?, 'file', ?, ?, 'completed', ?)
+		`, row.id, row.tenantID, row.kbID, title, row.fileName, row.deletedAt).Error)
+	}
+
+	result, err := repo.ListKnowledgeDirectoryCounts(ctx, 1, kbID)
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(6), result.Total)
+	assert.ElementsMatch(t, []types.KnowledgeDirectoryCount{
+		{Path: "parents", Count: 3},
+		{Path: "parents/handbook", Count: 2},
+		{Path: "parents/handbook/child", Count: 1},
+		{Path: "parents/other", Count: 1},
+		{Path: "school.example.com", Count: 1},
+		{Path: "school.example.com/folder", Count: 1},
+	}, result.Directories)
+}
+
 func TestBatchCountReferences_ScopedToKnowledgeBase(t *testing.T) {
 	db := setupKnowledgeTagTestDB(t)
 	knowledgeRepo := &knowledgeRepository{db: db}

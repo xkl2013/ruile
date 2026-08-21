@@ -2,6 +2,7 @@ package handler
 
 import (
 	stderrors "errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	secutils "github.com/Tencent/WeKnora/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -156,6 +158,60 @@ func (h *OrganizeHandler) CreateOutput(c *gin.Context) {
 		return
 	}
 	item, err := h.service.CreateOutput(ctx, tenantID, userID, req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) UploadOutput(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+
+	header, err := c.FormFile("file")
+	if err != nil {
+		c.Error(apperrors.NewBadRequestError("file is required"))
+		return
+	}
+	fileName := strings.TrimSpace(header.Filename)
+	if fileName == "" {
+		c.Error(apperrors.NewBadRequestError("file name is required"))
+		return
+	}
+
+	contentType := ""
+	if header.Header != nil {
+		contentType = header.Header.Get("Content-Type")
+	}
+	maxSizeMB := secutils.GetMaxFileSizeMBForUpload(fileName, contentType)
+	maxSize := maxSizeMB * 1024 * 1024
+	if header.Size > 0 && header.Size > maxSize {
+		c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
+		return
+	}
+
+	file, err := header.Open()
+	if err != nil {
+		c.Error(apperrors.NewInternalServerError("failed to open upload file"))
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
+	if err != nil {
+		c.Error(apperrors.NewInternalServerError("failed to read upload file"))
+		return
+	}
+	if int64(len(data)) > maxSize {
+		c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
+		return
+	}
+
+	item, err := h.service.CreateOutputFromUpload(ctx, tenantID, userID, fileName, contentType, data)
 	if err != nil {
 		h.handleError(c, err)
 		return

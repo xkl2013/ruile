@@ -85,6 +85,8 @@ type KnowledgeService interface {
 		page *types.Pagination,
 		filter types.KnowledgeListFilter,
 	) (*types.PageResult, error)
+	// ListKnowledgeDirectoryCounts returns root and per-directory document counts.
+	ListKnowledgeDirectoryCounts(ctx context.Context, kbID string) (*types.KnowledgeDirectoryCountsResult, error)
 	// DeleteKnowledge deletes knowledge by ID.
 	DeleteKnowledge(ctx context.Context, id string) error
 	// DeleteKnowledgeList deletes multiple knowledge entries by IDs.
@@ -106,6 +108,13 @@ type KnowledgeService interface {
 		ctx context.Context,
 		knowledgeID string,
 		processOverrides *types.KnowledgeProcessOverrides,
+	) (*types.Knowledge, error)
+	// RegenerateKnowledgeSummary re-runs summary generation for an existing knowledge item.
+	// mode=auto first tries the current chunks and falls back to reparse when summary input is insufficient.
+	RegenerateKnowledgeSummary(
+		ctx context.Context,
+		knowledgeID string,
+		mode types.KnowledgeSummaryRegenerateMode,
 	) (*types.Knowledge, error)
 	// CancelKnowledgeParse marks an in-progress parse as cancelled by the
 	// user. The knowledge row and any partially written chunks/index are
@@ -217,6 +226,8 @@ type KnowledgeRepository interface {
 	ListPagedKnowledgeByKnowledgeBaseID(ctx context.Context,
 		tenantID uint64, kbID string, page *types.Pagination, filter types.KnowledgeListFilter,
 	) ([]*types.Knowledge, int64, error)
+	// ListKnowledgeDirectoryCounts returns root and per-directory document counts.
+	ListKnowledgeDirectoryCounts(ctx context.Context, tenantID uint64, kbID string) (*types.KnowledgeDirectoryCountsResult, error)
 	UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) error
 	// UpdateKnowledgeBatch updates knowledge items in batch
 	UpdateKnowledgeBatch(ctx context.Context, knowledgeList []*types.Knowledge) error

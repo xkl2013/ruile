@@ -626,7 +626,12 @@ export function listModelProviders(modelType?: string): Promise<ModelProviderOpt
             : '/api/v1/models/providers';
         get(url)
             .then((response: any) => {
-                resolve(response.data || []);
+                const data = Array.isArray(response)
+                    ? response
+                    : Array.isArray(response?.data)
+                        ? response.data
+                        : [];
+                resolve(data);
             })
             .catch((error: any) => {
                 console.error('Failed to list model providers:', error);

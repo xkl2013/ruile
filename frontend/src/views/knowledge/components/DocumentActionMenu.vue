@@ -8,6 +8,7 @@ interface KnowledgeItem {
   title?: string;
   type?: string;
   parse_status?: string;
+  summary_status?: string;
 }
 
 const props = defineProps<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   (e: 'edit'): void;
   (e: 'view-trace'): void;
   (e: 'reparse'): void;
+  (e: 'regenerate-summary'): void;
   (e: 'cancel-parse'): void;
   (e: 'move'): void;
   (e: 'batch-manage'): void;
@@ -32,6 +34,9 @@ const CANCELABLE_PARSE_STATUSES = new Set(['pending', 'processing', 'finalizing'
 
 const isParseInFlight = computed(() =>
   CANCELABLE_PARSE_STATUSES.has(String(props.item.parse_status ?? ''))
+);
+const isSummaryInFlight = computed(() =>
+  ['pending', 'processing'].includes(String(props.item.summary_status ?? ''))
 );
 
 const fileName = computed(() => props.item.file_name || props.item.title || props.item.id);
@@ -67,6 +72,12 @@ const fileName = computed(() => props.item.file_name || props.item.title || prop
       <span>{{ $t('knowledgeBase.rebuildDocument') }}</span>
     </div>
   </t-popconfirm>
+
+  <!-- 重新生成摘要 -->
+  <div v-if="!isParseInFlight && !isSummaryInFlight" class="doc-action-menu-item" @click.stop="emit('regenerate-summary')">
+    <t-icon class="icon" name="refresh" />
+    <span>{{ $t('knowledgeBase.regenerateSummary') }}</span>
+  </div>
 
   <!-- 取消解析 -->
   <t-popconfirm v-if="isParseInFlight" theme="warning"

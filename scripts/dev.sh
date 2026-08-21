@@ -401,6 +401,10 @@ start_app() {
     log_info "启动后端应用（本地开发模式）..."
     
     cd "$PROJECT_ROOT"
+
+    # Prefer repo-local shims first so dev-app can use the checked-in
+    # ffmpeg wrapper without requiring a host-level install.
+    export PATH="$PROJECT_ROOT/bin:$PATH"
     
     # 检查 Go 是否安装
     if ! command -v go &> /dev/null; then

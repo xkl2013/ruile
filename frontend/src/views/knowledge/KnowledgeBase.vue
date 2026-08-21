@@ -30,15 +30,19 @@ import {
   uploadKnowledgeFile,
   createKnowledgeFromURL,
   reparseKnowledge,
+  regenerateKnowledgeSummary,
   cancelKnowledgeParse,
   batchDeleteKnowledge,
   batchReparseKnowledge,
+  listKnowledgeDirectoryCounts,
   getKnowledgeSpans,
   getKnowledgeDetails,
   updateKnowledgeBase,
   updateKnowledgeBaseDirectoryConfig,
   type KnowledgeBaseDirectoryConfigPayload,
   type KnowledgeBaseDirectoryNodePayload,
+  type KnowledgeDirectoryCountsPayload,
+  type KnowledgeSummaryRegenerateMode,
 } from "@/api/knowledge-base/index";
 import { knowledgeSpansPayloadHasTrace } from '@/utils/knowledgeTrace';
 import FAQEntryManager from './components/FAQEntryManager.vue';
@@ -666,8 +670,9 @@ const directoryForm = reactive({
 });
 const collapsedDirectoryPaths = ref<Set<string>>(new Set());
 const directorySaving = ref(false);
-const directorySourceItems = ref<KnowledgeCard[]>([]);
+const directoryCountsByPath = ref<Record<string, number>>({});
 const directoryRootTotal = ref(0);
+const directoryCountsLoaded = ref(false);
 
 const normalizeDocumentPath = (item: DirectorySourceItem) => {
   const candidates = [
@@ -907,25 +912,17 @@ const loadManualDirectoryState = async (knowledgeBase: any, targetKbId = kbId.va
 const documentDirectoryNodes = computed<DirectoryNode[]>(() => {
   const map = new Map<string, DirectoryNode>();
 
-  for (const item of directorySourceItems.value || []) {
-    const directoryPath = getDocumentDirectoryPath(item);
-    if (!directoryPath) continue;
-    const parts = directoryPath.split('/').filter(Boolean);
-    parts.forEach((_, index) => {
-      const path = parts.slice(0, index + 1).join('/');
-      const existing = map.get(path);
-      if (existing) {
-        existing.count += 1;
-        return;
-      }
-      map.set(path, {
-        path,
-        name: parts[index],
-        depth: index,
-        count: 1,
-      });
+  Object.entries(directoryCountsByPath.value).forEach(([rawPath, rawCount]) => {
+    const path = normalizeDirectoryPath(rawPath);
+    if (!path) return;
+    const parts = path.split('/').filter(Boolean);
+    map.set(path, {
+      path,
+      name: parts[parts.length - 1] || path,
+      depth: parts.length - 1,
+      count: Number(rawCount) || 0,
     });
-  }
+  });
 
   for (const directory of manualDirectoryNodes.value) {
     const existing = map.get(directory.path);
@@ -948,7 +945,7 @@ const documentDirectoryNodes = computed<DirectoryNode[]>(() => {
   return sortDirectoryNodes([...map.values()]);
 });
 
-const rootDirectoryCount = computed(() => directoryRootTotal.value || (directorySourceItems.value || []).length);
+const rootDirectoryCount = computed(() => directoryCountsLoaded.value ? directoryRootTotal.value : total.value);
 
 const rootHasChildren = computed(() => documentDirectoryNodes.value.length > 0);
 
@@ -1046,23 +1043,36 @@ const getDirectoryVisibleName = (path: string) => {
     || getDirectoryDisplayName(path);
 };
 
-const clearDirectorySource = () => {
-  directorySourceItems.value = [];
+const clearDirectoryCounts = () => {
+  directoryCountsByPath.value = {};
   directoryRootTotal.value = 0;
+  directoryCountsLoaded.value = false;
 };
 
-const syncDirectorySourceFromCurrentList = () => {
-  directorySourceItems.value = [...(cardList.value || [])];
-  directoryRootTotal.value = total.value;
-};
-
-const mergeDirectorySourceItems = (items: KnowledgeCard[]) => {
-  if (!items.length) return;
-  const map = new Map(directorySourceItems.value.map(item => [item.id, item]));
-  for (const item of items) {
-    map.set(item.id, item);
+const loadKnowledgeDirectoryCounts = async (targetKbId = kbId.value) => {
+  if (!targetKbId || isFAQ.value) {
+    if (!targetKbId || targetKbId === kbId.value) clearDirectoryCounts();
+    return;
   }
-  directorySourceItems.value = [...map.values()];
+
+  try {
+    const res: any = await listKnowledgeDirectoryCounts(targetKbId);
+    if (!isCurrentKb(targetKbId) || isFAQ.value) return;
+    const payload = (res?.data || {}) as KnowledgeDirectoryCountsPayload;
+    const nextCounts: Record<string, number> = {};
+    if (Array.isArray(payload.directories)) {
+      payload.directories.forEach((item) => {
+        const path = normalizeDirectoryPath(item.path);
+        if (!path) return;
+        nextCounts[path] = Number(item.count) || 0;
+      });
+    }
+    directoryCountsByPath.value = nextCounts;
+    directoryRootTotal.value = Number(payload.total) || 0;
+    directoryCountsLoaded.value = true;
+  } catch (error) {
+    console.error('[KnowledgeBase] Failed to load document directory counts:', error);
+  }
 };
 
 const scrollDocumentListToTop = () => {
@@ -1241,7 +1251,7 @@ const getDirectoryTitle = (directory: DirectoryNode) => {
 watch(kbId, () => {
   activeDirectoryPath.value = DIRECTORY_ROOT_PATH;
   collapsedDirectoryPaths.value = new Set();
-  clearDirectorySource();
+  clearDirectoryCounts();
   applyDirectoryState({ rootDescription: '', directories: [] });
 }, { immediate: true });
 
@@ -1360,11 +1370,6 @@ const loadKnowledgeFiles = (kbIdValue: string): Promise<void> => {
   ).then(() => {
     if (!isCurrentKb(kbIdValue) || isFAQ.value) return;
     if (requestDirectoryPath !== activeDirectoryPath.value) return;
-    if (requestDirectoryPath === DIRECTORY_ROOT_PATH && activeDirectoryPath.value === DIRECTORY_ROOT_PATH) {
-      syncDirectorySourceFromCurrentList();
-      return;
-    }
-    mergeDirectorySourceItems(cardList.value || []);
   }).finally(() => {
     if (isCurrentKb(kbIdValue) && !isFAQ.value) {
       docListLoading.value = false;
@@ -1512,7 +1517,7 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     kbInfo.value = null;
     cardList.value = [];
     total.value = 0;
-    clearDirectorySource();
+    clearDirectoryCounts();
     return;
   }
   kbLoading.value = true;
@@ -1529,11 +1534,12 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     // 重置store中的标签选择状态，避免上传文档时自动带上之前选择的标签
     uiStore.clearSelectedTagIds();
     if (!isFAQ.value) {
+      void loadKnowledgeDirectoryCounts(targetKbId);
       loadKnowledgeFiles(targetKbId);
     } else {
       cardList.value = [];
       total.value = 0;
-      clearDirectorySource();
+      clearDirectoryCounts();
     }
     loadTags(targetKbId, true);
   } catch (error) {
@@ -1543,7 +1549,7 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
     kbInfo.value = null;
     cardList.value = [];
     total.value = 0;
-    clearDirectorySource();
+    clearDirectoryCounts();
   } finally {
     if (isCurrentKb(targetKbId)) {
       kbLoading.value = false;
@@ -1568,7 +1574,7 @@ watch(() => kbId.value, (newKbId, oldKbId) => {
     kbInfo.value = null;
     cardList.value = [];
     total.value = 0;
-    clearDirectorySource();
+    clearDirectoryCounts();
     return;
   }
   if (newKbId === oldKbId && kbInfo.value) return;
@@ -1577,7 +1583,7 @@ watch(() => kbId.value, (newKbId, oldKbId) => {
     clearTraceAvailabilityCache();
     cardList.value = [];
     total.value = 0;
-    clearDirectorySource();
+    clearDirectoryCounts();
     docListLoading.value = true;
     resetPage();
     tagSearchQuery.value = '';
@@ -1647,6 +1653,7 @@ const handleFileUploaded = (event: CustomEvent) => {
     console.log('匹配当前知识库，开始刷新文件列表');
     // 如果上传的文件属于当前知识库，使用 loadKnowledgeFiles 刷新文件列表
     resetPage(); // Reset page counter when reloading files after upload
+    void loadKnowledgeDirectoryCounts(uploadedKbId);
     loadKnowledgeFiles(uploadedKbId);
     loadTags(uploadedKbId);
     // 启动几次探测，尽快让面包屑的"索引中"亮起。
@@ -1675,6 +1682,7 @@ const handleOpenURLImportDialog = (event: CustomEvent) => {
 const pendingKnowledgeId = ref<string | null>(
   (route.query.knowledge_id as string) || null
 );
+const KNOWLEDGE_FILE_DROP_EVENT = 'weknora:knowledge-file-drop';
 
 const tryAutoOpenDocument = () => {
   if (!pendingKnowledgeId.value || !cardList.value?.length) return;
@@ -1713,18 +1721,31 @@ const handleOpenKnowledgeEvent = (e: Event) => {
   tryAutoOpenDocument();
 };
 
+const handleKnowledgeFileDrop = (e: Event) => {
+  const event = e as CustomEvent<{ kbId?: string; files?: File[] }>;
+  const detail = event.detail;
+  if (!detail?.files?.length) return;
+  if (detail.kbId && detail.kbId !== kbId.value) return;
+  event.preventDefault();
+  if (uploading.value) return;
+  if (!ensureDocumentKbReady()) return;
+  void openUploadConfirmDialog(detail.files);
+};
+
 onMounted(() => {
   editorResources.ensureParserEngines();
 
   window.addEventListener('knowledgeFileUploaded', handleFileUploaded as EventListener);
   window.addEventListener('openURLImportDialog', handleOpenURLImportDialog as EventListener);
   window.addEventListener('weknora:open-knowledge', handleOpenKnowledgeEvent as EventListener);
+  window.addEventListener(KNOWLEDGE_FILE_DROP_EVENT, handleKnowledgeFileDrop as EventListener);
 });
 
 onUnmounted(() => {
   window.removeEventListener('knowledgeFileUploaded', handleFileUploaded as EventListener);
   window.removeEventListener('openURLImportDialog', handleOpenURLImportDialog as EventListener);
   window.removeEventListener('weknora:open-knowledge', handleOpenKnowledgeEvent as EventListener);
+  window.removeEventListener(KNOWLEDGE_FILE_DROP_EVENT, handleKnowledgeFileDrop as EventListener);
   stopMovePoll();
   if (timeout !== null) {
     clearTimeout(timeout);
@@ -1883,6 +1904,7 @@ const confirmDeleteKnowledge = (index: number, item: KnowledgeCard) => {
       if (!stillPresent) break;
       await new Promise<void>((r) => setTimeout(r, delayMs));
     }
+    await loadKnowledgeDirectoryCounts(kbId.value);
     loadTags(kbId.value, true);
   });
 };
@@ -1944,6 +1966,7 @@ const handleMoveConfirm = async () => {
     } else {
       moveSubmitting.value = false;
       resetPage(); // Reset page counter when reloading files after move
+      void loadKnowledgeDirectoryCounts(kbId.value);
       loadKnowledgeFiles(kbId.value);
     }
   } catch (e: any) {
@@ -1969,6 +1992,7 @@ const startMovePoll = (taskId: string) => {
           MessagePlugin.success(t('knowledgeBase.moveCompleted'));
         }
         resetPage(); // Reset page counter when reloading files after move completion
+        void loadKnowledgeDirectoryCounts(kbId.value);
         loadKnowledgeFiles(kbId.value);
       } else if (data.status === 'failed') {
         stopMovePoll();
@@ -1991,6 +2015,7 @@ const stopMovePoll = () => {
 const manualEditorSuccess = ({ kbId: savedKbId }: { kbId: string; knowledgeId: string; status: 'draft' | 'publish' }) => {
   if (savedKbId === kbId.value && !isFAQ.value) {
     resetPage(); // Reset page counter when reloading files after manual edit
+    void loadKnowledgeDirectoryCounts(savedKbId);
     loadKnowledgeFiles(savedKbId);
   }
 };
@@ -2363,6 +2388,41 @@ const submitReparse = async (id: string, processConfig?: KnowledgeProcessOverrid
   }
 };
 
+const submitRegenerateSummary = async (id: string, mode: KnowledgeSummaryRegenerateMode = 'auto') => {
+  try {
+    await regenerateKnowledgeSummary(id, { mode });
+    delete traceAvailableById[id];
+    traceAvailableById[id] = true;
+    if (details.id === id) {
+      details.summary_status = 'pending';
+    }
+    MessagePlugin.success(t('knowledgeBase.regenerateSummarySubmitted'));
+    loadKnowledgeFiles(kbId.value);
+    scheduleWikiStatusProbes();
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeBase.regenerateSummaryFailed'));
+  }
+};
+
+const confirmRegenerateSummaryKnowledge = async (index: number, item: KnowledgeCard) => {
+  if (isFAQ.value) return;
+  if (!canEdit.value) return;
+  if (!item?.id) {
+    MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
+    return;
+  }
+  if (isParseInFlight(item.parse_status)) {
+    MessagePlugin.info(t('knowledgeBase.rebuildInProgress'));
+    return;
+  }
+  if (item.summary_status === 'pending' || item.summary_status === 'processing') {
+    MessagePlugin.info(t('knowledgeBase.regenerateSummaryInProgress'));
+    return;
+  }
+  closeCardMoreMenu(index);
+  await submitRegenerateSummary(item.id);
+};
+
 const handleScroll = () => {
   if (isFAQ.value) return;
   if (docListLoading.value) return;
@@ -2381,11 +2441,6 @@ const handleScroll = () => {
         getKnowled({ page, page_size: pageSize, ...filterParams.value }, currentKbId).then(() => {
           if (!isCurrentKb(currentKbId)) return;
           if (requestDirectoryPath !== activeDirectoryPath.value) return;
-          if (requestDirectoryPath === DIRECTORY_ROOT_PATH && activeDirectoryPath.value === DIRECTORY_ROOT_PATH) {
-            syncDirectorySourceFromCurrentList();
-            return;
-          }
-          mergeDirectorySourceItems(cardList.value || []);
         }).finally(() => {
           if (isCurrentKb(currentKbId)) {
             scrollLoading = false;
@@ -2516,6 +2571,7 @@ const confirmBatchDelete = async () => {
         if (!stillPresent) break;
         await new Promise<void>((r) => setTimeout(r, delayMs));
       }
+      await loadKnowledgeDirectoryCounts(kbId.value);
       loadTags(kbId.value, true);
     } else {
       MessagePlugin.error(res?.message || t('knowledgeBase.batchDeleteFailed'));
@@ -2540,7 +2596,7 @@ const confirmCancelParseKnowledge = async (item: KnowledgeCard) => {
 
 // Bridge card-view actions back to existing per-card handlers.
 const handleCardAction = (
-  action: 'edit' | 'reparse' | 'cancel-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
+  action: 'edit' | 'reparse' | 'regenerate-summary' | 'cancel-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
   item: KnowledgeCard,
 ) => {
   const idx = (cardList.value || []).findIndex((i: KnowledgeCard) => i.id === item.id);
@@ -2549,6 +2605,7 @@ const handleCardAction = (
     if (isParseInFlight(item.parse_status)) return onReparseMenuClick(idx, item);
     return confirmRebuildKnowledge(idx, item);
   }
+  if (action === 'regenerate-summary') return confirmRegenerateSummaryKnowledge(idx, item);
   if (action === 'cancel-parse') return confirmCancelParseKnowledge(item);
   if (action === 'move') return handleMoveKnowledge(item);
   if (action === 'delete') return confirmDeleteKnowledge(idx, item);
@@ -2558,12 +2615,13 @@ const handleCardAction = (
 
 // Bridge list-view actions back to existing per-card handlers.
 const handleListAction = (
-  action: 'edit' | 'reparse' | 'cancel-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
+  action: 'edit' | 'reparse' | 'regenerate-summary' | 'cancel-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
   item: KnowledgeCard,
 ) => {
   const idx = (cardList.value || []).findIndex((i: KnowledgeCard) => i.id === item.id);
   if (action === 'edit') return handleManualEdit(idx, item);
   if (action === 'reparse') return confirmRebuildKnowledge(idx, item);
+  if (action === 'regenerate-summary') return confirmRegenerateSummaryKnowledge(idx, item);
   if (action === 'cancel-parse') return confirmCancelParseKnowledge(item);
   if (action === 'move') return handleMoveKnowledge(item);
   if (action === 'delete') return confirmDeleteKnowledge(idx, item);
@@ -3044,7 +3102,7 @@ async function createNewSession(value: string): Promise<void> {
 
       <!-- DocContent drawer (shared by documents tab and wiki source refs) -->
       <DocContent ref="docContentRef" :visible="isCardDetails" :details="details" :canEditKB="canEdit" :kbId="kbId"
-        @closeDoc="closeDoc" @getDoc="getDoc">
+        @closeDoc="closeDoc" @getDoc="getDoc" @regenerateSummary="details.id && submitRegenerateSummary(details.id)">
       </DocContent>
     </div>
   </template>

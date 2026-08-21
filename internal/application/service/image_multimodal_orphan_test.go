@@ -135,6 +135,7 @@ func TestImageMultimodalHandleDropFinalizesPendingCounter(t *testing.T) {
 		KnowledgeID:     knowledgeID,
 		KnowledgeBaseID: "kb-1",
 		ImageURL:        "minio://bucket/img.png",
+		Attempt:         7,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -147,6 +148,13 @@ func TestImageMultimodalHandleDropFinalizesPendingCounter(t *testing.T) {
 	}
 	if len(enqueuer.enqueued) != 1 || enqueuer.enqueued[0].Type() != types.TypeKnowledgePostProcess {
 		t.Fatalf("expected post-process enqueue, got %d tasks", len(enqueuer.enqueued))
+	}
+	var postPayload types.KnowledgePostProcessPayload
+	if err := json.Unmarshal(enqueuer.enqueued[0].Payload(), &postPayload); err != nil {
+		t.Fatalf("unmarshal post-process payload: %v", err)
+	}
+	if postPayload.Attempt != 7 {
+		t.Fatalf("post-process attempt = %d, want 7", postPayload.Attempt)
 	}
 }
 

@@ -11,6 +11,9 @@ const (
 	// AliyunChatBaseURL 阿里云 DashScope OpenAI-compatible 默认 BaseURL
 	//（Chat / Embedding / VLLM / ASR）
 	AliyunChatBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	// AliyunOCRBaseURLExample 阿里云 Qwen OCR 需要使用 Model Studio 工作空间域名。
+	// 该值只用于提示，不作为默认 URL 自动填入表单，因为 <WorkspaceId> 必须由用户替换。
+	AliyunOCRBaseURLExample = "https://<WorkspaceId>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 	// AliyunRerankBaseURL 阿里云 DashScope Rerank 的默认 BaseURL
 	AliyunRerankBaseURL = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
 )
@@ -33,7 +36,7 @@ func (p *AliyunProvider) Info() ProviderInfo {
 			types.ModelTypeEmbedding:   AliyunChatBaseURL,
 			types.ModelTypeRerank:      AliyunRerankBaseURL,
 			types.ModelTypeVLLM:        AliyunChatBaseURL,
-			types.ModelTypeOCR:         AliyunChatBaseURL,
+			types.ModelTypeOCR:         "",
 			types.ModelTypeASR:         AliyunChatBaseURL,
 		},
 		ModelTypes: []types.ModelType{

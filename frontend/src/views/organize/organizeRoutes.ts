@@ -44,7 +44,7 @@ export const ORGANIZE_MENU_ROUTES: readonly OrganizeMenuRouteItem[] = [
   },
   {
     key: 'output',
-    label: '成果',
+    label: '发现',
     icon: 'star',
     count: 12,
     routeName: ORGANIZE_ROUTE_NAMES.output,
@@ -83,11 +83,11 @@ export const ORGANIZE_MEMORY_ASSET_ROUTES: readonly OrganizeMemoryAssetRouteItem
   },
   {
     key: 'audio-card',
-    label: '录音卡',
+    label: '工牌',
     icon: 'file',
     count: 2,
-    unit: '张',
-    itemTypeLabel: '录音卡',
+    unit: '条',
+    itemTypeLabel: '工牌',
     routeName: ORGANIZE_ROUTE_NAMES.memoryAudioCards,
     path: `${ORGANIZE_ROUTE_BASE_PATH}/memory/audio-cards`,
   },

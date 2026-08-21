@@ -142,19 +142,19 @@ const isCreate = computed(() => !savedDocumentId.value && (documentId.value === 
 
 const memoryAssetLabel = computed(() => {
   if (memoryKind.value === 'audio') return '录音'
-  if (memoryKind.value === 'audio_card') return '录音卡'
+  if (memoryKind.value === 'audio_card') return '工牌'
   return '笔记'
 })
 
 const typeLabel = computed(() => {
-  if (documentType.value === 'output') return '成果文档'
-  if (documentType.value === 'sprout') return '发芽'
+  if (documentType.value === 'output') return '发现文档'
+  if (documentType.value === 'sprout') return '经营复盘'
   return memoryAssetLabel.value
 })
 
 const breadcrumbRootLabel = computed(() => {
-  if (documentType.value === 'output') return '成果'
-  if (documentType.value === 'sprout') return '发芽'
+  if (documentType.value === 'output') return '发现'
+  if (documentType.value === 'sprout') return '经营复盘'
   return '记忆'
 })
 
@@ -187,8 +187,8 @@ const returnTo = computed(() => {
 })
 
 const returnLabel = computed(() => {
-  if (returnTo.value.includes('/output')) return '成果'
-  if (returnTo.value.includes('/sprout')) return '发芽'
+  if (returnTo.value.includes('/output')) return '发现'
+  if (returnTo.value.includes('/sprout')) return '经营复盘'
   return '记忆'
 })
 
@@ -376,7 +376,7 @@ const loadDocument = async () => {
       memoryMetadata.value = item.metadata
     } else if (documentType.value === 'output') {
       const response = await getOrganizeOutput(documentId.value)
-      if (!response.success || !response.data) throw new Error(response.message || '成果加载失败')
+      if (!response.success || !response.data) throw new Error(response.message || '发现加载失败')
       const item = response.data
       title.value = item.title
       content.value = normalizeDocumentContent(item.title, item.content)
@@ -479,7 +479,7 @@ const saveDocument = async () => {
       const response = creating
         ? await createOrganizeOutput(input)
         : await updateOrganizeOutput(currentDocumentId, input)
-      if (!response.success || !response.data) throw new Error(response.message || '成果保存失败')
+      if (!response.success || !response.data) throw new Error(response.message || '发现保存失败')
       savedId = response.data.id
       outputDraft.value = response.data
     } else if (currentType === 'sprout') {

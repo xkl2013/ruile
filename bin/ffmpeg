@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+image="${WEKNORA_FFMPEG_IMAGE:-wechatopenai/weknora-app:latest}"
+declare -a mounts=()
+seen_dirs=" "
+
+add_mount() {
+  local dir="$1"
+  case "$seen_dirs" in
+    *" $dir "*) return 0 ;;
+  esac
+  seen_dirs="$seen_dirs$dir "
+  mounts+=(-v "$dir:$dir")
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    /*)
+      add_mount "$(dirname "$arg")"
+      ;;
+  esac
+done
+
+if [ "${#mounts[@]}" -gt 0 ]; then
+  exec docker run --rm \
+    --entrypoint ffmpeg \
+    --platform linux/amd64 \
+    "${mounts[@]}" \
+    "$image" "$@"
+fi
+
+exec docker run --rm \
+  --entrypoint ffmpeg \
+  --platform linux/amd64 \
+  "$image" "$@"

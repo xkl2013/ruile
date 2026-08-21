@@ -1,4 +1,4 @@
-import { get, post, put } from '@/utils/request'
+import { get, post, postUpload, put } from '@/utils/request'
 
 export type OrganizeMemoryKind = 'note' | 'record' | 'audio' | 'audio_card'
 export type OrganizeOutputStatus = 'draft' | 'review' | 'ready' | 'archived'
@@ -39,6 +39,7 @@ export interface OrganizeOutput {
 
 export interface OrganizeSproutReport {
   id: string
+  user_id?: string
   title: string
   summary: string
   stage: OrganizeSproutStage
@@ -46,6 +47,8 @@ export interface OrganizeSproutReport {
   chips?: string[]
   memory_count?: number
   memory_ids?: string[]
+  creator_name?: string
+  creator_avatar?: string
   metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -134,6 +137,12 @@ export function listOrganizeOutputs(params?: OrganizeListParams & { status?: Org
 
 export function createOrganizeOutput(input: OrganizeOutputInput) {
   return post<OrganizeResponse<OrganizeOutput>>('/api/v1/organize/outputs', input)
+}
+
+export function uploadOrganizeOutput(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return postUpload('/api/v1/organize/outputs/upload', formData)
 }
 
 export function updateOrganizeOutput(id: string, input: OrganizeOutputInput) {

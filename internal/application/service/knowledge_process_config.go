@@ -234,6 +234,45 @@ func derefExtractConfig(cfg *types.ExtractConfig) types.ExtractConfig {
 	return *cfg
 }
 
+func effectiveProcessConfigToOverrides(eff types.EffectiveProcessConfig) *types.KnowledgeProcessOverrides {
+	chunking := eff.ChunkingConfig
+	overrides := &types.KnowledgeProcessOverrides{
+		ChunkingConfig: &chunking,
+		EnableMultimodel: func() *bool {
+			v := eff.EnableMultimodel
+			return &v
+		}(),
+		VLMConfig: func() *types.VLMConfig {
+			v := eff.VLMConfig
+			return &v
+		}(),
+		OCRConfig: func() *types.OCRConfig {
+			v := eff.OCRConfig
+			return &v
+		}(),
+		ASRConfig: func() *types.ASRConfig {
+			v := eff.ASRConfig
+			return &v
+		}(),
+		QuestionGenerationConfig: func() *types.QuestionGenerationConfig {
+			v := eff.QuestionGenerationConfig
+			return &v
+		}(),
+		GraphEnabled: func() *bool {
+			v := eff.GraphEnabled
+			return &v
+		}(),
+		ExtractConfig: func() *types.ExtractConfig {
+			v := eff.ExtractConfig
+			return &v
+		}(),
+	}
+	if len(chunking.ParserEngineRules) > 0 {
+		overrides.ParserEngineRules = append([]types.ParserEngineRule(nil), chunking.ParserEngineRules...)
+	}
+	return overrides
+}
+
 func mergeChunkingConfig(base types.ChunkingConfig, override *types.ChunkingConfig) types.ChunkingConfig {
 	if override == nil {
 		return base
