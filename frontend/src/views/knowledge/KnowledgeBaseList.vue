@@ -2408,8 +2408,8 @@ const handleUploadFinishedEvent = (event: Event) => {
   }
 
   .card-title {
-    font-size: 15px;
-    line-height: 22px;
+    font-size: 14px;
+    line-height: 20px;
   }
 
   .card-content {
@@ -2450,8 +2450,8 @@ const handleUploadFinishedEvent = (event: Event) => {
 
   .card-title {
     flex: 1;
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
     color: var(--td-text-color-primary);
     letter-spacing: 0.01em;
     white-space: nowrap;
@@ -2500,9 +2500,9 @@ const handleUploadFinishedEvent = (event: Event) => {
 .card-title {
   color: var(--td-text-color-primary);
   font-family: var(--app-font-family);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 22px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
   letter-spacing: 0.01em;
   overflow: hidden;
   text-overflow: ellipsis;

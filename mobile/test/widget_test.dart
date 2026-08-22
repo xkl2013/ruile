@@ -30,15 +30,58 @@ void main() {
     expect(find.text('密码必须包含数字'), findsOneWidget);
   });
 
-  testWidgets('shows the notes home screen and filters notes', (tester) async {
+  testWidgets('shows the notes home screen', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
-    expect(find.text('搜索笔记'), findsOneWidget);
+    expect(find.text('搜索笔记'), findsNothing);
     expect(find.text('知识库'), findsOneWidget);
     expect(find.text('测试一下'), findsOneWidget);
     expect(find.text('金句名言'), findsOneWidget);
     expect(find.text('全部记忆'), findsOneWidget);
     expect(find.textContaining('燃气轮机'), findsOneWidget);
+    expect(find.byTooltip('筛选'), findsNothing);
+    expect(find.byIcon(Icons.tune), findsNothing);
+    expect(find.byTooltip('录音记忆'), findsOneWidget);
+    expect(find.byTooltip('文字记忆'), findsOneWidget);
+    expect(find.text('录音'), findsNothing);
+    expect(find.text('文字'), findsNothing);
+    expect(find.text('新建'), findsNothing);
+    expect(find.text('文字记忆'), findsNothing);
+    expect(find.text('录音记忆'), findsNothing);
+    expect(find.text('更多方式'), findsNothing);
+
+    await tester.tap(find.byTooltip('文字记忆'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('完成'), findsOneWidget);
+    expect(find.text('标题'), findsOneWidget);
+    expect(find.text('记录现在的想法...'), findsOneWidget);
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+
+    await tester.dragFrom(const Offset(2, 420), const Offset(120, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('完成'), findsOneWidget);
+    expect(find.text('标题'), findsOneWidget);
+    expect(find.text('记录现在的想法...'), findsOneWidget);
+
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+
+    final screenWidth =
+        tester.view.physicalSize.width / tester.view.devicePixelRatio;
+    await tester.dragFrom(Offset(screenWidth - 2, 420), const Offset(-120, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('录音记忆'), findsOneWidget);
+    expect(find.text('开始说话后，内容会实时显示在这里。'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+    expect(find.text('完成'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回'));
+    await tester.pumpAndSettle();
 
     final knowledgeBaseList = find.byWidgetPredicate(
       (widget) =>
@@ -50,12 +93,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('项目资料库'), findsOneWidget);
-
-    await tester.enterText(find.byType(EditableText), '半导体');
-    await tester.pumpAndSettle();
-
-    expect(find.text('电力行业相关企业分析及功率半导体产业链解读'), findsOneWidget);
-    expect(find.textContaining('燃气轮机'), findsNothing);
   });
 
   testWidgets('switches between the three primary tabs', (tester) async {
@@ -91,18 +128,21 @@ void main() {
     await tester.tap(find.text('金句名言'));
     await tester.pumpAndSettle();
 
-    expect(find.text('44.5万 人在用'), findsOneWidget);
+    expect(find.text('44.5万 人在用'), findsNothing);
     expect(find.text('全部'), findsOneWidget);
     expect(find.text('鲁迅·精选语录'), findsOneWidget);
     expect(find.byIcon(Icons.search), findsNothing);
     expect(find.byIcon(Icons.open_in_new), findsNothing);
     expect(find.byIcon(Icons.more_vert), findsNothing);
+    expect(find.byIcon(Icons.tune), findsNothing);
+    expect(find.text('AI助手'), findsNothing);
 
     await tester.scrollUntilVisible(
-      find.text('044 相比算法，人类的优势在哪里？ .pdf'),
+      find.text('044 相比算法，人类的优势在哪里？ .pdf').first,
       500,
     );
-    expect(find.text('044 相比算法，人类的优势在哪里？ .pdf'), findsOneWidget);
+    expect(find.text('044 相比算法，人类的优势在哪里？ .pdf'), findsWidgets);
+    expect(find.text('上传 2024年12月26日 20:08'), findsWidgets);
   });
 
   testWidgets('opens a knowledge base detail from a home card', (tester) async {
@@ -111,12 +151,10 @@ void main() {
     await tester.tap(find.text('金句名言'));
     await tester.pumpAndSettle();
 
-    expect(find.text('已订阅'), findsOneWidget);
+    expect(find.text('已订阅'), findsNothing);
     expect(find.text('全部'), findsOneWidget);
 
     await tester.scrollUntilVisible(find.text('罗胖60秒·十年合集'), 500);
-    await tester.drag(find.byType(Scrollable).last, const Offset(0, -220));
-    await tester.pumpAndSettle();
     expect(find.text('罗胖60秒·十年合集'), findsOneWidget);
 
     final collectionFolderCard = find.ancestor(
@@ -141,7 +179,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-      find.text('011 中国历史上有多少个皇帝？ .pdf'),
+      find.text('011 中国历史上有多少个皇帝？ .pdf').first,
       500,
     );
     expect(find.text('011 中国历史上有多少个皇帝？ .pdf'), findsOneWidget);
