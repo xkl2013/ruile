@@ -343,6 +343,7 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		kb.POST("/url", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.CreateKnowledgeFromURL)
 		kb.POST("/manual", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.CreateManualKnowledge)
 		kbRead.GET("", g.Viewer(), g.KBAccessRead("id"), handler.ListKnowledge)
+		kbRead.GET("/directory-counts", g.Viewer(), g.KBAccessRead("id"), handler.ListKnowledgeDirectoryCounts)
 		// Clearing all contents under a KB is a destructive op; gate
 		// behind Admin instead of Contributor.
 		kb.With(apiKeyFullAccess()).DELETE("", g.Admin(), g.KBAccessWrite("id"), handler.ClearKnowledgeBaseContents)
@@ -366,6 +367,7 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		k.PUT("/:id", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.UpdateKnowledge)
 		k.PUT("/manual/:id", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.UpdateManualKnowledge)
 		k.POST("/:id/reparse", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.ReparseKnowledge)
+		k.POST("/:id/regenerate-summary", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.RegenerateKnowledgeSummary)
 		k.POST("/:id/cancel-parse", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.CancelKnowledgeParse)
 		kRead.GET("/:id/download", g.Admin(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.DownloadKnowledgeFile)
 		kRead.GET("/:id/preview", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.PreviewKnowledgeFile)
@@ -1214,6 +1216,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 	org := g.apiKeyGroup(r.Group("/organize"), apiKeyFullAccess())
 	{
 		org.GET("/overview", g.Viewer(), h.GetOverview)
+		org.GET("/discover", g.Viewer(), h.GetDiscover)
 
 		org.GET("/memories", g.Viewer(), h.ListMemories)
 		org.POST("/memories", g.Viewer(), h.CreateMemory)
@@ -1223,6 +1226,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 
 		org.GET("/outputs", g.Viewer(), h.ListOutputs)
 		org.POST("/outputs", g.Viewer(), h.CreateOutput)
+		org.POST("/outputs/upload", g.Viewer(), h.UploadOutput)
 		org.GET("/outputs/:id", g.Viewer(), h.GetOutput)
 		org.PUT("/outputs/:id", g.Viewer(), h.UpdateOutput)
 		org.DELETE("/outputs/:id", g.Viewer(), h.DeleteOutput)

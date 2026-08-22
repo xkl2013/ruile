@@ -3,6 +3,7 @@
 import { ref, shallowRef, watch, onUnmounted, nextTick, defineAsyncComponent } from 'vue';
 import { previewKnowledgeFile } from '@/api/knowledge-base/index';
 import { previewTemporaryAttachment } from '@/api/chat/temporary-attachments';
+import { getDown } from '@/utils/request';
 import { MessagePlugin } from 'tdesign-vue-next';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github.css';
@@ -24,11 +25,12 @@ const props = defineProps<{
   fileName: string;
   active: boolean;
   fillHeight?: boolean;
+  sourceUrl?: string;
 }>();
 
 const loading = ref(false);
 const error = ref('');
-const previewType = ref<'pdf' | 'docx' | 'image' | 'excel' | 'text' | 'markdown' | 'pptx' | 'audio' | 'unsupported'>('unsupported');
+const previewType = ref<'pdf' | 'docx' | 'image' | 'excel' | 'text' | 'markdown' | 'pptx' | 'audio' | 'video' | 'unsupported'>('unsupported');
 const blobUrl = ref('');
 const textContent = ref('');
 const highlightedCode = ref('');
@@ -63,6 +65,7 @@ const fileTypeMap: Record<string, typeof previewType.value> = {};
  'cpp', 'c', 'h', 'sh', 'yaml', 'yml', 'ini', 'conf', 'log', 'sql', 'rs', 'rb', 'php',
  'swift', 'kt', 'scala', 'r', 'lua', 'pl', 'toml'].forEach(t => fileTypeMap[t] = 'text');
 ['mp3', 'wav', 'm4a', 'flac', 'ogg'].forEach(t => fileTypeMap[t] = 'audio');
+['mp4', 'mov', 'webm', 'avi', 'mkv', 'wmv', 'flv'].forEach(t => fileTypeMap[t] = 'video');
 
 const mimeTypeMap: Record<string, string> = {
   pdf: 'application/pdf',
@@ -83,6 +86,9 @@ const mimeTypeMap: Record<string, string> = {
   py: 'text/x-python', java: 'text/x-java', go: 'text/x-go',
   mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4',
   flac: 'audio/flac', ogg: 'audio/ogg',
+  mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+  avi: 'video/x-msvideo', mkv: 'video/x-matroska',
+  wmv: 'video/x-ms-wmv', flv: 'video/x-flv',
 };
 
 function getMimeType(ft: string): string {
@@ -253,12 +259,16 @@ function onImageLoad(e: Event) {
 }
 
 function getPreviewSourceKey(): string {
+  if (props.sourceUrl) return `source:${props.sourceUrl}:${props.fileType}`;
   if (props.knowledgeId) return `knowledge:${props.knowledgeId}`;
   if (props.sessionId && props.attachmentId) return `attachment:${props.sessionId}:${props.attachmentId}`;
   return '';
 }
 
 async function fetchPreviewBlob(): Promise<Blob> {
+  if (props.sourceUrl) {
+    return getDown(props.sourceUrl);
+  }
   if (props.knowledgeId) {
     return previewKnowledgeFile(props.knowledgeId);
   }
@@ -325,6 +335,10 @@ async function loadPreview() {
         blobUrl.value = URL.createObjectURL(blob);
         break;
       }
+      case 'video': {
+        blobUrl.value = URL.createObjectURL(blob);
+        break;
+      }
     }
   } catch (err: any) {
     console.error('Document preview failed:', err);
@@ -353,7 +367,7 @@ function cleanup() {
 }
 
 watch(
-  () => [props.active, props.knowledgeId, props.sessionId, props.attachmentId],
+  () => [props.active, props.sourceUrl, props.knowledgeId, props.sessionId, props.attachmentId],
   ([active]) => {
     if (active && getPreviewSourceKey()) {
       loadPreview();
@@ -453,6 +467,13 @@ onUnmounted(() => {
         </audio>
       </div>
     </div>
+
+    <!-- Video -->
+    <div v-else-if="previewType === 'video' && blobUrl" class="preview-video">
+      <video controls :src="blobUrl" class="video-element">
+        {{ $t('preview.unsupportedHint') }}
+      </video>
+    </div>
   </div>
 </template>
 
@@ -508,6 +529,7 @@ onUnmounted(() => {
     .preview-excel,
     .preview-markdown,
     .preview-text,
+    .preview-video,
     .preview-audio,
     .preview-loading,
     .preview-error,
@@ -750,6 +772,24 @@ onUnmounted(() => {
       background: transparent;
     }
   }
+}
+
+// ── Video ──
+.preview-video {
+  .preview-container();
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 360px;
+  padding: 12px;
+  background: #111827;
+}
+
+.video-element {
+  width: 100%;
+  max-height: calc(100vh - 240px);
+  border-radius: @border-radius;
+  background: #000;
 }
 
 // ── Audio ──

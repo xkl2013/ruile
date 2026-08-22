@@ -189,6 +189,32 @@ type OrganizeListQuery struct {
 	PageSize int
 }
 
+type OrganizeDiscoverQuery struct {
+	TenantID       uint64
+	UserID         string
+	Keyword        string
+	Tab            string
+	Page           int
+	PageSize       int
+	FeaturedOffset int
+}
+
+type OrganizeDiscoverTab struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+
+type OrganizeDiscover struct {
+	Tabs            []OrganizeDiscoverTab `json:"tabs"`
+	FeaturedOutputs []*OrganizeOutput     `json:"featured_outputs"`
+	Items           []*OrganizeOutput     `json:"items"`
+	Total           int64                 `json:"total"`
+	Page            int                   `json:"page"`
+	PageSize        int                   `json:"page_size"`
+	FeaturedOffset  int                   `json:"featured_offset"`
+}
+
 type OrganizeMemoryInput struct {
 	Kind            string     `json:"kind"`
 	Title           string     `json:"title"`

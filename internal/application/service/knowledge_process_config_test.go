@@ -483,6 +483,87 @@ func TestMergeParserEngineOverrides(t *testing.T) {
 	}, merged)
 }
 
+func TestEffectiveProcessConfigToOverrides(t *testing.T) {
+	t.Parallel()
+
+	eff := types.EffectiveProcessConfig{
+		ChunkingConfig: types.ChunkingConfig{
+			ChunkSize:                 1024,
+			ChunkOverlap:              64,
+			Separators:                []string{"\n\n", "\n"},
+			ParserEngineRules:         []types.ParserEngineRule{{FileTypes: []string{"png"}, Engine: "builtin"}},
+			EnableParentChild:         true,
+			ParentChunkSize:           2048,
+			ChildChunkSize:            256,
+			Strategy:                  "auto",
+			TokenLimit:                512,
+			Languages:                 []string{"zh", "en"},
+			TableMetadataInstructions: "table hints",
+		},
+		EnableMultimodel: true,
+		VLMConfig: types.VLMConfig{
+			Enabled:             true,
+			ModelID:             "vlm-1",
+			DescriptionLanguage: "zh",
+		},
+		OCRConfig: types.OCRConfig{
+			Enabled: true,
+			ModelID: "ocr-1",
+		},
+		ASRConfig: types.ASRConfig{
+			Enabled:  true,
+			ModelID:  "asr-1",
+			Language: "zh",
+		},
+		QuestionGenerationConfig: types.QuestionGenerationConfig{
+			Enabled:            true,
+			QuestionCount:      5,
+			CustomInstructions: "ask more",
+		},
+		GraphEnabled: true,
+		ExtractConfig: types.ExtractConfig{
+			Enabled:            true,
+			Text:               "extract text",
+			CustomInstructions: "extract more",
+		},
+	}
+
+	got := effectiveProcessConfigToOverrides(eff)
+	require.NotNil(t, got)
+	require.NotNil(t, got.ChunkingConfig)
+	require.Equal(t, eff.ChunkingConfig, *got.ChunkingConfig)
+	require.Equal(t, eff.ChunkingConfig.ParserEngineRules, got.ParserEngineRules)
+	require.NotNil(t, got.EnableMultimodel)
+	require.True(t, *got.EnableMultimodel)
+	require.NotNil(t, got.VLMConfig)
+	require.Equal(t, eff.VLMConfig, *got.VLMConfig)
+	require.NotNil(t, got.OCRConfig)
+	require.Equal(t, eff.OCRConfig, *got.OCRConfig)
+	require.NotNil(t, got.ASRConfig)
+	require.Equal(t, eff.ASRConfig, *got.ASRConfig)
+	require.NotNil(t, got.QuestionGenerationConfig)
+	require.Equal(t, eff.QuestionGenerationConfig, *got.QuestionGenerationConfig)
+	require.NotNil(t, got.GraphEnabled)
+	require.True(t, *got.GraphEnabled)
+	require.NotNil(t, got.ExtractConfig)
+	require.Equal(t, eff.ExtractConfig, *got.ExtractConfig)
+}
+
+func TestNormalizeSummaryRegenerateMode(t *testing.T) {
+	t.Parallel()
+
+	mode, err := normalizeSummaryRegenerateMode("")
+	require.NoError(t, err)
+	require.Equal(t, types.KnowledgeSummaryRegenerateModeAuto, mode)
+
+	mode, err = normalizeSummaryRegenerateMode(types.KnowledgeSummaryRegenerateModeSummaryOnly)
+	require.NoError(t, err)
+	require.Equal(t, types.KnowledgeSummaryRegenerateModeSummaryOnly, mode)
+
+	_, err = normalizeSummaryRegenerateMode("bad-mode")
+	require.Error(t, err)
+}
+
 func TestBuildParentChildConfigs_PropagatesStrategy(t *testing.T) {
 	t.Parallel()
 

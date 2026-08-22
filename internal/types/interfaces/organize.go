@@ -38,6 +38,7 @@ type OrganizeService interface {
 	ListMemories(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeMemory, int64, error)
 
 	CreateOutput(ctx context.Context, tenantID uint64, userID string, input types.OrganizeOutputInput) (*types.OrganizeOutput, error)
+	CreateOutputFromUpload(ctx context.Context, tenantID uint64, userID, fileName, mimeType string, data []byte) (*types.OrganizeOutput, error)
 	GetOutput(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeOutput, error)
 	UpdateOutput(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeOutputInput) (*types.OrganizeOutput, error)
 	DeleteOutput(ctx context.Context, tenantID uint64, userID, id string) error
@@ -49,5 +50,6 @@ type OrganizeService interface {
 	DeleteSproutReport(ctx context.Context, tenantID uint64, userID, id string) error
 	ListSproutReports(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeSproutReport, int64, error)
 
+	GetDiscover(ctx context.Context, tenantID uint64, userID string, query types.OrganizeDiscoverQuery) (*types.OrganizeDiscover, error)
 	GetOverview(ctx context.Context, tenantID uint64, userID string) (*types.OrganizeOverview, error)
 }

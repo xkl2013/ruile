@@ -76,9 +76,25 @@ const getCurrentKbId = (): string | null => {
 }
 
 const CHAT_DROP_ROUTE_NAMES = new Set(['chat', 'globalCreatChat', 'kbCreatChat']);
+const KNOWLEDGE_FILE_DROP_EVENT = 'weknora:knowledge-file-drop';
 
 const isChatDropRoute = () => {
     return CHAT_DROP_ROUTE_NAMES.has(String(route.name || ''));
+}
+
+const isKnowledgeDetailRoute = () => {
+    return String(route.name || '') === 'knowledgeBaseDetail'
+}
+
+const dispatchKnowledgeFileDrop = (files: File[]): boolean => {
+    const kbId = getCurrentKbId()
+    if (!kbId || !isKnowledgeDetailRoute()) return false
+    const dropEvent = new CustomEvent(KNOWLEDGE_FILE_DROP_EVENT, {
+        cancelable: true,
+        detail: { kbId, files },
+    })
+    window.dispatchEvent(dropEvent)
+    return dropEvent.defaultPrevented
 }
 
 const collectDroppedFiles = async (event: DragEvent): Promise<File[]> => {
@@ -195,6 +211,15 @@ const handleGlobalDrop = async (event: DragEvent) => {
     
     const isInitialized = await checkKnowledgeBaseInitialization();
     if (!isInitialized) {
+        return;
+    }
+
+    if (dispatchKnowledgeFileDrop(droppedFiles)) {
+        return;
+    }
+
+    if (isKnowledgeDetailRoute()) {
+        MessagePlugin.warning(t('knowledgeBase.uploadFailed'));
         return;
     }
 

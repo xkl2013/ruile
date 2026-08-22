@@ -29,11 +29,24 @@ const (
 )
 
 type organizeService struct {
-	repo interfaces.OrganizeRepository
+	repo            interfaces.OrganizeRepository
+	modelService    interfaces.ModelService
+	fileService     interfaces.FileService
+	documentReader  interfaces.DocumentReader
 }
 
-func NewOrganizeService(repo interfaces.OrganizeRepository) interfaces.OrganizeService {
-	return &organizeService{repo: repo}
+func NewOrganizeService(
+	repo interfaces.OrganizeRepository,
+	modelService interfaces.ModelService,
+	fileService interfaces.FileService,
+	documentReader interfaces.DocumentReader,
+) interfaces.OrganizeService {
+	return &organizeService{
+		repo:           repo,
+		modelService:   modelService,
+		fileService:    fileService,
+		documentReader: documentReader,
+	}
 }
 
 func (s *organizeService) CreateMemory(

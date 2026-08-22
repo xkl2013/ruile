@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -149,6 +151,77 @@ func applyKnowledgeListFilter(query *gorm.DB, filter types.KnowledgeListFilter) 
 		query = query.Where("updated_at <= ?", filter.UpdatedTo)
 	}
 	return query
+}
+
+func normalizeKnowledgeDirectoryPath(fileName string) []string {
+	fileName = strings.TrimSpace(fileName)
+	if fileName == "" {
+		return nil
+	}
+	fileName = strings.ReplaceAll(fileName, "\\", "/")
+	if schemeIndex := strings.Index(fileName, "://"); schemeIndex >= 0 {
+		fileName = fileName[schemeIndex+3:]
+	}
+	parts := strings.Split(fileName, "/")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		normalized = append(normalized, part)
+	}
+	if len(normalized) <= 1 {
+		return nil
+	}
+	return normalized[:len(normalized)-1]
+}
+
+func buildKnowledgeDirectoryCounts(fileNames []string) []types.KnowledgeDirectoryCount {
+	countsByPath := make(map[string]int64)
+	for _, fileName := range fileNames {
+		directoryParts := normalizeKnowledgeDirectoryPath(fileName)
+		for index := range directoryParts {
+			path := strings.Join(directoryParts[:index+1], "/")
+			countsByPath[path] += 1
+		}
+	}
+	counts := make([]types.KnowledgeDirectoryCount, 0, len(countsByPath))
+	for path, count := range countsByPath {
+		counts = append(counts, types.KnowledgeDirectoryCount{
+			Path:  path,
+			Count: count,
+		})
+	}
+	sort.Slice(counts, func(i, j int) bool {
+		return counts[i].Path < counts[j].Path
+	})
+	return counts
+}
+
+// ListKnowledgeDirectoryCounts returns root and per-directory document counts.
+func (r *knowledgeRepository) ListKnowledgeDirectoryCounts(
+	ctx context.Context,
+	tenantID uint64,
+	kbID string,
+) (*types.KnowledgeDirectoryCountsResult, error) {
+	var fileNameRows []sql.NullString
+	if err := r.db.WithContext(ctx).
+		Model(&types.Knowledge{}).
+		Where("tenant_id = ? AND knowledge_base_id = ?", tenantID, kbID).
+		Pluck("file_name", &fileNameRows).Error; err != nil {
+		return nil, err
+	}
+	fileNames := make([]string, 0, len(fileNameRows))
+	for _, row := range fileNameRows {
+		if row.Valid {
+			fileNames = append(fileNames, row.String)
+		}
+	}
+	return &types.KnowledgeDirectoryCountsResult{
+		Total:       int64(len(fileNameRows)),
+		Directories: buildKnowledgeDirectoryCounts(fileNames),
+	}, nil
 }
 
 // ListPagedKnowledgeByKnowledgeBaseID lists all knowledge in a knowledge base with pagination

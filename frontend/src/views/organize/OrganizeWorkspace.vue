@@ -7,7 +7,7 @@
             <h2>{{ activeMeta.title }}</h2>
           </div>
         </div>
-        <div v-if="activeTab !== 'sprout'" class="organize-header-actions">
+        <div v-if="activeTab === 'memory'" class="organize-header-actions">
           <t-input v-model="keyword" class="organize-search" clearable placeholder="搜索">
             <template #prefix-icon>
               <t-icon name="search" />
@@ -33,7 +33,7 @@
                 @click="openMemoryAssetList(asset.key)"
               >
                 <span class="asset-card-label">{{ asset.label }}</span>
-                <span class="asset-card-value"><strong>{{ asset.count }}</strong> {{ asset.unit }}</span>
+                <span class="asset-card-value">{{ asset.count }} {{ asset.unit }}</span>
               </button>
             </div>
           </div>
@@ -68,6 +68,7 @@
                     <span v-if="item.source" class="source-label">{{ item.source }}</span>
                   </div>
                   <h2>{{ item.title }}</h2>
+                  <p v-if="item.type === 'audio' && item.summary" class="memory-row-summary">{{ item.summary }}</p>
                   <div v-if="item.type === 'audio'" class="audio-card">
                     <t-icon name="sound" />
                     <div class="audio-wave" aria-hidden="true">
@@ -120,6 +121,7 @@
                       <span v-if="item.source" class="source-label">{{ item.source }}</span>
                     </div>
                     <div class="memory-row-title">{{ item.title }}</div>
+                    <p v-if="item.type === 'audio' && item.summary" class="memory-row-summary">{{ item.summary }}</p>
                     <div v-if="item.type === 'audio'" class="audio-card">
                       <t-icon name="sound" />
                       <div class="audio-wave" aria-hidden="true">
@@ -138,70 +140,181 @@
           </template>
         </section>
 
-        <section v-else-if="activeTab === 'output'" class="organize-section">
-          <div class="content-toolbar">
-            <div class="segmented-tabs" role="tablist" aria-label="成果筛选">
-              <button
-                v-for="tab in outputTabs"
-                :key="tab.value"
-                type="button"
-                class="segmented-tab"
-                :class="{ 'segmented-tab--active': outputScope === tab.value }"
-                role="tab"
-                :aria-selected="outputScope === tab.value"
-                @click="setOutputScope(tab.value)"
-              >
-                {{ tab.label }}
-              </button>
-            </div>
-          </div>
+        <section v-else-if="activeTab === 'output'" class="organize-section organize-section--output">
+          <div class="discover-board">
+            <section class="discover-featured-section">
+              <div class="discover-section-head">
+                <h3>精选</h3>
+                <t-button
+                  variant="text"
+                  theme="default"
+                  class="discover-refresh"
+                  :disabled="featuredOutputs.length <= 1"
+                  @click="rotateFeaturedOutputs"
+                >
+                  <template #icon><t-icon name="refresh" /></template>
+                  换一换
+                </t-button>
+              </div>
 
-          <div class="output-grid">
-            <article
-              v-for="item in paginatedOutputs"
-              :key="item.id"
-              class="output-card output-card--editable"
-              role="button"
-              tabindex="0"
-              @click="openOutputEditor(item)"
-              @keydown.enter.self="openOutputEditor(item)"
-            >
-              <div class="output-card-icon">
-                <t-icon :name="item.icon" />
+              <div v-if="featuredOutputs.length" class="discover-featured-grid">
+                <article
+                  v-for="item in featuredOutputs"
+                  :key="`featured-${item.id}`"
+                  class="output-card output-card--editable discover-card discover-card--featured"
+                  :class="`output-card--${item.kind}`"
+                  role="button"
+                  tabindex="0"
+                  @click="openOutputPreview(item)"
+                  @keydown.enter.self="openOutputPreview(item)"
+                >
+                  <div
+                    class="output-card-cover"
+                    :class="`output-card-cover--${item.kind}`"
+                    :style="outputCardCoverStyle(item)"
+                  >
+                    <div class="output-card-cover-media">
+                      <template v-if="item.coverUrl">
+                        <img :src="item.coverUrl" :alt="item.title" />
+                      </template>
+                      <template v-else>
+                        <t-icon :name="item.icon" />
+                      </template>
+                    </div>
+                    <span class="output-kind-label">{{ item.kindLabel }}</span>
+                  </div>
+                  <div class="output-card-body">
+                    <div class="output-card-head">
+                      <div class="output-card-actions" @click.stop>
+                        <t-dropdown
+                          v-if="canEditOutputItem(item)"
+                          :options="getOutputStatusMenuOptions(item.statusKey)"
+                          trigger="click"
+                          placement="bottom-right"
+                          attach="body"
+                          @click="(action: any) => handleOutputStatusMenuClick(item, action)"
+                        >
+                          <button
+                            type="button"
+                            class="icon-button icon-button--more"
+                            :aria-label="`更多操作 ${item.title}`"
+                            @click.stop
+                          >
+                            <t-icon name="ellipsis" />
+                          </button>
+                        </t-dropdown>
+                      </div>
+                    </div>
+                    <h2>{{ item.title }}</h2>
+                    <p class="output-summary">{{ item.summary }}</p>
+                    <div class="output-card-footer">
+                      <div class="discover-card-meta">
+                        <span>{{ item.createdAtLabel }}</span>
+                        <span class="discover-card-meta-separator">|</span>
+                        <span>{{ '@' + outputCreatorDisplayName(item) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
               </div>
-              <div class="output-card-body">
-                <div class="output-card-topline">
-                  <span class="type-badge">{{ item.type }}</span>
-                </div>
-                <h2>{{ item.title }}</h2>
-                <p class="document-excerpt">{{ contentExcerpt(item.content, item.title) }}</p>
-                <div class="output-meta">
-                  <span class="output-creator" :title="`创建人：${outputCreatorDisplayName(item)}`">
-                    <span class="output-creator-avatar">
-                      <img v-if="outputCreatorDisplayAvatar(item)" :src="outputCreatorDisplayAvatar(item)" :alt="outputCreatorDisplayName(item)" />
-                      <span v-else>{{ creatorInitial(outputCreatorDisplayName(item)) }}</span>
-                    </span>
-                    <span class="output-creator-name">{{ outputCreatorDisplayName(item) }}</span>
-                  </span>
-                  <span class="output-updated">{{ item.updated }}</span>
+              <div v-else class="output-empty">
+                {{ outputEmptyText }}
+              </div>
+            </section>
+
+            <section class="discover-tabs-section">
+              <div class="discover-tabs-bar">
+                <div class="discover-tabs-row">
+                  <button
+                    v-for="tab in discoverTabs"
+                    :key="tab.value"
+                    type="button"
+                    class="discover-tab"
+                    :class="{ 'discover-tab--active': discoverTab === tab.value }"
+                    @click="setDiscoverTab(tab.value)"
+                  >
+                    {{ tab.label }}
+                  </button>
                 </div>
               </div>
-              <button type="button" class="icon-button" :aria-label="`编辑 ${item.title}`" @click.stop="openOutputEditor(item)">
-                <t-icon name="chevron-right" />
-              </button>
-            </article>
-          </div>
-          <div v-if="filteredOutputs.length === 0" class="output-empty">
-            {{ outputEmptyText }}
-          </div>
-          <div v-else class="output-pagination" aria-label="成果分页">
-            <t-pagination
-              v-model="outputPage"
-              :page-size="OUTPUT_PAGE_SIZE"
-              :total="filteredOutputs.length"
-              size="small"
-              show-page-number
-            />
+            </section>
+
+            <section class="discover-feed-section">
+              <div v-if="paginatedOutputs.length" class="discover-feed-grid">
+                <article
+                  v-for="item in paginatedOutputs"
+                  :key="item.id"
+                  class="output-card output-card--editable discover-card discover-card--feed"
+                  :class="`output-card--${item.kind}`"
+                  role="button"
+                  tabindex="0"
+                  @click="openOutputPreview(item)"
+                  @keydown.enter.self="openOutputPreview(item)"
+                >
+                  <div
+                    class="output-card-cover"
+                    :class="`output-card-cover--${item.kind}`"
+                    :style="outputCardCoverStyle(item)"
+                  >
+                    <div class="output-card-cover-media">
+                      <template v-if="item.coverUrl">
+                        <img :src="item.coverUrl" :alt="item.title" />
+                      </template>
+                      <template v-else>
+                        <t-icon :name="item.icon" />
+                      </template>
+                    </div>
+                    <span class="output-kind-label">{{ item.kindLabel }}</span>
+                  </div>
+                  <div class="output-card-body">
+                    <div class="output-card-head">
+                      <div class="output-card-actions" @click.stop>
+                        <t-dropdown
+                          v-if="canEditOutputItem(item)"
+                          :options="getOutputStatusMenuOptions(item.statusKey)"
+                          trigger="click"
+                          placement="bottom-right"
+                          attach="body"
+                          @click="(action: any) => handleOutputStatusMenuClick(item, action)"
+                        >
+                          <button
+                            type="button"
+                            class="icon-button icon-button--more"
+                            :aria-label="`更多操作 ${item.title}`"
+                            @click.stop
+                          >
+                            <t-icon name="ellipsis" />
+                          </button>
+                        </t-dropdown>
+                      </div>
+                    </div>
+                    <h2>{{ item.title }}</h2>
+                    <p class="output-summary">{{ item.summary }}</p>
+                    <div class="output-card-footer">
+                      <div class="discover-card-meta">
+                        <span>{{ item.createdAtLabel }}</span>
+                        <span class="discover-card-meta-separator">|</span>
+                        <span>{{ '@' + outputCreatorDisplayName(item) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+              <div v-else class="output-empty">
+                {{ outputEmptyText }}
+              </div>
+            </section>
+
+            <div v-if="discoverTotal > OUTPUT_PAGE_SIZE" class="output-pagination" aria-label="发现分页">
+              <t-pagination
+                v-model="outputPage"
+                :page-size="OUTPUT_PAGE_SIZE"
+                :total="discoverTotal"
+                size="small"
+                show-page-number
+                @change="handleDiscoverPageChange"
+              />
+            </div>
           </div>
         </section>
 
@@ -210,13 +323,13 @@
             <div class="sprout-hero-copy">
               <div class="section-heading">
                 <t-icon name="tree-list" />
-                <span>发芽记录</span>
+                <span>经营复盘</span>
               </div>
-              <p>把记忆里的碎片整理成可读的报告，先看结论，再看种子和 Aha 瞬间。</p>
+              <p>沉淀招生、家长沟通和园务管理要点，生成园长可直接复盘和安排跟进的经营建议。</p>
             </div>
             <div class="sprout-hero-stats">
-              <span><strong>{{ filteredSproutReports.length }}</strong> 份报告</span>
-              <span><strong>{{ sproutReports.length }}</strong> 条总记录</span>
+              <span><strong>{{ filteredSproutReports.length }}</strong> 份复盘</span>
+              <span><strong>{{ sproutReports.length }}</strong> 条素材</span>
             </div>
           </div>
 
@@ -225,7 +338,7 @@
               <div class="sprout-month-header">
                 <div class="sprout-month-heading">
                   <h3>{{ group.label }}</h3>
-                  <div class="segmented-tabs sprout-range-tabs" role="tablist" aria-label="发芽记录时间筛选">
+                  <div class="segmented-tabs sprout-range-tabs" role="tablist" aria-label="经营复盘时间筛选">
                     <button
                       v-for="tab in sproutRangeTabs"
                       :key="tab.value"
@@ -240,7 +353,7 @@
                     </button>
                   </div>
                 </div>
-                <span>{{ filteredSproutReports.length }} 份</span>
+                <span>{{ filteredSproutReports.length }} 份复盘</span>
               </div>
 
               <div v-if="group.reports.length" class="report-list sprout-report-list">
@@ -255,55 +368,34 @@
                 >
                   <div class="sprout-report-gutter" aria-hidden="true">
                     <div class="sprout-report-ribbon">
-                      <span>发芽</span>
-                      <span>报告</span>
+                      <span>经营</span>
+                      <span>复盘</span>
                     </div>
-                    <div class="sprout-report-date">{{ report.generatedLabel }}</div>
                   </div>
 
                   <div class="sprout-report-main">
-                    <div class="report-topline">
-                      <span class="type-badge" :class="`sprout-stage--${report.stageKey}`">{{ report.stage }}</span>
-                      <span>{{ report.updated }}</span>
-                    </div>
                     <h2>{{ report.title }}</h2>
                     <p class="sprout-report-intro">{{ report.intro }}</p>
-
-                    <div v-if="report.previewSections.length" class="sprout-report-sections">
-                      <div
-                        v-for="section in report.previewSections.slice(0, 2)"
-                        :key="`${report.id}-${section.number}`"
-                        class="sprout-report-section"
-                      >
-                        <div class="sprout-report-section-head">
-                          <span>{{ section.number }}</span>
-                          <strong>{{ section.title }}</strong>
-                        </div>
-                        <p>{{ section.seed || section.body || section.aha }}</p>
-                      </div>
-                    </div>
 
                     <div v-if="report.chips.length" class="report-chips">
                       <span v-for="chip in report.chips" :key="chip">{{ chip }}</span>
                     </div>
 
                     <div class="report-meta sprout-report-meta">
-                      <span>{{ report.memoryCount }} 条记忆</span>
-                      <span>{{ report.outputHint }}</span>
+                      <span>{{ report.updated }}</span>
+                      <span class="sprout-report-meta-separator">|</span>
+                      <span>@记忆</span>
+                      <span>@上传文件</span>
                     </div>
                   </div>
 
-                  <button type="button" class="report-action" @click.stop="openSproutEditor(report)">
-                    <t-icon name="edit-1" />
-                    继续整理
-                  </button>
                 </article>
               </div>
 
-              <div v-else class="output-empty">暂无发芽记录</div>
+              <div v-else class="output-empty">暂无经营复盘</div>
             </section>
           </div>
-          <div v-if="filteredSproutReports.length > SPROUT_PAGE_SIZE" class="sprout-pagination" aria-label="发芽记录分页">
+          <div v-if="filteredSproutReports.length > SPROUT_PAGE_SIZE" class="sprout-pagination" aria-label="经营复盘分页">
             <t-pagination
               v-model="sproutPage"
               :page-size="SPROUT_PAGE_SIZE"
@@ -317,7 +409,23 @@
     </main>
 
     <div v-if="activeTab === 'memory' || activeTab === 'output'" class="organize-fab-wrap">
-      <t-tooltip :content="activeMeta.actionLabel" placement="left">
+      <t-dropdown
+        v-if="activeTab === 'output'"
+        :options="outputCreateOptions"
+        trigger="click"
+        placement="top-right"
+        @click="handleOutputCreateAction"
+      >
+        <t-button
+          class="organize-fab"
+          theme="primary"
+          shape="circle"
+          :aria-label="activeMeta.actionLabel"
+        >
+          <template #icon><t-icon name="add" size="20px" /></template>
+        </t-button>
+      </t-dropdown>
+      <t-tooltip v-else :content="activeMeta.actionLabel" placement="left">
         <t-button
           class="organize-fab"
           theme="primary"
@@ -343,11 +451,12 @@
       <template v-if="activeSproutReport">
         <div class="sprout-preview-header">
           <div class="sprout-preview-header-copy">
-            <div class="sprout-preview-eyebrow">发芽报告</div>
+            <div class="sprout-preview-eyebrow">经营复盘</div>
             <div class="sprout-preview-title">{{ activeSproutReport.title }}</div>
           </div>
           <div class="sprout-preview-actions">
             <t-button
+              v-if="canEditSproutReport(activeSproutReport)"
               variant="text"
               theme="default"
               size="small"
@@ -371,20 +480,8 @@
         </div>
 
         <div class="sprout-preview-page">
-          <div class="sprout-preview-cover" aria-hidden="true">
-            <div class="sprout-preview-cover-mark">
-              <span>发芽</span>
-              <span>报告</span>
-            </div>
-            <div class="sprout-preview-cover-card">
-              <span class="sprout-preview-cover-label">生成时间</span>
-              <span class="sprout-preview-cover-date">{{ activeSproutReport.generatedLabel }}</span>
-            </div>
-          </div>
-
           <div class="sprout-preview-body">
             <div class="sprout-preview-meta">
-              <span class="type-badge" :class="`sprout-stage--${activeSproutReport.stageKey}`">{{ activeSproutReport.stage }}</span>
               <span>{{ activeSproutReport.updated }}</span>
               <span>{{ activeSproutReport.memoryCount }} 条记忆</span>
             </div>
@@ -394,25 +491,112 @@
           </div>
         </div>
       </template>
+      </t-drawer>
+
+    <t-drawer
+      v-model:visible="outputPreviewVisible"
+      class="output-preview-drawer"
+      :header="false"
+      :footer="false"
+      :close-btn="false"
+      :size="'min(720px, 92vw)'"
+      attach="body"
+      placement="right"
+    >
+      <template v-if="activeOutputPreview">
+        <div class="output-preview-header">
+          <div class="output-preview-heading">
+            <span class="output-preview-icon" :class="`output-preview-icon--${activeOutputPreview.kind}`">
+              <t-icon :name="activeOutputPreview.icon" />
+            </span>
+            <div class="output-preview-title-block">
+              <div class="output-preview-eyebrow">{{ activeOutputPreview.kindLabel }}</div>
+              <div class="output-preview-title" :title="activeOutputPreview.title">{{ activeOutputPreview.title }}</div>
+            </div>
+          </div>
+          <div class="output-preview-actions">
+            <t-button
+              v-if="canEditActiveOutputPreview"
+              variant="text"
+              theme="default"
+              size="small"
+              class="output-preview-action"
+              aria-label="编辑发现"
+              @click="editActiveOutputPreview"
+            >
+              <template #icon><t-icon name="edit-1" size="16px" /></template>
+            </t-button>
+            <t-button
+              variant="text"
+              theme="default"
+              size="small"
+              class="output-preview-action"
+              aria-label="关闭预览"
+              @click="closeOutputPreview"
+            >
+              <template #icon><t-icon name="close" size="16px" /></template>
+            </t-button>
+          </div>
+        </div>
+
+        <div class="output-preview-body">
+          <section class="output-preview-section">
+            <h4>摘要</h4>
+            <p class="output-preview-summary">{{ activeOutputPreview.summary }}</p>
+            <div v-if="activeOutputPreview.tags.length" class="output-preview-tags">
+              <t-tag v-for="tag in activeOutputPreview.tags" :key="`preview-${activeOutputPreview.id}-${tag}`" size="small" variant="light-outline">
+                {{ tag }}
+              </t-tag>
+            </div>
+          </section>
+
+          <section class="output-preview-section output-preview-content-section">
+            <h4>源文件预览</h4>
+            <div v-if="outputPreviewSourceUrl" class="output-preview-file-host">
+              <DocumentPreview
+                :source-url="outputPreviewSourceUrl"
+                :file-type="outputPreviewFileTypeForPreview"
+                :file-name="outputPreviewFileName"
+                :active="outputPreviewVisible"
+                fill-height
+              />
+            </div>
+            <div v-else class="output-preview-file-empty">
+              <t-icon name="file-unknown" />
+              <span>暂无源文件</span>
+            </div>
+          </section>
+        </div>
+      </template>
     </t-drawer>
+
+    <OrganizeOutputUploadDrawer
+      v-model:visible="outputUploadVisible"
+      :initial-kind="outputUploadInitialKind"
+      @uploaded="handleOutputUploaded"
+      @saved="handleOutputSaved"
+    />
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { computed, h, onMounted, ref, watch } from 'vue'
+import { Icon as TIcon, MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
+import DocumentPreview from '@/components/document-preview.vue'
 import {
+  getOrganizeDiscover,
   listOrganizeMemories,
-  listOrganizeOutputs,
   listOrganizeSproutReports,
+  type OrganizeDiscoverTab,
   type OrganizeMemory,
   type OrganizeMemoryKind,
   type OrganizeOutput,
   type OrganizeOutputStatus,
   type OrganizeSproutReport,
   type OrganizeSproutStage,
+  updateOrganizeOutput,
 } from '@/api/organize'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -430,9 +614,13 @@ import {
   sproutReportContentForEditor,
   type SproutReportPreviewSection,
 } from './sproutReport'
+import OrganizeOutputUploadDrawer from './components/OrganizeOutputUploadDrawer.vue'
 
 type MemoryType = 'note' | 'record' | 'audio' | 'audio-card'
-type OutputScope = 'all' | 'mine' | 'subscribed'
+type OutputKind = 'all' | 'article' | 'video' | 'audio'
+type OutputCreateKind = Exclude<OutputKind, 'all'>
+type OutputStatusFilter = 'all' | OrganizeOutputStatus
+type OutputViewMode = 'list' | 'grid'
 type SproutRange = '3d' | '7d' | '1m'
 
 interface MemoryItem {
@@ -442,6 +630,7 @@ interface MemoryItem {
   typeLabel: string
   title: string
   content: string
+  summary?: string
   source?: string
   duration?: string
   occurredAt?: string
@@ -464,11 +653,18 @@ interface OutputItem {
   title: string
   content: string
   type: string
+  kind: Exclude<OutputKind, 'all'>
+  kindLabel: string
   source: string
+  summary: string
   updated: string
+  createdAtLabel: string
+  coverUrl?: string
   status: string
   statusKey: OrganizeOutputStatus
+  statusLabel: string
   icon: string
+  tags: string[]
   memoryIds: string[]
   creatorId?: string
   creatorName?: string
@@ -494,6 +690,9 @@ interface SproutReportItem {
   memoryIds: string[]
   outputHint: string
   chips: string[]
+  creatorId?: string
+  creatorName?: string
+  creatorAvatar?: string
   metadata?: Record<string, unknown>
   persisted: boolean
 }
@@ -503,19 +702,51 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const keyword = ref('')
-const outputScope = ref<OutputScope>('all')
+const outputUploadVisible = ref(false)
+const outputUploadInitialKind = ref<OutputCreateKind>('article')
+const outputPreviewVisible = ref(false)
+const activeOutputPreview = ref<OutputItem | null>(null)
+const outputStatusSaving = ref(false)
+const discoverTab = ref('recommended')
+const discoverTabs = ref<OrganizeDiscoverTab[]>([
+  { label: '推荐', value: 'recommended' },
+  { label: '图文类', value: 'article' },
+  { label: '视频类', value: 'video' },
+  { label: '音频类', value: 'audio' },
+])
+const featuredRotation = ref(0)
 const sproutRange = ref<SproutRange>('3d')
 const sproutPreviewVisible = ref(false)
 const activeSproutReport = ref<SproutReportItem | null>(null)
-const OUTPUT_PAGE_SIZE = 4
+const OUTPUT_PAGE_SIZE = 30
+const FEATURED_OUTPUT_SIZE = 4
 const outputPage = ref(1)
+const discoverTotal = ref(fallbackOutputs.length)
 const SPROUT_PAGE_SIZE = 10
 const sproutPage = ref(1)
 const SPROUT_DAY_MS = 24 * 60 * 60 * 1000
-const outputTabs: Array<{ label: string; value: OutputScope }> = [
-  { label: '全部', value: 'all' },
-  { label: '我创建的', value: 'mine' },
-  { label: '我订阅的', value: 'subscribed' },
+const editableOutputStatusOptions: Array<{ label: string; value: OrganizeOutputStatus }> = [
+  { label: '草稿', value: 'draft' },
+  { label: '待确认', value: 'review' },
+  { label: '已发布', value: 'ready' },
+  { label: '已归档', value: 'archived' },
+]
+const outputCreateOptions = [
+  {
+    content: '新建图文',
+    value: 'article',
+    prefixIcon: () => h(TIcon, { name: 'file-word', size: '16px' }),
+  },
+  {
+    content: '新建视频',
+    value: 'video',
+    prefixIcon: () => h(TIcon, { name: 'play-circle', size: '16px' }),
+  },
+  {
+    content: '新建音频',
+    value: 'audio',
+    prefixIcon: () => h(TIcon, { name: 'sound', size: '16px' }),
+  },
 ]
 const sproutRangeTabs: Array<{ label: string; value: SproutRange; days: number }> = [
   { label: '近3天', value: '3d', days: 3 },
@@ -550,7 +781,19 @@ const fallbackMemoryGroups: MemoryGroup[] = [
       { id: 'demo-m2', time: '11:27', type: 'record', typeLabel: '记录', title: '创建了笔记能源行业公司分析及中国电力结构探讨', content: '<p>整理能源行业公司基本面，以及中国电力结构变化带来的机会。</p>', persisted: false },
       { id: 'demo-m3', time: '11:13', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机核心配件与光储行业分析', content: '<p>梳理燃气轮机核心配件、光伏和储能行业的关键数据。</p>', persisted: false },
       { id: 'demo-m4', time: '10:58', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机行业分析及国内企业发展情况', content: '<p>记录燃气轮机市场格局和国内主要企业的发展情况。</p>', persisted: false },
-      { id: 'demo-m5', time: '10:22', type: 'audio', typeLabel: '录音', title: '客户访谈：设备更新预算与项目推进节奏', content: '', source: '会议录音', duration: '08:36', persisted: false },
+      {
+        id: 'demo-m5',
+        time: '10:22',
+        type: 'audio',
+        typeLabel: '录音',
+        title: '试听课后家长关注点复盘',
+        content: '<p>家长集中询问报名政策、师资稳定和接送时段，建议园长安排招生顾问当天回访高意向家庭。</p>',
+        summary: '家长集中关注报名政策、师资稳定和接送时段，建议园长安排招生顾问当天回访高意向家庭。',
+        source: '会议录音',
+        duration: '08:36',
+        durationSeconds: 516,
+        persisted: false,
+      },
     ],
   },
   {
@@ -558,7 +801,19 @@ const fallbackMemoryGroups: MemoryGroup[] = [
     items: [
       { id: 'demo-m6', time: '18:05', type: 'note', typeLabel: '笔记', title: '整理储能项目投标材料中的常见技术指标', content: '<p>整理储能项目投标材料中的效率、循环寿命、安全和并网指标。</p>', source: '手动输入', persisted: false },
       { id: 'demo-m7', time: '15:42', type: 'note', typeLabel: '笔记', title: '政策口径：新型电力系统与源网荷储协同', content: '<p>记录新型电力系统政策中的源网荷储协同要点。</p>', source: '网页摘录', persisted: false },
-      { id: 'demo-m8', time: '09:18', type: 'audio', typeLabel: '录音', title: '内部同步：半导体设备国产替代机会', content: '', source: '语音记录', duration: '12:04', persisted: false },
+      {
+        id: 'demo-m8',
+        time: '09:18',
+        type: 'audio',
+        typeLabel: '录音',
+        title: '招生开放日接待流程优化',
+        content: '<p>开放日接待要突出安全、餐食、午睡和课程体验四个环节，园长需要统一老师讲解口径。</p>',
+        summary: '开放日接待要突出安全、餐食、午睡和课程体验四个环节，园长需要统一老师讲解口径。',
+        source: '语音记录',
+        duration: '12:04',
+        durationSeconds: 724,
+        persisted: false,
+      },
     ],
   },
 ]
@@ -566,13 +821,88 @@ const fallbackMemoryGroups: MemoryGroup[] = [
 const memoryGroups = ref<MemoryGroup[]>(fallbackMemoryGroups)
 
 const fallbackOutputs: OutputItem[] = [
-  { id: 'demo-o1', title: '电力行业相关企业分析及功率半导体产业链解读', content: '<h2>行业概览</h2><p>从电力设备需求出发，梳理功率半导体产业链及重点企业的竞争位置。</p>', type: '分析报告', source: '来自 8 条记忆', updated: '今天 11:48', status: '可交付', statusKey: 'ready', icon: 'file-word', memoryIds: [], persisted: false },
-  { id: 'demo-o2', title: '能源行业公司分析及中国电力结构探讨', content: '<p>分析中国电力结构变化，并比较相关能源公司的业务布局。</p>', type: '研究文档', source: '来自 6 条记忆', updated: '今天 11:31', status: '草稿', statusKey: 'draft', icon: 'file', memoryIds: [], persisted: false },
-  { id: 'demo-o3', title: '燃气轮机核心配件供应链梳理', content: '<p>梳理燃气轮机核心配件的供应商、交付周期和国产化进度。</p>', type: '方案材料', source: '来自 5 条记忆', updated: '昨天 19:20', status: '评审中', statusKey: 'review', icon: 'file-paste', memoryIds: [], persisted: false },
-  { id: 'demo-o4', title: '光储行业重点企业与政策机会清单', content: '<p>汇总光伏、储能行业重点企业和近期政策机会。</p>', type: '工作清单', source: '来自 9 条记忆', updated: '6月27日', status: '可交付', statusKey: 'ready', icon: 'file-excel', memoryIds: [], persisted: false },
+  {
+    id: 'demo-o1',
+    title: '电力行业相关企业分析及功率半导体产业链解读',
+    content: '<h2>行业概览</h2><p>从电力设备需求出发，梳理功率半导体产业链及重点企业的竞争位置。</p>',
+    type: '图文类',
+    kind: 'article',
+    kindLabel: '图文类',
+  source: '来自 8 条记忆',
+  summary: '从电力设备需求出发，梳理功率半导体产业链及重点企业的竞争位置。',
+  updated: '今天 11:48',
+  createdAtLabel: '今天 11:48',
+  status: '可交付',
+  statusKey: 'ready',
+  statusLabel: '可交付',
+    icon: 'file-word',
+    tags: ['产业链', '功率半导体'],
+    memoryIds: [],
+    persisted: false,
+  },
+  {
+    id: 'demo-o2',
+    title: '能源行业公司分析及中国电力结构探讨',
+    content: '<p>分析中国电力结构变化，并比较相关能源公司的业务布局。</p>',
+    type: '图文类',
+    kind: 'article',
+    kindLabel: '图文类',
+  source: '来自 6 条记忆',
+  summary: '分析中国电力结构变化，并比较相关能源公司的业务布局。',
+  updated: '今天 11:31',
+  createdAtLabel: '今天 11:31',
+  status: '草稿',
+  statusKey: 'draft',
+  statusLabel: '草稿',
+    icon: 'file-word',
+    tags: ['能源结构', '业务布局'],
+    memoryIds: [],
+    persisted: false,
+  },
+  {
+    id: 'demo-o3',
+    title: '燃气轮机核心配件供应链梳理',
+    content: '<p>梳理燃气轮机核心配件的供应商、交付周期和国产化进度。</p>',
+    type: '图文类',
+    kind: 'article',
+    kindLabel: '图文类',
+  source: '来自 5 条记忆',
+  summary: '梳理燃气轮机核心配件的供应商、交付周期和国产化进度。',
+  updated: '昨天 19:20',
+  createdAtLabel: '昨天 19:20',
+  status: '评审中',
+  statusKey: 'review',
+  statusLabel: '评审中',
+    icon: 'file-word',
+    tags: ['燃气轮机', '供应链'],
+    memoryIds: [],
+    persisted: false,
+  },
+  {
+    id: 'demo-o4',
+    title: '光储行业重点企业与政策机会清单',
+    content: '<p>汇总光伏、储能行业重点企业和近期政策机会。</p>',
+    type: '图文类',
+    kind: 'article',
+    kindLabel: '图文类',
+  source: '来自 9 条记忆',
+  summary: '汇总光伏、储能行业重点企业和近期政策机会。',
+  updated: '6月27日',
+  createdAtLabel: '6月27日',
+  status: '可交付',
+  statusKey: 'ready',
+  statusLabel: '可交付',
+    icon: 'file-word',
+    tags: ['光伏', '储能'],
+    memoryIds: [],
+    persisted: false,
+  },
 ]
 
 const outputs = ref<OutputItem[]>(fallbackOutputs)
+const featuredOutputs = ref<OutputItem[]>(fallbackOutputs.slice(0, FEATURED_OUTPUT_SIZE))
+let discoverFeedRequestSeq = 0
+let discoverFeaturedRequestSeq = 0
 
 type SproutReportBaseItem = Omit<SproutReportItem, 'renderedHtml' | 'intro' | 'previewSections' | 'updatedAt' | 'generatedLabel'>
 
@@ -597,41 +927,41 @@ const enrichSproutReport = (item: SproutReportBaseItem & { updatedAt?: string })
 const fallbackSproutReports: SproutReportItem[] = [
   enrichSproutReport({
     id: 'demo-r1',
-    title: '功率半导体产业链的国产替代机会',
-    content: '从上游材料、晶圆制造、封装测试和下游应用四个环节，继续扩写国产替代机会。\n\n## 01. 上游材料与设备的确定性\n\n> **🌱 种子**\n> 记忆中多次提到国产替代、设备采购和交付节奏。\n\n国内供应链的短板正在从单点突破转向系统协同，材料、设备和封测能力需要一起观察。\n\n> **✨ Aha 瞬间**\n> 真正的机会不只来自缺口，而来自缺口被补上时的验证速度。',
+    title: '本周招生线索跟进复盘',
+    content: '本周新增咨询集中来自老生转介绍和社区活动，家长最关心入园适应、师资稳定和托育时段。建议园长优先复盘线索跟进节奏，把高意向家庭安排到本周开放日。\n\n## 01. 高意向家庭需要更快分层\n\n> **🌱 种子**\n> 多条记录提到家长已经问到学位、费用和试听安排。\n\n将线索拆成已到访、待到访、观望三类，招生顾问当天完成回访，园长跟进关键家庭的疑虑。\n\n> **✨ Aha 瞬间**\n> 招生转化不是更多话术，而是把家长最担心的问题更早交给合适的人解决。',
     stage: '可扩写',
     stageKey: 'expandable',
     updated: '今天 12:10',
     memoryCount: 11,
     memoryIds: [],
-    outputHint: '可生成分析报告',
-    chips: ['产业链', '国产替代', '设备采购'],
+    outputHint: '可生成招生复盘',
+    chips: ['招生线索', '家长咨询', '开放日'],
     persisted: false,
   }),
   enrichSproutReport({
     id: 'demo-r2',
-    title: '燃气轮机核心配件的供需缺口与企业机会',
-    content: '当前素材已覆盖核心配件供需情况，仍需补充国内外企业对比。\n\n## 01. 核心配件的供需缺口\n\n> **🌱 种子**\n> 多条记录指向高温部件、长周期交付和进口替代难度。\n\n这类机会更像慢变量，需要把供应商资质、订单验证和产能爬坡放在同一个框架下看。\n\n> **✨ Aha 瞬间**\n> 产业突破的关键，不是单个参数领先，而是稳定交付能力被客户反复确认。',
+    title: '开放日到园体验优化建议',
+    content: '近期到园家庭反馈集中在参观动线、课程展示和离园答疑三个环节。建议园长把开放日拆成接待、参观、体验、答疑四个节点，明确每位老师的讲解重点。\n\n## 01. 参观动线要服务家长决策\n\n> **🌱 种子**\n> 记录中多次出现家长询问安全、餐食、午睡和班级老师稳定性。\n\n开放日不只展示环境，更要让家长看到孩子一天如何被照顾，以及园所如何回应个性化问题。\n\n> **✨ Aha 瞬间**\n> 家长选择园所时买的是确定感，接待流程越清晰，成交后的信任成本越低。',
     stage: '梳理中',
     stageKey: 'organizing',
     updated: '今天 10:46',
     memoryCount: 7,
     memoryIds: [],
-    outputHint: '缺少企业对比',
-    chips: ['核心配件', '进口替代', '项目节奏'],
+    outputHint: '可形成到园SOP',
+    chips: ['开放日', '到园体验', '接待SOP'],
     persisted: false,
   }),
   enrichSproutReport({
     id: 'demo-r3',
-    title: '新型电力系统政策口径下的储能选题',
-    content: '围绕源网荷储协同和储能商业模式形成后续研究选题。\n\n## 01. 从政策口径到商业模式\n\n> **🌱 种子**\n> 记忆中反复出现源网荷储协同、辅助服务和容量补偿。\n\n储能选题不能只看装机规模，更要拆分收益来源、消纳责任和调度规则。\n\n> **✨ Aha 瞬间**\n> 政策不是背景，而是现金流结构的一部分。',
+    title: '老生续费与转介绍跟进计划',
+    content: '本月家长沟通记录显示，续费犹豫主要来自成长反馈不够具体、升班安排说明不清晰。建议园长组织班主任梳理幼儿成长亮点，并设计老带新转介绍触达节奏。\n\n## 01. 续费沟通要先讲清成长证据\n\n> **🌱 种子**\n> 多条记录提到家长关注孩子表达能力、社交状态和生活习惯变化。\n\n续费前先让家长看到孩子的具体进步，再说明下阶段课程目标和班级安排。\n\n> **✨ Aha 瞬间**\n> 转介绍来自家长真实认可，续费沟通越具体，推荐意愿越容易被激活。',
     stage: '已成型',
     stageKey: 'formed',
     updated: '昨天 18:22',
     memoryCount: 9,
     memoryIds: [],
-    outputHint: '已关联成果 2 份',
-    chips: ['源网荷储', '储能', '政策'],
+    outputHint: '可生成跟进清单',
+    chips: ['续费', '转介绍', '成长反馈'],
     persisted: false,
   }),
 ]
@@ -671,10 +1001,10 @@ const openMemoryOverview = async () => {
 
 const activeMeta = computed(() => {
   if (activeTab.value === 'output') {
-    return { title: '成果', actionIcon: 'file-add', actionLabel: '新建成果' }
+    return { title: '发现', actionIcon: 'file-add', actionLabel: '新建' }
   }
   if (activeTab.value === 'sprout') {
-    return { title: '发芽记录', actionIcon: 'add', actionLabel: '新建发芽' }
+    return { title: '经营复盘', actionIcon: 'add', actionLabel: '新建复盘' }
   }
   if (activeMemoryAsset.value) {
     return { title: `${activeMemoryAssetMeta.value.label}列表`, actionIcon: 'add', actionLabel: '添加笔记' }
@@ -683,11 +1013,6 @@ const activeMeta = computed(() => {
 })
 
 const currentUserId = computed(() => authStore.currentUserId || authStore.user?.id || '')
-
-const setOutputScope = (scope: OutputScope) => {
-  outputScope.value = scope
-  outputPage.value = 1
-}
 
 const setSproutRange = (range: SproutRange) => {
   sproutRange.value = range
@@ -700,7 +1025,7 @@ const filteredMemoryGroups = computed(() => {
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        const keywordMatched = !q || item.title.toLowerCase().includes(q) || item.typeLabel.toLowerCase().includes(q)
+        const keywordMatched = !q || memorySearchText(item).includes(q)
         return keywordMatched
       }),
     }))
@@ -717,34 +1042,102 @@ const filteredMemoryAssetItems = computed(() => {
         : asset === 'audio'
           ? item.type === 'audio'
           : item.type === 'audio-card'
-    return assetMatched && (!q || item.title.toLowerCase().includes(q) || item.typeLabel.toLowerCase().includes(q))
+    return assetMatched && (!q || memorySearchText(item).includes(q))
   })
 })
 
-const isCurrentUserOutput = (item: OutputItem) => {
-  return !item.creatorId || !currentUserId.value || item.creatorId === currentUserId.value
-}
-
-const isOutputVisibleInScope = (item: OutputItem) => {
-  if (outputScope.value === 'mine') return isCurrentUserOutput(item)
-  if (outputScope.value === 'subscribed') return item.subscribedByMe === true
-  return true
-}
-
-const filteredOutputs = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  return outputs.value.filter((item) => {
-    const scopeMatched = isOutputVisibleInScope(item)
-    const keywordMatched = !q || `${item.title} ${item.type} ${outputCreatorDisplayName(item)}`.toLowerCase().includes(q)
-    return scopeMatched && keywordMatched
-  })
+const activeDiscoverTabLabel = computed(() => {
+  return discoverTabs.value.find((tab) => tab.value === discoverTab.value)?.label || '推荐'
 })
+
+const setDiscoverTab = (tab: string) => {
+  if (discoverTab.value === tab) return
+  discoverTab.value = tab
+  outputPage.value = 1
+  void loadDiscoverFeedData({ tab, page: 1, resetPage: true }).catch(() => {
+    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+  })
+}
+
+const rotateFeaturedOutputs = () => {
+  const total = featuredOutputs.value.length
+  if (total <= 1) return
+  featuredRotation.value = (featuredRotation.value + 2) % total
+  void loadDiscoverFeaturedData().catch(() => {
+    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+  })
+}
+
+const handleDiscoverPageChange = (pageInfo: { current: number; pageSize: number }) => {
+  outputPage.value = pageInfo.current
+  void loadDiscoverFeedData({ tab: discoverTab.value, page: pageInfo.current, pageSize: pageInfo.pageSize }).catch(() => {
+    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+  })
+}
 
 const outputEmptyText = computed(() => {
-  if (outputScope.value === 'mine') return '暂无我创建的成果'
-  if (outputScope.value === 'subscribed') return '暂无我订阅的成果'
-  return '暂无成果'
+  const tabLabel = discoverTab.value === 'recommended' ? '' : activeDiscoverTabLabel.value
+  return tabLabel ? `暂无${tabLabel}内容` : '暂无发现'
 })
+
+const outputPreviewFileName = computed(() => {
+  const item = activeOutputPreview.value
+  if (!item) return ''
+  return asTrimmedString(item.metadata?.file_name) || item.title
+})
+
+const outputPreviewFileType = computed(() => {
+  const item = activeOutputPreview.value
+  if (!item) return ''
+  return asTrimmedString(item.metadata?.file_type).toUpperCase()
+})
+
+const outputPreviewFileTypeForPreview = computed(() => {
+  const explicitType = outputPreviewFileType.value.toLowerCase()
+  if (explicitType) return explicitType
+  const name = outputPreviewFileName.value
+  const dotIndex = name.lastIndexOf('.')
+  return dotIndex >= 0 ? name.slice(dotIndex + 1).toLowerCase() : ''
+})
+
+const outputPreviewSourcePath = computed(() => asTrimmedString(activeOutputPreview.value?.metadata?.file_path))
+
+const outputPreviewSourceUrl = computed(() => {
+  if (!outputPreviewSourcePath.value) return ''
+  return `/files?${new URLSearchParams({ file_path: outputPreviewSourcePath.value }).toString()}`
+})
+
+const outputCardCoverStyle = (item: OutputItem) => {
+  if (!item.coverUrl) return undefined
+  return {
+    backgroundImage: `linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.08) 100%), url(${JSON.stringify(item.coverUrl)})`,
+  }
+}
+
+const canEditOutputItem = (item?: OutputItem | null) => {
+  return Boolean(item && item.persisted && item.creatorId && currentUserId.value && item.creatorId === currentUserId.value)
+}
+
+const canEditSproutReport = (item?: SproutReportItem | null) => {
+  return Boolean(item && (!item.creatorId || !currentUserId.value || item.creatorId === currentUserId.value))
+}
+
+const canEditActiveOutputPreview = computed(() => {
+  return canEditOutputItem(activeOutputPreview.value)
+})
+
+const getOutputStatusMenuOptions = (currentStatus?: OrganizeOutputStatus) => {
+  return editableOutputStatusOptions.map((option) => ({
+    content: option.label,
+    value: option.value,
+    disabled: option.value === currentStatus,
+    prefixIcon: () =>
+      h(TIcon, {
+        name: option.value === currentStatus ? 'check-circle-filled' : 'check-circle',
+        size: '16px',
+      }),
+  }))
+}
 
 const sproutReportTime = (report: SproutReportItem) => {
   const explicitDate = new Date(report.updatedAt)
@@ -807,7 +1200,7 @@ const sproutMonthGroups = computed(() => {
   return [{ key: 'recent', label: '近期', reports: paginatedSproutReports.value }]
 })
 
-const waveHeights = [10, 18, 14, 24, 12, 28, 18, 22]
+const waveHeights = [6, 12, 9, 16, 8, 18, 12, 15]
 
 const formatDateLabel = (value: string) => {
   const date = new Date(value)
@@ -834,16 +1227,107 @@ const memoryTypeToApi = (kind: MemoryType): OrganizeMemoryKind => (kind === 'aud
 
 const memoryTypeLabel = (type: MemoryType) => {
   if (type === 'audio') return '录音'
-  if (type === 'audio-card') return '录音卡'
+  if (type === 'audio-card') return '工牌'
   return type === 'record' ? '记录' : '笔记'
 }
 
 const statusLabel = (status: OrganizeOutputStatus) => ({ draft: '草稿', review: '评审中', ready: '可交付', archived: '已归档' })[status]
 const stageLabel = (stage: OrganizeSproutStage) => ({ organizing: '梳理中', expandable: '可扩写', formed: '已成型' })[stage]
+const outputKindLabelMap: Record<Exclude<OutputKind, 'all'>, string> = {
+  article: '图文类',
+  video: '视频类',
+  audio: '音频类',
+}
+const outputKindIconMap: Record<Exclude<OutputKind, 'all'>, string> = {
+  article: 'file-word',
+  video: 'play-circle',
+  audio: 'sound',
+}
 
 const asTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
+const normalizeOneLineText = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+const compactText = (value: string, maxLength = 96) => {
+  const text = normalizeOneLineText(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+}
+
+const outputCoverUrl = (item: OrganizeOutput) => {
+  const metadata = item.metadata || {}
+  return (
+    asTrimmedString(metadata.cover_url) ||
+    asTrimmedString(metadata.cover) ||
+    asTrimmedString(metadata.thumbnail_url) ||
+    asTrimmedString(metadata.thumbnail) ||
+    asTrimmedString(metadata.poster_url) ||
+    asTrimmedString(metadata.poster)
+  )
+}
+
 const isTruthyFlag = (value: unknown) => value === true || value === 'true' || value === 1 || value === '1'
+
+const outputKindFromValue = (value: unknown): Exclude<OutputKind, 'all'> => {
+  const normalized = asTrimmedString(value).toLowerCase()
+  if (normalized === 'video' || normalized === '视频类') return 'video'
+  if (normalized === 'audio' || normalized === '音频类') return 'audio'
+  return 'article'
+}
+
+const normalizeOutputTags = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => asTrimmedString(item)).filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value.split(/[，,;；\n]/).map((item) => item.trim()).filter(Boolean)
+  }
+  return []
+}
+
+const memorySearchText = (item: MemoryItem) => [
+  item.title,
+  item.typeLabel,
+  item.summary,
+  item.source,
+  item.content,
+].filter(Boolean).join(' ').toLowerCase()
+
+const memoryDisplayTitle = (item: OrganizeMemory, type: MemoryType) => {
+  if (type !== 'audio') return item.title
+  const metadata = item.metadata || {}
+  const explicitTitle =
+    asTrimmedString(metadata.title) ||
+    asTrimmedString(metadata.extracted_title) ||
+    asTrimmedString(metadata.ai_title) ||
+    asTrimmedString(metadata.summary_title)
+  if (explicitTitle) return explicitTitle
+
+  const derivedTitle = compactText(memorySummary(item), 24)
+  if (derivedTitle) return derivedTitle
+
+  return (
+    item.title
+  )
+}
+
+const memorySummary = (item: OrganizeMemory) => {
+  const metadata = item.metadata || {}
+  const explicitSummary =
+    asTrimmedString(metadata.summary) ||
+    asTrimmedString(metadata.source_summary) ||
+    asTrimmedString(metadata.description) ||
+    asTrimmedString(metadata.abstract)
+  if (explicitSummary) return compactText(explicitSummary)
+
+  const contentSummary = contentExcerpt(item.content, '')
+  if (contentSummary) return contentSummary
+
+  const transcript =
+    asTrimmedString(metadata.transcript) ||
+    asTrimmedString(metadata.transcription) ||
+    asTrimmedString(metadata.asr_text)
+  return transcript ? compactText(transcript) : ''
+}
 
 const currentUserDisplayName = () => authStore.user?.username || authStore.user?.email || '我'
 
@@ -880,6 +1364,39 @@ const outputCreatorAvatar = (item: OrganizeOutput) => {
   return ''
 }
 
+const sproutCreatorId = (item: OrganizeSproutReport) => {
+  const metadata = item.metadata || {}
+  return asTrimmedString(item.user_id)
+    || asTrimmedString(metadata.creator_id)
+    || asTrimmedString(metadata.created_by)
+    || asTrimmedString(metadata.user_id)
+}
+
+const sproutCreatorName = (item: OrganizeSproutReport) => {
+  const metadata = item.metadata || {}
+  const explicitName = asTrimmedString(item.creator_name)
+    || asTrimmedString(metadata.creator_name)
+    || asTrimmedString(metadata.creator_username)
+    || asTrimmedString(metadata.author_name)
+    || asTrimmedString(metadata.user_name)
+  if (explicitName) return explicitName
+  const creatorId = sproutCreatorId(item)
+  if (!creatorId || creatorId === currentUserId.value) return currentUserDisplayName()
+  return '未知用户'
+}
+
+const sproutCreatorAvatar = (item: OrganizeSproutReport) => {
+  const metadata = item.metadata || {}
+  const explicitAvatar = asTrimmedString(item.creator_avatar)
+    || asTrimmedString(metadata.creator_avatar)
+    || asTrimmedString(metadata.author_avatar)
+    || asTrimmedString(metadata.user_avatar)
+  if (explicitAvatar) return explicitAvatar
+  const creatorId = sproutCreatorId(item)
+  if (!creatorId || creatorId === currentUserId.value) return authStore.user?.avatar || ''
+  return ''
+}
+
 const isOutputSubscribedByMe = (item: OrganizeOutput) => {
   const metadata = item.metadata || {}
   return isTruthyFlag(item.is_subscribed)
@@ -903,21 +1420,23 @@ const outputCreatorDisplayAvatar = (item: OutputItem) => {
   return !item.creatorId || item.creatorId === currentUserId.value ? authStore.user?.avatar || '' : ''
 }
 
-const outputTotalPages = computed(() => Math.max(1, Math.ceil(filteredOutputs.value.length / OUTPUT_PAGE_SIZE)))
+const outputKindDisplayLabel = (kind: OutputKind) => {
+  if (kind === 'all') return '全部'
+  return outputKindLabelMap[kind]
+}
+
+const outputTotalPages = computed(() => Math.max(1, Math.ceil(discoverTotal.value / OUTPUT_PAGE_SIZE)))
 
 const paginatedOutputs = computed(() => {
-  const page = Math.min(Math.max(outputPage.value, 1), outputTotalPages.value)
-  const start = (page - 1) * OUTPUT_PAGE_SIZE
-  return filteredOutputs.value.slice(start, start + OUTPUT_PAGE_SIZE)
+  return outputs.value
 })
 
-watch(keyword, () => {
-  outputPage.value = 1
-})
-
-watch(filteredOutputs, () => {
+watch(discoverTotal, () => {
   if (outputPage.value > outputTotalPages.value) {
     outputPage.value = outputTotalPages.value
+  }
+  if (outputPage.value < 1) {
+    outputPage.value = 1
   }
 })
 
@@ -935,8 +1454,9 @@ const mapMemory = (item: OrganizeMemory): MemoryListItem => {
     time: formatTimeLabel(item.occurred_at),
     type,
     typeLabel: memoryTypeLabel(type),
-    title: item.title,
+    title: memoryDisplayTitle(item, type),
     content: item.content || placeholderContent(item.title),
+    summary: type === 'audio' ? memorySummary(item) : undefined,
     source: item.source,
     duration: type === 'audio' ? formatDuration(item.duration_seconds) : undefined,
     occurredAt: item.occurred_at,
@@ -950,12 +1470,19 @@ const mapOutput = (item: OrganizeOutput): OutputItem => ({
   id: item.id,
   title: item.title,
   content: item.content || placeholderContent(item.title),
-  type: item.output_type || '研究文档',
-  source: item.source_summary || (item.memory_count ? `来自 ${item.memory_count} 条记忆` : '手动创建'),
+  type: item.output_type || '图文类',
+  kind: outputKindFromValue(item.metadata?.content_kind || item.output_type || item.icon),
+  kindLabel: outputKindDisplayLabel(outputKindFromValue(item.metadata?.content_kind || item.output_type || item.icon)),
+  source: item.memory_count ? `来自 ${item.memory_count} 条记忆` : '手动创建',
+  summary: item.source_summary || asTrimmedString(item.metadata?.summary) || contentExcerpt(item.content, '暂无摘要'),
   updated: formatUpdatedLabel(item.updated_at),
+  createdAtLabel: formatUpdatedLabel(item.created_at),
+  coverUrl: outputCoverUrl(item),
   status: statusLabel(item.status),
   statusKey: item.status,
-  icon: item.icon || 'file-word',
+  statusLabel: statusLabel(item.status),
+  icon: item.icon || outputKindIconMap[outputKindFromValue(item.metadata?.content_kind || item.output_type || item.icon)],
+  tags: normalizeOutputTags(item.metadata?.tags),
   memoryIds: item.memory_ids || [],
   creatorId: outputCreatorId(item),
   creatorName: outputCreatorName(item),
@@ -977,9 +1504,86 @@ const mapSproutReport = (item: OrganizeSproutReport): SproutReportItem => enrich
   memoryIds: item.memory_ids || [],
   outputHint: item.output_hint || '可继续整理',
   chips: item.chips || [],
+  creatorId: sproutCreatorId(item),
+  creatorName: sproutCreatorName(item),
+  creatorAvatar: sproutCreatorAvatar(item),
   metadata: item.metadata,
   persisted: true,
 })
+
+const syncActiveOutputPreview = () => {
+  if (!activeOutputPreview.value) return
+  const nextPreview = [...outputs.value, ...featuredOutputs.value].find(
+    (item) => item.id === activeOutputPreview.value?.id,
+  )
+  if (nextPreview) {
+    activeOutputPreview.value = nextPreview
+  }
+}
+
+// 顶部精选和底部分页列表分开拉取，切 tab 只刷新底部当前页。
+const loadDiscoverFeaturedData = async () => {
+  const requestSeq = ++discoverFeaturedRequestSeq
+  const response = await getOrganizeDiscover({
+    tab: 'recommended',
+    featured_offset: featuredRotation.value,
+    page: 1,
+    page_size: FEATURED_OUTPUT_SIZE,
+  })
+
+  if (requestSeq !== discoverFeaturedRequestSeq) return
+  if (!response.success || !response.data) {
+    throw new Error(response.message || '发现精选加载失败')
+  }
+
+  const data = response.data
+  discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
+  featuredOutputs.value = data.featured_outputs.map(mapOutput)
+  syncActiveOutputPreview()
+}
+
+const loadDiscoverFeedData = async (options?: { tab?: string; page?: number; pageSize?: number; resetPage?: boolean }) => {
+  const requestSeq = ++discoverFeedRequestSeq
+  const tab = options?.tab ?? discoverTab.value
+  const page = Math.max(1, options?.page ?? outputPage.value)
+  const pageSize = Math.max(1, options?.pageSize ?? OUTPUT_PAGE_SIZE)
+  const response = await getOrganizeDiscover({
+    tab,
+    page,
+    page_size: pageSize,
+  })
+
+  if (requestSeq !== discoverFeedRequestSeq) return
+  if (!response.success || !response.data) {
+    throw new Error(response.message || '发现数据加载失败')
+  }
+
+  const data = response.data
+  discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
+  outputs.value = data.items.map(mapOutput)
+  discoverTotal.value = data.total
+  outputPage.value = data.page || page
+  if (options?.resetPage) {
+    outputPage.value = data.page || 1
+  }
+
+  syncActiveOutputPreview()
+}
+
+const refreshDiscoverData = (options?: { resetPage?: boolean }) => {
+  return Promise.allSettled([
+    loadDiscoverFeaturedData(),
+    loadDiscoverFeedData({
+      tab: discoverTab.value,
+      page: options?.resetPage ? 1 : outputPage.value,
+      resetPage: options?.resetPage,
+    }),
+  ]).then((results) => {
+    if (results.some((result) => result.status === 'rejected')) {
+      MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+    }
+  })
+}
 
 const groupMemoryItems = (items: MemoryListItem[]) => {
   const groups: MemoryGroup[] = []
@@ -997,27 +1601,28 @@ const groupMemoryItems = (items: MemoryListItem[]) => {
 const loadOrganizeData = async () => {
   const results = await Promise.allSettled([
     listOrganizeMemories({ page_size: 100 }),
-    listOrganizeOutputs({ page_size: 100 }),
+    loadDiscoverFeaturedData(),
+    loadDiscoverFeedData({ tab: discoverTab.value, page: 1, resetPage: true }),
     listOrganizeSproutReports({ page_size: 100 }),
   ])
 
-  const [memoryResult, outputResult, sproutResult] = results
+  const [memoryResult, featuredResult, feedResult, sproutResult] = results
   if (memoryResult.status === 'fulfilled' && memoryResult.value.success && memoryResult.value.data.items.length) {
     memoryGroups.value = groupMemoryItems(memoryResult.value.data.items.map(mapMemory))
   }
-  if (outputResult.status === 'fulfilled' && outputResult.value.success && outputResult.value.data.items.length) {
-    outputs.value = outputResult.value.data.items.map(mapOutput)
+  if (featuredResult.status === 'rejected' || feedResult.status === 'rejected') {
+    MessagePlugin.warning('发现数据加载失败，当前展示示例内容')
   }
   if (sproutResult.status === 'fulfilled' && sproutResult.value.success && sproutResult.value.data.items.length) {
     sproutReports.value = sproutResult.value.data.items.map(mapSproutReport)
   }
 
-  if (results.some((result) => result.status === 'rejected')) {
+  if (memoryResult.status === 'rejected' || sproutResult.status === 'rejected') {
     MessagePlugin.warning('部分文档数据加载失败，当前展示示例内容')
   }
 }
 
-const contentExcerpt = (html: string, fallback: string) => {
+const contentText = (html: string, fallback: string) => {
   if (!html) return fallback
   const body = new DOMParser().parseFromString(html, 'text/html').body
   const firstBlock = Array.from(body.children)[0]
@@ -1025,6 +1630,11 @@ const contentExcerpt = (html: string, fallback: string) => {
     firstBlock.remove()
   }
   const parsed = body.textContent?.trim() || ''
+  return parsed || fallback
+}
+
+const contentExcerpt = (html: string, fallback: string) => {
+  const parsed = contentText(html, fallback)
   return parsed.length > 96 ? `${parsed.slice(0, 96)}...` : parsed || fallback
 }
 
@@ -1045,9 +1655,10 @@ const editorDraft = (item: MemoryItem | OutputItem | SproutReportItem | undefine
   if ('statusKey' in item) {
     draft.output_type = item.type
     draft.status = item.statusKey
-    draft.source_summary = item.source
+    draft.source_summary = item.summary
     draft.icon = item.icon
     draft.memory_ids = item.memoryIds
+    if (item.tags.length) draft.metadata = { ...draft.metadata, tags: item.tags }
   } else if ('stageKey' in item) {
     draft.stage = item.stageKey
     draft.output_hint = item.outputHint
@@ -1074,18 +1685,106 @@ const openDocumentEditor = async (
 }
 
 const createActiveDocument = () => {
-  void openDocumentEditor(activeTab.value === 'output' ? 'output' : 'memory')
+  if (activeTab.value === 'output') {
+    void openDocumentEditor('output')
+    return
+  }
+  void openDocumentEditor('memory')
 }
 
-const isEditableMemory = (item: MemoryItem) => item.type === 'note' || item.type === 'record'
+const isEditableMemory = (item: MemoryItem) => item.type === 'note' || item.type === 'record' || item.type === 'audio'
 
 const openMemoryEditor = (item: MemoryListItem | MemoryItem) => {
   if (!isEditableMemory(item)) return
   void openDocumentEditor('memory', item.id, item)
 }
 
-const openOutputEditor = (item: OutputItem) => {
+const openOutputPreview = (item: OutputItem) => {
+  activeOutputPreview.value = item
+  outputPreviewVisible.value = true
+}
+
+const closeOutputPreview = () => {
+  outputPreviewVisible.value = false
+}
+
+const editActiveOutputPreview = () => {
+  const item = activeOutputPreview.value
+  if (!item || !canEditActiveOutputPreview.value) return
+  outputPreviewVisible.value = false
   void openDocumentEditor('output', item.id, item)
+}
+
+const buildOutputUpdateInput = (item: OutputItem, status: OrganizeOutputStatus) => ({
+  title: item.title,
+  output_type: item.type,
+  content: item.content,
+  source_summary: item.summary,
+  status,
+  icon: item.icon,
+  memory_ids: item.memoryIds,
+  metadata: item.metadata,
+})
+
+const updateOutputStatus = async (item: OutputItem, nextStatus: OrganizeOutputStatus) => {
+  if (!canEditOutputItem(item) || item.statusKey === nextStatus || outputStatusSaving.value) return
+  if (!editableOutputStatusOptions.some((option) => option.value === nextStatus)) return
+
+  outputStatusSaving.value = true
+  try {
+    const response = await updateOrganizeOutput(item.id, buildOutputUpdateInput(item, nextStatus))
+    if (response.success && response.data) {
+      upsertOutputItem(response.data)
+      void refreshDiscoverData({ resetPage: true })
+      MessagePlugin.success('状态已更新')
+    } else {
+      MessagePlugin.error(response.message || '状态更新失败')
+    }
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '状态更新失败')
+  } finally {
+    outputStatusSaving.value = false
+  }
+}
+
+const handleOutputStatusMenuClick = (item: OutputItem, action: { value: string | number | boolean }) => {
+  void updateOutputStatus(item, String(action.value) as OrganizeOutputStatus)
+}
+
+const openOutputUploadDrawer = (kind: OutputCreateKind = 'article') => {
+  outputUploadInitialKind.value = kind
+  outputUploadVisible.value = true
+}
+
+const handleOutputCreateAction = (data: { value: string }) => {
+  const kind = data.value === 'video' || data.value === 'audio' ? data.value : 'article'
+  openOutputUploadDrawer(kind)
+}
+
+const upsertOutputItem = (item: OrganizeOutput) => {
+  const next = mapOutput(item)
+  const index = outputs.value.findIndex((candidate) => candidate.id === next.id)
+  if (index !== -1) {
+    outputs.value = outputs.value.map((candidate) => (candidate.id === next.id ? next : candidate))
+  }
+  const featuredIndex = featuredOutputs.value.findIndex((candidate) => candidate.id === next.id)
+  if (featuredIndex !== -1) {
+    featuredOutputs.value = featuredOutputs.value.map((candidate) => (candidate.id === next.id ? next : candidate))
+  }
+  if (activeOutputPreview.value?.id === next.id) {
+    activeOutputPreview.value = next
+  }
+}
+
+const handleOutputUploaded = (item: OrganizeOutput) => {
+  upsertOutputItem(item)
+  void refreshDiscoverData({ resetPage: true })
+}
+
+const handleOutputSaved = (item: OrganizeOutput) => {
+  upsertOutputItem(item)
+  void refreshDiscoverData({ resetPage: true })
+  MessagePlugin.success('发现已更新')
 }
 
 const openSproutPreview = (item: SproutReportItem) => {
@@ -1225,14 +1924,14 @@ onMounted(loadOrganizeData)
   align-items: center;
   gap: 8px;
   color: var(--td-text-color-primary);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 22px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
 }
 
 .section-heading-info {
   color: var(--td-text-color-placeholder);
-  font-size: 15px;
+  font-size: 12px;
 }
 
 .asset-summary {
@@ -1253,8 +1952,8 @@ onMounted(loadOrganizeData)
   justify-content: space-between;
   width: 100%;
   max-width: 160px;
-  min-height: 76px;
-  padding: 12px;
+  min-height: 58px;
+  padding: 8px 12px;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   background: var(--td-bg-color-secondarycontainer);
@@ -1274,8 +1973,8 @@ button.asset-card {
 
 .asset-card-label {
   color: var(--td-text-color-primary);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .asset-card-value {
@@ -1283,14 +1982,9 @@ button.asset-card {
   align-items: baseline;
   gap: 4px;
   color: var(--td-text-color-primary);
-  font-size: 14px;
-  font-weight: 500;
-
-  strong {
-    font-size: 18px;
-    font-weight: 600;
-    line-height: 22px;
-  }
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
 }
 
 .content-toolbar {
@@ -1298,6 +1992,117 @@ button.asset-card {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.output-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.output-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 0 0 4px;
+}
+
+.output-filter-bar__filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+
+  &::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 2px;
+  }
+}
+
+.output-filter-bar__trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.output-add-btn {
+  flex-shrink: 0;
+  height: 32px;
+  min-width: 104px;
+}
+
+.output-add-btn--secondary {
+  min-width: 104px;
+}
+
+.output-scope-tabs {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 32px;
+  padding: 2px;
+
+  .segmented-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 26px;
+    white-space: nowrap;
+  }
+}
+
+.output-filter-field {
+  width: 140px;
+  flex-shrink: 0;
+}
+
+.output-filter-select {
+  width: 100%;
+}
+
+.output-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.output-view-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+
+  &:hover {
+    color: var(--td-text-color-primary);
+  }
+
+  &.active {
+    background: var(--td-bg-color-container);
+    color: var(--td-brand-color);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
 }
 
 .memory-list-toolbar {
@@ -1405,9 +2210,9 @@ button.asset-card {
 
   h2 {
     margin: 0;
-    font-size: 16px;
-    font-weight: 500;
-    line-height: 24px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
     letter-spacing: 0;
   }
 }
@@ -1423,9 +2228,9 @@ button.asset-card {
 
 .memory-row-time {
   color: var(--td-text-color-placeholder);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 20px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
 }
 
 .memory-row-body {
@@ -1454,7 +2259,7 @@ button.asset-card {
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 18px;
   box-sizing: border-box;
 }
@@ -1466,22 +2271,37 @@ button.asset-card {
 .memory-row-title {
   margin-top: 8px;
   color: var(--td-text-color-primary);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 22px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.memory-row-summary {
+  display: -webkit-box;
+  max-width: 560px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .audio-card {
   display: grid;
-  grid-template-columns: 20px minmax(140px, 260px) auto;
+  grid-template-columns: 16px minmax(104px, 160px) auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: fit-content;
   max-width: 100%;
-  margin-top: 14px;
-  padding: 10px 12px;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 5px 10px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
   box-sizing: border-box;
@@ -1490,11 +2310,11 @@ button.asset-card {
 .audio-wave {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 
   span {
-    width: 3px;
+    width: 2px;
     border-radius: 999px;
     background: var(--td-brand-color);
     opacity: 0.62;
@@ -1504,28 +2324,29 @@ button.asset-card {
 .audio-duration {
   color: var(--td-text-color-placeholder);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .segmented-tabs {
   display: inline-flex;
-  gap: 4px;
-  padding: 4px;
+  gap: 2px;
+  padding: 2px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--td-bg-color-secondarycontainer);
 }
 
 .segmented-tab {
-  min-width: 58px;
-  height: 30px;
-  padding: 0 12px;
+  min-width: 52px;
+  height: 24px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: var(--td-text-color-secondary);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
   cursor: pointer;
 
   &--active {
@@ -1535,10 +2356,296 @@ button.asset-card {
   }
 }
 
+.discover-board {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.discover-featured-section,
+.discover-tabs-section,
+.discover-feed-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.discover-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  h3 {
+    margin: 0;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: 0;
+  }
+}
+
+.discover-refresh {
+  flex: 0 0 auto;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.discover-featured-grid,
+.discover-feed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 10px;
+}
+
+.discover-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.discover-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-height: 40px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+
+  &::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.15);
+    border-radius: 2px;
+  }
+}
+
+.discover-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--td-text-color-primary);
+  }
+
+  &--active {
+    color: var(--td-text-color-primary);
+    font-weight: 400;
+  }
+}
+
+.discover-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  white-space: nowrap;
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.discover-card-meta-separator {
+  color: var(--td-text-color-placeholder);
+}
+
 .output-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+
+.output-list-view {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 9px;
+  background: var(--td-bg-color-container);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.output-list-header,
+.output-list-row {
+  display: grid;
+  grid-template-columns:
+    minmax(320px, 2.7fr)
+    minmax(180px, 1.2fr)
+    92px
+    96px
+    minmax(110px, 0.9fr)
+    136px
+    80px;
+  align-items: center;
+  column-gap: 0;
+  min-width: 960px;
+  padding: 0 16px;
+}
+
+.output-list-header {
+  height: 40px;
+  border-bottom: 1px solid var(--td-component-stroke);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  border-radius: 8px 8px 0 0;
+}
+
+.output-list-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.output-list-row {
+  min-height: 68px;
+  border-bottom: 1px solid var(--td-component-stroke);
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+
+  &:last-child {
+    border-bottom: 0;
+  }
+
+  &:hover {
+    background: var(--td-bg-color-secondarycontainer);
+  }
+}
+
+.output-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 8px;
+
+  &:first-child {
+    padding-left: 0;
+  }
+
+  &:last-child {
+    padding-right: 0;
+  }
+}
+
+.output-cell-name {
+  gap: 10px;
+}
+
+.output-cell-time,
+.output-cell-actions {
+  justify-content: flex-end;
+}
+
+.output-cell-actions {
+  gap: 4px;
+}
+
+.output-cell-tags .output-tags {
+  flex-wrap: nowrap;
+  max-height: 24px;
+  margin-bottom: 0;
+}
+
+.output-file-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 8px;
+  background: var(--td-brand-color-light);
+  color: var(--td-brand-color);
+  font-size: 18px;
+}
+
+.output-file-icon-wrap--video {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2459d9;
+}
+
+.output-file-icon-wrap--audio {
+  background: rgba(249, 115, 22, 0.14);
+  color: #d87600;
+}
+
+.output-file-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.output-file-name {
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-file-desc {
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-muted,
+.output-mono {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.output-row-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--td-bg-color-container-hover);
+    color: var(--td-text-color-primary);
+  }
 }
 
 .output-empty {
@@ -1575,9 +2682,29 @@ button.asset-card {
   gap: 14px;
   padding: 18px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--td-bg-color-container);
   box-sizing: border-box;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+  &:hover {
+    border-color: rgba(0, 0, 0, 0.08);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+  }
+}
+
+.output-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: start;
+  min-height: 124px;
+  height: auto;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
@@ -1587,14 +2714,124 @@ button.asset-card {
   }
 }
 
-.output-card {
-  align-items: stretch;
-  height: 196px;
-  overflow: hidden;
+.output-card-cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+  width: 88px;
+  height: 88px;
+  padding: 10px;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: var(--td-text-color-primary);
+  background: var(--td-bg-color-secondarycontainer);
+  background-size: cover;
+  background-position: center;
+  border: 1px solid var(--td-component-stroke);
+  align-self: start;
+}
+
+.output-card-cover--article {
+  background-color: var(--td-bg-color-secondarycontainer);
+  color: #0f8f52;
+}
+
+.output-card-cover--video {
+  background-color: var(--td-bg-color-secondarycontainer);
+  color: #2459d9;
+}
+
+.output-card-cover--audio {
+  background-color: var(--td-bg-color-secondarycontainer);
+  color: #d87600;
+}
+
+.output-card-cover-media {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  color: currentColor;
+  font-size: 20px;
+
+  img {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    object-fit: cover;
+  }
+}
+
+.output-card-cover-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.output-kind-label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  box-sizing: border-box;
+}
+
+.output-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.output-status-badge--draft {
+  background: rgba(107, 114, 128, 0.12);
+  color: #6b7280;
+}
+
+.output-status-badge--review {
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+
+.output-status-badge--ready {
+  background: rgba(22, 163, 74, 0.14);
+  color: #15803d;
+}
+
+.output-status-badge--archived {
+  background: rgba(75, 85, 99, 0.12);
+  color: #4b5563;
 }
 
 .output-card-topline {
   flex: 0 0 auto;
+  gap: 8px;
+  min-height: 16px;
+  color: #8f8f8f;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .output-card-icon {
@@ -1628,29 +2865,69 @@ button.asset-card {
 .output-card-body {
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
   align-self: stretch;
+  gap: 0;
+  padding: 0;
   overflow: hidden;
 
   h2 {
     display: -webkit-box;
     flex: 0 0 auto;
-    max-height: 46px;
+    margin: 0 0 4px;
+    max-height: 18px;
+    padding-right: 34px;
     overflow: hidden;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
   }
 }
 
-.document-excerpt {
+.output-card-head {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+.output-card-source {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-summary {
   display: -webkit-box;
-  margin: -4px 0 12px;
-  max-height: 40px;
+  margin: 0 0 6px;
+  max-height: 36px;
   overflow: hidden;
   color: var(--td-text-color-secondary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.output-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: auto;
+  min-width: 0;
 }
 
 .output-meta,
@@ -1666,9 +2943,10 @@ button.asset-card {
 
 .output-meta {
   flex: 0 0 auto;
-  justify-content: flex-start;
+  justify-content: space-between;
   flex-wrap: nowrap;
   margin-top: auto;
+  gap: 10px;
 }
 
 .output-creator {
@@ -1676,7 +2954,7 @@ button.asset-card {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  max-width: 150px;
+  max-width: 100%;
 }
 
 .output-creator-avatar {
@@ -1712,6 +2990,181 @@ button.asset-card {
   flex: 0 0 auto;
 }
 
+.output-card-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    visibility 0s linear 0.16s;
+}
+
+.output-card:hover .output-card-actions,
+.output-card:focus .output-card-actions,
+.output-card:focus-within .output-card-actions {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.icon-button--more {
+  flex: 0 0 auto;
+}
+
+:deep(.output-preview-drawer .t-drawer__body) {
+  padding: 0;
+  background: #f7f8fa;
+}
+
+.output-preview-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 68px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--td-component-stroke);
+  background: rgba(255, 255, 255, 0.96);
+  box-sizing: border-box;
+}
+
+.output-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.output-preview-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 8px;
+  background: var(--td-brand-color-light);
+  color: var(--td-brand-color);
+  font-size: 19px;
+}
+
+.output-preview-icon--video {
+  background: rgba(37, 99, 235, 0.12);
+  color: #2459d9;
+}
+
+.output-preview-icon--audio {
+  background: rgba(249, 115, 22, 0.14);
+  color: #d87600;
+}
+
+.output-preview-title-block {
+  min-width: 0;
+}
+
+.output-preview-eyebrow {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.output-preview-title {
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-preview-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.output-preview-action {
+  width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  border-radius: 6px;
+}
+
+.output-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 22px;
+}
+
+.output-preview-section {
+  padding: 14px 16px 16px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  box-sizing: border-box;
+
+  h4 {
+    margin: 0 0 12px;
+    color: var(--td-text-color-primary);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 22px;
+  }
+}
+
+.output-preview-summary {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 22px;
+}
+
+.output-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.output-preview-tags :deep(.t-tag) {
+  border-radius: 999px;
+}
+
+.output-preview-content-section {
+  min-height: 420px;
+}
+
+.output-preview-file-host {
+  height: min(560px, calc(100vh - 310px));
+  min-height: 360px;
+}
+
+.output-preview-file-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 240px;
+  border: 1px dashed var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-placeholder);
+  font-size: 13px;
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -1743,20 +3196,18 @@ button.asset-card {
 .report-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 12px;
+  gap: 6px;
+  margin: 0 0 8px;
 
   span {
     display: inline-flex;
-    min-height: 24px;
     align-items: center;
-    padding: 2px 9px;
-    border-radius: 999px;
+    padding: 2px 4px;
     background: var(--td-bg-color-secondarycontainer);
     color: var(--td-text-color-secondary);
     font-size: 12px;
-    font-weight: 500;
-    line-height: 18px;
+    font-weight: 400;
+    line-height: 14px;
   }
 }
 
@@ -1773,7 +3224,7 @@ button.asset-card {
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
 
   &:hover {
@@ -1790,9 +3241,9 @@ button.asset-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  min-height: 96px;
-  padding: 18px 20px;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
   border: 1px solid #e4dbcc;
   border-radius: 8px;
   background:
@@ -1807,10 +3258,11 @@ button.asset-card {
 
   p {
     max-width: 620px;
-    margin: 8px 0 0;
+    margin: 4px 0 0;
     color: var(--td-text-color-secondary);
-    font-size: 13px;
-    line-height: 21px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
   }
 }
 
@@ -1824,22 +3276,24 @@ button.asset-card {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    min-height: 54px;
+    min-height: 42px;
     justify-content: center;
-    padding: 8px 12px;
+    padding: 4px 12px;
     border: 1px solid rgba(34, 101, 73, 0.12);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.72);
     color: var(--td-text-color-secondary);
     font-size: 12px;
+    font-weight: 400;
     line-height: 18px;
     box-sizing: border-box;
   }
 
   strong {
-    color: #203126;
-    font-size: 22px;
-    line-height: 26px;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
   }
 }
 
@@ -1847,7 +3301,7 @@ button.asset-card {
 .sprout-month-group {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .sprout-month-header {
@@ -1859,16 +3313,17 @@ button.asset-card {
   h3 {
     margin: 0;
     color: var(--td-text-color-primary);
-    font-size: 18px;
-    font-weight: 600;
-    line-height: 28px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
     letter-spacing: 0;
   }
 
   span {
-    color: var(--td-text-color-placeholder);
-    font-size: 13px;
-    line-height: 20px;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
   }
 }
 
@@ -1882,21 +3337,39 @@ button.asset-card {
 
 .sprout-range-tabs {
   flex: 0 0 auto;
+  gap: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 
   .segmented-tab {
-    min-width: 66px;
+    min-width: 56px;
+    height: auto;
+    padding: 0;
+    border-radius: 0;
+    color: var(--td-text-color-secondary);
+
+    &:hover {
+      color: var(--td-text-color-primary);
+    }
+
+    &--active {
+      background: transparent;
+      color: var(--td-text-color-primary);
+      box-shadow: none;
+    }
   }
 }
 
 .sprout-report-list {
   max-width: none;
-  gap: 14px;
+  gap: 10px;
 }
 
 .sprout-report-card {
   display: grid;
-  grid-template-columns: 128px minmax(0, 1fr) auto;
-  min-height: 230px;
+  grid-template-columns: 88px minmax(0, 1fr);
+  min-height: 124px;
   overflow: hidden;
   border: 1px solid #e1d7c7;
   border-radius: 8px;
@@ -1906,12 +3379,11 @@ button.asset-card {
     #fffdf8;
   background-size: 22px 22px;
   box-shadow: 0 4px 14px rgba(38, 34, 29, 0.05);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
   &:hover {
     border-color: rgba(34, 101, 73, 0.42);
     box-shadow: 0 10px 26px rgba(38, 34, 29, 0.1);
-    transform: translateY(-1px);
   }
 }
 
@@ -1930,15 +3402,15 @@ button.asset-card {
 .sprout-report-ribbon {
   display: grid;
   place-items: center;
-  width: 74px;
-  height: 88px;
+  width: 48px;
+  height: 56px;
   border: 2px solid #20242a;
   background: rgba(255, 253, 248, 0.72);
-  color: #20242a;
+  color: var(--td-text-color-primary);
   font-family: "Songti SC", "STSong", serif;
-  font-size: 27px;
-  font-weight: 700;
-  line-height: 30px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
   letter-spacing: 0;
   text-align: center;
   box-shadow: inset 0 0 0 1px rgba(32, 36, 42, 0.12);
@@ -1948,125 +3420,51 @@ button.asset-card {
   }
 }
 
-.sprout-report-date {
-  position: absolute;
-  right: 12px;
-  bottom: 14px;
-  left: 12px;
-  min-height: 24px;
-  padding: 3px 6px;
-  border: 1px solid rgba(32, 36, 42, 0.16);
-  border-radius: 4px;
-  background: rgba(255, 253, 248, 0.72);
-  color: #4c463d;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 18px;
-  text-align: center;
-  box-sizing: border-box;
-}
-
 .sprout-report-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 18px 18px 16px;
+  padding: 12px;
 
   h2 {
     display: -webkit-box;
-    margin: 10px 0 10px;
-    max-height: 56px;
+    margin: 4px 0 6px;
+    max-height: 18px;
     overflow: hidden;
-    color: #20242a;
-    font-size: 19px;
-    font-weight: 700;
-    line-height: 28px;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
     letter-spacing: 0;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
   }
 }
 
 .sprout-report-intro {
   display: -webkit-box;
   margin: 0;
-  max-height: 48px;
+  max-height: 54px;
   overflow: hidden;
-  color: #4d5360;
-  font-size: 14px;
-  line-height: 24px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
 }
 
-.sprout-report-sections {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.sprout-report-section {
-  min-width: 0;
-  min-height: 72px;
-  padding: 10px 12px;
-  border-left: 3px solid #2d7a52;
-  border-radius: 6px;
-  background: rgba(34, 101, 73, 0.06);
-  box-sizing: border-box;
-
-  p {
-    display: -webkit-box;
-    margin: 6px 0 0;
-    max-height: 38px;
-    overflow: hidden;
-    color: #596165;
-    font-size: 12px;
-    line-height: 19px;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-}
-
-.sprout-report-section-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-
-  span {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    flex: 0 0 24px;
-    border-radius: 50%;
-    background: #20242a;
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
-  }
-
-  strong {
-    min-width: 0;
-    overflow: hidden;
-    color: #20242a;
-    font-size: 13px;
-    line-height: 20px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+.sprout-report-main .report-chips {
+  margin-top: auto;
+  margin-bottom: 6px;
 }
 
 .sprout-report-meta {
-  margin-top: auto;
-  padding-top: 12px;
+  padding-top: 6px;
 }
 
-.sprout-report-card > .report-action {
-  align-self: center;
-  margin-right: 18px;
+.sprout-report-meta-separator {
+  color: var(--td-text-color-placeholder);
 }
 
 .type-badge.sprout-stage--formed {
@@ -2109,18 +3507,18 @@ button.asset-card {
 }
 
 .sprout-preview-eyebrow {
-  color: #236549;
+  color: var(--td-text-color-primary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 18px;
 }
 
 .sprout-preview-title {
   overflow: hidden;
-  color: #20242a;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 22px;
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2146,83 +3544,22 @@ button.asset-card {
   box-sizing: border-box;
 }
 
-.sprout-preview-cover {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  min-height: 154px;
-  padding: 22px;
-  border: 1px solid #ded2bf;
-  border-radius: 8px;
-  background:
-    linear-gradient(0deg, rgba(35, 31, 27, 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(35, 31, 27, 0.018) 1px, transparent 1px),
-    #fffdf8;
-  background-size: 20px 20px;
-  box-sizing: border-box;
-}
-
-.sprout-preview-cover-mark {
-  display: grid;
-  place-items: center;
-  width: 124px;
-  height: 106px;
-  border: 3px solid #20242a;
-  color: #20242a;
-  font-family: "Songti SC", "STSong", serif;
-  font-size: 40px;
-  font-weight: 800;
-  line-height: 42px;
-  letter-spacing: 0;
-  text-align: center;
-  box-shadow: inset 0 0 0 1px rgba(32, 36, 42, 0.14);
-
-  span {
-    display: block;
-  }
-}
-
-.sprout-preview-cover-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 132px;
-  padding: 12px 14px;
-  border: 1px solid rgba(32, 36, 42, 0.14);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.68);
-}
-
-.sprout-preview-cover-label {
-  color: #81786a;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.sprout-preview-cover-date {
-  color: #20242a;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 20px;
-}
-
 .sprout-preview-body {
-  margin-top: 18px;
+  margin-top: 0;
   padding: 30px 34px 38px;
   border: 1px solid #ded2bf;
   border-radius: 8px;
   background: #fffdf8;
-  color: #2a2f36;
+  color: var(--td-text-color-primary);
   box-shadow: 0 10px 26px rgba(38, 34, 29, 0.08);
   box-sizing: border-box;
 
   h1 {
     margin: 12px 0 18px;
-    color: #20242a;
-    font-size: 28px;
-    font-weight: 800;
-    line-height: 36px;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
     letter-spacing: 0;
   }
 }
@@ -2232,15 +3569,17 @@ button.asset-card {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  color: #6c7178;
+  color: var(--td-text-color-secondary);
   font-size: 12px;
+  font-weight: 400;
   line-height: 18px;
 }
 
 .sprout-preview-content {
-  color: #2f343b;
-  font-size: 15px;
-  line-height: 1.78;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
 
   :deep(h1) {
     display: none;
@@ -2250,19 +3589,19 @@ button.asset-card {
     margin: 30px 0 12px;
     padding-top: 18px;
     border-top: 1px solid rgba(32, 36, 42, 0.12);
-    color: #20242a;
-    font-size: 20px;
-    font-weight: 800;
-    line-height: 30px;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
     letter-spacing: 0;
   }
 
   :deep(h3) {
     margin: 24px 0 10px;
-    color: #20242a;
-    font-size: 17px;
-    font-weight: 700;
-    line-height: 26px;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
     letter-spacing: 0;
   }
 
@@ -2272,9 +3611,9 @@ button.asset-card {
 
   :deep(> p:first-child) {
     margin: 0 0 18px;
-    color: #4d5360;
-    font-size: 16px;
-    line-height: 1.82;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 18px;
   }
 
   :deep(blockquote) {
@@ -2291,7 +3630,8 @@ button.asset-card {
   }
 
   :deep(strong) {
-    color: #20242a;
+    color: var(--td-text-color-primary);
+    font-weight: 400;
   }
 
   :deep(ul),
@@ -2331,15 +3671,9 @@ button.asset-card {
   }
 
   .sprout-report-card {
-    grid-template-columns: 108px minmax(0, 1fr);
+    grid-template-columns: 88px minmax(0, 1fr);
   }
 
-  .sprout-report-card > .report-action {
-    grid-column: 2;
-    justify-self: flex-start;
-    align-self: flex-start;
-    margin: 0 0 16px 18px;
-  }
 }
 
 @media (max-width: 760px) {
@@ -2386,51 +3720,30 @@ button.asset-card {
   }
 
   .sprout-report-gutter {
-    min-height: 96px;
+    min-height: 72px;
     border-right: 0;
     border-bottom: 1px solid #e6ddcf;
   }
 
   .sprout-report-ribbon {
-    width: 112px;
-    height: 64px;
+    width: 72px;
+    height: 42px;
     grid-template-columns: repeat(2, auto);
     gap: 4px;
-    font-size: 26px;
-    line-height: 28px;
-  }
-
-  .sprout-report-date {
-    right: 14px;
-    bottom: 12px;
-    left: auto;
-    width: 116px;
-  }
-
-  .sprout-report-sections {
-    grid-template-columns: 1fr;
-  }
-
-  .sprout-report-card > .report-action {
-    grid-column: 1;
-    margin: 0 18px 18px;
+    font-size: 12px;
+    line-height: 18px;
   }
 
   .sprout-preview-page {
     padding: 16px 14px 36px;
   }
 
-  .sprout-preview-cover {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
   .sprout-preview-body {
     padding: 24px 18px 30px;
 
     h1 {
-      font-size: 24px;
-      line-height: 32px;
+      font-size: 12px;
+      line-height: 18px;
     }
   }
 }

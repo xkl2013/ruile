@@ -1196,17 +1196,23 @@ class _NotesPageState extends State<NotesPage> {
       title: '测试一下',
       summary: '0个内容 · 1人在用',
       footer: '6月9日 20:02',
+      description: '用于验证知识库卡片的基础展示效果。',
+      contentLabel: '0 个内容',
     ),
     _KnowledgeBase(
       title: '金句名言',
       summary: '48个内容 · 444695人在用',
       footer: '得到大脑 创建',
+      description: '汇集各领域的经典金句和智慧箴言，适合快速浏览和摘录。',
+      contentLabel: '48 个内容',
       icon: Icons.offline_bolt,
     ),
     _KnowledgeBase(
       title: '项目资料库',
       summary: '16个内容 · 3人在用',
       footer: '今天 09:42',
+      description: '收集项目资料、方案文件和日常协作材料。',
+      contentLabel: '16 个内容',
       icon: Icons.folder_open,
     ),
   ];
@@ -1601,9 +1607,25 @@ class _KnowledgeCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: AppTextStyles.cardTitle.copyWith(fontSize: 15),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
+              Expanded(
+                child: Text(
+                  knowledgeBase.description?.trim().isNotEmpty == true
+                      ? knowledgeBase.description!.trim()
+                      : '暂无描述',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
               Text(
-                knowledgeBase.summary,
+                knowledgeBase.contentLabel ?? '0 个内容',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -1611,31 +1633,6 @@ class _KnowledgeCard extends StatelessWidget {
                   color: AppColors.textTertiary,
                   fontWeight: FontWeight.w500,
                 ),
-              ),
-              const Spacer(),
-              Row(
-                children: [
-                  if (knowledgeBase.icon != null) ...[
-                    Icon(
-                      knowledgeBase.icon,
-                      color: const Color(0xFF161A20),
-                      size: 24,
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Expanded(
-                    child: Text(
-                      knowledgeBase.footer,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
               ),
             ],
           ),

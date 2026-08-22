@@ -2566,6 +2566,8 @@ var (
 	// would silently destroy the very text we want to keep.
 	imageWrapperTagRE = regexp.MustCompile(`(?i)</?image[a-z_]*\b[^>]*/?>`)
 
+	imageDerivedTextBlockRE = regexp.MustCompile(`(?is)<image_(?:ocr|caption)\b[^>]*>(.*?)</image_(?:ocr|caption)>`)
+
 	// Markdown image references with the URL captured separately so LLM-bound
 	// image URLs can be frozen while captions remain editable.
 	mdImageURLRE = regexp.MustCompile(`!\[[^\]]*\]\(([^)]*)\)`)
@@ -2749,6 +2751,18 @@ func extractRealText(content string) string {
 // hallucinations on scanned PDFs that have NO usable text at all.
 func hasSufficientTextContent(content string) bool {
 	return realTextRuneCount(content) >= minTextContentRunes
+}
+
+func hasImageDerivedSummaryText(content string) bool {
+	for _, match := range imageDerivedTextBlockRE.FindAllStringSubmatch(content, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		if strings.TrimSpace(stripImageMarkup(match[1])) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // realTextRuneCount returns the rune length of the content after image

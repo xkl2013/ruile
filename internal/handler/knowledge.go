@@ -1045,6 +1045,41 @@ func (h *KnowledgeHandler) ListKnowledge(c *gin.Context) {
 	})
 }
 
+// ListKnowledgeDirectoryCounts godoc
+// @Summary      获取知识库目录文档统计
+// @Description  返回知识库根目录总文档数，以及每个目录（含其子目录）的文档数量
+// @Tags         知识管理
+// @Accept       json
+// @Produce      json
+// @Param        id         path      string  true   "知识库ID"
+// @Success      200        {object}  map[string]interface{}  "目录文档统计"
+// @Failure      400        {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge-bases/{id}/knowledge/directory-counts [get]
+func (h *KnowledgeHandler) ListKnowledgeDirectoryCounts(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	_, kbID, effectiveTenantID, _, err := h.validateKnowledgeBaseAccess(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	ctx = context.WithValue(ctx, types.TenantIDContextKey, effectiveTenantID)
+	result, err := h.kgService.ListKnowledgeDirectoryCounts(ctx, kbID)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+
 // DeleteKnowledge godoc
 // @Summary      删除知识
 // @Description  根据ID异步删除知识条目。请求会被入队到与批量删除相同的异步管道（asynq）；
@@ -1725,6 +1760,77 @@ func (h *KnowledgeHandler) ReparseKnowledge(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Knowledge reparse task submitted",
+		"data":    knowledge,
+	})
+}
+
+type regenerateKnowledgeSummaryRequest struct {
+	Mode types.KnowledgeSummaryRegenerateMode `json:"mode,omitempty"`
+}
+
+// RegenerateKnowledgeSummary godoc
+// @Summary      重新生成知识摘要
+// @Description  先尝试基于现有可摘要分块重新生成摘要；当 mode=auto 且摘要输入不足时，会按当前知识库配置重新解析文档后再生成摘要。
+// @Tags         知识管理
+// @Accept       json
+// @Produce      json
+// @Param        id    path      string                           true  "知识ID"
+// @Param        request body     regenerateKnowledgeSummaryRequest false "摘要重生成请求"
+// @Success      200   {object}  map[string]interface{}           "摘要重建任务已提交"
+// @Failure      400   {object}  errors.AppError                  "请求参数错误"
+// @Failure      403   {object}  errors.AppError                  "权限不足"
+// @Failure      404   {object}  errors.AppError                  "知识不存在"
+// @Failure      409   {object}  errors.AppError                  "当前文档正在处理中或摘要已在生成中"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge/{id}/regenerate-summary [post]
+func (h *KnowledgeHandler) RegenerateKnowledgeSummary(c *gin.Context) {
+	ctx := c.Request.Context()
+	logger.Info(ctx, "Start regenerating knowledge summary")
+
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		logger.Error(ctx, "Knowledge ID is empty")
+		c.Error(errors.NewBadRequestError("Knowledge ID cannot be empty"))
+		return
+	}
+
+	_, effCtx, err := h.resolveKnowledgeAndValidateKBAccess(c, id, types.OrgRoleEditor)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	mode := types.KnowledgeSummaryRegenerateModeAuto
+	if c.Request.ContentLength != 0 {
+		var req regenerateKnowledgeSummaryRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			logger.Error(ctx, "Failed to parse regenerate summary request", err)
+			c.Error(errors.NewBadRequestError("Invalid summary regeneration request").WithDetails(err.Error()))
+			return
+		}
+		if req.Mode != "" {
+			mode = req.Mode
+		}
+	}
+
+	knowledge, err := h.kgService.RegenerateKnowledgeSummary(effCtx, id, mode)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"knowledge_id": id,
+		})
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Knowledge summary regeneration submitted successfully, knowledge ID: %s, mode: %s", id, mode)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Knowledge summary regeneration task submitted",
 		"data":    knowledge,
 	})
 }

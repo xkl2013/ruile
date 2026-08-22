@@ -78,6 +78,16 @@ const (
 	SummaryStatusFailed = "failed"
 )
 
+// KnowledgeSummaryRegenerateMode controls how a summary regeneration request is handled.
+type KnowledgeSummaryRegenerateMode string
+
+const (
+	// KnowledgeSummaryRegenerateModeAuto tries summary-only first and falls back to reparse when needed.
+	KnowledgeSummaryRegenerateModeAuto KnowledgeSummaryRegenerateMode = "auto"
+	// KnowledgeSummaryRegenerateModeSummaryOnly regenerates summary from existing summary-capable chunks only.
+	KnowledgeSummaryRegenerateModeSummaryOnly KnowledgeSummaryRegenerateMode = "summary_only"
+)
+
 // ManualKnowledgeFormat represents the format of the manual knowledge
 const (
 	ManualKnowledgeFormatMarkdown = "markdown"
@@ -106,6 +116,18 @@ type KnowledgeListFilter struct {
 	UpdatedFrom time.Time
 	// UpdatedTo, when non-zero, keeps rows with updated_at <= UpdatedTo.
 	UpdatedTo time.Time
+}
+
+// KnowledgeDirectoryCount is the document count for one display-path directory.
+type KnowledgeDirectoryCount struct {
+	Path  string `json:"path"`
+	Count int64  `json:"count"`
+}
+
+// KnowledgeDirectoryCountsResult contains root and per-directory document counts.
+type KnowledgeDirectoryCountsResult struct {
+	Total       int64                     `json:"total"`
+	Directories []KnowledgeDirectoryCount `json:"directories"`
 }
 
 // Knowledge represents a knowledge entity in the system.

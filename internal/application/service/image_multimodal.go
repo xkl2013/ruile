@@ -327,11 +327,14 @@ func (s *ImageMultimodalService) Handle(ctx context.Context, task *asynq.Task) e
 			KnowledgeID:     payload.KnowledgeID,
 			KnowledgeBaseID: payload.KnowledgeBaseID,
 			Content:         imageInfo.OCRText,
+			ChunkIndex:      payload.ImageIndex,
 			ChunkType:       types.ChunkTypeImageOCR,
 			ParentChunkID:   payload.ChunkID,
 			IsEnabled:       true,
 			Flags:           types.ChunkFlagRecommended,
 			ImageInfo:       string(imageInfoJSON),
+			StartAt:         payload.ImageIndex,
+			EndAt:           payload.ImageIndex,
 			CreatedAt:       time.Now(),
 			UpdatedAt:       time.Now(),
 		})
@@ -344,11 +347,14 @@ func (s *ImageMultimodalService) Handle(ctx context.Context, task *asynq.Task) e
 			KnowledgeID:     payload.KnowledgeID,
 			KnowledgeBaseID: payload.KnowledgeBaseID,
 			Content:         imageInfo.Caption,
+			ChunkIndex:      payload.ImageIndex,
 			ChunkType:       types.ChunkTypeImageCaption,
 			ParentChunkID:   payload.ChunkID,
 			IsEnabled:       true,
 			Flags:           types.ChunkFlagRecommended,
 			ImageInfo:       string(imageInfoJSON),
+			StartAt:         payload.ImageIndex,
+			EndAt:           payload.ImageIndex,
 			CreatedAt:       time.Now(),
 			UpdatedAt:       time.Now(),
 		})
@@ -752,6 +758,7 @@ func (s *ImageMultimodalService) enqueueKnowledgePostProcessTask(ctx context.Con
 		KnowledgeID:     payload.KnowledgeID,
 		KnowledgeBaseID: payload.KnowledgeBaseID,
 		Language:        payload.Language,
+		Attempt:         payload.Attempt,
 	}
 	langfuse.InjectTracing(ctx, &taskPayload)
 	payloadBytes, err := json.Marshal(taskPayload)

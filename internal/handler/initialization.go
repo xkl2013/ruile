@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -1950,6 +1951,31 @@ func classifyConnectionError(errMsg string) string {
 	}
 }
 
+func isGenericDashScopeBaseURL(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "dashscope.aliyuncs.com" || host == "dashscope-intl.aliyuncs.com"
+}
+
+func aliyunOCRBaseURLMessage() string {
+	return fmt.Sprintf(
+		"阿里云 Qwen OCR 需要使用 Model Studio 工作空间 Base URL，例如 %s；当前通用 DashScope 地址不支持 OCR 测试，通常会返回 404。Base URL 不要带 /chat/completions。",
+		provider.AliyunOCRBaseURLExample,
+	)
+}
+
+func classifyOCRConnectionError(req *ModelTestRequest, errMsg string) string {
+	if req != nil &&
+		provider.ProviderName(req.Provider) == provider.ProviderAliyun &&
+		(strings.Contains(errMsg, "404") || strings.Contains(errMsg, "not found")) {
+		return "阿里云 OCR 返回 404，请检查 Base URL 是否为对应工作空间和地域、API Key 是否属于该工作空间、模型名是否已开通；Base URL 不要带 /chat/completions"
+	}
+	return classifyConnectionError(errMsg)
+}
+
 // checkChatModelConnection 使用 chat 模块做一次最小化调用来测试连通性与鉴权。
 // 与生产路径走完全相同的 ConfigFromModel → NewChat 流程，因此 CustomHeaders、
 // ExtraConfig、Provider 等字段都会被正确透传。
@@ -2203,6 +2229,16 @@ func (h *InitializationHandler) CheckOCRModel(c *gin.Context) {
 		c.Error(errors.NewBadRequestError(utils.FormatSSRFError("Base URL", req.BaseURL, err)))
 		return
 	}
+	if isGenericDashScopeBaseURL(req.BaseURL) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"available": false,
+				"message":   aliyunOCRBaseURLMessage(),
+			},
+		})
+		return
+	}
 
 	appID, appSecret, ok := h.resolveTenantWeKnoraCloudCreds(ctx)
 	if !ok {
@@ -2232,7 +2268,7 @@ func (h *InitializationHandler) CheckOCRModel(c *gin.Context) {
 			"success": true,
 			"data": gin.H{
 				"available": false,
-				"message":   fmt.Sprintf("%s：%v", classifyConnectionError(errMsg), err),
+				"message":   fmt.Sprintf("%s：%v", classifyOCRConnectionError(&req, errMsg), err),
 			},
 		})
 		return

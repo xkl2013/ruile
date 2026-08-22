@@ -1,4 +1,4 @@
-import { get, post, put } from '@/utils/request'
+import { get, post, postUpload, put } from '@/utils/request'
 
 export type OrganizeMemoryKind = 'note' | 'record' | 'audio' | 'audio_card'
 export type OrganizeOutputStatus = 'draft' | 'review' | 'ready' | 'archived'
@@ -39,6 +39,7 @@ export interface OrganizeOutput {
 
 export interface OrganizeSproutReport {
   id: string
+  user_id?: string
   title: string
   summary: string
   stage: OrganizeSproutStage
@@ -46,6 +47,8 @@ export interface OrganizeSproutReport {
   chips?: string[]
   memory_count?: number
   memory_ids?: string[]
+  creator_name?: string
+  creator_avatar?: string
   metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -56,6 +59,22 @@ export interface OrganizeListData<T> {
   total: number
   page: number
   page_size: number
+}
+
+export interface OrganizeDiscoverTab {
+  label: string
+  value: string
+  count?: number
+}
+
+export interface OrganizeDiscoverData {
+  tabs: OrganizeDiscoverTab[]
+  featured_outputs: OrganizeOutput[]
+  items: OrganizeOutput[]
+  total: number
+  page?: number
+  page_size?: number
+  featured_offset?: number
 }
 
 export interface OrganizeResponse<T> {
@@ -132,8 +151,18 @@ export function listOrganizeOutputs(params?: OrganizeListParams & { status?: Org
   return get<OrganizeResponse<OrganizeListData<OrganizeOutput>>>(withQuery('/api/v1/organize/outputs', params))
 }
 
+export function getOrganizeDiscover(params?: OrganizeListParams & { tab?: string; featured_offset?: number }) {
+  return get<OrganizeResponse<OrganizeDiscoverData>>(withQuery('/api/v1/organize/discover', params))
+}
+
 export function createOrganizeOutput(input: OrganizeOutputInput) {
   return post<OrganizeResponse<OrganizeOutput>>('/api/v1/organize/outputs', input)
+}
+
+export function uploadOrganizeOutput(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return postUpload('/api/v1/organize/outputs/upload', formData)
 }
 
 export function updateOrganizeOutput(id: string, input: OrganizeOutputInput) {

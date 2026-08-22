@@ -431,6 +431,7 @@ func TestOrganizeRoutesRequireFullAccessAPIKey(t *testing.T) {
 		{http.MethodGet, "/api/v1/organize/overview"},
 		{http.MethodGet, "/api/v1/organize/memories"},
 		{http.MethodPost, "/api/v1/organize/memories"},
+		{http.MethodPost, "/api/v1/organize/outputs/upload"},
 		{http.MethodPut, "/api/v1/organize/outputs/:id"},
 		{http.MethodDelete, "/api/v1/organize/sprout-reports/:id"},
 	}

@@ -32,6 +32,13 @@ const canDeleteGeneratedQuestion = computed(() => {
 });
 
 const canDownloadFile = computed(() => authStore.hasRole('admin'));
+const isSummaryRegenerationBusy = computed(() => {
+  const parseStatus = String(props.details?.parse_status ?? '');
+  const summaryStatus = String(props.details?.summary_status ?? '');
+  return ['pending', 'processing', 'finalizing'].includes(parseStatus)
+    || ['pending', 'processing'].includes(summaryStatus);
+});
+const canRegenerateSummary = computed(() => Boolean(props.details?.id) && props.canEditKB !== false && !isSummaryRegenerationBusy.value);
 
 const detailTags = computed(() => {
   const tags = props.details?.tags;
@@ -87,7 +94,7 @@ mermaid.initialize({
   }
 });
 const props = defineProps(["visible", "details", "knowledgeType", "sourceInfo", "canEditKB", "parse_status", "kbId"]);
-const emit = defineEmits(["closeDoc", "getDoc", "questionDeleted"]);
+const emit = defineEmits(["closeDoc", "getDoc", "questionDeleted", "regenerateSummary"]);
 
 const hasTimelineSpans = ref(false);
 const timelineDrawerVisible = ref(false);
@@ -1108,6 +1115,20 @@ const handleDetailsScroll = () => {
               variant="text" shape="square" :theme="traceEntryTheme" :title="traceEntryTitle" @click="openTimeline">
               <template #icon>
                 <t-icon name="chart-line" size="16px" />
+              </template>
+            </t-button>
+            <t-button
+              v-if="canRegenerateSummary"
+              class="header-action-btn"
+              size="small"
+              variant="text"
+              shape="square"
+              theme="default"
+              :title="$t('knowledgeBase.regenerateSummary')"
+              @click="emit('regenerateSummary')"
+            >
+              <template #icon>
+                <t-icon name="refresh" size="16px" />
               </template>
             </t-button>
           </div>

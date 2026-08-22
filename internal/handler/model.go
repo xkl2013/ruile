@@ -748,7 +748,7 @@ func modelTypeToFrontend(mt types.ModelType) string {
 // @Tags         模型管理
 // @Accept       json
 // @Produce      json
-// @Param        model_type  query     string  false  "模型类型 (chat, embedding, rerank, vllm)"
+// @Param        model_type  query     string  false  "模型类型 (chat, embedding, rerank, vllm, ocr, asr)"
 // @Success      200         {object}  map[string]interface{}  "厂商列表"
 // @Security     Bearer
 // @Security     ApiKeyAuth
@@ -756,12 +756,12 @@ func modelTypeToFrontend(mt types.ModelType) string {
 func (h *ModelHandler) ListModelProviders(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	modelType := c.Query("model_type")
+	modelType := strings.ToLower(strings.TrimSpace(c.Query("model_type")))
 	logger.Infof(ctx, "Listing model providers for type: %s", secutils.SanitizeForLog(modelType))
 
 	// 将前端类型映射到后端类型
-	// 前端: chat, embedding, rerank, vllm
-	// 后端: KnowledgeQA, Embedding, Rerank, VLLM
+	// 前端: chat, embedding, rerank, vllm, ocr, asr
+	// 后端: KnowledgeQA, Embedding, Rerank, VLLM, OCR, ASR
 	var backendModelType types.ModelType
 	switch modelType {
 	case "chat":

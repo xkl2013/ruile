@@ -26,13 +26,15 @@ const (
 )
 
 type AliyunASR struct {
-	modelName string
-	modelID   string
-	client    *http.Client
-	baseURL   string
-	apiKey    string
-	language  string
-	enableITN bool
+	modelName   string
+	modelID     string
+	client      *http.Client
+	baseURL     string
+	apiKey      string
+	language    string
+	enableITN   bool
+	apiProtocol string
+	sampleRate  string
 }
 
 type aliyunASRAudioInput struct {
@@ -66,7 +68,39 @@ type aliyunASROptions struct {
 	EnableITN bool   `json:"enable_itn"`
 }
 
+type aliyunASRNativeRequest struct {
+	Model      string                    `json:"model"`
+	Input      aliyunASRNativeInput      `json:"input"`
+	Parameters aliyunASRNativeParameters `json:"parameters"`
+}
+
+type aliyunASRNativeInput struct {
+	Messages []aliyunASRMessage `json:"messages"`
+}
+
+type aliyunASRNativeParameters struct {
+	Format        string   `json:"format"`
+	SampleRate    string   `json:"sample_rate,omitempty"`
+	LanguageHints []string `json:"language_hints,omitempty"`
+}
+
 type aliyunASRResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+type aliyunASRNativeResponse struct {
+	Output struct {
+		Text    string `json:"text"`
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	} `json:"output"`
 	Choices []struct {
 		Message struct {
 			Content string `json:"content"`
@@ -97,6 +131,8 @@ func NewAliyunASR(config *Config) (*AliyunASR, error) {
 	}
 
 	enableITN := false
+	apiProtocol := ""
+	sampleRate := ""
 	if config.ExtraConfig != nil {
 		if raw := normalizeOptionalValue(config.ExtraConfig["enable_itn"]); raw != "" {
 			value, err := strconv.ParseBool(raw)
@@ -105,16 +141,20 @@ func NewAliyunASR(config *Config) (*AliyunASR, error) {
 			}
 			enableITN = value
 		}
+		apiProtocol = strings.ToLower(normalizeOptionalValue(config.ExtraConfig["api_protocol"]))
+		sampleRate = normalizeOptionalValue(config.ExtraConfig["sample_rate"])
 	}
 
 	return &AliyunASR{
-		modelName: config.ModelName,
-		modelID:   config.ModelID,
-		client:    httpClient,
-		baseURL:   strings.TrimRight(config.BaseURL, "/"),
-		apiKey:    config.APIKey,
-		language:  config.Language,
-		enableITN: enableITN,
+		modelName:   config.ModelName,
+		modelID:     config.ModelID,
+		client:      httpClient,
+		baseURL:     strings.TrimRight(config.BaseURL, "/"),
+		apiKey:      config.APIKey,
+		language:    config.Language,
+		enableITN:   enableITN,
+		apiProtocol: apiProtocol,
+		sampleRate:  sampleRate,
 	}, nil
 }
 
@@ -158,6 +198,9 @@ func (s *AliyunASR) transcribeInline(ctx context.Context, audioBytes []byte, fil
 	dataURILength := aliyunASRDataURILength(audioBytes, fileName)
 	if dataURILength > aliyunASRInlineStringLimit {
 		return nil, fmt.Errorf("%w: Aliyun ASR inline audio payload is too large: data URI length %d exceeds limit %d", ErrNonRetryable, dataURILength, aliyunASRInlineStringLimit)
+	}
+	if s.usesNativeGenerationAPI() {
+		return s.transcribeNativeInline(ctx, audioBytes, fileName)
 	}
 	dataURI := formatAudioDataURI(fileName, audioBytes)
 
@@ -227,6 +270,82 @@ func (s *AliyunASR) transcribeInline(ctx context.Context, audioBytes []byte, fil
 	return &TranscriptionResult{Text: text}, nil
 }
 
+func (s *AliyunASR) transcribeNativeInline(ctx context.Context, audioBytes []byte, fileName string) (*TranscriptionResult, error) {
+	dataURI := formatAudioDataURI(fileName, audioBytes)
+	parameters := aliyunASRNativeParameters{
+		Format: aliyunASRAudioFormat(audioBytes, fileName),
+	}
+	if s.sampleRate != "" {
+		parameters.SampleRate = s.sampleRate
+	}
+	if strings.TrimSpace(s.language) != "" {
+		parameters.LanguageHints = []string{s.language}
+	}
+
+	reqBody := aliyunASRNativeRequest{
+		Model: s.modelName,
+		Input: aliyunASRNativeInput{
+			Messages: []aliyunASRMessage{
+				{
+					Role: "user",
+					Content: []aliyunASRContentPart{
+						{
+							Type: "input_audio",
+							InputAudio: &aliyunASRInputAudio{
+								Data: dataURI,
+							},
+						},
+					},
+				},
+			},
+		},
+		Parameters: parameters,
+	}
+
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshal Aliyun ASR native request: %w", err)
+	}
+
+	endpoint := aliyunASRNativeEndpoint(s.baseURL)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("create Aliyun ASR native request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+s.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	httpReq.Header.Set("X-DashScope-SSE", "disable")
+
+	logger.Infof(ctx, "[ASR] Calling Aliyun ASR native generation, model=%s, endpoint=%s, audioSize=%d, file=%s, format=%s",
+		s.modelName, endpoint, len(audioBytes), fileName, parameters.Format)
+
+	resp, err := s.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("Aliyun ASR native request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("read Aliyun ASR native response: %w", readErr)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("Aliyun ASR native request failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var decoded aliyunASRNativeResponse
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil, fmt.Errorf("decode Aliyun ASR native response: %w", err)
+	}
+	text := strings.TrimSpace(aliyunASRNativeResponseText(decoded))
+	if text == "" {
+		return nil, fmt.Errorf("Aliyun ASR native response missing text")
+	}
+	logger.Infof(ctx, "[ASR] Aliyun native transcription completed, text length=%d", len(text))
+	return &TranscriptionResult{Text: text}, nil
+}
+
 func prepareAliyunASRAudioInputs(ctx context.Context, audioBytes []byte, fileName string) ([]aliyunASRAudioInput, error) {
 	if fitsAliyunASRInlineLimit(audioBytes, fileName) {
 		return []aliyunASRAudioInput{{data: audioBytes, fileName: fileName}}, nil
@@ -266,6 +385,53 @@ func aliyunASRDataURILength(audioBytes []byte, fileName string) int {
 func aliyunASRDataURILengthForSize(audioSize int, fileName string) int {
 	prefixLen := len("data:" + audioMIMEType(fileName) + ";base64,")
 	return prefixLen + base64.StdEncoding.EncodedLen(audioSize)
+}
+
+func (s *AliyunASR) usesNativeGenerationAPI() bool {
+	switch s.apiProtocol {
+	case "native", "dashscope_native", "multimodal_generation", "dashscope_multimodal_generation":
+		return true
+	case "compatible", "openai", "chat_completions":
+		return false
+	}
+	model := strings.ToLower(strings.TrimSpace(s.modelName))
+	return strings.HasPrefix(model, "fun-asr-flash") ||
+		strings.HasPrefix(model, "qwen-audio-3.0-asr-flash")
+}
+
+func aliyunASRNativeEndpoint(baseURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(base, "/api/v1/services/aigc/multimodal-generation/generation") {
+		return base
+	}
+	base = strings.TrimSuffix(base, "/compatible-mode/v1")
+	base = strings.TrimSuffix(base, "/compatible-mode")
+	return base + "/api/v1/services/aigc/multimodal-generation/generation"
+}
+
+func aliyunASRAudioFormat(audioBytes []byte, fileName string) string {
+	ext := strings.TrimPrefix(strings.ToLower(DetectAudioFormat(audioBytes, fileName)), ".")
+	switch ext {
+	case "mp3", "wav", "flac", "ogg", "m4a", "aac", "amr", "opus":
+		return ext
+	case "mp4":
+		return "m4a"
+	default:
+		return "mp3"
+	}
+}
+
+func aliyunASRNativeResponseText(resp aliyunASRNativeResponse) string {
+	if strings.TrimSpace(resp.Output.Text) != "" {
+		return resp.Output.Text
+	}
+	if len(resp.Output.Choices) > 0 {
+		return resp.Output.Choices[0].Message.Content
+	}
+	if len(resp.Choices) > 0 {
+		return resp.Choices[0].Message.Content
+	}
+	return ""
 }
 
 func transcodeAudioForAliyunASR(ctx context.Context, audioBytes []byte, fileName string) ([]byte, string, error) {

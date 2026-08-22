@@ -739,7 +739,7 @@ var errInsufficientSummaryContent = errors.New("insufficient text content for su
 // full ProcessSummaryGeneration dependency graph.
 func checkSufficientSummaryContent(ctx context.Context, knowledgeID, content string) error {
 	realTextLen := realTextRuneCount(content)
-	if realTextLen < minTextContentRunes {
+	if realTextLen < minTextContentRunes && !hasImageDerivedSummaryText(content) {
 		logger.GetLogger(ctx).Warnf(
 			"summary content check: knowledge %s has insufficient text after stripping image markup (real_text_runes=%d, min=%d); skipping LLM call",
 			knowledgeID, realTextLen, minTextContentRunes,
@@ -764,52 +764,7 @@ func (s *knowledgeService) getSummary(ctx context.Context,
 		maxInputChars = s.config.Conversation.Summary.MaxInputChars
 	}
 
-	// Sort chunks by StartAt for proper concatenation
-	sortedChunks := make([]*types.Chunk, len(chunks))
-	copy(sortedChunks, chunks)
-	sort.Slice(sortedChunks, func(i, j int) bool {
-		return sortedChunks[i].StartAt < sortedChunks[j].StartAt
-	})
-
-	// Concatenate original chunk contents by StartAt offset to reconstruct the
-	// document, then enrich with image info in a second pass. Enrichment must
-	// happen AFTER concatenation because StartAt is based on original document
-	// offsets — enriched (longer) content would break the positioning.
-	chunkContents := ""
-	for _, chunk := range sortedChunks {
-		runes := []rune(chunkContents)
-		if chunk.StartAt <= len(runes) {
-			chunkContents = string(runes[:chunk.StartAt]) + chunk.Content
-		} else {
-			chunkContents = chunkContents + chunk.Content
-		}
-	}
-
-	// Collect image_info from image_ocr/image_caption children and enrich
-	chunkIDs := make([]string, len(sortedChunks))
-	for i, c := range sortedChunks {
-		chunkIDs[i] = c.ID
-	}
-	imageInfoMap := searchutil.CollectImageInfoByChunkIDs(ctx, s.chunkRepo, knowledge.TenantID, chunkIDs)
-	mergedImageInfo := searchutil.MergeImageInfoJSON(imageInfoMap)
-	if mergedImageInfo != "" {
-		// For image-dominated documents (e.g. a docx whose only payload is a
-		// single embedded picture, or a screenshot-only file), captions alone
-		// often carry too little signal — the real content lives in OCR text.
-		// Detect that case by measuring the document's real (non-image-markup)
-		// text BEFORE enrichment, and switch to full enrichment (caption + OCR)
-		// when the body is essentially empty. Text-heavy documents stay on the
-		// caption-only path to avoid OCR noise (page headers/footers/watermarks
-		// from many figures diluting the main topic).
-		if realTextRuneCount(chunkContents) < imageDominatedTextThreshold {
-			// Caption + OCR (no URL/original wrappers — those are pure noise
-			// for the summary LLM and have been observed to trigger the
-			// "image reference with no extracted text" refusal heuristic).
-			chunkContents = searchutil.EnrichContentCaptionAndOCR(chunkContents, mergedImageInfo)
-		} else {
-			chunkContents = searchutil.EnrichContentCaptionOnly(chunkContents, mergedImageInfo)
-		}
-	}
+	chunkContents := buildSummaryInputContent(ctx, s.chunkRepo, knowledge.TenantID, chunks)
 
 	// Apply length limit: sample long content to fit within maxInputChars
 	chunkContents = sampleLongContent(chunkContents, maxInputChars)
@@ -1019,8 +974,10 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 		}
 	}
 
-	// Get text chunks for this knowledge
-	chunks, err := s.chunkService.ListChunksByKnowledgeID(ctx, payload.KnowledgeID)
+	// Get summary-capable chunks for this knowledge. This must include image
+	// OCR/caption chunks because standalone image files may not have a normal
+	// text chunk at all.
+	chunks, err := listSummaryInputChunks(ctx, s.chunkService, payload.KnowledgeID)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to get chunks: %v", err)
 		markSummaryFailed()
@@ -1028,28 +985,25 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 		return nil
 	}
 
-	// Filter text chunks only
-	textChunks := make([]*types.Chunk, 0)
-	for _, chunk := range chunks {
-		if chunk.ChunkType == types.ChunkTypeText {
-			textChunks = append(textChunks, chunk)
-		}
-	}
+	textChunks, imageChunks := splitSummaryInputChunks(chunks)
+	summaryChunks := append(append([]*types.Chunk{}, textChunks...), imageChunks...)
 	summaryOut["text_chunks"] = len(textChunks)
+	summaryOut["image_chunks"] = len(imageChunks)
+	summaryOut["summary_input_chunks"] = len(summaryChunks)
 
-	if len(textChunks) == 0 {
-		logger.Infof(ctx, "No text chunks found for knowledge: %s", payload.KnowledgeID)
+	if len(summaryChunks) == 0 {
+		logger.Infof(ctx, "No summary-capable chunks found for knowledge: %s", payload.KnowledgeID)
 		// Mark as completed since there's nothing to summarize
 		knowledge.SummaryStatus = types.SummaryStatusCompleted
 		knowledge.UpdatedAt = time.Now()
 		s.repo.UpdateKnowledge(ctx, knowledge)
-		summaryOut["skipped"] = "no_text_chunks"
+		summaryOut["skipped"] = "no_summary_chunks"
 		return nil
 	}
 
 	// Sort chunks by ChunkIndex for proper ordering
-	sort.Slice(textChunks, func(i, j int) bool {
-		return textChunks[i].ChunkIndex < textChunks[j].ChunkIndex
+	sort.Slice(summaryChunks, func(i, j int) bool {
+		return summaryChunks[i].ChunkIndex < summaryChunks[j].ChunkIndex
 	})
 
 	// Initialize chat model for summary
@@ -1062,7 +1016,7 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 	}
 
 	// Generate summary
-	summary, err := s.getSummary(ctx, chatModel, knowledge, textChunks)
+	summary, err := s.getSummary(ctx, chatModel, knowledge, summaryChunks)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to generate summary for knowledge %s: %v", payload.KnowledgeID, err)
 		// Surface the underlying LLM/IO error on the span so the trace UI
@@ -1090,8 +1044,8 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 			return nil
 		}
 		// For other errors (LLM API issues etc.), fall back to the first chunk.
-		if len(textChunks) > 0 {
-			summary = textChunks[0].Content
+		if len(summaryChunks) > 0 {
+			summary = summaryChunks[0].Content
 			if len(summary) > 500 {
 				runes := []rune(summary)
 				if len(runes) > 500 {
@@ -1147,7 +1101,7 @@ func (s *knowledgeService) ProcessSummaryGeneration(ctx context.Context, t *asyn
 			StartAt:         0,
 			EndAt:           0,
 			ChunkType:       types.ChunkTypeSummary,
-			ParentChunkID:   textChunks[0].ID,
+			ParentChunkID:   summaryParentChunkID(summaryChunks),
 		}
 
 		// Save summary chunk
