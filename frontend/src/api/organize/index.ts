@@ -61,6 +61,22 @@ export interface OrganizeListData<T> {
   page_size: number
 }
 
+export interface OrganizeDiscoverTab {
+  label: string
+  value: string
+  count?: number
+}
+
+export interface OrganizeDiscoverData {
+  tabs: OrganizeDiscoverTab[]
+  featured_outputs: OrganizeOutput[]
+  items: OrganizeOutput[]
+  total: number
+  page?: number
+  page_size?: number
+  featured_offset?: number
+}
+
 export interface OrganizeResponse<T> {
   success: boolean
   data: T
@@ -133,6 +149,10 @@ export function getOrganizeMemory(id: string) {
 
 export function listOrganizeOutputs(params?: OrganizeListParams & { status?: OrganizeOutputStatus }) {
   return get<OrganizeResponse<OrganizeListData<OrganizeOutput>>>(withQuery('/api/v1/organize/outputs', params))
+}
+
+export function getOrganizeDiscover(params?: OrganizeListParams & { tab?: string; featured_offset?: number }) {
+  return get<OrganizeResponse<OrganizeDiscoverData>>(withQuery('/api/v1/organize/discover', params))
 }
 
 export function createOrganizeOutput(input: OrganizeOutputInput) {

@@ -4,6 +4,7 @@ import (
 	stderrors "errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
@@ -144,6 +145,66 @@ func (h *OrganizeHandler) ListOutputs(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, listPayload(items, total, query.Page, query.PageSize))
+}
+
+func (h *OrganizeHandler) GetDiscover(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	page, pageSize, ok := parseDiscoverPagination(c)
+	if !ok {
+		return
+	}
+	keyword := strings.TrimSpace(c.Query("q"))
+	if keyword == "" {
+		keyword = strings.TrimSpace(c.Query("keyword"))
+	}
+	featuredOffset := 0
+	if raw := strings.TrimSpace(c.Query("featured_offset")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
+			featuredOffset = parsed
+		}
+	}
+	query := types.OrganizeDiscoverQuery{
+		TenantID:       tenantID,
+		UserID:         userID,
+		Keyword:        keyword,
+		Tab:            strings.TrimSpace(c.Query("tab")),
+		Page:           page,
+		PageSize:       pageSize,
+		FeaturedOffset: featuredOffset,
+	}
+	item, err := h.service.GetDiscover(ctx, tenantID, userID, query)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func parseDiscoverPagination(c *gin.Context) (page, pageSize int, ok bool) {
+	page = 1
+	pageSize = 30
+
+	if s := strings.TrimSpace(c.Query("page")); s != "" {
+		p, err := strconv.Atoi(s)
+		if err != nil || p < 1 {
+			c.Error(apperrors.NewValidationError("page must be a positive integer"))
+			return 0, 0, false
+		}
+		page = p
+	}
+	if s := strings.TrimSpace(c.Query("page_size")); s != "" {
+		ps, err := strconv.Atoi(s)
+		if err != nil || ps < 1 || ps > 100 {
+			c.Error(apperrors.NewValidationError("page_size must be between 1 and 100"))
+			return 0, 0, false
+		}
+		pageSize = ps
+	}
+	return page, pageSize, true
 }
 
 func (h *OrganizeHandler) CreateOutput(c *gin.Context) {

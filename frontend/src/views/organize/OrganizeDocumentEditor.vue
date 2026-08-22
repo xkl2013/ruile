@@ -35,7 +35,42 @@
 
       <div v-else class="editor-page-content">
         <article class="document-page">
-          <div class="document-editor-shell" @keydown.capture="handleEditorKeydown">
+          <section v-if="isAudioMemory" class="memory-audio-panel" aria-label="录音详情">
+            <t-input v-model="title" class="memory-audio-title-input" size="large" clearable placeholder="录音标题" />
+            <div class="memory-audio-player" aria-label="录音播放">
+              <template v-if="audioSourceUrl">
+                <audio class="memory-audio-native" :src="audioSourceUrl" controls preload="metadata"></audio>
+                <div class="memory-audio-transcript-chip">
+                  <t-icon name="file-word" size="14px" />
+                  <span>文稿</span>
+                </div>
+              </template>
+              <template v-else>
+                <button type="button" class="memory-audio-play" aria-label="播放录音">
+                  <t-icon name="play-circle" size="18px" />
+                </button>
+                <div class="memory-audio-track-wrap">
+                  <div class="memory-audio-track" aria-hidden="true">
+                    <span class="memory-audio-thumb"></span>
+                    <span class="memory-audio-progress"></span>
+                  </div>
+                  <div class="memory-audio-time-row">
+                    <span>00:00</span>
+                    <span>{{ audioDurationLabel }}</span>
+                  </div>
+                </div>
+                <div class="memory-audio-transcript-chip">
+                  <t-icon name="file-word" size="14px" />
+                  <span>文稿</span>
+                </div>
+              </template>
+            </div>
+          </section>
+          <div
+            class="document-editor-shell"
+            :class="{ 'document-editor-shell--audio': isAudioMemory }"
+            @keydown.capture="handleEditorKeydown"
+          >
             <TiptapProEditor
               :key="editorKey"
               ref="editorRef"
@@ -43,7 +78,7 @@
               version="basic"
               theme-preset="notion"
               locale="zh-CN"
-              placeholder="输入内容，或按“/”启用命令"
+              :placeholder="editorPlaceholder"
               :features="editorFeatures"
             />
           </div>
@@ -146,6 +181,10 @@ const memoryAssetLabel = computed(() => {
   return '笔记'
 })
 
+const isAudioMemory = computed(() => documentType.value === 'memory' && memoryKind.value === 'audio')
+const audioDurationLabel = computed(() => formatDuration(memoryDurationSeconds.value || 0))
+const editorPlaceholder = computed(() => isAudioMemory.value ? '录音转写内容' : '输入内容，或按“/”启用命令')
+
 const typeLabel = computed(() => {
   if (documentType.value === 'output') return '发现文档'
   if (documentType.value === 'sprout') return '经营复盘'
@@ -200,6 +239,14 @@ const escapeHtml = (value: string) => {
 
 const normalizeTitle = (value = '') => value.trim().slice(0, 512)
 
+const asTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
+
+const formatDuration = (seconds?: number) => {
+  const safeSeconds = Math.max(0, seconds || 0)
+  const minutes = Math.floor(safeSeconds / 60)
+  return `${String(minutes).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`
+}
+
 const parseHtmlBody = (html = '') => new DOMParser().parseFromString(html, 'text/html').body
 
 const extractTitleFromContent = (html = '') => {
@@ -238,6 +285,79 @@ const normalizeDocumentContent = (documentTitle = '', html = '') => {
   const bodyHtml = body.innerHTML.trim()
   return `<h1>${escapeHtml(normalizedTitle)}</h1>${bodyHtml || '<p></p>'}`
 }
+
+const normalizeAudioMemoryContent = (html = '') => {
+  const body = parseHtmlBody(html)
+  const firstBlock = Array.from(body.children)[0]
+
+  if (firstBlock?.tagName.toLowerCase() === 'h1') {
+    firstBlock.remove()
+  }
+
+  if (body.children.length > 0) {
+    return body.innerHTML.trim() || '<p></p>'
+  }
+
+  const text = body.textContent?.trim() || ''
+  return text ? `<p>${escapeHtml(text)}</p>` : '<p></p>'
+}
+
+const audioMemoryFallbackTitle = (html = '') => {
+  const body = parseHtmlBody(html)
+  const text = body.textContent?.replace(/\s+/g, ' ').trim() || ''
+  if (!text) return '录音记忆'
+  return text.length > 24 ? `${text.slice(0, 24)}...` : text
+}
+
+const audioMemoryDisplayTitle = (item: OrganizeMemory) => {
+  const metadata = item.metadata || {}
+  return (
+    asTrimmedString(metadata.title) ||
+    asTrimmedString(metadata.extracted_title) ||
+    asTrimmedString(metadata.ai_title) ||
+    asTrimmedString(metadata.summary_title) ||
+    item.title
+  )
+}
+
+const audioMemoryContentSource = (item: OrganizeMemory) => {
+  const metadata = item.metadata || {}
+  return item.content ||
+    asTrimmedString(metadata.transcript) ||
+    asTrimmedString(metadata.transcription) ||
+    asTrimmedString(metadata.asr_text)
+}
+
+const audioSourcePath = (metadata: Record<string, unknown>) => {
+  return (
+    asTrimmedString(metadata.audio_url) ||
+    asTrimmedString(metadata.audioUrl) ||
+    asTrimmedString(metadata.audio_path) ||
+    asTrimmedString(metadata.audioPath) ||
+    asTrimmedString(metadata.media_url) ||
+    asTrimmedString(metadata.mediaUrl) ||
+    asTrimmedString(metadata.media_path) ||
+    asTrimmedString(metadata.mediaPath) ||
+    asTrimmedString(metadata.file_url) ||
+    asTrimmedString(metadata.fileUrl) ||
+    asTrimmedString(metadata.source_url) ||
+    asTrimmedString(metadata.sourceUrl) ||
+    asTrimmedString(metadata.source_path) ||
+    asTrimmedString(metadata.sourcePath) ||
+    asTrimmedString(metadata.preview_url) ||
+    asTrimmedString(metadata.previewUrl) ||
+    asTrimmedString(metadata.file_path)
+  )
+}
+
+const audioSourceUrl = computed(() => {
+  if (!isAudioMemory.value) return ''
+  const metadata = memoryMetadata.value || {}
+  const source = audioSourcePath(metadata)
+  if (!source) return ''
+  if (/^https?:\/\//i.test(source) || source.startsWith('blob:') || source.startsWith('data:')) return source
+  return `/files?${new URLSearchParams({ file_path: source }).toString()}`
+})
 
 const readQuery = (key: string) => readParam(route.query[key])
 
@@ -332,11 +452,16 @@ const resetDraft = () => {
     ? sproutReportContentForEditor(draft.content)
     : draft.content
   title.value = draftTitle
-  content.value = normalizeDocumentContent(draftTitle, draftContent)
   memoryKind.value = draft.kind || 'note'
   memorySource.value = draft.source || '手动输入'
   memoryDurationSeconds.value = draft.duration_seconds || 0
   memoryMetadata.value = draft.metadata
+  if (documentType.value === 'memory' && memoryKind.value === 'audio') {
+    content.value = normalizeAudioMemoryContent(draftContent)
+    title.value = draftTitle || audioMemoryFallbackTitle(content.value)
+  } else {
+    content.value = normalizeDocumentContent(draftTitle, draftContent)
+  }
   outputDraft.value = outputFromDraft(draft)
   sproutDraft.value = sproutFromDraft(draft)
 }
@@ -368,12 +493,14 @@ const loadDocument = async () => {
       const response = await getOrganizeMemory(documentId.value)
       if (!response.success || !response.data) throw new Error(response.message || '笔记加载失败')
       const item = response.data
-      title.value = item.title
-      content.value = normalizeDocumentContent(item.title, item.content)
       memoryKind.value = item.kind
       memorySource.value = item.source || '手动输入'
       memoryDurationSeconds.value = item.duration_seconds || 0
       memoryMetadata.value = item.metadata
+      title.value = item.kind === 'audio' ? audioMemoryDisplayTitle(item) : item.title
+      content.value = item.kind === 'audio'
+        ? normalizeAudioMemoryContent(audioMemoryContentSource(item))
+        : normalizeDocumentContent(item.title, item.content)
     } else if (documentType.value === 'output') {
       const response = await getOrganizeOutput(documentId.value)
       if (!response.success || !response.data) throw new Error(response.message || '发现加载失败')
@@ -432,8 +559,14 @@ const saveDocument = async () => {
     return
   }
 
+  const currentType = documentType.value
+  const currentDocumentId = activeDocumentId.value
+  const currentMemoryKind = memoryKind.value
+  const savingAudioMemory = currentType === 'memory' && currentMemoryKind === 'audio'
   const html = editorRef.value?.getHTML() || content.value
-  const normalizedTitle = extractTitleFromContent(html)
+  const normalizedTitle = savingAudioMemory
+    ? normalizeTitle(title.value || audioMemoryFallbackTitle(html))
+    : extractTitleFromContent(html)
   if (!normalizedTitle) {
     saveState.value = 'waiting'
     return
@@ -441,20 +574,19 @@ const saveDocument = async () => {
 
   const revisionAtSave = editRevision
   const creating = isCreate.value
-  const currentType = documentType.value
-  const currentDocumentId = activeDocumentId.value
-  title.value = normalizedTitle
   saving.value = true
+  title.value = normalizedTitle
   saveState.value = 'saving'
   saveError.value = ''
 
   try {
     let savedId = ''
     if (currentType === 'memory') {
+      const memoryContent = savingAudioMemory ? normalizeAudioMemoryContent(html) : html
       const input = {
-        kind: memoryKind.value,
+        kind: currentMemoryKind,
         title: normalizedTitle,
-        content: html,
+        content: memoryContent,
         source: memorySource.value,
         duration_seconds: memoryDurationSeconds.value,
         metadata: memoryMetadata.value,
@@ -539,6 +671,7 @@ const goBack = async () => {
 }
 
 const syncTitleFromContent = () => {
+  if (isAudioMemory.value) return
   const nextTitle = extractTitleFromContent(editorRef.value?.getHTML() || content.value)
   if (nextTitle !== title.value) {
     title.value = nextTitle
@@ -548,6 +681,14 @@ const syncTitleFromContent = () => {
 watch(content, () => {
   if (!editorReady.value || loading.value) return
   syncTitleFromContent()
+  editRevision += 1
+  saveError.value = ''
+  saveState.value = 'idle'
+  scheduleAutosave()
+})
+
+watch(title, () => {
+  if (!editorReady.value || loading.value || !isAudioMemory.value) return
   editRevision += 1
   saveError.value = ''
   saveState.value = 'idle'
@@ -708,6 +849,119 @@ watch(
   margin: 0 auto;
   padding-top: 42px;
   box-sizing: border-box;
+}
+
+.memory-audio-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.memory-audio-title-input {
+  width: 100%;
+}
+
+.memory-audio-title-input :deep(.t-input) {
+  height: 42px;
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 0;
+  box-shadow: none;
+}
+
+.memory-audio-title-input :deep(.t-input__inner) {
+  color: #37352f;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 30px;
+}
+
+.memory-audio-player {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 58px;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid rgba(55, 53, 47, 0.06);
+  border-radius: 12px;
+  background: #f7f8fb;
+  box-sizing: border-box;
+}
+
+.memory-audio-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: #eef1f6;
+  color: #464c57;
+  cursor: pointer;
+}
+
+.memory-audio-native {
+  width: 100%;
+  min-width: 0;
+  grid-column: 1 / 3;
+  height: 32px;
+}
+
+.memory-audio-track-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.memory-audio-track {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: #dde2eb;
+}
+
+.memory-audio-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #20242b;
+  transform: translate(-2px, -50%);
+}
+
+.memory-audio-progress {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 18%;
+  border-radius: 999px;
+  background: #6e7684;
+}
+
+.memory-audio-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: rgba(55, 53, 47, 0.62);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.memory-audio-transcript-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 34px;
+  border-left: 1px solid rgba(55, 53, 47, 0.08);
+  color: rgba(55, 53, 47, 0.58);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .document-editor-shell {
@@ -915,6 +1169,19 @@ watch(
 
   .document-page {
     padding-top: 28px;
+  }
+
+  .memory-audio-player {
+    grid-template-columns: 34px minmax(0, 1fr);
+    padding: 10px;
+  }
+
+  .memory-audio-transcript-chip {
+    grid-column: 1 / -1;
+    min-height: 0;
+    padding-top: 4px;
+    border-left: 0;
+    justify-content: flex-start;
   }
 
   .document-editor-shell {

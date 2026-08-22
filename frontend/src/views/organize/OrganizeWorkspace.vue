@@ -68,6 +68,7 @@
                     <span v-if="item.source" class="source-label">{{ item.source }}</span>
                   </div>
                   <h2>{{ item.title }}</h2>
+                  <p v-if="item.type === 'audio' && item.summary" class="memory-row-summary">{{ item.summary }}</p>
                   <div v-if="item.type === 'audio'" class="audio-card">
                     <t-icon name="sound" />
                     <div class="audio-wave" aria-hidden="true">
@@ -120,6 +121,7 @@
                       <span v-if="item.source" class="source-label">{{ item.source }}</span>
                     </div>
                     <div class="memory-row-title">{{ item.title }}</div>
+                    <p v-if="item.type === 'audio' && item.summary" class="memory-row-summary">{{ item.summary }}</p>
                     <div v-if="item.type === 'audio'" class="audio-card">
                       <t-icon name="sound" />
                       <div class="audio-wave" aria-hidden="true">
@@ -147,7 +149,7 @@
                   variant="text"
                   theme="default"
                   class="discover-refresh"
-                  :disabled="filteredOutputs.length <= 1"
+                  :disabled="featuredOutputs.length <= 1"
                   @click="rotateFeaturedOutputs"
                 >
                   <template #icon><t-icon name="refresh" /></template>
@@ -229,7 +231,7 @@
                     type="button"
                     class="discover-tab"
                     :class="{ 'discover-tab--active': discoverTab === tab.value }"
-                    @click="discoverTab = tab.value"
+                    @click="setDiscoverTab(tab.value)"
                   >
                     {{ tab.label }}
                   </button>
@@ -303,13 +305,14 @@
               </div>
             </section>
 
-            <div v-if="filteredOutputs.length > OUTPUT_PAGE_SIZE" class="output-pagination" aria-label="发现分页">
+            <div v-if="discoverTotal > OUTPUT_PAGE_SIZE" class="output-pagination" aria-label="发现分页">
               <t-pagination
                 v-model="outputPage"
                 :page-size="OUTPUT_PAGE_SIZE"
-                :total="filteredOutputs.length"
+                :total="discoverTotal"
                 size="small"
                 show-page-number
+                @change="handleDiscoverPageChange"
               />
             </div>
           </div>
@@ -583,9 +586,10 @@ import { Icon as TIcon, MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import DocumentPreview from '@/components/document-preview.vue'
 import {
+  getOrganizeDiscover,
   listOrganizeMemories,
-  listOrganizeOutputs,
   listOrganizeSproutReports,
+  type OrganizeDiscoverTab,
   type OrganizeMemory,
   type OrganizeMemoryKind,
   type OrganizeOutput,
@@ -626,6 +630,7 @@ interface MemoryItem {
   typeLabel: string
   title: string
   content: string
+  summary?: string
   source?: string
   duration?: string
   occurredAt?: string
@@ -703,12 +708,20 @@ const outputPreviewVisible = ref(false)
 const activeOutputPreview = ref<OutputItem | null>(null)
 const outputStatusSaving = ref(false)
 const discoverTab = ref('recommended')
+const discoverTabs = ref<OrganizeDiscoverTab[]>([
+  { label: '推荐', value: 'recommended' },
+  { label: '图文类', value: 'article' },
+  { label: '视频类', value: 'video' },
+  { label: '音频类', value: 'audio' },
+])
 const featuredRotation = ref(0)
 const sproutRange = ref<SproutRange>('3d')
 const sproutPreviewVisible = ref(false)
 const activeSproutReport = ref<SproutReportItem | null>(null)
-const OUTPUT_PAGE_SIZE = 10
+const OUTPUT_PAGE_SIZE = 30
+const FEATURED_OUTPUT_SIZE = 4
 const outputPage = ref(1)
+const discoverTotal = ref(fallbackOutputs.length)
 const SPROUT_PAGE_SIZE = 10
 const sproutPage = ref(1)
 const SPROUT_DAY_MS = 24 * 60 * 60 * 1000
@@ -768,7 +781,19 @@ const fallbackMemoryGroups: MemoryGroup[] = [
       { id: 'demo-m2', time: '11:27', type: 'record', typeLabel: '记录', title: '创建了笔记能源行业公司分析及中国电力结构探讨', content: '<p>整理能源行业公司基本面，以及中国电力结构变化带来的机会。</p>', persisted: false },
       { id: 'demo-m3', time: '11:13', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机核心配件与光储行业分析', content: '<p>梳理燃气轮机核心配件、光伏和储能行业的关键数据。</p>', persisted: false },
       { id: 'demo-m4', time: '10:58', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机行业分析及国内企业发展情况', content: '<p>记录燃气轮机市场格局和国内主要企业的发展情况。</p>', persisted: false },
-      { id: 'demo-m5', time: '10:22', type: 'audio', typeLabel: '录音', title: '客户访谈：设备更新预算与项目推进节奏', content: '', source: '会议录音', duration: '08:36', persisted: false },
+      {
+        id: 'demo-m5',
+        time: '10:22',
+        type: 'audio',
+        typeLabel: '录音',
+        title: '试听课后家长关注点复盘',
+        content: '<p>家长集中询问报名政策、师资稳定和接送时段，建议园长安排招生顾问当天回访高意向家庭。</p>',
+        summary: '家长集中关注报名政策、师资稳定和接送时段，建议园长安排招生顾问当天回访高意向家庭。',
+        source: '会议录音',
+        duration: '08:36',
+        durationSeconds: 516,
+        persisted: false,
+      },
     ],
   },
   {
@@ -776,7 +801,19 @@ const fallbackMemoryGroups: MemoryGroup[] = [
     items: [
       { id: 'demo-m6', time: '18:05', type: 'note', typeLabel: '笔记', title: '整理储能项目投标材料中的常见技术指标', content: '<p>整理储能项目投标材料中的效率、循环寿命、安全和并网指标。</p>', source: '手动输入', persisted: false },
       { id: 'demo-m7', time: '15:42', type: 'note', typeLabel: '笔记', title: '政策口径：新型电力系统与源网荷储协同', content: '<p>记录新型电力系统政策中的源网荷储协同要点。</p>', source: '网页摘录', persisted: false },
-      { id: 'demo-m8', time: '09:18', type: 'audio', typeLabel: '录音', title: '内部同步：半导体设备国产替代机会', content: '', source: '语音记录', duration: '12:04', persisted: false },
+      {
+        id: 'demo-m8',
+        time: '09:18',
+        type: 'audio',
+        typeLabel: '录音',
+        title: '招生开放日接待流程优化',
+        content: '<p>开放日接待要突出安全、餐食、午睡和课程体验四个环节，园长需要统一老师讲解口径。</p>',
+        summary: '开放日接待要突出安全、餐食、午睡和课程体验四个环节，园长需要统一老师讲解口径。',
+        source: '语音记录',
+        duration: '12:04',
+        durationSeconds: 724,
+        persisted: false,
+      },
     ],
   },
 ]
@@ -863,6 +900,9 @@ const fallbackOutputs: OutputItem[] = [
 ]
 
 const outputs = ref<OutputItem[]>(fallbackOutputs)
+const featuredOutputs = ref<OutputItem[]>(fallbackOutputs.slice(0, FEATURED_OUTPUT_SIZE))
+let discoverFeedRequestSeq = 0
+let discoverFeaturedRequestSeq = 0
 
 type SproutReportBaseItem = Omit<SproutReportItem, 'renderedHtml' | 'intro' | 'previewSections' | 'updatedAt' | 'generatedLabel'>
 
@@ -985,7 +1025,7 @@ const filteredMemoryGroups = computed(() => {
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
-        const keywordMatched = !q || item.title.toLowerCase().includes(q) || item.typeLabel.toLowerCase().includes(q)
+        const keywordMatched = !q || memorySearchText(item).includes(q)
         return keywordMatched
       }),
     }))
@@ -1002,71 +1042,37 @@ const filteredMemoryAssetItems = computed(() => {
         : asset === 'audio'
           ? item.type === 'audio'
           : item.type === 'audio-card'
-    return assetMatched && (!q || item.title.toLowerCase().includes(q) || item.typeLabel.toLowerCase().includes(q))
+    return assetMatched && (!q || memorySearchText(item).includes(q))
   })
-})
-
-const filteredOutputs = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  const tab = discoverTab.value
-  return outputs.value.filter((item) => {
-    const tabMatched =
-      tab === 'recommended'
-        ? true
-        : tab === 'article' || tab === 'video' || tab === 'audio'
-          ? item.kind === tab
-          : tab.startsWith('tag:')
-            ? item.tags.includes(tab.slice(4))
-            : true
-    const keywordMatched = !q || [
-      item.title,
-      item.type,
-      item.summary,
-      item.source,
-      item.tags.join(' '),
-      outputCreatorDisplayName(item),
-    ].join(' ').toLowerCase().includes(q)
-    return tabMatched && keywordMatched
-  })
-})
-
-const discoverTabs = computed(() => {
-  const tagCounts = new Map<string, number>()
-  outputs.value.forEach((item) => {
-    item.tags.forEach((tag) => {
-      tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
-    })
-  })
-  const topTags = Array.from(tagCounts.entries())
-    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0], 'zh-CN'))
-    .slice(0, 6)
-    .map(([tag]) => ({ label: tag, value: `tag:${tag}` }))
-
-  return [
-    { label: '推荐', value: 'recommended' },
-    { label: '图文类', value: 'article' },
-    { label: '视频类', value: 'video' },
-    { label: '音频类', value: 'audio' },
-    ...topTags,
-  ]
 })
 
 const activeDiscoverTabLabel = computed(() => {
   return discoverTabs.value.find((tab) => tab.value === discoverTab.value)?.label || '推荐'
 })
 
-const featuredOutputs = computed(() => {
-  const items = filteredOutputs.value
-  if (items.length === 0) return []
-  const count = Math.min(4, items.length)
-  const start = featuredRotation.value % items.length
-  return Array.from({ length: count }, (_, index) => items[(start + index) % items.length])
-})
+const setDiscoverTab = (tab: string) => {
+  if (discoverTab.value === tab) return
+  discoverTab.value = tab
+  outputPage.value = 1
+  void loadDiscoverFeedData({ tab, page: 1, resetPage: true }).catch(() => {
+    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+  })
+}
 
 const rotateFeaturedOutputs = () => {
-  const total = filteredOutputs.value.length
+  const total = featuredOutputs.value.length
   if (total <= 1) return
   featuredRotation.value = (featuredRotation.value + 2) % total
+  void loadDiscoverFeaturedData().catch(() => {
+    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+  })
+}
+
+const handleDiscoverPageChange = (pageInfo: { current: number; pageSize: number }) => {
+  outputPage.value = pageInfo.current
+  void loadDiscoverFeedData({ tab: discoverTab.value, page: pageInfo.current, pageSize: pageInfo.pageSize }).catch(() => {
+    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+  })
 }
 
 const outputEmptyText = computed(() => {
@@ -1194,7 +1200,7 @@ const sproutMonthGroups = computed(() => {
   return [{ key: 'recent', label: '近期', reports: paginatedSproutReports.value }]
 })
 
-const waveHeights = [10, 18, 14, 24, 12, 28, 18, 22]
+const waveHeights = [6, 12, 9, 16, 8, 18, 12, 15]
 
 const formatDateLabel = (value: string) => {
   const date = new Date(value)
@@ -1240,6 +1246,13 @@ const outputKindIconMap: Record<Exclude<OutputKind, 'all'>, string> = {
 
 const asTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
 
+const normalizeOneLineText = (value: string) => value.replace(/\s+/g, ' ').trim()
+
+const compactText = (value: string, maxLength = 96) => {
+  const text = normalizeOneLineText(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+}
+
 const outputCoverUrl = (item: OrganizeOutput) => {
   const metadata = item.metadata || {}
   return (
@@ -1269,6 +1282,51 @@ const normalizeOutputTags = (value: unknown) => {
     return value.split(/[，,;；\n]/).map((item) => item.trim()).filter(Boolean)
   }
   return []
+}
+
+const memorySearchText = (item: MemoryItem) => [
+  item.title,
+  item.typeLabel,
+  item.summary,
+  item.source,
+  item.content,
+].filter(Boolean).join(' ').toLowerCase()
+
+const memoryDisplayTitle = (item: OrganizeMemory, type: MemoryType) => {
+  if (type !== 'audio') return item.title
+  const metadata = item.metadata || {}
+  const explicitTitle =
+    asTrimmedString(metadata.title) ||
+    asTrimmedString(metadata.extracted_title) ||
+    asTrimmedString(metadata.ai_title) ||
+    asTrimmedString(metadata.summary_title)
+  if (explicitTitle) return explicitTitle
+
+  const derivedTitle = compactText(memorySummary(item), 24)
+  if (derivedTitle) return derivedTitle
+
+  return (
+    item.title
+  )
+}
+
+const memorySummary = (item: OrganizeMemory) => {
+  const metadata = item.metadata || {}
+  const explicitSummary =
+    asTrimmedString(metadata.summary) ||
+    asTrimmedString(metadata.source_summary) ||
+    asTrimmedString(metadata.description) ||
+    asTrimmedString(metadata.abstract)
+  if (explicitSummary) return compactText(explicitSummary)
+
+  const contentSummary = contentExcerpt(item.content, '')
+  if (contentSummary) return contentSummary
+
+  const transcript =
+    asTrimmedString(metadata.transcript) ||
+    asTrimmedString(metadata.transcription) ||
+    asTrimmedString(metadata.asr_text)
+  return transcript ? compactText(transcript) : ''
 }
 
 const currentUserDisplayName = () => authStore.user?.username || authStore.user?.email || '我'
@@ -1367,22 +1425,18 @@ const outputKindDisplayLabel = (kind: OutputKind) => {
   return outputKindLabelMap[kind]
 }
 
-const outputTotalPages = computed(() => Math.max(1, Math.ceil(filteredOutputs.value.length / OUTPUT_PAGE_SIZE)))
+const outputTotalPages = computed(() => Math.max(1, Math.ceil(discoverTotal.value / OUTPUT_PAGE_SIZE)))
 
 const paginatedOutputs = computed(() => {
-  const page = Math.min(Math.max(outputPage.value, 1), outputTotalPages.value)
-  const start = (page - 1) * OUTPUT_PAGE_SIZE
-  return filteredOutputs.value.slice(start, start + OUTPUT_PAGE_SIZE)
+  return outputs.value
 })
 
-watch([keyword, discoverTab], () => {
-  outputPage.value = 1
-  featuredRotation.value = 0
-})
-
-watch(filteredOutputs, () => {
+watch(discoverTotal, () => {
   if (outputPage.value > outputTotalPages.value) {
     outputPage.value = outputTotalPages.value
+  }
+  if (outputPage.value < 1) {
+    outputPage.value = 1
   }
 })
 
@@ -1400,8 +1454,9 @@ const mapMemory = (item: OrganizeMemory): MemoryListItem => {
     time: formatTimeLabel(item.occurred_at),
     type,
     typeLabel: memoryTypeLabel(type),
-    title: item.title,
+    title: memoryDisplayTitle(item, type),
     content: item.content || placeholderContent(item.title),
+    summary: type === 'audio' ? memorySummary(item) : undefined,
     source: item.source,
     duration: type === 'audio' ? formatDuration(item.duration_seconds) : undefined,
     occurredAt: item.occurred_at,
@@ -1456,6 +1511,80 @@ const mapSproutReport = (item: OrganizeSproutReport): SproutReportItem => enrich
   persisted: true,
 })
 
+const syncActiveOutputPreview = () => {
+  if (!activeOutputPreview.value) return
+  const nextPreview = [...outputs.value, ...featuredOutputs.value].find(
+    (item) => item.id === activeOutputPreview.value?.id,
+  )
+  if (nextPreview) {
+    activeOutputPreview.value = nextPreview
+  }
+}
+
+// 顶部精选和底部分页列表分开拉取，切 tab 只刷新底部当前页。
+const loadDiscoverFeaturedData = async () => {
+  const requestSeq = ++discoverFeaturedRequestSeq
+  const response = await getOrganizeDiscover({
+    tab: 'recommended',
+    featured_offset: featuredRotation.value,
+    page: 1,
+    page_size: FEATURED_OUTPUT_SIZE,
+  })
+
+  if (requestSeq !== discoverFeaturedRequestSeq) return
+  if (!response.success || !response.data) {
+    throw new Error(response.message || '发现精选加载失败')
+  }
+
+  const data = response.data
+  discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
+  featuredOutputs.value = data.featured_outputs.map(mapOutput)
+  syncActiveOutputPreview()
+}
+
+const loadDiscoverFeedData = async (options?: { tab?: string; page?: number; pageSize?: number; resetPage?: boolean }) => {
+  const requestSeq = ++discoverFeedRequestSeq
+  const tab = options?.tab ?? discoverTab.value
+  const page = Math.max(1, options?.page ?? outputPage.value)
+  const pageSize = Math.max(1, options?.pageSize ?? OUTPUT_PAGE_SIZE)
+  const response = await getOrganizeDiscover({
+    tab,
+    page,
+    page_size: pageSize,
+  })
+
+  if (requestSeq !== discoverFeedRequestSeq) return
+  if (!response.success || !response.data) {
+    throw new Error(response.message || '发现数据加载失败')
+  }
+
+  const data = response.data
+  discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
+  outputs.value = data.items.map(mapOutput)
+  discoverTotal.value = data.total
+  outputPage.value = data.page || page
+  if (options?.resetPage) {
+    outputPage.value = data.page || 1
+  }
+
+  syncActiveOutputPreview()
+}
+
+const refreshDiscoverData = (options?: { resetPage?: boolean }) => {
+  return Promise.allSettled([
+    loadDiscoverFeaturedData(),
+    loadDiscoverFeedData({
+      tab: discoverTab.value,
+      page: options?.resetPage ? 1 : outputPage.value,
+      resetPage: options?.resetPage,
+    }),
+  ]).then((results) => {
+    if (results.some((result) => result.status === 'rejected')) {
+      MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+    }
+  })
+}
+
 const groupMemoryItems = (items: MemoryListItem[]) => {
   const groups: MemoryGroup[] = []
   items.forEach(({ date, ...item }) => {
@@ -1472,22 +1601,23 @@ const groupMemoryItems = (items: MemoryListItem[]) => {
 const loadOrganizeData = async () => {
   const results = await Promise.allSettled([
     listOrganizeMemories({ page_size: 100 }),
-    listOrganizeOutputs({ page_size: 100 }),
+    loadDiscoverFeaturedData(),
+    loadDiscoverFeedData({ tab: discoverTab.value, page: 1, resetPage: true }),
     listOrganizeSproutReports({ page_size: 100 }),
   ])
 
-  const [memoryResult, outputResult, sproutResult] = results
+  const [memoryResult, featuredResult, feedResult, sproutResult] = results
   if (memoryResult.status === 'fulfilled' && memoryResult.value.success && memoryResult.value.data.items.length) {
     memoryGroups.value = groupMemoryItems(memoryResult.value.data.items.map(mapMemory))
   }
-  if (outputResult.status === 'fulfilled' && outputResult.value.success && outputResult.value.data.items.length) {
-    outputs.value = outputResult.value.data.items.map(mapOutput)
+  if (featuredResult.status === 'rejected' || feedResult.status === 'rejected') {
+    MessagePlugin.warning('发现数据加载失败，当前展示示例内容')
   }
   if (sproutResult.status === 'fulfilled' && sproutResult.value.success && sproutResult.value.data.items.length) {
     sproutReports.value = sproutResult.value.data.items.map(mapSproutReport)
   }
 
-  if (results.some((result) => result.status === 'rejected')) {
+  if (memoryResult.status === 'rejected' || sproutResult.status === 'rejected') {
     MessagePlugin.warning('部分文档数据加载失败，当前展示示例内容')
   }
 }
@@ -1562,7 +1692,7 @@ const createActiveDocument = () => {
   void openDocumentEditor('memory')
 }
 
-const isEditableMemory = (item: MemoryItem) => item.type === 'note' || item.type === 'record'
+const isEditableMemory = (item: MemoryItem) => item.type === 'note' || item.type === 'record' || item.type === 'audio'
 
 const openMemoryEditor = (item: MemoryListItem | MemoryItem) => {
   if (!isEditableMemory(item)) return
@@ -1605,6 +1735,7 @@ const updateOutputStatus = async (item: OutputItem, nextStatus: OrganizeOutputSt
     const response = await updateOrganizeOutput(item.id, buildOutputUpdateInput(item, nextStatus))
     if (response.success && response.data) {
       upsertOutputItem(response.data)
+      void refreshDiscoverData({ resetPage: true })
       MessagePlugin.success('状态已更新')
     } else {
       MessagePlugin.error(response.message || '状态更新失败')
@@ -1633,23 +1764,26 @@ const handleOutputCreateAction = (data: { value: string }) => {
 const upsertOutputItem = (item: OrganizeOutput) => {
   const next = mapOutput(item)
   const index = outputs.value.findIndex((candidate) => candidate.id === next.id)
-  if (index === -1) {
-    outputs.value = [next, ...outputs.value]
-  } else {
+  if (index !== -1) {
     outputs.value = outputs.value.map((candidate) => (candidate.id === next.id ? next : candidate))
+  }
+  const featuredIndex = featuredOutputs.value.findIndex((candidate) => candidate.id === next.id)
+  if (featuredIndex !== -1) {
+    featuredOutputs.value = featuredOutputs.value.map((candidate) => (candidate.id === next.id ? next : candidate))
   }
   if (activeOutputPreview.value?.id === next.id) {
     activeOutputPreview.value = next
   }
-  outputPage.value = 1
 }
 
 const handleOutputUploaded = (item: OrganizeOutput) => {
   upsertOutputItem(item)
+  void refreshDiscoverData({ resetPage: true })
 }
 
 const handleOutputSaved = (item: OrganizeOutput) => {
   upsertOutputItem(item)
+  void refreshDiscoverData({ resetPage: true })
   MessagePlugin.success('发现已更新')
 }
 
@@ -2142,17 +2276,32 @@ button.asset-card {
   line-height: 18px;
 }
 
+.memory-row-summary {
+  display: -webkit-box;
+  max-width: 560px;
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .audio-card {
   display: grid;
-  grid-template-columns: 20px minmax(140px, 260px) auto;
+  grid-template-columns: 16px minmax(104px, 160px) auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: fit-content;
   max-width: 100%;
-  margin-top: 14px;
-  padding: 10px 12px;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 5px 10px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
   box-sizing: border-box;
@@ -2161,11 +2310,11 @@ button.asset-card {
 .audio-wave {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 
   span {
-    width: 3px;
+    width: 2px;
     border-radius: 999px;
     background: var(--td-brand-color);
     opacity: 0.62;
@@ -2175,7 +2324,7 @@ button.asset-card {
 .audio-duration {
   color: var(--td-text-color-placeholder);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .segmented-tabs {

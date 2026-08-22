@@ -1216,6 +1216,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 	org := g.apiKeyGroup(r.Group("/organize"), apiKeyFullAccess())
 	{
 		org.GET("/overview", g.Viewer(), h.GetOverview)
+		org.GET("/discover", g.Viewer(), h.GetDiscover)
 
 		org.GET("/memories", g.Viewer(), h.ListMemories)
 		org.POST("/memories", g.Viewer(), h.CreateMemory)

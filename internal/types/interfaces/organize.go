@@ -50,5 +50,6 @@ type OrganizeService interface {
 	DeleteSproutReport(ctx context.Context, tenantID uint64, userID, id string) error
 	ListSproutReports(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeSproutReport, int64, error)
 
+	GetDiscover(ctx context.Context, tenantID uint64, userID string, query types.OrganizeDiscoverQuery) (*types.OrganizeDiscover, error)
 	GetOverview(ctx context.Context, tenantID uint64, userID string) (*types.OrganizeOverview, error)
 }
