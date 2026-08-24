@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:pdfx/pdfx.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart' as speech_to_text;
+import 'package:video_player/video_player.dart';
 
 void main() {
   runApp(const RuileMobileApp());
@@ -486,6 +490,47 @@ class _RuileApiClient {
     return jsonDecode(responseBody);
   }
 
+  Future<Uint8List> fetchBytes(String pathOrUrl) async {
+    final request = await _httpClient
+        .getUrl(_resolveResource(pathOrUrl))
+        .timeout(const Duration(seconds: 8));
+    _applyCommonHeaders(request);
+    request.headers.set(HttpHeaders.acceptHeader, '*/*');
+
+    final response = await request.close().timeout(const Duration(seconds: 12));
+    final bytes = await response.fold<List<int>>(
+      <int>[],
+      (buffer, chunk) {
+        buffer.addAll(chunk);
+        return buffer;
+      },
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final body = utf8.decode(bytes, allowMalformed: true);
+      throw _ApiException(
+        response.statusCode,
+        'GET $pathOrUrl failed with ${response.statusCode}: $body',
+        uri: _resolveResource(pathOrUrl),
+      );
+    }
+    return Uint8List.fromList(bytes);
+  }
+
+  Future<File> downloadToTempFile(
+    String pathOrUrl, {
+    required String fileName,
+  }) async {
+    final bytes = await fetchBytes(pathOrUrl);
+    final directory = await getTemporaryDirectory();
+    final safeName = _sanitizeFileName(fileName);
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}${DateTime.now().microsecondsSinceEpoch}-$safeName',
+    );
+    await file.writeAsBytes(bytes, flush: true);
+    return file;
+  }
+
   void _applyCommonHeaders(HttpClientRequest request) {
     request.headers
       ..set(HttpHeaders.acceptHeader, 'application/json')
@@ -505,6 +550,24 @@ class _RuileApiClient {
     final normalizedBase = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final normalizedPath = path.startsWith('/') ? path : '/$path';
     return Uri.parse('$normalizedBase$normalizedPath');
+  }
+
+  Uri _resolveResource(String pathOrUrl) {
+    final value = pathOrUrl.trim();
+    if (value.isEmpty) return _resolve('/');
+
+    final uri = Uri.tryParse(value);
+    if (uri != null && uri.hasScheme) {
+      return uri;
+    }
+    if (value.startsWith('//')) return Uri.parse('https:$value');
+    return _resolve(value);
+  }
+
+  String _sanitizeFileName(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) return 'preview';
+    return normalized.replaceAll(RegExp(r'[\\/:*?"<>|]+'), '_');
   }
 
   List<Object?> _extractList(Object? payload) {
@@ -1108,6 +1171,29 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
+  void _openMemoryDraft(_MemoryDraftMode mode) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _MemoryDraftPage(
+          mode: mode,
+          authToken: widget.session.token,
+          tenantId: widget.session.tenantId,
+        ),
+      ),
+    );
+  }
+
+  void _handleCaptureAction(_CaptureAction action) {
+    switch (action) {
+      case _CaptureAction.record:
+        _openMemoryDraft(_MemoryDraftMode.record);
+        break;
+      case _CaptureAction.text:
+        _openMemoryDraft(_MemoryDraftMode.text);
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -1123,6 +1209,7 @@ class _MainShellState extends State<MainShell> {
     ];
 
     return Scaffold(
+      extendBody: true,
       appBar: showAppBar
           ? AppBar(
               title: const Text('我的'),
@@ -1136,29 +1223,398 @@ class _MainShellState extends State<MainShell> {
         index: _selectedIndex,
         children: pages,
       ),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: AppColors.surface,
-        indicatorColor: const Color(0xFFE6F6F2),
+      bottomNavigationBar: _MainDock(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: _selectTab,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.edit_note_outlined),
-            selectedIcon: Icon(Icons.edit_note),
-            label: '记忆',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.explore_outlined),
-            selectedIcon: Icon(Icons.explore),
-            label: '发现',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: '我的',
+        onTabSelected: _selectTab,
+        onCaptureActionSelected: _handleCaptureAction,
+      ),
+    );
+  }
+}
+
+enum _CaptureAction { record, text }
+
+class _MainDockDestination {
+  const _MainDockDestination({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+  });
+
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+}
+
+class _MainDock extends StatelessWidget {
+  const _MainDock({
+    required this.selectedIndex,
+    required this.onTabSelected,
+    required this.onCaptureActionSelected,
+  });
+
+  static const _dockWidth = 250.0;
+  static const _dockHeight = 62.0;
+
+  static const _destinations = [
+    _MainDockDestination(
+      label: '记忆',
+      icon: Icons.edit_note_outlined,
+      selectedIcon: Icons.edit_note,
+    ),
+    _MainDockDestination(
+      label: '发现',
+      icon: Icons.explore_outlined,
+      selectedIcon: Icons.explore,
+    ),
+    _MainDockDestination(
+      label: '我的',
+      icon: Icons.person_outline,
+      selectedIcon: Icons.person,
+    ),
+  ];
+
+  final int selectedIndex;
+  final ValueChanged<int> onTabSelected;
+  final ValueChanged<_CaptureAction> onCaptureActionSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(18, 0, 18, bottomInset + 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: _dockWidth,
+            height: _dockHeight,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Positioned.fill(
+                  child: CustomPaint(painter: _MainDockBackgroundPainter()),
+                ),
+                Positioned(
+                  left: 9,
+                  top: 10,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var index = 0;
+                          index < _destinations.length;
+                          index++) ...[
+                        _MainDockTabButton(
+                          destination: _destinations[index],
+                          selected: selectedIndex == index,
+                          onTap: () => onTabSelected(index),
+                        ),
+                        if (index != _destinations.length - 1)
+                          const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
+                ),
+                Positioned(
+                  left: 190,
+                  top: -3,
+                  child: SizedBox(
+                    width: 68,
+                    height: 68,
+                    child: Center(
+                      child: _CaptureMenuButton(
+                        onSelected: onCaptureActionSelected,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MainDockBackgroundPainter extends CustomPainter {
+  const _MainDockBackgroundPainter();
+
+  static const _leftWidth = 188.0;
+  static const _verticalInset = 5.0;
+  static const _notchRadius = 17.0;
+  static const _captureOuterRadius = 32.0;
+  static const _captureCenter = Offset(224, 31);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const pillRect = Rect.fromLTWH(
+      0,
+      _verticalInset,
+      _leftWidth,
+      52,
+    );
+    final notchCircle = Rect.fromCircle(
+      center: Offset(_leftWidth, _captureCenter.dy),
+      radius: _notchRadius,
+    );
+    final captureCircle = Rect.fromCircle(
+      center: _captureCenter,
+      radius: _captureOuterRadius,
+    );
+
+    final leftPath = Path.combine(
+      PathOperation.difference,
+      Path()
+        ..addRRect(
+          RRect.fromRectAndRadius(pillRect, const Radius.circular(26)),
+        ),
+      Path()..addOval(notchCircle),
+    );
+    final capturePath = Path()..addOval(captureCircle);
+    final fillPaint = Paint()..color = AppColors.surface;
+    final borderPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = const Color(0x0F000000);
+
+    canvas.drawShadow(leftPath, const Color(0x1C000000), 10, false);
+    canvas.drawShadow(capturePath, const Color(0x2439E77B), 18, false);
+    canvas.drawPath(leftPath, fillPaint);
+    canvas.drawPath(capturePath, fillPaint);
+    canvas.drawPath(leftPath, borderPaint);
+    canvas.drawPath(capturePath, borderPaint);
+
+    final dividerPaint = Paint()
+      ..strokeWidth = 1
+      ..strokeCap = StrokeCap.round
+      ..color = const Color(0xFFEFF3F4);
+    canvas.drawLine(
+      const Offset(_leftWidth + 1.5, 21),
+      const Offset(_leftWidth + 1.5, 41),
+      dividerPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MainDockBackgroundPainter oldDelegate) => false;
+}
+
+class _MainDockTabButton extends StatelessWidget {
+  const _MainDockTabButton({
+    required this.destination,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _MainDockDestination destination;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = selected ? destination.selectedIcon : destination.icon;
+
+    return Tooltip(
+      message: destination.label,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: destination.label,
+        child: Material(
+          color: selected ? Colors.black : const Color(0xFFF9FBFB),
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: SizedBox(
+              width: 42,
+              height: 42,
+              child: Icon(
+                icon,
+                size: 20,
+                color: selected ? AppColors.surface : AppColors.textPrimary,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CaptureMenuButton extends StatelessWidget {
+  const _CaptureMenuButton({required this.onSelected});
+
+  final ValueChanged<_CaptureAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_CaptureAction>(
+      tooltip: '录入',
+      padding: EdgeInsets.zero,
+      offset: const Offset(0, -72),
+      position: PopupMenuPosition.over,
+      color: AppColors.surface,
+      surfaceTintColor: AppColors.surface,
+      elevation: 12,
+      shadowColor: const Color(0x24000000),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: onSelected,
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: _CaptureAction.record,
+          child: _CaptureMenuItem(
+            icon: Icons.mic_none,
+            label: '开始录音',
+          ),
+        ),
+        PopupMenuItem(
+          value: _CaptureAction.text,
+          child: _CaptureMenuItem(
+            icon: Icons.edit_outlined,
+            label: '编写笔记',
+          ),
+        ),
+      ],
+      child: const DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF9DF7C0),
+              Color(0xFF31D977),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x7339E77B),
+              blurRadius: 20,
+              spreadRadius: 2,
+            ),
+            BoxShadow(
+              color: Color(0x3323B99D),
+              blurRadius: 28,
+              spreadRadius: 4,
+            ),
+          ],
+        ),
+        child: SizedBox(
+          width: 54,
+          height: 54,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CustomPaint(painter: _CaptureMicPainter()),
+                ),
+              ),
+              Positioned(
+                left: 8,
+                bottom: 9,
+                child: Icon(
+                  Icons.auto_awesome,
+                  size: 8,
+                  color: AppColors.surface,
+                ),
+              ),
+              Positioned(
+                right: 11,
+                top: 12,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.surface,
+                  ),
+                  child: SizedBox(width: 4, height: 4),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CaptureMicPainter extends CustomPainter {
+  const _CaptureMicPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final strokePaint = Paint()
+      ..color = AppColors.surface
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final micRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(centerX, centerY - 3.4),
+        width: 8.0,
+        height: 13.8,
+      ),
+      const Radius.circular(4.8),
+    );
+    canvas.drawRRect(micRect, strokePaint);
+
+    final arcRect = Rect.fromCenter(
+      center: Offset(centerX, centerY + 1.0),
+      width: 18.2,
+      height: 15.8,
+    );
+    canvas.drawArc(arcRect, 0.18, 2.78, false, strokePaint);
+
+    canvas.drawLine(
+      Offset(centerX, 20.2),
+      Offset(centerX, 22.4),
+      strokePaint,
+    );
+    canvas.drawLine(
+      Offset(centerX - 5.0, 22.4),
+      Offset(centerX + 5.0, 22.4),
+      strokePaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CaptureMicPainter oldDelegate) => false;
+}
+
+class _CaptureMenuItem extends StatelessWidget {
+  const _CaptureMenuItem({
+    required this.icon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 20, color: AppColors.textPrimary),
+        const SizedBox(width: 10),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1222,11 +1678,15 @@ class _NotesPageState extends State<NotesPage> {
       title: '电力需求爆发,重要标的:燃气轮机,股市不缺明星,只缺寿星,选择右侧交易订单要快',
       excerpt: '',
       time: '6月30日 19:19',
+      createdAtText: '2026-08-21 12:16:03',
+      content: '任何人或事都有高光时刻，紧接着就会慢慢下滑。等没人的时候，我再去也不迟。',
     ),
     _NoteItem(
       title: '电力行业相关企业分析及功率半导体产业链解读',
       excerpt: '要专注\n第四代半导体是未来做新的电力系统时...',
       time: '6月30日 19:10',
+      createdAtText: '2026-08-21 12:18:22',
+      content: '要专注，第四代半导体是未来做新的电力系统时的重要方向。',
     ),
   ];
 
@@ -1297,7 +1757,11 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   void _openNote(_NoteItem note) {
-    _showMessage('打开笔记：${note.title}');
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _MemoryDetailPage(note: note),
+      ),
+    );
   }
 
   void _openRecordMemory() {
@@ -1410,7 +1874,7 @@ class _NotesPageState extends State<NotesPage> {
         child: Stack(
           children: [
             ListView(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 96),
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 128),
               children: [
                 _SectionHeader(
                   title: '知识库',
@@ -1445,10 +1909,6 @@ class _NotesPageState extends State<NotesPage> {
                       const SizedBox(height: AppSpacing.itemGap),
                   ],
               ],
-            ),
-            _MemoryEdgeActions(
-              onRecordTap: _openRecordMemory,
-              onTextTap: _openTextMemory,
             ),
           ],
         ),
@@ -1492,7 +1952,13 @@ class _SectionHeader extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(actionText, style: const TextStyle(fontSize: 15)),
+              Text(
+                actionText,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               const SizedBox(width: 2),
               const Icon(Icons.chevron_right, size: 19),
             ],
@@ -1781,26 +2247,32 @@ class _KnowledgeRoundButton extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onTap,
+    this.backgroundColor = AppColors.surface,
+    this.size = 38,
+    this.iconSize = 24,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback onTap;
+  final Color backgroundColor;
+  final double size;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppColors.surface,
+      color: backgroundColor,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,
         child: SizedBox(
-          width: 38,
-          height: 38,
+          width: size,
+          height: size,
           child: Tooltip(
             message: tooltip,
-            child: Icon(icon, size: 24, color: AppColors.textPrimary),
+            child: Icon(icon, size: iconSize, color: AppColors.textPrimary),
           ),
         ),
       ),
@@ -2384,6 +2856,7 @@ class _KnowledgeDirectoryContentState
           node: file,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onTap: () => _openFile(file),
         ),
       );
     }
@@ -2396,6 +2869,22 @@ class _KnowledgeDirectoryContentState
         builder: (context) => _KnowledgeSubdirectoryPage(
           root: folder,
           countText: _countText,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+        ),
+      ),
+    );
+  }
+
+  void _openFile(_KnowledgeTreeNode file) {
+    final document = file.document;
+    if (document == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _KnowledgeFileDetailPage(
+          fileName: file.name,
+          document: document,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
         ),
@@ -2748,6 +3237,7 @@ class _KnowledgeSubdirectoryPage extends StatelessWidget {
           titleSize: 18,
           authToken: authToken,
           tenantId: tenantId,
+          onTap: () => _openFile(context, file),
         ),
     ];
 
@@ -2804,6 +3294,22 @@ class _KnowledgeSubdirectoryPage extends StatelessWidget {
         builder: (context) => _KnowledgeSubdirectoryPage(
           root: folder,
           countText: countText,
+          authToken: authToken,
+          tenantId: tenantId,
+        ),
+      ),
+    );
+  }
+
+  void _openFile(BuildContext context, _KnowledgeTreeNode file) {
+    final document = file.document;
+    if (document == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _KnowledgeFileDetailPage(
+          fileName: file.name,
+          document: document,
           authToken: authToken,
           tenantId: tenantId,
         ),
@@ -2934,6 +3440,7 @@ class _KnowledgeTreeFileRow extends StatelessWidget {
     required this.node,
     required this.authToken,
     required this.tenantId,
+    required this.onTap,
     this.height = 94,
     this.titleSize = 15,
   });
@@ -2941,6 +3448,7 @@ class _KnowledgeTreeFileRow extends StatelessWidget {
   final _KnowledgeTreeNode node;
   final String authToken;
   final String tenantId;
+  final VoidCallback onTap;
   final double height;
   final double titleSize;
 
@@ -2957,7 +3465,7 @@ class _KnowledgeTreeFileRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: () {},
+        onTap: onTap,
         child: ConstrainedBox(
           constraints: BoxConstraints(minHeight: height),
           child: Padding(
@@ -3181,6 +3689,725 @@ class _KnowledgeFilePreviewFallback extends StatelessWidget {
   }
 }
 
+class _KnowledgeFileDetailPage extends StatelessWidget {
+  const _KnowledgeFileDetailPage({
+    required this.fileName,
+    required this.document,
+    required this.authToken,
+    required this.tenantId,
+  });
+
+  final String fileName;
+  final _KnowledgeDocument document;
+  final String authToken;
+  final String tenantId;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = document.summary.trim();
+    final previewKind = document.previewKind;
+    final previewSourceUrl = document.previewSourceUrl.trim();
+
+    Widget preview;
+    if (!document.isPreviewSupported) {
+      preview = const _KnowledgePreviewUnavailable(
+        title: '暂不支持预览',
+        message: '当前版本仅支持图片、音频、视频和 PDF 预览。',
+      );
+    } else if (previewSourceUrl.isEmpty) {
+      preview = const _KnowledgePreviewUnavailable(
+        title: '暂无预览资源',
+        message: '该文件没有可用于预览的资源。',
+      );
+    } else {
+      if (previewKind == _KnowledgeFilePreviewKind.image) {
+        preview = _KnowledgeImageDetailPreview(
+          previewSourceUrl: previewSourceUrl,
+          authToken: authToken,
+          tenantId: tenantId,
+        );
+      } else if (previewKind == _KnowledgeFilePreviewKind.audio) {
+        preview = _KnowledgeAudioDetailPreview(
+          document: document,
+          previewSourceUrl: previewSourceUrl,
+          authToken: authToken,
+          tenantId: tenantId,
+        );
+      } else if (previewKind == _KnowledgeFilePreviewKind.video) {
+        preview = _KnowledgeVideoDetailPreview(
+          document: document,
+          previewSourceUrl: previewSourceUrl,
+          authToken: authToken,
+          tenantId: tenantId,
+        );
+      } else if (previewKind == _KnowledgeFilePreviewKind.pdf) {
+        preview = _KnowledgePdfDetailPreview(
+          previewSourceUrl: previewSourceUrl,
+          authToken: authToken,
+          tenantId: tenantId,
+        );
+      } else {
+        preview = const _KnowledgePreviewUnavailable(
+          title: '暂不支持预览',
+          message: '当前版本仅支持图片、音频、视频和 PDF 预览。',
+        );
+      }
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageX,
+                16,
+                AppSpacing.pageX,
+                10,
+              ),
+              child: _KnowledgeDetailTopBar(
+                title: '文件详情',
+                onBackTap: () => Navigator.maybePop(context),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageX,
+                  4,
+                  AppSpacing.pageX,
+                  24,
+                ),
+                children: [
+                  Text(
+                    fileName,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      height: 1.28,
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _KnowledgeFileTypeBadge(label: document.displayFileType),
+                      if (document.date.trim().isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            document.date,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.meta,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    summary.isEmpty ? '暂无摘要' : summary,
+                    style: AppTextStyles.body,
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    '文件预览',
+                    style: TextStyle(
+                      fontSize: 17,
+                      height: 1.25,
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  preview,
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _KnowledgePreviewUnavailable extends StatelessWidget {
+  const _KnowledgePreviewUnavailable({
+    required this.title,
+    required this.message,
+  });
+
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.visibility_off_outlined,
+            size: 30,
+            color: AppColors.textTertiary,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              height: 1.3,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KnowledgePreviewLoading extends StatelessWidget {
+  const _KnowledgePreviewLoading({this.height = 240});
+
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: height,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: const SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
+  }
+}
+
+class _KnowledgeImageDetailPreview extends StatelessWidget {
+  const _KnowledgeImageDetailPreview({
+    required this.previewSourceUrl,
+    required this.authToken,
+    required this.tenantId,
+  });
+
+  final String previewSourceUrl;
+  final String authToken;
+  final String tenantId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(minHeight: 280),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.card - 1),
+        child: InteractiveViewer(
+          minScale: 0.8,
+          maxScale: 3.5,
+          child: Image.network(
+            _resolvePreviewImageUrl(previewSourceUrl),
+            headers: _previewHeaders(authToken, tenantId),
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stackTrace) {
+              return const _KnowledgePreviewUnavailable(
+                title: '预览失败',
+                message: '图片资源无法加载。',
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _KnowledgeAudioDetailPreview extends StatefulWidget {
+  const _KnowledgeAudioDetailPreview({
+    required this.document,
+    required this.previewSourceUrl,
+    required this.authToken,
+    required this.tenantId,
+  });
+
+  final _KnowledgeDocument document;
+  final String previewSourceUrl;
+  final String authToken;
+  final String tenantId;
+
+  @override
+  State<_KnowledgeAudioDetailPreview> createState() =>
+      _KnowledgeAudioDetailPreviewState();
+}
+
+class _KnowledgeAudioDetailPreviewState
+    extends State<_KnowledgeAudioDetailPreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<File> _audioFileFuture;
+  final AudioPlayer _player = AudioPlayer();
+  Duration? _duration;
+  Duration? _position;
+  PlayerState _playerState = PlayerState.stopped;
+  bool _loadingSource = true;
+
+  StreamSubscription<PlayerState>? _playerStateSubscription;
+  StreamSubscription<Duration>? _durationSubscription;
+  StreamSubscription<Duration>? _positionSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+    );
+    _playerState = _player.state;
+    _audioFileFuture = _loadAudioFile();
+    _initPlayerStreams();
+    _preparePlayer();
+  }
+
+  Future<File> _loadAudioFile() {
+    return _apiClient.downloadToTempFile(
+      widget.previewSourceUrl,
+      fileName: widget.document.fileName,
+    );
+  }
+
+  Future<void> _preparePlayer() async {
+    try {
+      final file = await _audioFileFuture;
+      await _player.setSource(DeviceFileSource(file.path));
+      if (!mounted) return;
+      setState(() => _loadingSource = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingSource = false);
+    }
+  }
+
+  void _initPlayerStreams() {
+    _durationSubscription = _player.onDurationChanged.listen((duration) {
+      if (!mounted) return;
+      setState(() => _duration = duration);
+    });
+    _positionSubscription = _player.onPositionChanged.listen((position) {
+      if (!mounted) return;
+      setState(() => _position = position);
+    });
+    _playerStateSubscription = _player.onPlayerStateChanged.listen((state) {
+      if (!mounted) return;
+      setState(() => _playerState = state);
+    });
+  }
+
+  @override
+  void dispose() {
+    _playerStateSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _positionSubscription?.cancel();
+    unawaited(_player.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<File>(
+      future: _audioFileFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _KnowledgePreviewUnavailable(
+            title: '预览失败',
+            message: '音频资源无法加载。',
+          );
+        }
+        if (!snapshot.hasData || _loadingSource) {
+          return const _KnowledgePreviewLoading();
+        }
+
+        final duration = _duration ?? Duration.zero;
+        final position = _position ?? Duration.zero;
+        final maxPosition = duration.inMilliseconds <= 0
+            ? 1.0
+            : duration.inMilliseconds.toDouble();
+        final clampedPosition =
+            position.inMilliseconds.clamp(0, duration.inMilliseconds).toDouble();
+        final playing = _playerState == PlayerState.playing;
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF4F0FF),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      playing ? Icons.graphic_eq : Icons.music_note,
+                      color: const Color(0xFF8B5CF6),
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.document.fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            height: 1.2,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          playing ? '正在播放' : '点击播放音频预览',
+                          style: AppTextStyles.meta,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () async {
+                      if (playing) {
+                        await _player.pause();
+                      } else {
+                        await _player.resume();
+                      }
+                    },
+                    iconSize: 28,
+                    color: AppColors.textPrimary,
+                    icon: Icon(playing ? Icons.pause_circle : Icons.play_circle),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Slider(
+                value: clampedPosition,
+                max: maxPosition,
+                onChanged: duration.inMilliseconds <= 0
+                    ? null
+                    : (value) {
+                        _player.seek(Duration(milliseconds: value.round()));
+                      },
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _formatDuration(position),
+                    style: AppTextStyles.meta,
+                  ),
+                  Text(
+                    _formatDuration(duration),
+                    style: AppTextStyles.meta,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _KnowledgeVideoDetailPreview extends StatefulWidget {
+  const _KnowledgeVideoDetailPreview({
+    required this.document,
+    required this.previewSourceUrl,
+    required this.authToken,
+    required this.tenantId,
+  });
+
+  final _KnowledgeDocument document;
+  final String previewSourceUrl;
+  final String authToken;
+  final String tenantId;
+
+  @override
+  State<_KnowledgeVideoDetailPreview> createState() =>
+      _KnowledgeVideoDetailPreviewState();
+}
+
+class _KnowledgeVideoDetailPreviewState
+    extends State<_KnowledgeVideoDetailPreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<File> _videoFileFuture;
+  VideoPlayerController? _controller;
+  Object? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+    );
+    _videoFileFuture = _loadVideoFile();
+    _prepareController();
+  }
+
+  Future<File> _loadVideoFile() {
+    return _apiClient.downloadToTempFile(
+      widget.previewSourceUrl,
+      fileName: widget.document.fileName,
+    );
+  }
+
+  Future<void> _prepareController() async {
+    try {
+      final file = await _videoFileFuture;
+      final controller = VideoPlayerController.file(file);
+      await controller.initialize();
+      controller.addListener(_onControllerChanged);
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _loadError = error);
+    }
+  }
+
+  void _onControllerChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeListener(_onControllerChanged);
+    unawaited(_controller?.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loadError != null) {
+      return const _KnowledgePreviewUnavailable(
+        title: '预览失败',
+        message: '视频资源无法加载。',
+      );
+    }
+
+    return FutureBuilder<File>(
+      future: _videoFileFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _KnowledgePreviewUnavailable(
+            title: '预览失败',
+            message: '视频资源无法加载。',
+          );
+        }
+        final controller = _controller;
+        if (!snapshot.hasData ||
+            controller == null ||
+            !controller.value.isInitialized) {
+          return const _KnowledgePreviewLoading(height: 260);
+        }
+
+        final isPlaying = controller.value.isPlaying;
+        final aspectRatio = controller.value.aspectRatio <= 0
+            ? 16 / 9
+            : controller.value.aspectRatio;
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: aspectRatio,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      VideoPlayer(controller),
+                      if (!isPlaying)
+                        Material(
+                          color: const Color(0x55000000),
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => controller.play(),
+                            child: const SizedBox(
+                              width: 64,
+                              height: 64,
+                              child: Icon(
+                                Icons.play_arrow,
+                                color: Colors.white,
+                                size: 38,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  IconButton(
+                    onPressed: () async {
+                      if (controller.value.isPlaying) {
+                        await controller.pause();
+                      } else {
+                        await controller.play();
+                      }
+                    },
+                    icon: Icon(
+                      controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                    ),
+                  ),
+                  Expanded(
+                    child: VideoProgressIndicator(
+                      controller,
+                      allowScrubbing: true,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _KnowledgePdfDetailPreview extends StatefulWidget {
+  const _KnowledgePdfDetailPreview({
+    required this.previewSourceUrl,
+    required this.authToken,
+    required this.tenantId,
+  });
+
+  final String previewSourceUrl;
+  final String authToken;
+  final String tenantId;
+
+  @override
+  State<_KnowledgePdfDetailPreview> createState() =>
+      _KnowledgePdfDetailPreviewState();
+}
+
+class _KnowledgePdfDetailPreviewState
+    extends State<_KnowledgePdfDetailPreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<PdfDocument> _documentFuture;
+  late final PdfControllerPinch _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+    );
+    _documentFuture = _loadDocument();
+    _controller = PdfControllerPinch(document: _documentFuture);
+  }
+
+  Future<PdfDocument> _loadDocument() async {
+    final bytes = await _apiClient.fetchBytes(widget.previewSourceUrl);
+    return PdfDocument.openData(bytes);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 520,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.card - 1),
+        child: PdfViewPinch(
+          controller: _controller,
+          builders: PdfViewPinchBuilders<DefaultBuilderOptions>(
+            options: const DefaultBuilderOptions(),
+            documentLoaderBuilder: (_) => const _KnowledgePreviewLoading(),
+            pageLoaderBuilder: (_) => const _KnowledgePreviewLoading(),
+            errorBuilder: (_, error) => _KnowledgePreviewUnavailable(
+              title: '预览失败',
+              message: error.toString(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _KnowledgeFileTypeBadge extends StatelessWidget {
   const _KnowledgeFileTypeBadge({required this.label});
 
@@ -3292,6 +4519,43 @@ Color? _parseHexColor(String? rawColor) {
   return value == null ? null : Color(value);
 }
 
+Map<String, String>? _previewHeaders(String authToken, String tenantId) {
+  final headers = <String, String>{};
+  if (authToken.trim().isNotEmpty) {
+    headers[HttpHeaders.authorizationHeader] = 'Bearer ${authToken.trim()}';
+  }
+  if (tenantId.trim().isNotEmpty) {
+    headers['X-Tenant-ID'] = tenantId.trim();
+  }
+  return headers.isEmpty ? null : headers;
+}
+
+String _resolvePreviewImageUrl(String rawUrl) {
+  final value = rawUrl.trim();
+  if (value.isEmpty) return '';
+  final uri = Uri.tryParse(value);
+  if (uri == null) return '';
+  if (uri.hasScheme) {
+    return uri.scheme == 'http' || uri.scheme == 'https' ? value : '';
+  }
+  if (value.startsWith('//')) return 'https:$value';
+
+  final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+  final path = value.startsWith('/') ? value : '/$value';
+  return '$base$path';
+}
+
+String _formatDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds;
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return '${hours.toString()}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+}
+
 class _NotesToolbar extends StatelessWidget {
   const _NotesToolbar({
     required this.newestFirst,
@@ -3390,7 +4654,7 @@ class _NoteCard extends StatelessWidget {
                   note.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: AppTextStyles.cardTitle,
+                  style: AppTextStyles.cardTitle.copyWith(fontSize: 15),
                 ),
                 if (hasExcerpt) ...[
                   const SizedBox(height: 8),
@@ -3436,93 +4700,305 @@ class _NoteCard extends StatelessWidget {
   }
 }
 
-class _MemoryEdgeActions extends StatelessWidget {
-  const _MemoryEdgeActions({
-    required this.onRecordTap,
-    required this.onTextTap,
+class _MemoryDetailPage extends StatefulWidget {
+  const _MemoryDetailPage({
+    required this.note,
   });
 
-  final VoidCallback onRecordTap;
-  final VoidCallback onTextTap;
+  final _NoteItem note;
+
+  @override
+  State<_MemoryDetailPage> createState() => _MemoryDetailPageState();
+}
+
+class _MemoryDetailPageState extends State<_MemoryDetailPage> {
+  static const _tabs = ['笔记内容', '发芽', '追加笔记'];
+  static const _buttonColor = Color(0xFFF4F5F8);
+  static const _titleStyle = TextStyle(
+    fontSize: 20,
+    height: 1.25,
+    color: AppColors.textPrimary,
+    fontWeight: FontWeight.w600,
+  );
+  static const _metaStyle = TextStyle(
+    fontSize: 11,
+    height: 1.25,
+    color: AppColors.textTertiary,
+    fontWeight: FontWeight.w500,
+  );
+  static const _bodyStyle = TextStyle(
+    fontSize: 16,
+    height: 1.65,
+    color: AppColors.textPrimary,
+    fontWeight: FontWeight.w500,
+  );
+
+  int _selectedTabIndex = 0;
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
+  void _showMoreActions() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.copy_outlined),
+                title: const Text('复制标题'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showMessage('复制功能待接入');
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.ios_share),
+                title: const Text('分享'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showMessage('分享功能待接入');
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _openAddMemory() {
+    _showMessage('添加功能待接入');
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Positioned.fill(
-      child: Stack(
-        children: [
-          Positioned(
-            left: 8,
-            bottom: 14,
-            child: _MemoryEdgeActionButton(
-              icon: Icons.edit_outlined,
-              tooltip: '文字记忆',
-              onTap: onTextTap,
+    final note = widget.note;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+          children: [
+            Row(
+              children: [
+                _KnowledgeRoundButton(
+                  tooltip: '返回',
+                  icon: Icons.chevron_left,
+                  backgroundColor: _buttonColor,
+                  size: 40,
+                  iconSize: 24,
+                  onTap: () => Navigator.maybePop(context),
+                ),
+                const Spacer(),
+                _KnowledgeRoundButton(
+                  tooltip: '分享',
+                  icon: Icons.open_in_new,
+                  backgroundColor: _buttonColor,
+                  size: 40,
+                  iconSize: 22,
+                  onTap: () => _showMessage('分享功能待接入'),
+                ),
+                const SizedBox(width: 14),
+                _KnowledgeRoundButton(
+                  tooltip: '更多',
+                  icon: Icons.more_vert,
+                  backgroundColor: _buttonColor,
+                  size: 40,
+                  iconSize: 24,
+                  onTap: _showMoreActions,
+                ),
+              ],
             ),
-          ),
-          Positioned(
-            right: 8,
-            bottom: 14,
-            child: _MemoryEdgeActionButton(
-              icon: Icons.mic_none,
-              tooltip: '录音记忆',
-              onTap: onRecordTap,
+            const SizedBox(height: 32),
+            Text(
+              note.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: _titleStyle,
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Text(
+              '创建时间  ${note.detailCreatedAt}',
+              style: _metaStyle,
+            ),
+            const SizedBox(height: 20),
+            _MemoryTagButton(
+              onPressed: _openAddMemory,
+              icon: Icons.add,
+              label: '添加',
+            ),
+            const SizedBox(height: 26),
+            _MemoryDetailTabs(
+              labels: _tabs,
+              selectedIndex: _selectedTabIndex,
+              onSelected: (index) {
+                setState(() {
+                  _selectedTabIndex = index;
+                });
+              },
+            ),
+            const SizedBox(height: 24),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: _selectedTabIndex == 0
+                  ? Text(
+                      note.detailBody,
+                      key: const ValueKey('memory-content'),
+                      style: _bodyStyle,
+                    )
+                  : _MemoryDetailPlaceholder(
+                      key: ValueKey('memory-placeholder-$_selectedTabIndex'),
+                      message: _selectedTabIndex == 1
+                          ? '发芽功能本版本暂不做'
+                          : '追加笔记功能本版本暂不做',
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _MemoryEdgeActionButton extends StatelessWidget {
-  const _MemoryEdgeActionButton({
+class _MemoryTagButton extends StatelessWidget {
+  const _MemoryTagButton({
+    required this.label,
     required this.icon,
-    required this.tooltip,
-    required this.onTap,
+    required this.onPressed,
   });
 
+  final String label;
   final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Semantics(
-        button: true,
-        label: tooltip,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE4E8EF)),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x12000000),
-                blurRadius: 14,
-                offset: Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Material(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(14),
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(14),
-              child: SizedBox(
-                width: 42,
-                height: 42,
-                child: Icon(
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Material(
+        color: const Color(0xFFF6F7FB),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFE3E7EF)),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
                   icon,
-                  size: 21,
-                  color: AppColors.textPrimary,
+                  size: 14,
+                  color: AppColors.textSecondary,
                 ),
-              ),
+                const SizedBox(width: 3),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.15,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MemoryDetailTabs extends StatelessWidget {
+  const _MemoryDetailTabs({
+    required this.labels,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<String> labels;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var index = 0; index < labels.length; index++) ...[
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onSelected(index),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  labels[index],
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.2,
+                    color: index == selectedIndex
+                        ? AppColors.textPrimary
+                        : AppColors.textTertiary,
+                    fontWeight: index == selectedIndex
+                        ? FontWeight.w700
+                        : FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 9),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  width: 30,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: index == selectedIndex
+                        ? AppColors.textPrimary
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (index != labels.length - 1) const SizedBox(width: 30),
+        ],
+      ],
+    );
+  }
+}
+
+class _MemoryDetailPlaceholder extends StatelessWidget {
+  const _MemoryDetailPlaceholder({
+    super.key,
+    required this.message,
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      message,
+      style: _MemoryDetailPageState._bodyStyle,
     );
   }
 }
@@ -5036,35 +6512,40 @@ class _DiscoverPageState extends State<DiscoverPage> {
   final List<_DiscoverTopic> _topics = const [
     _DiscoverTopic(
       title: 'Deepseek V4 flash发布了最新版；目前看基本可以打平Grok-4.5，不输GLM5.2。 #AI ...',
+      summary: '整理近期大模型发布与性能对比，快速了解关键变化和可关注方向。',
       author: '大胡子',
-      source: '姜胡说',
+      time: '今天 11:48',
       accent: Color(0xFFDCE6F7),
-      imageLabel: 'AI\nTable',
+      coverLabel: 'AI\nTable',
     ),
     _DiscoverTopic(
       title: '【2026年品牌商务现状：零售媒体问责时代的增长重构】\n75.8%的品牌预计零售媒体预算将...',
+      summary: '从品牌预算、零售媒体问责和增长结构变化中提炼关键趋势。',
       author: '丁利',
-      source: '行业数据交流群',
+      time: '今天 10:26',
       accent: Color(0xFF111111),
-      imageLabel: 'Brand\nCommerce\n2026',
+      coverLabel: 'Brand\nCommerce\n2026',
     ),
     _DiscoverTopic(
       title: '最好的学习就是把你今天学了，然后明天就能让知识派上用场的学习。\n...',
+      summary: '关于学习闭环、实践反馈和知识迁移的几条观察。',
       author: '白诗诗',
-      source: '白诗诗的成长社群',
+      time: '昨天 21:16',
     ),
     _DiscoverTopic(
       title:
           '对于复盘，如果有可能，还是建议大家进行过程性复盘，就是在做事的过程中，遇到什么问题就立刻动手记录下来，这个时候你肯定能够精准...',
+      summary: '过程性复盘能保留现场信息，比事后回忆更容易找到真实问题。',
       author: '白诗诗',
-      source: '白诗诗的成长社群',
+      time: '昨天 18:40',
     ),
     _DiscoverTopic(
       title: '如果不是什么一对一的私人定制化服务，那么你在网络上或者绝大部分书中，你能看得到的就只能是给你带...',
+      summary: '普通内容的价值更偏向启发和方向选择，不能替代具体情境里的判断。',
       author: '白诗诗',
-      source: '白诗诗的成长社群',
+      time: '6月27日 09:12',
       accent: Color(0xFFF1F0ED),
-      imageLabel: '为什么这么做？\n思维方向\n价值在于启发',
+      coverLabel: '为什么这么做？\n思维方向\n价值在于启发',
     ),
   ];
 
@@ -5100,18 +6581,19 @@ class _DiscoverPageState extends State<DiscoverPage> {
       child: ColoredBox(
         color: AppColors.surface,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 26),
+          padding: const EdgeInsets.fromLTRB(22, 18, 22, 128),
           children: [
             const _DiscoverTopBar(),
             const SizedBox(height: 24),
             _DiscoverSectionHeader(onRefreshTap: _nextBatch),
             const SizedBox(height: 18),
-            const Divider(height: 1, thickness: 1, color: AppColors.border),
-            for (final topic in _visibleTopics)
+            for (final topic in _visibleTopics) ...[
               _DiscoverTopicTile(
                 topic: topic,
                 onTap: () => _showMessage('打开主题：${topic.author}'),
               ),
+              const SizedBox(height: 12),
+            ],
           ],
         ),
       ),
@@ -5244,46 +6726,71 @@ class _DiscoverTopicTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 22),
-          child: Column(
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          topic.title,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTextStyles.cardTitle,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+        color: AppColors.surface,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        topic.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          height: 1.35,
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w400,
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          '${topic.author}  |  ${topic.source}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTextStyles.meta,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        topic.summary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.45,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w400,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        '${topic.time} | @${topic.author}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          height: 1.35,
+                          color: AppColors.textTertiary,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
                   ),
-                  if (topic.imageLabel != null) ...[
-                    const SizedBox(width: 16),
-                    _TopicThumbnail(topic: topic),
-                  ],
+                ),
+                if (topic.coverLabel != null) ...[
+                  const SizedBox(width: 12),
+                  _TopicCover(topic: topic),
                 ],
-              ),
-              const SizedBox(height: 22),
-              const Divider(height: 1, thickness: 1, color: AppColors.border),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -5291,8 +6798,8 @@ class _DiscoverTopicTile extends StatelessWidget {
   }
 }
 
-class _TopicThumbnail extends StatelessWidget {
-  const _TopicThumbnail({required this.topic});
+class _TopicCover extends StatelessWidget {
+  const _TopicCover({required this.topic});
 
   final _DiscoverTopic topic;
 
@@ -5307,19 +6814,20 @@ class _TopicThumbnail extends StatelessWidget {
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: accent,
-        borderRadius: BorderRadius.circular(2),
+        borderRadius: BorderRadius.circular(4),
       ),
-      child: Center(
+      child: Align(
+        alignment: Alignment.center,
         child: Text(
-          topic.imageLabel!,
+          topic.coverLabel!,
           textAlign: TextAlign.center,
-          maxLines: 4,
+          maxLines: 3,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 9,
             height: 1.2,
             color: dark ? AppColors.surface : const Color(0xFF333842),
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ),
@@ -5372,7 +6880,7 @@ class _TabPageScaffold extends StatelessWidget {
     return SafeArea(
       top: false,
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 128),
         children: [
           Container(
             padding: const EdgeInsets.all(22),
@@ -5640,6 +7148,8 @@ class _KnowledgeTreeNode {
   }
 }
 
+enum _KnowledgeFilePreviewKind { image, audio, video, pdf }
+
 class _KnowledgeDocument {
   const _KnowledgeDocument({
     required this.path,
@@ -5701,7 +7211,23 @@ class _KnowledgeDocument {
   final List<_KnowledgeFileTag> tags;
 
   bool get isImage {
-    return const {
+    return previewKind == _KnowledgeFilePreviewKind.image;
+  }
+
+  String get fileName => _lastPathPart(path);
+
+  String get normalizedFileType {
+    final explicit = fileType.trim().replaceFirst(RegExp(r'^\.'), '').toLowerCase();
+    if (explicit.isNotEmpty && explicit != 'file') return explicit;
+    final name = _lastPathPart(path);
+    final parts = name.split('.');
+    if (parts.length > 1) return parts.last.toLowerCase();
+    return '';
+  }
+
+  _KnowledgeFilePreviewKind? get previewKind {
+    final type = normalizedFileType;
+    if (const {
       'jpg',
       'jpeg',
       'png',
@@ -5710,7 +7236,39 @@ class _KnowledgeDocument {
       'webp',
       'tiff',
       'svg',
-    }.contains(fileType.toLowerCase());
+    }.contains(type)) {
+      return _KnowledgeFilePreviewKind.image;
+    }
+    if (const {'mp3', 'wav', 'm4a', 'flac', 'ogg', 'aac'}.contains(type)) {
+      return _KnowledgeFilePreviewKind.audio;
+    }
+    if (const {
+      'mp4',
+      'mov',
+      'm4v',
+      'webm',
+      'mkv',
+      'avi',
+      'wmv',
+      'flv',
+      '3gp',
+    }.contains(type)) {
+      return _KnowledgeFilePreviewKind.video;
+    }
+    if (type == 'pdf') return _KnowledgeFilePreviewKind.pdf;
+    return null;
+  }
+
+  bool get isPreviewSupported => previewKind != null;
+
+  String get previewSourceUrl {
+    final idValue = id.trim();
+    if (idValue.isNotEmpty) {
+      return '/api/v1/knowledge/${Uri.encodeComponent(idValue)}/preview';
+    }
+    final image = previewImageUrl.trim();
+    if (isImage && image.isNotEmpty) return image;
+    return '';
   }
 
   String get displayFileType {
@@ -5725,7 +7283,7 @@ class _KnowledgeDocument {
   String get bestPreviewImageUrl {
     if (previewImageUrl.trim().isNotEmpty) return previewImageUrl.trim();
     if (isImage && id.trim().isNotEmpty) {
-      return '/api/v1/knowledge/${Uri.encodeComponent(id.trim())}/preview';
+      return previewSourceUrl;
     }
     return '';
   }
@@ -6039,11 +7597,28 @@ class _NoteItem {
     required this.title,
     required this.excerpt,
     required this.time,
+    this.createdAtText = '',
+    this.content = '',
   });
 
   final String title;
   final String excerpt;
   final String time;
+  final String createdAtText;
+  final String content;
+
+  String get detailCreatedAt {
+    final normalized = createdAtText.trim();
+    return normalized.isEmpty ? time : normalized;
+  }
+
+  String get detailBody {
+    final normalizedContent = content.trim();
+    if (normalizedContent.isNotEmpty) return normalizedContent;
+    final normalizedExcerpt = excerpt.trim();
+    if (normalizedExcerpt.isNotEmpty) return normalizedExcerpt;
+    return title;
+  }
 }
 
 String _readString(
@@ -6095,15 +7670,17 @@ String _formatApiDate(String raw) {
 class _DiscoverTopic {
   const _DiscoverTopic({
     required this.title,
+    required this.summary,
     required this.author,
-    required this.source,
+    required this.time,
     this.accent,
-    this.imageLabel,
+    this.coverLabel,
   });
 
   final String title;
+  final String summary;
   final String author;
-  final String source;
+  final String time;
   final Color? accent;
-  final String? imageLabel;
+  final String? coverLabel;
 }

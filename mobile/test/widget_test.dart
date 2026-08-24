@@ -41,8 +41,9 @@ void main() {
     expect(find.textContaining('燃气轮机'), findsOneWidget);
     expect(find.byTooltip('筛选'), findsNothing);
     expect(find.byIcon(Icons.tune), findsNothing);
-    expect(find.byTooltip('录音记忆'), findsOneWidget);
-    expect(find.byTooltip('文字记忆'), findsOneWidget);
+    expect(find.byTooltip('录入'), findsOneWidget);
+    expect(find.byTooltip('录音记忆'), findsNothing);
+    expect(find.byTooltip('文字记忆'), findsNothing);
     expect(find.text('录音'), findsNothing);
     expect(find.text('文字'), findsNothing);
     expect(find.text('新建'), findsNothing);
@@ -50,7 +51,13 @@ void main() {
     expect(find.text('录音记忆'), findsNothing);
     expect(find.text('更多方式'), findsNothing);
 
-    await tester.tap(find.byTooltip('文字记忆'));
+    await tester.tap(find.byTooltip('录入'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('开始录音'), findsOneWidget);
+    expect(find.text('编写笔记'), findsOneWidget);
+
+    await tester.tap(find.text('编写笔记'));
     await tester.pumpAndSettle();
 
     expect(find.text('完成'), findsOneWidget);
@@ -95,16 +102,41 @@ void main() {
     expect(find.text('项目资料库'), findsOneWidget);
   });
 
+  testWidgets('opens a memory detail page from a home card', (tester) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    final firstMemoryTitle = find.textContaining('燃气轮机');
+    expect(firstMemoryTitle, findsOneWidget);
+
+    final firstMemoryCard = find.ancestor(
+      of: firstMemoryTitle,
+      matching: find.byType(InkWell),
+    );
+    expect(firstMemoryCard, findsOneWidget);
+
+    await tester.tap(firstMemoryCard);
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('返回'), findsOneWidget);
+    expect(find.byTooltip('分享'), findsOneWidget);
+    expect(find.byTooltip('更多'), findsOneWidget);
+    expect(find.text('创建时间  2026-08-21 12:16:03'), findsOneWidget);
+    expect(find.text('笔记内容'), findsOneWidget);
+    expect(find.text('发芽'), findsOneWidget);
+    expect(find.text('追加笔记'), findsOneWidget);
+    expect(find.textContaining('任何人或事都有高光时刻'), findsOneWidget);
+  });
+
   testWidgets('switches between the three primary tabs', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
-    await tester.tap(find.text('发现').last);
+    await tester.tap(find.byTooltip('发现'));
     await tester.pumpAndSettle();
     expect(find.text('精华主题'), findsOneWidget);
     expect(find.text('换一批'), findsOneWidget);
     expect(find.textContaining('Deepseek V4 flash'), findsOneWidget);
 
-    await tester.tap(find.text('我的').last);
+    await tester.tap(find.byTooltip('我的'));
     await tester.pumpAndSettle();
     expect(find.text('账户信息'), findsOneWidget);
   });
@@ -183,5 +215,19 @@ void main() {
       500,
     );
     expect(find.text('011 中国历史上有多少个皇帝？ .pdf'), findsOneWidget);
+
+    final fileRow = find.ancestor(
+      of: find.text('011 中国历史上有多少个皇帝？ .pdf').first,
+      matching: find.byType(InkWell),
+    );
+    expect(fileRow, findsOneWidget);
+
+    await tester.tap(fileRow);
+    await tester.pumpAndSettle();
+
+    expect(find.text('文件详情'), findsOneWidget);
+    expect(find.text('011 中国历史上有多少个皇帝？ .pdf'), findsOneWidget);
+    expect(find.text('文件预览'), findsOneWidget);
+    expect(find.text('暂无预览资源'), findsOneWidget);
   });
 }
