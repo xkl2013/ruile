@@ -49,95 +49,107 @@
                 <span>{{ activeMemoryAssetMeta.label }}列表</span>
               </div>
             </div>
+          </template>
 
-            <div class="memory-asset-list">
+          <div v-if="memoryLoading" class="organize-loading">
+            <t-loading size="medium" text="加载记忆中" />
+          </div>
+          <div v-else class="memory-asset-list memory-overview-list">
+            <section
+              v-for="group in visibleMemoryListGroups"
+              :key="group.date || activeMemoryAsset || 'all'"
+              class="timeline-group"
+            >
+              <div v-if="group.showDate" class="timeline-date-row">
+                <h2>{{ group.date }}</h2>
+                <t-icon name="chevron-up" />
+              </div>
               <article
-                v-for="item in filteredMemoryAssetItems"
+                v-for="item in group.items"
                 :key="item.id"
-                class="memory-list-card"
-                :class="{ 'memory-list-card--editable': isEditableMemory(item) }"
+                class="memory-list-card output-card"
+                :class="[
+                  `memory-list-card--${memoryCardKind(item)}`,
+                  { 'memory-list-card--editable': isEditableMemory(item) },
+                ]"
                 :role="isEditableMemory(item) ? 'button' : undefined"
                 :tabindex="isEditableMemory(item) ? 0 : undefined"
                 @click="openMemoryEditor(item)"
-                @keydown.enter.self="openMemoryEditor(item)"
+                @keydown.enter.self.prevent="openMemoryEditor(item)"
+                @keydown.space.self.prevent="openMemoryEditor(item)"
               >
-                <div class="memory-list-card-main">
-                  <div class="memory-row-meta">
-                    <span class="type-badge">{{ activeMemoryAssetMeta.itemTypeLabel }}</span>
-                    <span>{{ item.date }} {{ item.time }}</span>
-                    <span v-if="item.source" class="source-label">{{ item.source }}</span>
-                  </div>
-                  <h2>{{ item.title }}</h2>
-                  <p v-if="item.type === 'audio' && item.summary" class="memory-row-summary">{{ item.summary }}</p>
-                  <div v-if="item.type === 'audio'" class="audio-card">
-                    <t-icon name="sound" />
-                    <div class="audio-wave" aria-hidden="true">
-                      <span
-                        v-for="n in 18"
-                        :key="n"
-                        :style="{ height: `${waveHeights[(n - 1) % waveHeights.length]}px` }"
-                      />
-                    </div>
-                    <span class="audio-duration">{{ item.duration }}</span>
-                  </div>
-                </div>
-                <button
-                  v-if="isEditableMemory(item)"
-                  type="button"
-                  class="icon-button"
-                  :aria-label="`编辑 ${item.title}`"
-                  @click.stop="openMemoryEditor(item)"
-                >
-                  <t-icon name="chevron-right" />
-                </button>
-              </article>
-              <div v-if="filteredMemoryAssetItems.length === 0" class="memory-list-empty">
-                暂无{{ activeMemoryAssetMeta.label }}
-              </div>
-            </div>
-          </template>
-
-          <template v-else>
-            <div class="timeline-list">
-              <section v-for="group in filteredMemoryGroups" :key="group.date" class="timeline-group">
-                <div class="timeline-date-row">
-                  <h2>{{ group.date }}</h2>
-                  <t-icon name="chevron-up" />
-                </div>
-                <article
-                  v-for="item in group.items"
-                  :key="item.id"
-                  class="memory-row"
-                  :class="{ 'memory-row--editable': isEditableMemory(item) }"
-                  :role="isEditableMemory(item) ? 'button' : undefined"
-                  :tabindex="isEditableMemory(item) ? 0 : undefined"
-                  @click="openMemoryEditor(item)"
-                  @keydown.enter.self="openMemoryEditor(item)"
-                >
-                  <div class="memory-row-time">{{ item.time }}</div>
-                  <div class="memory-row-body">
-                    <div class="memory-row-meta">
-                      <span class="type-badge">{{ item.typeLabel }}</span>
-                      <span v-if="item.source" class="source-label">{{ item.source }}</span>
-                    </div>
-                    <div class="memory-row-title">{{ item.title }}</div>
-                    <p v-if="item.type === 'audio' && item.summary" class="memory-row-summary">{{ item.summary }}</p>
-                    <div v-if="item.type === 'audio'" class="audio-card">
-                      <t-icon name="sound" />
-                      <div class="audio-wave" aria-hidden="true">
-                        <span
-                          v-for="n in 18"
-                          :key="n"
-                          :style="{ height: `${waveHeights[(n - 1) % waveHeights.length]}px` }"
-                        />
+                <div class="memory-card-actions" @click.stop>
+                  <t-popup
+                    :visible="activeMemoryMenuId === item.id"
+                    trigger="click"
+                    overlayClassName="card-more-popup memory-card-menu-popup"
+                    destroy-on-close
+                    placement="bottom-right"
+                    @visible-change="(visible: boolean) => handleMemoryMenuVisible(item.id, visible)"
+                    @update:visible="(visible: boolean) => handleMemoryMenuVisible(item.id, visible)"
+                  >
+                    <button
+                      type="button"
+                      class="memory-card-more"
+                      :class="{ 'is-active': activeMemoryMenuId === item.id }"
+                      :aria-label="`打开 ${item.title || '无标题'} 操作菜单`"
+                      @click.stop
+                    >
+                      <t-icon name="ellipsis" />
+                    </button>
+                    <template #content>
+                      <div class="popup-menu memory-card-menu" @click.stop>
+                        <button
+                          v-if="isEditableMemory(item)"
+                          type="button"
+                          class="popup-menu-item memory-menu-item"
+                          @click.stop="handleMemoryMenuAction(item, 'edit')"
+                        >
+                          <t-icon class="menu-icon" name="edit" />
+                          <span>编辑</span>
+                        </button>
+                        <button
+                          type="button"
+                          class="popup-menu-item memory-menu-item"
+                          :disabled="isMemorySproutCreating(item.id)"
+                          @click.stop="handleMemoryMenuAction(item, 'sprout')"
+                        >
+                          <OrganizeSproutIcon class="menu-icon memory-sprout-icon" />
+                          <span>{{ memorySproutActionLabel(item) }}</span>
+                        </button>
+                        <button type="button" class="popup-menu-item delete memory-menu-item" @click.stop="handleMemoryMenuAction(item, 'delete')">
+                          <t-icon class="menu-icon" name="delete" />
+                          <span>删除</span>
+                        </button>
                       </div>
-                      <span class="audio-duration">{{ item.duration }}</span>
+                    </template>
+                  </t-popup>
+                </div>
+                <div class="output-card-cover memory-card-cover" @click.stop="openMemoryEditor(item)">
+                  <div class="output-card-cover-media memory-card-cover-media">
+                    <t-icon :name="memoryTypeIcon(item)" />
+                  </div>
+                  <span class="output-kind-label memory-kind-label">{{ memoryKindLabel(item) }}</span>
+                </div>
+                <div class="output-card-body memory-list-card-main" @click.stop="openMemoryEditor(item)">
+                  <h2>{{ item.title || '无标题' }}</h2>
+                  <p v-if="memoryCardBodyText(item)" class="output-summary memory-card-content">{{ memoryCardBodyText(item) }}</p>
+                  <div class="output-card-footer memory-card-footer">
+                    <div class="discover-card-meta">
+                      <span>{{ memoryCardTimeLabel(item, !group.showDate) }}</span>
+                      <template v-if="memoryCardFooterInfo(item)">
+                        <span class="discover-card-meta-separator">|</span>
+                        <span>{{ memoryCardFooterInfo(item) }}</span>
+                      </template>
                     </div>
                   </div>
-                </article>
-              </section>
+                </div>
+              </article>
+            </section>
+            <div v-if="visibleMemoryListEmpty" class="memory-list-empty">
+              {{ memoryListEmptyText }}
             </div>
-          </template>
+          </div>
         </section>
 
         <section v-else-if="activeTab === 'output'" class="organize-section organize-section--output">
@@ -149,7 +161,7 @@
                   variant="text"
                   theme="default"
                   class="discover-refresh"
-                  :disabled="featuredOutputs.length <= 1"
+                  :disabled="discoverFeaturedLoading || featuredOutputs.length <= 1"
                   @click="rotateFeaturedOutputs"
                 >
                   <template #icon><t-icon name="refresh" /></template>
@@ -157,7 +169,10 @@
                 </t-button>
               </div>
 
-              <div v-if="featuredOutputs.length" class="discover-featured-grid">
+              <div v-if="discoverFeaturedLoading" class="organize-loading discover-loading">
+                <t-loading size="medium" text="加载精选中" />
+              </div>
+              <div v-else-if="featuredOutputs.length" class="discover-featured-grid">
                 <article
                   v-for="item in featuredOutputs"
                   :key="`featured-${item.id}`"
@@ -218,7 +233,7 @@
                 </article>
               </div>
               <div v-else class="output-empty">
-                {{ outputEmptyText }}
+                暂无精选
               </div>
             </section>
 
@@ -240,7 +255,10 @@
             </section>
 
             <section class="discover-feed-section">
-              <div v-if="paginatedOutputs.length" class="discover-feed-grid">
+              <div v-if="discoverFeedLoading" class="organize-loading discover-loading">
+                <t-loading size="medium" text="加载发现中" />
+              </div>
+              <div v-else-if="paginatedOutputs.length" class="discover-feed-grid">
                 <article
                   v-for="item in paginatedOutputs"
                   :key="item.id"
@@ -305,7 +323,7 @@
               </div>
             </section>
 
-            <div v-if="discoverTotal > OUTPUT_PAGE_SIZE" class="output-pagination" aria-label="发现分页">
+            <div v-if="!discoverFeedLoading && discoverTotal > OUTPUT_PAGE_SIZE" class="output-pagination" aria-label="发现分页">
               <t-pagination
                 v-model="outputPage"
                 :page-size="OUTPUT_PAGE_SIZE"
@@ -322,7 +340,7 @@
           <div class="sprout-hero">
             <div class="sprout-hero-copy">
               <div class="section-heading">
-                <t-icon name="tree-list" />
+                <OrganizeSproutIcon class="section-heading-icon" />
                 <span>经营复盘</span>
               </div>
               <p>沉淀招生、家长沟通和园务管理要点，生成园长可直接复盘和安排跟进的经营建议。</p>
@@ -333,7 +351,10 @@
             </div>
           </div>
 
-          <div class="sprout-month-list">
+          <div v-if="sproutLoading" class="organize-loading">
+            <t-loading size="medium" text="加载发芽中" />
+          </div>
+          <div v-else class="sprout-month-list">
             <section v-for="group in sproutMonthGroups" :key="group.key" class="sprout-month-group">
               <div class="sprout-month-header">
                 <div class="sprout-month-heading">
@@ -374,7 +395,10 @@
                   </div>
 
                   <div class="sprout-report-main">
-                    <h2>{{ report.title }}</h2>
+                    <div class="sprout-report-title-row">
+                      <h2>{{ report.title }}</h2>
+                      <span class="type-badge" :class="`sprout-stage--${report.stageKey}`">{{ report.stage }}</span>
+                    </div>
                     <p class="sprout-report-intro">{{ report.intro }}</p>
 
                     <div v-if="report.chips.length" class="report-chips">
@@ -395,7 +419,7 @@
               <div v-else class="output-empty">暂无经营复盘</div>
             </section>
           </div>
-          <div v-if="filteredSproutReports.length > SPROUT_PAGE_SIZE" class="sprout-pagination" aria-label="经营复盘分页">
+          <div v-if="!sproutLoading && filteredSproutReports.length > SPROUT_PAGE_SIZE" class="sprout-pagination" aria-label="经营复盘分页">
             <t-pagination
               v-model="sproutPage"
               :page-size="SPROUT_PAGE_SIZE"
@@ -582,10 +606,12 @@
 
 <script setup lang="ts">
 import { computed, h, onMounted, ref, watch } from 'vue'
-import { Icon as TIcon, MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, Icon as TIcon, MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import DocumentPreview from '@/components/document-preview.vue'
 import {
+  createOrganizeSproutReportFromMemory,
+  deleteOrganizeMemory,
   getOrganizeDiscover,
   listOrganizeMemories,
   listOrganizeSproutReports,
@@ -615,6 +641,7 @@ import {
   type SproutReportPreviewSection,
 } from './sproutReport'
 import OrganizeOutputUploadDrawer from './components/OrganizeOutputUploadDrawer.vue'
+import OrganizeSproutIcon from './components/OrganizeSproutIcon.vue'
 
 type MemoryType = 'note' | 'record' | 'audio' | 'audio-card'
 type OutputKind = 'all' | 'article' | 'video' | 'audio'
@@ -647,6 +674,14 @@ interface MemoryGroup {
   date: string
   items: MemoryItem[]
 }
+
+interface MemoryDisplayGroup {
+  date: string
+  showDate: boolean
+  items: Array<MemoryItem | MemoryListItem>
+}
+
+type MemoryMenuAction = 'edit' | 'sprout' | 'delete'
 
 interface OutputItem {
   id: string
@@ -702,6 +737,12 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const keyword = ref('')
+const memoryLoading = ref(true)
+const discoverFeaturedLoading = ref(true)
+const discoverFeedLoading = ref(true)
+const sproutLoading = ref(true)
+const activeMemoryMenuId = ref('')
+const sproutingMemoryIds = ref<Set<string>>(new Set())
 const outputUploadVisible = ref(false)
 const outputUploadInitialKind = ref<OutputCreateKind>('article')
 const outputPreviewVisible = ref(false)
@@ -721,7 +762,6 @@ const activeSproutReport = ref<SproutReportItem | null>(null)
 const OUTPUT_PAGE_SIZE = 30
 const FEATURED_OUTPUT_SIZE = 4
 const outputPage = ref(1)
-const discoverTotal = ref(fallbackOutputs.length)
 const SPROUT_PAGE_SIZE = 10
 const sproutPage = ref(1)
 const SPROUT_DAY_MS = 24 * 60 * 60 * 1000
@@ -773,134 +813,10 @@ const escapeHtml = (value: string) => {
 
 const placeholderContent = (title: string) => `<p>${escapeHtml(title)}</p><p></p>`
 
-const fallbackMemoryGroups: MemoryGroup[] = [
-  {
-    date: '6月29日',
-    items: [
-      { id: 'demo-m1', time: '11:41', type: 'record', typeLabel: '记录', title: '创建了笔记电力行业相关企业分析及功率半导体产业链解读', content: '<p>围绕电力行业企业和功率半导体产业链，补充重点公司、供需关系及国产替代进展。</p>', persisted: false },
-      { id: 'demo-m2', time: '11:27', type: 'record', typeLabel: '记录', title: '创建了笔记能源行业公司分析及中国电力结构探讨', content: '<p>整理能源行业公司基本面，以及中国电力结构变化带来的机会。</p>', persisted: false },
-      { id: 'demo-m3', time: '11:13', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机核心配件与光储行业分析', content: '<p>梳理燃气轮机核心配件、光伏和储能行业的关键数据。</p>', persisted: false },
-      { id: 'demo-m4', time: '10:58', type: 'record', typeLabel: '记录', title: '创建了笔记燃气轮机行业分析及国内企业发展情况', content: '<p>记录燃气轮机市场格局和国内主要企业的发展情况。</p>', persisted: false },
-      {
-        id: 'demo-m5',
-        time: '10:22',
-        type: 'audio',
-        typeLabel: '录音',
-        title: '试听课后家长关注点复盘',
-        content: '<p>家长集中询问报名政策、师资稳定和接送时段，建议园长安排招生顾问当天回访高意向家庭。</p>',
-        summary: '家长集中关注报名政策、师资稳定和接送时段，建议园长安排招生顾问当天回访高意向家庭。',
-        source: '会议录音',
-        duration: '08:36',
-        durationSeconds: 516,
-        persisted: false,
-      },
-    ],
-  },
-  {
-    date: '6月28日',
-    items: [
-      { id: 'demo-m6', time: '18:05', type: 'note', typeLabel: '笔记', title: '整理储能项目投标材料中的常见技术指标', content: '<p>整理储能项目投标材料中的效率、循环寿命、安全和并网指标。</p>', source: '手动输入', persisted: false },
-      { id: 'demo-m7', time: '15:42', type: 'note', typeLabel: '笔记', title: '政策口径：新型电力系统与源网荷储协同', content: '<p>记录新型电力系统政策中的源网荷储协同要点。</p>', source: '网页摘录', persisted: false },
-      {
-        id: 'demo-m8',
-        time: '09:18',
-        type: 'audio',
-        typeLabel: '录音',
-        title: '招生开放日接待流程优化',
-        content: '<p>开放日接待要突出安全、餐食、午睡和课程体验四个环节，园长需要统一老师讲解口径。</p>',
-        summary: '开放日接待要突出安全、餐食、午睡和课程体验四个环节，园长需要统一老师讲解口径。',
-        source: '语音记录',
-        duration: '12:04',
-        durationSeconds: 724,
-        persisted: false,
-      },
-    ],
-  },
-]
-
-const memoryGroups = ref<MemoryGroup[]>(fallbackMemoryGroups)
-
-const fallbackOutputs: OutputItem[] = [
-  {
-    id: 'demo-o1',
-    title: '电力行业相关企业分析及功率半导体产业链解读',
-    content: '<h2>行业概览</h2><p>从电力设备需求出发，梳理功率半导体产业链及重点企业的竞争位置。</p>',
-    type: '图文类',
-    kind: 'article',
-    kindLabel: '图文类',
-  source: '来自 8 条记忆',
-  summary: '从电力设备需求出发，梳理功率半导体产业链及重点企业的竞争位置。',
-  updated: '今天 11:48',
-  createdAtLabel: '今天 11:48',
-  status: '可交付',
-  statusKey: 'ready',
-  statusLabel: '可交付',
-    icon: 'file-word',
-    tags: ['产业链', '功率半导体'],
-    memoryIds: [],
-    persisted: false,
-  },
-  {
-    id: 'demo-o2',
-    title: '能源行业公司分析及中国电力结构探讨',
-    content: '<p>分析中国电力结构变化，并比较相关能源公司的业务布局。</p>',
-    type: '图文类',
-    kind: 'article',
-    kindLabel: '图文类',
-  source: '来自 6 条记忆',
-  summary: '分析中国电力结构变化，并比较相关能源公司的业务布局。',
-  updated: '今天 11:31',
-  createdAtLabel: '今天 11:31',
-  status: '草稿',
-  statusKey: 'draft',
-  statusLabel: '草稿',
-    icon: 'file-word',
-    tags: ['能源结构', '业务布局'],
-    memoryIds: [],
-    persisted: false,
-  },
-  {
-    id: 'demo-o3',
-    title: '燃气轮机核心配件供应链梳理',
-    content: '<p>梳理燃气轮机核心配件的供应商、交付周期和国产化进度。</p>',
-    type: '图文类',
-    kind: 'article',
-    kindLabel: '图文类',
-  source: '来自 5 条记忆',
-  summary: '梳理燃气轮机核心配件的供应商、交付周期和国产化进度。',
-  updated: '昨天 19:20',
-  createdAtLabel: '昨天 19:20',
-  status: '评审中',
-  statusKey: 'review',
-  statusLabel: '评审中',
-    icon: 'file-word',
-    tags: ['燃气轮机', '供应链'],
-    memoryIds: [],
-    persisted: false,
-  },
-  {
-    id: 'demo-o4',
-    title: '光储行业重点企业与政策机会清单',
-    content: '<p>汇总光伏、储能行业重点企业和近期政策机会。</p>',
-    type: '图文类',
-    kind: 'article',
-    kindLabel: '图文类',
-  source: '来自 9 条记忆',
-  summary: '汇总光伏、储能行业重点企业和近期政策机会。',
-  updated: '6月27日',
-  createdAtLabel: '6月27日',
-  status: '可交付',
-  statusKey: 'ready',
-  statusLabel: '可交付',
-    icon: 'file-word',
-    tags: ['光伏', '储能'],
-    memoryIds: [],
-    persisted: false,
-  },
-]
-
-const outputs = ref<OutputItem[]>(fallbackOutputs)
-const featuredOutputs = ref<OutputItem[]>(fallbackOutputs.slice(0, FEATURED_OUTPUT_SIZE))
+const memoryGroups = ref<MemoryGroup[]>([])
+const outputs = ref<OutputItem[]>([])
+const featuredOutputs = ref<OutputItem[]>([])
+const discoverTotal = ref(0)
 let discoverFeedRequestSeq = 0
 let discoverFeaturedRequestSeq = 0
 
@@ -924,49 +840,31 @@ const enrichSproutReport = (item: SproutReportBaseItem & { updatedAt?: string })
   }
 }
 
-const fallbackSproutReports: SproutReportItem[] = [
-  enrichSproutReport({
-    id: 'demo-r1',
-    title: '本周招生线索跟进复盘',
-    content: '本周新增咨询集中来自老生转介绍和社区活动，家长最关心入园适应、师资稳定和托育时段。建议园长优先复盘线索跟进节奏，把高意向家庭安排到本周开放日。\n\n## 01. 高意向家庭需要更快分层\n\n> **🌱 种子**\n> 多条记录提到家长已经问到学位、费用和试听安排。\n\n将线索拆成已到访、待到访、观望三类，招生顾问当天完成回访，园长跟进关键家庭的疑虑。\n\n> **✨ Aha 瞬间**\n> 招生转化不是更多话术，而是把家长最担心的问题更早交给合适的人解决。',
-    stage: '可扩写',
-    stageKey: 'expandable',
-    updated: '今天 12:10',
-    memoryCount: 11,
-    memoryIds: [],
-    outputHint: '可生成招生复盘',
-    chips: ['招生线索', '家长咨询', '开放日'],
-    persisted: false,
-  }),
-  enrichSproutReport({
-    id: 'demo-r2',
-    title: '开放日到园体验优化建议',
-    content: '近期到园家庭反馈集中在参观动线、课程展示和离园答疑三个环节。建议园长把开放日拆成接待、参观、体验、答疑四个节点，明确每位老师的讲解重点。\n\n## 01. 参观动线要服务家长决策\n\n> **🌱 种子**\n> 记录中多次出现家长询问安全、餐食、午睡和班级老师稳定性。\n\n开放日不只展示环境，更要让家长看到孩子一天如何被照顾，以及园所如何回应个性化问题。\n\n> **✨ Aha 瞬间**\n> 家长选择园所时买的是确定感，接待流程越清晰，成交后的信任成本越低。',
-    stage: '梳理中',
-    stageKey: 'organizing',
-    updated: '今天 10:46',
-    memoryCount: 7,
-    memoryIds: [],
-    outputHint: '可形成到园SOP',
-    chips: ['开放日', '到园体验', '接待SOP'],
-    persisted: false,
-  }),
-  enrichSproutReport({
-    id: 'demo-r3',
-    title: '老生续费与转介绍跟进计划',
-    content: '本月家长沟通记录显示，续费犹豫主要来自成长反馈不够具体、升班安排说明不清晰。建议园长组织班主任梳理幼儿成长亮点，并设计老带新转介绍触达节奏。\n\n## 01. 续费沟通要先讲清成长证据\n\n> **🌱 种子**\n> 多条记录提到家长关注孩子表达能力、社交状态和生活习惯变化。\n\n续费前先让家长看到孩子的具体进步，再说明下阶段课程目标和班级安排。\n\n> **✨ Aha 瞬间**\n> 转介绍来自家长真实认可，续费沟通越具体，推荐意愿越容易被激活。',
-    stage: '已成型',
-    stageKey: 'formed',
-    updated: '昨天 18:22',
-    memoryCount: 9,
-    memoryIds: [],
-    outputHint: '可生成跟进清单',
-    chips: ['续费', '转介绍', '成长反馈'],
-    persisted: false,
-  }),
-]
+const sproutReports = ref<SproutReportItem[]>([])
 
-const sproutReports = ref<SproutReportItem[]>(fallbackSproutReports)
+const setMemorySproutCreating = (id: string, creating: boolean) => {
+  const next = new Set(sproutingMemoryIds.value)
+  if (creating) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  sproutingMemoryIds.value = next
+}
+
+const isMemorySproutCreating = (id: string) => sproutingMemoryIds.value.has(id)
+
+const linkedMemorySproutReport = (item: MemoryItem | MemoryListItem) => {
+  return sproutReports.value.find((report) => report.persisted && report.memoryIds.includes(item.id))
+}
+
+const memorySproutActionLabel = (item: MemoryItem | MemoryListItem) => {
+  if (isMemorySproutCreating(item.id)) return '发芽中...'
+  const report = linkedMemorySproutReport(item)
+  if (report?.stageKey === 'organizing') return '发芽中...'
+  if (report?.stageKey === 'formed') return '已发芽'
+  return '发芽'
+}
 
 const allMemoryItems = computed<MemoryListItem[]>(() => {
   return memoryGroups.value.flatMap((group) => group.items.map((item) => ({ ...item, date: group.date })))
@@ -1046,6 +944,30 @@ const filteredMemoryAssetItems = computed(() => {
   })
 })
 
+const visibleMemoryListGroups = computed<MemoryDisplayGroup[]>(() => {
+  if (activeMemoryAsset.value) {
+    return [
+      {
+        date: activeMemoryAsset.value,
+        showDate: false,
+        items: filteredMemoryAssetItems.value,
+      },
+    ]
+  }
+
+  return filteredMemoryGroups.value.map((group) => ({
+    date: group.date,
+    showDate: true,
+    items: group.items,
+  }))
+})
+
+const visibleMemoryListEmpty = computed(() => visibleMemoryListGroups.value.every((group) => group.items.length === 0))
+
+const memoryListEmptyText = computed(() => {
+  return activeMemoryAsset.value ? `暂无${activeMemoryAssetMeta.value.label}` : '暂无记忆'
+})
+
 const activeDiscoverTabLabel = computed(() => {
   return discoverTabs.value.find((tab) => tab.value === discoverTab.value)?.label || '推荐'
 })
@@ -1055,7 +977,7 @@ const setDiscoverTab = (tab: string) => {
   discoverTab.value = tab
   outputPage.value = 1
   void loadDiscoverFeedData({ tab, page: 1, resetPage: true }).catch(() => {
-    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+    MessagePlugin.warning('发现数据刷新失败')
   })
 }
 
@@ -1064,14 +986,14 @@ const rotateFeaturedOutputs = () => {
   if (total <= 1) return
   featuredRotation.value = (featuredRotation.value + 2) % total
   void loadDiscoverFeaturedData().catch(() => {
-    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+    MessagePlugin.warning('精选数据刷新失败')
   })
 }
 
 const handleDiscoverPageChange = (pageInfo: { current: number; pageSize: number }) => {
   outputPage.value = pageInfo.current
   void loadDiscoverFeedData({ tab: discoverTab.value, page: pageInfo.current, pageSize: pageInfo.pageSize }).catch(() => {
-    MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+    MessagePlugin.warning('发现数据刷新失败')
   })
 }
 
@@ -1200,8 +1122,6 @@ const sproutMonthGroups = computed(() => {
   return [{ key: 'recent', label: '近期', reports: paginatedSproutReports.value }]
 })
 
-const waveHeights = [6, 12, 9, 16, 8, 18, 12, 15]
-
 const formatDateLabel = (value: string) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return '未知日期'
@@ -1232,7 +1152,7 @@ const memoryTypeLabel = (type: MemoryType) => {
 }
 
 const statusLabel = (status: OrganizeOutputStatus) => ({ draft: '草稿', review: '评审中', ready: '可交付', archived: '已归档' })[status]
-const stageLabel = (stage: OrganizeSproutStage) => ({ organizing: '梳理中', expandable: '可扩写', formed: '已成型' })[stage]
+const stageLabel = (stage: OrganizeSproutStage) => ({ organizing: '发芽中', expandable: '发芽', formed: '已发芽' })[stage]
 const outputKindLabelMap: Record<Exclude<OutputKind, 'all'>, string> = {
   article: '图文类',
   video: '视频类',
@@ -1292,6 +1212,64 @@ const memorySearchText = (item: MemoryItem) => [
   item.content,
 ].filter(Boolean).join(' ').toLowerCase()
 
+const memoryTypeIcon = (item: MemoryItem) => {
+  if (item.type === 'audio') return 'sound'
+  if (item.type === 'audio-card') return 'file'
+  return 'file-word'
+}
+
+const memoryCardKind = (item: MemoryItem) => {
+  if (item.type === 'audio') return 'audio'
+  if (item.type === 'audio-card') return 'audio-card'
+  return 'note'
+}
+
+const memoryKindLabel = (item: MemoryItem) => {
+  if (item.type === 'audio-card') return '工牌'
+  return item.typeLabel || '笔记'
+}
+
+const memoryPlainText = (item: MemoryItem) => {
+  const summary = asTrimmedString(item.summary)
+  const content = contentText(item.content, item.title)
+  return normalizeOneLineText(summary || content || item.title)
+}
+
+const memoryCardBodyText = (item: MemoryItem) => {
+  const text = memoryPlainText(item)
+  if (!text || text === item.title) return ''
+  return compactText(text, item.type === 'audio' ? 140 : 180)
+}
+
+const memoryAudioDurationText = (item: MemoryItem) => {
+  const fromSeconds = item.durationSeconds
+  if (typeof fromSeconds === 'number' && Number.isFinite(fromSeconds)) {
+    const safeSeconds = Math.max(0, Math.floor(fromSeconds))
+    const minutes = Math.floor(safeSeconds / 60)
+    const seconds = safeSeconds % 60
+    return `${minutes}分${seconds}秒`
+  }
+
+  const duration = asTrimmedString(item.duration)
+  const match = duration.match(/^(\d{1,2}):(\d{2})$/)
+  if (match) {
+    return `${Number(match[1])}分${Number(match[2])}秒`
+  }
+  return duration || '0分0秒'
+}
+
+const memoryCardTimeLabel = (item: MemoryItem | MemoryListItem, includeDate: boolean) => {
+  const date = 'date' in item ? item.date : ''
+  return includeDate && date ? `${date} ${item.time}` : item.time
+}
+
+const memoryCardFooterInfo = (item: MemoryItem) => {
+  const parts: string[] = []
+  if (item.source) parts.push(item.source)
+  if (item.type === 'audio') parts.push(`录音时长 ${memoryAudioDurationText(item)}`)
+  return parts.join(' · ')
+}
+
 const memoryDisplayTitle = (item: OrganizeMemory, type: MemoryType) => {
   if (type !== 'audio') return item.title
   const metadata = item.metadata || {}
@@ -1330,6 +1308,14 @@ const memorySummary = (item: OrganizeMemory) => {
 }
 
 const currentUserDisplayName = () => authStore.user?.username || authStore.user?.email || '我'
+
+const memorySproutRoleConfig = () => ({
+  role: authStore.currentTenantRole || 'viewer',
+  tenant_id: authStore.effectiveTenantId || authStore.currentTenantId || '',
+  tenant_name: authStore.currentTenantName || '',
+  user_id: currentUserId.value,
+  user_name: currentUserDisplayName(),
+})
 
 const outputCreatorId = (item: OrganizeOutput) => {
   const metadata = item.metadata || {}
@@ -1518,28 +1504,86 @@ const syncActiveOutputPreview = () => {
   )
   if (nextPreview) {
     activeOutputPreview.value = nextPreview
+  } else {
+    activeOutputPreview.value = null
+    outputPreviewVisible.value = false
+  }
+}
+
+const syncActiveSproutPreview = () => {
+  if (!activeSproutReport.value) return
+  const nextReport = sproutReports.value.find((item) => item.id === activeSproutReport.value?.id)
+  if (nextReport) {
+    activeSproutReport.value = nextReport
+  } else {
+    activeSproutReport.value = null
+    sproutPreviewVisible.value = false
+  }
+}
+
+const loadMemoryData = async () => {
+  memoryLoading.value = true
+  try {
+    const response = await listOrganizeMemories({ page_size: 100 })
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '记忆数据加载失败')
+    }
+
+    const nextGroups = groupMemoryItems(response.data.items.map(mapMemory))
+    memoryGroups.value = nextGroups
+    return nextGroups
+  } finally {
+    memoryLoading.value = false
+  }
+}
+
+const loadSproutReportsData = async (options?: { silent?: boolean }) => {
+  if (!options?.silent) {
+    sproutLoading.value = true
+  }
+  try {
+    const response = await listOrganizeSproutReports({ page_size: 100 })
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '发芽数据加载失败')
+    }
+
+    const nextReports = response.data.items.map(mapSproutReport)
+    sproutReports.value = nextReports
+    syncActiveSproutPreview()
+    return nextReports
+  } finally {
+    if (!options?.silent) {
+      sproutLoading.value = false
+    }
   }
 }
 
 // 顶部精选和底部分页列表分开拉取，切 tab 只刷新底部当前页。
 const loadDiscoverFeaturedData = async () => {
   const requestSeq = ++discoverFeaturedRequestSeq
-  const response = await getOrganizeDiscover({
-    tab: 'recommended',
-    featured_offset: featuredRotation.value,
-    page: 1,
-    page_size: FEATURED_OUTPUT_SIZE,
-  })
+  discoverFeaturedLoading.value = true
+  try {
+    const response = await getOrganizeDiscover({
+      tab: 'recommended',
+      featured_offset: featuredRotation.value,
+      page: 1,
+      page_size: FEATURED_OUTPUT_SIZE,
+    })
 
-  if (requestSeq !== discoverFeaturedRequestSeq) return
-  if (!response.success || !response.data) {
-    throw new Error(response.message || '发现精选加载失败')
+    if (requestSeq !== discoverFeaturedRequestSeq) return
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '发现精选加载失败')
+    }
+
+    const data = response.data
+    discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
+    featuredOutputs.value = data.featured_outputs.map(mapOutput)
+    syncActiveOutputPreview()
+  } finally {
+    if (requestSeq === discoverFeaturedRequestSeq) {
+      discoverFeaturedLoading.value = false
+    }
   }
-
-  const data = response.data
-  discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
-  featuredOutputs.value = data.featured_outputs.map(mapOutput)
-  syncActiveOutputPreview()
 }
 
 const loadDiscoverFeedData = async (options?: { tab?: string; page?: number; pageSize?: number; resetPage?: boolean }) => {
@@ -1547,27 +1591,34 @@ const loadDiscoverFeedData = async (options?: { tab?: string; page?: number; pag
   const tab = options?.tab ?? discoverTab.value
   const page = Math.max(1, options?.page ?? outputPage.value)
   const pageSize = Math.max(1, options?.pageSize ?? OUTPUT_PAGE_SIZE)
-  const response = await getOrganizeDiscover({
-    tab,
-    page,
-    page_size: pageSize,
-  })
+  discoverFeedLoading.value = true
+  try {
+    const response = await getOrganizeDiscover({
+      tab,
+      page,
+      page_size: pageSize,
+    })
 
-  if (requestSeq !== discoverFeedRequestSeq) return
-  if (!response.success || !response.data) {
-    throw new Error(response.message || '发现数据加载失败')
+    if (requestSeq !== discoverFeedRequestSeq) return
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '发现数据加载失败')
+    }
+
+    const data = response.data
+    discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
+    outputs.value = data.items.map(mapOutput)
+    discoverTotal.value = data.total
+    outputPage.value = data.page || page
+    if (options?.resetPage) {
+      outputPage.value = data.page || 1
+    }
+
+    syncActiveOutputPreview()
+  } finally {
+    if (requestSeq === discoverFeedRequestSeq) {
+      discoverFeedLoading.value = false
+    }
   }
-
-  const data = response.data
-  discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
-  outputs.value = data.items.map(mapOutput)
-  discoverTotal.value = data.total
-  outputPage.value = data.page || page
-  if (options?.resetPage) {
-    outputPage.value = data.page || 1
-  }
-
-  syncActiveOutputPreview()
 }
 
 const refreshDiscoverData = (options?: { resetPage?: boolean }) => {
@@ -1580,7 +1631,7 @@ const refreshDiscoverData = (options?: { resetPage?: boolean }) => {
     }),
   ]).then((results) => {
     if (results.some((result) => result.status === 'rejected')) {
-      MessagePlugin.warning('发现数据刷新失败，当前展示示例内容')
+      MessagePlugin.warning('发现数据刷新失败')
     }
   })
 }
@@ -1600,25 +1651,19 @@ const groupMemoryItems = (items: MemoryListItem[]) => {
 
 const loadOrganizeData = async () => {
   const results = await Promise.allSettled([
-    listOrganizeMemories({ page_size: 100 }),
+    loadMemoryData(),
     loadDiscoverFeaturedData(),
     loadDiscoverFeedData({ tab: discoverTab.value, page: 1, resetPage: true }),
-    listOrganizeSproutReports({ page_size: 100 }),
+    loadSproutReportsData(),
   ])
 
   const [memoryResult, featuredResult, feedResult, sproutResult] = results
-  if (memoryResult.status === 'fulfilled' && memoryResult.value.success && memoryResult.value.data.items.length) {
-    memoryGroups.value = groupMemoryItems(memoryResult.value.data.items.map(mapMemory))
-  }
   if (featuredResult.status === 'rejected' || feedResult.status === 'rejected') {
-    MessagePlugin.warning('发现数据加载失败，当前展示示例内容')
-  }
-  if (sproutResult.status === 'fulfilled' && sproutResult.value.success && sproutResult.value.data.items.length) {
-    sproutReports.value = sproutResult.value.data.items.map(mapSproutReport)
+    MessagePlugin.warning('发现数据加载失败')
   }
 
   if (memoryResult.status === 'rejected' || sproutResult.status === 'rejected') {
-    MessagePlugin.warning('部分文档数据加载失败，当前展示示例内容')
+    MessagePlugin.warning('部分文档数据加载失败')
   }
 }
 
@@ -1692,11 +1737,125 @@ const createActiveDocument = () => {
   void openDocumentEditor('memory')
 }
 
-const isEditableMemory = (item: MemoryItem) => item.type === 'note' || item.type === 'record' || item.type === 'audio'
+const isEditableMemory = (item: MemoryItem) =>
+  item.type === 'note' || item.type === 'record' || item.type === 'audio' || item.type === 'audio-card'
 
 const openMemoryEditor = (item: MemoryListItem | MemoryItem) => {
   if (!isEditableMemory(item)) return
   void openDocumentEditor('memory', item.id, item)
+}
+
+const handleMemoryMenuVisible = (id: string, visible: boolean) => {
+  activeMemoryMenuId.value = visible ? id : ''
+}
+
+const closeMemoryMenu = () => {
+  activeMemoryMenuId.value = ''
+}
+
+const removeMemoryFromGroups = (id: string) => {
+  memoryGroups.value = memoryGroups.value
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.id !== id),
+    }))
+    .filter((group) => group.items.length > 0)
+}
+
+const deleteMemoryItem = (item: MemoryItem) => {
+  const dialog = DialogPlugin.confirm({
+    header: '删除记忆',
+    body: `确认删除「${item.title || '无标题'}」？删除后无法恢复。`,
+    confirmBtn: { content: '删除', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      try {
+        if (item.persisted) {
+          const response = await deleteOrganizeMemory(item.id)
+          if (response?.success === false) {
+            throw new Error(response.message || '删除失败')
+          }
+        }
+        removeMemoryFromGroups(item.id)
+        MessagePlugin.success('已删除')
+        dialog.destroy()
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || '删除失败')
+      }
+    },
+    onCancel: () => dialog.destroy(),
+  })
+}
+
+const upsertSproutReportItem = (item: OrganizeSproutReport) => {
+  const next = mapSproutReport(item)
+  const index = sproutReports.value.findIndex((candidate) => candidate.id === next.id)
+  if (index !== -1) {
+    sproutReports.value = sproutReports.value.map((candidate) => (candidate.id === next.id ? next : candidate))
+  } else {
+    sproutReports.value = [next, ...sproutReports.value]
+  }
+  if (activeSproutReport.value?.id === next.id) {
+    activeSproutReport.value = next
+  }
+  return next
+}
+
+const scheduleSproutReportRefresh = () => {
+  const refresh = () => {
+    void loadSproutReportsData({ silent: true }).catch(() => {
+      // 创建后短轮询只用于同步异步生成结果，失败时保留当前“发芽中”状态。
+    })
+  }
+  window.setTimeout(refresh, 1500)
+  window.setTimeout(refresh, 5000)
+}
+
+const createSproutFromMemory = async (item: MemoryItem) => {
+  const linkedReport = linkedMemorySproutReport(item)
+  if (linkedReport) {
+    return
+  }
+  if (isMemorySproutCreating(item.id)) return
+  if (!item.persisted) {
+    MessagePlugin.warning('该记忆暂不支持发芽')
+    return
+  }
+
+  setMemorySproutCreating(item.id, true)
+  try {
+    const response = await createOrganizeSproutReportFromMemory({
+      memory_id: item.id,
+      role_config: memorySproutRoleConfig(),
+    })
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '发芽任务创建失败')
+    }
+
+    upsertSproutReportItem(response.data)
+    MessagePlugin.success('发芽任务已创建')
+    scheduleSproutReportRefresh()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '发芽任务创建失败')
+  } finally {
+    setMemorySproutCreating(item.id, false)
+  }
+}
+
+const handleMemoryMenuAction = (item: MemoryItem, action: MemoryMenuAction) => {
+  if (action === 'edit') {
+    closeMemoryMenu()
+    openMemoryEditor(item)
+    return
+  }
+  if (action === 'sprout') {
+    void createSproutFromMemory(item)
+    return
+  }
+  if (action === 'delete') {
+    closeMemoryMenu()
+    deleteMemoryItem(item)
+  }
 }
 
 const openOutputPreview = (item: OutputItem) => {
@@ -2110,7 +2269,7 @@ button.asset-card {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  max-width: 920px;
+  max-width: none;
 }
 
 .memory-list-back {
@@ -2136,29 +2295,15 @@ button.asset-card {
 .memory-asset-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-width: 920px;
+  gap: 12px;
+  max-width: none;
 }
 
 .memory-list-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-  background: var(--td-bg-color-container);
-  box-sizing: border-box;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-
-  &:hover {
-    border-color: var(--td-brand-color);
-    box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12);
-  }
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 
 .memory-list-card--editable,
-.memory-row--editable,
 .output-card--editable,
 .report-card--editable {
   cursor: pointer;
@@ -2170,17 +2315,84 @@ button.asset-card {
 }
 
 .memory-list-card-main {
-  flex: 1;
   min-width: 0;
+}
 
-  h2 {
-    margin: 8px 0 0;
+.memory-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+}
+
+.memory-card-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #8a9099;
+  cursor: pointer;
+
+  &:hover,
+  &.is-active {
+    background: var(--td-bg-color-secondarycontainer);
     color: var(--td-text-color-primary);
-    font-size: 15px;
-    font-weight: 500;
-    line-height: 23px;
-    letter-spacing: 0;
   }
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color-focus);
+    outline-offset: 2px;
+  }
+}
+
+.memory-card-cover {
+  color: #0f8f52;
+}
+
+.memory-list-card--audio .memory-card-cover {
+  color: #d87600;
+}
+
+.memory-list-card--audio-card .memory-card-cover {
+  color: #2459d9;
+}
+
+.memory-card-footer {
+  margin-top: auto;
+}
+
+:global(.memory-card-menu-popup .t-popup__content) {
+  min-width: 228px;
+  padding: 10px !important;
+  border-radius: 8px !important;
+}
+
+.memory-card-menu {
+  gap: 4px;
+}
+
+.memory-menu-item {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+
+  &:disabled {
+    opacity: 0.56;
+    cursor: progress;
+  }
+}
+
+.memory-sprout-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .memory-list-empty {
@@ -2198,15 +2410,18 @@ button.asset-card {
 }
 
 .timeline-group {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 10px;
 }
 
 .timeline-date-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 0 12px;
+  grid-column: 1 / -1;
+  padding: 2px 2px 0;
+  color: var(--td-text-color-secondary);
 
   h2 {
     margin: 0;
@@ -2654,6 +2869,18 @@ button.asset-card {
   font-size: 13px;
   line-height: 20px;
   text-align: center;
+}
+
+.organize-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 168px;
+  color: var(--td-text-color-secondary);
+}
+
+.discover-loading {
+  min-height: 140px;
 }
 
 .output-pagination,
@@ -3428,7 +3655,7 @@ button.asset-card {
 
   h2 {
     display: -webkit-box;
-    margin: 4px 0 6px;
+    margin: 0;
     max-height: 18px;
     overflow: hidden;
     color: var(--td-text-color-primary);
@@ -3438,6 +3665,26 @@ button.asset-card {
     letter-spacing: 0;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 1;
+  }
+}
+
+.sprout-report-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  margin: 2px 0 6px;
+
+  h2 {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .type-badge {
+    flex-shrink: 0;
+    min-height: 20px;
+    padding: 1px 7px;
+    line-height: 16px;
   }
 }
 
@@ -3689,6 +3936,10 @@ button.asset-card {
   }
 
   .output-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-group {
     grid-template-columns: 1fr;
   }
 

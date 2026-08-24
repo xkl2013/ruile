@@ -17,6 +17,7 @@ var (
 	ErrOrganizeInvalidMemoryKind = errors.New("invalid memory kind")
 	ErrOrganizeInvalidStatus     = errors.New("invalid output status")
 	ErrOrganizeInvalidStage      = errors.New("invalid sprout stage")
+	ErrOrganizeMemoryRequired    = errors.New("memory_id is required")
 	ErrOrganizeInvalidMemoryRefs = errors.New("memory_ids contains unknown memories")
 )
 
@@ -29,10 +30,10 @@ const (
 )
 
 type organizeService struct {
-	repo            interfaces.OrganizeRepository
-	modelService    interfaces.ModelService
-	fileService     interfaces.FileService
-	documentReader  interfaces.DocumentReader
+	repo           interfaces.OrganizeRepository
+	modelService   interfaces.ModelService
+	fileService    interfaces.FileService
+	documentReader interfaces.DocumentReader
 }
 
 func NewOrganizeService(
@@ -365,7 +366,7 @@ func (s *organizeService) buildSproutReport(
 	if !types.IsValidOrganizeSproutStage(stage) {
 		return nil, nil, ErrOrganizeInvalidStage
 	}
-	memoryIDs, err := s.validateMemoryIDs(ctx, tenantID, userID, input.MemoryIDs)
+	memoryIDs, err := s.validateTenantMemoryIDs(ctx, tenantID, input.MemoryIDs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -388,6 +389,21 @@ func (s *organizeService) validateMemoryIDs(ctx context.Context, tenantID uint64
 		return nil, nil
 	}
 	count, err := s.repo.CountMemoriesByIDs(ctx, tenantID, userID, cleaned)
+	if err != nil {
+		return nil, err
+	}
+	if count != int64(len(cleaned)) {
+		return nil, ErrOrganizeInvalidMemoryRefs
+	}
+	return cleaned, nil
+}
+
+func (s *organizeService) validateTenantMemoryIDs(ctx context.Context, tenantID uint64, ids []string) ([]string, error) {
+	cleaned := organizeUniqueNonEmptyStrings(ids)
+	if len(cleaned) == 0 {
+		return nil, nil
+	}
+	count, err := s.repo.CountTenantMemoriesByIDs(ctx, tenantID, cleaned)
 	if err != nil {
 		return nil, err
 	}

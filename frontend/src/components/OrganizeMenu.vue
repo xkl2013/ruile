@@ -19,7 +19,8 @@
       <button v-for="item in organizeItems" :key="item.key" type="button" class="organize-menu-item"
         :class="{ active: isOrganizeRoute && activeTab === item.key }" :title="item.label"
         :aria-current="isOrganizeRoute && activeTab === item.key ? 'page' : undefined" @click="openRoute(item.path)">
-        <t-icon :name="item.icon" class="organize-menu-item-icon" />
+        <OrganizeSproutIcon v-if="item.key === 'sprout'" class="organize-menu-item-icon" />
+        <t-icon v-else :name="item.icon" class="organize-menu-item-icon" />
         <span class="organize-menu-item-name">{{ item.label }}</span>
       </button>
     </div>
@@ -35,6 +36,7 @@ import {
   isOrganizeTab,
   type OrganizeTab,
 } from '@/views/organize/organizeRoutes'
+import OrganizeSproutIcon from '@/views/organize/components/OrganizeSproutIcon.vue'
 
 const { t } = useI18n()
 const route = useRoute()

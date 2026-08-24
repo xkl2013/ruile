@@ -1233,6 +1233,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 
 		org.GET("/sprout-reports", g.Viewer(), h.ListSproutReports)
 		org.POST("/sprout-reports", g.Viewer(), h.CreateSproutReport)
+		org.POST("/sprout-reports/from-memory", g.Viewer(), h.CreateSproutReportFromMemory)
 		org.GET("/sprout-reports/:id", g.Viewer(), h.GetSproutReport)
 		org.PUT("/sprout-reports/:id", g.Viewer(), h.UpdateSproutReport)
 		org.DELETE("/sprout-reports/:id", g.Viewer(), h.DeleteSproutReport)

@@ -360,6 +360,25 @@ func (h *OrganizeHandler) CreateSproutReport(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 
+func (h *OrganizeHandler) CreateSproutReportFromMemory(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeSproutFromMemoryInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.CreateSproutReportFromMemory(ctx, tenantID, userID, req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
 func (h *OrganizeHandler) GetSproutReport(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := organizeScope(c)
@@ -438,6 +457,7 @@ func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, service.ErrOrganizeInvalidMemoryKind),
 		stderrors.Is(err, service.ErrOrganizeInvalidStatus),
 		stderrors.Is(err, service.ErrOrganizeInvalidStage),
+		stderrors.Is(err, service.ErrOrganizeMemoryRequired),
 		stderrors.Is(err, service.ErrOrganizeInvalidMemoryRefs):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	default:

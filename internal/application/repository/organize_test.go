@@ -55,6 +55,11 @@ func TestOrganizeRepositoryRoundTrip(t *testing.T) {
 	require.NoError(t, repo.CreateMemory(ctx, audio))
 	require.NoError(t, repo.CreateMemory(ctx, otherUser))
 
+	tenantMemory, err := repo.GetTenantMemory(ctx, tenantID, otherUser.ID)
+	require.NoError(t, err)
+	require.NotNil(t, tenantMemory)
+	require.Equal(t, otherUser.ID, tenantMemory.ID)
+
 	memories, total, err := repo.ListMemories(ctx, types.OrganizeListQuery{
 		TenantID: tenantID,
 		UserID:   userID,

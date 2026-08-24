@@ -246,6 +246,12 @@ type OrganizeSproutReportInput struct {
 	Metadata   JSONMap     `json:"metadata,omitempty"`
 }
 
+type OrganizeSproutFromMemoryInput struct {
+	MemoryID   string  `json:"memory_id"`
+	ModelID    string  `json:"model_id,omitempty"`
+	RoleConfig JSONMap `json:"role_config,omitempty"`
+}
+
 type OrganizeTabSummary struct {
 	Key          string     `json:"key"`
 	Count        int64      `json:"count"`

@@ -9,11 +9,13 @@ import (
 type OrganizeRepository interface {
 	CreateMemory(ctx context.Context, memory *types.OrganizeMemory) error
 	GetMemory(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeMemory, error)
+	GetTenantMemory(ctx context.Context, tenantID uint64, id string) (*types.OrganizeMemory, error)
 	UpdateMemory(ctx context.Context, memory *types.OrganizeMemory) error
 	DeleteMemory(ctx context.Context, tenantID uint64, userID, id string) error
 	ListMemories(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeMemory, int64, error)
 	CountMemoriesByKind(ctx context.Context, tenantID uint64, userID string) (map[string]int64, error)
 	CountMemoriesByIDs(ctx context.Context, tenantID uint64, userID string, ids []string) (int64, error)
+	CountTenantMemoriesByIDs(ctx context.Context, tenantID uint64, ids []string) (int64, error)
 
 	CreateOutput(ctx context.Context, output *types.OrganizeOutput, memoryIDs []string) error
 	GetOutput(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeOutput, error)
@@ -45,6 +47,7 @@ type OrganizeService interface {
 	ListOutputs(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeOutput, int64, error)
 
 	CreateSproutReport(ctx context.Context, tenantID uint64, userID string, input types.OrganizeSproutReportInput) (*types.OrganizeSproutReport, error)
+	CreateSproutReportFromMemory(ctx context.Context, tenantID uint64, userID string, input types.OrganizeSproutFromMemoryInput) (*types.OrganizeSproutReport, error)
 	GetSproutReport(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeSproutReport, error)
 	UpdateSproutReport(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeSproutReportInput) (*types.OrganizeSproutReport, error)
 	DeleteSproutReport(ctx context.Context, tenantID uint64, userID, id string) error

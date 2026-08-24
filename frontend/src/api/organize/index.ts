@@ -1,4 +1,4 @@
-import { get, post, postUpload, put } from '@/utils/request'
+import { del, get, post, postUpload, put } from '@/utils/request'
 
 export type OrganizeMemoryKind = 'note' | 'record' | 'audio' | 'audio_card'
 export type OrganizeOutputStatus = 'draft' | 'review' | 'ready' | 'archived'
@@ -120,6 +120,12 @@ export interface OrganizeSproutReportInput {
   metadata?: Record<string, unknown>
 }
 
+export interface OrganizeSproutFromMemoryInput {
+  memory_id: string
+  model_id?: string
+  role_config?: Record<string, unknown>
+}
+
 function withQuery<T extends object>(path: string, params?: T) {
   const query = new URLSearchParams()
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -145,6 +151,10 @@ export function updateOrganizeMemory(id: string, input: OrganizeMemoryInput) {
 
 export function getOrganizeMemory(id: string) {
   return get<OrganizeResponse<OrganizeMemory>>(`/api/v1/organize/memories/${encodeURIComponent(id)}`)
+}
+
+export function deleteOrganizeMemory(id: string) {
+  return del<OrganizeResponse<null>>(`/api/v1/organize/memories/${encodeURIComponent(id)}`)
 }
 
 export function listOrganizeOutputs(params?: OrganizeListParams & { status?: OrganizeOutputStatus }) {
@@ -179,6 +189,10 @@ export function listOrganizeSproutReports(params?: OrganizeListParams & { stage?
 
 export function createOrganizeSproutReport(input: OrganizeSproutReportInput) {
   return post<OrganizeResponse<OrganizeSproutReport>>('/api/v1/organize/sprout-reports', input)
+}
+
+export function createOrganizeSproutReportFromMemory(input: OrganizeSproutFromMemoryInput) {
+  return post<OrganizeResponse<OrganizeSproutReport>>('/api/v1/organize/sprout-reports/from-memory', input)
 }
 
 export function updateOrganizeSproutReport(id: string, input: OrganizeSproutReportInput) {

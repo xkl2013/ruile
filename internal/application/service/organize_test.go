@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -172,4 +174,53 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rotated.FeaturedOutputs, 3)
 	require.NotEqual(t, discover.FeaturedOutputs[0].ID, rotated.FeaturedOutputs[0].ID)
+}
+
+func TestOrganizeServiceCreateSproutReportFromMemoryGeneratesWithRoleConfig(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantRoleContextKey, types.TenantRoleAdmin)
+	svc := newOrganizeServiceForTest(t)
+	svc.modelService = &stubOrganizeModelService{
+		models: []*types.Model{
+			{ID: "chat-1", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
+		},
+		chatModel: &stubOrganizeChatModel{
+			content: "AI发芽报告\n\n## 01. 经营信号\n\n> **🌱 种子**\n> 家长关注开放日体验。\n\n> **✨ Aha 瞬间**\n> 需要把体验拆成可跟进动作。",
+		},
+	}
+
+	memory, err := svc.CreateMemory(ctx, 7, "user-a", types.OrganizeMemoryInput{
+		Kind:    types.OrganizeMemoryKindNote,
+		Title:   "开放日家长反馈",
+		Content: "家长集中询问开放日动线、试听安排和报名政策。",
+		Source:  "随笔",
+		Metadata: types.JSONMap{
+			"tags": []string{"开放日", "家长沟通"},
+		},
+	})
+	require.NoError(t, err)
+
+	report, err := svc.CreateSproutReportFromMemory(ctx, 7, "user-b", types.OrganizeSproutFromMemoryInput{
+		MemoryID: memory.ID,
+		RoleConfig: types.JSONMap{
+			"position": "园长",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "user-b", report.UserID)
+	require.Equal(t, types.OrganizeSproutStageOrganizing, report.Stage)
+	require.Equal(t, int64(1), report.MemoryCount)
+	require.ElementsMatch(t, []string{memory.ID}, report.MemoryIDs)
+	require.Equal(t, "pending", report.Metadata["ai_status"])
+	require.Equal(t, string(types.TenantRoleAdmin), report.Metadata["role"])
+
+	require.Eventually(t, func() bool {
+		generated, err := svc.GetSproutReport(ctx, 7, "user-b", report.ID)
+		if err != nil {
+			return false
+		}
+		return generated.Stage == types.OrganizeSproutStageFormed &&
+			strings.Contains(generated.Summary, "AI发芽报告") &&
+			generated.Metadata["ai_status"] == "completed" &&
+			generated.Metadata["ai_model_id"] == "chat-1"
+	}, 2*time.Second, 20*time.Millisecond)
 }

@@ -33,6 +33,17 @@ func (r *organizeRepository) GetMemory(ctx context.Context, tenantID uint64, use
 	return &memory, err
 }
 
+func (r *organizeRepository) GetTenantMemory(ctx context.Context, tenantID uint64, id string) (*types.OrganizeMemory, error) {
+	var memory types.OrganizeMemory
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND id = ?", tenantID, id).
+		First(&memory).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &memory, err
+}
+
 func (r *organizeRepository) UpdateMemory(ctx context.Context, memory *types.OrganizeMemory) error {
 	return r.db.WithContext(ctx).
 		Model(&types.OrganizeMemory{}).
@@ -105,6 +116,17 @@ func (r *organizeRepository) CountMemoriesByIDs(ctx context.Context, tenantID ui
 	var count int64
 	err := r.db.WithContext(ctx).Model(&types.OrganizeMemory{}).
 		Where("tenant_id = ? AND user_id = ? AND id IN ?", tenantID, userID, ids).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *organizeRepository) CountTenantMemoriesByIDs(ctx context.Context, tenantID uint64, ids []string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var count int64
+	err := r.db.WithContext(ctx).Model(&types.OrganizeMemory{}).
+		Where("tenant_id = ? AND id IN ?", tenantID, ids).
 		Count(&count).Error
 	return count, err
 }

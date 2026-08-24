@@ -35,53 +35,247 @@
 
       <div v-else class="editor-page-content">
         <article class="document-page">
-          <section v-if="isAudioMemory" class="memory-audio-panel" aria-label="录音详情">
-            <t-input v-model="title" class="memory-audio-title-input" size="large" clearable placeholder="录音标题" />
-            <div class="memory-audio-player" aria-label="录音播放">
-              <template v-if="audioSourceUrl">
-                <audio class="memory-audio-native" :src="audioSourceUrl" controls preload="metadata"></audio>
-                <div class="memory-audio-transcript-chip">
-                  <t-icon name="file-word" size="14px" />
-                  <span>文稿</span>
+          <template v-if="isNoteMemory">
+            <section class="memory-note-panel" aria-label="笔记详情">
+              <div class="memory-note-header">
+                <t-input v-model="title" class="memory-note-title-input" size="large" clearable placeholder="笔记标题" />
+                <div class="memory-note-meta">
+                  <span>{{ memoryAssetLabel }}</span>
+                  <span>{{ memorySource }}</span>
                 </div>
-              </template>
-              <template v-else>
-                <button type="button" class="memory-audio-play" aria-label="播放录音">
-                  <t-icon name="play-circle" size="18px" />
+              </div>
+
+              <div class="memory-note-tags">
+                <div class="memory-note-tag-list">
+                  <t-tag
+                    v-for="tag in memoryTags"
+                    :key="tag"
+                    class="memory-note-tag"
+                    size="small"
+                    variant="light-outline"
+                  >
+                    {{ tag }}
+                    <button type="button" class="memory-note-tag-remove" :aria-label="`移除 ${tag}`" @click="removeMemoryTag(tag)">
+                      <t-icon name="close" />
+                    </button>
+                  </t-tag>
+                  <span v-if="!memoryTags.length" class="memory-note-tag-empty">还没有标签</span>
+                </div>
+
+                <div class="memory-note-tag-actions">
+                  <t-popup
+                    v-model:visible="noteTagMenuVisible"
+                    trigger="click"
+                    placement="bottom-left"
+                    destroy-on-close
+                    overlayClassName="memory-note-tag-popup"
+                  >
+                    <t-button variant="outline" theme="default" size="small">
+                      <template #icon><t-icon name="add" /></template>
+                      添加标签
+                    </t-button>
+                    <template #content>
+                      <div class="memory-note-tag-panel" @click.stop>
+                        <t-input
+                          v-model="noteTagDraft"
+                          clearable
+                          placeholder="输入标签后回车"
+                          @keydown.enter.prevent="addMemoryTag()"
+                        />
+                        <div class="memory-note-tag-panel-actions">
+                          <t-button theme="primary" size="small" @click="addMemoryTag()">添加</t-button>
+                          <t-button theme="default" variant="outline" size="small" @click="noteTagMenuVisible = false">关闭</t-button>
+                        </div>
+                      </div>
+                    </template>
+                  </t-popup>
+
+                  <t-button variant="outline" theme="primary" size="small" @click="generateMemoryTags">+ 智能标签</t-button>
+                  <t-button
+                    theme="default"
+                    variant="text"
+                    size="small"
+                    class="memory-note-sprout-action"
+                    :loading="noteSproutCreating"
+                    @click="createMemorySprout"
+                  >
+                    <template #icon><OrganizeSproutIcon class="memory-note-sprout-icon" /></template>
+                    发芽
+                  </t-button>
+                </div>
+              </div>
+
+              <div class="memory-note-toolbar" aria-label="笔记格式工具">
+                <div class="memory-note-toolbar-group">
+                  <span class="memory-note-toolbar-label">字号</span>
+                  <t-select
+                    v-model="noteToolbarFontSize"
+                    class="memory-note-font-select"
+                    size="small"
+                    clearable
+                    :options="noteFontSizeOptions"
+                    placeholder="默认"
+                    @change="handleMemoryFontSizeChange"
+                  />
+                </div>
+                <div class="memory-note-toolbar-group memory-note-toolbar-group--color">
+                  <span class="memory-note-toolbar-label">颜色</span>
+                  <div class="memory-note-color-row">
+                    <button
+                      v-for="color in noteColorOptions"
+                      :key="color"
+                      type="button"
+                      class="memory-note-color-swatch"
+                      :class="{ 'is-active': noteToolbarColor === color }"
+                      :aria-label="color"
+                      :title="color"
+                      @click="applyMemoryTextColor(color)"
+                    >
+                      <span :style="{ backgroundColor: color }"></span>
+                    </button>
+                    <button type="button" class="memory-note-color-reset" @click="applyMemoryTextColor('')">清除</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="memory-note-tabs" role="tablist" aria-label="笔记视图切换">
+                <button
+                  type="button"
+                  class="memory-note-tab"
+                  :class="{ 'is-active': noteActiveTab === 'content' }"
+                  @click="noteActiveTab = 'content'"
+                >
+                  笔记内容
                 </button>
-                <div class="memory-audio-track-wrap">
-                  <div class="memory-audio-track" aria-hidden="true">
-                    <span class="memory-audio-thumb"></span>
-                    <span class="memory-audio-progress"></span>
+                <button
+                  type="button"
+                  class="memory-note-tab"
+                  :class="{ 'is-active': noteActiveTab === 'append' }"
+                  @click="noteActiveTab = 'append'"
+                >
+                  追加笔记
+                </button>
+                <button
+                  type="button"
+                  class="memory-note-tab"
+                  :class="{ 'is-active': noteActiveTab === 'sprout' }"
+                  @click="noteActiveTab = 'sprout'"
+                >
+                  发芽
+                </button>
+              </div>
+
+              <div class="memory-note-tab-panels">
+                <section v-show="noteActiveTab === 'content'" class="memory-note-panel-view">
+                  <div
+                    class="document-editor-shell document-editor-shell--memory-note"
+                    @keydown.capture="handleEditorKeydown"
+                  >
+                    <TiptapProEditor
+                      :key="editorKey"
+                      ref="editorRef"
+                      v-model="content"
+                      :version="editorVersion"
+                      theme-preset="notion"
+                      locale="zh-CN"
+                      :placeholder="editorPlaceholder"
+                      :features="editorFeatures"
+                    />
                   </div>
-                  <div class="memory-audio-time-row">
-                    <span>00:00</span>
-                    <span>{{ audioDurationLabel }}</span>
+                </section>
+
+                <section v-show="noteActiveTab === 'append'" class="memory-note-panel-view memory-note-panel-view--append">
+                  <div class="memory-note-section-head">
+                    <h3>追加笔记</h3>
+                    <p>补充内容会追加到正文末尾。</p>
                   </div>
-                </div>
-                <div class="memory-audio-transcript-chip">
-                  <t-icon name="file-word" size="14px" />
-                  <span>文稿</span>
-                </div>
-              </template>
+                  <t-textarea
+                    v-model="appendNoteText"
+                    class="memory-note-append-input"
+                    :autosize="{ minRows: 6, maxRows: 12 }"
+                    placeholder="在这里补充新内容，支持换行"
+                  />
+                  <div class="memory-note-panel-actions">
+                    <t-button theme="primary" :disabled="!appendNoteText.trim()" @click="appendMemoryText">追加到正文</t-button>
+                  </div>
+                </section>
+
+                <section v-show="noteActiveTab === 'sprout'" class="memory-note-panel-view memory-note-panel-view--sprout">
+                  <div class="memory-note-section-head memory-note-section-head--sprout">
+                    <div>
+                      <h3>发芽</h3>
+                      <p>把这条笔记整理成可继续复盘的发芽结果。</p>
+                    </div>
+                    <t-button theme="primary" :loading="noteSproutCreating" @click="createMemorySprout">
+                      <template #icon><OrganizeSproutIcon class="memory-note-sprout-icon" /></template>
+                      发芽
+                    </t-button>
+                  </div>
+                  <div v-if="noteSproutReport" class="memory-note-sprout-result">
+                    <div class="memory-note-sprout-meta">
+                      <t-tag size="small" variant="light">{{ noteSproutStageLabel(noteSproutStatus || noteSproutReport.stage) }}</t-tag>
+                      <span>{{ noteSproutReport.memory_count ?? 1 }} 条素材</span>
+                    </div>
+                    <h3>{{ noteSproutReport.title }}</h3>
+                    <div class="memory-note-sprout-body" v-html="sproutReportContentForEditor(noteSproutReport.summary)"></div>
+                  </div>
+                  <div v-else class="memory-note-empty-state">
+                    还没有发芽结果，点击按钮开始生成。
+                  </div>
+                </section>
+              </div>
+            </section>
+          </template>
+
+          <template v-else>
+            <section v-if="isAudioMemory" class="memory-audio-panel" aria-label="录音详情">
+              <t-input v-model="title" class="memory-audio-title-input" size="large" clearable placeholder="录音标题" />
+              <div class="memory-audio-player" aria-label="录音播放">
+                <template v-if="audioSourceUrl">
+                  <audio class="memory-audio-native" :src="audioSourceUrl" controls preload="metadata"></audio>
+                  <div class="memory-audio-transcript-chip">
+                    <t-icon name="file-word" size="14px" />
+                    <span>文稿</span>
+                  </div>
+                </template>
+                <template v-else>
+                  <button type="button" class="memory-audio-play" aria-label="播放录音">
+                    <t-icon name="play-circle" size="18px" />
+                  </button>
+                  <div class="memory-audio-track-wrap">
+                    <div class="memory-audio-track" aria-hidden="true">
+                      <span class="memory-audio-thumb"></span>
+                      <span class="memory-audio-progress"></span>
+                    </div>
+                    <div class="memory-audio-time-row">
+                      <span>00:00</span>
+                      <span>{{ audioDurationLabel }}</span>
+                    </div>
+                  </div>
+                  <div class="memory-audio-transcript-chip">
+                    <t-icon name="file-word" size="14px" />
+                    <span>文稿</span>
+                  </div>
+                </template>
+              </div>
+            </section>
+            <div
+              class="document-editor-shell"
+              :class="{ 'document-editor-shell--audio': isAudioMemory }"
+              @keydown.capture="handleEditorKeydown"
+            >
+              <TiptapProEditor
+                :key="editorKey"
+                ref="editorRef"
+                v-model="content"
+                :version="editorVersion"
+                theme-preset="notion"
+                locale="zh-CN"
+                :placeholder="editorPlaceholder"
+                :features="editorFeatures"
+              />
             </div>
-          </section>
-          <div
-            class="document-editor-shell"
-            :class="{ 'document-editor-shell--audio': isAudioMemory }"
-            @keydown.capture="handleEditorKeydown"
-          >
-            <TiptapProEditor
-              :key="editorKey"
-              ref="editorRef"
-              v-model="content"
-              version="basic"
-              theme-preset="notion"
-              locale="zh-CN"
-              :placeholder="editorPlaceholder"
-              :features="editorFeatures"
-            />
-          </div>
+          </template>
         </article>
       </div>
     </main>
@@ -96,6 +290,7 @@ import { TiptapProEditor, type FeatureConfig, type TiptapProEditorExpose } from 
 import 'tiptap-ui-kit/style.css'
 import {
   createOrganizeMemory,
+  createOrganizeSproutReportFromMemory,
   createOrganizeOutput,
   createOrganizeSproutReport,
   getOrganizeMemory,
@@ -111,12 +306,18 @@ import {
   type OrganizeSproutReport,
   type OrganizeSproutStage,
 } from '@/api/organize'
+import { useAuthStore } from '@/stores/auth'
 import {
   clearOrganizeEditorDraft,
   readOrganizeEditorDraft,
   type OrganizeEditorDraft,
 } from './editorDraftStorage'
 import { sproutReportContentForEditor } from './sproutReport'
+import {
+  buildSmartNoteTags,
+  mergeNoteMetadata,
+  normalizeNoteTags,
+} from './noteEditor'
 
 type OrganizeDocumentType = 'memory' | 'output' | 'sprout'
 type SaveState = 'idle' | 'saving' | 'saved' | 'waiting' | 'error'
@@ -125,6 +326,7 @@ const AUTOSAVE_DELAY = 700
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 const title = ref('')
 const emptyDocumentContent = '<h1></h1><p></p>'
@@ -147,8 +349,38 @@ const memoryKind = ref<OrganizeMemoryKind>('note')
 const memorySource = ref('手动输入')
 const memoryDurationSeconds = ref(0)
 const memoryMetadata = ref<Record<string, unknown> | undefined>()
+const memoryTags = ref<string[]>([])
+const appendNoteText = ref('')
+const noteTagDraft = ref('')
+const noteTagMenuVisible = ref(false)
+const noteSproutReport = ref<OrganizeSproutReport | null>(null)
+const noteSproutCreating = ref(false)
+const noteSproutStatus = ref<OrganizeSproutStage | ''>('')
+const noteDefaultFontSize = '14px'
+const noteToolbarFontSize = ref(noteDefaultFontSize)
+const noteToolbarColor = ref('#37352f')
+const noteActiveTab = ref<'content' | 'append' | 'sprout'>('content')
 const outputDraft = ref<OrganizeOutput | null>(null)
 const sproutDraft = ref<OrganizeSproutReport | null>(null)
+const noteFontSizeOptions = [
+  { label: '12px', value: '12px' },
+  { label: '13px', value: '13px' },
+  { label: '14px', value: '14px' },
+  { label: '16px', value: '16px' },
+  { label: '18px', value: '18px' },
+  { label: '20px', value: '20px' },
+]
+const noteColorOptions = [
+  '#37352f',
+  '#787774',
+  '#9b9a97',
+  '#9c36b5',
+  '#5f3dc4',
+  '#2f9e44',
+  '#1971c2',
+  '#d9480f',
+  '#c92a2a',
+]
 
 const editorFeatures: FeatureConfig = {
   headerNav: false,
@@ -173,7 +405,7 @@ const documentType = computed<OrganizeDocumentType | ''>(() => {
 })
 const documentId = computed(() => readParam(route.params.id))
 const activeDocumentId = computed(() => savedDocumentId.value || documentId.value)
-const isCreate = computed(() => !savedDocumentId.value && (documentId.value === 'new' || documentId.value.startsWith('demo-')))
+const isCreate = computed(() => !savedDocumentId.value && documentId.value === 'new')
 
 const memoryAssetLabel = computed(() => {
   if (memoryKind.value === 'audio') return '录音'
@@ -183,7 +415,11 @@ const memoryAssetLabel = computed(() => {
 
 const isAudioMemory = computed(() => documentType.value === 'memory' && memoryKind.value === 'audio')
 const audioDurationLabel = computed(() => formatDuration(memoryDurationSeconds.value || 0))
-const editorPlaceholder = computed(() => isAudioMemory.value ? '录音转写内容' : '输入内容，或按“/”启用命令')
+const editorPlaceholder = computed(() => {
+  if (isAudioMemory.value) return '录音转写内容'
+  if (isNoteMemory.value) return '输入正文，支持字号和颜色'
+  return '输入内容，或按“/”启用命令'
+})
 
 const typeLabel = computed(() => {
   if (documentType.value === 'output') return '发现文档'
@@ -202,6 +438,10 @@ const breadcrumbItems = computed(() => {
   const section = typeLabel.value
   return section && section !== root ? [root, section] : [root]
 })
+
+const isMemoryDocument = computed(() => documentType.value === 'memory')
+const isNoteMemory = computed(() => isMemoryDocument.value && (memoryKind.value === 'note' || memoryKind.value === 'record'))
+const editorVersion = computed(() => (isNoteMemory.value ? 'advanced' : 'basic'))
 
 const defaultReturnTo = computed(() => {
   if (documentType.value === 'output') return '/platform/organize/output'
@@ -249,10 +489,22 @@ const formatDuration = (seconds?: number) => {
 
 const parseHtmlBody = (html = '') => new DOMParser().parseFromString(html, 'text/html').body
 
+const plainTextFromHtml = (html = '') => parseHtmlBody(html).textContent?.replace(/\s+/g, ' ').trim() || ''
+
 const extractTitleFromContent = (html = '') => {
   const firstBlock = Array.from(parseHtmlBody(html).children)[0]
   if (firstBlock?.tagName.toLowerCase() !== 'h1') return ''
   return normalizeTitle(firstBlock.textContent || '')
+}
+
+const stripLeadingMemoryTitle = (html = '') => {
+  const body = parseHtmlBody(html)
+  const firstBlock = Array.from(body.children)[0]
+
+  if (firstBlock?.tagName.toLowerCase() === 'h1') firstBlock.remove()
+
+  const bodyHtml = body.innerHTML.trim()
+  return bodyHtml || '<p></p>'
 }
 
 const normalizeDocumentContent = (documentTitle = '', html = '') => {
@@ -300,6 +552,147 @@ const normalizeAudioMemoryContent = (html = '') => {
 
   const text = body.textContent?.trim() || ''
   return text ? `<p>${escapeHtml(text)}</p>` : '<p></p>'
+}
+
+const memoryBodyContent = (documentTitle = '', html = '') => {
+  if (isAudioMemory.value) return normalizeAudioMemoryContent(html)
+  return stripLeadingMemoryTitle(html)
+}
+
+const noteTagsFromMetadata = (metadata?: Record<string, unknown>) => normalizeNoteTags(metadata?.tags)
+
+const noteMetadataForSave = () => mergeNoteMetadata(memoryMetadata.value, memoryTags.value)
+
+const markDocumentDirty = () => {
+  if (!editorReady.value || loading.value) return
+  editRevision += 1
+  saveError.value = ''
+  saveState.value = 'idle'
+  scheduleAutosave()
+}
+
+const currentEditor = () => editorRef.value?.getEditor() || null
+
+const memorySproutRoleConfig = () => ({
+  role: authStore.currentTenantRole || 'viewer',
+  tenant_id: authStore.effectiveTenantId || authStore.currentTenantId || '',
+  tenant_name: authStore.currentTenantName || '',
+  user_id: authStore.currentUserId || '',
+  user_name: authStore.user?.username || authStore.user?.email || '我',
+})
+
+const applyMemoryFontSize = (fontSize: string) => {
+  const editor = currentEditor()
+  if (!editor) return
+  const chain = editor.chain().focus() as any
+  if (!fontSize) {
+    chain.unsetFontSize().run()
+  } else {
+    chain.setFontSize(fontSize).run()
+  }
+  noteToolbarFontSize.value = fontSize || noteDefaultFontSize
+}
+
+const handleMemoryFontSizeChange = (fontSize: unknown) => {
+  if (typeof fontSize === 'string' || typeof fontSize === 'number') {
+    applyMemoryFontSize(String(fontSize))
+    return
+  }
+  applyMemoryFontSize('')
+}
+
+const applyMemoryTextColor = (color: string) => {
+  const editor = currentEditor()
+  if (!editor) return
+  const chain = editor.chain().focus() as any
+  if (!color) {
+    chain.unsetColor().run()
+  } else {
+    chain.setColor(color).run()
+  }
+  noteToolbarColor.value = color || '#37352f'
+}
+
+const appendMemoryText = () => {
+  const text = appendNoteText.value.trim()
+  if (!text) return
+  const editor = currentEditor()
+  if (!editor) return
+  const html = text
+    .split(/\n+/)
+    .map((line) => `<p>${escapeHtml(line)}</p>`)
+    .join('')
+  editor.chain().focus('end').insertContent(html).run()
+  appendNoteText.value = ''
+  noteActiveTab.value = 'content'
+}
+
+const addMemoryTag = (tag = noteTagDraft.value) => {
+  const normalized = normalizeNoteTags([tag])[0]
+  if (!normalized) return
+  memoryTags.value = normalizeNoteTags([...memoryTags.value, normalized])
+  noteTagDraft.value = ''
+  noteTagMenuVisible.value = false
+  markDocumentDirty()
+}
+
+const removeMemoryTag = (tag: string) => {
+  memoryTags.value = memoryTags.value.filter((item) => item.toLowerCase() !== tag.toLowerCase())
+  markDocumentDirty()
+}
+
+const generateMemoryTags = () => {
+  const editor = currentEditor()
+  const editorText = editor?.getText() || plainTextFromHtml(content.value)
+  const suggested = buildSmartNoteTags(title.value, editorText, memoryTags.value)
+  if (!suggested.length) {
+    MessagePlugin.info('暂无可用标签')
+    return
+  }
+  memoryTags.value = normalizeNoteTags([...memoryTags.value, ...suggested])
+  markDocumentDirty()
+  MessagePlugin.success('已生成标签')
+}
+
+const createMemorySprout = async () => {
+  if (!isMemoryDocument.value || noteSproutCreating.value) return
+  if (!savedDocumentId.value && documentId.value === 'new') {
+    await saveDocument()
+  }
+
+  const memoryID = activeDocumentId.value
+  if (!memoryID || memoryID === 'new') {
+    MessagePlugin.warning('请先保存笔记')
+    return
+  }
+
+  noteSproutCreating.value = true
+  try {
+    const response = await createOrganizeSproutReportFromMemory({
+      memory_id: memoryID,
+      role_config: memorySproutRoleConfig(),
+    })
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '发芽任务创建失败')
+    }
+    noteSproutReport.value = response.data
+    noteSproutStatus.value = response.data.stage
+    noteActiveTab.value = 'sprout'
+    MessagePlugin.success('发芽任务已创建')
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '发芽任务创建失败')
+  } finally {
+    noteSproutCreating.value = false
+  }
+}
+
+const noteSproutStageLabel = (stage: OrganizeSproutStage | '' = '') => {
+  const labels: Record<OrganizeSproutStage, string> = {
+    organizing: '发芽中',
+    expandable: '发芽',
+    formed: '已发芽',
+  }
+  return stage ? labels[stage] : '发芽'
 }
 
 const audioMemoryFallbackTitle = (html = '') => {
@@ -456,9 +849,20 @@ const resetDraft = () => {
   memorySource.value = draft.source || '手动输入'
   memoryDurationSeconds.value = draft.duration_seconds || 0
   memoryMetadata.value = draft.metadata
+  memoryTags.value = noteTagsFromMetadata(draft.metadata)
+  appendNoteText.value = ''
+  noteTagDraft.value = ''
+  noteTagMenuVisible.value = false
+  noteSproutReport.value = null
+  noteSproutStatus.value = ''
+  noteToolbarFontSize.value = noteDefaultFontSize
+  noteToolbarColor.value = '#37352f'
+  noteActiveTab.value = 'content'
   if (documentType.value === 'memory' && memoryKind.value === 'audio') {
     content.value = normalizeAudioMemoryContent(draftContent)
     title.value = draftTitle || audioMemoryFallbackTitle(content.value)
+  } else if (isNoteMemory.value) {
+    content.value = memoryBodyContent(draftTitle, draftContent)
   } else {
     content.value = normalizeDocumentContent(draftTitle, draftContent)
   }
@@ -497,10 +901,25 @@ const loadDocument = async () => {
       memorySource.value = item.source || '手动输入'
       memoryDurationSeconds.value = item.duration_seconds || 0
       memoryMetadata.value = item.metadata
-      title.value = item.kind === 'audio' ? audioMemoryDisplayTitle(item) : item.title
+      memoryTags.value = noteTagsFromMetadata(item.metadata)
+      appendNoteText.value = ''
+      noteTagDraft.value = ''
+      noteTagMenuVisible.value = false
+      noteSproutReport.value = null
+      noteSproutStatus.value = ''
+      noteToolbarFontSize.value = noteDefaultFontSize
+      noteToolbarColor.value = '#37352f'
+      noteActiveTab.value = 'content'
+      title.value = item.kind === 'audio'
+        ? audioMemoryDisplayTitle(item)
+        : isNoteMemory.value
+          ? normalizeTitle(item.title || extractTitleFromContent(item.content) || plainTextFromHtml(item.content).slice(0, 80))
+          : item.title
       content.value = item.kind === 'audio'
         ? normalizeAudioMemoryContent(audioMemoryContentSource(item))
-        : normalizeDocumentContent(item.title, item.content)
+        : isNoteMemory.value
+          ? memoryBodyContent(item.title, item.content)
+          : normalizeDocumentContent(item.title, item.content)
     } else if (documentType.value === 'output') {
       const response = await getOrganizeOutput(documentId.value)
       if (!response.success || !response.data) throw new Error(response.message || '发现加载失败')
@@ -566,7 +985,9 @@ const saveDocument = async () => {
   const html = editorRef.value?.getHTML() || content.value
   const normalizedTitle = savingAudioMemory
     ? normalizeTitle(title.value || audioMemoryFallbackTitle(html))
-    : extractTitleFromContent(html)
+    : currentType === 'memory' && isNoteMemory.value
+      ? normalizeTitle(title.value || extractTitleFromContent(html) || plainTextFromHtml(html).slice(0, 80))
+      : extractTitleFromContent(html)
   if (!normalizedTitle) {
     saveState.value = 'waiting'
     return
@@ -589,7 +1010,7 @@ const saveDocument = async () => {
         content: memoryContent,
         source: memorySource.value,
         duration_seconds: memoryDurationSeconds.value,
-        metadata: memoryMetadata.value,
+        metadata: noteMetadataForSave(),
       }
       const response = creating
         ? await createOrganizeMemory(input)
@@ -671,7 +1092,7 @@ const goBack = async () => {
 }
 
 const syncTitleFromContent = () => {
-  if (isAudioMemory.value) return
+  if (isMemoryDocument.value) return
   const nextTitle = extractTitleFromContent(editorRef.value?.getHTML() || content.value)
   if (nextTitle !== title.value) {
     title.value = nextTitle
@@ -688,7 +1109,7 @@ watch(content, () => {
 })
 
 watch(title, () => {
-  if (!editorReady.value || loading.value || !isAudioMemory.value) return
+  if (!editorReady.value || loading.value || !isMemoryDocument.value) return
   editRevision += 1
   saveError.value = ''
   saveState.value = 'idle'
@@ -964,6 +1385,373 @@ watch(
   line-height: 18px;
 }
 
+.memory-note-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 6px;
+}
+
+.memory-note-header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memory-note-title-input {
+  width: 100%;
+}
+
+.memory-note-title-input :deep(.t-input) {
+  min-height: 58px;
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 0;
+  box-shadow: none;
+}
+
+.memory-note-title-input :deep(.t-input__inner) {
+  color: #37352f;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.memory-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: rgba(55, 53, 47, 0.52);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.memory-note-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.memory-note-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.memory-note-tag-empty {
+  color: rgba(55, 53, 47, 0.36);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.memory-note-tag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.memory-note-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+}
+
+.memory-note-tag-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.memory-note-tag-remove:hover {
+  background: rgba(55, 53, 47, 0.08);
+}
+
+.memory-note-sprout-action {
+  padding-inline: 6px;
+  color: rgba(55, 53, 47, 0.72);
+}
+
+.memory-note-sprout-icon {
+  font-size: 14px;
+}
+
+.memory-note-tag-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 280px;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.memory-note-tag-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+:global(.memory-note-tag-popup .t-popup__content) {
+  padding: 0;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 15, 15, 0.14);
+  overflow: hidden;
+}
+
+.memory-note-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 24px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+.memory-note-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.memory-note-toolbar-label {
+  color: rgba(55, 53, 47, 0.56);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.memory-note-font-select {
+  width: 104px;
+}
+
+.memory-note-color-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-note-color-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.memory-note-color-swatch span {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.memory-note-color-swatch.is-active {
+  box-shadow: 0 0 0 2px rgba(46, 170, 220, 0.18);
+}
+
+.memory-note-color-reset {
+  border: 0;
+  background: transparent;
+  color: rgba(55, 53, 47, 0.58);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.memory-note-color-reset:hover {
+  color: #37352f;
+}
+
+.memory-note-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid rgba(55, 53, 47, 0.1);
+}
+
+.memory-note-tab {
+  position: relative;
+  margin: 0;
+  padding: 0 0 14px;
+  border: 0;
+  background: transparent;
+  color: rgba(55, 53, 47, 0.5);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.memory-note-tab.is-active {
+  color: #37352f;
+}
+
+.memory-note-tab.is-active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: #37352f;
+  content: '';
+}
+
+.memory-note-tab-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+
+.memory-note-panel-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.memory-note-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.memory-note-section-head h3 {
+  margin: 0;
+  color: #37352f;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.memory-note-section-head p {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.56);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.memory-note-section-head--sprout {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.memory-note-append-input {
+  width: 100%;
+}
+
+.memory-note-append-input :deep(.t-textarea__inner) {
+  min-height: 180px;
+  border-color: rgba(55, 53, 47, 0.12);
+  border-radius: 10px;
+  resize: vertical;
+  box-shadow: none;
+}
+
+.memory-note-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.memory-note-empty-state {
+  padding: 16px 0 4px;
+  color: rgba(55, 53, 47, 0.48);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.memory-note-sprout-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+.memory-note-sprout-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: rgba(55, 53, 47, 0.52);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.memory-note-sprout-result h3 {
+  margin: 0;
+  color: #37352f;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.memory-note-sprout-body {
+  max-height: 420px;
+  overflow: auto;
+  color: #37352f;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.memory-note-sprout-body :deep(h1),
+.memory-note-sprout-body :deep(h2),
+.memory-note-sprout-body :deep(h3),
+.memory-note-sprout-body :deep(p),
+.memory-note-sprout-body :deep(ul),
+.memory-note-sprout-body :deep(ol) {
+  margin-top: 0;
+}
+
+.memory-note-sprout-body :deep(h1) {
+  margin-bottom: 10px;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.memory-note-sprout-body :deep(h2) {
+  margin-bottom: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.memory-note-sprout-body :deep(p),
+.memory-note-sprout-body :deep(ul),
+.memory-note-sprout-body :deep(ol) {
+  margin-bottom: 10px;
+}
+
+.memory-note-sprout-body :deep(li) {
+  margin-bottom: 6px;
+}
+
 .document-editor-shell {
   position: relative;
   width: 100%;
@@ -980,6 +1768,14 @@ watch(
   --tiptap-text-secondary: #787774;
   --tiptap-text-muted: #9b9a97;
   --tiptap-link: rgb(35, 131, 226);
+  --editor-empty-placeholder: "输入内容，或按“/”启用命令";
+  --editor-title-placeholder: "无标题";
+}
+
+.document-editor-shell--memory-note {
+  min-height: 620px;
+  --editor-empty-placeholder: "输入正文，支持字号和颜色";
+  --editor-title-placeholder: "标题";
 }
 
 .document-editor-shell :deep(.tiptap-pro-editor),
@@ -1010,6 +1806,32 @@ watch(
   font-family: var(--document-content-font);
   font-size: 16px;
   line-height: 1.5;
+}
+
+.document-editor-shell--memory-note :deep(.word-content-multi .ProseMirror) {
+  min-height: calc(100vh - 340px);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.document-editor-shell--memory-note :deep(.ProseMirror p) {
+  min-height: 28px;
+  padding: 2px 0;
+}
+
+.document-editor-shell--memory-note :deep(.ProseMirror h1) {
+  margin: 20px 0 6px;
+  font-size: 26px;
+}
+
+.document-editor-shell--memory-note :deep(.ProseMirror h2) {
+  margin: 18px 0 6px;
+  font-size: 20px;
+}
+
+.document-editor-shell--memory-note :deep(.ProseMirror h3) {
+  margin: 16px 0 6px;
+  font-size: 18px;
 }
 
 .document-editor-shell :deep(.ProseMirror p),
@@ -1045,7 +1867,7 @@ watch(
 }
 
 .document-editor-shell :deep(.ProseMirror > h1:first-child.is-empty::before) {
-  content: "无标题";
+  content: var(--editor-title-placeholder);
   float: left;
   height: 0;
   color: rgba(55, 53, 47, 0.2);
@@ -1053,7 +1875,7 @@ watch(
 }
 
 .document-editor-shell :deep(.ProseMirror p.is-empty::before) {
-  content: "输入内容，或按“/”启用命令";
+  content: var(--editor-empty-placeholder);
   float: left;
   height: 0;
   color: rgba(55, 53, 47, 0.35);
@@ -1171,6 +1993,49 @@ watch(
     padding-top: 28px;
   }
 
+  .memory-note-panel {
+    gap: 14px;
+  }
+
+  .memory-note-title-input :deep(.t-input__inner) {
+    font-size: 24px;
+  }
+
+  .memory-note-tags {
+    flex-direction: column;
+  }
+
+  .memory-note-tag-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .memory-note-toolbar {
+    gap: 12px 16px;
+  }
+
+  .memory-note-tabs {
+    gap: 16px;
+  }
+
+  .memory-note-tab {
+    padding-bottom: 12px;
+    font-size: 14px;
+  }
+
+  .memory-note-section-head--sprout {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .memory-note-sprout-body {
+    max-height: 300px;
+  }
+
+  .memory-note-tag-panel {
+    width: min(280px, 78vw);
+  }
+
   .memory-audio-player {
     grid-template-columns: 34px minmax(0, 1fr);
     padding: 10px;
@@ -1188,9 +2053,17 @@ watch(
     min-height: 460px;
   }
 
+  .document-editor-shell--memory-note {
+    min-height: 520px;
+  }
+
   .document-editor-shell :deep(.word-content-multi .ProseMirror) {
     min-height: calc(100vh - 190px);
     padding-bottom: 80px;
+  }
+
+  .document-editor-shell--memory-note :deep(.word-content-multi .ProseMirror) {
+    min-height: calc(100vh - 390px);
   }
 }
 </style>
