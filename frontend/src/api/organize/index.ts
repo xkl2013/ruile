@@ -17,6 +17,13 @@ export interface OrganizeMemory {
   updated_at: string
 }
 
+export interface OrganizeMemoryReference {
+  id: string
+  kind?: OrganizeMemoryKind | string
+  title: string
+  source?: string
+}
+
 export interface OrganizeOutput {
   id: string
   tenant_id?: number | string
@@ -47,6 +54,7 @@ export interface OrganizeSproutReport {
   chips?: string[]
   memory_count?: number
   memory_ids?: string[]
+  memory_refs?: OrganizeMemoryReference[]
   creator_name?: string
   creator_avatar?: string
   metadata?: Record<string, unknown>
@@ -145,6 +153,12 @@ export function createOrganizeMemory(input: OrganizeMemoryInput) {
   return post<OrganizeResponse<OrganizeMemory>>('/api/v1/organize/memories', input)
 }
 
+export function uploadOrganizeMemory(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return postUpload('/api/v1/organize/memories/upload', formData, undefined, { timeout: 300000 }) as Promise<OrganizeResponse<OrganizeMemory>>
+}
+
 export function updateOrganizeMemory(id: string, input: OrganizeMemoryInput) {
   return put<OrganizeResponse<OrganizeMemory>>(`/api/v1/organize/memories/${encodeURIComponent(id)}`, input)
 }
@@ -183,7 +197,7 @@ export function getOrganizeOutput(id: string) {
   return get<OrganizeResponse<OrganizeOutput>>(`/api/v1/organize/outputs/${encodeURIComponent(id)}`)
 }
 
-export function listOrganizeSproutReports(params?: OrganizeListParams & { stage?: OrganizeSproutStage }) {
+export function listOrganizeSproutReports(params?: OrganizeListParams & { stage?: OrganizeSproutStage; memory_id?: string }) {
   return get<OrganizeResponse<OrganizeListData<OrganizeSproutReport>>>(withQuery('/api/v1/organize/sprout-reports', params))
 }
 

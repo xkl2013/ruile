@@ -434,6 +434,76 @@ func (s *knowledgeBaseService) ListKnowledgeBasesByTenantID(ctx context.Context,
 	return kbs, nil
 }
 
+// ReorderKnowledgeBases persists a tenant-wide sibling order for knowledge bases.
+func (s *knowledgeBaseService) ReorderKnowledgeBases(ctx context.Context, orderedIDs []string) ([]*types.KnowledgeBase, error) {
+	tenantID := types.MustTenantIDFromContext(ctx)
+	normalizedIDs := make([]string, 0, len(orderedIDs))
+	seenIDs := make(map[string]struct{}, len(orderedIDs))
+	for _, id := range orderedIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seenIDs[id]; ok {
+			return nil, apperrors.NewBadRequestError("knowledge base order contains duplicate IDs")
+		}
+		seenIDs[id] = struct{}{}
+		normalizedIDs = append(normalizedIDs, id)
+	}
+	if len(normalizedIDs) == 0 {
+		return nil, apperrors.NewBadRequestError("knowledge base order is required")
+	}
+
+	kbs, err := s.repo.ListKnowledgeBasesByTenantID(ctx, tenantID)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"tenant_id": tenantID})
+		return nil, err
+	}
+	if len(kbs) == 0 {
+		return nil, apperrors.NewBadRequestError("knowledge base order is empty")
+	}
+
+	byID := make(map[string]*types.KnowledgeBase, len(kbs))
+	for _, kb := range kbs {
+		if kb != nil {
+			byID[kb.ID] = kb
+		}
+	}
+
+	ordered := make([]*types.KnowledgeBase, 0, len(kbs))
+	for _, id := range normalizedIDs {
+		kb, ok := byID[id]
+		if !ok {
+			return nil, apperrors.NewBadRequestError("knowledge base order contains IDs outside the current workspace")
+		}
+		ordered = append(ordered, kb)
+	}
+	for _, kb := range kbs {
+		if kb == nil {
+			continue
+		}
+		if _, ok := seenIDs[kb.ID]; ok {
+			continue
+		}
+		ordered = append(ordered, kb)
+	}
+
+	persistedIDs := make([]string, 0, len(ordered))
+	for _, kb := range ordered {
+		if kb != nil {
+			persistedIDs = append(persistedIDs, kb.ID)
+		}
+	}
+	if err := s.repo.ReorderKnowledgeBases(ctx, tenantID, persistedIDs); err != nil {
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"tenant_id": tenantID,
+		})
+		return nil, err
+	}
+
+	return s.ListKnowledgeBases(ctx)
+}
+
 // FillKnowledgeBaseCounts fills KnowledgeCount, ChunkCount, IsProcessing, ProcessingCount for the given KB using kb.TenantID.
 func (s *knowledgeBaseService) FillKnowledgeBaseCounts(ctx context.Context, kb *types.KnowledgeBase) error {
 	if kb == nil {
@@ -534,6 +604,7 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 		}
 	}
 	if directoryConfig != nil {
+		directoryConfig.Normalize()
 		kb.DirectoryConfig = directoryConfig
 	}
 	kb.UpdatedAt = time.Now()
@@ -837,9 +908,9 @@ func (s *knowledgeBaseService) TogglePinKnowledgeBase(
 
 // applyUserKBPins stamps IsPinned / PinnedAt onto each KB in the slice
 // from the caller's perspective and sorts the slice so pinned rows
-// float to the top (newest pin first, ties broken by created_at desc).
-// Safe to call with an empty userID (no-op stamp; default sort by
-// created_at preserved).
+// float to the top (newest pin first, ties broken by manual order).
+// Safe to call with an empty userID (no-op stamp; default order is
+// preserved by the repository query).
 func (s *knowledgeBaseService) applyUserKBPins(
 	ctx context.Context, tenantID uint64, userID string, kbs []*types.KnowledgeBase,
 ) {
@@ -877,8 +948,26 @@ func (s *knowledgeBaseService) applyUserKBPins(
 				return at.After(*bt)
 			}
 		}
-		return a.CreatedAt.After(b.CreatedAt)
+		return knowledgeBaseManualOrderLess(a, b)
 	})
+}
+
+func knowledgeBaseManualOrderLess(a, b *types.KnowledgeBase) bool {
+	if a == nil || b == nil {
+		return b != nil
+	}
+	aUnordered := a.SortOrder == 0
+	bUnordered := b.SortOrder == 0
+	if aUnordered != bUnordered {
+		return !aUnordered
+	}
+	if !aUnordered && a.SortOrder != b.SortOrder {
+		return a.SortOrder < b.SortOrder
+	}
+	if !a.CreatedAt.Equal(b.CreatedAt) {
+		return a.CreatedAt.After(b.CreatedAt)
+	}
+	return a.ID < b.ID
 }
 
 // DeleteKnowledgeBase deletes a knowledge base by its ID

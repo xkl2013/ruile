@@ -885,6 +885,50 @@ func (h *KnowledgeBaseHandler) TogglePinKnowledgeBase(c *gin.Context) {
 	})
 }
 
+// ReorderKnowledgeBases godoc
+// @Summary      更新知识库排序
+// @Description  持久化当前空间内知识库的手工排序，仅管理员可操作
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        request  body      ReorderKnowledgeBasesRequest true  "排序请求"
+// @Success      200      {object}  map[string]interface{}       "排序后的知识库列表"
+// @Failure      400      {object}  errors.AppError              "请求参数错误"
+// @Failure      403      {object}  errors.AppError              "权限不足"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge-bases/order [put]
+func (h *KnowledgeBaseHandler) ReorderKnowledgeBases(c *gin.Context) {
+	ctx := c.Request.Context()
+	if !canManageKnowledgeBaseOrder(ctx) {
+		c.Error(apperrors.NewForbiddenError("No permission to reorder knowledge bases"))
+		return
+	}
+
+	var req ReorderKnowledgeBasesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+
+	kbs, err := h.service.ReorderKnowledgeBases(ctx, req.KnowledgeBaseIDs)
+	if err != nil {
+		if appErr, ok := apperrors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(apperrors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    h.buildKBListResponse(ctx, kbs, callerTenantID),
+	})
+}
+
 // UpdateKnowledgeBaseRequest defines the request body structure for updating a knowledge base
 type UpdateKnowledgeBaseRequest struct {
 	Name            string                              `json:"name"        binding:"required"`
@@ -898,6 +942,32 @@ type UpdateKnowledgeBaseRequest struct {
 // persisting manual document-directory metadata.
 type UpdateKnowledgeBaseDirectoryConfigRequest struct {
 	DirectoryConfig *types.KnowledgeBaseDirectoryConfig `json:"directory_config" binding:"required"`
+}
+
+// ReorderKnowledgeBasesRequest defines the request body for tenant-wide KB ordering.
+type ReorderKnowledgeBasesRequest struct {
+	KnowledgeBaseIDs []string `json:"knowledge_base_ids" binding:"required"`
+}
+
+func canManageKnowledgeBaseDirectoryConfig(ctx context.Context, permission types.OrgMemberRole) bool {
+	if types.IsSystemAdminFromContext(ctx) {
+		return true
+	}
+	if permission != types.OrgRoleAdmin {
+		return false
+	}
+	if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
+		return true
+	}
+	return types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin)
+}
+
+func canManageKnowledgeBaseOrder(ctx context.Context) bool {
+	if scope, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
+		return !scope.IsKnowledgeBaseRestricted()
+	}
+	return types.IsSystemAdminFromContext(ctx) ||
+		types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin)
 }
 
 // UploadKnowledgeBaseIconForCreate uploads a custom icon image before a KB exists.
@@ -989,6 +1059,10 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 		}
 	}
 	if req.DirectoryConfig != nil {
+		if !canManageKnowledgeBaseDirectoryConfig(ctx, permission) {
+			c.Error(apperrors.NewForbiddenError("No permission to update knowledge base directory config"))
+			return
+		}
 		req.DirectoryConfig.Normalize()
 	}
 
@@ -1034,8 +1108,8 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBaseDirectoryConfig(c *gin.Context
 		c.Error(err)
 		return
 	}
-	if permission != types.OrgRoleAdmin && permission != types.OrgRoleEditor {
-		c.Error(apperrors.NewForbiddenError("No permission to update knowledge base"))
+	if !canManageKnowledgeBaseDirectoryConfig(ctx, permission) {
+		c.Error(apperrors.NewForbiddenError("No permission to update knowledge base directory config"))
 		return
 	}
 

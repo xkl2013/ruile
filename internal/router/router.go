@@ -455,6 +455,8 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		kbManagement.POST("/icon", g.Admin(), handler.UploadKnowledgeBaseIconForCreate)
 		// 获取知识库列表 — Viewer+ for JWT callers; retrieve-capable API keys pass via the gate.
 		kb.GET("", g.Viewer(), handler.ListKnowledgeBases)
+		// 更新知识库排序 — 空间级管理操作；API key 需全空间 KB 管理权限。
+		kbManagement.PUT("/order", g.AdminOrSystemAdmin(), handler.ReorderKnowledgeBases)
 		// 获取知识库详情 — Viewer+ 且对 KB 有 read 权限
 		kb.GET("/:id", g.Viewer(), g.KBAccessRead("id"), handler.GetKnowledgeBase)
 		// 更新知识库名称/描述和轻量配置 — JWT Viewer+ 进入后由 KBAccessWrite
@@ -1220,6 +1222,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 
 		org.GET("/memories", g.Viewer(), h.ListMemories)
 		org.POST("/memories", g.Viewer(), h.CreateMemory)
+		org.POST("/memories/upload", g.Viewer(), h.UploadMemory)
 		org.GET("/memories/:id", g.Viewer(), h.GetMemory)
 		org.PUT("/memories/:id", g.Viewer(), h.UpdateMemory)
 		org.DELETE("/memories/:id", g.Viewer(), h.DeleteMemory)

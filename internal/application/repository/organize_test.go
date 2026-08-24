@@ -104,6 +104,9 @@ func TestOrganizeRepositoryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), gotReport.MemoryCount)
 	require.ElementsMatch(t, []string{note.ID}, gotReport.MemoryIDs)
+	require.Equal(t, []types.OrganizeMemoryReference{
+		{ID: note.ID, Kind: note.Kind, Title: note.Title, Source: note.Source},
+	}, gotReport.MemoryRefs)
 
 	require.NoError(t, repo.DeleteMemory(ctx, tenantID, userID, note.ID))
 	gotOutput, err = repo.GetOutput(ctx, tenantID, userID, output.ID)

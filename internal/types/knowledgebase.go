@@ -76,6 +76,9 @@ type KnowledgeBase struct {
 	Description string `yaml:"description"             json:"description"`
 	// Workspace ID
 	TenantID uint64 `yaml:"tenant_id"               json:"tenant_id"`
+	// SortOrder controls tenant-wide manual ordering in sidebar/list surfaces.
+	// 0 means the KB has not been manually ordered yet.
+	SortOrder int `yaml:"sort_order"              json:"sort_order"              gorm:"column:sort_order;default:0;index"`
 	// CreatorID records the user ID of whoever originally created the KB.
 	// Used by the workspace-level RBAC middleware to let Contributors edit
 	// their own KBs without granting them access to everyone else's.
@@ -668,10 +671,17 @@ type KnowledgeBaseDirectoryNode struct {
 	UpdatedAt   string `yaml:"updated_at"   json:"updated_at"`
 }
 
+// KnowledgeBaseDirectoryOrder stores the explicit sibling order for one parent path.
+type KnowledgeBaseDirectoryOrder struct {
+	ParentPath string   `yaml:"parent_path" json:"parent_path"`
+	Paths      []string `yaml:"paths"       json:"paths"`
+}
+
 // KnowledgeBaseDirectoryConfig stores the persisted manual directory state for a KB.
 type KnowledgeBaseDirectoryConfig struct {
-	RootDescription string                       `yaml:"root_description" json:"root_description"`
-	Directories     []KnowledgeBaseDirectoryNode `yaml:"directories"      json:"directories"`
+	RootDescription string                        `yaml:"root_description" json:"root_description"`
+	Directories     []KnowledgeBaseDirectoryNode  `yaml:"directories"      json:"directories"`
+	DirectoryOrders []KnowledgeBaseDirectoryOrder `yaml:"directory_orders,omitempty" json:"directory_orders,omitempty"`
 }
 
 // Value implements driver.Valuer.
@@ -706,10 +716,6 @@ func (c *KnowledgeBaseDirectoryConfig) Normalize() {
 		return
 	}
 	c.RootDescription = strings.TrimSpace(c.RootDescription)
-	if len(c.Directories) == 0 {
-		c.Directories = []KnowledgeBaseDirectoryNode{}
-		return
-	}
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	normalized := make([]KnowledgeBaseDirectoryNode, 0, len(c.Directories))
@@ -750,6 +756,55 @@ func (c *KnowledgeBaseDirectoryConfig) Normalize() {
 	}
 
 	c.Directories = normalized
+
+	if len(c.DirectoryOrders) == 0 {
+		c.DirectoryOrders = []KnowledgeBaseDirectoryOrder{}
+		return
+	}
+
+	normalizedOrders := make([]KnowledgeBaseDirectoryOrder, 0, len(c.DirectoryOrders))
+	orderIndexByParent := make(map[string]int, len(c.DirectoryOrders))
+	seenPathsByParent := make(map[string]map[string]struct{}, len(c.DirectoryOrders))
+
+	for _, order := range c.DirectoryOrders {
+		parentPath := normalizeKnowledgeBaseDirectoryPath(order.ParentPath)
+		orderIdx, ok := orderIndexByParent[parentPath]
+		if !ok {
+			orderIdx = len(normalizedOrders)
+			orderIndexByParent[parentPath] = orderIdx
+			normalizedOrders = append(normalizedOrders, KnowledgeBaseDirectoryOrder{
+				ParentPath: parentPath,
+				Paths:      []string{},
+			})
+			seenPathsByParent[parentPath] = map[string]struct{}{}
+		}
+
+		entry := &normalizedOrders[orderIdx]
+		seenPaths := seenPathsByParent[parentPath]
+		for _, rawPath := range order.Paths {
+			path := normalizeKnowledgeBaseDirectoryPath(rawPath)
+			if path == "" {
+				continue
+			}
+			if knowledgeBaseDirectoryParentPath(path) != parentPath {
+				continue
+			}
+			if _, ok := seenPaths[path]; ok {
+				continue
+			}
+			seenPaths[path] = struct{}{}
+			entry.Paths = append(entry.Paths, path)
+		}
+	}
+
+	filteredOrders := normalizedOrders[:0]
+	for _, order := range normalizedOrders {
+		if len(order.Paths) == 0 {
+			continue
+		}
+		filteredOrders = append(filteredOrders, order)
+	}
+	c.DirectoryOrders = filteredOrders
 }
 
 func normalizeKnowledgeBaseDirectoryPath(path string) string {

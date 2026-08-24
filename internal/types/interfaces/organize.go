@@ -34,6 +34,7 @@ type OrganizeRepository interface {
 
 type OrganizeService interface {
 	CreateMemory(ctx context.Context, tenantID uint64, userID string, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
+	CreateMemoryFromUpload(ctx context.Context, tenantID uint64, userID, fileName, mimeType string, data []byte) (*types.OrganizeMemory, error)
 	GetMemory(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeMemory, error)
 	UpdateMemory(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
 	DeleteMemory(ctx context.Context, tenantID uint64, userID, id string) error

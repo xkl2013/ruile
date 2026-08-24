@@ -407,9 +407,9 @@
 
                     <div class="report-meta sprout-report-meta">
                       <span>{{ report.updated }}</span>
-                      <span class="sprout-report-meta-separator">|</span>
-                      <span>@记忆</span>
-                      <span>@上传文件</span>
+                      <span v-if="sproutReportReferenceLabels(report).length || sproutReportSourceLabels(report).length" class="sprout-report-meta-separator">|</span>
+                      <span v-for="label in sproutReportReferenceLabels(report)" :key="`${report.id}-${label}`">{{ label }}</span>
+                      <span v-for="label in sproutReportSourceLabels(report)" :key="`${report.id}-${label}`">{{ label }}</span>
                     </div>
                   </div>
 
@@ -449,17 +449,33 @@
           <template #icon><t-icon name="add" size="20px" /></template>
         </t-button>
       </t-dropdown>
-      <t-tooltip v-else :content="activeMeta.actionLabel" placement="left">
-        <t-button
-          class="organize-fab"
-          theme="primary"
-          shape="circle"
-          :aria-label="activeMeta.actionLabel"
-          @click="createActiveDocument"
+      <template v-else>
+        <t-dropdown
+          :options="memoryCreateOptions"
+          trigger="click"
+          placement="top-right"
+          :disabled="memoryImporting"
+          @click="handleMemoryCreateAction"
         >
-          <template #icon><t-icon name="add" size="20px" /></template>
-        </t-button>
-      </t-tooltip>
+          <t-button
+            class="organize-fab"
+            theme="primary"
+            shape="circle"
+            :loading="memoryImporting"
+            :aria-label="activeMeta.actionLabel"
+          >
+            <template #icon><t-icon name="add" size="20px" /></template>
+          </t-button>
+        </t-dropdown>
+      </template>
+      <input
+        v-if="activeTab === 'memory'"
+        ref="memoryImportInputRef"
+        class="memory-import-input"
+        type="file"
+        :accept="memoryImportAccept"
+        @change="handleMemoryImportFileChange"
+      />
     </div>
 
     <t-drawer
@@ -617,12 +633,14 @@ import {
   listOrganizeSproutReports,
   type OrganizeDiscoverTab,
   type OrganizeMemory,
+  type OrganizeMemoryReference,
   type OrganizeMemoryKind,
   type OrganizeOutput,
   type OrganizeOutputStatus,
   type OrganizeSproutReport,
   type OrganizeSproutStage,
   updateOrganizeOutput,
+  uploadOrganizeMemory,
 } from '@/api/organize'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -649,6 +667,7 @@ type OutputCreateKind = Exclude<OutputKind, 'all'>
 type OutputStatusFilter = 'all' | OrganizeOutputStatus
 type OutputViewMode = 'list' | 'grid'
 type SproutRange = '3d' | '7d' | '1m'
+type MemoryCreateAction = 'new-note' | 'import-file'
 
 interface MemoryItem {
   id: string
@@ -723,6 +742,7 @@ interface SproutReportItem {
   generatedLabel: string
   memoryCount: number
   memoryIds: string[]
+  memoryRefs: OrganizeMemoryReference[]
   outputHint: string
   chips: string[]
   creatorId?: string
@@ -738,6 +758,8 @@ const authStore = useAuthStore()
 
 const keyword = ref('')
 const memoryLoading = ref(true)
+const memoryImporting = ref(false)
+const memoryImportInputRef = ref<HTMLInputElement | null>(null)
 const discoverFeaturedLoading = ref(true)
 const discoverFeedLoading = ref(true)
 const sproutLoading = ref(true)
@@ -788,6 +810,50 @@ const outputCreateOptions = [
     prefixIcon: () => h(TIcon, { name: 'sound', size: '16px' }),
   },
 ]
+const memoryCreateOptions = [
+  {
+    content: '新建笔记',
+    value: 'new-note',
+    prefixIcon: () => h(TIcon, { name: 'edit-1', size: '16px' }),
+  },
+  {
+    content: '导入文件',
+    value: 'import-file',
+    prefixIcon: () => h(TIcon, { name: 'upload', size: '16px' }),
+  },
+]
+const memoryImportAccept = [
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.epub',
+  '.mhtml',
+  '.ppt',
+  '.pptx',
+  '.md',
+  '.markdown',
+  '.txt',
+  '.csv',
+  '.json',
+  '.xlsx',
+  '.xls',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.mp3',
+  '.wav',
+  '.m4a',
+  '.flac',
+  '.ogg',
+  '.mp4',
+  '.mov',
+  '.avi',
+  '.mkv',
+  '.webm',
+  '.wmv',
+  '.flv',
+].join(',')
 const sproutRangeTabs: Array<{ label: string; value: SproutRange; days: number }> = [
   { label: '近3天', value: '3d', days: 3 },
   { label: '近7天', value: '7d', days: 7 },
@@ -1151,6 +1217,40 @@ const memoryTypeLabel = (type: MemoryType) => {
   return type === 'record' ? '记录' : '笔记'
 }
 
+const memoryReferenceKindLabel = (kind?: string) => {
+  if (kind === 'audio') return '录音'
+  if (kind === 'audio_card') return '工牌'
+  if (kind === 'record') return '记录'
+  return '笔记'
+}
+
+const memoryReferenceLabel = (ref: OrganizeMemoryReference) => {
+  const title = asTrimmedString(ref.title) || '未命名'
+  return `@创建了${memoryReferenceKindLabel(ref.kind)}${title}`
+}
+
+const memoryReferenceSourceLabel = (source?: string) => {
+  const normalized = asTrimmedString(source)
+  if (!normalized || normalized === '手动输入') return ''
+  if (normalized === '文件导入') return '@上传文件'
+  return `@${normalized}`
+}
+
+const sproutReportReferenceLabels = (report: Pick<SproutReportItem, 'memoryRefs' | 'memoryCount'>) => {
+  const refs = report.memoryRefs || []
+  if (!refs.length) return report.memoryCount > 0 ? [`@${report.memoryCount}条记忆`] : []
+  return refs.slice(0, 2).map(memoryReferenceLabel)
+}
+
+const sproutReportSourceLabels = (report: Pick<SproutReportItem, 'memoryRefs'>) => {
+  const labels = new Set<string>()
+  for (const ref of report.memoryRefs || []) {
+    const label = memoryReferenceSourceLabel(ref.source)
+    if (label) labels.add(label)
+  }
+  return Array.from(labels).slice(0, 2)
+}
+
 const statusLabel = (status: OrganizeOutputStatus) => ({ draft: '草稿', review: '评审中', ready: '可交付', archived: '已归档' })[status]
 const stageLabel = (stage: OrganizeSproutStage) => ({ organizing: '发芽中', expandable: '发芽', formed: '已发芽' })[stage]
 const outputKindLabelMap: Record<Exclude<OutputKind, 'all'>, string> = {
@@ -1488,6 +1588,7 @@ const mapSproutReport = (item: OrganizeSproutReport): SproutReportItem => enrich
   updatedAt: item.updated_at,
   memoryCount: item.memory_count || 0,
   memoryIds: item.memory_ids || [],
+  memoryRefs: item.memory_refs || [],
   outputHint: item.output_hint || '可继续整理',
   chips: item.chips || [],
   creatorId: sproutCreatorId(item),
@@ -1735,6 +1836,45 @@ const createActiveDocument = () => {
     return
   }
   void openDocumentEditor('memory')
+}
+
+const importMemoryFile = async (file: File) => {
+  if (memoryImporting.value) return
+  memoryImporting.value = true
+  try {
+    const response = await uploadOrganizeMemory(file)
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '文件导入失败')
+    }
+
+    await loadMemoryData()
+    MessagePlugin.success('已导入为笔记')
+    const imported = mapMemory(response.data)
+    await openDocumentEditor('memory', imported.id, imported)
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '文件导入失败')
+  } finally {
+    memoryImporting.value = false
+  }
+}
+
+const handleMemoryCreateAction = (data: { value: string | number | boolean }) => {
+  const action = String(data.value) as MemoryCreateAction
+  if (action === 'new-note') {
+    createActiveDocument()
+    return
+  }
+  if (action === 'import-file') {
+    memoryImportInputRef.value?.click()
+  }
+}
+
+const handleMemoryImportFileChange = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  void importMemoryFile(file)
 }
 
 const isEditableMemory = (item: MemoryItem) =>
@@ -2047,6 +2187,10 @@ onMounted(loadOrganizeData)
     outline: 2px solid var(--td-brand-color-focus);
     outline-offset: 2px;
   }
+}
+
+.memory-import-input {
+  display: none;
 }
 
 .organize-search {

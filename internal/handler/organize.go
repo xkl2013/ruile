@@ -86,6 +86,60 @@ func (h *OrganizeHandler) CreateMemory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 
+func (h *OrganizeHandler) UploadMemory(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+
+	header, err := c.FormFile("file")
+	if err != nil {
+		c.Error(apperrors.NewBadRequestError("file is required"))
+		return
+	}
+	fileName := strings.TrimSpace(header.Filename)
+	if fileName == "" {
+		c.Error(apperrors.NewBadRequestError("file name is required"))
+		return
+	}
+
+	contentType := ""
+	if header.Header != nil {
+		contentType = header.Header.Get("Content-Type")
+	}
+	maxSizeMB := secutils.GetMaxFileSizeMBForUpload(fileName, contentType)
+	maxSize := maxSizeMB * 1024 * 1024
+	if header.Size > 0 && header.Size > maxSize {
+		c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
+		return
+	}
+
+	file, err := header.Open()
+	if err != nil {
+		c.Error(apperrors.NewInternalServerError("failed to open upload file"))
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
+	if err != nil {
+		c.Error(apperrors.NewInternalServerError("failed to read upload file"))
+		return
+	}
+	if int64(len(data)) > maxSize {
+		c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
+		return
+	}
+
+	item, err := h.service.CreateMemoryFromUpload(ctx, tenantID, userID, fileName, contentType, data)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
 func (h *OrganizeHandler) GetMemory(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := organizeScope(c)
@@ -333,6 +387,7 @@ func (h *OrganizeHandler) ListSproutReports(c *gin.Context) {
 		return
 	}
 	query.Stage = c.Query("stage")
+	query.MemoryID = c.Query("memory_id")
 	items, total, err := h.service.ListSproutReports(ctx, query)
 	if err != nil {
 		h.handleError(c, err)

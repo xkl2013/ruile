@@ -66,7 +66,7 @@ func (r *knowledgeBaseRepository) GetKnowledgeBaseByIDs(ctx context.Context, ids
 // ListKnowledgeBases lists all knowledge bases
 func (r *knowledgeBaseRepository) ListKnowledgeBases(ctx context.Context) ([]*types.KnowledgeBase, error) {
 	var kbs []*types.KnowledgeBase
-	if err := r.db.WithContext(ctx).Find(&kbs).Error; err != nil {
+	if err := orderKnowledgeBasesByManualOrder(r.db.WithContext(ctx)).Find(&kbs).Error; err != nil {
 		return nil, err
 	}
 	return kbs, nil
@@ -78,17 +78,26 @@ func (r *knowledgeBaseRepository) ListKnowledgeBases(ctx context.Context) ([]*ty
 // repository would return tenant-wide pinned rows first. That column is
 // no longer the source of truth (see migration 000050) — pin state is
 // now per (user, kb) and applied by the service layer after enrichment.
-// We keep `created_at DESC` here so callers that don't enrich (chat
-// pipeline, agent editor, IM commands) still get a stable ordering.
+// Manual `sort_order` is tenant-wide and comes first when present; rows
+// with sort_order=0 are legacy/unsorted rows and keep created_at DESC.
 func (r *knowledgeBaseRepository) ListKnowledgeBasesByTenantID(
 	ctx context.Context, tenantID uint64,
 ) ([]*types.KnowledgeBase, error) {
 	var kbs []*types.KnowledgeBase
-	if err := r.db.WithContext(ctx).Where("tenant_id = ? AND is_temporary = ?", tenantID, false).
-		Order("created_at DESC").Find(&kbs).Error; err != nil {
+	if err := orderKnowledgeBasesByManualOrder(
+		r.db.WithContext(ctx).Where("tenant_id = ? AND is_temporary = ?", tenantID, false),
+	).Find(&kbs).Error; err != nil {
 		return nil, err
 	}
 	return kbs, nil
+}
+
+func orderKnowledgeBasesByManualOrder(db *gorm.DB) *gorm.DB {
+	return db.
+		Order("CASE WHEN sort_order = 0 THEN 1 ELSE 0 END ASC").
+		Order("sort_order ASC").
+		Order("created_at DESC").
+		Order("id ASC")
 }
 
 // userKBPinRow mirrors the user_kb_pins table. Kept local to the
@@ -170,6 +179,20 @@ func (r *knowledgeBaseRepository) ListUserKBPinIDs(
 // UpdateKnowledgeBase updates a knowledge base
 func (r *knowledgeBaseRepository) UpdateKnowledgeBase(ctx context.Context, kb *types.KnowledgeBase) error {
 	return r.db.WithContext(ctx).Save(kb).Error
+}
+
+// ReorderKnowledgeBases updates sort_order values atomically for a tenant.
+func (r *knowledgeBaseRepository) ReorderKnowledgeBases(ctx context.Context, tenantID uint64, orderedIDs []string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for idx, id := range orderedIDs {
+			if err := tx.Model(&types.KnowledgeBase{}).
+				Where("tenant_id = ? AND id = ? AND is_temporary = ?", tenantID, id, false).
+				UpdateColumn("sort_order", (idx+1)*1024).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // DeleteKnowledgeBase deletes a knowledge base

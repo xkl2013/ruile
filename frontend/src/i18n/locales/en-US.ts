@@ -43,6 +43,9 @@ export default {
     otherSources: 'Other sources',
     noSessions: 'No conversations yet',
     loadMoreSessions: 'Load more',
+    moveKnowledgeBaseUp: 'Move knowledge base up',
+    reorderKnowledgeBaseSuccess: 'Knowledge base order updated',
+    reorderKnowledgeBaseFailed: 'Failed to reorder knowledge bases. Please try again later.',
   },
   chatHeader: {
     moreActions: 'More conversation actions',
@@ -625,6 +628,7 @@ export default {
     directoryEmpty: 'No files in this directory',
     directorySettings: 'Directory settings',
     editDirectory: 'Edit directory',
+    moveDirectoryUp: 'Move directory up',
     addSubdirectory: 'Add subdirectory',
     createSubdirectoryTitle: 'Add subdirectory',
     directorySettingsTitle: 'Directory settings',

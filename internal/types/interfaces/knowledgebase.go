@@ -96,6 +96,11 @@ type KnowledgeBaseService interface {
 	// TogglePinKnowledgeBase toggles the pin status of a knowledge base
 	TogglePinKnowledgeBase(ctx context.Context, id string) (*types.KnowledgeBase, error)
 
+	// ReorderKnowledgeBases persists the tenant-wide manual order for visible
+	// knowledge bases. The caller supplies IDs in the desired order; omitted
+	// tenant KBs are preserved after the supplied sequence.
+	ReorderKnowledgeBases(ctx context.Context, orderedIDs []string) ([]*types.KnowledgeBase, error)
+
 	// HybridSearch performs hybrid search (vector + keywords) in the knowledge base
 	// Parameters:
 	//   - ctx: Context information
@@ -214,6 +219,10 @@ type KnowledgeBaseRepository interface {
 	// Returns:
 	//   - Possible errors such as record not existing, database errors, etc.
 	UpdateKnowledgeBase(ctx context.Context, kb *types.KnowledgeBase) error
+
+	// ReorderKnowledgeBases updates sort_order for tenant knowledge bases
+	// atomically. orderedIDs must contain tenant-local, non-temporary KB IDs.
+	ReorderKnowledgeBases(ctx context.Context, tenantID uint64, orderedIDs []string) error
 
 	// DeleteKnowledgeBase deletes a knowledge base record
 	// Parameters:

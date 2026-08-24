@@ -827,6 +827,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     icon TEXT NOT NULL DEFAULT '',
     description TEXT,
     tenant_id INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     creator_id VARCHAR(36),
     type VARCHAR(32) NOT NULL DEFAULT 'document',
     chunking_config TEXT NOT NULL DEFAULT '{}',
@@ -950,6 +951,9 @@ func (r *realKBRepo) ListKnowledgeBasesByTenantID(_ context.Context, _ uint64) (
 	return nil, nil
 }
 func (r *realKBRepo) UpdateKnowledgeBase(_ context.Context, _ *types.KnowledgeBase) error {
+	return nil
+}
+func (r *realKBRepo) ReorderKnowledgeBases(_ context.Context, _ uint64, _ []string) error {
 	return nil
 }
 func (r *realKBRepo) DeleteKnowledgeBase(_ context.Context, _ string) error {

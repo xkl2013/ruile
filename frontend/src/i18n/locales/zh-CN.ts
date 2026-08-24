@@ -43,6 +43,9 @@ export default {
     otherSources: "其他来源",
     noSessions: "暂无对话",
     loadMoreSessions: "加载更多",
+    moveKnowledgeBaseUp: "上移知识库",
+    reorderKnowledgeBaseSuccess: "知识库排序已更新",
+    reorderKnowledgeBaseFailed: "知识库排序失败，请稍后再试",
   },
   chatHeader: {
     moreActions: "更多对话操作",
@@ -626,6 +629,7 @@ export default {
     directoryEmpty: "当前目录暂无文件",
     directorySettings: "目录设置",
     editDirectory: "编辑目录",
+    moveDirectoryUp: "上移目录",
     addSubdirectory: "添加下一级目录",
     createSubdirectoryTitle: "添加下一级目录",
     directorySettingsTitle: "目录设置",

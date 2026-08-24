@@ -40,6 +40,9 @@ export default {
     otherSources: 'Другие источники',
     noSessions: 'Пока нет диалогов',
     loadMoreSessions: 'Загрузить ещё',
+    moveKnowledgeBaseUp: 'Переместить базу знаний выше',
+    reorderKnowledgeBaseSuccess: 'Порядок баз знаний обновлен',
+    reorderKnowledgeBaseFailed: 'Не удалось изменить порядок баз знаний. Попробуйте позже.',
     agents: 'Агенты',
     integrations: 'Публикация и интеграция',
     organizations: 'Общие пространства'
@@ -546,6 +549,7 @@ export default {
     directoryEmpty: 'В этом каталоге нет файлов',
     directorySettings: 'Настройки каталога',
     editDirectory: 'Изменить каталог',
+    moveDirectoryUp: 'Переместить каталог выше',
     addSubdirectory: 'Добавить подкаталог',
     createSubdirectoryTitle: 'Добавить подкаталог',
     directorySettingsTitle: 'Настройки каталога',

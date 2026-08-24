@@ -1,7 +1,9 @@
 package repository
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/google/uuid"
@@ -22,6 +24,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     icon TEXT NOT NULL DEFAULT '',
     description TEXT,
     tenant_id INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     type VARCHAR(32) NOT NULL DEFAULT 'document',
     chunking_config TEXT NOT NULL DEFAULT '{}',
     image_processing_config TEXT NOT NULL DEFAULT '{}',
@@ -112,6 +115,47 @@ func TestKnowledgeBase_VectorStoreID_Save_Immutable(t *testing.T) {
 	require.NotNil(t, reloaded.VectorStoreID, "VectorStoreID must remain set to the original value")
 	assert.Equal(t, "store-A", *reloaded.VectorStoreID,
 		"db.Save must not overwrite vector_store_id (enforced by GORM `<-:create` tag)")
+}
+
+func TestListKnowledgeBasesByTenantID_ManualOrderBeforeUnordered(t *testing.T) {
+	db := setupKBTestDB(t)
+	repo := NewKnowledgeBaseRepository(db)
+	now := time.Now().UTC()
+	kbs := []*types.KnowledgeBase{
+		{
+			ID:               "kb-a",
+			Name:             "A",
+			TenantID:         1,
+			SortOrder:        2048,
+			EmbeddingModelID: "embed",
+			SummaryModelID:   "summary",
+			CreatedAt:        now.Add(-1 * time.Hour),
+		},
+		{
+			ID:               "kb-b",
+			Name:             "B",
+			TenantID:         1,
+			SortOrder:        1024,
+			EmbeddingModelID: "embed",
+			SummaryModelID:   "summary",
+			CreatedAt:        now.Add(-2 * time.Hour),
+		},
+		{
+			ID:               "kb-c",
+			Name:             "C",
+			TenantID:         1,
+			SortOrder:        0,
+			EmbeddingModelID: "embed",
+			SummaryModelID:   "summary",
+			CreatedAt:        now,
+		},
+	}
+	require.NoError(t, db.Create(&kbs).Error)
+
+	got, err := repo.ListKnowledgeBasesByTenantID(context.Background(), 1)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, []string{"kb-b", "kb-a", "kb-c"}, []string{got[0].ID, got[1].ID, got[2].ID})
 }
 
 // TestKnowledgeBase_VectorStoreID_Updates_Immutable verifies that
@@ -241,6 +285,12 @@ func TestKnowledgeBase_DirectoryConfig_Roundtrip(t *testing.T) {
 				UpdatedAt:   "2026-08-09T00:00:01Z",
 			},
 		},
+		DirectoryOrders: []types.KnowledgeBaseDirectoryOrder{
+			{
+				ParentPath: "docs",
+				Paths:      []string{"docs/reference", "docs/guide"},
+			},
+		},
 	}
 	original.DirectoryConfig.Normalize()
 	require.NoError(t, db.Create(original).Error)
@@ -255,6 +305,9 @@ func TestKnowledgeBase_DirectoryConfig_Roundtrip(t *testing.T) {
 	assert.Equal(t, "docs", reloaded.DirectoryConfig.Directories[0].ParentPath)
 	assert.Equal(t, "2026-08-09T00:00:00Z", reloaded.DirectoryConfig.Directories[0].CreatedAt)
 	assert.Equal(t, "2026-08-09T00:00:01Z", reloaded.DirectoryConfig.Directories[0].UpdatedAt)
+	require.Len(t, reloaded.DirectoryConfig.DirectoryOrders, 1)
+	assert.Equal(t, "docs", reloaded.DirectoryConfig.DirectoryOrders[0].ParentPath)
+	assert.Equal(t, []string{"docs/reference", "docs/guide"}, reloaded.DirectoryConfig.DirectoryOrders[0].Paths)
 }
 
 // TestCountByVectorStoreID covers the binding-count helper used by the

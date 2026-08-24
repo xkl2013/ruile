@@ -158,9 +158,15 @@ export interface KnowledgeBaseDirectoryNodePayload {
   updated_at: string;
 }
 
+export interface KnowledgeBaseDirectoryOrderPayload {
+  parent_path: string;
+  paths: string[];
+}
+
 export interface KnowledgeBaseDirectoryConfigPayload {
   root_description: string;
   directories: KnowledgeBaseDirectoryNodePayload[];
+  directory_orders?: KnowledgeBaseDirectoryOrderPayload[];
 }
 
 export interface KnowledgeDirectoryCount {
@@ -175,12 +181,8 @@ export interface KnowledgeDirectoryCountsPayload {
 
 export function updateKnowledgeBaseDirectoryConfig(id: string, data: {
   directory_config: KnowledgeBaseDirectoryConfigPayload;
-  name?: string;
-  description?: string;
 }) {
-  return updateKnowledgeBase(id, {
-    name: data.name || '',
-    description: data.description || '',
+  return put(`/api/v1/knowledge-bases/${id}/directory-config`, {
     directory_config: data.directory_config,
   });
 }
@@ -227,6 +229,12 @@ export function getKnowledgeMoveProgress(taskId: string) {
 
 export function togglePinKnowledgeBase(id: string) {
   return put(`/api/v1/knowledge-bases/${id}/pin`);
+}
+
+export function reorderKnowledgeBases(knowledgeBaseIds: string[]) {
+  return put('/api/v1/knowledge-bases/order', {
+    knowledge_base_ids: knowledgeBaseIds,
+  });
 }
 
 // 知识文件 API（基于具体知识库）

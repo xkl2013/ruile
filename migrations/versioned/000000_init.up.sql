@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     description TEXT,
     icon TEXT NOT NULL DEFAULT '',
     tenant_id INTEGER NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
     chunking_config JSONB NOT NULL DEFAULT '{"chunk_size": 512, "chunk_overlap": 50, "split_markers": ["\n\n", "\n", "。"], "keep_separator": true}',
     image_processing_config JSONB NOT NULL DEFAULT '{"enable_multimodal": false, "model_id": ""}',
     embedding_model_id VARCHAR(64) NOT NULL,
@@ -92,6 +93,7 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
 
 -- Add indexes for knowledge_bases
 CREATE INDEX IF NOT EXISTS idx_knowledge_bases_tenant_id ON knowledge_bases(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_bases_tenant_sort ON knowledge_bases(tenant_id, sort_order, created_at);
 
 -- Create knowledge table
 DO $$ BEGIN RAISE NOTICE '[Migration 000000] Creating table: knowledges'; END $$;

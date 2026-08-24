@@ -17,6 +17,20 @@
       </div>
 
       <div class="editor-page-actions">
+        <t-button
+          v-if="isNoteMemory"
+          theme="default"
+          variant="outline"
+          class="editor-sprout-action"
+          :class="`editor-sprout-action--${noteSproutHeaderState}`"
+          :loading="noteSproutCreating"
+          :disabled="noteSproutLoading"
+          :aria-label="noteSproutHeaderAriaLabel"
+          @click="handleMemorySproutHeaderAction"
+        >
+          <template #icon><OrganizeSproutIcon class="editor-sprout-action-icon" /></template>
+          {{ noteSproutHeaderLabel }}
+        </t-button>
         <span class="editor-save-state" :class="`editor-save-state--${saveState}`" aria-live="polite">{{ saveStateLabel }}</span>
       </div>
     </header>
@@ -39,10 +53,6 @@
             <section class="memory-note-panel" aria-label="笔记详情">
               <div class="memory-note-header">
                 <t-input v-model="title" class="memory-note-title-input" size="large" clearable placeholder="笔记标题" />
-                <div class="memory-note-meta">
-                  <span>{{ memoryAssetLabel }}</span>
-                  <span>{{ memorySource }}</span>
-                </div>
               </div>
 
               <div class="memory-note-tags">
@@ -54,12 +64,12 @@
                     size="small"
                     variant="light-outline"
                   >
-                    {{ tag }}
+                    <t-icon v-if="noteTagIcon(tag)" class="memory-note-tag-leading-icon" :name="noteTagIcon(tag)" size="14px" />
+                    <span class="memory-note-tag-text">{{ tag }}</span>
                     <button type="button" class="memory-note-tag-remove" :aria-label="`移除 ${tag}`" @click="removeMemoryTag(tag)">
                       <t-icon name="close" />
                     </button>
                   </t-tag>
-                  <span v-if="!memoryTags.length" class="memory-note-tag-empty">还没有标签</span>
                 </div>
 
                 <div class="memory-note-tag-actions">
@@ -70,7 +80,7 @@
                     destroy-on-close
                     overlayClassName="memory-note-tag-popup"
                   >
-                    <t-button variant="outline" theme="default" size="small">
+                    <t-button class="memory-note-tag-action memory-note-tag-add-button" variant="outline" theme="default" size="small">
                       <template #icon><t-icon name="add" /></template>
                       添加标签
                     </t-button>
@@ -90,53 +100,30 @@
                     </template>
                   </t-popup>
 
-                  <t-button variant="outline" theme="primary" size="small" @click="generateMemoryTags">+ 智能标签</t-button>
-                  <t-button
-                    theme="default"
-                    variant="text"
-                    size="small"
-                    class="memory-note-sprout-action"
-                    :loading="noteSproutCreating"
-                    @click="createMemorySprout"
-                  >
-                    <template #icon><OrganizeSproutIcon class="memory-note-sprout-icon" /></template>
-                    发芽
+                  <t-button class="memory-note-tag-action memory-note-tag-smart-button" variant="outline" theme="default" size="small" @click="generateMemoryTags">
+                    <template #icon><t-icon name="add" /></template>
+                    智能标签
                   </t-button>
-                </div>
-              </div>
+	                </div>
+	              </div>
 
-              <div class="memory-note-toolbar" aria-label="笔记格式工具">
-                <div class="memory-note-toolbar-group">
-                  <span class="memory-note-toolbar-label">字号</span>
-                  <t-select
-                    v-model="noteToolbarFontSize"
-                    class="memory-note-font-select"
-                    size="small"
-                    clearable
-                    :options="noteFontSizeOptions"
-                    placeholder="默认"
-                    @change="handleMemoryFontSizeChange"
-                  />
-                </div>
-                <div class="memory-note-toolbar-group memory-note-toolbar-group--color">
-                  <span class="memory-note-toolbar-label">颜色</span>
-                  <div class="memory-note-color-row">
-                    <button
-                      v-for="color in noteColorOptions"
-                      :key="color"
-                      type="button"
-                      class="memory-note-color-swatch"
-                      :class="{ 'is-active': noteToolbarColor === color }"
-                      :aria-label="color"
-                      :title="color"
-                      @click="applyMemoryTextColor(color)"
-                    >
-                      <span :style="{ backgroundColor: color }"></span>
-                    </button>
-                    <button type="button" class="memory-note-color-reset" @click="applyMemoryTextColor('')">清除</button>
-                  </div>
-                </div>
-              </div>
+              <button
+                v-if="sourceFileCardVisible"
+                type="button"
+                class="memory-note-source-card"
+                :aria-label="`预览源文件 ${sourceFileName}`"
+                @click="openSourceFilePreview"
+              >
+                <span class="memory-note-source-icon" aria-hidden="true">
+                  <t-icon :name="sourceFileIcon" size="18px" />
+                </span>
+                <span class="memory-note-source-main">
+                  <span class="memory-note-source-label">源文件</span>
+                  <span class="memory-note-source-name">{{ sourceFileName }}</span>
+                </span>
+                <span v-if="sourceFileKindLabel" class="memory-note-source-meta">{{ sourceFileKindLabel }}</span>
+                <t-icon class="memory-note-source-arrow" name="file-view" size="16px" />
+              </button>
 
               <div class="memory-note-tabs" role="tablist" aria-label="笔记视图切换">
                 <button
@@ -146,14 +133,6 @@
                   @click="noteActiveTab = 'content'"
                 >
                   笔记内容
-                </button>
-                <button
-                  type="button"
-                  class="memory-note-tab"
-                  :class="{ 'is-active': noteActiveTab === 'append' }"
-                  @click="noteActiveTab = 'append'"
-                >
-                  追加笔记
                 </button>
                 <button
                   type="button"
@@ -184,44 +163,49 @@
                   </div>
                 </section>
 
-                <section v-show="noteActiveTab === 'append'" class="memory-note-panel-view memory-note-panel-view--append">
-                  <div class="memory-note-section-head">
-                    <h3>追加笔记</h3>
-                    <p>补充内容会追加到正文末尾。</p>
-                  </div>
-                  <t-textarea
-                    v-model="appendNoteText"
-                    class="memory-note-append-input"
-                    :autosize="{ minRows: 6, maxRows: 12 }"
-                    placeholder="在这里补充新内容，支持换行"
-                  />
-                  <div class="memory-note-panel-actions">
-                    <t-button theme="primary" :disabled="!appendNoteText.trim()" @click="appendMemoryText">追加到正文</t-button>
-                  </div>
-                </section>
-
                 <section v-show="noteActiveTab === 'sprout'" class="memory-note-panel-view memory-note-panel-view--sprout">
-                  <div class="memory-note-section-head memory-note-section-head--sprout">
-                    <div>
-                      <h3>发芽</h3>
-                      <p>把这条笔记整理成可继续复盘的发芽结果。</p>
+                  <div v-if="noteSproutLoading" class="memory-note-sprout-loading">
+                    <t-loading size="small" text="加载发芽中" />
+                  </div>
+                  <article
+                    v-else-if="noteSproutCard"
+                    class="memory-note-sprout-card sprout-report-card"
+                    role="button"
+                    tabindex="0"
+                    @click="openNoteSproutReport"
+                    @keydown.enter.self="openNoteSproutReport"
+                  >
+                    <div class="sprout-report-gutter" aria-hidden="true">
+                      <div class="sprout-report-ribbon">
+                        <span>经营</span>
+                        <span>复盘</span>
+                      </div>
                     </div>
-                    <t-button theme="primary" :loading="noteSproutCreating" @click="createMemorySprout">
-                      <template #icon><OrganizeSproutIcon class="memory-note-sprout-icon" /></template>
-                      发芽
-                    </t-button>
-                  </div>
-                  <div v-if="noteSproutReport" class="memory-note-sprout-result">
-                    <div class="memory-note-sprout-meta">
-                      <t-tag size="small" variant="light">{{ noteSproutStageLabel(noteSproutStatus || noteSproutReport.stage) }}</t-tag>
-                      <span>{{ noteSproutReport.memory_count ?? 1 }} 条素材</span>
+
+                    <div class="sprout-report-main">
+                      <div class="sprout-report-title-row">
+                        <h2>{{ noteSproutCard.title }}</h2>
+                        <span class="type-badge" :class="`sprout-stage--${noteSproutCard.stageKey}`">{{ noteSproutCard.stage }}</span>
+                      </div>
+                      <p class="sprout-report-intro">{{ noteSproutCard.intro }}</p>
+
+                      <div v-if="noteSproutCard.chips.length" class="report-chips">
+                        <span v-for="chip in noteSproutCard.chips" :key="chip">{{ chip }}</span>
+                      </div>
+
+                      <div class="report-meta sprout-report-meta">
+                        <span>{{ noteSproutCard.updated }}</span>
+                        <span
+                          v-if="noteSproutCard.referenceLabels.length || noteSproutCard.sourceLabels.length"
+                          class="sprout-report-meta-separator"
+                        >
+                          |
+                        </span>
+                        <span v-for="label in noteSproutCard.referenceLabels" :key="`note-sprout-ref-${label}`">{{ label }}</span>
+                        <span v-for="label in noteSproutCard.sourceLabels" :key="`note-sprout-source-${label}`">{{ label }}</span>
+                      </div>
                     </div>
-                    <h3>{{ noteSproutReport.title }}</h3>
-                    <div class="memory-note-sprout-body" v-html="sproutReportContentForEditor(noteSproutReport.summary)"></div>
-                  </div>
-                  <div v-else class="memory-note-empty-state">
-                    还没有发芽结果，点击按钮开始生成。
-                  </div>
+                  </article>
                 </section>
               </div>
             </section>
@@ -279,6 +263,79 @@
         </article>
       </div>
     </main>
+
+    <t-drawer
+      v-model:visible="sourcePreviewVisible"
+      class="memory-source-preview-drawer"
+      :header="sourceFileName || '源文件预览'"
+      :footer="false"
+      size="min(860px, 92vw)"
+      destroy-on-close
+    >
+      <section v-if="sourcePreviewVisible && sourceFilePreviewUrl" class="memory-source-preview-body">
+        <DocumentPreview
+          :source-url="sourceFilePreviewUrl"
+          :file-type="sourceFilePreviewType"
+          :file-name="sourceFileName || '源文件'"
+          :active="sourcePreviewVisible"
+          fill-height
+        />
+      </section>
+    </t-drawer>
+
+    <t-drawer
+      v-model:visible="sproutPreviewVisible"
+      class="sprout-preview-drawer"
+      :header="false"
+      :footer="false"
+      :close-btn="false"
+      :size="'min(760px, 92vw)'"
+      attach="body"
+      placement="right"
+    >
+      <template v-if="activeNoteSproutPreview">
+        <div class="sprout-preview-header">
+          <div class="sprout-preview-header-copy">
+            <div class="sprout-preview-eyebrow">经营复盘</div>
+            <div class="sprout-preview-title">{{ activeNoteSproutPreview.title }}</div>
+          </div>
+          <div class="sprout-preview-actions">
+            <t-button
+              variant="text"
+              theme="default"
+              size="small"
+              class="sprout-preview-action"
+              aria-label="编辑报告"
+              @click="openNoteSproutEditor"
+            >
+              <template #icon><t-icon name="edit-1" size="16px" /></template>
+            </t-button>
+            <t-button
+              variant="text"
+              theme="default"
+              size="small"
+              class="sprout-preview-action"
+              aria-label="关闭预览"
+              @click="closeNoteSproutPreview"
+            >
+              <template #icon><t-icon name="close" size="16px" /></template>
+            </t-button>
+          </div>
+        </div>
+
+        <div class="sprout-preview-page">
+          <div class="sprout-preview-body">
+            <div class="sprout-preview-meta">
+              <span>{{ activeNoteSproutPreview.updated }}</span>
+              <span>{{ activeNoteSproutPreview.memoryCount }} 条记忆</span>
+            </div>
+            <h1>{{ activeNoteSproutPreview.title }}</h1>
+
+            <div class="sprout-preview-content" v-html="activeNoteSproutPreview.renderedHtml" />
+          </div>
+        </div>
+      </template>
+    </t-drawer>
   </div>
 </template>
 
@@ -288,6 +345,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { TiptapProEditor, type FeatureConfig, type TiptapProEditorExpose } from 'tiptap-ui-kit'
 import 'tiptap-ui-kit/style.css'
+import DocumentPreview from '@/components/document-preview.vue'
 import {
   createOrganizeMemory,
   createOrganizeSproutReportFromMemory,
@@ -296,10 +354,12 @@ import {
   getOrganizeMemory,
   getOrganizeOutput,
   getOrganizeSproutReport,
+  listOrganizeSproutReports,
   updateOrganizeMemory,
   updateOrganizeOutput,
   updateOrganizeSproutReport,
   type OrganizeMemory,
+  type OrganizeMemoryReference,
   type OrganizeMemoryKind,
   type OrganizeOutput,
   type OrganizeOutputStatus,
@@ -312,7 +372,7 @@ import {
   readOrganizeEditorDraft,
   type OrganizeEditorDraft,
 } from './editorDraftStorage'
-import { sproutReportContentForEditor } from './sproutReport'
+import { buildSproutReportPreview, sproutReportContentForEditor } from './sproutReport'
 import {
   buildSmartNoteTags,
   mergeNoteMetadata,
@@ -350,37 +410,18 @@ const memorySource = ref('手动输入')
 const memoryDurationSeconds = ref(0)
 const memoryMetadata = ref<Record<string, unknown> | undefined>()
 const memoryTags = ref<string[]>([])
-const appendNoteText = ref('')
 const noteTagDraft = ref('')
 const noteTagMenuVisible = ref(false)
 const noteSproutReport = ref<OrganizeSproutReport | null>(null)
 const noteSproutCreating = ref(false)
+const noteSproutLoading = ref(false)
 const noteSproutStatus = ref<OrganizeSproutStage | ''>('')
-const noteDefaultFontSize = '14px'
-const noteToolbarFontSize = ref(noteDefaultFontSize)
-const noteToolbarColor = ref('#37352f')
-const noteActiveTab = ref<'content' | 'append' | 'sprout'>('content')
+const noteActiveTab = ref<'content' | 'sprout'>('content')
+const sourcePreviewVisible = ref(false)
+const sproutPreviewVisible = ref(false)
 const outputDraft = ref<OrganizeOutput | null>(null)
 const sproutDraft = ref<OrganizeSproutReport | null>(null)
-const noteFontSizeOptions = [
-  { label: '12px', value: '12px' },
-  { label: '13px', value: '13px' },
-  { label: '14px', value: '14px' },
-  { label: '16px', value: '16px' },
-  { label: '18px', value: '18px' },
-  { label: '20px', value: '20px' },
-]
-const noteColorOptions = [
-  '#37352f',
-  '#787774',
-  '#9b9a97',
-  '#9c36b5',
-  '#5f3dc4',
-  '#2f9e44',
-  '#1971c2',
-  '#d9480f',
-  '#c92a2a',
-]
+let noteSproutRequestSeq = 0
 
 const editorFeatures: FeatureConfig = {
   headerNav: false,
@@ -417,7 +458,7 @@ const isAudioMemory = computed(() => documentType.value === 'memory' && memoryKi
 const audioDurationLabel = computed(() => formatDuration(memoryDurationSeconds.value || 0))
 const editorPlaceholder = computed(() => {
   if (isAudioMemory.value) return '录音转写内容'
-  if (isNoteMemory.value) return '输入正文，支持字号和颜色'
+  if (isNoteMemory.value) return '输入正文'
   return '输入内容，或按“/”启用命令'
 })
 
@@ -486,6 +527,24 @@ const formatDuration = (seconds?: number) => {
   const minutes = Math.floor(safeSeconds / 60)
   return `${String(minutes).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`
 }
+
+const formatDateLabel = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '刚刚'
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  if (diff < 60 * 60 * 1000) return '刚刚'
+  if (diff < 24 * 60 * 60 * 1000) return '今天'
+  return `${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+const formatTimeLabel = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '--:--'
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date)
+}
+
+const formatUpdatedLabel = (value: string) => `${formatDateLabel(value)} ${formatTimeLabel(value)}`
 
 const parseHtmlBody = (html = '') => new DOMParser().parseFromString(html, 'text/html').body
 
@@ -563,6 +622,157 @@ const noteTagsFromMetadata = (metadata?: Record<string, unknown>) => normalizeNo
 
 const noteMetadataForSave = () => mergeNoteMetadata(memoryMetadata.value, memoryTags.value)
 
+const noteTagIcon = (tag: string) => {
+  const normalized = tag.trim().toLowerCase()
+  if (normalized.includes('录音') || normalized.includes('音频') || normalized.includes('audio')) return 'microphone'
+  return ''
+}
+
+const memoryReferenceKindLabel = (kind?: string) => {
+  if (kind === 'audio') return '录音'
+  if (kind === 'audio_card') return '工牌'
+  if (kind === 'record') return '记录'
+  return '笔记'
+}
+
+const memoryReferenceLabel = (ref: OrganizeMemoryReference) => {
+  const title = asTrimmedString(ref.title) || '未命名'
+  return `@创建了${memoryReferenceKindLabel(ref.kind)}${title}`
+}
+
+const memoryReferenceSourceLabel = (source?: string) => {
+  const normalized = asTrimmedString(source)
+  if (!normalized || normalized === '手动输入') return ''
+  if (normalized === '文件导入') return '@上传文件'
+  return `@${normalized}`
+}
+
+const sproutReferenceLabels = (refs: OrganizeMemoryReference[] = [], memoryCount = 0) => {
+  if (!refs.length) return memoryCount > 0 ? [`@${memoryCount}条记忆`] : []
+  return refs.slice(0, 2).map(memoryReferenceLabel)
+}
+
+const sproutSourceLabels = (refs: OrganizeMemoryReference[] = []) => {
+  const labels = new Set<string>()
+  for (const ref of refs) {
+    const label = memoryReferenceSourceLabel(ref.source)
+    if (label) labels.add(label)
+  }
+  return Array.from(labels).slice(0, 2)
+}
+
+const fileBaseName = (value = '') => {
+  const cleanValue = value.split(/[?#]/)[0].replace(/\\/g, '/')
+  const segments = cleanValue.split('/').filter(Boolean)
+  const baseName = segments[segments.length - 1] || cleanValue
+  try {
+    return decodeURIComponent(baseName)
+  } catch {
+    return baseName
+  }
+}
+
+const fileExtension = (value = '') => {
+  const baseName = fileBaseName(value)
+  const dotIndex = baseName.lastIndexOf('.')
+  return dotIndex >= 0 ? baseName.slice(dotIndex + 1).toLowerCase() : ''
+}
+
+const fileTypeFromMime = (value = '') => {
+  const normalized = value.toLowerCase()
+  if (normalized.includes('pdf')) return 'pdf'
+  if (normalized.includes('wordprocessingml') || normalized.includes('msword')) return 'docx'
+  if (normalized.includes('presentationml') || normalized.includes('powerpoint')) return 'pptx'
+  if (normalized.includes('spreadsheetml') || normalized.includes('excel')) return 'xlsx'
+  if (normalized.includes('markdown')) return 'md'
+  if (normalized.startsWith('text/')) return 'txt'
+  if (normalized.startsWith('image/')) return normalized.split('/')[1] || 'image'
+  if (normalized.startsWith('audio/')) return normalized.split('/')[1] || 'audio'
+  if (normalized.startsWith('video/')) return normalized.split('/')[1] || 'video'
+  return ''
+}
+
+const sourceFilePath = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  return (
+    asTrimmedString(metadata.file_path) ||
+    asTrimmedString(metadata.filePath) ||
+    asTrimmedString(metadata.source_path) ||
+    asTrimmedString(metadata.sourcePath) ||
+    asTrimmedString(metadata.file_url) ||
+    asTrimmedString(metadata.fileUrl) ||
+    asTrimmedString(metadata.source_url) ||
+    asTrimmedString(metadata.sourceUrl) ||
+    asTrimmedString(metadata.preview_url) ||
+    asTrimmedString(metadata.previewUrl)
+  )
+})
+
+const sourceFileName = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  return (
+    asTrimmedString(metadata.file_name) ||
+    asTrimmedString(metadata.fileName) ||
+    asTrimmedString(metadata.original_name) ||
+    asTrimmedString(metadata.originalName) ||
+    asTrimmedString(metadata.filename) ||
+    fileBaseName(sourceFilePath.value) ||
+    title.value ||
+    '源文件'
+  )
+})
+
+const sourceFilePreviewType = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  return (
+    asTrimmedString(metadata.file_type).toLowerCase() ||
+    asTrimmedString(metadata.fileType).toLowerCase() ||
+    fileExtension(sourceFileName.value) ||
+    fileExtension(sourceFilePath.value) ||
+    fileTypeFromMime(asTrimmedString(metadata.mime_type) || asTrimmedString(metadata.mimeType)) ||
+    'bin'
+  )
+})
+
+const sourceFileKindLabel = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  return (
+    asTrimmedString(metadata.content_kind_label) ||
+    asTrimmedString(metadata.contentKindLabel) ||
+    asTrimmedString(metadata.mime_type) ||
+    sourceFilePreviewType.value.toUpperCase()
+  )
+})
+
+const sourceFileIcon = computed(() => {
+  const fileType = sourceFilePreviewType.value
+  if (fileType === 'pdf') return 'file-pdf'
+  if (['doc', 'docx'].includes(fileType)) return 'file-word'
+  if (['xls', 'xlsx', 'csv'].includes(fileType)) return 'file-excel'
+  if (['ppt', 'pptx'].includes(fileType)) return 'file-powerpoint'
+  if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'svg'].includes(fileType)) return 'image'
+  if (['mp3', 'wav', 'm4a', 'flac', 'ogg'].includes(fileType)) return 'sound'
+  if (['mp4', 'mov', 'webm', 'avi', 'mkv', 'wmv', 'flv'].includes(fileType)) return 'play-circle'
+  return 'file'
+})
+
+const sourceFilePreviewUrl = computed(() => {
+  const source = sourceFilePath.value
+  if (!source) return ''
+  if (/^https?:\/\//i.test(source) || source.startsWith('blob:') || source.startsWith('data:')) return source
+  return `/files?${new URLSearchParams({ file_path: source }).toString()}`
+})
+
+const sourceFileCardVisible = computed(() => isNoteMemory.value && Boolean(sourceFilePath.value))
+
+const openSourceFilePreview = () => {
+  if (!sourceFilePreviewUrl.value) {
+    MessagePlugin.warning('暂无源文件')
+    return
+  }
+  sourcePreviewVisible.value = true
+}
+
 const markDocumentDirty = () => {
   if (!editorReady.value || loading.value) return
   editRevision += 1
@@ -580,52 +790,6 @@ const memorySproutRoleConfig = () => ({
   user_id: authStore.currentUserId || '',
   user_name: authStore.user?.username || authStore.user?.email || '我',
 })
-
-const applyMemoryFontSize = (fontSize: string) => {
-  const editor = currentEditor()
-  if (!editor) return
-  const chain = editor.chain().focus() as any
-  if (!fontSize) {
-    chain.unsetFontSize().run()
-  } else {
-    chain.setFontSize(fontSize).run()
-  }
-  noteToolbarFontSize.value = fontSize || noteDefaultFontSize
-}
-
-const handleMemoryFontSizeChange = (fontSize: unknown) => {
-  if (typeof fontSize === 'string' || typeof fontSize === 'number') {
-    applyMemoryFontSize(String(fontSize))
-    return
-  }
-  applyMemoryFontSize('')
-}
-
-const applyMemoryTextColor = (color: string) => {
-  const editor = currentEditor()
-  if (!editor) return
-  const chain = editor.chain().focus() as any
-  if (!color) {
-    chain.unsetColor().run()
-  } else {
-    chain.setColor(color).run()
-  }
-  noteToolbarColor.value = color || '#37352f'
-}
-
-const appendMemoryText = () => {
-  const text = appendNoteText.value.trim()
-  if (!text) return
-  const editor = currentEditor()
-  if (!editor) return
-  const html = text
-    .split(/\n+/)
-    .map((line) => `<p>${escapeHtml(line)}</p>`)
-    .join('')
-  editor.chain().focus('end').insertContent(html).run()
-  appendNoteText.value = ''
-  noteActiveTab.value = 'content'
-}
 
 const addMemoryTag = (tag = noteTagDraft.value) => {
   const normalized = normalizeNoteTags([tag])[0]
@@ -679,6 +843,7 @@ const createMemorySprout = async () => {
     noteSproutStatus.value = response.data.stage
     noteActiveTab.value = 'sprout'
     MessagePlugin.success('发芽任务已创建')
+    scheduleNoteSproutRefresh(memoryID)
   } catch (error: any) {
     MessagePlugin.error(error?.message || '发芽任务创建失败')
   } finally {
@@ -693,6 +858,121 @@ const noteSproutStageLabel = (stage: OrganizeSproutStage | '' = '') => {
     formed: '已发芽',
   }
   return stage ? labels[stage] : '发芽'
+}
+
+const noteSproutHeaderState = computed(() => {
+  const stage = noteSproutReport.value?.stage || noteSproutStatus.value
+  if (noteSproutCreating.value || stage === 'organizing') return 'organizing'
+  if (noteSproutReport.value || stage === 'formed') return 'formed'
+  return 'idle'
+})
+
+const noteSproutHeaderLabel = computed(() => {
+  const state = noteSproutHeaderState.value
+  if (state === 'organizing') return '发芽中'
+  if (state === 'formed') return '已发芽'
+  return '发芽'
+})
+
+const noteSproutHeaderAriaLabel = computed(() => {
+  const state = noteSproutHeaderState.value
+  if (state === 'organizing') return '发芽报告生成中'
+  if (state === 'formed') return '查看发芽结果'
+  return '生成发芽报告'
+})
+
+const noteSproutCard = computed(() => {
+  const report = noteSproutReport.value
+  if (!report) return null
+  const preview = buildSproutReportPreview(report.summary || report.output_hint || report.title, report.title)
+  const updatedAt = report.updated_at || report.created_at || ''
+  const memoryRefs = report.memory_refs || []
+  return {
+    id: report.id,
+    title: report.title || '未命名发芽',
+    intro: preview.intro || report.output_hint || report.title,
+    stage: noteSproutStageLabel(report.stage),
+    stageKey: report.stage,
+    updated: updatedAt ? formatUpdatedLabel(updatedAt) : '刚刚 --:--',
+    chips: report.chips || [],
+    referenceLabels: sproutReferenceLabels(memoryRefs, report.memory_count || 0),
+    sourceLabels: sproutSourceLabels(memoryRefs),
+  }
+})
+
+const activeNoteSproutPreview = computed(() => {
+  const report = noteSproutReport.value
+  if (!report) return null
+  const updatedAt = report.updated_at || report.created_at || ''
+  const contentSource = report.summary || report.output_hint || report.title
+  return {
+    id: report.id,
+    title: report.title || '未命名发芽',
+    updated: updatedAt ? formatUpdatedLabel(updatedAt) : '刚刚 --:--',
+    memoryCount: report.memory_count || report.memory_ids?.length || 0,
+    renderedHtml: sproutReportContentForEditor(contentSource),
+  }
+})
+
+const loadLinkedMemorySproutReport = async (memoryID: string, options?: { silent?: boolean }) => {
+  if (!memoryID || memoryID === 'new') return
+  const requestSeq = ++noteSproutRequestSeq
+  if (!options?.silent) noteSproutLoading.value = true
+  try {
+    const response = await listOrganizeSproutReports({ page_size: 10, memory_id: memoryID })
+    if (requestSeq !== noteSproutRequestSeq) return
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '发芽数据加载失败')
+    }
+    const linkedReport = response.data.items.find((report) => (report.memory_ids || []).includes(memoryID)) || response.data.items[0] || null
+    noteSproutReport.value = linkedReport
+    noteSproutStatus.value = linkedReport?.stage || ''
+  } catch {
+    if (!options?.silent) {
+      noteSproutReport.value = null
+      noteSproutStatus.value = ''
+    }
+  } finally {
+    if (requestSeq === noteSproutRequestSeq && !options?.silent) {
+      noteSproutLoading.value = false
+    }
+  }
+}
+
+const scheduleNoteSproutRefresh = (memoryID: string) => {
+  const refresh = () => {
+    void loadLinkedMemorySproutReport(memoryID, { silent: true })
+  }
+  window.setTimeout(refresh, 1500)
+  window.setTimeout(refresh, 5000)
+}
+
+const openNoteSproutReport = () => {
+  if (!activeNoteSproutPreview.value) return
+  sproutPreviewVisible.value = true
+}
+
+const closeNoteSproutPreview = () => {
+  sproutPreviewVisible.value = false
+}
+
+const openNoteSproutEditor = () => {
+  const report = noteSproutReport.value
+  if (!report?.id) return
+  sproutPreviewVisible.value = false
+  void router.push({
+    path: `/platform/organize/editor/sprout/${encodeURIComponent(report.id)}`,
+    query: { return: route.fullPath },
+  })
+}
+
+const handleMemorySproutHeaderAction = () => {
+  if (noteSproutCreating.value || noteSproutLoading.value) return
+  if (noteSproutReport.value) {
+    noteActiveTab.value = 'sprout'
+    return
+  }
+  void createMemorySprout()
 }
 
 const audioMemoryFallbackTitle = (html = '') => {
@@ -850,13 +1130,14 @@ const resetDraft = () => {
   memoryDurationSeconds.value = draft.duration_seconds || 0
   memoryMetadata.value = draft.metadata
   memoryTags.value = noteTagsFromMetadata(draft.metadata)
-  appendNoteText.value = ''
   noteTagDraft.value = ''
   noteTagMenuVisible.value = false
   noteSproutReport.value = null
+  noteSproutLoading.value = false
   noteSproutStatus.value = ''
-  noteToolbarFontSize.value = noteDefaultFontSize
-  noteToolbarColor.value = '#37352f'
+  sourcePreviewVisible.value = false
+  sproutPreviewVisible.value = false
+  noteSproutRequestSeq += 1
   noteActiveTab.value = 'content'
   if (documentType.value === 'memory' && memoryKind.value === 'audio') {
     content.value = normalizeAudioMemoryContent(draftContent)
@@ -902,13 +1183,11 @@ const loadDocument = async () => {
       memoryDurationSeconds.value = item.duration_seconds || 0
       memoryMetadata.value = item.metadata
       memoryTags.value = noteTagsFromMetadata(item.metadata)
-      appendNoteText.value = ''
       noteTagDraft.value = ''
       noteTagMenuVisible.value = false
       noteSproutReport.value = null
       noteSproutStatus.value = ''
-      noteToolbarFontSize.value = noteDefaultFontSize
-      noteToolbarColor.value = '#37352f'
+      sourcePreviewVisible.value = false
       noteActiveTab.value = 'content'
       title.value = item.kind === 'audio'
         ? audioMemoryDisplayTitle(item)
@@ -920,6 +1199,9 @@ const loadDocument = async () => {
         : isNoteMemory.value
           ? memoryBodyContent(item.title, item.content)
           : normalizeDocumentContent(item.title, item.content)
+      if (isNoteMemory.value) {
+        await loadLinkedMemorySproutReport(item.id)
+      }
     } else if (documentType.value === 'output') {
       const response = await getOrganizeOutput(documentId.value)
       if (!response.success || !response.data) throw new Error(response.message || '发现加载失败')
@@ -1223,6 +1505,52 @@ watch(
   flex: 0 0 auto;
 }
 
+.editor-sprout-action {
+  height: 36px;
+  padding: 0 14px;
+  border-color: rgba(55, 53, 47, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  color: #20242a;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.editor-sprout-action:hover {
+  border-color: rgba(34, 101, 73, 0.32);
+  background: rgba(34, 101, 73, 0.04);
+  color: #20242a;
+}
+
+.editor-sprout-action :deep(.t-button__icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+}
+
+.editor-sprout-action-icon {
+  font-size: 18px;
+  color: #22c55e;
+}
+
+.editor-sprout-action--organizing .editor-sprout-action-icon {
+  color: #2eaadc;
+}
+
+.editor-sprout-action--formed {
+  border-color: rgba(34, 101, 73, 0.24);
+  background: rgba(34, 101, 73, 0.06);
+  color: #236549;
+}
+
+.editor-sprout-action--formed:hover {
+  border-color: rgba(34, 101, 73, 0.36);
+  background: rgba(34, 101, 73, 0.1);
+  color: #236549;
+}
+
 .editor-save-state {
   margin-right: 4px;
   color: rgba(55, 53, 47, 0.45);
@@ -1412,83 +1740,156 @@ watch(
 
 .memory-note-title-input :deep(.t-input__inner) {
   color: #37352f;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
   line-height: 1.2;
-}
-
-.memory-note-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  color: rgba(55, 53, 47, 0.52);
-  font-size: 12px;
-  line-height: 18px;
 }
 
 .memory-note-tags {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
 }
 
 .memory-note-tag-list {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-}
-
-.memory-note-tag-empty {
-  color: rgba(55, 53, 47, 0.36);
-  font-size: 12px;
-  line-height: 18px;
 }
 
 .memory-note-tag-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 10px;
 }
 
 .memory-note-tag {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
+  max-width: 180px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid #dfe4ec;
   border-radius: 999px;
+  background: #fbfcff;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+  box-sizing: border-box;
+}
+
+.memory-note-tag:hover {
+  border-color: #d3d9e5;
+  background: #fff;
+  color: #5d687b;
+}
+
+.memory-note-tag-leading-icon {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  color: #667085;
+}
+
+.memory-note-tag-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-note-tag :deep(.t-tag__text) {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
 }
 
 .memory-note-tag-remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 0;
+  height: 14px;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: inherit;
+  color: #98a2b3;
   cursor: pointer;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition:
+    width 0.16s ease,
+    margin-left 0.16s ease,
+    opacity 0.16s ease,
+    background 0.16s ease;
+}
+
+.memory-note-tag:hover .memory-note-tag-remove,
+.memory-note-tag:focus-within .memory-note-tag-remove {
+  width: 14px;
+  margin-left: 6px;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .memory-note-tag-remove:hover {
-  background: rgba(55, 53, 47, 0.08);
+  background: rgba(102, 112, 133, 0.12);
+  color: #667085;
 }
 
-.memory-note-sprout-action {
-  padding-inline: 6px;
-  color: rgba(55, 53, 47, 0.72);
+.memory-note-tag-action {
+  min-width: 0;
+  height: 30px;
+  padding: 0 12px;
+  border-color: #dfe4ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
 }
 
-.memory-note-sprout-icon {
+.memory-note-tag-action:hover {
+  border-color: #d3d9e5;
+  background: #fbfcff;
+  color: #5d687b;
+}
+
+.memory-note-tag-action :deep(.t-button__icon) {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 5px;
+  color: inherit;
   font-size: 14px;
+}
+
+.memory-note-tag-action :deep(.t-button__text) {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.memory-note-tag-smart-button {
+  border-color: #dbe5ff;
+  background: #eef4ff;
+  color: #5264d6;
+}
+
+.memory-note-tag-smart-button:hover {
+  border-color: #cfdbff;
+  background: #e8f0ff;
+  color: #4859c7;
 }
 
 .memory-note-tag-panel {
@@ -1513,75 +1914,259 @@ watch(
   overflow: hidden;
 }
 
-.memory-note-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px 24px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(55, 53, 47, 0.08);
-}
-
-.memory-note-toolbar-group {
-  display: flex;
-  flex-wrap: wrap;
+.memory-note-source-card {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto 18px;
   align-items: center;
-  gap: 10px;
-  min-height: 34px;
+  gap: 12px;
+  width: min(520px, 100%);
+  min-height: 62px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  color: #37352f;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease,
+    background 0.16s ease;
 }
 
-.memory-note-toolbar-label {
-  color: rgba(55, 53, 47, 0.56);
-  font-size: 12px;
-  line-height: 18px;
+.memory-note-source-card:hover,
+.memory-note-source-card:focus-visible {
+  border-color: rgba(55, 53, 47, 0.2);
+  background: #fbfbfa;
+  box-shadow: 0 6px 18px rgba(15, 15, 15, 0.08);
+  transform: translateY(-1px);
+  outline: none;
 }
 
-.memory-note-font-select {
-  width: 104px;
-}
-
-.memory-note-color-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.memory-note-color-swatch {
+.memory-note-source-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(47, 179, 95, 0.1);
+  color: #2fb35f;
+}
+
+.memory-note-source-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.memory-note-source-label {
+  color: rgba(55, 53, 47, 0.52);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.memory-note-source-name {
+  overflow: hidden;
+  color: #37352f;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-note-source-meta {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  color: rgba(55, 53, 47, 0.48);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-note-source-arrow {
+  color: rgba(55, 53, 47, 0.48);
+}
+
+:deep(.memory-source-preview-drawer .t-drawer__body) {
   padding: 0;
-  border: 1px solid rgba(55, 53, 47, 0.12);
-  border-radius: 50%;
-  background: #fff;
-  cursor: pointer;
+  background: #f7f8fa;
+}
+
+.memory-source-preview-body {
+  height: calc(100vh - 56px);
+  padding: 16px;
   box-sizing: border-box;
 }
 
-.memory-note-color-swatch span {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
+:deep(.sprout-preview-drawer .t-drawer__body) {
+  padding: 0;
+  background: #f5f0e7;
 }
 
-.memory-note-color-swatch.is-active {
-  box-shadow: 0 0 0 2px rgba(46, 170, 220, 0.18);
+.sprout-preview-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(32, 36, 42, 0.1);
+  background: rgba(255, 255, 255, 0.94);
+  box-sizing: border-box;
 }
 
-.memory-note-color-reset {
-  border: 0;
-  background: transparent;
-  color: rgba(55, 53, 47, 0.58);
-  font: inherit;
+.sprout-preview-header-copy {
+  min-width: 0;
+}
+
+.sprout-preview-eyebrow {
+  color: var(--td-text-color-primary);
   font-size: 12px;
-  cursor: pointer;
+  font-weight: 400;
+  line-height: 18px;
 }
 
-.memory-note-color-reset:hover {
-  color: #37352f;
+.sprout-preview-title {
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sprout-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.sprout-preview-action {
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+}
+
+.sprout-preview-page {
+  min-height: 100%;
+  padding: 22px 26px 48px;
+  box-sizing: border-box;
+}
+
+.sprout-preview-body {
+  margin-top: 0;
+  padding: 30px 34px 38px;
+  border: 1px solid #ded2bf;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--td-text-color-primary);
+  box-shadow: 0 10px 26px rgba(38, 34, 29, 0.08);
+  box-sizing: border-box;
+
+  h1 {
+    margin: 12px 0 18px;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: 0;
+  }
+}
+
+.sprout-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.sprout-preview-content {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+
+  :deep(h1) {
+    display: none;
+  }
+
+  :deep(h2) {
+    margin: 30px 0 12px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(32, 36, 42, 0.12);
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: 0;
+  }
+
+  :deep(h3) {
+    margin: 24px 0 10px;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: 0;
+  }
+
+  :deep(p) {
+    margin: 10px 0;
+  }
+
+  :deep(> p:first-child) {
+    margin: 0 0 18px;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  :deep(blockquote) {
+    margin: 14px 0;
+    padding: 11px 14px 11px 16px;
+    border-left: 3px solid #2d7a52;
+    border-radius: 0 6px 6px 0;
+    background: rgba(34, 101, 73, 0.06);
+    color: #4e5a52;
+  }
+
+  :deep(blockquote p) {
+    margin: 4px 0;
+  }
+
+  :deep(strong) {
+    color: var(--td-text-color-primary);
+    font-weight: 400;
+  }
+
+  :deep(ul),
+  :deep(ol) {
+    margin: 10px 0 14px;
+    padding-left: 22px;
+  }
+
+  :deep(li) {
+    margin: 4px 0;
+  }
 }
 
 .memory-note-tabs {
@@ -1635,121 +2220,195 @@ watch(
   min-width: 0;
 }
 
-.memory-note-section-head {
+.memory-note-sprout-loading {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.memory-note-section-head h3 {
-  margin: 0;
-  color: #37352f;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.memory-note-section-head p {
-  margin: 0;
-  color: rgba(55, 53, 47, 0.56);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.memory-note-section-head--sprout {
-  flex-direction: row;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  min-height: 124px;
+  padding-top: 4px;
 }
 
-.memory-note-append-input {
-  width: 100%;
+.memory-note-sprout-card {
+  cursor: pointer;
 }
 
-.memory-note-append-input :deep(.t-textarea__inner) {
-  min-height: 180px;
-  border-color: rgba(55, 53, 47, 0.12);
-  border-radius: 10px;
-  resize: vertical;
-  box-shadow: none;
+.sprout-report-card {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  min-height: 124px;
+  overflow: hidden;
+  border: 1px solid #e1d7c7;
+  border-radius: 8px;
+  background:
+    linear-gradient(0deg, rgba(35, 31, 27, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(35, 31, 27, 0.014) 1px, transparent 1px),
+    #fffdf8;
+  background-size: 22px 22px;
+  box-shadow: 0 4px 14px rgba(38, 34, 29, 0.05);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+  &:hover,
+  &:focus {
+    border-color: rgba(34, 101, 73, 0.42);
+    box-shadow: 0 10px 26px rgba(38, 34, 29, 0.1);
+    outline: none;
+  }
 }
 
-.memory-note-panel-actions {
+.sprout-report-gutter {
+  position: relative;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  border-right: 1px solid #e6ddcf;
+  background:
+    linear-gradient(180deg, rgba(34, 101, 73, 0.08), rgba(164, 128, 57, 0.08)),
+    #f8f2e7;
 }
 
-.memory-note-empty-state {
-  padding: 16px 0 4px;
-  color: rgba(55, 53, 47, 0.48);
-  font-size: 13px;
-  line-height: 1.6;
+.sprout-report-ribbon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 56px;
+  border: 2px solid #20242a;
+  background: rgba(255, 253, 248, 0.72);
+  color: var(--td-text-color-primary);
+  font-family: "Songti SC", "STSong", serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  letter-spacing: 0;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px rgba(32, 36, 42, 0.12);
+
+  span {
+    display: block;
+  }
 }
 
-.memory-note-sprout-result {
+.sprout-report-main {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 4px;
-  border-top: 1px solid rgba(55, 53, 47, 0.08);
+  min-width: 0;
+  padding: 12px;
+
+  h2 {
+    display: -webkit-box;
+    margin: 0;
+    max-height: 18px;
+    overflow: hidden;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: 0;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
 }
 
-.memory-note-sprout-meta {
+.sprout-report-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  margin: 2px 0 6px;
+
+  h2 {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .type-badge {
+    flex-shrink: 0;
+    min-height: 20px;
+    padding: 1px 7px;
+    line-height: 16px;
+  }
+}
+
+.sprout-report-intro {
+  display: -webkit-box;
+  margin: 0;
+  max-height: 54px;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.report-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 4px;
+    background: var(--td-bg-color-secondarycontainer);
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 14px;
+  }
+}
+
+.sprout-report-main .report-chips {
+  margin-top: auto;
+  margin-bottom: 6px;
+}
+
+.report-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  color: rgba(55, 53, 47, 0.52);
+  gap: 6px 14px;
+  color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 18px;
 }
 
-.memory-note-sprout-result h3 {
-  margin: 0;
-  color: #37352f;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.35;
+.sprout-report-meta {
+  padding-top: 6px;
 }
 
-.memory-note-sprout-body {
-  max-height: 420px;
-  overflow: auto;
-  color: #37352f;
-  font-size: 13px;
-  line-height: 1.65;
+.sprout-report-meta-separator {
+  color: var(--td-text-color-placeholder);
 }
 
-.memory-note-sprout-body :deep(h1),
-.memory-note-sprout-body :deep(h2),
-.memory-note-sprout-body :deep(h3),
-.memory-note-sprout-body :deep(p),
-.memory-note-sprout-body :deep(ul),
-.memory-note-sprout-body :deep(ol) {
-  margin-top: 0;
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  box-sizing: border-box;
 }
 
-.memory-note-sprout-body :deep(h1) {
-  margin-bottom: 10px;
-  font-size: 18px;
-  line-height: 1.35;
+.type-badge.sprout-stage--formed {
+  background: rgba(34, 101, 73, 0.1);
+  color: #236549;
 }
 
-.memory-note-sprout-body :deep(h2) {
-  margin-bottom: 8px;
-  font-size: 16px;
-  line-height: 1.4;
+.type-badge.sprout-stage--expandable {
+  background: rgba(146, 94, 28, 0.1);
+  color: #7a4d18;
 }
 
-.memory-note-sprout-body :deep(p),
-.memory-note-sprout-body :deep(ul),
-.memory-note-sprout-body :deep(ol) {
-  margin-bottom: 10px;
-}
-
-.memory-note-sprout-body :deep(li) {
-  margin-bottom: 6px;
+.type-badge.sprout-stage--organizing {
+  background: rgba(35, 99, 148, 0.1);
+  color: #1f5a86;
 }
 
 .document-editor-shell {
@@ -1774,7 +2433,7 @@ watch(
 
 .document-editor-shell--memory-note {
   min-height: 620px;
-  --editor-empty-placeholder: "输入正文，支持字号和颜色";
+  --editor-empty-placeholder: "输入正文";
   --editor-title-placeholder: "标题";
 }
 
@@ -1788,6 +2447,23 @@ watch(
 
 .document-editor-shell :deep(.word-document-container) {
   padding: 0;
+}
+
+.document-editor-shell--memory-note :deep(.tiptap-pro-editor.word-mode) {
+  height: auto;
+  min-height: inherit;
+  overflow: visible;
+}
+
+.document-editor-shell--memory-note :deep(.word-document-container) {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: visible;
+  overscroll-behavior-y: auto;
+}
+
+.document-editor-shell--memory-note :deep(.document-pages) {
+  flex: 0 0 auto;
 }
 
 .document-editor-shell :deep(.continuous-pages) {
@@ -1998,7 +2674,7 @@ watch(
   }
 
   .memory-note-title-input :deep(.t-input__inner) {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .memory-note-tags {
@@ -2010,8 +2686,13 @@ watch(
     justify-content: flex-start;
   }
 
-  .memory-note-toolbar {
-    gap: 12px 16px;
+  .memory-note-source-card {
+    grid-template-columns: 34px minmax(0, 1fr) 18px;
+    min-height: 58px;
+  }
+
+  .memory-note-source-meta {
+    display: none;
   }
 
   .memory-note-tabs {
@@ -2023,13 +2704,23 @@ watch(
     font-size: 14px;
   }
 
-  .memory-note-section-head--sprout {
-    flex-direction: column;
-    align-items: flex-start;
+  .sprout-report-card {
+    grid-template-columns: 1fr;
   }
 
-  .memory-note-sprout-body {
-    max-height: 300px;
+  .sprout-report-gutter {
+    min-height: 72px;
+    border-right: 0;
+    border-bottom: 1px solid #e6ddcf;
+  }
+
+  .sprout-report-ribbon {
+    width: 72px;
+    height: 42px;
+    grid-template-columns: repeat(2, auto);
+    gap: 4px;
+    font-size: 12px;
+    line-height: 18px;
   }
 
   .memory-note-tag-panel {

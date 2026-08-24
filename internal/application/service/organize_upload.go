@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,14 +17,108 @@ import (
 
 const (
 	organizeUploadPromptRuneBudget = 7000
-	organizeUploadMaxTags           = 8
-	organizeUploadMaxTagRunes       = 16
+	organizeUploadMaxTags          = 8
+	organizeUploadMaxTagRunes      = 16
 )
 
 type organizeUploadAIResult struct {
 	Title   string   `json:"title"`
 	Summary string   `json:"summary"`
 	Tags    []string `json:"tags"`
+}
+
+func (s *organizeService) CreateMemoryFromUpload(
+	ctx context.Context,
+	tenantID uint64,
+	userID, fileName, mimeType string,
+	data []byte,
+) (*types.OrganizeMemory, error) {
+	if err := validateOrganizeScope(tenantID, userID); err != nil {
+		return nil, err
+	}
+	if s.fileService == nil {
+		return nil, fmt.Errorf("file service is not configured")
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("upload file is empty")
+	}
+
+	cleanName := strings.TrimSpace(fileName)
+	if cleanName == "" {
+		cleanName = "upload.bin"
+	}
+	if !isValidFileType(cleanName) {
+		return nil, fmt.Errorf("unsupported file type: %s", strings.ToLower(filepath.Ext(cleanName)))
+	}
+
+	contentKind, contentTypeLabel, _ := organizeOutputKindInfo(cleanName, mimeType)
+	baseName := strings.TrimSuffix(filepath.Base(cleanName), filepath.Ext(cleanName))
+	if baseName == "" {
+		baseName = cleanName
+	}
+
+	content, transcript, asrModelID, warnings, err := s.extractOrganizeUploadContent(ctx, cleanName, mimeType, data, contentKind)
+	if err != nil {
+		return nil, err
+	}
+
+	aiResult, aiModelID, aiStatus := s.generateOrganizeMemoryImportAIResult(ctx, cleanName, contentTypeLabel, content)
+	if aiResult.Title == "" {
+		aiResult.Title = baseName
+	}
+	if aiResult.Summary == "" {
+		aiResult.Summary = organizeMemoryImportFallbackSummary(cleanName, content)
+	}
+	aiResult.Tags = normalizeOrganizeUploadTags(append(aiResult.Tags, organizeMemoryImportFallbackTags(contentKind)...))
+	if len(aiResult.Tags) == 0 {
+		aiResult.Tags = normalizeOrganizeUploadTags(organizeMemoryImportFallbackTags(contentKind))
+	}
+
+	storageName := fmt.Sprintf("organize_memory_%s%s", uuid.NewString()[:12], filepath.Ext(cleanName))
+	storagePath, saveErr := s.fileService.SaveBytes(ctx, data, tenantID, storageName, false)
+	if saveErr != nil {
+		return nil, fmt.Errorf("save upload file: %w", saveErr)
+	}
+
+	metadata := types.JSONMap{
+		"content_kind":       contentKind,
+		"content_kind_label": contentTypeLabel,
+		"file_name":          cleanName,
+		"file_type":          strings.TrimPrefix(strings.ToLower(filepath.Ext(cleanName)), "."),
+		"file_path":          storagePath,
+		"mime_type":          strings.TrimSpace(mimeType),
+		"summary":            trimMax(aiResult.Summary, organizeMaxShortText),
+		"ai_status":          aiStatus,
+		"ai_model_id":        aiModelID,
+		"tags":               types.StringArray(aiResult.Tags),
+		"import_source":      "file",
+		"imported_at":        time.Now().UTC().Format(time.RFC3339),
+	}
+	if transcript != "" {
+		metadata["transcript"] = transcript
+	}
+	if asrModelID != "" {
+		metadata["asr_model_id"] = asrModelID
+	}
+	if len(warnings) > 0 {
+		metadata["warnings"] = warnings
+	}
+
+	memory := &types.OrganizeMemory{
+		TenantID:   tenantID,
+		UserID:     userID,
+		Kind:       types.OrganizeMemoryKindNote,
+		Title:      trimMax(aiResult.Title, organizeMaxTitleLength),
+		Content:    organizeUploadContentToNoteHTML(aiResult.Title, content),
+		Source:     "文件导入",
+		OccurredAt: time.Now().UTC(),
+		Metadata:   normalizeJSONMap(metadata),
+	}
+	if err := s.repo.CreateMemory(ctx, memory); err != nil {
+		_ = s.fileService.DeleteFile(ctx, storagePath)
+		return nil, err
+	}
+	return s.repo.GetMemory(ctx, tenantID, userID, memory.ID)
 }
 
 func (s *organizeService) CreateOutputFromUpload(
@@ -80,17 +175,17 @@ func (s *organizeService) CreateOutputFromUpload(
 	}
 
 	metadata := types.JSONMap{
-		"content_kind":        contentKind,
-		"content_kind_label":  outputType,
-		"file_name":           cleanName,
-		"file_type":           strings.TrimPrefix(strings.ToLower(filepath.Ext(cleanName)), "."),
-		"file_path":           storagePath,
-		"mime_type":           strings.TrimSpace(mimeType),
-		"ai_status":           aiStatus,
-		"ai_model_id":         aiModelID,
-		"tags":                types.StringArray(aiResult.Tags),
-		"upload_source":       "file",
-		"uploaded_at":         time.Now().UTC().Format(time.RFC3339),
+		"content_kind":       contentKind,
+		"content_kind_label": outputType,
+		"file_name":          cleanName,
+		"file_type":          strings.TrimPrefix(strings.ToLower(filepath.Ext(cleanName)), "."),
+		"file_path":          storagePath,
+		"mime_type":          strings.TrimSpace(mimeType),
+		"ai_status":          aiStatus,
+		"ai_model_id":        aiModelID,
+		"tags":               types.StringArray(aiResult.Tags),
+		"upload_source":      "file",
+		"uploaded_at":        time.Now().UTC().Format(time.RFC3339),
 	}
 	if transcript != "" {
 		metadata["transcript"] = transcript
@@ -198,6 +293,70 @@ func (s *organizeService) transcribeOrganizeUploadAudio(
 		return "", modelID, nil
 	}
 	return strings.TrimSpace(result.Text), modelID, nil
+}
+
+func (s *organizeService) generateOrganizeMemoryImportAIResult(
+	ctx context.Context,
+	fileName, contentType, content string,
+) (organizeUploadAIResult, string, string) {
+	modelID := s.resolveOrganizeModelID(ctx, types.ModelTypeKnowledgeQA)
+	if modelID == "" || s.modelService == nil {
+		return organizeMemoryImportFallbackAIResult(fileName, content), "", "fallback"
+	}
+
+	chatModel, err := s.modelService.GetChatModel(ctx, modelID)
+	if err != nil || chatModel == nil {
+		return organizeMemoryImportFallbackAIResult(fileName, content), modelID, "fallback"
+	}
+
+	prompt := fmt.Sprintf(`你在为“记忆”模块把导入文件整理成一条笔记元数据。
+
+请只输出 JSON，格式如下：
+{"title":"标题","summary":"摘要","tags":["标签1","标签2"]}
+
+要求：
+- 标题简短准确，优先概括文件核心内容。
+- 摘要用 1-2 句话说明文件主要信息。
+- 标签使用简洁、具体的中文词组，最多 %d 个，避免“文档”“文件”“其他”这类泛泛词。
+- 标签应贴近文件主题、业务对象、行动场景或关键概念。
+
+内容类型：%s
+文件名：%s
+
+内容：
+%s`, organizeUploadMaxTags, contentType, fileName, sampleRunes(strings.TrimSpace(content), organizeUploadPromptRuneBudget, "…"))
+
+	thinking := false
+	resp, chatErr := chatModel.Chat(ctx, []chat.Message{
+		{Role: "system", Content: "你是一个严格的结构化信息提取助手，只能输出 JSON。"},
+		{Role: "user", Content: prompt},
+	}, &chat.ChatOptions{
+		Temperature: 0.2,
+		MaxTokens:   512,
+		Thinking:    &thinking,
+	})
+	if chatErr != nil || resp == nil {
+		return organizeMemoryImportFallbackAIResult(fileName, content), modelID, "fallback"
+	}
+
+	parsed, ok := parseOrganizeUploadAIResponse(resp.Content)
+	if !ok {
+		return organizeMemoryImportFallbackAIResult(fileName, content), modelID, "fallback"
+	}
+
+	parsed.Title = trimMax(parsed.Title, organizeMaxTitleLength)
+	parsed.Summary = trimMax(parsed.Summary, organizeMaxShortText)
+	parsed.Tags = normalizeOrganizeUploadTags(parsed.Tags)
+	if parsed.Title == "" {
+		parsed.Title = organizeMemoryImportFallbackAIResult(fileName, content).Title
+	}
+	if parsed.Summary == "" {
+		parsed.Summary = organizeMemoryImportFallbackAIResult(fileName, content).Summary
+	}
+	if len(parsed.Tags) == 0 {
+		parsed.Tags = organizeMemoryImportFallbackTags("")
+	}
+	return parsed, modelID, "completed"
 }
 
 func (s *organizeService) generateOrganizeUploadAIResult(
@@ -421,6 +580,158 @@ func organizeUploadFallbackTags(outputType string) []string {
 		tags = append(tags, "图文学习")
 	}
 	return normalizeOrganizeUploadTags(tags)
+}
+
+func organizeMemoryImportFallbackAIResult(fileName, content string) organizeUploadAIResult {
+	title := strings.TrimSuffix(filepath.Base(fileName), filepath.Ext(fileName))
+	if title == "" {
+		title = fileName
+	}
+	return organizeUploadAIResult{
+		Title:   title,
+		Summary: organizeMemoryImportFallbackSummary(fileName, content),
+		Tags:    organizeMemoryImportFallbackTags(""),
+	}
+}
+
+func organizeMemoryImportFallbackSummary(fileName, content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return fmt.Sprintf("从 %s 导入生成的笔记。", strings.TrimSpace(filepath.Base(fileName)))
+	}
+	snippet := strings.TrimSpace(sampleRunes(content, 140, "…"))
+	if snippet == "" {
+		return "导入文件生成的笔记。"
+	}
+	return snippet
+}
+
+func organizeMemoryImportFallbackTags(contentKind string) []string {
+	tags := []string{"导入笔记"}
+	switch contentKind {
+	case organizeOutputKindAudio:
+		tags = append(tags, "音频转写")
+	case organizeOutputKindVideo:
+		tags = append(tags, "视频整理")
+	default:
+		tags = append(tags, "文件整理")
+	}
+	return normalizeOrganizeUploadTags(tags)
+}
+
+func organizeUploadContentToNoteHTML(title, content string) string {
+	content = strings.TrimSpace(strings.ReplaceAll(content, "\r\n", "\n"))
+	content = strings.ReplaceAll(content, "\r", "\n")
+	if content == "" {
+		return "<p></p>"
+	}
+
+	var blocks []string
+	var paragraph []string
+	var listItems []string
+	listTag := ""
+	title = strings.TrimSpace(title)
+
+	flushParagraph := func() {
+		if len(paragraph) == 0 {
+			return
+		}
+		text := strings.Join(paragraph, " ")
+		blocks = append(blocks, "<p>"+organizeNoteInlineHTML(text)+"</p>")
+		paragraph = nil
+	}
+	flushList := func() {
+		if len(listItems) == 0 || listTag == "" {
+			return
+		}
+		blocks = append(blocks, "<"+listTag+">"+strings.Join(listItems, "")+"</"+listTag+">")
+		listItems = nil
+		listTag = ""
+	}
+
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			flushParagraph()
+			flushList()
+			continue
+		}
+
+		if headingText, ok := organizeMarkdownHeading(line); ok {
+			flushParagraph()
+			flushList()
+			if title != "" && strings.EqualFold(strings.TrimSpace(headingText), title) && len(blocks) == 0 {
+				continue
+			}
+			blocks = append(blocks, "<h2>"+organizeNoteInlineHTML(headingText)+"</h2>")
+			continue
+		}
+
+		if ordered, text, ok := organizeMarkdownListItem(line); ok {
+			flushParagraph()
+			nextTag := "ul"
+			if ordered {
+				nextTag = "ol"
+			}
+			if listTag != "" && listTag != nextTag {
+				flushList()
+			}
+			listTag = nextTag
+			listItems = append(listItems, "<li>"+organizeNoteInlineHTML(text)+"</li>")
+			continue
+		}
+
+		flushList()
+		paragraph = append(paragraph, line)
+	}
+	flushParagraph()
+	flushList()
+
+	if len(blocks) == 0 {
+		return "<p></p>"
+	}
+	return strings.Join(blocks, "")
+}
+
+func organizeMarkdownHeading(line string) (string, bool) {
+	if !strings.HasPrefix(line, "#") {
+		return "", false
+	}
+	count := 0
+	for count < len(line) && line[count] == '#' {
+		count++
+	}
+	if count == 0 || count > 6 || count >= len(line) || line[count] != ' ' {
+		return "", false
+	}
+	text := strings.TrimSpace(line[count+1:])
+	return text, text != ""
+}
+
+func organizeMarkdownListItem(line string) (bool, string, bool) {
+	if len(line) > 2 {
+		prefix := line[:2]
+		if prefix == "- " || prefix == "* " || prefix == "+ " {
+			text := strings.TrimSpace(line[2:])
+			return false, text, text != ""
+		}
+	}
+
+	dot := strings.Index(line, ". ")
+	if dot <= 0 || dot > 3 {
+		return false, "", false
+	}
+	for _, r := range line[:dot] {
+		if r < '0' || r > '9' {
+			return false, "", false
+		}
+	}
+	text := strings.TrimSpace(line[dot+2:])
+	return true, text, text != ""
+}
+
+func organizeNoteInlineHTML(value string) string {
+	return template.HTMLEscapeString(strings.TrimSpace(value))
 }
 
 func normalizeOrganizeUploadTags(tags []string) []string {

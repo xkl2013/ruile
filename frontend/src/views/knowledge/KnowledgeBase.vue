@@ -41,6 +41,7 @@ import {
   updateKnowledgeBaseDirectoryConfig,
   type KnowledgeBaseDirectoryConfigPayload,
   type KnowledgeBaseDirectoryNodePayload,
+  type KnowledgeBaseDirectoryOrderPayload,
   type KnowledgeDirectoryCountsPayload,
   type KnowledgeSummaryRegenerateMode,
 } from "@/api/knowledge-base/index";
@@ -611,7 +612,7 @@ const DIRECTORY_TREE_COMPACT_INDENT_STEP = 8;
 const DIRECTORY_TREE_COMPACT_AFTER_LEVEL = 4;
 const DIRECTORY_TREE_MAX_VISIBLE_INDENT = 96;
 const DIRECTORY_TREE_DEEP_MIN_NAME_WIDTH = 168;
-const DIRECTORY_TREE_ROW_CHROME_WIDTH = 144;
+const DIRECTORY_TREE_ROW_CHROME_WIDTH = 168;
 const activeDirectoryPath = ref(DIRECTORY_ROOT_PATH);
 
 type DirectoryNode = {
@@ -644,11 +645,17 @@ type ManualDirectoryNode = {
   updatedAt: string;
 };
 
+type DirectoryOrder = {
+  parentPath: string;
+  paths: string[];
+};
+
 type DirectoryDialogMode = 'create' | 'edit';
 
 type DirectoryStateSnapshot = {
   rootDescription: string;
   directories: ManualDirectoryNode[];
+  directoryOrders: DirectoryOrder[];
 };
 
 type DirectoryPersistResult = {
@@ -659,6 +666,7 @@ type DirectoryPersistResult = {
 };
 
 const manualDirectoryNodes = ref<ManualDirectoryNode[]>([]);
+const directoryOrders = ref<DirectoryOrder[]>([]);
 const rootDirectoryDescription = ref('');
 const directoryDialogVisible = ref(false);
 const directoryDialogMode = ref<DirectoryDialogMode>('create');
@@ -733,7 +741,7 @@ const getDirectoryTreeItemStyle = (directory: DirectoryNode) => {
   };
 };
 
-const sortDirectoryNodes = (nodes: DirectoryNode[]) => nodes.sort((a, b) => {
+const compareDirectoryNodes = (a: DirectoryNode, b: DirectoryNode) => {
   const aParts = a.path.split('/');
   const bParts = b.path.split('/');
   const min = Math.min(aParts.length, bParts.length);
@@ -742,7 +750,34 @@ const sortDirectoryNodes = (nodes: DirectoryNode[]) => nodes.sort((a, b) => {
     if (cmp !== 0) return cmp;
   }
   return aParts.length - bParts.length;
+};
+
+const sortDirectoryNodes = (nodes: DirectoryNode[]) => nodes.sort(compareDirectoryNodes);
+
+const directoryOrderRankByParent = computed(() => {
+  const rankByParent = new Map<string, Map<string, number>>();
+  for (const order of directoryOrders.value) {
+    const parentPath = normalizeDirectoryPath(order.parentPath);
+    const rank = rankByParent.get(parentPath) || new Map<string, number>();
+    for (const rawPath of order.paths) {
+      const path = normalizeDirectoryPath(rawPath);
+      if (!path || getDirectoryParentPath(path) !== parentPath || rank.has(path)) continue;
+      rank.set(path, rank.size);
+    }
+    if (rank.size > 0) rankByParent.set(parentPath, rank);
+  }
+  return rankByParent;
 });
+
+const sortSiblingDirectoryNodes = (parentPath: string, nodes: DirectoryNode[]) => {
+  const rank = directoryOrderRankByParent.value.get(parentPath);
+  return nodes.sort((a, b) => {
+    const aRank = rank?.get(a.path) ?? Number.MAX_SAFE_INTEGER;
+    const bRank = rank?.get(b.path) ?? Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return compareDirectoryNodes(a, b);
+  });
+};
 
 const getLegacyDirectoryStorageKey = (targetKbId = kbId.value) =>
   targetKbId ? `${LEGACY_DIRECTORY_STORAGE_PREFIX}:${targetKbId}` : '';
@@ -781,21 +816,73 @@ const normalizeManualDirectoryNodes = (items: any[]): ManualDirectoryNode[] => {
   return nodes;
 };
 
+const normalizeDirectoryOrders = (items: any[]): DirectoryOrder[] => {
+  const orders: DirectoryOrder[] = [];
+  const orderIndexByParent = new Map<string, number>();
+  const seenPathsByParent = new Map<string, Set<string>>();
+
+  for (const item of items) {
+    const parentPath = normalizeDirectoryPath(item?.parentPath ?? item?.parent_path);
+    const rawPaths = Array.isArray(item?.paths) ? item.paths : [];
+    if (!rawPaths.length) continue;
+
+    let orderIndex = orderIndexByParent.get(parentPath);
+    if (orderIndex === undefined) {
+      orderIndex = orders.length;
+      orderIndexByParent.set(parentPath, orderIndex);
+      orders.push({ parentPath, paths: [] });
+      seenPathsByParent.set(parentPath, new Set<string>());
+    }
+
+    const order = orders[orderIndex];
+    const seenPaths = seenPathsByParent.get(parentPath)!;
+    for (const rawPath of rawPaths) {
+      const path = normalizeDirectoryPath(rawPath);
+      if (!path || getDirectoryParentPath(path) !== parentPath || seenPaths.has(path)) continue;
+      seenPaths.add(path);
+      order.paths.push(path);
+    }
+  }
+
+  return orders.filter(order => order.paths.length > 0);
+};
+
+const cloneManualDirectoryNodes = (nodes = manualDirectoryNodes.value): ManualDirectoryNode[] =>
+  nodes.map(item => ({ ...item }));
+
+const cloneDirectoryOrders = (orders = directoryOrders.value): DirectoryOrder[] =>
+  orders.map(order => ({
+    parentPath: order.parentPath,
+    paths: [...order.paths],
+  }));
+
+const buildCurrentDirectoryStateSnapshot = (
+  nextOrders = directoryOrders.value,
+): DirectoryStateSnapshot => ({
+  rootDescription: rootDirectoryDescription.value,
+  directories: cloneManualDirectoryNodes(),
+  directoryOrders: cloneDirectoryOrders(nextOrders),
+});
+
 const applyDirectoryState = (snapshot: DirectoryStateSnapshot) => {
   rootDirectoryDescription.value = snapshot.rootDescription;
-  manualDirectoryNodes.value = snapshot.directories.map(item => ({ ...item }));
+  manualDirectoryNodes.value = cloneManualDirectoryNodes(snapshot.directories);
+  directoryOrders.value = cloneDirectoryOrders(snapshot.directoryOrders);
 };
 
 const parseDirectoryConfig = (
   config?: KnowledgeBaseDirectoryConfigPayload | null,
 ): DirectoryStateSnapshot => {
   if (!config) {
-    return { rootDescription: '', directories: [] };
+    return { rootDescription: '', directories: [], directoryOrders: [] };
   }
   return {
     rootDescription: String(config.root_description || '').trim(),
     directories: normalizeManualDirectoryNodes(
       Array.isArray(config.directories) ? config.directories : [],
+    ),
+    directoryOrders: normalizeDirectoryOrders(
+      Array.isArray(config.directory_orders) ? config.directory_orders : [],
     ),
   };
 };
@@ -813,11 +900,30 @@ const serializeManualDirectoryNode = (node: ManualDirectoryNode): KnowledgeBaseD
   };
 };
 
+const serializeDirectoryOrder = (order: DirectoryOrder): KnowledgeBaseDirectoryOrderPayload => {
+  const parentPath = normalizeDirectoryPath(order.parentPath);
+  const seen = new Set<string>();
+  const paths = order.paths
+    .map(normalizeDirectoryPath)
+    .filter((path) => {
+      if (!path || getDirectoryParentPath(path) !== parentPath || seen.has(path)) return false;
+      seen.add(path);
+      return true;
+    });
+  return {
+    parent_path: parentPath,
+    paths,
+  };
+};
+
 const buildDirectoryConfigPayload = (snapshot: DirectoryStateSnapshot): KnowledgeBaseDirectoryConfigPayload => ({
   root_description: snapshot.rootDescription.trim(),
   directories: snapshot.directories
     .map(serializeManualDirectoryNode)
     .filter(item => item.path),
+  directory_orders: snapshot.directoryOrders
+    .map(serializeDirectoryOrder)
+    .filter(order => order.paths.length > 0),
 });
 
 const readLegacyDirectoryState = (targetKbId = kbId.value): DirectoryStateSnapshot | null => {
@@ -831,6 +937,7 @@ const readLegacyDirectoryState = (targetKbId = kbId.value): DirectoryStateSnapsh
     return {
       rootDescription: Array.isArray(parsed) ? '' : String(parsed?.rootDescription || '').trim(),
       directories: normalizeManualDirectoryNodes(Array.isArray(rawDirectories) ? rawDirectories : []),
+      directoryOrders: [],
     };
   } catch (error) {
     console.error('[KnowledgeBase] Failed to read legacy document directories:', error);
@@ -858,8 +965,6 @@ const persistManualDirectoryState = async (
   try {
     const result: any = await updateKnowledgeBaseDirectoryConfig(targetKbId, {
       directory_config: directoryConfig,
-      name: String(kbInfo.value?.name || ''),
-      description: String(kbInfo.value?.description || ''),
     });
     const updatedKb = result?.data;
     const shouldApply = targetKbId === kbId.value;
@@ -905,7 +1010,7 @@ const loadManualDirectoryState = async (knowledgeBase: any, targetKbId = kbId.va
     return;
   }
   if (targetKbId === kbId.value) {
-    applyDirectoryState({ rootDescription: '', directories: [] });
+    applyDirectoryState({ rootDescription: '', directories: [], directoryOrders: [] });
   }
 };
 
@@ -981,7 +1086,7 @@ const visibleDirectoryTreeRows = computed<DirectoryTreeRow[]>(() => {
     childrenByParent.set(parentPath, children);
   }
 
-  childrenByParent.forEach(children => sortDirectoryNodes(children));
+  childrenByParent.forEach((children, parentPath) => sortSiblingDirectoryNodes(parentPath, children));
 
   const rows: DirectoryTreeRow[] = [];
   const appendChildren = (parentPath: string) => {
@@ -1002,6 +1107,64 @@ const visibleDirectoryTreeRows = computed<DirectoryTreeRow[]>(() => {
   appendChildren(DIRECTORY_ROOT_PATH);
   return rows;
 });
+
+const getOrderedSiblingDirectoryPaths = (parentPath: string) =>
+  sortSiblingDirectoryNodes(
+    parentPath,
+    documentDirectoryNodes.value.filter(directory => getDirectoryParentPath(directory.path) === parentPath),
+  ).map(directory => directory.path);
+
+const upsertDirectoryOrder = (parentPath: string, paths: string[]): DirectoryOrder[] => {
+  const normalizedParentPath = normalizeDirectoryPath(parentPath);
+  const seen = new Set<string>();
+  const normalizedPaths = paths
+    .map(normalizeDirectoryPath)
+    .filter((path) => {
+      if (!path || getDirectoryParentPath(path) !== normalizedParentPath || seen.has(path)) return false;
+      seen.add(path);
+      return true;
+    });
+
+  const nextOrders = cloneDirectoryOrders()
+    .filter(order => normalizeDirectoryPath(order.parentPath) !== normalizedParentPath);
+  if (normalizedPaths.length > 0) {
+    nextOrders.push({
+      parentPath: normalizedParentPath,
+      paths: normalizedPaths,
+    });
+  }
+  return nextOrders;
+};
+
+const getDirectorySiblingIndex = (path: string) => {
+  const parentPath = getDirectoryParentPath(path);
+  return getOrderedSiblingDirectoryPaths(parentPath).indexOf(path);
+};
+
+const canMoveDirectoryUp = (path: string) =>
+  canEditKnowledgeBaseSettings.value
+  && !directorySaving.value
+  && getDirectorySiblingIndex(path) > 0;
+
+const moveDirectoryUp = async (path: string) => {
+  if (!canMoveDirectoryUp(path)) return;
+  const parentPath = getDirectoryParentPath(path);
+  const siblingPaths = getOrderedSiblingDirectoryPaths(parentPath);
+  const currentIndex = siblingPaths.indexOf(path);
+  if (currentIndex <= 0) return;
+
+  const nextSiblingPaths = [...siblingPaths];
+  [nextSiblingPaths[currentIndex - 1], nextSiblingPaths[currentIndex]] = [
+    nextSiblingPaths[currentIndex],
+    nextSiblingPaths[currentIndex - 1],
+  ];
+
+  const nextOrders = upsertDirectoryOrder(parentPath, nextSiblingPaths);
+  const saved = await persistManualDirectoryState(buildCurrentDirectoryStateSnapshot(nextOrders));
+  if (!saved.ok) {
+    MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
+  }
+};
 
 const visibleDocumentItems = computed<KnowledgeCard[]>(() => {
   const items = cardList.value || [];
@@ -1192,6 +1355,7 @@ const handleDirectoryDialogConfirm = async () => {
     const saved = await persistManualDirectoryState({
       rootDescription: nextRootDescription,
       directories: nextDirectories,
+      directoryOrders: cloneDirectoryOrders(),
     });
     if (!saved.ok) {
       MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
@@ -1219,7 +1383,7 @@ const handleDirectoryDialogConfirm = async () => {
   }
   const now = new Date().toISOString();
   const nextDirectories = [
-    ...manualDirectoryNodes.value.map(item => ({ ...item })),
+    ...cloneManualDirectoryNodes(),
     {
       path: newPath,
       name,
@@ -1232,6 +1396,7 @@ const handleDirectoryDialogConfirm = async () => {
   const saved = await persistManualDirectoryState({
     rootDescription: rootDirectoryDescription.value,
     directories: nextDirectories,
+    directoryOrders: cloneDirectoryOrders(),
   });
   if (!saved.ok) {
     MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
@@ -1252,7 +1417,7 @@ watch(kbId, () => {
   activeDirectoryPath.value = DIRECTORY_ROOT_PATH;
   collapsedDirectoryPaths.value = new Set();
   clearDirectoryCounts();
-  applyDirectoryState({ rootDescription: '', directories: [] });
+  applyDirectoryState({ rootDescription: '', directories: [], directoryOrders: [] });
 }, { immediate: true });
 
 watch([documentDirectoryNodes, rootDirectoryCount], () => {
@@ -2822,7 +2987,10 @@ async function createNewSession(value: string): Promise<void> {
               </div>
               <div v-for="directory in visibleDirectoryTreeRows" :key="directory.path" role="button" tabindex="0"
                 class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === directory.path, 'can-manage-directories': canEditKnowledgeBaseSettings }"
+                :class="{
+                  active: activeDirectoryPath === directory.path,
+                  'can-manage-directories': canEditKnowledgeBaseSettings,
+                }"
                 :style="getDirectoryTreeItemStyle(directory)" :title="getDirectoryTitle(directory)"
                 @click="selectDirectory(directory.path)"
                 @keydown.enter.prevent="selectDirectory(directory.path)"
@@ -2841,6 +3009,18 @@ async function createNewSession(value: string): Promise<void> {
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
                 <span v-if="canEditKnowledgeBaseSettings" class="directory-tree-actions">
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.moveDirectoryUp')"
+                    :aria-label="$t('knowledgeBase.moveDirectoryUp')"
+                    :disabled="!canMoveDirectoryUp(directory.path)"
+                    @click.stop="moveDirectoryUp(directory.path)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="arrow-up" size="14px" />
+                  </button>
                   <button
                     type="button"
                     class="directory-tree-action"
@@ -3728,11 +3908,16 @@ async function createNewSession(value: string): Promise<void> {
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
 
-  &:hover,
-  &:focus-visible {
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
     color: var(--td-brand-color);
     background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
     outline: none;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.45;
   }
 }
 

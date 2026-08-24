@@ -161,6 +161,7 @@ func TestKnowledgeBaseManagementRoutesDeclareManageKBsCapability(t *testing.T) {
 		path   string
 	}{
 		{http.MethodPut, "/api/v1/knowledge-bases/:id"},
+		{http.MethodPut, "/api/v1/knowledge-bases/order"},
 		{http.MethodPost, "/api/v1/knowledge-bases/:id/icon"},
 		{http.MethodPut, "/api/v1/knowledge-bases/:id/directory-config"},
 		{http.MethodDelete, "/api/v1/knowledge-bases/:id"},
@@ -431,6 +432,7 @@ func TestOrganizeRoutesRequireFullAccessAPIKey(t *testing.T) {
 		{http.MethodGet, "/api/v1/organize/overview"},
 		{http.MethodGet, "/api/v1/organize/memories"},
 		{http.MethodPost, "/api/v1/organize/memories"},
+		{http.MethodPost, "/api/v1/organize/memories/upload"},
 		{http.MethodPost, "/api/v1/organize/outputs/upload"},
 		{http.MethodPut, "/api/v1/organize/outputs/:id"},
 		{http.MethodPost, "/api/v1/organize/sprout-reports/from-memory"},

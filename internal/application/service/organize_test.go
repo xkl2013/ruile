@@ -76,6 +76,19 @@ func TestOrganizeServiceValidationAndOverview(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.OrganizeSproutStageExpandable, report.Stage)
 	require.ElementsMatch(t, []string{"产业链", "国产替代"}, []string(report.Chips))
+	require.Equal(t, []types.OrganizeMemoryReference{
+		{ID: memory.ID, Kind: memory.Kind, Title: memory.Title, Source: memory.Source},
+	}, report.MemoryRefs)
+
+	linkedReports, linkedTotal, err := svc.ListSproutReports(ctx, types.OrganizeListQuery{
+		TenantID: 7,
+		UserID:   "user-a",
+		MemoryID: memory.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), linkedTotal)
+	require.Len(t, linkedReports, 1)
+	require.Equal(t, report.ID, linkedReports[0].ID)
 
 	_, err = svc.CreateSproutReport(ctx, 7, "user-a", types.OrganizeSproutReportInput{
 		Title: "Invalid stage",
@@ -210,6 +223,9 @@ func TestOrganizeServiceCreateSproutReportFromMemoryGeneratesWithRoleConfig(t *t
 	require.Equal(t, types.OrganizeSproutStageOrganizing, report.Stage)
 	require.Equal(t, int64(1), report.MemoryCount)
 	require.ElementsMatch(t, []string{memory.ID}, report.MemoryIDs)
+	require.Equal(t, []types.OrganizeMemoryReference{
+		{ID: memory.ID, Kind: memory.Kind, Title: memory.Title, Source: memory.Source},
+	}, report.MemoryRefs)
 	require.Equal(t, "pending", report.Metadata["ai_status"])
 	require.Equal(t, string(types.TenantRoleAdmin), report.Metadata["role"])
 

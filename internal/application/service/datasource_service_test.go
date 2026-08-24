@@ -98,6 +98,9 @@ func (s *processSyncKBService) DeleteKnowledgeBase(context.Context, string) erro
 func (s *processSyncKBService) TogglePinKnowledgeBase(context.Context, string) (*types.KnowledgeBase, error) {
 	return nil, nil
 }
+func (s *processSyncKBService) ReorderKnowledgeBases(context.Context, []string) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
 func (s *processSyncKBService) HybridSearch(context.Context, string, types.SearchParams) ([]*types.SearchResult, error) {
 	return nil, nil
 }

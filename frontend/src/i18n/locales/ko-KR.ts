@@ -43,6 +43,9 @@ export default {
     otherSources: "기타 출처",
     noSessions: "대화가 없습니다",
     loadMoreSessions: "더 보기",
+    moveKnowledgeBaseUp: "지식 베이스 위로 이동",
+    reorderKnowledgeBaseSuccess: "지식 베이스 순서가 업데이트되었습니다",
+    reorderKnowledgeBaseFailed: "지식 베이스 순서 변경에 실패했습니다. 잠시 후 다시 시도하세요",
   },
   chatHeader: {
     moreActions: "대화 추가 작업",
@@ -572,6 +575,7 @@ export default {
     directoryEmpty: "현재 디렉터리에 파일이 없습니다",
     directorySettings: "디렉터리 설정",
     editDirectory: "디렉터리 편집",
+    moveDirectoryUp: "디렉터리 위로 이동",
     addSubdirectory: "하위 디렉터리 추가",
     createSubdirectoryTitle: "하위 디렉터리 추가",
     directorySettingsTitle: "디렉터리 설정",

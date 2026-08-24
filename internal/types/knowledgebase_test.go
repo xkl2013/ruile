@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -248,6 +249,31 @@ func TestKnowledgeBaseDirectoryConfig_Normalize(t *testing.T) {
 					ParentPath: "ignored",
 				},
 			},
+			DirectoryOrders: []KnowledgeBaseDirectoryOrder{
+				{
+					ParentPath: ` docs `,
+					Paths: []string{
+						` docs\\reference `,
+						"single",
+						"docs/reference",
+						"docs/guide",
+					},
+				},
+				{
+					ParentPath: "",
+					Paths: []string{
+						"single",
+						"docs/reference",
+						"single",
+					},
+				},
+				{
+					ParentPath: "docs",
+					Paths: []string{
+						"docs/guide",
+					},
+				},
+			},
 		}
 
 		cfg.Normalize()
@@ -272,6 +298,21 @@ func TestKnowledgeBaseDirectoryConfig_Normalize(t *testing.T) {
 		if second.Path != "single" || second.Name != "single" || second.ParentPath != "" {
 			t.Fatalf("unexpected second directory after normalize: %#v", second)
 		}
+		if len(cfg.DirectoryOrders) != 2 {
+			t.Fatalf("expected 2 directory order entries after normalize, got %d", len(cfg.DirectoryOrders))
+		}
+		if cfg.DirectoryOrders[0].ParentPath != "docs" {
+			t.Fatalf("unexpected first order parent: %#v", cfg.DirectoryOrders[0])
+		}
+		if !reflect.DeepEqual(cfg.DirectoryOrders[0].Paths, []string{"docs/reference", "docs/guide"}) {
+			t.Fatalf("unexpected first order paths: %#v", cfg.DirectoryOrders[0].Paths)
+		}
+		if cfg.DirectoryOrders[1].ParentPath != "" {
+			t.Fatalf("unexpected second order parent: %#v", cfg.DirectoryOrders[1])
+		}
+		if !reflect.DeepEqual(cfg.DirectoryOrders[1].Paths, []string{"single"}) {
+			t.Fatalf("unexpected second order paths: %#v", cfg.DirectoryOrders[1].Paths)
+		}
 	})
 
 	t.Run("empty config keeps empty slice", func(t *testing.T) {
@@ -282,6 +323,33 @@ func TestKnowledgeBaseDirectoryConfig_Normalize(t *testing.T) {
 		}
 		if len(cfg.Directories) != 0 {
 			t.Fatalf("expected empty directories slice, got %d", len(cfg.Directories))
+		}
+		if cfg.DirectoryOrders == nil {
+			t.Fatal("expected empty directory orders slice, got nil")
+		}
+		if len(cfg.DirectoryOrders) != 0 {
+			t.Fatalf("expected empty directory orders slice, got %d", len(cfg.DirectoryOrders))
+		}
+	})
+
+	t.Run("orders survive without manual directories", func(t *testing.T) {
+		cfg := &KnowledgeBaseDirectoryConfig{
+			DirectoryOrders: []KnowledgeBaseDirectoryOrder{
+				{
+					ParentPath: "",
+					Paths:      []string{"b", "a"},
+				},
+			},
+		}
+		cfg.Normalize()
+		if len(cfg.Directories) != 0 {
+			t.Fatalf("expected empty directories, got %d", len(cfg.Directories))
+		}
+		if len(cfg.DirectoryOrders) != 1 {
+			t.Fatalf("expected 1 directory order, got %d", len(cfg.DirectoryOrders))
+		}
+		if !reflect.DeepEqual(cfg.DirectoryOrders[0].Paths, []string{"b", "a"}) {
+			t.Fatalf("unexpected order paths: %#v", cfg.DirectoryOrders[0].Paths)
 		}
 	})
 }

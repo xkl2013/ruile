@@ -279,11 +279,16 @@ func (r *organizeRepository) DeleteSproutReport(ctx context.Context, tenantID ui
 
 func (r *organizeRepository) ListSproutReports(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeSproutReport, int64, error) {
 	dbq := r.db.WithContext(ctx).Model(&types.OrganizeSproutReport{}).
-		Where("tenant_id = ? AND user_id = ?", query.TenantID, query.UserID)
+		Where("organize_sprout_reports.tenant_id = ? AND organize_sprout_reports.user_id = ?", query.TenantID, query.UserID)
 	if query.Stage != "" {
-		dbq = dbq.Where("stage = ?", query.Stage)
+		dbq = dbq.Where("organize_sprout_reports.stage = ?", query.Stage)
 	}
-	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "summary", "output_hint")
+	if memoryID := strings.TrimSpace(query.MemoryID); memoryID != "" {
+		dbq = dbq.Joins(
+			"JOIN organize_sprout_memories ON organize_sprout_memories.report_id = organize_sprout_reports.id AND organize_sprout_memories.tenant_id = organize_sprout_reports.tenant_id AND organize_sprout_memories.user_id = organize_sprout_reports.user_id",
+		).Where("organize_sprout_memories.memory_id = ?", memoryID)
+	}
+	dbq = applyOrganizeKeyword(dbq, query.Keyword, "organize_sprout_reports.title", "organize_sprout_reports.summary", "organize_sprout_reports.output_hint")
 
 	var total int64
 	if err := dbq.Count(&total).Error; err != nil {
@@ -291,8 +296,8 @@ func (r *organizeRepository) ListSproutReports(ctx context.Context, query types.
 	}
 	var reports []*types.OrganizeSproutReport
 	err := dbq.
-		Order("updated_at DESC").
-		Order("created_at DESC").
+		Order("organize_sprout_reports.updated_at DESC").
+		Order("organize_sprout_reports.created_at DESC").
 		Limit(query.PageSize).
 		Offset((query.Page - 1) * query.PageSize).
 		Find(&reports).Error
@@ -423,10 +428,40 @@ func (r *organizeRepository) fillSproutLinks(ctx context.Context, tenantID uint6
 		Find(&links).Error; err != nil {
 		return err
 	}
+	memoryIDs := make([]string, 0, len(links))
+	memoryIDSet := make(map[string]struct{}, len(links))
+	for _, link := range links {
+		if _, ok := memoryIDSet[link.MemoryID]; ok {
+			continue
+		}
+		memoryIDSet[link.MemoryID] = struct{}{}
+		memoryIDs = append(memoryIDs, link.MemoryID)
+	}
+	memoriesByID := make(map[string]types.OrganizeMemory, len(memoryIDs))
+	if len(memoryIDs) > 0 {
+		var memories []types.OrganizeMemory
+		if err := r.db.WithContext(ctx).
+			Select("id", "kind", "title", "source").
+			Where("tenant_id = ? AND id IN ?", tenantID, memoryIDs).
+			Find(&memories).Error; err != nil {
+			return err
+		}
+		for _, memory := range memories {
+			memoriesByID[memory.ID] = memory
+		}
+	}
 	for _, link := range links {
 		if report := byID[link.ReportID]; report != nil {
 			report.MemoryIDs = append(report.MemoryIDs, link.MemoryID)
 			report.MemoryCount++
+			if memory, ok := memoriesByID[link.MemoryID]; ok {
+				report.MemoryRefs = append(report.MemoryRefs, types.OrganizeMemoryReference{
+					ID:     memory.ID,
+					Kind:   memory.Kind,
+					Title:  memory.Title,
+					Source: memory.Source,
+				})
+			}
 		}
 	}
 	return nil

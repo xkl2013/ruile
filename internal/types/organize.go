@@ -86,6 +86,14 @@ func (m *OrganizeMemory) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
+// OrganizeMemoryReference is the compact memory citation returned on generated reports.
+type OrganizeMemoryReference struct {
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Title  string `json:"title"`
+	Source string `json:"source,omitempty"`
+}
+
 // OrganizeOutput is a user-scoped deliverable produced from memories.
 type OrganizeOutput struct {
 	ID            string         `json:"id" gorm:"type:varchar(36);primaryKey"`
@@ -133,20 +141,21 @@ func (OrganizeOutputMemory) TableName() string { return "organize_output_memorie
 
 // OrganizeSproutReport is a user-scoped synthesis prompt/report over memories.
 type OrganizeSproutReport struct {
-	ID          string         `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID    uint64         `json:"tenant_id" gorm:"not null;index"`
-	UserID      string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	Title       string         `json:"title" gorm:"type:varchar(512);not null"`
-	Summary     string         `json:"summary,omitempty" gorm:"type:text;not null;default:''"`
-	Stage       string         `json:"stage" gorm:"type:varchar(64);not null;default:'organizing';index"`
-	OutputHint  string         `json:"output_hint,omitempty" gorm:"type:varchar(255);not null;default:''"`
-	Chips       StringArray    `json:"chips,omitempty" gorm:"type:jsonb;not null;default:'[]'"`
-	Metadata    JSONMap        `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
-	MemoryCount int64          `json:"memory_count" gorm:"-"`
-	MemoryIDs   []string       `json:"memory_ids,omitempty" gorm:"-"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+	ID          string                    `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID    uint64                    `json:"tenant_id" gorm:"not null;index"`
+	UserID      string                    `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	Title       string                    `json:"title" gorm:"type:varchar(512);not null"`
+	Summary     string                    `json:"summary,omitempty" gorm:"type:text;not null;default:''"`
+	Stage       string                    `json:"stage" gorm:"type:varchar(64);not null;default:'organizing';index"`
+	OutputHint  string                    `json:"output_hint,omitempty" gorm:"type:varchar(255);not null;default:''"`
+	Chips       StringArray               `json:"chips,omitempty" gorm:"type:jsonb;not null;default:'[]'"`
+	Metadata    JSONMap                   `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	MemoryCount int64                     `json:"memory_count" gorm:"-"`
+	MemoryIDs   []string                  `json:"memory_ids,omitempty" gorm:"-"`
+	MemoryRefs  []OrganizeMemoryReference `json:"memory_refs,omitempty" gorm:"-"`
+	CreatedAt   time.Time                 `json:"created_at"`
+	UpdatedAt   time.Time                 `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt            `json:"deleted_at" gorm:"index"`
 }
 
 func (OrganizeSproutReport) TableName() string { return "organize_sprout_reports" }
@@ -185,6 +194,7 @@ type OrganizeListQuery struct {
 	Kind     string
 	Status   string
 	Stage    string
+	MemoryID string
 	Page     int
 	PageSize int
 }
