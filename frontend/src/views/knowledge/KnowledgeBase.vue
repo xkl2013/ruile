@@ -3019,7 +3019,7 @@ async function createNewSession(value: string): Promise<void> {
                     @keydown.enter.stop
                     @keydown.space.stop
                   >
-                    <t-icon name="arrow-up" size="14px" />
+                    <t-icon name="chevron-up" size="14px" />
                   </button>
                   <button
                     type="button"

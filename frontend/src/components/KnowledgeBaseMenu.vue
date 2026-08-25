@@ -35,7 +35,7 @@
             <button type="button" class="kb-menu-item-action" :aria-label="t('menu.moveKnowledgeBaseUp')"
               :disabled="!canMoveKnowledgeBaseUp(kb.id) || reorderingKnowledgeBaseId === kb.id"
               @click.stop="moveKnowledgeBaseUp(kb.id)">
-              <t-icon :name="reorderingKnowledgeBaseId === kb.id ? 'loading' : 'arrow-up'" size="14px"
+              <t-icon :name="reorderingKnowledgeBaseId === kb.id ? 'loading' : 'chevron-up'" size="14px"
                 :class="{ 'kb-menu-item-action-icon--loading': reorderingKnowledgeBaseId === kb.id }" />
             </button>
           </t-tooltip>
@@ -182,7 +182,7 @@ const knowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
 const sortableKnowledgeBaseIds = computed(() => tenantKnowledgeBases.value.map((kb) => kb.id))
 
 const shouldShowKnowledgeBaseMoveAction = (kbId: string) => {
-  return canSortKnowledgeBases.value && sortableKnowledgeBaseIds.value.includes(kbId)
+  return sortableKnowledgeBaseIds.value.includes(kbId)
 }
 
 const canMoveKnowledgeBaseUp = (kbId: string) => {
@@ -425,8 +425,6 @@ onMounted(() => {
   background: transparent;
   color: var(--td-text-color-secondary);
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
   transition: opacity 0.18s ease, background-color 0.18s ease, color 0.18s ease;
 
   &:hover:not(:disabled) {
@@ -442,8 +440,6 @@ onMounted(() => {
 
 .kb-menu-item:hover .kb-menu-item-action,
 .kb-menu-item:focus-within .kb-menu-item-action {
-  opacity: 1;
-  pointer-events: auto;
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
 }

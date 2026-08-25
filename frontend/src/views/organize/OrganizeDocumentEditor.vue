@@ -269,6 +269,7 @@
       class="memory-source-preview-drawer"
       :header="sourceFileName || '源文件预览'"
       :footer="false"
+      :close-btn="false"
       size="min(860px, 92vw)"
       destroy-on-close
     >
@@ -1596,7 +1597,7 @@ watch(
   width: min(var(--document-content-max-width), 100%);
   min-width: 0;
   margin: 0 auto;
-  padding-top: 42px;
+  padding-top: 0;
   box-sizing: border-box;
 }
 
@@ -2666,7 +2667,7 @@ watch(
   }
 
   .document-page {
-    padding-top: 28px;
+    padding-top: 0;
   }
 
   .memory-note-panel {
