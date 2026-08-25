@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	stderrors "errors"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
@@ -108,6 +110,10 @@ func (h *OrganizeHandler) UploadMemory(c *gin.Context) {
 	if header.Header != nil {
 		contentType = header.Header.Get("Content-Type")
 	}
+	if !secutils.IsAudioUpload(fileName, contentType) {
+		c.Error(apperrors.NewBadRequestError("audio file is required"))
+		return
+	}
 	maxSizeMB := secutils.GetMaxFileSizeMBForUpload(fileName, contentType)
 	maxSize := maxSizeMB * 1024 * 1024
 	if header.Size > 0 && header.Size > maxSize {
@@ -132,7 +138,13 @@ func (h *OrganizeHandler) UploadMemory(c *gin.Context) {
 		return
 	}
 
-	item, err := h.service.CreateMemoryFromUpload(ctx, tenantID, userID, fileName, contentType, data)
+	req, err := parseOrganizeMemoryUploadInput(c)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	item, err := h.service.CreateMemoryFromUpload(ctx, tenantID, userID, fileName, contentType, data, req)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -171,6 +183,47 @@ func (h *OrganizeHandler) UpdateMemory(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func parseOrganizeMemoryUploadInput(c *gin.Context) (types.OrganizeMemoryInput, error) {
+	var req types.OrganizeMemoryInput
+	req.Kind = strings.TrimSpace(c.PostForm("kind"))
+	req.Title = strings.TrimSpace(c.PostForm("title"))
+	req.Content = c.PostForm("content")
+	req.Source = strings.TrimSpace(c.PostForm("source"))
+
+	if raw := strings.TrimSpace(c.PostForm("duration_seconds")); raw != "" {
+		seconds, err := strconv.Atoi(raw)
+		if err != nil || seconds < 0 {
+			return types.OrganizeMemoryInput{}, apperrors.NewBadRequestError("duration_seconds must be a non-negative integer")
+		}
+		req.DurationSeconds = seconds
+	}
+
+	if raw := strings.TrimSpace(c.PostForm("occurred_at")); raw != "" {
+		parsed, err := parseOrganizeMemoryUploadTime(raw)
+		if err != nil {
+			return types.OrganizeMemoryInput{}, apperrors.NewBadRequestError("occurred_at must be RFC3339").WithDetails(err.Error())
+		}
+		req.OccurredAt = &parsed
+	}
+
+	if raw := strings.TrimSpace(c.PostForm("metadata")); raw != "" {
+		metadata := types.JSONMap{}
+		if err := json.Unmarshal([]byte(raw), &metadata); err != nil {
+			return types.OrganizeMemoryInput{}, apperrors.NewBadRequestError("metadata must be valid JSON").WithDetails(err.Error())
+		}
+		req.Metadata = metadata
+	}
+
+	return req, nil
+}
+
+func parseOrganizeMemoryUploadTime(raw string) (time.Time, error) {
+	if parsed, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+		return parsed, nil
+	}
+	return time.Parse(time.RFC3339, raw)
 }
 
 func (h *OrganizeHandler) DeleteMemory(c *gin.Context) {

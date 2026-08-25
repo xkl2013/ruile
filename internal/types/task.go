@@ -29,19 +29,20 @@ const (
 // name "low" so tasks enqueued by older releases remain consumable during a
 // rolling deployment. New code uses the business-semantic constant.
 const (
-	QueueDefault     = "default"
-	// QueueChatAttachment carries session-scoped chat attachment parsing. It
-	// lives in the core pool but with a higher weight than QueueDefault so
-	// interactive chat uploads are not starved by knowledge-base batch imports.
+	QueueDefault = "default"
+	// QueueChatAttachment carries session-scoped attachment parsing and
+	// organize-memory audio transcription. It lives in the core pool but with
+	// a higher weight than QueueDefault so interactive uploads are not starved
+	// by knowledge-base batch imports.
 	QueueChatAttachment = "chat_attachment"
 	QueuePostProcess    = "postprocess"
-	QueueSummary     = "summary"
-	QueueMultimodal  = "multimodal"
-	QueueGraph       = "graph"
-	QueueQuestion    = "question"
-	QueueSync        = "sync"
-	QueueMaintenance = "low"
-	QueueWiki        = "wiki"
+	QueueSummary        = "summary"
+	QueueMultimodal     = "multimodal"
+	QueueGraph          = "graph"
+	QueueQuestion       = "question"
+	QueueSync           = "sync"
+	QueueMaintenance    = "low"
+	QueueWiki           = "wiki"
 )
 
 // QueueDefinition is the single source of truth for queue topology. Worker
@@ -63,7 +64,7 @@ var queueDefinitions = []QueueDefinition{
 	// Interactive chat attachment parsing: higher core weight than the default
 	// queue so a large KB import cannot make chat uploads queue behind it.
 	{Name: QueueChatAttachment, Pool: WorkerPoolCore, Weight: 3, SharedWeight: 3, TaskTypes: []string{
-		TypeTemporaryDocumentProcess,
+		TypeTemporaryDocumentProcess, TypeOrganizeMemoryTranscribe,
 	}},
 	{Name: QueuePostProcess, Pool: WorkerPoolPostProcess, Weight: 1, TaskTypes: []string{
 		TypeKnowledgePostProcess,
@@ -246,6 +247,7 @@ const (
 	TypeWikiIngest               = "wiki:ingest"                // Wiki 页面同步任务
 	TypeWikiFinalize             = "wiki:finalize"              // Wiki KB 级收尾任务（防抖：索引重建/死链清理/交叉链接）
 	TypeTemporaryDocumentProcess = "temporary_document:process" // 会话临时文档解析任务
+	TypeOrganizeMemoryTranscribe = "organize_memory:transcribe" // 录音记忆异步转写任务
 )
 
 // ExtractChunkPayload represents the extract chunk task payload
@@ -485,6 +487,14 @@ type KnowledgePostProcessPayload struct {
 	KnowledgeBaseID string `json:"knowledge_base_id"`
 	Language        string `json:"language,omitempty"` // Request locale for {{language}} in prompt templates
 	Attempt         int    `json:"attempt,omitempty"`
+}
+
+// OrganizeMemoryTranscribeTaskPayload carries the async transcription job for
+// an uploaded organize memory audio file.
+type OrganizeMemoryTranscribeTaskPayload struct {
+	TracingContext
+	TenantID uint64 `json:"tenant_id"`
+	MemoryID string `json:"memory_id"`
 }
 
 // KBCloneTaskStatus represents the status of a knowledge base clone task

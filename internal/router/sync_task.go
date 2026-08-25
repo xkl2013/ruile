@@ -128,6 +128,7 @@ type SyncTaskParams struct {
 	KnowledgePostProcess interfaces.TaskHandler `name:"knowledgePostProcess"`
 	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
 	TemporaryDocument    interfaces.TemporaryDocumentService
+	OrganizeService      interfaces.OrganizeService
 }
 
 // RegisterSyncHandlers registers all task handlers on the SyncTaskExecutor.
@@ -137,6 +138,7 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeDataTableSummary, params.DataTableSummary.Handle)
 	params.Executor.RegisterHandler(types.TypeDocumentProcess, params.KnowledgeService.ProcessDocument)
 	params.Executor.RegisterHandler(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
+	params.Executor.RegisterHandler(types.TypeOrganizeMemoryTranscribe, params.OrganizeService.ProcessMemoryTranscribe)
 	params.Executor.RegisterHandler(types.TypeManualProcess, params.KnowledgeService.ProcessManualUpdate)
 	params.Executor.RegisterHandler(types.TypeFAQImport, params.KnowledgeService.ProcessFAQImport)
 	params.Executor.RegisterHandler(types.TypeQuestionGeneration, params.KnowledgeService.ProcessQuestionGeneration)

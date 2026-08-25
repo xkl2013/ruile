@@ -44,6 +44,7 @@ type AsynqTaskParams struct {
 	KnowledgePostProcess interfaces.TaskHandler `name:"knowledgePostProcess"`
 	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
 	TemporaryDocument    interfaces.TemporaryDocumentService
+	OrganizeService      interfaces.OrganizeService
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
 	SpanTracker          service.SpanTracker
 }
@@ -264,6 +265,7 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// Register document processing handler
 	mux.HandleFunc(types.TypeDocumentProcess, params.KnowledgeService.ProcessDocument)
 	mux.HandleFunc(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
+	mux.HandleFunc(types.TypeOrganizeMemoryTranscribe, params.OrganizeService.ProcessMemoryTranscribe)
 
 	// Register manual knowledge processing handler (cleanup + re-indexing)
 	mux.HandleFunc(types.TypeManualProcess, params.KnowledgeService.ProcessManualUpdate)

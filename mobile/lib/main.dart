@@ -1,18 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:record/record.dart';
-import 'package:speech_to_text/speech_recognition_error.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart' as speech_to_text;
 import 'package:video_player/video_player.dart';
+
+import 'recording_card/recording_card_page.dart';
+import 'recording_card/recording_card_support.dart';
 
 void main() {
   runApp(const RuileMobileApp());
@@ -391,6 +391,86 @@ class _RuileApiClient {
     throw const FormatException('创建记忆响应格式无效');
   }
 
+  Future<String> uploadOrganizeMemoryAudio({
+    required String filePath,
+    required String fileName,
+    required String kind,
+    required String title,
+    String content = '',
+    String source = '',
+    int durationSeconds = 0,
+    DateTime? occurredAt,
+    Map<String, Object?> metadata = const {},
+  }) async {
+    final payload = await _postMultipart(
+      '/api/v1/organize/memories/upload',
+      filePath: filePath,
+      fileName: fileName,
+      contentType: _audioContentType(fileName),
+      fields: {
+        'kind': kind,
+        'title': title,
+        'content': content,
+        'source': source,
+        'duration_seconds': durationSeconds.toString(),
+        if (occurredAt != null)
+          'occurred_at': occurredAt.toUtc().toIso8601String(),
+        if (metadata.isNotEmpty) 'metadata': jsonEncode(metadata),
+      },
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      final id = _readString(data, const ['id']);
+      if (id.isNotEmpty) return id;
+    }
+    throw const FormatException('上传音频记忆响应格式无效');
+  }
+
+  Future<List<_OrganizeMemory>> fetchOrganizeMemories({
+    String keyword = '',
+  }) async {
+    const pageSize = 100;
+
+    final memories = <_OrganizeMemory>[];
+    int? total;
+    var page = 1;
+
+    while (total == null || memories.length < total) {
+      final queryParameters = <String, String>{
+        'page': '$page',
+        'page_size': '$pageSize',
+      };
+      final normalizedKeyword = keyword.trim();
+      if (normalizedKeyword.isNotEmpty) {
+        queryParameters['q'] = normalizedKeyword;
+      }
+      final query = Uri(queryParameters: queryParameters).query;
+      final payload = await _getJson('/api/v1/organize/memories?$query');
+      final items = _extractList(payload);
+      final pageMemories = [
+        for (final item in items)
+          if (item is Map<String, dynamic>)
+            _OrganizeMemory.fromApi(item)
+          else if (item is Map)
+            _OrganizeMemory.fromApi(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+      ];
+
+      memories.addAll(pageMemories);
+      if (payload is Map<String, dynamic>) {
+        total ??= _readInt(payload, const ['total']);
+      }
+
+      if (pageMemories.isEmpty || pageMemories.length < pageSize) {
+        break;
+      }
+      page += 1;
+    }
+
+    return memories;
+  }
+
   Future<List<_KnowledgeBase>> _loadKnowledgeBases(
     String path,
     _KnowledgeBase Function(Map<String, dynamic> json) parseItem,
@@ -464,6 +544,82 @@ class _RuileApiClient {
     request.write(jsonEncode(body));
 
     final response = await request.close().timeout(const Duration(seconds: 12));
+    final responseBody = await response.transform(utf8.decoder).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String message = responseBody;
+      try {
+        final decoded = jsonDecode(responseBody);
+        if (decoded is Map<String, dynamic>) {
+          message = _readString(
+            decoded,
+            const ['message', 'error'],
+            fallback: responseBody,
+          );
+        }
+      } catch (_) {
+        // Keep raw response as the error detail.
+      }
+      throw _ApiException(
+        response.statusCode,
+        message,
+        uri: _resolve(path),
+      );
+    }
+    if (responseBody.trim().isEmpty) return null;
+    return jsonDecode(responseBody);
+  }
+
+  Future<Object?> _postMultipart(
+    String path, {
+    required String filePath,
+    required String fileName,
+    required String contentType,
+    required Map<String, String> fields,
+  }) async {
+    final request = await _httpClient
+        .postUrl(_resolve(path))
+        .timeout(const Duration(seconds: 8));
+    _applyCommonHeaders(request);
+    final boundary =
+        '----ruileBoundary${DateTime.now().microsecondsSinceEpoch}';
+    request.headers.contentType = ContentType(
+      'multipart',
+      'form-data',
+      parameters: {'boundary': boundary},
+    );
+
+    for (final entry in fields.entries) {
+      request.add(
+        utf8.encode(
+          '--$boundary\r\n'
+          'Content-Disposition: form-data; name="${_escapeMultipartValue(entry.key)}"\r\n\r\n'
+          '${entry.value}\r\n',
+        ),
+      );
+    }
+
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw _ApiException(
+        HttpStatus.badRequest,
+        '音频文件不存在：$filePath',
+        uri: _resolve(path),
+      );
+    }
+
+    request.add(
+      utf8.encode(
+        '--$boundary\r\n'
+        'Content-Disposition: form-data; name="file"; filename="${_escapeMultipartValue(fileName)}"\r\n'
+        'Content-Type: ${contentType.isNotEmpty ? contentType : 'application/octet-stream'}\r\n\r\n',
+      ),
+    );
+    await request.addStream(file.openRead());
+    request.add(utf8.encode('\r\n--$boundary--\r\n'));
+
+    final response =
+        await request.close().timeout(const Duration(seconds: 120));
     final responseBody = await response.transform(utf8.decoder).join();
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -595,6 +751,36 @@ class _RuileApiClient {
       if (data != null) return _unwrapData(data);
     }
     return payload;
+  }
+
+  String _audioContentType(String fileName) {
+    final parts = fileName.trim().toLowerCase().split('.');
+    final ext = parts.length > 1 ? parts.last : '';
+    switch (ext) {
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'wav':
+        return 'audio/wav';
+      case 'm4a':
+        return 'audio/mp4';
+      case 'flac':
+        return 'audio/flac';
+      case 'ogg':
+        return 'audio/ogg';
+      case 'aac':
+        return 'audio/aac';
+      case 'sbc':
+        return 'application/octet-stream';
+      default:
+        return 'application/octet-stream';
+    }
+  }
+
+  String _escapeMultipartValue(String value) {
+    return value
+        .replaceAll('\r', '')
+        .replaceAll('\n', '')
+        .replaceAll('"', '%22');
   }
 }
 
@@ -1640,8 +1826,13 @@ class _NotesPageState extends State<NotesPage> {
   static const _edgeSwipeThreshold = 74.0;
 
   late final _RuileApiClient _apiClient;
+  late final VoidCallback _recordingCardSyncListener;
   var _sortNewestFirst = true;
   late List<_KnowledgeBase> _knowledgeBases;
+  List<_NoteItem> _notes = [];
+  bool _loadingNotes = false;
+  bool _notesReloadQueued = false;
+  String? _notesError;
   Offset? _edgeSwipeStart;
   bool _edgeSwipeFromLeft = false;
   bool _edgeSwipeFromRight = false;
@@ -1673,23 +1864,6 @@ class _NotesPageState extends State<NotesPage> {
     ),
   ];
 
-  final List<_NoteItem> _notes = const [
-    _NoteItem(
-      title: '电力需求爆发,重要标的:燃气轮机,股市不缺明星,只缺寿星,选择右侧交易订单要快',
-      excerpt: '',
-      time: '6月30日 19:19',
-      createdAtText: '2026-08-21 12:16:03',
-      content: '任何人或事都有高光时刻，紧接着就会慢慢下滑。等没人的时候，我再去也不迟。',
-    ),
-    _NoteItem(
-      title: '电力行业相关企业分析及功率半导体产业链解读',
-      excerpt: '要专注\n第四代半导体是未来做新的电力系统时...',
-      time: '6月30日 19:10',
-      createdAtText: '2026-08-21 12:18:22',
-      content: '要专注，第四代半导体是未来做新的电力系统时的重要方向。',
-    ),
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -1697,13 +1871,22 @@ class _NotesPageState extends State<NotesPage> {
       authToken: widget.authToken,
       tenantId: widget.tenantId,
     );
+    _recordingCardSyncListener = () {
+      unawaited(_loadRemoteMemories());
+    };
+    RecordingCardAppSyncBus.notifier.addListener(_recordingCardSyncListener);
     _knowledgeBases = List.of(_fallbackKnowledgeBases);
     _loadRemoteKnowledgeBases();
+    unawaited(_loadRemoteMemories());
+  }
+
+  @override
+  void dispose() {
+    RecordingCardAppSyncBus.notifier.removeListener(_recordingCardSyncListener);
+    super.dispose();
   }
 
   Future<void> _loadRemoteKnowledgeBases() async {
-    if (!_apiClient.isConfigured) return;
-
     try {
       final knowledgeBases = await _apiClient.fetchKnowledgeBases();
       if (!mounted) return;
@@ -1718,6 +1901,67 @@ class _NotesPageState extends State<NotesPage> {
       debugPrint('Failed to load deployed knowledge bases: $error');
     } catch (error) {
       debugPrint('Failed to load deployed knowledge bases: $error');
+    }
+  }
+
+  Future<void> _loadRemoteMemories() async {
+    if (_loadingNotes) {
+      _notesReloadQueued = true;
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loadingNotes = true;
+        _notesError = null;
+      });
+    } else {
+      _loadingNotes = true;
+    }
+
+    var shouldReload = false;
+    try {
+      final memories = await _apiClient.fetchOrganizeMemories();
+      if (!mounted) return;
+      final notes = memories.map((memory) => memory.toNoteItem()).toList();
+      setState(() {
+        _notes = notes;
+        _notesError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _notesError = '记忆列表加载失败：${error.message}';
+        });
+      } else {
+        _notesError = '记忆列表加载失败：${error.message}';
+      }
+    } catch (error) {
+      final message = '记忆列表加载失败：$error';
+      if (mounted) {
+        setState(() {
+          _notesError = message;
+        });
+      } else {
+        _notesError = message;
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingNotes = false;
+        });
+      } else {
+        _loadingNotes = false;
+      }
+      shouldReload = _notesReloadQueued;
+      _notesReloadQueued = false;
+      if (mounted && shouldReload) {
+        unawaited(_loadRemoteMemories());
+      }
     }
   }
 
@@ -1896,7 +2140,16 @@ class _NotesPageState extends State<NotesPage> {
                   },
                 ),
                 const SizedBox(height: 18),
-                if (notes.isEmpty)
+                if (_notesError != null) ...[
+                  _NotesLoadError(
+                    message: _notesError!,
+                    onRetry: () => unawaited(_loadRemoteMemories()),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                if (_loadingNotes && notes.isEmpty)
+                  const _NotesLoading()
+                else if (notes.isEmpty)
                   const _EmptyNotes()
                 else
                   for (var index = 0; index < notes.length; index++) ...[
@@ -4060,8 +4313,9 @@ class _KnowledgeAudioDetailPreviewState
         final maxPosition = duration.inMilliseconds <= 0
             ? 1.0
             : duration.inMilliseconds.toDouble();
-        final clampedPosition =
-            position.inMilliseconds.clamp(0, duration.inMilliseconds).toDouble();
+        final clampedPosition = position.inMilliseconds
+            .clamp(0, duration.inMilliseconds)
+            .toDouble();
         final playing = _playerState == PlayerState.playing;
 
         return Container(
@@ -4124,7 +4378,8 @@ class _KnowledgeAudioDetailPreviewState
                     },
                     iconSize: 28,
                     color: AppColors.textPrimary,
-                    icon: Icon(playing ? Icons.pause_circle : Icons.play_circle),
+                    icon:
+                        Icon(playing ? Icons.pause_circle : Icons.play_circle),
                   ),
                 ],
               ),
@@ -4316,7 +4571,9 @@ class _KnowledgeVideoDetailPreviewState
                       }
                     },
                     icon: Icon(
-                      controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                      controller.value.isPlaying
+                          ? Icons.pause
+                          : Icons.play_arrow,
                     ),
                   ),
                   Expanded(
@@ -4833,6 +5090,58 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
               '创建时间  ${note.detailCreatedAt}',
               style: _metaStyle,
             ),
+            if (note.hasAudioLink) ...[
+              const SizedBox(height: 16),
+              const Text(
+                '音频链接',
+                style: _metaStyle,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: SelectableText(
+                      note.audioUrl,
+                      maxLines: 2,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: '复制链接',
+                    onPressed: () async {
+                      await Clipboard.setData(
+                          ClipboardData(text: note.audioUrl));
+                      if (mounted) {
+                        _showMessage('已复制音频链接');
+                      }
+                    },
+                    constraints: const BoxConstraints.tightFor(
+                      width: 36,
+                      height: 36,
+                    ),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(
+                      Icons.copy_outlined,
+                      size: 18,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              if (note.transcriptionStatusLabel.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  note.transcriptionStatusLabel,
+                  style: _metaStyle,
+                ),
+              ],
+            ],
             const SizedBox(height: 20),
             _MemoryTagButton(
               onPressed: _openAddMemory,
@@ -5270,7 +5579,6 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
   static const _tick = Duration(seconds: 1);
 
   final _recorder = AudioRecorder();
-  final _speech = speech_to_text.SpeechToText();
   final _draftStore = const _LocalRecordDraftStore();
 
   Timer? _elapsedTimer;
@@ -5279,21 +5587,11 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
   var _isRecording = false;
   var _isPaused = false;
   var _operation = _RecordDraftOperation.idle;
-  var _speechAvailable = false;
-  var _speechListening = false;
-  var _finalTranscript = '';
-  var _partialTranscript = '';
   var _elapsedSeconds = 0;
   var _statusText = '正在开启录音...';
   var _errorText = '';
 
-  String get _transcriptText {
-    final parts = [
-      _finalTranscript.trim(),
-      _partialTranscript.trim(),
-    ].where((part) => part.isNotEmpty);
-    return parts.join(' ').trim();
-  }
+  String get _transcriptText => '';
 
   bool get _isBusy => _operation != _RecordDraftOperation.idle;
 
@@ -5316,7 +5614,6 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
   @override
   void dispose() {
     _elapsedTimer?.cancel();
-    unawaited(_speech.cancel().catchError((Object _) {}));
     if (_isRecording && !_isBusy) {
       unawaited(
         _recorder
@@ -5399,128 +5696,6 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
       _statusText = '正在录音，本地已保存';
     });
     _startElapsedTimer();
-    await _startSpeechRecognition();
-  }
-
-  Future<void> _startSpeechRecognition() async {
-    try {
-      final available = await _speech.initialize(
-        onError: _handleSpeechError,
-        onStatus: _handleSpeechStatus,
-        options: [speech_to_text.SpeechToText.androidNoBluetooth],
-      );
-      if (!mounted) return;
-      setState(() {
-        _speechAvailable = available;
-        if (!available) {
-          _statusText = '录音中，实时转写不可用';
-        }
-      });
-      if (available) {
-        await _listenForSpeech();
-      }
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _speechAvailable = false;
-        _statusText = '录音中，实时转写不可用';
-      });
-    }
-  }
-
-  Future<void> _listenForSpeech() async {
-    if (!_speechAvailable || !_isRecording || _isPaused || _isBusy) return;
-
-    try {
-      await _speech.listen(
-        onResult: _handleSpeechResult,
-        onSoundLevelChange: (_) {},
-        listenOptions: speech_to_text.SpeechListenOptions(
-          cancelOnError: false,
-          partialResults: true,
-          listenMode: speech_to_text.ListenMode.dictation,
-          pauseFor: const Duration(seconds: 6),
-          listenFor: const Duration(seconds: 55),
-          localeId: 'zh_CN',
-        ),
-      );
-      if (!mounted) return;
-      setState(() {
-        _speechListening = true;
-        _statusText = '正在录音并实时转写';
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _speechListening = false;
-        _statusText = '录音中，实时转写暂不可用';
-      });
-    }
-  }
-
-  void _handleSpeechResult(SpeechRecognitionResult result) {
-    final words = result.recognizedWords.trim();
-    if (words.isEmpty) return;
-
-    setState(() {
-      if (result.finalResult) {
-        _mergeFinalTranscript(words);
-      } else {
-        _partialTranscript = _partialFromRecognizedWords(words);
-      }
-      _statusText = '正在录音并实时转写';
-    });
-    unawaited(_persistDraft());
-  }
-
-  void _handleSpeechError(SpeechRecognitionError error) {
-    if (!mounted) return;
-    setState(() {
-      _speechListening = false;
-      _statusText = error.permanent ? '录音中，实时转写不可用' : '转写中断，正在重试';
-    });
-    if (!error.permanent && _isRecording && !_isPaused && !_isBusy) {
-      Future<void>.delayed(const Duration(milliseconds: 600), () {
-        if (mounted) {
-          unawaited(_listenForSpeech());
-        }
-      });
-    }
-  }
-
-  void _handleSpeechStatus(String status) {
-    if (!mounted) return;
-    if (status == speech_to_text.SpeechToText.doneStatus ||
-        status == speech_to_text.SpeechToText.notListeningStatus) {
-      setState(() {
-        _speechListening = false;
-      });
-      if (_isRecording && !_isPaused && !_isBusy) {
-        Future<void>.delayed(const Duration(milliseconds: 600), () {
-          if (mounted) {
-            unawaited(_listenForSpeech());
-          }
-        });
-      }
-    }
-  }
-
-  String _partialFromRecognizedWords(String words) {
-    final committed = _finalTranscript.trim();
-    if (committed.isNotEmpty && words.startsWith(committed)) {
-      return words.substring(committed.length).trim();
-    }
-    return words;
-  }
-
-  void _mergeFinalTranscript(String words) {
-    final committed = _finalTranscript.trim();
-    if (committed.isEmpty || words.startsWith(committed)) {
-      _finalTranscript = words;
-    } else if (!committed.endsWith(words)) {
-      _finalTranscript = '$committed $words';
-    }
-    _partialTranscript = '';
   }
 
   void _startElapsedTimer() {
@@ -5574,13 +5749,11 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
 
   Future<void> _pauseRecording() async {
     if (!_isRecording || _isPaused || _isBusy) return;
-    await _speech.stop();
     await _recorder.pause();
     if (!mounted) return;
     _elapsedTimer?.cancel();
     setState(() {
       _isPaused = true;
-      _speechListening = false;
       _statusText = '录音已暂停，本地已保存';
     });
     await _persistDraft(syncStatus: 'paused');
@@ -5592,10 +5765,9 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     if (!mounted) return;
     setState(() {
       _isPaused = false;
-      _statusText = '正在录音并实时转写';
+      _statusText = '正在录音，本地已保存';
     });
     _startElapsedTimer();
-    await _listenForSpeech();
   }
 
   Future<void> _cancelRecording() async {
@@ -5608,7 +5780,6 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
       _starting = false;
       _statusText = '正在取消录音...';
     });
-    await _speech.cancel().catchError((Object _) {});
     await _recorder.cancel().catchError((Object _) {});
     if (draft != null) {
       await _draftStore.delete(draft).catchError((Object _) {});
@@ -5617,7 +5788,6 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     setState(() {
       _isRecording = false;
       _isPaused = false;
-      _speechListening = false;
       _draft = null;
     });
     _closeDraftPage();
@@ -5631,8 +5801,6 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
       _operation = _RecordDraftOperation.saving;
       _statusText = '正在保存录音...';
     });
-
-    await _speech.stop().catchError((Object _) {});
 
     String? finalAudioPath;
     if (_isRecording) {
@@ -5651,7 +5819,6 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     setState(() {
       _isRecording = false;
       _isPaused = false;
-      _speechListening = false;
       _statusText = '本地已保存，正在同步云端...';
     });
 
@@ -5686,29 +5853,32 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     try {
       await _persistDraft(syncStatus: 'syncing');
       final title = _recordTitle(draft);
-      final remoteId = await widget.apiClient.createOrganizeMemory(
+      final remoteId = await widget.apiClient.uploadOrganizeMemoryAudio(
+        filePath: draft.audioPath,
+        fileName: draft.audioPath.split(Platform.pathSeparator).last,
         kind: 'audio',
         title: title,
-        content: _recordContentHtml(draft.transcript),
         source: '语音记录',
         occurredAt: draft.createdAt,
         durationSeconds: draft.durationSeconds,
         metadata: {
           'mobile_local_id': draft.id,
-          'audio_file_name': '${draft.id}.m4a',
+          'audio_file_name': draft.audioPath.split(Platform.pathSeparator).last,
           'audio_local_path': draft.audioPath,
           'recorded_at': draft.createdAt.toUtc().toIso8601String(),
           'sync_source': 'mobile_recording',
-          'transcription_engine': 'speech_to_text',
+          'transcription_status': 'pending',
         },
+        content: _recordContentHtml(''),
       );
       await _persistDraft(
         syncStatus: 'synced',
         remoteMemoryId: remoteId,
       );
+      RecordingCardAppSyncBus.notifyChanged();
       if (mounted) {
         setState(() {
-          _statusText = '云端同步完成';
+          _statusText = '云端同步完成，转写处理中';
         });
       }
       return true;
@@ -5733,7 +5903,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
 
   String _recordContentHtml(String transcript) {
     final text = _normalizeSpaces(transcript);
-    final content = text.isEmpty ? '未识别到语音内容。' : text;
+    final content = text.isEmpty ? '录音已保存，等待转写。' : text;
     return '<p>${const HtmlEscape().convert(content)}</p>';
   }
 
@@ -5787,7 +5957,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
           Row(
             children: [
               _RecordStatusPill(
-                icon: _speechListening ? Icons.graphic_eq : Icons.mic_none,
+                icon: Icons.mic_none,
                 label: _statusText,
               ),
               const Spacer(),
@@ -5805,7 +5975,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
           Expanded(
             child: SingleChildScrollView(
               child: Text(
-                transcript.isEmpty ? '开始说话后，内容会实时显示在这里。' : transcript,
+                transcript.isEmpty ? '录音结束后会显示转写内容。' : transcript,
                 style: TextStyle(
                   fontSize: transcript.isEmpty ? 18 : 24,
                   height: 1.72,
@@ -6044,6 +6214,57 @@ String _formatRecordDateTime(DateTime time) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');
   return '${local.month}月${local.day}日 $hour:$minute';
+}
+
+String _formatMemoryTimestamp(DateTime time) {
+  final local = time.toLocal();
+  final year = local.year.toString().padLeft(4, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  final second = local.second.toString().padLeft(2, '0');
+  return '$year-$month-$day $hour:$minute:$second';
+}
+
+String _plainTextFromHtml(String value) {
+  var text = value.trim();
+  if (text.isEmpty) return '';
+
+  text = text.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+  text = text.replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n\n');
+  text = text.replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '');
+  text = text.replaceAll(RegExp(r'<div[^>]*>', caseSensitive: false), '');
+  text = text.replaceAll(RegExp(r'</div\s*>', caseSensitive: false), '\n');
+  text = text.replaceAll(RegExp(r'<[^>]+>'), '');
+  text = text
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'");
+
+  return text
+      .split(RegExp(r'\n\s*\n'))
+      .map(_normalizeSpaces)
+      .where((line) => line.isNotEmpty)
+      .join('\n\n');
+}
+
+String _organizeMemoryKindLabel(String kind) {
+  switch (kind.trim()) {
+    case 'note':
+      return '文字记忆';
+    case 'record':
+      return '录音记忆';
+    case 'audio':
+      return '语音记忆';
+    case 'audio_card':
+      return '录音卡记忆';
+    default:
+      return '';
+  }
 }
 
 String _normalizeSpaces(String value) {
@@ -6499,6 +6720,63 @@ class _EmptyNotes extends StatelessWidget {
   }
 }
 
+class _NotesLoading extends StatelessWidget {
+  const _NotesLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 28),
+      child: Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2.2),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotesLoadError extends StatelessWidget {
+  const _NotesLoadError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(
+          Icons.cloud_off_outlined,
+          size: 18,
+          color: AppColors.textTertiary,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            message,
+            style: AppTextStyles.meta.copyWith(
+              height: 1.45,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        TextButton(
+          onPressed: onRetry,
+          child: const Text('重试'),
+        ),
+      ],
+    );
+  }
+}
+
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({super.key});
 
@@ -6840,17 +7118,29 @@ class ProfilePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _TabPageScaffold(
+    return _TabPageScaffold(
       title: '我的',
       subtitle: '管理账户、配置和偏好。',
       icon: Icons.person,
       children: [
         _InfoTile(
+          icon: Icons.bluetooth_connected,
+          title: '录音卡设备',
+          description: '扫描并连接 M1 设备，查看 SN、MAC、电量、内存和固件版本。',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (context) => const RecordingCardDevicePage(),
+              ),
+            );
+          },
+        ),
+        const _InfoTile(
           icon: Icons.settings_outlined,
           title: '接口配置',
           description: '配置 API 地址、访问密钥和调试环境。',
         ),
-        _InfoTile(
+        const _InfoTile(
           icon: Icons.account_circle_outlined,
           title: '账户信息',
           description: '后续接入登录状态和个人资料。',
@@ -6939,11 +7229,13 @@ class _InfoTile extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.description,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String description;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -6956,17 +7248,21 @@ class _InfoTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: colorScheme.outlineVariant),
       ),
-      child: ListTile(
-        leading: Icon(icon, color: colorScheme.primary),
-        title: Text(
-          title,
-          style: const TextStyle(fontWeight: FontWeight.w700),
+      child: Material(
+        color: Colors.transparent,
+        child: ListTile(
+          onTap: onTap,
+          leading: Icon(icon, color: colorScheme.primary),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(description),
+          ),
+          trailing: onTap == null ? null : const Icon(Icons.chevron_right),
         ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(description),
-        ),
-        trailing: const Icon(Icons.chevron_right),
       ),
     );
   }
@@ -7217,7 +7513,8 @@ class _KnowledgeDocument {
   String get fileName => _lastPathPart(path);
 
   String get normalizedFileType {
-    final explicit = fileType.trim().replaceFirst(RegExp(r'^\.'), '').toLowerCase();
+    final explicit =
+        fileType.trim().replaceFirst(RegExp(r'^\.'), '').toLowerCase();
     if (explicit.isNotEmpty && explicit != 'file') return explicit;
     final name = _lastPathPart(path);
     final parts = name.split('.');
@@ -7592,6 +7889,158 @@ class _KnowledgeBase {
   }
 }
 
+class _OrganizeMemory {
+  const _OrganizeMemory({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.content,
+    required this.source,
+    required this.occurredAt,
+    required this.durationSeconds,
+    required this.metadata,
+    required this.audioUrl,
+    required this.transcriptionStatus,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory _OrganizeMemory.fromApi(Map<String, dynamic> json) {
+    final metadata = _readMap(json, const ['metadata']);
+    final occurredAt = _readDateTime(json, const ['occurred_at']) ??
+        _readDateTime(json, const ['created_at']) ??
+        DateTime.now();
+    final createdAt = _readDateTime(json, const ['created_at']) ?? occurredAt;
+    final updatedAt = _readDateTime(json, const ['updated_at']) ?? createdAt;
+    final audioUrl = _readString(
+      metadata,
+      const ['audio_url', 'file_url', 'file_path', 'audio_file_path'],
+    );
+    final transcriptionStatus = _readString(
+      metadata,
+      const ['transcription_status', 'upload_status'],
+    );
+
+    return _OrganizeMemory(
+      id: _readString(json, const ['id']),
+      kind: _readString(json, const ['kind']),
+      title: _readString(json, const ['title']),
+      content: _readString(json, const ['content']),
+      source: _readString(json, const ['source']),
+      occurredAt: occurredAt,
+      durationSeconds: _readInt(json, const ['duration_seconds']) ?? 0,
+      metadata: metadata,
+      audioUrl: audioUrl,
+      transcriptionStatus: transcriptionStatus,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+
+  final String id;
+  final String kind;
+  final String title;
+  final String content;
+  final String source;
+  final DateTime occurredAt;
+  final int durationSeconds;
+  final Map<String, dynamic> metadata;
+  final String audioUrl;
+  final String transcriptionStatus;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  _NoteItem toNoteItem() {
+    final body = _organizeMemoryBodyText();
+    final summary = _organizeMemorySummaryText();
+    final displayBody = body.isNotEmpty ? body : summary;
+    final title = _organizeMemoryTitle();
+    final excerpt = body.isNotEmpty ? _organizeMemoryExcerpt(body) : summary;
+    return _NoteItem(
+      title: title,
+      excerpt: excerpt,
+      time: _formatRecordDateTime(occurredAt),
+      createdAtText: _formatMemoryTimestamp(occurredAt),
+      content: displayBody,
+      audioUrl: audioUrl,
+      transcriptionStatus: transcriptionStatus,
+    );
+  }
+
+  String _organizeMemoryTitle() {
+    final normalizedTitle = _normalizeSpaces(title);
+    if (normalizedTitle.isNotEmpty) {
+      return normalizedTitle;
+    }
+
+    final summary = _organizeMemorySummaryText();
+    if (summary.isNotEmpty) {
+      return summary;
+    }
+
+    final label = _organizeMemoryKindLabel(kind);
+    if (label.isNotEmpty) {
+      return '$label ${_formatRecordDateTime(occurredAt)}';
+    }
+    return '未命名记忆';
+  }
+
+  String _organizeMemoryBodyText() {
+    final normalizedContent = _normalizeSpaces(_plainTextFromHtml(content));
+    if (normalizedContent.isNotEmpty) return normalizedContent;
+    return '';
+  }
+
+  String _organizeMemoryExcerpt(String body) {
+    final compact = _normalizeSpaces(body);
+    if (compact.isEmpty) return '';
+    if (compact.length <= 120) return compact;
+    return '${compact.substring(0, 120)}...';
+  }
+
+  String _organizeMemorySummaryText() {
+    final parts = <String>[];
+    final sourceText = _normalizeSpaces(source);
+    if (sourceText.isNotEmpty) {
+      parts.add(sourceText);
+    }
+
+    final deviceName = _organizeMemoryMetadataText(
+      const ['device_name', 'device_sn', 'recording_file_name'],
+    );
+    if (deviceName.isNotEmpty && deviceName != sourceText) {
+      parts.add(deviceName);
+    }
+
+    if (durationSeconds > 0) {
+      parts.add(_formatRecordDuration(durationSeconds));
+    }
+
+    final fileName = _organizeMemoryMetadataText(
+      const ['audio_file_name', 'file_name', 'recording_file_name'],
+    );
+    if (fileName.isNotEmpty && fileName != deviceName) {
+      parts.add(fileName);
+    }
+
+    return parts.join(' · ');
+  }
+
+  String _organizeMemoryMetadataText(List<String> keys) {
+    for (final key in keys) {
+      final value = metadata[key];
+      if (value is String) {
+        final normalized = _normalizeSpaces(value);
+        if (normalized.isNotEmpty) return normalized;
+      } else if (value != null) {
+        final normalized = _normalizeSpaces(value.toString());
+        if (normalized.isNotEmpty) return normalized;
+      }
+    }
+    return '';
+  }
+}
+
 class _NoteItem {
   const _NoteItem({
     required this.title,
@@ -7599,6 +8048,8 @@ class _NoteItem {
     required this.time,
     this.createdAtText = '',
     this.content = '',
+    this.audioUrl = '',
+    this.transcriptionStatus = '',
   });
 
   final String title;
@@ -7606,6 +8057,8 @@ class _NoteItem {
   final String time;
   final String createdAtText;
   final String content;
+  final String audioUrl;
+  final String transcriptionStatus;
 
   String get detailCreatedAt {
     final normalized = createdAtText.trim();
@@ -7618,6 +8071,27 @@ class _NoteItem {
     final normalizedExcerpt = excerpt.trim();
     if (normalizedExcerpt.isNotEmpty) return normalizedExcerpt;
     return title;
+  }
+
+  bool get hasAudioLink => audioUrl.trim().isNotEmpty;
+
+  String get transcriptionStatusLabel {
+    switch (transcriptionStatus.trim().toLowerCase()) {
+      case 'pending':
+      case 'queued':
+      case 'transcribing':
+        return '转写中';
+      case 'completed':
+        return '';
+      case 'failed':
+        return '转写失败';
+      case 'skipped':
+        return '转写未配置';
+      case 'queued_failed':
+        return '转写排队失败';
+      default:
+        return '';
+    }
   }
 }
 
@@ -7653,6 +8127,18 @@ int? _readInt(Map<String, dynamic> json, List<String> keys) {
     if (value is num) return value.toInt();
     if (value is String) {
       final parsed = int.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+  }
+  return null;
+}
+
+DateTime? _readDateTime(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is DateTime) return value;
+    if (value is String && value.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(value.trim());
       if (parsed != null) return parsed;
     }
   }

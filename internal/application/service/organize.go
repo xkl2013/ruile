@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -33,6 +34,7 @@ type organizeService struct {
 	repo           interfaces.OrganizeRepository
 	modelService   interfaces.ModelService
 	fileService    interfaces.FileService
+	taskEnqueuer   interfaces.TaskEnqueuer
 	documentReader interfaces.DocumentReader
 }
 
@@ -40,12 +42,14 @@ func NewOrganizeService(
 	repo interfaces.OrganizeRepository,
 	modelService interfaces.ModelService,
 	fileService interfaces.FileService,
+	taskEnqueuer interfaces.TaskEnqueuer,
 	documentReader interfaces.DocumentReader,
 ) interfaces.OrganizeService {
 	return &organizeService{
 		repo:           repo,
 		modelService:   modelService,
 		fileService:    fileService,
+		taskEnqueuer:   taskEnqueuer,
 		documentReader: documentReader,
 	}
 }
@@ -69,7 +73,7 @@ func (s *organizeService) CreateMemory(
 		UserID:          userID,
 		Kind:            kind,
 		Title:           title,
-		Content:         strings.TrimSpace(input.Content),
+		Content:         trimMax(input.Content, 0),
 		Source:          trimMax(input.Source, organizeMaxShortText),
 		OccurredAt:      occurredAt,
 		DurationSeconds: nonNegative(input.DurationSeconds),
@@ -108,7 +112,7 @@ func (s *organizeService) UpdateMemory(
 	}
 	memory.Kind = kind
 	memory.Title = title
-	memory.Content = strings.TrimSpace(input.Content)
+	memory.Content = trimMax(input.Content, 0)
 	memory.Source = trimMax(input.Source, organizeMaxShortText)
 	if input.OccurredAt != nil && !input.OccurredAt.IsZero() {
 		memory.OccurredAt = input.OccurredAt.UTC()
@@ -327,7 +331,7 @@ func (s *organizeService) buildOutput(
 	if err != nil {
 		return nil, nil, err
 	}
-	status := strings.TrimSpace(input.Status)
+	status := trimMax(input.Status, 0)
 	if status == "" {
 		status = types.OrganizeOutputStatusDraft
 	}
@@ -344,7 +348,7 @@ func (s *organizeService) buildOutput(
 		UserID:        userID,
 		Title:         title,
 		OutputType:    trimMax(input.OutputType, 64),
-		Content:       strings.TrimSpace(input.Content),
+		Content:       trimMax(input.Content, 0),
 		SourceSummary: trimMax(input.SourceSummary, organizeMaxShortText),
 		Status:        status,
 		Icon:          trimMax(input.Icon, 64),
@@ -452,6 +456,7 @@ func normalizeTitle(title string) (string, error) {
 }
 
 func trimMax(s string, max int) string {
+	s = common.CleanInvalidUTF8(s)
 	s = strings.TrimSpace(s)
 	if max > 0 && len([]rune(s)) > max {
 		runes := []rune(s)

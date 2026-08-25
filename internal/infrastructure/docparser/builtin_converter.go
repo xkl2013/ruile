@@ -26,6 +26,7 @@ var imageFormats = map[string]bool{
 
 var audioFormats = map[string]bool{
 	"mp3": true, "wav": true, "m4a": true, "flac": true, "ogg": true,
+	"aac": true, "sbc": true,
 }
 
 var videoFormats = map[string]bool{

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/hibiken/asynq"
 )
 
 type OrganizeRepository interface {
@@ -34,11 +35,12 @@ type OrganizeRepository interface {
 
 type OrganizeService interface {
 	CreateMemory(ctx context.Context, tenantID uint64, userID string, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
-	CreateMemoryFromUpload(ctx context.Context, tenantID uint64, userID, fileName, mimeType string, data []byte) (*types.OrganizeMemory, error)
+	CreateMemoryFromUpload(ctx context.Context, tenantID uint64, userID, fileName, mimeType string, data []byte, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
 	GetMemory(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeMemory, error)
 	UpdateMemory(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
 	DeleteMemory(ctx context.Context, tenantID uint64, userID, id string) error
 	ListMemories(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeMemory, int64, error)
+	ProcessMemoryTranscribe(ctx context.Context, task *asynq.Task) error
 
 	CreateOutput(ctx context.Context, tenantID uint64, userID string, input types.OrganizeOutputInput) (*types.OrganizeOutput, error)
 	CreateOutputFromUpload(ctx context.Context, tenantID uint64, userID, fileName, mimeType string, data []byte) (*types.OrganizeOutput, error)

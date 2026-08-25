@@ -27,100 +27,6 @@ type organizeUploadAIResult struct {
 	Tags    []string `json:"tags"`
 }
 
-func (s *organizeService) CreateMemoryFromUpload(
-	ctx context.Context,
-	tenantID uint64,
-	userID, fileName, mimeType string,
-	data []byte,
-) (*types.OrganizeMemory, error) {
-	if err := validateOrganizeScope(tenantID, userID); err != nil {
-		return nil, err
-	}
-	if s.fileService == nil {
-		return nil, fmt.Errorf("file service is not configured")
-	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("upload file is empty")
-	}
-
-	cleanName := strings.TrimSpace(fileName)
-	if cleanName == "" {
-		cleanName = "upload.bin"
-	}
-	if !isValidFileType(cleanName) {
-		return nil, fmt.Errorf("unsupported file type: %s", strings.ToLower(filepath.Ext(cleanName)))
-	}
-
-	contentKind, contentTypeLabel, _ := organizeOutputKindInfo(cleanName, mimeType)
-	baseName := strings.TrimSuffix(filepath.Base(cleanName), filepath.Ext(cleanName))
-	if baseName == "" {
-		baseName = cleanName
-	}
-
-	content, transcript, asrModelID, warnings, err := s.extractOrganizeUploadContent(ctx, cleanName, mimeType, data, contentKind)
-	if err != nil {
-		return nil, err
-	}
-
-	aiResult, aiModelID, aiStatus := s.generateOrganizeMemoryImportAIResult(ctx, cleanName, contentTypeLabel, content)
-	if aiResult.Title == "" {
-		aiResult.Title = baseName
-	}
-	if aiResult.Summary == "" {
-		aiResult.Summary = organizeMemoryImportFallbackSummary(cleanName, content)
-	}
-	aiResult.Tags = normalizeOrganizeUploadTags(append(aiResult.Tags, organizeMemoryImportFallbackTags(contentKind)...))
-	if len(aiResult.Tags) == 0 {
-		aiResult.Tags = normalizeOrganizeUploadTags(organizeMemoryImportFallbackTags(contentKind))
-	}
-
-	storageName := fmt.Sprintf("organize_memory_%s%s", uuid.NewString()[:12], filepath.Ext(cleanName))
-	storagePath, saveErr := s.fileService.SaveBytes(ctx, data, tenantID, storageName, false)
-	if saveErr != nil {
-		return nil, fmt.Errorf("save upload file: %w", saveErr)
-	}
-
-	metadata := types.JSONMap{
-		"content_kind":       contentKind,
-		"content_kind_label": contentTypeLabel,
-		"file_name":          cleanName,
-		"file_type":          strings.TrimPrefix(strings.ToLower(filepath.Ext(cleanName)), "."),
-		"file_path":          storagePath,
-		"mime_type":          strings.TrimSpace(mimeType),
-		"summary":            trimMax(aiResult.Summary, organizeMaxShortText),
-		"ai_status":          aiStatus,
-		"ai_model_id":        aiModelID,
-		"tags":               types.StringArray(aiResult.Tags),
-		"import_source":      "file",
-		"imported_at":        time.Now().UTC().Format(time.RFC3339),
-	}
-	if transcript != "" {
-		metadata["transcript"] = transcript
-	}
-	if asrModelID != "" {
-		metadata["asr_model_id"] = asrModelID
-	}
-	if len(warnings) > 0 {
-		metadata["warnings"] = warnings
-	}
-
-	memory := &types.OrganizeMemory{
-		TenantID:   tenantID,
-		UserID:     userID,
-		Kind:       types.OrganizeMemoryKindNote,
-		Title:      trimMax(aiResult.Title, organizeMaxTitleLength),
-		Content:    organizeUploadContentToNoteHTML(aiResult.Title, content),
-		Source:     "文件导入",
-		OccurredAt: time.Now().UTC(),
-		Metadata:   normalizeJSONMap(metadata),
-	}
-	if err := s.repo.CreateMemory(ctx, memory); err != nil {
-		_ = s.fileService.DeleteFile(ctx, storagePath)
-		return nil, err
-	}
-	return s.repo.GetMemory(ctx, tenantID, userID, memory.ID)
-}
-
 func (s *organizeService) CreateOutputFromUpload(
 	ctx context.Context,
 	tenantID uint64,
@@ -177,10 +83,10 @@ func (s *organizeService) CreateOutputFromUpload(
 	metadata := types.JSONMap{
 		"content_kind":       contentKind,
 		"content_kind_label": outputType,
-		"file_name":          cleanName,
+		"file_name":          trimMax(cleanName, 0),
 		"file_type":          strings.TrimPrefix(strings.ToLower(filepath.Ext(cleanName)), "."),
-		"file_path":          storagePath,
-		"mime_type":          strings.TrimSpace(mimeType),
+		"file_path":          trimMax(storagePath, 0),
+		"mime_type":          trimMax(mimeType, 0),
 		"ai_status":          aiStatus,
 		"ai_model_id":        aiModelID,
 		"tags":               types.StringArray(aiResult.Tags),
@@ -202,7 +108,7 @@ func (s *organizeService) CreateOutputFromUpload(
 		UserID:        userID,
 		Title:         trimMax(aiResult.Title, organizeMaxTitleLength),
 		OutputType:    outputType,
-		Content:       strings.TrimSpace(content),
+		Content:       trimMax(content, 0),
 		SourceSummary: trimMax(aiResult.Summary, organizeMaxShortText),
 		Status:        types.OrganizeOutputStatusReview,
 		Icon:          icon,
@@ -222,7 +128,7 @@ func (s *organizeService) extractOrganizeUploadContent(
 	contentKind string,
 ) (content string, transcript string, asrModelID string, warnings []string, err error) {
 	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(fileName)), ".")
-	content = strings.TrimSpace(string(data))
+	content = trimMax(string(data), 0)
 	if shouldUseRawTextForOrganizeUpload(ext) && content != "" {
 		return content, "", "", nil, nil
 	}
@@ -258,13 +164,13 @@ func (s *organizeService) extractOrganizeUploadContent(
 
 	if content == "" {
 		if contentKind == organizeOutputKindAudio || contentKind == organizeOutputKindVideo {
-			content = fmt.Sprintf("%s 文件 %s", organizeOutputKindLabel(contentKind), fileName)
+			content = trimMax(fmt.Sprintf("%s 文件 %s", organizeOutputKindLabel(contentKind), fileName), 0)
 		} else {
-			content = strings.TrimSpace(string(data))
+			content = trimMax(string(data), 0)
 		}
 	}
 	if content == "" {
-		content = fileName
+		content = trimMax(fileName, 0)
 	}
 	return content, transcript, asrModelID, warnings, nil
 }
@@ -282,7 +188,11 @@ func (s *organizeService) transcribeOrganizeUploadAudio(
 	if err != nil {
 		return "", modelID, err
 	}
-	result, err := asrModel.Transcribe(ctx, audioBytes, fileName)
+	normalizedBytes, normalizedName, err := normalizeOrganizeAudioForASR(ctx, audioBytes, fileName)
+	if err != nil {
+		return "", modelID, err
+	}
+	result, err := asrModel.Transcribe(ctx, normalizedBytes, normalizedName)
 	if err != nil {
 		if asr.IsNonRetryable(err) {
 			return "", modelID, err
@@ -292,7 +202,7 @@ func (s *organizeService) transcribeOrganizeUploadAudio(
 	if result == nil {
 		return "", modelID, nil
 	}
-	return strings.TrimSpace(result.Text), modelID, nil
+	return trimMax(result.Text, 0), modelID, nil
 }
 
 func (s *organizeService) generateOrganizeMemoryImportAIResult(

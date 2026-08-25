@@ -16,6 +16,7 @@ var audioFileTypes = map[string]struct{}{
 	"flac": {},
 	"ogg":  {},
 	"aac":  {},
+	"sbc":  {},
 }
 
 // GetMaxFileSize returns the default non-audio file upload size in bytes.
