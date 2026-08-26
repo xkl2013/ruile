@@ -14,6 +14,7 @@ enum RecordingCardFileTransferStatus {
   downloaded,
   cloudSyncPending,
   cloudSyncing,
+  cloudSyncFailed,
   synced,
   failed,
   deletedOnDevice,
@@ -30,6 +31,7 @@ extension RecordingCardFileTransferStatusX on RecordingCardFileTransferStatus {
         RecordingCardFileTransferStatus.downloaded => '本地已保存',
         RecordingCardFileTransferStatus.cloudSyncPending => '待上传云端',
         RecordingCardFileTransferStatus.cloudSyncing => '上传云端中',
+        RecordingCardFileTransferStatus.cloudSyncFailed => '上传失败',
         RecordingCardFileTransferStatus.synced => '已同步',
         RecordingCardFileTransferStatus.failed => '同步失败',
         RecordingCardFileTransferStatus.deletedOnDevice => '已删除设备',
@@ -46,7 +48,8 @@ extension RecordingCardFileTransferStatusX on RecordingCardFileTransferStatus {
   bool get needsCloudSync => switch (this) {
         RecordingCardFileTransferStatus.downloaded ||
         RecordingCardFileTransferStatus.cloudSyncPending ||
-        RecordingCardFileTransferStatus.cloudSyncing =>
+        RecordingCardFileTransferStatus.cloudSyncing ||
+        RecordingCardFileTransferStatus.cloudSyncFailed =>
           true,
         _ => false,
       };
@@ -124,6 +127,7 @@ class RecordingCardFileEntry {
       transferStatus == RecordingCardFileTransferStatus.downloaded ||
       transferStatus == RecordingCardFileTransferStatus.cloudSyncPending ||
       transferStatus == RecordingCardFileTransferStatus.cloudSyncing ||
+      transferStatus == RecordingCardFileTransferStatus.cloudSyncFailed ||
       transferStatus == RecordingCardFileTransferStatus.synced ||
       transferStatus == RecordingCardFileTransferStatus.deletedOnDevice;
 
@@ -132,6 +136,11 @@ class RecordingCardFileEntry {
       transferStatus == RecordingCardFileTransferStatus.retryPending ||
       transferStatus == RecordingCardFileTransferStatus.failed ||
       transferStatus == RecordingCardFileTransferStatus.downloadPending;
+
+  bool get canRetryCloudSync =>
+      transferStatus == RecordingCardFileTransferStatus.downloaded ||
+      transferStatus == RecordingCardFileTransferStatus.cloudSyncPending ||
+      transferStatus == RecordingCardFileTransferStatus.cloudSyncFailed;
 
   bool get canDeleteOnDevice =>
       transferStatus == RecordingCardFileTransferStatus.synced;

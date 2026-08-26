@@ -391,7 +391,7 @@ class _RuileApiClient {
     throw const FormatException('创建记忆响应格式无效');
   }
 
-  Future<String> uploadOrganizeMemoryAudio({
+  Future<_OrganizeMemoryUploadResult> uploadOrganizeMemoryAudio({
     required String filePath,
     required String fileName,
     required String kind,
@@ -420,8 +420,11 @@ class _RuileApiClient {
     );
     final data = _unwrapData(payload);
     if (data is Map<String, dynamic>) {
-      final id = _readString(data, const ['id']);
-      if (id.isNotEmpty) return id;
+      final result = _OrganizeMemoryUploadResult.fromApi(
+        data,
+        baseUrl: baseUrl,
+      );
+      if (result.id.isNotEmpty) return result;
     }
     throw const FormatException('上传音频记忆响应格式无效');
   }
@@ -477,6 +480,25 @@ class _RuileApiClient {
     }
 
     return memories;
+  }
+
+  Future<_OrganizeMemory?> fetchOrganizeMemory(String memoryId) async {
+    final id = memoryId.trim();
+    if (id.isEmpty) return null;
+
+    final payload = await _getJson(
+      '/api/v1/organize/memories/${Uri.encodeComponent(id)}',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeMemory.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeMemory.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    return null;
   }
 
   Future<List<_KnowledgeBase>> _loadKnowledgeBases(
@@ -842,6 +864,43 @@ class _RuileApiClient {
         .replaceAll('\n', '')
         .replaceAll('"', '%22');
   }
+}
+
+class _OrganizeMemoryUploadResult {
+  const _OrganizeMemoryUploadResult({
+    required this.id,
+    this.audioUrl = '',
+    this.audioFileName = '',
+  });
+
+  factory _OrganizeMemoryUploadResult.fromApi(
+    Map<String, dynamic> json, {
+    required String baseUrl,
+  }) {
+    final metadata = _readMap(json, const ['metadata']);
+    final id = _readString(
+      json,
+      const ['id', 'memory_id', 'remote_memory_id'],
+      fallback: _readString(metadata, const ['id', 'memory_id']),
+    );
+    final rawAudioUrl = _readOrganizeMemoryAudioUrl(json, metadata);
+    return _OrganizeMemoryUploadResult(
+      id: id,
+      audioUrl: _publicFileUrl(rawAudioUrl, baseUrl: baseUrl),
+      audioFileName: _readString(
+        metadata,
+        const ['audio_file_name', 'file_name', 'recording_file_name'],
+        fallback: _readString(
+          json,
+          const ['audio_file_name', 'file_name', 'filename'],
+        ),
+      ),
+    );
+  }
+
+  final String id;
+  final String audioUrl;
+  final String audioFileName;
 }
 
 class _AuthGate extends StatefulWidget {
@@ -4892,7 +4951,24 @@ Map<String, String>? _previewHeaders(String authToken, String tenantId) {
   return headers.isEmpty ? null : headers;
 }
 
+const _providerFileUrlSchemes = {
+  'local',
+  'resource',
+  'storage',
+  'minio',
+  'cos',
+  'tos',
+  's3',
+  'oss',
+  'ks3',
+  'obs',
+};
+
 String _publicAudioUrl(String rawUrl) {
+  return _publicFileUrl(rawUrl, baseUrl: AppApiConfig.baseUrl);
+}
+
+String _publicFileUrl(String rawUrl, {required String baseUrl}) {
   final value = rawUrl.trim();
   if (value.isEmpty) return '';
 
@@ -4903,8 +4979,8 @@ String _publicAudioUrl(String rawUrl) {
       if (scheme == 'http' || scheme == 'https') {
         return value;
       }
-      if (const {'local', 'resource', 'storage'}.contains(scheme)) {
-        final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+      if (_providerFileUrlSchemes.contains(scheme)) {
+        final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
         final apiPath = Uri(
           path: '/api/v1/files',
           queryParameters: {'file_path': value},
@@ -4916,12 +4992,44 @@ String _publicAudioUrl(String rawUrl) {
     if (value.startsWith('//')) {
       return 'https:$value';
     }
-    final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final path = value.startsWith('/') ? value : '/$value';
     return '$base$path';
   }
 
   return value;
+}
+
+String _readOrganizeMemoryAudioUrl(
+  Map<String, dynamic> json,
+  Map<String, dynamic> metadata,
+) {
+  final direct = _readString(json, const [
+    'audio_url',
+    'audioUrl',
+    'audio_file_url',
+    'audioFileUrl',
+    'file_url',
+    'fileUrl',
+    'url',
+  ]);
+  if (direct.isNotEmpty) return direct;
+
+  final metadataUrl = _readString(metadata, const [
+    'audio_url',
+    'audioUrl',
+    'audio_file_url',
+    'audioFileUrl',
+    'file_url',
+    'fileUrl',
+    'url',
+  ]);
+  if (metadataUrl.isNotEmpty) return metadataUrl;
+
+  final directPath = _readString(json, const ['file_path', 'audio_file_path']);
+  if (directPath.isNotEmpty) return directPath;
+
+  return _readString(metadata, const ['file_path', 'audio_file_path']);
 }
 
 String _resolvePreviewImageUrl(String rawUrl) {
@@ -5720,6 +5828,7 @@ class _LocalRecordDraft {
     required this.durationSeconds,
     required this.syncStatus,
     this.remoteMemoryId = '',
+    this.remoteAudioUrl = '',
   });
 
   final String id;
@@ -5731,6 +5840,7 @@ class _LocalRecordDraft {
   final int durationSeconds;
   final String syncStatus;
   final String remoteMemoryId;
+  final String remoteAudioUrl;
 
   _LocalRecordDraft copyWith({
     DateTime? updatedAt,
@@ -5739,6 +5849,7 @@ class _LocalRecordDraft {
     int? durationSeconds,
     String? syncStatus,
     String? remoteMemoryId,
+    String? remoteAudioUrl,
   }) {
     return _LocalRecordDraft(
       id: id,
@@ -5750,6 +5861,7 @@ class _LocalRecordDraft {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       syncStatus: syncStatus ?? this.syncStatus,
       remoteMemoryId: remoteMemoryId ?? this.remoteMemoryId,
+      remoteAudioUrl: remoteAudioUrl ?? this.remoteAudioUrl,
     );
   }
 
@@ -5764,6 +5876,7 @@ class _LocalRecordDraft {
       'duration_seconds': durationSeconds,
       'sync_status': syncStatus,
       if (remoteMemoryId.isNotEmpty) 'remote_memory_id': remoteMemoryId,
+      if (remoteAudioUrl.isNotEmpty) 'remote_audio_url': remoteAudioUrl,
     };
   }
 }
@@ -5969,6 +6082,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     String? syncStatus,
     String? audioPath,
     String? remoteMemoryId,
+    String? remoteAudioUrl,
   }) async {
     final current = _draft;
     if (current == null) return null;
@@ -5980,6 +6094,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
       durationSeconds: _elapsedSeconds,
       syncStatus: syncStatus,
       remoteMemoryId: remoteMemoryId,
+      remoteAudioUrl: remoteAudioUrl,
     );
     _draft = updated;
     await _draftStore.save(updated);
@@ -6106,7 +6221,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     try {
       await _persistDraft(syncStatus: 'syncing');
       final title = _recordTitle(draft);
-      final remoteId = await widget.apiClient.uploadOrganizeMemoryAudio(
+      final uploadResult = await widget.apiClient.uploadOrganizeMemoryAudio(
         filePath: draft.audioPath,
         fileName: draft.audioPath.split(Platform.pathSeparator).last,
         kind: 'audio',
@@ -6124,9 +6239,21 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
         },
         content: _recordContentHtml(''),
       );
+      var remoteAudioUrl = uploadResult.audioUrl;
+      if (remoteAudioUrl.isEmpty && uploadResult.id.isNotEmpty) {
+        try {
+          final memory = await widget.apiClient.fetchOrganizeMemory(
+            uploadResult.id,
+          );
+          remoteAudioUrl = memory?.audioUrl ?? '';
+        } catch (_) {
+          remoteAudioUrl = '';
+        }
+      }
       await _persistDraft(
         syncStatus: 'synced',
-        remoteMemoryId: remoteId,
+        remoteMemoryId: uploadResult.id,
+        remoteAudioUrl: remoteAudioUrl,
       );
       RecordingCardAppSyncBus.notifyChanged();
       if (mounted) {
@@ -8165,9 +8292,8 @@ class _OrganizeMemory {
         DateTime.now();
     final createdAt = _readDateTime(json, const ['created_at']) ?? occurredAt;
     final updatedAt = _readDateTime(json, const ['updated_at']) ?? createdAt;
-    final audioUrl = _readString(
-      metadata,
-      const ['audio_url', 'file_url', 'file_path', 'audio_file_path'],
+    final audioUrl = _publicAudioUrl(
+      _readOrganizeMemoryAudioUrl(json, metadata),
     );
     final transcriptionStatus = _readString(
       metadata,

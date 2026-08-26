@@ -81,6 +81,35 @@ func TestOrganizeServiceCreateMemoryFromUpload_CleansInvalidUTF8Content(t *testi
 	assert.Equal(t, "mp3", item.Metadata["audio_codec"])
 }
 
+func TestOrganizeServiceCreateMemoryFromUpload_ConvertsLocalStorageURL(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, &stubOrganizeFileService{
+		fileURL: "local://9/exports/organize_memory_abc.mp3",
+	}, &stubOrganizeDocumentReader{})
+
+	item, err := svc.CreateMemoryFromUpload(
+		ctx,
+		9,
+		"user-a",
+		"recording.m4a",
+		"audio/mp4",
+		[]byte("audio-bytes"),
+		types.OrganizeMemoryInput{
+			Kind:   types.OrganizeMemoryKindAudio,
+			Title:  "录音记忆",
+			Source: "语音记录",
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, item)
+
+	audioURL, ok := item.Metadata["audio_url"].(string)
+	require.True(t, ok)
+	assert.Contains(t, audioURL, "/api/v1/files?")
+	assert.NotRegexp(t, `^local://`, audioURL)
+	assert.Equal(t, audioURL, item.Metadata["file_url"])
+}
+
 func TestOrganizeServiceCreateMemoryFromUpload_CleansNestedMetadata(t *testing.T) {
 	ctx := context.Background()
 	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, &stubOrganizeFileService{}, &stubOrganizeDocumentReader{})

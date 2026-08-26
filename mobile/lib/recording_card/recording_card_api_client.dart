@@ -75,7 +75,7 @@ class RecordingCardApiClient {
     throw const FormatException('创建记忆响应格式无效');
   }
 
-  Future<String> uploadOrganizeMemoryAudio({
+  Future<RecordingCardMemoryUploadResult> uploadOrganizeMemoryAudio({
     required String filePath,
     required String fileName,
     required String kind,
@@ -104,8 +104,11 @@ class RecordingCardApiClient {
     );
     final data = _unwrapData(payload);
     if (data is Map<String, dynamic>) {
-      final id = _readString(data, const ['id']);
-      if (id.isNotEmpty) return id;
+      final result = RecordingCardMemoryUploadResult.fromApi(
+        data,
+        baseUrl: baseUrl,
+      );
+      if (result.id.isNotEmpty) return result;
     }
     throw const FormatException('上传音频记忆响应格式无效');
   }
@@ -310,11 +313,155 @@ class RecordingCardApiClient {
   }) {
     for (final key in keys) {
       final value = json[key];
-      if (value is String) return value.trim();
-      if (value != null) return value.toString().trim();
+      if (value == null) continue;
+      final text = value.toString().trim();
+      if (text.isNotEmpty) return text;
     }
     return fallback;
   }
+}
+
+class RecordingCardMemoryUploadResult {
+  const RecordingCardMemoryUploadResult({
+    required this.id,
+    this.audioUrl = '',
+    this.audioFileName = '',
+  });
+
+  factory RecordingCardMemoryUploadResult.fromApi(
+    Map<String, dynamic> json, {
+    required String baseUrl,
+  }) {
+    final metadata = _readMapFromJson(json, const ['metadata']);
+    final id = _readStringFromJson(
+      json,
+      const ['id', 'memory_id', 'remote_memory_id'],
+      fallback: _readStringFromJson(metadata, const ['id', 'memory_id']),
+    );
+    final rawAudioUrl = _readAudioUrl(json, metadata);
+    return RecordingCardMemoryUploadResult(
+      id: id,
+      audioUrl: _publicFileUrl(rawAudioUrl, baseUrl: baseUrl),
+      audioFileName: _readStringFromJson(
+        metadata,
+        const ['audio_file_name', 'file_name', 'recording_file_name'],
+        fallback: _readStringFromJson(
+          json,
+          const ['audio_file_name', 'file_name', 'filename'],
+        ),
+      ),
+    );
+  }
+
+  final String id;
+  final String audioUrl;
+  final String audioFileName;
+}
+
+const _providerFileUrlSchemes = {
+  'local',
+  'resource',
+  'storage',
+  'minio',
+  'cos',
+  'tos',
+  's3',
+  'oss',
+  'ks3',
+  'obs',
+};
+
+Map<String, dynamic> _readMapFromJson(
+  Map<String, dynamic> json,
+  List<String> keys,
+) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((key, value) => MapEntry(key.toString(), value));
+    }
+  }
+  return const {};
+}
+
+String _readStringFromJson(
+  Map<String, dynamic> json,
+  List<String> keys, {
+  String fallback = '',
+}) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value == null) continue;
+    final text = value.toString().trim();
+    if (text.isNotEmpty) return text;
+  }
+  return fallback;
+}
+
+String _readAudioUrl(
+  Map<String, dynamic> json,
+  Map<String, dynamic> metadata,
+) {
+  final direct = _readStringFromJson(json, const [
+    'audio_url',
+    'audioUrl',
+    'audio_file_url',
+    'audioFileUrl',
+    'file_url',
+    'fileUrl',
+    'url',
+  ]);
+  if (direct.isNotEmpty) return direct;
+
+  final metadataUrl = _readStringFromJson(metadata, const [
+    'audio_url',
+    'audioUrl',
+    'audio_file_url',
+    'audioFileUrl',
+    'file_url',
+    'fileUrl',
+    'url',
+  ]);
+  if (metadataUrl.isNotEmpty) return metadataUrl;
+
+  final directPath =
+      _readStringFromJson(json, const ['file_path', 'audio_file_path']);
+  if (directPath.isNotEmpty) return directPath;
+
+  return _readStringFromJson(metadata, const ['file_path', 'audio_file_path']);
+}
+
+String _publicFileUrl(String rawUrl, {required String baseUrl}) {
+  final value = rawUrl.trim();
+  if (value.isEmpty) return '';
+
+  final uri = Uri.tryParse(value);
+  if (uri != null) {
+    if (uri.hasScheme) {
+      final scheme = uri.scheme.toLowerCase();
+      if (scheme == 'http' || scheme == 'https') {
+        return value;
+      }
+      if (_providerFileUrlSchemes.contains(scheme)) {
+        final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+        final apiPath = Uri(
+          path: '/api/v1/files',
+          queryParameters: {'file_path': value},
+        ).toString();
+        return '$base$apiPath';
+      }
+      return value;
+    }
+    if (value.startsWith('//')) {
+      return 'https:$value';
+    }
+    final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    final path = value.startsWith('/') ? value : '/$value';
+    return '$base$path';
+  }
+
+  return value;
 }
 
 class _RecordingCardCredentials {
