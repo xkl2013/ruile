@@ -426,6 +426,14 @@ class _RuileApiClient {
     throw const FormatException('上传音频记忆响应格式无效');
   }
 
+  Future<void> deleteOrganizeMemory(String memoryId) async {
+    final id = memoryId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('记忆ID不能为空');
+    }
+    await _deleteJson('/api/v1/organize/memories/${Uri.encodeComponent(id)}');
+  }
+
   Future<List<_OrganizeMemory>> fetchOrganizeMemories({
     String keyword = '',
   }) async {
@@ -570,6 +578,39 @@ class _RuileApiClient {
     return jsonDecode(responseBody);
   }
 
+  Future<Object?> _deleteJson(String path) async {
+    final request = await _httpClient
+        .deleteUrl(_resolve(path))
+        .timeout(const Duration(seconds: 8));
+    _applyCommonHeaders(request);
+
+    final response = await request.close().timeout(const Duration(seconds: 12));
+    final responseBody = await response.transform(utf8.decoder).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String message = responseBody;
+      try {
+        final decoded = jsonDecode(responseBody);
+        if (decoded is Map<String, dynamic>) {
+          message = _readString(
+            decoded,
+            const ['message', 'error'],
+            fallback: responseBody,
+          );
+        }
+      } catch (_) {
+        // Keep raw response as the error detail.
+      }
+      throw _ApiException(
+        response.statusCode,
+        message,
+        uri: _resolve(path),
+      );
+    }
+    if (responseBody.trim().isEmpty) return null;
+    return jsonDecode(responseBody);
+  }
+
   Future<Object?> _postMultipart(
     String path, {
     required String filePath,
@@ -678,6 +719,25 @@ class _RuileApiClient {
     required String fileName,
   }) async {
     final bytes = await fetchBytes(pathOrUrl);
+    final directory = await getTemporaryDirectory();
+    final safeName = _sanitizeFileName(fileName);
+    final file = File(
+      '${directory.path}${Platform.pathSeparator}${DateTime.now().microsecondsSinceEpoch}-$safeName',
+    );
+    await file.writeAsBytes(bytes, flush: true);
+    return file;
+  }
+
+  Future<File> downloadAuthenticatedFileToTempFile(
+    String filePath, {
+    required String fileName,
+  }) async {
+    final bytes = await fetchBytes(
+      Uri(
+        path: '/api/v1/files',
+        queryParameters: {'file_path': filePath},
+      ).toString(),
+    );
     final directory = await getTemporaryDirectory();
     final safeName = _sanitizeFileName(fileName);
     final file = File(
@@ -2000,12 +2060,48 @@ class _NotesPageState extends State<NotesPage> {
     );
   }
 
-  void _openNote(_NoteItem note) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => _MemoryDetailPage(note: note),
+  Future<void> _openNote(_NoteItem note) async {
+    final deleted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => _MemoryDetailPage(
+          note: note,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+        ),
       ),
     );
+    if (!mounted) return;
+    if (deleted == true) {
+      _showMessage('已删除笔记');
+      unawaited(_loadRemoteMemories());
+    }
+  }
+
+  Future<void> _deleteNote(_NoteItem note) async {
+    final noteId = note.id.trim();
+    if (noteId.isEmpty) {
+      _showMessage('当前笔记缺少删除标识，无法删除');
+      return;
+    }
+
+    final confirmed = await _confirmDeleteNote(
+      context,
+      title: note.title.trim().isEmpty ? '这条笔记' : note.title,
+    );
+    if (!confirmed) return;
+
+    try {
+      await _apiClient.deleteOrganizeMemory(noteId);
+      if (!mounted) return;
+      _showMessage('已删除笔记');
+      unawaited(_loadRemoteMemories());
+    } on _ApiException catch (error) {
+      if (!mounted) return;
+      _showMessage('删除失败：${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('删除失败：$error');
+    }
   }
 
   void _openRecordMemory() {
@@ -2078,7 +2174,7 @@ class _NotesPageState extends State<NotesPage> {
                 title: const Text('打开笔记'),
                 onTap: () {
                   Navigator.pop(context);
-                  _openNote(note);
+                  unawaited(_openNote(note));
                 },
               ),
               ListTile(
@@ -2091,10 +2187,10 @@ class _NotesPageState extends State<NotesPage> {
               ),
               ListTile(
                 leading: const Icon(Icons.delete_outline),
-                title: const Text('删除'),
+                title: const Text('删除笔记'),
                 onTap: () {
                   Navigator.pop(context);
-                  _showMessage('删除功能待接入');
+                  unawaited(_deleteNote(note));
                 },
               ),
             ],
@@ -2155,7 +2251,7 @@ class _NotesPageState extends State<NotesPage> {
                   for (var index = 0; index < notes.length; index++) ...[
                     _NoteCard(
                       note: notes[index],
-                      onTap: () => _openNote(notes[index]),
+                      onTap: () => unawaited(_openNote(notes[index])),
                       onMoreTap: () => _showNoteActions(notes[index]),
                     ),
                     if (index != notes.length - 1)
@@ -3980,8 +4076,8 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
           tenantId: tenantId,
         );
       } else if (previewKind == _KnowledgeFilePreviewKind.audio) {
-        preview = _KnowledgeAudioDetailPreview(
-          document: document,
+        preview = _AudioDetailPreview(
+          fileName: document.fileName,
           previewSourceUrl: previewSourceUrl,
           authToken: authToken,
           tenantId: tenantId,
@@ -4205,26 +4301,24 @@ class _KnowledgeImageDetailPreview extends StatelessWidget {
   }
 }
 
-class _KnowledgeAudioDetailPreview extends StatefulWidget {
-  const _KnowledgeAudioDetailPreview({
-    required this.document,
+class _AudioDetailPreview extends StatefulWidget {
+  const _AudioDetailPreview({
+    required this.fileName,
     required this.previewSourceUrl,
     required this.authToken,
     required this.tenantId,
   });
 
-  final _KnowledgeDocument document;
+  final String fileName;
   final String previewSourceUrl;
   final String authToken;
   final String tenantId;
 
   @override
-  State<_KnowledgeAudioDetailPreview> createState() =>
-      _KnowledgeAudioDetailPreviewState();
+  State<_AudioDetailPreview> createState() => _AudioDetailPreviewState();
 }
 
-class _KnowledgeAudioDetailPreviewState
-    extends State<_KnowledgeAudioDetailPreview> {
+class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
   late final _RuileApiClient _apiClient;
   late final Future<File> _audioFileFuture;
   final AudioPlayer _player = AudioPlayer();
@@ -4251,9 +4345,20 @@ class _KnowledgeAudioDetailPreviewState
   }
 
   Future<File> _loadAudioFile() {
+    final source = widget.previewSourceUrl.trim();
+    final uri = Uri.tryParse(source);
+    if (uri != null &&
+        uri.scheme.isNotEmpty &&
+        uri.scheme != 'http' &&
+        uri.scheme != 'https') {
+      return _apiClient.downloadAuthenticatedFileToTempFile(
+        source,
+        fileName: widget.fileName,
+      );
+    }
     return _apiClient.downloadToTempFile(
-      widget.previewSourceUrl,
-      fileName: widget.document.fileName,
+      source,
+      fileName: widget.fileName,
     );
   }
 
@@ -4350,7 +4455,7 @@ class _KnowledgeAudioDetailPreviewState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          widget.document.fileName,
+                          widget.fileName,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -4787,6 +4892,38 @@ Map<String, String>? _previewHeaders(String authToken, String tenantId) {
   return headers.isEmpty ? null : headers;
 }
 
+String _publicAudioUrl(String rawUrl) {
+  final value = rawUrl.trim();
+  if (value.isEmpty) return '';
+
+  final uri = Uri.tryParse(value);
+  if (uri != null) {
+    if (uri.hasScheme) {
+      final scheme = uri.scheme.toLowerCase();
+      if (scheme == 'http' || scheme == 'https') {
+        return value;
+      }
+      if (const {'local', 'resource', 'storage'}.contains(scheme)) {
+        final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+        final apiPath = Uri(
+          path: '/api/v1/files',
+          queryParameters: {'file_path': value},
+        ).toString();
+        return '$base$apiPath';
+      }
+      return value;
+    }
+    if (value.startsWith('//')) {
+      return 'https:$value';
+    }
+    final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+    final path = value.startsWith('/') ? value : '/$value';
+    return '$base$path';
+  }
+
+  return value;
+}
+
 String _resolvePreviewImageUrl(String rawUrl) {
   final value = rawUrl.trim();
   if (value.isEmpty) return '';
@@ -4960,9 +5097,13 @@ class _NoteCard extends StatelessWidget {
 class _MemoryDetailPage extends StatefulWidget {
   const _MemoryDetailPage({
     required this.note,
+    required this.authToken,
+    required this.tenantId,
   });
 
   final _NoteItem note;
+  final String authToken;
+  final String tenantId;
 
   @override
   State<_MemoryDetailPage> createState() => _MemoryDetailPageState();
@@ -5002,6 +5143,37 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     );
   }
 
+  Future<void> _deleteCurrentNote() async {
+    final note = widget.note;
+    final noteId = note.id.trim();
+    if (noteId.isEmpty) {
+      _showMessage('当前笔记缺少删除标识，无法删除');
+      return;
+    }
+
+    final confirmed = await _confirmDeleteNote(
+      context,
+      title: note.title.trim().isEmpty ? '这条笔记' : note.title,
+    );
+    if (!confirmed) return;
+
+    try {
+      final apiClient = _RuileApiClient(
+        authToken: widget.authToken,
+        tenantId: widget.tenantId,
+      );
+      await apiClient.deleteOrganizeMemory(noteId);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on _ApiException catch (error) {
+      if (!mounted) return;
+      _showMessage('删除失败：${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('删除失败：$error');
+    }
+  }
+
   void _showMoreActions() {
     showModalBottomSheet<void>(
       context: context,
@@ -5027,6 +5199,17 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   _showMessage('分享功能待接入');
                 },
               ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text(
+                  '删除笔记',
+                  style: TextStyle(color: Colors.red),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(_deleteCurrentNote());
+                },
+              ),
             ],
           ),
         );
@@ -5041,6 +5224,10 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   @override
   Widget build(BuildContext context) {
     final note = widget.note;
+    final audioUrl = _publicAudioUrl(note.audioUrl);
+    final audioFileName = note.audioFileName.trim().isNotEmpty
+        ? note.audioFileName.trim()
+        : _audioSourceFileName(audioUrl, fallback: note.title);
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -5093,6 +5280,18 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
             if (note.hasAudioLink) ...[
               const SizedBox(height: 16),
               const Text(
+                '音频播放',
+                style: _metaStyle,
+              ),
+              const SizedBox(height: 8),
+              _AudioDetailPreview(
+                fileName: audioFileName,
+                previewSourceUrl: audioUrl,
+                authToken: widget.authToken,
+                tenantId: widget.tenantId,
+              ),
+              const SizedBox(height: 14),
+              const Text(
                 '音频链接',
                 style: _metaStyle,
               ),
@@ -5102,7 +5301,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                 children: [
                   Expanded(
                     child: SelectableText(
-                      note.audioUrl,
+                      audioUrl,
                       maxLines: 2,
                       style: const TextStyle(
                         fontSize: 13,
@@ -5115,8 +5314,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   IconButton(
                     tooltip: '复制链接',
                     onPressed: () async {
-                      await Clipboard.setData(
-                          ClipboardData(text: note.audioUrl));
+                      await Clipboard.setData(ClipboardData(text: audioUrl));
                       if (mounted) {
                         _showMessage('已复制音频链接');
                       }
@@ -5181,6 +5379,61 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       ),
     );
   }
+}
+
+String _audioSourceFileName(String sourceUrl, {required String fallback}) {
+  String extractFileName(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri != null) {
+      final nested = uri.queryParameters['file_path']?.trim();
+      if (nested != null && nested.isNotEmpty) {
+        final nestedName = extractFileName(nested);
+        if (nestedName.isNotEmpty) return nestedName;
+      }
+      if (uri.pathSegments.isNotEmpty) {
+        final last = uri.pathSegments.last.trim();
+        if (last.isNotEmpty && last != 'files' && last != 'presigned') {
+          return last;
+        }
+      }
+    }
+
+    final parts = value.replaceAll('\\', '/').split('?').first.split('/');
+    final last = parts.isNotEmpty ? parts.last.trim() : '';
+    return last;
+  }
+
+  final source = sourceUrl.trim();
+  if (source.isEmpty) return fallback;
+  final fileName = extractFileName(source);
+  return fileName.isNotEmpty ? fileName : fallback;
+}
+
+Future<bool> _confirmDeleteNote(
+  BuildContext context, {
+  required String title,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('删除笔记'),
+        content: Text('确认删除“$title”？删除后无法恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('删除'),
+          ),
+        ],
+      );
+    },
+  );
+  return confirmed == true;
 }
 
 class _MemoryTagButton extends StatelessWidget {
@@ -7957,12 +8210,16 @@ class _OrganizeMemory {
     final title = _organizeMemoryTitle();
     final excerpt = body.isNotEmpty ? _organizeMemoryExcerpt(body) : summary;
     return _NoteItem(
+      id: id,
       title: title,
       excerpt: excerpt,
       time: _formatRecordDateTime(occurredAt),
       createdAtText: _formatMemoryTimestamp(occurredAt),
       content: displayBody,
       audioUrl: audioUrl,
+      audioFileName: _organizeMemoryMetadataText(
+        const ['audio_file_name', 'file_name', 'recording_file_name'],
+      ),
       transcriptionStatus: transcriptionStatus,
     );
   }
@@ -8043,21 +8300,25 @@ class _OrganizeMemory {
 
 class _NoteItem {
   const _NoteItem({
+    required this.id,
     required this.title,
     required this.excerpt,
     required this.time,
     this.createdAtText = '',
     this.content = '',
     this.audioUrl = '',
+    this.audioFileName = '',
     this.transcriptionStatus = '',
   });
 
+  final String id;
   final String title;
   final String excerpt;
   final String time;
   final String createdAtText;
   final String content;
   final String audioUrl;
+  final String audioFileName;
   final String transcriptionStatus;
 
   String get detailCreatedAt {

@@ -31,11 +31,12 @@ const (
 )
 
 type organizeService struct {
-	repo           interfaces.OrganizeRepository
-	modelService   interfaces.ModelService
-	fileService    interfaces.FileService
-	taskEnqueuer   interfaces.TaskEnqueuer
-	documentReader interfaces.DocumentReader
+	repo            interfaces.OrganizeRepository
+	modelService    interfaces.ModelService
+	fileService     interfaces.FileService
+	taskEnqueuer    interfaces.TaskEnqueuer
+	documentReader  interfaces.DocumentReader
+	audioTranscoder func(context.Context, []byte, string) ([]byte, string, error)
 }
 
 func NewOrganizeService(
@@ -46,11 +47,12 @@ func NewOrganizeService(
 	documentReader interfaces.DocumentReader,
 ) interfaces.OrganizeService {
 	return &organizeService{
-		repo:           repo,
-		modelService:   modelService,
-		fileService:    fileService,
-		taskEnqueuer:   taskEnqueuer,
-		documentReader: documentReader,
+		repo:            repo,
+		modelService:    modelService,
+		fileService:     fileService,
+		taskEnqueuer:    taskEnqueuer,
+		documentReader:  documentReader,
+		audioTranscoder: transcodeOrganizeAudioToMP3,
 	}
 }
 
@@ -476,7 +478,48 @@ func normalizeJSONMap(m types.JSONMap) types.JSONMap {
 	if m == nil {
 		return types.JSONMap{}
 	}
-	return m
+	out := make(types.JSONMap, len(m))
+	for key, value := range m {
+		out[common.CleanInvalidUTF8(key)] = normalizeJSONValue(value)
+	}
+	return out
+}
+
+func normalizeJSONValue(value any) any {
+	switch v := value.(type) {
+	case string:
+		return common.CleanInvalidUTF8(v)
+	case types.JSONMap:
+		return map[string]any(normalizeJSONMap(v))
+	case map[string]any:
+		return map[string]any(normalizeJSONMap(types.JSONMap(v)))
+	case map[string]string:
+		out := make(map[string]string, len(v))
+		for key, item := range v {
+			out[common.CleanInvalidUTF8(key)] = common.CleanInvalidUTF8(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = normalizeJSONValue(item)
+		}
+		return out
+	case []string:
+		out := make([]string, len(v))
+		for i, item := range v {
+			out[i] = common.CleanInvalidUTF8(item)
+		}
+		return out
+	case types.StringArray:
+		out := make(types.StringArray, len(v))
+		for i, item := range v {
+			out[i] = common.CleanInvalidUTF8(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func normalizeOrganizePagination(query types.OrganizeListQuery) types.OrganizeListQuery {

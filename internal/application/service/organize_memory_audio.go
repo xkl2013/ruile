@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/models/asr"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
@@ -46,7 +48,7 @@ func (s *organizeService) CreateMemoryFromUpload(
 
 	cleanName := strings.TrimSpace(fileName)
 	if cleanName == "" {
-		cleanName = "audio.m4a"
+		cleanName = "audio.mp3"
 	}
 	if !isValidFileType(cleanName) {
 		return nil, fmt.Errorf("unsupported file type: %s", strings.ToLower(filepath.Ext(cleanName)))
@@ -66,6 +68,14 @@ func (s *organizeService) CreateMemoryFromUpload(
 	}
 	if baseTitle == "" {
 		baseTitle = "音频记忆"
+	}
+
+	storedBytes, storedName, err := s.normalizeOrganizeAudioForStorage(ctx, data, baseName)
+	if err != nil {
+		return nil, fmt.Errorf("normalize audio for storage: %w", err)
+	}
+	if storedName == "" {
+		storedName = replaceOrganizeAudioExtension(baseName, ".mp3")
 	}
 
 	kind := normalizeMemoryKind(input.Kind)
@@ -97,16 +107,13 @@ func (s *organizeService) CreateMemoryFromUpload(
 		}
 	}
 
-	storageName := fmt.Sprintf("organize_memory_%s%s", uuid.NewString()[:12], filepath.Ext(baseName))
-	storagePath, saveErr := s.fileService.SaveBytes(ctx, data, tenantID, storageName, false)
+	storageName := fmt.Sprintf("organize_memory_%s%s", uuid.NewString()[:12], filepath.Ext(storedName))
+	storagePath, saveErr := s.fileService.SaveBytes(ctx, storedBytes, tenantID, storageName, false)
 	if saveErr != nil {
 		return nil, fmt.Errorf("save audio file: %w", saveErr)
 	}
 
-	audioURL := trimMax(storagePath, 0)
-	if resolved, err := s.fileService.GetFileURL(ctx, storagePath); err == nil && trimMax(resolved, 0) != "" {
-		audioURL = trimMax(resolved, 0)
-	}
+	audioURL := resolveOrganizeMemoryAudioURL(ctx, s.fileService, storagePath)
 
 	content := trimMax(input.Content, 0)
 	if content == "" {
@@ -117,15 +124,15 @@ func (s *organizeService) CreateMemoryFromUpload(
 	if metadata == nil {
 		metadata = types.JSONMap{}
 	}
-	metadata["file_name"] = trimMax(baseName, 0)
+	metadata["file_name"] = trimMax(storedName, 0)
 	metadata["file_path"] = trimMax(storagePath, 0)
 	metadata["file_url"] = audioURL
-	metadata["audio_file_name"] = trimMax(baseName, 0)
+	metadata["audio_file_name"] = trimMax(storedName, 0)
 	metadata["audio_file_path"] = trimMax(storagePath, 0)
 	metadata["audio_url"] = audioURL
-	metadata["audio_mime_type"] = trimMax(mimeType, 0)
-	metadata["audio_codec"] = trimMax(memoryAudioCodec(baseName, metadata), 0)
-	metadata["audio_size_bytes"] = len(data)
+	metadata["audio_mime_type"] = "audio/mpeg"
+	metadata["audio_codec"] = "mp3"
+	metadata["audio_size_bytes"] = len(storedBytes)
 	metadata["transcription_status"] = "pending"
 	if _, ok := metadata["recording_file_name"]; !ok {
 		metadata["recording_file_name"] = trimMax(baseTitle, organizeMaxTitleLength)
@@ -159,6 +166,70 @@ func (s *organizeService) CreateMemoryFromUpload(
 	}
 
 	return s.repo.GetMemory(ctx, tenantID, userID, memory.ID)
+}
+
+func resolveOrganizeMemoryAudioURL(
+	ctx context.Context,
+	fileService interfaces.FileService,
+	storagePath string,
+) string {
+	storagePath = trimMax(storagePath, 0)
+	if storagePath == "" {
+		return ""
+	}
+	if fileService != nil {
+		if resolved, err := fileService.GetFileURL(ctx, storagePath); err == nil {
+			if normalized := strings.TrimSpace(resolved); isOrganizeAccessibleAudioURL(normalized) {
+				return normalized
+			}
+		}
+	}
+	return organizeAuthenticatedFileURL(storagePath)
+}
+
+func isOrganizeAccessibleAudioURL(value string) bool {
+	if value == "" {
+		return false
+	}
+	if strings.HasPrefix(value, "/") {
+		return true
+	}
+	parsed, err := neturl.Parse(value)
+	if err != nil {
+		return false
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+		return true
+	default:
+		return false
+	}
+}
+
+func organizeAuthenticatedFileURL(filePath string) string {
+	filePath = trimMax(filePath, 0)
+	if filePath == "" {
+		return ""
+	}
+	query := neturl.Values{}
+	query.Set("file_path", filePath)
+	return "/api/v1/files?" + query.Encode()
+}
+
+func (s *organizeService) normalizeOrganizeAudioForStorage(
+	ctx context.Context,
+	audioBytes []byte,
+	fileName string,
+) ([]byte, string, error) {
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(fileName)))
+	if ext == ".mp3" {
+		return audioBytes, replaceOrganizeAudioExtension(fileName, ".mp3"), nil
+	}
+	transcoder := transcodeOrganizeAudioToMP3
+	if s != nil && s.audioTranscoder != nil {
+		transcoder = s.audioTranscoder
+	}
+	return transcoder(ctx, audioBytes, fileName)
 }
 
 func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asynq.Task) error {

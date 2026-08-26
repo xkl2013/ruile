@@ -1463,11 +1463,15 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _lastFileSyncAt = DateTime.now();
       });
     } on RecordingCardApiException catch (error) {
+      final isInterfaceMismatch = error.statusCode == HttpStatus.badRequest ||
+          error.statusCode == HttpStatus.notFound ||
+          error.statusCode == HttpStatus.unprocessableEntity ||
+          error.statusCode == 1007 ||
+          error.message.contains('invalid byte sequence for encoding "UTF8"') ||
+          error.message.contains('SQLSTATE 22021');
       final prompt = error.isAuthFailure
           ? '请先登录后再同步云端'
-          : (error.statusCode == HttpStatus.badRequest ||
-                  error.statusCode == HttpStatus.notFound ||
-                  error.statusCode == HttpStatus.unprocessableEntity
+          : (isInterfaceMismatch
               ? '云端接口与当前版本不兼容，请更新服务端录音卡记忆接口后重试。'
               : '云端同步失败：${error.message}');
       final failed = syncing.copyWith(

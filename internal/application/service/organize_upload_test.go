@@ -39,6 +39,9 @@ func newOrganizeUploadServiceForTest(t *testing.T, modelSvc interfaces.ModelServ
 		modelService:   modelSvc,
 		fileService:    fileSvc,
 		documentReader: reader,
+		audioTranscoder: func(_ context.Context, audioBytes []byte, fileName string) ([]byte, string, error) {
+			return audioBytes, replaceOrganizeAudioExtension(fileName, ".mp3"), nil
+		},
 	}
 }
 

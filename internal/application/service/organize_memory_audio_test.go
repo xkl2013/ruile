@@ -43,8 +43,11 @@ func TestOrganizeServiceCreateMemoryFromUpload_EnqueuesTranscription(t *testing.
 	assert.Equal(t, "REC0001", item.Title)
 	assert.Equal(t, "pending", item.Metadata["transcription_status"])
 	assert.Equal(t, "recording_card", item.Metadata["sync_source"])
+	assert.Equal(t, "REC0001.mp3", item.Metadata["audio_file_name"])
+	assert.Equal(t, "mp3", item.Metadata["audio_codec"])
 	assert.NotEmpty(t, item.Metadata["audio_url"])
-	assert.Contains(t, item.Metadata["audio_url"], "local://")
+	assert.Contains(t, item.Metadata["audio_url"], "/api/v1/files?")
+	assert.Contains(t, item.Metadata["audio_url"], ".mp3")
 	assert.NotNil(t, enqueuer.task)
 	assert.Equal(t, types.TypeOrganizeMemoryTranscribe, enqueuer.task.Type())
 
@@ -74,6 +77,49 @@ func TestOrganizeServiceCreateMemoryFromUpload_CleansInvalidUTF8Content(t *testi
 	require.NoError(t, err)
 	require.NotNil(t, item)
 	assert.Equal(t, "录音保存", item.Content)
+	assert.Equal(t, "recording.mp3", item.Metadata["audio_file_name"])
+	assert.Equal(t, "mp3", item.Metadata["audio_codec"])
+}
+
+func TestOrganizeServiceCreateMemoryFromUpload_CleansNestedMetadata(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, &stubOrganizeFileService{}, &stubOrganizeDocumentReader{})
+
+	item, err := svc.CreateMemoryFromUpload(
+		ctx,
+		9,
+		"user-a",
+		"REC0002.sbc",
+		"application/octet-stream",
+		[]byte("audio-bytes"),
+		types.OrganizeMemoryInput{
+			Kind:   types.OrganizeMemoryKindAudioCard,
+			Title:  "REC0002",
+			Source: "录音卡",
+			Metadata: types.JSONMap{
+				"device_name": "教学区" + string([]byte{0xb0}),
+				"nested": types.JSONMap{
+					"label": "录音" + string([]byte{0xb0}),
+					"tags": []any{
+						"家长" + string([]byte{0xb0}),
+						"试听",
+					},
+				},
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, item)
+
+	assert.Equal(t, "教学区", item.Metadata["device_name"])
+	nested, ok := item.Metadata["nested"].(types.JSONMap)
+	require.True(t, ok)
+	assert.Equal(t, "录音", nested["label"])
+	tags, ok := nested["tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tags, 2)
+	assert.Equal(t, "家长", tags[0])
+	assert.Equal(t, "试听", tags[1])
 }
 
 func TestOrganizeServiceProcessMemoryTranscribe_UpdatesMemory(t *testing.T) {
