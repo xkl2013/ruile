@@ -433,7 +433,7 @@ String _readAudioUrl(
 }
 
 String _publicFileUrl(String rawUrl, {required String baseUrl}) {
-  final value = rawUrl.trim();
+  final value = _normalizeAuthenticatedFileProxyUrl(rawUrl.trim());
   if (value.isEmpty) return '';
 
   final uri = Uri.tryParse(value);
@@ -446,7 +446,7 @@ String _publicFileUrl(String rawUrl, {required String baseUrl}) {
       if (_providerFileUrlSchemes.contains(scheme)) {
         final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
         final apiPath = Uri(
-          path: '/api/v1/files',
+          path: '/files',
           queryParameters: {'file_path': value},
         ).toString();
         return '$base$apiPath';
@@ -461,6 +461,17 @@ String _publicFileUrl(String rawUrl, {required String baseUrl}) {
     return '$base$path';
   }
 
+  return value;
+}
+
+String _normalizeAuthenticatedFileProxyUrl(String value) {
+  if (value.isEmpty) return '';
+  final uri = Uri.tryParse(value);
+  if (uri == null) return value;
+  if ((uri.path == '/api/v1/files' || uri.path == 'api/v1/files') &&
+      uri.queryParameters.containsKey('file_path')) {
+    return uri.replace(path: '/files').toString();
+  }
   return value;
 }
 

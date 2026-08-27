@@ -46,13 +46,14 @@ func TestOrganizeServiceCreateMemoryFromUpload_EnqueuesTranscription(t *testing.
 	assert.Equal(t, "REC0001.mp3", item.Metadata["audio_file_name"])
 	assert.Equal(t, "mp3", item.Metadata["audio_codec"])
 	assert.NotEmpty(t, item.Metadata["audio_url"])
-	assert.Contains(t, item.Metadata["audio_url"], "/api/v1/files?")
+	assert.Contains(t, item.Metadata["audio_url"], "/files?")
 	assert.Contains(t, item.Metadata["audio_url"], ".mp3")
 	assert.NotNil(t, enqueuer.task)
 	assert.Equal(t, types.TypeOrganizeMemoryTranscribe, enqueuer.task.Type())
 
 	var payload types.OrganizeMemoryTranscribeTaskPayload
 	require.NoError(t, json.Unmarshal(enqueuer.task.Payload(), &payload))
+	assert.Equal(t, uint64(9), payload.TenantID)
 	assert.Equal(t, item.ID, payload.MemoryID)
 }
 
@@ -105,7 +106,7 @@ func TestOrganizeServiceCreateMemoryFromUpload_ConvertsLocalStorageURL(t *testin
 
 	audioURL, ok := item.Metadata["audio_url"].(string)
 	require.True(t, ok)
-	assert.Contains(t, audioURL, "/api/v1/files?")
+	assert.Contains(t, audioURL, "/files?")
 	assert.NotRegexp(t, `^local://`, audioURL)
 	assert.Equal(t, audioURL, item.Metadata["file_url"])
 }
@@ -194,6 +195,61 @@ func TestOrganizeServiceProcessMemoryTranscribe_UpdatesMemory(t *testing.T) {
 	assert.Equal(t, "completed", updated.Metadata["transcription_status"])
 	assert.Equal(t, "家长很关心体验课节奏。", updated.Metadata["transcript"])
 	assert.Equal(t, "asr-1", updated.Metadata["asr_model_id"])
+}
+
+func TestOrganizeServiceProcessMemoryTranscribe_GeneratesFormattedNoteMetadata(t *testing.T) {
+	ctx := context.Background()
+	fileSvc := &organizeMemoryAudioFileService{fileData: []byte("fake-audio")}
+	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{
+		models: []*types.Model{
+			{ID: "chat-1", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
+			{ID: "asr-1", Type: types.ModelTypeASR, Status: types.ModelStatusActive, IsDefault: true},
+		},
+		chatModel: &stubOrganizeChatModel{
+			content: `{"title":"试听沟通复盘","summary":"整理试听课节奏、家长关注点和后续跟进动作。","tags":["试听课","家长沟通","跟进动作"],"note_markdown":"## 沟通重点\n\n- 家长关注体验课节奏\n- 需要说明报名政策\n\n## 行动项\n\n1. 发送课程安排\n2. 跟进报名问题"}`,
+		},
+		asrModel: &stubOrganizeASRModel{
+			text: "家长很关心体验课节奏，也问到了报名政策，需要后续发送课程安排。",
+		},
+	}, fileSvc, &stubOrganizeDocumentReader{})
+
+	item, err := svc.CreateMemoryFromUpload(
+		ctx,
+		9,
+		"user-a",
+		"note.mp3",
+		"audio/mpeg",
+		[]byte("fake-audio"),
+		types.OrganizeMemoryInput{
+			Kind:   types.OrganizeMemoryKindAudio,
+			Title:  "录音记忆",
+			Source: "语音记录",
+		},
+	)
+	require.NoError(t, err)
+
+	payload, err := json.Marshal(types.OrganizeMemoryTranscribeTaskPayload{
+		TenantID: 9,
+		MemoryID: item.ID,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.ProcessMemoryTranscribe(ctx, asynq.NewTask(types.TypeOrganizeMemoryTranscribe, payload)))
+
+	updated, err := svc.GetMemory(ctx, 9, "user-a", item.ID)
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.Equal(t, "试听沟通复盘", updated.Title)
+	assert.Contains(t, updated.Content, "<h2>沟通重点</h2>")
+	assert.Contains(t, updated.Content, "<ul><li>家长关注体验课节奏</li><li>需要说明报名政策</li></ul>")
+	assert.Contains(t, updated.Content, "<h2>行动项</h2>")
+	assert.Contains(t, updated.Content, "<ol><li>发送课程安排</li><li>跟进报名问题</li></ol>")
+	assert.Equal(t, "整理试听课节奏、家长关注点和后续跟进动作。", updated.Metadata["summary"])
+	assert.Equal(t, "completed", updated.Metadata["transcription_status"])
+	assert.Equal(t, "completed", updated.Metadata["note_generation_status"])
+	assert.Equal(t, "chat-1", updated.Metadata["ai_model_id"])
+	assert.Equal(t, "asr-1", updated.Metadata["asr_model_id"])
+	assert.ElementsMatch(t, []string{"试听课", "家长沟通", "跟进动作", "音频转写", "录音笔记", "语音记录"}, readOrganizeOutputTags(t, updated.Metadata))
 }
 
 type recordingTaskEnqueuer struct {

@@ -153,6 +153,8 @@ func readOrganizeOutputTags(t *testing.T, metadata types.JSONMap) []string {
 	switch value := raw.(type) {
 	case []string:
 		return value
+	case types.StringArray:
+		return []string(value)
 	case []any:
 		out := make([]string, 0, len(value))
 		for _, item := range value {

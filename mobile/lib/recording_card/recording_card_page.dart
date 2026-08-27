@@ -847,6 +847,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
           : '录音已结束，${completion.fileNameNoExt} 已进入同步队列';
       _fileSyncError = null;
     });
+    unawaited(_refreshMemoryInfo());
     unawaited(_advanceSyncQueue());
   }
 
@@ -1230,6 +1231,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     setState(() {
       _fileSyncMessage = fileName == null ? '设备文件删除已确认' : '$fileName 已从设备删除';
     });
+    unawaited(_refreshMemoryInfo());
   }
 
   void _handleFileTransferTerminated() {
@@ -1935,6 +1937,20 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
     if (!await _ensurePermissions()) return false;
     return true;
+  }
+
+  Future<void> _refreshMemoryInfo() async {
+    if (_activeDeviceId == null ||
+        _connectionState != DeviceConnectionState.connected) {
+      return;
+    }
+    try {
+      await _writeCommand(const _CommandFrame(0x0b));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await _writeCommand(const _CommandFrame(0x40));
+    } catch (_) {
+      // Memory refresh is opportunistic; it should not interrupt recording sync.
+    }
   }
 
   Future<void> _openRecordingPage({bool automatic = false}) async {
@@ -2838,7 +2854,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
           rows: [
             _DeviceInfoRowData(
               label: '内存',
-              value: _formatMemoryPair(
+              value: _formatUsedMemoryPair(
                 snapshot.freeMemoryMb,
                 snapshot.totalMemoryMb,
               ),
@@ -4425,18 +4441,35 @@ String _decodeAscii(List<int> bytes) {
   return buffer.toString().trim();
 }
 
-String _formatMemoryPair(int? freeMb, int? totalMb) {
-  final free = _formatMemoryValue(freeMb);
+String _formatUsedMemoryPair(int? freeMb, int? totalMb) {
+  final usedMb = _memoryUsedMb(freeMb, totalMb);
+  if (usedMb == null) {
+    final free = _formatMemoryValue(freeMb);
+    final total = _formatMemoryValue(totalMb);
+    if (free == '--' && total == '--') return '--';
+    return '$free / $total';
+  }
+
+  final used = _formatMemoryValue(usedMb, allowZero: true);
   final total = _formatMemoryValue(totalMb);
-  if (free == '--' && total == '--') return '--';
-  return '$free / $total';
+  if (used == '--' && total == '--') return '--';
+  return '$used / $total';
 }
 
-String _formatMemoryValue(int? mb) {
-  if (mb == null || mb <= 0) return '--';
+int? _memoryUsedMb(int? freeMb, int? totalMb) {
+  if (freeMb == null || totalMb == null || totalMb <= 0 || freeMb < 0) {
+    return null;
+  }
+  final used = totalMb - freeMb;
+  return used < 0 ? 0 : used;
+}
+
+String _formatMemoryValue(int? mb, {bool allowZero = false}) {
+  if (mb == null || mb < 0 || (!allowZero && mb == 0)) return '--';
+  if (mb == 0) return '0MB';
   if (mb >= 1024) {
     final gb = mb / 1024;
-    return gb >= 10 ? '${gb.toStringAsFixed(0)}G' : '${gb.toStringAsFixed(1)}G';
+    return gb >= 10 ? '${gb.toStringAsFixed(1)}G' : '${gb.toStringAsFixed(2)}G';
   }
   return '${mb}MB';
 }

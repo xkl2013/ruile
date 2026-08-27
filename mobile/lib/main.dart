@@ -756,7 +756,7 @@ class _RuileApiClient {
   }) async {
     final bytes = await fetchBytes(
       Uri(
-        path: '/api/v1/files',
+        path: '/files',
         queryParameters: {'file_path': filePath},
       ).toString(),
     );
@@ -4366,18 +4366,24 @@ class _AudioDetailPreview extends StatefulWidget {
     required this.previewSourceUrl,
     required this.authToken,
     required this.tenantId,
+    this.durationSeconds = 0,
   });
 
   final String fileName;
   final String previewSourceUrl;
   final String authToken;
   final String tenantId;
+  final int durationSeconds;
 
   @override
   State<_AudioDetailPreview> createState() => _AudioDetailPreviewState();
 }
 
 class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
+  static const _playbackRates = [1.0, 1.25, 1.5, 2.0];
+  static const _playerBackground = Color(0xFFF6F7FB);
+  static const _timeLabelWidth = 64.0;
+
   late final _RuileApiClient _apiClient;
   late final Future<File> _audioFileFuture;
   final AudioPlayer _player = AudioPlayer();
@@ -4385,6 +4391,9 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
   Duration? _position;
   PlayerState _playerState = PlayerState.stopped;
   bool _loadingSource = true;
+  bool _sourceLoadFailed = false;
+  bool _controlBusy = false;
+  double _playbackRate = 1.0;
 
   StreamSubscription<PlayerState>? _playerStateSubscription;
   StreamSubscription<Duration>? _durationSubscription;
@@ -4403,8 +4412,17 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
     _preparePlayer();
   }
 
-  Future<File> _loadAudioFile() {
+  Future<File> _loadAudioFile() async {
     final source = widget.previewSourceUrl.trim();
+    if (source.isNotEmpty) {
+      try {
+        final localFile = File(source);
+        if (await localFile.exists()) return localFile;
+      } catch (_) {
+        // Treat non-file strings as remote or provider paths below.
+      }
+    }
+
     final uri = Uri.tryParse(source);
     if (uri != null &&
         uri.scheme.isNotEmpty &&
@@ -4415,21 +4433,37 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
         fileName: widget.fileName,
       );
     }
-    return _apiClient.downloadToTempFile(
-      source,
-      fileName: widget.fileName,
-    );
+    try {
+      return await _apiClient.downloadToTempFile(
+        source,
+        fileName: widget.fileName,
+      );
+    } catch (_) {
+      final filePath = _extractFilePathParameter(source);
+      if (filePath.isEmpty) rethrow;
+      return _apiClient.downloadAuthenticatedFileToTempFile(
+        filePath,
+        fileName: widget.fileName,
+      );
+    }
   }
 
   Future<void> _preparePlayer() async {
     try {
       final file = await _audioFileFuture;
+      await _player.setReleaseMode(ReleaseMode.stop);
       await _player.setSource(DeviceFileSource(file.path));
       if (!mounted) return;
-      setState(() => _loadingSource = false);
+      setState(() {
+        _loadingSource = false;
+        _sourceLoadFailed = false;
+      });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadingSource = false);
+      setState(() {
+        _loadingSource = false;
+        _sourceLoadFailed = true;
+      });
     }
   }
 
@@ -4446,6 +4480,77 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
       if (!mounted) return;
       setState(() => _playerState = state);
     });
+  }
+
+  Future<void> _togglePlay() async {
+    if (_controlBusy || _loadingSource || _sourceLoadFailed) return;
+    setState(() => _controlBusy = true);
+    try {
+      if (_playerState == PlayerState.playing) {
+        await _player.pause();
+      } else {
+        if (_playerState == PlayerState.completed) {
+          await _player.seek(Duration.zero);
+        }
+        await _player.resume();
+        await _player.setPlaybackRate(_playbackRate);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _controlBusy = false);
+      }
+    }
+  }
+
+  Future<void> _seekBy(int seconds) async {
+    if (_controlBusy || _loadingSource || _sourceLoadFailed) return;
+    final duration = _displayDuration;
+    final current = _position ?? Duration.zero;
+    final targetMs = current.inMilliseconds + seconds * 1000;
+    var maxMs = duration.inMilliseconds;
+    if (maxMs <= 0) {
+      maxMs = current.inMilliseconds;
+      if (targetMs > maxMs) maxMs = targetMs;
+    }
+    if (maxMs < 0) maxMs = 0;
+    final clamped = targetMs.clamp(0, maxMs).toInt();
+    await _player.seek(Duration(milliseconds: clamped));
+  }
+
+  Future<void> _cyclePlaybackRate() async {
+    if (_controlBusy || _loadingSource || _sourceLoadFailed) return;
+    final currentIndex = _playbackRates.indexOf(_playbackRate);
+    final nextRate = _playbackRates[
+        currentIndex < 0 ? 0 : (currentIndex + 1) % _playbackRates.length];
+    setState(() => _playbackRate = nextRate);
+    if (_playerState == PlayerState.playing) {
+      await _player.setPlaybackRate(nextRate);
+    }
+  }
+
+  Duration get _displayDuration {
+    final actual = _duration;
+    if (actual != null && actual.inMilliseconds > 0) return actual;
+    if (widget.durationSeconds > 0) {
+      return Duration(seconds: widget.durationSeconds);
+    }
+    return Duration.zero;
+  }
+
+  String _extractFilePathParameter(String source) {
+    final uri = Uri.tryParse(source);
+    if (uri == null) return '';
+    return uri.queryParameters['file_path']?.trim() ?? '';
+  }
+
+  String _formatPlayerDuration(Duration duration) {
+    final totalSeconds = duration.inSeconds < 0 ? 0 : duration.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -4469,104 +4574,111 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
           );
         }
         if (!snapshot.hasData || _loadingSource) {
-          return const _KnowledgePreviewLoading();
+          return const _AudioPlayerLoading();
+        }
+        if (_sourceLoadFailed) {
+          return const _KnowledgePreviewUnavailable(
+            title: '预览失败',
+            message: '音频资源无法加载。',
+          );
         }
 
-        final duration = _duration ?? Duration.zero;
+        final duration = _displayDuration;
         final position = _position ?? Duration.zero;
         final maxPosition = duration.inMilliseconds <= 0
             ? 1.0
             : duration.inMilliseconds.toDouble();
-        final clampedPosition = position.inMilliseconds
-            .clamp(0, duration.inMilliseconds)
-            .toDouble();
+        final clampedPosition = duration.inMilliseconds <= 0
+            ? 0.0
+            : position.inMilliseconds
+                .clamp(0, duration.inMilliseconds)
+                .toDouble();
         final playing = _playerState == PlayerState.playing;
 
         return Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
           decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadii.card),
-            border: Border.all(color: AppColors.border),
+            color: _playerBackground,
+            borderRadius: BorderRadius.circular(10),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: 54,
-                    height: 54,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF4F0FF),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(
-                      playing ? Icons.graphic_eq : Icons.music_note,
-                      color: const Color(0xFF8B5CF6),
-                      size: 30,
-                    ),
+                  _AudioTimeLabel(
+                    value: _formatPlayerDuration(position),
                   ),
-                  const SizedBox(width: 14),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.fileName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            height: 1.2,
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.w700,
-                          ),
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 2,
+                        activeTrackColor: AppColors.textPrimary,
+                        inactiveTrackColor: const Color(0xFFDDE1E8),
+                        thumbColor: AppColors.textPrimary,
+                        overlayColor: AppColors.textPrimary.withValues(
+                          alpha: 0.08,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          playing ? '正在播放' : '点击播放音频预览',
-                          style: AppTextStyles.meta,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 6,
+                          disabledThumbRadius: 6,
                         ),
-                      ],
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14,
+                        ),
+                      ),
+                      child: Slider(
+                        value: clampedPosition,
+                        min: 0,
+                        max: maxPosition,
+                        onChanged: duration.inMilliseconds <= 0
+                            ? null
+                            : (value) {
+                                _player.seek(
+                                  Duration(milliseconds: value.round()),
+                                );
+                              },
+                      ),
                     ),
                   ),
-                  IconButton(
-                    onPressed: () async {
-                      if (playing) {
-                        await _player.pause();
-                      } else {
-                        await _player.resume();
-                      }
-                    },
-                    iconSize: 28,
-                    color: AppColors.textPrimary,
-                    icon:
-                        Icon(playing ? Icons.pause_circle : Icons.play_circle),
+                  _AudioTimeLabel(
+                    value: _formatPlayerDuration(duration),
+                    alignment: Alignment.centerRight,
+                    textAlign: TextAlign.right,
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              Slider(
-                value: clampedPosition,
-                max: maxPosition,
-                onChanged: duration.inMilliseconds <= 0
-                    ? null
-                    : (value) {
-                        _player.seek(Duration(milliseconds: value.round()));
-                      },
-              ),
+              const SizedBox(height: 2),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    _formatDuration(position),
-                    style: AppTextStyles.meta,
+                  _AudioControlButton(
+                    tooltip: '播放设置',
+                    icon: Icons.tune,
+                    onPressed: () => unawaited(_cyclePlaybackRate()),
                   ),
-                  Text(
-                    _formatDuration(duration),
-                    style: AppTextStyles.meta,
+                  _AudioSkipButton(
+                    tooltip: '后退15秒',
+                    seconds: 15,
+                    forward: false,
+                    onPressed: () => unawaited(_seekBy(-15)),
+                  ),
+                  _AudioPlayButton(
+                    playing: playing,
+                    busy: _controlBusy,
+                    onPressed: () => unawaited(_togglePlay()),
+                  ),
+                  _AudioSkipButton(
+                    tooltip: '前进15秒',
+                    seconds: 15,
+                    forward: true,
+                    onPressed: () => unawaited(_seekBy(15)),
+                  ),
+                  _AudioSpeedButton(
+                    rate: _playbackRate,
+                    onPressed: () => unawaited(_cyclePlaybackRate()),
                   ),
                 ],
               ),
@@ -4574,6 +4686,221 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
           ),
         );
       },
+    );
+  }
+}
+
+class _AudioPlayerLoading extends StatelessWidget {
+  const _AudioPlayerLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      height: 98,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: _AudioDetailPreviewState._playerBackground,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: const SizedBox(
+        width: 22,
+        height: 22,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
+  }
+}
+
+class _AudioTimeLabel extends StatelessWidget {
+  const _AudioTimeLabel({
+    required this.value,
+    this.alignment = Alignment.centerLeft,
+    this.textAlign = TextAlign.left,
+  });
+
+  final String value;
+  final Alignment alignment;
+  final TextAlign textAlign;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: _AudioDetailPreviewState._timeLabelWidth,
+      height: 18,
+      child: Align(
+        alignment: alignment,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: alignment,
+          child: Text(
+            value,
+            maxLines: 1,
+            softWrap: false,
+            textAlign: textAlign,
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AudioControlButton extends StatelessWidget {
+  const _AudioControlButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 42,
+      height: 38,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        iconSize: 22,
+        color: AppColors.textPrimary,
+        icon: Icon(icon),
+      ),
+    );
+  }
+}
+
+class _AudioSkipButton extends StatelessWidget {
+  const _AudioSkipButton({
+    required this.tooltip,
+    required this.seconds,
+    required this.forward,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final int seconds;
+  final bool forward;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 42,
+      height: 38,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        color: AppColors.textPrimary,
+        icon: Stack(
+          alignment: Alignment.center,
+          children: [
+            Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(
+                forward ? -1.0 : 1.0,
+                1.0,
+                1.0,
+              ),
+              child: const Icon(Icons.replay, size: 28),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '$seconds',
+                style: const TextStyle(
+                  fontSize: 8,
+                  height: 1,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AudioPlayButton extends StatelessWidget {
+  const _AudioPlayButton({
+    required this.playing,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  final bool playing;
+  final bool busy;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 48,
+      height: 40,
+      child: IconButton(
+        tooltip: playing ? '暂停' : '播放',
+        onPressed: busy ? null : onPressed,
+        padding: EdgeInsets.zero,
+        color: AppColors.textPrimary,
+        disabledColor: AppColors.textTertiary,
+        iconSize: 34,
+        icon: Icon(
+          playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+        ),
+      ),
+    );
+  }
+}
+
+class _AudioSpeedButton extends StatelessWidget {
+  const _AudioSpeedButton({
+    required this.rate,
+    required this.onPressed,
+  });
+
+  final double rate;
+  final VoidCallback onPressed;
+
+  String get _label {
+    if (rate == rate.roundToDouble()) return '${rate.toStringAsFixed(1)}x';
+    return '${rate.toStringAsFixed(2)}x';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 52,
+      height: 34,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.textPrimary,
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFFDDE1E8)),
+          padding: EdgeInsets.zero,
+          textStyle: const TextStyle(
+            fontSize: 12,
+            height: 1,
+            fontWeight: FontWeight.w700,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(17),
+          ),
+        ),
+        child: Text(_label),
+      ),
     );
   }
 }
@@ -4969,7 +5296,7 @@ String _publicAudioUrl(String rawUrl) {
 }
 
 String _publicFileUrl(String rawUrl, {required String baseUrl}) {
-  final value = rawUrl.trim();
+  final value = _normalizeAuthenticatedFileProxyUrl(rawUrl.trim());
   if (value.isEmpty) return '';
 
   final uri = Uri.tryParse(value);
@@ -4982,7 +5309,7 @@ String _publicFileUrl(String rawUrl, {required String baseUrl}) {
       if (_providerFileUrlSchemes.contains(scheme)) {
         final base = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
         final apiPath = Uri(
-          path: '/api/v1/files',
+          path: '/files',
           queryParameters: {'file_path': value},
         ).toString();
         return '$base$apiPath';
@@ -4997,6 +5324,17 @@ String _publicFileUrl(String rawUrl, {required String baseUrl}) {
     return '$base$path';
   }
 
+  return value;
+}
+
+String _normalizeAuthenticatedFileProxyUrl(String value) {
+  if (value.isEmpty) return '';
+  final uri = Uri.tryParse(value);
+  if (uri == null) return value;
+  if ((uri.path == '/api/v1/files' || uri.path == 'api/v1/files') &&
+      uri.queryParameters.containsKey('file_path')) {
+    return uri.replace(path: '/files').toString();
+  }
   return value;
 }
 
@@ -5045,17 +5383,6 @@ String _resolvePreviewImageUrl(String rawUrl) {
   final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
   final path = value.startsWith('/') ? value : '/$value';
   return '$base$path';
-}
-
-String _formatDuration(Duration duration) {
-  final totalSeconds = duration.inSeconds;
-  final hours = totalSeconds ~/ 3600;
-  final minutes = (totalSeconds % 3600) ~/ 60;
-  final seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return '${hours.toString()}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 }
 
 class _NotesToolbar extends StatelessWidget {
@@ -5397,51 +5724,10 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                 previewSourceUrl: audioUrl,
                 authToken: widget.authToken,
                 tenantId: widget.tenantId,
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                '音频链接',
-                style: _metaStyle,
-              ),
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: SelectableText(
-                      audioUrl,
-                      maxLines: 2,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        height: 1.35,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: '复制链接',
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: audioUrl));
-                      if (mounted) {
-                        _showMessage('已复制音频链接');
-                      }
-                    },
-                    constraints: const BoxConstraints.tightFor(
-                      width: 36,
-                      height: 36,
-                    ),
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(
-                      Icons.copy_outlined,
-                      size: 18,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
+                durationSeconds: note.durationSeconds,
               ),
               if (note.transcriptionStatusLabel.isNotEmpty) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 12),
                 Text(
                   note.transcriptionStatusLabel,
                   style: _metaStyle,
@@ -8346,6 +8632,7 @@ class _OrganizeMemory {
       audioFileName: _organizeMemoryMetadataText(
         const ['audio_file_name', 'file_name', 'recording_file_name'],
       ),
+      durationSeconds: durationSeconds,
       transcriptionStatus: transcriptionStatus,
     );
   }
@@ -8434,6 +8721,7 @@ class _NoteItem {
     this.content = '',
     this.audioUrl = '',
     this.audioFileName = '',
+    this.durationSeconds = 0,
     this.transcriptionStatus = '',
   });
 
@@ -8445,6 +8733,7 @@ class _NoteItem {
   final String content;
   final String audioUrl;
   final String audioFileName;
+  final int durationSeconds;
   final String transcriptionStatus;
 
   String get detailCreatedAt {

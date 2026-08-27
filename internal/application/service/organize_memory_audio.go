@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io"
 	neturl "net/url"
 	"os"
@@ -157,7 +156,7 @@ func (s *organizeService) CreateMemoryFromUpload(
 		return nil, err
 	}
 
-	if err := s.scheduleMemoryTranscription(ctx, memory.ID); err != nil {
+	if err := s.scheduleMemoryTranscription(ctx, tenantID, memory.ID); err != nil {
 		logger.Warnf(ctx, "[Organize] schedule memory transcription failed: %v", err)
 		memory.Metadata["transcription_status"] = "queued_failed"
 		memory.Metadata["transcription_error"] = trimMax(err.Error(), organizeMaxShortText)
@@ -213,7 +212,7 @@ func organizeAuthenticatedFileURL(filePath string) string {
 	}
 	query := neturl.Values{}
 	query.Set("file_path", filePath)
-	return "/api/v1/files?" + query.Encode()
+	return "/files?" + query.Encode()
 }
 
 func (s *organizeService) normalizeOrganizeAudioForStorage(
@@ -240,6 +239,7 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 	if payload.TenantID == 0 || strings.TrimSpace(payload.MemoryID) == "" {
 		return fmt.Errorf("invalid organize memory transcribe payload")
 	}
+	ctx = context.WithValue(ctx, types.TenantIDContextKey, payload.TenantID)
 
 	memory, err := s.repo.GetTenantMemory(ctx, payload.TenantID, strings.TrimSpace(payload.MemoryID))
 	if err != nil {
@@ -312,12 +312,33 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 	}
 
 	now := time.Now().UTC()
-	memory.Content = htmlTemplateParagraph(transcript)
+	aiResult, aiModelID, aiStatus := s.generateOrganizeRecordingNoteAIResult(
+		ctx,
+		memory.Title,
+		audioFileName,
+		memory.Source,
+		transcript,
+	)
+	noteMarkdown := strings.TrimSpace(aiResult.NoteMarkdown)
+	if noteMarkdown == "" {
+		noteMarkdown = transcript
+	}
+	if title := trimMax(aiResult.Title, organizeMaxTitleLength); title != "" {
+		memory.Title = title
+	}
+	memory.Content = organizeUploadContentToNoteHTML(memory.Title, noteMarkdown)
 	memory.Metadata["transcription_status"] = "completed"
 	memory.Metadata["transcription_error"] = ""
 	memory.Metadata["transcript"] = transcript
 	memory.Metadata["transcribed_at"] = now.Format(time.RFC3339)
 	memory.Metadata["asr_model_id"] = modelID
+	memory.Metadata["summary"] = trimMax(aiResult.Summary, organizeMaxShortText)
+	memory.Metadata["tags"] = types.StringArray(aiResult.Tags)
+	memory.Metadata["note_generation_status"] = aiStatus
+	memory.Metadata["note_generated_at"] = now.Format(time.RFC3339)
+	if aiModelID != "" {
+		memory.Metadata["ai_model_id"] = aiModelID
+	}
 	if normalizedName != audioFileName {
 		memory.Metadata["transcription_audio_file_name"] = normalizedName
 	}
@@ -325,15 +346,19 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 	return s.repo.UpdateMemory(ctx, memory)
 }
 
-func (s *organizeService) scheduleMemoryTranscription(ctx context.Context, memoryID string) error {
+func (s *organizeService) scheduleMemoryTranscription(ctx context.Context, tenantID uint64, memoryID string) error {
 	if s.taskEnqueuer == nil {
 		return nil
+	}
+	if tenantID == 0 {
+		return fmt.Errorf("tenant_id is required")
 	}
 	memoryID = strings.TrimSpace(memoryID)
 	if memoryID == "" {
 		return fmt.Errorf("memory_id is required")
 	}
 	payload := types.OrganizeMemoryTranscribeTaskPayload{
+		TenantID: tenantID,
 		MemoryID: memoryID,
 	}
 	langfuse.InjectTracing(ctx, &payload)
@@ -428,14 +453,6 @@ func organizeMemoryAudioFileName(metadata types.JSONMap, fallbackPath string) st
 		return base
 	}
 	return "audio.m4a"
-}
-
-func htmlTemplateParagraph(text string) string {
-	trimmed := trimMax(text, 0)
-	if trimmed == "" {
-		return "<p></p>"
-	}
-	return "<p>" + html.EscapeString(trimmed) + "</p>"
 }
 
 func normalizeOrganizeAudioForASR(ctx context.Context, audioBytes []byte, fileName string) ([]byte, string, error) {

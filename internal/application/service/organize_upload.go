@@ -22,9 +22,10 @@ const (
 )
 
 type organizeUploadAIResult struct {
-	Title   string   `json:"title"`
-	Summary string   `json:"summary"`
-	Tags    []string `json:"tags"`
+	Title        string   `json:"title"`
+	Summary      string   `json:"summary"`
+	Tags         []string `json:"tags"`
+	NoteMarkdown string   `json:"note_markdown"`
 }
 
 func (s *organizeService) CreateOutputFromUpload(
@@ -269,6 +270,78 @@ func (s *organizeService) generateOrganizeMemoryImportAIResult(
 	return parsed, modelID, "completed"
 }
 
+func (s *organizeService) generateOrganizeRecordingNoteAIResult(
+	ctx context.Context,
+	currentTitle, fileName, source, transcript string,
+) (organizeUploadAIResult, string, string) {
+	fallback := organizeRecordingFallbackAIResult(currentTitle, fileName, source, transcript)
+	modelID := s.resolveOrganizeModelID(ctx, types.ModelTypeKnowledgeQA)
+	if modelID == "" || s.modelService == nil {
+		return fallback, "", "fallback"
+	}
+
+	chatModel, err := s.modelService.GetChatModel(ctx, modelID)
+	if err != nil || chatModel == nil {
+		return fallback, modelID, "fallback"
+	}
+
+	prompt := fmt.Sprintf(`你在为“记忆”模块把一段录音转写整理成可阅读的笔记。
+
+请只输出 JSON，格式如下：
+{"title":"标题","summary":"摘要","tags":["标签1","标签2"],"note_markdown":"格式化笔记 Markdown"}
+
+要求：
+- 标题简短准确，优先概括录音核心主题，不要使用“录音记忆”“未命名”等泛泛标题。
+- 摘要用 1-2 句话说明录音主要信息。
+- 标签使用简洁、具体的中文词组，最多 %d 个，贴近业务对象、场景、行动或关键概念。
+- note_markdown 用 Markdown 输出可读笔记，可包含二级标题、项目列表和行动项。
+- 不要编造转写中没有的信息；如果转写内容很短，就整理成一段自然文字。
+- 不要输出代码块、HTML 或 JSON 之外的任何文字。
+
+当前标题：%s
+来源：%s
+文件名：%s
+
+录音转写：
+%s`, organizeUploadMaxTags, currentTitle, source, fileName, sampleRunes(strings.TrimSpace(transcript), organizeUploadPromptRuneBudget, "…"))
+
+	thinking := false
+	resp, chatErr := chatModel.Chat(ctx, []chat.Message{
+		{Role: "system", Content: "你是一个严格的结构化录音笔记整理助手，只能输出 JSON。"},
+		{Role: "user", Content: prompt},
+	}, &chat.ChatOptions{
+		Temperature: 0.2,
+		MaxTokens:   1200,
+		Thinking:    &thinking,
+	})
+	if chatErr != nil || resp == nil {
+		return fallback, modelID, "fallback"
+	}
+
+	parsed, ok := parseOrganizeUploadAIResponse(resp.Content)
+	if !ok {
+		return fallback, modelID, "fallback"
+	}
+
+	parsed.Title = trimMax(parsed.Title, organizeMaxTitleLength)
+	parsed.Summary = trimMax(parsed.Summary, organizeMaxShortText)
+	parsed.NoteMarkdown = trimMax(parsed.NoteMarkdown, 0)
+	parsed.Tags = normalizeOrganizeUploadTags(append(parsed.Tags, organizeRecordingFallbackTags(source)...))
+	if parsed.Title == "" {
+		parsed.Title = fallback.Title
+	}
+	if parsed.Summary == "" {
+		parsed.Summary = fallback.Summary
+	}
+	if parsed.NoteMarkdown == "" {
+		parsed.NoteMarkdown = fallback.NoteMarkdown
+	}
+	if len(parsed.Tags) == 0 {
+		parsed.Tags = fallback.Tags
+	}
+	return parsed, modelID, "completed"
+}
+
 func (s *organizeService) generateOrganizeUploadAIResult(
 	ctx context.Context,
 	fileName, outputType, content string,
@@ -380,9 +453,10 @@ func parseOrganizeUploadAIResponseJSON(content string) (organizeUploadAIResult, 
 		return organizeUploadAIResult{}, false
 	}
 	out := organizeUploadAIResult{
-		Title:   firstOrganizeUploadStringField(obj, "title", "name"),
-		Summary: firstOrganizeUploadStringField(obj, "summary", "description", "desc"),
-		Tags:    firstOrganizeUploadStringSliceField(obj, "tags", "keywords"),
+		Title:        firstOrganizeUploadStringField(obj, "title", "name"),
+		Summary:      firstOrganizeUploadStringField(obj, "summary", "description", "desc"),
+		Tags:         firstOrganizeUploadStringSliceField(obj, "tags", "keywords"),
+		NoteMarkdown: firstOrganizeUploadStringField(obj, "note_markdown", "note", "content", "markdown"),
 	}
 	return out, true
 }
@@ -502,6 +576,46 @@ func organizeMemoryImportFallbackAIResult(fileName, content string) organizeUplo
 		Summary: organizeMemoryImportFallbackSummary(fileName, content),
 		Tags:    organizeMemoryImportFallbackTags(""),
 	}
+}
+
+func organizeRecordingFallbackAIResult(currentTitle, fileName, source, transcript string) organizeUploadAIResult {
+	title := strings.TrimSpace(currentTitle)
+	if title == "" {
+		title = strings.TrimSuffix(filepath.Base(fileName), filepath.Ext(fileName))
+	}
+	if title == "" {
+		title = "录音笔记"
+	}
+	note := strings.TrimSpace(transcript)
+	if note == "" {
+		note = "未识别到语音内容。"
+	}
+	return organizeUploadAIResult{
+		Title:        trimMax(title, organizeMaxTitleLength),
+		Summary:      organizeRecordingFallbackSummary(transcript),
+		Tags:         organizeRecordingFallbackTags(source),
+		NoteMarkdown: note,
+	}
+}
+
+func organizeRecordingFallbackSummary(transcript string) string {
+	transcript = strings.TrimSpace(transcript)
+	if transcript == "" {
+		return "录音已保存，暂无可整理的转写内容。"
+	}
+	snippet := strings.TrimSpace(sampleRunes(transcript, 140, "…"))
+	if snippet == "" {
+		return "录音转写内容已生成。"
+	}
+	return snippet
+}
+
+func organizeRecordingFallbackTags(source string) []string {
+	tags := []string{"音频转写", "录音笔记"}
+	if source = strings.TrimSpace(source); source != "" {
+		tags = append(tags, source)
+	}
+	return normalizeOrganizeUploadTags(tags)
 }
 
 func organizeMemoryImportFallbackSummary(fileName, content string) string {
