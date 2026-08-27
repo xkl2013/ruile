@@ -64,6 +64,7 @@
                         <template v-else>
                             <KnowledgeBaseMenu />
                             <OrganizeMenu />
+                            <ServiceMenu />
                         </template>
                     </div>
                 </template>
@@ -248,6 +249,7 @@ import UserMenu from '@/components/UserMenu.vue';
 import TenantSelector from '@/components/TenantSelector.vue';
 import KnowledgeBaseMenu from '@/components/KnowledgeBaseMenu.vue';
 import OrganizeMenu from '@/components/OrganizeMenu.vue';
+import ServiceMenu from '@/components/ServiceMenu.vue';
 import { useI18n } from 'vue-i18n';
 import { getSystemInfo } from '@/api/system';
 
