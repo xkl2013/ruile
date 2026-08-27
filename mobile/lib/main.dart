@@ -501,6 +501,128 @@ class _RuileApiClient {
     return null;
   }
 
+  Future<_OrganizeDiscoverData> fetchOrganizeDiscover({
+    String tab = 'recommended',
+    int page = 1,
+    int pageSize = 30,
+    int featuredOffset = 0,
+  }) async {
+    final query = Uri(
+      queryParameters: {
+        'tab': tab.trim().isEmpty ? 'recommended' : tab.trim(),
+        'page': '${page < 1 ? 1 : page}',
+        'page_size': '${pageSize < 1 ? 1 : pageSize}',
+        'featured_offset': '${featuredOffset < 0 ? 0 : featuredOffset}',
+      },
+    ).query;
+    final payload = await _getJson('/api/v1/organize/discover?$query');
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeDiscoverData.fromApi(data, baseUrl: baseUrl);
+    }
+    if (data is Map) {
+      return _OrganizeDiscoverData.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+        baseUrl: baseUrl,
+      );
+    }
+    throw const FormatException('发现响应格式无效');
+  }
+
+  Future<_OrganizeOutput?> fetchOrganizeOutput(String outputId) async {
+    final id = outputId.trim();
+    if (id.isEmpty) return null;
+
+    final payload = await _getJson(
+      '/api/v1/organize/outputs/${Uri.encodeComponent(id)}',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeOutput.fromApi(data, baseUrl: baseUrl);
+    }
+    if (data is Map) {
+      return _OrganizeOutput.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+        baseUrl: baseUrl,
+      );
+    }
+    return null;
+  }
+
+  Future<List<_OrganizeSproutReport>> fetchSproutReportsForMemory(
+    String memoryId, {
+    int pageSize = 10,
+  }) async {
+    final id = memoryId.trim();
+    if (id.isEmpty) return const [];
+
+    final query = Uri(
+      queryParameters: {
+        'page': '1',
+        'page_size': '$pageSize',
+        'memory_id': id,
+      },
+    ).query;
+    final payload = await _getJson('/api/v1/organize/sprout-reports?$query');
+    final items = _extractList(payload);
+    return [
+      for (final item in items)
+        if (item is Map<String, dynamic>)
+          _OrganizeSproutReport.fromApi(item)
+        else if (item is Map)
+          _OrganizeSproutReport.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  Future<_OrganizeSproutReport?> fetchSproutReport(String reportId) async {
+    final id = reportId.trim();
+    if (id.isEmpty) return null;
+
+    final payload = await _getJson(
+      '/api/v1/organize/sprout-reports/${Uri.encodeComponent(id)}',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeSproutReport.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeSproutReport.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    return null;
+  }
+
+  Future<_OrganizeSproutReport> createSproutReportFromMemory({
+    required String memoryId,
+    Map<String, Object?> roleConfig = const {},
+  }) async {
+    final id = memoryId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('记忆ID不能为空');
+    }
+
+    final payload = await _postJson(
+      '/api/v1/organize/sprout-reports/from-memory',
+      {
+        'memory_id': id,
+        if (roleConfig.isNotEmpty) 'role_config': roleConfig,
+      },
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeSproutReport.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeSproutReport.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('发芽响应格式无效');
+  }
+
   Future<List<_KnowledgeBase>> _loadKnowledgeBases(
     String path,
     _KnowledgeBase Function(Map<String, dynamic> json) parseItem,
@@ -1476,9 +1598,9 @@ class _MainShellState extends State<MainShell> {
     });
   }
 
-  void _openMemoryDraft(_MemoryDraftMode mode) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  Future<void> _openMemoryDraft(_MemoryDraftMode mode) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (context) => _MemoryDraftPage(
           mode: mode,
           authToken: widget.session.token,
@@ -1486,15 +1608,19 @@ class _MainShellState extends State<MainShell> {
         ),
       ),
     );
+    if (!mounted || saved != true) return;
+    setState(() {
+      _selectedIndex = 0;
+    });
   }
 
   void _handleCaptureAction(_CaptureAction action) {
     switch (action) {
       case _CaptureAction.record:
-        _openMemoryDraft(_MemoryDraftMode.record);
+        unawaited(_openMemoryDraft(_MemoryDraftMode.record));
         break;
       case _CaptureAction.text:
-        _openMemoryDraft(_MemoryDraftMode.text);
+        unawaited(_openMemoryDraft(_MemoryDraftMode.text));
         break;
     }
   }
@@ -1509,7 +1635,11 @@ class _MainShellState extends State<MainShell> {
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
       ),
-      const DiscoverPage(),
+      DiscoverPage(
+        authToken: widget.session.token,
+        tenantId: widget.session.tenantId,
+        onAuthFailure: widget.onLogout,
+      ),
       const ProfilePage(),
     ];
 
@@ -2042,7 +2172,14 @@ class _NotesPageState extends State<NotesPage> {
     try {
       final memories = await _apiClient.fetchOrganizeMemories();
       if (!mounted) return;
-      final notes = memories.map((memory) => memory.toNoteItem()).toList();
+      final sortedMemories = List<_OrganizeMemory>.of(memories)
+        ..sort((a, b) {
+          final occurredCompare = b.occurredAt.compareTo(a.occurredAt);
+          if (occurredCompare != 0) return occurredCompare;
+          return b.createdAt.compareTo(a.createdAt);
+        });
+      final notes =
+          sortedMemories.map((memory) => memory.toNoteItem()).toList();
       setState(() {
         _notes = notes;
         _notesError = null;
@@ -2126,14 +2263,15 @@ class _NotesPageState extends State<NotesPage> {
           note: note,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
         ),
       ),
     );
     if (!mounted) return;
     if (deleted == true) {
       _showMessage('已删除笔记');
-      unawaited(_loadRemoteMemories());
     }
+    unawaited(_loadRemoteMemories());
   }
 
   Future<void> _deleteNote(_NoteItem note) async {
@@ -2163,9 +2301,9 @@ class _NotesPageState extends State<NotesPage> {
     }
   }
 
-  void _openRecordMemory() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  Future<void> _openRecordMemory() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (context) => _MemoryDraftPage(
           mode: _MemoryDraftMode.record,
           authToken: widget.authToken,
@@ -2173,11 +2311,15 @@ class _NotesPageState extends State<NotesPage> {
         ),
       ),
     );
+    if (!mounted) return;
+    if (saved == true) {
+      unawaited(_loadRemoteMemories());
+    }
   }
 
-  void _openTextMemory() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  Future<void> _openTextMemory() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
         builder: (context) => _MemoryDraftPage(
           mode: _MemoryDraftMode.text,
           authToken: widget.authToken,
@@ -2185,6 +2327,10 @@ class _NotesPageState extends State<NotesPage> {
         ),
       ),
     );
+    if (!mounted) return;
+    if (saved == true) {
+      unawaited(_loadRemoteMemories());
+    }
   }
 
   void _handlePointerDown(PointerDownEvent event, double screenWidth) {
@@ -2205,10 +2351,10 @@ class _NotesPageState extends State<NotesPage> {
 
     if (_edgeSwipeFromLeft && delta.dx > _edgeSwipeThreshold) {
       _edgeSwipeHandled = true;
-      _openTextMemory();
+      unawaited(_openTextMemory());
     } else if (_edgeSwipeFromRight && delta.dx < -_edgeSwipeThreshold) {
       _edgeSwipeHandled = true;
-      _openRecordMemory();
+      unawaited(_openRecordMemory());
     }
   }
 
@@ -2653,19 +2799,27 @@ class _KnowledgeListTopBar extends StatelessWidget {
 class _KnowledgeRoundButton extends StatelessWidget {
   const _KnowledgeRoundButton({
     required this.tooltip,
-    required this.icon,
     required this.onTap,
+    this.icon,
+    this.iconWidget,
     this.backgroundColor = AppColors.surface,
     this.size = 38,
     this.iconSize = 24,
-  });
+    this.iconColor = AppColors.textPrimary,
+    this.enabled = true,
+    this.loading = false,
+  }) : assert(icon != null || iconWidget != null);
 
   final String tooltip;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
   final VoidCallback onTap;
   final Color backgroundColor;
   final double size;
   final double iconSize;
+  final Color iconColor;
+  final bool enabled;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -2674,17 +2828,94 @@ class _KnowledgeRoundButton extends StatelessWidget {
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
-        onTap: onTap,
+        onTap: enabled && !loading ? onTap : null,
         child: SizedBox(
           width: size,
           height: size,
           child: Tooltip(
             message: tooltip,
-            child: Icon(icon, size: iconSize, color: AppColors.textPrimary),
+            child: Center(
+              child: loading
+                  ? SizedBox(
+                      width: iconSize,
+                      height: iconSize,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: iconColor,
+                      ),
+                    )
+                  : IconTheme(
+                      data: IconThemeData(
+                        size: iconSize,
+                        color: enabled ? iconColor : AppColors.textTertiary,
+                      ),
+                      child: iconWidget ?? Icon(icon),
+                    ),
+            ),
           ),
         ),
       ),
     );
+  }
+}
+
+class _OrganizeSproutIcon extends StatelessWidget {
+  const _OrganizeSproutIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    final iconTheme = IconTheme.of(context);
+    final resolvedSize = iconTheme.size ?? 24;
+    final resolvedColor = iconTheme.color ?? AppColors.textPrimary;
+
+    return SizedBox(
+      width: resolvedSize,
+      height: resolvedSize,
+      child: CustomPaint(
+        painter: _OrganizeSproutIconPainter(color: resolvedColor),
+      ),
+    );
+  }
+}
+
+class _OrganizeSproutIconPainter extends CustomPainter {
+  const _OrganizeSproutIconPainter({required this.color});
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scaleX = size.width / 24;
+    final scaleY = size.height / 24;
+    canvas
+      ..save()
+      ..scale(scaleX, scaleY);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.85
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final path = Path()
+      ..moveTo(12, 19.5)
+      ..lineTo(12, 13.25)
+      ..moveTo(12, 13.25)
+      ..cubicTo(8.25, 13.25, 5.6, 11.3, 4.55, 7.75)
+      ..cubicTo(8.2, 7.2, 11.2, 9.2, 12, 13.25)
+      ..moveTo(12, 13.25)
+      ..cubicTo(12.8, 9.05, 15.8, 7, 19.45, 7.75)
+      ..cubicTo(18.4, 11.3, 15.75, 13.25, 12, 13.25);
+
+    canvas
+      ..drawPath(path, paint)
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _OrganizeSproutIconPainter oldDelegate) {
+    return oldDelegate.color != color;
   }
 }
 
@@ -5506,6 +5737,10 @@ class _NoteCard extends StatelessWidget {
                         style: AppTextStyles.meta,
                       ),
                     ),
+                    if (note.transcriptionStatusLabel.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      _TranscriptionStatusChip(note: note),
+                    ],
                     IconButton(
                       tooltip: '更多',
                       onPressed: onMoreTap,
@@ -5529,23 +5764,70 @@ class _NoteCard extends StatelessWidget {
   }
 }
 
+class _TranscriptionStatusChip extends StatelessWidget {
+  const _TranscriptionStatusChip({required this.note});
+
+  final _NoteItem note;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = note.transcriptionStatusLabel;
+    if (label.isEmpty) return const SizedBox.shrink();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: note.transcriptionStatusBackgroundColor,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        border: Border.all(color: note.transcriptionStatusBorderColor),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              note.transcriptionStatusIcon,
+              size: 13,
+              color: note.transcriptionStatusColor,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1,
+                color: note.transcriptionStatusColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _MemoryDetailPage extends StatefulWidget {
   const _MemoryDetailPage({
     required this.note,
     required this.authToken,
     required this.tenantId,
+    required this.onAuthFailure,
   });
 
   final _NoteItem note;
   final String authToken;
   final String tenantId;
+  final VoidCallback onAuthFailure;
 
   @override
   State<_MemoryDetailPage> createState() => _MemoryDetailPageState();
 }
 
 class _MemoryDetailPageState extends State<_MemoryDetailPage> {
-  static const _tabs = ['笔记内容', '发芽', '追加笔记'];
+  static const _tabs = ['笔记内容', '发芽'];
   static const _buttonColor = Color(0xFFF4F5F8);
   static const _titleStyle = TextStyle(
     fontSize: 20,
@@ -5565,8 +5847,351 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     color: AppColors.textPrimary,
     fontWeight: FontWeight.w500,
   );
+  static const _transcriptionPollInterval = Duration(seconds: 3);
+  static const _transcriptionPollTimeout = Duration(minutes: 3);
 
   int _selectedTabIndex = 0;
+  late _NoteItem _note;
+  late _RuileApiClient _apiClient;
+  Timer? _transcriptionPollTimer;
+  Timer? _sproutRefreshTimer;
+  DateTime? _transcriptionPollStartedAt;
+  bool _refreshingRemoteNote = false;
+  _OrganizeSproutReport? _sproutReport;
+  bool _sproutLoading = false;
+  bool _sproutCreating = false;
+  String? _sproutError;
+  int _sproutRequestSeq = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _note = widget.note;
+    _apiClient = _buildApiClient();
+    _restartTranscriptionPollingIfNeeded(immediate: true);
+    unawaited(_loadLinkedSproutReport());
+  }
+
+  @override
+  void didUpdateWidget(covariant _MemoryDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _buildApiClient();
+    }
+    if (oldWidget.note.id != widget.note.id) {
+      _note = widget.note;
+      _sproutReport = null;
+      _sproutError = null;
+      _restartTranscriptionPollingIfNeeded(immediate: true);
+      unawaited(_loadLinkedSproutReport());
+    }
+  }
+
+  @override
+  void dispose() {
+    _transcriptionPollTimer?.cancel();
+    _sproutRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  _RuileApiClient _buildApiClient() {
+    return _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+    );
+  }
+
+  void _restartTranscriptionPollingIfNeeded({bool immediate = false}) {
+    if (!_shouldPollTranscription(_note)) {
+      _stopTranscriptionPolling();
+      return;
+    }
+
+    _transcriptionPollStartedAt ??= DateTime.now();
+    _transcriptionPollTimer?.cancel();
+    _transcriptionPollTimer = Timer.periodic(
+      _transcriptionPollInterval,
+      (_) => unawaited(_refreshRemoteNote()),
+    );
+    if (immediate) {
+      unawaited(_refreshRemoteNote());
+    }
+  }
+
+  void _stopTranscriptionPolling() {
+    _transcriptionPollTimer?.cancel();
+    _transcriptionPollTimer = null;
+    _transcriptionPollStartedAt = null;
+  }
+
+  bool _shouldPollTranscription(_NoteItem note) {
+    final id = note.id.trim();
+    if (id.isEmpty || !note.hasAudioLink) return false;
+
+    final status = note.transcriptionStatus.trim().toLowerCase();
+    switch (status) {
+      case 'pending':
+      case 'queued':
+      case 'transcribing':
+        return true;
+      case 'completed':
+      case 'failed':
+      case 'skipped':
+      case 'queued_failed':
+        return false;
+    }
+
+    return _isWaitingForTranscription(note.detailBody);
+  }
+
+  bool _isWaitingForTranscription(String text) {
+    return _normalizeSpaces(text).contains('录音已保存，等待转写');
+  }
+
+  bool _hasPollingTimedOut() {
+    final startedAt = _transcriptionPollStartedAt;
+    if (startedAt == null) return false;
+    return DateTime.now().difference(startedAt) >= _transcriptionPollTimeout;
+  }
+
+  Future<void> _refreshRemoteNote() async {
+    if (_refreshingRemoteNote || !mounted) return;
+    if (_hasPollingTimedOut()) {
+      _stopTranscriptionPolling();
+      return;
+    }
+
+    final noteId = _note.id.trim();
+    if (noteId.isEmpty) {
+      _stopTranscriptionPolling();
+      return;
+    }
+
+    _refreshingRemoteNote = true;
+    try {
+      final memory = await _apiClient.fetchOrganizeMemory(noteId);
+      if (!mounted || memory == null) return;
+
+      final nextNote = memory.toNoteItem();
+      setState(() {
+        _note = nextNote;
+      });
+      if (_shouldPollTranscription(nextNote)) {
+        if (_hasPollingTimedOut()) {
+          _stopTranscriptionPolling();
+        }
+      } else {
+        _stopTranscriptionPolling();
+      }
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        _stopTranscriptionPolling();
+        widget.onAuthFailure();
+      }
+    } catch (_) {
+      if (_hasPollingTimedOut()) {
+        _stopTranscriptionPolling();
+      }
+    } finally {
+      _refreshingRemoteNote = false;
+    }
+  }
+
+  String get _sproutButtonTooltip {
+    if (_sproutCreating || _sproutReport?.stage == 'organizing') {
+      return '发芽报告生成中';
+    }
+    if (_sproutReport != null) return '查看发芽结果';
+    return '生成发芽报告';
+  }
+
+  Color get _sproutButtonIconColor {
+    if (_sproutReport != null) return AppColors.accent;
+    return AppColors.textPrimary;
+  }
+
+  Map<String, Object?> _sproutRoleConfig() {
+    return {
+      'role': 'viewer',
+      'tenant_id': widget.tenantId,
+      'created_from': 'mobile_memory_detail',
+    };
+  }
+
+  Future<void> _loadLinkedSproutReport({bool silent = false}) async {
+    final memoryID = _note.id.trim();
+    if (memoryID.isEmpty || !_apiClient.isConfigured) return;
+
+    final requestSeq = ++_sproutRequestSeq;
+    if (!silent && mounted) {
+      setState(() {
+        _sproutLoading = true;
+        _sproutError = null;
+      });
+    }
+
+    try {
+      final reports = await _apiClient.fetchSproutReportsForMemory(memoryID);
+      if (!mounted || requestSeq != _sproutRequestSeq) return;
+
+      final linkedReport = _linkedSproutReport(reports, memoryID);
+      setState(() {
+        _sproutReport = linkedReport;
+        _sproutError = null;
+      });
+      _scheduleSproutRefreshIfNeeded(linkedReport);
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        _stopSproutRefresh();
+        widget.onAuthFailure();
+        return;
+      }
+      if (!silent && mounted && requestSeq == _sproutRequestSeq) {
+        setState(() {
+          _sproutError = error.message;
+        });
+      }
+    } catch (error) {
+      if (!silent && mounted && requestSeq == _sproutRequestSeq) {
+        setState(() {
+          _sproutError = error.toString();
+        });
+      }
+    } finally {
+      if (!silent && mounted && requestSeq == _sproutRequestSeq) {
+        setState(() {
+          _sproutLoading = false;
+        });
+      }
+    }
+  }
+
+  _OrganizeSproutReport? _linkedSproutReport(
+    List<_OrganizeSproutReport> reports,
+    String memoryID,
+  ) {
+    for (final report in reports) {
+      if (report.memoryIds.contains(memoryID)) return report;
+    }
+    return reports.isNotEmpty ? reports.first : null;
+  }
+
+  void _scheduleSproutRefreshIfNeeded(_OrganizeSproutReport? report) {
+    _sproutRefreshTimer?.cancel();
+    if (report?.stage != 'organizing') {
+      _sproutRefreshTimer = null;
+      return;
+    }
+    _sproutRefreshTimer = Timer(
+      const Duration(seconds: 3),
+      () => unawaited(_loadLinkedSproutReport(silent: true)),
+    );
+  }
+
+  void _stopSproutRefresh() {
+    _sproutRefreshTimer?.cancel();
+    _sproutRefreshTimer = null;
+  }
+
+  Future<void> _handleSproutAction() async {
+    if (_sproutCreating || _sproutLoading) return;
+    if (_sproutReport != null) {
+      setState(() {
+        _selectedTabIndex = 1;
+      });
+      return;
+    }
+    await _createSproutReport();
+  }
+
+  Future<void> _createSproutReport() async {
+    final memoryID = _note.id.trim();
+    if (memoryID.isEmpty) {
+      _showMessage('请先保存笔记');
+      return;
+    }
+    if (!_apiClient.isConfigured) {
+      _showMessage('登录后可发芽');
+      return;
+    }
+
+    setState(() {
+      _sproutCreating = true;
+      _sproutError = null;
+    });
+    try {
+      final report = await _apiClient.createSproutReportFromMemory(
+        memoryId: memoryID,
+        roleConfig: _sproutRoleConfig(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _sproutReport = report;
+        _selectedTabIndex = 1;
+      });
+      _showMessage('发芽任务已创建');
+      _scheduleSproutRefreshIfNeeded(report);
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _sproutError = error.message;
+      });
+      _showMessage('发芽失败：${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString();
+      setState(() {
+        _sproutError = message;
+      });
+      _showMessage('发芽失败：$message');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _sproutCreating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openSproutPreview() async {
+    var report = _sproutReport;
+    if (report == null) return;
+
+    try {
+      final latest = await _apiClient.fetchSproutReport(report.id);
+      if (mounted && latest != null) {
+        report = latest;
+        setState(() {
+          _sproutReport = latest;
+        });
+        _scheduleSproutRefreshIfNeeded(latest);
+      }
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+    } catch (_) {
+      // Open the cached report when refreshing the preview fails.
+    }
+
+    if (!mounted || report == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => _SproutReportPreviewSheet(report: report!),
+    );
+  }
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -5579,7 +6204,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   }
 
   Future<void> _deleteCurrentNote() async {
-    final note = widget.note;
+    final note = _note;
     final noteId = note.id.trim();
     if (noteId.isEmpty) {
       _showMessage('当前笔记缺少删除标识，无法删除');
@@ -5593,11 +6218,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     if (!confirmed) return;
 
     try {
-      final apiClient = _RuileApiClient(
-        authToken: widget.authToken,
-        tenantId: widget.tenantId,
-      );
-      await apiClient.deleteOrganizeMemory(noteId);
+      await _apiClient.deleteOrganizeMemory(noteId);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on _ApiException catch (error) {
@@ -5658,7 +6279,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final note = widget.note;
+    final note = _note;
     final audioUrl = _publicAudioUrl(note.audioUrl);
     final audioFileName = note.audioFileName.trim().isNotEmpty
         ? note.audioFileName.trim()
@@ -5668,7 +6289,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       backgroundColor: Colors.white,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 26),
           children: [
             Row(
               children: [
@@ -5681,6 +6302,18 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   onTap: () => Navigator.maybePop(context),
                 ),
                 const Spacer(),
+                _KnowledgeRoundButton(
+                  tooltip: _sproutButtonTooltip,
+                  iconWidget: const _OrganizeSproutIcon(),
+                  backgroundColor: _buttonColor,
+                  size: 40,
+                  iconSize: 21,
+                  iconColor: _sproutButtonIconColor,
+                  loading: _sproutCreating,
+                  enabled: !_sproutLoading && !_sproutCreating,
+                  onTap: () => unawaited(_handleSproutAction()),
+                ),
+                const SizedBox(width: 14),
                 _KnowledgeRoundButton(
                   tooltip: '分享',
                   icon: Icons.open_in_new,
@@ -5728,10 +6361,17 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
               ),
               if (note.transcriptionStatusLabel.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text(
-                  note.transcriptionStatusLabel,
-                  style: _metaStyle,
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _TranscriptionStatusChip(note: note),
                 ),
+                if (note.transcriptionStatusDetailText.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    note.transcriptionStatusDetailText,
+                    style: _metaStyle,
+                  ),
+                ],
               ],
             ],
             const SizedBox(height: 20),
@@ -5755,18 +6395,24 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
               duration: const Duration(milliseconds: 180),
               switchInCurve: Curves.easeOut,
               switchOutCurve: Curves.easeIn,
-              child: _selectedTabIndex == 0
-                  ? Text(
-                      note.detailBody,
-                      key: const ValueKey('memory-content'),
-                      style: _bodyStyle,
-                    )
-                  : _MemoryDetailPlaceholder(
-                      key: ValueKey('memory-placeholder-$_selectedTabIndex'),
-                      message: _selectedTabIndex == 1
-                          ? '发芽功能本版本暂不做'
-                          : '追加笔记功能本版本暂不做',
-                    ),
+              child: switch (_selectedTabIndex) {
+                0 => Text(
+                    note.detailBody,
+                    key: const ValueKey('memory-content'),
+                    style: _bodyStyle,
+                  ),
+                1 => _MemorySproutPanel(
+                    key: const ValueKey('memory-sprout'),
+                    report: _sproutReport,
+                    loading: _sproutLoading,
+                    creating: _sproutCreating,
+                    error: _sproutError,
+                    onRetry: () => unawaited(_loadLinkedSproutReport()),
+                    onCreate: () => unawaited(_createSproutReport()),
+                    onOpen: () => unawaited(_openSproutPreview()),
+                  ),
+                _ => const SizedBox.shrink(),
+              },
             ),
           ],
         ),
@@ -5833,12 +6479,14 @@ Future<bool> _confirmDeleteNote(
 class _MemoryTagButton extends StatelessWidget {
   const _MemoryTagButton({
     required this.label,
-    required this.icon,
     required this.onPressed,
-  });
+    this.icon,
+    this.iconWidget,
+  }) : assert(icon != null || iconWidget != null);
 
   final String label;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
   final VoidCallback onPressed;
 
   @override
@@ -5859,10 +6507,12 @@ class _MemoryTagButton extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  icon,
-                  size: 14,
-                  color: AppColors.textSecondary,
+                IconTheme(
+                  data: const IconThemeData(
+                    size: 14,
+                    color: AppColors.textSecondary,
+                  ),
+                  child: iconWidget ?? Icon(icon),
                 ),
                 const SizedBox(width: 3),
                 Text(
@@ -5942,20 +6592,498 @@ class _MemoryDetailTabs extends StatelessWidget {
   }
 }
 
-class _MemoryDetailPlaceholder extends StatelessWidget {
-  const _MemoryDetailPlaceholder({
+class _MemorySproutPanel extends StatelessWidget {
+  const _MemorySproutPanel({
     super.key,
-    required this.message,
+    required this.report,
+    required this.loading,
+    required this.creating,
+    required this.error,
+    required this.onRetry,
+    required this.onCreate,
+    required this.onOpen,
   });
 
-  final String message;
+  final _OrganizeSproutReport? report;
+  final bool loading;
+  final bool creating;
+  final String? error;
+  final VoidCallback onRetry;
+  final VoidCallback onCreate;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      message,
-      style: _MemoryDetailPageState._bodyStyle,
+    final currentReport = report;
+    if (currentReport != null) {
+      return _SproutReportCard(
+        report: currentReport,
+        onTap: onOpen,
+      );
+    }
+
+    if (loading || creating) {
+      return const _SproutPanelState(
+        icon: _OrganizeSproutIcon(),
+        title: '发芽中',
+        message: '正在生成发芽报告',
+        busy: true,
+      );
+    }
+
+    final errorText = error?.trim() ?? '';
+    if (errorText.isNotEmpty) {
+      return _SproutPanelState(
+        icon: const Icon(Icons.error_outline),
+        title: '发芽失败',
+        message: errorText,
+        actionLabel: '重试',
+        onAction: onRetry,
+      );
+    }
+
+    return _SproutPanelState(
+      icon: const _OrganizeSproutIcon(),
+      title: '暂无发芽',
+      message: '这条笔记还没有发芽报告',
+      actionLabel: '开始发芽',
+      onAction: onCreate,
     );
+  }
+}
+
+class _SproutPanelState extends StatelessWidget {
+  const _SproutPanelState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.busy = false,
+    this.actionLabel = '',
+    this.onAction,
+  });
+
+  final Widget icon;
+  final String title;
+  final String message;
+  final bool busy;
+  final String actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FB),
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (busy)
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            IconTheme(
+              data: const IconThemeData(
+                size: 24,
+                color: AppColors.textTertiary,
+              ),
+              child: icon,
+            ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              height: 1.3,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.meta.copyWith(height: 1.45),
+          ),
+          if (actionLabel.isNotEmpty && onAction != null) ...[
+            const SizedBox(height: 14),
+            _MemoryTagButton(
+              label: actionLabel,
+              iconWidget: const _OrganizeSproutIcon(),
+              onPressed: onAction!,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SproutReportCard extends StatelessWidget {
+  const _SproutReportCard({
+    required this.report,
+    required this.onTap,
+  });
+
+  final _OrganizeSproutReport report;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final intro = report.previewIntro;
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            border: Border.all(color: AppColors.border),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x05000000),
+                blurRadius: 12,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF8F1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const IconTheme(
+                  data: IconThemeData(
+                    size: 19,
+                    color: AppColors.accent,
+                  ),
+                  child: _OrganizeSproutIcon(),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            report.displayTitle,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.cardTitle.copyWith(
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _SproutStageChip(stage: report.stage),
+                      ],
+                    ),
+                    if (intro.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        intro,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.meta.copyWith(
+                          height: 1.45,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                    if (report.chips.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          for (final chip in report.chips.take(4))
+                            _SproutMiniChip(label: chip),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    Text(
+                      report.metaLabel,
+                      style: AppTextStyles.meta,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SproutStageChip extends StatelessWidget {
+  const _SproutStageChip({required this.stage});
+
+  final String stage;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _sproutStageLabel(stage);
+    final formed = stage == 'formed';
+    final organizing = stage == 'organizing';
+    final color = formed
+        ? const Color(0xFF11835C)
+        : organizing
+            ? const Color(0xFF4966D9)
+            : AppColors.textSecondary;
+    final background = formed
+        ? const Color(0xFFEAF8F1)
+        : organizing
+            ? const Color(0xFFEEF2FF)
+            : const Color(0xFFF3F4F6);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 11,
+            height: 1,
+            color: color,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SproutMiniChip extends StatelessWidget {
+  const _SproutMiniChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F7FB),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.meta.copyWith(
+            fontSize: 11,
+            height: 1,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SproutReportPreviewSheet extends StatelessWidget {
+  const _SproutReportPreviewSheet({required this.report});
+
+  final _OrganizeSproutReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final blocks = _sproutPreviewBlocks(report.contentSource);
+    return FractionallySizedBox(
+      heightFactor: 0.88,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '经营复盘',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.2,
+                              color: AppColors.textTertiary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            report.displayTitle,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              height: 1.25,
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _SproutStageChip(stage: report.stage),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  report.metaLabel,
+                  style: AppTextStyles.meta,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: AppColors.border),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (report.chips.isNotEmpty) ...[
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final chip in report.chips)
+                          _SproutMiniChip(label: chip),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                  ],
+                  for (final block in blocks) _SproutPreviewBlock(block: block),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SproutPreviewBlock extends StatelessWidget {
+  const _SproutPreviewBlock({required this.block});
+
+  final _SproutTextBlock block;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (block.kind) {
+      case _SproutTextBlockKind.heading:
+        return Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 10),
+          child: Text(
+            block.text,
+            style: const TextStyle(
+              fontSize: 17,
+              height: 1.35,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        );
+      case _SproutTextBlockKind.quote:
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F7FB),
+            borderRadius: BorderRadius.circular(8),
+            border: const Border(
+              left: BorderSide(color: AppColors.accent, width: 3),
+            ),
+          ),
+          child: Text(
+            block.text,
+            style: AppTextStyles.body.copyWith(
+              height: 1.55,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        );
+      case _SproutTextBlockKind.bullet:
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '•',
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.55,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  block.text,
+                  style: AppTextStyles.body.copyWith(height: 1.55),
+                ),
+              ),
+            ],
+          ),
+        );
+      case _SproutTextBlockKind.paragraph:
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            block.text,
+            style: AppTextStyles.body.copyWith(height: 1.6),
+          ),
+        );
+    }
   }
 }
 
@@ -5992,7 +7120,7 @@ class _MemoryDraftPageState extends State<_MemoryDraftPage> {
       }
     }
     if (mounted) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(false);
     }
   }
 
@@ -6036,7 +7164,7 @@ class _MemoryDraftPageState extends State<_MemoryDraftPage> {
                   title: title,
                   onBackTap: widget._isRecord
                       ? _handleBackTap
-                      : () => Navigator.maybePop(context),
+                      : () => Navigator.of(context).maybePop(false),
                 ),
               ),
               Expanded(
@@ -6292,7 +7420,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
       return;
     }
     if (mounted) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(false);
     }
   }
 
@@ -6486,7 +7614,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     if (!mounted) return;
     if (synced) {
       _showSnack('录音记忆已保存');
-      _closeDraftPage();
+      _closeDraftPage(saved: true);
     } else {
       setState(() {
         _operation = _RecordDraftOperation.idle;
@@ -6593,10 +7721,10 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     );
   }
 
-  void _closeDraftPage() {
+  void _closeDraftPage({bool saved = false}) {
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
-      navigator.pop();
+      navigator.pop(saved);
       return;
     }
 
@@ -7022,7 +8150,7 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
     final rawTitle = _titleController.text.trim();
     final rawBody = _bodyController.text.trim();
     if (rawTitle.isEmpty && rawBody.isEmpty) {
-      if (mounted) Navigator.maybePop(context);
+      if (mounted) Navigator.of(context).maybePop(false);
       return;
     }
 
@@ -7048,7 +8176,8 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
         );
       }
       if (!mounted) return;
-      Navigator.maybePop(context);
+      RecordingCardAppSyncBus.notifyChanged();
+      Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -7082,20 +8211,9 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
           child: Row(
             children: [
               const Spacer(),
-              TextButton(
-                onPressed: _saving ? null : _submit,
-                style: TextButton.styleFrom(
-                  foregroundColor: AppColors.textPrimary,
-                  disabledForegroundColor: AppColors.textTertiary,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  textStyle: const TextStyle(
-                    fontSize: 18,
-                    height: 1.2,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                child: Text(_saving ? '保存中' : '完成'),
+              _TextDraftSubmitButton(
+                saving: _saving,
+                onTap: _submit,
               ),
             ],
           ),
@@ -7111,19 +8229,19 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
                   focusNode: _titleFocusNode,
                   textInputAction: TextInputAction.next,
                   style: const TextStyle(
-                    fontSize: 36,
-                    height: 1.22,
+                    fontSize: 20,
+                    height: 1.25,
                     color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     letterSpacing: 0,
                   ),
                   decoration: const InputDecoration(
                     hintText: '标题',
                     hintStyle: TextStyle(
                       color: Color(0xFFB4B7BD),
-                      fontWeight: FontWeight.w700,
-                      fontSize: 36,
-                      height: 1.22,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 20,
+                      height: 1.25,
                     ),
                     border: InputBorder.none,
                     isDense: true,
@@ -7140,8 +8258,8 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
                   keyboardType: TextInputType.multiline,
                   textInputAction: TextInputAction.newline,
                   style: const TextStyle(
-                    fontSize: 20,
-                    height: 1.68,
+                    fontSize: 16,
+                    height: 1.65,
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w500,
                     letterSpacing: 0,
@@ -7151,8 +8269,8 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
                     hintStyle: TextStyle(
                       color: Color(0xFFBFC3C9),
                       fontWeight: FontWeight.w500,
-                      fontSize: 20,
-                      height: 1.68,
+                      fontSize: 16,
+                      height: 1.65,
                     ),
                     border: InputBorder.none,
                     isDense: true,
@@ -7174,6 +8292,96 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
           onQuoteTap: () => _showToolMessage('引用'),
         ),
       ],
+    );
+  }
+}
+
+class _TextDraftSubmitButton extends StatelessWidget {
+  const _TextDraftSubmitButton({
+    required this.saving,
+    required this.onTap,
+  });
+
+  final bool saving;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = saving ? const Color(0xFFEAF8F1) : AppColors.accent;
+    final foregroundColor =
+        saving ? const Color(0xFF11835C) : AppColors.surface;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: saving ? null : onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          width: 90,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: saving ? const Color(0xFFCDEFE4) : AppColors.accent,
+            ),
+            boxShadow: saving
+                ? null
+                : const [
+                    BoxShadow(
+                      color: Color(0x3323B99D),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+          ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 140),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: saving
+                ? Row(
+                    key: const ValueKey('text-draft-saving'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: foregroundColor,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '保存中',
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.2,
+                          color: foregroundColor,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    '完成',
+                    key: const ValueKey('text-draft-done'),
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.2,
+                      color: foregroundColor,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
+                  ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -7444,54 +8652,73 @@ class _NotesLoadError extends StatelessWidget {
 }
 
 class DiscoverPage extends StatefulWidget {
-  const DiscoverPage({super.key});
+  const DiscoverPage({
+    super.key,
+    this.authToken = AppApiConfig.authToken,
+    this.tenantId = AppApiConfig.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
 
   @override
   State<DiscoverPage> createState() => _DiscoverPageState();
 }
 
 class _DiscoverPageState extends State<DiscoverPage> {
-  var _batchOffset = 0;
-
-  final List<_DiscoverTopic> _topics = const [
-    _DiscoverTopic(
-      title: 'Deepseek V4 flash发布了最新版；目前看基本可以打平Grok-4.5，不输GLM5.2。 #AI ...',
-      summary: '整理近期大模型发布与性能对比，快速了解关键变化和可关注方向。',
-      author: '大胡子',
-      time: '今天 11:48',
-      accent: Color(0xFFDCE6F7),
-      coverLabel: 'AI\nTable',
-    ),
-    _DiscoverTopic(
-      title: '【2026年品牌商务现状：零售媒体问责时代的增长重构】\n75.8%的品牌预计零售媒体预算将...',
-      summary: '从品牌预算、零售媒体问责和增长结构变化中提炼关键趋势。',
-      author: '丁利',
-      time: '今天 10:26',
-      accent: Color(0xFF111111),
-      coverLabel: 'Brand\nCommerce\n2026',
-    ),
-    _DiscoverTopic(
-      title: '最好的学习就是把你今天学了，然后明天就能让知识派上用场的学习。\n...',
-      summary: '关于学习闭环、实践反馈和知识迁移的几条观察。',
-      author: '白诗诗',
-      time: '昨天 21:16',
-    ),
-    _DiscoverTopic(
-      title:
-          '对于复盘，如果有可能，还是建议大家进行过程性复盘，就是在做事的过程中，遇到什么问题就立刻动手记录下来，这个时候你肯定能够精准...',
-      summary: '过程性复盘能保留现场信息，比事后回忆更容易找到真实问题。',
-      author: '白诗诗',
-      time: '昨天 18:40',
-    ),
-    _DiscoverTopic(
-      title: '如果不是什么一对一的私人定制化服务，那么你在网络上或者绝大部分书中，你能看得到的就只能是给你带...',
-      summary: '普通内容的价值更偏向启发和方向选择，不能替代具体情境里的判断。',
-      author: '白诗诗',
-      time: '6月27日 09:12',
-      accent: Color(0xFFF1F0ED),
-      coverLabel: '为什么这么做？\n思维方向\n价值在于启发',
-    ),
+  static const _pageSize = 30;
+  static const _defaultTabs = [
+    _OrganizeDiscoverTab(label: '推荐', value: 'recommended'),
+    _OrganizeDiscoverTab(label: '图文类', value: 'article'),
+    _OrganizeDiscoverTab(label: '视频类', value: 'video'),
+    _OrganizeDiscoverTab(label: '音频类', value: 'audio'),
   ];
+
+  late _RuileApiClient _apiClient;
+  List<_OrganizeDiscoverTab> _tabs = _defaultTabs;
+  List<_OrganizeOutput> _featuredOutputs = const [];
+  List<_OrganizeOutput> _outputs = const [];
+  String _selectedTab = 'recommended';
+  String? _error;
+  var _loading = false;
+  var _refreshingFeatured = false;
+  var _featuredOffset = 0;
+  var _page = 1;
+  var _total = 0;
+  var _requestSeq = 0;
+
+  String get _selectedTabLabel {
+    for (final tab in _tabs) {
+      if (tab.value == _selectedTab) return tab.label;
+    }
+    return '推荐';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _buildApiClient();
+    unawaited(_loadDiscover());
+  }
+
+  @override
+  void didUpdateWidget(covariant DiscoverPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _buildApiClient();
+      unawaited(_loadDiscover());
+    }
+  }
+
+  _RuileApiClient _buildApiClient() {
+    return _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+    );
+  }
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -7503,42 +8730,180 @@ class _DiscoverPageState extends State<DiscoverPage> {
     );
   }
 
-  void _nextBatch() {
+  Future<void> _loadDiscover({bool silent = false}) async {
+    if (!_apiClient.isConfigured) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _refreshingFeatured = false;
+        _error = '登录后可查看发现内容';
+      });
+      return;
+    }
+
+    final requestSeq = ++_requestSeq;
+    if (!silent && mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final data = await _apiClient.fetchOrganizeDiscover(
+        tab: _selectedTab,
+        page: _page,
+        pageSize: _pageSize,
+        featuredOffset: _featuredOffset,
+      );
+      if (!mounted || requestSeq != _requestSeq) return;
+
+      setState(() {
+        if (data.tabs.isNotEmpty) {
+          _tabs = data.tabs;
+        }
+        _featuredOutputs = data.featuredOutputs;
+        _outputs = data.items;
+        _total = data.total;
+        _page = data.page;
+        _featuredOffset = data.featuredOffset;
+        _error = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted || requestSeq != _requestSeq) return;
+      setState(() {
+        _error = error.message;
+      });
+    } catch (error) {
+      if (!mounted || requestSeq != _requestSeq) return;
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted && requestSeq == _requestSeq) {
+        setState(() {
+          _loading = false;
+          _refreshingFeatured = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refresh() async {
+    await _loadDiscover(silent: true);
+  }
+
+  void _selectTab(String value) {
+    if (_selectedTab == value) return;
     setState(() {
-      _batchOffset = (_batchOffset + 1) % _topics.length;
+      _selectedTab = value;
+      _page = 1;
+      _error = null;
     });
+    unawaited(_loadDiscover());
+  }
+
+  void _nextBatch() {
+    if (_featuredOutputs.length <= 1 || _refreshingFeatured) return;
+    setState(() {
+      _featuredOffset = (_featuredOffset + 2) % _featuredOutputs.length;
+      _refreshingFeatured = true;
+    });
+    unawaited(_loadDiscover(silent: true));
     _showMessage('已换一批');
   }
 
-  List<_DiscoverTopic> get _visibleTopics {
-    final reordered = [
-      ..._topics.skip(_batchOffset),
-      ..._topics.take(_batchOffset),
-    ];
-
-    return reordered.take(5).toList();
+  Future<void> _openOutput(_OrganizeOutput output) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _DiscoverDetailPage(
+          initialOutput: output,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final hasContent = _featuredOutputs.isNotEmpty || _outputs.isNotEmpty;
+
     return SafeArea(
       child: ColoredBox(
         color: AppColors.surface,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 128),
-          children: [
-            const _DiscoverTopBar(),
-            const SizedBox(height: 24),
-            _DiscoverSectionHeader(onRefreshTap: _nextBatch),
-            const SizedBox(height: 18),
-            for (final topic in _visibleTopics) ...[
-              _DiscoverTopicTile(
-                topic: topic,
-                onTap: () => _showMessage('打开主题：${topic.author}'),
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 118),
+            children: [
+              const _DiscoverTopBar(),
+              const SizedBox(height: 18),
+              _DiscoverSectionHeader(
+                title: '精选主题',
+                onRefreshTap: _featuredOutputs.length > 1 ? _nextBatch : null,
+                refreshing: _refreshingFeatured,
               ),
               const SizedBox(height: 12),
+              if (_loading && !hasContent)
+                const _DiscoverLoading()
+              else if (_error != null && !hasContent)
+                _DiscoverLoadError(
+                  message: _error!,
+                  onRetry: () => unawaited(_loadDiscover()),
+                )
+              else ...[
+                if (_featuredOutputs.isEmpty)
+                  const _DiscoverEmpty(message: '暂无精选')
+                else
+                  for (final output in _featuredOutputs) ...[
+                    _DiscoverOutputTile(
+                      output: output,
+                      authToken: widget.authToken,
+                      tenantId: widget.tenantId,
+                      onTap: () => unawaited(_openOutput(output)),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                const SizedBox(height: 6),
+                _DiscoverTabsBar(
+                  tabs: _tabs,
+                  selectedValue: _selectedTab,
+                  onSelected: _selectTab,
+                ),
+                const SizedBox(height: 16),
+                _DiscoverFeedHeader(
+                  label: _selectedTabLabel,
+                  total: _total,
+                  loading: _loading,
+                ),
+                const SizedBox(height: 10),
+                if (_error != null)
+                  _DiscoverLoadError(
+                    message: _error!,
+                    onRetry: () => unawaited(_loadDiscover()),
+                  )
+                else if (_outputs.isEmpty)
+                  const _DiscoverEmpty(message: '暂无发现')
+                else
+                  for (final output in _outputs) ...[
+                    _DiscoverOutputTile(
+                      output: output,
+                      authToken: widget.authToken,
+                      tenantId: widget.tenantId,
+                      onTap: () => unawaited(_openOutput(output)),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -7550,107 +8915,73 @@ class _DiscoverTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 52,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          const Center(
-            child: Text(
-              '发现',
-              style: AppTextStyles.sectionTitle,
-            ),
+    return const SizedBox(
+      height: 34,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          '发现',
+          style: TextStyle(
+            fontSize: 24,
+            height: 1.2,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
           ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Container(
-              height: 42,
-              width: 112,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: AppColors.border),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x07000000),
-                    blurRadius: 12,
-                    offset: Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.more_horiz,
-                    size: 31,
-                    color: AppColors.textPrimary,
-                  ),
-                  Container(
-                    width: 1,
-                    height: 22,
-                    margin: const EdgeInsets.symmetric(horizontal: 12),
-                    color: AppColors.border,
-                  ),
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppColors.textPrimary,
-                        width: 3,
-                      ),
-                    ),
-                    child: const Center(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: AppColors.textPrimary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: SizedBox(width: 8, height: 8),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _DiscoverSectionHeader extends StatelessWidget {
-  const _DiscoverSectionHeader({required this.onRefreshTap});
+  const _DiscoverSectionHeader({
+    required this.title,
+    required this.onRefreshTap,
+    this.refreshing = false,
+  });
 
-  final VoidCallback onRefreshTap;
+  final String title;
+  final VoidCallback? onRefreshTap;
+  final bool refreshing;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        const Expanded(
+        Expanded(
           child: Text(
-            '精华主题',
+            title,
             style: AppTextStyles.cardTitle,
           ),
         ),
         TextButton.icon(
-          onPressed: onRefreshTap,
+          onPressed: refreshing ? null : onRefreshTap,
           style: TextButton.styleFrom(
             foregroundColor: AppColors.accent,
-            padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 2),
+            disabledForegroundColor: AppColors.textTertiary,
+            minimumSize: const Size(0, 30),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text(
-            '换一批',
+          icon: refreshing
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh, size: 16),
+          label: Text(
+            refreshing ? '加载中' : '换一批',
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
+              height: 1.1,
               fontWeight: FontWeight.w600,
-              color: AppColors.accent,
+              color: refreshing
+                  ? AppColors.textTertiary
+                  : onRefreshTap == null
+                      ? AppColors.textTertiary
+                      : AppColors.accent,
             ),
           ),
         ),
@@ -7659,22 +8990,135 @@ class _DiscoverSectionHeader extends StatelessWidget {
   }
 }
 
-class _DiscoverTopicTile extends StatelessWidget {
-  const _DiscoverTopicTile({
-    required this.topic,
+class _DiscoverTabsBar extends StatelessWidget {
+  const _DiscoverTabsBar({
+    required this.tabs,
+    required this.selectedValue,
+    required this.onSelected,
+  });
+
+  final List<_OrganizeDiscoverTab> tabs;
+  final String selectedValue;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 30,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemBuilder: (context, index) {
+          final tab = tabs[index];
+          final selected = tab.value == selectedValue;
+          final label =
+              tab.count == null ? tab.label : '${tab.label} ${tab.count}';
+          return Material(
+            color: selected ? const Color(0xFFE9F8F3) : const Color(0xFFF7F8FA),
+            borderRadius: BorderRadius.circular(AppRadii.pill),
+            child: InkWell(
+              onTap: () => onSelected(tab.value),
+              borderRadius: BorderRadius.circular(AppRadii.pill),
+              child: Container(
+                height: 30,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                  border: Border.all(
+                    color: selected
+                        ? const Color(0xFFCBEFE3)
+                        : const Color(0xFFE9EEF2),
+                  ),
+                ),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.1,
+                    color: selected
+                        ? const Color(0xFF11835C)
+                        : AppColors.textSecondary,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+        separatorBuilder: (context, index) => const SizedBox(width: 7),
+        itemCount: tabs.length,
+      ),
+    );
+  }
+}
+
+class _DiscoverFeedHeader extends StatelessWidget {
+  const _DiscoverFeedHeader({
+    required this.label,
+    required this.total,
+    required this.loading,
+  });
+
+  final String? label;
+  final int total;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = label?.trim().isNotEmpty == true ? label!.trim() : '推荐';
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: AppTextStyles.cardTitle,
+          ),
+        ),
+        if (loading)
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        else if (total > 0)
+          Text(
+            '$total 条',
+            style: AppTextStyles.meta,
+          ),
+      ],
+    );
+  }
+}
+
+class _DiscoverOutputTile extends StatelessWidget {
+  const _DiscoverOutputTile({
+    required this.output,
+    required this.authToken,
+    required this.tenantId,
     required this.onTap,
   });
 
-  final _DiscoverTopic topic;
+  final _OrganizeOutput output;
+  final String authToken;
+  final String tenantId;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-        color: AppColors.surface,
+        border: Border.all(color: const Color(0xFFEEF1F5)),
+        color: const Color(0xFFFEFFFF),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x05000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
@@ -7683,56 +9127,58 @@ class _DiscoverTopicTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+            padding: const EdgeInsets.fromLTRB(10, 10, 11, 11),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                _DiscoverOutputCover(
+                  output: output,
+                  authToken: authToken,
+                  tenantId: tenantId,
+                ),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        topic.title,
+                        output.displayTitle,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 14,
-                          height: 1.35,
+                          height: 1.28,
                           color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w400,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
-                        topic.summary,
+                        output.summary,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 13,
-                          height: 1.45,
+                          fontSize: 12,
+                          height: 1.42,
                           color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w400,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 12),
                       Text(
-                        '${topic.time} | @${topic.author}',
+                        '${output.createdAtLabel}  @${output.creatorDisplayName}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 12,
-                          height: 1.35,
+                          fontSize: 11,
+                          height: 1.2,
                           color: AppColors.textTertiary,
-                          fontWeight: FontWeight.w400,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (topic.coverLabel != null) ...[
-                  const SizedBox(width: 12),
-                  _TopicCover(topic: topic),
-                ],
               ],
             ),
           ),
@@ -7742,38 +9188,526 @@ class _DiscoverTopicTile extends StatelessWidget {
   }
 }
 
-class _TopicCover extends StatelessWidget {
-  const _TopicCover({required this.topic});
+class _DiscoverOutputCover extends StatelessWidget {
+  const _DiscoverOutputCover({
+    required this.output,
+    required this.authToken,
+    required this.tenantId,
+  });
 
-  final _DiscoverTopic topic;
+  final _OrganizeOutput output;
+  final String authToken;
+  final String tenantId;
 
   @override
   Widget build(BuildContext context) {
-    final accent = topic.accent ?? const Color(0xFFEDEFF5);
-    final dark = accent.computeLuminance() < 0.35;
-
-    return Container(
-      width: 72,
-      height: 72,
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: accent,
-        borderRadius: BorderRadius.circular(4),
+    final coverUrl = output.coverUrl.trim();
+    final background = output.kindColor.withValues(alpha: 0.09);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 64,
+        height: 64,
+        padding: EdgeInsets.zero,
+        color: background,
+        child: coverUrl.isNotEmpty
+            ? Image.network(
+                coverUrl,
+                headers: _discoverImageHeaders(authToken, tenantId),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return _DiscoverOutputCoverFallback(output: output);
+                },
+              )
+            : _DiscoverOutputCoverFallback(output: output),
       ),
-      child: Align(
-        alignment: Alignment.center,
-        child: Text(
-          topic.coverLabel!,
-          textAlign: TextAlign.center,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 9,
+    );
+  }
+}
+
+class _DiscoverOutputCoverFallback extends StatelessWidget {
+  const _DiscoverOutputCoverFallback({required this.output});
+
+  final _OrganizeOutput output;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: output.kindColor.withValues(alpha: 0.1),
+      padding: const EdgeInsets.all(7),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(output.kindIcon, size: 22, color: output.kindColor),
+          const SizedBox(height: 5),
+          Text(
+            output.kindLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 9,
+              height: 1.1,
+              color: output.kindColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Map<String, String>? _discoverImageHeaders(String authToken, String tenantId) {
+  final headers = <String, String>{};
+  if (authToken.trim().isNotEmpty) {
+    headers[HttpHeaders.authorizationHeader] = 'Bearer ${authToken.trim()}';
+  }
+  if (tenantId.trim().isNotEmpty) {
+    headers['X-Tenant-ID'] = tenantId.trim();
+  }
+  return headers.isEmpty ? null : headers;
+}
+
+class _DiscoverLoading extends StatelessWidget {
+  const _DiscoverLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 44),
+      child: Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoverLoadError extends StatelessWidget {
+  const _DiscoverLoadError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7F5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFFFDCD6)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.error_outline, color: Color(0xFFC43A31)),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body.copyWith(color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 10),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiscoverEmpty extends StatelessWidget {
+  const _DiscoverEmpty({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 30),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: AppTextStyles.body.copyWith(color: AppColors.textTertiary),
+      ),
+    );
+  }
+}
+
+class _DiscoverDetailPage extends StatefulWidget {
+  const _DiscoverDetailPage({
+    required this.initialOutput,
+    required this.authToken,
+    required this.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final _OrganizeOutput initialOutput;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<_DiscoverDetailPage> createState() => _DiscoverDetailPageState();
+}
+
+class _DiscoverDetailPageState extends State<_DiscoverDetailPage> {
+  late _OrganizeOutput _output;
+  late _RuileApiClient _apiClient;
+  var _loadingLatest = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _output = widget.initialOutput;
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+    );
+    unawaited(_loadLatestOutput());
+  }
+
+  Future<void> _loadLatestOutput() async {
+    final id = _output.id.trim();
+    if (id.isEmpty || !_apiClient.isConfigured) return;
+
+    setState(() {
+      _loadingLatest = true;
+      _error = null;
+    });
+    try {
+      final latest = await _apiClient.fetchOrganizeOutput(id);
+      if (!mounted || latest == null) return;
+      setState(() {
+        _output = latest;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingLatest = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final output = _output;
+    final hasBodyContent = output.content.trim().isNotEmpty;
+    final blocks = hasBodyContent
+        ? _sproutPreviewBlocks(output.content)
+        : const <_SproutTextBlock>[];
+
+    return Scaffold(
+      backgroundColor: AppColors.surface,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 26),
+          children: [
+            Row(
+              children: [
+                _KnowledgeRoundButton(
+                  tooltip: '返回',
+                  icon: Icons.chevron_left,
+                  backgroundColor: const Color(0xFFF4F5F8),
+                  size: 40,
+                  iconSize: 24,
+                  onTap: () => Navigator.maybePop(context),
+                ),
+                const Spacer(),
+                _DiscoverKindPill(output: output),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _DiscoverDetailCover(
+              output: output,
+              authToken: widget.authToken,
+              tenantId: widget.tenantId,
+            ),
+            const SizedBox(height: 18),
+            Text(
+              output.displayTitle,
+              style: const TextStyle(
+                fontSize: 20,
+                height: 1.28,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${output.createdAtLabel} | @${output.creatorDisplayName}',
+              style: AppTextStyles.meta,
+            ),
+            if (_loadingLatest || _error != null) ...[
+              const SizedBox(height: 10),
+              if (_loadingLatest)
+                const LinearProgressIndicator(minHeight: 2)
+              else
+                Text(
+                  '详情刷新失败：$_error',
+                  style: AppTextStyles.meta.copyWith(
+                    color: const Color(0xFFC43A31),
+                  ),
+                ),
+            ],
+            if (output.tags.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: [
+                  for (final tag in output.tags.take(8))
+                    _DiscoverTagChip(label: tag),
+                ],
+              ),
+            ],
+            const SizedBox(height: 20),
+            _DiscoverDetailSection(
+              title: '摘要',
+              child: Text(
+                output.summary,
+                style: AppTextStyles.body.copyWith(
+                  height: 1.62,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            if (output.filePath.isNotEmpty) ...[
+              _DiscoverDetailSection(
+                title: '源文件',
+                child: _DiscoverSourceFileCard(output: output),
+              ),
+              const SizedBox(height: 18),
+            ],
+            if (hasBodyContent)
+              _DiscoverDetailSection(
+                title: '内容',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final block in blocks)
+                      _SproutPreviewBlock(block: block),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoverDetailCover extends StatelessWidget {
+  const _DiscoverDetailCover({
+    required this.output,
+    required this.authToken,
+    required this.tenantId,
+  });
+
+  final _OrganizeOutput output;
+  final String authToken;
+  final String tenantId;
+
+  @override
+  Widget build(BuildContext context) {
+    final coverUrl = output.coverUrl.trim();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: SizedBox(
+        width: double.infinity,
+        height: 138,
+        child: coverUrl.isNotEmpty
+            ? Image.network(
+                coverUrl,
+                headers: _discoverImageHeaders(authToken, tenantId),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return _DiscoverDetailCoverFallback(output: output);
+                },
+              )
+            : _DiscoverDetailCoverFallback(output: output),
+      ),
+    );
+  }
+}
+
+class _DiscoverDetailCoverFallback extends StatelessWidget {
+  const _DiscoverDetailCoverFallback({required this.output});
+
+  final _OrganizeOutput output;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: output.kindColor.withValues(alpha: 0.09),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Center(
+        child: Icon(
+          output.kindIcon,
+          size: 36,
+          color: output.kindColor,
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoverKindPill extends StatelessWidget {
+  const _DiscoverKindPill({required this.output});
+
+  final _OrganizeOutput output;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: output.kindColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(output.kindIcon, size: 14, color: output.kindColor),
+          const SizedBox(width: 5),
+          Text(
+            output.kindLabel,
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.1,
+              color: output.kindColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiscoverTagChip extends StatelessWidget {
+  const _DiscoverTagChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F7FB),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          height: 1.1,
+          color: AppColors.textSecondary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscoverDetailSection extends StatelessWidget {
+  const _DiscoverDetailSection({
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 13,
             height: 1.2,
-            color: dark ? AppColors.surface : const Color(0xFF333842),
-            fontWeight: FontWeight.w500,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
           ),
         ),
+        const SizedBox(height: 8),
+        child,
+      ],
+    );
+  }
+}
+
+class _DiscoverSourceFileCard extends StatelessWidget {
+  const _DiscoverSourceFileCard({required this.output});
+
+  final _OrganizeOutput output;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = output.fileType.isNotEmpty ? output.fileType : 'FILE';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          _KnowledgeFileTypeBadge(label: type),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              output.fileName,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.body.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -8555,6 +10489,476 @@ class _KnowledgeBase {
   }
 }
 
+class _OrganizeDiscoverTab {
+  const _OrganizeDiscoverTab({
+    required this.label,
+    required this.value,
+    this.count,
+  });
+
+  factory _OrganizeDiscoverTab.fromApi(Map<String, dynamic> json) {
+    return _OrganizeDiscoverTab(
+      label: _readString(json, const ['label', 'name'], fallback: '推荐'),
+      value: _readString(json, const ['value', 'key'], fallback: 'recommended'),
+      count: _readInt(json, const ['count']),
+    );
+  }
+
+  final String label;
+  final String value;
+  final int? count;
+}
+
+class _OrganizeDiscoverData {
+  const _OrganizeDiscoverData({
+    required this.tabs,
+    required this.featuredOutputs,
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.pageSize,
+    required this.featuredOffset,
+  });
+
+  factory _OrganizeDiscoverData.fromApi(
+    Map<String, dynamic> json, {
+    required String baseUrl,
+  }) {
+    return _OrganizeDiscoverData(
+      tabs: _readTabs(json),
+      featuredOutputs: _readOutputs(
+        json['featured_outputs'],
+        baseUrl: baseUrl,
+      ),
+      items: _readOutputs(json['items'], baseUrl: baseUrl),
+      total: _readInt(json, const ['total']) ?? 0,
+      page: _readInt(json, const ['page']) ?? 1,
+      pageSize: _readInt(json, const ['page_size']) ?? 30,
+      featuredOffset: _readInt(json, const ['featured_offset']) ?? 0,
+    );
+  }
+
+  final List<_OrganizeDiscoverTab> tabs;
+  final List<_OrganizeOutput> featuredOutputs;
+  final List<_OrganizeOutput> items;
+  final int total;
+  final int page;
+  final int pageSize;
+  final int featuredOffset;
+
+  static List<_OrganizeDiscoverTab> _readTabs(Map<String, dynamic> json) {
+    final rawTabs = json['tabs'];
+    if (rawTabs is! List) return const [];
+    return [
+      for (final item in rawTabs)
+        if (item is Map<String, dynamic>)
+          _OrganizeDiscoverTab.fromApi(item)
+        else if (item is Map)
+          _OrganizeDiscoverTab.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  static List<_OrganizeOutput> _readOutputs(
+    Object? rawValue, {
+    required String baseUrl,
+  }) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _OrganizeOutput.fromApi(item, baseUrl: baseUrl)
+        else if (item is Map)
+          _OrganizeOutput.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+            baseUrl: baseUrl,
+          ),
+    ];
+  }
+}
+
+class _OrganizeOutput {
+  const _OrganizeOutput({
+    required this.id,
+    required this.title,
+    required this.content,
+    required this.outputType,
+    required this.sourceSummary,
+    required this.status,
+    required this.icon,
+    required this.creatorName,
+    required this.creatorAvatar,
+    required this.isSubscribed,
+    required this.memoryCount,
+    required this.memoryIds,
+    required this.metadata,
+    required this.createdAt,
+    required this.updatedAt,
+    required this.coverUrl,
+  });
+
+  factory _OrganizeOutput.fromApi(
+    Map<String, dynamic> json, {
+    required String baseUrl,
+  }) {
+    final metadata = _readMap(json, const ['metadata']);
+    final createdAt =
+        _readDateTime(json, const ['created_at']) ?? DateTime.now();
+    final updatedAt = _readDateTime(json, const ['updated_at']) ?? createdAt;
+    return _OrganizeOutput(
+      id: _readString(json, const ['id']),
+      title: _readString(json, const ['title'], fallback: '未命名发现'),
+      content: _readString(json, const ['content']),
+      outputType: _readString(json, const ['output_type'], fallback: '图文类'),
+      sourceSummary: _readString(
+        json,
+        const ['source_summary'],
+        fallback: _readString(metadata, const ['summary']),
+      ),
+      status: _readString(json, const ['status'], fallback: 'ready'),
+      icon: _readString(json, const ['icon']),
+      creatorName: _readOutputCreatorName(json, metadata),
+      creatorAvatar: _readString(
+        json,
+        const ['creator_avatar'],
+        fallback: _readString(
+          metadata,
+          const ['creator_avatar', 'author_avatar', 'user_avatar'],
+        ),
+      ),
+      isSubscribed: _readTruthy(json['is_subscribed']) ||
+          _readTruthy(metadata['is_subscribed']) ||
+          _readTruthy(metadata['subscribed']) ||
+          _readTruthy(metadata['subscribed_by_me']),
+      memoryCount: _readInt(json, const ['memory_count']) ?? 0,
+      memoryIds: _readStringList(json, const ['memory_ids']),
+      metadata: metadata,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      coverUrl: _publicFileUrl(
+        _readOutputCoverUrl(metadata),
+        baseUrl: baseUrl,
+      ),
+    );
+  }
+
+  final String id;
+  final String title;
+  final String content;
+  final String outputType;
+  final String sourceSummary;
+  final String status;
+  final String icon;
+  final String creatorName;
+  final String creatorAvatar;
+  final bool isSubscribed;
+  final int memoryCount;
+  final List<String> memoryIds;
+  final Map<String, dynamic> metadata;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final String coverUrl;
+
+  String get kind {
+    final source = _normalizeSpaces(
+      _readString(
+        metadata,
+        const ['content_kind'],
+        fallback: outputType.isNotEmpty ? outputType : icon,
+      ),
+    ).toLowerCase();
+    if (source == 'video' || source == '视频类') return 'video';
+    if (source == 'audio' || source == '音频类') return 'audio';
+    return 'article';
+  }
+
+  String get kindLabel {
+    switch (kind) {
+      case 'video':
+        return '视频类';
+      case 'audio':
+        return '音频类';
+      default:
+        return '图文类';
+    }
+  }
+
+  IconData get kindIcon {
+    switch (kind) {
+      case 'video':
+        return Icons.play_circle_outline;
+      case 'audio':
+        return Icons.graphic_eq;
+      default:
+        return Icons.article_outlined;
+    }
+  }
+
+  Color get kindColor {
+    switch (kind) {
+      case 'video':
+        return const Color(0xFF2459D9);
+      case 'audio':
+        return const Color(0xFFD87600);
+      default:
+        return const Color(0xFF0F8F52);
+    }
+  }
+
+  String get displayTitle {
+    final normalized = _normalizeSpaces(title);
+    return normalized.isNotEmpty ? normalized : '未命名发现';
+  }
+
+  String get summary {
+    final normalizedSummary = _normalizeSpaces(sourceSummary);
+    if (normalizedSummary.isNotEmpty) return normalizedSummary;
+    final text = _normalizeSpaces(_plainTextFromHtml(content));
+    if (text.isEmpty) return '暂无摘要';
+    if (text.length <= 96) return text;
+    return '${text.substring(0, 96)}...';
+  }
+
+  String get sourceLabel {
+    final count = memoryCount > 0 ? memoryCount : memoryIds.length;
+    if (count > 0) return '来自 $count 条记忆';
+    return '手动创建';
+  }
+
+  String get creatorDisplayName {
+    final normalized = _normalizeSpaces(creatorName);
+    return normalized.isNotEmpty ? normalized : '创作者';
+  }
+
+  String get createdAtLabel => _formatRecordDateTime(createdAt);
+
+  String get updatedAtLabel => _formatRecordDateTime(updatedAt);
+
+  String get filePath => _readString(metadata, const ['file_path']);
+
+  String get fileName {
+    return _readString(
+      metadata,
+      const ['file_name', 'filename', 'name'],
+      fallback: displayTitle,
+    );
+  }
+
+  String get fileType {
+    final explicit = _readString(metadata, const ['file_type', 'mime_type'])
+        .replaceFirst(RegExp(r'^\.'), '')
+        .toUpperCase();
+    if (explicit.isNotEmpty) return explicit;
+    final name = fileName;
+    final dotIndex = name.lastIndexOf('.');
+    if (dotIndex >= 0 && dotIndex < name.length - 1) {
+      return name.substring(dotIndex + 1).toUpperCase();
+    }
+    return '';
+  }
+
+  List<String> get tags => _readOutputTags(metadata);
+}
+
+String _readOutputCreatorName(
+  Map<String, dynamic> json,
+  Map<String, dynamic> metadata,
+) {
+  return _readString(
+    json,
+    const ['creator_name'],
+    fallback: _readString(
+      metadata,
+      const [
+        'creator_name',
+        'creator_username',
+        'author_name',
+        'user_name',
+      ],
+    ),
+  );
+}
+
+String _readOutputCoverUrl(Map<String, dynamic> metadata) {
+  return _readString(
+    metadata,
+    const [
+      'cover_url',
+      'cover',
+      'thumbnail_url',
+      'thumbnail',
+      'poster_url',
+      'poster',
+    ],
+  );
+}
+
+List<String> _readOutputTags(Map<String, dynamic> metadata) {
+  final rawTags = metadata['tags'];
+  if (rawTags is List) {
+    final tags = <String>[];
+    for (final rawTag in rawTags) {
+      if (rawTag is Map<String, dynamic>) {
+        final name = _readString(rawTag, const ['name', 'label', 'title']);
+        if (name.isNotEmpty) tags.add(name);
+      } else if (rawTag is Map) {
+        final name = _readString(
+          rawTag.map((key, value) => MapEntry(key.toString(), value)),
+          const ['name', 'label', 'title'],
+        );
+        if (name.isNotEmpty) tags.add(name);
+      } else {
+        final name = _normalizeSpaces(rawTag.toString());
+        if (name.isNotEmpty) tags.add(name);
+      }
+    }
+    return tags;
+  }
+  return _readStringList(metadata, const ['tags']);
+}
+
+bool _readTruthy(Object? value) {
+  return value == true || value == 1 || value == '1' || value == 'true';
+}
+
+class _OrganizeMemoryReference {
+  const _OrganizeMemoryReference({
+    required this.id,
+    required this.title,
+    this.kind = '',
+    this.source = '',
+  });
+
+  factory _OrganizeMemoryReference.fromApi(Map<String, dynamic> json) {
+    return _OrganizeMemoryReference(
+      id: _readString(json, const ['id', 'memory_id']),
+      title: _readString(json, const ['title'], fallback: '关联记忆'),
+      kind: _readString(json, const ['kind']),
+      source: _readString(json, const ['source']),
+    );
+  }
+
+  final String id;
+  final String title;
+  final String kind;
+  final String source;
+}
+
+class _OrganizeSproutReport {
+  const _OrganizeSproutReport({
+    required this.id,
+    required this.title,
+    required this.summary,
+    required this.stage,
+    required this.outputHint,
+    required this.chips,
+    required this.memoryCount,
+    required this.memoryIds,
+    required this.memoryRefs,
+    required this.metadata,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory _OrganizeSproutReport.fromApi(Map<String, dynamic> json) {
+    final metadata = _readMap(json, const ['metadata']);
+    final memoryRefs = _readMemoryRefs(json);
+    final memoryIds = _readStringList(json, const ['memory_ids']);
+    final createdAt = _readDateTime(json, const ['created_at']) ??
+        _readDateTime(metadata, const ['started_at']) ??
+        DateTime.now();
+    final updatedAt = _readDateTime(json, const ['updated_at']) ??
+        _readDateTime(metadata, const ['completed_at']) ??
+        createdAt;
+    final count = _readInt(json, const ['memory_count']) ??
+        (memoryIds.isNotEmpty ? memoryIds.length : memoryRefs.length);
+
+    return _OrganizeSproutReport(
+      id: _readString(json, const ['id']),
+      title: _readString(json, const ['title']),
+      summary: _readString(json, const ['summary']),
+      stage: _readString(
+        json,
+        const ['stage'],
+        fallback: _readString(metadata, const ['sprout_status']),
+      ),
+      outputHint: _readString(json, const ['output_hint']),
+      chips: _readStringList(json, const ['chips']),
+      memoryCount: count,
+      memoryIds: memoryIds,
+      memoryRefs: memoryRefs,
+      metadata: metadata,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+
+  final String id;
+  final String title;
+  final String summary;
+  final String stage;
+  final String outputHint;
+  final List<String> chips;
+  final int memoryCount;
+  final List<String> memoryIds;
+  final List<_OrganizeMemoryReference> memoryRefs;
+  final Map<String, dynamic> metadata;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  String get displayTitle {
+    final normalized = _normalizeSpaces(title);
+    return normalized.isNotEmpty ? normalized : '未命名发芽';
+  }
+
+  String get contentSource {
+    final normalizedSummary = summary.trim();
+    if (normalizedSummary.isNotEmpty) return normalizedSummary;
+    final normalizedHint = outputHint.trim();
+    if (normalizedHint.isNotEmpty) return normalizedHint;
+    return displayTitle;
+  }
+
+  String get previewIntro {
+    final text = _sproutPlainText(contentSource);
+    if (text.length <= 150) return text;
+    return '${text.substring(0, 150)}...';
+  }
+
+  String get metaLabel {
+    final count = memoryCount > 0 ? memoryCount : memoryIds.length;
+    final parts = <String>[_formatRecordDateTime(updatedAt)];
+    if (count > 0) parts.add('$count 条记忆');
+    if (memoryRefs.isNotEmpty) {
+      final source = _normalizeSpaces(memoryRefs.first.source);
+      if (source.isNotEmpty) parts.add(source);
+    }
+    return parts.join(' · ');
+  }
+
+  static List<_OrganizeMemoryReference> _readMemoryRefs(
+    Map<String, dynamic> json,
+  ) {
+    final rawRefs = json['memory_refs'];
+    if (rawRefs is! List) return const [];
+
+    final refs = <_OrganizeMemoryReference>[];
+    for (final rawRef in rawRefs) {
+      if (rawRef is Map<String, dynamic>) {
+        refs.add(_OrganizeMemoryReference.fromApi(rawRef));
+      } else if (rawRef is Map) {
+        refs.add(
+          _OrganizeMemoryReference.fromApi(
+            rawRef.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+        );
+      }
+    }
+    return refs;
+  }
+}
+
 class _OrganizeMemory {
   const _OrganizeMemory({
     required this.id,
@@ -8634,6 +11038,9 @@ class _OrganizeMemory {
       ),
       durationSeconds: durationSeconds,
       transcriptionStatus: transcriptionStatus,
+      transcriptionDetail: _organizeMemoryMetadataText(
+        const ['transcription_error', 'transcription_reason'],
+      ),
     );
   }
 
@@ -8723,6 +11130,7 @@ class _NoteItem {
     this.audioFileName = '',
     this.durationSeconds = 0,
     this.transcriptionStatus = '',
+    this.transcriptionDetail = '',
   });
 
   final String id;
@@ -8735,6 +11143,7 @@ class _NoteItem {
   final String audioFileName;
   final int durationSeconds;
   final String transcriptionStatus;
+  final String transcriptionDetail;
 
   String get detailCreatedAt {
     final normalized = createdAtText.trim();
@@ -8758,17 +11167,201 @@ class _NoteItem {
       case 'transcribing':
         return '转写中';
       case 'completed':
-        return '';
+        return '转写成功';
       case 'failed':
-        return '转写失败';
       case 'skipped':
-        return '转写未配置';
       case 'queued_failed':
-        return '转写排队失败';
+        return '转写失败';
       default:
         return '';
     }
   }
+
+  String get transcriptionStatusDetailText {
+    final label = transcriptionStatusLabel;
+    if (label != '转写失败') return '';
+    final detail = _normalizeSpaces(transcriptionDetail);
+    if (detail.isEmpty) return '';
+    return '原因：$detail';
+  }
+
+  bool get _isTranscriptionSuccess {
+    return transcriptionStatus.trim().toLowerCase() == 'completed';
+  }
+
+  bool get _isTranscriptionFailure {
+    switch (transcriptionStatus.trim().toLowerCase()) {
+      case 'failed':
+      case 'skipped':
+      case 'queued_failed':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  Color get transcriptionStatusColor {
+    if (_isTranscriptionSuccess) return const Color(0xFF11835C);
+    if (_isTranscriptionFailure) return const Color(0xFFC43A31);
+    return const Color(0xFF4966D9);
+  }
+
+  Color get transcriptionStatusBackgroundColor {
+    if (_isTranscriptionSuccess) return const Color(0xFFEAF8F1);
+    if (_isTranscriptionFailure) return const Color(0xFFFFF0EE);
+    return const Color(0xFFEEF2FF);
+  }
+
+  Color get transcriptionStatusBorderColor {
+    if (_isTranscriptionSuccess) return const Color(0xFFCDEEDF);
+    if (_isTranscriptionFailure) return const Color(0xFFFFD1CB);
+    return const Color(0xFFD8DFFF);
+  }
+
+  IconData get transcriptionStatusIcon {
+    if (_isTranscriptionSuccess) return Icons.check_circle_outline;
+    if (_isTranscriptionFailure) return Icons.error_outline;
+    return Icons.sync;
+  }
+}
+
+enum _SproutTextBlockKind { heading, paragraph, quote, bullet }
+
+class _SproutTextBlock {
+  const _SproutTextBlock({
+    required this.kind,
+    required this.text,
+  });
+
+  final _SproutTextBlockKind kind;
+  final String text;
+}
+
+String _sproutStageLabel(String stage) {
+  switch (stage.trim().toLowerCase()) {
+    case 'organizing':
+      return '发芽中';
+    case 'formed':
+      return '已发芽';
+    case 'expandable':
+      return '发芽';
+    default:
+      return '发芽';
+  }
+}
+
+String _sproutPlainText(String value) {
+  return _sproutPreviewBlocks(value)
+      .map((block) => block.text)
+      .where((text) => text.isNotEmpty)
+      .join(' ');
+}
+
+List<_SproutTextBlock> _sproutPreviewBlocks(String value) {
+  final source = _sproutReadableSource(value);
+  if (source.isEmpty) {
+    return const [
+      _SproutTextBlock(
+        kind: _SproutTextBlockKind.paragraph,
+        text: '暂无发芽详情。',
+      ),
+    ];
+  }
+
+  final blocks = <_SproutTextBlock>[];
+  for (final rawLine in source.split(RegExp(r'[\r\n]+'))) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+
+    final heading = RegExp(r'^#{1,6}\s+(.+)$').firstMatch(line);
+    if (heading != null) {
+      final text = _cleanSproutInlineText(heading.group(1) ?? '');
+      if (text.isNotEmpty) {
+        blocks.add(_SproutTextBlock(
+          kind: _SproutTextBlockKind.heading,
+          text: text,
+        ));
+      }
+      continue;
+    }
+
+    if (line.startsWith('>')) {
+      final text = _cleanSproutInlineText(
+        line.replaceFirst(RegExp(r'^>+\s*'), ''),
+      );
+      if (text.isNotEmpty) {
+        blocks.add(_SproutTextBlock(
+          kind: _SproutTextBlockKind.quote,
+          text: text,
+        ));
+      }
+      continue;
+    }
+
+    final bullet = RegExp(r'^[-*+]\s+(.+)$').firstMatch(line) ??
+        RegExp(r'^\d+[.、]\s+(.+)$').firstMatch(line);
+    if (bullet != null) {
+      final text = _cleanSproutInlineText(bullet.group(1) ?? '');
+      if (text.isNotEmpty) {
+        blocks.add(_SproutTextBlock(
+          kind: _SproutTextBlockKind.bullet,
+          text: text,
+        ));
+      }
+      continue;
+    }
+
+    final text = _cleanSproutInlineText(line);
+    if (text.isNotEmpty) {
+      blocks.add(_SproutTextBlock(
+        kind: _SproutTextBlockKind.paragraph,
+        text: text,
+      ));
+    }
+  }
+
+  return blocks.isEmpty
+      ? const [
+          _SproutTextBlock(
+            kind: _SproutTextBlockKind.paragraph,
+            text: '暂无发芽详情。',
+          ),
+        ]
+      : blocks;
+}
+
+String _sproutReadableSource(String value) {
+  var text = value.trim();
+  if (text.isEmpty) return '';
+  if (RegExp(
+    r'</?(h[1-6]|p|ul|ol|li|blockquote|div|table|article|section|br)\b',
+    caseSensitive: false,
+  ).hasMatch(text)) {
+    text = _plainTextFromHtml(text);
+  }
+  return text
+      .replaceAll(RegExp(r'\r\n?'), '\n')
+      .replaceAll(RegExp(r'^\s*---+\s*$', multiLine: true), '')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+      .trim();
+}
+
+String _cleanSproutInlineText(String value) {
+  return value
+      .replaceAll(RegExp(r'!\[[^\]]*]\([^)]*\)'), '')
+      .replaceAllMapped(
+        RegExp(r'\[([^\]]+)]\([^)]*\)'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAll(RegExp(r'[*_`~]'), '')
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 }
 
 String _readString(
@@ -8783,6 +11376,34 @@ String _readString(
     if (text.isNotEmpty) return text;
   }
   return fallback;
+}
+
+List<String> _readStringList(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is List) {
+      return [
+        for (final item in value)
+          if (_normalizeSpaces(item.toString()).isNotEmpty)
+            _normalizeSpaces(item.toString()),
+      ];
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is List) {
+          return [
+            for (final item in decoded)
+              if (_normalizeSpaces(item.toString()).isNotEmpty)
+                _normalizeSpaces(item.toString()),
+          ];
+        }
+      } catch (_) {
+        return [_normalizeSpaces(value)];
+      }
+    }
+  }
+  return const [];
 }
 
 Map<String, dynamic> _readMap(Map<String, dynamic> json, List<String> keys) {
@@ -8827,22 +11448,4 @@ String _formatApiDate(String raw) {
   final local = parsed.toLocal();
   final minute = local.minute.toString().padLeft(2, '0');
   return '${local.month}月${local.day}日 ${local.hour}:$minute';
-}
-
-class _DiscoverTopic {
-  const _DiscoverTopic({
-    required this.title,
-    required this.summary,
-    required this.author,
-    required this.time,
-    this.accent,
-    this.coverLabel,
-  });
-
-  final String title;
-  final String summary;
-  final String author;
-  final String time;
-  final Color? accent;
-  final String? coverLabel;
 }
