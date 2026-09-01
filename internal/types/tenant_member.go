@@ -133,6 +133,9 @@ type TenantMember struct {
 	// Department is a lightweight enterprise directory attribute for member
 	// filtering and future group/ACL mapping.
 	Department string `json:"department,omitempty" gorm:"type:varchar(128);not null;default:'';index"`
+	// WorkProfileDescription describes the member's service-facing work avatar.
+	// AI service routing reads this text to infer scope and capability hints.
+	WorkProfileDescription string `json:"work_profile_description,omitempty" gorm:"type:text;not null;default:''"`
 	// ExpiresAt supports guest / contractor access windows.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	// SuspendedAt records when an operator or directory sync disabled access.
@@ -164,19 +167,20 @@ type Membership struct {
 // the model directly would leak DeletedAt/UpdatedAt and lock the DB
 // schema into the public API. Use this for `/tenants/:id/members` only.
 type TenantMemberResponse struct {
-	UserID         string             `json:"user_id"`
-	Email          string             `json:"email"`
-	Username       string             `json:"username"`
-	Avatar         string             `json:"avatar,omitempty"`
-	Role           TenantRole         `json:"role"`
-	Status         TenantMemberStatus `json:"status"`
-	Source         TenantMemberSource `json:"source"`
-	ExternalUserID string             `json:"external_user_id,omitempty"`
-	Department     string             `json:"department,omitempty"`
-	InvitedBy      *string            `json:"invited_by,omitempty"`
-	JoinedAt       time.Time          `json:"joined_at"`
-	ExpiresAt      *time.Time         `json:"expires_at,omitempty"`
-	SuspendedAt    *time.Time         `json:"suspended_at,omitempty"`
+	UserID                 string             `json:"user_id"`
+	Email                  string             `json:"email"`
+	Username               string             `json:"username"`
+	Avatar                 string             `json:"avatar,omitempty"`
+	Role                   TenantRole         `json:"role"`
+	Status                 TenantMemberStatus `json:"status"`
+	Source                 TenantMemberSource `json:"source"`
+	ExternalUserID         string             `json:"external_user_id,omitempty"`
+	Department             string             `json:"department,omitempty"`
+	WorkProfileDescription string             `json:"work_profile_description,omitempty"`
+	InvitedBy              *string            `json:"invited_by,omitempty"`
+	JoinedAt               time.Time          `json:"joined_at"`
+	ExpiresAt              *time.Time         `json:"expires_at,omitempty"`
+	SuspendedAt            *time.Time         `json:"suspended_at,omitempty"`
 }
 
 // TenantMemberListFilter is the server-side filter set for enterprise member

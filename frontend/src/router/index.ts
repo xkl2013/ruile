@@ -21,6 +21,7 @@ const AUTO_SETUP_FAILED_KEY = 'weknora_auto_setup_failed'
 const organizeWorkspaceComponent = () => import("../views/organize/OrganizeWorkspace.vue")
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
 const serviceWorkspaceComponent = () => import("../views/service/ServiceWorkspace.vue")
+const serviceCustomerSpaceComponent = () => import("../views/service/CustomerSpace.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
 const toPlatformChildPath = (path: string) => path.replace(/^\/platform\//, '')
@@ -171,9 +172,10 @@ const router = createRouter({
           meta: serviceRouteMeta,
         },
         {
-          path: "service/customers",
-          redirect: SERVICE_MESSAGES_ROUTE_PATH,
-          meta: serviceRouteMeta,
+          path: "service/customers/:subjectId",
+          name: 'serviceCustomerDetail',
+          component: serviceCustomerSpaceComponent,
+          meta: { ...serviceRouteMeta, serviceTab: 'customers' },
         },
         {
           path: "service/messages",
@@ -188,7 +190,7 @@ const router = createRouter({
         ...SERVICE_MENU_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
           name: item.routeName,
-          component: serviceWorkspaceComponent,
+          component: item.key === 'customers' ? serviceCustomerSpaceComponent : serviceWorkspaceComponent,
           meta: { ...serviceRouteMeta, serviceTab: item.key },
         })),
         {

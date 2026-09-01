@@ -28,6 +28,7 @@ export interface TenantInvitation {
   role: TenantRole
   status: TenantInvitationStatus
   message?: string
+  work_profile_description?: string
   expires_at: string
   responded_at?: string | null
   created_at: string
@@ -76,6 +77,7 @@ export interface CreateInvitationRequest {
   email?: string
   role: TenantRole
   message?: string
+  work_profile_description: string
 }
 
 export interface CreateInvitationResponse {

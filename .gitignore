@@ -19,8 +19,11 @@
 
 # 构建和依赖文件
 node_modules/
+admin/node_modules
 /dist/
 /build/
+admin/dist/
+admin/.vite/
 *.log
 
 # 临时文件

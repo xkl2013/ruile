@@ -1,4 +1,9 @@
 export function getApiBaseUrl(): string {
+  const explicitBase = (import.meta.env.VITE_API_BASE_URL || '').trim();
+  if (explicitBase) {
+    return explicitBase.replace(/\/+$/, '');
+  }
+
   // LocalHub plugin patch (2026-04-29): respect vite's BASE_URL so that
   // axios calls work at `/app/weknora/` (LocalHub reverse proxy). Without
   // this · axios hits `/api/v1/...` at LocalHub root · gets 404 "Cannot

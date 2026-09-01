@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	neturl "net/url"
@@ -387,7 +388,7 @@ func (s *organizeService) failOrganizeMemoryTranscription(
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf(message)
+		return errors.New(message)
 	}
 
 	metadata := normalizeJSONMap(memory.Metadata)

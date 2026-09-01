@@ -93,7 +93,7 @@
             </template>
 
             <!-- 历史会话：按来源筛选后统一按日期分组展示 -->
-            <div class="submenu" v-if="!uiStore.sidebarCollapsed"
+            <div class="submenu" v-if="!uiStore.sidebarCollapsed && !isInServiceModule"
                 :class="{ 'submenu--scope-fallback': showSessionScopeFallback }">
                 <div v-if="showSessionScopeFallback" class="session-list-scope-fallback">
                     <SessionSourceFilter inline :emphasized="sessionScopeFilterPinned" :sources="sessionSourceOptions"
@@ -162,7 +162,7 @@
             </div>
 
             <!-- 批量管理底部操作条 -->
-            <div v-if="batchMode && !uiStore.sidebarCollapsed" class="batch-inline-footer">
+            <div v-if="batchMode && !uiStore.sidebarCollapsed && !isInServiceModule" class="batch-inline-footer">
                 <div class="batch-footer-left">
                     <t-checkbox :checked="isAllBatchSelected" :indeterminate="isBatchIndeterminate"
                         @change="toggleBatchSelectAll">
@@ -380,6 +380,9 @@ const isInAgentList = computed<boolean>(() => route.name === 'agentList');
 // 是否在组织列表页面
 const isInOrganizationList = computed<boolean>(() => route.name === 'organizationList');
 
+// 服务模块有自己的提醒列表，侧栏不再同时展示历史会话列表。
+const isInServiceModule = computed<boolean>(() => typeof route.name === 'string' && route.name.startsWith('service'));
+
 // 统一的菜单项激活状态判断
 const isMenuItemActive = (itemPath: string): boolean => {
     const currentRoute = route.name;
@@ -396,7 +399,7 @@ const isMenuItemActive = (itemPath: string): boolean => {
         case 'creatChat':
             return currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat';
         case 'messages':
-            return currentRoute === 'serviceMessages';
+            return typeof currentRoute === 'string' && currentRoute.startsWith('service');
         case 'settings':
             return currentRoute === 'settings';
         default:

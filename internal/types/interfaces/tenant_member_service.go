@@ -16,6 +16,10 @@ type TenantMemberService interface {
 	// (user, tenant) already has an active membership.
 	AddMember(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error)
 
+	// AddMemberWithProfile inserts a member from an operator-managed member
+	// form where the service-facing work avatar description is mandatory.
+	AddMemberWithProfile(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error)
+
 	// EnsureOwner is an idempotent helper used by the registration flow:
 	// if the user already has an active membership in the tenant, return
 	// it; otherwise create one with role=owner. This is the common path
@@ -47,6 +51,10 @@ type TenantMemberService interface {
 	// UpdateRole changes the role of an existing membership while
 	// enforcing the "cannot demote the last active Owner" invariant.
 	UpdateRole(ctx context.Context, userID string, tenantID uint64, newRole types.TenantRole) error
+
+	// UpdateWorkProfileDescription changes the member-level work avatar
+	// description used by service routing.
+	UpdateWorkProfileDescription(ctx context.Context, userID string, tenantID uint64, description string) error
 
 	// RemoveMember soft-deletes the membership while enforcing the
 	// "cannot remove the last active Owner" invariant.

@@ -82,6 +82,7 @@ type RouterParams struct {
 	CustomAgentHandler           *handler.CustomAgentHandler
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
 	OrganizeHandler              *handler.OrganizeHandler
+	ServiceHandler               *handler.ServiceHandler
 	SkillHandler                 *handler.SkillHandler
 	OrganizationHandler          *handler.OrganizationHandler
 	IMHandler                    *handler.IMHandler
@@ -262,6 +263,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterOrganizeRoutes(v1, params.OrganizeHandler, rbacGuards)
+		RegisterServiceRoutes(v1, params.ServiceHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
 		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
@@ -635,6 +637,7 @@ func RegisterChatRoutes(r *gin.RouterGroup, handler *session.Handler, g *rbacGua
 //   - GET    /:id/members            Viewer+ (any member can see who else is in)
 //   - POST   /:id/members            Admin+ (Owner role assignment stays Owner/SystemAdmin-only in handler)
 //   - POST   /:id/members/admin-create Admin+ (create an account and add it as a member)
+//   - POST   /:id/members/work-profile/suggest Admin+ (generate a member avatar description draft)
 //   - PUT    /:id/members/:user_id   Admin+ (Owner role changes stay Owner/SystemAdmin-only in handler)
 //   - POST   /:id/members/:user_id/suspend    Admin+ (Owner suspension stays Owner/SystemAdmin-only in handler)
 //   - POST   /:id/members/:user_id/reactivate Admin+ (Owner reactivation stays Owner/SystemAdmin-only in handler)
@@ -728,7 +731,9 @@ func RegisterTenantRoutes(
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.ListMembers)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.AddMember)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/admin-create", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.AdminCreateMember)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/work-profile/suggest", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.SuggestMemberWorkProfile)
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.UpdateMemberRole)
+				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id/profile", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.UpdateMemberProfile)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/suspend", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.SuspendMember)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/reactivate", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.ReactivateMember)
 				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.RemoveMember)
@@ -1243,6 +1248,44 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 	}
 }
 
+// RegisterServiceRoutes wires the service-reminder module.
+//
+// User-facing routes are scoped to the authenticated user and stay Viewer+.
+// Work-profile and agent-setting routes are the AI engineer configuration
+// surface, so they require Admin+ and are not shown to ordinary users.
+func RegisterServiceRoutes(r *gin.RouterGroup, h *handler.ServiceHandler, g *rbacGuards) {
+	if h == nil {
+		return
+	}
+	svc := g.apiKeyGroup(r.Group("/service"), apiKeyFullAccess())
+	{
+		svc.GET("/bootstrap", g.Viewer(), h.GetBootstrap)
+		svc.POST("/refresh", g.Viewer(), h.Refresh)
+		svc.POST("/memories/:memory_id/extract", g.Viewer(), h.ExtractMemory)
+		svc.GET("/agent-templates", g.Viewer(), h.ListAgentTemplates)
+		svc.GET("/daily-reports", g.Viewer(), h.ListDailyReports)
+		svc.POST("/daily-reports", g.Viewer(), h.GenerateDailyReport)
+		svc.GET("/daily-reports/:id", g.Viewer(), h.GetDailyReport)
+
+		svc.GET("/customer-spaces", g.Viewer(), h.ListCustomerSpaces)
+		svc.GET("/customer-spaces/:id", g.Viewer(), h.GetCustomerSpace)
+
+		svc.GET("/reminders", g.Viewer(), h.ListReminders)
+		svc.GET("/reminders/:id", g.Viewer(), h.GetReminder)
+		svc.PUT("/reminders/:id/status", g.Viewer(), h.UpdateReminderStatus)
+		svc.POST("/reminders/:id/action-drafts", g.Viewer(), h.CreateActionDraft)
+
+		svc.GET("/action-drafts", g.Viewer(), h.ListActionDrafts)
+		svc.PUT("/action-drafts/:id/status", g.Viewer(), h.UpdateActionDraftStatus)
+
+		svc.GET("/work-profiles", g.Admin(), h.ListWorkProfiles)
+		svc.POST("/work-profiles", g.Admin(), h.CreateWorkProfile)
+		svc.PUT("/work-profiles/:id", g.Admin(), h.UpdateWorkProfile)
+		svc.GET("/work-profiles/:id/agent-settings", g.Admin(), h.ListAgentSettings)
+		svc.PUT("/work-profiles/:id/agent-settings", g.Admin(), h.ReplaceAgentSettings)
+	}
+}
+
 // RegisterSkillRoutes registers skill routes.
 //
 // PR 2 currently only exposes a read-only `ListSkills`; gated to
@@ -1580,6 +1623,11 @@ func serveFrontendStatic(r *gin.Engine) {
 	if _, err := os.Stat(indexPath); err != nil {
 		return
 	}
+	mobilePath := filepath.Join(absDir, "mobile.html")
+	hasMobileEntry := false
+	if _, err := os.Stat(mobilePath); err == nil {
+		hasMobileEntry = true
+	}
 
 	logger.Infof(context.Background(), "[Router] Serving frontend static files from %s", absDir)
 
@@ -1601,6 +1649,12 @@ func serveFrontendStatic(r *gin.Engine) {
 		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
 			setFrontendCacheHeaders(c.Writer, path)
 			fileServer.ServeHTTP(c.Writer, c.Request)
+			c.Abort()
+			return
+		}
+		if hasMobileEntry && (path == "/mobile" || strings.HasPrefix(path, "/mobile/")) {
+			setFrontendCacheHeaders(c.Writer, "/mobile.html")
+			c.File(mobilePath)
 			c.Abort()
 			return
 		}

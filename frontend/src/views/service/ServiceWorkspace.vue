@@ -7,32 +7,52 @@
           <p>{{ pageMeta.description }}</p>
         </div>
 
-        <div v-if="activeView === 'messages'" class="service-source-state">
-          <span>{{ memoryExtractionModeLabel }}</span>
-          <strong>{{ memoryExtractionSubtitle }}</strong>
+        <div v-if="activeView === 'messages'" class="service-header-tools">
+          <div class="service-header-reminder">
+            <span>服务提醒</span>
+            <strong>{{ openReminderCount }} 条待处理</strong>
+          </div>
+          <button
+            type="button"
+            class="rail-icon-btn"
+            :disabled="serviceMemoriesLoading"
+            title="刷新服务提醒"
+            aria-label="刷新服务提醒"
+            @click="loadServiceMemories(true)"
+          >
+            <t-icon :name="serviceMemoriesLoading ? 'loading' : 'refresh'" />
+          </button>
+        </div>
+        <div v-else-if="activeView === 'review'" class="service-header-tools">
+          <div class="service-header-reminder">
+            <span>日报生成</span>
+            <strong>{{ reviewGenerationLabel }}</strong>
+          </div>
+          <button
+            type="button"
+            class="service-action-btn primary service-header-action"
+            :disabled="serviceDailyReportsGenerating"
+            @click="generateReviewReport"
+          >
+            <t-icon :name="serviceDailyReportsGenerating ? 'loading' : 'file-add'" />
+            生成日报
+          </button>
+          <button
+            type="button"
+            class="rail-icon-btn"
+            :disabled="serviceDailyReportsLoading"
+            title="刷新日报"
+            aria-label="刷新日报"
+            @click="loadServiceDailyReports(true)"
+          >
+            <t-icon :name="serviceDailyReportsLoading ? 'loading' : 'refresh'" />
+          </button>
         </div>
       </header>
 
       <div class="service-scroll">
         <section v-if="activeView === 'messages'" class="assistant-workspace">
           <aside class="assistant-rail" aria-label="服务提醒">
-            <div class="rail-head">
-              <div class="rail-head-copy">
-                <span>服务提醒</span>
-                <strong>{{ openReminderCount }} 条待处理</strong>
-              </div>
-              <button
-                type="button"
-                class="rail-icon-btn"
-                :disabled="serviceMemoriesLoading"
-                title="刷新服务提醒"
-                aria-label="刷新服务提醒"
-                @click="loadServiceMemories(true)"
-              >
-                <t-icon :name="serviceMemoriesLoading ? 'loading' : 'refresh'" />
-              </button>
-            </div>
-
             <t-input
               v-model="keyword"
               class="rail-search"
@@ -218,7 +238,7 @@
                 <div v-else class="service-agent-state">
                   <t-icon :name="isActiveServiceChatLoading ? 'loading' : 'chat'" />
                   <span>
-                    {{ isActiveServiceChatLoading ? '正在准备服务助理' : serviceChatSessionError || '服务助理暂不可用' }}
+                    {{ activeServiceAgentStateText }}
                   </span>
                 </div>
               </div>
@@ -232,41 +252,31 @@
           <aside v-if="hasActiveServiceTask" class="customer-summary-panel" aria-label="服务工作档案">
             <div class="customer-summary-head">
               <span>服务助理</span>
-              <button type="button" class="customer-summary-status" @click="toggleTaskClosed(activeTask.id)">
-                <t-icon :name="isTaskClosed(activeTask.id) ? 'rollback' : 'check-circle'" />
-                {{ isTaskClosed(activeTask.id) ? '恢复' : '完成' }}
-              </button>
+              <div class="customer-summary-head-actions">
+                <button type="button" class="customer-summary-status" @click="goToActiveCustomerSpace">
+                  <t-icon name="folder" />
+                  客户空间
+                </button>
+                <button type="button" class="customer-summary-status" @click="toggleTaskClosed(activeTask.id)">
+                  <t-icon :name="isTaskClosed(activeTask.id) ? 'rollback' : 'check-circle'" />
+                  {{ isTaskClosed(activeTask.id) ? '恢复' : '完成' }}
+                </button>
+              </div>
             </div>
 
             <div class="customer-summary-person">
               <div class="customer-summary-name-row">
-                <h3>{{ activeTask.title || activeTask.customerName }}</h3>
+                <h3>{{ activeTask.customerName }}</h3>
                 <em :class="`priority-${activeTask.priorityKey}`">{{ activePriorityLabel }}</em>
               </div>
-              <p>{{ activeTask.customerName }} · {{ activeTask.stage }} · {{ activeTask.channel }}</p>
+              <p>{{ activeStudentLabel }} · {{ activeTask.stage }} · {{ activeTask.channel }}</p>
             </div>
-
-            <section class="work-profile-card">
-              <div class="work-profile-avatar">{{ activeWorkProfile.initial }}</div>
-              <div>
-                <span>{{ activeWorkProfile.statusLabel }}</span>
-                <strong>{{ activeWorkProfile.name }}</strong>
-                <p>{{ activeWorkProfile.description }}</p>
-              </div>
-            </section>
-
-            <section class="assistant-result-card">
-              <h4>启用能力</h4>
-              <div class="work-profile-tags">
-                <span v-for="agent in activeWorkProfile.enabledAgents" :key="agent">{{ agent }}</span>
-              </div>
-            </section>
 
             <section class="assistant-result-card">
               <h4>客户摘要.md</h4>
               <p>{{ activeTask.summary }}</p>
               <div class="assistant-result-meta">
-                <span>{{ activeTask.sourceMemoryCount }} 条记忆</span>
+                <span>{{ serviceTaskSourceLabel(activeTask) }}</span>
                 <span>{{ activeTask.lastMemoryLabel }}</span>
               </div>
             </section>
@@ -297,7 +307,7 @@
               <button type="button" class="customer-summary-entry" @click="openCustomerDetail('profile')">
                 <span>
                   <strong>证据索引</strong>
-                  <em>{{ activeTask.sourceMemoryCount }} 条记忆 · {{ activeTask.confidenceLabel }}</em>
+                  <em>{{ serviceTaskSourceLabel(activeTask) }} · {{ activeTask.confidenceLabel }}</em>
                 </span>
                 <t-icon name="chevron-right" />
               </button>
@@ -309,10 +319,12 @@
             </section>
 
             <section class="customer-summary-source">
-              <h4>工作档案目录</h4>
-              <div>
-                <span v-for="item in activeWorkDocDirectories" :key="item">{{ item }}</span>
-              </div>
+              <h4>客户空间</h4>
+              <p>{{ activeCustomerSpaceHint }}</p>
+              <button type="button" class="customer-summary-open-space" @click="goToActiveCustomerSpace">
+                <span>查看客户空间</span>
+                <t-icon name="chevron-right" />
+              </button>
             </section>
           </aside>
           <aside v-else class="customer-summary-panel customer-summary-panel--empty" aria-label="服务工作档案">
@@ -562,7 +574,6 @@ import {
 } from './serviceRoutes'
 import { createSessions } from '@/api/chat'
 import { getSuggestedQuestions, type SuggestedQuestion } from '@/api/agent'
-import { listOrganizeMemories, type OrganizeMemory } from '@/api/organize'
 import ChatView from '@/views/chat/index.vue'
 import {
   buildSproutReportPreview,
@@ -576,12 +587,21 @@ import {
   SERVICE_ASSISTANT_SUGGESTION_LIMIT,
 } from './serviceAgentConfig'
 import {
-  buildServiceTasksFromMemories,
   emptyServiceTask,
-  isServiceMemory,
   type PriorityKey,
   type ServiceTask,
 } from './serviceMemoryExtraction'
+import {
+  createServiceActionDraft,
+  generateServiceDailyReport,
+  getServiceBootstrap,
+  listServiceDailyReports,
+  mapServiceReminderToTask,
+  refreshServiceModule,
+  type ServiceDailyReportDTO,
+  type ServiceWorkProfile as ServiceWorkProfileDTO,
+  updateServiceReminderStatus,
+} from '@/api/service'
 
 type ReviewRange = 'week' | 'month'
 type ReviewStageKey = 'formed' | 'expandable' | 'organizing'
@@ -645,20 +665,6 @@ interface ServiceFact {
   value: string
 }
 
-interface ServiceWorkProfile {
-  id: string
-  name: string
-  initial: string
-  roleType: string
-  statusLabel: string
-  description: string
-  memoryScope: string
-  enabledAgents: string[]
-  directories: string[]
-  knowledgeBases: string[]
-  skills: string[]
-}
-
 type ServiceChatViewExpose = {
   triggerSend?: (question: string) => void
 }
@@ -704,7 +710,15 @@ const serviceChatHasMessagesByTask = ref<Record<string, boolean>>({})
 const serviceAgentSuggestions = ref<SuggestedQuestion[]>([])
 const serviceAgentSuggestionsLoading = ref(false)
 const serviceAgentSuggestionsLoaded = ref(false)
-const serviceMemories = ref<OrganizeMemory[]>([])
+const backendServiceTasks = ref<ServiceTask[]>([])
+const serviceWorkProfile = ref<ServiceWorkProfileDTO | null>(null)
+const serviceBackendTotal = ref(0)
+const serviceHasConfiguredProfile = ref(false)
+const backendReviewReports = ref<ServiceReviewReport[]>([])
+const serviceDailyReportsLoading = ref(false)
+const serviceDailyReportsGenerating = ref(false)
+const serviceDailyReportsLoaded = ref(false)
+const serviceDailyReportsError = ref('')
 const serviceMemoriesLoading = ref(false)
 const serviceMemoriesLoaded = ref(false)
 const serviceMemoriesError = ref('')
@@ -716,196 +730,11 @@ const reviewRangeTabs: Array<{ label: string; value: ReviewRange }> = [
   { label: '本月', value: 'month' },
 ]
 
-const serviceWorkProfiles: ServiceWorkProfile[] = [
-  {
-    id: 'profile-admission-consultant',
-    name: '招生顾问助理',
-    initial: '招',
-    roleType: '招生顾问',
-    statusLabel: '默认工作分身',
-    description: '从咨询、试听、报名和排课记忆中整理服务提醒。',
-    memoryScope: '本人记忆 · 咨询/试听/报名/排课',
-    enabledAgents: ['线索录入', '招生咨询', '排课调课'],
-    directories: ['线索/', '客户/', '排课/'],
-    knowledgeBases: ['课程资料', '招生话术', '服务 SOP'],
-    skills: ['CRM 查询', '教务排课'],
-  },
-]
-
-const activeWorkProfile = computed(() => serviceWorkProfiles[0]!)
-const activeWorkDocDirectories = computed(() => {
-  if (!hasActiveServiceTask.value) return activeWorkProfile.value.directories
-  const subject = activeTask.value.studentName && activeTask.value.studentName !== '待补充'
-    ? activeTask.value.studentName
-    : activeTask.value.customerName
-  return [
-    `客户/${subject}/客户摘要.md`,
-    `客户/${subject}/跟进记录.md`,
-    `客户/${subject}/未闭环事项.md`,
-    `客户/${subject}/证据索引.md`,
-  ]
+const activeServiceMemoryScope = computed(() => serviceWorkProfile.value?.memory_scope || '本人服务相关记忆')
+const activeCustomerSpaceHint = computed(() => {
+  if (!hasActiveServiceTask.value) return '暂无客户空间'
+  return `${activeTask.value.customerName} 的摘要、跟进记录、未闭环事项和记忆证据`
 })
-
-const serviceReviewReportSources: Array<Omit<ServiceReviewReport, 'renderedHtml' | 'intro' | 'previewSections'>> = [
-  {
-    id: 'review-week-1',
-    title: '服务闭环稳定，售后风险需要更早提醒',
-    content: `# 日报
-
-本周处理 18 个服务动作，14 个已闭环。售前试听回访较及时，在园售后问题的完整闭环偏慢，下周需要把首次回应控制在 24 小时内。
-
-## 1、售前回访
-
-### 观察
-
-- 3 位试听家长均在 24 小时内完成首次回访。
-- 价格顾虑和适应焦虑是本周最常见的问题。
-- 有明确下一步动作的客户，后续回复更顺畅。
-
-### 建议
-
-先肯定孩子试听表现，再把 4 周适应目标讲清楚，最后确认是否需要园长补充沟通。不要一开始就进入价格解释。
-
-## 2、售后问题
-
-### 观察
-
-- 餐食反馈类问题平均超过 36 小时才形成完整闭环。
-- 家长更在意是否被及时回应，而不是一次性解释所有原因。
-
-### 建议
-
-售后问题先回应再解释：先确认感受和处理时间，再补充老师观察记录。
-
-## 3、下周动作
-
-- 周五前完成陈屿家长的续费前成长回顾。
-- 把适应期高频回应整理到公共知识库。
-- 餐食、午睡、生活照三类问题统一使用“先回应、再观察、再闭环”的节奏。`,
-    stage: '已生成',
-    stageKey: 'formed',
-    range: 'week',
-    updated: '今天 09:30',
-    updatedAt: '2026-08-27T09:30:00+08:00',
-    actionCount: 18,
-    customerCount: 9,
-    chips: ['售前回访', '售后闭环', '适应期'],
-  },
-  {
-    id: 'review-week-2',
-    title: '续费前回顾需要提前铺垫',
-    content: `# 日报
-
-本周有 3 位客户进入续费前服务窗口，其中 1 位已经有明确沟通节点。直接提续费会增加压力，更适合先用成长记录打开对话。
-
-## 1、客户变化
-
-### 观察
-
-- 陈屿近 4 次课堂反馈稳定，表达主动性提升明显。
-- 家长最关注孩子是否能主动表达，不只是课程次数。
-
-### 建议
-
-用“过去变化、当前目标、下一阶段安排”三段式生成成长回顾，再约一次低压力沟通。
-
-## 2、服务动作
-
-- 周五晚上前发送阶段成长回顾。
-- 沟通前准备 2 条课堂观察和 1 条家庭配合建议。
-- 沟通后再判断是否进入续费确认，不在第一次回顾里强推。
-
-## 3、风险
-
-如果只提醒剩余课次，家长容易把对话理解为推进压力。需要把服务价值先讲完整。`,
-    stage: '待跟进',
-    stageKey: 'expandable',
-    range: 'week',
-    updated: '昨天 18:10',
-    updatedAt: '2026-08-26T18:10:00+08:00',
-    actionCount: 7,
-    customerCount: 3,
-    chips: ['续费服务', '成长回顾'],
-  },
-  {
-    id: 'review-month-1',
-    title: '客户上下文更完整，老客户触达可以更自然',
-    content: `# 日报
-
-本月服务客户 42 位，售前到在园的衔接较顺。老客户转介绍触达偏少，适合用活动资料做轻量触达。
-
-## 1、售前客户
-
-### 观察
-
-- 新增试听客户 9 位，主要顾虑集中在价格和适应期。
-- 价格顾虑客户更需要看到阶段效果，适应焦虑客户更需要看到入园观察。
-
-### 建议
-
-把高意向客户分成两类服务：价格顾虑先发成果案例，适应焦虑先发入园观察资料。
-
-## 2、在园客户
-
-### 观察
-
-- 售后问题多数来自餐食、午睡和生活反馈。
-- 能持续记录客户记忆的客户，AI 生成建议更贴近真实场景。
-
-### 建议
-
-减少手动字段维护，把关键跟进沉淀成事件即可。每次服务动作只记录发生了什么、家长反馈和下一步。
-
-## 3、老客户触达
-
-### 观察
-
-老客户转介绍触达偏少，且话术容易显得直接。
-
-### 建议
-
-补齐亲子活动和公开课资料，用自然邀请替代直接索要转介绍。`,
-    stage: '已生成',
-    stageKey: 'formed',
-    range: 'month',
-    updated: '08月27日生成',
-    updatedAt: '2026-08-27T09:00:00+08:00',
-    actionCount: 63,
-    customerCount: 42,
-    chips: ['客户上下文', '转介绍', '公共知识库'],
-  },
-  {
-    id: 'review-month-2',
-    title: '服务知识沉淀不足，高频回应仍依赖个人编辑',
-    content: `# 日报
-
-本月反复出现的沟通问题已经比较清晰，但还没有完全沉淀成可复用资料，导致一线服务时仍需要重复编辑。
-
-## 1、高频问题
-
-- 试听后如何解释价格。
-- 入园适应期如何回应家长焦虑。
-- 餐食和午睡反馈如何形成闭环。
-
-## 2、知识边界
-
-客户空间只记录这个客户发生了什么。通用课程资料、价格解释、异议处理和活动物料应沉淀到公共知识库，不复制进每个客户。
-
-## 3、下月建议
-
-- 每周固定整理 3 条有效回应。
-- 把售后闭环流程做成公共知识库资料。
-- 保留个人客户记忆，减少为了系统完整性维护大量字段。`,
-    stage: '已生成',
-    stageKey: 'formed',
-    range: 'month',
-    updated: '08月24日生成',
-    updatedAt: '2026-08-24T17:20:00+08:00',
-    actionCount: 29,
-    customerCount: 18,
-    chips: ['知识沉淀', '服务边界'],
-  },
-]
 
 const enrichServiceReviewReport = (
   item: Omit<ServiceReviewReport, 'renderedHtml' | 'intro' | 'previewSections'>,
@@ -919,10 +748,30 @@ const enrichServiceReviewReport = (
   }
 }
 
-const reviewReportArchives = serviceReviewReportSources.map(enrichServiceReviewReport)
+const normalizeReviewReportRange = (range?: string): ReviewRange => (range === 'month' ? 'month' : 'week')
 
-const serviceMemoriesForExtraction = computed(() => serviceMemories.value.filter(isServiceMemory))
-const memoryDerivedTasks = computed(() => buildServiceTasksFromMemories(serviceMemoriesForExtraction.value))
+const formatReviewReportUpdated = (value?: string) => {
+  if (!value) return '刚刚生成'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+const mapServiceDailyReportToReviewReport = (item: ServiceDailyReportDTO): ServiceReviewReport => enrichServiceReviewReport({
+  id: item.id,
+  title: item.title || '服务日报',
+  content: item.content || item.summary || '# 服务日报\n\n暂无日报内容。',
+  stage: item.stage || '已生成',
+  stageKey: item.stage_key === 'organizing' ? 'organizing' : 'formed',
+  range: normalizeReviewReportRange(item.range),
+  updated: item.updated || formatReviewReportUpdated(item.updated_at),
+  updatedAt: item.updated_at || item.created_at || new Date().toISOString(),
+  actionCount: item.action_count || 0,
+  customerCount: item.customer_count || 0,
+  chips: item.chips || [],
+})
+
+const memoryDerivedTasks = computed(() => backendServiceTasks.value)
 const serviceTasks = computed(() => memoryDerivedTasks.value)
 
 const pageMeta = computed(() => {
@@ -933,37 +782,34 @@ const pageMeta = computed(() => {
 })
 
 const normalize = (value: string) => value.trim().toLowerCase()
-const isTaskClosed = (id: string) => closedTaskIds.value.includes(id)
-const isTaskIgnored = (id: string) => ignoredTaskIds.value.includes(id)
-const isTaskSnoozed = (id: string) => snoozedTaskIds.value.includes(id)
+const taskById = computed(() => new Map(serviceTasks.value.map((task) => [task.id, task])))
+const taskStatus = (id: string) => taskById.value.get(id)?.status || ''
+const isTaskClosed = (id: string) => closedTaskIds.value.includes(id) || ['confirmed', 'completed'].includes(taskStatus(id))
+const isTaskIgnored = (id: string) => ignoredTaskIds.value.includes(id) || taskStatus(id) === 'ignored'
+const isTaskSnoozed = (id: string) => snoozedTaskIds.value.includes(id) || taskStatus(id) === 'snoozed'
 const visibleServiceTasks = computed(() => serviceTasks.value.filter((task) => !isTaskIgnored(task.id)))
 const openTasks = computed(() => visibleServiceTasks.value.filter((task) => !isTaskClosed(task.id)))
 const openReminderCount = computed(() => openTasks.value.length)
 const hasActiveServiceTask = computed(() => visibleServiceTasks.value.length > 0)
-const memoryExtractionModeLabel = computed(() => {
-  if (serviceMemoriesLoading.value) return '识别中'
-  if (serviceMemoriesError.value) return '读取失败'
-  if (memoryDerivedTasks.value.length > 0) return '服务提醒'
-  return '未梳理'
-})
-const memoryExtractionSubtitle = computed(() => {
-  if (serviceMemoriesLoading.value) return '正在梳理客户服务记忆'
-  if (serviceMemoriesError.value) return '记忆读取失败，未生成服务提醒'
-  if (memoryDerivedTasks.value.length > 0) {
-    return `已从 ${serviceMemoriesForExtraction.value.length} 条记忆生成 ${memoryDerivedTasks.value.length} 条提醒`
-  }
-  if (serviceMemoriesLoaded.value) return '未发现可生成提醒的客户服务记忆'
-  return '等待读取记忆'
-})
 const memoryExtractionSourceLabel = computed(() => {
-  if (memoryDerivedTasks.value.length > 0) return activeWorkProfile.value.memoryScope
-  if (serviceMemoriesLoading.value) return '正在匹配工作分身'
+  if (memoryDerivedTasks.value.length > 0) return '个人记忆 · 服务工作档案'
+  if (serviceMemoriesLoading.value) return '正在整理服务记忆'
   return '无关记忆不进入服务提醒'
 })
 const serviceMemoryRefreshLabel = computed(() => {
   if (serviceMemoriesLoading.value) return '同步中'
   if (serviceMemoriesError.value) return '读取失败'
-  if (serviceMemoriesLoaded.value) return `最近 ${serviceMemories.value.length} 条`
+  if (serviceMemoriesLoaded.value && serviceBackendTotal.value > 0) return `${serviceBackendTotal.value} 条真实提醒`
+  if (serviceMemoriesLoaded.value && serviceHasConfiguredProfile.value) return '暂无真实提醒'
+  if (serviceMemoriesLoaded.value) return '暂无真实提醒'
+  return '待同步'
+})
+const reviewGenerationLabel = computed(() => {
+  if (serviceDailyReportsGenerating.value) return '生成中'
+  if (serviceDailyReportsLoading.value) return '同步中'
+  if (serviceDailyReportsError.value) return '读取失败'
+  if (backendReviewReports.value.length > 0) return `${backendReviewReports.value.length} 份已生成`
+  if (serviceDailyReportsLoaded.value) return '暂无已生成'
   return '待同步'
 })
 
@@ -1173,7 +1019,12 @@ const currentReviewReport = computed<ServiceReviewReport>(() => enrichServiceRev
   chips: ['业务洞察', '风险归因', '行动闭环'],
 }))
 
-const reviewReports = computed(() => [currentReviewReport.value, ...reviewReportArchives])
+const reviewReports = computed(() => {
+  if (serviceDailyReportsLoaded.value || backendReviewReports.value.length > 0) {
+    return [currentReviewReport.value, ...backendReviewReports.value]
+  }
+  return [currentReviewReport.value]
+})
 const filteredReviewReports = computed(() => reviewReports.value.filter((report) => report.range === reviewRange.value))
 const reviewTotalActions = computed(() => filteredReviewReports.value.reduce((total, report) => total + report.actionCount, 0))
 const reviewReportGroups = computed(() => [{
@@ -1182,16 +1033,45 @@ const reviewReportGroups = computed(() => [{
   reports: filteredReviewReports.value,
 }])
 
-const toggleTaskClosed = (id: string) => {
-  closedTaskIds.value = isTaskClosed(id)
-    ? closedTaskIds.value.filter((item) => item !== id)
-    : [...closedTaskIds.value, id]
+const updateBackendTaskStatus = (id: string, status: string, writeBackStatus: string) => {
+  backendServiceTasks.value = backendServiceTasks.value.map((task) => task.id === id
+    ? { ...task, status, writeBackStatus }
+    : task)
+}
+
+const toggleTaskClosed = async (id: string) => {
+  const task = taskById.value.get(id)
+  if (!task) return
+  const nextStatus = isTaskClosed(id) ? 'pending' : 'confirmed'
+  try {
+    const response = await updateServiceReminderStatus(id, nextStatus)
+    backendServiceTasks.value = backendServiceTasks.value.map((item) => item.id === id
+      ? mapServiceReminderToTask(response.data)
+      : item)
+  } catch (error) {
+    console.warn('[ServiceAgent] Failed to update service reminder status:', error)
+    MessagePlugin.error('服务提醒状态更新失败')
+    return
+  }
+  if (nextStatus === 'confirmed') {
+    closedTaskIds.value = [...new Set([...closedTaskIds.value, id])]
+  } else {
+    closedTaskIds.value = closedTaskIds.value.filter((item) => item !== id)
+  }
   ignoredTaskIds.value = ignoredTaskIds.value.filter((item) => item !== id)
   snoozedTaskIds.value = snoozedTaskIds.value.filter((item) => item !== id)
 }
 
-const confirmActiveTask = () => {
+const confirmActiveTask = async () => {
   if (!activeTask.value.id) return
+  try {
+    await createServiceActionDraft(activeTask.value.id)
+    updateBackendTaskStatus(activeTask.value.id, 'confirmed', '已确认动作')
+  } catch (error) {
+    console.warn('[ServiceAgent] Failed to create service action draft:', error)
+    MessagePlugin.error('动作草稿确认失败')
+    return
+  }
   if (!isTaskClosed(activeTask.value.id)) {
     closedTaskIds.value = [...closedTaskIds.value, activeTask.value.id]
   }
@@ -1200,16 +1080,36 @@ const confirmActiveTask = () => {
   MessagePlugin.success('已确认动作草稿')
 }
 
-const snoozeActiveTask = () => {
+const snoozeActiveTask = async () => {
   if (!activeTask.value.id) return
+  try {
+    const response = await updateServiceReminderStatus(activeTask.value.id, 'snoozed')
+    backendServiceTasks.value = backendServiceTasks.value.map((task) => task.id === activeTask.value.id
+      ? mapServiceReminderToTask(response.data)
+      : task)
+  } catch (error) {
+    console.warn('[ServiceAgent] Failed to snooze service reminder:', error)
+    MessagePlugin.error('稍后处理失败')
+    return
+  }
   if (!isTaskSnoozed(activeTask.value.id)) {
     snoozedTaskIds.value = [...snoozedTaskIds.value, activeTask.value.id]
   }
   MessagePlugin.info('已标记为稍后处理')
 }
 
-const ignoreActiveTask = () => {
+const ignoreActiveTask = async () => {
   if (!activeTask.value.id) return
+  try {
+    const response = await updateServiceReminderStatus(activeTask.value.id, 'ignored')
+    backendServiceTasks.value = backendServiceTasks.value.map((task) => task.id === activeTask.value.id
+      ? mapServiceReminderToTask(response.data)
+      : task)
+  } catch (error) {
+    console.warn('[ServiceAgent] Failed to ignore service reminder:', error)
+    MessagePlugin.error('忽略失败')
+    return
+  }
   ignoredTaskIds.value = [...new Set([...ignoredTaskIds.value, activeTask.value.id])]
   closedTaskIds.value = closedTaskIds.value.filter((item) => item !== activeTask.value.id)
   snoozedTaskIds.value = snoozedTaskIds.value.filter((item) => item !== activeTask.value.id)
@@ -1225,6 +1125,11 @@ const activePromptShortcuts = computed(() => serviceAgentSuggestions.value.map((
 const shouldShowServiceAgentPrompts = computed(() =>
   !activeServiceChatHasMessages.value && (activePromptShortcuts.value.length > 0 || serviceAgentSuggestionsLoading.value),
 )
+const activeServiceAgentStateText = computed(() => {
+  if (isActiveServiceChatLoading.value) return '正在准备服务助理'
+  if (serviceChatSessionError.value) return serviceChatSessionError.value
+  return '服务助理暂不可用'
+})
 const priorityLabelMap: Record<PriorityKey, string> = {
   high: '高优先',
   medium: '中优先',
@@ -1234,13 +1139,13 @@ const activePriorityLabel = computed(() => priorityLabelMap[activeTask.value.pri
 const activeStudentLabel = computed(() => (activeTask.value.studentName && activeTask.value.studentName !== '待补充' ? `学员 ${activeTask.value.studentName}` : '学员待补充'))
 const activeMemoryEvidence = computed(() => activeTask.value.memoryEvidence)
 const activeCustomerDetailTitle = computed(() => (customerDetailType.value === 'followUp' ? '服务动作' : '记忆证据'))
+const serviceTaskSourceLabel = (task: ServiceTask) => `${task.sourceMemoryCount} 条记忆`
 const activeServiceFacts = computed<ServiceFact[]>(() => {
   const task = activeTask.value
   return [
-    { label: '来源', value: `${task.sourceMemoryCount} 条记忆` },
+    { label: '来源', value: serviceTaskSourceLabel(task) },
     { label: '最近记忆', value: task.lastMemoryLabel },
     { label: '置信度', value: task.confidenceLabel },
-    { label: '工作分身', value: activeWorkProfile.value.name },
     { label: '风险', value: task.riskLabel },
     { label: '决策人', value: task.decisionRole },
     { label: '渠道', value: task.channel },
@@ -1300,7 +1205,7 @@ const serviceReminderTabs = computed(() => {
   const tabs: Array<{ label: string; value: ServiceReminderFilter }> = [
     { label: '全部', value: 'all' },
     { label: '线索', value: 'lead' },
-    { label: '客户服务', value: 'customer' },
+    { label: '服务', value: 'customer' },
     { label: '排课', value: 'schedule' },
     { label: '风险', value: 'risk' },
   ]
@@ -1319,22 +1224,30 @@ const openCustomerDetail = (type: CustomerDetailType) => {
   customerDetailVisible.value = true
 }
 
+const goToActiveCustomerSpace = () => {
+  const subjectId = activeTask.value.subjectId
+  if (subjectId) {
+    void router.push(`/platform/service/customers/${subjectId}`)
+    return
+  }
+  void router.push('/platform/service/customers')
+}
+
 const closeCustomerDetail = () => {
   customerDetailVisible.value = false
 }
 
 const buildServiceAgentContext = (task: ServiceTask) => [
-  '以下是按工作分身配置从个人记忆收集到的服务提醒，并整理出的当前客户服务摘要，仅作为本轮对话上下文。不要逐字复述，除非用户明确要求。',
+  '以下是从个人记忆收集到的服务提醒，并整理出的当前客户服务摘要，仅作为本轮对话上下文。不要逐字复述，除非用户明确要求。',
   '请把个人记忆视为事实层，把公共知识库视为课程、政策、话术和服务规则来源。事实不足时请指出需要补充哪条记忆。',
   '<service_customer_context>',
-  `工作分身：${activeWorkProfile.value.name}`,
-  `工作分身记忆范围：${activeWorkProfile.value.memoryScope}`,
+  `服务记忆范围：${activeServiceMemoryScope.value}`,
   `客户：${task.customerName}`,
   `学员：${task.studentName}`,
   `阶段：${task.stage}`,
   `渠道：${task.channel}`,
   '来源类型：个人记忆梳理',
-  `来源记忆数：${task.sourceMemoryCount}`,
+  `来源记忆数：${serviceTaskSourceLabel(task)}`,
   `最近记忆：${task.lastMemoryLabel}`,
   `梳理置信度：${task.confidenceLabel}`,
   `事项：${task.title}`,
@@ -1357,6 +1270,8 @@ const buildServiceChatSessionTitle = (task: ServiceTask) => `${task.customerName
 const buildServiceChatSessionDescription = (task: ServiceTask) => `service-task:${task.id};agent:${serviceAssistantAgentId}`
 
 const ensureServiceChatSession = async (task = activeTask.value) => {
+  if (!task.id) return ''
+
   const existingSessionId = serviceChatSessionIds.value[task.id]
   if (existingSessionId) return existingSessionId
 
@@ -1409,15 +1324,82 @@ const loadServiceMemories = async (force = false) => {
   serviceMemoriesLoading.value = true
   serviceMemoriesError.value = ''
   try {
-    const response = await listOrganizeMemories({ page_size: 80 })
-    serviceMemories.value = response?.data?.items ?? []
+    const response = force ? await refreshServiceModule() : await getServiceBootstrap()
+    const data = response?.data
+    backendServiceTasks.value = (data?.reminders || []).map(mapServiceReminderToTask)
+    serviceWorkProfile.value = data?.profile || null
+    serviceBackendTotal.value = data?.total || backendServiceTasks.value.length
+    serviceHasConfiguredProfile.value = Boolean(data?.profile?.id)
+    closedTaskIds.value = backendServiceTasks.value
+      .filter((task) => ['confirmed', 'completed'].includes(task.status || ''))
+      .map((task) => task.id)
+    ignoredTaskIds.value = backendServiceTasks.value
+      .filter((task) => task.status === 'ignored')
+      .map((task) => task.id)
+    snoozedTaskIds.value = backendServiceTasks.value
+      .filter((task) => task.status === 'snoozed')
+      .map((task) => task.id)
   } catch (error) {
-    console.warn('[ServiceAgent] Failed to load organize memories:', error)
-    serviceMemoriesError.value = '记忆读取失败'
-    serviceMemories.value = []
+    console.warn('[ServiceAgent] Failed to load service reminders:', error)
+    serviceMemoriesError.value = '服务提醒读取失败'
+    backendServiceTasks.value = []
+    serviceWorkProfile.value = null
+    serviceBackendTotal.value = 0
+    serviceHasConfiguredProfile.value = false
   } finally {
     serviceMemoriesLoaded.value = true
     serviceMemoriesLoading.value = false
+  }
+}
+
+const serviceReportTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
+
+const loadServiceDailyReports = async (force = false) => {
+  if (serviceDailyReportsLoading.value || (!force && serviceDailyReportsLoaded.value)) return
+
+  serviceDailyReportsLoading.value = true
+  serviceDailyReportsError.value = ''
+  try {
+    const response = await listServiceDailyReports({
+      range: reviewRange.value,
+      page: 1,
+      page_size: 20,
+    })
+    backendReviewReports.value = (response?.data?.items || []).map(mapServiceDailyReportToReviewReport)
+  } catch (error) {
+    console.warn('[ServiceAgent] Failed to load daily reports:', error)
+    serviceDailyReportsError.value = '日报读取失败'
+    backendReviewReports.value = []
+  } finally {
+    serviceDailyReportsLoaded.value = true
+    serviceDailyReportsLoading.value = false
+  }
+}
+
+const generateReviewReport = async () => {
+  if (serviceDailyReportsGenerating.value) return
+
+  serviceDailyReportsGenerating.value = true
+  serviceDailyReportsError.value = ''
+  try {
+    const response = await generateServiceDailyReport({
+      range: reviewRange.value,
+      timezone: serviceReportTimezone(),
+    })
+    const report = mapServiceDailyReportToReviewReport(response.data)
+    backendReviewReports.value = [
+      report,
+      ...backendReviewReports.value.filter((item) => item.id !== report.id),
+    ]
+    serviceDailyReportsLoaded.value = true
+    openReviewPreview(report)
+    MessagePlugin.success('日报已生成')
+  } catch (error) {
+    console.warn('[ServiceAgent] Failed to generate daily report:', error)
+    serviceDailyReportsError.value = '日报生成失败'
+    MessagePlugin.error('日报生成失败')
+  } finally {
+    serviceDailyReportsGenerating.value = false
   }
 }
 
@@ -1473,6 +1455,10 @@ watch(
       void loadServiceMemories()
     }
 
+    if (view === 'review') {
+      void loadServiceDailyReports()
+    }
+
     if (view === 'messages') {
       void loadServiceAgentSuggestions()
       if (hasActiveServiceTask.value) {
@@ -1526,6 +1512,7 @@ const filteredTasks = computed(() => {
 
 const setReviewRange = (range: ReviewRange) => {
   reviewRange.value = range
+  void loadServiceDailyReports(true)
 }
 
 const openReviewPreview = (report: ServiceReviewReport) => {
@@ -1548,7 +1535,7 @@ const closeReviewPreview = () => {
   display: flex;
   min-height: 0;
   overflow: hidden;
-  background: var(--td-bg-color-container);
+  background: #f7f8fa;
   color: var(--td-text-color-primary);
 }
 
@@ -1559,7 +1546,7 @@ const closeReviewPreview = () => {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 20px 0 0 28px;
+  padding: 18px 0 0 24px;
   box-sizing: border-box;
 }
 
@@ -1567,9 +1554,9 @@ const closeReviewPreview = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-  padding-right: 28px;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding-right: 24px;
 }
 
 .service-heading {
@@ -1578,7 +1565,7 @@ const closeReviewPreview = () => {
   h2 {
     margin: 0;
     color: var(--td-text-color-primary);
-    font-size: 21px;
+    font-size: 20px;
     font-weight: 500;
     line-height: 30px;
     letter-spacing: 0;
@@ -1587,36 +1574,40 @@ const closeReviewPreview = () => {
   p {
     margin: 2px 0 0;
     color: var(--td-text-color-secondary);
-    font-size: 13px;
+    font-size: 12px;
     line-height: 20px;
   }
 }
 
-.service-source-state {
+.service-header-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: flex-end;
+  gap: 10px;
   flex: 0 0 auto;
-  min-height: 30px;
-  padding: 4px 10px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-  background: var(--td-bg-color-container);
+  min-height: 34px;
   box-sizing: border-box;
+}
+
+.service-header-reminder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+  gap: 1px;
 
   span {
-    color: #236549;
+    color: var(--td-text-color-secondary);
     font-size: 12px;
-    font-weight: 600;
     line-height: 18px;
     white-space: nowrap;
   }
 
   strong {
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 18px;
+    color: var(--td-text-color-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 20px;
     white-space: nowrap;
   }
 }
@@ -1629,14 +1620,14 @@ const closeReviewPreview = () => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 28px 16px 0;
+  padding: 0 24px 16px 0;
   box-sizing: border-box;
 }
 
 .assistant-workspace {
   display: grid;
-  grid-template-columns: minmax(286px, 336px) minmax(420px, 1fr) minmax(248px, 286px);
-  gap: 14px;
+  grid-template-columns: minmax(282px, 318px) minmax(420px, 1fr) minmax(236px, 270px);
+  gap: 12px;
   align-items: stretch;
   flex: 1;
   width: 100%;
@@ -1659,44 +1650,11 @@ const closeReviewPreview = () => {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border: 1px solid var(--td-component-stroke);
+  border: 1px solid #e4e8ed;
   border-radius: 8px;
   background: var(--td-bg-color-container);
   box-sizing: border-box;
   overflow: hidden;
-}
-
-.rail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.rail-head {
-  min-height: 60px;
-  padding: 12px 14px 10px;
-  border-bottom: 1px solid var(--td-component-stroke);
-
-  span {
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-    line-height: 18px;
-  }
-
-  strong {
-    color: var(--td-text-color-primary);
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 20px;
-  }
-}
-
-.rail-head-copy {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 2px;
 }
 
 .rail-icon-btn {
@@ -1704,10 +1662,10 @@ const closeReviewPreview = () => {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border: 1px solid var(--td-component-border);
+  border: 1px solid #e2e7ec;
   border-radius: 50%;
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
@@ -1728,7 +1686,7 @@ const closeReviewPreview = () => {
 
 .rail-search {
   width: calc(100% - 24px);
-  margin: 10px 12px 4px;
+  margin: 12px 12px 2px;
 
   :deep(.t-input) {
     border-radius: 8px;
@@ -1741,8 +1699,8 @@ const closeReviewPreview = () => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: 24px;
-  padding: 0 14px 6px;
+  min-height: 22px;
+  padding: 0 14px 4px;
   color: var(--td-text-color-placeholder);
   font-size: 12px;
   line-height: 18px;
@@ -1765,12 +1723,12 @@ const closeReviewPreview = () => {
 }
 
 .reminder-filter-tabs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 4px 12px 6px;
-  overflow-x: auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  min-height: 32px;
+  padding: 4px 12px 5px;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -1778,24 +1736,32 @@ const closeReviewPreview = () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 auto;
-  gap: 5px;
-  min-width: 52px;
-  min-height: 26px;
-  padding: 3px 8px;
+  gap: 4px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 2px 7px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--td-text-color-secondary);
   cursor: pointer;
   font-family: var(--app-font-family);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 18px;
+  white-space: nowrap;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   small {
+    flex: 0 0 auto;
     color: var(--td-text-color-placeholder);
-    font-size: 12px;
+    font-size: 11px;
     line-height: 18px;
   }
 
@@ -1805,8 +1771,8 @@ const closeReviewPreview = () => {
   }
 
   &.active {
-    border-color: rgba(35, 101, 73, 0.18);
-    background: rgba(34, 101, 73, 0.08);
+    border-color: transparent;
+    background: #eaf2ee;
     color: #1c5a3f;
     font-weight: 600;
   }
@@ -1819,32 +1785,33 @@ const closeReviewPreview = () => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  gap: 2px;
-  padding: 6px 8px 10px;
+  gap: 0;
+  padding: 4px 8px 8px;
 }
 
 .rail-item {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
   width: 100%;
-  min-height: 78px;
-  padding: 9px 10px;
+  min-height: 70px;
+  padding: 8px 9px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--td-text-color-primary);
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.16s ease;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
 
   &:hover {
     background: var(--td-bg-color-container-hover);
   }
 
   &.active {
-    background: var(--td-bg-color-secondarycontainer);
+    background: #f1f5f3;
+    box-shadow: inset 3px 0 0 #236549;
   }
 
   &.muted {
@@ -1871,13 +1838,13 @@ const closeReviewPreview = () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: #e7eef8;
   color: #214a7a;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   line-height: 20px;
 }
 
@@ -1900,7 +1867,7 @@ const closeReviewPreview = () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 3px;
+  gap: 2px;
 
   strong,
   em,
@@ -1957,7 +1924,7 @@ const closeReviewPreview = () => {
 .rail-tags {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
 
   small {
@@ -1965,9 +1932,9 @@ const closeReviewPreview = () => {
     align-items: center;
     flex: 0 1 auto;
     min-width: 0;
-    max-width: 50%;
-    min-height: 20px;
-    padding: 1px 6px;
+    max-width: 58%;
+    min-height: 18px;
+    padding: 0 6px;
     border-radius: 6px;
     background: var(--td-bg-color-secondarycontainer);
     color: var(--td-text-color-secondary);
@@ -2002,7 +1969,7 @@ const closeReviewPreview = () => {
 .service-chat-main {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -2018,7 +1985,7 @@ const closeReviewPreview = () => {
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  border: 1px solid var(--td-component-stroke);
+  border: 1px solid #e3e8ee;
   border-radius: 8px;
   background: var(--td-bg-color-container);
   box-sizing: border-box;
@@ -2026,11 +1993,9 @@ const closeReviewPreview = () => {
 
 .service-reminder-detail {
   flex: 0 0 auto;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid var(--td-component-stroke);
-  background:
-    linear-gradient(90deg, rgba(34, 101, 73, 0.05), transparent 42%),
-    var(--td-bg-color-container);
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid #edf0f3;
+  background: var(--td-bg-color-container);
   box-sizing: border-box;
 }
 
@@ -2055,7 +2020,7 @@ const closeReviewPreview = () => {
     margin: 2px 0 0;
     overflow: hidden;
     color: var(--td-text-color-primary);
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 700;
     line-height: 26px;
     letter-spacing: 0;
@@ -2089,17 +2054,24 @@ const closeReviewPreview = () => {
 .service-reminder-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  gap: 0;
+  margin-top: 14px;
+  border: 1px solid #edf0f3;
+  border-radius: 8px;
+  background: #fafbfc;
+  overflow: hidden;
 
   section {
     min-width: 0;
-    min-height: 88px;
-    padding: 10px;
-    border: 1px solid var(--td-component-stroke);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.72);
+    min-height: 82px;
+    padding: 11px 12px;
+    border-right: 1px solid #edf0f3;
+    background: transparent;
     box-sizing: border-box;
+
+    &:last-child {
+      border-right: 0;
+    }
   }
 
   h4 {
@@ -2137,9 +2109,9 @@ const closeReviewPreview = () => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 30px;
-  padding: 4px 10px;
-  border: 1px solid var(--td-component-border);
+  min-height: 28px;
+  padding: 3px 10px;
+  border: 1px solid #dfe5e9;
   border-radius: 7px;
   background: var(--td-bg-color-container);
   color: var(--td-text-color-secondary);
@@ -2150,10 +2122,15 @@ const closeReviewPreview = () => {
   white-space: nowrap;
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     border-color: rgba(45, 116, 238, 0.32);
     background: #f4f8ff;
     color: #2365d6;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.62;
   }
 
   &.primary {
@@ -2161,12 +2138,16 @@ const closeReviewPreview = () => {
     background: #236549;
     color: #ffffff;
 
-    &:hover {
+    &:hover:not(:disabled) {
       border-color: #1d543d;
       background: #1d543d;
       color: #ffffff;
     }
   }
+}
+
+.service-header-action {
+  min-height: 30px;
 }
 
 .service-agent-chat-shell {
@@ -2272,11 +2253,11 @@ const closeReviewPreview = () => {
   max-height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px 16px;
-  border: 1px solid var(--td-component-stroke);
+  padding: 13px 14px;
+  border: 1px solid #e3e8ee;
   border-radius: 8px;
   background: var(--td-bg-color-container);
-  box-shadow: 0 10px 24px -22px rgba(17, 35, 62, 0.44);
+  box-shadow: none;
   box-sizing: border-box;
 }
 
@@ -2315,10 +2296,17 @@ const closeReviewPreview = () => {
 
   span {
     color: var(--td-text-color-secondary);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     line-height: 22px;
   }
+}
+
+.customer-summary-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .customer-summary-status {
@@ -2327,9 +2315,9 @@ const closeReviewPreview = () => {
   justify-content: center;
   flex: 0 0 auto;
   gap: 5px;
-  min-height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--td-component-border);
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid #e2e7ec;
   border-radius: 7px;
   background: var(--td-bg-color-container);
   color: var(--td-text-color-secondary);
@@ -2349,9 +2337,9 @@ const closeReviewPreview = () => {
 
 .customer-summary-person {
   position: relative;
-  margin-top: 12px;
+  margin-top: 10px;
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--td-component-stroke);
+  border-bottom: 1px solid #edf0f3;
 
   p {
     margin: 3px 0 0;
@@ -2373,7 +2361,7 @@ const closeReviewPreview = () => {
     margin: 0;
     overflow: hidden;
     color: #0f1828;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
     line-height: 26px;
     letter-spacing: 0;
@@ -2412,88 +2400,13 @@ const closeReviewPreview = () => {
   }
 }
 
-.work-profile-card {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  margin-top: 12px;
-  padding: 10px;
-  border: 1px solid rgba(34, 101, 73, 0.12);
-  border-radius: 8px;
-  background: rgba(34, 101, 73, 0.05);
-  box-sizing: border-box;
-
-  span {
-    display: block;
-    color: #236549;
-    font-size: 12px;
-    line-height: 18px;
-  }
-
-  strong {
-    display: block;
-    overflow: hidden;
-    color: var(--td-text-color-primary);
-    font-size: 14px;
-    font-weight: 700;
-    line-height: 20px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  p {
-    display: -webkit-box;
-    margin: 2px 0 0;
-    max-height: 36px;
-    overflow: hidden;
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-    line-height: 18px;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-  }
-}
-
-.work-profile-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  background: #236549;
-  color: #ffffff;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 22px;
-}
-
-.work-profile-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-
-  span {
-    min-height: 22px;
-    padding: 1px 7px;
-    border: 1px solid rgba(45, 116, 238, 0.14);
-    border-radius: 6px;
-    background: rgba(45, 116, 238, 0.06);
-    color: #2365d6;
-    font-size: 12px;
-    line-height: 18px;
-    box-sizing: border-box;
-  }
-}
-
 .customer-summary-facts {
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin: 10px 0 0;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--td-component-stroke);
+  margin: 8px 0 0;
+  padding: 5px 0;
+  border-bottom: 1px solid #edf0f3;
 
   div {
     display: flex;
@@ -2501,17 +2414,17 @@ const closeReviewPreview = () => {
     justify-content: space-between;
     gap: 12px;
     min-width: 0;
-    min-height: 30px;
-    padding: 4px 0;
+    min-height: 28px;
+    padding: 3px 0;
     box-sizing: border-box;
   }
 
   div:first-child {
-    min-height: 34px;
+    min-height: 30px;
     margin: 0 0 3px;
-    padding: 6px 10px;
-    border-radius: 8px;
-    background: var(--td-bg-color-secondarycontainer);
+    padding: 5px 8px;
+    border-radius: 7px;
+    background: #f7f9fb;
   }
 
   dt {
@@ -2534,15 +2447,16 @@ const closeReviewPreview = () => {
 }
 
 .assistant-result-card {
-  margin-top: 10px;
-  padding: 10px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-  background: var(--td-bg-color-secondarycontainer);
+  margin-top: 8px;
+  padding: 9px 0 0;
+  border: 0;
+  border-top: 1px solid #edf0f3;
+  border-radius: 0;
+  background: transparent;
   box-sizing: border-box;
 
   h4 {
-    margin: 0 0 6px;
+    margin: 0 0 5px;
     color: var(--td-text-color-secondary);
     font-size: 12px;
     font-weight: 600;
@@ -2553,7 +2467,7 @@ const closeReviewPreview = () => {
   p {
     display: -webkit-box;
     margin: 0;
-    max-height: 60px;
+    max-height: 56px;
     overflow: hidden;
     color: var(--td-text-color-primary);
     font-size: 12px;
@@ -2565,7 +2479,7 @@ const closeReviewPreview = () => {
   ul {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -2573,7 +2487,7 @@ const closeReviewPreview = () => {
 
   li {
     position: relative;
-    padding-left: 12px;
+    padding-left: 11px;
     color: var(--td-text-color-primary);
     font-size: 12px;
     line-height: 20px;
@@ -2592,19 +2506,19 @@ const closeReviewPreview = () => {
 }
 
 .assistant-result-card--actions {
-  background: #fffdf8;
+  background: transparent;
 }
 
 .assistant-result-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  gap: 5px;
+  margin-top: 7px;
 
   span {
-    min-height: 22px;
-    padding: 1px 7px;
-    border: 1px solid rgba(34, 101, 73, 0.14);
+    min-height: 20px;
+    padding: 0 6px;
+    border: 1px solid #dce7e1;
     border-radius: 6px;
     background: rgba(34, 101, 73, 0.05);
     color: #236549;
@@ -2617,8 +2531,8 @@ const closeReviewPreview = () => {
 .customer-summary-actions {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
+  gap: 2px;
+  margin-top: 7px;
 }
 
 .customer-summary-entry {
@@ -2627,8 +2541,8 @@ const closeReviewPreview = () => {
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 44px;
-  padding: 7px 8px;
+  min-height: 40px;
+  padding: 6px 7px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -2676,10 +2590,10 @@ const closeReviewPreview = () => {
 
 .customer-summary-draft {
   margin-top: 8px;
-  padding: 10px;
-  border: 1px solid rgba(34, 101, 73, 0.12);
-  border-radius: 8px;
-  background: rgba(34, 101, 73, 0.05);
+  padding: 9px;
+  border: 0;
+  border-radius: 7px;
+  background: #f3f7f5;
   box-sizing: border-box;
 
   h4 {
@@ -2694,7 +2608,7 @@ const closeReviewPreview = () => {
   p {
     display: -webkit-box;
     margin: 0;
-    max-height: 60px;
+    max-height: 56px;
     overflow: hidden;
     color: var(--td-text-color-primary);
     font-size: 12px;
@@ -2706,8 +2620,8 @@ const closeReviewPreview = () => {
 
 .customer-summary-source {
   margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--td-component-stroke);
+  padding-top: 9px;
+  border-top: 1px solid #edf0f3;
 
   h4 {
     margin: 0 0 8px;
@@ -2718,21 +2632,40 @@ const closeReviewPreview = () => {
     letter-spacing: 0;
   }
 
-  div {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  span {
-    min-height: 22px;
-    padding: 1px 7px;
-    border: 1px solid var(--td-component-stroke);
-    border-radius: 6px;
+  p {
+    display: -webkit-box;
+    margin: 0 0 8px;
+    overflow: hidden;
     color: var(--td-text-color-secondary);
     font-size: 12px;
-    line-height: 18px;
-    box-sizing: border-box;
+    line-height: 20px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+.customer-summary-open-space {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #dce7e1;
+  border-radius: 8px;
+  background: #f7fbf8;
+  color: #236549;
+  cursor: pointer;
+  font-family: var(--app-font-family);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+
+  &:hover {
+    border-color: rgba(35, 101, 73, 0.34);
+    background: #eef7f1;
   }
 }
 
@@ -3507,10 +3440,14 @@ const closeReviewPreview = () => {
     padding-right: 16px;
   }
 
-  .service-source-state {
+  .service-header-tools {
     align-self: flex-start;
     max-width: 100%;
     flex-wrap: wrap;
+  }
+
+  .service-header-reminder {
+    align-items: flex-start;
 
     strong {
       white-space: normal;

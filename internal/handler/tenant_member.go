@@ -14,6 +14,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
@@ -36,6 +37,7 @@ import (
 type TenantMemberHandler struct {
 	memberService interfaces.TenantMemberService
 	userService   interfaces.UserService
+	modelService  interfaces.ModelService
 }
 
 // NewTenantMemberHandler wires the dependencies. PR 1 already provides
@@ -46,10 +48,12 @@ type TenantMemberHandler struct {
 func NewTenantMemberHandler(
 	memberService interfaces.TenantMemberService,
 	userService interfaces.UserService,
+	modelService interfaces.ModelService,
 ) *TenantMemberHandler {
 	return &TenantMemberHandler{
 		memberService: memberService,
 		userService:   userService,
+		modelService:  modelService,
 	}
 }
 
@@ -60,22 +64,37 @@ func NewTenantMemberHandler(
 // must already have an account. Sending an email invite is tracked as a
 // PR 4 candidate.
 type addMemberRequest struct {
-	Email string           `json:"email" binding:"required,email"`
-	Role  types.TenantRole `json:"role" binding:"required"`
+	Email                  string           `json:"email" binding:"required,email"`
+	Role                   types.TenantRole `json:"role" binding:"required"`
+	WorkProfileDescription string           `json:"work_profile_description" binding:"required"`
 }
 
 // adminCreateMemberRequest is the JSON body for the administrator-driven
 // account creation flow. Role is optional; ordinary members default to
 // contributor and can be adjusted from the member table after creation.
 type adminCreateMemberRequest struct {
-	Phone string           `json:"phone" binding:"required"`
-	Name  string           `json:"name" binding:"required"`
-	Role  types.TenantRole `json:"role"`
+	Phone                  string           `json:"phone" binding:"required"`
+	Name                   string           `json:"name" binding:"required"`
+	Role                   types.TenantRole `json:"role"`
+	WorkProfileDescription string           `json:"work_profile_description" binding:"required"`
 }
 
 // updateMemberRoleRequest is the JSON body for PUT /tenants/:id/members/:user_id.
 type updateMemberRoleRequest struct {
 	Role types.TenantRole `json:"role" binding:"required"`
+}
+
+// updateMemberProfileRequest updates tenant-scoped member metadata that does
+// not change RBAC authority. The work profile description is used as service
+// routing input.
+type updateMemberProfileRequest struct {
+	WorkProfileDescription string `json:"work_profile_description" binding:"required"`
+}
+
+type suggestMemberProfileRequest struct {
+	JobTitle            string `json:"job_title" binding:"required"`
+	MemberName          string `json:"member_name"`
+	ExistingDescription string `json:"existing_description"`
 }
 
 // callerCanManageOwnerRoles keeps delegated Admins useful for daily member
@@ -199,16 +218,17 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 	resp := make([]types.TenantMemberResponse, 0, len(members))
 	for _, m := range members {
 		row := types.TenantMemberResponse{
-			UserID:         m.UserID,
-			Role:           m.Role,
-			Status:         m.Status,
-			Source:         m.Source,
-			ExternalUserID: m.ExternalUserID,
-			Department:     m.Department,
-			InvitedBy:      m.InvitedBy,
-			JoinedAt:       m.JoinedAt,
-			ExpiresAt:      m.ExpiresAt,
-			SuspendedAt:    m.SuspendedAt,
+			UserID:                 m.UserID,
+			Role:                   m.Role,
+			Status:                 m.Status,
+			Source:                 m.Source,
+			ExternalUserID:         m.ExternalUserID,
+			Department:             m.Department,
+			WorkProfileDescription: m.WorkProfileDescription,
+			InvitedBy:              m.InvitedBy,
+			JoinedAt:               m.JoinedAt,
+			ExpiresAt:              m.ExpiresAt,
+			SuspendedAt:            m.SuspendedAt,
 		}
 		if u, ok := usersByID[m.UserID]; ok && u != nil {
 			row.Email = u.Email
@@ -277,6 +297,11 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
 		return
 	}
+	workProfileDescription := strings.TrimSpace(req.WorkProfileDescription)
+	if workProfileDescription == "" {
+		c.Error(apperrors.NewValidationError(service.ErrWorkProfileDescriptionRequired.Error()))
+		return
+	}
 
 	user, err := h.userService.GetUserByEmail(ctx, strings.TrimSpace(req.Email))
 	if err != nil {
@@ -306,10 +331,12 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 		invitedBy = &caller
 	}
 
-	member, err := h.memberService.AddMember(ctx, user.ID, tenantID, req.Role, invitedBy)
+	member, err := h.memberService.AddMemberWithProfile(ctx, user.ID, tenantID, req.Role, invitedBy, workProfileDescription)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidTenantRole):
+			c.Error(apperrors.NewValidationError(err.Error()))
+		case errors.Is(err, service.ErrWorkProfileDescriptionRequired):
 			c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrMembershipAlreadyExists):
 			// 409 reads better than 400 here: the request was syntactically
@@ -327,19 +354,20 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 	// list endpoint uses, so the UI can swap "Add Member" UX into the
 	// table without an extra round-trip.
 	resp := types.TenantMemberResponse{
-		UserID:         member.UserID,
-		Email:          user.Email,
-		Username:       user.Username,
-		Avatar:         user.Avatar,
-		Role:           member.Role,
-		Status:         member.Status,
-		Source:         member.Source,
-		ExternalUserID: member.ExternalUserID,
-		Department:     member.Department,
-		InvitedBy:      member.InvitedBy,
-		JoinedAt:       member.JoinedAt,
-		ExpiresAt:      member.ExpiresAt,
-		SuspendedAt:    member.SuspendedAt,
+		UserID:                 member.UserID,
+		Email:                  user.Email,
+		Username:               user.Username,
+		Avatar:                 user.Avatar,
+		Role:                   member.Role,
+		Status:                 member.Status,
+		Source:                 member.Source,
+		ExternalUserID:         member.ExternalUserID,
+		Department:             member.Department,
+		WorkProfileDescription: member.WorkProfileDescription,
+		InvitedBy:              member.InvitedBy,
+		JoinedAt:               member.JoinedAt,
+		ExpiresAt:              member.ExpiresAt,
+		SuspendedAt:            member.SuspendedAt,
 	}
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -384,6 +412,11 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("name must be 50 characters or fewer"))
 		return
 	}
+	workProfileDescription := strings.TrimSpace(req.WorkProfileDescription)
+	if workProfileDescription == "" {
+		c.Error(apperrors.NewValidationError(service.ErrWorkProfileDescriptionRequired.Error()))
+		return
+	}
 
 	role := req.Role
 	if role == "" {
@@ -414,13 +447,15 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 		return
 	}
 
-	member, err := h.memberService.AddMember(ctx, user.ID, tenantID, role, nil)
+	member, err := h.memberService.AddMemberWithProfile(ctx, user.ID, tenantID, role, nil, workProfileDescription)
 	if err != nil {
 		if cleanupErr := h.userService.DeleteUser(ctx, user.ID); cleanupErr != nil {
 			logger.Warnf(ctx, "failed to roll back admin-created user %s after member add failure: %v", user.ID, cleanupErr)
 		}
 		switch {
 		case errors.Is(err, service.ErrInvalidTenantRole):
+			c.Error(apperrors.NewValidationError(err.Error()))
+		case errors.Is(err, service.ErrWorkProfileDescriptionRequired):
 			c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrMembershipAlreadyExists):
 			c.Error(apperrors.NewConflictError(err.Error()))
@@ -433,19 +468,20 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 	}
 
 	resp := types.TenantMemberResponse{
-		UserID:         member.UserID,
-		Email:          user.Email,
-		Username:       user.Username,
-		Avatar:         user.Avatar,
-		Role:           member.Role,
-		Status:         member.Status,
-		Source:         member.Source,
-		ExternalUserID: member.ExternalUserID,
-		Department:     member.Department,
-		InvitedBy:      member.InvitedBy,
-		JoinedAt:       member.JoinedAt,
-		ExpiresAt:      member.ExpiresAt,
-		SuspendedAt:    member.SuspendedAt,
+		UserID:                 member.UserID,
+		Email:                  user.Email,
+		Username:               user.Username,
+		Avatar:                 user.Avatar,
+		Role:                   member.Role,
+		Status:                 member.Status,
+		Source:                 member.Source,
+		ExternalUserID:         member.ExternalUserID,
+		Department:             member.Department,
+		WorkProfileDescription: member.WorkProfileDescription,
+		InvitedBy:              member.InvitedBy,
+		JoinedAt:               member.JoinedAt,
+		ExpiresAt:              member.ExpiresAt,
+		SuspendedAt:            member.SuspendedAt,
 	}
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -520,6 +556,241 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// UpdateMemberProfile godoc
+// @Summary      更新成员分身描述
+// @Description  Admin 更新空间成员的分身描述；该描述作为服务路由的 AI 提取输入，不改变成员权限
+// @Tags         空间成员
+// @Accept       json
+// @Produce      json
+// @Param        id       path  string                     true  "空间 ID"
+// @Param        user_id  path  string                     true  "用户 ID"
+// @Param        request  body  updateMemberProfileRequest true  "成员资料"
+// @Success      200  {object}  map[string]interface{}
+// @Security     Bearer
+// @Router       /tenants/{id}/members/{user_id}/profile [put]
+func (h *TenantMemberHandler) UpdateMemberProfile(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+	userID := strings.TrimSpace(c.Param("user_id"))
+	if userID == "" {
+		c.Error(apperrors.NewValidationError("user_id is required"))
+		return
+	}
+
+	var req updateMemberProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+
+	current, err := h.memberService.GetMembership(ctx, userID, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed before member profile update: user=%s tenant=%d err=%v",
+			userID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load membership").WithDetails(err.Error()))
+		return
+	}
+	if current == nil {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+	if current.Role == types.TenantRoleOwner && !callerCanManageOwnerRoles(ctx) {
+		c.Error(apperrors.NewForbiddenError(service.ErrOwnerOperationRequiresOwner.Error()))
+		return
+	}
+
+	if err := h.memberService.UpdateWorkProfileDescription(ctx, userID, tenantID, req.WorkProfileDescription); err != nil {
+		switch {
+		case errors.Is(err, service.ErrMembershipNotFound):
+			c.Error(apperrors.NewNotFoundError("membership not found"))
+		case errors.Is(err, service.ErrWorkProfileDescriptionRequired):
+			c.Error(apperrors.NewValidationError(err.Error()))
+		default:
+			logger.Errorf(ctx, "UpdateWorkProfileDescription failed: user=%s tenant=%d err=%v",
+				userID, tenantID, err)
+			c.Error(apperrors.NewInternalServerError("failed to update member profile").WithDetails(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// SuggestMemberWorkProfile godoc
+// @Summary      根据岗位生成成员分身描述
+// @Description  Admin 输入岗位后生成可保存到成员管理的分身描述；优先调用默认 KnowledgeQA 模型，模型不可用时返回模板兜底
+// @Tags         空间成员
+// @Accept       json
+// @Produce      json
+// @Param        id       path  string                      true  "空间 ID"
+// @Param        request  body  suggestMemberProfileRequest true  "岗位信息"
+// @Success      200  {object}  map[string]interface{}
+// @Security     Bearer
+// @Router       /tenants/{id}/members/work-profile/suggest [post]
+func (h *TenantMemberHandler) SuggestMemberWorkProfile(c *gin.Context) {
+	ctx := c.Request.Context()
+	if _, ok := parseTenantIDFromPath(c); !ok {
+		return
+	}
+
+	var req suggestMemberProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	jobTitle := strings.TrimSpace(req.JobTitle)
+	if jobTitle == "" {
+		c.Error(apperrors.NewValidationError("job title is required"))
+		return
+	}
+	if utf8.RuneCountInString(jobTitle) > 80 {
+		c.Error(apperrors.NewValidationError("job title must be 80 characters or fewer"))
+		return
+	}
+
+	description, source, modelID := h.generateMemberWorkProfileDescription(
+		ctx,
+		jobTitle,
+		strings.TrimSpace(req.MemberName),
+		strings.TrimSpace(req.ExistingDescription),
+	)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"description": description,
+			"source":      source,
+			"model_id":    modelID,
+		},
+	})
+}
+
+func (h *TenantMemberHandler) generateMemberWorkProfileDescription(
+	ctx context.Context,
+	jobTitle string,
+	memberName string,
+	existingDescription string,
+) (string, string, string) {
+	fallback := fallbackMemberWorkProfileDescription(jobTitle, memberName)
+	if h.modelService == nil {
+		return fallback, "fallback", ""
+	}
+	modelID := h.defaultChatModelID(ctx)
+	if modelID == "" {
+		return fallback, "fallback", ""
+	}
+	chatModel, err := h.modelService.GetChatModel(ctx, modelID)
+	if err != nil || chatModel == nil {
+		logger.Warnf(ctx, "member work profile AI model unavailable: model=%s err=%v", modelID, err)
+		return fallback, "fallback", modelID
+	}
+
+	thinking := false
+	resp, err := chatModel.Chat(ctx, []chat.Message{
+		{
+			Role:    "system",
+			Content: "你是睿乐园所/教培服务实施顾问。根据岗位生成员工分身描述，用于服务能力和权限边界判断。只输出一段可直接保存的中文描述，不输出标题、Markdown、JSON 或解释。",
+		},
+		{
+			Role:    "user",
+			Content: buildMemberWorkProfilePrompt(jobTitle, memberName, existingDescription),
+		},
+	}, &chat.ChatOptions{
+		Temperature: 0.25,
+		MaxTokens:   700,
+		Thinking:    &thinking,
+	})
+	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
+		logger.Warnf(ctx, "member work profile AI generation failed: model=%s err=%v", modelID, err)
+		return fallback, "fallback", modelID
+	}
+	return cleanGeneratedWorkProfileDescription(resp.Content), "ai", modelID
+}
+
+func (h *TenantMemberHandler) defaultChatModelID(ctx context.Context) string {
+	if h.modelService == nil {
+		return ""
+	}
+	models, err := h.modelService.ListModels(ctx)
+	if err != nil {
+		return ""
+	}
+	var fallback string
+	for _, model := range models {
+		if model == nil || model.Status != types.ModelStatusActive || model.Type != types.ModelTypeKnowledgeQA {
+			continue
+		}
+		if model.IsDefault {
+			return model.ID
+		}
+		if fallback == "" {
+			fallback = model.ID
+		}
+	}
+	return fallback
+}
+
+func buildMemberWorkProfilePrompt(jobTitle string, memberName string, existingDescription string) string {
+	var b strings.Builder
+	b.WriteString("请基于以下信息生成员工分身描述。\n")
+	b.WriteString("岗位：")
+	b.WriteString(jobTitle)
+	b.WriteString("\n")
+	if memberName != "" {
+		b.WriteString("成员姓名：")
+		b.WriteString(memberName)
+		b.WriteString("\n")
+	}
+	if existingDescription != "" {
+		b.WriteString("已有描述：")
+		b.WriteString(existingDescription)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n要求：80-220 字；必须包含服务对象、负责事项、不负责事项、可读取记忆范围、外部系统边界和沟通风格；不要扩大成员既有权限。")
+	return b.String()
+}
+
+func fallbackMemberWorkProfileDescription(jobTitle string, memberName string) string {
+	name := strings.TrimSpace(memberName)
+	if name == "" {
+		name = "该员工"
+	}
+	job := strings.TrimSpace(jobTitle)
+	lower := strings.ToLower(job)
+	focus := "本岗位相关的服务事项、日常跟进和交付风险"
+	switch {
+	case strings.Contains(job, "园长") || strings.Contains(job, "校长") || strings.Contains(job, "负责人") || strings.Contains(job, "经营"):
+		focus = "园区经营、招生转化、家校服务、续费风险和团队协同"
+	case strings.Contains(job, "招生") || strings.Contains(job, "顾问") || strings.Contains(job, "咨询") || strings.Contains(lower, "sales"):
+		focus = "线索咨询、试听邀约、报名转化和家长异议处理"
+	case strings.Contains(job, "教务") || strings.Contains(job, "排课") || strings.Contains(job, "班主任"):
+		focus = "排课调课、请假补课、班级服务和学习反馈"
+	case strings.Contains(job, "老师") || strings.Contains(job, "教师") || strings.Contains(job, "主班"):
+		focus = "课堂记录、学员反馈、家校沟通和教学服务"
+	case strings.Contains(job, "运营") || strings.Contains(job, "客服") || strings.Contains(job, "服务"):
+		focus = "家长服务、回访跟进、投诉处理和续费风险识别"
+	}
+	return name + "的岗位是" + job + "，主要服务对象为当前空间内与其岗位相关的家长、学员和园所成员，负责" + focus + "。不负责超出本人岗位和授权范围的财务审批、人事决策、跨空间数据和平台运维事项。仅可读取本人服务相关记忆、当前空间授权知识库和已发布服务规则；涉及外部系统时只生成建议或草稿，不直接执行敏感操作。沟通风格保持温和、具体、先确认事实，再给出下一步建议。"
+}
+
+func cleanGeneratedWorkProfileDescription(content string) string {
+	text := strings.TrimSpace(content)
+	text = strings.Trim(text, "` \t\r\n\"“”")
+	if strings.HasPrefix(text, "```") {
+		text = strings.TrimPrefix(text, "```")
+		text = strings.TrimSpace(strings.TrimPrefix(text, "text"))
+		text = strings.TrimSpace(strings.TrimPrefix(text, "markdown"))
+		text = strings.TrimSpace(strings.TrimSuffix(text, "```"))
+	}
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) > 1200 {
+		runes = runes[:1200]
+	}
+	return string(runes)
 }
 
 // RemoveMember godoc

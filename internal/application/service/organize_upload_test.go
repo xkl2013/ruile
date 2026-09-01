@@ -112,38 +112,36 @@ func TestOrganizeServiceCreateOutputFromUpload_AudioTranscribes(t *testing.T) {
 	assert.ElementsMatch(t, []string{"音频学习", "客户访谈", "试听邀约", "音频类", "业务提升"}, readOrganizeOutputTags(t, item.Metadata))
 }
 
-func TestOrganizeServiceCreateMemoryFromUploadCreatesFormattedNote(t *testing.T) {
+func TestOrganizeServiceCreateMemoryFromUploadCreatesAudioMemory(t *testing.T) {
 	ctx := context.Background()
-	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{
-		models: []*types.Model{
-			{ID: "chat-1", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
-		},
-		chatModel: &stubOrganizeChatModel{
-			content: `{"title":"招生复盘纪要","summary":"整理招生流程、家长沟通和跟进动作。","tags":["招生复盘","家长沟通","跟进动作"]}`,
-		},
-	}, &stubOrganizeFileService{}, &stubOrganizeDocumentReader{
-		result: &types.ReadResult{
-			MarkdownContent: "# 招生复盘纪要\n\n## 招生流程\n\n- 试听邀约\n- 家长沟通\n\n后续要明确跟进节奏。",
-		},
-	})
+	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, &stubOrganizeFileService{}, &stubOrganizeDocumentReader{})
 
-	item, err := svc.CreateMemoryFromUpload(ctx, 9, "user-a", "招生复盘纪要.pdf", "application/pdf", []byte("pdf-bytes"))
+	item, err := svc.CreateMemoryFromUpload(
+		ctx,
+		9,
+		"user-a",
+		"招生复盘纪要.m4a",
+		"audio/mp4",
+		[]byte("audio-bytes"),
+		types.OrganizeMemoryInput{
+			Title:  "招生复盘纪要",
+			Source: "语音记录",
+		},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, item)
-	assert.Equal(t, types.OrganizeMemoryKindNote, item.Kind)
+	assert.Equal(t, types.OrganizeMemoryKindAudio, item.Kind)
 	assert.Equal(t, "招生复盘纪要", item.Title)
-	assert.Equal(t, "文件导入", item.Source)
-	assert.Contains(t, item.Content, "<h2>招生流程</h2>")
-	assert.Contains(t, item.Content, "<ul><li>试听邀约</li><li>家长沟通</li></ul>")
-	assert.Contains(t, item.Content, "<p>后续要明确跟进节奏。</p>")
-	assert.NotContains(t, item.Content, "<h2>招生复盘纪要</h2>")
-	assert.Equal(t, "整理招生流程、家长沟通和跟进动作。", item.Metadata["summary"])
-	assert.Equal(t, "completed", item.Metadata["ai_status"])
-	assert.Equal(t, "chat-1", item.Metadata["ai_model_id"])
-	assert.Equal(t, "招生复盘纪要.pdf", item.Metadata["file_name"])
-	assert.Equal(t, "pdf", item.Metadata["file_type"])
-	assert.Equal(t, "file", item.Metadata["import_source"])
-	assert.ElementsMatch(t, []string{"招生复盘", "家长沟通", "跟进动作", "导入笔记", "文件整理"}, readOrganizeOutputTags(t, item.Metadata))
+	assert.Equal(t, "语音记录", item.Source)
+	assert.Equal(t, "<p>录音已保存，等待转写。</p>", item.Content)
+	assert.Equal(t, "招生复盘纪要.mp3", item.Metadata["file_name"])
+	assert.Equal(t, "招生复盘纪要.mp3", item.Metadata["audio_file_name"])
+	assert.Equal(t, "audio/mpeg", item.Metadata["audio_mime_type"])
+	assert.Equal(t, "mp3", item.Metadata["audio_codec"])
+	assert.Equal(t, "pending", item.Metadata["transcription_status"])
+	assert.Equal(t, "语音记录", item.Metadata["sync_source"])
+	assert.NotEmpty(t, item.Metadata["file_path"])
+	assert.NotEmpty(t, item.Metadata["audio_url"])
 }
 
 func readOrganizeOutputTags(t *testing.T, metadata types.JSONMap) []string {

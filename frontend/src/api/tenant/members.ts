@@ -19,6 +19,7 @@ export interface TenantMember {
   source?: TenantMemberSource
   external_user_id?: string
   department?: string
+  work_profile_description?: string
   invited_by?: string | null
   joined_at: string
   expires_at?: string | null
@@ -66,12 +67,14 @@ function buildMembersQuery(params: ListMembersParams | undefined): string {
 export interface AddMemberRequest {
   email: string
   role: TenantRole
+  work_profile_description: string
 }
 
 export interface AdminCreateMemberRequest {
   phone: string
   name: string
   role?: TenantRole
+  work_profile_description: string
 }
 
 export interface AddMemberResponse {
@@ -82,6 +85,22 @@ export interface AddMemberResponse {
 
 export interface SimpleResponse {
   success: boolean
+  message?: string
+}
+
+export interface GenerateMemberWorkProfileRequest {
+  job_title: string
+  member_name?: string
+  existing_description?: string
+}
+
+export interface GenerateMemberWorkProfileResponse {
+  success: boolean
+  data?: {
+    description: string
+    source: 'ai' | 'fallback'
+    model_id?: string
+  }
   message?: string
 }
 
@@ -165,6 +184,35 @@ export async function updateMemberRole(
   role: TenantRole,
 ): Promise<SimpleResponse> {
   return (await put(`/api/v1/tenants/${tenantId}/members/${userId}`, { role })) as unknown as SimpleResponse
+}
+
+/**
+ * Update tenant-scoped member metadata used by service routing.
+ * Backend: PUT /api/v1/tenants/:id/members/:user_id/profile (Admin+).
+ */
+export async function updateMemberProfile(
+  tenantId: number,
+  userId: string,
+  body: { work_profile_description: string },
+): Promise<SimpleResponse> {
+  return (await put(
+    `/api/v1/tenants/${tenantId}/members/${userId}/profile`,
+    body,
+  )) as unknown as SimpleResponse
+}
+
+/**
+ * Generate a member avatar/work-profile description from a job title.
+ * Backend: POST /api/v1/tenants/:id/members/work-profile/suggest (Admin+).
+ */
+export async function generateMemberWorkProfile(
+  tenantId: number,
+  body: GenerateMemberWorkProfileRequest,
+): Promise<GenerateMemberWorkProfileResponse> {
+  return (await post(
+    `/api/v1/tenants/${tenantId}/members/work-profile/suggest`,
+    body,
+  )) as unknown as GenerateMemberWorkProfileResponse
 }
 
 /**

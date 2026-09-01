@@ -199,6 +199,31 @@ func (r *tenantMemberRepository) UpdateStatus(
 	return nil
 }
 
+// UpdateWorkProfileDescription updates the service-facing work avatar text for
+// an existing membership. The field is tenant-scoped because the same account
+// can play different roles in different workspaces.
+func (r *tenantMemberRepository) UpdateWorkProfileDescription(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	description string,
+) error {
+	res := r.db.WithContext(ctx).
+		Model(&types.TenantMember{}).
+		Where("user_id = ? AND tenant_id = ?", userID, tenantID).
+		Updates(map[string]any{
+			"work_profile_description": description,
+			"updated_at":               time.Now(),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 // CountActiveOwners reports the number of active owner rows in the tenant.
 func (r *tenantMemberRepository) CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error) {
 	var count int64

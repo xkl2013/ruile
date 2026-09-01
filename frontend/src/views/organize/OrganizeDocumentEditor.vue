@@ -21,6 +21,18 @@
           v-if="isNoteMemory"
           theme="default"
           variant="outline"
+          class="editor-service-action"
+          :loading="noteServiceExtracting"
+          :disabled="saving || loading"
+          @click="extractCurrentMemoryToService"
+        >
+          <template #icon><img src="@/assets/img/agent-green.svg" class="editor-service-action-icon" alt="" aria-hidden="true" /></template>
+          提取服务
+        </t-button>
+        <t-button
+          v-if="isNoteMemory"
+          theme="default"
+          variant="outline"
           class="editor-sprout-action"
           :class="`editor-sprout-action--${noteSproutHeaderState}`"
           :loading="noteSproutCreating"
@@ -174,12 +186,14 @@
                 <section v-show="noteActiveTab === 'service'" class="memory-note-panel-view memory-note-panel-view--service">
                   <article v-if="noteServiceTask" class="memory-note-service-card">
                     <div class="memory-note-service-head">
-                      <span>客户摘要</span>
-                      <div>
-                        <h2>{{ noteServiceTask.customerName }}</h2>
-                        <em :class="`priority-${noteServiceTask.priorityKey}`">
-                          {{ noteServiceTask.stage }} · {{ noteServiceTask.confidenceLabel }}
-                        </em>
+                      <div class="memory-note-service-head-copy">
+                        <span>客户摘要</span>
+                        <div>
+                          <h2>{{ noteServiceTask.customerName }}</h2>
+                          <em :class="`priority-${noteServiceTask.priorityKey}`">
+                            {{ noteServiceTask.stage }} · {{ noteServiceTask.confidenceLabel }}
+                          </em>
+                        </div>
                       </div>
                     </div>
 
@@ -464,6 +478,7 @@ import {
   formatMemoryDateLabel,
   type ServiceTask,
 } from '../service/serviceMemoryExtraction'
+import { extractServiceMemory } from '@/api/service'
 
 type OrganizeDocumentType = 'memory' | 'output' | 'sprout'
 type SaveState = 'idle' | 'saving' | 'saved' | 'waiting' | 'error'
@@ -506,6 +521,7 @@ const noteSproutCreating = ref(false)
 const noteSproutLoading = ref(false)
 const noteSproutStatus = ref<OrganizeSproutStage | ''>('')
 const noteActiveTab = ref<'content' | 'service' | 'sprout'>('content')
+const noteServiceExtracting = ref(false)
 const sourcePreviewVisible = ref(false)
 const sproutPreviewVisible = ref(false)
 const outputDraft = ref<OrganizeOutput | null>(null)
@@ -908,6 +924,55 @@ const noteServiceFacts = computed(() => {
     { label: '置信度', value: task.confidenceLabel },
   ]
 })
+
+const serviceExtractionReasonMessage = (reason?: string) => {
+  if (reason === 'profile_not_configured') return '服务提醒还未配置，请联系工程师开启'
+  if (reason === 'agent_not_enabled') return '这类服务能力还未开启，请联系工程师配置'
+  if (reason === 'memory_not_relevant') return '这条记忆缺少客户身份或服务信号'
+  return '未生成服务提醒'
+}
+
+const serviceExtractionErrorMessage = (error: any) => {
+  if (error?.status === 404) return '这条记忆不存在或无权限访问'
+  if (typeof error?.message === 'string' && error.message) return error.message
+  return '提取服务失败'
+}
+
+const extractCurrentMemoryToService = async () => {
+  if (!isNoteMemory.value || noteServiceExtracting.value) return
+  if (saving.value) {
+    MessagePlugin.info('正在保存笔记，请稍后')
+    return
+  }
+
+  if (isCreate.value || saveState.value !== 'saved') {
+    await saveDocument()
+  }
+
+  const memoryID = activeDocumentId.value
+  if (!memoryID || memoryID === 'new' || saveState.value === 'waiting' || saveState.value === 'error') {
+    MessagePlugin.warning('请先保存笔记')
+    return
+  }
+
+  noteServiceExtracting.value = true
+  try {
+    const response = await extractServiceMemory(memoryID)
+    const data = response?.data
+    if (!response.success || !data) {
+      throw new Error(response.message || '提取服务失败')
+    }
+    if (!data.generated) {
+      MessagePlugin.warning(serviceExtractionReasonMessage(data.reason))
+      return
+    }
+    MessagePlugin.success('服务提醒已生成')
+  } catch (error: any) {
+    MessagePlugin.error(serviceExtractionErrorMessage(error))
+  } finally {
+    noteServiceExtracting.value = false
+  }
+}
 
 const markDocumentDirty = () => {
   if (!editorReady.value || loading.value) return
@@ -1656,6 +1721,37 @@ watch(
   flex: 0 0 auto;
 }
 
+.editor-service-action {
+  height: 36px;
+  padding: 0 14px;
+  border-color: rgba(55, 53, 47, 0.14);
+  border-radius: 8px;
+  background: #fff;
+  color: #20242a;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.editor-service-action:hover {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.05);
+  color: #20242a;
+}
+
+.editor-service-action :deep(.t-button__icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+}
+
+.editor-service-action-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
 .editor-sprout-action {
   height: 36px;
   padding: 0 14px;
@@ -2397,8 +2493,16 @@ watch(
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+}
+
+.memory-note-service-head-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 10px;
 
   > span {
+    align-self: flex-start;
     padding: 4px 9px;
     border-radius: 999px;
     background: rgba(22, 93, 67, 0.08);
@@ -3031,6 +3135,8 @@ watch(
   .editor-page-actions {
     width: 100%;
     justify-content: flex-end;
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
 
   .organize-editor-main {

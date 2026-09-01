@@ -51,6 +51,10 @@ type TenantMemberRepository interface {
 	// suspended_at. Used for reversible enterprise suspension/reactivation.
 	UpdateStatus(ctx context.Context, userID string, tenantID uint64, status types.TenantMemberStatus, suspendedAt *time.Time) error
 
+	// UpdateWorkProfileDescription changes the service-facing work avatar text
+	// for an existing active membership.
+	UpdateWorkProfileDescription(ctx context.Context, userID string, tenantID uint64, description string) error
+
 	// CountActiveOwners reports how many active rows in the tenant carry
 	// the owner role. Used by service-layer invariant checks ("cannot
 	// remove the last owner").

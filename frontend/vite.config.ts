@@ -47,6 +47,24 @@ function embedHtmlDevFallback(): Plugin {
     },
   }
 }
+
+function mobileHtmlDevFallback(): Plugin {
+  return {
+    name: 'mobile-html-dev-fallback',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const raw = req.url ?? ''
+        const qIdx = raw.indexOf('?')
+        const path = qIdx >= 0 ? raw.slice(0, qIdx) : raw
+        const qs = qIdx >= 0 ? raw.slice(qIdx) : ''
+        if ((path === '/mobile' || path.startsWith('/mobile/')) && path !== '/mobile.html' && !path.includes('.')) {
+          req.url = `/mobile.html${qs}`
+        }
+        next()
+      })
+    },
+  }
+}
 const DEV_PROXY_TARGET =
   process.env.VITE_DEV_PROXY_TARGET ||
   process.env.FRONTEND_BACKEND_URL ||
@@ -99,6 +117,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         embed: resolve(__dirname, 'embed.html'),
+        mobile: resolve(__dirname, 'mobile.html'),
       },
       output: {
         manualChunks(id) {
@@ -120,6 +139,7 @@ export default defineConfig({
     vue(),
     vueJsx(),
     embedHtmlDevFallback(),
+    mobileHtmlDevFallback(),
   ],
   resolve: {
     alias: {

@@ -167,6 +167,7 @@ export interface UpdateAgentRequest {
 export const BUILTIN_QUICK_ANSWER_ID = 'builtin-quick-answer';
 export const BUILTIN_SMART_REASONING_ID = 'builtin-smart-reasoning';
 export const BUILTIN_SALES_DIRECTOR_ID = 'builtin-sales-director';
+export const BUILTIN_SERVICE_ASSISTANT_ID = 'builtin-service-assistant';
 
 // AgentMode 常量
 export const AGENT_MODE_QUICK_ANSWER = 'quick-answer';

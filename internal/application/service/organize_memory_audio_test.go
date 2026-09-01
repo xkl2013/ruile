@@ -142,8 +142,15 @@ func TestOrganizeServiceCreateMemoryFromUpload_CleansNestedMetadata(t *testing.T
 	require.NotNil(t, item)
 
 	assert.Equal(t, "教学区", item.Metadata["device_name"])
-	nested, ok := item.Metadata["nested"].(types.JSONMap)
-	require.True(t, ok)
+	var nested map[string]any
+	switch value := item.Metadata["nested"].(type) {
+	case types.JSONMap:
+		nested = map[string]any(value)
+	case map[string]any:
+		nested = value
+	default:
+		t.Fatalf("unexpected nested metadata type: %T", value)
+	}
 	assert.Equal(t, "录音", nested["label"])
 	tags, ok := nested["tags"].([]any)
 	require.True(t, ok)

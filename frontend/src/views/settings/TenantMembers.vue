@@ -60,119 +60,6 @@
            侧，邀请按钮再往右一个图标位，所有「针对这张列表」的控
            件聚到同一行，独立 toolbar 不复存在。 -->
 
-      <!-- Pending invitations. Shown only to managers because the
-               viewer/contributor roles don't have an action surface
-               here. Even when empty we still render the header so
-               operators get a stable "is there anything pending?"
-               affordance after they hit "Send invitation". -->
-      <div v-if="canManage" class="pending-invitations-section">
-        <div class="pending-invitations-header">
-          <div class="pending-invitations-titlewrap">
-            <span class="pending-invitations-title">
-              {{ $t('tenantInvitation.pendingSectionTitle') }}
-            </span>
-            <!-- Same count-badge style as the «空间成员» list header
-                 so the two list titles read at parity. -->
-            <span class="members-list-count-badge">{{ invitationsTotal }}</span>
-          </div>
-          <span class="pending-invitations-desc">
-            {{ $t('tenantInvitation.pendingSectionDesc', { days: INVITATION_TTL_DAYS }) }}
-          </span>
-        </div>
-        <div v-if="invitationsLoading" class="loading-inline">
-          <t-loading size="small" />
-          <span>{{ $t('tenantMember.loading') }}</span>
-        </div>
-        <div v-else-if="invitationsError" class="error-inline">
-          <t-alert theme="error" :message="invitationsError">
-            <template #operation>
-              <t-button size="small" @click="loadInvitations">{{ $t('tenantMember.retry') }}</t-button>
-            </template>
-          </t-alert>
-        </div>
-        <div v-else-if="invitationsTotal === 0" class="pending-invitations-empty">
-          {{ $t('tenantInvitation.pendingEmpty') }}
-        </div>
-        <div v-else class="data-table-shell data-table-shell--with-footer pending-invitations-table">
-          <div class="data-table-shell__scroll">
-            <t-table row-key="id" :data="invitations" :columns="invitationColumns" size="medium" hover>
-              <template #invitee="{ row }">
-                <div class="member-cell">
-                  <template v-if="row.is_share_link">
-                    <span class="member-name share-link-title">
-                      <t-icon name="link" size="14px" />
-                      {{ $t('tenantInvitation.shareLink.cellTitle') }}
-                    </span>
-                    <span class="member-email">
-                      {{ (row.accepted_count ?? 0) > 0
-                        ? $t('tenantInvitation.shareLink.cellAccepted', { count: row.accepted_count })
-                        : $t('tenantInvitation.shareLink.cellEmpty') }}
-                    </span>
-                  </template>
-                  <template v-else>
-                    <span class="member-name">{{ inviteePrimary(row) }}</span>
-                    <span v-if="row.invitee_email && row.invitee_name" class="member-email">{{ row.invitee_email
-                      }}</span>
-                  </template>
-                </div>
-              </template>
-              <template #role="{ row }">
-                <t-tag :theme="roleTagTheme(row.role)" size="small">
-                  {{ $t('tenantMember.role.' + row.role) }}
-                </t-tag>
-              </template>
-              <template #inviter="{ row }">
-                <span>{{ inviterPrimary(row) }}</span>
-              </template>
-              <template #expires_at="{ row }">{{ formatDate(row.expires_at) }}</template>
-              <template #status="{ row }">
-                <t-tag :theme="invitationStatusTheme(row.status)" size="small">
-                  {{ row.is_share_link && row.status === 'pending'
-                    ? $t('tenantInvitation.status.shareLinkActive')
-                    : $t('tenantInvitation.status.' + row.status) }}
-                </t-tag>
-              </template>
-              <template #actions="{ row }">
-                <!-- Per-row "copy link" for active share-link rows.
-                     Icon-only with tooltip so two actions ("copy" +
-                     "revoke") fit inside the actions column without
-                     clipping; the full label was too wide. -->
-                <t-tooltip v-if="row.status === 'pending' && row.invite_url"
-                  :content="$t('tenantInvitation.copyLink')" placement="top">
-                  <t-button shape="square" variant="text" size="small"
-                    @click="copyText(absoluteInviteURL(row.invite_url))">
-                    <template #icon><t-icon name="copy" /></template>
-                  </t-button>
-                </t-tooltip>
-                <!-- Inline popconfirm anchored to the revoke button.
-                       Avoids spawning a top-level modal for a simple
-                       yes/no decision; the popover stays inside the
-                       table cell so the user keeps spatial context. -->
-                <t-popconfirm v-if="row.status === 'pending'" theme="warning"
-                  :content="row.is_share_link
-                    ? $t('tenantInvitation.shareLink.revokeConfirm')
-                    : $t('tenantInvitation.revoke.confirmBody', {
-                        email: row.invitee_email || row.invitee_user_id,
-                      })"
-                  :confirm-btn="{ content: $t('tenantInvitation.revoke.confirm'), theme: 'danger' }"
-                  :cancel-btn="$t('common.cancel')" placement="left" @confirm="doRevokeInvitation(row)">
-                  <t-tooltip :content="$t('tenantInvitation.revoke.button')" placement="top">
-                    <t-button theme="danger" shape="square" variant="text" size="small">
-                      <template #icon><t-icon name="close" /></template>
-                    </t-button>
-                  </t-tooltip>
-                </t-popconfirm>
-              </template>
-            </t-table>
-          </div>
-          <div v-if="invitationsTotal > 0" class="data-table-shell__pager">
-            <t-pagination v-model="invitationsPage" v-model:page-size="invitationsPageSize" :total="invitationsTotal"
-              size="small" show-jumper show-page-number show-page-size
-              :page-size-options="INVITATIONS_PAGE_SIZE_OPTIONS" @change="onInvitationsPageChange" />
-          </div>
-        </div>
-      </div>
-
       <!-- Member list. 列表头（标题 / 计数 / 搜索框 / 邀请按钮）始终
            渲染，loading / error / empty / 表格作为下方的内容状态切换。
            这样搜索时输入框不会被卸载，避免焦点丢失与页面抖动。 -->
@@ -235,12 +122,26 @@
                       <t-select v-model="addForm.role" :options="assignableRoleOptions"
                         :popup-props="roleSelectPopupProps" />
                     </t-form-item>
+                    <t-form-item :label="$t('tenantMember.workProfile.label')" name="workProfileDescription">
+                      <t-textarea
+                        v-model="addForm.workProfileDescription"
+                        :autosize="{ minRows: 3, maxRows: 5 }"
+                        :maxlength="2000"
+                        :placeholder="$t('tenantMember.workProfile.placeholder')"
+                      />
+                    </t-form-item>
                   </t-form>
                   <div v-else class="invite-confirm-body">
-                    {{ $t('tenantInvitation.confirmInviteBody', {
-                      phone: addConfirmPhone,
-                      role: addConfirmRoleLabel,
-                    }) }}
+                    <p>
+                      {{ $t('tenantInvitation.confirmInviteBody', {
+                        phone: addConfirmPhone,
+                        role: addConfirmRoleLabel,
+                      }) }}
+                    </p>
+                    <p class="invite-confirm-work-profile">
+                      <strong>{{ $t('tenantMember.workProfile.label') }}</strong>
+                      <span>{{ addConfirmWorkProfilePreview }}</span>
+                    </p>
                   </div>
                   <div class="invite-popup-footer">
                     <t-button v-if="addDialogStep === 'form'" variant="outline" :disabled="adding"
@@ -379,48 +280,71 @@
               <template #department="{ row }">
                 <span class="department-cell">{{ row.department?.trim() || '-' }}</span>
               </template>
+              <template #work_profile_description="{ row }">
+                <div class="work-profile-cell">
+                  <span :class="['work-profile-preview', { 'is-empty': !row.work_profile_description?.trim() }]">
+                    {{ memberWorkProfilePreview(row) }}
+                  </span>
+                </div>
+              </template>
               <template #joined_at="{ row }">{{ formatDate(row.joined_at) }}</template>
-              <template #actions="{ row }">
-                <t-popconfirm
-                  v-if="canManageMemberRow(row) && row.status !== 'suspended'"
-                  theme="warning"
-                  :content="$t('tenantMember.suspend.confirmBody', { name: row.username || row.email })"
-                  :confirm-btn="{ content: $t('tenantMember.suspend.confirm'), theme: 'warning' }"
-                  :cancel-btn="{ content: $t('common.cancel') }"
-                  placement="left"
-                  @confirm="suspendRow(row)">
-                  <t-tooltip :content="$t('tenantMember.suspend.button')" placement="top">
-                    <t-button theme="warning" shape="square" variant="text" size="small" @click.stop>
-                      <template #icon><t-icon name="lock-on" /></template>
+              <template #operation="{ row }">
+                <div class="member-actions-cell">
+                  <t-tooltip v-if="canConfigureWorkProfile(row)" :content="$t('tenantMember.workProfile.configure')" placement="top">
+                    <t-button
+                      theme="primary"
+                      variant="text"
+                      size="small"
+                      class="work-profile-action-btn"
+                      :title="$t('tenantMember.workProfile.configure')"
+                      :aria-label="$t('tenantMember.workProfile.configure')"
+                      @click.stop="openWorkProfileDialog(row)"
+                    >
+                      <template #icon><t-icon name="setting-1" /></template>
+                      {{ $t('tenantMember.workProfile.shortButton') }}
                     </t-button>
                   </t-tooltip>
-                </t-popconfirm>
-                <t-popconfirm
-                  v-if="canManageMemberRow(row) && row.status === 'suspended'"
-                  :content="$t('tenantMember.reactivate.confirmBody', { name: row.username || row.email })"
-                  :confirm-btn="{ content: $t('tenantMember.reactivate.confirm'), theme: 'primary' }"
-                  :cancel-btn="{ content: $t('common.cancel') }"
-                  placement="left"
-                  @confirm="reactivateRow(row)">
-                  <t-tooltip :content="$t('tenantMember.reactivate.button')" placement="top">
-                    <t-button theme="primary" shape="square" variant="text" size="small" @click.stop>
-                      <template #icon><t-icon name="refresh" /></template>
-                    </t-button>
-                  </t-tooltip>
-                </t-popconfirm>
-                <t-popconfirm
-                  v-if="canManageMemberRow(row)"
-                  :content="$t('tenantMember.remove.confirmBody', { name: row.username || row.email })"
-                  :confirm-btn="{ content: $t('tenantMember.remove.confirm'), theme: 'danger' }"
-                  :cancel-btn="{ content: $t('common.cancel') }"
-                  placement="left"
-                  @confirm="removeRow(row)">
-                  <t-tooltip :content="$t('tenantMember.remove.button')" placement="top">
-                    <t-button theme="danger" shape="square" variant="text" size="small" @click.stop>
-                      <template #icon><t-icon name="user-clear" /></template>
-                    </t-button>
-                  </t-tooltip>
-                </t-popconfirm>
+                  <t-popconfirm
+                    v-if="canManageMemberRow(row) && row.status !== 'suspended'"
+                    theme="warning"
+                    :content="$t('tenantMember.suspend.confirmBody', { name: row.username || row.email })"
+                    :confirm-btn="{ content: $t('tenantMember.suspend.confirm'), theme: 'warning' }"
+                    :cancel-btn="{ content: $t('common.cancel') }"
+                    placement="left"
+                    @confirm="suspendRow(row)">
+                    <t-tooltip :content="$t('tenantMember.suspend.button')" placement="top">
+                      <t-button theme="warning" shape="square" variant="text" size="small" @click.stop>
+                        <template #icon><t-icon name="lock-on" /></template>
+                      </t-button>
+                    </t-tooltip>
+                  </t-popconfirm>
+                  <t-popconfirm
+                    v-if="canManageMemberRow(row) && row.status === 'suspended'"
+                    :content="$t('tenantMember.reactivate.confirmBody', { name: row.username || row.email })"
+                    :confirm-btn="{ content: $t('tenantMember.reactivate.confirm'), theme: 'primary' }"
+                    :cancel-btn="{ content: $t('common.cancel') }"
+                    placement="left"
+                    @confirm="reactivateRow(row)">
+                    <t-tooltip :content="$t('tenantMember.reactivate.button')" placement="top">
+                      <t-button theme="primary" shape="square" variant="text" size="small" @click.stop>
+                        <template #icon><t-icon name="refresh" /></template>
+                      </t-button>
+                    </t-tooltip>
+                  </t-popconfirm>
+                  <t-popconfirm
+                    v-if="canManageMemberRow(row)"
+                    :content="$t('tenantMember.remove.confirmBody', { name: row.username || row.email })"
+                    :confirm-btn="{ content: $t('tenantMember.remove.confirm'), theme: 'danger' }"
+                    :cancel-btn="{ content: $t('common.cancel') }"
+                    placement="left"
+                    @confirm="removeRow(row)">
+                    <t-tooltip :content="$t('tenantMember.remove.button')" placement="top">
+                      <t-button theme="danger" shape="square" variant="text" size="small" @click.stop>
+                        <template #icon><t-icon name="user-clear" /></template>
+                      </t-button>
+                    </t-tooltip>
+                  </t-popconfirm>
+                </div>
               </template>
             </t-table>
           </div>
@@ -432,45 +356,100 @@
         </div>
       </div>
 
-	    </div>
+    </div>
 
-	    <t-dialog
-	      v-if="canManage"
-	      v-model:visible="createMemberDialogVisible"
-	      :header="$t('tenantMember.create.dialogTitle')"
-	      width="420px"
-	      :confirm-btn="{ content: $t('tenantMember.create.submit'), theme: 'primary', loading: creatingMember }"
-	      :cancel-btn="{ content: $t('common.cancel'), disabled: creatingMember }"
-	      :close-on-overlay-click="!creatingMember"
-	      destroy-on-close
-	      @confirm="submitCreateMember"
-	      @cancel="createMemberDialogVisible = false"
-	      @close="createMemberDialogVisible = false"
-	    >
-	      <div class="member-create-dialog">
-	        <t-form ref="createMemberFormRef" :data="createMemberForm" :rules="createMemberRules" label-align="top"
-	          @submit.prevent>
-	          <t-form-item :label="$t('tenantMember.create.nameLabel')" name="name">
-	            <t-input v-model="createMemberForm.name" :placeholder="$t('tenantMember.create.namePlaceholder')"
-	              :maxlength="50" clearable />
-	          </t-form-item>
-	          <t-form-item :label="$t('tenantMember.create.phoneLabel')" name="phone">
-	            <t-input v-model="createMemberForm.phone" :placeholder="$t('tenantMember.create.phonePlaceholder')"
-	              clearable @enter="submitCreateMember" />
-	          </t-form-item>
-	        </t-form>
-	        <p class="member-create-password-hint">
-	          {{ $t('tenantMember.create.passwordHint') }}
-	          <span v-if="createMemberDefaultPassword" class="member-create-password-value">
-	            {{ createMemberDefaultPassword }}
-	          </span>
-	        </p>
-	      </div>
-	    </t-dialog>
+    <t-dialog
+      v-if="canManage"
+      v-model:visible="createMemberDialogVisible"
+      :header="$t('tenantMember.create.dialogTitle')"
+      width="560px"
+      :confirm-btn="{ content: $t('tenantMember.create.submit'), theme: 'primary', loading: creatingMember }"
+      :cancel-btn="{ content: $t('common.cancel'), disabled: creatingMember }"
+      :close-on-overlay-click="!creatingMember"
+      destroy-on-close
+      @confirm="submitCreateMember"
+      @cancel="createMemberDialogVisible = false"
+      @close="createMemberDialogVisible = false"
+    >
+      <div class="member-create-dialog">
+        <t-form ref="createMemberFormRef" :data="createMemberForm" :rules="createMemberRules" label-align="top"
+          @submit.prevent>
+          <t-form-item :label="$t('tenantMember.create.nameLabel')" name="name">
+            <t-input v-model="createMemberForm.name" :placeholder="$t('tenantMember.create.namePlaceholder')"
+              :maxlength="50" clearable />
+          </t-form-item>
+          <t-form-item :label="$t('tenantMember.create.phoneLabel')" name="phone">
+            <t-input v-model="createMemberForm.phone" :placeholder="$t('tenantMember.create.phonePlaceholder')"
+              clearable @enter="submitCreateMember" />
+          </t-form-item>
+          <t-form-item :label="$t('tenantMember.workProfile.label')" name="workProfileDescription">
+            <t-textarea
+              v-model="createMemberForm.workProfileDescription"
+              :autosize="{ minRows: 4, maxRows: 7 }"
+              :maxlength="2000"
+              :placeholder="$t('tenantMember.workProfile.placeholder')"
+            />
+          </t-form-item>
+        </t-form>
+        <p class="member-create-password-hint">
+          {{ $t('tenantMember.create.passwordHint') }}
+          <span v-if="createMemberDefaultPassword" class="member-create-password-value">
+            {{ createMemberDefaultPassword }}
+          </span>
+        </p>
+      </div>
+    </t-dialog>
 
-	    <!-- Audit log drawer. Only rendered for Admin+ because the backend
-	         route is g.Admin()-gated; rendering it for lower roles would
-	         just produce an unhelpful 403. Lazy-loaded on first open. -->
+      <t-dialog
+        v-if="canManage"
+        v-model:visible="workProfileDialogVisible"
+        :header="$t('tenantMember.workProfile.dialogTitle')"
+        width="560px"
+        :confirm-btn="{ content: $t('tenantMember.workProfile.save'), theme: 'primary', loading: workProfileSaving }"
+        :cancel-btn="{ content: $t('common.cancel'), disabled: workProfileSaving }"
+        :close-on-overlay-click="!workProfileSaving"
+        destroy-on-close
+        @confirm="saveWorkProfileDescription"
+        @cancel="workProfileDialogVisible = false"
+        @close="workProfileDialogVisible = false"
+      >
+        <div class="work-profile-dialog">
+          <div v-if="workProfileTarget" class="work-profile-dialog__member">
+            <strong>{{ memberPrimary(workProfileTarget) }}</strong>
+            <span>{{ memberSecondary(workProfileTarget) || workProfileTarget.user_id }}</span>
+          </div>
+          <div class="work-profile-ai-row">
+            <t-input
+              v-model="workProfileForm.jobTitle"
+              :label="$t('tenantMember.workProfile.jobLabel')"
+              :placeholder="$t('tenantMember.workProfile.jobPlaceholder')"
+              :maxlength="80"
+              clearable
+            />
+            <t-button variant="outline" :loading="workProfileSuggesting" @click="suggestWorkProfileDescription">
+              <template #icon><t-icon name="star" /></template>
+              {{ $t('tenantMember.workProfile.suggest') }}
+            </t-button>
+          </div>
+          <t-form ref="workProfileFormRef" :data="workProfileForm" :rules="workProfileRules" label-align="top" @submit.prevent>
+            <t-form-item :label="$t('tenantMember.workProfile.label')" name="description">
+              <t-textarea
+                v-model="workProfileForm.description"
+                :autosize="{ minRows: 5, maxRows: 8 }"
+                :maxlength="2000"
+                :placeholder="$t('tenantMember.workProfile.placeholder')"
+              />
+            </t-form-item>
+          </t-form>
+          <p class="work-profile-dialog__hint">
+            {{ $t('tenantMember.workProfile.hint') }}
+          </p>
+        </div>
+      </t-dialog>
+
+    <!-- Audit log drawer. Only rendered for Admin+ because the backend
+         route is g.Admin()-gated; rendering it for lower roles would
+         just produce an unhelpful 403. Lazy-loaded on first open. -->
     <t-drawer v-if="canViewAudit" v-model:visible="auditDrawerVisible" :header="$t('tenantMember.audit.tabLabel')"
       drawer-class-name="tenant-members-audit-drawer" size="880px" :footer="false" placement="right" destroy-on-close>
       <div class="audit-drawer-inner audit-panel audit-panel--drawer">
@@ -609,7 +588,9 @@ import { useAuthStore } from '@/stores/auth'
 import {
   listMembers,
   adminCreateMember,
+  generateMemberWorkProfile,
   updateMemberRole,
+  updateMemberProfile,
   removeMember,
   suspendMember,
   reactivateMember,
@@ -619,10 +600,8 @@ import {
   type TenantMemberSource,
 } from '@/api/tenant/members'
 import {
-  listTenantInvitations,
   createInvitation,
   createInviteLink,
-  revokeInvitation,
   type TenantInvitation,
 } from '@/api/tenant/invitations'
 import {
@@ -641,8 +620,8 @@ const permissionsPopupInnerStyle = {
   padding: '0',
   width: 'min(520px, calc(100vw - 24px))',
   maxWidth: 'min(520px, calc(100vw - 24px))',
-  maxHeight: 'min(400px, 65vh)',
-  overflow: 'hidden',
+  maxHeight: 'min(560px, 80vh)',
+  overflow: 'auto',
 }
 
 // State
@@ -651,8 +630,10 @@ const loading = ref(false)
 const error = ref('')
 const adding = ref(false)
 const creatingMember = ref(false)
+const workProfileSuggesting = ref(false)
 const createMemberDialogVisible = ref(false)
 const createMemberFormRef = ref<any>(null)
+const workProfileFormRef = ref<any>(null)
 /** 邀请流程：锚在列表头「+」按钮旁的弹出层（非居中模态）。 */
 const invitePopupVisible = ref(false)
 // share-link generator state (separate popup next to the phone
@@ -680,30 +661,16 @@ const membersTotal = ref(0)
 const membersPage = ref(1)
 const membersPageSize = ref(20)
 
-const invitationsTotal = ref(0)
-const invitationsPage = ref(1)
-const invitationsPageSize = ref(20)
-
 /** 历次分页载荷里见过的成员展示字段，补齐审计表里不在当前页的 user id */
 const memberDisplayByUserId = reactive<Record<string, { username?: string; email?: string }>>({})
 
-// Pending invitations live alongside members but in a distinct section
-// at the top of the Members tab — they're "people we've asked to
-// join but haven't yet accepted", and conflating them with the
-// authoritative roster would mislead an Owner trying to see who
-// actually has access. The load happens on the same trigger as the
-// members fetch so the screen renders both at once.
-const invitations = ref<TenantInvitation[]>([])
-const invitationsLoading = ref(false)
-const invitationsError = ref('')
 // Invitation TTL is mirrored from the backend constant
 // (defaultInvitationTTL in tenant_invitation.go). Kept as a UI string
-// for the section description; the authoritative number comes from
-// the server's expires_at on each row.
+// for the share-link description; the authoritative number comes from
+// the server's expires_at.
 const INVITATION_TTL_DAYS = 7
 
 const MEMBERS_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
-const INVITATIONS_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 // Audit log moved out of t-tabs into a right-side drawer; this flag
 // controls its visibility. Default closed — most operators come here
@@ -733,13 +700,22 @@ let auditScrollObserver: IntersectionObserver | null = null
 // inviting a fresh member with viewer is too restrictive for the
 // expected "let them collaborate on KBs" use case, and admin/owner
 // should be a deliberate promote step after the user accepts.
-const addForm = reactive<{ phone: string; role: TenantRole }>({
+const addForm = reactive<{ phone: string; role: TenantRole; workProfileDescription: string }>({
   phone: '',
   role: 'contributor',
+  workProfileDescription: '',
 })
-const createMemberForm = reactive<{ name: string; phone: string }>({
+const createMemberForm = reactive<{ name: string; phone: string; workProfileDescription: string }>({
   name: '',
   phone: '',
+  workProfileDescription: '',
+})
+const workProfileDialogVisible = ref(false)
+const workProfileSaving = ref(false)
+const workProfileTarget = ref<TenantMember | null>(null)
+const workProfileForm = reactive({
+  jobTitle: '',
+  description: '',
 })
 
 // Role-aware gates. The server enforces every mutation; UI gates here
@@ -866,8 +842,9 @@ const columns = computed(() => [
   { colKey: 'status', title: t('tenantMember.columns.status'), width: 118 },
   { colKey: 'source', title: t('tenantMember.columns.source'), width: 106 },
   { colKey: 'department', title: t('tenantMember.columns.department'), ellipsis: true, minWidth: 116 },
+  { colKey: 'work_profile_description', title: t('tenantMember.columns.workProfile'), minWidth: 280 },
   { colKey: 'joined_at', title: t('tenantMember.columns.joinedAt'), width: 154 },
-  { colKey: 'actions', title: t('tenantMember.columns.operations'), width: 132, align: 'left' },
+  { colKey: 'operation', title: t('tenantMember.columns.operations'), width: 128, align: 'left', cell: 'operation' },
 ])
 
 function memberPrimary(row: { username?: string; email?: string }) {
@@ -881,12 +858,86 @@ function memberSecondary(row: { username?: string; email?: string }) {
   return ''
 }
 
+function memberWorkProfilePreview(row: TenantMember) {
+  return row.work_profile_description?.trim() || t('tenantMember.workProfile.empty')
+}
+
+function openWorkProfileDialog(row: TenantMember) {
+  workProfileTarget.value = row
+  workProfileForm.jobTitle = ''
+  workProfileForm.description = row.work_profile_description?.trim() || ''
+  workProfileDialogVisible.value = true
+  nextTick(() => workProfileFormRef.value?.clearValidate?.())
+}
+
+async function suggestWorkProfileDescription() {
+  if (!activeTenantId.value || !workProfileTarget.value) return
+  const jobTitle = workProfileForm.jobTitle.trim()
+  if (!jobTitle) {
+    MessagePlugin.warning(t('tenantMember.workProfile.jobRequired'))
+    return
+  }
+  workProfileSuggesting.value = true
+  try {
+    const resp = await generateMemberWorkProfile(activeTenantId.value, {
+      job_title: jobTitle,
+      member_name: memberPrimary(workProfileTarget.value),
+      existing_description: workProfileForm.description.trim(),
+    })
+    if (!resp.success || !resp.data?.description) {
+      MessagePlugin.error(resp.message || t('tenantMember.workProfile.suggestFailed'))
+      return
+    }
+    workProfileForm.description = resp.data.description.trim()
+    nextTick(() => workProfileFormRef.value?.clearValidate?.())
+    MessagePlugin.success(t('tenantMember.workProfile.suggestSuccess'))
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenantMember.workProfile.suggestFailed'))
+  } finally {
+    workProfileSuggesting.value = false
+  }
+}
+
+async function saveWorkProfileDescription() {
+  if (!activeTenantId.value || !workProfileTarget.value) return
+  const valid = await workProfileFormRef.value?.validate?.()
+  if (valid !== true) return
+  const target = workProfileTarget.value
+  const description = workProfileForm.description.trim()
+  workProfileSaving.value = true
+  try {
+    const resp = await updateMemberProfile(activeTenantId.value, target.user_id, {
+      work_profile_description: description,
+    })
+    if (!resp.success) {
+      MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
+      return
+    }
+    target.work_profile_description = description
+    const row = members.value.find((member) => member.user_id === target.user_id)
+    if (row) row.work_profile_description = description
+    workProfileDialogVisible.value = false
+    MessagePlugin.success(t('tenantMember.workProfile.success'))
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
+  } finally {
+    workProfileSaving.value = false
+  }
+}
+
 const addFormRules = {
   phone: [
     { required: true, message: t('tenantMember.errors.phoneRequired'), trigger: 'blur' },
     { pattern: /^1[3-9]\d{9}$/, message: t('tenantMember.errors.phoneFormat'), trigger: 'blur' },
   ],
   role: [{ required: true, message: t('tenantMember.errors.roleRequired'), trigger: 'change' }],
+  workProfileDescription: [
+    {
+      validator: (val: string) => (val ?? '').trim().length > 0,
+      message: t('tenantMember.errors.workProfileRequired'),
+      trigger: 'blur',
+    },
+  ],
 }
 
 const createMemberRules = {
@@ -905,6 +956,23 @@ const createMemberRules = {
   phone: [
     { required: true, message: t('tenantMember.errors.phoneRequired'), trigger: 'blur' },
     { pattern: /^1[3-9]\d{9}$/, message: t('tenantMember.errors.phoneFormat'), trigger: 'blur' },
+  ],
+  workProfileDescription: [
+    {
+      validator: (val: string) => (val ?? '').trim().length > 0,
+      message: t('tenantMember.errors.workProfileRequired'),
+      trigger: 'blur',
+    },
+  ],
+}
+
+const workProfileRules = {
+  description: [
+    {
+      validator: (val: string) => (val ?? '').trim().length > 0,
+      message: t('tenantMember.errors.workProfileRequired'),
+      trigger: 'blur',
+    },
   ],
 }
 
@@ -933,6 +1001,12 @@ function roleIcon(role: TenantRole | string): string {
 
 function canManageMemberRow(row: TenantMember): boolean {
   if (!canManage.value || row.user_id === currentUserId.value) return false
+  if (row.role === 'owner' && !canManageOwnerRoles.value) return false
+  return true
+}
+
+function canConfigureWorkProfile(row: TenantMember): boolean {
+  if (!canManage.value) return false
   if (row.role === 'owner' && !canManageOwnerRoles.value) return false
   return true
 }
@@ -1068,121 +1142,6 @@ watch([roleFilter, statusFilter, sourceFilter], () => {
   membersPage.value = 1
   void loadMembers()
 })
-
-// ---- Pending invitations ------------------------------------------------
-
-const invitationColumns = computed(() => [
-  { colKey: 'invitee', title: t('tenantInvitation.columns.invitee'), ellipsis: true, minWidth: 160 },
-  { colKey: 'role', title: t('tenantInvitation.columns.role'), width: 110 },
-  { colKey: 'inviter', title: t('tenantInvitation.columns.inviter'), ellipsis: true, minWidth: 140 },
-  { colKey: 'expires_at', title: t('tenantInvitation.columns.expiresAt'), width: 160 },
-  { colKey: 'status', title: t('tenantInvitation.columns.status'), width: 100 },
-  ...(canManage.value
-    ? [{ colKey: 'actions', title: t('tenantInvitation.columns.operations'), width: 120, align: 'left' as const }]
-    : []),
-])
-
-function invitationStatusTheme(s: TenantInvitation['status']): 'primary' | 'success' | 'warning' | 'danger' | 'default' {
-  switch (s) {
-    case 'pending':
-      return 'primary'
-    case 'accepted':
-      return 'success'
-    case 'declined':
-    case 'revoked':
-      return 'warning'
-    case 'expired':
-      return 'danger'
-    default:
-      return 'default'
-  }
-}
-
-function inviteePrimary(row: TenantInvitation): string {
-  return row.invitee_name?.trim() || row.invitee_email?.trim() || row.invitee_user_id
-}
-
-function inviterPrimary(row: TenantInvitation): string {
-  return row.inviter_name?.trim() || row.inviter_email?.trim() || row.invited_by || '—'
-}
-
-// loadInvitations is called from the same trigger as loadMembers so
-// the Members tab can render the pending section without an extra
-// round-trip latency budget. canManage gates the fetch — viewers /
-// contributors / admins-without-management see no pending section at
-// all (the route returns 200 but listing pending invites to those
-// roles would be UX noise; the route layer is Viewer+ for the read
-// itself).
-async function loadInvitations() {
-  if (!activeTenantId.value || !canManage.value) {
-    invitations.value = []
-    invitationsTotal.value = 0
-    return
-  }
-  invitationsLoading.value = true
-  invitationsError.value = ''
-  try {
-    const resp = await listTenantInvitations(activeTenantId.value, {
-      page: invitationsPage.value,
-      page_size: invitationsPageSize.value,
-    })
-    if (resp.success && resp.data) {
-      const total = resp.data.total ?? 0
-      const ps = resp.data.page_size ?? invitationsPageSize.value
-      const safePs = Math.max(1, ps)
-      const maxPage = Math.max(1, Math.ceil(total / safePs))
-      if (invitationsPage.value > maxPage) {
-        invitationsPage.value = maxPage
-        invitationsLoading.value = false
-        await loadInvitations()
-        return
-      }
-      invitations.value = resp.data.invitations ?? []
-      invitationsTotal.value = total
-      if (typeof resp.data.page === 'number' && resp.data.page > 0) {
-        invitationsPage.value = resp.data.page
-      }
-      if (typeof resp.data.page_size === 'number' && resp.data.page_size > 0) {
-        invitationsPageSize.value = resp.data.page_size
-      }
-    } else {
-      invitationsError.value = resp.message || t('tenantInvitation.errors.generic')
-    }
-  } catch (err: any) {
-    invitationsError.value = err?.message || t('tenantInvitation.errors.generic')
-  } finally {
-    invitationsLoading.value = false
-  }
-}
-
-function onInvitationsPageChange() {
-  void loadInvitations()
-}
-
-// doRevokeInvitation is wired to the t-popconfirm @confirm event in
-// the table template. The popconfirm itself owns the yes/no surface,
-// so this function is the post-confirmation action only — no nested
-// modal. Errors surface as toasts and the row stays in place for retry.
-async function doRevokeInvitation(row: TenantInvitation) {
-  try {
-    const resp = await revokeInvitation(activeTenantId.value, row.id)
-    if (resp.success) {
-      await loadInvitations()
-      MessagePlugin.success(t('tenantInvitation.revoke.success'))
-    } else {
-      MessagePlugin.error(resp.message || t('tenantInvitation.errors.generic'))
-    }
-  } catch (err: any) {
-    const status = err?.status
-    if (status === 404) {
-      MessagePlugin.error(t('tenantInvitation.errors.notFound'))
-    } else if (status === 409) {
-      MessagePlugin.error(err?.message || t('tenantInvitation.errors.notPending'))
-    } else {
-      MessagePlugin.error(err?.message || t('tenantInvitation.errors.generic'))
-    }
-  }
-}
 
 // ---- Audit-log helpers --------------------------------------------------
 
@@ -1469,6 +1428,7 @@ watch(invitePopupVisible, (open) => {
   if (!open) return
   addForm.phone = ''
   addForm.role = 'contributor'
+  addForm.workProfileDescription = ''
   addDialogStep.value = 'form'
 })
 
@@ -1484,6 +1444,7 @@ watch(createMemberDialogVisible, (open) => {
   if (!open) return
   createMemberForm.name = ''
   createMemberForm.phone = ''
+  createMemberForm.workProfileDescription = ''
   nextTick(() => createMemberFormRef.value?.clearValidate?.())
 })
 
@@ -1528,8 +1489,6 @@ async function submitShareLink() {
       return
     }
     shareLinkResult.value = resp.data
-    invitationsPage.value = 1
-    await loadInvitations()
   } catch (err: any) {
     if (err?.status === 400 || err?.status === 403) {
       MessagePlugin.error(err?.message || t('tenantInvitation.shareLink.roleRestricted'))
@@ -1559,12 +1518,14 @@ async function submitCreateMember() {
 
   const phone = createMemberForm.phone.trim()
   const name = createMemberForm.name.trim()
+  const workProfileDescription = createMemberForm.workProfileDescription.trim()
   creatingMember.value = true
   try {
     const resp = await adminCreateMember(activeTenantId.value, {
       phone,
       name,
       role: 'contributor',
+      work_profile_description: workProfileDescription,
     })
     if (!resp.success) {
       MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
@@ -1596,6 +1557,7 @@ async function submitCreateMember() {
 // the summary always mirrors the current form state.
 const addConfirmPhone = computed(() => addForm.phone.trim())
 const addConfirmRoleLabel = computed(() => t('tenantMember.role.' + addForm.role))
+const addConfirmWorkProfilePreview = computed(() => addForm.workProfileDescription.trim())
 
 // submitAdd is wired to the popup footer primary CTA. On step='form' it
 // validates and swaps to summary; on step='confirm' it fires the API.
@@ -1606,7 +1568,7 @@ async function submitAdd() {
     addDialogStep.value = 'confirm'
     return
   }
-  await sendInvitation(addForm.phone.trim(), addForm.role)
+  await sendInvitation(addForm.phone.trim(), addForm.role, addForm.workProfileDescription.trim())
 }
 
 // goBackToForm un-advances from confirm to form inside the popup.
@@ -1622,17 +1584,19 @@ const dialogConfirmLabel = computed(() =>
 )
 
 // sendInvitation actually fires the create-invitation API call.
-async function sendInvitation(phone: string, role: TenantRole) {
+async function sendInvitation(phone: string, role: TenantRole, workProfileDescription: string) {
   if (role === 'owner' && !canManageOwnerRoles.value) {
     MessagePlugin.error(t('tenantMember.errors.ownerRequiresOwner'))
     return
   }
   adding.value = true
   try {
-    const resp = await createInvitation(activeTenantId.value, { phone, role })
+    const resp = await createInvitation(activeTenantId.value, {
+      phone,
+      role,
+      work_profile_description: workProfileDescription,
+    })
     if (resp.success) {
-      invitationsPage.value = 1
-      await loadInvitations()
       invitePopupVisible.value = false
       MessagePlugin.success(t('tenantInvitation.inviteSuccess'))
     } else {
@@ -1807,13 +1771,9 @@ watch(
       memberDepartmentQ.value = ''
       window.clearTimeout(memberSearchDebounceTimer)
       membersPage.value = 1
-      invitationsPage.value = 1
       membersPageSize.value = 20
-      invitationsPageSize.value = 20
       membersTotal.value = 0
-      invitationsTotal.value = 0
       loadMembers()
-      loadInvitations()
     }
   },
   { immediate: true },
@@ -1926,11 +1886,6 @@ watch(
       row-gap: 8px;
     }
   }
-}
-
-/* 待接受区块整体为浅底色，分页条与表格区同色阶、仅靠顶部分割线与表格区分 */
-.pending-invitations-table.data-table-shell.data-table-shell--with-footer>.data-table-shell__pager {
-  background-color: transparent;
 }
 
 .permissions-trigger-btn {
@@ -2133,6 +2088,90 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.work-profile-cell {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+}
+
+.work-profile-preview {
+  display: -webkit-box;
+  min-width: 0;
+  max-width: 420px;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.work-profile-preview.is-empty {
+  color: var(--td-text-color-disabled);
+}
+
+.member-actions-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  min-height: 32px;
+}
+
+.work-profile-action-btn {
+  height: 28px;
+  padding: 0 8px;
+  font-weight: 500;
+}
+
+.work-profile-action-btn :deep(.t-button__text) {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.work-profile-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.work-profile-dialog__member {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.work-profile-dialog__member strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.work-profile-dialog__member span,
+.work-profile-dialog__hint {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.work-profile-ai-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+@media (max-width: 560px) {
+  .work-profile-ai-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Audit drawer's data-table-shell variant: only used inside the audit
@@ -2373,6 +2412,30 @@ watch(
   color: var(--td-text-color-primary);
   font-size: 14px;
   line-height: 1.6;
+
+  p {
+    margin: 0;
+  }
+}
+
+.invite-confirm-work-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px !important;
+  color: var(--td-text-color-secondary);
+
+  strong {
+    color: var(--td-text-color-primary);
+    font-weight: 600;
+  }
+
+  span {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+  }
 }
 
 .invite-popup-footer {
@@ -2445,51 +2508,6 @@ watch(
   gap: 4px;
   color: var(--td-brand-color);
   font-weight: 500;
-}
-
-.pending-invitations-section {
-  margin-bottom: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-
-  .pending-invitations-header {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .pending-invitations-titlewrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .pending-invitations-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--td-text-color-primary);
-  }
-
-  .pending-invitations-desc {
-    font-size: 12px;
-    color: var(--td-text-color-secondary);
-  }
-
-  .pending-invitations-empty {
-    padding: 10px 12px;
-    border: 1px dashed var(--td-component-stroke);
-    border-radius: 8px;
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-    background: var(--td-bg-color-container);
-  }
-
-  /* Visually distinguish from members table so the eye doesn't fuse
-     "pending" rows with "actual member" rows. */
-  .pending-invitations-table {
-    background: var(--td-bg-color-secondarycontainer);
-  }
 }
 
 .empty-state {

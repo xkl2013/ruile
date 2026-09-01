@@ -54,10 +54,11 @@ func NewTenantInvitationHandler(
 // Email remains accepted for backwards compatibility with older clients.
 // The optional Message is surfaced in the invitee's inbox.
 type createInvitationRequest struct {
-	Phone   string           `json:"phone"`
-	Email   string           `json:"email,omitempty"`
-	Role    types.TenantRole `json:"role" binding:"required"`
-	Message string           `json:"message"`
+	Phone                  string           `json:"phone"`
+	Email                  string           `json:"email,omitempty"`
+	Role                   types.TenantRole `json:"role" binding:"required"`
+	Message                string           `json:"message"`
+	WorkProfileDescription string           `json:"work_profile_description" binding:"required"`
 }
 
 // parseInvitationIDFromPath reads :inv_id off the gin context.
@@ -91,18 +92,19 @@ func projectInvitation(
 	tenantsByID map[uint64]*types.Tenant,
 ) types.TenantInvitationResponse {
 	resp := types.TenantInvitationResponse{
-		ID:            inv.ID,
-		TenantID:      inv.TenantID,
-		InviteeUserID: inv.InviteeUserID,
-		InvitedBy:     inv.InvitedBy,
-		Role:          inv.Role,
-		Status:        inv.Status,
-		Message:       inv.Message,
-		ExpiresAt:     inv.ExpiresAt,
-		RespondedAt:   inv.RespondedAt,
-		CreatedAt:     inv.CreatedAt,
-		IsShareLink:   inv.InviteeUserID == "",
-		AcceptedCount: inv.AcceptedCount,
+		ID:                     inv.ID,
+		TenantID:               inv.TenantID,
+		InviteeUserID:          inv.InviteeUserID,
+		InvitedBy:              inv.InvitedBy,
+		Role:                   inv.Role,
+		Status:                 inv.Status,
+		Message:                inv.Message,
+		WorkProfileDescription: inv.WorkProfileDescription,
+		ExpiresAt:              inv.ExpiresAt,
+		RespondedAt:            inv.RespondedAt,
+		CreatedAt:              inv.CreatedAt,
+		IsShareLink:            inv.InviteeUserID == "",
+		AcceptedCount:          inv.AcceptedCount,
 	}
 	if u, ok := usersByID[inv.InviteeUserID]; ok && u != nil {
 		resp.InviteeEmail = u.Email
@@ -290,6 +292,11 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("phone is required"))
 		return
 	}
+	workProfileDescription := strings.TrimSpace(req.WorkProfileDescription)
+	if workProfileDescription == "" {
+		c.Error(apperrors.NewValidationError(service.ErrWorkProfileDescriptionRequired.Error()))
+		return
+	}
 
 	user, err := h.userService.GetUserByEmail(ctx, identifier)
 	if err != nil {
@@ -310,10 +317,12 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 		invitedBy = &caller
 	}
 
-	inv, err := h.invitationService.Create(ctx, tenantID, user.ID, req.Role, invitedBy, req.Message)
+	inv, err := h.invitationService.CreateWithProfile(ctx, tenantID, user.ID, req.Role, invitedBy, req.Message, workProfileDescription)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidTenantRole):
+			c.Error(apperrors.NewValidationError(err.Error()))
+		case errors.Is(err, service.ErrWorkProfileDescriptionRequired):
 			c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrPendingInvitationExists):
 			c.Error(apperrors.NewConflictError(err.Error()))

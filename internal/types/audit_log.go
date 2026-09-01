@@ -22,6 +22,9 @@ const (
 	// AuditActionMemberRoleChanged fires for promote/demote operations.
 	// The Details payload carries old_role and new_role.
 	AuditActionMemberRoleChanged AuditAction = "rbac.member_role_changed"
+	// AuditActionMemberProfileChanged fires when an operator updates a
+	// tenant member's service-facing work avatar description.
+	AuditActionMemberProfileChanged AuditAction = "rbac.member_profile_changed"
 	// AuditActionMemberLeft fires on POST /tenants/:id/leave — the
 	// actor and target are the same user.
 	AuditActionMemberLeft AuditAction = "rbac.member_left"

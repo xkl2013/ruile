@@ -193,6 +193,21 @@ func (r *fakeTenantMemberRepo) UpdateStatus(
 	return gormErrRecordNotFound
 }
 
+func (r *fakeTenantMemberRepo) UpdateWorkProfileDescription(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	description string,
+) error {
+	for _, e := range r.rows {
+		if e.UserID == userID && e.TenantID == tenantID && !e.DeletedAt.Valid {
+			e.WorkProfileDescription = description
+			return nil
+		}
+	}
+	return gormErrRecordNotFound
+}
+
 func (r *fakeTenantMemberRepo) CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error) {
 	if r.failCountOwners != nil {
 		return 0, r.failCountOwners
@@ -324,6 +339,29 @@ func TestTenantMemberService_AddMember_MarksInvitedSource(t *testing.T) {
 	}
 }
 
+func TestTenantMemberService_AddMemberWithProfile_SavesMemberProfile(t *testing.T) {
+	svc, repo := newServiceWithRepo()
+	ctx := context.Background()
+	member, err := svc.AddMemberWithProfile(ctx, "u1", 1, types.TenantRoleContributor, nil, "  园长负责招生跟进和家校服务  ")
+	if err != nil {
+		t.Fatalf("AddMemberWithProfile: %v", err)
+	}
+	if member.WorkProfileDescription != "园长负责招生跟进和家校服务" {
+		t.Fatalf("member.WorkProfileDescription = %q", member.WorkProfileDescription)
+	}
+	if got := repo.rows[0].WorkProfileDescription; got != "园长负责招生跟进和家校服务" {
+		t.Fatalf("persisted WorkProfileDescription = %q", got)
+	}
+}
+
+func TestTenantMemberService_AddMemberWithProfile_RequiresDescription(t *testing.T) {
+	svc, _ := newServiceWithRepo()
+	_, err := svc.AddMemberWithProfile(context.Background(), "u1", 1, types.TenantRoleContributor, nil, "   ")
+	if !errors.Is(err, ErrWorkProfileDescriptionRequired) {
+		t.Fatalf("want ErrWorkProfileDescriptionRequired, got %v", err)
+	}
+}
+
 func TestTenantMemberService_AddMember_MapsDuplicateKeyRace(t *testing.T) {
 	// Simulate the TOCTOU race: Get() saw no row, then a concurrent
 	// AddMember inserted before us, so our Create hits the partial
@@ -411,6 +449,45 @@ func TestTenantMemberService_UpdateRole_ReturnsNotFound(t *testing.T) {
 	svc, _ := newServiceWithRepo()
 	if err := svc.UpdateRole(context.Background(), "ghost", 1, types.TenantRoleAdmin); !errors.Is(err, ErrMembershipNotFound) {
 		t.Fatalf("want ErrMembershipNotFound, got %v", err)
+	}
+}
+
+func TestTenantMemberService_UpdateWorkProfileDescription_SavesMemberProfile(t *testing.T) {
+	svc, repo := newServiceWithRepo()
+	ctx := context.Background()
+	repo.rows = []*types.TenantMember{{
+		UserID:   "member",
+		TenantID: 1,
+		Role:     types.TenantRoleContributor,
+		Status:   types.TenantMemberStatusActive,
+	}}
+
+	err := svc.UpdateWorkProfileDescription(ctx, "member", 1, "  园长负责招生跟进和家校服务  ")
+	if err != nil {
+		t.Fatalf("UpdateWorkProfileDescription() error = %v", err)
+	}
+	if got := repo.rows[0].WorkProfileDescription; got != "园长负责招生跟进和家校服务" {
+		t.Fatalf("WorkProfileDescription = %q", got)
+	}
+}
+
+func TestTenantMemberService_UpdateWorkProfileDescription_RequiresDescription(t *testing.T) {
+	svc, repo := newServiceWithRepo()
+	ctx := context.Background()
+	repo.rows = []*types.TenantMember{{
+		UserID:                 "member",
+		TenantID:               1,
+		Role:                   types.TenantRoleContributor,
+		Status:                 types.TenantMemberStatusActive,
+		WorkProfileDescription: "已有描述",
+	}}
+
+	err := svc.UpdateWorkProfileDescription(ctx, "member", 1, "   ")
+	if !errors.Is(err, ErrWorkProfileDescriptionRequired) {
+		t.Fatalf("want ErrWorkProfileDescriptionRequired, got %v", err)
+	}
+	if got := repo.rows[0].WorkProfileDescription; got != "已有描述" {
+		t.Fatalf("blank update should not clear WorkProfileDescription, got %q", got)
 	}
 }
 

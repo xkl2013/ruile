@@ -329,6 +329,7 @@ func TestTenantMemberRoutesDeclareManageMembersCapability(t *testing.T) {
 		{http.MethodGet, "/api/v1/tenants/:id/members"},
 		{http.MethodPost, "/api/v1/tenants/:id/members"},
 		{http.MethodPut, "/api/v1/tenants/:id/members/:user_id"},
+		{http.MethodPut, "/api/v1/tenants/:id/members/:user_id/profile"},
 		{http.MethodPost, "/api/v1/tenants/:id/members/:user_id/suspend"},
 		{http.MethodPost, "/api/v1/tenants/:id/members/:user_id/reactivate"},
 		{http.MethodDelete, "/api/v1/tenants/:id/members/:user_id"},
@@ -447,6 +448,39 @@ func TestOrganizeRoutesRequireFullAccessAPIKey(t *testing.T) {
 			}
 			if len(policy.Capabilities) != 0 {
 				t.Fatalf("organize routes must not be granted by a narrow capability: %#v", policy.Capabilities)
+			}
+		})
+	}
+}
+
+func TestServiceRoutesRequireFullAccessAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	g := &rbacGuards{}
+	v1 := gin.New().Group("/api/v1")
+
+	RegisterServiceRoutes(v1, &handler.ServiceHandler{}, g)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/service/bootstrap"},
+		{http.MethodPost, "/api/v1/service/refresh"},
+		{http.MethodGet, "/api/v1/service/daily-reports"},
+		{http.MethodPost, "/api/v1/service/daily-reports"},
+		{http.MethodGet, "/api/v1/service/daily-reports/:id"},
+		{http.MethodGet, "/api/v1/service/reminders"},
+		{http.MethodPost, "/api/v1/service/reminders/:id/action-drafts"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			policy := mustLookupAPIKeyPolicy(t, g, tc.method, tc.path)
+			if !policy.RequireFullAccess {
+				t.Fatal("service routes should require full access for API keys")
+			}
+			if len(policy.Capabilities) != 0 {
+				t.Fatalf("service routes must not be granted by a narrow capability: %#v", policy.Capabilities)
 			}
 		})
 	}

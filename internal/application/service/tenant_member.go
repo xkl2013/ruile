@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -66,17 +67,22 @@ var (
 	// member administration to Admins, but ownership changes remain an
 	// Owner / system-admin responsibility.
 	ErrOwnerOperationRequiresOwner = errors.New("owner role changes require a workspace owner or system administrator")
+
+	// ErrWorkProfileDescriptionRequired is returned when an operator-managed
+	// member write omits the service-facing work avatar description.
+	ErrWorkProfileDescriptionRequired = errors.New("work profile description is required")
 )
 
 const (
 	listMembersDefaultPageSize = 20
 	listMembersMaxPageSize     = 100
+	memberWorkProfileMaxRunes  = 2000
 )
 
 // tenantMemberService implements interfaces.TenantMemberService.
 type tenantMemberService struct {
 	repo      interfaces.TenantMemberRepository
-	audit     interfaces.AuditLogService      // optional; nil ⇒ no audit, business ops still succeed
+	audit     interfaces.AuditLogService     // optional; nil ⇒ no audit, business ops still succeed
 	tokenRepo interfaces.AuthTokenRepository // optional; nil ⇒ suspend keeps membership state only
 }
 
@@ -131,6 +137,36 @@ func (s *tenantMemberService) AddMember(
 	role types.TenantRole,
 	invitedBy *string,
 ) (*types.TenantMember, error) {
+	return s.addMember(ctx, userID, tenantID, role, invitedBy, "")
+}
+
+// AddMemberWithProfile inserts a member through the operator-facing member
+// management flow. Unlike invitation acceptance or orphan-owner recovery, this
+// path has a concrete target member and therefore requires the work avatar text
+// up front so service routing never starts from an empty member profile.
+func (s *tenantMemberService) AddMemberWithProfile(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	role types.TenantRole,
+	invitedBy *string,
+	description string,
+) (*types.TenantMember, error) {
+	description, err := requireWorkProfileDescription(description)
+	if err != nil {
+		return nil, err
+	}
+	return s.addMember(ctx, userID, tenantID, role, invitedBy, description)
+}
+
+func (s *tenantMemberService) addMember(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	role types.TenantRole,
+	invitedBy *string,
+	workProfileDescription string,
+) (*types.TenantMember, error) {
 	if !role.IsValid() {
 		return nil, ErrInvalidTenantRole
 	}
@@ -153,6 +189,9 @@ func (s *tenantMemberService) AddMember(
 		Source:    source,
 		InvitedBy: invitedBy,
 		JoinedAt:  time.Now(),
+	}
+	if workProfileDescription != "" {
+		member.WorkProfileDescription = workProfileDescription
 	}
 	if err := s.repo.Create(ctx, member); err != nil {
 		// TOCTOU race: a concurrent AddMember / EnsureOwner slipped past
@@ -323,6 +362,68 @@ func (s *tenantMemberService) UpdateRole(
 	}
 	s.emitRoleChangeAudit(ctx, tenantID, userID, oldRole, newRole)
 	return nil
+}
+
+// UpdateWorkProfileDescription updates the member-level work avatar
+// description. Service routing can use this text as AI extraction input, but
+// the call itself only persists the description and emits audit.
+func (s *tenantMemberService) UpdateWorkProfileDescription(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	description string,
+) error {
+	current, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrMembershipNotFound
+	}
+	description, err = requireWorkProfileDescription(description)
+	if err != nil {
+		return err
+	}
+	if current.WorkProfileDescription == description {
+		return nil
+	}
+	if err := s.repo.UpdateWorkProfileDescription(ctx, userID, tenantID, description); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrMembershipNotFound
+		}
+		return err
+	}
+	details, _ := json.Marshal(map[string]any{
+		"old_present": current.WorkProfileDescription != "",
+		"new_present": description != "",
+	})
+	s.emitAudit(ctx, &types.AuditLog{
+		TenantID:     tenantID,
+		ActorUserID:  auditActor(ctx),
+		ActorRole:    auditActorRole(ctx),
+		Action:       types.AuditActionMemberProfileChanged,
+		TargetType:   "tenant_member",
+		TargetUserID: userID,
+		Outcome:      types.AuditOutcomeSuccess,
+		Details:      types.JSON(details),
+	})
+	return nil
+}
+
+func normalizeWorkProfileDescription(description string) string {
+	description = strings.TrimSpace(description)
+	if utf8.RuneCountInString(description) > memberWorkProfileMaxRunes {
+		description = string([]rune(description)[:memberWorkProfileMaxRunes])
+	}
+	return description
+}
+
+func requireWorkProfileDescription(description string) (string, error) {
+	description = normalizeWorkProfileDescription(description)
+	if description == "" {
+		return "", ErrWorkProfileDescriptionRequired
+	}
+	return description, nil
 }
 
 // emitRoleChangeAudit packs the old/new role into Details so the

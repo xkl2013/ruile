@@ -1,7 +1,7 @@
 import type { OrganizeMemory } from '@/api/organize'
 
 export type PriorityKey = 'high' | 'medium' | 'low'
-export type ServiceTaskSource = 'memory' | 'demo'
+export type ServiceTaskSource = 'memory'
 
 export interface ServiceMemoryEvidence {
   id: string
@@ -13,7 +13,9 @@ export interface ServiceMemoryEvidence {
 
 export interface ServiceTask {
   id: string
+  subjectId?: string
   sourceType: ServiceTaskSource
+  status?: string
   customerName: string
   studentName: string
   title: string
@@ -43,6 +45,7 @@ export interface ServiceTask {
 
 export const emptyServiceTask: ServiceTask = {
   id: '',
+  subjectId: '',
   sourceType: 'memory',
   customerName: '',
   studentName: '待补充',
@@ -70,244 +73,6 @@ export const emptyServiceTask: ServiceTask = {
   writeBackDraft: '',
   replyDraft: '',
 }
-
-export const serviceDemoTasks: ServiceTask[] = [
-  {
-    id: 'demo-lead-trial-001',
-    sourceType: 'demo',
-    customerName: '林女士',
-    studentName: '林一一',
-    title: '新线索咨询自然拼读试听，需要今天约课',
-    summary: '客户: 林女士\n学员: 林一一\n渠道: 小红书私信\n阶段: 售前咨询\n家长关注自然拼读启蒙，希望先看一节试听课，能接受周三或周六下午。',
-    stage: '售前咨询',
-    priorityKey: 'high',
-    dueText: '今天 15:00',
-    channel: '小红书私信',
-    decisionRole: '妈妈主沟通',
-    riskLabel: '试听未约定',
-    assistReason: '演示数据：客户已经表达试听意向，但还没有确认具体时间，适合今天完成约课。',
-    primaryAction: '先确认孩子年龄和可上课时间，再给出两个试听时段。',
-    nextAction: '发送试听时段并确认到店时间',
-    avoidAction: '不要直接催报名，也不要一次性发送过多课程介绍。',
-    contextItems: ['4 岁半', '自然拼读', '周三/周六下午可约'],
-    memorySignals: ['新线索', '试听意向', '时间待确认'],
-    memoryEvidence: [
-      {
-        id: 'demo-memory-lead-trial-001',
-        title: '林女士咨询自然拼读试听',
-        summary: '林女士从小红书私信咨询自然拼读，孩子 4 岁半，想先体验试听课。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '今天 10:20',
-      },
-      {
-        id: 'demo-memory-lead-trial-002',
-        title: '林女士补充可约时间',
-        summary: '家长表示周三和周六下午比较方便，希望课程顾问给两个可选时段。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '今天 11:05',
-      },
-    ],
-    sourceMemoryIds: ['demo-memory-lead-trial-001', 'demo-memory-lead-trial-002'],
-    sourceMemoryCount: 2,
-    lastMemoryLabel: '今天 11:05',
-    confidenceLabel: '演示',
-    salesHighlights: [
-      '家长有明确试听意向，先完成时段确认。',
-      '需要补充孩子年龄、校区和上课偏好。',
-    ],
-    writeBackStatus: '待确认',
-    writeBackDraft: '林女士｜发送试听时段并确认到店时间。依据：家长表达自然拼读试听意向，周三/周六下午可约。',
-    replyDraft: '您好，我看您这边主要想先了解自然拼读试听。我先帮您预留两个可选时间：周三下午和周六下午，您看哪个更方便？确认后我再把试听准备事项发您。',
-  },
-  {
-    id: 'demo-customer-growth-001',
-    sourceType: 'demo',
-    customerName: '陈屿妈妈',
-    studentName: '陈屿',
-    title: '在读客户进入续费窗口，先整理成长回顾',
-    summary: '客户: 陈屿妈妈\n学员: 陈屿\n渠道: 企微\n阶段: 续费服务\n近 4 次课堂反馈稳定，表达主动性提升，剩余课次进入续费提醒窗口。',
-    stage: '续费服务',
-    priorityKey: 'medium',
-    dueText: '明天 19:30',
-    channel: '企微',
-    decisionRole: '妈妈主沟通',
-    riskLabel: '续费窗口',
-    assistReason: '演示数据：客户已经进入续费窗口，但适合先用孩子变化打开沟通。',
-    primaryAction: '先生成阶段成长回顾，再预约一次低压力沟通。',
-    nextAction: '生成阶段成长回顾后再进入续费沟通',
-    avoidAction: '不要第一句话提醒课次不足，避免让家长感到被推进。',
-    contextItems: ['剩余课次 6 次', '表达主动性提升', '家长关注课堂参与'],
-    memorySignals: ['续费窗口', '成长记录', '在读服务'],
-    memoryEvidence: [
-      {
-        id: 'demo-memory-growth-001',
-        title: '陈屿近四次课堂反馈',
-        summary: '陈屿课堂参与更主动，能够主动回答老师问题，但复述完整句仍需要提示。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '昨天 18:10',
-      },
-      {
-        id: 'demo-memory-growth-002',
-        title: '陈屿妈妈关注表达变化',
-        summary: '家长提到孩子在家愿意模仿英文句子，希望了解下一阶段学习目标。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '今天 09:15',
-      },
-    ],
-    sourceMemoryIds: ['demo-memory-growth-001', 'demo-memory-growth-002'],
-    sourceMemoryCount: 2,
-    lastMemoryLabel: '今天 09:15',
-    confidenceLabel: '演示',
-    salesHighlights: [
-      '先呈现阶段变化，再讨论下一阶段安排。',
-      '把续费动作包装成学习规划沟通。',
-    ],
-    writeBackStatus: '待确认',
-    writeBackDraft: '陈屿妈妈｜生成阶段成长回顾后再进入续费沟通。依据：剩余课次进入提醒窗口，家长关注表达变化。',
-    replyDraft: '陈屿妈妈您好，我整理了一下陈屿最近几次课堂变化，他现在主动表达明显比之前多了。想和您约 10 分钟，把当前进展和下一阶段目标一起过一下，您明晚方便吗？',
-  },
-  {
-    id: 'demo-schedule-makeup-001',
-    sourceType: 'demo',
-    customerName: '刘爸爸',
-    studentName: '刘念',
-    title: '请假后补课时间未确认，需要排课提醒',
-    summary: '客户: 刘爸爸\n学员: 刘念\n渠道: 电话\n阶段: 排课调课\n上周因感冒请假，家长希望本周补课，但还没有确认老师和教室资源。',
-    stage: '排课调课',
-    priorityKey: 'medium',
-    dueText: '今天 17:30',
-    channel: '电话',
-    decisionRole: '爸爸主沟通',
-    riskLabel: '排课未闭环',
-    assistReason: '演示数据：请假补课已经产生服务承诺，需要在今天确认可选时段。',
-    primaryAction: '先查老师空闲，再给家长两个补课时段。',
-    nextAction: '确认补课老师和时段后回复家长',
-    avoidAction: '不要先答应固定时间，避免和实际排课资源冲突。',
-    contextItems: ['上周请假', '本周补课', '老师资源待查'],
-    memorySignals: ['请假', '补课', '排课'],
-    memoryEvidence: [
-      {
-        id: 'demo-memory-schedule-001',
-        title: '刘念上周请假',
-        summary: '刘爸爸电话请假，说明孩子感冒，本周恢复后想尽快补课。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '8月30日',
-      },
-      {
-        id: 'demo-memory-schedule-002',
-        title: '刘爸爸追问补课安排',
-        summary: '家长希望本周内完成补课，方便的话优先安排原老师。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '今天 14:10',
-      },
-    ],
-    sourceMemoryIds: ['demo-memory-schedule-001', 'demo-memory-schedule-002'],
-    sourceMemoryCount: 2,
-    lastMemoryLabel: '今天 14:10',
-    confidenceLabel: '演示',
-    salesHighlights: [
-      '排课动作需要确认老师和教室，不应直接承诺固定时间。',
-      '家长已有追问，今天需要给出明确反馈。',
-    ],
-    writeBackStatus: '待确认',
-    writeBackDraft: '刘爸爸｜确认补课老师和时段后回复家长。依据：请假后补课需求未闭环，家长今天再次追问。',
-    replyDraft: '刘爸爸您好，我先帮刘念看一下本周原老师的可补课时段，确认好教室和老师后给您两个选择。今天 17:30 前我回复您，避免时间来回调整。',
-  },
-  {
-    id: 'demo-risk-after-sale-001',
-    sourceType: 'demo',
-    customerName: '赵女士',
-    studentName: '赵小安',
-    title: '家长对请假扣课不满，需要先做服务闭环',
-    summary: '客户: 赵女士\n学员: 赵小安\n渠道: 企微\n阶段: 在园服务\n家长反馈上次请假扣课规则没有提前说明，情绪偏强，需要先确认规则和处理方案。',
-    stage: '在园服务',
-    priorityKey: 'high',
-    dueText: '今天 18:00',
-    channel: '企微',
-    decisionRole: '妈妈主沟通',
-    riskLabel: '售后风险',
-    assistReason: '演示数据：家长已经表达不满，直接解释规则容易升级，需要先回应感受并确认处理边界。',
-    primaryAction: '先核对请假记录和规则说明，再给出可执行处理方案。',
-    nextAction: '确认请假记录后给出处理方案',
-    avoidAction: '不要直接说系统规则就是这样，也不要在事实未核对前承诺补偿。',
-    contextItems: ['请假扣课', '规则说明争议', '情绪偏强'],
-    memorySignals: ['售后风险', '未闭环', '请假'],
-    memoryEvidence: [
-      {
-        id: 'demo-memory-risk-001',
-        title: '赵女士反馈请假扣课不满',
-        summary: '家长认为请假扣课规则没有提前说明，希望机构给一个说法。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '今天 12:40',
-      },
-      {
-        id: 'demo-memory-risk-002',
-        title: '班主任记录待核对',
-        summary: '班主任记得曾口头说明过请假规则，但没有找到完整文字记录。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '今天 13:05',
-      },
-    ],
-    sourceMemoryIds: ['demo-memory-risk-001', 'demo-memory-risk-002'],
-    sourceMemoryCount: 2,
-    lastMemoryLabel: '今天 13:05',
-    confidenceLabel: '演示',
-    salesHighlights: [
-      '先回应情绪，再核对事实和规则。',
-      '需要记录处理结果，避免二次沟通无依据。',
-    ],
-    writeBackStatus: '待确认',
-    writeBackDraft: '赵女士｜确认请假记录后给出处理方案。依据：家长对请假扣课不满，规则说明存在争议。',
-    replyDraft: '赵女士您好，这件事让您感觉不清楚，我先跟您说声抱歉。我现在去核对上次请假记录和当时的规则说明，今天 18:00 前给您一个明确处理方案。',
-  },
-  {
-    id: 'demo-lead-price-001',
-    sourceType: 'demo',
-    customerName: '周先生',
-    studentName: '周可',
-    title: '试听后有价格顾虑，需要补价值证明',
-    summary: '客户: 周先生\n学员: 周可\n渠道: 到店咨询\n阶段: 售前试听\n孩子试听参与度高，家长认可老师，但认为费用比另一家机构高。',
-    stage: '售前试听',
-    priorityKey: 'medium',
-    dueText: '明天 11:00',
-    channel: '到店咨询',
-    decisionRole: '爸爸主沟通',
-    riskLabel: '价格顾虑',
-    assistReason: '演示数据：家长认可试听体验但卡在价格，需要先补孩子变化和课程价值。',
-    primaryAction: '准备试听观察记录和阶段目标，再回应价格差异。',
-    nextAction: '发送试听观察记录和课程价值说明',
-    avoidAction: '不要马上给优惠，先确认家长具体比较点。',
-    contextItems: ['试听参与度高', '认可老师', '对比竞品价格'],
-    memorySignals: ['试听', '价格顾虑', '价值证明'],
-    memoryEvidence: [
-      {
-        id: 'demo-memory-price-001',
-        title: '周可试听反馈',
-        summary: '试听课参与度高，能够跟老师完成互动，家长对老师认可。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '昨天 16:30',
-      },
-      {
-        id: 'demo-memory-price-002',
-        title: '周先生比较价格',
-        summary: '家长提到另一家机构价格更低，希望了解课程差异。',
-        sourceLabel: '演示记忆笔记',
-        occurredAtLabel: '昨天 18:00',
-      },
-    ],
-    sourceMemoryIds: ['demo-memory-price-001', 'demo-memory-price-002'],
-    sourceMemoryCount: 2,
-    lastMemoryLabel: '昨天 18:00',
-    confidenceLabel: '演示',
-    salesHighlights: [
-      '先讲孩子试听表现和阶段目标，再处理价格比较。',
-      '可调用公共知识库里的课程体系和成果案例。',
-    ],
-    writeBackStatus: '待确认',
-    writeBackDraft: '周先生｜发送试听观察记录和课程价值说明。依据：试听认可但有价格顾虑。',
-    replyDraft: '周先生您好，我把周可昨天试听时的表现和接下来适合他的学习目标整理了一下。价格这块我也会结合课程安排一起说明，方便您判断差异不只是单节课费用。',
-  },
-]
 
 const serviceMemoryKeywords = [
   '客户',

@@ -1,4 +1,4 @@
-export type ServiceTab = 'messages' | 'review'
+export type ServiceTab = 'messages' | 'customers' | 'review'
 
 export interface ServiceMenuRouteItem {
   key: ServiceTab
@@ -11,10 +11,12 @@ export interface ServiceMenuRouteItem {
 
 export const SERVICE_ROUTE_BASE_PATH = '/platform/service'
 export const SERVICE_MESSAGES_ROUTE_PATH = '/platform/messages'
+export const SERVICE_CUSTOMERS_ROUTE_PATH = '/platform/service/customers'
 export const SERVICE_REVIEW_ROUTE_PATH = '/platform/organize/daily'
 
 export const SERVICE_ROUTE_NAMES = {
   messages: 'serviceMessages',
+  customers: 'serviceCustomers',
   review: 'serviceReview',
 } as const
 
@@ -26,6 +28,14 @@ export const SERVICE_MENU_ROUTES: readonly ServiceMenuRouteItem[] = [
     count: 4,
     routeName: SERVICE_ROUTE_NAMES.messages,
     path: SERVICE_MESSAGES_ROUTE_PATH,
+  },
+  {
+    key: 'customers',
+    label: '客户空间',
+    icon: 'folder',
+    count: 0,
+    routeName: SERVICE_ROUTE_NAMES.customers,
+    path: SERVICE_CUSTOMERS_ROUTE_PATH,
   },
 ]
 
@@ -42,7 +52,7 @@ const SERVICE_ROUTE_ITEMS: readonly ServiceMenuRouteItem[] = [
 ]
 
 export const isServiceTab = (value: unknown): value is ServiceTab => {
-  return value === 'messages' || value === 'review'
+  return value === 'messages' || value === 'customers' || value === 'review'
 }
 
 export const findServiceMenuRoute = (tab: ServiceTab) => {

@@ -27,10 +27,12 @@ import (
 type stubMemberService struct {
 	interfaces.TenantMemberService
 	add             func(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error)
+	addWithProfile  func(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error)
 	listTenant      func(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error)
 	listMembersPage func(ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter, page, pageSize int) ([]*types.TenantMember, int64, error)
 	getMembership   func(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
 	updateRole      func(ctx context.Context, userID string, tenantID uint64, newRole types.TenantRole) error
+	updateProfile   func(ctx context.Context, userID string, tenantID uint64, description string) error
 	remove          func(ctx context.Context, userID string, tenantID uint64) error
 	suspend         func(ctx context.Context, userID string, tenantID uint64) error
 	reactivate      func(ctx context.Context, userID string, tenantID uint64) error
@@ -78,6 +80,17 @@ func (s *stubMemberService) AddMember(ctx context.Context, userID string, tenant
 	return s.add(ctx, userID, tenantID, role, invitedBy)
 }
 
+func (s *stubMemberService) AddMemberWithProfile(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error) {
+	if s.addWithProfile != nil {
+		return s.addWithProfile(ctx, userID, tenantID, role, invitedBy, description)
+	}
+	member, err := s.AddMember(ctx, userID, tenantID, role, invitedBy)
+	if member != nil {
+		member.WorkProfileDescription = strings.TrimSpace(description)
+	}
+	return member, err
+}
+
 func (s *stubMemberService) ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error) {
 	if s.listTenant == nil {
 		return nil, nil
@@ -97,6 +110,13 @@ func (s *stubMemberService) UpdateRole(ctx context.Context, userID string, tenan
 		return nil
 	}
 	return s.updateRole(ctx, userID, tenantID, newRole)
+}
+
+func (s *stubMemberService) UpdateWorkProfileDescription(ctx context.Context, userID string, tenantID uint64, description string) error {
+	if s.updateProfile == nil {
+		return nil
+	}
+	return s.updateProfile(ctx, userID, tenantID, description)
 }
 
 func (s *stubMemberService) RemoveMember(ctx context.Context, userID string, tenantID uint64) error {
@@ -178,7 +198,7 @@ func (s *stubMemberUserService) DeleteUser(ctx context.Context, id string) error
 // middleware via memberTestRouter rather than threading a cfg through
 // the handler.
 func newTestMemberHandler(ms interfaces.TenantMemberService, us interfaces.UserService) *TenantMemberHandler {
-	return NewTenantMemberHandler(ms, us)
+	return NewTenantMemberHandler(ms, us, nil)
 }
 
 // memberTestRouter wires the handler with the same errorCapture middleware
@@ -205,6 +225,7 @@ func memberTestRouterWithCfg(h *TenantMemberHandler, cfg *config.Config) *gin.En
 	tenantByID.POST("/members", h.AddMember)
 	tenantByID.POST("/members/admin-create", h.AdminCreateMember)
 	tenantByID.PUT("/members/:user_id", h.UpdateMemberRole)
+	tenantByID.PUT("/members/:user_id/profile", h.UpdateMemberProfile)
 	tenantByID.POST("/members/:user_id/suspend", h.SuspendMember)
 	tenantByID.POST("/members/:user_id/reactivate", h.ReactivateMember)
 	tenantByID.DELETE("/members/:user_id", h.RemoveMember)
@@ -375,11 +396,14 @@ func TestTenantMember_AddMember_HappyPath(t *testing.T) {
 	caller := "u-owner"
 	now := time.Now()
 	ms := &stubMemberService{
-		add: func(_ context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error) {
+		addWithProfile: func(_ context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error) {
 			if invitedBy == nil || *invitedBy != caller {
 				t.Fatalf("invited_by must be the caller, got %v", invitedBy)
 			}
-			return &types.TenantMember{UserID: userID, TenantID: tenantID, Role: role, Status: types.TenantMemberStatusActive, JoinedAt: now, InvitedBy: invitedBy}, nil
+			if description != "负责试听邀约和家长跟进" {
+				t.Fatalf("description = %q", description)
+			}
+			return &types.TenantMember{UserID: userID, TenantID: tenantID, Role: role, Status: types.TenantMemberStatusActive, WorkProfileDescription: description, JoinedAt: now, InvitedBy: invitedBy}, nil
 		},
 	}
 	us := &stubMemberUserService{
@@ -389,10 +413,30 @@ func TestTenantMember_AddMember_HappyPath(t *testing.T) {
 	}
 	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "contributor", "work_profile_description": "负责试听邀约和家长跟进"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, caller)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTenantMember_AddMember_RequiresWorkProfileDescription(t *testing.T) {
+	calledLookup := false
+	us := &stubMemberUserService{
+		getByEmail: func(_ context.Context, _ string) (*types.User, error) {
+			calledLookup = true
+			return &types.User{ID: "u-bob"}, nil
+		},
+	}
+	h := newTestMemberHandler(&stubMemberService{}, us)
+
+	body := map[string]any{"email": "bob@x.com", "role": "contributor", "work_profile_description": "   "}
+	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("blank work profile must 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if calledLookup {
+		t.Fatalf("user lookup must not run when work profile description is blank")
 	}
 }
 
@@ -407,7 +451,7 @@ func TestTenantMember_AddMember_UnknownEmailReturns404(t *testing.T) {
 	}
 	h := newTestMemberHandler(&stubMemberService{}, us)
 
-	body := map[string]any{"email": "ghost@x.com", "role": "viewer"}
+	body := map[string]any{"email": "ghost@x.com", "role": "viewer", "work_profile_description": "负责家校服务"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("unknown email must surface as 404, got %d body=%s", w.Code, w.Body.String())
@@ -427,7 +471,7 @@ func TestTenantMember_AddMember_DuplicateMaps409(t *testing.T) {
 	}
 	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "contributor", "work_profile_description": "负责家校服务"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
 	if w.Code != http.StatusConflict {
 		t.Fatalf("duplicate must surface as 409, got %d", w.Code)
@@ -445,7 +489,7 @@ func TestTenantMember_AddMember_InvalidRoleRejectedUpfront(t *testing.T) {
 	}
 	h := newTestMemberHandler(&stubMemberService{}, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "wizard"}
+	body := map[string]any{"email": "bob@x.com", "role": "wizard", "work_profile_description": "负责家校服务"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("invalid role must 400, got %d", w.Code)
@@ -465,7 +509,7 @@ func TestTenantMember_AddMember_AdminCannotGrantOwner(t *testing.T) {
 	}
 	h := newTestMemberHandler(&stubMemberService{}, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "owner"}
+	body := map[string]any{"email": "bob@x.com", "role": "owner", "work_profile_description": "负责家校服务"}
 	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body,
 		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
 	if w.Code != http.StatusForbidden {
@@ -482,21 +526,25 @@ func TestTenantMember_AdminCreateMember_DefaultPasswordAndRole(t *testing.T) {
 	var capturedReq *types.RegisterRequest
 	var capturedInvitedBy *string
 	ms := &stubMemberService{
-		add: func(_ context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error) {
+		addWithProfile: func(_ context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error) {
 			if userID != "u-new" || tenantID != 1 {
 				t.Fatalf("unexpected add target: user=%s tenant=%d", userID, tenantID)
 			}
 			if role != types.TenantRoleContributor {
 				t.Fatalf("default role = %s, want contributor", role)
 			}
+			if description != "园长负责招生跟进和家校服务" {
+				t.Fatalf("work profile description = %q", description)
+			}
 			capturedInvitedBy = invitedBy
 			return &types.TenantMember{
-				UserID:   userID,
-				TenantID: tenantID,
-				Role:     role,
-				Status:   types.TenantMemberStatusActive,
-				Source:   types.TenantMemberSourceManual,
-				JoinedAt: time.Now(),
+				UserID:                 userID,
+				TenantID:               tenantID,
+				Role:                   role,
+				Status:                 types.TenantMemberStatusActive,
+				Source:                 types.TenantMemberSourceManual,
+				WorkProfileDescription: description,
+				JoinedAt:               time.Now(),
 			}, nil
 		},
 	}
@@ -509,7 +557,11 @@ func TestTenantMember_AdminCreateMember_DefaultPasswordAndRole(t *testing.T) {
 	}
 	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"phone": "13258978288", "name": "地平线"}
+	body := map[string]any{
+		"phone":                    "13258978288",
+		"name":                     "地平线",
+		"work_profile_description": "园长负责招生跟进和家校服务",
+	}
 	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/admin-create", body,
 		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
 	if w.Code != http.StatusCreated {
@@ -533,6 +585,30 @@ func TestTenantMember_AdminCreateMember_DefaultPasswordAndRole(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"source":"manual"`) {
 		t.Fatalf("response should include manual source: %s", w.Body.String())
 	}
+	if !strings.Contains(w.Body.String(), `"work_profile_description":"园长负责招生跟进和家校服务"`) {
+		t.Fatalf("response should include work profile description: %s", w.Body.String())
+	}
+}
+
+func TestTenantMember_AdminCreateMember_RequiresWorkProfileDescription(t *testing.T) {
+	calledCreate := false
+	us := &stubMemberUserService{
+		adminCreate: func(context.Context, *types.RegisterRequest) (*types.User, error) {
+			calledCreate = true
+			return &types.User{}, nil
+		},
+	}
+	h := newTestMemberHandler(&stubMemberService{}, us)
+
+	body := map[string]any{"phone": "13258978288", "name": "地平线", "work_profile_description": "   "}
+	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/admin-create", body,
+		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("blank work profile must 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if calledCreate {
+		t.Fatalf("AdminCreateUser must not run when work profile description is blank")
+	}
 }
 
 func TestTenantMember_AdminCreateMember_RejectsInvalidPhone(t *testing.T) {
@@ -545,7 +621,7 @@ func TestTenantMember_AdminCreateMember_RejectsInvalidPhone(t *testing.T) {
 	}
 	h := newTestMemberHandler(&stubMemberService{}, us)
 
-	body := map[string]any{"phone": "1234", "name": "Alice"}
+	body := map[string]any{"phone": "1234", "name": "Alice", "work_profile_description": "负责家校服务"}
 	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/admin-create", body,
 		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
 	if w.Code != http.StatusBadRequest {
@@ -626,6 +702,52 @@ func TestTenantMember_UpdateRole_AdminCannotTouchOwner(t *testing.T) {
 		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("admin touching owner role must 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+// ---------- UpdateMemberProfile ----------
+
+func TestTenantMember_UpdateMemberProfile_HappyPath(t *testing.T) {
+	called := false
+	ms := &stubMemberService{
+		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+			return &types.TenantMember{UserID: userID, TenantID: tenantID, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive}, nil
+		},
+		updateProfile: func(_ context.Context, userID string, tenantID uint64, description string) error {
+			called = true
+			if userID != "u-bob" || tenantID != 1 || description != "负责试听邀约和家长跟进" {
+				t.Fatalf("unexpected args: user=%s tenant=%d description=%q", userID, tenantID, description)
+			}
+			return nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	body := map[string]any{"work_profile_description": "负责试听邀约和家长跟进"}
+	w := doJSON(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-bob/profile", body, "u-owner")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatalf("UpdateWorkProfileDescription must be called")
+	}
+}
+
+func TestTenantMember_UpdateMemberProfile_RequiresDescription(t *testing.T) {
+	ms := &stubMemberService{
+		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+			return &types.TenantMember{UserID: userID, TenantID: tenantID, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive}, nil
+		},
+		updateProfile: func(context.Context, string, uint64, string) error {
+			return service.ErrWorkProfileDescriptionRequired
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	body := map[string]any{"work_profile_description": "   "}
+	w := doJSON(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-bob/profile", body, "u-owner")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("blank work profile must 400, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -849,7 +971,7 @@ func TestTenantMember_RejectsCrossTenantURL_Add(t *testing.T) {
 		},
 	}
 	h := newTestMemberHandler(ms, us)
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "contributor", "work_profile_description": "负责家校服务"}
 	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/5/members", body,
 		memberCtxOpts{callerID: "u1", tenantID: 1})
 	if w.Code != http.StatusForbidden {
@@ -951,7 +1073,7 @@ func TestTenantMember_SuperuserBypassRequiresFeatureFlag(t *testing.T) {
 	// Build the router with the flag explicitly off — the carve-out
 	// now lives in middleware.RequirePathTenantMatch, which the router
 	// helper mounts.
-	h := NewTenantMemberHandler(ms, &stubMemberUserService{})
+	h := NewTenantMemberHandler(ms, &stubMemberUserService{}, nil)
 	router := memberTestRouterWithCfg(h, &config.Config{
 		Tenant: &config.TenantConfig{EnableCrossTenantAccess: false},
 	})
@@ -1019,9 +1141,9 @@ func TestTenantMember_AddMember_SyntheticCallerLeavesInvitedByNull(t *testing.T)
 	// join-with-users UX; the handler must skip it.
 	captured := struct{ invited *string }{}
 	ms := &stubMemberService{
-		add: func(_ context.Context, _ string, _ uint64, _ types.TenantRole, invitedBy *string) (*types.TenantMember, error) {
+		addWithProfile: func(_ context.Context, _ string, _ uint64, _ types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error) {
 			captured.invited = invitedBy
-			return &types.TenantMember{UserID: "u-bob", TenantID: 1, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive, JoinedAt: time.Now()}, nil
+			return &types.TenantMember{UserID: "u-bob", TenantID: 1, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive, WorkProfileDescription: description, JoinedAt: time.Now()}, nil
 		},
 	}
 	us := &stubMemberUserService{
@@ -1030,7 +1152,7 @@ func TestTenantMember_AddMember_SyntheticCallerLeavesInvitedByNull(t *testing.T)
 		},
 	}
 	h := newTestMemberHandler(ms, us)
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "contributor", "work_profile_description": "负责家校服务"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "system-1")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())

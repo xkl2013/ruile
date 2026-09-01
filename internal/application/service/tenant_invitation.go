@@ -148,6 +148,36 @@ func (s *tenantInvitationService) Create(
 	invitedBy *string,
 	message string,
 ) (*types.TenantInvitation, error) {
+	return s.create(ctx, tenantID, inviteeUserID, role, invitedBy, message, "")
+}
+
+// CreateWithProfile issues a targeted invitation with the work profile
+// description that must be copied into tenant_members on accept.
+func (s *tenantInvitationService) CreateWithProfile(
+	ctx context.Context,
+	tenantID uint64,
+	inviteeUserID string,
+	role types.TenantRole,
+	invitedBy *string,
+	message string,
+	workProfileDescription string,
+) (*types.TenantInvitation, error) {
+	description, err := requireWorkProfileDescription(workProfileDescription)
+	if err != nil {
+		return nil, err
+	}
+	return s.create(ctx, tenantID, inviteeUserID, role, invitedBy, message, description)
+}
+
+func (s *tenantInvitationService) create(
+	ctx context.Context,
+	tenantID uint64,
+	inviteeUserID string,
+	role types.TenantRole,
+	invitedBy *string,
+	message string,
+	workProfileDescription string,
+) (*types.TenantInvitation, error) {
 	if !role.IsValid() {
 		return nil, ErrInvalidTenantRole
 	}
@@ -164,13 +194,14 @@ func (s *tenantInvitationService) Create(
 
 	now := s.now()
 	inv := &types.TenantInvitation{
-		TenantID:      tenantID,
-		InviteeUserID: inviteeUserID,
-		InvitedBy:     invitedBy,
-		Role:          role,
-		Status:        types.TenantInvitationStatusPending,
-		Message:       message,
-		ExpiresAt:     now.Add(invitationTTL()),
+		TenantID:               tenantID,
+		InviteeUserID:          inviteeUserID,
+		InvitedBy:              invitedBy,
+		Role:                   role,
+		Status:                 types.TenantInvitationStatusPending,
+		Message:                message,
+		WorkProfileDescription: workProfileDescription,
+		ExpiresAt:              now.Add(invitationTTL()),
 	}
 	if err := s.repo.Create(ctx, inv); err != nil {
 		if errors.Is(err, apprepo.ErrPendingInvitationExists) {
@@ -243,7 +274,12 @@ func (s *tenantInvitationService) Accept(
 	// also enforces the (user, tenant) uniqueness invariant via the
 	// repo. If it fails here the invitation is already accepted —
 	// see comment above for why we don't rollback the invitation.
-	member, err := s.memberSvc.AddMember(ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+	var member *types.TenantMember
+	if description := strings.TrimSpace(inv.WorkProfileDescription); description != "" {
+		member, err = s.memberSvc.AddMemberWithProfile(ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy, description)
+	} else {
+		member, err = s.memberSvc.AddMember(ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+	}
 	if err != nil {
 		// Special-case "already a member": that's the idempotent
 		// outcome we want. Return the existing membership instead of

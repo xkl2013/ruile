@@ -27,6 +27,19 @@ type TenantInvitationService interface {
 		message string,
 	) (*types.TenantInvitation, error)
 
+	// CreateWithProfile is the operator-facing targeted invitation
+	// path. It requires a work profile description so accepting the
+	// invitation can create a complete tenant member.
+	CreateWithProfile(
+		ctx context.Context,
+		tenantID uint64,
+		inviteeUserID string,
+		role types.TenantRole,
+		invitedBy *string,
+		message string,
+		workProfileDescription string,
+	) (*types.TenantInvitation, error)
+
 	// Accept transitions the pending row into accepted AND creates the
 	// active tenant_members row in the same transaction. The callerUserID
 	// MUST equal inv.InviteeUserID — the service rejects anyone else.

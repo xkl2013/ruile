@@ -163,6 +163,75 @@ builtin_agents:
           knowledge_fallback: true
           allow_regenerate: false
 
+  - id: "builtin-service-assistant"
+    avatar: "📌"
+    is_builtin: true
+    i18n:
+      default:
+        name: "Service Reminder"
+        description: "Internal education service assistant for memory-grounded reminders, talk tracks and next actions"
+      zh-CN:
+        name: "服务提醒"
+        description: "面向教培一线服务人员，基于记忆证据整理客户摘要、服务话术和下一步动作"
+      zh-TW:
+        name: "服務提醒"
+        description: "面向教培一線服務人員，基於記憶證據整理客戶摘要、服務話術和下一步動作"
+      ja-JP:
+        name: "サービスリマインダー"
+        description: "教育現場向けに、記憶証拠に基づく顧客要約、応対文、次の行動を整理する内部エージェント"
+      ko-KR:
+        name: "서비스 알림"
+        description: "교육 현장 직원을 위해 기억 근거 기반 고객 요약, 응대 문구, 다음 조치를 정리하는 내부 에이전트"
+    config:
+      agent_mode: "smart-reasoning"
+      agent_type: "education-sales"
+      model_id: "${QWEN37_MAX_MODEL_ID}"
+      system_prompt_id: "service_reminder_assistant"
+      temperature: 0.5
+      max_completion_tokens: 3072
+      max_iterations: 20
+      kb_selection_mode: "all"
+      retrieve_kb_only_when_mentioned: false
+      citation_enabled: false
+      include_retrieved_images: false
+      allowed_tools:
+        - "knowledge_search"
+        - "grep_chunks"
+        - "list_knowledge_chunks"
+        - "get_document_info"
+      web_search_enabled: false
+      web_search_max_results: 0
+      reflection_enabled: false
+      multi_turn_enabled: true
+      history_turns: 8
+      faq_priority_enabled: true
+      faq_direct_answer_threshold: 0.9
+      faq_score_boost: 1.2
+      embedding_top_k: 10
+      keyword_threshold: 0.3
+      vector_threshold: 0.5
+      rerank_top_k: 10
+      rerank_threshold: 0.3
+      question_suggestions:
+        starters:
+          enabled: true
+          mode: "curated"
+          count: 4
+          items:
+            - "整理当前客户的回复话术"
+            - "找出这次服务的重点和依据"
+            - "把下一步跟进拆成三步"
+            - "生成一条温和的微信跟进"
+        follow_ups:
+          enabled: false
+          mode: "hybrid"
+          count: 3
+          max_context_turns: 2
+          suppress_on_fallback: true
+          suppress_when_answer_asks_question: true
+          knowledge_fallback: true
+          allow_regenerate: false
+
   - id: "builtin-wiki-fixer"
     avatar: "🔧"
     is_builtin: true

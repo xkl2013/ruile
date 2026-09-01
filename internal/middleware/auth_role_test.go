@@ -78,6 +78,16 @@ func (f *fakeMemberService) AddMember(
 	return m, nil
 }
 
+func (f *fakeMemberService) AddMemberWithProfile(
+	ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string,
+) (*types.TenantMember, error) {
+	member, err := f.AddMember(ctx, userID, tenantID, role, invitedBy)
+	if member != nil {
+		member.WorkProfileDescription = description
+	}
+	return member, err
+}
+
 func (f *fakeMemberService) EnsureOwner(
 	ctx context.Context, userID string, tenantID uint64,
 ) (*types.TenantMember, error) {
@@ -133,6 +143,9 @@ func (f *fakeMemberService) HasAnyMembers(ctx context.Context, tenantID uint64) 
 func (f *fakeMemberService) UpdateRole(
 	ctx context.Context, userID string, tenantID uint64, newRole types.TenantRole,
 ) error {
+	return nil
+}
+func (f *fakeMemberService) UpdateWorkProfileDescription(ctx context.Context, userID string, tenantID uint64, description string) error {
 	return nil
 }
 func (f *fakeMemberService) RemoveMember(ctx context.Context, userID string, tenantID uint64) error {

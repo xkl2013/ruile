@@ -256,6 +256,14 @@ func TestInvitationService_Create_DedupsPending(t *testing.T) {
 	}
 }
 
+func TestInvitationService_CreateWithProfile_RequiresDescription(t *testing.T) {
+	svc, _, _ := newInvitationSvc()
+	_, err := svc.CreateWithProfile(context.Background(), 1, "u-bob", types.TenantRoleContributor, nil, "", "   ")
+	if !errors.Is(err, ErrWorkProfileDescriptionRequired) {
+		t.Fatalf("want ErrWorkProfileDescriptionRequired, got %v", err)
+	}
+}
+
 func TestInvitationService_Accept_OnlyByInvitee(t *testing.T) {
 	svc, _, _ := newInvitationSvc()
 	ctx := context.Background()
@@ -265,6 +273,34 @@ func TestInvitationService_Accept_OnlyByInvitee(t *testing.T) {
 	}
 	if _, err := svc.Accept(ctx, inv.ID, "u-eve"); !errors.Is(err, ErrInvitationForbidden) {
 		t.Fatalf("non-invitee must be forbidden, got %v", err)
+	}
+}
+
+func TestInvitationService_Accept_CopiesWorkProfileDescription(t *testing.T) {
+	svc, _, memberSvc := newInvitationSvc()
+	ctx := context.Background()
+	inv, err := svc.CreateWithProfile(
+		ctx,
+		1,
+		"u-bob",
+		types.TenantRoleAdmin,
+		nil,
+		"",
+		"  园长负责招生跟进和家校服务  ",
+	)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	mb, err := svc.Accept(ctx, inv.ID, "u-bob")
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if mb.WorkProfileDescription != "园长负责招生跟进和家校服务" {
+		t.Fatalf("membership description not copied: %q", mb.WorkProfileDescription)
+	}
+	got, _ := memberSvc.GetMembership(ctx, "u-bob", 1)
+	if got == nil || got.WorkProfileDescription != "园长负责招生跟进和家校服务" {
+		t.Fatalf("stored membership description not copied: %+v", got)
 	}
 }
 

@@ -62,6 +62,7 @@ show_help() {
     echo "  status     查看服务状态"
     echo "  app        启动后端应用（本地运行）"
     echo "  frontend   启动前端开发服务器（本地运行）"
+    echo "  admin      启动 Admin 前端开发服务器（本地运行）"
     echo "  help       显示此帮助信息"
     echo ""
     echo "可选 Profile（用于 start 命令）:"
@@ -83,6 +84,7 @@ show_help() {
     echo "  make dev-start DEV_ARGS=--odl-hybrid   # 同上（Makefile 传参）"
     echo "  $0 app                      # 在另一个终端启动后端"
     echo "  $0 frontend                 # 在另一个终端启动前端"
+    echo "  $0 admin                    # 在另一个终端启动 Admin 前端"
 }
 
 # 加载 .env 与可选的 .env.local（后者覆盖前者）
@@ -521,6 +523,34 @@ start_frontend() {
     npm run dev
 }
 
+# 启动 Admin 前端（本地）
+start_admin() {
+    log_info "启动 Admin 前端开发服务器..."
+
+    cd "$PROJECT_ROOT"
+    if [ -f ".env" ] || [ -f ".env.local" ]; then
+        load_env_files >/dev/null 2>&1 || true
+    fi
+
+    cd "$PROJECT_ROOT/admin"
+
+    if ! command -v npm &> /dev/null; then
+        log_error "npm 未安装"
+        return 1
+    fi
+
+    if [ ! -d "node_modules" ]; then
+        log_warning "admin/node_modules 不存在，正在安装依赖..."
+        npm install
+    fi
+
+    log_info "启动 Vite Admin 开发服务器..."
+    log_info "Admin 将运行在 http://localhost:8082/admin/"
+    log_info "Admin API 代理目标: ${VITE_DEV_PROXY_TARGET:-${FRONTEND_BACKEND_URL:-http://localhost:8080}}"
+
+    npm run dev
+}
+
 # 解析命令
 CMD="${1:-help}"
 case "$CMD" in
@@ -544,6 +574,9 @@ case "$CMD" in
         ;;
     frontend)
         start_frontend
+        ;;
+    admin)
+        start_admin
         ;;
     help|--help|-h)
         show_help
