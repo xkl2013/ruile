@@ -50,6 +50,7 @@ type qaRequestContext struct {
 	attachmentIDs         []string                 // Pre-uploaded session-scoped document IDs, resolved after SSE starts
 	attachmentMetas       types.MessageAttachments // Metadata-only view of attachmentIDs for the persisted user message
 	suggestionAttribution *types.SuggestionAttribution
+	quotedContext         string // Additional prompt-only context; user message content remains reqCtx.query
 
 	// Snapshot of the request fields needed to persist the input-bar state
 	// for session restoration. Kept verbatim from the request so we record
@@ -77,6 +78,7 @@ func (rc *qaRequestContext) buildQARequest() *types.QARequest {
 		UserMessageID:      rc.userMessageID,
 		WebSearchEnabled:   rc.webSearchEnabled,
 		Attachments:        rc.attachments,
+		QuotedContext:      rc.quotedContext,
 	}
 }
 
@@ -342,6 +344,7 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		attachmentIDs:         attachmentIDs,
 		attachmentMetas:       attachmentMetas,
 		suggestionAttribution: request.SuggestionAttribution,
+		quotedContext:         request.QuotedContext,
 		reqAgentEnabled:       request.AgentEnabled,
 		reqAgentID:            request.AgentID,
 	}

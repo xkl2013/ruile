@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const source = readFileSync(new URL('./OrganizeDocumentEditor.vue', import.meta.url), 'utf8')
+const serviceExtractionSource = readFileSync(new URL('../service/serviceMemoryExtraction.ts', import.meta.url), 'utf8')
 
 test('document editor opens slash menu after leading whitespace', () => {
   assert.match(source, /@keydown\.capture="handleEditorKeydown"/)
@@ -14,6 +15,14 @@ test('document editor opens slash menu after leading whitespace', () => {
 test('memory note editor exposes note controls without the format toolbar', () => {
   assert.ok(source.includes('isNoteMemory'))
   assert.ok(source.includes('memory-note-tabs'))
+  assert.ok(source.includes("noteActiveTab === 'service'"))
+  assert.ok(source.includes('buildServiceTaskFromMemory'))
+  assert.ok(source.includes('formatMemoryDateLabel'))
+  assert.ok(source.includes('noteServiceTask'))
+  assert.ok(source.includes('memory-note-service-card'))
+  assert.ok(source.includes('有利于销售的信息'))
+  assert.ok(source.includes('来源关联'))
+  assert.ok(source.includes('暂无服务资料'))
   assert.ok(source.includes('添加标签'))
   assert.ok(source.includes('智能标签'))
   assert.ok(source.includes('noteTagIcon'))
@@ -64,6 +73,15 @@ test('memory note editor exposes note controls without the format toolbar', () =
   assert.ok(!source.includes('把这条笔记整理成可继续复盘的发芽结果。'))
   assert.ok(!source.includes('还没有发芽结果，点击按钮开始生成。'))
   assert.ok(!source.includes('<span>@记忆</span>'))
+})
+
+test('memory service tab uses shared weak extraction rules', () => {
+  assert.ok(serviceExtractionSource.includes('export const isServiceMemory'))
+  assert.ok(serviceExtractionSource.includes('Boolean(extractCustomerName(memory)) && hasServiceBusinessSignal(memory, text)'))
+  assert.ok(serviceExtractionSource.includes('export const buildServiceTaskFromMemory'))
+  assert.ok(serviceExtractionSource.includes('sourceMemoryIds'))
+  assert.ok(serviceExtractionSource.includes('salesHighlights'))
+  assert.ok(serviceExtractionSource.includes('出现售前接触信号'))
 })
 
 test('memory note editor lets the page own mouse wheel scrolling', () => {

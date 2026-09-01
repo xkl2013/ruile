@@ -40,6 +40,9 @@ type AgentConfig struct {
 	Thinking *bool `json:"thinking"`
 	// Whether final answers include knowledge/web source citations. Nil defaults to true.
 	CitationEnabled *bool `json:"citation_enabled"`
+	// Whether final answers may include Markdown images copied from retrieved tool results.
+	// Nil defaults to true so existing agents keep current rich-media behavior.
+	IncludeRetrievedImages *bool `json:"include_retrieved_images,omitempty"`
 	// Whether to retrieve knowledge base only when explicitly mentioned with @ (default: false)
 	RetrieveKBOnlyWhenMentioned bool `json:"retrieve_kb_only_when_mentioned"`
 
@@ -77,6 +80,10 @@ type AgentConfig struct {
 // predate the setting and therefore have a nil CitationEnabled value.
 func (c *AgentConfig) CitationsEnabled() bool {
 	return c == nil || c.CitationEnabled == nil || *c.CitationEnabled
+}
+
+func (c *AgentConfig) RetrievedImagesEnabled() bool {
+	return c == nil || c.IncludeRetrievedImages == nil || *c.IncludeRetrievedImages
 }
 
 // SessionAgentConfig represents session-level agent configuration

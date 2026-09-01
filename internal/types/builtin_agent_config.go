@@ -23,11 +23,11 @@ type BuiltinAgentI18n struct {
 
 // BuiltinAgentEntry is one entry in the builtin_agents list in YAML.
 type BuiltinAgentEntry struct {
-	ID        string                       `yaml:"id"`
-	Avatar    string                       `yaml:"avatar"`
-	IsBuiltin bool                         `yaml:"is_builtin"`
-	I18n      map[string]BuiltinAgentI18n  `yaml:"i18n"`
-	Config    CustomAgentConfig            `yaml:"config"`
+	ID        string                      `yaml:"id"`
+	Avatar    string                      `yaml:"avatar"`
+	IsBuiltin bool                        `yaml:"is_builtin"`
+	I18n      map[string]BuiltinAgentI18n `yaml:"i18n"`
+	Config    CustomAgentConfig           `yaml:"config"`
 }
 
 // builtinAgentsFile is the top-level YAML structure.
@@ -78,6 +78,7 @@ func LoadBuiltinAgentsConfig(configDir string) error {
 		builtinAgentEntries = make(map[string]*BuiltinAgentEntry, len(file.BuiltinAgents))
 		for i := range file.BuiltinAgents {
 			entry := &file.BuiltinAgents[i]
+			expandBuiltinAgentModelEnvRefs(&entry.Config)
 			builtinAgentEntries[entry.ID] = entry
 		}
 
@@ -86,6 +87,32 @@ func LoadBuiltinAgentsConfig(configDir string) error {
 		rebuildRegistryFromConfig()
 	})
 	return loadErr
+}
+
+func expandBuiltinAgentModelEnvRefs(config *CustomAgentConfig) {
+	if config == nil {
+		return
+	}
+	config.ModelID = expandEnvReference(config.ModelID)
+	config.RerankModelID = expandEnvReference(config.RerankModelID)
+	config.QueryUnderstandModelID = expandEnvReference(config.QueryUnderstandModelID)
+	config.VLMModelID = expandEnvReference(config.VLMModelID)
+	config.ASRModelID = expandEnvReference(config.ASRModelID)
+	if config.QuestionSuggestions != nil {
+		config.QuestionSuggestions.FollowUps.ModelID = expandEnvReference(config.QuestionSuggestions.FollowUps.ModelID)
+	}
+}
+
+func expandEnvReference(value string) string {
+	if !strings.Contains(value, "$") {
+		return value
+	}
+	return os.Expand(value, func(key string) string {
+		if envValue, ok := os.LookupEnv(key); ok {
+			return envValue
+		}
+		return "${" + key + "}"
+	})
 }
 
 // rebuildRegistryFromConfig replaces the BuiltinAgentRegistry entries with

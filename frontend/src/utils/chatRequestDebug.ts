@@ -20,6 +20,9 @@ export function sanitizeStreamRequestBody(body: Record<string, unknown>): Record
   if (typeof out.query === 'string' && out.query.length > 500) {
     out.query = `${out.query.slice(0, 500)}… (${out.query.length} chars)`;
   }
+  if (typeof out.quoted_context === 'string') {
+    out.quoted_context = `[hidden context: ${out.quoted_context.length} chars]`;
+  }
   return out;
 }
 

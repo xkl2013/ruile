@@ -137,6 +137,14 @@
                 <button
                   type="button"
                   class="memory-note-tab"
+                  :class="{ 'is-active': noteActiveTab === 'service' }"
+                  @click="noteActiveTab = 'service'"
+                >
+                  服务
+                </button>
+                <button
+                  type="button"
+                  class="memory-note-tab"
                   :class="{ 'is-active': noteActiveTab === 'sprout' }"
                   @click="noteActiveTab = 'sprout'"
                 >
@@ -160,6 +168,78 @@
                       :placeholder="editorPlaceholder"
                       :features="editorFeatures"
                     />
+                  </div>
+                </section>
+
+                <section v-show="noteActiveTab === 'service'" class="memory-note-panel-view memory-note-panel-view--service">
+                  <article v-if="noteServiceTask" class="memory-note-service-card">
+                    <div class="memory-note-service-head">
+                      <span>客户摘要</span>
+                      <div>
+                        <h2>{{ noteServiceTask.customerName }}</h2>
+                        <em :class="`priority-${noteServiceTask.priorityKey}`">
+                          {{ noteServiceTask.stage }} · {{ noteServiceTask.confidenceLabel }}
+                        </em>
+                      </div>
+                    </div>
+
+                    <p class="memory-note-service-summary">{{ noteServiceTask.summary }}</p>
+
+                    <dl class="memory-note-service-facts">
+                      <div v-for="fact in noteServiceFacts" :key="fact.label">
+                        <dt>{{ fact.label }}</dt>
+                        <dd>{{ fact.value }}</dd>
+                      </div>
+                    </dl>
+
+                    <section class="memory-note-service-section">
+                      <h3>有利于销售的信息</h3>
+                      <ul>
+                        <li v-for="item in noteServiceTask.salesHighlights" :key="item">{{ item }}</li>
+                      </ul>
+                    </section>
+
+                    <section class="memory-note-service-section">
+                      <h3>建议动作</h3>
+                      <p>{{ noteServiceTask.primaryAction }}</p>
+                      <blockquote>{{ noteServiceTask.replyDraft }}</blockquote>
+                    </section>
+
+                    <section class="memory-note-service-section">
+                      <h3>来源关联</h3>
+                      <div class="memory-note-service-source-list">
+                        <button
+                          v-if="noteServiceSourceMemory"
+                          type="button"
+                          class="memory-note-service-source"
+                          @click="noteActiveTab = 'content'"
+                        >
+                          <span class="memory-note-service-source-icon"><t-icon name="file" size="16px" /></span>
+                          <span>
+                            <strong>{{ noteServiceSourceMemory.title }}</strong>
+                            <em>{{ noteServiceSourceMemory.sourceLabel }} · {{ noteServiceSourceMemory.dateLabel }} · {{ noteServiceSourceMemory.idLabel }}</em>
+                          </span>
+                        </button>
+                        <button
+                          v-if="sourceFileCardVisible"
+                          type="button"
+                          class="memory-note-service-source"
+                          @click="openSourceFilePreview"
+                        >
+                          <span class="memory-note-service-source-icon"><t-icon :name="sourceFileIcon" size="16px" /></span>
+                          <span>
+                            <strong>{{ sourceFileName }}</strong>
+                            <em>源文件 · {{ sourceFileKindLabel }}</em>
+                          </span>
+                        </button>
+                      </div>
+                    </section>
+                  </article>
+
+                  <div v-else class="memory-note-service-empty">
+                    <t-icon name="search" size="24px" />
+                    <strong>暂无服务资料</strong>
+                    <p>这条记忆没有识别到客户身份和销售服务信号。</p>
                   </div>
                 </section>
 
@@ -379,6 +459,11 @@ import {
   mergeNoteMetadata,
   normalizeNoteTags,
 } from './noteEditor'
+import {
+  buildServiceTaskFromMemory,
+  formatMemoryDateLabel,
+  type ServiceTask,
+} from '../service/serviceMemoryExtraction'
 
 type OrganizeDocumentType = 'memory' | 'output' | 'sprout'
 type SaveState = 'idle' | 'saving' | 'saved' | 'waiting' | 'error'
@@ -411,13 +496,16 @@ const memorySource = ref('手动输入')
 const memoryDurationSeconds = ref(0)
 const memoryMetadata = ref<Record<string, unknown> | undefined>()
 const memoryTags = ref<string[]>([])
+const memoryOccurredAt = ref('')
+const memoryCreatedAt = ref('')
+const memoryUpdatedAt = ref('')
 const noteTagDraft = ref('')
 const noteTagMenuVisible = ref(false)
 const noteSproutReport = ref<OrganizeSproutReport | null>(null)
 const noteSproutCreating = ref(false)
 const noteSproutLoading = ref(false)
 const noteSproutStatus = ref<OrganizeSproutStage | ''>('')
-const noteActiveTab = ref<'content' | 'sprout'>('content')
+const noteActiveTab = ref<'content' | 'service' | 'sprout'>('content')
 const sourcePreviewVisible = ref(false)
 const sproutPreviewVisible = ref(false)
 const outputDraft = ref<OrganizeOutput | null>(null)
@@ -773,6 +861,53 @@ const openSourceFilePreview = () => {
   }
   sourcePreviewVisible.value = true
 }
+
+const currentNoteMemoryForService = computed<OrganizeMemory | null>(() => {
+  if (!isNoteMemory.value) return null
+  const memoryID = activeDocumentId.value
+  if (!memoryID || memoryID === 'new') return null
+  return {
+    id: memoryID,
+    kind: memoryKind.value,
+    title: title.value,
+    content: content.value,
+    source: memorySource.value,
+    occurred_at: memoryOccurredAt.value || memoryUpdatedAt.value || memoryCreatedAt.value,
+    duration_seconds: memoryDurationSeconds.value,
+    metadata: memoryMetadata.value,
+    created_at: memoryCreatedAt.value,
+    updated_at: memoryUpdatedAt.value || memoryOccurredAt.value || memoryCreatedAt.value,
+  }
+})
+
+const noteServiceTask = computed<ServiceTask | null>(() => {
+  const memory = currentNoteMemoryForService.value
+  return memory ? buildServiceTaskFromMemory(memory) : null
+})
+
+const noteServiceSourceMemory = computed(() => {
+  const memory = currentNoteMemoryForService.value
+  if (!memory) return null
+  return {
+    title: memory.title || '未命名记忆',
+    sourceLabel: memory.source || '个人记忆',
+    dateLabel: formatMemoryDateLabel(memory.occurred_at || memory.updated_at || memory.created_at),
+    idLabel: memory.id ? `#${memory.id.slice(0, 8)}` : '未保存',
+  }
+})
+
+const noteServiceFacts = computed(() => {
+  const task = noteServiceTask.value
+  if (!task) return []
+  return [
+    { label: '阶段', value: task.stage },
+    { label: '学员', value: task.studentName && task.studentName !== '待补充' ? task.studentName : '待补充' },
+    { label: '风险', value: task.riskLabel },
+    { label: '下一步', value: task.nextAction },
+    { label: '来源', value: `${task.sourceMemoryCount} 条记忆` },
+    { label: '置信度', value: task.confidenceLabel },
+  ]
+})
 
 const markDocumentDirty = () => {
   if (!editorReady.value || loading.value) return
@@ -1131,6 +1266,9 @@ const resetDraft = () => {
   memoryDurationSeconds.value = draft.duration_seconds || 0
   memoryMetadata.value = draft.metadata
   memoryTags.value = noteTagsFromMetadata(draft.metadata)
+  memoryOccurredAt.value = ''
+  memoryCreatedAt.value = ''
+  memoryUpdatedAt.value = ''
   noteTagDraft.value = ''
   noteTagMenuVisible.value = false
   noteSproutReport.value = null
@@ -1184,6 +1322,9 @@ const loadDocument = async () => {
       memoryDurationSeconds.value = item.duration_seconds || 0
       memoryMetadata.value = item.metadata
       memoryTags.value = noteTagsFromMetadata(item.metadata)
+      memoryOccurredAt.value = item.occurred_at || item.created_at || item.updated_at || ''
+      memoryCreatedAt.value = item.created_at || ''
+      memoryUpdatedAt.value = item.updated_at || ''
       noteTagDraft.value = ''
       noteTagMenuVisible.value = false
       noteSproutReport.value = null
@@ -1299,7 +1440,16 @@ const saveDocument = async () => {
         ? await createOrganizeMemory(input)
         : await updateOrganizeMemory(currentDocumentId, input)
       if (!response.success || !response.data) throw new Error(response.message || '笔记保存失败')
-      savedId = response.data.id
+      const savedMemory = response.data
+      savedId = savedMemory.id
+      memoryKind.value = savedMemory.kind
+      memorySource.value = savedMemory.source || memorySource.value
+      memoryDurationSeconds.value = savedMemory.duration_seconds || 0
+      memoryMetadata.value = savedMemory.metadata
+      memoryTags.value = noteTagsFromMetadata(savedMemory.metadata)
+      memoryOccurredAt.value = savedMemory.occurred_at || ''
+      memoryCreatedAt.value = savedMemory.created_at || ''
+      memoryUpdatedAt.value = savedMemory.updated_at || ''
     } else if (currentType === 'output') {
       const draft = outputDraft.value
       const input = {
@@ -2232,6 +2382,227 @@ watch(
   cursor: pointer;
 }
 
+.memory-note-service-card {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid rgba(55, 73, 65, 0.14);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.memory-note-service-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+
+  > span {
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: rgba(22, 93, 67, 0.08);
+    color: #165d43;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  h2 {
+    margin: 0 0 6px;
+    color: #26241f;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  em {
+    color: rgba(55, 53, 47, 0.54);
+    font-size: 13px;
+    font-style: normal;
+    line-height: 1.5;
+
+    &.priority-high {
+      color: #b7352c;
+    }
+
+    &.priority-medium {
+      color: #8a5a10;
+    }
+
+    &.priority-low {
+      color: #46605b;
+    }
+  }
+}
+
+.memory-note-service-summary {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.78);
+  font-size: 15px;
+  line-height: 1.85;
+}
+
+.memory-note-service-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+
+  > div {
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(55, 73, 65, 0.1);
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  dt {
+    margin: 0 0 4px;
+    color: rgba(55, 53, 47, 0.45);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  dd {
+    margin: 0;
+    overflow: hidden;
+    color: #37352f;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.memory-note-service-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  h3 {
+    margin: 0;
+    color: #26241f;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  p {
+    margin: 0;
+    color: rgba(55, 53, 47, 0.76);
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: 18px;
+    color: rgba(55, 53, 47, 0.78);
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  blockquote {
+    margin: 0;
+    padding: 10px 12px;
+    border-left: 3px solid rgba(22, 93, 67, 0.22);
+    border-radius: 0 8px 8px 0;
+    background: rgba(22, 93, 67, 0.06);
+    color: rgba(55, 53, 47, 0.82);
+    font-size: 14px;
+    line-height: 1.8;
+  }
+}
+
+.memory-note-service-source-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.memory-note-service-source {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(55, 73, 65, 0.12);
+  border-radius: 8px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    border-color: rgba(22, 93, 67, 0.28);
+    background: #f8fbfa;
+  }
+
+  strong,
+  em {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  strong {
+    color: #26241f;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  em {
+    margin-top: 2px;
+    color: rgba(55, 53, 47, 0.5);
+    font-size: 12px;
+    font-style: normal;
+    line-height: 1.45;
+  }
+}
+
+.memory-note-service-source-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(22, 93, 67, 0.08);
+  color: #165d43;
+}
+
+.memory-note-service-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  gap: 8px;
+  border: 1px dashed rgba(55, 53, 47, 0.18);
+  border-radius: 8px;
+  background: #fcfcfb;
+  color: rgba(55, 53, 47, 0.42);
+  text-align: center;
+
+  strong {
+    color: #37352f;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  p {
+    margin: 0;
+    color: rgba(55, 53, 47, 0.52);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+}
+
 .sprout-report-card {
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr);
@@ -2703,6 +3074,24 @@ watch(
   .memory-note-tab {
     padding-bottom: 12px;
     font-size: 14px;
+  }
+
+  .memory-note-service-card {
+    padding: 16px;
+  }
+
+  .memory-note-service-head {
+    flex-direction: column;
+    gap: 10px;
+
+    h2 {
+      font-size: 20px;
+    }
+  }
+
+  .memory-note-service-facts,
+  .memory-note-service-source-list {
+    grid-template-columns: 1fr;
   }
 
   .sprout-report-card {

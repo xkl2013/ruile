@@ -116,12 +116,15 @@ builtin_agents:
     config:
       agent_mode: "smart-reasoning"
       agent_type: "education-sales"
+      model_id: "${QWEN37_MAX_MODEL_ID}"
       system_prompt_id: "education_sales_director"
       temperature: 0.6
       max_completion_tokens: 4096
       max_iterations: 30
       kb_selection_mode: "all"
       retrieve_kb_only_when_mentioned: false
+      citation_enabled: false
+      include_retrieved_images: false
       allowed_tools:
         - "knowledge_search"
         - "grep_chunks"
@@ -140,6 +143,25 @@ builtin_agents:
       vector_threshold: 0.5
       rerank_top_k: 10
       rerank_threshold: 0.3
+      question_suggestions:
+        starters:
+          enabled: true
+          mode: "curated"
+          count: 4
+          items:
+            - "整理当前客户的回复话术"
+            - "找出这次服务的重点和依据"
+            - "把下一步跟进拆成三步"
+            - "生成一条温和的微信跟进"
+        follow_ups:
+          enabled: false
+          mode: "hybrid"
+          count: 3
+          max_context_turns: 2
+          suppress_on_fallback: true
+          suppress_when_answer_asks_question: true
+          knowledge_fallback: true
+          allow_regenerate: false
 
   - id: "builtin-wiki-fixer"
     avatar: "🔧"

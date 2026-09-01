@@ -14,7 +14,7 @@
         </div>
         <!-- 显示上传的图片 -->
         <div v-if="hasImages" class="user_images">
-            <img v-for="(img, idx) in props.images" :key="idx" :src="img.url" class="user_image_thumb"
+            <img v-for="(img, idx) in displayImages" :key="idx" :src="img.url" class="user_image_thumb"
                 @click="previewImage($event)" />
         </div>
         <!-- 显示上传的附件 -->
@@ -120,7 +120,20 @@ const channelLabel = computed(() => {
 const channelClass = computed(() => props.channel ? `channel-${props.channel}` : '');
 
 const containerRef = ref(null);
-const hasImages = computed(() => props.images && props.images.length > 0);
+const displayImages = computed(() => {
+    if (!Array.isArray(props.images)) return [];
+    return props.images
+        .map((img) => {
+            if (typeof img === 'string') {
+                const url = img.trim();
+                return url ? { url } : null;
+            }
+            const url = typeof img?.url === 'string' ? img.url.trim() : '';
+            return url ? { ...img, url } : null;
+        })
+        .filter(Boolean);
+});
+const hasImages = computed(() => displayImages.value.length > 0);
 const hasAttachments = computed(() => props.attachments && props.attachments.length > 0);
 
 const getAttachmentIcon = (fileNameOrType) => {

@@ -7,6 +7,7 @@ export default {
     organizations: 'Shared Spaces',
     chat: 'Chat',
     newChat: 'Xiaorui AI',
+    messages: 'Messages',
     createChat: 'Create Chat',
     tenant: 'Account Info',
     settings: 'System Settings',

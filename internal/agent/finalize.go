@@ -71,7 +71,7 @@ func (e *AgentEngine) streamFinalAnswerToEventBus(
 	logger.Debugf(ctx, "[Agent][FinalAnswer] Built context: %d messages, %d tool results",
 		len(messages), toolResultCount)
 
-	imageRequirement := finalAnswerImageRequirement(hasRetrievedImage)
+	imageRequirement := finalAnswerImageRequirement(hasRetrievedImage && e.config.RetrievedImagesEnabled())
 
 	// Add final answer prompt
 	finalPrompt := fmt.Sprintf(`Based on the above tool call results, generate a complete answer for the user's question.

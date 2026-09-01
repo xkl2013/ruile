@@ -10,6 +10,8 @@ import {
 } from '@/views/organize/organizeRoutes'
 import {
   SERVICE_MENU_ROUTES,
+  SERVICE_MESSAGES_ROUTE_PATH,
+  SERVICE_REVIEW_ROUTE_PATH,
   resolveServiceRoutePath,
 } from '@/views/service/serviceRoutes'
 
@@ -141,8 +143,10 @@ const router = createRouter({
         ...ORGANIZE_MENU_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
           name: item.routeName,
-          component: organizeWorkspaceComponent,
-          meta: { ...organizeRouteMeta, organizeTab: item.key },
+          component: item.key === 'daily' ? serviceWorkspaceComponent : organizeWorkspaceComponent,
+          meta: item.key === 'daily'
+            ? { ...organizeRouteMeta, organizeTab: item.key, serviceTab: 'review' }
+            : { ...organizeRouteMeta, organizeTab: item.key },
         })),
         ...ORGANIZE_MEMORY_ASSET_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
@@ -163,12 +167,22 @@ const router = createRouter({
         },
         {
           path: "service/work",
-          redirect: "/platform/service/messages",
+          redirect: SERVICE_MESSAGES_ROUTE_PATH,
           meta: serviceRouteMeta,
         },
         {
           path: "service/customers",
-          redirect: "/platform/service/messages",
+          redirect: SERVICE_MESSAGES_ROUTE_PATH,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/messages",
+          redirect: SERVICE_MESSAGES_ROUTE_PATH,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/review",
+          redirect: SERVICE_REVIEW_ROUTE_PATH,
           meta: serviceRouteMeta,
         },
         ...SERVICE_MENU_ROUTES.map((item) => ({
