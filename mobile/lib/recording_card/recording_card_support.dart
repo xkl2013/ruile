@@ -23,18 +23,18 @@ enum RecordingCardFileTransferStatus {
 extension RecordingCardFileTransferStatusX on RecordingCardFileTransferStatus {
   String get label => switch (this) {
         RecordingCardFileTransferStatus.listed => '已识别',
-        RecordingCardFileTransferStatus.downloadPending => '待下载',
-        RecordingCardFileTransferStatus.downloading => '下载中',
+        RecordingCardFileTransferStatus.downloadPending => '待蓝牙传输',
+        RecordingCardFileTransferStatus.downloading => '蓝牙传输中',
         RecordingCardFileTransferStatus.checksumFailed => '校验失败',
-        RecordingCardFileTransferStatus.stoppingForRetry => '等待重试',
-        RecordingCardFileTransferStatus.retryPending => '重试中',
-        RecordingCardFileTransferStatus.downloaded => '本地已保存',
-        RecordingCardFileTransferStatus.cloudSyncPending => '待上传云端',
-        RecordingCardFileTransferStatus.cloudSyncing => '上传云端中',
-        RecordingCardFileTransferStatus.cloudSyncFailed => '上传失败',
-        RecordingCardFileTransferStatus.synced => '已同步',
-        RecordingCardFileTransferStatus.failed => '同步失败',
-        RecordingCardFileTransferStatus.deletedOnDevice => '已删除设备',
+        RecordingCardFileTransferStatus.stoppingForRetry => '等待重传',
+        RecordingCardFileTransferStatus.retryPending => '断点重传中',
+        RecordingCardFileTransferStatus.downloaded => '待自动生成',
+        RecordingCardFileTransferStatus.cloudSyncPending => '自动生成队列',
+        RecordingCardFileTransferStatus.cloudSyncing => '生成记忆中',
+        RecordingCardFileTransferStatus.cloudSyncFailed => '生成失败',
+        RecordingCardFileTransferStatus.synced => '已生成记忆',
+        RecordingCardFileTransferStatus.failed => '下载失败',
+        RecordingCardFileTransferStatus.deletedOnDevice => '已删设备文件',
       };
 
   bool get isTerminal => switch (this) {
@@ -573,7 +573,7 @@ class RecordingCardProtocol {
   static bool _looksLikeFileName(String value) {
     if (value.trim().isEmpty) return false;
     if (value.length > 128) return false;
-    return RegExp(r'^[A-Za-z0-9_\-\.]+$').hasMatch(value);
+    return RegExp(r'^[A-Za-z0-9_\-\.: ]+$').hasMatch(value);
   }
 
   static bool _isPrintableNameByte(int byte) {
@@ -756,6 +756,48 @@ class RecordingCardAppSyncBus {
 
   static void notifyChanged() {
     notifier.value += 1;
+  }
+}
+
+class RecordingCardConnectionStatus {
+  const RecordingCardConnectionStatus({
+    required this.connected,
+    this.deviceName = '',
+  });
+
+  const RecordingCardConnectionStatus.disconnected()
+      : connected = false,
+        deviceName = '';
+
+  final bool connected;
+  final String deviceName;
+
+  @override
+  bool operator ==(Object other) {
+    return other is RecordingCardConnectionStatus &&
+        other.connected == connected &&
+        other.deviceName == deviceName;
+  }
+
+  @override
+  int get hashCode => Object.hash(connected, deviceName);
+}
+
+class RecordingCardConnectionStatusBus {
+  RecordingCardConnectionStatusBus._();
+
+  static final ValueNotifier<RecordingCardConnectionStatus> notifier =
+      ValueNotifier<RecordingCardConnectionStatus>(
+    const RecordingCardConnectionStatus.disconnected(),
+  );
+
+  static void publish(RecordingCardConnectionStatus status) {
+    if (notifier.value == status) return;
+    notifier.value = status;
+  }
+
+  static void clear() {
+    publish(const RecordingCardConnectionStatus.disconnected());
   }
 }
 

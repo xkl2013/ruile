@@ -14,9 +14,21 @@ import 'package:video_player/video_player.dart';
 import 'recording_card/recording_card_page.dart';
 import 'recording_card/recording_card_support.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarContrastEnforced: false,
+      systemNavigationBarDividerColor: Colors.transparent,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
   runApp(const RuileMobileApp());
 }
+
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class RuileMobileApp extends StatelessWidget {
   const RuileMobileApp({
@@ -34,6 +46,7 @@ class RuileMobileApp extends StatelessWidget {
 
     return MaterialApp(
       title: '睿乐大脑',
+      navigatorKey: _rootNavigatorKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -90,9 +103,22 @@ class _ApiException extends HttpException {
 
   final int statusCode;
 
-  bool get isAuthFailure =>
-      statusCode == HttpStatus.unauthorized ||
+  bool get isAuthFailure => _isAuthFailureStatus(statusCode);
+}
+
+bool _isAuthFailureStatus(int statusCode) {
+  return statusCode == HttpStatus.unauthorized ||
       statusCode == HttpStatus.forbidden;
+}
+
+void _notifyImageAuthFailure(Object error, VoidCallback? onAuthFailure) {
+  if (onAuthFailure == null) return;
+  if (error is! NetworkImageLoadException) return;
+  if (!_isAuthFailureStatus(error.statusCode)) return;
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    onAuthFailure();
+  });
 }
 
 class _AuthSessionStore {
@@ -241,6 +267,7 @@ class _RuileApiClient {
     String? baseUrl,
     String? authToken,
     String? tenantId,
+    this.onAuthFailure,
   })  : baseUrl = baseUrl ?? AppApiConfig.baseUrl,
         authToken = authToken ?? AppApiConfig.authToken,
         tenantId = tenantId ?? AppApiConfig.tenantId;
@@ -249,6 +276,7 @@ class _RuileApiClient {
   final String baseUrl;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   bool get isConfigured => authToken.trim().isNotEmpty;
 
@@ -677,10 +705,10 @@ class _RuileApiClient {
     final body = await response.transform(utf8.decoder).join();
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw _ApiException(
+      _throwApiException(
         response.statusCode,
         'GET $path failed with ${response.statusCode}: $body',
-        uri: _resolve(path),
+        _resolve(path),
       );
     }
     if (body.trim().isEmpty) return null;
@@ -712,10 +740,10 @@ class _RuileApiClient {
       } catch (_) {
         // Keep raw response as the error detail.
       }
-      throw _ApiException(
+      _throwApiException(
         response.statusCode,
         message,
-        uri: _resolve(path),
+        _resolve(path),
       );
     }
     if (responseBody.trim().isEmpty) return null;
@@ -745,10 +773,10 @@ class _RuileApiClient {
       } catch (_) {
         // Keep raw response as the error detail.
       }
-      throw _ApiException(
+      _throwApiException(
         response.statusCode,
         message,
-        uri: _resolve(path),
+        _resolve(path),
       );
     }
     if (responseBody.trim().isEmpty) return null;
@@ -821,10 +849,10 @@ class _RuileApiClient {
       } catch (_) {
         // Keep raw response as the error detail.
       }
-      throw _ApiException(
+      _throwApiException(
         response.statusCode,
         message,
-        uri: _resolve(path),
+        _resolve(path),
       );
     }
     if (responseBody.trim().isEmpty) return null;
@@ -849,10 +877,10 @@ class _RuileApiClient {
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final body = utf8.decode(bytes, allowMalformed: true);
-      throw _ApiException(
+      _throwApiException(
         response.statusCode,
         'GET $pathOrUrl failed with ${response.statusCode}: $body',
-        uri: _resolveResource(pathOrUrl),
+        _resolveResource(pathOrUrl),
       );
     }
     return Uint8List.fromList(bytes);
@@ -904,6 +932,14 @@ class _RuileApiClient {
     if (tenantId.trim().isNotEmpty) {
       request.headers.set('X-Tenant-ID', tenantId.trim());
     }
+  }
+
+  Never _throwApiException(int statusCode, String message, Uri uri) {
+    final error = _ApiException(statusCode, message, uri: uri);
+    if (error.isAuthFailure) {
+      onAuthFailure?.call();
+    }
+    throw error;
   }
 
   Uri _resolve(String path) {
@@ -1087,10 +1123,13 @@ class _AuthGateState extends State<_AuthGate> {
       debugPrint('Failed to clear auth session: $error');
     }));
 
-    setState(() {
-      _session = null;
-      _loadingSession = false;
-    });
+    if (_session != null || _loadingSession) {
+      setState(() {
+        _session = null;
+        _loadingSession = false;
+      });
+    }
+    _resetNavigationToLogin();
   }
 
   void _handleLoginSuccess(AuthSession session) {
@@ -1105,6 +1144,13 @@ class _AuthGateState extends State<_AuthGate> {
 
     setState(() {
       _session = session;
+    });
+  }
+
+  void _resetNavigationToLogin() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _rootNavigatorKey.currentState?.popUntil((route) => route.isFirst);
     });
   }
 
@@ -1590,6 +1636,7 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
 
   void _selectTab(int index) {
@@ -1605,6 +1652,7 @@ class _MainShellState extends State<MainShell> {
           mode: mode,
           authToken: widget.session.token,
           tenantId: widget.session.tenantId,
+          onAuthFailure: widget.onLogout,
         ),
       ),
     );
@@ -1625,10 +1673,41 @@ class _MainShellState extends State<MainShell> {
     }
   }
 
+  void _openSideDrawer() {
+    _scaffoldKey.currentState?.openDrawer();
+  }
+
+  void _openKnowledgeBaseListFromDrawer() {
+    _selectTab(0);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => const KnowledgeBaseListPage(),
+      ),
+    );
+  }
+
+  void _openRecordingCardFromDrawer() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => RecordingCardDevicePage(
+          onAuthFailure: widget.onLogout,
+        ),
+      ),
+    );
+  }
+
+  void _showDrawerMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final showAppBar = _selectedIndex == 2;
     final pages = [
       NotesPage(
         authToken: widget.session.token,
@@ -1640,28 +1719,415 @@ class _MainShellState extends State<MainShell> {
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
       ),
-      const ProfilePage(),
+      const AssistantPage(),
     ];
 
     return Scaffold(
+      key: _scaffoldKey,
       extendBody: true,
-      appBar: showAppBar
-          ? AppBar(
-              title: const Text('我的'),
-              centerTitle: false,
-              backgroundColor: colorScheme.surface,
-              foregroundColor: colorScheme.onSurface,
-              elevation: 0,
-            )
-          : null,
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: pages,
+      drawerScrimColor: Colors.black.withValues(alpha: 0.18),
+      drawer: _MainSideDrawer(
+        session: widget.session,
+        onOpenKnowledgeBase: _openKnowledgeBaseListFromDrawer,
+        onOpenRecordingCard: _openRecordingCardFromDrawer,
+        onOpenMemories: () => _selectTab(0),
+        onOpenDaily: () => _showDrawerMessage('Get日报待接入'),
       ),
-      bottomNavigationBar: _MainDock(
-        selectedIndex: _selectedIndex,
-        onTabSelected: _selectTab,
-        onCaptureActionSelected: _handleCaptureAction,
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _selectedIndex,
+            children: pages,
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _MainDock(
+              selectedIndex: _selectedIndex,
+              onTabSelected: _selectTab,
+              onCaptureActionSelected: _handleCaptureAction,
+            ),
+          ),
+          _HomeFloatingMenu(onMenuTap: _openSideDrawer),
+        ],
+      ),
+    );
+  }
+}
+
+class _MainSideDrawer extends StatelessWidget {
+  const _MainSideDrawer({
+    required this.session,
+    required this.onOpenKnowledgeBase,
+    required this.onOpenRecordingCard,
+    required this.onOpenMemories,
+    required this.onOpenDaily,
+  });
+
+  final AuthSession session;
+  final VoidCallback onOpenKnowledgeBase;
+  final VoidCallback onOpenRecordingCard;
+  final VoidCallback onOpenMemories;
+  final VoidCallback onOpenDaily;
+
+  void _closeAndRun(BuildContext context, VoidCallback action) {
+    Navigator.of(context).pop();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      action();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final drawerWidth = (screenWidth * 0.88).clamp(300.0, 326.0).toDouble();
+    final userName =
+        session.userName.trim().isNotEmpty ? session.userName.trim() : 'Get达人';
+
+    return Drawer(
+      width: drawerWidth,
+      elevation: 0,
+      shape: const RoundedRectangleBorder(),
+      backgroundColor: AppColors.surface,
+      child: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(22, 20, 22, 28),
+          children: [
+            _DrawerProfileHeader(userName: userName),
+            const SizedBox(height: 16),
+            const _DrawerMembershipBanner(),
+            const SizedBox(height: 14),
+            const _DrawerStudentNotice(),
+            const SizedBox(height: 26),
+            const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: 18),
+            _DrawerMenuItem(
+              icon: Icons.lightbulb_outline,
+              title: '知识库',
+              trailingText: '1',
+              onTap: () => _closeAndRun(context, onOpenKnowledgeBase),
+            ),
+            _DrawerMenuItem(
+              icon: Icons.memory_outlined,
+              title: '录音卡',
+              trailing: ValueListenableBuilder<RecordingCardConnectionStatus>(
+                valueListenable: RecordingCardConnectionStatusBus.notifier,
+                builder: (context, status, child) {
+                  if (!status.connected) return const SizedBox.shrink();
+                  return _DrawerRecordingCardStatus(status: status);
+                },
+              ),
+              onTap: () => _closeAndRun(context, onOpenRecordingCard),
+            ),
+            _DrawerMenuItem(
+              icon: Icons.inbox_outlined,
+              title: '分身',
+              onTap: () => _closeAndRun(context, onOpenMemories),
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1, color: AppColors.border),
+            const SizedBox(height: 18),
+            _DrawerMenuItem(
+              icon: Icons.article_outlined,
+              title: 'Get日报',
+              showDot: true,
+              onTap: () => _closeAndRun(context, onOpenDaily),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerProfileHeader extends StatelessWidget {
+  const _DrawerProfileHeader({
+    required this.userName,
+  });
+
+  final String userName;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => Navigator.of(context).pop(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              radius: 22,
+              backgroundColor: Color(0xFFE2E4EA),
+              child: Icon(
+                Icons.person,
+                color: Color(0xFFAAB0BC),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Text(
+                userName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              size: 22,
+              color: AppColors.textPrimary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerMembershipBanner extends StatelessWidget {
+  const _DrawerMembershipBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 56,
+      padding: const EdgeInsets.symmetric(horizontal: 13),
+      decoration: BoxDecoration(
+        color: const Color(0xFF13122E),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '开通会员仅需 ¥35/月',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                color: AppColors.surface,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5DEB6),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Text(
+              '立享优惠',
+              style: TextStyle(
+                fontSize: 11,
+                color: Color(0xFF745127),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DrawerStudentNotice extends StatelessWidget {
+  const _DrawerStudentNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 43,
+      padding: const EdgeInsets.fromLTRB(14, 0, 8, 0),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: const Row(
+        children: [
+          Icon(
+            Icons.school_outlined,
+            size: 18,
+            color: Color(0xFFB77935),
+          ),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '大学生专属福利，立即查看',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFFB77935),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Icon(
+            Icons.close,
+            size: 16,
+            color: Color(0xFFD7A36E),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DrawerMenuItem extends StatelessWidget {
+  const _DrawerMenuItem({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.trailingText,
+    this.trailing,
+    this.showDot = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  final String? trailingText;
+  final Widget? trailing;
+  final bool showDot;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: SizedBox(
+        height: 52,
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: AppColors.textPrimary,
+            ),
+            const SizedBox(width: 17),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (trailingText?.trim().isNotEmpty == true) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      trailingText!.trim(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textTertiary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  if (showDot) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF05252),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerRecordingCardStatus extends StatelessWidget {
+  const _DrawerRecordingCardStatus({
+    required this.status,
+  });
+
+  final RecordingCardConnectionStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final deviceName =
+        status.deviceName.trim().isEmpty ? 'LY02' : status.deviceName.trim();
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 12),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 58),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              deviceName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                height: 1.1,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 3),
+            const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _DrawerConnectionDot(),
+                SizedBox(width: 4),
+                Text(
+                  '已连接',
+                  style: TextStyle(
+                    fontSize: 9,
+                    height: 1.1,
+                    color: AppColors.textTertiary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DrawerConnectionDot extends StatelessWidget {
+  const _DrawerConnectionDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 5,
+      height: 5,
+      decoration: const BoxDecoration(
+        color: Color(0xFF52C49A),
+        shape: BoxShape.circle,
       ),
     );
   }
@@ -1703,9 +2169,9 @@ class _MainDock extends StatelessWidget {
       selectedIcon: Icons.explore,
     ),
     _MainDockDestination(
-      label: '我的',
-      icon: Icons.person_outline,
-      selectedIcon: Icons.person,
+      label: '助理',
+      icon: Icons.support_agent_outlined,
+      selectedIcon: Icons.support_agent,
     ),
   ];
 
@@ -1717,57 +2183,60 @@ class _MainDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
-    return Padding(
-      padding: EdgeInsets.fromLTRB(18, 0, 18, bottomInset + 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: _dockWidth,
-            height: _dockHeight,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                const Positioned.fill(
-                  child: CustomPaint(painter: _MainDockBackgroundPainter()),
-                ),
-                Positioned(
-                  left: 9,
-                  top: 10,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      for (var index = 0;
-                          index < _destinations.length;
-                          index++) ...[
-                        _MainDockTabButton(
-                          destination: _destinations[index],
-                          selected: selectedIndex == index,
-                          onTap: () => onTabSelected(index),
-                        ),
-                        if (index != _destinations.length - 1)
-                          const SizedBox(width: 8),
-                      ],
-                    ],
+    return ColoredBox(
+      color: Colors.transparent,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(18, 0, 18, bottomInset + 10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: _dockWidth,
+              height: _dockHeight,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  const Positioned.fill(
+                    child: CustomPaint(painter: _MainDockBackgroundPainter()),
                   ),
-                ),
-                Positioned(
-                  left: 190,
-                  top: -3,
-                  child: SizedBox(
-                    width: 68,
-                    height: 68,
-                    child: Center(
-                      child: _CaptureMenuButton(
-                        onSelected: onCaptureActionSelected,
+                  Positioned(
+                    left: 9,
+                    top: 10,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (var index = 0;
+                            index < _destinations.length;
+                            index++) ...[
+                          _MainDockTabButton(
+                            destination: _destinations[index],
+                            selected: selectedIndex == index,
+                            onTap: () => onTabSelected(index),
+                          ),
+                          if (index != _destinations.length - 1)
+                            const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Positioned(
+                    left: 190,
+                    top: -3,
+                    child: SizedBox(
+                      width: 68,
+                      height: 68,
+                      child: Center(
+                        child: _CaptureMenuButton(
+                          onSelected: onCaptureActionSelected,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2119,6 +2588,7 @@ class _NotesPageState extends State<NotesPage> {
     _apiClient = _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
     _recordingCardSyncListener = () {
       unawaited(_loadRemoteMemories());
@@ -2308,6 +2778,7 @@ class _NotesPageState extends State<NotesPage> {
           mode: _MemoryDraftMode.record,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
         ),
       ),
     );
@@ -2324,6 +2795,7 @@ class _NotesPageState extends State<NotesPage> {
           mode: _MemoryDraftMode.text,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
         ),
       ),
     );
@@ -2419,7 +2891,7 @@ class _NotesPageState extends State<NotesPage> {
         child: Stack(
           children: [
             ListView(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 128),
+              padding: const EdgeInsets.fromLTRB(18, 58, 18, 128),
               children: [
                 _SectionHeader(
                   title: '知识库',
@@ -3419,6 +3891,7 @@ class _KnowledgeDirectoryContent extends StatefulWidget {
     this.useDemoLabels = true,
     this.authToken = AppApiConfig.authToken,
     this.tenantId = AppApiConfig.tenantId,
+    this.onAuthFailure,
   });
 
   final String rootName;
@@ -3427,6 +3900,7 @@ class _KnowledgeDirectoryContent extends StatefulWidget {
   final bool useDemoLabels;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   State<_KnowledgeDirectoryContent> createState() =>
@@ -3495,6 +3969,7 @@ class _KnowledgeDirectoryContentState
           node: file,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
           onTap: () => _openFile(file),
         ),
       );
@@ -3510,6 +3985,7 @@ class _KnowledgeDirectoryContentState
           countText: _countText,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
         ),
       ),
     );
@@ -3526,6 +4002,7 @@ class _KnowledgeDirectoryContentState
           document: document,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
         ),
       ),
     );
@@ -3575,6 +4052,7 @@ class _RemoteKnowledgeDirectoryContentState
     _apiClient = _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
     _directoryFuture = _loadDirectoryData();
   }
@@ -3644,6 +4122,7 @@ class _RemoteKnowledgeDirectoryContentState
           useDemoLabels: false,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
         );
       },
     );
@@ -3850,12 +4329,14 @@ class _KnowledgeSubdirectoryPage extends StatelessWidget {
     required this.countText,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final _KnowledgeTreeNode root;
   final String Function(_KnowledgeTreeNode node) countText;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -3876,6 +4357,7 @@ class _KnowledgeSubdirectoryPage extends StatelessWidget {
           titleSize: 18,
           authToken: authToken,
           tenantId: tenantId,
+          onAuthFailure: onAuthFailure,
           onTap: () => _openFile(context, file),
         ),
     ];
@@ -3935,6 +4417,7 @@ class _KnowledgeSubdirectoryPage extends StatelessWidget {
           countText: countText,
           authToken: authToken,
           tenantId: tenantId,
+          onAuthFailure: onAuthFailure,
         ),
       ),
     );
@@ -3951,6 +4434,7 @@ class _KnowledgeSubdirectoryPage extends StatelessWidget {
           document: document,
           authToken: authToken,
           tenantId: tenantId,
+          onAuthFailure: onAuthFailure,
         ),
       ),
     );
@@ -4080,6 +4564,7 @@ class _KnowledgeTreeFileRow extends StatelessWidget {
     required this.authToken,
     required this.tenantId,
     required this.onTap,
+    this.onAuthFailure,
     this.height = 94,
     this.titleSize = 15,
   });
@@ -4088,6 +4573,7 @@ class _KnowledgeTreeFileRow extends StatelessWidget {
   final String authToken;
   final String tenantId;
   final VoidCallback onTap;
+  final VoidCallback? onAuthFailure;
   final double height;
   final double titleSize;
 
@@ -4117,6 +4603,7 @@ class _KnowledgeTreeFileRow extends StatelessWidget {
                   fileName: node.name,
                   authToken: authToken,
                   tenantId: tenantId,
+                  onAuthFailure: onAuthFailure,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -4211,12 +4698,14 @@ class _KnowledgeFilePreview extends StatelessWidget {
     required this.fileName,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final _KnowledgeDocument? document;
   final String fileName;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -4235,6 +4724,7 @@ class _KnowledgeFilePreview extends StatelessWidget {
             headers: _imageHeaders,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
+              _notifyImageAuthFailure(error, onAuthFailure);
               return _KnowledgeFilePreviewFallback(typeLabel: typeLabel);
             },
           ),
@@ -4334,12 +4824,14 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
     required this.document,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final String fileName;
   final _KnowledgeDocument document;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -4364,6 +4856,7 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
           previewSourceUrl: previewSourceUrl,
           authToken: authToken,
           tenantId: tenantId,
+          onAuthFailure: onAuthFailure,
         );
       } else if (previewKind == _KnowledgeFilePreviewKind.audio) {
         preview = _AudioDetailPreview(
@@ -4371,6 +4864,7 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
           previewSourceUrl: previewSourceUrl,
           authToken: authToken,
           tenantId: tenantId,
+          onAuthFailure: onAuthFailure,
         );
       } else if (previewKind == _KnowledgeFilePreviewKind.video) {
         preview = _KnowledgeVideoDetailPreview(
@@ -4378,12 +4872,14 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
           previewSourceUrl: previewSourceUrl,
           authToken: authToken,
           tenantId: tenantId,
+          onAuthFailure: onAuthFailure,
         );
       } else if (previewKind == _KnowledgeFilePreviewKind.pdf) {
         preview = _KnowledgePdfDetailPreview(
           previewSourceUrl: previewSourceUrl,
           authToken: authToken,
           tenantId: tenantId,
+          onAuthFailure: onAuthFailure,
         );
       } else {
         preview = const _KnowledgePreviewUnavailable(
@@ -4553,11 +5049,13 @@ class _KnowledgeImageDetailPreview extends StatelessWidget {
     required this.previewSourceUrl,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final String previewSourceUrl;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -4579,6 +5077,7 @@ class _KnowledgeImageDetailPreview extends StatelessWidget {
             headers: _previewHeaders(authToken, tenantId),
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
+              _notifyImageAuthFailure(error, onAuthFailure);
               return const _KnowledgePreviewUnavailable(
                 title: '预览失败',
                 message: '图片资源无法加载。',
@@ -4597,6 +5096,7 @@ class _AudioDetailPreview extends StatefulWidget {
     required this.previewSourceUrl,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
     this.durationSeconds = 0,
   });
 
@@ -4604,6 +5104,7 @@ class _AudioDetailPreview extends StatefulWidget {
   final String previewSourceUrl;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
   final int durationSeconds;
 
   @override
@@ -4636,6 +5137,7 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
     _apiClient = _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
     _playerState = _player.state;
     _audioFileFuture = _loadAudioFile();
@@ -5142,12 +5644,14 @@ class _KnowledgeVideoDetailPreview extends StatefulWidget {
     required this.previewSourceUrl,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final _KnowledgeDocument document;
   final String previewSourceUrl;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   State<_KnowledgeVideoDetailPreview> createState() =>
@@ -5167,6 +5671,7 @@ class _KnowledgeVideoDetailPreviewState
     _apiClient = _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
     _videoFileFuture = _loadVideoFile();
     _prepareController();
@@ -5319,11 +5824,13 @@ class _KnowledgePdfDetailPreview extends StatefulWidget {
     required this.previewSourceUrl,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final String previewSourceUrl;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   State<_KnowledgePdfDetailPreview> createState() =>
@@ -5342,6 +5849,7 @@ class _KnowledgePdfDetailPreviewState
     _apiClient = _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
     _documentFuture = _loadDocument();
     _controller = PdfControllerPinch(document: _documentFuture);
@@ -5899,6 +6407,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     return _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
   }
 
@@ -6357,6 +6866,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                 previewSourceUrl: audioUrl,
                 authToken: widget.authToken,
                 tenantId: widget.tenantId,
+                onAuthFailure: widget.onAuthFailure,
                 durationSeconds: note.durationSeconds,
               ),
               if (note.transcriptionStatusLabel.isNotEmpty) ...[
@@ -7096,11 +7606,13 @@ class _MemoryDraftPage extends StatefulWidget {
     required this.mode,
     this.authToken = '',
     this.tenantId = '',
+    this.onAuthFailure,
   });
 
   final _MemoryDraftMode mode;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   bool get _isRecord => mode == _MemoryDraftMode.record;
 
@@ -7130,6 +7642,7 @@ class _MemoryDraftPageState extends State<_MemoryDraftPage> {
     final apiClient = _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
 
     if (!widget._isRecord) {
@@ -8717,6 +9230,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
     return _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
   }
 
@@ -8836,96 +9350,159 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
     return SafeArea(
       child: ColoredBox(
-        color: AppColors.surface,
-        child: RefreshIndicator(
-          onRefresh: _refresh,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 118),
-            children: [
-              const _DiscoverTopBar(),
-              const SizedBox(height: 18),
-              _DiscoverSectionHeader(
-                title: '精选主题',
-                onRefreshTap: _featuredOutputs.length > 1 ? _nextBatch : null,
-                refreshing: _refreshingFeatured,
+        color: AppColors.background,
+        child: Stack(
+          children: [
+            RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(18, 58, 18, 118),
+                children: [
+                  _DiscoverSectionHeader(
+                    title: '精选主题',
+                    onRefreshTap:
+                        _featuredOutputs.length > 1 ? _nextBatch : null,
+                    refreshing: _refreshingFeatured,
+                  ),
+                  const SizedBox(height: 12),
+                  if (_loading && !hasContent)
+                    const _DiscoverLoading()
+                  else if (_error != null && !hasContent)
+                    _DiscoverLoadError(
+                      message: _error!,
+                      onRetry: () => unawaited(_loadDiscover()),
+                    )
+                  else ...[
+                    if (_featuredOutputs.isEmpty)
+                      const _DiscoverEmpty(message: '暂无精选')
+                    else
+                      for (final output in _featuredOutputs) ...[
+                        _DiscoverOutputTile(
+                          output: output,
+                          authToken: widget.authToken,
+                          tenantId: widget.tenantId,
+                          onAuthFailure: widget.onAuthFailure,
+                          onTap: () => unawaited(_openOutput(output)),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    const SizedBox(height: 6),
+                    _DiscoverTabsBar(
+                      tabs: _tabs,
+                      selectedValue: _selectedTab,
+                      onSelected: _selectTab,
+                    ),
+                    const SizedBox(height: 16),
+                    _DiscoverFeedHeader(
+                      label: _selectedTabLabel,
+                      total: _total,
+                      loading: _loading,
+                    ),
+                    const SizedBox(height: 10),
+                    if (_error != null)
+                      _DiscoverLoadError(
+                        message: _error!,
+                        onRetry: () => unawaited(_loadDiscover()),
+                      )
+                    else if (_outputs.isEmpty)
+                      const _DiscoverEmpty(message: '暂无发现')
+                    else
+                      for (final output in _outputs) ...[
+                        _DiscoverOutputTile(
+                          output: output,
+                          authToken: widget.authToken,
+                          tenantId: widget.tenantId,
+                          onAuthFailure: widget.onAuthFailure,
+                          onTap: () => unawaited(_openOutput(output)),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                  ],
+                ],
               ),
-              const SizedBox(height: 12),
-              if (_loading && !hasContent)
-                const _DiscoverLoading()
-              else if (_error != null && !hasContent)
-                _DiscoverLoadError(
-                  message: _error!,
-                  onRetry: () => unawaited(_loadDiscover()),
-                )
-              else ...[
-                if (_featuredOutputs.isEmpty)
-                  const _DiscoverEmpty(message: '暂无精选')
-                else
-                  for (final output in _featuredOutputs) ...[
-                    _DiscoverOutputTile(
-                      output: output,
-                      authToken: widget.authToken,
-                      tenantId: widget.tenantId,
-                      onTap: () => unawaited(_openOutput(output)),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                const SizedBox(height: 6),
-                _DiscoverTabsBar(
-                  tabs: _tabs,
-                  selectedValue: _selectedTab,
-                  onSelected: _selectTab,
-                ),
-                const SizedBox(height: 16),
-                _DiscoverFeedHeader(
-                  label: _selectedTabLabel,
-                  total: _total,
-                  loading: _loading,
-                ),
-                const SizedBox(height: 10),
-                if (_error != null)
-                  _DiscoverLoadError(
-                    message: _error!,
-                    onRetry: () => unawaited(_loadDiscover()),
-                  )
-                else if (_outputs.isEmpty)
-                  const _DiscoverEmpty(message: '暂无发现')
-                else
-                  for (final output in _outputs) ...[
-                    _DiscoverOutputTile(
-                      output: output,
-                      authToken: widget.authToken,
-                      tenantId: widget.tenantId,
-                      onTap: () => unawaited(_openOutput(output)),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-              ],
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _DiscoverTopBar extends StatelessWidget {
-  const _DiscoverTopBar();
+class _HomeFloatingMenu extends StatelessWidget {
+  const _HomeFloatingMenu({
+    this.onMenuTap,
+  });
+
+  final VoidCallback? onMenuTap;
+  static const _leftInset = 18.0;
+  static const _topInset = 8.0;
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
-      height: 34,
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          '发现',
-          style: TextStyle(
-            fontSize: 24,
-            height: 1.2,
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w700,
+    final topInset = MediaQuery.paddingOf(context).top;
+
+    return Positioned(
+      left: _leftInset,
+      top: topInset + _topInset,
+      child: _HomeTopIconButton(
+        tooltip: '菜单',
+        icon: Icons.menu_rounded,
+        onTap: onMenuTap,
+      ),
+    );
+  }
+}
+
+class _HomeTopIconButton extends StatelessWidget {
+  const _HomeTopIconButton({
+    required this.tooltip,
+    required this.icon,
+    this.onTap,
+  });
+
+  static const size = 44.0;
+  static const iconSize = 24.0;
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 12,
+                offset: Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: Icon(
+                  icon,
+                  size: iconSize,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -9098,12 +9675,14 @@ class _DiscoverOutputTile extends StatelessWidget {
     required this.authToken,
     required this.tenantId,
     required this.onTap,
+    this.onAuthFailure,
   });
 
   final _OrganizeOutput output;
   final String authToken;
   final String tenantId;
   final VoidCallback onTap;
+  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -9135,6 +9714,7 @@ class _DiscoverOutputTile extends StatelessWidget {
                   output: output,
                   authToken: authToken,
                   tenantId: tenantId,
+                  onAuthFailure: onAuthFailure,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -9193,11 +9773,13 @@ class _DiscoverOutputCover extends StatelessWidget {
     required this.output,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final _OrganizeOutput output;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -9216,6 +9798,7 @@ class _DiscoverOutputCover extends StatelessWidget {
                 headers: _discoverImageHeaders(authToken, tenantId),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
+                  _notifyImageAuthFailure(error, onAuthFailure);
                   return _DiscoverOutputCoverFallback(output: output);
                 },
               )
@@ -9379,6 +9962,7 @@ class _DiscoverDetailPageState extends State<_DiscoverDetailPage> {
     _apiClient = _RuileApiClient(
       authToken: widget.authToken,
       tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
     );
     unawaited(_loadLatestOutput());
   }
@@ -9453,6 +10037,7 @@ class _DiscoverDetailPageState extends State<_DiscoverDetailPage> {
               output: output,
               authToken: widget.authToken,
               tenantId: widget.tenantId,
+              onAuthFailure: widget.onAuthFailure,
             ),
             const SizedBox(height: 18),
             Text(
@@ -9534,11 +10119,13 @@ class _DiscoverDetailCover extends StatelessWidget {
     required this.output,
     required this.authToken,
     required this.tenantId,
+    this.onAuthFailure,
   });
 
   final _OrganizeOutput output;
   final String authToken;
   final String tenantId;
+  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -9554,6 +10141,7 @@ class _DiscoverDetailCover extends StatelessWidget {
                 headers: _discoverImageHeaders(authToken, tenantId),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
+                  _notifyImageAuthFailure(error, onAuthFailure);
                   return _DiscoverDetailCoverFallback(output: output);
                 },
               )
@@ -9713,159 +10301,621 @@ class _DiscoverSourceFileCard extends StatelessWidget {
   }
 }
 
-class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+class AssistantPage extends StatefulWidget {
+  const AssistantPage({super.key});
+
+  @override
+  State<AssistantPage> createState() => _AssistantPageState();
+}
+
+class _AssistantPageState extends State<AssistantPage> {
+  static const _tabs = ['消息', '找人'];
+  static const _messages = [
+    _AssistantConversation(
+      title: 'AI客户信息整理',
+      excerpt: '已从最近的记忆中整理出 6 位客户的需求、进展与下次跟进建议。',
+      date: '今天',
+      avatarColor: Color(0xFF23B99D),
+      icon: Icons.auto_awesome,
+      unread: true,
+    ),
+    _AssistantConversation(
+      title: '跟进提醒',
+      excerpt: '明天 10:00 建议联系王老师，重点确认课程体验课时间和预算范围。',
+      date: '昨天',
+      avatarColor: Color(0xFF536071),
+      icon: Icons.notifications_active_outlined,
+    ),
+    _AssistantConversation(
+      title: '客户画像更新',
+      excerpt: '李园长关注园区招生转化，偏好可量化案例，建议发送运营支持方案。',
+      date: '8月28日',
+      avatarColor: Color(0xFF8B5CF6),
+      icon: Icons.badge_outlined,
+    ),
+    _AssistantConversation(
+      title: '会议纪要摘要',
+      excerpt: '已整理今天沟通中的关键异议：价格敏感、交付周期、师资培训。',
+      date: '8月27日',
+      avatarColor: Color(0xFFD87600),
+      icon: Icons.summarize_outlined,
+    ),
+    _AssistantConversation(
+      title: '商机阶段变化',
+      excerpt: '检测到 2 条商机从初步沟通推进到方案评估，建议补充联系人角色。',
+      date: '8月26日',
+      avatarColor: Color(0xFF2459D9),
+      icon: Icons.trending_up,
+    ),
+  ];
+
+  static const _customerCards = [
+    _AssistantCustomerInsight(
+      name: '王老师',
+      status: '高意向',
+      summary: '关注体验课排期和转化数据，适合优先推进方案确认。',
+      color: Color(0xFF23B99D),
+    ),
+    _AssistantCustomerInsight(
+      name: '李园长',
+      status: '待跟进',
+      summary: '需要运营支持案例，建议发送园区招生复盘材料。',
+      color: Color(0xFF8B5CF6),
+    ),
+    _AssistantCustomerInsight(
+      name: '张主任',
+      status: '需澄清',
+      summary: '预算和采购流程尚未明确，下次沟通先确认决策链。',
+      color: Color(0xFFD87600),
+    ),
+  ];
+
+  int _selectedTabIndex = 0;
+
+  void _showComingSoon(String label) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label待接入'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return _TabPageScaffold(
-      title: '我的',
-      subtitle: '管理账户、配置和偏好。',
-      icon: Icons.person,
-      children: [
-        _InfoTile(
-          icon: Icons.bluetooth_connected,
-          title: '录音卡设备',
-          description: '扫描并连接 M1 设备，查看 SN、MAC、电量、内存和固件版本。',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (context) => const RecordingCardDevicePage(),
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFF0E4DA),
+            AppColors.background,
+          ],
+        ),
+      ),
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(12, 58, 12, 132),
+          children: [
+            _AssistantTopTabs(
+              tabs: _tabs,
+              selectedIndex: _selectedTabIndex,
+              onSelected: (index) {
+                setState(() {
+                  _selectedTabIndex = index;
+                });
+              },
+              onCreateTap: () => _showComingSoon('新建助理会话'),
+            ),
+            const SizedBox(height: 18),
+            const _AssistantSearchBox(),
+            const SizedBox(height: 20),
+            if (_selectedTabIndex == 0) ...[
+              _AssistantCustomerSummaryCard(
+                insights: _customerCards,
+                onTap: () => _showComingSoon('客户信息详情'),
               ),
-            );
-          },
+              const SizedBox(height: 16),
+              for (final conversation in _messages)
+                _AssistantConversationTile(conversation: conversation),
+            ] else ...[
+              const _AssistantEmptyPanel(
+                icon: Icons.person_search_outlined,
+                title: '找人',
+                message: '后续展示客户、联系人和跟进对象检索。',
+              ),
+            ],
+          ],
         ),
-        const _InfoTile(
-          icon: Icons.settings_outlined,
-          title: '接口配置',
-          description: '配置 API 地址、访问密钥和调试环境。',
-        ),
-        const _InfoTile(
-          icon: Icons.account_circle_outlined,
-          title: '账户信息',
-          description: '后续接入登录状态和个人资料。',
+      ),
+    );
+  }
+}
+
+class _AssistantTopTabs extends StatelessWidget {
+  const _AssistantTopTabs({
+    required this.tabs,
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.onCreateTap,
+  });
+
+  final List<String> tabs;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final VoidCallback onCreateTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var index = 0; index < tabs.length; index++) ...[
+          _AssistantTabLabel(
+            label: tabs[index],
+            selected: selectedIndex == index,
+            onTap: () => onSelected(index),
+          ),
+          if (index != tabs.length - 1) const SizedBox(width: 18),
+        ],
+        const Spacer(),
+        Tooltip(
+          message: '新建',
+          child: Material(
+            color: Colors.transparent,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onCreateTap,
+              child: const SizedBox(
+                width: 36,
+                height: 36,
+                child: Icon(
+                  Icons.add_circle_outline,
+                  size: 24,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-class _TabPageScaffold extends StatelessWidget {
-  const _TabPageScaffold({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.children,
+class _AssistantTabLabel extends StatelessWidget {
+  const _AssistantTabLabel({
+    required this.label,
+    required this.selected,
+    required this.onTap,
   });
 
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final List<Widget> children;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return SafeArea(
-      top: false,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 128),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              color: colorScheme.primary,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(
-                    color: colorScheme.onPrimary.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(icon, color: colorScheme.onPrimary, size: 30),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: colorScheme.onPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        subtitle,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color:
-                                  colorScheme.onPrimary.withValues(alpha: 0.82),
-                              height: 1.35,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 18,
+              height: 1.2,
+              color: selected ? AppColors.textPrimary : AppColors.textSecondary,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 16),
-          ...children,
+          const SizedBox(height: 6),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: selected ? 24 : 0,
+            height: 3,
+            decoration: BoxDecoration(
+              color: AppColors.textPrimary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _InfoTile extends StatelessWidget {
-  const _InfoTile({
-    required this.icon,
-    required this.title,
-    required this.description,
-    this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-  final VoidCallback? onTap;
+class _AssistantSearchBox extends StatelessWidget {
+  const _AssistantSearchBox();
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      height: 38,
       decoration: BoxDecoration(
-        color: colorScheme.surface,
+        color: AppColors.surface.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colorScheme.outlineVariant),
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: ListTile(
-          onTap: onTap,
-          leading: Icon(icon, color: colorScheme.primary),
-          title: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w700),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.search,
+            size: 18,
+            color: AppColors.textTertiary,
           ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(description),
+          SizedBox(width: 5),
+          Text(
+            '搜索',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textTertiary,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-          trailing: onTap == null ? null : const Icon(Icons.chevron_right),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantCustomerSummaryCard extends StatelessWidget {
+  const _AssistantCustomerSummaryCard({
+    required this.insights,
+    required this.onTap,
+  });
+
+  final List<_AssistantCustomerInsight> insights;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface.withValues(alpha: 0.86),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 13, 12, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAF8F1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.groups_2_outlined,
+                      size: 22,
+                      color: AppColors.accent,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '客户信息整理',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'AI 已整理需求、状态和跟进建议',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right,
+                    color: AppColors.textTertiary,
+                    size: 22,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final insight in insights)
+                    _AssistantCustomerChip(insight: insight),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+class _AssistantCustomerChip extends StatelessWidget {
+  const _AssistantCustomerChip({
+    required this.insight,
+  });
+
+  final _AssistantCustomerInsight insight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 158,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: insight.color,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  insight.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                insight.status,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: insight.color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Text(
+            insight.summary,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.38,
+              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantConversationTile extends StatelessWidget {
+  const _AssistantConversationTile({
+    required this.conversation,
+  });
+
+  final _AssistantConversation conversation;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {},
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _AssistantAvatar(conversation: conversation),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            conversation.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              height: 1.2,
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          conversation.date,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFC1B7B0),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      conversation.excerpt,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.25,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AssistantAvatar extends StatelessWidget {
+  const _AssistantAvatar({
+    required this.conversation,
+  });
+
+  final _AssistantConversation conversation;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: conversation.avatarColor,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            conversation.icon,
+            size: 25,
+            color: AppColors.surface,
+          ),
+        ),
+        if (conversation.unread)
+          Positioned(
+            right: 0,
+            top: 1,
+            child: Container(
+              width: 9,
+              height: 9,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF05252),
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surface, width: 1.5),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AssistantEmptyPanel extends StatelessWidget {
+  const _AssistantEmptyPanel({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 180,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 32,
+            color: AppColors.textTertiary,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: AppTextStyles.cardTitle,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantConversation {
+  const _AssistantConversation({
+    required this.title,
+    required this.excerpt,
+    required this.date,
+    required this.avatarColor,
+    required this.icon,
+    this.unread = false,
+  });
+
+  final String title;
+  final String excerpt;
+  final String date;
+  final Color avatarColor;
+  final IconData icon;
+  final bool unread;
+}
+
+class _AssistantCustomerInsight {
+  const _AssistantCustomerInsight({
+    required this.name,
+    required this.status,
+    required this.summary,
+    required this.color,
+  });
+
+  final String name;
+  final String status;
+  final String summary;
+  final Color color;
 }
 
 enum _KnowledgeThumbnailStyle { textBadge, portrait, lightning, icon }
