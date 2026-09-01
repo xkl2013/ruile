@@ -21,7 +21,7 @@ export const SERVICE_ROUTE_NAMES = {
 export const SERVICE_MENU_ROUTES: readonly ServiceMenuRouteItem[] = [
   {
     key: 'messages',
-    label: '消息',
+    label: '服务提醒',
     icon: 'chat',
     count: 4,
     routeName: SERVICE_ROUTE_NAMES.messages,

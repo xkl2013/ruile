@@ -15,17 +15,29 @@
 
       <div class="service-scroll">
         <section v-if="activeView === 'messages'" class="assistant-workspace">
-          <aside class="assistant-rail" aria-label="消息提醒">
+          <aside class="assistant-rail" aria-label="服务提醒">
             <div class="rail-head">
-              <span>消息提醒</span>
-              <strong>{{ openReminderCount }} 条</strong>
+              <div class="rail-head-copy">
+                <span>服务提醒</span>
+                <strong>{{ openReminderCount }} 条待处理</strong>
+              </div>
+              <button
+                type="button"
+                class="rail-icon-btn"
+                :disabled="serviceMemoriesLoading"
+                title="刷新服务提醒"
+                aria-label="刷新服务提醒"
+                @click="loadServiceMemories(true)"
+              >
+                <t-icon :name="serviceMemoriesLoading ? 'loading' : 'refresh'" />
+              </button>
             </div>
 
             <t-input
               v-model="keyword"
               class="rail-search"
               clearable
-              placeholder="搜索提醒/客户/记忆"
+              placeholder="搜索服务提醒"
               size="small"
             >
               <template #prefix-icon>
@@ -36,6 +48,22 @@
             <div class="rail-summary">
               <span>{{ memoryExtractionSourceLabel }}</span>
               <em>{{ serviceMemoryRefreshLabel }}</em>
+            </div>
+
+            <div class="reminder-filter-tabs" role="tablist" aria-label="服务提醒筛选">
+              <button
+                v-for="tab in serviceReminderTabs"
+                :key="tab.value"
+                type="button"
+                class="reminder-filter-tab"
+                :class="{ active: serviceReminderFilter === tab.value }"
+                role="tab"
+                :aria-selected="serviceReminderFilter === tab.value"
+                @click="serviceReminderFilter = tab.value"
+              >
+                <span>{{ tab.label }}</span>
+                <small>{{ tab.count }}</small>
+              </button>
             </div>
 
             <div class="rail-list" role="list">
@@ -50,15 +78,18 @@
                 ]"
                 @click="selectTask(task.id)"
               >
-                <span class="rail-dot" aria-hidden="true" />
+                <span class="rail-avatar" aria-hidden="true">{{ serviceTaskAvatarText(task) }}</span>
                 <span class="rail-copy">
                   <span class="rail-title-row">
                     <strong>{{ task.title || task.customerName }}</strong>
-                    <small>{{ task.stage }}</small>
+                    <span class="rail-due">{{ task.dueText }}</span>
                   </span>
                   <em>{{ task.customerName }} · {{ task.riskLabel }} · {{ task.nextAction }}</em>
+                  <span class="rail-tags">
+                    <small :class="serviceReminderStatusClass(task)">{{ serviceReminderStatusLabel(task) }}</small>
+                    <small>{{ task.stage }}</small>
+                  </span>
                 </span>
-                <span class="rail-due">{{ task.dueText }}</span>
               </button>
 
               <div v-if="filteredTasks.length === 0" class="service-empty">{{ emptyConversationListText }}</div>
@@ -67,6 +98,47 @@
 
           <article class="service-chat-main">
             <div v-if="hasActiveServiceTask" class="service-agent-shell">
+              <section class="service-reminder-detail" aria-label="服务提醒详情">
+                <div class="service-reminder-detail-head">
+                  <div>
+                    <span>当前服务提醒</span>
+                    <h3>{{ activeTask.title || activeTask.customerName }}</h3>
+                    <p>{{ activeTask.customerName }} · {{ activeTask.stage }} · {{ activeTask.dueText }}</p>
+                  </div>
+                  <em :class="serviceReminderStatusClass(activeTask)">{{ serviceReminderStatusLabel(activeTask) }}</em>
+                </div>
+
+                <div class="service-reminder-grid">
+                  <section>
+                    <h4>提醒原因</h4>
+                    <p>{{ activeTask.assistReason }}</p>
+                  </section>
+                  <section>
+                    <h4>下一步动作</h4>
+                    <p>{{ activeTask.nextAction }}</p>
+                  </section>
+                  <section>
+                    <h4>话术草稿</h4>
+                    <p>{{ activeTask.replyDraft }}</p>
+                  </section>
+                </div>
+
+                <div class="service-reminder-actions">
+                  <button type="button" class="service-action-btn primary" @click="confirmActiveTask">
+                    <t-icon name="check-circle" />
+                    确认动作
+                  </button>
+                  <button type="button" class="service-action-btn" @click="snoozeActiveTask">
+                    <t-icon name="time" />
+                    稍后
+                  </button>
+                  <button type="button" class="service-action-btn" @click="ignoreActiveTask">
+                    <t-icon name="close-circle" />
+                    忽略
+                  </button>
+                </div>
+              </section>
+
               <div class="service-agent-chat-shell">
                 <ChatView
                   v-if="activeServiceChatSessionId"
@@ -146,7 +218,7 @@
                 <div v-else class="service-agent-state">
                   <t-icon :name="isActiveServiceChatLoading ? 'loading' : 'chat'" />
                   <span>
-                    {{ isActiveServiceChatLoading ? '正在准备消息会话' : serviceChatSessionError || '消息会话暂不可用' }}
+                    {{ isActiveServiceChatLoading ? '正在准备服务助理' : serviceChatSessionError || '服务助理暂不可用' }}
                   </span>
                 </div>
               </div>
@@ -157,9 +229,9 @@
             </div>
           </article>
 
-          <aside v-if="hasActiveServiceTask" class="customer-summary-panel" aria-label="服务客户摘要">
+          <aside v-if="hasActiveServiceTask" class="customer-summary-panel" aria-label="服务工作档案">
             <div class="customer-summary-head">
-              <span>服务客户摘要</span>
+              <span>服务助理</span>
               <button type="button" class="customer-summary-status" @click="toggleTaskClosed(activeTask.id)">
                 <t-icon :name="isTaskClosed(activeTask.id) ? 'rollback' : 'check-circle'" />
                 {{ isTaskClosed(activeTask.id) ? '恢复' : '完成' }}
@@ -174,8 +246,24 @@
               <p>{{ activeTask.customerName }} · {{ activeTask.stage }} · {{ activeTask.channel }}</p>
             </div>
 
+            <section class="work-profile-card">
+              <div class="work-profile-avatar">{{ activeWorkProfile.initial }}</div>
+              <div>
+                <span>{{ activeWorkProfile.statusLabel }}</span>
+                <strong>{{ activeWorkProfile.name }}</strong>
+                <p>{{ activeWorkProfile.description }}</p>
+              </div>
+            </section>
+
             <section class="assistant-result-card">
-              <h4>本次服务摘要</h4>
+              <h4>启用能力</h4>
+              <div class="work-profile-tags">
+                <span v-for="agent in activeWorkProfile.enabledAgents" :key="agent">{{ agent }}</span>
+              </div>
+            </section>
+
+            <section class="assistant-result-card">
+              <h4>客户摘要.md</h4>
               <p>{{ activeTask.summary }}</p>
               <div class="assistant-result-meta">
                 <span>{{ activeTask.sourceMemoryCount }} 条记忆</span>
@@ -184,7 +272,7 @@
             </section>
 
             <section class="assistant-result-card assistant-result-card--actions">
-              <h4>执行提示</h4>
+              <h4>未闭环事项.md</h4>
               <ul>
                 <li v-for="item in activeTask.salesHighlights" :key="item">{{ item }}</li>
               </ul>
@@ -208,7 +296,7 @@
 
               <button type="button" class="customer-summary-entry" @click="openCustomerDetail('profile')">
                 <span>
-                  <strong>消息证据</strong>
+                  <strong>证据索引</strong>
                   <em>{{ activeTask.sourceMemoryCount }} 条记忆 · {{ activeTask.confidenceLabel }}</em>
                 </span>
                 <t-icon name="chevron-right" />
@@ -216,21 +304,21 @@
             </div>
 
             <section class="customer-summary-draft">
-              <h4>待沉淀记录</h4>
+              <h4>待确认动作</h4>
               <p>{{ activeTask.writeBackDraft }}</p>
             </section>
 
             <section class="customer-summary-source">
-              <h4>服务信号</h4>
+              <h4>工作档案目录</h4>
               <div>
-                <span v-for="item in activeTask.memorySignals" :key="item">{{ item }}</span>
+                <span v-for="item in activeWorkDocDirectories" :key="item">{{ item }}</span>
               </div>
             </section>
           </aside>
-          <aside v-else class="customer-summary-panel customer-summary-panel--empty" aria-label="服务客户摘要">
+          <aside v-else class="customer-summary-panel customer-summary-panel--empty" aria-label="服务工作档案">
             <div class="customer-summary-empty">
-              <strong>暂无服务客户摘要</strong>
-              <p>还没有收集到可提醒的客户服务消息。</p>
+              <strong>暂无服务提醒</strong>
+              <p>还没有收集到可生成提醒的客户服务记忆。</p>
             </div>
           </aside>
         </section>
@@ -338,7 +426,7 @@
           theme="default"
           size="small"
           class="customer-detail-close"
-          aria-label="关闭会话详情"
+          aria-label="关闭服务详情"
           @click="closeCustomerDetail"
         >
           <template #icon><t-icon name="close" size="16px" /></template>
@@ -377,7 +465,7 @@
 
         <template v-else>
           <section class="customer-detail-section">
-            <h4>消息线索</h4>
+            <h4>服务事实</h4>
             <dl class="customer-detail-facts">
               <div v-for="fact in activeServiceFacts" :key="fact.label">
                 <dt>{{ fact.label }}</dt>
@@ -392,7 +480,7 @@
           </section>
 
           <section class="customer-detail-section">
-            <h4>消息证据</h4>
+            <h4>记忆证据</h4>
             <div class="customer-memory-evidence-list">
               <article
                 v-for="memory in activeMemoryEvidence"
@@ -498,6 +586,7 @@ import {
 type ReviewRange = 'week' | 'month'
 type ReviewStageKey = 'formed' | 'expandable' | 'organizing'
 type CustomerDetailType = 'followUp' | 'profile'
+type ServiceReminderFilter = 'all' | 'lead' | 'customer' | 'schedule' | 'risk'
 
 interface ServiceReviewStageInsight {
   id: string
@@ -556,6 +645,20 @@ interface ServiceFact {
   value: string
 }
 
+interface ServiceWorkProfile {
+  id: string
+  name: string
+  initial: string
+  roleType: string
+  statusLabel: string
+  description: string
+  memoryScope: string
+  enabledAgents: string[]
+  directories: string[]
+  knowledgeBases: string[]
+  skills: string[]
+}
+
 type ServiceChatViewExpose = {
   triggerSend?: (question: string) => void
 }
@@ -583,6 +686,7 @@ const activeView = computed<ServiceTab>({
 })
 
 const keyword = ref('')
+const serviceReminderFilter = ref<ServiceReminderFilter>('all')
 const reviewRange = ref<ReviewRange>('week')
 const reviewPreviewVisible = ref(false)
 const activeReviewReport = ref<ServiceReviewReport | null>(null)
@@ -590,6 +694,8 @@ const customerDetailVisible = ref(false)
 const customerDetailType = ref<CustomerDetailType>('followUp')
 const activeTaskId = ref('')
 const closedTaskIds = ref<string[]>([])
+const ignoredTaskIds = ref<string[]>([])
+const snoozedTaskIds = ref<string[]>([])
 const serviceChatViewRef = ref<ServiceChatViewExpose | null>(null)
 const serviceChatSessionIds = ref<Record<string, string>>({})
 const serviceChatSessionLoadingId = ref('')
@@ -609,6 +715,36 @@ const reviewRangeTabs: Array<{ label: string; value: ReviewRange }> = [
   { label: '本周', value: 'week' },
   { label: '本月', value: 'month' },
 ]
+
+const serviceWorkProfiles: ServiceWorkProfile[] = [
+  {
+    id: 'profile-admission-consultant',
+    name: '招生顾问助理',
+    initial: '招',
+    roleType: '招生顾问',
+    statusLabel: '默认工作分身',
+    description: '从咨询、试听、报名和排课记忆中整理服务提醒。',
+    memoryScope: '本人记忆 · 咨询/试听/报名/排课',
+    enabledAgents: ['线索录入', '招生咨询', '排课调课'],
+    directories: ['线索/', '客户/', '排课/'],
+    knowledgeBases: ['课程资料', '招生话术', '服务 SOP'],
+    skills: ['CRM 查询', '教务排课'],
+  },
+]
+
+const activeWorkProfile = computed(() => serviceWorkProfiles[0]!)
+const activeWorkDocDirectories = computed(() => {
+  if (!hasActiveServiceTask.value) return activeWorkProfile.value.directories
+  const subject = activeTask.value.studentName && activeTask.value.studentName !== '待补充'
+    ? activeTask.value.studentName
+    : activeTask.value.customerName
+  return [
+    `客户/${subject}/客户摘要.md`,
+    `客户/${subject}/跟进记录.md`,
+    `客户/${subject}/未闭环事项.md`,
+    `客户/${subject}/证据索引.md`,
+  ]
+})
 
 const serviceReviewReportSources: Array<Omit<ServiceReviewReport, 'renderedHtml' | 'intro' | 'previewSections'>> = [
   {
@@ -793,33 +929,36 @@ const pageMeta = computed(() => {
   if (activeView.value === 'review') {
     return { title: '日报', description: '查看客户服务回顾、风险提醒和下阶段建议' }
   }
-  return { title: '消息', description: '按配置收集客户服务消息，整理提醒、会话和下一步动作' }
+  return { title: '服务提醒', description: '从记忆笔记整理今天要服务谁、为什么提醒和下一步动作' }
 })
 
 const normalize = (value: string) => value.trim().toLowerCase()
 const isTaskClosed = (id: string) => closedTaskIds.value.includes(id)
-const openTasks = computed(() => serviceTasks.value.filter((task) => !isTaskClosed(task.id)))
+const isTaskIgnored = (id: string) => ignoredTaskIds.value.includes(id)
+const isTaskSnoozed = (id: string) => snoozedTaskIds.value.includes(id)
+const visibleServiceTasks = computed(() => serviceTasks.value.filter((task) => !isTaskIgnored(task.id)))
+const openTasks = computed(() => visibleServiceTasks.value.filter((task) => !isTaskClosed(task.id)))
 const openReminderCount = computed(() => openTasks.value.length)
-const hasActiveServiceTask = computed(() => serviceTasks.value.length > 0)
+const hasActiveServiceTask = computed(() => visibleServiceTasks.value.length > 0)
 const memoryExtractionModeLabel = computed(() => {
   if (serviceMemoriesLoading.value) return '识别中'
   if (serviceMemoriesError.value) return '读取失败'
-  if (memoryDerivedTasks.value.length > 0) return '消息提醒'
+  if (memoryDerivedTasks.value.length > 0) return '服务提醒'
   return '未梳理'
 })
 const memoryExtractionSubtitle = computed(() => {
   if (serviceMemoriesLoading.value) return '正在梳理客户服务记忆'
-  if (serviceMemoriesError.value) return '记忆读取失败，未生成消息提醒'
+  if (serviceMemoriesError.value) return '记忆读取失败，未生成服务提醒'
   if (memoryDerivedTasks.value.length > 0) {
     return `已从 ${serviceMemoriesForExtraction.value.length} 条记忆生成 ${memoryDerivedTasks.value.length} 条提醒`
   }
-  if (serviceMemoriesLoaded.value) return '未发现可提醒的客户服务消息'
+  if (serviceMemoriesLoaded.value) return '未发现可生成提醒的客户服务记忆'
   return '等待读取记忆'
 })
 const memoryExtractionSourceLabel = computed(() => {
-  if (memoryDerivedTasks.value.length > 0) return '已收集客户服务消息'
-  if (serviceMemoriesLoading.value) return '只整理客户服务消息'
-  return '无关记忆不进入消息提醒'
+  if (memoryDerivedTasks.value.length > 0) return activeWorkProfile.value.memoryScope
+  if (serviceMemoriesLoading.value) return '正在匹配工作分身'
+  return '无关记忆不进入服务提醒'
 })
 const serviceMemoryRefreshLabel = computed(() => {
   if (serviceMemoriesLoading.value) return '同步中'
@@ -1047,9 +1186,37 @@ const toggleTaskClosed = (id: string) => {
   closedTaskIds.value = isTaskClosed(id)
     ? closedTaskIds.value.filter((item) => item !== id)
     : [...closedTaskIds.value, id]
+  ignoredTaskIds.value = ignoredTaskIds.value.filter((item) => item !== id)
+  snoozedTaskIds.value = snoozedTaskIds.value.filter((item) => item !== id)
 }
 
-const activeTask = computed<ServiceTask>(() => serviceTasks.value.find((task) => task.id === activeTaskId.value) ?? serviceTasks.value[0] ?? emptyServiceTask)
+const confirmActiveTask = () => {
+  if (!activeTask.value.id) return
+  if (!isTaskClosed(activeTask.value.id)) {
+    closedTaskIds.value = [...closedTaskIds.value, activeTask.value.id]
+  }
+  ignoredTaskIds.value = ignoredTaskIds.value.filter((item) => item !== activeTask.value.id)
+  snoozedTaskIds.value = snoozedTaskIds.value.filter((item) => item !== activeTask.value.id)
+  MessagePlugin.success('已确认动作草稿')
+}
+
+const snoozeActiveTask = () => {
+  if (!activeTask.value.id) return
+  if (!isTaskSnoozed(activeTask.value.id)) {
+    snoozedTaskIds.value = [...snoozedTaskIds.value, activeTask.value.id]
+  }
+  MessagePlugin.info('已标记为稍后处理')
+}
+
+const ignoreActiveTask = () => {
+  if (!activeTask.value.id) return
+  ignoredTaskIds.value = [...new Set([...ignoredTaskIds.value, activeTask.value.id])]
+  closedTaskIds.value = closedTaskIds.value.filter((item) => item !== activeTask.value.id)
+  snoozedTaskIds.value = snoozedTaskIds.value.filter((item) => item !== activeTask.value.id)
+  MessagePlugin.info('已忽略该服务提醒')
+}
+
+const activeTask = computed<ServiceTask>(() => visibleServiceTasks.value.find((task) => task.id === activeTaskId.value) ?? visibleServiceTasks.value[0] ?? emptyServiceTask)
 const serviceAssistantAgentId = SERVICE_ASSISTANT_AGENT_ID
 const activeServiceChatSessionId = computed(() => serviceChatSessionIds.value[activeTask.value.id] || '')
 const isActiveServiceChatLoading = computed(() => serviceChatSessionLoadingId.value === activeTask.value.id)
@@ -1066,13 +1233,14 @@ const priorityLabelMap: Record<PriorityKey, string> = {
 const activePriorityLabel = computed(() => priorityLabelMap[activeTask.value.priorityKey])
 const activeStudentLabel = computed(() => (activeTask.value.studentName && activeTask.value.studentName !== '待补充' ? `学员 ${activeTask.value.studentName}` : '学员待补充'))
 const activeMemoryEvidence = computed(() => activeTask.value.memoryEvidence)
-const activeCustomerDetailTitle = computed(() => (customerDetailType.value === 'followUp' ? '服务动作' : '消息证据'))
+const activeCustomerDetailTitle = computed(() => (customerDetailType.value === 'followUp' ? '服务动作' : '记忆证据'))
 const activeServiceFacts = computed<ServiceFact[]>(() => {
   const task = activeTask.value
   return [
     { label: '来源', value: `${task.sourceMemoryCount} 条记忆` },
     { label: '最近记忆', value: task.lastMemoryLabel },
     { label: '置信度', value: task.confidenceLabel },
+    { label: '工作分身', value: activeWorkProfile.value.name },
     { label: '风险', value: task.riskLabel },
     { label: '决策人', value: task.decisionRole },
     { label: '渠道', value: task.channel },
@@ -1090,11 +1258,56 @@ const activeServiceSteps = computed(() => {
 const activeServiceAgentContext = computed(() => buildServiceAgentContext(activeTask.value))
 const activeServiceAgentInputPlaceholder = computed(() => SERVICE_ASSISTANT_INPUT_PLACEHOLDER)
 const emptyConversationListText = computed(() => {
-  if (serviceMemoriesLoading.value) return '正在识别客户记忆'
+  if (serviceMemoriesLoading.value) return '正在整理服务提醒'
   if (serviceMemoriesError.value) return '记忆读取失败'
-  if (serviceTasks.value.length > 0) return '暂无匹配提醒'
-  if (serviceMemoriesLoaded.value) return '暂无可提醒的客户服务消息'
-  return '暂无消息提醒'
+  if (visibleServiceTasks.value.length > 0) return '暂无匹配的服务提醒'
+  if (serviceMemoriesLoaded.value) return '暂无可生成提醒的客户服务记忆'
+  return '暂无服务提醒'
+})
+
+const serviceTaskAvatarText = (task: ServiceTask) => {
+  const text = task.studentName && task.studentName !== '待补充' ? task.studentName : task.customerName || task.title || '服'
+  return Array.from(text.trim())[0] || '服'
+}
+
+const serviceReminderStatusLabel = (task: ServiceTask) => {
+  if (isTaskIgnored(task.id)) return '已忽略'
+  if (isTaskClosed(task.id)) return '已确认'
+  if (isTaskSnoozed(task.id)) return '稍后'
+  if (serviceChatHasMessagesByTask.value[task.id]) return '已生成话术'
+  if (task.priorityKey === 'high') return '待确认执行'
+  return '待处理'
+}
+
+const serviceReminderStatusClass = (task: ServiceTask) => ({
+  'reminder-status': true,
+  'reminder-status--done': isTaskClosed(task.id),
+  'reminder-status--muted': isTaskIgnored(task.id) || isTaskSnoozed(task.id),
+  'reminder-status--warning': !isTaskClosed(task.id) && !isTaskIgnored(task.id) && task.priorityKey === 'high',
+})
+
+const taskMatchesReminderFilter = (task: ServiceTask, filter: ServiceReminderFilter) => {
+  if (filter === 'all') return true
+  const text = `${task.title} ${task.stage} ${task.riskLabel} ${task.nextAction} ${task.memorySignals.join(' ')}`
+  if (filter === 'lead') return /线索|试听|体验课|咨询|报名|售前|邀约/.test(text)
+  if (filter === 'schedule') return /排课|调课|请假|补课|试听安排|时间/.test(text)
+  if (filter === 'risk') return /风险|投诉|售后|退款|退费|未闭环|不满|价格顾虑/.test(text)
+  if (filter === 'customer') return /客户|家长|续费|回访|在园|服务|成长|反馈/.test(text)
+  return true
+}
+
+const serviceReminderTabs = computed(() => {
+  const tabs: Array<{ label: string; value: ServiceReminderFilter }> = [
+    { label: '全部', value: 'all' },
+    { label: '线索', value: 'lead' },
+    { label: '客户服务', value: 'customer' },
+    { label: '排课', value: 'schedule' },
+    { label: '风险', value: 'risk' },
+  ]
+  return tabs.map((tab) => ({
+    ...tab,
+    count: visibleServiceTasks.value.filter((task) => taskMatchesReminderFilter(task, tab.value)).length,
+  }))
 })
 
 const selectTask = (id: string) => {
@@ -1111,9 +1324,11 @@ const closeCustomerDetail = () => {
 }
 
 const buildServiceAgentContext = (task: ServiceTask) => [
-  '以下是按配置从个人记忆收集到的客户服务消息，并整理出的当前服务客户摘要，仅作为本轮对话上下文。不要逐字复述，除非用户明确要求。',
+  '以下是按工作分身配置从个人记忆收集到的服务提醒，并整理出的当前客户服务摘要，仅作为本轮对话上下文。不要逐字复述，除非用户明确要求。',
   '请把个人记忆视为事实层，把公共知识库视为课程、政策、话术和服务规则来源。事实不足时请指出需要补充哪条记忆。',
   '<service_customer_context>',
+  `工作分身：${activeWorkProfile.value.name}`,
+  `工作分身记忆范围：${activeWorkProfile.value.memoryScope}`,
   `客户：${task.customerName}`,
   `学员：${task.studentName}`,
   `阶段：${task.stage}`,
@@ -1269,7 +1484,7 @@ watch(
 )
 
 watch(
-  serviceTasks,
+  visibleServiceTasks,
   (tasks) => {
     if (!tasks.length) return
     if (!tasks.some((task) => task.id === activeTaskId.value)) {
@@ -1304,7 +1519,9 @@ const taskMatchesKeyword = (task: ServiceTask, q: string) => {
 
 const filteredTasks = computed(() => {
   const q = normalize(keyword.value)
-  return serviceTasks.value.filter((task) => taskMatchesKeyword(task, q))
+  return visibleServiceTasks.value
+    .filter((task) => taskMatchesReminderFilter(task, serviceReminderFilter.value))
+    .filter((task) => taskMatchesKeyword(task, q))
 })
 
 const setReviewRange = (range: ReviewRange) => {
@@ -1418,8 +1635,8 @@ const closeReviewPreview = () => {
 
 .assistant-workspace {
   display: grid;
-  grid-template-columns: minmax(220px, 250px) minmax(480px, 1fr) minmax(228px, 252px);
-  gap: 12px;
+  grid-template-columns: minmax(286px, 336px) minmax(420px, 1fr) minmax(248px, 286px);
+  gap: 14px;
   align-items: stretch;
   flex: 1;
   width: 100%;
@@ -1457,7 +1674,8 @@ const closeReviewPreview = () => {
 }
 
 .rail-head {
-  padding: 14px 14px 10px;
+  min-height: 60px;
+  padding: 12px 14px 10px;
   border-bottom: 1px solid var(--td-component-stroke);
 
   span {
@@ -1474,9 +1692,48 @@ const closeReviewPreview = () => {
   }
 }
 
+.rail-head-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.rail-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--td-component-border);
+  border-radius: 50%;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+
+  &:hover:not(:disabled) {
+    border-color: rgba(34, 101, 73, 0.28);
+    background: rgba(34, 101, 73, 0.06);
+    color: #236549;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.62;
+  }
+}
+
 .rail-search {
   width: calc(100% - 24px);
   margin: 10px 12px 4px;
+
+  :deep(.t-input) {
+    border-radius: 8px;
+    background: var(--td-bg-color-secondarycontainer);
+  }
 }
 
 .rail-summary {
@@ -1507,6 +1764,54 @@ const closeReviewPreview = () => {
   }
 }
 
+.reminder-filter-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 4px 12px 6px;
+  overflow-x: auto;
+  box-sizing: border-box;
+}
+
+.reminder-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  min-width: 52px;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  font-family: var(--app-font-family);
+  font-size: 12px;
+  line-height: 18px;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+
+  small {
+    color: var(--td-text-color-placeholder);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  &:hover {
+    background: var(--td-bg-color-container-hover);
+    color: var(--td-text-color-primary);
+  }
+
+  &.active {
+    border-color: rgba(35, 101, 73, 0.18);
+    background: rgba(34, 101, 73, 0.08);
+    color: #1c5a3f;
+    font-weight: 600;
+  }
+}
+
 .rail-list {
   display: flex;
   flex-direction: column;
@@ -1514,19 +1819,20 @@ const closeReviewPreview = () => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 6px 0;
+  gap: 2px;
+  padding: 6px 8px 10px;
 }
 
 .rail-item {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
   align-items: center;
   width: 100%;
-  min-height: 50px;
-  padding: 4px 8px;
+  min-height: 78px;
+  padding: 9px 10px;
   border: 0;
-  border-radius: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--td-text-color-primary);
   cursor: pointer;
@@ -1559,6 +1865,35 @@ const closeReviewPreview = () => {
 
 .rail-item.priority-medium .rail-dot {
   background: #9a6b2f;
+}
+
+.rail-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #e7eef8;
+  color: #214a7a;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.rail-item.priority-high .rail-avatar {
+  background: rgba(213, 73, 65, 0.12);
+  color: #b83f38;
+}
+
+.rail-item.priority-medium .rail-avatar {
+  background: rgba(146, 94, 28, 0.12);
+  color: #7a4d18;
+}
+
+.rail-item.priority-low .rail-avatar {
+  background: rgba(34, 101, 73, 0.1);
+  color: #236549;
 }
 
 .rail-copy {
@@ -1601,6 +1936,7 @@ const closeReviewPreview = () => {
 .rail-title-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   min-width: 0;
 
@@ -1616,6 +1952,51 @@ const closeReviewPreview = () => {
   font-size: 12px;
   line-height: 18px;
   white-space: nowrap;
+}
+
+.rail-tags {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+
+  small {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 50%;
+    min-height: 20px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: var(--td-bg-color-secondarycontainer);
+    color: var(--td-text-color-secondary);
+    line-height: 16px;
+  }
+}
+
+.reminder-status {
+  border: 1px solid rgba(34, 101, 73, 0.14);
+  background: rgba(34, 101, 73, 0.08) !important;
+  color: #236549 !important;
+}
+
+.reminder-status--warning {
+  border-color: rgba(213, 73, 65, 0.16);
+  background: rgba(213, 73, 65, 0.1) !important;
+  color: #b83f38 !important;
+}
+
+.reminder-status--done {
+  border-color: rgba(45, 116, 238, 0.16);
+  background: rgba(45, 116, 238, 0.08) !important;
+  color: #2365d6 !important;
+}
+
+.reminder-status--muted {
+  border-color: var(--td-component-stroke);
+  background: var(--td-bg-color-secondarycontainer) !important;
+  color: var(--td-text-color-placeholder) !important;
 }
 
 .service-chat-main {
@@ -1641,6 +2022,151 @@ const closeReviewPreview = () => {
   border-radius: 8px;
   background: var(--td-bg-color-container);
   box-sizing: border-box;
+}
+
+.service-reminder-detail {
+  flex: 0 0 auto;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--td-component-stroke);
+  background:
+    linear-gradient(90deg, rgba(34, 101, 73, 0.05), transparent 42%),
+    var(--td-bg-color-container);
+  box-sizing: border-box;
+}
+
+.service-reminder-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+
+  div {
+    min-width: 0;
+  }
+
+  span {
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  h3 {
+    margin: 2px 0 0;
+    overflow: hidden;
+    color: var(--td-text-color-primary);
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 26px;
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  em {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 24px;
+    padding: 2px 8px;
+    border-radius: 7px;
+    font-style: normal;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 18px;
+    box-sizing: border-box;
+  }
+}
+
+.service-reminder-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+
+  section {
+    min-width: 0;
+    min-height: 88px;
+    padding: 10px;
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    box-sizing: border-box;
+  }
+
+  h4 {
+    margin: 0 0 6px;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 18px;
+    letter-spacing: 0;
+  }
+
+  p {
+    display: -webkit-box;
+    margin: 0;
+    max-height: 60px;
+    overflow: hidden;
+    color: var(--td-text-color-primary);
+    font-size: 12px;
+    line-height: 20px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+}
+
+.service-reminder-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.service-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--td-component-border);
+  border-radius: 7px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  font-family: var(--app-font-family);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+
+  &:hover {
+    border-color: rgba(45, 116, 238, 0.32);
+    background: #f4f8ff;
+    color: #2365d6;
+  }
+
+  &.primary {
+    border-color: rgba(34, 101, 73, 0.28);
+    background: #236549;
+    color: #ffffff;
+
+    &:hover {
+      border-color: #1d543d;
+      background: #1d543d;
+      color: #ffffff;
+    }
+  }
 }
 
 .service-agent-chat-shell {
@@ -1883,6 +2409,81 @@ const closeReviewPreview = () => {
       background: rgba(42, 156, 122, 0.12);
       color: #127354;
     }
+  }
+}
+
+.work-profile-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(34, 101, 73, 0.12);
+  border-radius: 8px;
+  background: rgba(34, 101, 73, 0.05);
+  box-sizing: border-box;
+
+  span {
+    display: block;
+    color: #236549;
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  strong {
+    display: block;
+    overflow: hidden;
+    color: var(--td-text-color-primary);
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  p {
+    display: -webkit-box;
+    margin: 2px 0 0;
+    max-height: 36px;
+    overflow: hidden;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 18px;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+.work-profile-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  background: #236549;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.work-profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+
+  span {
+    min-height: 22px;
+    padding: 1px 7px;
+    border: 1px solid rgba(45, 116, 238, 0.14);
+    border-radius: 6px;
+    background: rgba(45, 116, 238, 0.06);
+    color: #2365d6;
+    font-size: 12px;
+    line-height: 18px;
+    box-sizing: border-box;
   }
 }
 
@@ -2880,8 +3481,24 @@ const closeReviewPreview = () => {
 }
 
 @media (max-width: 760px) {
+  :global(.main:has(.service-page)) {
+    min-width: 0;
+  }
+
+  :global(.main:has(.service-page) .aside_box) {
+    display: none;
+  }
+
+  .service-page {
+    height: auto;
+    min-height: 100%;
+    overflow-y: auto;
+  }
+
   .service-main {
-    padding: 16px 0 0 16px;
+    min-height: 100%;
+    overflow: visible;
+    padding: 16px 0 16px 16px;
   }
 
   .service-header {
@@ -2901,20 +3518,57 @@ const closeReviewPreview = () => {
   }
 
   .service-scroll {
+    flex: 0 0 auto;
+    overflow: visible;
     padding-right: 16px;
   }
 
   .assistant-workspace {
     grid-template-columns: 1fr;
+    align-items: start;
+    height: auto;
     min-height: auto;
+    overflow: visible;
+  }
+
+  .assistant-rail {
+    min-height: 420px;
+    max-height: min(560px, calc(100vh - 168px));
   }
 
   .service-chat-main {
+    height: auto;
     min-height: 560px;
+    overflow: visible;
+  }
+
+  .service-agent-shell {
+    height: auto;
+    min-height: 560px;
+  }
+
+  .service-agent-chat-shell {
+    min-height: 320px;
+  }
+
+  .service-reminder-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .service-reminder-detail-head {
+    flex-direction: column;
+    align-items: flex-start;
+
+    h3,
+    p {
+      white-space: normal;
+    }
   }
 
   .customer-summary-panel {
     grid-column: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   .customer-summary-facts,
