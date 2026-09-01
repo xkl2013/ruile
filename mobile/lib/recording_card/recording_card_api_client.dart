@@ -23,8 +23,11 @@ class RecordingCardApiException extends HttpException {
 
   final int statusCode;
 
-  bool get isAuthFailure =>
-      statusCode == HttpStatus.unauthorized ||
+  bool get isAuthFailure => _isAuthFailureStatus(statusCode);
+}
+
+bool _isAuthFailureStatus(int statusCode) {
+  return statusCode == HttpStatus.unauthorized ||
       statusCode == HttpStatus.forbidden;
 }
 
@@ -33,6 +36,7 @@ class RecordingCardApiClient {
     String? baseUrl,
     String? authToken,
     String? tenantId,
+    this.onAuthFailure,
   })  : baseUrl = baseUrl ?? RecordingCardApiConfig.baseUrl,
         authToken = authToken ?? RecordingCardApiConfig.authToken,
         tenantId = tenantId ?? RecordingCardApiConfig.tenantId;
@@ -47,6 +51,7 @@ class RecordingCardApiClient {
   final String baseUrl;
   final String authToken;
   final String tenantId;
+  final void Function()? onAuthFailure;
 
   Future<String> createOrganizeMemory({
     required String kind,
@@ -138,10 +143,10 @@ class RecordingCardApiClient {
       } catch (_) {
         // Keep raw response.
       }
-      throw RecordingCardApiException(
+      _throwApiException(
         response.statusCode,
         message,
-        uri: _resolve(path),
+        _resolve(path),
       );
     }
     if (responseBody.trim().isEmpty) return null;
@@ -214,10 +219,10 @@ class RecordingCardApiClient {
       } catch (_) {
         // Keep raw response.
       }
-      throw RecordingCardApiException(
+      _throwApiException(
         response.statusCode,
         message,
-        uri: _resolve(path),
+        _resolve(path),
       );
     }
     if (responseBody.trim().isEmpty) return null;
@@ -238,6 +243,14 @@ class RecordingCardApiClient {
     if (credentials.tenantId.trim().isNotEmpty) {
       request.headers.set('X-Tenant-ID', credentials.tenantId.trim());
     }
+  }
+
+  Never _throwApiException(int statusCode, String message, Uri uri) {
+    final error = RecordingCardApiException(statusCode, message, uri: uri);
+    if (error.isAuthFailure) {
+      onAuthFailure?.call();
+    }
+    throw error;
   }
 
   Uri _resolve(String path) {
