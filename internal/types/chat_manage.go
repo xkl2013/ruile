@@ -126,7 +126,7 @@ type PipelineState struct {
 	RenderedContexts     string            `json:"-"`
 	ChatResponse         *ChatResponse     `json:"-"`
 	ImageDescription     string            `json:"-"`
-	QuotedContext        string            `json:"-"` // Quoted message text, injected at LLM prompt stage
+	QuotedContext        string            `json:"-"` // Additional prompt-only context, injected at LLM prompt stage
 	SystemPromptOverride string            `json:"-"`
 }
 

@@ -473,7 +473,7 @@ func (e *AgentEngine) appendToolResults(
 	messages []chat.Message,
 	step types.AgentStep,
 ) []chat.Message {
-	if stepContainsMarkdownImage(step) {
+	if e.config.RetrievedImagesEnabled() && stepContainsMarkdownImage(step) {
 		// Keep the requirement at system priority even when a custom Agent prompt
 		// replaces the built-in template. Appending it once, when image-bearing
 		// evidence first appears, also avoids burdening text-only turns.

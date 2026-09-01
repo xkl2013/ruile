@@ -8,13 +8,21 @@ import {
   ORGANIZE_ROUTE_NAMES,
   resolveOrganizeRoutePath,
 } from '@/views/organize/organizeRoutes'
+import {
+  SERVICE_MENU_ROUTES,
+  SERVICE_MESSAGES_ROUTE_PATH,
+  SERVICE_REVIEW_ROUTE_PATH,
+  resolveServiceRoutePath,
+} from '@/views/service/serviceRoutes'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
 const AUTO_SETUP_FAILED_KEY = 'weknora_auto_setup_failed'
 const organizeWorkspaceComponent = () => import("../views/organize/OrganizeWorkspace.vue")
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
+const serviceWorkspaceComponent = () => import("../views/service/ServiceWorkspace.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
+const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
 const toPlatformChildPath = (path: string) => path.replace(/^\/platform\//, '')
 
 function shouldTryAutoSetup() {
@@ -135,8 +143,10 @@ const router = createRouter({
         ...ORGANIZE_MENU_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
           name: item.routeName,
-          component: organizeWorkspaceComponent,
-          meta: { ...organizeRouteMeta, organizeTab: item.key },
+          component: item.key === 'daily' ? serviceWorkspaceComponent : organizeWorkspaceComponent,
+          meta: item.key === 'daily'
+            ? { ...organizeRouteMeta, organizeTab: item.key, serviceTab: 'review' }
+            : { ...organizeRouteMeta, organizeTab: item.key },
         })),
         ...ORGANIZE_MEMORY_ASSET_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
@@ -150,6 +160,37 @@ const router = createRouter({
           component: organizeEditorComponent,
           meta: { ...organizeRouteMeta, organizeEditor: true },
         },
+        {
+          path: "service",
+          redirect: (to) => resolveServiceRoutePath(to.query.tab),
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/work",
+          redirect: SERVICE_MESSAGES_ROUTE_PATH,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/customers",
+          redirect: SERVICE_MESSAGES_ROUTE_PATH,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/messages",
+          redirect: SERVICE_MESSAGES_ROUTE_PATH,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/review",
+          redirect: SERVICE_REVIEW_ROUTE_PATH,
+          meta: serviceRouteMeta,
+        },
+        ...SERVICE_MENU_ROUTES.map((item) => ({
+          path: toPlatformChildPath(item.path),
+          name: item.routeName,
+          component: serviceWorkspaceComponent,
+          meta: { ...serviceRouteMeta, serviceTab: item.key },
+        })),
         {
           path: "knowledge-search",
           // 旧路径保留为重定向，打开全局命令面板（⌘K），带上可选的 q 参数

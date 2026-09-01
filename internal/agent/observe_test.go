@@ -195,6 +195,27 @@ func TestAppendToolResults_AddsDynamicImageRequirementToCustomSystemPrompt(t *te
 	assert.Equal(t, 1, strings.Count(out[0].Content, agentRetrievedImageRequirementMarker))
 }
 
+func TestAppendToolResults_SkipsDynamicImageRequirementWhenDisabled(t *testing.T) {
+	includeImages := false
+	engine := &AgentEngine{config: &types.AgentConfig{IncludeRetrievedImages: &includeImages}}
+	prior := []chat.Message{{Role: "system", Content: "Text only agent prompt."}}
+	step := types.AgentStep{
+		ToolCalls: []types.ToolCall{{
+			ID:   "call-image",
+			Name: "knowledge_search",
+			Result: &types.ToolResult{
+				Success: true,
+				Output:  "结果\n![流程图](resource://AbCdEfGhIjKlMnOpQrStUv)",
+			},
+		}},
+	}
+
+	out := engine.appendToolResults(prior, step)
+	require.Len(t, out, 3)
+	assert.NotContains(t, out[0].Content, agentRetrievedImageRequirementMarker)
+	assert.Contains(t, out[2].Content, "![流程图](resource://AbCdEfGhIjKlMnOpQrStUv)")
+}
+
 func TestBuildRuntimeContextBlock_PinnedDocuments(t *testing.T) {
 	block := buildRuntimeContextBlock(
 		"sess-1",

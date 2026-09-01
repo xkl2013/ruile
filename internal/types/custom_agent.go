@@ -130,6 +130,9 @@ type CustomAgentConfig struct {
 	// Whether final answers include knowledge/web source citations. Nil defaults to true
 	// so agents saved before this option was introduced keep their existing behavior.
 	CitationEnabled *bool `yaml:"citation_enabled" json:"citation_enabled"`
+	// Whether final answers may include Markdown images copied from retrieved tool results.
+	// Nil defaults to true so agents saved before this option was introduced keep their existing behavior.
+	IncludeRetrievedImages *bool `yaml:"include_retrieved_images" json:"include_retrieved_images,omitempty"`
 
 	// ===== Agent Mode Settings =====
 	// Maximum iterations for ReAct loop (only for agent type)

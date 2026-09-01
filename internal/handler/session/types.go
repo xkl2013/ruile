@@ -59,6 +59,7 @@ type CreateKnowledgeQARequest struct {
 	AttachmentIDs         []string                     `json:"attachment_ids,omitempty"`              // Pre-uploaded session-scoped document IDs
 	Channel               string                       `json:"channel"`                               // Source channel: "web", "api", "im", etc.
 	SuggestionAttribution *types.SuggestionAttribution `json:"suggestion_attribution,omitempty"`
+	QuotedContext         string                       `json:"quoted_context,omitempty"` // Additional hidden prompt context, not persisted as user message text
 }
 
 // AttachmentUpload represents a file attachment upload from the client

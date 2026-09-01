@@ -154,6 +154,9 @@ const selectedAgentId = computed({
   get: () => settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID,
   set: (val: string) => settingsStore.selectAgent(val)
 });
+const effectiveSelectedAgentId = computed(() =>
+  props.embeddedMode && props.agentId ? props.agentId : selectedAgentId.value
+);
 const selectedAgent = computed(() => {
   // When a shared-agent source tenant is set, resolve from sharedAgents FIRST.
   // Builtin agents (e.g. builtin-smart-reasoning) use the same constant ID across
@@ -496,6 +499,14 @@ const props = defineProps({
     type: String,
     required: false
   },
+  agentId: {
+    type: String,
+    default: ''
+  },
+  placeholder: {
+    type: String,
+    default: ''
+  },
   embeddedMode: {
     type: Boolean,
     default: false
@@ -681,6 +692,11 @@ const remainingCount = computed(() => Math.max(0, selectedKbs.value.length - 2))
 
 // 根据不同状态组合计算输入框的 placeholder
 const inputPlaceholder = computed(() => {
+  const explicitPlaceholder = props.placeholder.trim();
+  if (explicitPlaceholder) {
+    return explicitPlaceholder;
+  }
+
   // 如果选择了自定义智能体
   if (isCustomAgent.value && selectedAgent.value) {
     // 有描述时显示描述，否则显示"向 [名称] 提问"
@@ -2483,7 +2499,7 @@ defineExpose({
 
       <!-- 附件列表区域 (由 AttachmentUpload 组件渲染) -->
       <AttachmentUpload ref="attachmentUploadRef" :max-files="5"
-        :session-id="sessionId" :agent-id="selectedAgentId"
+        :session-id="sessionId" :agent-id="effectiveSelectedAgentId"
         @update:files="uploadedAttachments = $event" />
 
       <!-- 选中的知识库和文件标签（显示在输入框内顶部） -->

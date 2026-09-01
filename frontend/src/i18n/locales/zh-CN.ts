@@ -7,6 +7,7 @@ export default {
     organizations: "共享空间",
     chat: "对话",
     newChat: "小睿AI",
+    messages: "服务",
     createChat: "创建对话",
     tenant: "账户信息",
     settings: "系统设置",

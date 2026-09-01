@@ -65,6 +65,12 @@
                         </div>
                     </transition>
                 </div>
+                <div
+                    v-if="embeddedMode && messagesList.length === 0 && !historyLoading && !loading && $slots['empty-suggestions']"
+                    class="chat-empty-suggestions"
+                >
+                    <slot name="empty-suggestions" />
+                </div>
                 <!--
                   关键：必须用 session.id 作为 key，不能用 v-for 的索引。
                   向上滚动加载历史时会插入一批消息（push/unshift）到列表，
@@ -114,7 +120,8 @@
             <InputField ref="inputFieldRef"
                 @send-msg="(query, modelId, mentionedItems, imageFiles, attachmentFiles) => sendMsg(query, modelId, mentionedItems, imageFiles, attachmentFiles)"
                 @stop-generation="handleStopGeneration" :isReplying="isReplying" :sessionId="session_id"
-                :assistantMessageId="currentAssistantMessageId" :embeddedMode="embeddedMode"></InputField>
+                :assistantMessageId="currentAssistantMessageId" :agent-id="agentId"
+                :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"></InputField>
         </div>
     </div>
     <KnowledgeBaseEditorModal :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
@@ -168,8 +175,11 @@ const props = defineProps({
     session_id: { type: String, default: '' },
     agentId: { type: String, default: '' },
     kbIds: { type: Array, default: () => [] },
+    quotedContext: { type: String, default: '' },
+    embeddedInputPlaceholder: { type: String, default: '' },
     embeddedMode: { type: Boolean, default: false },
 });
+const emit = defineEmits(['message-state-change', 'user-message-send']);
 
 const usemenuStore = useMenuStore();
 const useSettingsStoreInstance = useSettingsStore();
@@ -241,6 +251,13 @@ const inputFieldRef = ref();
 const created_at = ref('');
 const limit = ref(20);
 const messagesList = reactive([]);
+const emitMessageStateChange = () => {
+    emit('message-state-change', {
+        sessionId: session_id.value,
+        messageCount: messagesList.length,
+        hasMessages: messagesList.length > 0,
+    });
+};
 const isReplying = ref(false);
 const currentAssistantMessageId = ref(''); // 当前正在生成的 assistant message ID
 // True only while attaching to an in-flight *IM-originated* reply via continue-stream.
@@ -632,6 +649,7 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
         }
         created_at.value = nextCursor;
         await handleMsgList(batch, isScrollType, scrollHeight);
+        emitMessageStateChange();
     }).catch((err) => {
         console.error('Failed to load messages:', err);
         if (isScrollType) {
@@ -642,6 +660,9 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
         historyLoadingMore.value = false;
         if (!isScrollType && messagesList.length === 0) {
             fetchSuggestedQuestionsIfNeeded();
+        }
+        if (!isScrollType) {
+            emitMessageStateChange();
         }
     })
 }
@@ -770,6 +791,11 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
 
     // 将@提及的知识库和文件信息存入用户消息
     messagesList.push({ content: value, role: 'user', mentioned_items: mentionedItems, images: userImages, attachments: attachmentFiles.map(a => ({ id: a.documentId, file_name: a.name, file_size: a.size, file_type: '.' + a.name.split('.').pop()?.toLowerCase() })), channel: 'web' });
+    emit('user-message-send', {
+        sessionId: session_id.value,
+        query: value,
+    });
+    emitMessageStateChange();
     userHasScrolledUp.value = false;
     scrollToBottom(true);
 
@@ -812,6 +838,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
     const suggestionAttribution = pendingSuggestionAttribution;
     pendingSuggestionAttribution = null;
     pendingSuggestionKnowledgeBaseIds = [];
+    const modelOverride = props.embeddedMode ? '' : modelId;
     await startStream({
         session_id: session_id.value,
         knowledge_base_ids: kbIds,
@@ -819,7 +846,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
         agent_enabled: agentEnabled,
         agent_id: selectedAgentId,
         web_search_enabled: webSearchEnabled,
-        summary_model_id: modelId,
+        summary_model_id: modelOverride,
         mcp_service_ids: requestMcpServiceIds,
         skill_names: requestSkillNames,
         tag_ids: tagIds,
@@ -829,6 +856,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
         attachment_ids: attachmentIds.length > 0 ? attachmentIds : undefined,
         query: value,
         suggestion_attribution: suggestionAttribution || undefined,
+        quoted_context: props.quotedContext || undefined,
         method: 'POST',
         url: endpoint,
     });
@@ -941,16 +969,18 @@ const handleSessionMutation = (event) => {
 
 onBeforeMount(async () => {
     // 若从智能体列表点击共享智能体进入，URL 带 agent_id 与 source_tenant_id，同步到 store
-    const agentIdFromQuery = props.agentId || (route.query.agent_id && String(route.query.agent_id));
-    const sourceTenantIdFromQuery = route.query.source_tenant_id && String(route.query.source_tenant_id);
-    if (agentIdFromQuery && sourceTenantIdFromQuery) {
-        useSettingsStoreInstance.selectAgent(agentIdFromQuery, sourceTenantIdFromQuery);
-    } else if (agentIdFromQuery) {
-        useSettingsStoreInstance.selectAgent(agentIdFromQuery, null);
-    }
+    if (!props.embeddedMode) {
+        const agentIdFromQuery = props.agentId || (route.query.agent_id && String(route.query.agent_id));
+        const sourceTenantIdFromQuery = route.query.source_tenant_id && String(route.query.source_tenant_id);
+        if (agentIdFromQuery && sourceTenantIdFromQuery) {
+            useSettingsStoreInstance.selectAgent(agentIdFromQuery, sourceTenantIdFromQuery);
+        } else if (agentIdFromQuery) {
+            useSettingsStoreInstance.selectAgent(agentIdFromQuery, null);
+        }
 
-    if (props.kbIds && props.kbIds.length > 0) {
-        useSettingsStoreInstance.selectKnowledgeBases(props.kbIds);
+        if (props.kbIds && props.kbIds.length > 0) {
+            useSettingsStoreInstance.selectKnowledgeBases(props.kbIds);
+        }
     }
 
     // 必须在 Input-field onMounted 之前完成：按 session.last_request_state 恢复输入栏
@@ -1013,6 +1043,12 @@ onBeforeRouteUpdate((to, from, next) => {
     // 仅"会话 → 会话"会落到这里；跨会话覆盖的还原放到 route.params 的 watch 里，
     // 因为新会话的 getSession 也在那边触发，便于保证 restore→snapshot→apply 顺序。
     next()
+})
+
+defineExpose({
+    triggerSend(question) {
+        inputFieldRef.value?.triggerSend(question);
+    },
 })
 </script>
 <style lang="less" scoped>
@@ -1264,6 +1300,11 @@ onBeforeRouteUpdate((to, from, next) => {
         border-top-color: var(--td-text-color-secondary);
         border-radius: 50%;
         animation: chatGlobalWaitSpin 0.8s linear infinite;
+    }
+
+    .chat-empty-suggestions {
+        width: 100%;
+        margin-top: auto;
     }
 }
 

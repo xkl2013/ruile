@@ -49,6 +49,7 @@ export interface CustomAgentConfig {
   max_completion_tokens?: number;   // 最大生成token数（普通模式）
   thinking?: boolean;                      // 是否启用思考模式（支持扩展思考的模型）
   citation_enabled?: boolean;        // 是否在最终回答中输出知识库/网页来源引用（默认开启）
+  include_retrieved_images?: boolean; // 是否允许最终回答带出检索结果中的 Markdown 图片（默认开启）
 
   // ===== Agent模式设置 =====
   max_iterations?: number;          // 最大迭代次数
@@ -165,6 +166,7 @@ export interface UpdateAgentRequest {
 // 内置智能体 ID（常用的保留常量，便于代码引用）
 export const BUILTIN_QUICK_ANSWER_ID = 'builtin-quick-answer';
 export const BUILTIN_SMART_REASONING_ID = 'builtin-smart-reasoning';
+export const BUILTIN_SALES_DIRECTOR_ID = 'builtin-sales-director';
 
 // AgentMode 常量
 export const AGENT_MODE_QUICK_ANSWER = 'quick-answer';

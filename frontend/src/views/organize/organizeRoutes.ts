@@ -1,4 +1,4 @@
-export type OrganizeTab = 'memory' | 'output' | 'sprout'
+export type OrganizeTab = 'memory' | 'output' | 'sprout' | 'daily'
 export type MemoryAssetKey = 'note' | 'audio' | 'audio-card'
 
 export interface OrganizeMenuRouteItem {
@@ -27,6 +27,7 @@ export const ORGANIZE_ROUTE_NAMES = {
   memory: 'organizeMemory',
   output: 'organizeOutput',
   sprout: 'organizeSprout',
+  daily: 'organizeDaily',
   editor: 'organizeEditor',
   memoryNotes: 'organizeMemoryNotes',
   memoryAudio: 'organizeMemoryAudio',
@@ -57,6 +58,14 @@ export const ORGANIZE_MENU_ROUTES: readonly OrganizeMenuRouteItem[] = [
     count: 6,
     routeName: ORGANIZE_ROUTE_NAMES.sprout,
     path: `${ORGANIZE_ROUTE_BASE_PATH}/sprout`,
+  },
+  {
+    key: 'daily',
+    label: '日报',
+    icon: 'chart-line',
+    count: 3,
+    routeName: ORGANIZE_ROUTE_NAMES.daily,
+    path: `${ORGANIZE_ROUTE_BASE_PATH}/daily`,
   },
 ]
 
@@ -94,7 +103,7 @@ export const ORGANIZE_MEMORY_ASSET_ROUTES: readonly OrganizeMemoryAssetRouteItem
 ]
 
 export const isOrganizeTab = (value: unknown): value is OrganizeTab => {
-  return value === 'memory' || value === 'output' || value === 'sprout'
+  return value === 'memory' || value === 'output' || value === 'sprout' || value === 'daily'
 }
 
 export const isMemoryAssetKey = (value: unknown): value is MemoryAssetKey => {
