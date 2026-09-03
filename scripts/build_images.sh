@@ -26,6 +26,7 @@ show_help() {
     echo "  -p, --app      仅构建应用镜像"
     echo "  -d, --docreader 仅构建文档读取器镜像"
     echo "  -f, --frontend 仅构建前端镜像"
+    echo "  --admin        仅构建 Admin 前端镜像"
     echo "  -s, --sandbox  仅构建沙箱镜像"
     echo "  -c, --clean    清理所有本地镜像"
     echo "  -v, --version  显示版本信息"
@@ -219,6 +220,34 @@ build_frontend_image() {
     fi
 }
 
+# 构建 Admin 前端镜像
+build_admin_image() {
+    log_info "构建 Admin 前端镜像 (weknora-admin)..."
+
+    cd "$PROJECT_ROOT"
+
+    # 获取版本信息（用于注入前端 commit hash）
+    get_version_info
+
+    log_info "构建 Admin 静态资源..."
+    VITE_IS_DOCKER=true VITE_FRONTEND_COMMIT="$COMMIT_ID" "$SCRIPT_DIR/build_admin_dist.sh"
+
+    docker build \
+        --platform $PLATFORM \
+        --build-arg NGINX_BASE=${NGINX_BASE:-nginx:stable-alpine} \
+        -f admin/Dockerfile \
+        -t wechatopenai/weknora-admin:latest \
+        admin/
+
+    if [ $? -eq 0 ]; then
+        log_success "Admin 前端镜像构建成功"
+        return 0
+    else
+        log_error "Admin 前端镜像构建失败"
+        return 1
+    fi
+}
+
 # 构建沙箱镜像
 build_sandbox_image() {
     log_info "构建沙箱镜像 (weknora-sandbox)..."
@@ -249,6 +278,7 @@ build_all_images() {
     local app_result=0
     local docreader_result=0
     local frontend_result=0
+    local admin_result=0
     local sandbox_result=0
 
     # 构建应用镜像
@@ -262,6 +292,10 @@ build_all_images() {
     # 构建前端镜像
     build_frontend_image
     frontend_result=$?
+
+    # 构建 Admin 前端镜像
+    build_admin_image
+    admin_result=$?
 
     # 构建沙箱镜像
     build_sandbox_image
@@ -288,13 +322,19 @@ build_all_images() {
         log_error "✗ 前端镜像构建失败"
     fi
 
+    if [ $admin_result -eq 0 ]; then
+        log_success "✓ Admin 前端镜像构建成功"
+    else
+        log_error "✗ Admin 前端镜像构建失败"
+    fi
+
     if [ $sandbox_result -eq 0 ]; then
         log_success "✓ 沙箱镜像构建成功"
     else
         log_error "✗ 沙箱镜像构建失败"
     fi
 
-    if [ $app_result -eq 0 ] && [ $docreader_result -eq 0 ] && [ $frontend_result -eq 0 ] && [ $sandbox_result -eq 0 ]; then
+    if [ $app_result -eq 0 ] && [ $docreader_result -eq 0 ] && [ $frontend_result -eq 0 ] && [ $admin_result -eq 0 ] && [ $sandbox_result -eq 0 ]; then
         log_success "所有镜像构建完成！"
         return 0
     else
@@ -312,18 +352,21 @@ clean_images() {
     docker stop $(docker ps -q --filter "ancestor=wechatopenai/weknora-app:latest" 2>/dev/null) 2>/dev/null || true
     docker stop $(docker ps -q --filter "ancestor=wechatopenai/weknora-docreader:latest" 2>/dev/null) 2>/dev/null || true
     docker stop $(docker ps -q --filter "ancestor=wechatopenai/weknora-ui:latest" 2>/dev/null) 2>/dev/null || true
+    docker stop $(docker ps -q --filter "ancestor=wechatopenai/weknora-admin:latest" 2>/dev/null) 2>/dev/null || true
     
     # 删除相关容器
     log_info "删除相关容器..."
     docker rm $(docker ps -aq --filter "ancestor=wechatopenai/weknora-app:latest" 2>/dev/null) 2>/dev/null || true
     docker rm $(docker ps -aq --filter "ancestor=wechatopenai/weknora-docreader:latest" 2>/dev/null) 2>/dev/null || true
     docker rm $(docker ps -aq --filter "ancestor=wechatopenai/weknora-ui:latest" 2>/dev/null) 2>/dev/null || true
+    docker rm $(docker ps -aq --filter "ancestor=wechatopenai/weknora-admin:latest" 2>/dev/null) 2>/dev/null || true
     
     # 删除镜像
     log_info "删除本地镜像..."
     docker rmi wechatopenai/weknora-app:latest 2>/dev/null || true
     docker rmi wechatopenai/weknora-docreader:latest 2>/dev/null || true
     docker rmi wechatopenai/weknora-ui:latest 2>/dev/null || true
+    docker rmi wechatopenai/weknora-admin:latest 2>/dev/null || true
     docker rmi wechatopenai/weknora-sandbox:latest 2>/dev/null || true
     
     docker image prune -f
@@ -337,6 +380,7 @@ BUILD_ALL=false
 BUILD_APP=false
 BUILD_DOCREADER=false
 BUILD_FRONTEND=false
+BUILD_ADMIN=false
 BUILD_SANDBOX=false
 CLEAN_IMAGES=false
 
@@ -356,6 +400,8 @@ while [ "$1" != "" ]; do
         -d | --docreader )  BUILD_DOCREADER=true
                             ;;
         -f | --frontend )   BUILD_FRONTEND=true
+                            ;;
+        --admin )           BUILD_ADMIN=true
                             ;;
         -s | --sandbox )    BUILD_SANDBOX=true
                             ;;
@@ -403,6 +449,11 @@ fi
 
 if [ "$BUILD_FRONTEND" = true ]; then
     build_frontend_image
+    exit $?
+fi
+
+if [ "$BUILD_ADMIN" = true ]; then
+    build_admin_image
     exit $?
 fi
 

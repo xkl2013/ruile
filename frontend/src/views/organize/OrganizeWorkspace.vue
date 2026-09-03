@@ -221,6 +221,7 @@
                       </div>
                     </div>
                     <h2>{{ item.title }}</h2>
+                    <div v-if="item.categoryLabel" class="output-card-category">{{ item.categoryLabel }}</div>
                     <p class="output-summary">{{ item.summary }}</p>
                     <div class="output-card-footer">
                       <div class="discover-card-meta">
@@ -307,6 +308,7 @@
                       </div>
                     </div>
                     <h2>{{ item.title }}</h2>
+                    <div v-if="item.categoryLabel" class="output-card-category">{{ item.categoryLabel }}</div>
                     <p class="output-summary">{{ item.summary }}</p>
                     <div class="output-card-footer">
                       <div class="discover-card-meta">
@@ -583,6 +585,9 @@
           <section class="output-preview-section">
             <h4>摘要</h4>
             <p class="output-preview-summary">{{ activeOutputPreview.summary }}</p>
+            <div v-if="activeOutputPreview.categoryLabel" class="output-preview-category">
+              栏目：{{ activeOutputPreview.categoryLabel }}
+            </div>
             <div v-if="activeOutputPreview.tags.length" class="output-preview-tags">
               <t-tag v-for="tag in activeOutputPreview.tags" :key="`preview-${activeOutputPreview.id}-${tag}`" size="small" variant="light-outline">
                 {{ tag }}
@@ -658,6 +663,11 @@ import {
   sproutReportContentForEditor,
   type SproutReportPreviewSection,
 } from './sproutReport'
+import {
+  DISCOVER_CATEGORIES,
+  discoverCategoryLabel,
+  normalizeDiscoverCategory,
+} from './discoverCategories'
 import OrganizeOutputUploadDrawer from './components/OrganizeOutputUploadDrawer.vue'
 import OrganizeSproutIcon from './components/OrganizeSproutIcon.vue'
 
@@ -709,6 +719,7 @@ interface OutputItem {
   type: string
   kind: Exclude<OutputKind, 'all'>
   kindLabel: string
+  categoryLabel: string
   source: string
   summary: string
   updated: string
@@ -773,9 +784,7 @@ const outputStatusSaving = ref(false)
 const discoverTab = ref('recommended')
 const discoverTabs = ref<OrganizeDiscoverTab[]>([
   { label: '推荐', value: 'recommended' },
-  { label: '图文类', value: 'article' },
-  { label: '视频类', value: 'video' },
-  { label: '音频类', value: 'audio' },
+  ...DISCOVER_CATEGORIES.map((category) => ({ label: category.label, value: category.key })),
 ])
 const featuredRotation = ref(0)
 const sproutRange = ref<SproutRange>('3d')
@@ -1559,6 +1568,7 @@ const mapOutput = (item: OrganizeOutput): OutputItem => ({
   type: item.output_type || '图文类',
   kind: outputKindFromValue(item.metadata?.content_kind || item.output_type || item.icon),
   kindLabel: outputKindDisplayLabel(outputKindFromValue(item.metadata?.content_kind || item.output_type || item.icon)),
+  categoryLabel: discoverCategoryLabel(item.metadata?.discover_category || item.metadata?.discover_category_label),
   source: item.memory_count ? `来自 ${item.memory_count} 条记忆` : '手动创建',
   summary: item.source_summary || asTrimmedString(item.metadata?.summary) || contentExcerpt(item.content, '暂无摘要'),
   updated: formatUpdatedLabel(item.updated_at),
@@ -1678,7 +1688,7 @@ const loadDiscoverFeaturedData = async () => {
 
     const data = response.data
     discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
-    featuredOutputs.value = data.featured_outputs.map(mapOutput)
+    featuredOutputs.value = (data.featured_outputs || []).map(mapOutput)
     syncActiveOutputPreview()
   } finally {
     if (requestSeq === discoverFeaturedRequestSeq) {
@@ -1707,7 +1717,7 @@ const loadDiscoverFeedData = async (options?: { tab?: string; page?: number; pag
 
     const data = response.data
     discoverTabs.value = data.tabs.length ? data.tabs : discoverTabs.value
-    outputs.value = data.items.map(mapOutput)
+    outputs.value = (data.items || []).map(mapOutput)
     discoverTotal.value = data.total
     outputPage.value = data.page || page
     if (options?.resetPage) {
@@ -1804,7 +1814,16 @@ const editorDraft = (item: MemoryItem | OutputItem | SproutReportItem | undefine
     draft.source_summary = item.summary
     draft.icon = item.icon
     draft.memory_ids = item.memoryIds
-    if (item.tags.length) draft.metadata = { ...draft.metadata, tags: item.tags }
+    draft.metadata = {
+      ...draft.metadata,
+      ...(item.categoryLabel
+        ? {
+            discover_category: normalizeDiscoverCategory(item.categoryLabel),
+            discover_category_label: item.categoryLabel,
+          }
+        : {}),
+      ...(item.tags.length ? { tags: item.tags } : {}),
+    }
   } else if ('stageKey' in item) {
     draft.stage = item.stageKey
     draft.output_hint = item.outputHint
@@ -2832,6 +2851,21 @@ button.asset-card {
 
 .discover-card-meta-separator {
   color: var(--td-text-color-placeholder);
+}
+
+.output-card-category,
+.output-preview-category {
+  color: var(--td-brand-color-7);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.output-card-category {
+  margin-top: 4px;
+}
+
+.output-preview-category {
+  margin-top: 8px;
 }
 
 .output-grid {

@@ -817,22 +817,45 @@ import ContextualGuide from '@/components/ContextualGuide.vue'
 import TenantModelsGuide from '@/components/TenantModelsGuide.vue'
 import { markContextualGuideDone } from '@/config/contextualGuides'
 import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
-import { useUIStore } from '@/stores/ui'
 import AgentAvatar from '@/components/AgentAvatar.vue'
 import ResourceOriginBadge from '@/components/ResourceOriginBadge.vue'
 import { shouldShowResourceOriginBadge } from '@/utils/card-list-badge'
 import { useAuthStore } from '@/stores/auth'
 import { useResourcePins } from '@/composables/useResourcePins'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-const uiStore = useUIStore()
 const orgStore = useOrganizationStore()
 const settingsStore = useSettingsStore()
 const chatResources = useChatResourcesStore()
 const { loaded: modelsReadyLoaded, isReadyForAgent } = useTenantModelReadiness()
+
+type AdminRouteQuery = Record<string, string | undefined>
+
+const cleanAdminRouteQuery = (query?: AdminRouteQuery) => {
+  const cleaned: Record<string, string> = {}
+  Object.entries(query || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') cleaned[key] = value
+  })
+  return cleaned
+}
+
+const isAdminRuntime = () =>
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')
+
+const openAdminModule = (path: string, query?: AdminRouteQuery, replace = false) => {
+  const cleanedQuery = cleanAdminRouteQuery(query)
+  if (isAdminRuntime()) {
+    const target = { path, query: cleanedQuery }
+    const action = replace ? router.replace(target) : router.push(target)
+    action.catch(() => {})
+    return
+  }
+  navigateToAdmin({ path, query: cleanedQuery })
+}
 
 interface AgentWithUI extends CustomAgent {
   showMore?: boolean
@@ -1098,10 +1121,7 @@ const checkAndOpenEditModal = () => {
   const sourceTenantId = route.query.sourceTenantId as string | undefined
   if (editId && (section === 'im' || section === 'embed' || section === 'integrations')) {
     const tab = section === 'embed' ? 'embed' : 'im'
-    router.replace({
-      path: '/platform/settings',
-      query: { section: 'integrations', tab, agentId: editId },
-    })
+    openAdminModule(tab === 'embed' ? '/publish/embed' : '/publish/im', { agentId: editId }, true)
     return
   }
   if (editId) {
@@ -1533,7 +1553,7 @@ const handleCreateAgent = () => {
   if (!authStore.hasRole('admin')) return
   if (!isReadyForAgent.value) {
     MessagePlugin.warning(t('contextualGuide.tenantModels.needChatModelFirst'))
-    uiStore.openSettings('models')
+    openAdminModule('/models')
     return
   }
   markContextualGuideDone('agentList')

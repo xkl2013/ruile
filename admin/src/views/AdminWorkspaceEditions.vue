@@ -58,10 +58,10 @@ const editions = [
     code: 'group',
     name: '集团版',
     space: '多园所组织',
-    boundary: '组织成员是一个个园所空间，不直接混用所有用户。',
-    admin: '关注总部模板、跨园所共享、组织成员和多空间统计。',
+    boundary: '参与单位是一个个园所空间，不直接混用所有用户。',
+    admin: '关注总部模板、跨园所共享、参与空间和多空间统计。',
     upgrade: '可扩展总部、区域、园所多层治理。',
-    icon: 'organization',
+    icon: 'usergroup',
   },
 ]
 

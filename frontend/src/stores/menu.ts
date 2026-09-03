@@ -66,7 +66,7 @@ export const useMenuStore = defineStore('menuStore', () => {
       if (authStore.isLiteMode && liteHiddenPaths.has(item.path)) {
         return false
       }
-      if (item.path === 'organizations') {
+      if (item.path === 'agents' || item.path === 'organizations') {
         return false
       }
       return true

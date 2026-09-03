@@ -169,7 +169,6 @@
                             :status="showMultimodalModelError ? 'error' : 'default'"
                             :placeholder="t('knowledgeEditor.advanced.multimodal.vllmPlaceholder')"
                             @update:selected-model-id="handleMultimodalVLLMChange"
-                            @add-model="handleAddVLLMModel"
                           />
                           <p v-if="showMultimodalModelError" class="field-error">
                             {{ t('uploadConfirm.vlmModelSelectRequired') }}
@@ -204,7 +203,6 @@
                             :status="showAsrModelError ? 'error' : 'default'"
                             :placeholder="t('knowledgeEditor.asr.modelPlaceholder')"
                             @update:selected-model-id="(val: string) => { uiState.asrConfig.modelId = val }"
-                            @add-model="handleAddASRModel"
                           />
                           <p v-if="showAsrModelError" class="field-error">
                             {{ t('uploadConfirm.asrModelSelectRequired') }}
@@ -904,14 +902,6 @@ const handleChunkingConfigUpdate = (config: ChunkingUIConfig) => {
 
 const handleMultimodalVLLMChange = (modelId: string) => {
   uiState.value.multimodalConfig.vllmModelId = modelId
-}
-
-const handleAddVLLMModel = () => {
-  uiStore.openSettings('models', 'vllm')
-}
-
-const handleAddASRModel = () => {
-  uiStore.openSettings('models', 'asr')
 }
 
 const handleQuestionGenerationUpdate = (config: { enabled: boolean; questionCount: number }) => {

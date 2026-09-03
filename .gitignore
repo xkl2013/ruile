@@ -4,6 +4,7 @@
 !.env.example
 !.gitignore
 !.github/
+!**/.dockerignore
 !知识库/**/.gitkeep
 
 # 敏感文件

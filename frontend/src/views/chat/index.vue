@@ -124,9 +124,6 @@
                 :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"></InputField>
         </div>
     </div>
-    <KnowledgeBaseEditorModal :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
-        :kb-id="uiStore.currentKBId || undefined" :initial-type="uiStore.kbEditorType"
-        @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
     <ChatReferencesDrawer />
     <ChatAttachmentPreviewDrawer />
 </template>
@@ -146,8 +143,6 @@ import { useSettingsStore } from '@/stores/settings';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useI18n } from 'vue-i18n';
 import { useUIStore } from '@/stores/ui';
-import KnowledgeBaseEditorModal from '@/views/knowledge/KnowledgeBaseEditorModal.vue';
-import { useKnowledgeBaseCreationNavigation } from '@/hooks/useKnowledgeBaseCreationNavigation';
 import { useChatStreamHandler } from '@/composables/useChatStreamHandler';
 import { useStickyBottomOnResize } from '@/composables/useStickyBottomOnResize';
 import { clearCitationChunkCache } from '@/utils/citationChunkCache';
@@ -193,7 +188,6 @@ const isAgentStreamSession = () => {
 };
 
 const uiStore = useUIStore();
-const { navigateToKnowledgeBaseList } = useKnowledgeBaseCreationNavigation();
 const { t } = useI18n();
 const { firstQuery, firstMentionedItems, firstModelId, firstImageFiles, firstAttachmentFiles } = storeToRefs(usemenuStore);
 const { onChunk, error, startStream, stopStream, lastStreamRequest } = useStream();
@@ -285,10 +279,6 @@ const isNearBottom = () => {
     if (!scrollContainer.value) return true;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainer.value;
     return scrollHeight - scrollTop - clientHeight < SCROLL_BOTTOM_THRESHOLD;
-}
-
-const handleKBEditorSuccess = (kbId) => {
-    navigateToKnowledgeBaseList(kbId)
 }
 
 // ===== 推荐问题 =====

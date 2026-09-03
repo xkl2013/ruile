@@ -87,14 +87,11 @@
 import { computed } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 import { useApiBaseUrlDisplay } from '@/composables/useApiBaseUrlDisplay'
-import { useUIStore } from '@/stores/ui'
 import IntegrationLandingLayout from './IntegrationLandingLayout.vue'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const { t } = useI18n()
-const router = useRouter()
-const uiStore = useUIStore()
 const { apiBaseUrlDisplay } = useApiBaseUrlDisplay()
 
 const capabilityKeys = ['upload', 'url', 'manual', 'search', 'browse'] as const
@@ -116,8 +113,7 @@ const envExample = computed(() => {
 })
 
 const openApiSettings = () => {
-  router.push({ path: '/platform/settings', query: { section: 'integrations', tab: 'api' } })
-  uiStore.openSettings('integration-api')
+  navigateToAdmin('/security/api-keys')
 }
 
 const copyText = async (text: string, successKey: string) => {

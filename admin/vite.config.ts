@@ -45,6 +45,7 @@ function resolveVueOfficePptxEntry(): string {
 
 export default defineConfig({
   base: process.env.VITE_ADMIN_BASE || '/admin/',
+  publicDir: fileURLToPath(new URL('../frontend/public', import.meta.url)),
   define: {
     __FRONTEND_VERSION__: JSON.stringify(FRONTEND_VERSION),
     __FRONTEND_COMMIT__: JSON.stringify(resolveFrontendCommit()),

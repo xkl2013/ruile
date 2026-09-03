@@ -46,7 +46,7 @@
               :label="opt.selectLabel"
             />
           </t-select>
-          <div v-if="!hasAvailableEngine(group.extensions)" class="no-engine-warning">
+          <div v-if="!hasAvailableEngine(group.extensions) && shouldShowConfigLink" class="no-engine-warning">
             <a class="go-settings" @click.prevent="goToParserSettings">{{ $t('kbSettings.parser.goConfig') }}</a>
           </div>
         </div>
@@ -60,8 +60,7 @@ import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { type ParserEngineInfo } from '@/api/system'
 import { useEditorResourcesStore } from '@/stores/editorResources'
-import { useUIStore } from '@/stores/ui'
-import { storeToRefs } from 'pinia'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const { t } = useI18n()
 const editorResources = useEditorResourcesStore()
@@ -106,10 +105,12 @@ const emit = defineEmits<{
   'update:parserEngineRules': [value: ParserEngineRule[]]
 }>()
 
-const uiStore = useUIStore()
 const localEngineRules = ref<ParserEngineRule[]>([...props.parserEngineRules])
 const parserEngines = ref<ParserEngineInfo[]>([])
 const loading = ref(true)
+const shouldShowConfigLink = computed(() =>
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/admin/'),
+)
 
 const allFileTypes = computed(() => {
   const s = new Set<string>()
@@ -240,7 +241,7 @@ function buildCompleteRules(): ParserEngineRule[] {
 }
 
 function goToParserSettings() {
-  uiStore.openSettings('parser')
+  navigateToAdmin('/data/parser-engines')
 }
 
 async function loadEngines(force = false) {
@@ -266,13 +267,6 @@ function ensureCompleteRules() {
 }
 
 onMounted(loadEngines)
-
-const { showSettingsModal } = storeToRefs(uiStore)
-watch(showSettingsModal, (open, wasOpen) => {
-  if (wasOpen && !open) {
-    loadEngines(true)
-  }
-})
 
 watch(() => props.parserEngineRules, (v) => {
   localEngineRules.value = v?.length ? [...v] : []

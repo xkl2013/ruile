@@ -55,6 +55,7 @@
           </t-select>
           <p class="option-hint">{{ $t('kbSettings.vectorStore.immutableHint') }}</p>
           <a
+            v-if="shouldShowConfigLink"
             href="javascript:void(0)"
             class="go-settings"
             @click.prevent="goToVectorStoreSettings"
@@ -93,11 +94,10 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { useUIStore } from '@/stores/ui'
 import { listVectorStores, type VectorStoreEntity } from '@/api/vector-store'
 import type { VectorStoreSource, VectorStoreStatus } from '@/api/knowledge-base'
 import VectorStoreBadge from '@/components/VectorStoreBadge.vue'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -113,9 +113,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:vectorStoreId', id: string): void
 }>()
-
-const { t } = useI18n()
-const uiStore = useUIStore()
 
 const loading = ref(false)
 const allStores = ref<VectorStoreEntity[]>([])
@@ -136,6 +133,9 @@ const envEngineType = computed(() => {
   const envStore = allStores.value.find((s) => s.source === 'env')
   return envStore?.engine_type || ''
 })
+const shouldShowConfigLink = computed(() =>
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/admin/'),
+)
 
 watch(
   () => props.vectorStoreId,
@@ -150,14 +150,8 @@ const handleChange = (val: string | undefined) => {
   emit('update:vectorStoreId', val || '')
 }
 
-// Open the global Settings panel directly on the Vector Stores
-// section. This follows the same pattern as the other KB editor "go
-// to settings" links (parser, storage, models): it talks to the UI
-// store rather than navigating via the router, so the host editor
-// modal stays mounted and can be returned to once the user closes the
-// settings panel.
 const goToVectorStoreSettings = () => {
-  uiStore.openSettings('vectorstore')
+  navigateToAdmin('/data/vector-stores')
 }
 
 onMounted(async () => {

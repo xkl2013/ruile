@@ -99,7 +99,7 @@
                       </div>
                     </div>
 
-                    <!-- 邀请成员 (仅管理员可见) -->
+                    <!-- 参与空间加入方式 (仅管理员可见) -->
                     <div v-if="isAdmin && orgId" class="setting-row setting-row-vertical">
                       <div class="setting-info full-width">
                         <label>{{ $t('organization.settings.inviteMembers') }}</label>
@@ -221,7 +221,7 @@
                   </div>
                 </div>
 
-                <!-- 成员管理（含角色权限说明） -->
+                <!-- 参与空间管理（含角色权限说明） -->
                 <div v-show="currentSection === 'members'" class="section">
                   <div class="section-header">
                     <h2>{{ $t('organization.manageMembers') }}</h2>
@@ -641,7 +641,7 @@
       </div>
     </t-dialog>
 
-    <!-- 添加成员弹窗（从用户列表选择，按用户所属空间授权） -->
+    <!-- 添加参与空间弹窗（从用户列表选择，按用户所属空间授权） -->
     <t-dialog v-model:visible="showAddMemberDialog" :header="$t('organization.addMember.dialogTitle')"
       :confirm-btn="{ content: $t('organization.addMember.confirmBtn'), loading: addMemberSubmitting, disabled: selectedUserId == null }"
       :cancel-btn="$t('common.cancel')" @confirm="handleAddMember" @close="resetAddMemberDialog" width="420px">
@@ -745,7 +745,7 @@ const upgradeForm = ref({
   message: ''
 })
 
-// 添加成员从用户列表选择；后端会根据 user_id 解析其所属空间并建立共享空间成员关系。
+// 添加参与空间从用户列表选择；后端会根据 user_id 解析其所属空间并建立共享空间关系。
 const showAddMemberDialog = ref(false)
 const addMemberSubmitting = ref(false)
 const userSearchLoading = ref(false)
@@ -831,7 +831,7 @@ const upgradeRoleOptions = computed(() => {
   return options
 })
 
-// 添加成员时可选的角色
+// 添加参与空间时可选的角色
 const addMemberRoleOptions = computed(() => [
   { label: t('organization.role.viewer'), value: 'viewer' },
   { label: t('organization.role.editor'), value: 'editor' },
@@ -917,7 +917,7 @@ const memberPrimaryLabel = (m: OrganizationMember): string => {
 
 // 副标题：主标题展示的是空间名时，副标题展示代表用户名；如果主标题已经
 // 是用户名（无 tenant_name 时的回退），副标题留空，避免重复信息。
-// 手机号在空间成员列表里不是主要身份；当前行已经按空间聚合，副标题只展示代表用户。
+// 手机号在参与空间列表里不是主要身份；当前行已经按空间聚合，副标题只展示代表用户。
 const memberSecondaryLabel = (m: OrganizationMember): string => {
   if (m.tenant_name && m.username) {
     return m.username
@@ -1218,7 +1218,7 @@ const handleSubmitUpgrade = async () => {
   }
 }
 
-// 添加成员：唤起用户列表，并支持用户名 / 手机号模糊搜索。
+// 添加参与空间：唤起用户列表，并支持用户名 / 手机号模糊搜索。
 let userSearchTimer: ReturnType<typeof setTimeout> | null = null
 const fetchUserInviteCandidates = async (query = '') => {
   if (!props.orgId) return
@@ -1262,7 +1262,7 @@ const handleUserSearch = (query: string) => {
   }, 300)
 }
 
-// 添加成员：提交选中的用户，后端按该用户所属空间建立共享空间成员关系。
+// 添加参与空间：提交选中的用户，后端按该用户所属空间建立共享空间关系。
 const handleAddMember = async () => {
   if (!props.orgId || selectedUserId.value == null) return
 
@@ -1287,7 +1287,7 @@ const handleAddMember = async () => {
   }
 }
 
-// 重置添加成员弹窗
+// 重置添加参与空间弹窗
 const resetAddMemberDialog = () => {
   selectedUserId.value = null
   addMemberRole.value = 'viewer'

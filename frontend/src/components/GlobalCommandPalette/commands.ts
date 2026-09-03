@@ -24,7 +24,6 @@ export interface CommandContext {
   t: Composer['t']
   /** Closes the palette; typically wires to commandPaletteStore.closePalette. */
   close: () => void
-  canManageAgents?: boolean
 }
 
 /**
@@ -54,16 +53,6 @@ export function buildCommands(ctx: CommandContext): CmdkCommand[] {
         router.push('/platform/knowledge-bases')
       },
     },
-    ...(ctx.canManageAgents ? [{
-      id: 'open-agents',
-      label: t('commandPalette.quick.agents'),
-      icon: 'user-circle',
-      keywords: ['agent', 'bot', '智能体', '助手'],
-      run: () => {
-        close()
-        router.push({ path: '/platform/settings', query: { section: 'agents' } })
-      },
-    }] : []),
     {
       id: 'open-settings',
       label: t('commandPalette.quick.settings'),

@@ -372,9 +372,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { MessagePlugin } from 'tdesign-vue-next'
 import SettingDrawer from '@/components/settings/SettingDrawer.vue'
@@ -387,9 +386,9 @@ import {
   type ParserEngineConfig,
 } from '@/api/system'
 import { getWeKnoraCloudStatus } from '@/api/model'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const { t } = useI18n()
-const uiStore = useUIStore()
 const authStore = useAuthStore()
 
 const CONFIGURABLE_ENGINES = new Set(['mineru', 'mineru_cloud', 'paddleocr_vl', 'paddleocr_vl_cloud'])
@@ -691,12 +690,8 @@ async function checkWkcStatus() {
   }
 }
 
-async function goToWkcSettings() {
-  if (uiStore.showSettingsModal) {
-    uiStore.closeSettings()
-    await nextTick()
-  }
-  uiStore.openSettings('weknoracloud')
+function goToWkcSettings() {
+  navigateToAdmin('/runtime/weknora-cloud')
 }
 
 onMounted(loadAll)

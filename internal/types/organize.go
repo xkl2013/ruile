@@ -209,6 +209,35 @@ type OrganizeDiscoverQuery struct {
 	FeaturedOffset int
 }
 
+type OrganizeDiscoverCategory struct {
+	Key   string
+	Label string
+}
+
+const (
+	OrganizeDiscoverCategoryAdmissionsGrowth      = "admissions_growth"
+	OrganizeDiscoverCategoryParentService         = "parent_service"
+	OrganizeDiscoverCategoryEventPlanning         = "event_planning"
+	OrganizeDiscoverCategoryKindergartenOperation = "kindergarten_operations"
+	OrganizeDiscoverCategoryTeamLeadership        = "team_leadership"
+	OrganizeDiscoverCategoryNutritionFoodEdu      = "nutrition_food_education"
+	OrganizeDiscoverCategorySpaceEnvironment      = "space_environment"
+	OrganizeDiscoverCategoryTeacherResearch       = "teacher_research"
+)
+
+func OrganizeDiscoverCategories() []OrganizeDiscoverCategory {
+	return []OrganizeDiscoverCategory{
+		{Key: OrganizeDiscoverCategoryAdmissionsGrowth, Label: "招生增长"},
+		{Key: OrganizeDiscoverCategoryParentService, Label: "家长服务"},
+		{Key: OrganizeDiscoverCategoryEventPlanning, Label: "活动策划"},
+		{Key: OrganizeDiscoverCategoryKindergartenOperation, Label: "园所运营"},
+		{Key: OrganizeDiscoverCategoryTeamLeadership, Label: "团队运营/领导力"},
+		{Key: OrganizeDiscoverCategoryNutritionFoodEdu, Label: "儿童营养与食育"},
+		{Key: OrganizeDiscoverCategorySpaceEnvironment, Label: "空间设计 / 环创"},
+		{Key: OrganizeDiscoverCategoryTeacherResearch, Label: "教师成长 / 教研"},
+	}
+}
+
 type OrganizeDiscoverTab struct {
 	Label string `json:"label"`
 	Value string `json:"value"`

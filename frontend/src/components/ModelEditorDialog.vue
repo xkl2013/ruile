@@ -406,7 +406,6 @@ import {
   type ModelCredentialField,
 } from '@/api/model'
 import { useI18n } from 'vue-i18n'
-import { useUIStore } from '@/stores/ui'
 import {
   defaultThinkingControl,
   resolveThinkingControl,
@@ -418,6 +417,7 @@ import CredentialResource, {
   type CredentialResourceApi,
 } from '@/components/credentials/CredentialResource.vue'
 import { shouldShowOllamaUnavailableTip } from '@/components/modelEditorSourceState'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 interface CustomHeaderItem {
   key: string
@@ -459,7 +459,6 @@ interface Props {
 }
 
 const { t, te } = useI18n()
-const uiStore = useUIStore()
 
 const props = withDefaults(defineProps<Props>(), {
   visible: false,
@@ -920,11 +919,7 @@ const checkWkcCredentialStatus = async () => {
 
 const goToWeKnoraCloudSettings = async () => {
   emit('update:visible', false)
-  if (uiStore.showSettingsModal) {
-    uiStore.closeSettings()
-    await nextTick()
-  }
-  uiStore.openSettings('weknoracloud')
+  navigateToAdmin('/runtime/weknora-cloud')
 }
 
 const formData = ref<ModelFormData>({
@@ -1061,18 +1056,7 @@ const goToOllamaSettings = async () => {
   console.log('点击跳转到Ollama设置按钮')
   // 关闭当前弹窗
   emit('update:visible', false)
-
-  // 先关闭设置弹窗（如果已打开）
-  if (uiStore.showSettingsModal) {
-    uiStore.closeSettings()
-    // 等待 DOM 更新
-    await nextTick()
-  }
-
-  // 打开设置窗口并直接跳转到Ollama设置
-  console.log('调用uiStore.openSettings')
-  uiStore.openSettings('ollama')
-  console.log('uiStore.openSettings调用完成')
+  navigateToAdmin('/runtime/ollama')
 }
 
 // 上一次打开时的 modelData id：用来判断切换模型/新增 vs. 同一次新增的连续打开

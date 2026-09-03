@@ -18,6 +18,7 @@
             model-type="KnowledgeQA"
             :selected-model-id="config.llmModelId"
             :all-models="allModels"
+            :show-add-model="showAdminModelActions"
             @update:selected-model-id="handleLLMChange"
             @add-model="handleAddModel('chat')"
             :placeholder="$t('knowledgeEditor.models.llmPlaceholder')"
@@ -52,6 +53,7 @@
             :selected-model-id="config.embeddingModelId"
             :all-models="allModels"
             :disabled="ragEnabled && hasFiles"
+            :show-add-model="showAdminModelActions"
             @update:selected-model-id="handleEmbeddingChange"
             @add-model="handleAddModel('embedding')"
             :placeholder="$t('knowledgeEditor.models.embeddingPlaceholder')"
@@ -70,6 +72,7 @@
             model-type="KnowledgeQA"
             :selected-model-id="config.wikiSynthesisModelId"
             :all-models="allModels"
+            :show-add-model="showAdminModelActions"
             @update:selected-model-id="handleWikiModelChange"
             @add-model="handleAddModel('knowledgeqa')"
             :placeholder="$t('knowledgeEditor.wiki.synthesisModelPlaceholder')"
@@ -82,10 +85,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useUIStore } from '@/stores/ui'
+import { computed, ref } from 'vue'
 import ModelSelector from '@/components/ModelSelector.vue'
-import { useI18n } from 'vue-i18n'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 interface ModelConfig {
   llmModelId?: string
@@ -108,11 +110,11 @@ const emit = defineEmits<{
   'update:config': [value: ModelConfig]
 }>()
 
-const uiStore = useUIStore()
-const { t } = useI18n()
-
 const llmSelectorRef = ref<InstanceType<typeof ModelSelector>>()
 const embeddingSelectorRef = ref<InstanceType<typeof ModelSelector>>()
+const showAdminModelActions = computed(() =>
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/admin/'),
+)
 
 const handleLLMChange = (modelId: string) => {
   emit('update:config', {
@@ -136,8 +138,9 @@ const handleWikiModelChange = (modelId: string) => {
 }
 
 const handleAddModel = (subSection: string) => {
-  uiStore.openSettings('models', subSection)
+  navigateToAdmin(`/models?type=${encodeURIComponent(subSection)}`)
 }
+
 </script>
 
 <style lang="less" scoped>
@@ -222,4 +225,3 @@ const handleAddModel = (subSection: string) => {
   align-items: flex-start;
 }
 </style>
-

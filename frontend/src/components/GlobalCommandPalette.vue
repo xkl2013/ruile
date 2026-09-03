@@ -255,7 +255,6 @@ const allCommands = computed(() => {
     router,
     t,
     close: () => commandPaletteStore.closePalette(),
-    canManageAgents: authStore.hasRole('admin'),
   })
 })
 

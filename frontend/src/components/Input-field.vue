@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick, h } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
 import { onBeforeRouteUpdate } from 'vue-router';
@@ -36,9 +36,6 @@ import {
 } from '@/utils/agentWebSearch';
 import {
   getAgentNotReadyReasonKeys,
-  resolveAgentNotReadySection,
-  resolveAgentNotReadyHighlight,
-  canLocallyConfigureAgent,
   type AgentNotReadyReasonKey,
 } from '@/utils/agent-readiness';
 import { formatLocalizedList } from '@/utils/format-list';
@@ -994,17 +991,6 @@ watch(
   { immediate: true }
 );
 
-const handleGoToConversationModels = () => {
-  showModelSelector.value = false;
-  router.push('/platform/settings');
-  setTimeout(() => {
-    const event = new CustomEvent('settings-nav', {
-      detail: { section: 'models', subsection: 'chat' },
-    });
-    window.dispatchEvent(event);
-  }, 100);
-};
-
 const handleModelChange = (value: string | number | Array<string | number> | undefined) => {
   const normalized = Array.isArray(value) ? value[0] : value;
   const val = normalized !== undefined && normalized !== null ? String(normalized) : '';
@@ -1013,12 +999,6 @@ const handleModelChange = (value: string | number | Array<string | number> | und
     selectedModelId.value = '';
     return;
   }
-  if (val === '__add_model__') {
-    selectedModelId.value = readLastChatModelID();
-    handleGoToConversationModels();
-    return;
-  }
-
   // The chat-level model picker now persists per-user-per-browser via
   // localStorage instead of writing to the tenant-shared KV. This is what
   // "remember my last pick" should always have meant — the previous PUT
@@ -1921,7 +1901,7 @@ const createSession = async (val: string) => {
     actualAgent = builtin || agentToCheck;
   }
   const isAgentMode = actualAgent.config?.agent_mode === 'smart-reasoning';
-  const { keys: notReadyKeys, labels: notReadyReasons } = collectAgentNotReadyReasons(
+  const notReadyReasons = collectAgentNotReadyReasons(
     actualAgent,
     isAgentMode,
     settingsStore.selectedAgentSourceTenantId ?? undefined,
@@ -1930,7 +1910,6 @@ const createSession = async (val: string) => {
     showAgentNotReadyMessage(
       actualAgent,
       notReadyReasons,
-      notReadyKeys,
       settingsStore.selectedAgentSourceTenantId ?? undefined,
     );
     return;
@@ -2083,13 +2062,13 @@ const selectAgentMode = async (mode: 'quick-answer' | 'smart-reasoning') => {
   const builtinAgent = agents.value.find(a => a.id === builtinAgentId);
 
   if (builtinAgent) {
-    const { keys: notReadyKeys, labels: notReadyReasons } = collectAgentNotReadyReasons(
+    const notReadyReasons = collectAgentNotReadyReasons(
       builtinAgent,
       mode === 'smart-reasoning',
     );
     if (notReadyReasons.length > 0) {
       showAgentModeSelector.value = false;
-      showAgentNotReadyMessage(builtinAgent, notReadyReasons, notReadyKeys);
+      showAgentNotReadyMessage(builtinAgent, notReadyReasons);
       return;
     }
   }
@@ -2108,10 +2087,10 @@ const selectAgentMode = async (mode: 'quick-answer' | 'smart-reasoning') => {
 const handleAgentNotReady = (
   agent: CustomAgent,
   labels: string[],
-  keys: AgentNotReadyReasonKey[],
+  _keys: AgentNotReadyReasonKey[],
   sourceTenantId?: string,
 ) => {
-  showAgentNotReadyMessage(agent, labels, keys, sourceTenantId);
+  showAgentNotReadyMessage(agent, labels, sourceTenantId);
 };
 
 const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) => {
@@ -2127,7 +2106,7 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
     ? (agents.value.find(a => a.id === agent.id) || agent)
     : agent;
 
-  const { keys: notReadyKeys, labels: notReadyReasons } = collectAgentNotReadyReasons(
+  const notReadyReasons = collectAgentNotReadyReasons(
     actualAgent,
     isAgentType,
     sourceTenantId,
@@ -2135,7 +2114,7 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
 
   if (notReadyReasons.length > 0) {
     showAgentModeSelector.value = false;
-    showAgentNotReadyMessage(actualAgent, notReadyReasons, notReadyKeys, sourceTenantId);
+    showAgentNotReadyMessage(actualAgent, notReadyReasons, sourceTenantId);
     return;
   }
 
@@ -2263,35 +2242,6 @@ const onDragOver = (e: DragEvent) => {
   e.preventDefault();
 };
 
-const handleGoToWebSearchSettings = () => {
-  uiStore.openSettings('websearch');
-  if (route.path !== '/platform/settings') {
-    router.push('/platform/settings');
-  }
-};
-
-const handleGoToWebSearchConfig = () => {
-  if (hasAgentConfig.value && selectedAgent.value) {
-    handleGoToAgentSettings('websearch');
-    return;
-  }
-  handleGoToWebSearchSettings();
-};
-
-const handleGoToAgentSettings = (section?: string) => {
-  if (!authStore.hasRole('admin')) return;
-  const agent = selectedAgent.value;
-  if (!agent) {
-    router.push({ path: '/platform/settings', query: { section: 'agents' } });
-    return;
-  }
-  const query: Record<string, string> = { section: 'agents', edit: agent.id };
-  if (section) {
-    query.agentSection = section;
-  }
-  router.push({ path: '/platform/settings', query });
-};
-
 const formatAgentNotReadyReasons = (
   reasonKeys: AgentNotReadyReasonKey[],
   isBuiltin: boolean,
@@ -2315,77 +2265,28 @@ const collectAgentNotReadyReasons = (
   agent: CustomAgent,
   isAgentMode: boolean,
   sourceTenantId?: string,
-): { keys: AgentNotReadyReasonKey[]; labels: string[] } => {
+): string[] => {
   const isSharedAgent = !!sourceTenantId;
   const keys = getAgentNotReadyReasonKeys(agent.config, allModels.value, {
     isAgentMode,
     isSharedAgent,
   });
-  return {
-    keys,
-    labels: formatAgentNotReadyReasons(keys, agent.is_builtin),
-  };
-};
-
-const goToAgentEditor = (
-  agent: CustomAgent,
-  section = 'model',
-  highlight?: AgentNotReadyReasonKey,
-  sourceTenantId?: string,
-) => {
-  if (!authStore.hasRole('admin')) return;
-  router.push({
-    path: '/platform/settings',
-    query: {
-      section: 'agents',
-      edit: agent.id,
-      agentSection: section,
-      ...(highlight ? { highlight } : {}),
-      ...(sourceTenantId ? { sourceTenantId } : {}),
-    },
-  });
+  return formatAgentNotReadyReasons(keys, agent.is_builtin);
 };
 
 // 显示智能体未就绪的消息（统一处理内置和自定义智能体）
 const showAgentNotReadyMessage = (
   agent: CustomAgent,
   reasons: string[],
-  reasonKeys?: AgentNotReadyReasonKey[],
   sourceTenantId?: string,
 ) => {
   const reasonsText = formatLocalizedList(reasons, locale.value)
-  const isRemoteShared = !canLocallyConfigureAgent(sourceTenantId)
-
-  const messageContent = h('div', { style: 'display: flex; flex-direction: column; gap: 8px; max-width: 320px;' }, [
-    h(
-      'span',
-      { style: 'color: var(--td-text-color-primary); line-height: 1.5;' },
-      isRemoteShared
-        ? t('input.sharedAgentNotReadyDetail', { agentName: agent.name, reasons: reasonsText })
-        : t('input.agentNotReadyDetail', { agentName: agent.name, reasons: reasonsText }),
-    ),
-    ...(isRemoteShared || !authStore.hasRole('admin') ? [] : [
-      h('a', {
-        href: '#',
-        onClick: (e: Event) => {
-          e.preventDefault();
-          const section = resolveAgentNotReadySection(reasonKeys || ['summary_model'])
-          const highlight = resolveAgentNotReadyHighlight(reasonKeys || ['summary_model'])
-          goToAgentEditor(agent, section, highlight, sourceTenantId);
-        },
-        style: 'color: var(--td-brand-color); text-decoration: none; font-weight: 500; cursor: pointer; align-self: flex-start;',
-        onMouseenter: (e: Event) => {
-          (e.target as HTMLElement).style.textDecoration = 'underline';
-        },
-        onMouseleave: (e: Event) => {
-          (e.target as HTMLElement).style.textDecoration = 'none';
-        }
-      }, t('input.goToAgentEditor')),
-    ]),
-  ]);
+  const message = sourceTenantId
+    ? t('input.sharedAgentNotReadyDetail', { agentName: agent.name, reasons: reasonsText })
+    : t('input.agentNotReadyDetail', { agentName: agent.name, reasons: reasonsText })
 
   MessagePlugin.warning({
-    content: () => messageContent,
+    content: message,
     duration: 5000
   });
 }
@@ -2403,25 +2304,8 @@ const toggleWebSearch = () => {
   }
 
   if (!isWebSearchConfigured.value) {
-    const messageContent = h('div', { style: 'display: flex; flex-direction: column; gap: 6px; max-width: 280px;' }, [
-      h('span', { style: 'color: var(--td-text-color-primary); line-height: 1.5;' }, t('input.messages.webSearchNotConfigured')),
-      h('a', {
-        href: '#',
-        onClick: (e: Event) => {
-          e.preventDefault();
-          handleGoToWebSearchConfig();
-        },
-        style: 'color: var(--td-brand-color); text-decoration: none; font-weight: 500; cursor: pointer; align-self: flex-start;',
-        onMouseenter: (e: Event) => {
-          (e.target as HTMLElement).style.textDecoration = 'underline';
-        },
-        onMouseleave: (e: Event) => {
-          (e.target as HTMLElement).style.textDecoration = 'none';
-        }
-      }, t('input.goToAgentSettings'))
-    ]);
     MessagePlugin.warning({
-      content: () => messageContent,
+      content: t('input.messages.webSearchNotConfigured'),
       duration: 5000
     });
     return;
@@ -2559,10 +2443,7 @@ defineExpose({
             <template #content>
               <span v-if="isWebSearchConfigured">{{ isWebSearchEnabled ? $t('input.webSearch.toggleOff') :
                 $t('input.webSearch.toggleOn') }}</span>
-              <div v-else class="tooltip-with-link">
-                <span>{{ $t('input.webSearch.notConfigured') }}</span>
-                <a href="#" @click.prevent="handleGoToWebSearchConfig">{{ $t('input.goToAgentSettings') }}</a>
-              </div>
+              <span v-else>{{ $t('input.webSearch.notConfigured') }}</span>
             </template>
             <div class="control-btn websearch-btn" :class="{
               'active': isWebSearchEnabled && isWebSearchConfigured,
@@ -2625,8 +2506,6 @@ defineExpose({
             <template #content>
               <div v-if="isMentionDisabled && isKnowledgeBaseDisabledByAgent" class="tooltip-with-link">
                 <span>{{ $t('input.kbDisabledByAgent') }}</span>
-                <a v-if="authStore.hasRole('admin')" href="#" @click.prevent="handleGoToAgentSettings('knowledge')">{{ $t('input.goToAgentSettings')
-                }}</a>
               </div>
               <span v-else>{{ allSelectedItems.length > 0 ? $t('input.knowledgeBaseWithCount', {
                 count:
@@ -2670,10 +2549,6 @@ defineExpose({
             <div class="model-selector-dropdown" :style="modelDropdownStyle" @click.stop>
               <div class="model-selector-header">
                 <span>{{ $t('conversationSettings.models.chatGroupLabel') }}</span>
-                <button class="model-selector-add" type="button" @click="handleModelChange('__add_model__')">
-                  <span class="add-icon">+</span>
-                  <span class="add-text">{{ $t('input.addModel') }}</span>
-                </button>
               </div>
               <div class="model-selector-content">
                 <div v-for="model in availableModels" :key="model.id" class="model-option"
@@ -3543,32 +3418,6 @@ const getImgSrc = (url: string) => {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding: 6px 8px;
-}
-
-.model-selector-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  border: .5px solid transparent;
-  background: transparent;
-  color: var(--td-brand-color);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.12s;
-
-  .add-icon {
-    font-size: 14px;
-    line-height: 1;
-    font-weight: 400;
-  }
-
-  &:hover {
-    color: var(--td-brand-color-hover);
-    background: var(--td-bg-color-secondarycontainer);
-  }
 }
 
 .model-option {

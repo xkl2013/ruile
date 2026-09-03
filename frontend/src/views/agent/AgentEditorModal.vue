@@ -578,6 +578,7 @@
                       <div class="setting-control">
                         <ModelSelector model-type="KnowledgeQA" :selected-model-id="formData.config.model_id"
                           :all-models="allModels"
+                          :show-add-model="isAdminRuntime()"
                           @update:selected-model-id="(val: string) => formData.config.model_id = val"
                           @add-model="handleAddModel('llm')" :placeholder="$t('agent.editor.modelPlaceholder')" />
                       </div>
@@ -654,6 +655,7 @@
                       <div class="setting-control">
                         <ModelSelector model-type="Rerank" :selected-model-id="formData.config.rerank_model_id"
                           :all-models="allModels"
+                          :show-add-model="isAdminRuntime()"
                           @update:selected-model-id="(val: string) => formData.config.rerank_model_id = val"
                           @add-model="handleAddModel('rerank')"
                           :placeholder="$t('agent.editor.rerankModelPlaceholder')" />
@@ -671,6 +673,7 @@
                       <div class="setting-control">
                         <ModelSelector model-type="KnowledgeQA"
                           :selected-model-id="formData.config.query_understand_model_id" :all-models="allModels"
+                          :show-add-model="isAdminRuntime()"
                           @update:selected-model-id="(val: string) => formData.config.query_understand_model_id = val"
                           @add-model="handleAddModel('llm')"
                           :placeholder="$t('agent.editor.queryUnderstandModelPlaceholder')" />
@@ -732,6 +735,7 @@
                       <div class="setting-control">
                         <ModelSelector model-type="VLLM" :selected-model-id="formData.config.vlm_model_id"
                           :all-models="allModels"
+                          :show-add-model="isAdminRuntime()"
                           @update:selected-model-id="(val: string) => formData.config.vlm_model_id = val"
                           @add-model="handleAddModel('vllm')"
                           :placeholder="$t('agentEditor.imageUpload.vlmModelPlaceholder')" />
@@ -783,7 +787,7 @@
                           </t-option>
                         </t-select>
                         <a href="javascript:void(0)" class="go-settings-link"
-                          @click.prevent="uiStore.openSettings('storage')">
+                          @click.prevent="openAdminModule('/data/storage-backends')">
                           {{ $t('agentEditor.imageUpload.goStorageSettings') }}
                         </a>
                       </div>
@@ -809,6 +813,7 @@
                       <div class="setting-control">
                         <ModelSelector model-type="ASR" :selected-model-id="formData.config.asr_model_id"
                           :all-models="allModels"
+                          :show-add-model="isAdminRuntime()"
                           @update:selected-model-id="(val: string) => formData.config.asr_model_id = val"
                           @add-model="handleAddModel('asr')"
                           :placeholder="$t('agentEditor.audioUpload.asrModelPlaceholder')" />
@@ -1011,6 +1016,7 @@
                           <ModelSelector model-type="KnowledgeQA"
                             :selected-model-id="formData.config.question_suggestions.follow_ups.model_id"
                             :all-models="allModels"
+                            :show-add-model="isAdminRuntime()"
                             @update:selected-model-id="(val: string) => formData.config.question_suggestions.follow_ups.model_id = val"
                             @add-model="handleAddModel('summary')" />
                         </div>
@@ -1674,6 +1680,7 @@ import {
   type RequirementMissKind,
   type ScopeCapabilities,
 } from '@/utils/tool-capabilities';
+import { navigateToAdmin } from '@/utils/adminNavigation';
 
 // File extensions offered in the agent-level chat attachment parsing policy.
 const CHAT_PARSER_EXTENSIONS = [
@@ -1688,6 +1695,28 @@ const router = useRouter();
 const orgStore = useOrganizationStore();
 const chatResources = useChatResourcesStore();
 const editorResources = useEditorResourcesStore();
+
+type AdminRouteQuery = Record<string, string | undefined>
+
+const cleanAdminRouteQuery = (query?: AdminRouteQuery) => {
+  const cleaned: Record<string, string> = {}
+  Object.entries(query || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== '') cleaned[key] = value
+  })
+  return cleaned
+}
+
+const isAdminRuntime = () =>
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')
+
+const openAdminModule = (path: string, query?: AdminRouteQuery) => {
+  const cleanedQuery = cleanAdminRouteQuery(query)
+  if (isAdminRuntime()) {
+    router.push({ path, query: cleanedQuery }).catch(() => {})
+    return
+  }
+  navigateToAdmin({ path, query: cleanedQuery })
+}
 
 const { t, locale: i18nLocale } = useI18n();
 
@@ -2533,7 +2562,7 @@ function gotoIntegrations(tab: 'im' | 'embed') {
   const agentId = editorAgent.value?.id;
   if (!agentId) return;
   handleClose();
-  router.push({ path: '/platform/settings', query: { section: 'integrations', agentId, tab } });
+  openAdminModule(tab === 'embed' ? '/publish/embed' : '/publish/im', { agentId });
 }
 
 const filteredIntentPlaceholders = computed(() => {
@@ -3374,7 +3403,7 @@ const loadDependencies = async () => {
 
 // 跳转到模型管理页面添加模型
 const handleAddModel = (subSection: string) => {
-  uiStore.openSettings('models', subSection);
+  openAdminModule('/models', { type: subSection });
 };
 
 const handleClose = () => {

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteLocationNormalized } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { autoSetup, getCurrentUser, userInfoFromApi } from '@/api/auth'
+import { buildAdminURL } from '@/utils/adminNavigation'
 import {
   ORGANIZE_MEMORY_ASSET_ROUTES,
   ORGANIZE_MENU_ROUTES,
@@ -25,6 +26,34 @@ const serviceCustomerSpaceComponent = () => import("../views/service/CustomerSpa
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
 const toPlatformChildPath = (path: string) => path.replace(/^\/platform\//, '')
+const ExternalRedirectView = {
+  name: 'ExternalRedirectView',
+  setup: () => () => null,
+}
+
+function normalizeStringQuery(query: RouteLocationNormalized['query']) {
+  const result: Record<string, string> = {}
+  Object.entries(query).forEach(([key, value]) => {
+    if (typeof value === 'string') {
+      result[key] = value
+    } else if (Array.isArray(value) && typeof value[0] === 'string') {
+      result[key] = value[0]
+    }
+  })
+  return result
+}
+
+function redirectToAdmin(target: Parameters<typeof buildAdminURL>[0]) {
+  window.location.href = buildAdminURL(target)
+  return false
+}
+
+function resolveAdminIntegrationPath(query: Record<string, string>) {
+  const raw = (query.tab || query.section || '').toLowerCase()
+  if (raw === 'embed') return '/publish/embed'
+  if (raw === 'api') return '/security/api-keys'
+  return '/publish/im'
+}
 
 function shouldTryAutoSetup() {
   return localStorage.getItem(AUTO_SETUP_FAILED_KEY) !== 'true'
@@ -91,13 +120,14 @@ const router = createRouter({
     {
       path: "/join",
       name: "joinOrganization",
-      // 重定向到组织列表页，并将 code 参数转换为 invite_code
-      redirect: (to) => {
-        const code = to.query.code as string
-        return {
-          path: '/platform/organizations',
-          query: code ? { invite_code: code } : {}
+      component: ExternalRedirectView,
+      beforeEnter: (to) => {
+        const query = normalizeStringQuery(to.query)
+        if (query.code && !query.invite_code) {
+          query.invite_code = query.code
         }
+        delete query.code
+        return redirectToAdmin({ path: '/spaces/organizations', query })
       },
       meta: { requiresInit: true, requiresAuth: true }
     },
@@ -116,7 +146,9 @@ const router = createRouter({
       children: [
         {
           path: "tenant",
-          redirect: "/platform/settings"
+          component: ExternalRedirectView,
+          beforeEnter: () => redirectToAdmin('/workspaces/current/overview'),
+          meta: { requiresInit: true, requiresAuth: true }
         },
         {
           path: "settings",
@@ -207,31 +239,27 @@ const router = createRouter({
         {
           path: "agents",
           name: "agentList",
-          redirect: (to) => {
-            const query: Record<string, any> = { ...to.query }
-            if (typeof query.section === 'string') {
-              query.agentSection = query.section
-              delete query.section
+          component: ExternalRedirectView,
+          beforeEnter: (to) => {
+            const query = normalizeStringQuery(to.query)
+            if (query.agentSection && !query.section) {
+              query.section = query.agentSection
             }
-            return {
-              path: "/platform/settings",
-              query: {
-                ...query,
-                section: "agents",
-              },
-            }
+            delete query.agentSection
+            return redirectToAdmin({ path: '/agents', query })
           },
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
           path: "integrations",
-          redirect: (to) => ({
-            path: "/platform/settings",
-            query: {
-              ...to.query,
-              section: "integrations",
-            },
-          }),
+          component: ExternalRedirectView,
+          beforeEnter: (to) => {
+            const query = normalizeStringQuery(to.query)
+            const path = resolveAdminIntegrationPath(query)
+            delete query.tab
+            delete query.section
+            return redirectToAdmin({ path, query })
+          },
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -255,34 +283,40 @@ const router = createRouter({
         {
           path: "organizations",
           name: "organizationList",
-          component: () => import("../views/organization/OrganizationList.vue"),
+          component: ExternalRedirectView,
+          beforeEnter: (to) => redirectToAdmin({
+            path: '/spaces/organizations',
+            query: normalizeStringQuery(to.query),
+          }),
           meta: { requiresInit: true, requiresAuth: true, requiresAdmin: true }
         },
         // Compatibility redirects for /platform/system/* URLs. System
-        // administration surfaces live as dedicated sections inside the
-        // standard Settings modal; keep stable URLs for bookmarks and
-        // external links.
+        // administration now lives in the standalone admin project.
         {
           path: "system",
-          redirect: { path: "/platform/settings", query: { section: "system-global" } },
+          component: ExternalRedirectView,
+          beforeEnter: () => redirectToAdmin('/system/settings'),
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
         {
           path: "system/settings",
           name: "systemSettings",
-          redirect: { path: "/platform/settings", query: { section: "system-global" } },
+          component: ExternalRedirectView,
+          beforeEnter: () => redirectToAdmin('/system/settings'),
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
         {
           path: "system/admins",
           name: "systemAdmins",
-          redirect: { path: "/platform/settings", query: { section: "system-global" } },
+          component: ExternalRedirectView,
+          beforeEnter: () => redirectToAdmin('/system/settings'),
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
         {
           path: "system/queues",
           name: "systemQueues",
-          redirect: { path: "/platform/settings", query: { section: "runtime-queues" } },
+          component: ExternalRedirectView,
+          beforeEnter: () => redirectToAdmin('/system/runtime-queues'),
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
       ],

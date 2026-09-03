@@ -51,9 +51,15 @@
               <strong>{{ item.display_name }}</strong>
               <em>{{ serviceCategory(item.agent_domain) }}</em>
             </span>
-            <t-tag :theme="item.default_enabled ? 'success' : 'primary'" variant="light">
-              {{ item.default_enabled ? '基础项' : '按分身启用' }}
-            </t-tag>
+            <span class="service-item-card__actions">
+              <t-tag :theme="item.default_enabled ? 'success' : 'primary'" variant="light">
+                {{ item.default_enabled ? '基础项' : '按分身启用' }}
+              </t-tag>
+              <t-button size="small" variant="outline" @click="openAgentEditor(item)">
+                <template #icon><t-icon name="edit-1" /></template>
+                编辑
+              </t-button>
+            </span>
           </div>
 
           <p>{{ item.description }}</p>
@@ -75,18 +81,157 @@
         </article>
       </div>
     </section>
+
+    <t-dialog
+      v-model:visible="editDialogVisible"
+      :header="editDialogTitle"
+      width="680px"
+      :confirm-btn="{ content: '保存配置', theme: 'primary', loading: editSaving, disabled: !canSaveAgentSetting }"
+      :cancel-btn="{ content: '取消', disabled: editSaving }"
+      :close-on-overlay-click="!editSaving"
+      destroy-on-close
+      @confirm="saveAgentSetting"
+      @cancel="closeAgentEditor"
+      @close="closeAgentEditor"
+    >
+      <div class="agent-edit-dialog">
+        <div v-if="editingItem" class="agent-edit-summary">
+          <span class="service-item-card__icon">
+            <t-icon :name="serviceIcon(editingItem.agent_domain)" />
+          </span>
+          <div>
+            <strong>{{ editingItem.display_name }}</strong>
+            <p>{{ editingItem.description }}</p>
+          </div>
+        </div>
+
+        <t-alert
+          v-if="profileLoadFailed"
+          theme="warning"
+          message="成员分身读取失败，请确认当前账号有管理权限。"
+        />
+
+        <t-form :data="editForm" label-align="top" @submit.prevent>
+          <t-form-item label="配置分身" name="profileId">
+            <t-select
+              v-model="editForm.profileId"
+              :options="profileOptions"
+              :loading="profileLoading || editLoading"
+              :disabled="editSaving"
+              placeholder="选择需要编辑的成员分身"
+              @change="handleEditProfileChange"
+            />
+          </t-form-item>
+
+          <div v-if="profileOptions.length === 0" class="agent-edit-empty">
+            暂无可配置分身，请先在成员管理中补充分身描述。
+          </div>
+
+          <template v-else>
+            <div class="agent-edit-row">
+              <t-form-item label="启用状态" name="enabled">
+                <t-switch v-model="editForm.enabled" :disabled="editSaving" />
+              </t-form-item>
+              <t-form-item label="服务名称" name="displayName">
+                <t-input v-model="editForm.displayName" :maxlength="60" clearable />
+              </t-form-item>
+            </div>
+
+            <t-form-item label="工作文档目录" name="workDocDirectory">
+              <t-input
+                v-model="editForm.workDocDirectory"
+                :maxlength="120"
+                clearable
+                placeholder="例如：客户/、线索/、排课/"
+              />
+            </t-form-item>
+
+            <div class="agent-edit-row">
+              <t-form-item label="绑定知识库 ID" name="knowledgeBaseIds">
+                <t-textarea
+                  v-model="editForm.knowledgeBaseIds"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  placeholder="每行一个，或用逗号分隔"
+                />
+              </t-form-item>
+              <t-form-item label="允许 Skill" name="selectedSkills">
+                <t-textarea
+                  v-model="editForm.selectedSkills"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  placeholder="每行一个，或用逗号分隔"
+                />
+              </t-form-item>
+            </div>
+
+            <t-form-item label="记忆过滤规则 JSON" name="memoryFilter">
+              <t-textarea
+                v-model="editForm.memoryFilter"
+                :autosize="{ minRows: 3, maxRows: 6 }"
+                placeholder='例如：{"source":"organize_memories"}'
+              />
+            </t-form-item>
+
+            <t-form-item label="输出策略 JSON" name="outputPolicy">
+              <t-textarea
+                v-model="editForm.outputPolicy"
+                :autosize="{ minRows: 3, maxRows: 6 }"
+                placeholder='例如：{"requires_user_confirmation":true}'
+              />
+            </t-form-item>
+          </template>
+        </t-form>
+      </div>
+    </t-dialog>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { listServiceAgentTemplates, type ServiceAgentTemplate } from '@/api/service'
+import { MessagePlugin } from 'tdesign-vue-next'
+import {
+  listServiceAgentSettings,
+  listServiceAgentTemplates,
+  listServiceWorkProfiles,
+  replaceServiceAgentSettings,
+  type ServiceAgentTemplate,
+  type ServiceWorkProfile,
+  type WorkProfileAgentSetting,
+} from '@/api/service'
 
 type ServiceItem = ServiceAgentTemplate
+type AgentSettingForm = {
+  profileId: string
+  enabled: boolean
+  displayName: string
+  workDocDirectory: string
+  knowledgeBaseIds: string
+  selectedSkills: string
+  memoryFilter: string
+  outputPolicy: string
+}
 
 const loading = ref(false)
 const loadFailed = ref(false)
 const remoteItems = ref<ServiceItem[]>([])
+const profileLoading = ref(false)
+const profileLoadFailed = ref(false)
+const workProfiles = ref<ServiceWorkProfile[]>([])
+const editDialogVisible = ref(false)
+const editLoading = ref(false)
+const editSaving = ref(false)
+const editingItem = ref<ServiceItem | null>(null)
+const agentSettings = ref<WorkProfileAgentSetting[]>([])
+const agentSettingsProfileId = ref('')
+const editForm = ref<AgentSettingForm>({
+  profileId: '',
+  enabled: false,
+  displayName: '',
+  workDocDirectory: '',
+  knowledgeBaseIds: '',
+  selectedSkills: '',
+  memoryFilter: '{}',
+  outputPolicy: '{}',
+})
 
 const fallbackItems: ServiceItem[] = [
   {
@@ -160,6 +305,26 @@ const serviceItems = computed<ServiceItem[]>(() => {
     .filter((item): item is ServiceItem => Boolean(item))
 })
 
+const profileOptions = computed(() =>
+  workProfiles.value.map((profile) => ({
+    label: [
+      profile.name || '未命名分身',
+      profile.default_profile ? '默认' : '',
+      profile.enabled ? '' : '未启用',
+    ].filter(Boolean).join(' · '),
+    value: profile.id,
+  })),
+)
+
+const editDialogTitle = computed(() => {
+  const name = editingItem.value?.display_name || '服务项'
+  return `编辑${name}`
+})
+
+const canSaveAgentSetting = computed(() => {
+  return Boolean(editingItem.value && editForm.value.profileId && profileOptions.value.length > 0)
+})
+
 async function loadServiceItems() {
   if (loading.value) return
   loading.value = true
@@ -174,6 +339,199 @@ async function loadServiceItems() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadWorkProfiles() {
+  if (profileLoading.value) return
+  profileLoading.value = true
+  profileLoadFailed.value = false
+  try {
+    const response = await listServiceWorkProfiles()
+    workProfiles.value = response?.data || []
+    if (!editForm.value.profileId) {
+      editForm.value.profileId = preferredProfileId()
+    }
+  } catch (error) {
+    console.warn('[AdminServiceProfiles] Failed to load work profiles:', error)
+    workProfiles.value = []
+    profileLoadFailed.value = true
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+async function loadAgentSettings(profileId: string, force = false) {
+  if (!profileId) {
+    agentSettings.value = []
+    agentSettingsProfileId.value = ''
+    return
+  }
+  if (!force && agentSettingsProfileId.value === profileId) return
+  editLoading.value = true
+  try {
+    const response = await listServiceAgentSettings(profileId)
+    agentSettings.value = response?.data || []
+    agentSettingsProfileId.value = profileId
+  } catch (error) {
+    console.warn('[AdminServiceProfiles] Failed to load agent settings:', error)
+    agentSettings.value = []
+    agentSettingsProfileId.value = ''
+    MessagePlugin.error('Agent 配置读取失败')
+  } finally {
+    editLoading.value = false
+  }
+}
+
+async function openAgentEditor(item: ServiceItem) {
+  editingItem.value = item
+  editDialogVisible.value = true
+  if (workProfiles.value.length === 0) {
+    await loadWorkProfiles()
+  }
+  if (!editForm.value.profileId) {
+    editForm.value.profileId = preferredProfileId()
+  }
+  if (editForm.value.profileId) {
+    await loadAgentSettings(editForm.value.profileId)
+  }
+  applyItemToForm(item)
+}
+
+function closeAgentEditor() {
+  if (editSaving.value) return
+  editDialogVisible.value = false
+  editingItem.value = null
+}
+
+async function handleEditProfileChange(value: unknown) {
+  const profileId = String(value || '')
+  editForm.value.profileId = profileId
+  await loadAgentSettings(profileId, true)
+  if (editingItem.value) {
+    applyItemToForm(editingItem.value)
+  }
+}
+
+async function saveAgentSetting() {
+  const item = editingItem.value
+  const profileId = editForm.value.profileId
+  if (!item || !profileId) return
+
+  const memoryFilter = parseJSONMap(editForm.value.memoryFilter, '记忆过滤规则')
+  if (!memoryFilter) return
+  const outputPolicy = parseJSONMap(editForm.value.outputPolicy, '输出策略')
+  if (!outputPolicy) return
+
+  editSaving.value = true
+  try {
+    const freshResponse = await listServiceAgentSettings(profileId)
+    agentSettings.value = freshResponse?.data || []
+    agentSettingsProfileId.value = profileId
+    const nextSettings = agentSettings.value
+      .filter((setting) => setting.agent_domain !== item.agent_domain)
+      .map(settingPayload)
+    nextSettings.push({
+      agent_id: agentSettings.value.find((setting) => setting.agent_domain === item.agent_domain)?.agent_id || undefined,
+      agent_domain: item.agent_domain,
+      enabled: editForm.value.enabled,
+      display_name: editForm.value.displayName.trim() || item.display_name,
+      display_order: serviceItemOrder(item.agent_domain),
+      memory_filter: memoryFilter,
+      knowledge_base_ids: parseList(editForm.value.knowledgeBaseIds),
+      work_doc_directory: editForm.value.workDocDirectory.trim() || item.work_doc_directory || fallbackDirectory(item.agent_domain),
+      selected_skills: parseList(editForm.value.selectedSkills),
+      output_policy: outputPolicy,
+    })
+    nextSettings.sort((a, b) => serviceItemOrder(a.agent_domain || '') - serviceItemOrder(b.agent_domain || ''))
+    const response = await replaceServiceAgentSettings(profileId, nextSettings)
+    agentSettings.value = response?.data || []
+    agentSettingsProfileId.value = profileId
+    MessagePlugin.success('Agent 配置已保存')
+    editDialogVisible.value = false
+    editingItem.value = null
+  } catch (error: any) {
+    console.warn('[AdminServiceProfiles] Failed to save agent setting:', error)
+    MessagePlugin.error(error?.message || 'Agent 配置保存失败')
+  } finally {
+    editSaving.value = false
+  }
+}
+
+function preferredProfileId() {
+  return (
+    workProfiles.value.find((profile) => profile.default_profile && profile.enabled)?.id ||
+    workProfiles.value.find((profile) => profile.enabled)?.id ||
+    workProfiles.value[0]?.id ||
+    ''
+  )
+}
+
+function applyItemToForm(item: ServiceItem) {
+  const setting = agentSettings.value.find((entry) => entry.agent_domain === item.agent_domain)
+  editForm.value = {
+    profileId: editForm.value.profileId,
+    enabled: setting?.enabled ?? item.default_enabled,
+    displayName: setting?.display_name || item.display_name,
+    workDocDirectory: setting?.work_doc_directory || item.work_doc_directory || fallbackDirectory(item.agent_domain),
+    knowledgeBaseIds: formatList(setting?.knowledge_base_ids || []),
+    selectedSkills: formatList(setting?.selected_skills || item.selected_skills || []),
+    memoryFilter: formatJSON(setting?.memory_filter || item.memory_filter || {}),
+    outputPolicy: formatJSON(setting?.output_policy || item.output_policy || {}),
+  }
+}
+
+function settingPayload(setting: WorkProfileAgentSetting): Partial<WorkProfileAgentSetting> {
+  return {
+    agent_id: setting.agent_id || undefined,
+    agent_domain: setting.agent_domain,
+    enabled: setting.enabled,
+    display_name: setting.display_name,
+    display_order: setting.display_order,
+    memory_filter: setting.memory_filter || {},
+    knowledge_base_ids: setting.knowledge_base_ids || [],
+    work_doc_directory: setting.work_doc_directory,
+    selected_skills: setting.selected_skills || [],
+    output_policy: setting.output_policy || {},
+  }
+}
+
+function serviceItemOrder(domain: string) {
+  const index = fallbackItems.findIndex((item) => item.agent_domain === domain)
+  return index >= 0 ? index + 1 : fallbackItems.length + 1
+}
+
+function fallbackDirectory(domain: string) {
+  return fallbackItems.find((item) => item.agent_domain === domain)?.work_doc_directory || '客户/'
+}
+
+function parseList(value: string) {
+  return value
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function formatList(value: string[]) {
+  return value.filter(Boolean).join('\n')
+}
+
+function formatJSON(value: Record<string, unknown> | undefined) {
+  return JSON.stringify(value || {}, null, 2)
+}
+
+function parseJSONMap(value: string, label: string): Record<string, unknown> | null {
+  const text = value.trim()
+  if (!text) return {}
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    // handled below
+  }
+  MessagePlugin.warning(`${label} 必须是 JSON 对象`)
+  return null
 }
 
 function serviceIcon(domain: string) {
@@ -225,6 +583,7 @@ function serviceOutput(domain: string) {
 
 onMounted(() => {
   void loadServiceItems()
+  void loadWorkProfiles()
 })
 </script>
 
@@ -346,6 +705,13 @@ onMounted(() => {
   align-items: center;
 }
 
+.service-item-card__actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .service-item-card__icon {
   display: grid;
   width: 38px;
@@ -411,13 +777,64 @@ onMounted(() => {
   color: var(--td-text-color-primary);
 }
 
+.agent-edit-dialog {
+  display: grid;
+  gap: 16px;
+}
+
+.agent-edit-summary {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 8px;
+  background: var(--td-bg-color-page);
+}
+
+.agent-edit-summary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-edit-summary strong {
+  color: var(--td-text-color-primary);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.agent-edit-summary p {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.agent-edit-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.agent-edit-empty {
+  padding: 14px 16px;
+  border: 1px dashed var(--td-border-level-2-color);
+  border-radius: 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--td-bg-color-page);
+}
+
 @media (max-width: 900px) {
   .service-config-page__header {
     display: grid;
   }
 
   .service-config-summary,
-  .service-item-grid {
+  .service-item-grid,
+  .agent-edit-row {
     grid-template-columns: 1fr;
   }
 }

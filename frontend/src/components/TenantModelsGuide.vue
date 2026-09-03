@@ -1,6 +1,6 @@
 <template>
   <SpotlightGuide v-model:active="active" :steps="steps" :step-i18n-prefix="stepI18nPrefix"
-    labels-prefix="contextualGuide" @finish="onFinish" @dismiss="onFinish" @step-change="onStepChange" />
+    labels-prefix="contextualGuide" @finish="onFinish" @dismiss="onFinish" />
 </template>
 
 <script setup lang="ts">
@@ -11,7 +11,6 @@ import {
   isGlobalUserGuideDone,
   markContextualGuideDone,
 } from '@/config/contextualGuides'
-import { useUIStore } from '@/stores/ui'
 import type { SpotlightGuideStep } from '@/types/spotlightGuide'
 
 const props = withDefaults(
@@ -29,42 +28,17 @@ const stepI18nPrefix = computed(() =>
     : 'contextualGuide.tenantModels.steps',
 )
 
-const uiStore = useUIStore()
 const active = ref(false)
-let settingsOpenedByGuide = false
 
 const steps: SpotlightGuideStep[] = [
   { key: 'intro' },
-  {
-    key: 'addModel',
-    target: '[data-guide="settings-add-model"], [data-guide="settings-models"]',
-    placement: 'left',
-    before: () => {
-      uiStore.openSettings('models')
-      settingsOpenedByGuide = true
-    },
-  },
   { key: 'done' },
 ]
 
 let openTimer: ReturnType<typeof setTimeout> | null = null
 
-const closeGuideSettings = () => {
-  if (settingsOpenedByGuide) {
-    uiStore.closeSettings()
-    settingsOpenedByGuide = false
-  }
-}
-
 const onFinish = () => {
   markContextualGuideDone('tenantModels')
-  closeGuideSettings()
-}
-
-const onStepChange = ({ toKey }: { toKey: string }) => {
-  if (toKey !== 'addModel') {
-    closeGuideSettings()
-  }
 }
 
 let waitGlobalTimer: ReturnType<typeof setTimeout> | null = null
@@ -111,7 +85,6 @@ watch(
       openTimer = null
       waitGlobalTimer = null
       active.value = false
-      closeGuideSettings()
       return
     }
     scheduleOpen()
@@ -122,6 +95,5 @@ watch(
 onBeforeUnmount(() => {
   if (openTimer) clearTimeout(openTimer)
   if (waitGlobalTimer) clearTimeout(waitGlobalTimer)
-  closeGuideSettings()
 })
 </script>

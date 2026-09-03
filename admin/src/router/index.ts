@@ -8,7 +8,6 @@ import AdminForbidden from '@admin/views/AdminForbidden.vue'
 import AdminLoginBridge from '@admin/views/AdminLoginBridge.vue'
 import AdminNoTenant from '@admin/views/AdminNoTenant.vue'
 import AdminNotFound from '@admin/views/AdminNotFound.vue'
-import AdminComingSoon from '@admin/views/AdminComingSoon.vue'
 import AdminWorkspaceEditions from '@admin/views/AdminWorkspaceEditions.vue'
 import type { AdminRole } from '@admin/config/navigation'
 
@@ -67,17 +66,15 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: 'workspaces/current/members',
     name: 'adminWorkspaceMembers',
-    component: createModulePage(() => import('@/views/settings/TenantMembers.vue')),
+    component: createModulePage(() => import('@/views/settings/TenantMembers.vue'), {
+      disableInvitations: true,
+    }),
     meta: {
       navKey: 'workspace-members',
       title: '成员管理',
       description: '管理空间成员、角色和空间审计。',
       minRole: 'viewer',
     },
-  },
-  {
-    path: 'workspaces/current/invitations',
-    redirect: { name: 'adminWorkspaceMembers' },
   },
   {
     path: 'workspaces/current/audit-log',
@@ -108,7 +105,7 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: 'knowledge-bases',
     name: 'adminKnowledgeBases',
-    component: AdminComingSoon,
+    component: () => import('@admin/views/AdminKnowledgeBases.vue'),
     meta: {
       navKey: 'knowledge-bases',
       title: '知识库资源管理',
@@ -119,13 +116,77 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: 'knowledge-bases/:kbId/settings',
     name: 'adminKnowledgeBaseSettings',
-    component: AdminComingSoon,
+    component: () => import('@admin/views/AdminKnowledgeBaseSettings.vue'),
     meta: {
       navKey: 'knowledge-bases',
       title: '知识库设置',
       description: 'P2 范围：替代主工程的大型知识库设置弹窗。',
       minRole: 'viewer',
     },
+  },
+  {
+    path: 'knowledge-bases/:kbId/basic',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'basic' },
+    }),
+  },
+  {
+    path: 'knowledge-bases/:kbId/models',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'models' },
+    }),
+  },
+  {
+    path: 'knowledge-bases/:kbId/processing',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'processing' },
+    }),
+  },
+  {
+    path: 'knowledge-bases/:kbId/storage',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'storage' },
+    }),
+  },
+  {
+    path: 'knowledge-bases/:kbId/data-sources',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'dataSources' },
+    }),
+  },
+  {
+    path: 'knowledge-bases/:kbId/sharing',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'sharing' },
+    }),
+  },
+  {
+    path: 'knowledge-bases/:kbId/directories',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'directories' },
+    }),
+  },
+  {
+    path: 'knowledge-bases/:kbId/tags',
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      params: to.params,
+      query: { ...to.query, tab: 'tags' },
+    }),
   },
   {
     path: 'agents',
@@ -137,6 +198,17 @@ const moduleRoutes: RouteRecordRaw[] = [
       description: '配置空间智能体、工具、知识库和发布能力。',
       minRole: 'viewer',
     },
+  },
+  {
+    path: 'agents/:agentId/edit',
+    redirect: (to) => ({
+      name: 'adminAgents',
+      query: {
+        ...to.query,
+        edit: String(to.params.agentId),
+        section: typeof to.query.section === 'string' ? to.query.section : 'basic',
+      },
+    }),
   },
   {
     path: 'service/profiles',
@@ -156,7 +228,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'organizations',
       title: '共享空间',
-      description: '管理组织、加入申请、组织成员和跨空间共享。',
+      description: '管理共享空间、参与空间、加入申请和跨空间共享。',
       minRole: 'viewer',
     },
   },

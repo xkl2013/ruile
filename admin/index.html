@@ -6,6 +6,12 @@
     <title>睿乐 Admin</title>
   </head>
   <body>
+    <!--
+      离线部署兼容：提前本地加载 tdesign-icons SVG sprite，避免 tdesign-vue-next
+      在 admin 中被离线 guard 阻断 CDN 后没有可用图标。Vite 会按 base
+      将 public 路径转换到 /admin/ 子路径。
+    -->
+    <script src="/tdesign-icons/0.4.1/fonts/index.js"></script>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

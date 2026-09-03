@@ -60,6 +60,14 @@ func TestOrganizeServiceValidationAndOverview(t *testing.T) {
 	require.Equal(t, int64(1), output.MemoryCount)
 	require.ElementsMatch(t, []string{memory.ID}, output.MemoryIDs)
 
+	_, err = svc.CreateOutput(ctx, 7, "user-a", types.OrganizeOutputInput{
+		Title: "Invalid category",
+		Metadata: types.JSONMap{
+			"discover_category": "unknown_category",
+		},
+	})
+	require.ErrorIs(t, err, ErrOrganizeInvalidCategory)
+
 	_, _, err = svc.ListOutputs(ctx, types.OrganizeListQuery{
 		TenantID: 7,
 		UserID:   "user-a",
@@ -120,7 +128,8 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 		OutputType: "图文类",
 		Status:     types.OrganizeOutputStatusReady,
 		Metadata: types.JSONMap{
-			"tags": []string{"产业链", "功率半导体"},
+			"tags":              []string{"产业链", "功率半导体"},
+			"discover_category": types.OrganizeDiscoverCategoryAdmissionsGrowth,
 		},
 	})
 	require.NoError(t, err)
@@ -130,7 +139,8 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 		OutputType: "视频类",
 		Status:     types.OrganizeOutputStatusReview,
 		Metadata: types.JSONMap{
-			"tags": []string{"能源结构", "产业链"},
+			"tags":              []string{"能源结构", "产业链"},
+			"discover_category": types.OrganizeDiscoverCategoryParentService,
 		},
 	})
 	require.NoError(t, err)
@@ -149,32 +159,34 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, discover.Page)
 	require.Equal(t, 30, discover.PageSize)
-	require.Len(t, discover.Tabs, 8)
+	require.Len(t, discover.Tabs, 9)
 	require.Equal(t, "recommended", discover.Tabs[0].Value)
 	require.Equal(t, int64(3), discover.Tabs[0].Count)
-	require.Equal(t, "article", discover.Tabs[1].Value)
-	require.Equal(t, "video", discover.Tabs[2].Value)
-	require.Equal(t, "audio", discover.Tabs[3].Value)
-
-	tabValues := make([]string, 0, len(discover.Tabs))
-	for _, tab := range discover.Tabs {
-		tabValues = append(tabValues, tab.Value)
-	}
-	require.Contains(t, tabValues, "tag:产业链")
-	require.Contains(t, tabValues, "tag:供应链")
+	require.Equal(t, types.OrganizeDiscoverCategoryAdmissionsGrowth, discover.Tabs[1].Value)
+	require.Equal(t, int64(1), discover.Tabs[1].Count)
 
 	require.Len(t, discover.FeaturedOutputs, 3)
 	require.Equal(t, "电力行业相关企业分析及功率半导体产业链解读", discover.FeaturedOutputs[0].Title)
 
-	videoDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Tab: "video"})
+	recommendedDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Tab: "recommended"})
 	require.NoError(t, err)
-	require.Len(t, videoDiscover.Items, 1)
-	require.Equal(t, "能源行业公司分析及中国电力结构探讨", videoDiscover.Items[0].Title)
+	require.Len(t, recommendedDiscover.Items, 3)
 
-	tagDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Tab: "tag:产业链"})
+	categoryDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{
+		Tab: types.OrganizeDiscoverCategoryAdmissionsGrowth,
+	})
 	require.NoError(t, err)
-	require.Len(t, tagDiscover.Items, 2)
-	require.Equal(t, "电力行业相关企业分析及功率半导体产业链解读", tagDiscover.Items[0].Title)
+	require.Len(t, categoryDiscover.Items, 1)
+	require.Equal(t, "电力行业相关企业分析及功率半导体产业链解读", categoryDiscover.Items[0].Title)
+
+	emptyCategoryDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{
+		Tab: types.OrganizeDiscoverCategoryEventPlanning,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, emptyCategoryDiscover.Items)
+	require.NotNil(t, emptyCategoryDiscover.FeaturedOutputs)
+	require.Empty(t, emptyCategoryDiscover.Items)
+	require.Empty(t, emptyCategoryDiscover.FeaturedOutputs)
 
 	pagedDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Page: 2, PageSize: 2})
 	require.NoError(t, err)

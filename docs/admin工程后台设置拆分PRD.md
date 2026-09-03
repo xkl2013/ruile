@@ -4,6 +4,8 @@
 
 适用仓库：`/Users/jamgogh/Desktop/agent/ruile`
 
+执行修正：本阶段优先把 Agent 列表和 Agent 编辑配置迁入 `admin` 工程；知识库后台治理属于 P2 范围，不替代 Agent 编辑迁移目标。
+
 ## 1. 背景
 
 当前主前端工程同时承载两类体验：
@@ -86,7 +88,7 @@ P0 是后台拆分的首批范围，原因是这些模块直接影响平台安�
 | 空间概览与编辑 | `TenantInfo.vue` | `/api/v1/tenants/:id` | `/admin/workspaces/current/overview` | `viewer` 读，`owner` 改 | 删除空间必须 owner 二次确认 |
 | 成员管理 | `TenantMembers.vue` | `/api/v1/tenants/:id/members` | `/admin/workspaces/current/members` | `admin` 写，`viewer` 读 | 包含 suspend、reactivate、remove、role update |
 | 空间邀请 | `TenantMembers.vue` 内部能力 | `/api/v1/tenants/:id/invitations` | `/admin/workspaces/current/invitations` | `admin` | 用户接受邀请仍留主工程 |
-| 空间审计 | 成员和空间管理相关 | `/api/v1/tenants/:id/audit-log` | `/admin/workspaces/current/audit-log` | `admin` | 建议作为空间治理二级页 |
+| 空间审计 | 成员和空间管理相关 | `/api/v1/tenants/:id/audit-log` | `/admin/workspaces/current/audit-log` | `admin` | 建议作为企业空间二级页 |
 | API Key 管理 | `ApiIntegrationSettings.vue` | `/api/v1/tenants/:id/api-keys` | `/admin/security/api-keys` | `owner` | 涉及密钥创建、删除、测试 |
 | API Principal 配置 | API 集成设置 | `/api/v1/tenants/:id/api-principal-config` | `/admin/security/api-principal` | `owner` | 与 API Key 放同一个安全模块 |
 | 聊天历史配置 | `ChatHistorySettings.vue` | `/api/v1/tenants/kv/chat-history-config` | `/admin/workspaces/current/chat-history` | `admin` | 空间级行为配置，迁入 admin |

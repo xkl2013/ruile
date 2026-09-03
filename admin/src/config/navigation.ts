@@ -20,7 +20,7 @@ export interface AdminNavGroup {
 export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     key: 'workspace',
-    label: '空间治理',
+    label: '企业空间',
     items: [
       {
         key: 'overview',
@@ -97,7 +97,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         key: 'organizations',
         label: '共享空间',
         description: '组织、共享和跨空间协作',
-        icon: 'organization',
+        icon: 'usergroup',
         path: '/spaces/organizations',
         minRole: 'viewer',
       },

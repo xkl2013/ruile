@@ -66,6 +66,11 @@
           </label>
 
           <label class="upload-field">
+            <span>栏目</span>
+            <t-select v-model="category" :options="categoryOptions" placeholder="请选择发现栏目" />
+          </label>
+
+          <label class="upload-field">
             <span>状态</span>
             <t-select v-model="status" :options="statusOptions" />
           </label>
@@ -134,6 +139,12 @@ import {
   updateOrganizeOutput,
   uploadOrganizeOutput,
 } from '@/api/organize'
+import {
+  DISCOVER_CATEGORY_OPTIONS,
+  discoverCategoryLabel,
+  normalizeDiscoverCategory,
+  type DiscoverCategoryKey,
+} from '../discoverCategories'
 
 type OutputKind = 'article' | 'video' | 'audio'
 type UploadStep = 'pick' | 'processing' | 'review'
@@ -183,6 +194,7 @@ const statusOptions = [
   { label: '草稿', value: 'draft' },
   { label: '已发布', value: 'ready' },
 ]
+const categoryOptions = DISCOVER_CATEGORY_OPTIONS
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const step = ref<UploadStep>('pick')
@@ -195,6 +207,7 @@ const title = ref('')
 const summary = ref('')
 const kind = ref<OutputKind>('article')
 const status = ref<OrganizeOutputStatus>('review')
+const category = ref<DiscoverCategoryKey | ''>('')
 const tags = ref<string[]>([])
 const tagInput = ref('')
 
@@ -247,6 +260,7 @@ const resetState = () => {
   summary.value = ''
   kind.value = props.initialKind || 'article'
   status.value = 'review'
+  category.value = ''
   tags.value = []
   tagInput.value = ''
 }
@@ -285,6 +299,7 @@ const hydrateDraft = (item: OrganizeOutput) => {
   summary.value = item.source_summary || ''
   kind.value = extractKind(item)
   status.value = item.status || 'review'
+  category.value = normalizeDiscoverCategory(item.metadata?.discover_category || item.metadata?.discover_category_label)
   tags.value = extractTags(item)
 }
 
@@ -338,6 +353,8 @@ const buildMetadata = () => {
     ...current,
     content_kind: kind.value,
     content_kind_label: kindLabel.value,
+    discover_category: category.value,
+    discover_category_label: discoverCategoryLabel(category.value),
     tags: [...tags.value],
     ai_status: 'confirmed',
   }
@@ -349,6 +366,10 @@ const handlePrimary = async () => {
     return
   }
   if (!draft.value) return
+  if (!category.value) {
+    MessagePlugin.warning('请选择发现栏目')
+    return
+  }
   saving.value = true
   try {
     const input: OrganizeOutputInput = {
@@ -385,6 +406,7 @@ const handleSecondary = () => {
     summary.value = ''
     kind.value = props.initialKind || 'article'
     status.value = 'review'
+    category.value = ''
     return
   }
   close()

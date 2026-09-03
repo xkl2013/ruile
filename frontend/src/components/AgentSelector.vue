@@ -4,11 +4,6 @@
       <div class="agent-selector-dropdown" :style="dropdownStyle" @click.stop>
         <div class="agent-selector-header">
           <span>{{ $t('agent.selectAgent') }}</span>
-          <router-link v-if="authStore.hasRole('admin')" :to="{ path: '/platform/settings', query: { section: 'agents' } }"
-            class="agent-selector-add" @click="$emit('close')">
-            <span class="add-icon">+</span>
-            <span class="add-text">{{ $t('agent.manageAgents') }}</span>
-          </router-link>
         </div>
 
         <div class="agent-selector-content" @scroll="hideDetailPanel">
@@ -103,13 +98,6 @@
             <div class="detail-title-wrap">
               <div class="detail-title-row">
                 <span class="detail-name">{{ activeDetail.agent.name }}</span>
-                <button v-if="canShowDetailHeaderAction" type="button" class="detail-header-action"
-                  :class="{ 'detail-header-action--warn': activeDetailNotReadyLabels.length }" :title="activeDetailNotReadyLabels.length
-                    ? $t('agent.selector.configureAction')
-                    : $t('agent.selector.goToSettings')"
-                  @click="goToSettings(activeDetail.agent, activeDetail.sourceTenantId)">
-                  <TIcon :name="activeDetailNotReadyLabels.length ? 'jump' : 'setting'" size="14px" />
-                </button>
               </div>
               <span v-if="isDetailCurrent" class="detail-current">{{ $t('agent.selector.current') }}</span>
               <div v-else-if="activeDetailNotReadyLabels.length" class="detail-not-ready">
@@ -183,21 +171,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
 import { Icon as TIcon, Tooltip as TTooltip } from 'tdesign-vue-next';
 import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import { useOrganizationStore } from '@/stores/organization';
 import { useSettingsStore } from '@/stores/settings';
-import { useAuthStore } from '@/stores/auth';
 import type { SharedAgentInfo } from '@/api/organization';
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
 import {
   getAgentNotReadyReasonKeys,
-  resolveAgentNotReadySection,
-  resolveAgentNotReadyHighlight,
-  canLocallyConfigureAgent,
   type AgentNotReadyReasonKey,
 } from '@/utils/agent-readiness';
 import { formatLocalizedList } from '@/utils/format-list';
@@ -208,12 +191,9 @@ import {
 } from '@/utils/agentWebSearch';
 
 const { t, locale } = useI18n();
-const router = useRouter();
 const orgStore = useOrganizationStore();
 const settingsStore = useSettingsStore();
 const chatResources = useChatResourcesStore();
-const authStore = useAuthStore();
-
 const props = defineProps<{
   visible: boolean;
   anchorEl?: HTMLElement;
@@ -301,14 +281,6 @@ const activeDetailNotReadyLabels = computed(() => {
   const detail = activeDetail.value;
   if (!detail) return [];
   return getAgentNotReadyLabels(detail.agent, detail.sourceTenantId);
-});
-
-const canShowDetailHeaderAction = computed(() => {
-  if (!authStore.hasRole('admin')) return false;
-  const detail = activeDetail.value;
-  if (!detail) return false;
-  if (canLocallyConfigureAgent(detail.sourceTenantId)) return true;
-  return activeDetailNotReadyLabels.value.length === 0;
 });
 
 const getKbCapability = (agent: CustomAgent): string => {
@@ -520,28 +492,6 @@ const selectSharedAgent = (shared: SharedAgentSelection) => {
   emit('select', shared.agent, sourceTenantId);
 };
 
-const goToSettings = (agent: CustomAgent, sourceTenantId?: string) => {
-  if (!authStore.hasRole('admin')) return;
-  if (!canLocallyConfigureAgent(sourceTenantId) && getAgentNotReadyLabels(agent, sourceTenantId).length > 0) {
-    return;
-  }
-  const reasonKeys = getAgentNotReadyReasonKeysFor(agent, sourceTenantId);
-  const section = reasonKeys.length > 0 ? resolveAgentNotReadySection(reasonKeys) : 'basic';
-  const highlight = resolveAgentNotReadyHighlight(reasonKeys);
-  hideDetailPanel();
-  emit('close');
-  router.push({
-    path: '/platform/settings',
-    query: {
-      section: 'agents',
-      edit: agent.id,
-      agentSection: section,
-      ...(highlight ? { highlight } : {}),
-      ...(sourceTenantId ? { sourceTenantId } : {}),
-    },
-  });
-};
-
 const updateDropdownPosition = () => {
   if (!props.anchorEl) return;
 
@@ -662,26 +612,6 @@ watch(activeDetail, (detail) => {
   font-weight: 500;
   line-height: 1;
   color: var(--td-text-color-secondary);
-}
-
-.agent-selector-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 5px;
-  color: var(--td-brand-color);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  text-decoration: none;
-  flex-shrink: 0;
-
-  &:hover {
-    background: var(--td-bg-color-secondarycontainer);
-  }
 }
 
 .agent-selector-content {
@@ -891,36 +821,6 @@ watch(activeDetail, (detail) => {
   word-break: break-word;
   min-width: 0;
   flex: 1;
-}
-
-.detail-settings-icon,
-.detail-header-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--td-text-color-placeholder);
-  cursor: pointer;
-
-  &:hover {
-    background: var(--td-bg-color-component-hover, #e8e8e8);
-    color: var(--td-text-color-secondary);
-  }
-
-  &--warn {
-    color: var(--td-warning-color, #ed7b2f);
-
-    &:hover {
-      background: rgba(237, 123, 47, 0.1);
-      color: var(--td-warning-color, #ed7b2f);
-    }
-  }
 }
 
 .detail-current {

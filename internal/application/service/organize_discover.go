@@ -85,62 +85,26 @@ func (s *organizeService) listAllDiscoverOutputs(ctx context.Context, tenantID u
 }
 
 func buildDiscoverTabs(outputs []*types.OrganizeOutput) []types.OrganizeDiscoverTab {
-	if len(outputs) == 0 {
-		return []types.OrganizeDiscoverTab{
-			{Label: "推荐", Value: "recommended", Count: 0},
-			{Label: "图文类", Value: "article", Count: 0},
-			{Label: "视频类", Value: "video", Count: 0},
-			{Label: "音频类", Value: "audio", Count: 0},
-		}
-	}
-
-	tagCounts := make(map[string]int64)
-	kindCounts := map[string]int64{
-		"article": 0,
-		"video":   0,
-		"audio":   0,
-	}
+	categoryCounts := make(map[string]int64)
 
 	for _, output := range outputs {
 		if output == nil {
 			continue
 		}
-		kind := discoverOutputKind(output)
-		if _, ok := kindCounts[kind]; ok {
-			kindCounts[kind]++
-		} else {
-			kindCounts["article"]++
-		}
-
-		for _, tag := range discoverOutputTags(output.Metadata) {
-			tagCounts[tag]++
+		if category := discoverOutputCategory(output); category != "" {
+			categoryCounts[category]++
 		}
 	}
 
-	topTags := make([]types.OrganizeDiscoverTab, 0, len(tagCounts))
-	for tag, count := range tagCounts {
-		topTags = append(topTags, types.OrganizeDiscoverTab{
-			Label: tag,
-			Value: "tag:" + tag,
-			Count: count,
+	tabs := []types.OrganizeDiscoverTab{{Label: "推荐", Value: "recommended", Count: int64(len(outputs))}}
+	for _, category := range types.OrganizeDiscoverCategories() {
+		tabs = append(tabs, types.OrganizeDiscoverTab{
+			Label: category.Label,
+			Value: category.Key,
+			Count: categoryCounts[category.Key],
 		})
 	}
-	sort.SliceStable(topTags, func(i, j int) bool {
-		if topTags[i].Count != topTags[j].Count {
-			return topTags[i].Count > topTags[j].Count
-		}
-		return topTags[i].Label < topTags[j].Label
-	})
-	if len(topTags) > 6 {
-		topTags = topTags[:6]
-	}
-
-	return append([]types.OrganizeDiscoverTab{
-		{Label: "推荐", Value: "recommended", Count: int64(len(outputs))},
-		{Label: "图文类", Value: "article", Count: kindCounts["article"]},
-		{Label: "视频类", Value: "video", Count: kindCounts["video"]},
-		{Label: "音频类", Value: "audio", Count: kindCounts["audio"]},
-	}, topTags...)
+	return tabs
 }
 
 func filterDiscoverOutputs(outputs []*types.OrganizeOutput, tab, keyword string) []*types.OrganizeOutput {
@@ -192,11 +156,11 @@ func sortDiscoverOutputs(outputs []*types.OrganizeOutput) {
 
 func pickDiscoverFeaturedOutputs(outputs []*types.OrganizeOutput, offset int) []*types.OrganizeOutput {
 	if len(outputs) == 0 {
-		return nil
+		return []*types.OrganizeOutput{}
 	}
 	count := min(4, len(outputs))
 	if count == 0 {
-		return nil
+		return []*types.OrganizeOutput{}
 	}
 	start := offset % len(outputs)
 	if start < 0 {
@@ -211,14 +175,14 @@ func pickDiscoverFeaturedOutputs(outputs []*types.OrganizeOutput, offset int) []
 
 func paginateDiscoverOutputs(outputs []*types.OrganizeOutput, page, pageSize int) []*types.OrganizeOutput {
 	if len(outputs) == 0 || pageSize < 1 {
-		return nil
+		return []*types.OrganizeOutput{}
 	}
 	if page < 1 {
 		page = 1
 	}
 	start := (page - 1) * pageSize
 	if start >= len(outputs) {
-		return nil
+		return []*types.OrganizeOutput{}
 	}
 	end := start + pageSize
 	if end > len(outputs) {
@@ -232,22 +196,8 @@ func matchesDiscoverTab(output *types.OrganizeOutput, tab string) bool {
 	switch normalizedTab {
 	case "", "recommended":
 		return true
-	case "article", "video", "audio":
-		return discoverOutputKind(output) == normalizedTab
 	default:
-		if strings.HasPrefix(tab, "tag:") {
-			tag := strings.TrimSpace(strings.TrimPrefix(tab, "tag:"))
-			if tag == "" {
-				return true
-			}
-			for _, candidate := range discoverOutputTags(output.Metadata) {
-				if candidate == tag {
-					return true
-				}
-			}
-			return false
-		}
-		return true
+		return discoverOutputCategory(output) == normalizedTab
 	}
 }
 
@@ -291,6 +241,29 @@ func discoverOutputKind(output *types.OrganizeOutput) string {
 	default:
 		return "article"
 	}
+}
+
+func discoverOutputCategory(output *types.OrganizeOutput) string {
+	if output == nil {
+		return ""
+	}
+	metadata := output.Metadata
+	category := discoverOutputMetadataText(metadata, "discover_category", "category", "discover_category_label")
+	for _, candidate := range types.OrganizeDiscoverCategories() {
+		if category == candidate.Key || category == candidate.Label {
+			return candidate.Key
+		}
+	}
+	if category == "团队运营与园长领导力" {
+		return types.OrganizeDiscoverCategoryTeamLeadership
+	}
+	if category == "空间设计" {
+		return types.OrganizeDiscoverCategorySpaceEnvironment
+	}
+	if category == "教师成长" {
+		return types.OrganizeDiscoverCategoryTeacherResearch
+	}
+	return ""
 }
 
 func normalizeDiscoverOutputKind(value string) string {
@@ -390,13 +363,21 @@ func normalizeDiscoverTab(tab string) string {
 	switch tab {
 	case "推荐":
 		return "recommended"
-	case "图文类":
-		return "article"
-	case "视频类":
-		return "video"
-	case "音频类":
-		return "audio"
 	default:
+		for _, category := range types.OrganizeDiscoverCategories() {
+			if tab == category.Label {
+				return category.Key
+			}
+		}
+		if tab == "团队运营与园长领导力" {
+			return types.OrganizeDiscoverCategoryTeamLeadership
+		}
+		if tab == "空间设计" {
+			return types.OrganizeDiscoverCategorySpaceEnvironment
+		}
+		if tab == "教师成长" {
+			return types.OrganizeDiscoverCategoryTeacherResearch
+		}
 		return tab
 	}
 }

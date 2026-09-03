@@ -305,6 +305,36 @@
             </section>
           </template>
 
+          <template v-else-if="documentType === 'output'">
+            <section class="output-category-panel" aria-label="发现栏目">
+              <div class="output-category-copy">
+                <span class="output-category-eyebrow">内容归类</span>
+                <strong>选择发现栏目</strong>
+              </div>
+              <t-select
+                v-model="outputCategory"
+                :options="discoverCategoryOptions"
+                placeholder="请选择发现栏目"
+                @change="markDocumentDirty"
+              />
+            </section>
+            <div
+              class="document-editor-shell"
+              @keydown.capture="handleEditorKeydown"
+            >
+              <TiptapProEditor
+                :key="editorKey"
+                ref="editorRef"
+                v-model="content"
+                :version="editorVersion"
+                theme-preset="notion"
+                locale="zh-CN"
+                :placeholder="editorPlaceholder"
+                :features="editorFeatures"
+              />
+            </div>
+          </template>
+
           <template v-else>
             <section v-if="isAudioMemory" class="memory-audio-panel" aria-label="录音详情">
               <t-input v-model="title" class="memory-audio-title-input" size="large" clearable placeholder="录音标题" />
@@ -479,6 +509,12 @@ import {
   type ServiceTask,
 } from '../service/serviceMemoryExtraction'
 import { extractServiceMemory } from '@/api/service'
+import {
+  DISCOVER_CATEGORY_OPTIONS,
+  discoverCategoryLabel,
+  normalizeDiscoverCategory,
+  type DiscoverCategoryKey,
+} from './discoverCategories'
 
 type OrganizeDocumentType = 'memory' | 'output' | 'sprout'
 type SaveState = 'idle' | 'saving' | 'saved' | 'waiting' | 'error'
@@ -525,7 +561,9 @@ const noteServiceExtracting = ref(false)
 const sourcePreviewVisible = ref(false)
 const sproutPreviewVisible = ref(false)
 const outputDraft = ref<OrganizeOutput | null>(null)
+const outputCategory = ref<DiscoverCategoryKey | ''>('')
 const sproutDraft = ref<OrganizeSproutReport | null>(null)
+const discoverCategoryOptions = DISCOVER_CATEGORY_OPTIONS
 let noteSproutRequestSeq = 0
 
 const editorFeatures: FeatureConfig = {
@@ -1331,6 +1369,9 @@ const resetDraft = () => {
   memoryDurationSeconds.value = draft.duration_seconds || 0
   memoryMetadata.value = draft.metadata
   memoryTags.value = noteTagsFromMetadata(draft.metadata)
+  outputCategory.value = normalizeDiscoverCategory(
+    draft.metadata?.discover_category || draft.metadata?.discover_category_label,
+  )
   memoryOccurredAt.value = ''
   memoryCreatedAt.value = ''
   memoryUpdatedAt.value = ''
@@ -1416,6 +1457,9 @@ const loadDocument = async () => {
       title.value = item.title
       content.value = normalizeDocumentContent(item.title, item.content)
       outputDraft.value = item
+      outputCategory.value = normalizeDiscoverCategory(
+        item.metadata?.discover_category || item.metadata?.discover_category_label,
+      )
     } else {
       const response = await getOrganizeSproutReport(documentId.value)
       if (!response.success || !response.data) throw new Error(response.message || '发芽加载失败')
@@ -1517,6 +1561,11 @@ const saveDocument = async () => {
       memoryUpdatedAt.value = savedMemory.updated_at || ''
     } else if (currentType === 'output') {
       const draft = outputDraft.value
+      if (!outputCategory.value) {
+        saveState.value = 'waiting'
+        saveError.value = '请选择发现栏目'
+        return
+      }
       const input = {
         title: normalizedTitle,
         content: html,
@@ -1525,7 +1574,11 @@ const saveDocument = async () => {
         status: draft?.status || (readQuery('status') as OrganizeOutputStatus) || 'draft',
         icon: draft?.icon || readQuery('icon') || 'file-word',
         memory_ids: draft?.memory_ids || [],
-        metadata: draft?.metadata,
+        metadata: {
+          ...draft?.metadata,
+          discover_category: outputCategory.value,
+          discover_category_label: discoverCategoryLabel(outputCategory.value),
+        },
       }
       const response = creating
         ? await createOrganizeOutput(input)
@@ -1845,6 +1898,41 @@ watch(
   margin: 0 auto;
   padding-top: 0;
   box-sizing: border-box;
+}
+
+.output-category-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+}
+
+.output-category-copy {
+  min-width: 0;
+}
+
+.output-category-eyebrow {
+  display: block;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.output-category-copy strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.output-category-panel :deep(.t-select) {
+  flex: 0 0 260px;
 }
 
 .memory-audio-panel {
@@ -3145,6 +3233,18 @@ watch(
 
   .document-page {
     padding-top: 0;
+  }
+
+  .output-category-panel {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .output-category-panel :deep(.t-select) {
+    flex-basis: auto;
+    width: 100%;
   }
 
   .memory-note-panel {

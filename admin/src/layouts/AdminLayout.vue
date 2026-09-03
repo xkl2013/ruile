@@ -22,7 +22,6 @@
             <t-icon :name="item.icon" />
             <span>
               <strong>{{ item.label }}</strong>
-              <small>{{ item.description }}</small>
             </span>
           </RouterLink>
         </section>
@@ -62,6 +61,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import AdminTenantSelect from '@admin/components/AdminTenantSelect.vue'
 import { ADMIN_NAV_GROUPS, type AdminNavItem } from '@admin/config/navigation'
+import { openMainAppPath } from '@admin/utils/navigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -100,7 +100,7 @@ const visibleGroups = computed(() => (
 ))
 
 function openWorkspace() {
-  window.location.href = '/platform/knowledge-bases'
+  openMainAppPath('/platform/knowledge-bases')
 }
 
 function handleUserMenu(data: { value: unknown }) {

@@ -373,6 +373,7 @@
                             model-type="VLLM"
                             :selected-model-id="formData.multimodalConfig.vllmModelId"
                             :all-models="allModels"
+                            :show-add-model="showAdminModelActions"
                             @update:selected-model-id="handleMultimodalVLLMChange"
                             @add-model="handleAddVLLMModel"
                             :placeholder="$t('knowledgeEditor.advanced.multimodal.vllmPlaceholder')"
@@ -433,6 +434,7 @@
                             model-type="OCR"
                             :selected-model-id="formData.ocrConfig.modelId"
                             :all-models="allModels"
+                            :show-add-model="showAdminModelActions"
                             @update:selected-model-id="(val: string) => { if (formData) formData.ocrConfig.modelId = val }"
                             @add-model="handleAddOCRModel"
                             :placeholder="$t('knowledgeEditor.ocr.modelPlaceholder')"
@@ -477,6 +479,7 @@
                             model-type="ASR"
                             :selected-model-id="formData.asrConfig.modelId"
                             :all-models="allModels"
+                            :show-add-model="showAdminModelActions"
                             @update:selected-model-id="(val: string) => { if (formData) formData.asrConfig.modelId = val }"
                             @add-model="handleAddASRModel"
                             :placeholder="$t('knowledgeEditor.asr.modelPlaceholder')"
@@ -575,6 +578,7 @@ import GraphSettings from './settings/GraphSettings.vue'
 import KBShareSettings from './settings/KBShareSettings.vue'
 import DataSourceSettings from './settings/DataSourceSettings.vue'
 import { useI18n } from 'vue-i18n'
+import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const uiStore = useUIStore()
 const authStore = useAuthStore()
@@ -671,6 +675,9 @@ const KB_ICON_IMAGE_SIZE = 96
 
 const isSimpleCreateMode = computed(() => props.mode === 'create')
 const showConfigurationFields = computed(() => !isSimpleCreateMode.value)
+const showAdminModelActions = computed(() =>
+  typeof window !== 'undefined' && window.location.pathname.startsWith('/admin/'),
+)
 const isUploadedKnowledgeBaseIcon = computed(() =>
   (formData.value?.icon || '').trim().startsWith('image:'),
 )
@@ -1055,7 +1062,7 @@ const handleMultimodalVLLMChange = (modelId: string) => {
 }
 
 const handleAddVLLMModel = () => {
-  uiStore.openSettings('models', 'vllm')
+  navigateToAdmin({ path: '/models', query: { type: 'vllm' } })
 }
 
 const handleOCRToggle = () => {
@@ -1065,15 +1072,11 @@ const handleOCRToggle = () => {
 }
 
 const handleAddOCRModel = () => {
-  uiStore.openSettings('models', 'ocr')
+  navigateToAdmin({ path: '/models', query: { type: 'ocr' } })
 }
 
 const handleAddASRModel = () => {
-  uiStore.openSettings('models', 'asr')
-}
-
-const handleAddWikiModel = () => {
-  uiStore.openSettings('models', 'knowledgeqa')
+  navigateToAdmin({ path: '/models', query: { type: 'asr' } })
 }
 
 const handleStorageProviderUpdate = (value: string) => {

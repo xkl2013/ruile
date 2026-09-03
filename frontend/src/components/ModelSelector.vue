@@ -25,10 +25,9 @@
           <t-tag v-if="model.is_default" size="small" theme="success">{{ $t('model.defaultTag') }}</t-tag>
         </div>
       </t-option>
-      
-      <!-- 添加模型选项（在底部） -->
+
       <t-option
-        v-if="!disabled"
+        v-if="showAddModel && !disabled"
         value="__add_model__"
         class="add-model-option"
       >
@@ -53,6 +52,7 @@ interface Props {
   disabled?: boolean
   placeholder?: string
   status?: 'default' | 'success' | 'warning' | 'error'
+  showAddModel?: boolean
   // 可选：外部传入的所有模型列表，如果提供则不调用API
   allModels?: ModelConfig[]
 }
@@ -61,6 +61,7 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   placeholder: '',
   status: 'default',
+  showAddModel: false,
 })
 
 const emit = defineEmits<{
@@ -120,7 +121,6 @@ const loadModels = async () => {
 
 // 处理模型选择变化
 const handleModelChange = (value: string) => {
-  // 如果选择的是添加模型选项，触发添加事件而不更新选中值
   if (value === '__add_model__') {
     emit('add-model')
     return
@@ -155,7 +155,7 @@ onMounted(() => {
     font-size: 14px;
     color: var(--td-brand-color);
   }
-  
+
   .add-icon {
     font-size: 14px;
     color: var(--td-brand-color);
@@ -179,7 +179,7 @@ onMounted(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
+
   &.add {
     .model-name {
       color: var(--td-brand-color);

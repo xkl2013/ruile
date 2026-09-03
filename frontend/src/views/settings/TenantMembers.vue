@@ -97,7 +97,7 @@
                 <template #icon><t-icon name="user-add" /></template>
               </t-button>
             </t-tooltip>
-            <t-popup v-if="canManage" v-model="invitePopupVisible" trigger="click" placement="bottom-end"
+            <t-popup v-if="canUseInvitations" v-model="invitePopupVisible" trigger="click" placement="bottom-end"
               destroy-on-close overlay-class-name="member-invite-popup-overlay">
               <t-button theme="default" variant="outline" shape="square" size="small" class="members-list-add-btn"
                 :title="$t('tenantMember.add.button')" :aria-label="$t('tenantMember.add.button')">
@@ -161,7 +161,7 @@
             <!-- Share-link generator. Sits next to the invite-by-email
                  popup so the two flows live side-by-side: "I know who"
                  (email input) vs "I don't" (one link, group chat). -->
-            <t-popup v-if="canManage" v-model="shareLinkPopupVisible" trigger="click" placement="bottom-end"
+            <t-popup v-if="canUseInvitations" v-model="shareLinkPopupVisible" trigger="click" placement="bottom-end"
               destroy-on-close overlay-class-name="member-invite-popup-overlay">
               <t-button theme="default" variant="outline" shape="square" size="small" class="members-list-add-btn"
                 :title="$t('tenantInvitation.shareLink.button')"
@@ -613,6 +613,11 @@ import {
 
 const { t, tm, locale } = useI18n()
 const authStore = useAuthStore()
+const props = withDefaults(defineProps<{
+  disableInvitations?: boolean
+}>(), {
+  disableInvitations: false,
+})
 
 /** 悬停层限制在视口内，内容由内部滚动 */
 const permissionsPopupInnerStyle = {
@@ -729,6 +734,7 @@ const canManage = computed(
     currentRole.value === 'admin' ||
     authStore.canAccessAllTenants === true,
 )
+const canUseInvitations = computed(() => canManage.value && !props.disableInvitations)
 const canManageOwnerRoles = computed(
   () =>
     currentRole.value === 'owner' ||

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ var (
 	ErrOrganizeTitleRequired     = errors.New("title is required")
 	ErrOrganizeInvalidMemoryKind = errors.New("invalid memory kind")
 	ErrOrganizeInvalidStatus     = errors.New("invalid output status")
+	ErrOrganizeInvalidCategory   = errors.New("invalid discover category")
 	ErrOrganizeInvalidStage      = errors.New("invalid sprout stage")
 	ErrOrganizeMemoryRequired    = errors.New("memory_id is required")
 	ErrOrganizeInvalidMemoryRefs = errors.New("memory_ids contains unknown memories")
@@ -340,6 +342,10 @@ func (s *organizeService) buildOutput(
 	if !types.IsValidOrganizeOutputStatus(status) {
 		return nil, nil, ErrOrganizeInvalidStatus
 	}
+	metadata, err := normalizeDiscoverMetadata(input.Metadata)
+	if err != nil {
+		return nil, nil, err
+	}
 	memoryIDs, err := s.validateMemoryIDs(ctx, tenantID, userID, input.MemoryIDs)
 	if err != nil {
 		return nil, nil, err
@@ -354,7 +360,7 @@ func (s *organizeService) buildOutput(
 		SourceSummary: trimMax(input.SourceSummary, organizeMaxShortText),
 		Status:        status,
 		Icon:          trimMax(input.Icon, 64),
-		Metadata:      normalizeJSONMap(input.Metadata),
+		Metadata:      metadata,
 	}, memoryIDs, nil
 }
 
@@ -483,6 +489,26 @@ func normalizeJSONMap(m types.JSONMap) types.JSONMap {
 		out[common.CleanInvalidUTF8(key)] = normalizeJSONValue(value)
 	}
 	return out
+}
+
+func normalizeDiscoverMetadata(metadata types.JSONMap) (types.JSONMap, error) {
+	normalized := normalizeJSONMap(metadata)
+	if normalized == nil {
+		return types.JSONMap{}, nil
+	}
+	raw, ok := normalized["discover_category"]
+	if !ok || raw == nil || strings.TrimSpace(fmt.Sprint(raw)) == "" {
+		return normalized, nil
+	}
+	category := strings.TrimSpace(fmt.Sprint(raw))
+	for _, candidate := range types.OrganizeDiscoverCategories() {
+		if category == candidate.Key || category == candidate.Label {
+			normalized["discover_category"] = candidate.Key
+			normalized["discover_category_label"] = candidate.Label
+			return normalized, nil
+		}
+	}
+	return nil, ErrOrganizeInvalidCategory
 }
 
 func normalizeJSONValue(value any) any {

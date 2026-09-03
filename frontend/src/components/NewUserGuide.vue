@@ -1,6 +1,6 @@
 <template>
   <SpotlightGuide v-model:active="active" :steps="steps" step-i18n-prefix="newUserGuide.steps"
-    labels-prefix="newUserGuide" @finish="onFinish" @step-change="onStepChange" />
+    labels-prefix="newUserGuide" @finish="onFinish" />
 </template>
 
 <script setup lang="ts">
@@ -11,7 +11,6 @@ import { useUIStore } from '@/stores/ui'
 import type { SpotlightGuideStep } from '@/types/spotlightGuide'
 
 const uiStore = useUIStore()
-let settingsOpenedByGuide = false
 
 const steps = computed<SpotlightGuideStep[]>(() => [
   { key: 'welcome' },
@@ -19,13 +18,6 @@ const steps = computed<SpotlightGuideStep[]>(() => [
     key: 'knowledge',
     target: '[data-guide="nav-knowledge-bases"]',
     placement: 'right',
-    before: () => uiStore.expandSidebar(),
-  },
-  {
-    key: 'agents',
-    target: '[data-guide="nav-agents"]',
-    placement: 'right',
-    optional: true,
     before: () => uiStore.expandSidebar(),
   },
   {
@@ -40,36 +32,13 @@ const steps = computed<SpotlightGuideStep[]>(() => [
     placement: 'right',
     before: () => uiStore.expandSidebar(),
   },
-  {
-    key: 'models',
-    target: '[data-guide="settings-add-model"], [data-guide="settings-models"]',
-    placement: 'left',
-    before: () => {
-      uiStore.openSettings('models')
-      settingsOpenedByGuide = true
-    },
-  },
   { key: 'done' },
 ])
 
 const active = ref(false)
 
-const closeGuideSettings = () => {
-  if (settingsOpenedByGuide) {
-    uiStore.closeSettings()
-    settingsOpenedByGuide = false
-  }
-}
-
 const onFinish = () => {
   localStorage.setItem(GLOBAL_USER_GUIDE_KEY, '1')
-  closeGuideSettings()
-}
-
-const onStepChange = ({ toKey }: { toKey: string }) => {
-  if (toKey !== 'models') {
-    closeGuideSettings()
-  }
 }
 
 const open = () => {
@@ -94,6 +63,5 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener(OPEN_NEW_USER_GUIDE_EVENT, handleOpenEvent)
-  closeGuideSettings()
 })
 </script>

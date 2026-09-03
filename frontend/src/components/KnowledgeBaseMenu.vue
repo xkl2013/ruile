@@ -13,12 +13,6 @@
           </button>
         </t-tooltip>
 
-        <t-tooltip v-if="canCreateKnowledgeBase" :content="t('knowledgeList.create')" placement="bottom">
-          <button type="button" class="kb-menu-action-btn kb-menu-action-btn--create"
-            :aria-label="t('knowledgeList.create')" @click.stop="openCreateKnowledgeBase('document')">
-            <t-icon name="add" size="16px" />
-          </button>
-        </t-tooltip>
       </div>
     </div>
 
@@ -31,14 +25,6 @@
         <span class="kb-menu-item-name">{{ kb.name }}</span>
         <span class="kb-menu-item-trailing" @click.stop>
           <span v-if="kb.id === activeKbId" class="kb-menu-item-dot" />
-          <t-tooltip v-if="shouldShowKnowledgeBaseMoveAction(kb.id)" :content="t('menu.moveKnowledgeBaseUp')" placement="right">
-            <button type="button" class="kb-menu-item-action" :aria-label="t('menu.moveKnowledgeBaseUp')"
-              :disabled="!canMoveKnowledgeBaseUp(kb.id) || reorderingKnowledgeBaseId === kb.id"
-              @click.stop="moveKnowledgeBaseUp(kb.id)">
-              <t-icon :name="reorderingKnowledgeBaseId === kb.id ? 'loading' : 'chevron-up'" size="14px"
-                :class="{ 'kb-menu-item-action-icon--loading': reorderingKnowledgeBaseId === kb.id }" />
-            </button>
-          </t-tooltip>
         </span>
       </div>
 
@@ -57,13 +43,10 @@ import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
-import { useUIStore } from '@/stores/ui'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useOrganizationStore } from '@/stores/organization'
 import { mergeAllScopeKnowledgeBases } from '@/views/knowledge/kbListMerge'
-import { reorderKnowledgeBases } from '@/api/knowledge-base'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 
 type SidebarKnowledgeBase = {
@@ -87,7 +70,6 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-const uiStore = useUIStore()
 const chatResources = useChatResourcesStore()
 const orgStore = useOrganizationStore()
 const { rawKnowledgeBases } = storeToRefs(chatResources)
@@ -120,12 +102,6 @@ const activeKbId = computed(() => {
   if (Array.isArray(kbId)) return kbId[0] || ''
   return ''
 })
-
-const canCreateKnowledgeBase = computed(() => authStore.hasRole('admin'))
-const canSortKnowledgeBases = computed(() =>
-  authStore.hasRole('admin') || authStore.isSystemAdmin || authStore.canAccessAllTenants,
-)
-const reorderingKnowledgeBaseId = ref('')
 
 const canReadTenantKnowledgeBase = (kb: SidebarKnowledgeBase): boolean => {
   if (authStore.hasRole('admin')) return true
@@ -179,19 +155,6 @@ const knowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
     }))
 })
 
-const sortableKnowledgeBaseIds = computed(() => tenantKnowledgeBases.value.map((kb) => kb.id))
-
-const shouldShowKnowledgeBaseMoveAction = (kbId: string) => {
-  return sortableKnowledgeBaseIds.value.includes(kbId)
-}
-
-const canMoveKnowledgeBaseUp = (kbId: string) => {
-  if (!canSortKnowledgeBases.value || reorderingKnowledgeBaseId.value) return false
-  return sortableKnowledgeBaseIds.value.indexOf(kbId) > 0
-}
-
-const createHostRoutes = new Set(['knowledgeBaseList', 'knowledgeBaseDetail', 'kbCreatChat', 'globalCreatChat', 'chat', 'home'])
-
 const goToKnowledgeBaseList = async () => {
   if (route.name === 'knowledgeBaseList') return
   await router.push('/platform/knowledge-bases')
@@ -211,36 +174,6 @@ const openKnowledgeBase = async (kbId: string) => {
   if (!kbId) return
   if (activeKbId.value === kbId && currentRouteName.value === 'knowledgeBaseDetail') return
   await router.push(`/platform/knowledge-bases/${kbId}`)
-}
-
-const openCreateKnowledgeBase = async (type: 'document' | 'faq' = 'document') => {
-  if (!canCreateKnowledgeBase.value) return
-  if (!createHostRoutes.has(currentRouteName.value)) {
-    await router.push('/platform/knowledge-bases')
-  }
-  uiStore.openCreateKB(type)
-}
-
-const moveKnowledgeBaseUp = async (kbId: string) => {
-  if (!canMoveKnowledgeBaseUp(kbId)) return
-  const orderedIds = [...sortableKnowledgeBaseIds.value]
-  const index = orderedIds.indexOf(kbId)
-  if (index <= 0) return
-  const previousId = orderedIds[index - 1]
-  orderedIds[index - 1] = orderedIds[index]
-  orderedIds[index] = previousId
-
-  reorderingKnowledgeBaseId.value = kbId
-  try {
-    await reorderKnowledgeBases(orderedIds)
-    await chatResources.ensureKnowledgeBases(true)
-    MessagePlugin.success(t('menu.reorderKnowledgeBaseSuccess'))
-  } catch (error) {
-    console.error('[KnowledgeBaseMenu] reorder failed:', error)
-    MessagePlugin.error(t('menu.reorderKnowledgeBaseFailed'))
-  } finally {
-    reorderingKnowledgeBaseId.value = ''
-  }
 }
 
 const refreshKnowledgeBases = async () => {
@@ -340,10 +273,6 @@ onMounted(() => {
   color: var(--td-text-color-secondary);
 }
 
-.kb-menu-action-btn--create {
-  color: var(--td-text-color-primary);
-}
-
 .kb-menu-list {
   display: flex;
   flex-direction: column;
@@ -411,47 +340,6 @@ onMounted(() => {
   gap: 4px;
   flex-shrink: 0;
   min-width: 12px;
-}
-
-.kb-menu-item-action {
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 6px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  transition: opacity 0.18s ease, background-color 0.18s ease, color 0.18s ease;
-
-  &:hover:not(:disabled) {
-    background: var(--td-bg-color-container-hover);
-    color: var(--td-text-color-primary);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    color: var(--td-text-color-disabled);
-  }
-}
-
-.kb-menu-item:hover .kb-menu-item-action,
-.kb-menu-item:focus-within .kb-menu-item-action {
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-primary);
-}
-
-.kb-menu-item-action-icon--loading {
-  animation: kb-menu-spin 0.9s linear infinite;
-}
-
-@keyframes kb-menu-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .kb-menu-loading,

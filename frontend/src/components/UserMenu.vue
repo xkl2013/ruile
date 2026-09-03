@@ -70,57 +70,9 @@
             :title="$t('tenant.switcher.menuLabel')" />
         </div>
         <div class="menu-divider"></div>
-        <!-- QuickNav 入口与 Settings 的最低角色对齐：members/models/agents/websearch/mcp/api
-             分别对应 admin/admin/admin/admin/admin/owner（详情见 Settings.vue 的
-             SECTION_MIN_ROLE）。低角色用户看到这些入口点进去也只能看到
-             role-denied 兜底页，索性藏起来。 -->
-        <div v-if="canSeeQuickNav('members')" class="menu-item" @click="handleQuickNav('members')">
-          <t-icon name="usergroup" class="menu-icon" />
-          <span>{{ $t('tenantMember.title') }}</span>
-        </div>
-        <div v-if="canSeeQuickNav('models')" class="menu-item" @click="handleQuickNav('models')">
-          <t-icon name="control-platform" class="menu-icon" />
-          <span>{{ $t('settings.modelManagement') }}</span>
-        </div>
-        <div v-if="canSeeQuickNav('agents')" class="menu-item" @click="handleQuickNav('agents')">
-          <t-icon name="user-circle" class="menu-icon" />
-          <span>{{ $t('agent.title') }}</span>
-        </div>
-        <div v-if="canSeeQuickNav('websearch')" class="menu-item" @click="handleQuickNav('websearch')">
-          <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg"
-            class="menu-icon svg-icon">
-            <circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.2" fill="none" />
-            <path d="M 9 2 A 3.5 7 0 0 0 9 16" stroke="currentColor" stroke-width="1.2" fill="none" />
-            <path d="M 9 2 A 3.5 7 0 0 1 9 16" stroke="currentColor" stroke-width="1.2" fill="none" />
-            <line x1="2.94" y1="5.5" x2="15.06" y2="5.5" stroke="currentColor" stroke-width="1.2"
-              stroke-linecap="round" />
-            <line x1="2.94" y1="12.5" x2="15.06" y2="12.5" stroke="currentColor" stroke-width="1.2"
-              stroke-linecap="round" />
-          </svg>
-          <span>{{ $t('settings.webSearchConfig') }}</span>
-        </div>
-        <div v-if="canSeeQuickNav('mcp')" class="menu-item" @click="handleQuickNav('mcp')">
-          <t-icon name="tools" class="menu-icon" />
-          <span>{{ $t('settings.mcpService') }}</span>
-        </div>
-        <div v-if="canSeeQuickNav('integration-api')" class="menu-item" @click="handleQuickNav('integration-api')">
-          <t-icon name="secured" class="menu-icon" />
-          <span>{{ $t('integrations.tabs.api') }}</span>
-        </div>
-        <div class="menu-divider"></div>
         <div class="menu-item" @click="handleSettings">
           <t-icon name="setting" class="menu-icon" />
           <span>{{ $t('general.allSettings') }}</span>
-        </div>
-        <!--
-          System administration entry — visible only to users with the
-          platform-wide is_system_admin flag. Hidden for everyone else,
-          including tenant Owners. Real authorisation lives server-side
-          (RequireSystemAdmin middleware); this is UI gating only.
-        -->
-        <div v-if="authStore.isSystemAdmin" class="menu-item" @click="handleSystemAdmin">
-          <t-icon name="server" class="menu-icon" />
-          <span>{{ $t('settings.system') }}</span>
         </div>
         <template v-if="!authStore.isLiteMode">
           <div class="menu-divider"></div>
@@ -238,21 +190,6 @@ const showTenantIdentityLine = computed(() => {
   return (authStore.memberships ?? []).length > 1
 })
 
-// 与 Settings.vue 的 SECTION_MIN_ROLE 同步；这里只挂 quickNav 直接跳转的
-// 那 5 项。改这张表前请同步 Settings.vue 的对照注释。
-const QUICKNAV_MIN_ROLE: Record<string, 'viewer' | 'contributor' | 'admin' | 'owner'> = {
-  members: 'admin',
-  models: 'admin',
-  agents: 'admin',
-  websearch: 'admin',
-  mcp: 'admin',
-  'integration-api': 'owner',
-}
-const canSeeQuickNav = (key: string): boolean => {
-  if (authStore.canAccessAllTenants) return true
-  return authStore.hasRole(QUICKNAV_MIN_ROLE[key] ?? 'viewer')
-}
-
 const menuRef = ref<HTMLElement>()
 const tenantMenuItemRef = ref<HTMLElement>()
 const menuVisible = ref(false)
@@ -281,40 +218,11 @@ const toggleMenu = () => {
   menuVisible.value = !menuVisible.value
 }
 
-// 快捷导航到设置的特定部分
-const handleQuickNav = (section: string) => {
-  menuVisible.value = false
-  uiStore.openSettings()
-  if (section === 'integration-api') {
-    router.push({ path: '/platform/settings', query: { section: 'integrations', tab: 'api' } })
-  } else {
-    router.push('/platform/settings')
-  }
-
-  // 延迟一下，确保设置页面已经渲染
-  setTimeout(() => {
-    // 触发设置页面切换到对应section
-    const event = new CustomEvent('settings-nav', { detail: { section } })
-    window.dispatchEvent(event)
-  }, 100)
-}
-
 // 打开设置
 const handleSettings = () => {
   menuVisible.value = false
   uiStore.openSettings()
   router.push('/platform/settings')
-}
-
-// Open the platform administration area inside the standard Settings
-// modal. The admin roster lives at the top of the global-settings
-// pane (as a tag-input row) so we route straight there; this is the
-// only system-admin section now. Gated by SYSTEM_ADMIN_SECTIONS in
-// Settings.vue.
-const handleSystemAdmin = () => {
-  menuVisible.value = false
-  uiStore.openSettings('system-global')
-  router.push({ path: '/platform/settings', query: { section: 'system-global' } })
 }
 
 // Hover-driven submenu controls. A small hide delay tolerates the pointer

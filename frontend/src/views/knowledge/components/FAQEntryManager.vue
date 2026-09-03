@@ -47,16 +47,6 @@
                 v-if="kbInfo && !authStore.isLiteMode"
                 :kb-info="kbInfo"
               />
-              <t-tooltip v-if="canRenameKnowledgeBase" :content="$t('knowledgeBase.rename')" placement="top">
-                <button type="button" class="kb-settings-button" @click="openRenameDialog">
-                  <t-icon name="edit-1" size="16px" />
-                </button>
-              </t-tooltip>
-              <t-tooltip v-if="canEditKnowledgeBaseSettings" :content="$t('knowledgeBase.settings')" placement="top">
-                <button type="button" class="kb-settings-button" @click="handleOpenKBSettings">
-                  <t-icon name="setting" size="16px" />
-                </button>
-              </t-tooltip>
             </div>
           </div>
           <p class="faq-subtitle">{{ $t('knowledgeEditor.faq.subtitle') }}</p>
@@ -921,38 +911,6 @@
       </div>
     </t-drawer>
 
-    <t-dialog
-      v-model:visible="renameDialogVisible"
-      :header="$t('knowledgeBase.rename')"
-      width="420px"
-      dialog-class-name="kb-rename-dialog"
-      :confirm-btn="{ content: $t('common.confirm'), theme: 'primary', loading: renameSaving }"
-      :cancel-btn="{ content: $t('common.cancel') }"
-      @confirm="handleRenameConfirm"
-      @cancel="closeRenameDialog"
-      @close="closeRenameDialog"
-    >
-      <t-form class="kb-rename-form" label-align="top" @submit.prevent>
-        <t-form-item :label="$t('knowledgeBase.name')">
-          <t-input
-            v-model="renameForm.name"
-            :placeholder="$t('knowledgeEditor.basic.namePlaceholder')"
-            :maxlength="50"
-            autofocus
-            @enter="handleRenameConfirm"
-          />
-        </t-form-item>
-        <t-form-item :label="$t('knowledgeBase.description')">
-          <t-textarea
-            v-model="renameForm.description"
-            :placeholder="$t('knowledgeEditor.basic.descriptionPlaceholder')"
-            :maxlength="200"
-            :autosize="{ minRows: 3, maxRows: 5 }"
-          />
-        </t-form-item>
-      </t-form>
-    </t-dialog>
-
   </div>
 </template>
 
@@ -982,7 +940,6 @@ import {
   deleteKnowledgeBaseTag,
   getKnowledgeBaseById,
   listKnowledgeBases,
-  updateKnowledgeBase,
   getFAQImportProgress,
   updateFAQImportResultDisplayStatus,
 } from '@/api/knowledge-base'
@@ -992,7 +949,6 @@ import FAQTagTooltip from '@/components/FAQTagTooltip.vue'
 import KBInfoPopover from '@/components/KBInfoPopover.vue'
 import KBSwitcherDropdown from '@/components/KBSwitcherDropdown.vue'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
-import { useUIStore } from '@/stores/ui'
 
 interface FAQEntry {
   id: number
@@ -1034,7 +990,6 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const router = useRouter()
-const uiStore = useUIStore()
 const authStore = useAuthStore()
 const orgStore = useOrganizationStore()
 const chatResources = useChatResourcesStore()
@@ -1080,64 +1035,6 @@ const canEdit = computed(() => {
   if (authStore.hasRole('admin')) return true
   return orgStore.canEditKB(props.kbId, false)
 })
-
-const canRenameKnowledgeBase = computed(() => canEdit.value)
-const renameDialogVisible = ref(false)
-const renameSaving = ref(false)
-const renameForm = reactive({
-  name: '',
-  description: '',
-})
-
-const openRenameDialog = () => {
-  if (!canRenameKnowledgeBase.value || !kbInfo.value) return
-  renameForm.name = String(kbInfo.value.name || '')
-  renameForm.description = String(kbInfo.value.description || '')
-  renameDialogVisible.value = true
-}
-
-const closeRenameDialog = () => {
-  renameDialogVisible.value = false
-}
-
-const handleRenameConfirm = async () => {
-  if (!props.kbId || renameSaving.value) return
-  const name = renameForm.name.trim()
-  if (!name) {
-    MessagePlugin.warning(t('knowledgeEditor.messages.nameRequired'))
-    return
-  }
-
-  renameSaving.value = true
-  try {
-    const result: any = await updateKnowledgeBase(props.kbId, {
-      name,
-      description: renameForm.description,
-    })
-    const updatedKb = result?.data
-    if (updatedKb) {
-      kbInfo.value = updatedKb
-    } else if (kbInfo.value) {
-      kbInfo.value = {
-        ...kbInfo.value,
-        name,
-        description: renameForm.description,
-      }
-    }
-    knowledgeList.value = knowledgeList.value.map((kb) =>
-      kb.id === props.kbId ? { ...kb, name } : kb,
-    )
-    chatResources.invalidateKnowledgeBaseDetail(props.kbId)
-    chatResources.invalidate('knowledgeBases')
-    void chatResources.ensureKnowledgeBases(true)
-    MessagePlugin.success(t('knowledgeEditor.messages.updateSuccess'))
-    closeRenameDialog()
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || error?.error?.message || t('common.operationFailed'))
-  } finally {
-    renameSaving.value = false
-  }
-}
 
 // Can manage (delete, settings, share): same isViaShare-first rule. For
 // shared KBs only an 'admin' share grant qualifies — editor/viewer (and
@@ -1623,15 +1520,6 @@ const handleNavigateToKbList = () => {
 const handleNavigateToCurrentKB = () => {
   if (!props.kbId) return
   router.push(`/platform/knowledge-bases/${props.kbId}`)
-}
-
-const handleOpenKBSettings = () => {
-  if (!props.kbId) {
-    MessagePlugin.warning(t('knowledgeEditor.messages.missingId'))
-    return
-  }
-  if (!canEditKnowledgeBaseSettings.value) return
-  uiStore.openKBSettings(props.kbId)
 }
 
 const handleKnowledgeDropdownSelect = (data: { value: string }) => {
@@ -3062,31 +2950,6 @@ watch(() => entries.value.map(e => ({
 
 <style lang="less">
 /* 下拉菜单样式已统一至 @/assets/dropdown-menu.less */
-.kb-rename-dialog {
-  max-width: calc(100vw - 32px);
-  overflow: hidden;
-}
-
-.kb-rename-dialog .t-dialog__body {
-  overflow-x: hidden;
-}
-
-.kb-rename-dialog .kb-rename-form,
-.kb-rename-dialog .t-form,
-.kb-rename-dialog .t-form__item,
-.kb-rename-dialog .t-form__controls,
-.kb-rename-dialog .t-form__controls-content,
-.kb-rename-dialog .t-input,
-.kb-rename-dialog .t-textarea,
-.kb-rename-dialog .t-textarea__inner {
-  max-width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.kb-rename-dialog .t-textarea__inner {
-  overflow-x: hidden;
-}
 </style>
 <style scoped lang="less">
 .faq-manager {
@@ -3971,47 +3834,6 @@ watch(() => entries.value.map(e => ({
   }
 }
 
-
-.kb-settings-button {
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 50%;
-  background: var(--td-bg-color-secondarycontainer);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  padding: 0;
-
-  &:hover:not(:disabled) {
-    background: var(--td-success-color-light);
-    color: var(--td-brand-color);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.4;
-  }
-
-  :deep(.t-icon) {
-    font-size: 18px;
-  }
-}
-
-.kb-rename-form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.kb-rename-label {
-  color: var(--td-text-color-primary);
-  font-size: 14px;
-  font-weight: 500;
-}
 
 // 滚动容器
 .faq-scroll-container {

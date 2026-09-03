@@ -250,6 +250,7 @@ import KnowledgeBaseMenu from '@/components/KnowledgeBaseMenu.vue';
 import OrganizeMenu from '@/components/OrganizeMenu.vue';
 import { useI18n } from 'vue-i18n';
 import { getSystemInfo } from '@/api/system';
+import { navigateToAdmin } from '@/utils/adminNavigation';
 
 const chatResources = useChatResourcesStore();
 // Platform logos reused from IMChannelsOverviewPanel — keeps the session list
@@ -426,13 +427,13 @@ const getIconActiveState = (itemPath: string) => {
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) =>
-        item.path === 'knowledge-bases' || item.path === 'agents' || item.path === 'organizations' || item.path === 'creatChat' || item.path === 'messages'
+        item.path === 'knowledge-bases' || item.path === 'organizations' || item.path === 'creatChat' || item.path === 'messages'
     );
 });
 
 const bottomMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => {
-        if (item.path === 'knowledge-bases' || item.path === 'agents' || item.path === 'organizations' || item.path === 'creatChat') {
+        if (item.path === 'knowledge-bases' || item.path === 'organizations' || item.path === 'creatChat') {
             return false;
         }
         return true;
@@ -1046,8 +1047,7 @@ const handleMenuClick = async (path: string) => {
             router.push('/platform/knowledge-bases')
         }
     } else if (path === 'agents') {
-        uiStore.openSettings('agents')
-        router.push({ path: '/platform/settings', query: { section: 'agents' } })
+        navigateToAdmin('/agents')
     } else if (path === 'organizations') {
         // 组织菜单项：跳转到组织列表
         router.push('/platform/organizations')
