@@ -392,6 +392,177 @@ class _RuileApiClient {
     throw const FormatException('知识库响应格式无效');
   }
 
+  Future<_CustomerSpaceListResult> fetchCustomerSpaces({
+    String keyword = '',
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final queryParameters = <String, String>{
+      'page': '${page < 1 ? 1 : page}',
+      'page_size': '${pageSize < 1 ? 1 : pageSize}',
+    };
+    final normalizedKeyword = keyword.trim();
+    if (normalizedKeyword.isNotEmpty) {
+      queryParameters['keyword'] = normalizedKeyword;
+    }
+    final query = Uri(queryParameters: queryParameters).query;
+    final payload = await _getJson('/api/v1/service/customer-spaces?$query');
+    final data = _unwrapData(payload);
+    final dataMap = data is Map<String, dynamic>
+        ? data
+        : data is Map
+            ? data.map((key, value) => MapEntry(key.toString(), value))
+            : const <String, dynamic>{};
+    final items = [
+      for (final item in _extractList(payload))
+        if (item is Map<String, dynamic>)
+          _CustomerSpace.fromApi(item)
+        else if (item is Map)
+          _CustomerSpace.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+    return _CustomerSpaceListResult(
+      items: items,
+      total: _readInt(dataMap, const ['total']) ?? items.length,
+      page: _readInt(dataMap, const ['page']) ?? page,
+      pageSize: _readInt(dataMap, const ['page_size']) ?? pageSize,
+    );
+  }
+
+  Future<_CustomerSpaceDetail> fetchCustomerSpace(
+    String customerSpaceId,
+  ) async {
+    final id = customerSpaceId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('客户空间ID不能为空');
+    }
+    final encodedId = Uri.encodeComponent(id);
+    final payload =
+        await _getJson('/api/v1/service/customer-spaces/$encodedId');
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _CustomerSpaceDetail.fromApi(data);
+    }
+    if (data is Map) {
+      return _CustomerSpaceDetail.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('客户空间响应格式无效');
+  }
+
+  Future<_ServiceBootstrapResult> fetchServiceBootstrap({
+    bool refresh = false,
+  }) async {
+    final payload = refresh
+        ? await _postJson('/api/v1/service/refresh', const {})
+        : await _getJson('/api/v1/service/bootstrap');
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _ServiceBootstrapResult.fromApi(data);
+    }
+    if (data is Map) {
+      return _ServiceBootstrapResult.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('服务提醒响应格式无效');
+  }
+
+  Future<List<_ServiceSkillInfo>> fetchSkills() async {
+    final payload = await _getJson('/api/v1/skills');
+    return [
+      for (final item in _extractList(payload))
+        if (item is Map<String, dynamic>)
+          _ServiceSkillInfo.fromApi(item)
+        else if (item is Map)
+          _ServiceSkillInfo.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ].where((skill) => skill.name.isNotEmpty).toList();
+  }
+
+  Future<List<_WorkProfileAgentSetting>> replaceServiceAgentSettings(
+    String profileId,
+    List<_WorkProfileAgentSetting> settings,
+  ) async {
+    final id = profileId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('分身ID不能为空');
+    }
+    final payload = await _putJson(
+      '/api/v1/service/work-profiles/${Uri.encodeComponent(id)}/agent-settings',
+      {
+        'settings': settings.map((setting) => setting.toApi()).toList(),
+      },
+    );
+    return [
+      for (final item in _extractList(payload))
+        if (item is Map<String, dynamic>)
+          _WorkProfileAgentSetting.fromApi(item)
+        else if (item is Map)
+          _WorkProfileAgentSetting.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  Future<_ServiceReminder> fetchServiceReminder(String reminderId) async {
+    final id = reminderId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('服务提醒ID不能为空');
+    }
+    final payload = await _getJson(
+      '/api/v1/service/reminders/${Uri.encodeComponent(id)}',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _ServiceReminder.fromApi(data);
+    }
+    if (data is Map) {
+      return _ServiceReminder.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('服务提醒响应格式无效');
+  }
+
+  Future<_ServiceReminder> updateServiceReminderStatus(
+    String reminderId,
+    String status,
+  ) async {
+    final id = reminderId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('服务提醒ID不能为空');
+    }
+    final payload = await _putJson(
+      '/api/v1/service/reminders/${Uri.encodeComponent(id)}/status',
+      {'status': status},
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _ServiceReminder.fromApi(data);
+    }
+    if (data is Map) {
+      return _ServiceReminder.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('服务提醒状态响应格式无效');
+  }
+
+  Future<void> createServiceActionDraft(String reminderId) async {
+    final id = reminderId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('服务提醒ID不能为空');
+    }
+    await _postJson(
+      '/api/v1/service/reminders/${Uri.encodeComponent(id)}/action-drafts',
+      const {},
+    );
+  }
+
   Future<String> createOrganizeMemory({
     required String kind,
     required String title,
@@ -718,6 +889,41 @@ class _RuileApiClient {
   Future<Object?> _postJson(String path, Map<String, Object?> body) async {
     final request = await _httpClient
         .postUrl(_resolve(path))
+        .timeout(const Duration(seconds: 8));
+    _applyCommonHeaders(request);
+    request.headers.contentType = ContentType.json;
+    request.write(jsonEncode(body));
+
+    final response = await request.close().timeout(const Duration(seconds: 12));
+    final responseBody = await response.transform(utf8.decoder).join();
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String message = responseBody;
+      try {
+        final decoded = jsonDecode(responseBody);
+        if (decoded is Map<String, dynamic>) {
+          message = _readString(
+            decoded,
+            const ['message', 'error'],
+            fallback: responseBody,
+          );
+        }
+      } catch (_) {
+        // Keep raw response as the error detail.
+      }
+      _throwApiException(
+        response.statusCode,
+        message,
+        _resolve(path),
+      );
+    }
+    if (responseBody.trim().isEmpty) return null;
+    return jsonDecode(responseBody);
+  }
+
+  Future<Object?> _putJson(String path, Map<String, Object?> body) async {
+    final request = await _httpClient
+        .putUrl(_resolve(path))
         .timeout(const Duration(seconds: 8));
     _applyCommonHeaders(request);
     request.headers.contentType = ContentType.json;
@@ -1637,7 +1843,39 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  late final _RuileApiClient _apiClient;
   int _selectedIndex = 0;
+  int? _customerSpaceCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.session.token,
+      tenantId: widget.session.tenantId,
+      onAuthFailure: widget.onLogout,
+    );
+    unawaited(_loadCustomerSpaceCount());
+  }
+
+  Future<void> _loadCustomerSpaceCount() async {
+    if (!_apiClient.isConfigured) return;
+    try {
+      final result = await _apiClient.fetchCustomerSpaces(pageSize: 1);
+      if (!mounted) return;
+      setState(() {
+        _customerSpaceCount = result.total;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onLogout();
+      } else {
+        debugPrint('Failed to load customer space count: $error');
+      }
+    } catch (error) {
+      debugPrint('Failed to load customer space count: $error');
+    }
+  }
 
   void _selectTab(int index) {
     setState(() {
@@ -1677,13 +1915,19 @@ class _MainShellState extends State<MainShell> {
     _scaffoldKey.currentState?.openDrawer();
   }
 
-  void _openKnowledgeBaseListFromDrawer() {
+  void _openCustomerSpaceListFromDrawer() {
     _selectTab(0);
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => const KnowledgeBaseListPage(),
-      ),
-    );
+    unawaited(Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (context) => CustomerSpaceListPage(
+              authToken: widget.session.token,
+              tenantId: widget.session.tenantId,
+              onAuthFailure: widget.onLogout,
+            ),
+          ),
+        )
+        .then((_) => _loadCustomerSpaceCount()));
   }
 
   void _openRecordingCardFromDrawer() {
@@ -1696,12 +1940,22 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
-  void _showDrawerMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 1200),
+  void _openDailyReportFromDrawer() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _DailyReportPage(),
+      ),
+    );
+  }
+
+  void _openAvatarProfileFromDrawer() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _AvatarProfilePage(
+          authToken: widget.session.token,
+          tenantId: widget.session.tenantId,
+          onAuthFailure: widget.onLogout,
+        ),
       ),
     );
   }
@@ -1719,7 +1973,11 @@ class _MainShellState extends State<MainShell> {
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
       ),
-      const AssistantPage(),
+      AssistantPage(
+        authToken: widget.session.token,
+        tenantId: widget.session.tenantId,
+        onAuthFailure: widget.onLogout,
+      ),
     ];
 
     return Scaffold(
@@ -1728,10 +1986,11 @@ class _MainShellState extends State<MainShell> {
       drawerScrimColor: Colors.black.withValues(alpha: 0.18),
       drawer: _MainSideDrawer(
         session: widget.session,
-        onOpenKnowledgeBase: _openKnowledgeBaseListFromDrawer,
+        customerSpaceCount: _customerSpaceCount,
+        onOpenCustomerSpaces: _openCustomerSpaceListFromDrawer,
         onOpenRecordingCard: _openRecordingCardFromDrawer,
-        onOpenMemories: () => _selectTab(0),
-        onOpenDaily: () => _showDrawerMessage('Get日报待接入'),
+        onOpenMemories: _openAvatarProfileFromDrawer,
+        onOpenDaily: _openDailyReportFromDrawer,
       ),
       body: Stack(
         children: [
@@ -1759,17 +2018,19 @@ class _MainShellState extends State<MainShell> {
 class _MainSideDrawer extends StatelessWidget {
   const _MainSideDrawer({
     required this.session,
-    required this.onOpenKnowledgeBase,
+    required this.onOpenCustomerSpaces,
     required this.onOpenRecordingCard,
     required this.onOpenMemories,
     required this.onOpenDaily,
+    this.customerSpaceCount,
   });
 
   final AuthSession session;
-  final VoidCallback onOpenKnowledgeBase;
+  final VoidCallback onOpenCustomerSpaces;
   final VoidCallback onOpenRecordingCard;
   final VoidCallback onOpenMemories;
   final VoidCallback onOpenDaily;
+  final int? customerSpaceCount;
 
   void _closeAndRun(BuildContext context, VoidCallback action) {
     Navigator.of(context).pop();
@@ -1796,18 +2057,15 @@ class _MainSideDrawer extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 28),
           children: [
             _DrawerProfileHeader(userName: userName),
-            const SizedBox(height: 16),
-            const _DrawerMembershipBanner(),
-            const SizedBox(height: 14),
-            const _DrawerStudentNotice(),
             const SizedBox(height: 26),
             const Divider(height: 1, color: AppColors.border),
             const SizedBox(height: 18),
             _DrawerMenuItem(
-              icon: Icons.lightbulb_outline,
-              title: '知识库',
-              trailingText: '1',
-              onTap: () => _closeAndRun(context, onOpenKnowledgeBase),
+              icon: Icons.folder_shared_outlined,
+              title: '客户空间',
+              trailingText:
+                  customerSpaceCount == null ? null : '$customerSpaceCount',
+              onTap: () => _closeAndRun(context, onOpenCustomerSpaces),
             ),
             _DrawerMenuItem(
               icon: Icons.memory_outlined,
@@ -1831,7 +2089,7 @@ class _MainSideDrawer extends StatelessWidget {
             const SizedBox(height: 18),
             _DrawerMenuItem(
               icon: Icons.article_outlined,
-              title: 'Get日报',
+              title: '睿乐日报',
               showDot: true,
               onTap: () => _closeAndRun(context, onOpenDaily),
             ),
@@ -1887,96 +2145,6 @@ class _DrawerProfileHeader extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _DrawerMembershipBanner extends StatelessWidget {
-  const _DrawerMembershipBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 56,
-      padding: const EdgeInsets.symmetric(horizontal: 13),
-      decoration: BoxDecoration(
-        color: const Color(0xFF13122E),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Text(
-              '开通会员仅需 ¥35/月',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 15,
-                color: AppColors.surface,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF5DEB6),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Text(
-              '立享优惠',
-              style: TextStyle(
-                fontSize: 11,
-                color: Color(0xFF745127),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DrawerStudentNotice extends StatelessWidget {
-  const _DrawerStudentNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 43,
-      padding: const EdgeInsets.fromLTRB(14, 0, 8, 0),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: const Row(
-        children: [
-          Icon(
-            Icons.school_outlined,
-            size: 18,
-            color: Color(0xFFB77935),
-          ),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              '大学生专属福利，立即查看',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFFB77935),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          Icon(
-            Icons.close,
-            size: 16,
-            color: Color(0xFFD7A36E),
-          ),
-        ],
       ),
     );
   }
@@ -2133,6 +2301,742 @@ class _DrawerConnectionDot extends StatelessWidget {
   }
 }
 
+class _DailyReportPage extends StatelessWidget {
+  _DailyReportPage({
+    _DailyReport? report,
+  }) : report = report ?? _mockDailyReport;
+
+  final _DailyReport report;
+
+  void _openHistory(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => const _DailyReportHistoryPage(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _DailyReportColors.paper,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(28, 18, 28, 34),
+          children: [
+            _DailyReportTopBar(
+              onBackTap: () => Navigator.maybePop(context),
+              onHistoryTap: () => _openHistory(context),
+            ),
+            const SizedBox(height: 48),
+            _DailyReportMasthead(report: report),
+            const SizedBox(height: 20),
+            _DailyStatsBar(report: report),
+            const SizedBox(height: 28),
+            _DailyGreeting(message: report.greeting),
+            const SizedBox(height: 30),
+            Text(
+              report.sectionTitle,
+              style: const TextStyle(
+                fontSize: 18,
+                height: 1.25,
+                color: _DailyReportColors.ink,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 22),
+            for (var index = 0; index < report.items.length; index++) ...[
+              _DailyWalkEntry(item: report.items[index]),
+              if (index != report.items.length - 1) const SizedBox(height: 24),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyReportTopBar extends StatelessWidget {
+  const _DailyReportTopBar({
+    required this.onBackTap,
+    required this.onHistoryTap,
+  });
+
+  final VoidCallback onBackTap;
+  final VoidCallback onHistoryTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _KnowledgeRoundButton(
+          tooltip: '返回',
+          icon: Icons.chevron_left,
+          backgroundColor: Colors.white.withValues(alpha: 0.92),
+          size: 44,
+          iconSize: 26,
+          iconColor: _DailyReportColors.ink,
+          onTap: onBackTap,
+        ),
+        const Spacer(),
+        _KnowledgeRoundButton(
+          tooltip: '历史日报',
+          icon: Icons.format_list_bulleted_rounded,
+          backgroundColor: Colors.white.withValues(alpha: 0.92),
+          size: 44,
+          iconSize: 24,
+          iconColor: _DailyReportColors.ink,
+          onTap: onHistoryTap,
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyReportMasthead extends StatelessWidget {
+  const _DailyReportMasthead({
+    required this.report,
+  });
+
+  final _DailyReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 14,
+      runSpacing: 10,
+      children: [
+        const Text(
+          '睿乐日报',
+          style: TextStyle(
+            fontSize: 32,
+            height: 1.02,
+            color: _DailyReportColors.ink,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        Container(
+          width: 1.5,
+          height: 38,
+          color: _DailyReportColors.rule,
+        ),
+        Text(
+          '${_formatDailyMonthDayPadded(report.date)}\n${_weekdayLabel(report.date)}',
+          style: const TextStyle(
+            fontSize: 15,
+            height: 1.28,
+            color: _DailyReportColors.ink,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyStatsBar extends StatelessWidget {
+  const _DailyStatsBar({
+    required this.report,
+  });
+
+  final _DailyReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        const _DailyDoubleRule(),
+        IntrinsicHeight(
+          child: Row(
+            children: [
+              _DailyStatCell(
+                value: report.yesterdayNoteCount,
+                unit: '条',
+                label: '昨日笔记',
+              ),
+              const _DailyStatDivider(),
+              _DailyStatCell(
+                value: report.streakDays,
+                unit: '天',
+                label: '连续记录',
+              ),
+              const _DailyStatDivider(),
+              _DailyStatCell(
+                value: report.subscriptionUpdateCount,
+                unit: '条',
+                label: '订阅更新',
+              ),
+            ],
+          ),
+        ),
+        const _DailySingleRule(),
+      ],
+    );
+  }
+}
+
+class _DailyDoubleRule extends StatelessWidget {
+  const _DailyDoubleRule();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        Divider(height: 1, thickness: 2.4, color: _DailyReportColors.rule),
+        SizedBox(height: 5),
+        Divider(height: 1, thickness: 0.8, color: _DailyReportColors.rule),
+      ],
+    );
+  }
+}
+
+class _DailySingleRule extends StatelessWidget {
+  const _DailySingleRule();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Divider(
+      height: 1,
+      thickness: 0.8,
+      color: _DailyReportColors.rule,
+    );
+  }
+}
+
+class _DailyStatDivider extends StatelessWidget {
+  const _DailyStatDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const VerticalDivider(
+      width: 1,
+      thickness: 0.8,
+      color: _DailyReportColors.rule,
+    );
+  }
+}
+
+class _DailyStatCell extends StatelessWidget {
+  const _DailyStatCell({
+    required this.value,
+    required this.unit,
+    required this.label,
+  });
+
+  final int value;
+  final String unit;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value.toString(),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    height: 0.95,
+                    color: _DailyReportColors.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    unit,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1,
+                      color: _DailyReportColors.body,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 9),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.2,
+                color: _DailyReportColors.body,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyGreeting extends StatelessWidget {
+  const _DailyGreeting({
+    required this.message,
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Icon(
+            Icons.auto_awesome,
+            size: 24,
+            color: Color(0xFFFFCD2F),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            message,
+            style: const TextStyle(
+              fontSize: 15.5,
+              height: 1.62,
+              color: _DailyReportColors.body,
+              fontStyle: FontStyle.italic,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyWalkEntry extends StatelessWidget {
+  const _DailyWalkEntry({
+    required this.item,
+  });
+
+  final _DailyReportItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.push_pin_rounded,
+              size: 20,
+              color: Color(0xFFEB4B3E),
+            ),
+            const SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                '漫步 ${item.orderLabel} | ${_formatDailyFullDate(item.sourceDate)}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.25,
+                  color: _DailyReportColors.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 15),
+        RichText(
+          text: TextSpan(
+            style: const TextStyle(
+              fontSize: 15,
+              height: 1.62,
+              color: _DailyReportColors.body,
+              fontWeight: FontWeight.w400,
+            ),
+            children: [
+              TextSpan(
+                text: item.title,
+                style: const TextStyle(
+                  color: _DailyReportColors.ink,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              TextSpan(text: '- ${item.body}'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DailyReportHistoryPage extends StatefulWidget {
+  const _DailyReportHistoryPage();
+
+  @override
+  State<_DailyReportHistoryPage> createState() =>
+      _DailyReportHistoryPageState();
+}
+
+class _DailyReportHistoryPageState extends State<_DailyReportHistoryPage> {
+  late String _selectedMonth = _formatDailyMonth(_mockDailyReports.first.date);
+
+  List<String> get _months {
+    final months = <String>{};
+    for (final report in _mockDailyReports) {
+      months.add(_formatDailyMonth(report.date));
+    }
+    return months.toList();
+  }
+
+  List<_DailyReport> get _visibleReports {
+    return [
+      for (final report in _mockDailyReports)
+        if (_formatDailyMonth(report.date) == _selectedMonth) report,
+    ];
+  }
+
+  void _openReport(_DailyReport report) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _DailyReportPage(report: report),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reports = _visibleReports;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(28, 18, 28, 34),
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _KnowledgeRoundButton(
+                    tooltip: '返回',
+                    icon: Icons.chevron_left,
+                    backgroundColor: AppColors.surface,
+                    size: 44,
+                    iconSize: 26,
+                    iconColor: _DailyReportColors.ink,
+                    onTap: () => Navigator.maybePop(context),
+                  ),
+                ),
+                const Text(
+                  '历史日报',
+                  style: TextStyle(
+                    fontSize: 16,
+                    height: 1.25,
+                    color: _DailyReportColors.ink,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 30),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: PopupMenuButton<String>(
+                tooltip: '选择月份',
+                initialValue: _selectedMonth,
+                onSelected: (value) {
+                  setState(() {
+                    _selectedMonth = value;
+                  });
+                },
+                itemBuilder: (context) => [
+                  for (final month in _months)
+                    PopupMenuItem<String>(
+                      value: month,
+                      child: Text(month),
+                    ),
+                ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _selectedMonth,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        height: 1.2,
+                        color: _DailyReportColors.ink,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      size: 27,
+                      color: _DailyReportColors.ink,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            if (reports.isEmpty)
+              const _DailyHistoryEmpty()
+            else
+              for (var index = 0; index < reports.length; index++) ...[
+                _DailyHistoryCard(
+                  report: reports[index],
+                  onTap: () => _openReport(reports[index]),
+                ),
+                if (index != reports.length - 1) const SizedBox(height: 12),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyHistoryEmpty extends StatelessWidget {
+  const _DailyHistoryEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Center(
+        child: Text(
+          '本月暂无日报',
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyHistoryCard extends StatelessWidget {
+  const _DailyHistoryCard({
+    required this.report,
+    required this.onTap,
+  });
+
+  final _DailyReport report;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                _formatDailyShortDate(report.date),
+                style: const TextStyle(
+                  fontSize: 17,
+                  height: 1.2,
+                  color: _DailyReportColors.ink,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Icon(
+                      Icons.auto_awesome,
+                      size: 22,
+                      color: Color(0xFFFFCD2F),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      report.historyPreview,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        height: 1.4,
+                        color: _DailyReportColors.muted,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DailyReport {
+  const _DailyReport({
+    required this.date,
+    required this.yesterdayNoteCount,
+    required this.streakDays,
+    required this.subscriptionUpdateCount,
+    required this.greeting,
+    required this.sectionTitle,
+    required this.items,
+  });
+
+  final DateTime date;
+  final int yesterdayNoteCount;
+  final int streakDays;
+  final int subscriptionUpdateCount;
+  final String greeting;
+  final String sectionTitle;
+  final List<_DailyReportItem> items;
+
+  String get historyPreview {
+    final firstItem = items.isEmpty
+        ? ''
+        : ' ${items.first.headerText}${items.first.title}-${items.first.body}';
+    return '$greeting $sectionTitle$firstItem';
+  }
+}
+
+class _DailyReportItem {
+  const _DailyReportItem({
+    required this.order,
+    required this.sourceDate,
+    required this.title,
+    required this.body,
+  });
+
+  final int order;
+  final DateTime sourceDate;
+  final String title;
+  final String body;
+
+  String get orderLabel => order.toString().padLeft(2, '0');
+
+  String get headerText {
+    return '漫步 $orderLabel | ${_formatDailyFullDate(sourceDate)}';
+  }
+}
+
+class _DailyReportColors {
+  static const paper = Color(0xFFFCFAF5);
+  static const ink = Color(0xFF454A52);
+  static const body = Color(0xFF65615A);
+  static const muted = Color(0xFF878B94);
+  static const rule = Color(0xFF8E8B84);
+
+  const _DailyReportColors._();
+}
+
+final _mockDailyReports = <_DailyReport>[
+  _DailyReport(
+    date: DateTime(2026, 9, 1),
+    yesterdayNoteCount: 0,
+    streakDays: 0,
+    subscriptionUpdateCount: 3,
+    greeting: '昨天没有新记录，正好一起看看过往沉淀的思考碎片，来一场安静的时光漫步吧！',
+    sectionTitle: '随机漫步 · 精选回顾',
+    items: [
+      _DailyReportItem(
+        order: 1,
+        sourceDate: DateTime(2025, 7, 26),
+        title: '单词卡片制作与家长协助功能设想',
+        body:
+            '这里构想了一个单词卡片工具，每个单词都能一键生成不同风格的图片，并支持录制自己的音频。家长可以扮演“导师”角色，和孩子一起制作卡片。卡片内容可以是图片、视频、动画和音频。家长还能定期导出包含单词、音标、生成的图片、标准英美发音，以及孩子过往练习记录的卡片列表，方便管理。',
+      ),
+      _DailyReportItem(
+        order: 2,
+        sourceDate: DateTime(2026, 6, 28),
+        title: '投资策略',
+        body:
+            '一条关于投资心法的思考：三成资金用来追逐市场热点，七成资金则耐心等待回调机会。在低位时关注逻辑是否坚实，到了高位更要判断热度是否透支。',
+      ),
+      _DailyReportItem(
+        order: 3,
+        sourceDate: DateTime(2026, 8, 18),
+        title: '知识库与记忆联动',
+        body: '把零散笔记先沉淀为记忆，再围绕主题生成知识库目录。这样既能保留原始想法，也能让后续的搜索、归纳和内容生成拥有更稳定的数据来源。',
+      ),
+    ],
+  ),
+];
+
+final _mockDailyReport = _mockDailyReports.first;
+
+String _formatDailyMonthDayPadded(DateTime date) {
+  final local = date.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '$month月$day日';
+}
+
+String _formatDailyShortDate(DateTime date) {
+  final local = date.toLocal();
+  return '${local.month}月${local.day}日';
+}
+
+String _formatDailyFullDate(DateTime date) {
+  final local = date.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '${local.year}-$month-$day';
+}
+
+String _formatDailyMonth(DateTime date) {
+  final local = date.toLocal();
+  return '${local.year}年${local.month}月';
+}
+
+String _weekdayLabel(DateTime date) {
+  switch (date.toLocal().weekday) {
+    case DateTime.monday:
+      return '星期一';
+    case DateTime.tuesday:
+      return '星期二';
+    case DateTime.wednesday:
+      return '星期三';
+    case DateTime.thursday:
+      return '星期四';
+    case DateTime.friday:
+      return '星期五';
+    case DateTime.saturday:
+      return '星期六';
+    case DateTime.sunday:
+      return '星期日';
+  }
+  return '';
+}
+
 enum _CaptureAction { record, text }
 
 class _MainDockDestination {
@@ -2169,9 +3073,9 @@ class _MainDock extends StatelessWidget {
       selectedIcon: Icons.explore,
     ),
     _MainDockDestination(
-      label: '助理',
-      icon: Icons.support_agent_outlined,
-      selectedIcon: Icons.support_agent,
+      label: '服务',
+      icon: Icons.notifications_none_outlined,
+      selectedIcon: Icons.notifications,
     ),
   ];
 
@@ -2546,7 +3450,8 @@ class _NotesPageState extends State<NotesPage> {
   late final _RuileApiClient _apiClient;
   late final VoidCallback _recordingCardSyncListener;
   var _sortNewestFirst = true;
-  late List<_KnowledgeBase> _knowledgeBases;
+  List<_KnowledgeBase> _knowledgeBases = const [];
+  bool _loadingKnowledgeBases = true;
   List<_NoteItem> _notes = [];
   bool _loadingNotes = false;
   bool _notesReloadQueued = false;
@@ -2555,32 +3460,6 @@ class _NotesPageState extends State<NotesPage> {
   bool _edgeSwipeFromLeft = false;
   bool _edgeSwipeFromRight = false;
   bool _edgeSwipeHandled = false;
-
-  static const _fallbackKnowledgeBases = [
-    _KnowledgeBase(
-      title: '测试一下',
-      summary: '0个内容 · 1人在用',
-      footer: '6月9日 20:02',
-      description: '用于验证知识库卡片的基础展示效果。',
-      contentLabel: '0 个内容',
-    ),
-    _KnowledgeBase(
-      title: '金句名言',
-      summary: '48个内容 · 444695人在用',
-      footer: '得到大脑 创建',
-      description: '汇集各领域的经典金句和智慧箴言，适合快速浏览和摘录。',
-      contentLabel: '48 个内容',
-      icon: Icons.offline_bolt,
-    ),
-    _KnowledgeBase(
-      title: '项目资料库',
-      summary: '16个内容 · 3人在用',
-      footer: '今天 09:42',
-      description: '收集项目资料、方案文件和日常协作材料。',
-      contentLabel: '16 个内容',
-      icon: Icons.folder_open,
-    ),
-  ];
 
   @override
   void initState() {
@@ -2594,7 +3473,6 @@ class _NotesPageState extends State<NotesPage> {
       unawaited(_loadRemoteMemories());
     };
     RecordingCardAppSyncBus.notifier.addListener(_recordingCardSyncListener);
-    _knowledgeBases = List.of(_fallbackKnowledgeBases);
     _loadRemoteKnowledgeBases();
     unawaited(_loadRemoteMemories());
   }
@@ -2606,11 +3484,22 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   Future<void> _loadRemoteKnowledgeBases() async {
+    if (!_apiClient.isConfigured) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loadingKnowledgeBases = true;
+      });
+    }
+
     try {
       final knowledgeBases = await _apiClient.fetchKnowledgeBases();
       if (!mounted) return;
       setState(() {
         _knowledgeBases = knowledgeBases;
+        _loadingKnowledgeBases = knowledgeBases.isEmpty;
       });
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
@@ -2695,6 +3584,13 @@ class _NotesPageState extends State<NotesPage> {
     return _sortNewestFirst ? _notes : _notes.reversed.toList();
   }
 
+  Future<void> _refreshRemoteContent() async {
+    await Future.wait<void>([
+      _loadRemoteKnowledgeBases(),
+      _loadRemoteMemories(),
+    ]);
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -2721,7 +3617,11 @@ class _NotesPageState extends State<NotesPage> {
   void _openKnowledgeBaseList() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => const KnowledgeBaseListPage(),
+        builder: (context) => KnowledgeBaseListPage(
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
       ),
     );
   }
@@ -2890,51 +3790,56 @@ class _NotesPageState extends State<NotesPage> {
         onPointerCancel: (_) => _resetEdgeSwipe(),
         child: Stack(
           children: [
-            ListView(
-              padding: const EdgeInsets.fromLTRB(18, 58, 18, 128),
-              children: [
-                _SectionHeader(
-                  title: '知识库',
-                  actionText: '更多',
-                  onActionTap: _openKnowledgeBaseList,
-                ),
-                const SizedBox(height: 14),
-                _KnowledgeGrid(
-                  knowledgeBases: _knowledgeBases,
-                  onTap: _openKnowledgeBase,
-                ),
-                const SizedBox(height: 26),
-                _NotesToolbar(
-                  newestFirst: _sortNewestFirst,
-                  onTitleTap: () {
-                    setState(() {
-                      _sortNewestFirst = !_sortNewestFirst;
-                    });
-                  },
-                ),
-                const SizedBox(height: 18),
-                if (_notesError != null) ...[
-                  _NotesLoadError(
-                    message: _notesError!,
-                    onRetry: () => unawaited(_loadRemoteMemories()),
+            RefreshIndicator(
+              onRefresh: _refreshRemoteContent,
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(18, 58, 18, 128),
+                children: [
+                  _SectionHeader(
+                    title: '知识库',
+                    actionText: '更多',
+                    onActionTap: _openKnowledgeBaseList,
                   ),
                   const SizedBox(height: 14),
-                ],
-                if (_loadingNotes && notes.isEmpty)
-                  const _NotesLoading()
-                else if (notes.isEmpty)
-                  const _EmptyNotes()
-                else
-                  for (var index = 0; index < notes.length; index++) ...[
-                    _NoteCard(
-                      note: notes[index],
-                      onTap: () => unawaited(_openNote(notes[index])),
-                      onMoreTap: () => _showNoteActions(notes[index]),
+                  _KnowledgeGrid(
+                    knowledgeBases: _knowledgeBases,
+                    loading: _loadingKnowledgeBases,
+                    onTap: _openKnowledgeBase,
+                  ),
+                  const SizedBox(height: 26),
+                  _NotesToolbar(
+                    newestFirst: _sortNewestFirst,
+                    onTitleTap: () {
+                      setState(() {
+                        _sortNewestFirst = !_sortNewestFirst;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 18),
+                  if (_notesError != null) ...[
+                    _NotesLoadError(
+                      message: _notesError!,
+                      onRetry: () => unawaited(_loadRemoteMemories()),
                     ),
-                    if (index != notes.length - 1)
-                      const SizedBox(height: AppSpacing.itemGap),
+                    const SizedBox(height: 14),
                   ],
-              ],
+                  if (_loadingNotes && notes.isEmpty)
+                    const _NotesLoading()
+                  else if (notes.isEmpty)
+                    const _EmptyNotes()
+                  else
+                    for (var index = 0; index < notes.length; index++) ...[
+                      _NoteCard(
+                        note: notes[index],
+                        onTap: () => unawaited(_openNote(notes[index])),
+                        onMoreTap: () => _showNoteActions(notes[index]),
+                      ),
+                      if (index != notes.length - 1)
+                        const SizedBox(height: AppSpacing.itemGap),
+                    ],
+                ],
+              ),
             ),
           ],
         ),
@@ -2998,10 +3903,12 @@ class _SectionHeader extends StatelessWidget {
 class _KnowledgeGrid extends StatelessWidget {
   const _KnowledgeGrid({
     required this.knowledgeBases,
+    required this.loading,
     required this.onTap,
   });
 
   final List<_KnowledgeBase> knowledgeBases;
+  final bool loading;
   final ValueChanged<_KnowledgeBase> onTap;
 
   @override
@@ -3013,23 +3920,8 @@ class _KnowledgeGrid extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        if (knowledgeBases.isEmpty) {
-          return SizedBox(
-            height: 132,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: const Center(
-                child: Text(
-                  '暂无知识库',
-                  style: AppTextStyles.body,
-                ),
-              ),
-            ),
-          );
+        if (loading || knowledgeBases.isEmpty) {
+          return const _KnowledgeGridLoading();
         }
 
         final width = ((constraints.maxWidth - spacing) / 2)
@@ -3056,6 +3948,30 @@ class _KnowledgeGrid extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _KnowledgeGridLoading extends StatelessWidget {
+  const _KnowledgeGridLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 132,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+        ),
+        child: Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.2),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3135,35 +4051,79 @@ class _KnowledgeCard extends StatelessWidget {
 }
 
 class KnowledgeBaseListPage extends StatefulWidget {
-  const KnowledgeBaseListPage({super.key});
+  const KnowledgeBaseListPage({
+    super.key,
+    this.authToken = AppApiConfig.authToken,
+    this.tenantId = AppApiConfig.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
 
   @override
   State<KnowledgeBaseListPage> createState() => _KnowledgeBaseListPageState();
 }
 
 class _KnowledgeBaseListPageState extends State<KnowledgeBaseListPage> {
-  static const _items = [
-    _KnowledgeBaseListItem(
-      title: '金句名言',
-      description: '汇集各领域的经典金句和智慧箴言，为日常写作提供灵感。',
-      meta: '公开 · 48个内容 · 445157人在用',
-      thumbnailStyle: _KnowledgeThumbnailStyle.textBadge,
-      thumbnailText: '金句\n名言',
-      thumbnailColor: Color(0xFFC58773),
-    ),
-    _KnowledgeBaseListItem(
-      title: '罗振宇学习笔记',
-      description: '罗振宇2025年做节目的私家资料、每日思考和学习卡片。',
-      meta: '公开 · 4088个内容 · 892196人在用',
-      thumbnailStyle: _KnowledgeThumbnailStyle.portrait,
-    ),
-    _KnowledgeBaseListItem(
-      title: '得到大脑使用指南',
-      description: '欢迎使用得到大脑，这个知识库里有常见问题和操作指引。',
-      meta: '公开 · 74个内容 · 598335人在用',
-      thumbnailStyle: _KnowledgeThumbnailStyle.lightning,
-    ),
-  ];
+  late _RuileApiClient _apiClient;
+  List<_KnowledgeBase> _knowledgeBases = const [];
+  var _loadingKnowledgeBases = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _buildApiClient();
+    unawaited(_loadRemoteKnowledgeBases());
+  }
+
+  @override
+  void didUpdateWidget(covariant KnowledgeBaseListPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _buildApiClient();
+      unawaited(_loadRemoteKnowledgeBases());
+    }
+  }
+
+  _RuileApiClient _buildApiClient() {
+    return _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+  }
+
+  Future<void> _loadRemoteKnowledgeBases() async {
+    if (!_apiClient.isConfigured) {
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loadingKnowledgeBases = true;
+      });
+    }
+
+    try {
+      final knowledgeBases = await _apiClient.fetchKnowledgeBases();
+      if (!mounted) return;
+      setState(() {
+        _knowledgeBases = knowledgeBases;
+        _loadingKnowledgeBases = knowledgeBases.isEmpty;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      debugPrint('Failed to load deployed knowledge bases: $error');
+    } catch (error) {
+      debugPrint('Failed to load deployed knowledge bases: $error');
+    }
+  }
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -3175,15 +4135,20 @@ class _KnowledgeBaseListPageState extends State<KnowledgeBaseListPage> {
     );
   }
 
-  void _openKnowledgeBase(_KnowledgeBaseListItem item) {
+  void _openKnowledgeBase(_KnowledgeBase item) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => _KnowledgeBaseDetailPage.fromListItem(item),
+        builder: (context) => _KnowledgeBaseDetailPage.fromKnowledgeBase(
+          item,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
       ),
     );
   }
 
-  void _showKnowledgeActions(_KnowledgeBaseListItem item) {
+  void _showKnowledgeActions(_KnowledgeBase item) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -3235,15 +4200,2339 @@ class _KnowledgeBaseListPageState extends State<KnowledgeBaseListPage> {
               onBackTap: () => Navigator.maybePop(context),
             ),
             const SizedBox(height: 24),
-            _KnowledgeListCard(
-              items: _items,
-              onTap: _openKnowledgeBase,
-              onMoreTap: _showKnowledgeActions,
+            if (_loadingKnowledgeBases || _knowledgeBases.isEmpty)
+              const _KnowledgeListLoading()
+            else
+              _KnowledgeListCard(
+                items: _knowledgeBases,
+                onTap: _openKnowledgeBase,
+                onMoreTap: _showKnowledgeActions,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CustomerSpaceListPage extends StatefulWidget {
+  const CustomerSpaceListPage({
+    super.key,
+    this.authToken = AppApiConfig.authToken,
+    this.tenantId = AppApiConfig.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<CustomerSpaceListPage> createState() => _CustomerSpaceListPageState();
+}
+
+class _CustomerSpaceListPageState extends State<CustomerSpaceListPage> {
+  late _RuileApiClient _apiClient;
+  List<_CustomerSpace> _customerSpaces = const [];
+  var _loadingCustomerSpaces = true;
+  var _loadedCustomerSpaces = false;
+  int _totalCustomerSpaces = 0;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _buildApiClient();
+    unawaited(_loadRemoteCustomerSpaces());
+  }
+
+  @override
+  void didUpdateWidget(covariant CustomerSpaceListPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _buildApiClient();
+      unawaited(_loadRemoteCustomerSpaces());
+    }
+  }
+
+  _RuileApiClient _buildApiClient() {
+    return _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+  }
+
+  Future<void> _loadRemoteCustomerSpaces() async {
+    if (!_apiClient.isConfigured) {
+      if (!mounted) return;
+      setState(() {
+        _customerSpaces = const [];
+        _totalCustomerSpaces = 0;
+        _loadingCustomerSpaces = false;
+        _loadedCustomerSpaces = true;
+        _loadError = null;
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loadingCustomerSpaces = true;
+        _loadError = null;
+      });
+    }
+
+    try {
+      final result = await _apiClient.fetchCustomerSpaces(pageSize: 50);
+      if (!mounted) return;
+      setState(() {
+        _customerSpaces = result.items;
+        _totalCustomerSpaces = result.total;
+        _loadingCustomerSpaces = false;
+        _loadedCustomerSpaces = true;
+        _loadError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      debugPrint('Failed to load customer spaces: $error');
+      if (!mounted) return;
+      setState(() {
+        _loadingCustomerSpaces = false;
+        _loadedCustomerSpaces = true;
+        _loadError = '客户空间读取失败';
+      });
+    } catch (error) {
+      debugPrint('Failed to load customer spaces: $error');
+      if (!mounted) return;
+      setState(() {
+        _loadingCustomerSpaces = false;
+        _loadedCustomerSpaces = true;
+        _loadError = '客户空间读取失败';
+      });
+    }
+  }
+
+  void _openCustomerSpace(_CustomerSpace item) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _CustomerSpaceDetailPage(
+          initialSpace: item,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+  }
+
+  void _showCustomerSpaceActions(_CustomerSpace item) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.open_in_new),
+                title: const Text('打开客户空间'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openCustomerSpace(item);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('刷新客户空间'),
+                onTap: () {
+                  Navigator.pop(context);
+                  unawaited(_loadRemoteCustomerSpaces());
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = _customerSpaces.isNotEmpty
+        ? '$_totalCustomerSpaces 位客户 · ${_openReminderCount()} 条待处理'
+        : _loadedCustomerSpaces
+            ? '服务模块产生客户后会出现在这里'
+            : '正在读取服务模块客户空间';
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _loadRemoteCustomerSpaces,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
+            children: [
+              _KnowledgeListTopBar(
+                onBackTap: () => Navigator.maybePop(context),
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                '客户空间',
+                style: AppTextStyles.pageTitle,
+              ),
+              const SizedBox(height: 7),
+              Text(
+                subtitle,
+                style: AppTextStyles.body,
+              ),
+              const SizedBox(height: 20),
+              if (_loadingCustomerSpaces && _customerSpaces.isEmpty)
+                const _KnowledgeListLoading()
+              else if (_loadError != null)
+                _CustomerSpaceEmptyCard(
+                  icon: Icons.error_outline,
+                  title: _loadError!,
+                  message: '下拉或点击刷新客户空间后重试。',
+                )
+              else if (_customerSpaces.isEmpty)
+                const _CustomerSpaceEmptyCard(
+                  icon: Icons.folder_shared_outlined,
+                  title: '暂无客户空间',
+                  message: '从服务记忆里提取出客户摘要、跟进和提醒后，这里会按客户沉淀空间。',
+                )
+              else
+                _CustomerSpaceListCard(
+                  items: _customerSpaces,
+                  onTap: _openCustomerSpace,
+                  onMoreTap: _showCustomerSpaceActions,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  int _openReminderCount() {
+    return _customerSpaces.fold<int>(
+      0,
+      (sum, item) => sum + item.openReminderCount,
+    );
+  }
+}
+
+class _AvatarProfilePage extends StatefulWidget {
+  const _AvatarProfilePage({
+    this.authToken = AppApiConfig.authToken,
+    this.tenantId = AppApiConfig.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<_AvatarProfilePage> createState() => _AvatarProfilePageState();
+}
+
+class _AvatarProfilePageState extends State<_AvatarProfilePage> {
+  late _RuileApiClient _apiClient;
+  _ServiceBootstrapResult? _serviceData;
+  List<_ServiceSkillInfo> _availableSkills = const [];
+  List<String> _customSkillNames = const [];
+  var _loading = true;
+  var _saving = false;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _buildApiClient();
+    unawaited(_loadAvatarProfile());
+  }
+
+  @override
+  void didUpdateWidget(covariant _AvatarProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _buildApiClient();
+      unawaited(_loadAvatarProfile());
+    }
+  }
+
+  _RuileApiClient _buildApiClient() {
+    return _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+  }
+
+  Future<void> _loadAvatarProfile() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
+
+    if (!_apiClient.isConfigured) {
+      if (!mounted) return;
+      setState(() {
+        _serviceData = null;
+        _availableSkills = const [];
+        _loading = false;
+        _loadError = null;
+      });
+      return;
+    }
+
+    try {
+      final results = await Future.wait<Object>([
+        _apiClient.fetchServiceBootstrap(),
+        _apiClient.fetchSkills(),
+      ]);
+      final serviceData = results[0] as _ServiceBootstrapResult;
+      if (!mounted) return;
+      setState(() {
+        _serviceData = serviceData;
+        _availableSkills = results[1] as List<_ServiceSkillInfo>;
+        _customSkillNames = _mergeUniqueStrings([
+          ..._customSkillNames,
+          for (final setting in serviceData.agentSettings)
+            ...setting.userAddedSkills,
+        ]);
+        _loading = false;
+        _loadError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      debugPrint('Failed to load avatar profile: $error');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = '分身读取失败';
+      });
+    } catch (error) {
+      debugPrint('Failed to load avatar profile: $error');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = '分身读取失败';
+      });
+    }
+  }
+
+  Future<void> _addSkill() async {
+    final skill = await showModalBottomSheet<_AvatarSkillDraft>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _AvatarSkillPickerSheet(
+        availableSkills: _availableSkills,
+        existingSkillNames: _skillNames,
+      ),
+    );
+    if (skill == null || skill.name.trim().isEmpty) return;
+
+    final name = skill.name.trim();
+    if (_skillNames.any((item) => item.toLowerCase() == name.toLowerCase())) {
+      _showMessage('技能已存在');
+      return;
+    }
+
+    setState(() {
+      _customSkillNames = [..._customSkillNames, name];
+    });
+
+    await _saveCustomSkills();
+  }
+
+  Future<void> _removeCustomSkill(String name) async {
+    setState(() {
+      _customSkillNames = _customSkillNames
+          .where((item) => item.toLowerCase() != name.toLowerCase())
+          .toList();
+    });
+    await _saveCustomSkills(showSuccess: false);
+  }
+
+  Future<void> _saveCustomSkills({bool showSuccess = true}) async {
+    final data = _serviceData;
+    final profile = data?.profile;
+    if (data == null || profile == null || profile.id.trim().isEmpty) {
+      if (showSuccess) _showMessage('已添加到本机分身技能');
+      return;
+    }
+
+    final settings = data.agentSettings;
+    if (settings.isEmpty) {
+      if (showSuccess) _showMessage('已添加到本机分身技能');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+    });
+    try {
+      final nextSettings = settings.map((setting) {
+        if (!setting.enabled) return setting;
+        final selectedWithoutUserAdded = setting.selectedSkills.where((skill) {
+          final normalized = skill.trim().toLowerCase();
+          return !setting.userAddedSkills
+              .map((item) => item.trim().toLowerCase())
+              .contains(normalized);
+        }).toList();
+        final merged = _mergeUniqueStrings([
+          ...selectedWithoutUserAdded,
+          ..._customSkillNames,
+        ]);
+        return setting.copyWith(
+          selectedSkills: merged,
+          outputPolicy: {
+            ...setting.outputPolicy,
+            'user_added_skills': _customSkillNames,
+          },
+        );
+      }).toList();
+      final saved = await _apiClient.replaceServiceAgentSettings(
+          profile.id, nextSettings);
+      if (!mounted) return;
+      setState(() {
+        _serviceData = _ServiceBootstrapResult(
+          reminders: data.reminders,
+          total: data.total,
+          stats: data.stats,
+          profile: data.profile,
+          agentSettings: saved.isEmpty ? nextSettings : saved,
+          templates: data.templates,
+        );
+      });
+      if (showSuccess) _showMessage('分身技能已保存');
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      debugPrint('Failed to save avatar skills: $error');
+      if (showSuccess) _showMessage('已添加到本机，当前账号暂无保存权限');
+    } catch (error) {
+      debugPrint('Failed to save avatar skills: $error');
+      if (showSuccess) _showMessage('已添加到本机，保存到服务端失败');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  List<_AvatarSkillView> get _skillViews {
+    final data = _serviceData;
+    final byName = {
+      for (final skill in _availableSkills) skill.name: skill,
+    };
+    final items = <_AvatarSkillView>[];
+    final seen = <String>{};
+    final customKeys = _customSkillNames
+        .map((item) => item.trim().toLowerCase())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+
+    for (final setting in data?.agentSettings ?? const []) {
+      if (!setting.enabled) continue;
+      final label = setting.displayName.trim().isEmpty
+          ? _serviceAgentDomainLabel(setting.agentDomain)
+          : setting.displayName.trim();
+      final skillNames = setting.selectedSkills.isEmpty
+          ? _inferSkillNamesForAgent(setting.agentDomain)
+          : setting.selectedSkills;
+      for (final skillName in skillNames) {
+        final normalized = skillName.trim();
+        if (normalized.isEmpty) continue;
+        final key = normalized.toLowerCase();
+        if (customKeys.contains(key)) continue;
+        if (!seen.add(key)) continue;
+        final info = byName[normalized];
+        items.add(
+          _AvatarSkillView(
+            name: normalized,
+            description: info?.description ??
+                _generatedSkillDescription(normalized, setting.agentDomain),
+            sourceLabel: label,
+            icon: _serviceAgentDomainIcon(setting.agentDomain),
+            generated: true,
+            custom: false,
+          ),
+        );
+      }
+    }
+
+    final description = _profileDescription;
+    for (final skill in _inferSkillsFromDescription(description)) {
+      final key = skill.name.toLowerCase();
+      if (customKeys.contains(key)) continue;
+      if (!seen.add(key)) continue;
+      items.add(skill);
+    }
+
+    for (final name in _customSkillNames) {
+      final normalized = name.trim();
+      if (normalized.isEmpty) continue;
+      final key = normalized.toLowerCase();
+      if (!seen.add(key)) continue;
+      final info = byName[normalized];
+      items.add(
+        _AvatarSkillView(
+          name: normalized,
+          description: info?.description ?? '用户手动添加的分身技能，可用于补充服务边界。',
+          sourceLabel: '手动添加',
+          icon: Icons.add_task_outlined,
+          generated: false,
+          custom: true,
+        ),
+      );
+    }
+
+    return items;
+  }
+
+  List<String> get _skillNames => _skillViews.map((item) => item.name).toList();
+
+  String get _profileTitle {
+    final profile = _serviceData?.profile;
+    if (profile != null && profile.name.trim().isNotEmpty) {
+      return profile.name.trim();
+    }
+    return '我的服务分身';
+  }
+
+  String get _profileDescription {
+    final profile = _serviceData?.profile;
+    if (profile == null) return '';
+    return profile.description;
+  }
+
+  String get _profileSubtitle {
+    final profile = _serviceData?.profile;
+    if (profile == null) return '等待服务模块配置分身描述';
+    final parts = [
+      profile.statusLabel,
+      if (profile.roleType.trim().isNotEmpty) profile.roleType.trim(),
+      if (profile.updatedLabel.trim().isNotEmpty)
+        '更新于 ${profile.updatedLabel.trim()}',
+    ];
+    return parts.join(' · ');
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final skillViews = _skillViews;
+    final aiSkillViews =
+        skillViews.where((skill) => skill.generated && !skill.custom).toList();
+    final customSkillViews = skillViews.where((skill) => skill.custom).toList();
+    final profile = _serviceData?.profile;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _loadAvatarProfile,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
+            children: [
+              _KnowledgeListTopBar(
+                onBackTap: () => Navigator.maybePop(context),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('分身', style: AppTextStyles.pageTitle),
+                        SizedBox(height: 7),
+                        Text(
+                          '查看分身描述和 AI 读取描述生成的服务技能。',
+                          style: AppTextStyles.body,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _KnowledgeRoundButton(
+                    tooltip: '刷新分身',
+                    icon: Icons.refresh,
+                    loading: _loading,
+                    enabled: !_loading,
+                    onTap: () => unawaited(_loadAvatarProfile()),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (_loading && _serviceData == null)
+                const _KnowledgeListLoading()
+              else if (_loadError != null)
+                _CustomerSpaceEmptyCard(
+                  icon: Icons.error_outline,
+                  title: _loadError!,
+                  message: '下拉或点击刷新分身后重试。',
+                )
+              else ...[
+                _AvatarProfileSummaryCard(
+                  title: _profileTitle,
+                  subtitle: _profileSubtitle,
+                  description: _profileDescription,
+                  profile: profile,
+                ),
+                const SizedBox(height: AppSpacing.sectionGap),
+                _AvatarSectionHeader(
+                  title: 'AI生成技能',
+                  countText: '${aiSkillViews.length} 项',
+                ),
+                const SizedBox(height: AppSpacing.contentGap),
+                if (aiSkillViews.isEmpty)
+                  const _CustomerSpaceInlineEmpty(
+                    icon: Icons.psychology_alt_outlined,
+                    message: '暂无 AI 生成技能。配置分身描述后会根据职责自动推断。',
+                  )
+                else
+                  for (var index = 0; index < aiSkillViews.length; index++) ...[
+                    _AvatarSkillCard(skill: aiSkillViews[index]),
+                    if (index != aiSkillViews.length - 1)
+                      const SizedBox(height: 12),
+                  ],
+                const SizedBox(height: AppSpacing.sectionGap),
+                _AvatarSectionHeader(
+                  title: '手动添加技能',
+                  countText: '${customSkillViews.length} 项',
+                  actionLabel: _saving ? '保存中' : '添加',
+                  actionIcon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.add, size: 18),
+                  onActionTap: _saving ? null : () => unawaited(_addSkill()),
+                ),
+                const SizedBox(height: AppSpacing.contentGap),
+                if (customSkillViews.isEmpty)
+                  const _CustomerSpaceInlineEmpty(
+                    icon: Icons.add_task_outlined,
+                    message: '暂无手动技能。可以添加一个技能来补充分身能力边界。',
+                  )
+                else
+                  for (var index = 0;
+                      index < customSkillViews.length;
+                      index++) ...[
+                    _AvatarSkillCard(
+                      skill: customSkillViews[index],
+                      onDelete: customSkillViews[index].custom
+                          ? () => unawaited(
+                                _removeCustomSkill(
+                                  customSkillViews[index].name,
+                                ),
+                              )
+                          : null,
+                    ),
+                    if (index != customSkillViews.length - 1)
+                      const SizedBox(height: 12),
+                  ],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarProfileSummaryCard extends StatelessWidget {
+  const _AvatarProfileSummaryCard({
+    required this.title,
+    required this.subtitle,
+    required this.description,
+    required this.profile,
+  });
+
+  final String title;
+  final String subtitle;
+  final String description;
+  final _ServiceWorkProfile? profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final profileDescription = description.trim();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x05000000),
+            blurRadius: 14,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF8F1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.badge_outlined,
+                  size: 24,
+                  color: AppColors.accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        height: 1.3,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      style: AppTextStyles.meta,
+                    ),
+                  ],
+                ),
+              ),
+              if (profile?.defaultProfile == true)
+                const _CustomerSpaceTinyBadge(
+                  label: '默认',
+                  color: AppColors.accent,
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            '分身描述',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            profileDescription.isEmpty ? '暂无分身描述' : profileDescription,
+            style: AppTextStyles.body.copyWith(color: AppColors.textPrimary),
+          ),
+          if (profile != null) ...[
+            const SizedBox(height: 16),
+            const Text(
+              '配置详情',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Column(
+              children: [
+                for (var index = 0;
+                    index < profile!.detailRows.length;
+                    index++) ...[
+                  _AvatarProfileFactRow(
+                    label: profile!.detailRows[index].$1,
+                    value: profile!.detailRows[index].$2,
+                  ),
+                  if (index != profile!.detailRows.length - 1)
+                    const Divider(height: 18, color: AppColors.border),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AvatarProfileFactRow extends StatelessWidget {
+  const _AvatarProfileFactRow({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 74,
+          child: Text(
+            label,
+            style: AppTextStyles.meta.copyWith(
+              height: 1.45,
+              color: AppColors.textTertiary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            value.trim().isEmpty ? '待配置' : value.trim(),
+            style: AppTextStyles.body.copyWith(
+              height: 1.45,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AvatarSectionHeader extends StatelessWidget {
+  const _AvatarSectionHeader({
+    required this.title,
+    required this.countText,
+    this.actionLabel,
+    this.actionIcon,
+    this.onActionTap,
+  });
+
+  final String title;
+  final String countText;
+  final String? actionLabel;
+  final Widget? actionIcon;
+  final VoidCallback? onActionTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _CustomerSpaceSectionHeader(
+            title: title,
+            countText: countText,
+          ),
+        ),
+        if (actionLabel != null && actionIcon != null) ...[
+          const SizedBox(width: 10),
+          OutlinedButton.icon(
+            onPressed: onActionTap,
+            icon: actionIcon!,
+            label: Text(actionLabel!),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.control,
+              side: const BorderSide(color: AppColors.border),
+              backgroundColor: AppColors.surface,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _AvatarSkillCard extends StatelessWidget {
+  const _AvatarSkillCard({
+    required this.skill,
+    this.onDelete,
+  });
+
+  final _AvatarSkillView skill;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: skill.custom
+                  ? const Color(0xFFF1F3F8)
+                  : AppColors.accent.withValues(alpha: 0.10),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              skill.icon,
+              size: 21,
+              color: skill.custom ? AppColors.control : AppColors.accent,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        skill.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _CustomerSpaceTinyBadge(
+                      label: skill.generated ? 'AI生成' : '手动',
+                      color: skill.generated
+                          ? const Color(0xFFD87600)
+                          : AppColors.control,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  skill.description,
+                  style: AppTextStyles.body.copyWith(fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  skill.sourceLabel,
+                  style: AppTextStyles.meta.copyWith(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          if (onDelete != null) ...[
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: '删除技能',
+              onPressed: onDelete,
+              icon: const Icon(Icons.close, size: 18),
+              color: AppColors.textTertiary,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AvatarSkillPickerSheet extends StatefulWidget {
+  const _AvatarSkillPickerSheet({
+    required this.availableSkills,
+    required this.existingSkillNames,
+  });
+
+  final List<_ServiceSkillInfo> availableSkills;
+  final List<String> existingSkillNames;
+
+  @override
+  State<_AvatarSkillPickerSheet> createState() =>
+      _AvatarSkillPickerSheetState();
+}
+
+class _AvatarSkillPickerSheetState extends State<_AvatarSkillPickerSheet> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final existing = widget.existingSkillNames
+        .map((item) => item.trim().toLowerCase())
+        .where((item) => item.isNotEmpty)
+        .toSet();
+    final skills = widget.availableSkills
+        .where((skill) => !existing.contains(skill.name.toLowerCase()))
+        .toList();
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(18, 0, 18, bottomInset + 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '添加技能',
+              style: TextStyle(
+                fontSize: 18,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _controller,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                hintText: '输入自定义技能名称',
+                filled: true,
+                fillColor: AppColors.surface,
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppColors.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppColors.accent),
+                ),
+              ),
+              onSubmitted: (value) {
+                final name = value.trim();
+                if (name.isNotEmpty) {
+                  Navigator.of(context).pop(_AvatarSkillDraft(name: name));
+                }
+              },
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: FilledButton.icon(
+                onPressed: () {
+                  final name = _controller.text.trim();
+                  if (name.isEmpty) return;
+                  Navigator.of(context).pop(_AvatarSkillDraft(name: name));
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('添加自定义技能'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+            if (skills.isNotEmpty) ...[
+              const SizedBox(height: 18),
+              const Text(
+                '可用 Skills',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: skills.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final skill = skills[index];
+                    return Material(
+                      color: const Color(0xFFF7F8FB),
+                      borderRadius: BorderRadius.circular(10),
+                      child: ListTile(
+                        onTap: () => Navigator.of(context).pop(
+                          _AvatarSkillDraft(name: skill.name),
+                        ),
+                        leading: const Icon(
+                          Icons.lightbulb_outline,
+                          color: AppColors.control,
+                        ),
+                        title: Text(
+                          skill.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: skill.description.trim().isEmpty
+                            ? null
+                            : Text(
+                                skill.description,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                        trailing: const Icon(Icons.chevron_right),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AvatarSkillDraft {
+  const _AvatarSkillDraft({required this.name});
+
+  final String name;
+}
+
+class _AvatarSkillView {
+  const _AvatarSkillView({
+    required this.name,
+    required this.description,
+    required this.sourceLabel,
+    required this.icon,
+    required this.generated,
+    required this.custom,
+  });
+
+  final String name;
+  final String description;
+  final String sourceLabel;
+  final IconData icon;
+  final bool generated;
+  final bool custom;
+}
+
+List<String> _mergeUniqueStrings(List<String> values) {
+  final seen = <String>{};
+  final result = <String>[];
+  for (final value in values) {
+    final normalized = _normalizeSpaces(value);
+    if (normalized.isEmpty) continue;
+    if (!seen.add(normalized.toLowerCase())) continue;
+    result.add(normalized);
+  }
+  return result;
+}
+
+List<String> _inferSkillNamesForAgent(String domain) {
+  switch (domain.trim().toLowerCase()) {
+    case 'lead_intake':
+      return const ['线索识别', '缺失字段提取'];
+    case 'sales_consulting':
+      return const ['异议处理', '试听邀约话术'];
+    case 'customer_service':
+      return const ['客户摘要整理', '服务跟进闭环'];
+    case 'scheduling':
+      return const ['试听时间偏好识别', '排课冲突检查'];
+    case 'daily_review':
+      return const ['服务日报复盘', '风险归因'];
+    case 'memory_router':
+      return const ['记忆路由'];
+    default:
+      return const ['服务提醒生成'];
+  }
+}
+
+String _generatedSkillDescription(String skillName, String agentDomain) {
+  final agent = _serviceAgentDomainLabel(agentDomain);
+  return '$agent 根据分身描述生成的能力，用于 $skillName。';
+}
+
+List<_AvatarSkillView> _inferSkillsFromDescription(String description) {
+  final text = description.trim();
+  if (text.isEmpty) return const [];
+  final candidates = <_AvatarSkillView>[];
+
+  void add({
+    required bool when,
+    required String name,
+    required String detail,
+    required IconData icon,
+  }) {
+    if (!when) return;
+    candidates.add(
+      _AvatarSkillView(
+        name: name,
+        description: detail,
+        sourceLabel: 'AI读取分身描述生成',
+        icon: icon,
+        generated: true,
+        custom: false,
+      ),
+    );
+  }
+
+  add(
+    when: RegExp(r'招生|线索|咨询|试听|报名|邀约').hasMatch(text),
+    name: '招生线索跟进',
+    detail: '识别咨询、试听和报名转化相关记忆，生成下一步跟进建议。',
+    icon: Icons.person_add_alt_1_outlined,
+  );
+  add(
+    when: RegExp(r'客户|家长|续费|回访|服务|反馈|客服').hasMatch(text),
+    name: '客户服务闭环',
+    detail: '整理客户摘要、跟进记录、续费窗口和未闭环事项。',
+    icon: Icons.support_agent_outlined,
+  );
+  add(
+    when: RegExp(r'排课|调课|请假|补课|老师|教室|课表').hasMatch(text),
+    name: '排课调课提醒',
+    detail: '识别试听安排、请假补课和时间偏好，生成待确认安排。',
+    icon: Icons.event_available_outlined,
+  );
+  add(
+    when: RegExp(r'风险|投诉|退费|退款|价格|顾虑|异议|不满').hasMatch(text),
+    name: '风险与异议处理',
+    detail: '提取价格顾虑、售后风险和投诉信号，给出边界清晰的话术建议。',
+    icon: Icons.warning_amber_outlined,
+  );
+  add(
+    when: RegExp(r'日报|复盘|总结|回顾').hasMatch(text),
+    name: '服务日报复盘',
+    detail: '按服务提醒、客户阶段和动作闭环生成复盘要点。',
+    icon: Icons.article_outlined,
+  );
+
+  return candidates;
+}
+
+class _CustomerSpaceListCard extends StatelessWidget {
+  const _CustomerSpaceListCard({
+    required this.items,
+    required this.onTap,
+    required this.onMoreTap,
+  });
+
+  final List<_CustomerSpace> items;
+  final ValueChanged<_CustomerSpace> onTap;
+  final ValueChanged<_CustomerSpace> onMoreTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Column(
+          children: [
+            for (var index = 0; index < items.length; index++) ...[
+              _CustomerSpaceListTile(
+                item: items[index],
+                onTap: () => onTap(items[index]),
+                onMoreTap: () => onMoreTap(items[index]),
+              ),
+              if (index != items.length - 1)
+                const Divider(
+                  height: 1,
+                  indent: 86,
+                  endIndent: 14,
+                  color: AppColors.border,
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerSpaceListTile extends StatelessWidget {
+  const _CustomerSpaceListTile({
+    required this.item,
+    required this.onTap,
+    required this.onMoreTap,
+  });
+
+  final _CustomerSpace item;
+  final VoidCallback onTap;
+  final VoidCallback onMoreTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+        child: Row(
+          children: [
+            _CustomerSpaceListThumbnail(item: item),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      if (item.openReminderCount > 0) ...[
+                        const SizedBox(width: 8),
+                        _CustomerSpaceTinyBadge(
+                          label: '${item.openReminderCount} 待处理',
+                          color: const Color(0xFFD87600),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    item.descriptionText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    item.subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textTertiary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Material(
+              color: const Color(0xFFF1F3F8),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onMoreTap,
+                child: const SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: Icon(
+                    Icons.more_vert,
+                    size: 20,
+                    color: AppColors.textTertiary,
+                  ),
+                ),
+              ),
             ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _CustomerSpaceListThumbnail extends StatelessWidget {
+  const _CustomerSpaceListThumbnail({required this.item});
+
+  final _CustomerSpace item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 62,
+      height: 62,
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF8F1),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Text(
+            item.initial,
+            maxLines: 1,
+            style: const TextStyle(
+              fontSize: 24,
+              color: Color(0xFF11835C),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const Positioned(
+            right: 6,
+            bottom: 6,
+            child: Icon(
+              Icons.folder_shared_outlined,
+              size: 15,
+              color: AppColors.accent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerSpaceDetailPage extends StatefulWidget {
+  const _CustomerSpaceDetailPage({
+    required this.initialSpace,
+    required this.authToken,
+    required this.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final _CustomerSpace initialSpace;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<_CustomerSpaceDetailPage> createState() =>
+      _CustomerSpaceDetailPageState();
+}
+
+class _CustomerSpaceDetailPageState extends State<_CustomerSpaceDetailPage> {
+  late final _RuileApiClient _apiClient;
+  late Future<_CustomerSpaceDetail> _detailFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _detailFuture = _loadCustomerSpace();
+  }
+
+  Future<_CustomerSpaceDetail> _loadCustomerSpace() async {
+    if (!_apiClient.isConfigured || widget.initialSpace.id.trim().isEmpty) {
+      return _CustomerSpaceDetail(
+        summary: widget.initialSpace,
+        workDocs: const [],
+        reminders: const [],
+        memoryEvidence: const [],
+        directories: const [],
+      );
+    }
+    return _apiClient.fetchCustomerSpace(widget.initialSpace.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageX,
+                16,
+                AppSpacing.pageX,
+                10,
+              ),
+              child: _KnowledgeDetailTopBar(
+                title: widget.initialSpace.title,
+                onBackTap: () => Navigator.maybePop(context),
+              ),
+            ),
+            Expanded(
+              child: FutureBuilder<_CustomerSpaceDetail>(
+                future: _detailFuture,
+                builder: (context, snapshot) {
+                  final detail = snapshot.data;
+                  final summary = detail?.summary ?? widget.initialSpace;
+                  final loading =
+                      snapshot.connectionState != ConnectionState.done &&
+                          detail == null;
+
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.pageX,
+                      4,
+                      AppSpacing.pageX,
+                      34,
+                    ),
+                    children: [
+                      _CustomerSpaceDetailSummary(space: summary),
+                      const SizedBox(height: 18),
+                      _CustomerSpaceStats(space: summary),
+                      const SizedBox(height: AppSpacing.sectionGap),
+                      if (loading)
+                        const _KnowledgeDirectoryLoading()
+                      else if (snapshot.hasError)
+                        const _CustomerSpaceEmptyCard(
+                          icon: Icons.error_outline,
+                          title: '客户空间详情读取失败',
+                          message: '返回列表后下拉刷新，再重新打开这个客户空间。',
+                        )
+                      else ...[
+                        _CustomerSpaceSectionHeader(
+                          title: '客户空间文档',
+                          countText: '${detail?.workDocs.length ?? 0} 份',
+                        ),
+                        const SizedBox(height: AppSpacing.contentGap),
+                        if (detail == null || detail.workDocs.isEmpty)
+                          const _CustomerSpaceInlineEmpty(
+                            icon: Icons.description_outlined,
+                            message: '暂无客户空间文档',
+                          )
+                        else
+                          for (var index = 0;
+                              index < detail.workDocs.length;
+                              index++) ...[
+                            _CustomerWorkDocRow(
+                              doc: detail.workDocs[index],
+                              onTap: () => _openWorkDoc(detail.workDocs[index]),
+                            ),
+                            if (index != detail.workDocs.length - 1)
+                              const SizedBox(height: 12),
+                          ],
+                        const SizedBox(height: AppSpacing.sectionGap),
+                        _CustomerSpaceSectionHeader(
+                          title: '服务提醒',
+                          countText: '${detail?.reminders.length ?? 0} 条',
+                        ),
+                        const SizedBox(height: AppSpacing.contentGap),
+                        if (detail == null || detail.reminders.isEmpty)
+                          const _CustomerSpaceInlineEmpty(
+                            icon: Icons.notifications_none_outlined,
+                            message: '暂无服务提醒',
+                          )
+                        else
+                          for (var index = 0;
+                              index < detail.reminders.length;
+                              index++) ...[
+                            _CustomerReminderCard(
+                              reminder: detail.reminders[index],
+                            ),
+                            if (index != detail.reminders.length - 1)
+                              const SizedBox(height: 12),
+                          ],
+                        const SizedBox(height: AppSpacing.sectionGap),
+                        _CustomerSpaceSectionHeader(
+                          title: '记忆证据',
+                          countText: '${detail?.memoryEvidence.length ?? 0} 条',
+                        ),
+                        const SizedBox(height: AppSpacing.contentGap),
+                        if (detail == null || detail.memoryEvidence.isEmpty)
+                          const _CustomerSpaceInlineEmpty(
+                            icon: Icons.link,
+                            message: '暂无记忆证据',
+                          )
+                        else
+                          for (var index = 0;
+                              index < detail.memoryEvidence.length;
+                              index++) ...[
+                            _CustomerEvidenceCard(
+                              evidence: detail.memoryEvidence[index],
+                            ),
+                            if (index != detail.memoryEvidence.length - 1)
+                              const SizedBox(height: 12),
+                          ],
+                      ],
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openWorkDoc(_AgentWorkDoc doc) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _CustomerWorkDocDetailPage(doc: doc),
+      ),
+    );
+  }
+}
+
+class _CustomerSpaceDetailSummary extends StatelessWidget {
+  const _CustomerSpaceDetailSummary({required this.space});
+
+  final _CustomerSpace space;
+
+  @override
+  Widget build(BuildContext context) {
+    final subjectLine = space.subjectLine;
+    final chips = [
+      ...space.chips,
+      if (space.openReminderCount > 0) '${space.openReminderCount} 条待处理',
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          space.descriptionText,
+          maxLines: 4,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.body,
+        ),
+        if (chips.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final chip in chips.take(5))
+                _CustomerSpaceTinyBadge(
+                  label: chip,
+                  color: const Color(0xFF536071),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            const Icon(
+              Icons.folder_shared_outlined,
+              size: 20,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                subjectLine.isEmpty ? '客户服务记录' : subjectLine,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.controlLabel,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '${space.workDocCount} 份文档',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTextStyles.stat,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomerSpaceStats extends StatelessWidget {
+  const _CustomerSpaceStats({required this.space});
+
+  final _CustomerSpace space;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _CustomerSpaceStatTile(
+            label: '工作文档',
+            value: '${space.workDocCount}',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _CustomerSpaceStatTile(
+            label: '服务提醒',
+            value: '${space.reminderCount}',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _CustomerSpaceStatTile(
+            label: '记忆证据',
+            value: '${space.sourceMemoryCount}',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomerSpaceStatTile extends StatelessWidget {
+  const _CustomerSpaceStatTile({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 66),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.meta.copyWith(fontSize: 12),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 22,
+              height: 1.1,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerSpaceSectionHeader extends StatelessWidget {
+  const _CustomerSpaceSectionHeader({
+    required this.title,
+    required this.countText,
+  });
+
+  final String title;
+  final String countText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: AppTextStyles.sectionTitle,
+          ),
+        ),
+        Text(
+          countText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppTextStyles.meta,
+        ),
+      ],
+    );
+  }
+}
+
+class _CustomerWorkDocRow extends StatelessWidget {
+  const _CustomerWorkDocRow({
+    required this.doc,
+    required this.onTap,
+  });
+
+  final _AgentWorkDoc doc;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 58,
+                height: 66,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF4F7FB),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Icon(
+                  doc.icon,
+                  size: 29,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            doc.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              height: 1.32,
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const _KnowledgeFileTypeBadge(label: 'MD'),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      doc.excerpt,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.body.copyWith(
+                        fontSize: 13,
+                        height: 1.44,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      [
+                        doc.sourceLabel,
+                        if (doc.updatedLabel.isNotEmpty) doc.updatedLabel,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.meta,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerReminderCard extends StatelessWidget {
+  const _CustomerReminderCard({required this.reminder});
+
+  final _ServiceReminder reminder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  reminder.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.cardTitle.copyWith(fontSize: 15),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _CustomerSpaceTinyBadge(
+                label: reminder.statusLabel,
+                color: _customerSpaceStatusColor(reminder.status),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            reminder.body,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: AppTextStyles.body.copyWith(fontSize: 13),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              _CustomerSpaceTinyBadge(
+                label: reminder.priorityLabel,
+                color: reminder.priorityColor,
+              ),
+              _CustomerSpaceTinyBadge(
+                label: reminder.dueLabel,
+                color: const Color(0xFF536071),
+              ),
+              if (reminder.sourceMemoryCount > 0)
+                _CustomerSpaceTinyBadge(
+                  label: '${reminder.sourceMemoryCount} 条证据',
+                  color: const Color(0xFF536071),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerEvidenceCard extends StatelessWidget {
+  const _CustomerEvidenceCard({required this.evidence});
+
+  final _ServiceMemoryEvidence evidence;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF4F7FB),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.notes_outlined,
+              size: 19,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  evidence.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.cardTitle.copyWith(fontSize: 15),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  evidence.summary.trim().isEmpty
+                      ? '暂无证据摘要'
+                      : evidence.summary.trim(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.body.copyWith(fontSize: 13),
+                ),
+                if (evidence.metaLabel.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    evidence.metaLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.meta,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerWorkDocDetailPage extends StatelessWidget {
+  const _CustomerWorkDocDetailPage({required this.doc});
+
+  final _AgentWorkDoc doc;
+
+  @override
+  Widget build(BuildContext context) {
+    final blocks = doc.content.trim().isEmpty
+        ? const <_SproutTextBlock>[]
+        : _sproutPreviewBlocks(doc.content);
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageX,
+                16,
+                AppSpacing.pageX,
+                10,
+              ),
+              child: _KnowledgeDetailTopBar(
+                title: '空间文档',
+                onBackTap: () => Navigator.maybePop(context),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageX,
+                  4,
+                  AppSpacing.pageX,
+                  30,
+                ),
+                children: [
+                  Text(
+                    doc.title,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      height: 1.28,
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      const _KnowledgeFileTypeBadge(label: 'MD'),
+                      _CustomerSpaceTinyBadge(
+                        label: _workDocStatusLabel(doc.status),
+                        color: _customerSpaceStatusColor(doc.status),
+                      ),
+                      if (doc.sourceMemoryIds.isNotEmpty)
+                        _CustomerSpaceTinyBadge(
+                          label: '${doc.sourceMemoryIds.length} 条记忆',
+                          color: const Color(0xFF536071),
+                        ),
+                    ],
+                  ),
+                  if (doc.docPath.trim().isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      doc.docPath,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.meta,
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(AppRadii.card),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: blocks.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              '暂无文档内容。',
+                              style: AppTextStyles.body,
+                            ),
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (final block in blocks)
+                                _SproutPreviewBlock(block: block),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerSpaceTinyBadge extends StatelessWidget {
+  const _CustomerSpaceTinyBadge({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 168),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 11,
+          height: 1.1,
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomerSpaceEmptyCard extends StatelessWidget {
+  const _CustomerSpaceEmptyCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            size: 32,
+            color: AppColors.textTertiary,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.cardTitle,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.body,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CustomerSpaceInlineEmpty extends StatelessWidget {
+  const _CustomerSpaceInlineEmpty({
+    required this.icon,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 22,
+            color: AppColors.textTertiary,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTextStyles.body,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _customerSpaceStatusColor(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'completed':
+    case 'confirmed':
+    case 'current':
+      return const Color(0xFF11835C);
+    case 'ignored':
+    case 'archived':
+      return AppColors.textTertiary;
+    case 'stale':
+    case 'recompute_required':
+      return const Color(0xFFD87600);
+    default:
+      return const Color(0xFFD87600);
+  }
+}
+
+String _workDocStatusLabel(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'current':
+      return '当前';
+    case 'stale':
+      return '需更新';
+    case 'recompute_required':
+      return '待重算';
+    case 'archived':
+      return '已归档';
+    case 'hidden_due_to_source_permission':
+      return '权限受限';
+    default:
+      return '文档';
+  }
+}
+
+String _serviceAgentDomainLabel(String domain) {
+  switch (domain.trim().toLowerCase()) {
+    case 'memory_router':
+      return '记忆路由';
+    case 'lead_intake':
+      return '线索录入';
+    case 'sales_consulting':
+      return '招生咨询';
+    case 'customer_service':
+      return '客户服务';
+    case 'scheduling':
+      return '排课调课';
+    case 'daily_review':
+      return '日报复盘';
+    default:
+      final normalized = domain.trim();
+      return normalized.isEmpty ? '服务能力' : normalized;
+  }
+}
+
+IconData _serviceAgentDomainIcon(String domain) {
+  switch (domain.trim().toLowerCase()) {
+    case 'memory_router':
+      return Icons.route_outlined;
+    case 'lead_intake':
+      return Icons.person_add_alt_1_outlined;
+    case 'sales_consulting':
+      return Icons.record_voice_over_outlined;
+    case 'customer_service':
+      return Icons.support_agent_outlined;
+    case 'scheduling':
+      return Icons.event_available_outlined;
+    case 'daily_review':
+      return Icons.article_outlined;
+    default:
+      return Icons.auto_awesome_outlined;
   }
 }
 
@@ -3391,6 +6680,30 @@ class _OrganizeSproutIconPainter extends CustomPainter {
   }
 }
 
+class _KnowledgeListLoading extends StatelessWidget {
+  const _KnowledgeListLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 156,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+        ),
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2.2),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _KnowledgeListCard extends StatelessWidget {
   const _KnowledgeListCard({
     required this.items,
@@ -3398,9 +6711,9 @@ class _KnowledgeListCard extends StatelessWidget {
     required this.onMoreTap,
   });
 
-  final List<_KnowledgeBaseListItem> items;
-  final ValueChanged<_KnowledgeBaseListItem> onTap;
-  final ValueChanged<_KnowledgeBaseListItem> onMoreTap;
+  final List<_KnowledgeBase> items;
+  final ValueChanged<_KnowledgeBase> onTap;
+  final ValueChanged<_KnowledgeBase> onMoreTap;
 
   @override
   Widget build(BuildContext context) {
@@ -3439,7 +6752,7 @@ class _KnowledgeListTile extends StatelessWidget {
     required this.onMoreTap,
   });
 
-  final _KnowledgeBaseListItem item;
+  final _KnowledgeBase item;
   final VoidCallback onTap;
   final VoidCallback onMoreTap;
 
@@ -3469,7 +6782,9 @@ class _KnowledgeListTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    item.description,
+                    item.description?.trim().isNotEmpty == true
+                        ? item.description!.trim()
+                        : '暂无描述',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -3480,7 +6795,7 @@ class _KnowledgeListTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    item.meta,
+                    item.summary,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -3520,58 +6835,7 @@ class _KnowledgeListTile extends StatelessWidget {
 class _KnowledgeListThumbnail extends StatelessWidget {
   const _KnowledgeListThumbnail({required this.item});
 
-  final _KnowledgeBaseListItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    switch (item.thumbnailStyle) {
-      case _KnowledgeThumbnailStyle.textBadge:
-        return _TextBadgeThumbnail(item: item);
-      case _KnowledgeThumbnailStyle.portrait:
-        return const _PortraitThumbnail();
-      case _KnowledgeThumbnailStyle.lightning:
-        return const _LightningThumbnail();
-      case _KnowledgeThumbnailStyle.icon:
-        return _IconKnowledgeThumbnail(item: item);
-    }
-  }
-}
-
-class _TextBadgeThumbnail extends StatelessWidget {
-  const _TextBadgeThumbnail({required this.item});
-
-  final _KnowledgeBaseListItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 62,
-      height: 62,
-      padding: const EdgeInsets.all(7),
-      decoration: BoxDecoration(
-        color: item.thumbnailColor ?? const Color(0xFFC58773),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Center(
-        child: Text(
-          item.thumbnailText ?? item.title,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 20,
-            height: 1.12,
-            color: AppColors.surface,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PortraitThumbnail extends StatelessWidget {
-  const _PortraitThumbnail();
+  final _KnowledgeBase item;
 
   @override
   Widget build(BuildContext context) {
@@ -3579,112 +6843,11 @@ class _PortraitThumbnail extends StatelessWidget {
       width: 62,
       height: 62,
       decoration: BoxDecoration(
-        color: const Color(0xFFE6D1BD),
+        color: const Color(0xFFECEFF7),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned(
-            top: 8,
-            child: Container(
-              width: 31,
-              height: 31,
-              decoration: BoxDecoration(
-                color: const Color(0xFFD49B74),
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 7,
-            child: Container(
-              width: 35,
-              height: 16,
-              decoration: const BoxDecoration(
-                color: Color(0xFF171717),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 23,
-            child: Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF171717)),
-                  ),
-                ),
-                Container(width: 8, height: 1, color: const Color(0xFF171717)),
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: const Color(0xFF171717)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            bottom: 0,
-            child: Container(
-              width: 54,
-              height: 24,
-              decoration: const BoxDecoration(
-                color: Color(0xFF1F211C),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LightningThumbnail extends StatelessWidget {
-  const _LightningThumbnail();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 62,
-      height: 62,
-      decoration: BoxDecoration(
-        color: const Color(0xFF11151D),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Icon(
-        Icons.offline_bolt,
-        size: 46,
-        color: AppColors.surface,
-      ),
-    );
-  }
-}
-
-class _IconKnowledgeThumbnail extends StatelessWidget {
-  const _IconKnowledgeThumbnail({required this.item});
-
-  final _KnowledgeBaseListItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 62,
-      height: 62,
-      decoration: BoxDecoration(
-        color: item.thumbnailColor ?? const Color(0xFFECEFF7),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Icon(
-        Icons.folder_open,
+      child: Icon(
+        item.icon ?? Icons.folder_open,
         size: 32,
         color: AppColors.textPrimary,
       ),
@@ -3711,8 +6874,6 @@ class _KnowledgeBaseDetailPage extends StatelessWidget {
     String tenantId = AppApiConfig.tenantId,
     VoidCallback? onAuthFailure,
   }) {
-    final isQuotes = knowledgeBase.title == '金句名言';
-
     return _KnowledgeBaseDetailPage(
       knowledgeBaseId: knowledgeBase.id,
       manualDirectories: knowledgeBase.manualDirectories,
@@ -3722,89 +6883,13 @@ class _KnowledgeBaseDetailPage extends StatelessWidget {
       title: knowledgeBase.title,
       description: knowledgeBase.description?.trim().isNotEmpty == true
           ? knowledgeBase.description!
-          : isQuotes
-              ? '汇集各领域的经典金句和智慧箴言，为你提供全方位的灵感补充，希望在这里能找到你需要的那一句话。'
-              : '整理这个知识库中的文件资料，方便快速浏览文件夹、文档和常用素材。',
-      ownerLabel: knowledgeBase.ownerLabel ?? (isQuotes ? '得到大脑' : '个人知识库'),
-      contentLabel:
-          knowledgeBase.contentLabel ?? (isQuotes ? '48 个内容' : '16 个内容'),
-    );
-  }
-
-  factory _KnowledgeBaseDetailPage.fromListItem(_KnowledgeBaseListItem item) {
-    final isLuo = item.title == '罗振宇学习笔记';
-    final isGuide = item.title == '得到大脑使用指南';
-
-    return _KnowledgeBaseDetailPage(
-      title: item.title,
-      description: item.description,
-      ownerLabel: isLuo ? '罗振宇' : '得到大脑',
-      contentLabel: isLuo
-          ? '4088 个内容'
-          : isGuide
-              ? '74 个内容'
-              : '48 个内容',
+          : '整理这个知识库中的文件资料，方便快速浏览文件夹、文档和常用素材。',
+      ownerLabel: knowledgeBase.ownerLabel ?? '个人知识库',
+      contentLabel: knowledgeBase.contentLabel ?? '0 个内容',
     );
   }
 
   static const rootPath = '';
-  static const _documents = [
-    _KnowledgeDocument(
-      path: '鲁迅·精选语录/罗振宇2022“时间的朋友”跨年演讲金句总结.pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2022年/罗胖60秒·2022合集.pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2021年/044 相比算法，人类的优势在哪里？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2021年/011 中国历史上有多少个皇帝？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2021年/017 孝道的最高境界是什么？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2020年/010 信息为什么会失真？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2019年/009 如何看待长期主义？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2018年/008 为什么要持续学习？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2017年/007 怎样建立自己的知识网络？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '罗胖60秒·十年合集/2016年/006 什么是认知升级？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-    _KnowledgeDocument(
-      path: '044 相比算法，人类的优势在哪里？ .pdf',
-      date: '2024年12月26日 20:08',
-    ),
-  ];
-  static const _folderCountLabels = {
-    '鲁迅·精选语录': '11 个内容',
-    '罗胖60秒·十年合集': '4088 个内容',
-    '罗胖60秒·十年合集/2022年': '298 个内容',
-    '罗胖60秒·十年合集/2021年': '294 个内容',
-    '罗胖60秒·十年合集/2020年': '286 个内容',
-    '罗胖60秒·十年合集/2019年': '240 个内容',
-    '罗胖60秒·十年合集/2018年': '269 个内容',
-    '罗胖60秒·十年合集/2017年': '216 个内容',
-    '罗胖60秒·十年合集/2016年': '224 个内容',
-  };
 
   final String title;
   final String description;
@@ -3861,7 +6946,7 @@ class _KnowledgeBaseDetailPage extends StatelessWidget {
                       const _KnowledgeDetailTabs(),
                       const SizedBox(height: AppSpacing.contentGap),
                       if (knowledgeBaseId == null)
-                        _KnowledgeDirectoryContent(rootName: title)
+                        const _KnowledgeDirectoryLoading()
                       else
                         _RemoteKnowledgeDirectoryContent(
                           knowledgeBaseId: knowledgeBaseId!,
@@ -3888,7 +6973,6 @@ class _KnowledgeDirectoryContent extends StatefulWidget {
     required this.rootName,
     this.documents,
     this.manualDirectories = const [],
-    this.useDemoLabels = true,
     this.authToken = AppApiConfig.authToken,
     this.tenantId = AppApiConfig.tenantId,
     this.onAuthFailure,
@@ -3897,7 +6981,6 @@ class _KnowledgeDirectoryContent extends StatefulWidget {
   final String rootName;
   final List<_KnowledgeDocument>? documents;
   final List<_KnowledgeDirectoryNode> manualDirectories;
-  final bool useDemoLabels;
   final String authToken;
   final String tenantId;
   final VoidCallback? onAuthFailure;
@@ -3911,8 +6994,7 @@ class _KnowledgeDirectoryContentState
     extends State<_KnowledgeDirectoryContent> {
   @override
   Widget build(BuildContext context) {
-    final sourceDocuments =
-        widget.documents ?? _KnowledgeBaseDetailPage._documents;
+    final sourceDocuments = widget.documents ?? const <_KnowledgeDocument>[];
     final root = _KnowledgeTreeNode.fromDocuments(
       sourceDocuments,
       manualDirectories: widget.manualDirectories,
@@ -4009,13 +7091,21 @@ class _KnowledgeDirectoryContentState
   }
 
   String _countText(_KnowledgeTreeNode node) {
-    if (node.path.isNotEmpty && widget.useDemoLabels) {
-      final demoLabel = _KnowledgeBaseDetailPage._folderCountLabels[node.path];
-      if (demoLabel != null) {
-        return demoLabel.replaceFirst(RegExp(r'\s*个内容$'), '');
-      }
-    }
     return node.documentCount.toString();
+  }
+}
+
+class _KnowledgeDirectoryLoading extends StatelessWidget {
+  const _KnowledgeDirectoryLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
   }
 }
 
@@ -4119,7 +7209,6 @@ class _RemoteKnowledgeDirectoryContentState
           rootName: widget.rootName,
           documents: data.documents,
           manualDirectories: data.manualDirectories,
-          useDemoLabels: false,
           authToken: widget.authToken,
           tenantId: widget.tenantId,
           onAuthFailure: widget.onAuthFailure,
@@ -6109,6 +9198,16 @@ String _readOrganizeMemoryAudioUrl(
   return _readString(metadata, const ['file_path', 'audio_file_path']);
 }
 
+String _readOrganizeMemoryText(
+  Map<String, dynamic> json,
+  Map<String, dynamic> metadata,
+  List<String> keys,
+) {
+  final direct = _readString(json, keys);
+  if (direct.isNotEmpty) return direct;
+  return _readString(metadata, keys);
+}
+
 String _resolvePreviewImageUrl(String rawUrl) {
   final value = rawUrl.trim();
   if (value.isEmpty) return '';
@@ -6335,7 +9434,6 @@ class _MemoryDetailPage extends StatefulWidget {
 }
 
 class _MemoryDetailPageState extends State<_MemoryDetailPage> {
-  static const _tabs = ['笔记内容', '发芽'];
   static const _buttonColor = Color(0xFFF4F5F8);
   static const _titleStyle = TextStyle(
     fontSize: 20,
@@ -6375,6 +9473,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   void initState() {
     super.initState();
     _note = widget.note;
+    _selectedTabIndex = _defaultTabIndexFor(_note);
     _apiClient = _buildApiClient();
     _restartTranscriptionPollingIfNeeded(immediate: true);
     unawaited(_loadLinkedSproutReport());
@@ -6389,6 +9488,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     }
     if (oldWidget.note.id != widget.note.id) {
       _note = widget.note;
+      _selectedTabIndex = _defaultTabIndexFor(_note);
       _sproutReport = null;
       _sproutError = null;
       _restartTranscriptionPollingIfNeeded(immediate: true);
@@ -6409,6 +9509,28 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       tenantId: widget.tenantId,
       onAuthFailure: widget.onAuthFailure,
     );
+  }
+
+  List<String> get _detailTabs {
+    return _note.hasAudioLink
+        ? const ['录音原文', '笔记内容', '发芽']
+        : const ['笔记内容', '发芽'];
+  }
+
+  int get _contentTabIndex => _note.hasAudioLink ? 1 : 0;
+
+  int get _sproutTabIndex => _note.hasAudioLink ? 2 : 1;
+
+  int _defaultTabIndexFor(_NoteItem note) {
+    return note.hasAudioLink ? 1 : 0;
+  }
+
+  int _normalizeSelectedTabIndex(int index, _NoteItem note) {
+    final length = note.hasAudioLink ? 3 : 2;
+    if (index < 0 || index >= length) {
+      return _defaultTabIndexFor(note);
+    }
+    return index;
   }
 
   void _restartTranscriptionPollingIfNeeded({bool immediate = false}) {
@@ -6464,9 +9586,9 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     return DateTime.now().difference(startedAt) >= _transcriptionPollTimeout;
   }
 
-  Future<void> _refreshRemoteNote() async {
+  Future<void> _refreshRemoteNote({bool ignoreTimeout = false}) async {
     if (_refreshingRemoteNote || !mounted) return;
-    if (_hasPollingTimedOut()) {
+    if (!ignoreTimeout && _hasPollingTimedOut()) {
       _stopTranscriptionPolling();
       return;
     }
@@ -6485,6 +9607,8 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       final nextNote = memory.toNoteItem();
       setState(() {
         _note = nextNote;
+        _selectedTabIndex =
+            _normalizeSelectedTabIndex(_selectedTabIndex, nextNote);
       });
       if (_shouldPollTranscription(nextNote)) {
         if (_hasPollingTimedOut()) {
@@ -6505,6 +9629,14 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     } finally {
       _refreshingRemoteNote = false;
     }
+  }
+
+  Future<void> _refreshDetailContent() async {
+    _transcriptionPollStartedAt = DateTime.now();
+    await Future.wait<void>([
+      _refreshRemoteNote(ignoreTimeout: true),
+      _loadLinkedSproutReport(silent: true),
+    ]);
   }
 
   String get _sproutButtonTooltip {
@@ -6607,7 +9739,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     if (_sproutCreating || _sproutLoading) return;
     if (_sproutReport != null) {
       setState(() {
-        _selectedTabIndex = 1;
+        _selectedTabIndex = _sproutTabIndex;
       });
       return;
     }
@@ -6637,7 +9769,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       if (!mounted) return;
       setState(() {
         _sproutReport = report;
-        _selectedTabIndex = 1;
+        _selectedTabIndex = _sproutTabIndex;
       });
       _showMessage('发芽任务已创建');
       _scheduleSproutRefreshIfNeeded(report);
@@ -6793,138 +9925,149 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     final audioFileName = note.audioFileName.trim().isNotEmpty
         ? note.audioFileName.trim()
         : _audioSourceFileName(audioUrl, fallback: note.title);
+    final detailTabs = _detailTabs;
+    final selectedTabIndex =
+        _normalizeSelectedTabIndex(_selectedTabIndex, note);
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(18, 14, 18, 26),
-          children: [
-            Row(
-              children: [
-                _KnowledgeRoundButton(
-                  tooltip: '返回',
-                  icon: Icons.chevron_left,
-                  backgroundColor: _buttonColor,
-                  size: 40,
-                  iconSize: 24,
-                  onTap: () => Navigator.maybePop(context),
-                ),
-                const Spacer(),
-                _KnowledgeRoundButton(
-                  tooltip: _sproutButtonTooltip,
-                  iconWidget: const _OrganizeSproutIcon(),
-                  backgroundColor: _buttonColor,
-                  size: 40,
-                  iconSize: 21,
-                  iconColor: _sproutButtonIconColor,
-                  loading: _sproutCreating,
-                  enabled: !_sproutLoading && !_sproutCreating,
-                  onTap: () => unawaited(_handleSproutAction()),
-                ),
-                const SizedBox(width: 14),
-                _KnowledgeRoundButton(
-                  tooltip: '分享',
-                  icon: Icons.open_in_new,
-                  backgroundColor: _buttonColor,
-                  size: 40,
-                  iconSize: 22,
-                  onTap: () => _showMessage('分享功能待接入'),
-                ),
-                const SizedBox(width: 14),
-                _KnowledgeRoundButton(
-                  tooltip: '更多',
-                  icon: Icons.more_vert,
-                  backgroundColor: _buttonColor,
-                  size: 40,
-                  iconSize: 24,
-                  onTap: _showMoreActions,
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            Text(
-              note.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: _titleStyle,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              '创建时间  ${note.detailCreatedAt}',
-              style: _metaStyle,
-            ),
-            if (note.hasAudioLink) ...[
-              const SizedBox(height: 16),
-              const Text(
-                '音频播放',
-                style: _metaStyle,
-              ),
-              const SizedBox(height: 8),
-              _AudioDetailPreview(
-                fileName: audioFileName,
-                previewSourceUrl: audioUrl,
-                authToken: widget.authToken,
-                tenantId: widget.tenantId,
-                onAuthFailure: widget.onAuthFailure,
-                durationSeconds: note.durationSeconds,
-              ),
-              if (note.transcriptionStatusLabel.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _TranscriptionStatusChip(note: note),
-                ),
-                if (note.transcriptionStatusDetailText.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    note.transcriptionStatusDetailText,
-                    style: _metaStyle,
+        child: RefreshIndicator(
+          onRefresh: _refreshDetailContent,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 26),
+            children: [
+              Row(
+                children: [
+                  _KnowledgeRoundButton(
+                    tooltip: '返回',
+                    icon: Icons.chevron_left,
+                    backgroundColor: _buttonColor,
+                    size: 40,
+                    iconSize: 24,
+                    onTap: () => Navigator.maybePop(context),
+                  ),
+                  const Spacer(),
+                  _KnowledgeRoundButton(
+                    tooltip: _sproutButtonTooltip,
+                    iconWidget: const _OrganizeSproutIcon(),
+                    backgroundColor: _buttonColor,
+                    size: 40,
+                    iconSize: 21,
+                    iconColor: _sproutButtonIconColor,
+                    loading: _sproutCreating,
+                    enabled: !_sproutLoading && !_sproutCreating,
+                    onTap: () => unawaited(_handleSproutAction()),
+                  ),
+                  const SizedBox(width: 14),
+                  _KnowledgeRoundButton(
+                    tooltip: '分享',
+                    icon: Icons.open_in_new,
+                    backgroundColor: _buttonColor,
+                    size: 40,
+                    iconSize: 22,
+                    onTap: () => _showMessage('分享功能待接入'),
+                  ),
+                  const SizedBox(width: 14),
+                  _KnowledgeRoundButton(
+                    tooltip: '更多',
+                    icon: Icons.more_vert,
+                    backgroundColor: _buttonColor,
+                    size: 40,
+                    iconSize: 24,
+                    onTap: _showMoreActions,
                   ),
                 ],
+              ),
+              const SizedBox(height: 32),
+              Text(
+                note.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: _titleStyle,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '创建时间  ${note.detailCreatedAt}',
+                style: _metaStyle,
+              ),
+              if (note.hasAudioLink) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  '音频播放',
+                  style: _metaStyle,
+                ),
+                const SizedBox(height: 8),
+                _AudioDetailPreview(
+                  fileName: audioFileName,
+                  previewSourceUrl: audioUrl,
+                  authToken: widget.authToken,
+                  tenantId: widget.tenantId,
+                  onAuthFailure: widget.onAuthFailure,
+                  durationSeconds: note.durationSeconds,
+                ),
+                if (note.transcriptionStatusLabel.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _TranscriptionStatusChip(note: note),
+                  ),
+                  if (note.transcriptionStatusDetailText.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      note.transcriptionStatusDetailText,
+                      style: _metaStyle,
+                    ),
+                  ],
+                ],
               ],
+              const SizedBox(height: 20),
+              _MemoryTagButton(
+                onPressed: _openAddMemory,
+                icon: Icons.add,
+                label: '添加',
+              ),
+              const SizedBox(height: 26),
+              _MemoryDetailTabs(
+                labels: detailTabs,
+                selectedIndex: selectedTabIndex,
+                onSelected: (index) {
+                  setState(() {
+                    _selectedTabIndex = index;
+                  });
+                },
+              ),
+              const SizedBox(height: 24),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                child: note.hasAudioLink && selectedTabIndex == 0
+                    ? Text(
+                        note.transcriptBody,
+                        key: const ValueKey('memory-transcript'),
+                        style: _bodyStyle,
+                      )
+                    : selectedTabIndex == _contentTabIndex
+                        ? Text(
+                            note.detailBody,
+                            key: const ValueKey('memory-content'),
+                            style: _bodyStyle,
+                          )
+                        : _MemorySproutPanel(
+                            key: const ValueKey('memory-sprout'),
+                            report: _sproutReport,
+                            loading: _sproutLoading,
+                            creating: _sproutCreating,
+                            error: _sproutError,
+                            onRetry: () => unawaited(_loadLinkedSproutReport()),
+                            onCreate: () => unawaited(_createSproutReport()),
+                            onOpen: () => unawaited(_openSproutPreview()),
+                          ),
+              ),
             ],
-            const SizedBox(height: 20),
-            _MemoryTagButton(
-              onPressed: _openAddMemory,
-              icon: Icons.add,
-              label: '添加',
-            ),
-            const SizedBox(height: 26),
-            _MemoryDetailTabs(
-              labels: _tabs,
-              selectedIndex: _selectedTabIndex,
-              onSelected: (index) {
-                setState(() {
-                  _selectedTabIndex = index;
-                });
-              },
-            ),
-            const SizedBox(height: 24),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              child: switch (_selectedTabIndex) {
-                0 => Text(
-                    note.detailBody,
-                    key: const ValueKey('memory-content'),
-                    style: _bodyStyle,
-                  ),
-                1 => _MemorySproutPanel(
-                    key: const ValueKey('memory-sprout'),
-                    report: _sproutReport,
-                    loading: _sproutLoading,
-                    creating: _sproutCreating,
-                    error: _sproutError,
-                    onRetry: () => unawaited(_loadLinkedSproutReport()),
-                    onCreate: () => unawaited(_createSproutReport()),
-                    onOpen: () => unawaited(_openSproutPreview()),
-                  ),
-                _ => const SizedBox.shrink(),
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -8539,24 +11682,129 @@ String _plainTextFromHtml(String value) {
   if (text.isEmpty) return '';
 
   text = text.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
-  text = text.replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n\n');
-  text = text.replaceAll(RegExp(r'<p[^>]*>', caseSensitive: false), '');
-  text = text.replaceAll(RegExp(r'<div[^>]*>', caseSensitive: false), '');
-  text = text.replaceAll(RegExp(r'</div\s*>', caseSensitive: false), '\n');
+  text = text.replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '• ');
+  text = text.replaceAll(RegExp(r'</li\s*>', caseSensitive: false), '\n');
+  text = text.replaceAll(
+    RegExp(r'</(p|div|section|article|blockquote|h[1-6]|ul|ol)\s*>',
+        caseSensitive: false),
+    '\n\n',
+  );
+  text = text.replaceAll(
+    RegExp(r'<(p|div|section|article|blockquote|h[1-6]|ul|ol)[^>]*>',
+        caseSensitive: false),
+    '',
+  );
   text = text.replaceAll(RegExp(r'<[^>]+>'), '');
-  text = text
+  text = _decodeBasicHtmlEntities(text);
+
+  return _normalizeReadableText(text);
+}
+
+bool _looksLikeHtml(String value) {
+  return RegExp(
+    r'</?(h[1-6]|p|ul|ol|li|blockquote|div|table|article|section|br)\b',
+    caseSensitive: false,
+  ).hasMatch(value);
+}
+
+String _readableMemoryText(String value) {
+  var text = value.trim();
+  if (text.isEmpty) return '';
+  if (_looksLikeHtml(text)) {
+    text = _plainTextFromHtml(text);
+  }
+  text = text.replaceAll(RegExp(r'\r\n?'), '\n');
+  text = text.replaceAll(RegExp(r'```[a-zA-Z0-9_-]*'), '');
+  text = text.replaceAll('```', '');
+  text = text.replaceAll(RegExp(r'^\s*#{1,6}\s+', multiLine: true), '');
+  text = text.replaceAll(RegExp(r'^\s*>+\s?', multiLine: true), '');
+  text = text.replaceAllMapped(
+    RegExp(r'^\s*[-*+]\s+', multiLine: true),
+    (_) => '• ',
+  );
+  text = text.replaceAllMapped(
+    RegExp(r'^\s*(\d{1,3})[.)]\s+', multiLine: true),
+    (match) => '${match.group(1)}. ',
+  );
+  text = text.replaceAll(
+    RegExp(r'^\s*[-*_]{3,}\s*$', multiLine: true),
+    '',
+  );
+  text = _stripMarkdownInlineMarkers(_decodeBasicHtmlEntities(text));
+  return _normalizeReadableText(text);
+}
+
+String _stripMarkdownInlineMarkers(String value) {
+  return value
+      .replaceAll(RegExp(r'!\[[^\]]*]\([^)]*\)'), '')
+      .replaceAllMapped(
+        RegExp(r'\[([^\]]+)]\([^)]*\)'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAllMapped(
+        RegExp(r'\*\*([^*]+)\*\*'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAllMapped(
+        RegExp(r'__([^_]+)__'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAllMapped(
+        RegExp(r'`([^`]+)`'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAllMapped(
+        RegExp(r'~~([^~]+)~~'),
+        (match) => match.group(1) ?? '',
+      )
+      .replaceAll(RegExp(r'\*{1,3}'), '')
+      .replaceAll('`', '')
+      .replaceAll('~~', '');
+}
+
+String _decodeBasicHtmlEntities(String value) {
+  return value
       .replaceAll('&nbsp;', ' ')
       .replaceAll('&amp;', '&')
       .replaceAll('&lt;', '<')
       .replaceAll('&gt;', '>')
       .replaceAll('&quot;', '"')
-      .replaceAll('&#39;', "'");
+      .replaceAll('&#39;', "'")
+      .replaceAllMapped(RegExp(r'&#(\d+);'), (match) {
+    final codePoint = int.tryParse(match.group(1) ?? '');
+    if (codePoint == null || codePoint < 0 || codePoint > 0x10ffff) {
+      return match.group(0) ?? '';
+    }
+    return String.fromCharCode(codePoint);
+  }).replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (match) {
+    final codePoint = int.tryParse(match.group(1) ?? '', radix: 16);
+    if (codePoint == null || codePoint < 0 || codePoint > 0x10ffff) {
+      return match.group(0) ?? '';
+    }
+    return String.fromCharCode(codePoint);
+  });
+}
 
-  return text
-      .split(RegExp(r'\n\s*\n'))
-      .map(_normalizeSpaces)
-      .where((line) => line.isNotEmpty)
-      .join('\n\n');
+String _normalizeReadableText(String value) {
+  final lines = value.replaceAll(RegExp(r'\r\n?'), '\n').split('\n');
+  final normalizedLines = <String>[];
+  var previousBlank = false;
+  for (final rawLine in lines) {
+    final line = _normalizeSpaces(rawLine);
+    if (line.isEmpty) {
+      if (normalizedLines.isNotEmpty && !previousBlank) {
+        normalizedLines.add('');
+        previousBlank = true;
+      }
+      continue;
+    }
+    normalizedLines.add(line);
+    previousBlank = false;
+  }
+  while (normalizedLines.isNotEmpty && normalizedLines.last.isEmpty) {
+    normalizedLines.removeLast();
+  }
+  return normalizedLines.join('\n').trim();
 }
 
 String _organizeMemoryKindLabel(String kind) {
@@ -10302,445 +13550,564 @@ class _DiscoverSourceFileCard extends StatelessWidget {
 }
 
 class AssistantPage extends StatefulWidget {
-  const AssistantPage({super.key});
+  const AssistantPage({
+    super.key,
+    this.authToken = AppApiConfig.authToken,
+    this.tenantId = AppApiConfig.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
 
   @override
   State<AssistantPage> createState() => _AssistantPageState();
 }
 
 class _AssistantPageState extends State<AssistantPage> {
-  static const _tabs = ['消息', '找人'];
-  static const _messages = [
-    _AssistantConversation(
-      title: 'AI客户信息整理',
-      excerpt: '已从最近的记忆中整理出 6 位客户的需求、进展与下次跟进建议。',
-      date: '今天',
-      avatarColor: Color(0xFF23B99D),
-      icon: Icons.auto_awesome,
-      unread: true,
-    ),
-    _AssistantConversation(
-      title: '跟进提醒',
-      excerpt: '明天 10:00 建议联系王老师，重点确认课程体验课时间和预算范围。',
-      date: '昨天',
-      avatarColor: Color(0xFF536071),
-      icon: Icons.notifications_active_outlined,
-    ),
-    _AssistantConversation(
-      title: '客户画像更新',
-      excerpt: '李园长关注园区招生转化，偏好可量化案例，建议发送运营支持方案。',
-      date: '8月28日',
-      avatarColor: Color(0xFF8B5CF6),
-      icon: Icons.badge_outlined,
-    ),
-    _AssistantConversation(
-      title: '会议纪要摘要',
-      excerpt: '已整理今天沟通中的关键异议：价格敏感、交付周期、师资培训。',
-      date: '8月27日',
-      avatarColor: Color(0xFFD87600),
-      icon: Icons.summarize_outlined,
-    ),
-    _AssistantConversation(
-      title: '商机阶段变化',
-      excerpt: '检测到 2 条商机从初步沟通推进到方案评估，建议补充联系人角色。',
-      date: '8月26日',
-      avatarColor: Color(0xFF2459D9),
-      icon: Icons.trending_up,
-    ),
-  ];
+  late _RuileApiClient _apiClient;
+  final _searchController = TextEditingController();
+  List<_ServiceReminder> _reminders = const [];
+  var _loading = true;
+  var _loaded = false;
+  var _refreshing = false;
+  String? _loadError;
+  String _filter = 'all';
 
-  static const _customerCards = [
-    _AssistantCustomerInsight(
-      name: '王老师',
-      status: '高意向',
-      summary: '关注体验课排期和转化数据，适合优先推进方案确认。',
-      color: Color(0xFF23B99D),
-    ),
-    _AssistantCustomerInsight(
-      name: '李园长',
-      status: '待跟进',
-      summary: '需要运营支持案例，建议发送园区招生复盘材料。',
-      color: Color(0xFF8B5CF6),
-    ),
-    _AssistantCustomerInsight(
-      name: '张主任',
-      status: '需澄清',
-      summary: '预算和采购流程尚未明确，下次沟通先确认决策链。',
-      color: Color(0xFFD87600),
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _buildApiClient();
+    unawaited(_loadServiceReminders());
+  }
 
-  int _selectedTabIndex = 0;
+  @override
+  void didUpdateWidget(covariant AssistantPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _buildApiClient();
+      unawaited(_loadServiceReminders());
+    }
+  }
 
-  void _showComingSoon(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label待接入'),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 1200),
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  _RuileApiClient _buildApiClient() {
+    return _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+  }
+
+  Future<void> _loadServiceReminders({bool refresh = false}) async {
+    if (refresh && _refreshing) return;
+    if (refresh) {
+      setState(() {
+        _refreshing = true;
+        _loadError = null;
+      });
+    } else if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
+
+    if (!_apiClient.isConfigured) {
+      if (!mounted) return;
+      setState(() {
+        _reminders = const [];
+        _loading = false;
+        _refreshing = false;
+        _loaded = true;
+      });
+      return;
+    }
+
+    try {
+      final result = await _apiClient.fetchServiceBootstrap(refresh: refresh);
+      if (!mounted) return;
+      setState(() {
+        _reminders = result.reminders;
+        _loading = false;
+        _refreshing = false;
+        _loaded = true;
+        _loadError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      debugPrint('Failed to load service reminders: $error');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _loaded = true;
+        _loadError = '服务提醒读取失败';
+      });
+    } catch (error) {
+      debugPrint('Failed to load service reminders: $error');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _loaded = true;
+        _loadError = '服务提醒读取失败';
+      });
+    }
+  }
+
+  List<_ServiceReminder> get _visibleReminders {
+    final keyword = _normalizeSpaces(_searchController.text).toLowerCase();
+    final items = _reminders.where((reminder) {
+      final statusMatches = switch (_filter) {
+        'pending' => reminder.isOpen,
+        'completed' => reminder.isCompleted,
+        _ => true,
+      };
+      if (!statusMatches) return false;
+      if (keyword.isEmpty) return true;
+      final searchable = [
+        reminder.customerName,
+        reminder.studentName,
+        reminder.title,
+        reminder.summary,
+        reminder.stage,
+        reminder.riskLabel,
+        reminder.nextAction,
+      ].join(' ').toLowerCase();
+      return searchable.contains(keyword);
+    }).toList();
+
+    items.sort((a, b) {
+      final statusCompare =
+          a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1);
+      if (statusCompare != 0) return statusCompare;
+      final priorityCompare = b.priorityWeight.compareTo(a.priorityWeight);
+      if (priorityCompare != 0) return priorityCompare;
+      return a.dueLabel.compareTo(b.dueLabel);
+    });
+    return items;
+  }
+
+  int _countWhere(bool Function(_ServiceReminder) test) {
+    return _reminders.where(test).length;
+  }
+
+  Future<void> _openReminder(_ServiceReminder reminder) async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => _ServiceReminderDetailPage(
+          reminder: reminder,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+    if (!mounted || changed != true) return;
+    unawaited(_loadServiceReminders());
+  }
+
+  void _openCustomerSpaces() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => CustomerSpaceListPage(
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
       ),
     );
   }
 
+  String get _emptyMessage {
+    if (_searchController.text.trim().isNotEmpty) return '没有匹配的服务提醒';
+    if (_filter == 'completed') return '还没有已完成的服务提醒';
+    if (_filter == 'pending') return '当前没有待处理事项';
+    if (!_apiClient.isConfigured) return '登录后可查看服务提醒';
+    return '还没有收集到可生成提醒的客户服务记忆。';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final visibleReminders = _visibleReminders;
+    final openCount = _countWhere((item) => item.isOpen);
+    final completedCount = _countWhere((item) => item.isCompleted);
+
     return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFF0E4DA),
-            AppColors.background,
-          ],
-        ),
-      ),
+      decoration: const BoxDecoration(color: AppColors.background),
       child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 58, 12, 132),
-          children: [
-            _AssistantTopTabs(
-              tabs: _tabs,
-              selectedIndex: _selectedTabIndex,
-              onSelected: (index) {
-                setState(() {
-                  _selectedTabIndex = index;
-                });
-              },
-              onCreateTap: () => _showComingSoon('新建助理会话'),
-            ),
-            const SizedBox(height: 18),
-            const _AssistantSearchBox(),
-            const SizedBox(height: 20),
-            if (_selectedTabIndex == 0) ...[
-              _AssistantCustomerSummaryCard(
-                insights: _customerCards,
-                onTap: () => _showComingSoon('客户信息详情'),
+        child: RefreshIndicator(
+          onRefresh: () => _loadServiceReminders(refresh: true),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(18, 24, 18, 132),
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('服务提醒', style: AppTextStyles.pageTitle),
+                        SizedBox(height: 6),
+                        Text(
+                          '从记忆笔记整理今天要服务谁、为什么提醒和下一步动作。',
+                          style: AppTextStyles.body,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Tooltip(
+                    message: '客户空间',
+                    child: IconButton(
+                      onPressed: _openCustomerSpaces,
+                      icon: const Icon(Icons.folder_shared_outlined),
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  Tooltip(
+                    message: '刷新服务提醒',
+                    child: IconButton(
+                      onPressed: _refreshing
+                          ? null
+                          : () => unawaited(
+                                _loadServiceReminders(refresh: true),
+                              ),
+                      icon: _refreshing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh),
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              _ServiceOverview(
+                openCount: openCount,
+                completedCount: completedCount,
+                totalCount: _reminders.length,
+              ),
+              const SizedBox(height: 18),
+              TextField(
+                controller: _searchController,
+                onChanged: (_) => setState(() {}),
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: '搜索服务提醒',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: '清除搜索',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close, size: 18),
+                        ),
+                  filled: true,
+                  fillColor: AppColors.surface,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppColors.accent),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _ServiceFilterTabs(
+                selected: _filter,
+                counts: {
+                  'all': _reminders.length,
+                  'pending': openCount,
+                  'completed': completedCount,
+                },
+                onSelected: (filter) {
+                  setState(() {
+                    _filter = filter;
+                  });
+                },
               ),
               const SizedBox(height: 16),
-              for (final conversation in _messages)
-                _AssistantConversationTile(conversation: conversation),
-            ] else ...[
-              const _AssistantEmptyPanel(
-                icon: Icons.person_search_outlined,
-                title: '找人',
-                message: '后续展示客户、联系人和跟进对象检索。',
-              ),
+              if (_loading && _reminders.isEmpty)
+                const _KnowledgeListLoading()
+              else if (_loadError != null)
+                _CustomerSpaceEmptyCard(
+                  icon: Icons.error_outline,
+                  title: _loadError!,
+                  message: '下拉或点击刷新服务提醒后重试。',
+                )
+              else if (_visibleReminders.isEmpty && _loaded)
+                _CustomerSpaceEmptyCard(
+                  icon: Icons.notifications_none_outlined,
+                  title: '暂无服务提醒',
+                  message: _emptyMessage,
+                )
+              else
+                for (var index = 0;
+                    index < visibleReminders.length;
+                    index++) ...[
+                  _ServiceReminderListTile(
+                    reminder: visibleReminders[index],
+                    onTap: () => unawaited(
+                      _openReminder(visibleReminders[index]),
+                    ),
+                  ),
+                  if (index != visibleReminders.length - 1)
+                    const SizedBox(height: 12),
+                ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _AssistantTopTabs extends StatelessWidget {
-  const _AssistantTopTabs({
-    required this.tabs,
-    required this.selectedIndex,
-    required this.onSelected,
-    required this.onCreateTap,
+class _ServiceOverview extends StatelessWidget {
+  const _ServiceOverview({
+    required this.openCount,
+    required this.completedCount,
+    required this.totalCount,
   });
 
-  final List<String> tabs;
-  final int selectedIndex;
-  final ValueChanged<int> onSelected;
-  final VoidCallback onCreateTap;
+  final int openCount;
+  final int completedCount;
+  final int totalCount;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (var index = 0; index < tabs.length; index++) ...[
-          _AssistantTabLabel(
-            label: tabs[index],
-            selected: selectedIndex == index,
-            onTap: () => onSelected(index),
-          ),
-          if (index != tabs.length - 1) const SizedBox(width: 18),
-        ],
-        const Spacer(),
-        Tooltip(
-          message: '新建',
-          child: Material(
-            color: Colors.transparent,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onCreateTap,
-              child: const SizedBox(
-                width: 36,
-                height: 36,
-                child: Icon(
-                  Icons.add_circle_outline,
-                  size: 24,
-                  color: AppColors.textPrimary,
-                ),
-              ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _ServiceOverviewMetric(
+              icon: Icons.notifications_active_outlined,
+              label: '待处理',
+              value: '$openCount',
+              color: const Color(0xFFD87600),
             ),
           ),
+          _ServiceOverviewDivider(),
+          Expanded(
+            child: _ServiceOverviewMetric(
+              icon: Icons.check_circle_outline,
+              label: '已完成',
+              value: '$completedCount',
+              color: AppColors.accent,
+            ),
+          ),
+          _ServiceOverviewDivider(),
+          Expanded(
+            child: _ServiceOverviewMetric(
+              icon: Icons.inbox_outlined,
+              label: '全部',
+              value: '$totalCount',
+              color: AppColors.control,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceOverviewMetric extends StatelessWidget {
+  const _ServiceOverviewMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 20,
+            height: 1.1,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
         ),
+        const SizedBox(height: 3),
+        Text(label, style: AppTextStyles.meta.copyWith(fontSize: 12)),
       ],
     );
   }
 }
 
-class _AssistantTabLabel extends StatelessWidget {
-  const _AssistantTabLabel({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 18,
-              height: 1.2,
-              color: selected ? AppColors.textPrimary : AppColors.textSecondary,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: selected ? 24 : 0,
-            height: 3,
-            decoration: BoxDecoration(
-              color: AppColors.textPrimary,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AssistantSearchBox extends StatelessWidget {
-  const _AssistantSearchBox();
-
+class _ServiceOverviewDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 38,
+      width: 1,
+      height: 46,
+      color: AppColors.border,
+    );
+  }
+}
+
+class _ServiceFilterTabs extends StatelessWidget {
+  const _ServiceFilterTabs({
+    required this.selected,
+    required this.counts,
+    required this.onSelected,
+  });
+
+  final String selected;
+  final Map<String, int> counts;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    const tabs = [
+      ('all', '全部'),
+      ('pending', '待处理'),
+      ('completed', '已完成'),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(8),
+        color: const Color(0xFFEDEFF3),
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Row(
         children: [
-          Icon(
-            Icons.search,
-            size: 18,
-            color: AppColors.textTertiary,
-          ),
-          SizedBox(width: 5),
-          Text(
-            '搜索',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textTertiary,
-              fontWeight: FontWeight.w500,
+          for (final tab in tabs)
+            Expanded(
+              child: GestureDetector(
+                onTap: () => onSelected(tab.$1),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  padding: const EdgeInsets.symmetric(vertical: 9),
+                  decoration: BoxDecoration(
+                    color: selected == tab.$1
+                        ? AppColors.surface
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(7),
+                    boxShadow: selected == tab.$1
+                        ? const [
+                            BoxShadow(
+                              color: Color(0x12000000),
+                              blurRadius: 5,
+                              offset: Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        tab.$2,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: selected == tab.$1
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary,
+                          fontWeight: selected == tab.$1
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${counts[tab.$1] ?? 0}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: selected == tab.$1
+                              ? AppColors.accent
+                              : AppColors.textTertiary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 }
 
-class _AssistantCustomerSummaryCard extends StatelessWidget {
-  const _AssistantCustomerSummaryCard({
-    required this.insights,
+class _ServiceReminderListTile extends StatelessWidget {
+  const _ServiceReminderListTile({
+    required this.reminder,
     required this.onTap,
   });
 
-  final List<_AssistantCustomerInsight> insights;
+  final _ServiceReminder reminder;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final statusColor = _customerSpaceStatusColor(reminder.status);
     return Material(
-      color: AppColors.surface.withValues(alpha: 0.86),
+      color: AppColors.surface,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 13, 12, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFEAF8F1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.groups_2_outlined,
-                      size: 22,
-                      color: AppColors.accent,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '客户信息整理',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'AI 已整理需求、状态和跟进建议',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(
-                    Icons.chevron_right,
-                    color: AppColors.textTertiary,
-                    size: 22,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final insight in insights)
-                    _AssistantCustomerChip(insight: insight),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AssistantCustomerChip extends StatelessWidget {
-  const _AssistantCustomerChip({
-    required this.insight,
-  });
-
-  final _AssistantCustomerInsight insight;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 158,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: insight.color,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  insight.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              Text(
-                insight.status,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: insight.color,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Text(
-            insight.summary,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 12,
-              height: 1.38,
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w500,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border(
+              left: BorderSide(color: reminder.priorityColor, width: 3),
+              top: const BorderSide(color: AppColors.border),
+              right: const BorderSide(color: AppColors.border),
+              bottom: const BorderSide(color: AppColors.border),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AssistantConversationTile extends StatelessWidget {
-  const _AssistantConversationTile({
-    required this.conversation,
-  });
-
-  final _AssistantConversation conversation;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () {},
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _AssistantAvatar(conversation: conversation),
+              _ServiceReminderAvatar(reminder: reminder),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -10751,12 +14118,12 @@ class _AssistantConversationTile extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            conversation.title,
-                            maxLines: 1,
+                            reminder.title,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 15,
-                              height: 1.2,
+                              height: 1.3,
                               color: AppColors.textPrimary,
                               fontWeight: FontWeight.w800,
                             ),
@@ -10764,29 +14131,58 @@ class _AssistantConversationTile extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          conversation.date,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFFC1B7B0),
-                            fontWeight: FontWeight.w500,
-                          ),
+                          reminder.dueLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.meta.copyWith(fontSize: 12),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 7),
+                    const SizedBox(height: 6),
                     Text(
-                      conversation.excerpt,
-                      maxLines: 1,
+                      [
+                        reminder.customerName,
+                        if (reminder.riskLabel.trim().isNotEmpty)
+                          reminder.riskLabel,
+                        if (reminder.nextAction.trim().isNotEmpty)
+                          reminder.nextAction,
+                      ].join(' · '),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: AppTextStyles.body.copyWith(
                         fontSize: 13,
-                        height: 1.25,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w500,
+                        height: 1.42,
                       ),
+                    ),
+                    const SizedBox(height: 9),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _CustomerSpaceTinyBadge(
+                          label: reminder.statusLabel,
+                          color: statusColor,
+                        ),
+                        if (reminder.stage.trim().isNotEmpty)
+                          _CustomerSpaceTinyBadge(
+                            label: reminder.stage,
+                            color: AppColors.control,
+                          ),
+                        if (reminder.sourceMemoryCount > 0)
+                          _CustomerSpaceTinyBadge(
+                            label: '${reminder.sourceMemoryCount} 条记忆',
+                            color: AppColors.textSecondary,
+                          ),
+                      ],
                     ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.chevron_right,
+                size: 22,
+                color: AppColors.textTertiary,
               ),
             ],
           ),
@@ -10796,89 +14192,398 @@ class _AssistantConversationTile extends StatelessWidget {
   }
 }
 
-class _AssistantAvatar extends StatelessWidget {
-  const _AssistantAvatar({
-    required this.conversation,
-  });
+class _ServiceReminderAvatar extends StatelessWidget {
+  const _ServiceReminderAvatar({required this.reminder});
 
-  final _AssistantConversation conversation;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: conversation.avatarColor,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            conversation.icon,
-            size: 25,
-            color: AppColors.surface,
-          ),
-        ),
-        if (conversation.unread)
-          Positioned(
-            right: 0,
-            top: 1,
-            child: Container(
-              width: 9,
-              height: 9,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF05252),
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.surface, width: 1.5),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _AssistantEmptyPanel extends StatelessWidget {
-  const _AssistantEmptyPanel({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
+  final _ServiceReminder reminder;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 180,
+      width: 44,
+      height: 44,
       alignment: Alignment.center,
-      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(12),
+        color: reminder.priorityColor.withValues(alpha: 0.12),
+        shape: BoxShape.circle,
+      ),
+      child: Text(
+        reminder.avatarText,
+        style: TextStyle(
+          fontSize: 17,
+          color: reminder.priorityColor,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _ServiceReminderDetailPage extends StatefulWidget {
+  const _ServiceReminderDetailPage({
+    required this.reminder,
+    required this.authToken,
+    required this.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final _ServiceReminder reminder;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<_ServiceReminderDetailPage> createState() =>
+      _ServiceReminderDetailPageState();
+}
+
+class _ServiceReminderDetailPageState
+    extends State<_ServiceReminderDetailPage> {
+  late final _RuileApiClient _apiClient;
+  late _ServiceReminder _reminder;
+  var _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _reminder = widget.reminder;
+    if (_apiClient.isConfigured && _reminder.id.trim().isNotEmpty) {
+      unawaited(_loadLatestReminder());
+    }
+  }
+
+  Future<void> _loadLatestReminder() async {
+    try {
+      final reminder = await _apiClient.fetchServiceReminder(_reminder.id);
+      if (!mounted) return;
+      setState(() {
+        _reminder = reminder;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) widget.onAuthFailure();
+    } catch (error) {
+      debugPrint('Failed to load service reminder detail: $error');
+    }
+  }
+
+  Future<void> _confirmAction() async {
+    if (_reminder.id.trim().isEmpty || !_apiClient.isConfigured) {
+      _finishWithLocalStatus('confirmed', '已确认动作');
+      return;
+    }
+    setState(() {
+      _saving = true;
+    });
+    try {
+      await _apiClient.createServiceActionDraft(_reminder.id);
+      if (!mounted) return;
+      _finishWithLocalStatus('confirmed', '已确认动作');
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      _showError('动作确认失败：${error.message}');
+    } catch (error) {
+      _showError('动作确认失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateStatus(String status, String message) async {
+    if (_reminder.id.trim().isEmpty || !_apiClient.isConfigured) {
+      _finishWithLocalStatus(status, message);
+      return;
+    }
+    setState(() {
+      _saving = true;
+    });
+    try {
+      final reminder =
+          await _apiClient.updateServiceReminderStatus(_reminder.id, status);
+      if (!mounted) return;
+      setState(() {
+        _reminder = reminder;
+      });
+      Navigator.of(context).pop(true);
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      _showError('$message失败：${error.message}');
+    } catch (error) {
+      _showError('$message失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  void _finishWithLocalStatus(String status, String message) {
+    _reminder = _reminder.copyWith(status: status);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1000),
+      ),
+    );
+    Navigator.of(context).pop(true);
+  }
+
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _openCustomerSpace() {
+    if (_reminder.subjectId.trim().isEmpty) {
+      _showError('当前提醒还没有关联客户空间');
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _CustomerSpaceDetailPage(
+          initialSpace: _CustomerSpace.fromReminder(_reminder),
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageX,
+                16,
+                AppSpacing.pageX,
+                10,
+              ),
+              child: _KnowledgeDetailTopBar(
+                title: '服务提醒',
+                onBackTap: () => Navigator.maybePop(context),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageX,
+                  4,
+                  AppSpacing.pageX,
+                  22,
+                ),
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _reminder.title,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 23,
+                            height: 1.28,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      _CustomerSpaceTinyBadge(
+                        label: _reminder.statusLabel,
+                        color: _customerSpaceStatusColor(_reminder.status),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 9),
+                  Text(
+                    [
+                      _reminder.customerName,
+                      if (_reminder.studentName.trim().isNotEmpty)
+                        '学员：${_reminder.studentName}',
+                      if (_reminder.stage.trim().isNotEmpty) _reminder.stage,
+                      _reminder.dueLabel,
+                    ].join(' · '),
+                    style: AppTextStyles.body,
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _CustomerSpaceTinyBadge(
+                        label: _reminder.priorityLabel,
+                        color: _reminder.priorityColor,
+                      ),
+                      if (_reminder.riskLabel.trim().isNotEmpty)
+                        _CustomerSpaceTinyBadge(
+                          label: _reminder.riskLabel,
+                          color: _reminder.riskColor,
+                        ),
+                      if (_reminder.channel.trim().isNotEmpty)
+                        _CustomerSpaceTinyBadge(
+                          label: _reminder.channel,
+                          color: AppColors.control,
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  _ServiceDetailSection(
+                    title: '提醒原因',
+                    icon: Icons.lightbulb_outline,
+                    content: _reminder.assistReasonText,
+                  ),
+                  const SizedBox(height: 12),
+                  _ServiceDetailSection(
+                    title: '客户摘要',
+                    icon: Icons.person_outline,
+                    content: _reminder.summaryText,
+                  ),
+                  const SizedBox(height: 12),
+                  _ServiceDetailSection(
+                    title: '下一步动作',
+                    icon: Icons.arrow_forward_outlined,
+                    content: _reminder.nextActionText,
+                  ),
+                  if (_reminder.replyDraft.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _ServiceDetailSection(
+                      title: '推荐话术',
+                      icon: Icons.chat_bubble_outline,
+                      content: _reminder.replyDraft,
+                    ),
+                  ],
+                  if (_reminder.writeBackDraft.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _ServiceDetailSection(
+                      title: '待确认动作',
+                      icon: Icons.edit_note,
+                      content: _reminder.writeBackDraft,
+                    ),
+                  ],
+                  if (_reminder.avoidAction.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _ServiceDetailSection(
+                      title: '避免动作',
+                      icon: Icons.do_not_disturb_alt_outlined,
+                      content: _reminder.avoidAction,
+                    ),
+                  ],
+                  if (_reminder.contextItems.isNotEmpty ||
+                      _reminder.memorySignals.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    _ServiceDetailTagSection(
+                      title: '缺失信息与服务信号',
+                      items: [
+                        ..._reminder.contextItems,
+                        ..._reminder.memorySignals,
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  _ServiceEvidenceSection(reminder: _reminder),
+                  const SizedBox(height: 18),
+                  OutlinedButton.icon(
+                    onPressed: _reminder.subjectId.trim().isEmpty
+                        ? null
+                        : _openCustomerSpace,
+                    icon: const Icon(Icons.folder_shared_outlined),
+                    label: const Text('查看客户空间'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                      foregroundColor: AppColors.control,
+                      side: const BorderSide(color: AppColors.border),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _ServiceReminderActions(
+              saving: _saving,
+              onConfirm: _confirmAction,
+              onSnooze: () => _updateStatus('snoozed', '已标记稍后处理'),
+              onIgnore: () => _updateStatus('ignored', '已忽略'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ServiceDetailSection extends StatelessWidget {
+  const _ServiceDetailSection({
+    required this.title,
+    required this.icon,
+    required this.content,
+  });
+
+  final String title;
+  final IconData icon;
+  final String content;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            icon,
-            size: 32,
-            color: AppColors.textTertiary,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            title,
-            style: AppTextStyles.cardTitle,
+          Row(
+            children: [
+              Icon(icon, size: 18, color: AppColors.control),
+              const SizedBox(width: 7),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Text(
-            message,
-            textAlign: TextAlign.center,
-            style: AppTextStyles.body,
+            content.trim().isEmpty ? '暂无内容' : content.trim(),
+            style: AppTextStyles.body.copyWith(color: AppColors.textPrimary),
           ),
         ],
       ),
@@ -10886,39 +14591,172 @@ class _AssistantEmptyPanel extends StatelessWidget {
   }
 }
 
-class _AssistantConversation {
-  const _AssistantConversation({
+class _ServiceDetailTagSection extends StatelessWidget {
+  const _ServiceDetailTagSection({
     required this.title,
-    required this.excerpt,
-    required this.date,
-    required this.avatarColor,
-    required this.icon,
-    this.unread = false,
+    required this.items,
   });
 
   final String title;
-  final String excerpt;
-  final String date;
-  final Color avatarColor;
-  final IconData icon;
-  final bool unread;
+  final List<String> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppTextStyles.sectionTitle),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: [
+            for (final item in items.where((item) => item.trim().isNotEmpty))
+              _CustomerSpaceTinyBadge(
+                label: item,
+                color: AppColors.textSecondary,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
-class _AssistantCustomerInsight {
-  const _AssistantCustomerInsight({
-    required this.name,
-    required this.status,
-    required this.summary,
-    required this.color,
+class _ServiceEvidenceSection extends StatelessWidget {
+  const _ServiceEvidenceSection({required this.reminder});
+
+  final _ServiceReminder reminder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text('来源记忆', style: AppTextStyles.sectionTitle),
+            ),
+            Text(
+              reminder.sourceMemoryCount > 0
+                  ? '${reminder.sourceMemoryCount} 条'
+                  : '待补充',
+              style: AppTextStyles.meta,
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (reminder.memoryEvidence.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Text(
+              reminder.sourceMemoryCount > 0
+                  ? '已关联 ${reminder.sourceMemoryCount} 条记忆，详情内容将在同步后显示。'
+                  : '暂无可展示的来源记忆。',
+              style: AppTextStyles.body,
+            ),
+          )
+        else
+          for (var index = 0;
+              index < reminder.memoryEvidence.length;
+              index++) ...[
+            _CustomerEvidenceCard(
+              evidence: reminder.memoryEvidence[index],
+            ),
+            if (index != reminder.memoryEvidence.length - 1)
+              const SizedBox(height: 10),
+          ],
+      ],
+    );
+  }
+}
+
+class _ServiceReminderActions extends StatelessWidget {
+  const _ServiceReminderActions({
+    required this.saving,
+    required this.onConfirm,
+    required this.onSnooze,
+    required this.onIgnore,
   });
 
-  final String name;
-  final String status;
-  final String summary;
-  final Color color;
-}
+  final bool saving;
+  final VoidCallback onConfirm;
+  final VoidCallback onSnooze;
+  final VoidCallback onIgnore;
 
-enum _KnowledgeThumbnailStyle { textBadge, portrait, lightning, icon }
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 10),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: FilledButton.icon(
+                  onPressed: saving ? null : onConfirm,
+                  icon: saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.surface,
+                          ),
+                        )
+                      : const Icon(Icons.check_circle_outline),
+                  label: const Text('确认动作'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    backgroundColor: AppColors.accent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: saving ? null : onSnooze,
+                  icon: const Icon(Icons.schedule, size: 18),
+                  label: const Text('稍后'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44),
+                    foregroundColor: AppColors.control,
+                    side: const BorderSide(color: AppColors.border),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                onPressed: saving ? null : onIgnore,
+                tooltip: '忽略',
+                icon: const Icon(Icons.close),
+                color: AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _KnowledgeDirectoryData {
   const _KnowledgeDirectoryData({
@@ -11416,24 +15254,6 @@ class _KnowledgeFileTag {
   final String? color;
 }
 
-class _KnowledgeBaseListItem {
-  const _KnowledgeBaseListItem({
-    required this.title,
-    required this.description,
-    required this.meta,
-    required this.thumbnailStyle,
-    this.thumbnailText,
-    this.thumbnailColor,
-  });
-
-  final String title;
-  final String description;
-  final String meta;
-  final _KnowledgeThumbnailStyle thumbnailStyle;
-  final String? thumbnailText;
-  final Color? thumbnailColor;
-}
-
 class _KnowledgeBase {
   const _KnowledgeBase({
     required this.title,
@@ -11536,6 +15356,1024 @@ class _KnowledgeBase {
             item.map((key, value) => MapEntry(key.toString(), value)),
           ),
     ].where((directory) => directory.path.isNotEmpty).toList();
+  }
+}
+
+class _ServiceWorkProfile {
+  const _ServiceWorkProfile({
+    required this.id,
+    required this.name,
+    required this.rawDescription,
+    required this.roleType,
+    required this.memoryScope,
+    required this.tonePreference,
+    required this.campusScope,
+    required this.courseScope,
+    required this.enabled,
+    required this.state,
+    required this.defaultProfile,
+    required this.updatedLabel,
+  });
+
+  factory _ServiceWorkProfile.fromApi(Map<String, dynamic> json) {
+    final updatedAt = _readString(json, const ['updated_at', 'created_at']);
+    return _ServiceWorkProfile(
+      id: _readString(json, const ['id']),
+      name: _readString(json, const ['name'], fallback: '我的服务分身'),
+      rawDescription: _readString(
+        json,
+        const [
+          'description',
+          'work_profile_description',
+          'profile_summary',
+          'summary',
+        ],
+      ),
+      roleType: _readString(json, const ['role_type']),
+      memoryScope: _readString(
+        json,
+        const ['memory_scope'],
+        fallback: '本人记忆 · 服务相关',
+      ),
+      tonePreference: _readString(json, const ['tone_preference']),
+      campusScope: _readStringList(json, const ['campus_scope']),
+      courseScope: _readStringList(json, const ['course_scope']),
+      enabled: _readTruthy(json['enabled']),
+      state: _readString(json, const ['state'], fallback: 'draft'),
+      defaultProfile: _readTruthy(json['default_profile']),
+      updatedLabel: updatedAt.isEmpty ? '' : _formatApiDate(updatedAt),
+    );
+  }
+
+  final String id;
+  final String name;
+  final String rawDescription;
+  final String roleType;
+  final String memoryScope;
+  final String tonePreference;
+  final List<String> campusScope;
+  final List<String> courseScope;
+  final bool enabled;
+  final String state;
+  final bool defaultProfile;
+  final String updatedLabel;
+
+  String get statusLabel {
+    if (enabled && state == 'enabled') return '已启用';
+    switch (state.trim().toLowerCase()) {
+      case 'testing':
+        return '测试中';
+      case 'disabled':
+        return '已停用';
+      case 'archived':
+        return '已归档';
+      default:
+        return '草稿';
+    }
+  }
+
+  String get description {
+    final configured = rawDescription.trim();
+    if (configured.isNotEmpty) return configured;
+    final parts = [
+      if (roleType.trim().isNotEmpty) '岗位：${roleType.trim()}',
+      '记忆范围：${memoryScope.trim()}',
+      if (tonePreference.trim().isNotEmpty) '沟通风格：${tonePreference.trim()}',
+      if (campusScope.isNotEmpty) '校区范围：${campusScope.join('、')}',
+      if (courseScope.isNotEmpty) '课程范围：${courseScope.join('、')}',
+    ];
+    return parts.join('\n');
+  }
+
+  List<(String, String)> get detailRows {
+    return [
+      if (roleType.trim().isNotEmpty) ('岗位', roleType.trim()),
+      ('记忆范围', memoryScope.trim().isEmpty ? '本人记忆 · 服务相关' : memoryScope.trim()),
+      if (tonePreference.trim().isNotEmpty) ('沟通风格', tonePreference.trim()),
+      if (campusScope.isNotEmpty) ('校区范围', campusScope.join('、')),
+      if (courseScope.isNotEmpty) ('课程范围', courseScope.join('、')),
+      ('状态', statusLabel),
+    ];
+  }
+}
+
+class _WorkProfileAgentSetting {
+  const _WorkProfileAgentSetting({
+    required this.id,
+    required this.agentId,
+    required this.agentDomain,
+    required this.enabled,
+    required this.displayName,
+    required this.displayOrder,
+    required this.memoryFilter,
+    required this.knowledgeBaseIds,
+    required this.workDocDirectory,
+    required this.selectedSkills,
+    required this.outputPolicy,
+  });
+
+  factory _WorkProfileAgentSetting.fromApi(Map<String, dynamic> json) {
+    return _WorkProfileAgentSetting(
+      id: _readString(json, const ['id']),
+      agentId: _readString(json, const ['agent_id']),
+      agentDomain: _readString(json, const ['agent_domain']),
+      enabled: _readTruthy(json['enabled']),
+      displayName: _readString(
+        json,
+        const ['display_name'],
+        fallback: _serviceAgentDomainLabel(
+          _readString(json, const ['agent_domain']),
+        ),
+      ),
+      displayOrder: _readInt(json, const ['display_order']) ?? 0,
+      memoryFilter: _readMap(json, const ['memory_filter']),
+      knowledgeBaseIds: _readStringList(json, const ['knowledge_base_ids']),
+      workDocDirectory: _readString(json, const ['work_doc_directory']),
+      selectedSkills: _readStringList(json, const ['selected_skills']),
+      outputPolicy: _readMap(json, const ['output_policy']),
+    );
+  }
+
+  final String id;
+  final String agentId;
+  final String agentDomain;
+  final bool enabled;
+  final String displayName;
+  final int displayOrder;
+  final Map<String, dynamic> memoryFilter;
+  final List<String> knowledgeBaseIds;
+  final String workDocDirectory;
+  final List<String> selectedSkills;
+  final Map<String, dynamic> outputPolicy;
+
+  _WorkProfileAgentSetting copyWith({
+    List<String>? selectedSkills,
+    Map<String, dynamic>? outputPolicy,
+  }) {
+    return _WorkProfileAgentSetting(
+      id: id,
+      agentId: agentId,
+      agentDomain: agentDomain,
+      enabled: enabled,
+      displayName: displayName,
+      displayOrder: displayOrder,
+      memoryFilter: memoryFilter,
+      knowledgeBaseIds: knowledgeBaseIds,
+      workDocDirectory: workDocDirectory,
+      selectedSkills: selectedSkills ?? this.selectedSkills,
+      outputPolicy: outputPolicy ?? this.outputPolicy,
+    );
+  }
+
+  List<String> get userAddedSkills {
+    final direct = _readStringList(outputPolicy, const ['user_added_skills']);
+    if (direct.isNotEmpty) return direct;
+    return _readStringList(outputPolicy, const ['mobile_user_added_skills']);
+  }
+
+  Map<String, Object?> toApi() {
+    return {
+      if (id.trim().isNotEmpty) 'id': id,
+      if (agentId.trim().isNotEmpty) 'agent_id': agentId,
+      'agent_domain': agentDomain,
+      'enabled': enabled,
+      'display_name': displayName,
+      'display_order': displayOrder,
+      'memory_filter': memoryFilter,
+      'knowledge_base_ids': knowledgeBaseIds,
+      'work_doc_directory': workDocDirectory,
+      'selected_skills': selectedSkills,
+      'output_policy': outputPolicy,
+    };
+  }
+}
+
+class _ServiceAgentTemplate {
+  const _ServiceAgentTemplate({
+    required this.agentDomain,
+    required this.displayName,
+    required this.description,
+    required this.defaultEnabled,
+    required this.userVisible,
+    required this.workDocDirectory,
+    required this.selectedSkills,
+  });
+
+  factory _ServiceAgentTemplate.fromApi(Map<String, dynamic> json) {
+    final domain = _readString(json, const ['agent_domain']);
+    return _ServiceAgentTemplate(
+      agentDomain: domain,
+      displayName: _readString(
+        json,
+        const ['display_name'],
+        fallback: _serviceAgentDomainLabel(domain),
+      ),
+      description: _readString(json, const ['description']),
+      defaultEnabled: _readTruthy(json['default_enabled']),
+      userVisible: _readTruthy(json['user_visible']),
+      workDocDirectory: _readString(json, const ['work_doc_directory']),
+      selectedSkills: _readStringList(json, const ['selected_skills']),
+    );
+  }
+
+  final String agentDomain;
+  final String displayName;
+  final String description;
+  final bool defaultEnabled;
+  final bool userVisible;
+  final String workDocDirectory;
+  final List<String> selectedSkills;
+}
+
+class _ServiceSkillInfo {
+  const _ServiceSkillInfo({
+    required this.name,
+    required this.description,
+  });
+
+  factory _ServiceSkillInfo.fromApi(Map<String, dynamic> json) {
+    return _ServiceSkillInfo(
+      name: _readString(json, const ['name']),
+      description: _readString(json, const ['description']),
+    );
+  }
+
+  final String name;
+  final String description;
+}
+
+class _ServiceBootstrapResult {
+  const _ServiceBootstrapResult({
+    required this.reminders,
+    required this.total,
+    required this.stats,
+    this.profile,
+    this.agentSettings = const [],
+    this.templates = const [],
+  });
+
+  factory _ServiceBootstrapResult.fromApi(Map<String, dynamic> json) {
+    final rawReminders = json['reminders'];
+    final reminders = <_ServiceReminder>[
+      if (rawReminders is List)
+        for (final item in rawReminders)
+          if (item is Map<String, dynamic>)
+            _ServiceReminder.fromApi(item)
+          else if (item is Map)
+            _ServiceReminder.fromApi(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            ),
+    ];
+    final rawStats = _readMap(json, const ['stats']);
+    final stats = <String, int>{
+      for (final entry in rawStats.entries)
+        if (entry.value is num)
+          entry.key: (entry.value as num).toInt()
+        else if (entry.value is String)
+          entry.key: int.tryParse(entry.value as String) ?? 0,
+    };
+    final profileMap = _readMap(json, const ['profile']);
+    return _ServiceBootstrapResult(
+      reminders: reminders,
+      total: _readInt(json, const ['total']) ?? reminders.length,
+      stats: stats,
+      profile:
+          profileMap.isEmpty ? null : _ServiceWorkProfile.fromApi(profileMap),
+      agentSettings: _readAgentSettings(json['agent_settings']),
+      templates: _readAgentTemplates(json['templates']),
+    );
+  }
+
+  final List<_ServiceReminder> reminders;
+  final int total;
+  final Map<String, int> stats;
+  final _ServiceWorkProfile? profile;
+  final List<_WorkProfileAgentSetting> agentSettings;
+  final List<_ServiceAgentTemplate> templates;
+
+  static List<_WorkProfileAgentSetting> _readAgentSettings(Object? rawValue) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _WorkProfileAgentSetting.fromApi(item)
+        else if (item is Map)
+          _WorkProfileAgentSetting.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  static List<_ServiceAgentTemplate> _readAgentTemplates(Object? rawValue) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _ServiceAgentTemplate.fromApi(item)
+        else if (item is Map)
+          _ServiceAgentTemplate.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+}
+
+class _CustomerSpaceListResult {
+  const _CustomerSpaceListResult({
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.pageSize,
+  });
+
+  final List<_CustomerSpace> items;
+  final int total;
+  final int page;
+  final int pageSize;
+}
+
+class _CustomerSpace {
+  const _CustomerSpace({
+    required this.id,
+    required this.title,
+    required this.displayName,
+    required this.description,
+    required this.status,
+    required this.priority,
+    required this.stage,
+    required this.riskLabel,
+    required this.latestAction,
+    required this.studentName,
+    required this.relation,
+    required this.workDocCount,
+    required this.reminderCount,
+    required this.openReminderCount,
+    required this.sourceMemoryCount,
+    required this.directories,
+    required this.chips,
+    required this.latestMemoryLabel,
+    required this.latestReminderLabel,
+    required this.updatedLabel,
+  });
+
+  factory _CustomerSpace.fromApi(Map<String, dynamic> json) {
+    final name = _readString(
+      json,
+      const ['name', 'display_name', 'student_name'],
+      fallback: '待补充客户',
+    );
+    final summary = _readString(json, const ['summary']);
+    final description = _readString(
+      json,
+      const ['description'],
+      fallback: summary,
+    );
+    final latestMemoryAt = _readString(json, const ['latest_memory_at']);
+    final latestReminderAt = _readString(json, const ['latest_reminder_at']);
+    final updatedAt = _readString(json, const ['updated_at', 'created_at']);
+
+    return _CustomerSpace(
+      id: _readString(json, const ['id']),
+      title: name,
+      displayName: _readString(
+        json,
+        const ['display_name'],
+        fallback: name,
+      ),
+      description: description,
+      status: _readString(json, const ['status'], fallback: 'current'),
+      priority: _readString(json, const ['priority']),
+      stage: _readString(json, const ['stage']),
+      riskLabel: _readString(json, const ['risk_label']),
+      latestAction: _readString(json, const ['latest_action']),
+      studentName: _readString(json, const ['student_name']),
+      relation: _readString(json, const ['relation']),
+      workDocCount: _readInt(json, const ['work_doc_count']) ?? 0,
+      reminderCount: _readInt(json, const ['reminder_count']) ?? 0,
+      openReminderCount: _readInt(json, const ['open_reminder_count']) ?? 0,
+      sourceMemoryCount: _readInt(json, const ['source_memory_count']) ?? 0,
+      directories: _readStringList(json, const ['directories']),
+      chips: _readStringList(json, const ['chips']),
+      latestMemoryLabel:
+          latestMemoryAt.isEmpty ? '' : _formatApiDate(latestMemoryAt),
+      latestReminderLabel:
+          latestReminderAt.isEmpty ? '' : _formatApiDate(latestReminderAt),
+      updatedLabel: updatedAt.isEmpty ? '' : _formatApiDate(updatedAt),
+    );
+  }
+
+  factory _CustomerSpace.fromReminder(_ServiceReminder reminder) {
+    final customerName = reminder.customerName;
+    return _CustomerSpace(
+      id: reminder.subjectId,
+      title: customerName,
+      displayName: customerName,
+      description: reminder.summaryText,
+      status: reminder.status,
+      priority: reminder.priority,
+      stage: reminder.stage,
+      riskLabel: reminder.riskLabel,
+      latestAction: reminder.nextAction,
+      studentName: reminder.studentName,
+      relation: '',
+      workDocCount: reminder.workDocs.length,
+      reminderCount: 1,
+      openReminderCount: reminder.isOpen ? 1 : 0,
+      sourceMemoryCount: reminder.sourceMemoryCount,
+      directories: const [],
+      chips: [
+        if (reminder.stage.trim().isNotEmpty) reminder.stage,
+        if (reminder.riskLabel.trim().isNotEmpty) reminder.riskLabel,
+      ],
+      latestMemoryLabel: reminder.lastMemoryLabel,
+      latestReminderLabel: reminder.dueLabel,
+      updatedLabel: reminder.updatedLabel,
+    );
+  }
+
+  final String id;
+  final String title;
+  final String displayName;
+  final String description;
+  final String status;
+  final String priority;
+  final String stage;
+  final String riskLabel;
+  final String latestAction;
+  final String studentName;
+  final String relation;
+  final int workDocCount;
+  final int reminderCount;
+  final int openReminderCount;
+  final int sourceMemoryCount;
+  final List<String> directories;
+  final List<String> chips;
+  final String latestMemoryLabel;
+  final String latestReminderLabel;
+  final String updatedLabel;
+
+  String get initial {
+    final normalized = title.trim();
+    return normalized.isEmpty
+        ? '客'
+        : String.fromCharCode(normalized.runes.first);
+  }
+
+  String get subtitle {
+    final parts = <String>[
+      '$workDocCount 份文档',
+      '$reminderCount 条提醒',
+      '$sourceMemoryCount 条证据',
+    ];
+    if (openReminderCount > 0) {
+      parts.insert(0, '$openReminderCount 条待处理');
+    }
+    return parts.join(' · ');
+  }
+
+  String get descriptionText {
+    for (final value in [description, latestAction, stage, riskLabel]) {
+      final normalized = _normalizeSpaces(value);
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '暂无客户摘要';
+  }
+
+  String get subjectLine {
+    return [
+      if (studentName.trim().isNotEmpty) '学员：${studentName.trim()}',
+      if (stage.trim().isNotEmpty) stage.trim(),
+      if (riskLabel.trim().isNotEmpty) riskLabel.trim(),
+    ].join(' · ');
+  }
+
+  String get updatedText {
+    for (final value in [
+      latestMemoryLabel,
+      latestReminderLabel,
+      updatedLabel
+    ]) {
+      if (value.trim().isNotEmpty) return value.trim();
+    }
+    return '最近';
+  }
+}
+
+class _CustomerSpaceDetail {
+  const _CustomerSpaceDetail({
+    required this.summary,
+    required this.workDocs,
+    required this.reminders,
+    required this.memoryEvidence,
+    required this.directories,
+  });
+
+  factory _CustomerSpaceDetail.fromApi(Map<String, dynamic> json) {
+    final summary = _readMap(json, const ['summary']);
+    return _CustomerSpaceDetail(
+      summary: summary.isEmpty
+          ? _CustomerSpace.fromApi(json)
+          : _CustomerSpace.fromApi(summary),
+      workDocs: _orderedWorkDocs(_readWorkDocs(json['work_docs'])),
+      reminders: _readReminders(json['reminders']),
+      memoryEvidence: _readMemoryEvidence(json['memory_evidence']),
+      directories: _readStringList(json, const ['directories']),
+    );
+  }
+
+  final _CustomerSpace summary;
+  final List<_AgentWorkDoc> workDocs;
+  final List<_ServiceReminder> reminders;
+  final List<_ServiceMemoryEvidence> memoryEvidence;
+  final List<String> directories;
+
+  static List<_AgentWorkDoc> _readWorkDocs(Object? rawValue) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _AgentWorkDoc.fromApi(item)
+        else if (item is Map)
+          _AgentWorkDoc.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  static List<_ServiceReminder> _readReminders(Object? rawValue) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _ServiceReminder.fromApi(item)
+        else if (item is Map)
+          _ServiceReminder.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  static List<_ServiceMemoryEvidence> _readMemoryEvidence(Object? rawValue) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _ServiceMemoryEvidence.fromApi(item)
+        else if (item is Map)
+          _ServiceMemoryEvidence.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  static List<_AgentWorkDoc> _orderedWorkDocs(List<_AgentWorkDoc> docs) {
+    const order = ['客户摘要', '跟进记录', '未闭环事项', '证据索引'];
+    return List<_AgentWorkDoc>.of(docs)
+      ..sort((a, b) {
+        final ai = order.indexWhere((name) {
+          return '${a.title} ${a.docPath}'.contains(name);
+        });
+        final bi = order.indexWhere((name) {
+          return '${b.title} ${b.docPath}'.contains(name);
+        });
+        final av = ai < 0 ? order.length : ai;
+        final bv = bi < 0 ? order.length : bi;
+        if (av != bv) return av.compareTo(bv);
+        return a.docPath.compareTo(b.docPath);
+      });
+  }
+}
+
+class _AgentWorkDoc {
+  const _AgentWorkDoc({
+    required this.id,
+    required this.docPath,
+    required this.title,
+    required this.content,
+    required this.status,
+    required this.sourceMemoryIds,
+    required this.updatedLabel,
+  });
+
+  factory _AgentWorkDoc.fromApi(Map<String, dynamic> json) {
+    final updatedAt = _readString(json, const ['updated_at', 'created_at']);
+    final docPath = _readString(json, const ['doc_path']);
+    return _AgentWorkDoc(
+      id: _readString(json, const ['id']),
+      docPath: docPath,
+      title: _readString(
+        json,
+        const ['title'],
+        fallback: _fileNameFromPath(docPath, fallback: '客户空间文档'),
+      ),
+      content: _readString(json, const ['content']),
+      status: _readString(json, const ['status'], fallback: 'current'),
+      sourceMemoryIds: _readStringList(json, const ['source_memory_ids']),
+      updatedLabel: updatedAt.isEmpty ? '' : _formatApiDate(updatedAt),
+    );
+  }
+
+  final String id;
+  final String docPath;
+  final String title;
+  final String content;
+  final String status;
+  final List<String> sourceMemoryIds;
+  final String updatedLabel;
+
+  String get fileName => _fileNameFromPath(docPath, fallback: title);
+
+  String get excerpt {
+    if (content.trim().isEmpty) return '暂无文档内容';
+    final text = _sproutPlainText(content);
+    if (text.isEmpty) return '暂无文档内容';
+    if (text.length <= 96) return text;
+    return '${text.substring(0, 96)}...';
+  }
+
+  String get sourceLabel {
+    if (sourceMemoryIds.isEmpty) return '无关联记忆';
+    return '${sourceMemoryIds.length} 条关联记忆';
+  }
+
+  IconData get icon {
+    final name = '$title $docPath';
+    if (name.contains('未闭环')) return Icons.flag_outlined;
+    if (name.contains('证据')) return Icons.link;
+    if (name.contains('跟进')) return Icons.schedule;
+    if (name.contains('摘要')) return Icons.summarize_outlined;
+    return Icons.description_outlined;
+  }
+
+  static String _fileNameFromPath(String path, {required String fallback}) {
+    final parts = path.split('/').where((part) => part.trim().isNotEmpty);
+    final fileName = parts.isEmpty ? '' : parts.last.trim();
+    return fileName.isEmpty ? fallback : fileName;
+  }
+}
+
+class _ServiceReminder {
+  const _ServiceReminder({
+    required this.id,
+    required this.title,
+    required this.summary,
+    required this.status,
+    required this.priority,
+    required this.dueLabel,
+    required this.stage,
+    required this.riskLabel,
+    required this.primaryAction,
+    required this.nextAction,
+    required this.sourceMemoryCount,
+    this.subjectId = '',
+    this.profileId = '',
+    this.agentDomain = '',
+    this.dueAt = '',
+    this.channel = '',
+    this.decisionRole = '',
+    this.assistReason = '',
+    this.avoidAction = '',
+    this.contextItems = const [],
+    this.memorySignals = const [],
+    this.sourceMemoryIds = const [],
+    this.lastMemoryLabel = '',
+    this.confidence = 0,
+    this.confidenceLabel = '待确认',
+    this.salesHighlights = const [],
+    this.writeBackStatus = '',
+    this.writeBackDraft = '',
+    this.replyDraft = '',
+    this.metadata = const {},
+    this.memoryEvidence = const [],
+    this.workDocs = const [],
+    this.createdLabel = '',
+    this.updatedLabel = '',
+  });
+
+  factory _ServiceReminder.fromApi(Map<String, dynamic> json) {
+    final metadata = _readMap(json, const ['metadata']);
+    final dueText = _readString(json, const ['due_text']);
+    final dueAt = _readString(json, const ['due_at', 'updated_at']);
+    final sourceMemoryIds = _readStringList(json, const ['source_memory_ids']);
+    final confidence = _readDouble(json, const ['confidence']) ?? 0;
+    final memoryEvidence = _readMemoryEvidenceList(json['memory_evidence']);
+    final workDocs = _readWorkDocList(json['work_docs']);
+    final updatedAt = _readString(json, const ['updated_at', 'created_at']);
+    return _ServiceReminder(
+      id: _readString(json, const ['id']),
+      title: _readString(json, const ['title'], fallback: '服务提醒'),
+      summary: _readString(json, const ['summary']),
+      status: _readString(json, const ['status'], fallback: 'pending'),
+      priority: _readString(json, const ['priority'], fallback: 'low'),
+      dueLabel: dueText.isNotEmpty
+          ? dueText
+          : (dueAt.isEmpty ? '待确认时间' : _formatApiDate(dueAt)),
+      stage: _readString(json, const ['stage']),
+      riskLabel: _readString(json, const ['risk_label']),
+      primaryAction: _readString(json, const ['primary_action']),
+      nextAction: _readString(json, const ['next_action']),
+      sourceMemoryCount: _readInt(json, const ['source_memory_count']) ??
+          sourceMemoryIds.length,
+      subjectId: _readString(json, const ['subject_id']),
+      profileId: _readString(json, const ['profile_id']),
+      agentDomain: _readString(json, const ['agent_domain']),
+      dueAt: dueAt,
+      channel: _readString(json, const ['channel'], fallback: '记忆'),
+      decisionRole: _readString(json, const ['decision_role']),
+      assistReason: _readString(json, const ['assist_reason']),
+      avoidAction: _readString(json, const ['avoid_action']),
+      contextItems: _readStringList(json, const ['context_items']),
+      memorySignals: _readStringList(json, const ['memory_signals']),
+      sourceMemoryIds: sourceMemoryIds,
+      lastMemoryLabel: _formatApiDate(
+        _readString(json, const ['last_memory_at', 'updated_at']),
+      ),
+      confidence: confidence,
+      confidenceLabel: _formatConfidenceLabel(confidence),
+      salesHighlights: _readStringList(json, const ['sales_highlights']),
+      writeBackStatus: _readString(json, const ['write_back_status']),
+      writeBackDraft: _readString(json, const ['write_back_draft']),
+      replyDraft: _readString(json, const ['reply_draft']),
+      metadata: metadata,
+      memoryEvidence: memoryEvidence,
+      workDocs: workDocs,
+      createdLabel: _formatApiDate(
+        _readString(json, const ['created_at']),
+      ),
+      updatedLabel: updatedAt.isEmpty ? '' : _formatApiDate(updatedAt),
+    );
+  }
+
+  final String id;
+  final String title;
+  final String summary;
+  final String status;
+  final String priority;
+  final String dueLabel;
+  final String stage;
+  final String riskLabel;
+  final String primaryAction;
+  final String nextAction;
+  final int sourceMemoryCount;
+  final String subjectId;
+  final String profileId;
+  final String agentDomain;
+  final String dueAt;
+  final String channel;
+  final String decisionRole;
+  final String assistReason;
+  final String avoidAction;
+  final List<String> contextItems;
+  final List<String> memorySignals;
+  final List<String> sourceMemoryIds;
+  final String lastMemoryLabel;
+  final double confidence;
+  final String confidenceLabel;
+  final List<String> salesHighlights;
+  final String writeBackStatus;
+  final String writeBackDraft;
+  final String replyDraft;
+  final Map<String, dynamic> metadata;
+  final List<_ServiceMemoryEvidence> memoryEvidence;
+  final List<_AgentWorkDoc> workDocs;
+  final String createdLabel;
+  final String updatedLabel;
+
+  String get customerName {
+    final fromMetadata = _readString(
+      metadata,
+      const ['customer_name', 'customerName', 'name'],
+    );
+    return fromMetadata.isNotEmpty
+        ? fromMetadata
+        : (title.trim().isEmpty ? '待补充客户' : title.trim());
+  }
+
+  String get studentName {
+    return _readString(
+      metadata,
+      const ['student_name', 'studentName'],
+      fallback: '待补充',
+    );
+  }
+
+  bool get isCompleted {
+    return const {'confirmed', 'completed'}
+        .contains(status.trim().toLowerCase());
+  }
+
+  bool get isOpen {
+    return const {
+      'candidate',
+      'pending',
+      'generated',
+      'snoozed',
+      'recompute_required',
+    }.contains(status.trim().toLowerCase());
+  }
+
+  int get priorityWeight {
+    switch (priority.trim().toLowerCase()) {
+      case 'high':
+        return 3;
+      case 'medium':
+        return 2;
+      default:
+        return 1;
+    }
+  }
+
+  String get summaryText {
+    for (final value in [summary, assistReason, nextAction]) {
+      final normalized = _normalizeSpaces(value);
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '暂无客户摘要';
+  }
+
+  String get assistReasonText {
+    for (final value in [assistReason, summary, primaryAction]) {
+      final normalized = _normalizeSpaces(value);
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '暂无提醒原因';
+  }
+
+  String get nextActionText {
+    for (final value in [nextAction, primaryAction]) {
+      final normalized = _normalizeSpaces(value);
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '确认客户状态并补一条下一步记忆';
+  }
+
+  String get avatarText {
+    final normalized = customerName.trim();
+    if (normalized.isEmpty) return '客';
+    return String.fromCharCode(normalized.runes.first);
+  }
+
+  Color get riskColor {
+    final text = '$riskLabel $title $summary'.toLowerCase();
+    if (text.contains('高') || text.contains('风险') || text.contains('投诉')) {
+      return const Color(0xFFC43A31);
+    }
+    if (text.contains('待') || text.contains('顾虑') || text.contains('需')) {
+      return const Color(0xFFD87600);
+    }
+    return AppColors.control;
+  }
+
+  _ServiceReminder copyWith({
+    String? status,
+  }) {
+    return _ServiceReminder(
+      id: id,
+      title: title,
+      summary: summary,
+      status: status ?? this.status,
+      priority: priority,
+      dueLabel: dueLabel,
+      stage: stage,
+      riskLabel: riskLabel,
+      primaryAction: primaryAction,
+      nextAction: nextAction,
+      sourceMemoryCount: sourceMemoryCount,
+      subjectId: subjectId,
+      profileId: profileId,
+      agentDomain: agentDomain,
+      dueAt: dueAt,
+      channel: channel,
+      decisionRole: decisionRole,
+      assistReason: assistReason,
+      avoidAction: avoidAction,
+      contextItems: contextItems,
+      memorySignals: memorySignals,
+      sourceMemoryIds: sourceMemoryIds,
+      lastMemoryLabel: lastMemoryLabel,
+      confidence: confidence,
+      confidenceLabel: confidenceLabel,
+      salesHighlights: salesHighlights,
+      writeBackStatus: writeBackStatus,
+      writeBackDraft: writeBackDraft,
+      replyDraft: replyDraft,
+      metadata: metadata,
+      memoryEvidence: memoryEvidence,
+      workDocs: workDocs,
+      createdLabel: createdLabel,
+      updatedLabel: updatedLabel,
+    );
+  }
+
+  static List<_ServiceMemoryEvidence> _readMemoryEvidenceList(
+      Object? rawValue) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _ServiceMemoryEvidence.fromApi(item)
+        else if (item is Map)
+          _ServiceMemoryEvidence.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  static List<_AgentWorkDoc> _readWorkDocList(Object? rawValue) {
+    if (rawValue is! List) return const [];
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _AgentWorkDoc.fromApi(item)
+        else if (item is Map)
+          _AgentWorkDoc.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  String get body {
+    for (final value in [nextAction, primaryAction, summary]) {
+      final normalized = _normalizeSpaces(value);
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '暂无下一步动作';
+  }
+
+  String get statusLabel {
+    switch (status.trim().toLowerCase()) {
+      case 'completed':
+      case 'confirmed':
+        return '已闭环';
+      case 'ignored':
+        return '已忽略';
+      case 'snoozed':
+        return '稍后';
+      case 'candidate':
+      case 'generated':
+      case 'pending':
+        return '待处理';
+      default:
+        return '当前';
+    }
+  }
+
+  String get priorityLabel {
+    switch (priority.trim().toLowerCase()) {
+      case 'high':
+        return '高优先级';
+      case 'medium':
+        return '中优先级';
+      default:
+        return '低优先级';
+    }
+  }
+
+  Color get priorityColor {
+    switch (priority.trim().toLowerCase()) {
+      case 'high':
+        return const Color(0xFFC43A31);
+      case 'medium':
+        return const Color(0xFFD87600);
+      default:
+        return const Color(0xFF11835C);
+    }
+  }
+}
+
+class _ServiceMemoryEvidence {
+  const _ServiceMemoryEvidence({
+    required this.id,
+    required this.title,
+    required this.summary,
+    required this.sourceLabel,
+    required this.occurredAtLabel,
+  });
+
+  factory _ServiceMemoryEvidence.fromApi(Map<String, dynamic> json) {
+    return _ServiceMemoryEvidence(
+      id: _readString(json, const ['id']),
+      title: _readString(json, const ['title'], fallback: '关联记忆'),
+      summary: _readString(json, const ['summary']),
+      sourceLabel: _readString(json, const ['sourceLabel', 'source_label']),
+      occurredAtLabel: _readString(
+        json,
+        const ['occurredAtLabel', 'occurred_at_label'],
+      ),
+    );
+  }
+
+  final String id;
+  final String title;
+  final String summary;
+  final String sourceLabel;
+  final String occurredAtLabel;
+
+  String get metaLabel {
+    return [
+      if (sourceLabel.trim().isNotEmpty) sourceLabel.trim(),
+      if (occurredAtLabel.trim().isNotEmpty) occurredAtLabel.trim(),
+    ].join(' · ');
   }
 }
 
@@ -12021,6 +16859,7 @@ class _OrganizeMemory {
     required this.metadata,
     required this.audioUrl,
     required this.transcriptionStatus,
+    required this.transcript,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -12035,10 +16874,26 @@ class _OrganizeMemory {
     final audioUrl = _publicAudioUrl(
       _readOrganizeMemoryAudioUrl(json, metadata),
     );
-    final transcriptionStatus = _readString(
+    final transcriptionStatus = _readOrganizeMemoryText(
+      json,
       metadata,
       const ['transcription_status', 'upload_status'],
     );
+    final transcript = _readOrganizeMemoryText(json, metadata, const [
+      'transcript',
+      'transcription_text',
+      'transcriptionText',
+      'transcription_result',
+      'transcriptionResult',
+      'asr_text',
+      'asrText',
+      'speech_text',
+      'speechText',
+      'raw_transcript',
+      'rawTranscript',
+      'original_text',
+      'originalText',
+    ]);
 
     return _OrganizeMemory(
       id: _readString(json, const ['id']),
@@ -12051,6 +16906,7 @@ class _OrganizeMemory {
       metadata: metadata,
       audioUrl: audioUrl,
       transcriptionStatus: transcriptionStatus,
+      transcript: transcript,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -12066,6 +16922,7 @@ class _OrganizeMemory {
   final Map<String, dynamic> metadata;
   final String audioUrl;
   final String transcriptionStatus;
+  final String transcript;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -12088,6 +16945,7 @@ class _OrganizeMemory {
       ),
       durationSeconds: durationSeconds,
       transcriptionStatus: transcriptionStatus,
+      transcript: _organizeMemoryTranscriptText(),
       transcriptionDetail: _organizeMemoryMetadataText(
         const ['transcription_error', 'transcription_reason'],
       ),
@@ -12095,7 +16953,7 @@ class _OrganizeMemory {
   }
 
   String _organizeMemoryTitle() {
-    final normalizedTitle = _normalizeSpaces(title);
+    final normalizedTitle = _normalizeSpaces(_readableMemoryText(title));
     if (normalizedTitle.isNotEmpty) {
       return normalizedTitle;
     }
@@ -12113,16 +16971,32 @@ class _OrganizeMemory {
   }
 
   String _organizeMemoryBodyText() {
-    final normalizedContent = _normalizeSpaces(_plainTextFromHtml(content));
+    final normalizedContent = _readableMemoryText(content);
     if (normalizedContent.isNotEmpty) return normalizedContent;
     return '';
   }
 
   String _organizeMemoryExcerpt(String body) {
-    final compact = _normalizeSpaces(body);
+    final compact = _normalizeSpaces(_readableMemoryText(body));
     if (compact.isEmpty) return '';
     if (compact.length <= 120) return compact;
     return '${compact.substring(0, 120)}...';
+  }
+
+  String _organizeMemoryTranscriptText() {
+    final normalizedTranscript = _readableMemoryText(transcript);
+    if (normalizedTranscript.isNotEmpty) return normalizedTranscript;
+    return _readableMemoryText(
+      _organizeMemoryMetadataText(const [
+        'transcript',
+        'transcription_text',
+        'transcription_result',
+        'asr_text',
+        'speech_text',
+        'raw_transcript',
+        'original_text',
+      ]),
+    );
   }
 
   String _organizeMemorySummaryText() {
@@ -12180,6 +17054,7 @@ class _NoteItem {
     this.audioFileName = '',
     this.durationSeconds = 0,
     this.transcriptionStatus = '',
+    this.transcript = '',
     this.transcriptionDetail = '',
   });
 
@@ -12193,6 +17068,7 @@ class _NoteItem {
   final String audioFileName;
   final int durationSeconds;
   final String transcriptionStatus;
+  final String transcript;
   final String transcriptionDetail;
 
   String get detailCreatedAt {
@@ -12209,6 +17085,21 @@ class _NoteItem {
   }
 
   bool get hasAudioLink => audioUrl.trim().isNotEmpty;
+
+  String get transcriptBody {
+    final normalizedTranscript = _readableMemoryText(transcript);
+    if (normalizedTranscript.isNotEmpty) return normalizedTranscript;
+
+    final label = transcriptionStatusLabel;
+    if (label == '转写中') {
+      return '录音正在转写，稍后下拉刷新查看原文。';
+    }
+    if (label == '转写失败') {
+      final detail = transcriptionStatusDetailText;
+      return detail.isNotEmpty ? detail : '录音转写失败，暂无原文。';
+    }
+    return '暂无录音原文。';
+  }
 
   String get transcriptionStatusLabel {
     switch (transcriptionStatus.trim().toLowerCase()) {
@@ -12478,6 +17369,26 @@ int? _readInt(Map<String, dynamic> json, List<String> keys) {
     }
   }
   return null;
+}
+
+double? _readDouble(Map<String, dynamic> json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key];
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final parsed = double.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+  }
+  return null;
+}
+
+String _formatConfidenceLabel(double confidence) {
+  if (confidence <= 0) return '待确认';
+  if (confidence >= 0.8) return '较高';
+  if (confidence >= 0.6) return '待确认';
+  return '较低';
 }
 
 DateTime? _readDateTime(Map<String, dynamic> json, List<String> keys) {
