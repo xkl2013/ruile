@@ -27,6 +27,7 @@ func newServiceDailyReportTestDB(t *testing.T) *gorm.DB {
 		&types.AgentActionDraft{},
 		&types.AgentActionLog{},
 		&types.OrganizeMemory{},
+		&types.TenantMember{},
 	))
 	return db
 }

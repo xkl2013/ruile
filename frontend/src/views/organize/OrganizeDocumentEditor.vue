@@ -23,11 +23,11 @@
           variant="outline"
           class="editor-service-action"
           :loading="noteServiceExtracting"
-          :disabled="saving || loading"
+          :disabled="saving || loading || linkedServiceReminderLoading"
           @click="extractCurrentMemoryToService"
         >
           <template #icon><img src="@/assets/img/agent-green.svg" class="editor-service-action-icon" alt="" aria-hidden="true" /></template>
-          提取服务
+          {{ noteServiceActionLabel }}
         </t-button>
         <t-button
           v-if="isNoteMemory"
@@ -184,7 +184,10 @@
                 </section>
 
                 <section v-show="noteActiveTab === 'service'" class="memory-note-panel-view memory-note-panel-view--service">
-                  <article v-if="noteServiceTask" class="memory-note-service-card">
+                  <div v-if="linkedServiceReminderLoading" class="memory-note-service-loading">
+                    <t-loading size="small" text="加载服务卡片中" />
+                  </div>
+                  <article v-else-if="noteServiceTask" class="memory-note-service-card">
                     <div class="memory-note-service-head">
                       <div class="memory-note-service-head-copy">
                         <span>客户摘要</span>
@@ -508,7 +511,11 @@ import {
   formatMemoryDateLabel,
   type ServiceTask,
 } from '../service/serviceMemoryExtraction'
-import { extractServiceMemory } from '@/api/service'
+import {
+  extractServiceMemory,
+  listServiceReminders,
+  mapServiceReminderToTask,
+} from '@/api/service'
 import {
   DISCOVER_CATEGORY_OPTIONS,
   discoverCategoryLabel,
@@ -558,6 +565,8 @@ const noteSproutLoading = ref(false)
 const noteSproutStatus = ref<OrganizeSproutStage | ''>('')
 const noteActiveTab = ref<'content' | 'service' | 'sprout'>('content')
 const noteServiceExtracting = ref(false)
+const linkedServiceReminderTask = ref<ServiceTask | null>(null)
+const linkedServiceReminderLoading = ref(false)
 const sourcePreviewVisible = ref(false)
 const sproutPreviewVisible = ref(false)
 const outputDraft = ref<OrganizeOutput | null>(null)
@@ -565,6 +574,7 @@ const outputCategory = ref<DiscoverCategoryKey | ''>('')
 const sproutDraft = ref<OrganizeSproutReport | null>(null)
 const discoverCategoryOptions = DISCOVER_CATEGORY_OPTIONS
 let noteSproutRequestSeq = 0
+let linkedServiceReminderRequestSeq = 0
 
 const editorFeatures: FeatureConfig = {
   headerNav: false,
@@ -935,8 +945,14 @@ const currentNoteMemoryForService = computed<OrganizeMemory | null>(() => {
 })
 
 const noteServiceTask = computed<ServiceTask | null>(() => {
+  if (linkedServiceReminderTask.value) return linkedServiceReminderTask.value
   const memory = currentNoteMemoryForService.value
   return memory ? buildServiceTaskFromMemory(memory) : null
+})
+
+const noteServiceActionLabel = computed(() => {
+  if (linkedServiceReminderTask.value) return '已提取服务'
+  return '提取服务'
 })
 
 const noteServiceSourceMemory = computed(() => {
@@ -976,8 +992,37 @@ const serviceExtractionErrorMessage = (error: any) => {
   return '提取服务失败'
 }
 
+const loadLinkedServiceReminder = async (memoryID: string, options?: { silent?: boolean }) => {
+  if (!memoryID || memoryID === 'new') return
+  const requestSeq = ++linkedServiceReminderRequestSeq
+  if (!options?.silent) linkedServiceReminderLoading.value = true
+  try {
+    const response = await listServiceReminders({ memory_id: memoryID, page_size: 10 })
+    if (requestSeq !== linkedServiceReminderRequestSeq) return
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '服务提醒加载失败')
+    }
+    const linkedReminder = response.data.items.find((item) => (item.source_memory_ids || []).includes(memoryID))
+      || response.data.items[0]
+      || null
+    linkedServiceReminderTask.value = linkedReminder ? mapServiceReminderToTask(linkedReminder) : null
+  } catch {
+    if (!options?.silent) {
+      linkedServiceReminderTask.value = null
+    }
+  } finally {
+    if (requestSeq === linkedServiceReminderRequestSeq && !options?.silent) {
+      linkedServiceReminderLoading.value = false
+    }
+  }
+}
+
 const extractCurrentMemoryToService = async () => {
   if (!isNoteMemory.value || noteServiceExtracting.value) return
+  if (linkedServiceReminderTask.value) {
+    noteActiveTab.value = 'service'
+    return
+  }
   if (saving.value) {
     MessagePlugin.info('正在保存笔记，请稍后')
     return
@@ -1004,6 +1049,12 @@ const extractCurrentMemoryToService = async () => {
       MessagePlugin.warning(serviceExtractionReasonMessage(data.reason))
       return
     }
+    if (data.reminder) {
+      linkedServiceReminderTask.value = mapServiceReminderToTask(data.reminder)
+    } else {
+      await loadLinkedServiceReminder(memoryID, { silent: true })
+    }
+    noteActiveTab.value = 'service'
     MessagePlugin.success('服务提醒已生成')
   } catch (error: any) {
     MessagePlugin.error(serviceExtractionErrorMessage(error))
@@ -1380,9 +1431,12 @@ const resetDraft = () => {
   noteSproutReport.value = null
   noteSproutLoading.value = false
   noteSproutStatus.value = ''
+  linkedServiceReminderTask.value = null
+  linkedServiceReminderLoading.value = false
   sourcePreviewVisible.value = false
   sproutPreviewVisible.value = false
   noteSproutRequestSeq += 1
+  linkedServiceReminderRequestSeq += 1
   noteActiveTab.value = 'content'
   if (documentType.value === 'memory' && memoryKind.value === 'audio') {
     content.value = normalizeAudioMemoryContent(draftContent)
@@ -1448,7 +1502,10 @@ const loadDocument = async () => {
           ? memoryBodyContent(item.title, item.content)
           : normalizeDocumentContent(item.title, item.content)
       if (isNoteMemory.value) {
-        await loadLinkedMemorySproutReport(item.id)
+        await Promise.all([
+          loadLinkedMemorySproutReport(item.id),
+          loadLinkedServiceReminder(item.id),
+        ])
       }
     } else if (documentType.value === 'output') {
       const response = await getOrganizeOutput(documentId.value)
@@ -2556,6 +2613,13 @@ watch(
 }
 
 .memory-note-sprout-loading {
+  display: flex;
+  align-items: center;
+  min-height: 124px;
+  padding-top: 4px;
+}
+
+.memory-note-service-loading {
   display: flex;
   align-items: center;
   min-height: 124px;

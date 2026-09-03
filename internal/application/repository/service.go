@@ -380,6 +380,15 @@ func (r *serviceRepository) ListReminders(ctx context.Context, query types.Servi
 	if strings.TrimSpace(query.SubjectID) != "" {
 		dbq = dbq.Where("subject_id = ?", strings.TrimSpace(query.SubjectID))
 	}
+	if strings.TrimSpace(query.MemoryID) != "" {
+		memoryID := strings.TrimSpace(query.MemoryID)
+		memoryIDPattern := "%\"" + memoryID + "\"%"
+		if r.db != nil && r.db.Dialector != nil && r.db.Dialector.Name() == "postgres" {
+			dbq = dbq.Where("source_memory_ids::text LIKE ?", memoryIDPattern)
+		} else {
+			dbq = dbq.Where("source_memory_ids LIKE ?", memoryIDPattern)
+		}
+	}
 	if strings.TrimSpace(query.Status) != "" {
 		dbq = dbq.Where("status = ?", strings.TrimSpace(query.Status))
 	}
@@ -618,11 +627,13 @@ func plainExcerpt(content string, metadata types.JSONMap) string {
 	text := strings.TrimSpace(content)
 	replacer := strings.NewReplacer(
 		"<br>", " ", "<br/>", " ", "<br />", " ",
-		"&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">",
-		"#", " ", ">", " ", "*", " ", "_", " ", "`", " ", "~", " ",
 	)
 	text = replacer.Replace(text)
-	text = strings.Join(strings.Fields(stripTags(text)), " ")
+	text = strings.NewReplacer(
+		"&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">",
+		"#", " ", ">", " ", "*", " ", "_", " ", "`", " ", "~", " ",
+	).Replace(stripTags(text))
+	text = strings.Join(strings.Fields(text), " ")
 	if text == "" {
 		return "暂无记忆内容"
 	}

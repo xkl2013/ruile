@@ -36,7 +36,9 @@ const (
 )
 
 type serviceService struct {
-	repo     interfaces.ServiceRepository
+	repo    interfaces.ServiceRepository
+	members interfaces.TenantMemberRepository
+
 	organize interfaces.OrganizeRepository
 }
 
@@ -44,7 +46,23 @@ func NewServiceService(
 	repo interfaces.ServiceRepository,
 	organize interfaces.OrganizeRepository,
 ) interfaces.ServiceService {
-	return &serviceService{repo: repo, organize: organize}
+	return newServiceService(repo, organize, nil)
+}
+
+func NewServiceServiceWithMembers(
+	repo interfaces.ServiceRepository,
+	organize interfaces.OrganizeRepository,
+	members interfaces.TenantMemberRepository,
+) interfaces.ServiceService {
+	return newServiceService(repo, organize, members)
+}
+
+func newServiceService(
+	repo interfaces.ServiceRepository,
+	organize interfaces.OrganizeRepository,
+	members interfaces.TenantMemberRepository,
+) interfaces.ServiceService {
+	return &serviceService{repo: repo, organize: organize, members: members}
 }
 
 func (s *serviceService) GetBootstrap(ctx context.Context, tenantID uint64, userID string) (*types.ServiceBootstrap, error) {
@@ -207,11 +225,18 @@ func (s *serviceService) ExtractMemory(ctx context.Context, tenantID uint64, use
 	if err != nil {
 		return nil, err
 	}
-	if profile == nil || len(settings) == 0 {
+	if profile == nil {
 		return &types.ServiceMemoryExtraction{
 			MemoryID:  memoryID,
 			Generated: false,
 			Reason:    "profile_not_configured",
+		}, nil
+	}
+	if len(settings) == 0 {
+		return &types.ServiceMemoryExtraction{
+			MemoryID:  memoryID,
+			Generated: false,
+			Reason:    "agent_not_enabled",
 		}, nil
 	}
 	enabledDomains := enabledServiceAgentSettings(settings)
@@ -536,6 +561,9 @@ func (s *serviceService) ListWorkProfiles(ctx context.Context, tenantID uint64, 
 	if tenantID == 0 {
 		return nil, ErrServiceInvalidScope
 	}
+	if err := s.materializeWorkProfilesFromMembers(ctx, tenantID, strings.TrimSpace(userID)); err != nil {
+		return nil, err
+	}
 	return s.repo.ListWorkProfiles(ctx, tenantID, strings.TrimSpace(userID))
 }
 
@@ -672,14 +700,87 @@ func (s *serviceService) defaultProfileAndSettings(
 	ctx context.Context, tenantID uint64, userID string,
 ) (*types.UserWorkProfile, []*types.WorkProfileAgentSetting, error) {
 	profile, err := s.repo.GetDefaultWorkProfile(ctx, tenantID, userID)
-	if err != nil || profile == nil {
-		return profile, nil, err
+	if err != nil {
+		return nil, nil, err
+	}
+	if profile == nil {
+		profile, err = s.ensureDefaultWorkProfileFromMember(ctx, tenantID, userID)
+		if err != nil || profile == nil {
+			return profile, nil, err
+		}
 	}
 	settings, err := s.repo.ListAgentSettings(ctx, tenantID, profile.ID, true)
 	if err != nil {
 		return nil, nil, err
 	}
 	return profile, settings, nil
+}
+
+func (s *serviceService) materializeWorkProfilesFromMembers(ctx context.Context, tenantID uint64, userID string) error {
+	if s.members == nil {
+		return nil
+	}
+	if userID != "" {
+		_, err := s.ensureDefaultWorkProfileFromMember(ctx, tenantID, userID)
+		return err
+	}
+	members, err := s.members.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	for _, member := range members {
+		if member == nil || member.Status != types.TenantMemberStatusActive {
+			continue
+		}
+		if strings.TrimSpace(member.WorkProfileDescription) == "" {
+			continue
+		}
+		if _, err := s.ensureDefaultWorkProfileFromMember(ctx, tenantID, member.UserID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *serviceService) ensureDefaultWorkProfileFromMember(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+) (*types.UserWorkProfile, error) {
+	if s.members == nil {
+		return nil, nil
+	}
+	userID = strings.TrimSpace(userID)
+	if tenantID == 0 || userID == "" {
+		return nil, nil
+	}
+	member, err := s.members.Get(ctx, userID, tenantID)
+	if err != nil || member == nil {
+		return nil, err
+	}
+	if member.Status != types.TenantMemberStatusActive || strings.TrimSpace(member.WorkProfileDescription) == "" {
+		return nil, nil
+	}
+	profiles, err := s.repo.ListWorkProfiles(ctx, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, profile := range profiles {
+		if profile != nil && profile.DefaultProfile {
+			if profile.Enabled && profile.State == types.ServiceWorkProfileStateEnabled {
+				return profile, nil
+			}
+			return nil, nil
+		}
+	}
+	profile := buildWorkProfileFromMemberDescription(ctx, member)
+	if err := s.repo.CreateWorkProfile(ctx, profile); err != nil {
+		if isDuplicateServiceConfig(err) {
+			return s.repo.GetDefaultWorkProfile(ctx, tenantID, userID)
+		}
+		return nil, err
+	}
+	return s.repo.GetDefaultWorkProfile(ctx, tenantID, userID)
 }
 
 func (s *serviceService) resolveCustomerSpaceProfile(
@@ -916,6 +1017,56 @@ func buildWorkProfile(tenantID uint64, operatorUserID, id string, input types.Se
 		UpdatedBy:      operatorUserID,
 		UpdatedAt:      time.Now().UTC(),
 	}, nil
+}
+
+func buildWorkProfileFromMemberDescription(ctx context.Context, member *types.TenantMember) *types.UserWorkProfile {
+	operatorUserID := firstNonEmpty(auditActor(ctx), member.UserID)
+	description := strings.TrimSpace(member.WorkProfileDescription)
+	return &types.UserWorkProfile{
+		ID:             deterministicServiceID("work-profile", strconv.FormatUint(member.TenantID, 10), member.UserID, "default"),
+		TenantID:       member.TenantID,
+		UserID:         member.UserID,
+		Name:           "默认服务助理",
+		RoleType:       inferWorkProfileRoleType(description),
+		CampusScope:    types.StringArray{},
+		CourseScope:    types.StringArray{},
+		MemoryScope:    "本人记忆 · 服务相关",
+		TonePreference: inferWorkProfileTone(description),
+		DefaultProfile: true,
+		Enabled:        true,
+		State:          types.ServiceWorkProfileStateEnabled,
+		CreatedBy:      operatorUserID,
+		UpdatedBy:      operatorUserID,
+		UpdatedAt:      time.Now().UTC(),
+	}
+}
+
+func inferWorkProfileRoleType(description string) string {
+	switch {
+	case containsAny(description, []string{"园长", "校长", "负责人"}):
+		return "principal"
+	case containsAny(description, []string{"招生", "销售", "顾问", "咨询", "试听", "邀约", "报名"}):
+		return "consultant"
+	case containsAny(description, []string{"班主任", "老师", "教师", "教务"}):
+		return "teacher"
+	default:
+		return "service"
+	}
+}
+
+func inferWorkProfileTone(description string) string {
+	if containsAny(description, []string{"专业温和", "耐心", "亲和", "共情"}) {
+		return "专业温和、耐心细致"
+	}
+	return "先确认事实，再生成可发送话术和下一步"
+}
+
+func isDuplicateServiceConfig(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate") || strings.Contains(msg, "unique constraint")
 }
 
 func buildAgentSetting(
@@ -1564,6 +1715,7 @@ func normalizeServiceListQuery(query types.ServiceListQuery) types.ServiceListQu
 	query.UserID = strings.TrimSpace(query.UserID)
 	query.ProfileID = strings.TrimSpace(query.ProfileID)
 	query.SubjectID = strings.TrimSpace(query.SubjectID)
+	query.MemoryID = strings.TrimSpace(query.MemoryID)
 	query.Keyword = strings.TrimSpace(query.Keyword)
 	query.Status = strings.TrimSpace(query.Status)
 	query.AgentDomain = strings.TrimSpace(query.AgentDomain)
@@ -2559,8 +2711,6 @@ func contentExcerpt(value, fallback string) string {
 func stripServiceMarkup(value string) string {
 	replacer := strings.NewReplacer(
 		"<br>", " ", "<br/>", " ", "<br />", " ",
-		"&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">", "&quot;", `"`, "&#39;", "'",
-		"#", " ", ">", " ", "*", " ", "_", " ", "`", " ", "~", " ", "-", " ",
 	)
 	value = replacer.Replace(value)
 	var builder strings.Builder
@@ -2578,7 +2728,11 @@ func stripServiceMarkup(value string) string {
 			}
 		}
 	}
-	return strings.Join(strings.Fields(builder.String()), " ")
+	text := strings.NewReplacer(
+		"&nbsp;", " ", "&amp;", "&", "&lt;", "<", "&gt;", ">", "&quot;", `"`, "&#39;", "'",
+		"#", " ", ">", " ", "*", " ", "_", " ", "`", " ", "~", " ", "-", " ",
+	).Replace(builder.String())
+	return strings.Join(strings.Fields(text), " ")
 }
 
 func containsAny(text string, keywords []string) bool {

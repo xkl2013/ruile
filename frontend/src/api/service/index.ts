@@ -361,6 +361,7 @@ export function listServiceReminders(params?: {
   status?: string
   agent_domain?: string
   profile_id?: string
+  memory_id?: string
   page?: number
   page_size?: number
 }) {

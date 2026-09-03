@@ -104,10 +104,9 @@
                     <strong>{{ task.title || task.customerName }}</strong>
                     <span class="rail-due">{{ task.dueText }}</span>
                   </span>
-                  <em>{{ task.customerName }} · {{ task.riskLabel }} · {{ task.nextAction }}</em>
-                  <span class="rail-tags">
+                  <span class="rail-preview-row">
                     <small :class="serviceReminderStatusClass(task)">{{ serviceReminderStatusLabel(task) }}</small>
-                    <small>{{ task.stage }}</small>
+                    <em>{{ task.customerName }} · {{ task.nextAction }}</em>
                   </span>
                 </span>
               </button>
@@ -257,10 +256,6 @@
                   <t-icon name="folder" />
                   客户空间
                 </button>
-                <button type="button" class="customer-summary-status" @click="toggleTaskClosed(activeTask.id)">
-                  <t-icon :name="isTaskClosed(activeTask.id) ? 'rollback' : 'check-circle'" />
-                  {{ isTaskClosed(activeTask.id) ? '恢复' : '完成' }}
-                </button>
               </div>
             </div>
 
@@ -269,7 +264,7 @@
                 <h3>{{ activeTask.customerName }}</h3>
                 <em :class="`priority-${activeTask.priorityKey}`">{{ activePriorityLabel }}</em>
               </div>
-              <p>{{ activeStudentLabel }} · {{ activeTask.stage }} · {{ activeTask.channel }}</p>
+              <p>{{ activeStudentLabel }} · {{ activeTask.stage }}</p>
             </div>
 
             <section class="assistant-result-card">
@@ -448,7 +443,7 @@
       <div class="customer-detail-body">
         <section class="customer-detail-profile">
           <h3>{{ activeTask.title || activeTask.customerName }}</h3>
-          <p>{{ activeTask.customerName }} · {{ activeTask.channel }} · {{ activeStudentLabel }}</p>
+          <p>{{ activeTask.customerName }} · {{ activeStudentLabel }}</p>
         </section>
 
         <template v-if="customerDetailType === 'followUp'">
@@ -1039,29 +1034,6 @@ const updateBackendTaskStatus = (id: string, status: string, writeBackStatus: st
     : task)
 }
 
-const toggleTaskClosed = async (id: string) => {
-  const task = taskById.value.get(id)
-  if (!task) return
-  const nextStatus = isTaskClosed(id) ? 'pending' : 'confirmed'
-  try {
-    const response = await updateServiceReminderStatus(id, nextStatus)
-    backendServiceTasks.value = backendServiceTasks.value.map((item) => item.id === id
-      ? mapServiceReminderToTask(response.data)
-      : item)
-  } catch (error) {
-    console.warn('[ServiceAgent] Failed to update service reminder status:', error)
-    MessagePlugin.error('服务提醒状态更新失败')
-    return
-  }
-  if (nextStatus === 'confirmed') {
-    closedTaskIds.value = [...new Set([...closedTaskIds.value, id])]
-  } else {
-    closedTaskIds.value = closedTaskIds.value.filter((item) => item !== id)
-  }
-  ignoredTaskIds.value = ignoredTaskIds.value.filter((item) => item !== id)
-  snoozedTaskIds.value = snoozedTaskIds.value.filter((item) => item !== id)
-}
-
 const confirmActiveTask = async () => {
   if (!activeTask.value.id) return
   try {
@@ -1148,7 +1120,6 @@ const activeServiceFacts = computed<ServiceFact[]>(() => {
     { label: '置信度', value: task.confidenceLabel },
     { label: '风险', value: task.riskLabel },
     { label: '决策人', value: task.decisionRole },
-    { label: '渠道', value: task.channel },
     { label: '落地', value: task.writeBackStatus },
   ]
 })
@@ -1650,9 +1621,9 @@ const closeReviewPreview = () => {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border: 1px solid #e4e8ed;
+  border: 1px solid #e1e5e9;
   border-radius: 8px;
-  background: var(--td-bg-color-container);
+  background: #f7f7f7;
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -1786,32 +1757,44 @@ const closeReviewPreview = () => {
   overflow-y: auto;
   overflow-x: hidden;
   gap: 0;
-  padding: 4px 8px 8px;
+  padding: 0;
+  border-top: 1px solid #eceff2;
+  background: #ffffff;
 }
 
 .rail-item {
+  position: relative;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 11px;
   align-items: center;
   width: 100%;
-  min-height: 70px;
-  padding: 8px 9px;
+  min-height: 64px;
+  padding: 10px 12px;
   border: 0;
-  border-radius: 8px;
-  background: transparent;
+  border-radius: 0;
+  background: #ffffff;
   color: var(--td-text-color-primary);
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.16s ease, box-shadow 0.16s ease;
+  transition: background-color 0.16s ease;
+
+  &::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 63px;
+    height: 1px;
+    background: #eef1f4;
+    content: '';
+  }
 
   &:hover {
-    background: var(--td-bg-color-container-hover);
+    background: #f6f6f6;
   }
 
   &.active {
-    background: #f1f5f3;
-    box-shadow: inset 3px 0 0 #236549;
+    background: #eaf0ed;
   }
 
   &.muted {
@@ -1838,28 +1821,28 @@ const closeReviewPreview = () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #e7eef8;
-  color: #214a7a;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #dfe7f2;
+  color: #315171;
   font-size: 14px;
   font-weight: 600;
   line-height: 20px;
 }
 
 .rail-item.priority-high .rail-avatar {
-  background: rgba(213, 73, 65, 0.12);
-  color: #b83f38;
+  background: #f2d9d5;
+  color: #963c34;
 }
 
 .rail-item.priority-medium .rail-avatar {
-  background: rgba(146, 94, 28, 0.12);
-  color: #7a4d18;
+  background: #eadfc9;
+  color: #735422;
 }
 
 .rail-item.priority-low .rail-avatar {
-  background: rgba(34, 101, 73, 0.1);
+  background: #d8e8dd;
   color: #236549;
 }
 
@@ -1867,7 +1850,7 @@ const closeReviewPreview = () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
 
   strong,
   em,
@@ -1879,7 +1862,7 @@ const closeReviewPreview = () => {
 
   strong {
     color: var(--td-text-color-primary);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 20px;
   }
@@ -1904,7 +1887,7 @@ const closeReviewPreview = () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 
   strong {
@@ -1915,31 +1898,64 @@ const closeReviewPreview = () => {
 
 .rail-due {
   flex: 0 0 auto;
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-  line-height: 18px;
+  color: #a5adb5;
+  font-size: 11px;
+  line-height: 16px;
   white-space: nowrap;
 }
 
-.rail-tags {
+.rail-preview-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 
   small {
     display: inline-flex;
     align-items: center;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
-    max-width: 58%;
-    min-height: 18px;
-    padding: 0 6px;
-    border-radius: 6px;
-    background: var(--td-bg-color-secondarycontainer);
+    min-height: 17px;
+    padding: 0 4px;
+    border-radius: 3px;
+    border: 0;
+    background: #e8f3ec;
     color: var(--td-text-color-secondary);
-    line-height: 16px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 17px;
   }
+
+  em {
+    flex: 1;
+    min-width: 0;
+    color: #7f8790;
+    font-size: 12px;
+    line-height: 18px;
+  }
+}
+
+.rail-preview-row .reminder-status,
+.rail-preview-row .reminder-status--warning,
+.rail-preview-row .reminder-status--done,
+.rail-preview-row .reminder-status--muted {
+  border: 0;
+}
+
+.rail-preview-row .reminder-status {
+  background: #e8f3ec !important;
+  color: #236549 !important;
+}
+
+.rail-preview-row .reminder-status--warning {
+  background: #f5e5e1 !important;
+  color: #9a4339 !important;
+}
+
+.rail-preview-row .reminder-status--done,
+.rail-preview-row .reminder-status--muted {
+  background: #edf0f2 !important;
+  color: #8b949e !important;
 }
 
 .reminder-status {
@@ -1985,9 +2001,9 @@ const closeReviewPreview = () => {
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  border: 1px solid #e3e8ee;
+  border: 1px solid #e1e5e9;
   border-radius: 8px;
-  background: var(--td-bg-color-container);
+  background: #ffffff;
   box-sizing: border-box;
 }
 
@@ -1995,7 +2011,7 @@ const closeReviewPreview = () => {
   flex: 0 0 auto;
   padding: 16px 18px 14px;
   border-bottom: 1px solid #edf0f3;
-  background: var(--td-bg-color-container);
+  background: #ffffff;
   box-sizing: border-box;
 }
 
@@ -2254,9 +2270,9 @@ const closeReviewPreview = () => {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 13px 14px;
-  border: 1px solid #e3e8ee;
+  border: 1px solid #e1e5e9;
   border-radius: 8px;
-  background: var(--td-bg-color-container);
+  background: #ffffff;
   box-shadow: none;
   box-sizing: border-box;
 }
@@ -2317,9 +2333,9 @@ const closeReviewPreview = () => {
   gap: 5px;
   min-height: 26px;
   padding: 0 8px;
-  border: 1px solid #e2e7ec;
+  border: 1px solid #d9dee5;
   border-radius: 7px;
-  background: var(--td-bg-color-container);
+  background: #ffffff;
   color: var(--td-text-color-secondary);
   cursor: pointer;
   font-family: var(--app-font-family);
@@ -2329,9 +2345,9 @@ const closeReviewPreview = () => {
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 
   &:hover {
-    border-color: rgba(45, 116, 238, 0.32);
-    background: #f4f8ff;
-    color: #2365d6;
+    border-color: #cfd6de;
+    background: #f6f7f8;
+    color: var(--td-text-color-primary);
   }
 }
 

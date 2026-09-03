@@ -176,6 +176,7 @@ func (h *ServiceHandler) ListReminders(c *gin.Context) {
 	query.Status = strings.TrimSpace(c.Query("status"))
 	query.AgentDomain = strings.TrimSpace(c.Query("agent_domain"))
 	query.ProfileID = strings.TrimSpace(c.Query("profile_id"))
+	query.MemoryID = strings.TrimSpace(c.Query("memory_id"))
 	reminders, total, err := h.service.ListReminders(ctx, query)
 	if err != nil {
 		h.handleError(c, err)

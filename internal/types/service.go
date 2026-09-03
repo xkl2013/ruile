@@ -467,6 +467,7 @@ type ServiceListQuery struct {
 	UserID      string
 	ProfileID   string
 	SubjectID   string
+	MemoryID    string
 	Keyword     string
 	Status      string
 	AgentDomain string

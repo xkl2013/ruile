@@ -194,6 +194,29 @@ func TestServiceRepositoryRoundTrip(t *testing.T) {
 	require.Equal(t, "陈屿续费回访", reminders[0].MemoryEvidence[0].Title)
 	require.Equal(t, "客户/陈屿/客户摘要.md", reminders[0].WorkDocs[0].DocPath)
 
+	linkedReminders, linkedTotal, err := repo.ListReminders(ctx, types.ServiceListQuery{
+		TenantID: tenantID,
+		UserID:   userID,
+		MemoryID: memory.ID,
+		Page:     1,
+		PageSize: 10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), linkedTotal)
+	require.Len(t, linkedReminders, 1)
+	require.Equal(t, reminder.ID, linkedReminders[0].ID)
+
+	unlinkedReminders, unlinkedTotal, err := repo.ListReminders(ctx, types.ServiceListQuery{
+		TenantID: tenantID,
+		UserID:   userID,
+		MemoryID: "memory-not-linked",
+		Page:     1,
+		PageSize: 10,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), unlinkedTotal)
+	require.Empty(t, unlinkedReminders)
+
 	subjects, subjectTotal, err := repo.ListSubjects(ctx, types.ServiceCustomerSpaceListQuery{
 		TenantID:  tenantID,
 		UserID:    userID,
