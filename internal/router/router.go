@@ -467,8 +467,8 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		kbManagement.PUT("/:id", g.Viewer(), g.KBAccessWrite("id"), handler.UpdateKnowledgeBase)
 		// 上传已有知识库图标 — 与更新知识库同权限。
 		kbManagement.POST("/:id/icon", g.Viewer(), g.KBAccessWrite("id"), handler.UploadKnowledgeBaseIcon)
-		// 更新知识库文档目录配置 — 与知识库设置更新同档；系统管理员也可维护。
-		kbManagement.PUT("/:id/directory-config", g.AdminOrSystemAdmin(), g.KBAccessManage("id"), handler.UpdateKnowledgeBaseDirectoryConfig)
+		// 更新知识库文档目录配置 — 与知识库内容编辑同档，由 KBAccessWrite 统一判定。
+		kbManagement.PUT("/:id/directory-config", g.Viewer(), g.KBAccessWrite("id"), handler.UpdateKnowledgeBaseDirectoryConfig)
 		// 删除知识库 — 保持原有「创建者 OR Admin+」矩阵。
 		kbManagement.DELETE("/:id", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.DeleteKnowledgeBase)
 		// 置顶/取消置顶知识库 — 创建者本人 OR Admin+ 且对 KB 有 write 权限

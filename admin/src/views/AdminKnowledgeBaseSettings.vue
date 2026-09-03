@@ -1522,8 +1522,8 @@ onMounted(() => {
 <style scoped lang="less">
 .admin-kb-settings {
   display: grid;
-  gap: 16px;
-  max-width: 1280px;
+  gap: 18px;
+  width: min(100%, 1280px);
 }
 
 .admin-kb-state {
@@ -1531,13 +1531,17 @@ onMounted(() => {
   gap: 10px;
   align-items: center;
   justify-content: center;
-  min-height: 260px;
-  color: var(--td-text-color-secondary);
+  min-height: 280px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-surface);
+  color: var(--admin-text-secondary);
+  box-shadow: var(--admin-shadow-sm);
 }
 
 .admin-kb-state--error {
   flex-direction: column;
-  color: var(--td-error-color);
+  color: var(--admin-danger);
 
   strong {
     font-size: 15px;
@@ -1551,9 +1555,10 @@ onMounted(() => {
   justify-content: space-between;
   min-width: 0;
   padding: 18px;
-  border: 1px solid #dde6ed;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--admin-hero-bg), var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
 }
 
 .admin-kb-title {
@@ -1577,11 +1582,11 @@ onMounted(() => {
   h2 {
     margin: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--td-text-color-primary);
+    color: var(--admin-text);
     font-size: 22px;
     font-weight: 650;
     line-height: 1.3;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
@@ -1589,16 +1594,20 @@ onMounted(() => {
     display: flex;
     gap: 8px;
     align-items: center;
-    margin: 0;
     min-width: 0;
+    margin: 0;
   }
 
   code {
     max-width: 460px;
     overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--td-text-color-placeholder);
+    padding: 2px 7px;
+    border: 1px solid rgba(219, 228, 231, 0.9);
+    border-radius: 6px;
+    background: var(--admin-code-bg);
+    color: var(--admin-text-muted);
     font-size: 12px;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 }
@@ -1616,33 +1625,58 @@ onMounted(() => {
   gap: 12px;
 
   article {
+    position: relative;
     display: grid;
-    gap: 4px;
+    gap: 5px;
     min-width: 0;
-    padding: 14px 16px;
-    border: 1px solid #dde6ed;
+    overflow: hidden;
+    padding: 15px 16px;
+    border: 1px solid var(--admin-border);
     border-radius: 8px;
-    background: #fff;
+    background: var(--admin-surface);
+    box-shadow: var(--admin-shadow-sm);
+
+    &::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      height: 3px;
+      background: var(--admin-brand);
+      content: '';
+    }
+
+    &:nth-child(2)::before {
+      background: var(--admin-info);
+    }
+
+    &:nth-child(3)::before {
+      background: #5f6f7a;
+    }
+
+    &:nth-child(4)::before {
+      background: var(--admin-warning);
+    }
   }
 
   span,
   em {
     overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--td-text-color-secondary);
+    color: var(--admin-text-secondary);
     font-size: 12px;
     font-style: normal;
     line-height: 1.4;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   strong {
     overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--td-text-color-primary);
+    color: var(--admin-text);
     font-size: 20px;
     font-weight: 650;
     line-height: 1.2;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
 }
@@ -1656,13 +1690,14 @@ onMounted(() => {
 
 .admin-kb-tabs {
   position: sticky;
-  top: 94px;
+  top: 88px;
   display: grid;
   gap: 6px;
   padding: 10px;
-  border: 1px solid #dde6ed;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
 }
 
 .admin-kb-tabs button {
@@ -1670,19 +1705,36 @@ onMounted(() => {
   grid-template-columns: 18px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  min-height: 52px;
+  min-height: 48px;
   padding: 8px 10px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   cursor: pointer;
   text-align: left;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 
-  &:hover,
+  .t-icon {
+    color: var(--admin-text-muted);
+  }
+
+  &:hover {
+    border-color: rgba(15, 122, 92, 0.16);
+    background: var(--admin-surface-soft);
+    color: var(--admin-brand-strong);
+  }
+
   &.active {
-    background: #e9f4ef;
-    color: #0f6f55;
+    border-color: rgba(15, 122, 92, 0.18);
+    background: var(--admin-brand-soft);
+    color: var(--admin-brand-strong);
+    box-shadow: inset 3px 0 0 var(--admin-brand);
+  }
+
+  &:hover .t-icon,
+  &.active .t-icon {
+    color: var(--admin-brand);
   }
 
   span {
@@ -1707,20 +1759,27 @@ onMounted(() => {
   small {
     font-size: 12px;
     line-height: 1.3;
-    opacity: 0.72;
+    opacity: 0.76;
   }
 }
 
 .admin-kb-settings__content {
   min-width: 0;
-  border: 1px solid #dde6ed;
+  overflow: hidden;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
 }
 
 .admin-kb-section {
   min-width: 0;
-  padding: 20px 22px 24px;
+  padding: 22px 24px 26px;
+
+  :deep(.t-form__label) {
+    color: var(--admin-text-secondary);
+    font-weight: 500;
+  }
 }
 
 .admin-kb-section__heading {
@@ -1728,6 +1787,7 @@ onMounted(() => {
 
   h3 {
     margin: 0 0 5px;
+    color: var(--admin-text);
     font-size: 17px;
     font-weight: 650;
     line-height: 1.35;
@@ -1735,7 +1795,7 @@ onMounted(() => {
 
   p {
     margin: 0;
-    color: var(--td-text-color-secondary);
+    color: var(--admin-text-secondary);
     font-size: 13px;
     line-height: 1.5;
   }
@@ -1763,11 +1823,18 @@ onMounted(() => {
   min-width: 74px;
   height: 40px;
   padding: 0 10px;
-  border: 1px solid var(--td-component-stroke);
+  border: 1px solid var(--admin-border-strong);
   border-radius: 8px;
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-secondary);
+  background: var(--admin-surface);
+  color: var(--admin-text-secondary);
   cursor: pointer;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
+
+  &:hover {
+    border-color: var(--admin-brand);
+    color: var(--admin-brand);
+    box-shadow: var(--admin-focus-ring);
+  }
 }
 
 .admin-kb-icon-picker {
@@ -1775,6 +1842,7 @@ onMounted(() => {
   grid-template-columns: repeat(6, 36px);
   gap: 6px;
   padding: 10px;
+  background: var(--admin-surface);
 }
 
 .admin-kb-icon-option {
@@ -1783,17 +1851,18 @@ onMounted(() => {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border: 1px solid var(--td-component-stroke);
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-secondary);
+  background: var(--admin-surface);
+  color: var(--admin-text-secondary);
   cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 
   &:hover,
   &.active {
-    border-color: var(--td-brand-color);
-    color: var(--td-brand-color);
-    background: color-mix(in srgb, var(--td-brand-color) 8%, transparent);
+    border-color: var(--admin-brand);
+    background: var(--admin-brand-soft);
+    color: var(--admin-brand);
   }
 }
 
@@ -1804,9 +1873,9 @@ onMounted(() => {
 .admin-kb-setting-block {
   margin-top: 16px;
   padding: 16px;
-  border: 1px solid var(--td-component-stroke);
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: var(--td-bg-color-container);
+  background: var(--admin-surface-soft);
 }
 
 .admin-kb-setting-block--after {
@@ -1833,7 +1902,7 @@ onMounted(() => {
 .admin-kb-setting-block__title strong,
 .admin-kb-switch-row strong,
 .admin-kb-tag-entry strong {
-  color: var(--td-text-color-primary);
+  color: var(--admin-text);
   font-size: 14px;
   font-weight: 650;
   line-height: 1.4;
@@ -1842,7 +1911,7 @@ onMounted(() => {
 .admin-kb-setting-block__title small,
 .admin-kb-switch-row small,
 .admin-kb-tag-entry small {
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1864,15 +1933,21 @@ onMounted(() => {
   align-items: flex-start;
   min-width: 0;
   padding: 12px;
-  border: 1px solid var(--td-component-stroke);
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: #f8fafb;
+  background: var(--admin-surface);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+
+  &:hover {
+    border-color: rgba(15, 122, 92, 0.26);
+    box-shadow: var(--admin-shadow-sm);
+  }
 }
 
 .admin-kb-settings-divider {
   height: 1px;
   margin: 22px 0;
-  background: var(--td-component-stroke);
+  background: var(--admin-border);
 }
 
 .admin-kb-directory-actions {
@@ -1882,26 +1957,41 @@ onMounted(() => {
 
 .admin-kb-directory-table {
   overflow: hidden;
-  border: 1px solid var(--td-component-stroke);
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
+  background: var(--admin-surface);
+
+  :deep(.t-table__header th) {
+    background: var(--admin-surface-soft);
+    color: var(--admin-text-secondary);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  :deep(.t-table__body td) {
+    border-bottom-color: rgba(219, 228, 231, 0.74);
+  }
 }
 
 .admin-kb-directory-path {
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--td-text-color-secondary);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--admin-surface-soft);
+  color: var(--admin-text-secondary);
   font-size: 12px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .admin-kb-directory-desc {
   display: block;
   overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 13px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1917,8 +2007,9 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 112px;
-  color: var(--td-text-color-placeholder);
+  min-height: 122px;
+  color: var(--admin-text-muted);
+  font-size: 13px;
 }
 
 .admin-kb-tag-entry {
@@ -1953,6 +2044,10 @@ onMounted(() => {
   .admin-kb-indexing-grid,
   .admin-kb-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .admin-kb-section {
+    padding: 18px 16px 22px;
   }
 }
 </style>

@@ -590,7 +590,8 @@ onMounted(() => {
 <style scoped>
 .service-config-page {
   display: grid;
-  gap: 16px;
+  gap: 18px;
+  width: min(100%, 1280px);
 }
 
 .service-config-page__header {
@@ -598,20 +599,27 @@ onMounted(() => {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+  padding: 18px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-hero-bg), var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
 }
 
 .service-config-page__header h2 {
   margin: 0 0 6px;
+  color: var(--admin-text);
   font-size: 22px;
+  font-weight: 650;
   line-height: 1.35;
-  color: var(--td-text-color-primary);
 }
 
 .service-config-page__header p {
+  max-width: 760px;
   margin: 0;
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.65;
 }
 
 .service-config-summary {
@@ -621,35 +629,65 @@ onMounted(() => {
 }
 
 .service-config-summary article {
+  position: relative;
   display: grid;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--td-border-level-1-color);
+  overflow: hidden;
+  padding: 15px 16px;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: var(--td-bg-color-container);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
+}
+
+.service-config-summary article::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: var(--admin-brand);
+  content: '';
+}
+
+.service-config-summary article:nth-child(2)::before {
+  background: var(--admin-info);
+}
+
+.service-config-summary article:nth-child(3)::before {
+  background: var(--admin-warning);
 }
 
 .service-config-summary span,
 .service-config-summary em {
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-  line-height: 1.4;
+  overflow: hidden;
+  color: var(--admin-text-secondary);
+  font-size: 12px;
   font-style: normal;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-config-summary strong {
-  color: var(--td-text-color-primary);
-  font-size: 18px;
-  line-height: 1.35;
+  overflow: hidden;
+  color: var(--admin-text);
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-config-panel {
   min-width: 0;
-  padding: 18px;
-  border: 1px solid var(--td-border-level-1-color);
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: var(--td-bg-color-container);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
 }
 
 .panel-title {
@@ -657,35 +695,40 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin-bottom: 0;
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--admin-border);
 }
 
 .panel-title span {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .panel-title strong {
-  color: var(--td-text-color-primary);
+  color: var(--admin-text);
   font-size: 16px;
+  font-weight: 650;
   line-height: 1.4;
 }
 
 .panel-title em {
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 13px;
-  line-height: 1.5;
   font-style: normal;
+  line-height: 1.5;
 }
 
 .service-config-alert {
-  margin-bottom: 14px;
+  margin: 14px 18px 0;
 }
 
 .service-item-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+  padding: 18px;
 }
 
 .service-item-card {
@@ -693,15 +736,23 @@ onMounted(() => {
   gap: 14px;
   min-width: 0;
   padding: 16px;
-  border: 1px solid var(--td-border-level-1-color);
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: var(--td-bg-color-page);
+  background: var(--admin-surface-soft);
+  transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.service-item-card:hover {
+  border-color: rgba(15, 122, 92, 0.3);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-md);
+  transform: translateY(-1px);
 }
 
 .service-item-card__head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 11px;
   align-items: center;
 }
 
@@ -717,42 +768,54 @@ onMounted(() => {
   width: 38px;
   height: 38px;
   place-items: center;
+  border: 1px solid rgba(15, 122, 92, 0.16);
   border-radius: 8px;
-  background: var(--td-brand-color-light);
-  color: var(--td-brand-color);
+  background: var(--admin-brand-soft);
+  color: var(--admin-brand);
 }
 
 .service-item-card__head span:not(.service-item-card__icon) {
   display: grid;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 
 .service-item-card__head strong {
-  color: var(--td-text-color-primary);
+  overflow: hidden;
+  color: var(--admin-text);
   font-size: 15px;
+  font-weight: 650;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-item-card__head em {
-  color: var(--td-text-color-secondary);
+  overflow: hidden;
+  color: var(--admin-text-secondary);
   font-size: 12px;
-  line-height: 1.35;
   font-style: normal;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-item-card p {
   min-height: 42px;
   margin: 0;
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 13px;
   line-height: 1.65;
 }
 
 .service-item-card dl {
   display: grid;
-  gap: 8px;
+  gap: 0;
   margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(219, 228, 231, 0.88);
+  border-radius: 8px;
+  background: var(--admin-surface);
 }
 
 .service-item-card dl div {
@@ -760,6 +823,12 @@ onMounted(() => {
   grid-template-columns: 72px minmax(0, 1fr);
   gap: 10px;
   align-items: baseline;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(219, 228, 231, 0.72);
+}
+
+.service-item-card dl div:first-child {
+  border-top: 0;
 }
 
 .service-item-card dt,
@@ -770,11 +839,16 @@ onMounted(() => {
 }
 
 .service-item-card dt {
-  color: var(--td-text-color-placeholder);
+  color: var(--admin-text-muted);
 }
 
 .service-item-card dd {
-  color: var(--td-text-color-primary);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--admin-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-edit-dialog {
@@ -786,10 +860,10 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  padding: 12px;
-  border: 1px solid var(--td-border-level-1-color);
+  padding: 13px;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: var(--td-bg-color-page);
+  background: var(--admin-surface-soft);
 }
 
 .agent-edit-summary div {
@@ -799,14 +873,15 @@ onMounted(() => {
 }
 
 .agent-edit-summary strong {
-  color: var(--td-text-color-primary);
+  color: var(--admin-text);
   font-size: 15px;
+  font-weight: 650;
   line-height: 1.4;
 }
 
 .agent-edit-summary p {
   margin: 0;
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -819,12 +894,12 @@ onMounted(() => {
 
 .agent-edit-empty {
   padding: 14px 16px;
-  border: 1px dashed var(--td-border-level-2-color);
+  border: 1px dashed var(--admin-border-strong);
   border-radius: 8px;
-  color: var(--td-text-color-secondary);
+  background: var(--admin-surface-soft);
+  color: var(--admin-text-secondary);
   font-size: 13px;
   line-height: 1.6;
-  background: var(--td-bg-color-page);
 }
 
 @media (max-width: 900px) {
@@ -836,6 +911,15 @@ onMounted(() => {
   .service-item-grid,
   .agent-edit-row {
     grid-template-columns: 1fr;
+  }
+
+  .service-item-card__head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .service-item-card__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 }
 </style>

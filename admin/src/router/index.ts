@@ -243,7 +243,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'publish-im',
       title: 'IM 渠道',
       description: '管理微信和 IM 接入渠道。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -257,7 +257,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'publish-embed',
       title: '嵌入渠道',
       description: '管理网页嵌入渠道、预览和 token 轮换。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -271,7 +271,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'security-api-keys',
       title: 'API Key',
       description: '管理空间 API Key、能力范围和 API Principal。',
-      minRole: 'owner',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -289,7 +289,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'models',
       title: '模型',
       description: '管理模型供应商、模型凭据和调试。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -300,7 +300,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'runtime-ollama',
       title: 'Ollama',
       description: '查看和配置本地模型运行时。',
-      minRole: 'admin',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -311,7 +311,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'runtime-weknora-cloud',
       title: '睿乐大脑云',
       description: '配置云端凭据并导入云端模型。',
-      minRole: 'admin',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -322,7 +322,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'data-vector-stores',
       title: '向量库',
       description: '管理向量数据库连接、测试和默认能力。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -333,7 +333,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'data-parser-engines',
       title: '解析引擎',
       description: '管理文档解析引擎状态和空间级解析配置。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -344,7 +344,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'data-storage-backends',
       title: '存储后端',
       description: '管理对象存储连接、测试和默认后端。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -355,7 +355,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'extensions-web-search',
       title: '网络搜索',
       description: '管理搜索 provider、凭据和连接测试。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -366,7 +366,7 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'extensions-mcp',
       title: 'MCP 服务',
       description: '管理 MCP 服务定义、工具和策略。',
-      minRole: 'viewer',
+      requiresSystemAdmin: true,
     },
   },
   {

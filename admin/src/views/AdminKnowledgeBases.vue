@@ -547,7 +547,7 @@ watch(() => route.query.create, consumeCreateQuery)
 .admin-kb-page {
   display: grid;
   gap: 18px;
-  max-width: 1280px;
+  width: min(100%, 1280px);
 }
 
 .admin-kb-summary {
@@ -556,41 +556,74 @@ watch(() => route.query.create, consumeCreateQuery)
   gap: 12px;
 
   article {
+    position: relative;
     display: grid;
-    gap: 4px;
+    gap: 5px;
     min-width: 0;
-    padding: 16px;
-    border: 1px solid #dde6ed;
+    overflow: hidden;
+    padding: 16px 16px 15px;
+    border: 1px solid var(--admin-border);
     border-radius: 8px;
-    background: #fff;
+    background: var(--admin-surface);
+    box-shadow: var(--admin-shadow-sm);
+
+    &::before {
+      position: absolute;
+      top: 0;
+      right: 0;
+      left: 0;
+      height: 3px;
+      background: var(--admin-brand);
+      content: '';
+    }
+
+    &:nth-child(2)::before {
+      background: var(--admin-info);
+    }
+
+    &:nth-child(3)::before {
+      background: #5f6f7a;
+    }
+
+    &:nth-child(4)::before {
+      background: var(--admin-warning);
+    }
 
     span,
     em {
-      color: var(--td-text-color-secondary);
+      overflow: hidden;
+      color: var(--admin-text-secondary);
       font-size: 12px;
       font-style: normal;
       line-height: 1.4;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     strong {
-      color: var(--td-text-color-primary);
+      overflow: hidden;
+      color: var(--admin-text);
       font-size: 24px;
       font-weight: 650;
       line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     &.is-warning strong {
-      color: var(--td-warning-color);
+      color: var(--admin-warning);
     }
   }
 }
 
 .admin-kb-panel {
   min-width: 0;
-  padding: 18px;
-  border: 1px solid #dde6ed;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-sm);
 }
 
 .admin-kb-panel__toolbar {
@@ -598,18 +631,22 @@ watch(() => route.query.create, consumeCreateQuery)
   gap: 16px;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 14px;
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--admin-border);
+  background: var(--admin-surface);
 
   h2 {
     margin: 0 0 4px;
+    color: var(--admin-text);
     font-size: 17px;
     font-weight: 650;
     line-height: 1.35;
   }
 
   p {
+    max-width: 620px;
     margin: 0;
-    color: var(--td-text-color-secondary);
+    color: var(--admin-text-secondary);
     font-size: 13px;
     line-height: 1.5;
   }
@@ -623,22 +660,48 @@ watch(() => route.query.create, consumeCreateQuery)
 }
 
 .admin-kb-search {
-  width: 260px;
+  width: 284px;
 }
 
 .admin-kb-type-filter {
-  width: 120px;
+  width: 124px;
 }
 
 .admin-kb-alert {
-  margin-bottom: 12px;
+  margin: 12px 18px 0;
 }
 
 .admin-kb-table-shell {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  border-top: 0;
+  background: var(--admin-surface);
+
+  :deep(.t-table) {
+    border-color: transparent;
+    font-size: 13px;
+  }
+
+  :deep(.t-table__header th) {
+    height: 42px;
+    border-bottom-color: var(--admin-border);
+    background: var(--admin-surface-soft);
+    color: var(--admin-text-secondary);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  :deep(.t-table__body td) {
+    border-bottom-color: rgba(219, 228, 231, 0.74);
+  }
+
+  :deep(.t-table__body tr:hover td) {
+    background: var(--admin-row-hover-bg);
+  }
+
+  :deep(.t-table__cell--fixed-right) {
+    box-shadow: -8px 0 14px rgba(16, 36, 30, 0.04);
+  }
 }
 
 .admin-kb-name-cell {
@@ -649,7 +712,7 @@ watch(() => route.query.create, consumeCreateQuery)
 
   span {
     display: grid;
-    gap: 2px;
+    gap: 3px;
     min-width: 0;
   }
 
@@ -662,31 +725,34 @@ watch(() => route.query.create, consumeCreateQuery)
   }
 
   strong {
+    color: var(--admin-text);
     font-size: 14px;
     font-weight: 650;
     line-height: 1.4;
   }
 
   small {
-    color: var(--td-text-color-secondary);
+    color: var(--admin-text-secondary);
     font-size: 12px;
     line-height: 1.35;
   }
 }
 
 .admin-kb-count {
+  color: var(--admin-text);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .admin-kb-indexing {
   margin-top: 6px;
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 12px;
   line-height: 1.4;
 }
 
 .admin-kb-date {
-  color: var(--td-text-color-secondary);
+  color: var(--admin-text-secondary);
   font-size: 13px;
 }
 
@@ -696,9 +762,10 @@ watch(() => route.query.create, consumeCreateQuery)
   justify-content: center;
   width: 32px;
   height: 24px;
+  border: 1px solid var(--admin-border);
   border-radius: 6px;
-  background: var(--td-bg-color-container-hover);
-  color: var(--td-text-color-secondary);
+  background: var(--admin-surface-soft);
+  color: var(--admin-text-secondary);
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -706,7 +773,7 @@ watch(() => route.query.create, consumeCreateQuery)
 
 .admin-kb-actions {
   display: inline-flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
   min-width: 0;
   white-space: nowrap;
@@ -716,6 +783,10 @@ watch(() => route.query.create, consumeCreateQuery)
   display: inline-flex;
   gap: 2px;
   align-items: center;
+  padding: 2px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-surface-soft);
 }
 
 .admin-kb-config-btn {
@@ -728,8 +799,9 @@ watch(() => route.query.create, consumeCreateQuery)
   align-items: center;
   justify-content: center;
   width: 100%;
-  min-height: 128px;
-  color: var(--td-text-color-placeholder);
+  min-height: 140px;
+  color: var(--admin-text-muted);
+  font-size: 13px;
 }
 
 @media (max-width: 960px) {
@@ -746,6 +818,12 @@ watch(() => route.query.create, consumeCreateQuery)
   .admin-kb-search,
   .admin-kb-type-filter {
     width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin-kb-summary {
+    grid-template-columns: 1fr;
   }
 }
 </style>

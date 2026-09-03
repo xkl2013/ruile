@@ -53,11 +53,32 @@ func (s *stubKBDirectoryConfigService) ReorderKnowledgeBases(
 	return []*types.KnowledgeBase{s.kb}, nil
 }
 
+type stubKBDirectoryConfigShareService struct {
+	interfaces.KBShareService
+	permission     types.OrgMemberRole
+	isShared       bool
+	sourceTenantID uint64
+}
+
+func (s *stubKBDirectoryConfigShareService) CheckTenantKBPermission(
+	context.Context,
+	string,
+	uint64,
+	types.TenantRole,
+) (types.OrgMemberRole, bool, error) {
+	return s.permission, s.isShared, nil
+}
+
+func (s *stubKBDirectoryConfigShareService) GetKBSourceTenant(context.Context, string) (uint64, error) {
+	return s.sourceTenantID, nil
+}
+
 func newDirectoryConfigUpdateRouter(
 	svc *stubKBDirectoryConfigService,
 	tenantID uint64,
 	userID string,
 	role types.TenantRole,
+	shares ...interfaces.KBShareService,
 ) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -76,14 +97,18 @@ func newDirectoryConfigUpdateRouter(
 		}
 		c.Next()
 	})
-	h := &KnowledgeBaseHandler{service: svc}
+	var shareService interfaces.KBShareService
+	if len(shares) > 0 {
+		shareService = shares[0]
+	}
+	h := &KnowledgeBaseHandler{service: svc, kbShareService: shareService}
 	r.PUT("/knowledge-bases/order", h.ReorderKnowledgeBases)
 	r.PUT("/knowledge-bases/:id", h.UpdateKnowledgeBase)
 	r.PUT("/knowledge-bases/:id/directory-config", h.UpdateKnowledgeBaseDirectoryConfig)
 	return r
 }
 
-func TestUpdateKnowledgeBase_DirectoryConfigRequiresAdmin(t *testing.T) {
+func TestUpdateKnowledgeBase_DirectoryConfigAllowsCreatorEditor(t *testing.T) {
 	body := `{
 		"name":"kb",
 		"description":"desc",
@@ -107,15 +132,15 @@ func TestUpdateKnowledgeBase_DirectoryConfigRequiresAdmin(t *testing.T) {
 
 	newDirectoryConfigUpdateRouter(svc, 1, "u-creator", types.TenantRoleContributor).ServeHTTP(w, req)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for creator without tenant admin role, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for creator editor, got %d body=%s", w.Code, w.Body.String())
 	}
-	if svc.updateCalled {
-		t.Fatal("directory config update must not reach service for non-admin caller")
+	if !svc.updateCalled {
+		t.Fatal("expected creator editor update to reach service")
 	}
 }
 
-func TestUpdateKnowledgeBaseDirectoryConfigRequiresAdmin(t *testing.T) {
+func TestUpdateKnowledgeBaseDirectoryConfigRejectsSharedViewer(t *testing.T) {
 	body := `{
 		"directory_config":{
 			"root_description":"",
@@ -127,7 +152,7 @@ func TestUpdateKnowledgeBaseDirectoryConfigRequiresAdmin(t *testing.T) {
 		kb: &types.KnowledgeBase{
 			ID:        "kb-1",
 			Name:      "kb",
-			TenantID:  1,
+			TenantID:  2,
 			CreatorID: "u-creator",
 		},
 	}
@@ -135,13 +160,59 @@ func TestUpdateKnowledgeBaseDirectoryConfigRequiresAdmin(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/knowledge-bases/kb-1/directory-config", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
-	newDirectoryConfigUpdateRouter(svc, 1, "u-creator", types.TenantRoleContributor).ServeHTTP(w, req)
+	shareSvc := &stubKBDirectoryConfigShareService{
+		permission:     types.OrgRoleViewer,
+		isShared:       true,
+		sourceTenantID: 2,
+	}
+	newDirectoryConfigUpdateRouter(svc, 1, "u-viewer", types.TenantRoleViewer, shareSvc).ServeHTTP(w, req)
 
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for directory config endpoint without tenant admin role, got %d body=%s", w.Code, w.Body.String())
+		t.Fatalf("expected 403 for shared viewer, got %d body=%s", w.Code, w.Body.String())
 	}
 	if svc.updateCalled {
-		t.Fatal("directory config endpoint must not reach service for non-admin caller")
+		t.Fatal("directory config endpoint must not reach service for viewer caller")
+	}
+}
+
+func TestUpdateKnowledgeBaseDirectoryConfigAllowsSharedEditor(t *testing.T) {
+	body := `{
+		"directory_config":{
+			"root_description":"",
+			"directories":[{"path":"a","name":"A"}],
+			"directory_orders":[{"parent_path":"","paths":["a"]}]
+		}
+	}`
+	svc := &stubKBDirectoryConfigService{
+		kb: &types.KnowledgeBase{
+			ID:        "kb-1",
+			Name:      "kb",
+			TenantID:  2,
+			CreatorID: "u-creator",
+		},
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/knowledge-bases/kb-1/directory-config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	shareSvc := &stubKBDirectoryConfigShareService{
+		permission:     types.OrgRoleEditor,
+		isShared:       true,
+		sourceTenantID: 2,
+	}
+	newDirectoryConfigUpdateRouter(svc, 1, "u-editor", types.TenantRoleContributor, shareSvc).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for shared editor, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !svc.updateCalled {
+		t.Fatal("expected shared editor update to reach service")
+	}
+	if svc.directoryConfig == nil {
+		t.Fatal("expected directory config to be passed to service")
+	}
+	if got := svc.directoryConfig.Directories[0].Path; got != "a" {
+		t.Fatalf("unexpected directory path: %s", got)
 	}
 }
 

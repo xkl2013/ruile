@@ -287,6 +287,8 @@ const canEditKnowledgeBaseSettings = computed(() => {
   return true;
 });
 
+const canEditKnowledgeBaseDirectories = computed(() => canEdit.value && !isFAQ.value);
+
 // Can mutate knowledge (move / batch-delete): the backend gate for these
 // two endpoints is g.Contributor(), so the caller MUST be Contributor+
 // in their tenant on top of having KB edit permission. Without the extra
@@ -596,9 +598,19 @@ type DirectoryPersistResult = {
   error?: any;
 };
 
+type DirectoryDialogMode = 'create' | 'edit';
+
 const manualDirectoryNodes = ref<ManualDirectoryNode[]>([]);
 const directoryOrders = ref<DirectoryOrder[]>([]);
 const rootDirectoryDescription = ref('');
+const directoryDialogVisible = ref(false);
+const directoryDialogMode = ref<DirectoryDialogMode>('create');
+const directoryDialogParentPath = ref(DIRECTORY_ROOT_PATH);
+const directoryDialogTargetPath = ref(DIRECTORY_ROOT_PATH);
+const directoryForm = reactive({
+  name: '',
+  description: '',
+});
 const collapsedDirectoryPaths = ref<Set<string>>(new Set());
 const directorySaving = ref(false);
 const directoryCountsByPath = ref<Record<string, number>>({});
@@ -779,6 +791,14 @@ const cloneDirectoryOrders = (orders = directoryOrders.value): DirectoryOrder[] 
     paths: [...order.paths],
   }));
 
+const buildCurrentDirectoryStateSnapshot = (
+  nextOrders = directoryOrders.value,
+): DirectoryStateSnapshot => ({
+  rootDescription: rootDirectoryDescription.value,
+  directories: cloneManualDirectoryNodes(),
+  directoryOrders: cloneDirectoryOrders(nextOrders),
+});
+
 const applyDirectoryState = (snapshot: DirectoryStateSnapshot) => {
   rootDirectoryDescription.value = snapshot.rootDescription;
   manualDirectoryNodes.value = cloneManualDirectoryNodes(snapshot.directories);
@@ -902,6 +922,9 @@ const persistManualDirectoryState = async (
   }
 };
 
+const getDirectoryPersistErrorMessage = (error: any) =>
+  error?.message || error?.error?.message || t('common.operationFailed');
+
 const loadManualDirectoryState = async (knowledgeBase: any, targetKbId = kbId.value) => {
   const directoryConfig = knowledgeBase?.directory_config;
   if (directoryConfig) {
@@ -916,7 +939,7 @@ const loadManualDirectoryState = async (knowledgeBase: any, targetKbId = kbId.va
     if (targetKbId === kbId.value) {
       applyDirectoryState(legacyState);
     }
-    if (canEditKnowledgeBaseSettings.value) {
+    if (canEditKnowledgeBaseDirectories.value) {
       await persistManualDirectoryState(legacyState, targetKbId);
     }
     return;
@@ -1020,6 +1043,64 @@ const visibleDirectoryTreeRows = computed<DirectoryTreeRow[]>(() => {
   return rows;
 });
 
+const getOrderedSiblingDirectoryPaths = (parentPath: string) =>
+  sortSiblingDirectoryNodes(
+    parentPath,
+    documentDirectoryNodes.value.filter(directory => getDirectoryParentPath(directory.path) === parentPath),
+  ).map(directory => directory.path);
+
+const upsertDirectoryOrder = (parentPath: string, paths: string[]): DirectoryOrder[] => {
+  const normalizedParentPath = normalizeDirectoryPath(parentPath);
+  const seen = new Set<string>();
+  const normalizedPaths = paths
+    .map(normalizeDirectoryPath)
+    .filter((path) => {
+      if (!path || getDirectoryParentPath(path) !== normalizedParentPath || seen.has(path)) return false;
+      seen.add(path);
+      return true;
+    });
+
+  const nextOrders = cloneDirectoryOrders()
+    .filter(order => normalizeDirectoryPath(order.parentPath) !== normalizedParentPath);
+  if (normalizedPaths.length > 0) {
+    nextOrders.push({
+      parentPath: normalizedParentPath,
+      paths: normalizedPaths,
+    });
+  }
+  return nextOrders;
+};
+
+const getDirectorySiblingIndex = (path: string) => {
+  const parentPath = getDirectoryParentPath(path);
+  return getOrderedSiblingDirectoryPaths(parentPath).indexOf(path);
+};
+
+const canMoveDirectoryUp = (path: string) =>
+  canEditKnowledgeBaseDirectories.value
+  && !directorySaving.value
+  && getDirectorySiblingIndex(path) > 0;
+
+const moveDirectoryUp = async (path: string) => {
+  if (!canMoveDirectoryUp(path)) return;
+  const parentPath = getDirectoryParentPath(path);
+  const siblingPaths = getOrderedSiblingDirectoryPaths(parentPath);
+  const currentIndex = siblingPaths.indexOf(path);
+  if (currentIndex <= 0) return;
+
+  const nextSiblingPaths = [...siblingPaths];
+  [nextSiblingPaths[currentIndex - 1], nextSiblingPaths[currentIndex]] = [
+    nextSiblingPaths[currentIndex],
+    nextSiblingPaths[currentIndex - 1],
+  ];
+
+  const nextOrders = upsertDirectoryOrder(parentPath, nextSiblingPaths);
+  const saved = await persistManualDirectoryState(buildCurrentDirectoryStateSnapshot(nextOrders));
+  if (!saved.ok) {
+    MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
+  }
+};
+
 const visibleDocumentItems = computed<KnowledgeCard[]>(() => {
   const items = cardList.value || [];
   if (activeDirectoryPath.value === DIRECTORY_ROOT_PATH) {
@@ -1037,6 +1118,22 @@ const activeDirectoryName = computed(() => {
 });
 
 const showDirectorySidebar = computed(() => true);
+
+const activeDirectoryParentName = computed(() =>
+  getDirectoryVisibleName(directoryDialogParentPath.value),
+);
+
+const directoryDialogTitle = computed(() =>
+  directoryDialogMode.value === 'create'
+    ? t('knowledgeBase.createSubdirectoryTitle')
+    : directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH
+      ? t('knowledgeBase.directorySettingsTitle')
+      : t('knowledgeBase.editDirectoryTitle'),
+);
+
+const directoryNameDisabled = computed(() =>
+  directoryDialogMode.value === 'edit' && directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH,
+);
 
 const getDirectoryVisibleName = (path: string) => {
   if (path === DIRECTORY_ROOT_PATH) return t('knowledgeBase.rootDirectory');
@@ -1096,6 +1193,157 @@ const selectDirectory = (path: string) => {
   if (kbId.value && !isFAQ.value) {
     void loadKnowledgeFiles(kbId.value);
   }
+};
+
+const directoryPathExists = (path: string) => {
+  if (path === DIRECTORY_ROOT_PATH) return true;
+  return documentDirectoryNodes.value.some(directory => directory.path === path);
+};
+
+const directorySiblingNameExists = (parentPath: string, name: string, excludePath = '') => {
+  const normalizedName = name.trim();
+  if (!normalizedName) return false;
+  return documentDirectoryNodes.value.some(directory =>
+    directory.path !== excludePath
+    && getDirectoryParentPath(directory.path) === parentPath
+    && directory.name.trim() === normalizedName,
+  );
+};
+
+const openCreateSubdirectoryDialog = (parentPath: string) => {
+  if (!canEditKnowledgeBaseDirectories.value) return;
+  directoryDialogMode.value = 'create';
+  directoryDialogParentPath.value = normalizeDirectoryPath(parentPath);
+  directoryDialogTargetPath.value = DIRECTORY_ROOT_PATH;
+  directoryForm.name = '';
+  directoryForm.description = '';
+  directoryDialogVisible.value = true;
+};
+
+const openDirectorySettingsDialog = (path: string) => {
+  if (!canEditKnowledgeBaseDirectories.value) return;
+  const normalizedPath = normalizeDirectoryPath(path);
+  const directory = documentDirectoryNodes.value.find(item => item.path === normalizedPath);
+  const manualDirectory = manualDirectoryNodes.value.find(item => item.path === normalizedPath);
+  directoryDialogMode.value = 'edit';
+  directoryDialogParentPath.value = normalizedPath === DIRECTORY_ROOT_PATH
+    ? DIRECTORY_ROOT_PATH
+    : getDirectoryParentPath(normalizedPath);
+  directoryDialogTargetPath.value = normalizedPath;
+  directoryForm.name = normalizedPath === DIRECTORY_ROOT_PATH
+    ? getDirectoryDisplayName(normalizedPath)
+    : manualDirectory?.name || directory?.name || getDirectoryDisplayName(normalizedPath);
+  directoryForm.description = normalizedPath === DIRECTORY_ROOT_PATH
+    ? rootDirectoryDescription.value
+    : manualDirectory?.description || directory?.description || '';
+  directoryDialogVisible.value = true;
+};
+
+const closeDirectoryDialog = () => {
+  directoryDialogVisible.value = false;
+};
+
+const handleDirectoryDialogConfirm = async () => {
+  if (directorySaving.value) return;
+  if (!canEditKnowledgeBaseDirectories.value) {
+    MessagePlugin.error(t('error.forbidden'));
+    closeDirectoryDialog();
+    return;
+  }
+
+  if (directoryDialogMode.value === 'edit') {
+    const nextDirectories = manualDirectoryNodes.value.map(item => ({ ...item }));
+    let nextRootDescription = rootDirectoryDescription.value;
+
+    if (directoryDialogTargetPath.value === DIRECTORY_ROOT_PATH) {
+      nextRootDescription = directoryForm.description.trim();
+    } else {
+      const name = directoryForm.name.trim();
+      if (!name) {
+        MessagePlugin.warning(t('knowledgeBase.directoryNameRequired'));
+        return;
+      }
+      if (/[\\/]/.test(name)) {
+        MessagePlugin.warning(t('knowledgeBase.directoryNameInvalid'));
+        return;
+      }
+      const targetPath = directoryDialogTargetPath.value;
+      const parentPath = getDirectoryParentPath(targetPath);
+      if (directorySiblingNameExists(parentPath, name, targetPath)) {
+        MessagePlugin.warning(t('knowledgeBase.directoryDuplicate'));
+        return;
+      }
+      const now = new Date().toISOString();
+      const existingIndex = nextDirectories.findIndex(item => item.path === targetPath);
+      const nextDirectory = {
+        path: targetPath,
+        name,
+        description: directoryForm.description.trim(),
+        parentPath,
+        createdAt: existingIndex >= 0 ? nextDirectories[existingIndex].createdAt : now,
+        updatedAt: now,
+      };
+      if (existingIndex >= 0) {
+        nextDirectories.splice(existingIndex, 1, nextDirectory);
+      } else {
+        nextDirectories.push(nextDirectory);
+      }
+    }
+
+    const saved = await persistManualDirectoryState({
+      rootDescription: nextRootDescription,
+      directories: nextDirectories,
+      directoryOrders: cloneDirectoryOrders(),
+    });
+    if (!saved.ok) {
+      MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
+      return;
+    }
+    MessagePlugin.success(t('knowledgeBase.directorySaveSuccess'));
+    closeDirectoryDialog();
+    return;
+  }
+
+  const name = directoryForm.name.trim();
+  if (!name) {
+    MessagePlugin.warning(t('knowledgeBase.directoryNameRequired'));
+    return;
+  }
+  if (/[\\/]/.test(name)) {
+    MessagePlugin.warning(t('knowledgeBase.directoryNameInvalid'));
+    return;
+  }
+  const parentPath = directoryDialogParentPath.value;
+  const newPath = parentPath ? `${parentPath}/${name}` : name;
+  if (directoryPathExists(newPath) || directorySiblingNameExists(parentPath, name)) {
+    MessagePlugin.warning(t('knowledgeBase.directoryDuplicate'));
+    return;
+  }
+  const now = new Date().toISOString();
+  const nextDirectories = [
+    ...cloneManualDirectoryNodes(),
+    {
+      path: newPath,
+      name,
+      description: directoryForm.description.trim(),
+      parentPath,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+  const saved = await persistManualDirectoryState({
+    rootDescription: rootDirectoryDescription.value,
+    directories: nextDirectories,
+    directoryOrders: cloneDirectoryOrders(),
+  });
+  if (!saved.ok) {
+    MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
+    return;
+  }
+  expandDirectoryAncestors(newPath);
+  selectDirectory(newPath);
+  MessagePlugin.success(t('knowledgeBase.directoryCreateSuccess'));
+  closeDirectoryDialog();
 };
 
 const getDirectoryTitle = (directory: DirectoryNode) => {
@@ -2565,7 +2813,7 @@ async function createNewSession(value: string): Promise<void> {
           <aside v-if="showDirectorySidebar" class="document-directory-sidebar">
             <div class="directory-tree">
               <div role="button" tabindex="0" class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH }"
+                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-edit-directories': canEditKnowledgeBaseDirectories }"
                 :title="$t('knowledgeBase.rootDirectory')"
                 @click="selectDirectory(DIRECTORY_ROOT_PATH)"
                 @keydown.enter.prevent="selectDirectory(DIRECTORY_ROOT_PATH)"
@@ -2584,11 +2832,25 @@ async function createNewSession(value: string): Promise<void> {
                 <t-icon name="folder" class="directory-tree-icon" />
                 <span class="directory-tree-name">{{ $t('knowledgeBase.rootDirectory') }}</span>
                 <span class="directory-tree-count">{{ rootDirectoryCount }}</span>
+                <span v-if="canEditKnowledgeBaseDirectories" class="directory-tree-actions">
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.addSubdirectory')"
+                    :aria-label="$t('knowledgeBase.addSubdirectory')"
+                    @click.stop="openCreateSubdirectoryDialog(DIRECTORY_ROOT_PATH)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="folder-add" size="14px" />
+                  </button>
+                </span>
               </div>
               <div v-for="directory in visibleDirectoryTreeRows" :key="directory.path" role="button" tabindex="0"
                 class="directory-tree-item"
                 :class="{
                   active: activeDirectoryPath === directory.path,
+                  'can-edit-directories': canEditKnowledgeBaseDirectories,
                 }"
                 :style="getDirectoryTreeItemStyle(directory)" :title="getDirectoryTitle(directory)"
                 @click="selectDirectory(directory.path)"
@@ -2607,6 +2869,42 @@ async function createNewSession(value: string): Promise<void> {
                 </button>
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
+                <span v-if="canEditKnowledgeBaseDirectories" class="directory-tree-actions">
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.moveDirectoryUp')"
+                    :aria-label="$t('knowledgeBase.moveDirectoryUp')"
+                    :disabled="!canMoveDirectoryUp(directory.path)"
+                    @click.stop="moveDirectoryUp(directory.path)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="chevron-up" size="14px" />
+                  </button>
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.editDirectory')"
+                    :aria-label="$t('knowledgeBase.editDirectory')"
+                    @click.stop="openDirectorySettingsDialog(directory.path)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="edit-1" size="14px" />
+                  </button>
+                  <button
+                    type="button"
+                    class="directory-tree-action"
+                    :title="$t('knowledgeBase.addSubdirectory')"
+                    :aria-label="$t('knowledgeBase.addSubdirectory')"
+                    @click.stop="openCreateSubdirectoryDialog(directory.path)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="folder-add" size="14px" />
+                  </button>
+                </span>
               </div>
             </div>
           </aside>
@@ -2850,6 +3148,45 @@ async function createNewSession(value: string): Promise<void> {
     </div>
   </template>
 
+  <t-dialog
+    v-model:visible="directoryDialogVisible"
+    :header="directoryDialogTitle"
+    width="460px"
+    dialog-class-name="document-directory-dialog"
+    :confirm-btn="{ content: $t('common.confirm'), theme: 'primary', loading: directorySaving }"
+    :cancel-btn="{ content: $t('common.cancel') }"
+    @confirm="handleDirectoryDialogConfirm"
+    @cancel="closeDirectoryDialog"
+    @close="closeDirectoryDialog"
+  >
+    <div class="directory-form">
+      <div v-if="directoryDialogMode === 'create'" class="directory-form-parent">
+        <span>{{ $t('knowledgeBase.parentDirectory') }}</span>
+        <strong :title="activeDirectoryParentName">{{ activeDirectoryParentName }}</strong>
+      </div>
+      <t-form label-align="top" @submit.prevent>
+        <t-form-item :label="$t('knowledgeBase.directoryName')">
+          <t-input
+            v-model="directoryForm.name"
+            :placeholder="$t('knowledgeBase.directoryNamePlaceholder')"
+            :maxlength="80"
+            :disabled="directoryNameDisabled"
+            autofocus
+            @enter="handleDirectoryDialogConfirm"
+          />
+        </t-form-item>
+        <t-form-item :label="$t('knowledgeBase.directoryDescription')">
+          <t-textarea
+            v-model="directoryForm.description"
+            :placeholder="$t('knowledgeBase.directoryDescriptionPlaceholder')"
+            :maxlength="300"
+            :autosize="{ minRows: 3, maxRows: 5 }"
+          />
+        </t-form-item>
+      </t-form>
+    </div>
+  </t-dialog>
+
   <ContextualGuide tour="kbDetail" :when="showKbDetailContextualGuide" />
 
   <!-- 标签编辑弹窗 -->
@@ -2900,6 +3237,32 @@ async function createNewSession(value: string): Promise<void> {
 .tag-more-popup .tag-menu-item:hover {
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-primary);
+}
+
+.document-directory-dialog {
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+}
+
+.document-directory-dialog .t-dialog__body {
+  overflow-x: hidden;
+}
+
+.document-directory-dialog .directory-form,
+.document-directory-dialog .t-form,
+.document-directory-dialog .t-form__item,
+.document-directory-dialog .t-form__controls,
+.document-directory-dialog .t-form__controls-content,
+.document-directory-dialog .t-input,
+.document-directory-dialog .t-textarea,
+.document-directory-dialog .t-textarea__inner {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.document-directory-dialog .t-textarea__inner {
+  overflow-x: hidden;
 }
 
 </style>
@@ -3248,7 +3611,12 @@ async function createNewSession(value: string): Promise<void> {
     background: var(--td-bg-color-container-hover);
     color: var(--td-text-color-primary);
 
-    &.can-manage-directories {
+    .directory-tree-actions {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    &.can-edit-directories {
       .directory-tree-count {
         opacity: 0;
       }
@@ -3312,6 +3680,49 @@ async function createNewSession(value: string): Promise<void> {
   transition: opacity 0.15s ease;
 }
 
+.directory-tree-actions {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 2px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 96%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--td-component-stroke) 60%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.directory-tree-action {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--td-text-color-placeholder);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    color: var(--td-brand-color);
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+    outline: none;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+}
+
 .directory-empty-state {
   display: flex;
   flex-direction: column;
@@ -3342,6 +3753,40 @@ async function createNewSession(value: string): Promise<void> {
     font: inherit;
     cursor: pointer;
     padding: 2px 4px;
+  }
+}
+
+.directory-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.directory-form-parent {
+  min-height: 32px;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--td-text-color-primary);
+    font-weight: 500;
   }
 }
 

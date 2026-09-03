@@ -949,17 +949,17 @@ type ReorderKnowledgeBasesRequest struct {
 	KnowledgeBaseIDs []string `json:"knowledge_base_ids" binding:"required"`
 }
 
-func canManageKnowledgeBaseDirectoryConfig(ctx context.Context, permission types.OrgMemberRole) bool {
+func canEditKnowledgeBaseDirectoryConfig(ctx context.Context, permission types.OrgMemberRole) bool {
 	if types.IsSystemAdminFromContext(ctx) {
 		return true
 	}
-	if permission != types.OrgRoleAdmin {
+	if permission != types.OrgRoleAdmin && permission != types.OrgRoleEditor {
 		return false
 	}
 	if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
 		return true
 	}
-	return types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin)
+	return true
 }
 
 func canManageKnowledgeBaseOrder(ctx context.Context) bool {
@@ -1059,7 +1059,7 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 		}
 	}
 	if req.DirectoryConfig != nil {
-		if !canManageKnowledgeBaseDirectoryConfig(ctx, permission) {
+		if !canEditKnowledgeBaseDirectoryConfig(ctx, permission) {
 			c.Error(apperrors.NewForbiddenError("No permission to update knowledge base directory config"))
 			return
 		}
@@ -1108,7 +1108,7 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBaseDirectoryConfig(c *gin.Context
 		c.Error(err)
 		return
 	}
-	if !canManageKnowledgeBaseDirectoryConfig(ctx, permission) {
+	if !canEditKnowledgeBaseDirectoryConfig(ctx, permission) {
 		c.Error(apperrors.NewForbiddenError("No permission to update knowledge base directory config"))
 		return
 	}

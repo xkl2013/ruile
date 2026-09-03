@@ -113,7 +113,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '微信和 IM 接入渠道',
         icon: 'chat-bubble',
         path: '/publish/im',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'publish-embed',
@@ -121,7 +121,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '网页嵌入和公开访问渠道',
         icon: 'code',
         path: '/publish/embed',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'security-api-keys',
@@ -129,7 +129,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '空间 API 凭证和 Principal',
         icon: 'secured',
         path: '/security/api-keys',
-        minRole: 'owner',
+        requiresSystemAdmin: true,
       },
     ],
   },
@@ -143,7 +143,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '模型供应商、凭据和调试',
         icon: 'server',
         path: '/models',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'runtime-ollama',
@@ -151,7 +151,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '本地模型运行时',
         icon: 'terminal',
         path: '/runtime/ollama',
-        minRole: 'admin',
+        requiresSystemAdmin: true,
       },
       {
         key: 'runtime-weknora-cloud',
@@ -159,7 +159,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '云端模型凭据和模型导入',
         icon: 'cloud',
         path: '/runtime/weknora-cloud',
-        minRole: 'admin',
+        requiresSystemAdmin: true,
       },
       {
         key: 'data-vector-stores',
@@ -167,7 +167,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '向量数据库连接',
         icon: 'data-base',
         path: '/data/vector-stores',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'data-parser-engines',
@@ -175,7 +175,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '文档解析和连接状态',
         icon: 'file-setting',
         path: '/data/parser-engines',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'data-storage-backends',
@@ -183,7 +183,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '对象存储和默认后端',
         icon: 'folder-setting',
         path: '/data/storage-backends',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'extensions-web-search',
@@ -191,7 +191,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '搜索 provider 和凭据',
         icon: 'internet',
         path: '/extensions/web-search',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'extensions-mcp',
@@ -199,7 +199,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: 'MCP 服务、工具和策略',
         icon: 'link',
         path: '/extensions/mcp-services',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
     ],
   },
