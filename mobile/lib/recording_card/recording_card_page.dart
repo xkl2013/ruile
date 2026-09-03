@@ -341,6 +341,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   bool _handlingDownloadFailure = false;
   bool _awaitingStopAck = false;
   bool _stopRequestedForRetry = false;
+  bool _stopRequestedForPause = false;
+  bool _bluetoothTransferPaused = false;
   bool _recordCommandBusy = false;
   bool _recordingRouteOpen = false;
   bool _autoOpeningRecordingRoute = false;
@@ -1477,9 +1479,13 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
     if (!mounted) return;
     setState(() {
-      _fileSyncMessage = completion == null
-          ? '录音已结束'
-          : '录音已结束，${completion.fileNameNoExt} 已进入蓝牙传输队列';
+      if (completion == null) {
+        _fileSyncMessage = '录音已结束';
+      } else if (_bluetoothTransferPaused) {
+        _fileSyncMessage = '录音已结束，${completion.fileNameNoExt} 已进入队列，蓝牙传输已暂停';
+      } else {
+        _fileSyncMessage = '录音已结束，${completion.fileNameNoExt} 已进入蓝牙传输队列';
+      }
       _fileSyncError = null;
     });
     _schedulePostRecordingFileListRefresh();
@@ -1569,13 +1575,21 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     for (final entry in cachedEntries) {
       normalizedEntries.add(await _normalizeCachedFileEntry(entry));
     }
+    final pausedCount = normalizedEntries.where((entry) {
+      return entry.transferStatus == RecordingCardFileTransferStatus.paused;
+    }).length;
 
     if (!mounted || _activeDeviceId != deviceId) return;
     setState(() {
       for (final entry in normalizedEntries) {
         _fileEntries[entry.fileNameNoExt] = entry;
       }
-      _fileSyncMessage = '已恢复 ${normalizedEntries.length} 条本地导入记录';
+      if (pausedCount > 0) {
+        _bluetoothTransferPaused = true;
+        _fileSyncMessage = '已恢复 ${normalizedEntries.length} 条本地导入记录，蓝牙传输保持暂停';
+      } else {
+        _fileSyncMessage = '已恢复 ${normalizedEntries.length} 条本地导入记录';
+      }
       _fileSyncError = null;
     });
     for (final entry in normalizedEntries) {
@@ -1997,7 +2011,11 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     setState(() {
       _loadingFileList = false;
       _awaitingFileListPage = false;
-      _fileSyncMessage = _fileEntries.isEmpty ? '设备中没有录音文件' : '文件列表已读取，正在自动导入';
+      _fileSyncMessage = _fileEntries.isEmpty
+          ? '设备中没有录音文件'
+          : _bluetoothTransferPaused
+              ? '文件列表已读取，蓝牙传输已暂停'
+              : '文件列表已读取，正在自动导入';
       _lastFileSyncAt = DateTime.now();
     });
     unawaited(_advanceSyncQueue());
@@ -2051,6 +2069,14 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         });
       }
       await _advanceSyncQueue();
+      return;
+    }
+
+    if (_bluetoothTransferPaused) {
+      setState(() {
+        _fileSyncMessage = '蓝牙传输已暂停，可手动删除设备文件或继续传输';
+        _fileSyncError = null;
+      });
       return;
     }
 
@@ -2118,10 +2144,14 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       return;
     }
 
+    _bluetoothTransferPaused = false;
     var resetCount = 0;
     for (final entry in List<RecordingCardFileEntry>.of(_fileEntries.values)) {
-      if (entry.isDownloaded ||
-          entry.transferStatus != RecordingCardFileTransferStatus.failed) {
+      final shouldResumePaused =
+          entry.transferStatus == RecordingCardFileTransferStatus.paused;
+      final shouldResetFailed =
+          entry.transferStatus == RecordingCardFileTransferStatus.failed;
+      if (entry.isDownloaded || (!shouldResumePaused && !shouldResetFailed)) {
         continue;
       }
       final restartFromZero = _shouldRestartDownloadFromZero(entry);
@@ -2151,7 +2181,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (!mounted) return;
     if (resetCount > 0) {
       setState(() {
-        _fileSyncMessage = '已重新加入 $resetCount 个失败文件，开始蓝牙传输';
+        _fileSyncMessage = '已重新加入 $resetCount 个文件，开始蓝牙传输';
         _fileSyncError = null;
       });
     }
@@ -2162,6 +2192,69 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       return;
     }
     await _advanceSyncQueue();
+  }
+
+  Future<void> _pauseBluetoothTransfer() async {
+    if (!mounted) return;
+    final active = _activeFile;
+    if (active == null) {
+      setState(() {
+        _bluetoothTransferPaused = true;
+        _fileSyncMessage = '蓝牙传输已暂停，可手动删除设备文件或继续传输';
+        _fileSyncError = null;
+      });
+      return;
+    }
+    if (_awaitingStopAck) {
+      setState(() {
+        _fileSyncMessage = '正在等待设备停止传输';
+        _fileSyncError = null;
+      });
+      return;
+    }
+    if (_connectionState != DeviceConnectionState.connected) {
+      setState(() {
+        _fileSyncError = '请先连接录音卡';
+        _fileSyncMessage = null;
+      });
+      return;
+    }
+
+    _bluetoothTransferPaused = true;
+    _handlingDownloadFailure = true;
+    _cancelAudioIdleTimer();
+    _audioNotifyBuffer.clear();
+    await _closeActiveFileWriter();
+    final localLength = await _localStore.audioFileLength(
+      active.deviceId,
+      active.fileNameNoExt,
+    );
+    final safeSyncedBytes = _clampSyncedBytes(
+      localLength,
+      active.fileSizeBytes,
+    );
+    final pausing = active.copyWith(
+      syncedBytes: safeSyncedBytes,
+      transferStatus: RecordingCardFileTransferStatus.stoppingForRetry,
+      lastError: '',
+    );
+    _upsertFileEntry(pausing);
+    if (!mounted) return;
+    setState(() {
+      _activeFile = pausing;
+      _fileSyncMessage = '正在暂停蓝牙传输 ${pausing.fileNameNoExt}';
+      _fileSyncError = null;
+    });
+
+    _awaitingStopAck = true;
+    _stopRequestedForRetry = false;
+    _stopRequestedForPause = true;
+    try {
+      await _writeCommand(const _CommandFrame(0x08));
+      _armSyncAckTimer();
+    } catch (error) {
+      await _markPauseTransferFailed('暂停蓝牙传输失败：$error');
+    }
   }
 
   RecordingCardFileEntry? _nextDownloadCandidate() {
@@ -2529,7 +2622,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _handleStopTransferAck() {
-    if (_awaitingStopAck && _stopRequestedForRetry) {
+    if (_awaitingStopAck &&
+        (_stopRequestedForRetry || _stopRequestedForPause)) {
       _handleSyncSuccessOrStopAck();
       return;
     }
@@ -2543,6 +2637,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _handleStopTransferFailure() {
+    if (_awaitingStopAck && _stopRequestedForPause && _activeFile != null) {
+      unawaited(_markPauseTransferFailed('暂停蓝牙传输失败'));
+      return;
+    }
     if (!_awaitingStopAck || !_stopRequestedForRetry || _activeFile == null) {
       if (mounted) {
         setState(() {
@@ -2562,6 +2660,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _activeTransferToken += 1;
     _awaitingStopAck = false;
     _stopRequestedForRetry = false;
+    _stopRequestedForPause = false;
     _handlingDownloadFailure = false;
     _audioNotifyBuffer.clear();
     _resetDownloadProgressState(syncedBytes: retryFile.syncedBytes);
@@ -2579,6 +2678,40 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     Timer(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       unawaited(_startDownloadForEntry(retryFile));
+    });
+  }
+
+  Future<void> _markPauseTransferFailed(String message) async {
+    final active = _activeFile;
+    if (active == null) return;
+    final localLength = await _localStore.audioFileLength(
+      active.deviceId,
+      active.fileNameNoExt,
+    );
+    final safeSyncedBytes =
+        _clampSyncedBytes(localLength, active.fileSizeBytes);
+    final retryFile = active.copyWith(
+      syncedBytes: safeSyncedBytes,
+      transferStatus: safeSyncedBytes > 0
+          ? RecordingCardFileTransferStatus.retryPending
+          : RecordingCardFileTransferStatus.downloadPending,
+      lastError: message,
+    );
+    _upsertFileEntry(retryFile);
+    _activeTransferToken += 1;
+    _audioNotifyBuffer.clear();
+    _resetDownloadProgressState(syncedBytes: safeSyncedBytes);
+    _awaitingStopAck = false;
+    _stopRequestedForRetry = false;
+    _stopRequestedForPause = false;
+    _handlingDownloadFailure = false;
+    await _closeActiveFileWriter(flushBufferedBytes: false);
+
+    if (!mounted) return;
+    setState(() {
+      _activeFile = null;
+      _fileSyncError = message;
+      _fileSyncMessage = '蓝牙传输暂停未确认，请刷新后再删除设备文件';
     });
   }
 
@@ -2741,6 +2874,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _upsertFileEntry(nextFile);
     _awaitingStopAck = false;
     _stopRequestedForRetry = false;
+    _stopRequestedForPause = false;
+    _bluetoothTransferPaused = false;
     _handlingDownloadFailure = false;
     _resetDownloadProgressState(
       syncedBytes: nextFile.syncedBytes,
@@ -3195,6 +3330,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (_awaitingStopAck && _stopRequestedForRetry) {
       _awaitingStopAck = false;
       _stopRequestedForRetry = false;
+      _stopRequestedForPause = false;
       _handlingDownloadFailure = false;
       final retryFile = active.copyWith(
         transferStatus: RecordingCardFileTransferStatus.retryPending,
@@ -3211,8 +3347,38 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       return;
     }
 
+    if (_awaitingStopAck && _stopRequestedForPause) {
+      final localLength = await _localStore.audioFileLength(
+        active.deviceId,
+        active.fileNameNoExt,
+      );
+      final safeSyncedBytes =
+          _clampSyncedBytes(localLength, active.fileSizeBytes);
+      final paused = active.copyWith(
+        syncedBytes: safeSyncedBytes,
+        transferStatus: RecordingCardFileTransferStatus.paused,
+        lastError: '',
+      );
+      _upsertFileEntry(paused);
+      _activeTransferToken += 1;
+      _awaitingStopAck = false;
+      _stopRequestedForRetry = false;
+      _stopRequestedForPause = false;
+      _handlingDownloadFailure = false;
+      _resetDownloadProgressState(syncedBytes: safeSyncedBytes);
+      if (!mounted) return;
+      setState(() {
+        _activeFile = null;
+        _fileSyncError = null;
+        _fileSyncMessage = '蓝牙传输已暂停，可手动删除设备文件或继续传输';
+        _lastFileSyncAt = DateTime.now();
+      });
+      return;
+    }
+
     _awaitingStopAck = false;
     _stopRequestedForRetry = false;
+    _stopRequestedForPause = false;
     _handlingDownloadFailure = false;
 
     if (active.syncedBytes >= active.fileSizeBytes &&
@@ -3286,8 +3452,11 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         }
         _awaitingStopAck = false;
         _stopRequestedForRetry = false;
+        _stopRequestedForPause = false;
         _handlingDownloadFailure = false;
         unawaited(_startDownloadForEntry(retryFile));
+      } else if (_stopRequestedForPause && _activeFile != null) {
+        unawaited(_markPauseTransferFailed('等待暂停确认超时'));
       }
     });
   }
@@ -3307,6 +3476,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _handlingDownloadFailure = false;
     _awaitingStopAck = false;
     _stopRequestedForRetry = false;
+    _stopRequestedForPause = false;
     _resetDownloadProgressState();
     unawaited(_closeActiveFileWriter());
   }
@@ -3350,7 +3520,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (!mounted ||
         deviceId == null ||
         _connectionState != DeviceConnectionState.connected ||
-        _clearingDeviceFiles) {
+        _clearingDeviceFiles ||
+        _bluetoothTransferPaused) {
       return;
     }
     if (_activeFile != null || _startingFileDownload || _cloudSyncInProgress) {
@@ -3390,6 +3561,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _activeDeviceId != deviceId ||
         _connectionState != DeviceConnectionState.connected ||
         _clearingDeviceFiles ||
+        _bluetoothTransferPaused ||
         _activeFile != null) {
       return;
     }
@@ -3436,6 +3608,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _activeDeviceId != deviceId ||
         _connectionState != DeviceConnectionState.connected ||
         _clearingDeviceFiles ||
+        _bluetoothTransferPaused ||
         _activeFile != null) {
       await writer.close();
       return;
@@ -3450,6 +3623,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _audioNotifyBuffer.clear();
     _activeTransferToken += 1;
     _handlingDownloadFailure = false;
+    _stopRequestedForPause = false;
+    _bluetoothTransferPaused = false;
     _audioPacketDebugLogCount = 0;
     _fileSyncError = null;
     _fileSyncMessage = '正在下载 ${nextFile.fileNameNoExt}';
@@ -3786,6 +3961,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
               : RecordingCardFileTransferStatus.downloadPending,
           lastError: '',
         );
+        _bluetoothTransferPaused = false;
         _upsertFileEntry(retry);
         await _startDownloadForEntry(retry);
     }
@@ -3926,6 +4102,36 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   Future<void> _deleteEntryOnDevice(RecordingCardFileEntry entry) async {
+    final isSynced =
+        entry.transferStatus == RecordingCardFileTransferStatus.synced;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('删除这条录音？'),
+          content: Text(
+            isSynced
+                ? '将从录音卡设备中删除 ${entry.fileNameNoExt}。已生成的记忆和手机本地缓存不会删除。'
+                : '将从录音卡设备中删除 ${entry.fileNameNoExt}。未完成导入的音频删除后无法继续从录音卡补传。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFB42318),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('删除'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
     await _deleteDeviceFile(entry);
   }
 
@@ -4257,6 +4463,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
               fileError: _fileSyncError,
               fileLastSyncAt: _lastFileSyncAt,
               bluetoothTransferBusy: _filePipelineBusy,
+              bluetoothTransferActive: _activeFile != null ||
+                  _startingFileDownload ||
+                  _awaitingStopAck,
+              bluetoothTransferPaused: _bluetoothTransferPaused,
               memoryImportBusy: _cloudSyncInProgress,
               clearingDeviceFiles: _clearingDeviceFiles,
               deviceFileCount: _deviceClearCandidates().length,
@@ -4266,6 +4476,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
               onDisconnect: _disconnect,
               onRefreshFiles: _refreshFileList,
               onAdvanceQueue: _startBluetoothTransferQueue,
+              onPauseBluetoothTransfer: _pauseBluetoothTransfer,
               onImportReadyFiles: _importReadyFilesToMemory,
               onClearDeviceFiles: _clearDeviceFiles,
               onRetryEntry: _retryFileTransfer,
@@ -4293,11 +4504,14 @@ class _FileSyncCard extends StatelessWidget {
     required this.error,
     required this.lastSyncAt,
     required this.bluetoothTransferBusy,
+    required this.bluetoothTransferActive,
+    required this.bluetoothTransferPaused,
     required this.memoryImportBusy,
     required this.clearingDeviceFiles,
     required this.deviceFileCount,
     required this.onRefresh,
     required this.onAdvanceQueue,
+    required this.onPauseBluetoothTransfer,
     required this.onImportReadyFiles,
     required this.onClearDeviceFiles,
     required this.onRetryEntry,
@@ -4310,11 +4524,14 @@ class _FileSyncCard extends StatelessWidget {
   final String? error;
   final DateTime? lastSyncAt;
   final bool bluetoothTransferBusy;
+  final bool bluetoothTransferActive;
+  final bool bluetoothTransferPaused;
   final bool memoryImportBusy;
   final bool clearingDeviceFiles;
   final int deviceFileCount;
   final Future<void> Function() onRefresh;
   final Future<void> Function() onAdvanceQueue;
+  final Future<void> Function() onPauseBluetoothTransfer;
   final Future<void> Function() onImportReadyFiles;
   final VoidCallback? onClearDeviceFiles;
   final Future<void> Function(RecordingCardFileEntry entry) onRetryEntry;
@@ -4334,6 +4551,9 @@ class _FileSyncCard extends StatelessWidget {
         return bTime.compareTo(aTime);
       });
     final total = sortedEntries.length;
+    final paused = sortedEntries.where((entry) {
+      return entry.transferStatus == RecordingCardFileTransferStatus.paused;
+    }).length;
     final downloading = sortedEntries.where((entry) {
       return entry.transferStatus ==
               RecordingCardFileTransferStatus.downloading ||
@@ -4376,13 +4596,35 @@ class _FileSyncCard extends StatelessWidget {
         !bluetoothTransferBusy &&
         !memoryImportBusy &&
         bluetoothPending > 0;
+    final canPauseBluetoothTransfer = !loading &&
+        bluetoothTransferActive &&
+        !bluetoothTransferPaused &&
+        !memoryImportBusy;
     final canImportReadyFiles = !loading &&
         !bluetoothTransferBusy &&
         !memoryImportBusy &&
         sortedEntries.any(_canQueueMemoryImport);
+    final transferButtonLabel = bluetoothTransferActive
+        ? '暂停传输'
+        : bluetoothTransferPaused
+            ? '继续传输'
+            : '蓝牙传输';
+    final transferButtonIcon = bluetoothTransferActive
+        ? Icons.pause_circle_outline
+        : bluetoothTransferPaused
+            ? Icons.play_arrow
+            : Icons.bluetooth;
+    final transferButtonPressed = bluetoothTransferActive
+        ? (canPauseBluetoothTransfer
+            ? () => unawaited(onPauseBluetoothTransfer())
+            : null)
+        : (canStartBluetoothTransfer
+            ? () => unawaited(onAdvanceQueue())
+            : null);
     final summaryParts = <String>[
       '共 $total 个',
       if (downloading > 0) '传输中 $downloading',
+      if (paused > 0) '已暂停 $paused',
       if (pending > 0) '待蓝牙 $pending',
       if (readyForMemory > 0) '待自动生成 $readyForMemory',
       if (memoryQueued > 0) '生成队列 $memoryQueued',
@@ -4455,11 +4697,21 @@ class _FileSyncCard extends StatelessWidget {
                 icon: const Icon(Icons.refresh),
               ),
               IconButton(
-                tooltip: '继续蓝牙传输',
-                onPressed: loading || bluetoothTransferBusy || memoryImportBusy
+                tooltip: bluetoothTransferPaused ? '继续蓝牙传输' : '蓝牙传输',
+                onPressed: loading ||
+                        bluetoothTransferActive ||
+                        bluetoothTransferBusy ||
+                        memoryImportBusy
                     ? null
                     : () => unawaited(onAdvanceQueue()),
                 icon: const Icon(Icons.play_arrow),
+              ),
+              IconButton(
+                tooltip: bluetoothTransferPaused ? '蓝牙传输已暂停' : '暂停蓝牙传输',
+                onPressed: canPauseBluetoothTransfer
+                    ? () => unawaited(onPauseBluetoothTransfer())
+                    : null,
+                icon: const Icon(Icons.pause_circle_outline),
               ),
               IconButton(
                 tooltip:
@@ -4563,11 +4815,9 @@ class _FileSyncCard extends StatelessWidget {
                   child: SizedBox(
                     height: 48,
                     child: OutlinedButton.icon(
-                      onPressed: canStartBluetoothTransfer
-                          ? () => unawaited(onAdvanceQueue())
-                          : null,
-                      icon: const Icon(Icons.bluetooth, size: 18),
-                      label: const Text('蓝牙传输'),
+                      onPressed: transferButtonPressed,
+                      icon: Icon(transferButtonIcon, size: 18),
+                      label: Text(transferButtonLabel),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF1F2933),
                         disabledForegroundColor: _DeviceDetailColors.textMuted,
@@ -4694,159 +4944,168 @@ class _FileSyncEntryRow extends StatelessWidget {
         entry.transferStatus == RecordingCardFileTransferStatus.retryPending ||
         entry.transferStatus ==
             RecordingCardFileTransferStatus.stoppingForRetry ||
+        entry.transferStatus == RecordingCardFileTransferStatus.paused ||
         entry.transferStatus == RecordingCardFileTransferStatus.cloudSyncing;
     final actionLabel = _fileEntryActionLabel(entry.transferStatus);
     final actionIcon = _fileEntryActionIcon(entry.transferStatus);
     final entryActionDisabled =
         actionsDisabled || (memoryImportBusy && _canQueueMemoryImport(entry));
-    final showDeleteDeviceAction =
-        entry.transferStatus == RecordingCardFileTransferStatus.synced;
+    final showDeleteDeviceAction = entry.canDeleteOnDevice;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(statusIcon, size: 18, color: statusColor),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: _DeviceDetailColors.textPrimary,
-                              fontSize: 15,
-                              height: 1.25,
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onLongPress: actionsDisabled
+          ? null
+          : () => unawaited(onDeleteEntryOnDevice(entry)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(statusIcon, size: 18, color: statusColor),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: _DeviceDetailColors.textPrimary,
+                                fontSize: 15,
+                                height: 1.25,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            entry.statusLabel,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          entry.statusLabel,
-                          style: TextStyle(
-                            color: statusColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      metaParts.join(' · '),
-                      style: const TextStyle(
-                        color: _DeviceDetailColors.textMuted,
-                        fontSize: 12,
-                        height: 1.35,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    if (showProgress) ...[
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(999),
-                        child: LinearProgressIndicator(
-                          minHeight: 4,
-                          value: entry.transferStatus ==
-                                      RecordingCardFileTransferStatus
-                                          .downloading ||
-                                  entry.transferStatus ==
-                                      RecordingCardFileTransferStatus
-                                          .retryPending ||
-                                  entry.transferStatus ==
-                                      RecordingCardFileTransferStatus
-                                          .stoppingForRetry
-                              ? entry.progress
-                              : null,
-                        ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${RecordingCardProtocol.formatFileSize(entry.syncedBytes)} / ${entry.displaySize}',
+                        metaParts.join(' · '),
                         style: const TextStyle(
                           color: _DeviceDetailColors.textMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                    if (entry.lastError.trim().isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        entry.lastError.trim(),
-                        style: const TextStyle(
-                          color: Color(0xFFB42318),
                           fontSize: 12,
                           height: 1.35,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ],
-                    if (entry.cloudMemoryId.trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '记忆 ID ${entry.cloudMemoryId}',
-                        style: const TextStyle(
-                          color: _DeviceDetailColors.textMuted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
+                      if (showProgress) ...[
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            minHeight: 4,
+                            value: entry.transferStatus ==
+                                        RecordingCardFileTransferStatus
+                                            .downloading ||
+                                    entry.transferStatus ==
+                                        RecordingCardFileTransferStatus
+                                            .retryPending ||
+                                    entry.transferStatus ==
+                                        RecordingCardFileTransferStatus
+                                            .paused ||
+                                    entry.transferStatus ==
+                                        RecordingCardFileTransferStatus
+                                            .stoppingForRetry
+                                ? entry.progress
+                                : null,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${RecordingCardProtocol.formatFileSize(entry.syncedBytes)} / ${entry.displaySize}',
+                          style: const TextStyle(
+                            color: _DeviceDetailColors.textMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                      if (entry.lastError.trim().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          entry.lastError.trim(),
+                          style: const TextStyle(
+                            color: Color(0xFFB42318),
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                      if (entry.cloudMemoryId.trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          '记忆 ID ${entry.cloudMemoryId}',
+                          style: const TextStyle(
+                            color: _DeviceDetailColors.textMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              if (actionLabel != null || showDeleteDeviceAction) ...[
-                const SizedBox(width: 8),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (actionLabel != null)
-                      OutlinedButton.icon(
-                        onPressed: entryActionDisabled
-                            ? null
-                            : () => unawaited(onRetryEntry(entry)),
-                        icon: Icon(actionIcon, size: 16),
-                        label: Text(actionLabel),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 34),
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                if (actionLabel != null || showDeleteDeviceAction) ...[
+                  const SizedBox(width: 8),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (actionLabel != null)
+                        OutlinedButton.icon(
+                          onPressed: entryActionDisabled
+                              ? null
+                              : () => unawaited(onRetryEntry(entry)),
+                          icon: Icon(actionIcon, size: 16),
+                          label: Text(actionLabel),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 34),
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
-                      ),
-                    if (showDeleteDeviceAction) ...[
-                      if (actionLabel != null) const SizedBox(height: 6),
-                      OutlinedButton.icon(
-                        onPressed: actionsDisabled
-                            ? null
-                            : () => unawaited(onDeleteEntryOnDevice(entry)),
-                        icon: const Icon(Icons.delete_outline, size: 16),
-                        label: const Text('删设备'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFB42318),
-                          minimumSize: const Size(0, 34),
-                          visualDensity: VisualDensity.compact,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      if (showDeleteDeviceAction) ...[
+                        if (actionLabel != null) const SizedBox(height: 6),
+                        OutlinedButton.icon(
+                          onPressed: actionsDisabled
+                              ? null
+                              : () => unawaited(onDeleteEntryOnDevice(entry)),
+                          icon: const Icon(Icons.delete_outline, size: 16),
+                          label: const Text('删设备'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFB42318),
+                            minimumSize: const Size(0, 34),
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
-                ),
+                  ),
+                ],
               ],
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4872,6 +5131,7 @@ IconData _fileTransferIcon(RecordingCardFileTransferStatus status) {
     RecordingCardFileTransferStatus.listed => Icons.inventory_2_outlined,
     RecordingCardFileTransferStatus.downloadPending => Icons.download_outlined,
     RecordingCardFileTransferStatus.downloading => Icons.downloading,
+    RecordingCardFileTransferStatus.paused => Icons.pause_circle_outline,
     RecordingCardFileTransferStatus.checksumFailed =>
       Icons.warning_amber_outlined,
     RecordingCardFileTransferStatus.stoppingForRetry =>
@@ -4898,6 +5158,7 @@ Color _fileTransferColor(RecordingCardFileTransferStatus status) {
       const Color(0xFF1F6FE5),
     RecordingCardFileTransferStatus.cloudSyncFailed => const Color(0xFFB42318),
     RecordingCardFileTransferStatus.downloading ||
+    RecordingCardFileTransferStatus.paused ||
     RecordingCardFileTransferStatus.retryPending ||
     RecordingCardFileTransferStatus.stoppingForRetry =>
       _DeviceDetailColors.accent,
@@ -4921,6 +5182,7 @@ String? _fileEntryActionLabel(RecordingCardFileTransferStatus status) {
     RecordingCardFileTransferStatus.downloaded => '生成',
     RecordingCardFileTransferStatus.cloudSyncPending => null,
     RecordingCardFileTransferStatus.cloudSyncFailed => '重试',
+    RecordingCardFileTransferStatus.paused => '继续',
     RecordingCardFileTransferStatus.retryPending ||
     RecordingCardFileTransferStatus.stoppingForRetry =>
       null,
@@ -4935,6 +5197,7 @@ String? _fileEntryActionLabel(RecordingCardFileTransferStatus status) {
 
 IconData _fileEntryActionIcon(RecordingCardFileTransferStatus status) {
   return switch (status) {
+    RecordingCardFileTransferStatus.paused => Icons.play_arrow,
     RecordingCardFileTransferStatus.downloaded ||
     RecordingCardFileTransferStatus.cloudSyncFailed =>
       Icons.note_add_outlined,
@@ -4962,6 +5225,8 @@ class _ConnectedDeviceCard extends StatelessWidget {
     required this.fileError,
     required this.fileLastSyncAt,
     required this.bluetoothTransferBusy,
+    required this.bluetoothTransferActive,
+    required this.bluetoothTransferPaused,
     required this.memoryImportBusy,
     required this.clearingDeviceFiles,
     required this.deviceFileCount,
@@ -4971,6 +5236,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
     required this.onDisconnect,
     required this.onRefreshFiles,
     required this.onAdvanceQueue,
+    required this.onPauseBluetoothTransfer,
     required this.onImportReadyFiles,
     required this.onClearDeviceFiles,
     required this.onRetryEntry,
@@ -4999,6 +5265,8 @@ class _ConnectedDeviceCard extends StatelessWidget {
   final String? fileError;
   final DateTime? fileLastSyncAt;
   final bool bluetoothTransferBusy;
+  final bool bluetoothTransferActive;
+  final bool bluetoothTransferPaused;
   final bool memoryImportBusy;
   final bool clearingDeviceFiles;
   final int deviceFileCount;
@@ -5008,6 +5276,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
   final VoidCallback onDisconnect;
   final Future<void> Function() onRefreshFiles;
   final Future<void> Function() onAdvanceQueue;
+  final Future<void> Function() onPauseBluetoothTransfer;
   final Future<void> Function() onImportReadyFiles;
   final Future<void> Function() onClearDeviceFiles;
   final Future<void> Function(RecordingCardFileEntry entry) onRetryEntry;
@@ -5122,11 +5391,14 @@ class _ConnectedDeviceCard extends StatelessWidget {
           error: fileError,
           lastSyncAt: fileLastSyncAt,
           bluetoothTransferBusy: bluetoothTransferBusy,
+          bluetoothTransferActive: bluetoothTransferActive,
+          bluetoothTransferPaused: bluetoothTransferPaused,
           memoryImportBusy: memoryImportBusy,
           clearingDeviceFiles: clearingDeviceFiles,
           deviceFileCount: deviceFileCount,
           onRefresh: onRefreshFiles,
           onAdvanceQueue: onAdvanceQueue,
+          onPauseBluetoothTransfer: onPauseBluetoothTransfer,
           onImportReadyFiles: onImportReadyFiles,
           onClearDeviceFiles: canClearDeviceFiles
               ? () => unawaited(onClearDeviceFiles())
@@ -5193,7 +5465,7 @@ class _DeviceHeroCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       decoration: const BoxDecoration(
         color: _DeviceDetailColors.surface,
         borderRadius: BorderRadius.all(Radius.circular(22)),
@@ -5221,9 +5493,9 @@ class _DeviceHeroCard extends StatelessWidget {
               height: 1.2,
             ),
           ),
-          const SizedBox(height: 22),
-          const _RecordingCardIllustration(),
           const SizedBox(height: 16),
+          const _RecordingCardIllustration(),
+          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -5269,8 +5541,8 @@ class _RecordingCardIllustration extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 104,
-      height: 160,
+      width: 46,
+      height: 64,
       child: CustomPaint(
         painter: _RecordingCardPainter(),
       ),

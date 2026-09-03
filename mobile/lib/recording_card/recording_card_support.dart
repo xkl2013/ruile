@@ -8,6 +8,7 @@ enum RecordingCardFileTransferStatus {
   listed,
   downloadPending,
   downloading,
+  paused,
   checksumFailed,
   stoppingForRetry,
   retryPending,
@@ -25,8 +26,9 @@ extension RecordingCardFileTransferStatusX on RecordingCardFileTransferStatus {
         RecordingCardFileTransferStatus.listed => '已识别',
         RecordingCardFileTransferStatus.downloadPending => '待蓝牙传输',
         RecordingCardFileTransferStatus.downloading => '蓝牙传输中',
+        RecordingCardFileTransferStatus.paused => '已暂停传输',
         RecordingCardFileTransferStatus.checksumFailed => '校验失败',
-        RecordingCardFileTransferStatus.stoppingForRetry => '等待重传',
+        RecordingCardFileTransferStatus.stoppingForRetry => '等待停止确认',
         RecordingCardFileTransferStatus.retryPending => '断点重传中',
         RecordingCardFileTransferStatus.downloaded => '待自动生成',
         RecordingCardFileTransferStatus.cloudSyncPending => '自动生成队列',
@@ -133,6 +135,7 @@ class RecordingCardFileEntry {
 
   bool get canRetryDownload =>
       transferStatus == RecordingCardFileTransferStatus.checksumFailed ||
+      transferStatus == RecordingCardFileTransferStatus.paused ||
       transferStatus == RecordingCardFileTransferStatus.retryPending ||
       transferStatus == RecordingCardFileTransferStatus.failed ||
       transferStatus == RecordingCardFileTransferStatus.downloadPending;
@@ -143,7 +146,8 @@ class RecordingCardFileEntry {
       transferStatus == RecordingCardFileTransferStatus.cloudSyncFailed;
 
   bool get canDeleteOnDevice =>
-      transferStatus == RecordingCardFileTransferStatus.synced;
+      transferStatus == RecordingCardFileTransferStatus.synced ||
+      transferStatus == RecordingCardFileTransferStatus.paused;
 
   String get displaySize => RecordingCardProtocol.formatFileSize(fileSizeBytes);
 
