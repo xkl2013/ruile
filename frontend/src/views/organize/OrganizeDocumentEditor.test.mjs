@@ -12,8 +12,11 @@ test('document editor opens slash menu after leading whitespace', () => {
   assert.ok(source.includes("deleteRange({ from: $from.start(), to: $from.pos }).insertContent('/')"))
 })
 
-test('memory note editor exposes note controls without the format toolbar', () => {
-  assert.ok(source.includes('isNoteMemory'))
+test('memory editor exposes service and sprout controls for every memory type', () => {
+  assert.ok(source.includes('const isActionableMemory = computed(() => isMemoryDocument.value)'))
+  assert.ok(source.includes('v-if="isActionableMemory"'))
+  assert.ok(source.includes('<template v-if="isActionableMemory">'))
+  assert.ok(!source.includes("memoryKind.value === 'note' || memoryKind.value === 'record'"))
   assert.ok(source.includes('memory-note-tabs'))
   assert.ok(source.includes("noteActiveTab === 'service'"))
   assert.ok(source.includes('buildServiceTaskFromMemory'))
@@ -28,6 +31,9 @@ test('memory note editor exposes note controls without the format toolbar', () =
   assert.ok(source.includes('linkedServiceReminderLoading'))
   assert.ok(source.includes('noteServiceActionLabel'))
   assert.ok(source.includes('extractCurrentMemoryToService'))
+  assert.ok(source.includes('if (!isActionableMemory.value || noteServiceExtracting.value) return'))
+  assert.ok(source.includes('if (isActionableMemory.value)'))
+  assert.ok(source.includes('loadLinkedMemorySproutReport(item.id)'))
   assert.ok(source.includes('agent-green.svg'))
   assert.ok(source.includes("return '提取服务'"))
   assert.ok(source.includes("return '已提取服务'"))
@@ -64,12 +70,16 @@ test('memory note editor exposes note controls without the format toolbar', () =
   assert.ok(source.includes('openNoteSproutEditor'))
   assert.ok(source.includes('sproutReportContentForEditor(contentSource)'))
   assert.ok(source.includes('memory-note-source-card'))
-  assert.ok(source.includes('sourceFileCardVisible'))
+  assert.ok(source.includes('const sourceFileCardVisible = computed(() => isMemoryDocument.value && Boolean(sourceFilePath.value))'))
   assert.ok(source.includes('sourcePreviewVisible'))
   assert.ok(source.includes('openSourceFilePreview'))
   assert.ok(source.includes('DocumentPreview'))
   assert.ok(source.includes("new URLSearchParams({ file_path: source })"))
   assert.ok(source.includes(':version="editorVersion"'))
+  assert.ok(source.includes("const editorVersion = computed(() => (isMemoryDocument.value ? 'advanced' : 'basic'))"))
+  assert.ok(source.includes(':placeholder="`${memoryAssetLabel}标题`"'))
+  assert.ok(source.includes('v-if="isAudioMemory" class="memory-audio-panel"'))
+  assert.ok(source.includes(":class=\"{ 'document-editor-shell--audio': isAudioMemory }\""))
   assert.ok(!source.includes('memory-note-toolbar'))
   assert.ok(!source.includes('追加笔记'))
   assert.ok(!source.includes('appendNoteText'))
@@ -98,7 +108,7 @@ test('memory service tab uses shared weak extraction rules', () => {
   assert.ok(serviceExtractionSource.includes('出现售前接触信号'))
 })
 
-test('memory note editor lets the page own mouse wheel scrolling', () => {
+test('memory editor lets the page own mouse wheel scrolling', () => {
   assert.ok(source.includes('.document-editor-shell--memory-note :deep(.tiptap-pro-editor.word-mode)'))
   assert.ok(source.includes('.document-editor-shell--memory-note :deep(.word-document-container)'))
   assert.ok(source.includes('height: auto;'))
