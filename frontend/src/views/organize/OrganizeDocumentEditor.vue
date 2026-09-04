@@ -18,7 +18,7 @@
 
       <div class="editor-page-actions">
         <t-button
-          v-if="isNoteMemory"
+          v-if="isActionableMemory"
           theme="default"
           variant="outline"
           class="editor-service-action"
@@ -30,7 +30,7 @@
           {{ noteServiceActionLabel }}
         </t-button>
         <t-button
-          v-if="isNoteMemory"
+          v-if="isActionableMemory"
           theme="default"
           variant="outline"
           class="editor-sprout-action"
@@ -61,10 +61,10 @@
 
       <div v-else class="editor-page-content">
         <article class="document-page">
-          <template v-if="isNoteMemory">
+          <template v-if="isActionableMemory">
             <section class="memory-note-panel" aria-label="笔记详情">
               <div class="memory-note-header">
-                <t-input v-model="title" class="memory-note-title-input" size="large" clearable placeholder="笔记标题" />
+                <t-input v-model="title" class="memory-note-title-input" size="large" clearable :placeholder="`${memoryAssetLabel}标题`" />
               </div>
 
               <div class="memory-note-tags">
@@ -166,8 +166,39 @@
 
               <div class="memory-note-tab-panels">
                 <section v-show="noteActiveTab === 'content'" class="memory-note-panel-view">
+                  <section v-if="isAudioMemory" class="memory-audio-panel" aria-label="录音详情">
+                    <div class="memory-audio-player" aria-label="录音播放">
+                      <template v-if="audioSourceUrl">
+                        <audio class="memory-audio-native" :src="audioSourceUrl" controls preload="metadata"></audio>
+                        <div class="memory-audio-transcript-chip">
+                          <t-icon name="file-word" size="14px" />
+                          <span>文稿</span>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <button type="button" class="memory-audio-play" aria-label="播放录音">
+                          <t-icon name="play-circle" size="18px" />
+                        </button>
+                        <div class="memory-audio-track-wrap">
+                          <div class="memory-audio-track" aria-hidden="true">
+                            <span class="memory-audio-thumb"></span>
+                            <span class="memory-audio-progress"></span>
+                          </div>
+                          <div class="memory-audio-time-row">
+                            <span>00:00</span>
+                            <span>{{ audioDurationLabel }}</span>
+                          </div>
+                        </div>
+                        <div class="memory-audio-transcript-chip">
+                          <t-icon name="file-word" size="14px" />
+                          <span>文稿</span>
+                        </div>
+                      </template>
+                    </div>
+                  </section>
                   <div
                     class="document-editor-shell document-editor-shell--memory-note"
+                    :class="{ 'document-editor-shell--audio': isAudioMemory }"
                     @keydown.capture="handleEditorKeydown"
                   >
                     <TiptapProEditor
@@ -339,37 +370,6 @@
           </template>
 
           <template v-else>
-            <section v-if="isAudioMemory" class="memory-audio-panel" aria-label="录音详情">
-              <t-input v-model="title" class="memory-audio-title-input" size="large" clearable placeholder="录音标题" />
-              <div class="memory-audio-player" aria-label="录音播放">
-                <template v-if="audioSourceUrl">
-                  <audio class="memory-audio-native" :src="audioSourceUrl" controls preload="metadata"></audio>
-                  <div class="memory-audio-transcript-chip">
-                    <t-icon name="file-word" size="14px" />
-                    <span>文稿</span>
-                  </div>
-                </template>
-                <template v-else>
-                  <button type="button" class="memory-audio-play" aria-label="播放录音">
-                    <t-icon name="play-circle" size="18px" />
-                  </button>
-                  <div class="memory-audio-track-wrap">
-                    <div class="memory-audio-track" aria-hidden="true">
-                      <span class="memory-audio-thumb"></span>
-                      <span class="memory-audio-progress"></span>
-                    </div>
-                    <div class="memory-audio-time-row">
-                      <span>00:00</span>
-                      <span>{{ audioDurationLabel }}</span>
-                    </div>
-                  </div>
-                  <div class="memory-audio-transcript-chip">
-                    <t-icon name="file-word" size="14px" />
-                    <span>文稿</span>
-                  </div>
-                </template>
-              </div>
-            </section>
             <div
               class="document-editor-shell"
               :class="{ 'document-editor-shell--audio': isAudioMemory }"
@@ -611,7 +611,7 @@ const isAudioMemory = computed(() => documentType.value === 'memory' && memoryKi
 const audioDurationLabel = computed(() => formatDuration(memoryDurationSeconds.value || 0))
 const editorPlaceholder = computed(() => {
   if (isAudioMemory.value) return '录音转写内容'
-  if (isNoteMemory.value) return '输入正文'
+  if (isMemoryDocument.value) return '输入正文'
   return '输入内容，或按“/”启用命令'
 })
 
@@ -634,8 +634,8 @@ const breadcrumbItems = computed(() => {
 })
 
 const isMemoryDocument = computed(() => documentType.value === 'memory')
-const isNoteMemory = computed(() => isMemoryDocument.value && (memoryKind.value === 'note' || memoryKind.value === 'record'))
-const editorVersion = computed(() => (isNoteMemory.value ? 'advanced' : 'basic'))
+const isActionableMemory = computed(() => isMemoryDocument.value)
+const editorVersion = computed(() => (isMemoryDocument.value ? 'advanced' : 'basic'))
 
 const defaultReturnTo = computed(() => {
   if (documentType.value === 'output') return '/platform/organize/output'
@@ -916,7 +916,7 @@ const sourceFilePreviewUrl = computed(() => {
   return `/files?${new URLSearchParams({ file_path: source }).toString()}`
 })
 
-const sourceFileCardVisible = computed(() => isNoteMemory.value && Boolean(sourceFilePath.value))
+const sourceFileCardVisible = computed(() => isMemoryDocument.value && Boolean(sourceFilePath.value))
 
 const openSourceFilePreview = () => {
   if (!sourceFilePreviewUrl.value) {
@@ -926,8 +926,8 @@ const openSourceFilePreview = () => {
   sourcePreviewVisible.value = true
 }
 
-const currentNoteMemoryForService = computed<OrganizeMemory | null>(() => {
-  if (!isNoteMemory.value) return null
+const currentMemoryForService = computed<OrganizeMemory | null>(() => {
+  if (!isActionableMemory.value) return null
   const memoryID = activeDocumentId.value
   if (!memoryID || memoryID === 'new') return null
   return {
@@ -946,7 +946,7 @@ const currentNoteMemoryForService = computed<OrganizeMemory | null>(() => {
 
 const noteServiceTask = computed<ServiceTask | null>(() => {
   if (linkedServiceReminderTask.value) return linkedServiceReminderTask.value
-  const memory = currentNoteMemoryForService.value
+  const memory = currentMemoryForService.value
   return memory ? buildServiceTaskFromMemory(memory) : null
 })
 
@@ -956,7 +956,7 @@ const noteServiceActionLabel = computed(() => {
 })
 
 const noteServiceSourceMemory = computed(() => {
-  const memory = currentNoteMemoryForService.value
+  const memory = currentMemoryForService.value
   if (!memory) return null
   return {
     title: memory.title || '未命名记忆',
@@ -1018,7 +1018,7 @@ const loadLinkedServiceReminder = async (memoryID: string, options?: { silent?: 
 }
 
 const extractCurrentMemoryToService = async () => {
-  if (!isNoteMemory.value || noteServiceExtracting.value) return
+  if (!isActionableMemory.value || noteServiceExtracting.value) return
   if (linkedServiceReminderTask.value) {
     noteActiveTab.value = 'service'
     return
@@ -1441,7 +1441,7 @@ const resetDraft = () => {
   if (documentType.value === 'memory' && memoryKind.value === 'audio') {
     content.value = normalizeAudioMemoryContent(draftContent)
     title.value = draftTitle || audioMemoryFallbackTitle(content.value)
-  } else if (isNoteMemory.value) {
+  } else if (isMemoryDocument.value) {
     content.value = memoryBodyContent(draftTitle, draftContent)
   } else {
     content.value = normalizeDocumentContent(draftTitle, draftContent)
@@ -1493,15 +1493,15 @@ const loadDocument = async () => {
       noteActiveTab.value = 'content'
       title.value = item.kind === 'audio'
         ? audioMemoryDisplayTitle(item)
-        : isNoteMemory.value
+        : isMemoryDocument.value
           ? normalizeTitle(item.title || extractTitleFromContent(item.content) || plainTextFromHtml(item.content).slice(0, 80))
           : item.title
       content.value = item.kind === 'audio'
         ? normalizeAudioMemoryContent(audioMemoryContentSource(item))
-        : isNoteMemory.value
+        : isMemoryDocument.value
           ? memoryBodyContent(item.title, item.content)
           : normalizeDocumentContent(item.title, item.content)
-      if (isNoteMemory.value) {
+      if (isActionableMemory.value) {
         await Promise.all([
           loadLinkedMemorySproutReport(item.id),
           loadLinkedServiceReminder(item.id),
@@ -1575,7 +1575,7 @@ const saveDocument = async () => {
   const html = editorRef.value?.getHTML() || content.value
   const normalizedTitle = savingAudioMemory
     ? normalizeTitle(title.value || audioMemoryFallbackTitle(html))
-    : currentType === 'memory' && isNoteMemory.value
+    : currentType === 'memory'
       ? normalizeTitle(title.value || extractTitleFromContent(html) || plainTextFromHtml(html).slice(0, 80))
       : extractTitleFromContent(html)
   if (!normalizedTitle) {
@@ -1997,25 +1997,6 @@ watch(
   flex-direction: column;
   gap: 10px;
   margin-bottom: 14px;
-}
-
-.memory-audio-title-input {
-  width: 100%;
-}
-
-.memory-audio-title-input :deep(.t-input) {
-  height: 42px;
-  border-color: transparent;
-  background: transparent;
-  padding-inline: 0;
-  box-shadow: none;
-}
-
-.memory-audio-title-input :deep(.t-input__inner) {
-  color: #37352f;
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 30px;
 }
 
 .memory-audio-player {
