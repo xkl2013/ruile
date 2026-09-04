@@ -97,6 +97,8 @@ void main() {
     await tester.tap(find.byTooltip('服务'));
     await _pumpTransition(tester);
     expect(find.text('服务提醒'), findsOneWidget);
+    expect(find.text('搜索服务提醒'), findsNothing);
+    expect(find.byTooltip('清除搜索'), findsNothing);
     expect(find.text('找人'), findsNothing);
     expect(find.text('消息'), findsNothing);
   });
@@ -158,7 +160,7 @@ void main() {
     expect(find.text('服务模块产生客户后会出现在这里'), findsOneWidget);
   });
 
-  testWidgets('opens avatar profile from the drawer and adds a skill', (
+  testWidgets('opens avatar profile from the drawer and shows description', (
     tester,
   ) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
@@ -176,20 +178,15 @@ void main() {
     await _pumpTransition(tester);
     await _pumpTransition(tester);
 
+    expect(find.text('分身'), findsOneWidget);
+    expect(find.text('查看后台配置的分身描述。'), findsOneWidget);
+    expect(find.text('我的服务分身'), findsOneWidget);
+    expect(find.text('等待服务模块配置分身描述'), findsOneWidget);
     expect(find.text('分身描述'), findsOneWidget);
-    expect(find.text('AI生成技能'), findsOneWidget);
-    expect(find.text('手动添加技能'), findsOneWidget);
-
-    await tester.tap(find.widgetWithText(OutlinedButton, '添加'));
-    await _pumpTransition(tester);
-
-    expect(find.text('添加技能'), findsOneWidget);
-    await tester.enterText(find.byType(TextField).last, '家校沟通提醒');
-    await tester.tap(find.text('添加自定义技能'));
-    await _pumpTransition(tester);
-
-    expect(find.text('家校沟通提醒'), findsOneWidget);
-    expect(find.text('手动'), findsOneWidget);
+    expect(find.text('暂无分身描述'), findsOneWidget);
+    expect(find.text('AI生成技能'), findsNothing);
+    expect(find.text('手动添加技能'), findsNothing);
+    expect(find.text('添加技能'), findsNothing);
   });
 
   testWidgets('opens the knowledge base list from the home page', (

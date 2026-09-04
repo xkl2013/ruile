@@ -620,11 +620,20 @@ func uniqueStrings(items []string) []string {
 	return out
 }
 
+var (
+	plainExcerptSummaryKeys    = []string{"summary", "source_summary", "sourceSummary", "description", "abstract"}
+	plainExcerptTranscriptKeys = []string{"transcript", "transcription_text", "transcriptionText", "transcription_result", "transcriptionResult", "asr_text", "asrText", "speech_text", "speechText", "raw_transcript", "rawTranscript", "original_text", "originalText"}
+)
+
 func plainExcerpt(content string, metadata types.JSONMap) string {
-	if summary, ok := metadata["summary"].(string); ok && strings.TrimSpace(summary) != "" {
-		return truncateText(strings.TrimSpace(summary), 86)
+	text := firstNonEmpty(
+		metadataExcerptText(metadata, plainExcerptSummaryKeys...),
+		metadataExcerptText(metadata, plainExcerptTranscriptKeys...),
+		content,
+	)
+	if text == "" {
+		return "暂无记忆内容"
 	}
-	text := strings.TrimSpace(content)
 	replacer := strings.NewReplacer(
 		"<br>", " ", "<br/>", " ", "<br />", " ",
 	)
@@ -638,6 +647,15 @@ func plainExcerpt(content string, metadata types.JSONMap) string {
 		return "暂无记忆内容"
 	}
 	return truncateText(text, 86)
+}
+
+func metadataExcerptText(metadata types.JSONMap, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := metadata[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func stripTags(value string) string {

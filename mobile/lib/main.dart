@@ -470,42 +470,61 @@ class _RuileApiClient {
     throw const FormatException('服务提醒响应格式无效');
   }
 
-  Future<List<_ServiceSkillInfo>> fetchSkills() async {
-    final payload = await _getJson('/api/v1/skills');
-    return [
-      for (final item in _extractList(payload))
-        if (item is Map<String, dynamic>)
-          _ServiceSkillInfo.fromApi(item)
-        else if (item is Map)
-          _ServiceSkillInfo.fromApi(
-            item.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-    ].where((skill) => skill.name.isNotEmpty).toList();
-  }
-
-  Future<List<_WorkProfileAgentSetting>> replaceServiceAgentSettings(
-    String profileId,
-    List<_WorkProfileAgentSetting> settings,
-  ) async {
-    final id = profileId.trim();
-    if (id.isEmpty) {
-      throw const FormatException('分身ID不能为空');
+  Future<List<_ServiceReminder>> fetchServiceReminders({
+    String memoryId = '',
+    String keyword = '',
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    final queryParameters = <String, String>{
+      'page': '${page < 1 ? 1 : page}',
+      'page_size': '${pageSize < 1 ? 1 : pageSize}',
+    };
+    final normalizedMemoryId = memoryId.trim();
+    if (normalizedMemoryId.isNotEmpty) {
+      queryParameters['memory_id'] = normalizedMemoryId;
     }
-    final payload = await _putJson(
-      '/api/v1/service/work-profiles/${Uri.encodeComponent(id)}/agent-settings',
-      {
-        'settings': settings.map((setting) => setting.toApi()).toList(),
-      },
+    final normalizedKeyword = keyword.trim();
+    if (normalizedKeyword.isNotEmpty) {
+      queryParameters['keyword'] = normalizedKeyword;
+    }
+
+    final payload = await _getJson(
+      '/api/v1/service/reminders?${Uri(queryParameters: queryParameters).query}',
     );
     return [
       for (final item in _extractList(payload))
         if (item is Map<String, dynamic>)
-          _WorkProfileAgentSetting.fromApi(item)
+          _ServiceReminder.fromApi(item)
         else if (item is Map)
-          _WorkProfileAgentSetting.fromApi(
+          _ServiceReminder.fromApi(
             item.map((key, value) => MapEntry(key.toString(), value)),
           ),
     ];
+  }
+
+  Future<_ServiceMemoryExtractionResult> extractServiceMemory(
+    String memoryId,
+  ) async {
+    final id = memoryId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('记忆ID不能为空');
+    }
+
+    final payload = await _postJson(
+      '/api/v1/service/memories/${Uri.encodeComponent(id)}/extract',
+      const {},
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _ServiceMemoryExtractionResult.fromApi(data);
+    }
+    if (data is Map) {
+      return _ServiceMemoryExtractionResult.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('服务提取响应格式无效');
   }
 
   Future<_ServiceReminder> fetchServiceReminder(String reminderId) async {
@@ -1949,6 +1968,7 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _openAvatarProfileFromDrawer() {
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => _AvatarProfilePage(
@@ -1989,7 +2009,7 @@ class _MainShellState extends State<MainShell> {
         customerSpaceCount: _customerSpaceCount,
         onOpenCustomerSpaces: _openCustomerSpaceListFromDrawer,
         onOpenRecordingCard: _openRecordingCardFromDrawer,
-        onOpenMemories: _openAvatarProfileFromDrawer,
+        onOpenAvatarProfile: _openAvatarProfileFromDrawer,
         onOpenDaily: _openDailyReportFromDrawer,
       ),
       body: Stack(
@@ -2020,7 +2040,7 @@ class _MainSideDrawer extends StatelessWidget {
     required this.session,
     required this.onOpenCustomerSpaces,
     required this.onOpenRecordingCard,
-    required this.onOpenMemories,
+    required this.onOpenAvatarProfile,
     required this.onOpenDaily,
     this.customerSpaceCount,
   });
@@ -2028,15 +2048,16 @@ class _MainSideDrawer extends StatelessWidget {
   final AuthSession session;
   final VoidCallback onOpenCustomerSpaces;
   final VoidCallback onOpenRecordingCard;
-  final VoidCallback onOpenMemories;
+  final VoidCallback onOpenAvatarProfile;
   final VoidCallback onOpenDaily;
   final int? customerSpaceCount;
 
   void _closeAndRun(BuildContext context, VoidCallback action) {
     Navigator.of(context).pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // Wait for the drawer route's closing animation before pushing another route.
+    unawaited(Future<void>.delayed(const Duration(milliseconds: 300), () {
       action();
-    });
+    }));
   }
 
   @override
@@ -2082,7 +2103,7 @@ class _MainSideDrawer extends StatelessWidget {
             _DrawerMenuItem(
               icon: Icons.inbox_outlined,
               title: '分身',
-              onTap: () => _closeAndRun(context, onOpenMemories),
+              onTap: () => _closeAndRun(context, onOpenAvatarProfile),
             ),
             const SizedBox(height: 12),
             const Divider(height: 1, color: AppColors.border),
@@ -4446,10 +4467,7 @@ class _AvatarProfilePage extends StatefulWidget {
 class _AvatarProfilePageState extends State<_AvatarProfilePage> {
   late _RuileApiClient _apiClient;
   _ServiceBootstrapResult? _serviceData;
-  List<_ServiceSkillInfo> _availableSkills = const [];
-  List<String> _customSkillNames = const [];
   var _loading = true;
-  var _saving = false;
   String? _loadError;
 
   @override
@@ -4489,7 +4507,6 @@ class _AvatarProfilePageState extends State<_AvatarProfilePage> {
       if (!mounted) return;
       setState(() {
         _serviceData = null;
-        _availableSkills = const [];
         _loading = false;
         _loadError = null;
       });
@@ -4497,20 +4514,10 @@ class _AvatarProfilePageState extends State<_AvatarProfilePage> {
     }
 
     try {
-      final results = await Future.wait<Object>([
-        _apiClient.fetchServiceBootstrap(),
-        _apiClient.fetchSkills(),
-      ]);
-      final serviceData = results[0] as _ServiceBootstrapResult;
+      final serviceData = await _apiClient.fetchServiceBootstrap();
       if (!mounted) return;
       setState(() {
         _serviceData = serviceData;
-        _availableSkills = results[1] as List<_ServiceSkillInfo>;
-        _customSkillNames = _mergeUniqueStrings([
-          ..._customSkillNames,
-          for (final setting in serviceData.agentSettings)
-            ...setting.userAddedSkills,
-        ]);
         _loading = false;
         _loadError = null;
       });
@@ -4534,183 +4541,6 @@ class _AvatarProfilePageState extends State<_AvatarProfilePage> {
       });
     }
   }
-
-  Future<void> _addSkill() async {
-    final skill = await showModalBottomSheet<_AvatarSkillDraft>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) => _AvatarSkillPickerSheet(
-        availableSkills: _availableSkills,
-        existingSkillNames: _skillNames,
-      ),
-    );
-    if (skill == null || skill.name.trim().isEmpty) return;
-
-    final name = skill.name.trim();
-    if (_skillNames.any((item) => item.toLowerCase() == name.toLowerCase())) {
-      _showMessage('技能已存在');
-      return;
-    }
-
-    setState(() {
-      _customSkillNames = [..._customSkillNames, name];
-    });
-
-    await _saveCustomSkills();
-  }
-
-  Future<void> _removeCustomSkill(String name) async {
-    setState(() {
-      _customSkillNames = _customSkillNames
-          .where((item) => item.toLowerCase() != name.toLowerCase())
-          .toList();
-    });
-    await _saveCustomSkills(showSuccess: false);
-  }
-
-  Future<void> _saveCustomSkills({bool showSuccess = true}) async {
-    final data = _serviceData;
-    final profile = data?.profile;
-    if (data == null || profile == null || profile.id.trim().isEmpty) {
-      if (showSuccess) _showMessage('已添加到本机分身技能');
-      return;
-    }
-
-    final settings = data.agentSettings;
-    if (settings.isEmpty) {
-      if (showSuccess) _showMessage('已添加到本机分身技能');
-      return;
-    }
-
-    setState(() {
-      _saving = true;
-    });
-    try {
-      final nextSettings = settings.map((setting) {
-        if (!setting.enabled) return setting;
-        final selectedWithoutUserAdded = setting.selectedSkills.where((skill) {
-          final normalized = skill.trim().toLowerCase();
-          return !setting.userAddedSkills
-              .map((item) => item.trim().toLowerCase())
-              .contains(normalized);
-        }).toList();
-        final merged = _mergeUniqueStrings([
-          ...selectedWithoutUserAdded,
-          ..._customSkillNames,
-        ]);
-        return setting.copyWith(
-          selectedSkills: merged,
-          outputPolicy: {
-            ...setting.outputPolicy,
-            'user_added_skills': _customSkillNames,
-          },
-        );
-      }).toList();
-      final saved = await _apiClient.replaceServiceAgentSettings(
-          profile.id, nextSettings);
-      if (!mounted) return;
-      setState(() {
-        _serviceData = _ServiceBootstrapResult(
-          reminders: data.reminders,
-          total: data.total,
-          stats: data.stats,
-          profile: data.profile,
-          agentSettings: saved.isEmpty ? nextSettings : saved,
-          templates: data.templates,
-        );
-      });
-      if (showSuccess) _showMessage('分身技能已保存');
-    } on _ApiException catch (error) {
-      if (error.isAuthFailure) {
-        widget.onAuthFailure();
-        return;
-      }
-      debugPrint('Failed to save avatar skills: $error');
-      if (showSuccess) _showMessage('已添加到本机，当前账号暂无保存权限');
-    } catch (error) {
-      debugPrint('Failed to save avatar skills: $error');
-      if (showSuccess) _showMessage('已添加到本机，保存到服务端失败');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-        });
-      }
-    }
-  }
-
-  List<_AvatarSkillView> get _skillViews {
-    final data = _serviceData;
-    final byName = {
-      for (final skill in _availableSkills) skill.name: skill,
-    };
-    final items = <_AvatarSkillView>[];
-    final seen = <String>{};
-    final customKeys = _customSkillNames
-        .map((item) => item.trim().toLowerCase())
-        .where((item) => item.isNotEmpty)
-        .toSet();
-
-    for (final setting in data?.agentSettings ?? const []) {
-      if (!setting.enabled) continue;
-      final label = setting.displayName.trim().isEmpty
-          ? _serviceAgentDomainLabel(setting.agentDomain)
-          : setting.displayName.trim();
-      final skillNames = setting.selectedSkills.isEmpty
-          ? _inferSkillNamesForAgent(setting.agentDomain)
-          : setting.selectedSkills;
-      for (final skillName in skillNames) {
-        final normalized = skillName.trim();
-        if (normalized.isEmpty) continue;
-        final key = normalized.toLowerCase();
-        if (customKeys.contains(key)) continue;
-        if (!seen.add(key)) continue;
-        final info = byName[normalized];
-        items.add(
-          _AvatarSkillView(
-            name: normalized,
-            description: info?.description ??
-                _generatedSkillDescription(normalized, setting.agentDomain),
-            sourceLabel: label,
-            icon: _serviceAgentDomainIcon(setting.agentDomain),
-            generated: true,
-            custom: false,
-          ),
-        );
-      }
-    }
-
-    final description = _profileDescription;
-    for (final skill in _inferSkillsFromDescription(description)) {
-      final key = skill.name.toLowerCase();
-      if (customKeys.contains(key)) continue;
-      if (!seen.add(key)) continue;
-      items.add(skill);
-    }
-
-    for (final name in _customSkillNames) {
-      final normalized = name.trim();
-      if (normalized.isEmpty) continue;
-      final key = normalized.toLowerCase();
-      if (!seen.add(key)) continue;
-      final info = byName[normalized];
-      items.add(
-        _AvatarSkillView(
-          name: normalized,
-          description: info?.description ?? '用户手动添加的分身技能，可用于补充服务边界。',
-          sourceLabel: '手动添加',
-          icon: Icons.add_task_outlined,
-          generated: false,
-          custom: true,
-        ),
-      );
-    }
-
-    return items;
-  }
-
-  List<String> get _skillNames => _skillViews.map((item) => item.name).toList();
 
   String get _profileTitle {
     final profile = _serviceData?.profile;
@@ -4738,23 +4568,8 @@ class _AvatarProfilePageState extends State<_AvatarProfilePage> {
     return parts.join(' · ');
   }
 
-  void _showMessage(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 1200),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final skillViews = _skillViews;
-    final aiSkillViews =
-        skillViews.where((skill) => skill.generated && !skill.custom).toList();
-    final customSkillViews = skillViews.where((skill) => skill.custom).toList();
     final profile = _serviceData?.profile;
 
     return Scaffold(
@@ -4780,7 +4595,7 @@ class _AvatarProfilePageState extends State<_AvatarProfilePage> {
                         Text('分身', style: AppTextStyles.pageTitle),
                         SizedBox(height: 7),
                         Text(
-                          '查看分身描述和 AI 读取描述生成的服务技能。',
+                          '查看后台配置的分身描述。',
                           style: AppTextStyles.body,
                         ),
                       ],
@@ -4812,60 +4627,6 @@ class _AvatarProfilePageState extends State<_AvatarProfilePage> {
                   description: _profileDescription,
                   profile: profile,
                 ),
-                const SizedBox(height: AppSpacing.sectionGap),
-                _AvatarSectionHeader(
-                  title: 'AI生成技能',
-                  countText: '${aiSkillViews.length} 项',
-                ),
-                const SizedBox(height: AppSpacing.contentGap),
-                if (aiSkillViews.isEmpty)
-                  const _CustomerSpaceInlineEmpty(
-                    icon: Icons.psychology_alt_outlined,
-                    message: '暂无 AI 生成技能。配置分身描述后会根据职责自动推断。',
-                  )
-                else
-                  for (var index = 0; index < aiSkillViews.length; index++) ...[
-                    _AvatarSkillCard(skill: aiSkillViews[index]),
-                    if (index != aiSkillViews.length - 1)
-                      const SizedBox(height: 12),
-                  ],
-                const SizedBox(height: AppSpacing.sectionGap),
-                _AvatarSectionHeader(
-                  title: '手动添加技能',
-                  countText: '${customSkillViews.length} 项',
-                  actionLabel: _saving ? '保存中' : '添加',
-                  actionIcon: _saving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.add, size: 18),
-                  onActionTap: _saving ? null : () => unawaited(_addSkill()),
-                ),
-                const SizedBox(height: AppSpacing.contentGap),
-                if (customSkillViews.isEmpty)
-                  const _CustomerSpaceInlineEmpty(
-                    icon: Icons.add_task_outlined,
-                    message: '暂无手动技能。可以添加一个技能来补充分身能力边界。',
-                  )
-                else
-                  for (var index = 0;
-                      index < customSkillViews.length;
-                      index++) ...[
-                    _AvatarSkillCard(
-                      skill: customSkillViews[index],
-                      onDelete: customSkillViews[index].custom
-                          ? () => unawaited(
-                                _removeCustomSkill(
-                                  customSkillViews[index].name,
-                                ),
-                              )
-                          : null,
-                    ),
-                    if (index != customSkillViews.length - 1)
-                      const SizedBox(height: 12),
-                  ],
               ],
             ],
           ),
@@ -5041,430 +4802,6 @@ class _AvatarProfileFactRow extends StatelessWidget {
       ],
     );
   }
-}
-
-class _AvatarSectionHeader extends StatelessWidget {
-  const _AvatarSectionHeader({
-    required this.title,
-    required this.countText,
-    this.actionLabel,
-    this.actionIcon,
-    this.onActionTap,
-  });
-
-  final String title;
-  final String countText;
-  final String? actionLabel;
-  final Widget? actionIcon;
-  final VoidCallback? onActionTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _CustomerSpaceSectionHeader(
-            title: title,
-            countText: countText,
-          ),
-        ),
-        if (actionLabel != null && actionIcon != null) ...[
-          const SizedBox(width: 10),
-          OutlinedButton.icon(
-            onPressed: onActionTap,
-            icon: actionIcon!,
-            label: Text(actionLabel!),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.control,
-              side: const BorderSide(color: AppColors.border),
-              backgroundColor: AppColors.surface,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _AvatarSkillCard extends StatelessWidget {
-  const _AvatarSkillCard({
-    required this.skill,
-    this.onDelete,
-  });
-
-  final _AvatarSkillView skill;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: skill.custom
-                  ? const Color(0xFFF1F3F8)
-                  : AppColors.accent.withValues(alpha: 0.10),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              skill.icon,
-              size: 21,
-              color: skill.custom ? AppColors.control : AppColors.accent,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        skill.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _CustomerSpaceTinyBadge(
-                      label: skill.generated ? 'AI生成' : '手动',
-                      color: skill.generated
-                          ? const Color(0xFFD87600)
-                          : AppColors.control,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  skill.description,
-                  style: AppTextStyles.body.copyWith(fontSize: 13),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  skill.sourceLabel,
-                  style: AppTextStyles.meta.copyWith(fontSize: 12),
-                ),
-              ],
-            ),
-          ),
-          if (onDelete != null) ...[
-            const SizedBox(width: 4),
-            IconButton(
-              tooltip: '删除技能',
-              onPressed: onDelete,
-              icon: const Icon(Icons.close, size: 18),
-              color: AppColors.textTertiary,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _AvatarSkillPickerSheet extends StatefulWidget {
-  const _AvatarSkillPickerSheet({
-    required this.availableSkills,
-    required this.existingSkillNames,
-  });
-
-  final List<_ServiceSkillInfo> availableSkills;
-  final List<String> existingSkillNames;
-
-  @override
-  State<_AvatarSkillPickerSheet> createState() =>
-      _AvatarSkillPickerSheetState();
-}
-
-class _AvatarSkillPickerSheetState extends State<_AvatarSkillPickerSheet> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    final existing = widget.existingSkillNames
-        .map((item) => item.trim().toLowerCase())
-        .where((item) => item.isNotEmpty)
-        .toSet();
-    final skills = widget.availableSkills
-        .where((skill) => !existing.contains(skill.name.toLowerCase()))
-        .toList();
-
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(18, 0, 18, bottomInset + 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '添加技能',
-              style: TextStyle(
-                fontSize: 18,
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _controller,
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                hintText: '输入自定义技能名称',
-                filled: true,
-                fillColor: AppColors.surface,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: AppColors.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: AppColors.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: AppColors.accent),
-                ),
-              ),
-              onSubmitted: (value) {
-                final name = value.trim();
-                if (name.isNotEmpty) {
-                  Navigator.of(context).pop(_AvatarSkillDraft(name: name));
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: FilledButton.icon(
-                onPressed: () {
-                  final name = _controller.text.trim();
-                  if (name.isEmpty) return;
-                  Navigator.of(context).pop(_AvatarSkillDraft(name: name));
-                },
-                icon: const Icon(Icons.add),
-                label: const Text('添加自定义技能'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-            ),
-            if (skills.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              const Text(
-                '可用 Skills',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 260),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: skills.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 8),
-                  itemBuilder: (context, index) {
-                    final skill = skills[index];
-                    return Material(
-                      color: const Color(0xFFF7F8FB),
-                      borderRadius: BorderRadius.circular(10),
-                      child: ListTile(
-                        onTap: () => Navigator.of(context).pop(
-                          _AvatarSkillDraft(name: skill.name),
-                        ),
-                        leading: const Icon(
-                          Icons.lightbulb_outline,
-                          color: AppColors.control,
-                        ),
-                        title: Text(
-                          skill.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        subtitle: skill.description.trim().isEmpty
-                            ? null
-                            : Text(
-                                skill.description,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                        trailing: const Icon(Icons.chevron_right),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AvatarSkillDraft {
-  const _AvatarSkillDraft({required this.name});
-
-  final String name;
-}
-
-class _AvatarSkillView {
-  const _AvatarSkillView({
-    required this.name,
-    required this.description,
-    required this.sourceLabel,
-    required this.icon,
-    required this.generated,
-    required this.custom,
-  });
-
-  final String name;
-  final String description;
-  final String sourceLabel;
-  final IconData icon;
-  final bool generated;
-  final bool custom;
-}
-
-List<String> _mergeUniqueStrings(List<String> values) {
-  final seen = <String>{};
-  final result = <String>[];
-  for (final value in values) {
-    final normalized = _normalizeSpaces(value);
-    if (normalized.isEmpty) continue;
-    if (!seen.add(normalized.toLowerCase())) continue;
-    result.add(normalized);
-  }
-  return result;
-}
-
-List<String> _inferSkillNamesForAgent(String domain) {
-  switch (domain.trim().toLowerCase()) {
-    case 'lead_intake':
-      return const ['线索识别', '缺失字段提取'];
-    case 'sales_consulting':
-      return const ['异议处理', '试听邀约话术'];
-    case 'customer_service':
-      return const ['客户摘要整理', '服务跟进闭环'];
-    case 'scheduling':
-      return const ['试听时间偏好识别', '排课冲突检查'];
-    case 'daily_review':
-      return const ['服务日报复盘', '风险归因'];
-    case 'memory_router':
-      return const ['记忆路由'];
-    default:
-      return const ['服务提醒生成'];
-  }
-}
-
-String _generatedSkillDescription(String skillName, String agentDomain) {
-  final agent = _serviceAgentDomainLabel(agentDomain);
-  return '$agent 根据分身描述生成的能力，用于 $skillName。';
-}
-
-List<_AvatarSkillView> _inferSkillsFromDescription(String description) {
-  final text = description.trim();
-  if (text.isEmpty) return const [];
-  final candidates = <_AvatarSkillView>[];
-
-  void add({
-    required bool when,
-    required String name,
-    required String detail,
-    required IconData icon,
-  }) {
-    if (!when) return;
-    candidates.add(
-      _AvatarSkillView(
-        name: name,
-        description: detail,
-        sourceLabel: 'AI读取分身描述生成',
-        icon: icon,
-        generated: true,
-        custom: false,
-      ),
-    );
-  }
-
-  add(
-    when: RegExp(r'招生|线索|咨询|试听|报名|邀约').hasMatch(text),
-    name: '招生线索跟进',
-    detail: '识别咨询、试听和报名转化相关记忆，生成下一步跟进建议。',
-    icon: Icons.person_add_alt_1_outlined,
-  );
-  add(
-    when: RegExp(r'客户|家长|续费|回访|服务|反馈|客服').hasMatch(text),
-    name: '客户服务闭环',
-    detail: '整理客户摘要、跟进记录、续费窗口和未闭环事项。',
-    icon: Icons.support_agent_outlined,
-  );
-  add(
-    when: RegExp(r'排课|调课|请假|补课|老师|教室|课表').hasMatch(text),
-    name: '排课调课提醒',
-    detail: '识别试听安排、请假补课和时间偏好，生成待确认安排。',
-    icon: Icons.event_available_outlined,
-  );
-  add(
-    when: RegExp(r'风险|投诉|退费|退款|价格|顾虑|异议|不满').hasMatch(text),
-    name: '风险与异议处理',
-    detail: '提取价格顾虑、售后风险和投诉信号，给出边界清晰的话术建议。',
-    icon: Icons.warning_amber_outlined,
-  );
-  add(
-    when: RegExp(r'日报|复盘|总结|回顾').hasMatch(text),
-    name: '服务日报复盘',
-    detail: '按服务提醒、客户阶段和动作闭环生成复盘要点。',
-    icon: Icons.article_outlined,
-  );
-
-  return candidates;
 }
 
 class _CustomerSpaceListCard extends StatelessWidget {
@@ -6494,45 +5831,6 @@ String _workDocStatusLabel(String status) {
       return '权限受限';
     default:
       return '文档';
-  }
-}
-
-String _serviceAgentDomainLabel(String domain) {
-  switch (domain.trim().toLowerCase()) {
-    case 'memory_router':
-      return '记忆路由';
-    case 'lead_intake':
-      return '线索录入';
-    case 'sales_consulting':
-      return '招生咨询';
-    case 'customer_service':
-      return '客户服务';
-    case 'scheduling':
-      return '排课调课';
-    case 'daily_review':
-      return '日报复盘';
-    default:
-      final normalized = domain.trim();
-      return normalized.isEmpty ? '服务能力' : normalized;
-  }
-}
-
-IconData _serviceAgentDomainIcon(String domain) {
-  switch (domain.trim().toLowerCase()) {
-    case 'memory_router':
-      return Icons.route_outlined;
-    case 'lead_intake':
-      return Icons.person_add_alt_1_outlined;
-    case 'sales_consulting':
-      return Icons.record_voice_over_outlined;
-    case 'customer_service':
-      return Icons.support_agent_outlined;
-    case 'scheduling':
-      return Icons.event_available_outlined;
-    case 'daily_review':
-      return Icons.article_outlined;
-    default:
-      return Icons.auto_awesome_outlined;
   }
 }
 
@@ -9468,6 +8766,12 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   bool _sproutCreating = false;
   String? _sproutError;
   int _sproutRequestSeq = 0;
+  List<_ServiceReminder> _serviceReminders = const [];
+  bool _serviceLoading = false;
+  bool _serviceLoaded = false;
+  bool _serviceExtracting = false;
+  String? _serviceError;
+  int _serviceRequestSeq = 0;
 
   @override
   void initState() {
@@ -9476,6 +8780,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     _selectedTabIndex = _defaultTabIndexFor(_note);
     _apiClient = _buildApiClient();
     _restartTranscriptionPollingIfNeeded(immediate: true);
+    unawaited(_loadLinkedServiceReminders());
     unawaited(_loadLinkedSproutReport());
   }
 
@@ -9485,13 +8790,18 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     if (oldWidget.authToken != widget.authToken ||
         oldWidget.tenantId != widget.tenantId) {
       _apiClient = _buildApiClient();
+      _resetServiceState();
+      unawaited(_loadLinkedServiceReminders());
+      unawaited(_loadLinkedSproutReport());
     }
     if (oldWidget.note.id != widget.note.id) {
       _note = widget.note;
       _selectedTabIndex = _defaultTabIndexFor(_note);
       _sproutReport = null;
       _sproutError = null;
+      _resetServiceState();
       _restartTranscriptionPollingIfNeeded(immediate: true);
+      unawaited(_loadLinkedServiceReminders());
       unawaited(_loadLinkedSproutReport());
     }
   }
@@ -9513,20 +8823,22 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
 
   List<String> get _detailTabs {
     return _note.hasAudioLink
-        ? const ['录音原文', '笔记内容', '发芽']
-        : const ['笔记内容', '发芽'];
+        ? const ['录音原文', '笔记内容', '服务', '发芽']
+        : const ['笔记内容', '服务', '发芽'];
   }
 
   int get _contentTabIndex => _note.hasAudioLink ? 1 : 0;
 
-  int get _sproutTabIndex => _note.hasAudioLink ? 2 : 1;
+  int get _serviceTabIndex => _note.hasAudioLink ? 2 : 1;
+
+  int get _sproutTabIndex => _note.hasAudioLink ? 3 : 2;
 
   int _defaultTabIndexFor(_NoteItem note) {
     return note.hasAudioLink ? 1 : 0;
   }
 
   int _normalizeSelectedTabIndex(int index, _NoteItem note) {
-    final length = note.hasAudioLink ? 3 : 2;
+    final length = note.hasAudioLink ? 4 : 3;
     if (index < 0 || index >= length) {
       return _defaultTabIndexFor(note);
     }
@@ -9635,8 +8947,218 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     _transcriptionPollStartedAt = DateTime.now();
     await Future.wait<void>([
       _refreshRemoteNote(ignoreTimeout: true),
+      _loadLinkedServiceReminders(silent: true),
       _loadLinkedSproutReport(silent: true),
     ]);
+  }
+
+  void _resetServiceState() {
+    _serviceReminders = const [];
+    _serviceLoading = false;
+    _serviceLoaded = false;
+    _serviceExtracting = false;
+    _serviceError = null;
+  }
+
+  List<_ServiceReminder> _mergeServiceReminder(
+    List<_ServiceReminder> reminders,
+    _ServiceReminder reminder,
+  ) {
+    if (reminder.id.trim().isEmpty) return reminders;
+    return [
+      reminder,
+      for (final item in reminders)
+        if (item.id != reminder.id) item,
+    ];
+  }
+
+  String get _serviceButtonTooltip {
+    if (_serviceExtracting) return '服务提取中';
+    if (_serviceLoading && !_serviceLoaded) return '加载服务中';
+    if (_serviceReminders.isNotEmpty) return '查看服务';
+    return '提取服务';
+  }
+
+  Color get _serviceButtonIconColor {
+    if (_serviceReminders.isNotEmpty) return AppColors.accent;
+    return AppColors.textPrimary;
+  }
+
+  String get _serviceEmptyMessage {
+    if (_note.id.trim().isEmpty) return '请先保存记忆后再提取服务';
+    if (!_apiClient.isConfigured) return '登录后可查看服务卡片';
+    return '这条记忆还没有提取出可关联的服务提醒。';
+  }
+
+  String _serviceExtractionReasonMessage(String reason) {
+    switch (reason.trim()) {
+      case 'profile_not_configured':
+        return '服务提醒还未配置，请联系工程师开启';
+      case 'agent_not_enabled':
+        return '这类服务能力还未开启，请联系工程师配置';
+      case 'memory_not_relevant':
+        return '这条记忆缺少客户身份或服务信号';
+      default:
+        return '未生成服务提醒';
+    }
+  }
+
+  Future<void> _loadLinkedServiceReminders({bool silent = false}) async {
+    final requestSeq = ++_serviceRequestSeq;
+    final memoryID = _note.id.trim();
+    if (memoryID.isEmpty) {
+      if (!silent && mounted) {
+        setState(() {
+          _serviceReminders = const [];
+          _serviceLoaded = true;
+          _serviceError = null;
+          _serviceLoading = false;
+        });
+      }
+      return;
+    }
+    if (!silent && mounted) {
+      setState(() {
+        _serviceLoading = true;
+        _serviceError = null;
+      });
+    }
+
+    if (!_apiClient.isConfigured) {
+      if (!mounted || requestSeq != _serviceRequestSeq) return;
+      setState(() {
+        _serviceReminders = const [];
+        _serviceLoaded = true;
+        _serviceError = null;
+        _serviceLoading = false;
+      });
+      return;
+    }
+
+    try {
+      final reminders = await _apiClient.fetchServiceReminders(
+        memoryId: memoryID,
+      );
+      if (!mounted || requestSeq != _serviceRequestSeq) return;
+      setState(() {
+        _serviceReminders = reminders;
+        _serviceLoaded = true;
+        _serviceError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!silent && mounted && requestSeq == _serviceRequestSeq) {
+        if (_serviceReminders.isEmpty) {
+          setState(() {
+            _serviceLoaded = true;
+            _serviceError = error.message;
+          });
+        } else {
+          _showMessage('服务加载失败：${error.message}');
+        }
+      }
+    } catch (error) {
+      if (!silent && mounted && requestSeq == _serviceRequestSeq) {
+        if (_serviceReminders.isEmpty) {
+          setState(() {
+            _serviceLoaded = true;
+            _serviceError = error.toString();
+          });
+        } else {
+          _showMessage('服务加载失败：$error');
+        }
+      }
+    } finally {
+      if (!silent && mounted && requestSeq == _serviceRequestSeq) {
+        setState(() {
+          _serviceLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _handleServiceAction() async {
+    if (_serviceLoading || _serviceExtracting) return;
+    if (_serviceReminders.isNotEmpty) {
+      setState(() {
+        _selectedTabIndex = _serviceTabIndex;
+      });
+      return;
+    }
+    await _extractServiceFromMemory();
+  }
+
+  Future<void> _extractServiceFromMemory() async {
+    final memoryID = _note.id.trim();
+    if (memoryID.isEmpty) {
+      _showMessage('请先保存记忆');
+      return;
+    }
+    if (!_apiClient.isConfigured) {
+      _showMessage('登录后可提取服务');
+      return;
+    }
+
+    setState(() {
+      _serviceExtracting = true;
+      _serviceError = null;
+    });
+    try {
+      final result = await _apiClient.extractServiceMemory(memoryID);
+      if (!mounted) return;
+      if (!result.generated) {
+        _showMessage(_serviceExtractionReasonMessage(result.reason));
+        return;
+      }
+      if (result.reminder != null) {
+        setState(() {
+          _serviceReminders = _mergeServiceReminder(
+            _serviceReminders,
+            result.reminder!,
+          );
+          _serviceLoaded = true;
+        });
+      }
+      unawaited(_loadLinkedServiceReminders(silent: true));
+      setState(() {
+        _selectedTabIndex = _serviceTabIndex;
+      });
+      _showMessage('服务已提取');
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      _showMessage('服务提取失败：${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('服务提取失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _serviceExtracting = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _openServiceReminder(_ServiceReminder reminder) async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (context) => _ServiceReminderDetailPage(
+          reminder: reminder,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+    if (!mounted || changed != true) return;
+    unawaited(_loadLinkedServiceReminders(silent: true));
   }
 
   String get _sproutButtonTooltip {
@@ -9950,6 +9472,19 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   ),
                   const Spacer(),
                   _KnowledgeRoundButton(
+                    tooltip: _serviceButtonTooltip,
+                    icon: Icons.support_agent_outlined,
+                    backgroundColor: _buttonColor,
+                    size: 40,
+                    iconSize: 22,
+                    iconColor: _serviceButtonIconColor,
+                    loading: _serviceExtracting ||
+                        (_serviceLoading && !_serviceLoaded),
+                    enabled: !_serviceLoading && !_serviceExtracting,
+                    onTap: () => unawaited(_handleServiceAction()),
+                  ),
+                  const SizedBox(width: 14),
+                  _KnowledgeRoundButton(
                     tooltip: _sproutButtonTooltip,
                     iconWidget: const _OrganizeSproutIcon(),
                     backgroundColor: _buttonColor,
@@ -10055,16 +9590,31 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                             key: const ValueKey('memory-content'),
                             style: _bodyStyle,
                           )
-                        : _MemorySproutPanel(
-                            key: const ValueKey('memory-sprout'),
-                            report: _sproutReport,
-                            loading: _sproutLoading,
-                            creating: _sproutCreating,
-                            error: _sproutError,
-                            onRetry: () => unawaited(_loadLinkedSproutReport()),
-                            onCreate: () => unawaited(_createSproutReport()),
-                            onOpen: () => unawaited(_openSproutPreview()),
-                          ),
+                        : selectedTabIndex == _serviceTabIndex
+                            ? _MemoryServicePanel(
+                                key: const ValueKey('memory-service'),
+                                reminders: _serviceReminders,
+                                loading: _serviceLoading,
+                                loaded: _serviceLoaded,
+                                error: _serviceError,
+                                emptyMessage: _serviceEmptyMessage,
+                                onRetry: () =>
+                                    unawaited(_loadLinkedServiceReminders()),
+                                onTapReminder: (reminder) =>
+                                    unawaited(_openServiceReminder(reminder)),
+                              )
+                            : _MemorySproutPanel(
+                                key: const ValueKey('memory-sprout'),
+                                report: _sproutReport,
+                                loading: _sproutLoading,
+                                creating: _sproutCreating,
+                                error: _sproutError,
+                                onRetry: () =>
+                                    unawaited(_loadLinkedSproutReport()),
+                                onCreate: () =>
+                                    unawaited(_createSproutReport()),
+                                onOpen: () => unawaited(_openSproutPreview()),
+                              ),
               ),
             ],
           ),
@@ -10240,6 +9790,89 @@ class _MemoryDetailTabs extends StatelessWidget {
           ),
           if (index != labels.length - 1) const SizedBox(width: 30),
         ],
+      ],
+    );
+  }
+}
+
+class _MemoryServicePanel extends StatelessWidget {
+  const _MemoryServicePanel({
+    super.key,
+    required this.reminders,
+    required this.loading,
+    required this.loaded,
+    required this.error,
+    required this.emptyMessage,
+    required this.onRetry,
+    required this.onTapReminder,
+  });
+
+  final List<_ServiceReminder> reminders;
+  final bool loading;
+  final bool loaded;
+  final String? error;
+  final String emptyMessage;
+  final VoidCallback onRetry;
+  final ValueChanged<_ServiceReminder> onTapReminder;
+
+  @override
+  Widget build(BuildContext context) {
+    final errorText = error?.trim() ?? '';
+    final hasReminders = reminders.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text('关联服务', style: AppTextStyles.sectionTitle),
+            ),
+            if (loaded)
+              Text(
+                '${reminders.length} 条',
+                style: AppTextStyles.meta,
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (loading && !loaded)
+          const _KnowledgeListLoading()
+        else if (errorText.isNotEmpty && !hasReminders)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _CustomerSpaceEmptyCard(
+                icon: Icons.error_outline,
+                title: '服务加载失败',
+                message: errorText,
+              ),
+              const SizedBox(height: 10),
+              TextButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('重试'),
+              ),
+            ],
+          )
+        else if (!hasReminders)
+          _CustomerSpaceEmptyCard(
+            icon: Icons.support_agent_outlined,
+            title: '暂无服务卡片',
+            message: emptyMessage,
+          )
+        else
+          Column(
+            children: [
+              for (var index = 0; index < reminders.length; index++) ...[
+                _ServiceReminderListTile(
+                  reminder: reminders[index],
+                  onTap: () => onTapReminder(reminders[index]),
+                ),
+                if (index != reminders.length - 1) const SizedBox(height: 12),
+              ],
+            ],
+          ),
       ],
     );
   }
@@ -13567,13 +13200,11 @@ class AssistantPage extends StatefulWidget {
 
 class _AssistantPageState extends State<AssistantPage> {
   late _RuileApiClient _apiClient;
-  final _searchController = TextEditingController();
   List<_ServiceReminder> _reminders = const [];
   var _loading = true;
   var _loaded = false;
   var _refreshing = false;
   String? _loadError;
-  String _filter = 'all';
 
   @override
   void initState() {
@@ -13590,12 +13221,6 @@ class _AssistantPageState extends State<AssistantPage> {
       _apiClient = _buildApiClient();
       unawaited(_loadServiceReminders());
     }
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
   }
 
   _RuileApiClient _buildApiClient() {
@@ -13667,26 +13292,7 @@ class _AssistantPageState extends State<AssistantPage> {
   }
 
   List<_ServiceReminder> get _visibleReminders {
-    final keyword = _normalizeSpaces(_searchController.text).toLowerCase();
-    final items = _reminders.where((reminder) {
-      final statusMatches = switch (_filter) {
-        'pending' => reminder.isOpen,
-        'completed' => reminder.isCompleted,
-        _ => true,
-      };
-      if (!statusMatches) return false;
-      if (keyword.isEmpty) return true;
-      final searchable = [
-        reminder.customerName,
-        reminder.studentName,
-        reminder.title,
-        reminder.summary,
-        reminder.stage,
-        reminder.riskLabel,
-        reminder.nextAction,
-      ].join(' ').toLowerCase();
-      return searchable.contains(keyword);
-    }).toList();
+    final items = List<_ServiceReminder>.of(_reminders);
 
     items.sort((a, b) {
       final statusCompare =
@@ -13731,9 +13337,6 @@ class _AssistantPageState extends State<AssistantPage> {
   }
 
   String get _emptyMessage {
-    if (_searchController.text.trim().isNotEmpty) return '没有匹配的服务提醒';
-    if (_filter == 'completed') return '还没有已完成的服务提醒';
-    if (_filter == 'pending') return '当前没有待处理事项';
     if (!_apiClient.isConfigured) return '登录后可查看服务提醒';
     return '还没有收集到可生成提醒的客户服务记忆。';
   }
@@ -13805,55 +13408,6 @@ class _AssistantPageState extends State<AssistantPage> {
                 totalCount: _reminders.length,
               ),
               const SizedBox(height: 18),
-              TextField(
-                controller: _searchController,
-                onChanged: (_) => setState(() {}),
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: '搜索服务提醒',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  suffixIcon: _searchController.text.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: '清除搜索',
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {});
-                          },
-                          icon: const Icon(Icons.close, size: 18),
-                        ),
-                  filled: true,
-                  fillColor: AppColors.surface,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.accent),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              _ServiceFilterTabs(
-                selected: _filter,
-                counts: {
-                  'all': _reminders.length,
-                  'pending': openCount,
-                  'completed': completedCount,
-                },
-                onSelected: (filter) {
-                  setState(() {
-                    _filter = filter;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
               if (_loading && _reminders.isEmpty)
                 const _KnowledgeListLoading()
               else if (_loadError != null)
@@ -13985,92 +13539,6 @@ class _ServiceOverviewDivider extends StatelessWidget {
       width: 1,
       height: 46,
       color: AppColors.border,
-    );
-  }
-}
-
-class _ServiceFilterTabs extends StatelessWidget {
-  const _ServiceFilterTabs({
-    required this.selected,
-    required this.counts,
-    required this.onSelected,
-  });
-
-  final String selected;
-  final Map<String, int> counts;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    const tabs = [
-      ('all', '全部'),
-      ('pending', '待处理'),
-      ('completed', '已完成'),
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEDEFF3),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          for (final tab in tabs)
-            Expanded(
-              child: GestureDetector(
-                onTap: () => onSelected(tab.$1),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  padding: const EdgeInsets.symmetric(vertical: 9),
-                  decoration: BoxDecoration(
-                    color: selected == tab.$1
-                        ? AppColors.surface
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(7),
-                    boxShadow: selected == tab.$1
-                        ? const [
-                            BoxShadow(
-                              color: Color(0x12000000),
-                              blurRadius: 5,
-                              offset: Offset(0, 2),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        tab.$2,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: selected == tab.$1
-                              ? AppColors.textPrimary
-                              : AppColors.textSecondary,
-                          fontWeight: selected == tab.$1
-                              ? FontWeight.w700
-                              : FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${counts[tab.$1] ?? 0}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: selected == tab.$1
-                              ? AppColors.accent
-                              : AppColors.textTertiary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
     );
   }
 }
@@ -15457,159 +14925,12 @@ class _ServiceWorkProfile {
   }
 }
 
-class _WorkProfileAgentSetting {
-  const _WorkProfileAgentSetting({
-    required this.id,
-    required this.agentId,
-    required this.agentDomain,
-    required this.enabled,
-    required this.displayName,
-    required this.displayOrder,
-    required this.memoryFilter,
-    required this.knowledgeBaseIds,
-    required this.workDocDirectory,
-    required this.selectedSkills,
-    required this.outputPolicy,
-  });
-
-  factory _WorkProfileAgentSetting.fromApi(Map<String, dynamic> json) {
-    return _WorkProfileAgentSetting(
-      id: _readString(json, const ['id']),
-      agentId: _readString(json, const ['agent_id']),
-      agentDomain: _readString(json, const ['agent_domain']),
-      enabled: _readTruthy(json['enabled']),
-      displayName: _readString(
-        json,
-        const ['display_name'],
-        fallback: _serviceAgentDomainLabel(
-          _readString(json, const ['agent_domain']),
-        ),
-      ),
-      displayOrder: _readInt(json, const ['display_order']) ?? 0,
-      memoryFilter: _readMap(json, const ['memory_filter']),
-      knowledgeBaseIds: _readStringList(json, const ['knowledge_base_ids']),
-      workDocDirectory: _readString(json, const ['work_doc_directory']),
-      selectedSkills: _readStringList(json, const ['selected_skills']),
-      outputPolicy: _readMap(json, const ['output_policy']),
-    );
-  }
-
-  final String id;
-  final String agentId;
-  final String agentDomain;
-  final bool enabled;
-  final String displayName;
-  final int displayOrder;
-  final Map<String, dynamic> memoryFilter;
-  final List<String> knowledgeBaseIds;
-  final String workDocDirectory;
-  final List<String> selectedSkills;
-  final Map<String, dynamic> outputPolicy;
-
-  _WorkProfileAgentSetting copyWith({
-    List<String>? selectedSkills,
-    Map<String, dynamic>? outputPolicy,
-  }) {
-    return _WorkProfileAgentSetting(
-      id: id,
-      agentId: agentId,
-      agentDomain: agentDomain,
-      enabled: enabled,
-      displayName: displayName,
-      displayOrder: displayOrder,
-      memoryFilter: memoryFilter,
-      knowledgeBaseIds: knowledgeBaseIds,
-      workDocDirectory: workDocDirectory,
-      selectedSkills: selectedSkills ?? this.selectedSkills,
-      outputPolicy: outputPolicy ?? this.outputPolicy,
-    );
-  }
-
-  List<String> get userAddedSkills {
-    final direct = _readStringList(outputPolicy, const ['user_added_skills']);
-    if (direct.isNotEmpty) return direct;
-    return _readStringList(outputPolicy, const ['mobile_user_added_skills']);
-  }
-
-  Map<String, Object?> toApi() {
-    return {
-      if (id.trim().isNotEmpty) 'id': id,
-      if (agentId.trim().isNotEmpty) 'agent_id': agentId,
-      'agent_domain': agentDomain,
-      'enabled': enabled,
-      'display_name': displayName,
-      'display_order': displayOrder,
-      'memory_filter': memoryFilter,
-      'knowledge_base_ids': knowledgeBaseIds,
-      'work_doc_directory': workDocDirectory,
-      'selected_skills': selectedSkills,
-      'output_policy': outputPolicy,
-    };
-  }
-}
-
-class _ServiceAgentTemplate {
-  const _ServiceAgentTemplate({
-    required this.agentDomain,
-    required this.displayName,
-    required this.description,
-    required this.defaultEnabled,
-    required this.userVisible,
-    required this.workDocDirectory,
-    required this.selectedSkills,
-  });
-
-  factory _ServiceAgentTemplate.fromApi(Map<String, dynamic> json) {
-    final domain = _readString(json, const ['agent_domain']);
-    return _ServiceAgentTemplate(
-      agentDomain: domain,
-      displayName: _readString(
-        json,
-        const ['display_name'],
-        fallback: _serviceAgentDomainLabel(domain),
-      ),
-      description: _readString(json, const ['description']),
-      defaultEnabled: _readTruthy(json['default_enabled']),
-      userVisible: _readTruthy(json['user_visible']),
-      workDocDirectory: _readString(json, const ['work_doc_directory']),
-      selectedSkills: _readStringList(json, const ['selected_skills']),
-    );
-  }
-
-  final String agentDomain;
-  final String displayName;
-  final String description;
-  final bool defaultEnabled;
-  final bool userVisible;
-  final String workDocDirectory;
-  final List<String> selectedSkills;
-}
-
-class _ServiceSkillInfo {
-  const _ServiceSkillInfo({
-    required this.name,
-    required this.description,
-  });
-
-  factory _ServiceSkillInfo.fromApi(Map<String, dynamic> json) {
-    return _ServiceSkillInfo(
-      name: _readString(json, const ['name']),
-      description: _readString(json, const ['description']),
-    );
-  }
-
-  final String name;
-  final String description;
-}
-
 class _ServiceBootstrapResult {
   const _ServiceBootstrapResult({
     required this.reminders,
     required this.total,
     required this.stats,
     this.profile,
-    this.agentSettings = const [],
-    this.templates = const [],
   });
 
   factory _ServiceBootstrapResult.fromApi(Map<String, dynamic> json) {
@@ -15639,8 +14960,6 @@ class _ServiceBootstrapResult {
       stats: stats,
       profile:
           profileMap.isEmpty ? null : _ServiceWorkProfile.fromApi(profileMap),
-      agentSettings: _readAgentSettings(json['agent_settings']),
-      templates: _readAgentTemplates(json['templates']),
     );
   }
 
@@ -15648,34 +14967,31 @@ class _ServiceBootstrapResult {
   final int total;
   final Map<String, int> stats;
   final _ServiceWorkProfile? profile;
-  final List<_WorkProfileAgentSetting> agentSettings;
-  final List<_ServiceAgentTemplate> templates;
+}
 
-  static List<_WorkProfileAgentSetting> _readAgentSettings(Object? rawValue) {
-    if (rawValue is! List) return const [];
-    return [
-      for (final item in rawValue)
-        if (item is Map<String, dynamic>)
-          _WorkProfileAgentSetting.fromApi(item)
-        else if (item is Map)
-          _WorkProfileAgentSetting.fromApi(
-            item.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-    ];
+class _ServiceMemoryExtractionResult {
+  const _ServiceMemoryExtractionResult({
+    required this.memoryId,
+    required this.generated,
+    required this.reason,
+    this.reminder,
+  });
+
+  factory _ServiceMemoryExtractionResult.fromApi(Map<String, dynamic> json) {
+    final reminderMap = _readMap(json, const ['reminder']);
+    return _ServiceMemoryExtractionResult(
+      memoryId: _readString(json, const ['memory_id']),
+      generated: _readTruthy(json['generated']),
+      reason: _readString(json, const ['reason']),
+      reminder:
+          reminderMap.isEmpty ? null : _ServiceReminder.fromApi(reminderMap),
+    );
   }
 
-  static List<_ServiceAgentTemplate> _readAgentTemplates(Object? rawValue) {
-    if (rawValue is! List) return const [];
-    return [
-      for (final item in rawValue)
-        if (item is Map<String, dynamic>)
-          _ServiceAgentTemplate.fromApi(item)
-        else if (item is Map)
-          _ServiceAgentTemplate.fromApi(
-            item.map((key, value) => MapEntry(key.toString(), value)),
-          ),
-    ];
-  }
+  final String memoryId;
+  final bool generated;
+  final String reason;
+  final _ServiceReminder? reminder;
 }
 
 class _CustomerSpaceListResult {

@@ -73,6 +73,9 @@ func (s *serviceService) GetBootstrap(ctx context.Context, tenantID uint64, user
 	if err != nil {
 		return nil, err
 	}
+	if err := s.hydrateWorkProfileDescription(ctx, tenantID, userID, profile); err != nil {
+		return nil, err
+	}
 	if profile == nil || len(settings) == 0 {
 		return &types.ServiceBootstrap{
 			Profile:       profile,
@@ -564,7 +567,14 @@ func (s *serviceService) ListWorkProfiles(ctx context.Context, tenantID uint64, 
 	if err := s.materializeWorkProfilesFromMembers(ctx, tenantID, strings.TrimSpace(userID)); err != nil {
 		return nil, err
 	}
-	return s.repo.ListWorkProfiles(ctx, tenantID, strings.TrimSpace(userID))
+	profiles, err := s.repo.ListWorkProfiles(ctx, tenantID, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, err
+	}
+	if err := s.hydrateWorkProfileDescriptions(ctx, tenantID, strings.TrimSpace(userID), profiles); err != nil {
+		return nil, err
+	}
+	return profiles, nil
 }
 
 func (s *serviceService) CreateWorkProfile(ctx context.Context, tenantID uint64, operatorUserID string, input types.ServiceWorkProfileInput) (*types.UserWorkProfile, error) {
@@ -714,6 +724,58 @@ func (s *serviceService) defaultProfileAndSettings(
 		return nil, nil, err
 	}
 	return profile, settings, nil
+}
+
+func (s *serviceService) hydrateWorkProfileDescription(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	profile *types.UserWorkProfile,
+) error {
+	if profile == nil {
+		return nil
+	}
+	return s.hydrateWorkProfileDescriptions(ctx, tenantID, firstNonEmpty(profile.UserID, userID), []*types.UserWorkProfile{profile})
+}
+
+func (s *serviceService) hydrateWorkProfileDescriptions(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	profiles []*types.UserWorkProfile,
+) error {
+	if s.members == nil || len(profiles) == 0 {
+		return nil
+	}
+	userID = strings.TrimSpace(userID)
+	descriptions := map[string]string{}
+	if userID != "" {
+		member, err := s.members.Get(ctx, userID, tenantID)
+		if err != nil {
+			return err
+		}
+		if member != nil {
+			descriptions[member.UserID] = strings.TrimSpace(member.WorkProfileDescription)
+		}
+	} else {
+		members, err := s.members.ListByTenant(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		for _, member := range members {
+			if member == nil {
+				continue
+			}
+			descriptions[member.UserID] = strings.TrimSpace(member.WorkProfileDescription)
+		}
+	}
+	for _, profile := range profiles {
+		if profile == nil {
+			continue
+		}
+		profile.WorkProfileDescription = descriptions[profile.UserID]
+	}
+	return nil
 }
 
 func (s *serviceService) materializeWorkProfilesFromMembers(ctx context.Context, tenantID uint64, userID string) error {
@@ -1223,7 +1285,7 @@ func buildReminderFromMemories(
 	}
 	summary := firstMetadataString(metadata, "summary", "source_summary", "description", "abstract")
 	if summary == "" {
-		summary = contentExcerpt(latest.Content, "暂无记忆内容")
+		summary = serviceMemoryExcerpt(latest)
 	}
 	primaryAction := firstMetadataString(metadata, "primary_action", "primaryAction")
 	if primaryAction == "" {
@@ -1584,7 +1646,14 @@ func serviceMemoryExcerpt(memory *types.OrganizeMemory) string {
 	if memory == nil {
 		return "暂无记忆内容"
 	}
-	return contentExcerpt(firstNonEmpty(asString(memory.Metadata["summary"]), memory.Content), "暂无记忆内容")
+	return contentExcerpt(
+		firstNonEmpty(
+			firstMetadataString(memory.Metadata, serviceSummaryKeys...),
+			firstMetadataString(memory.Metadata, serviceTranscriptKeys...),
+			memory.Content,
+		),
+		"暂无记忆内容",
+	)
 }
 
 func customerSpaceSummaryFromDocs(docs []*types.AgentWorkDoc) string {
@@ -2405,6 +2474,11 @@ var (
 	serviceContextKeywords    = []string{"客户", "家长", "学员", "学生", "孩子", "联系人", "试听", "咨询", "报名", "回访"}
 	serviceKeywords           = []string{"客户", "家长", "学员", "试听", "续费", "报名", "咨询", "价格", "顾虑", "异议", "跟进", "回访", "转介绍", "商机", "招生", "成交", "微信", "企微", "排课", "调课", "请假", "补课"}
 	serviceMetadataKeys       = []string{"stage", "sales_stage", "salesStage", "service_stage", "serviceStage", "risk_label", "riskLabel", "risk", "concern", "next_action", "nextAction", "follow_up_action", "followUpAction", "next_follow_up_at", "nextFollowUpAt", "follow_up_at", "followUpAt", "due_at", "dueAt", "lead_status", "leadStatus", "deal_status", "dealStatus"}
+	serviceSummaryKeys        = []string{"summary", "source_summary", "sourceSummary", "description", "abstract"}
+	serviceTranscriptKeys     = []string{"transcript", "transcription_text", "transcriptionText", "transcription_result", "transcriptionResult", "asr_text", "asrText", "speech_text", "speechText", "raw_transcript", "rawTranscript", "original_text", "originalText"}
+	serviceTextMetadataKeys   = []string{"note_markdown", "noteMarkdown", "customer_name", "customerName", "parent_name", "parentName", "contact_name", "contactName", "lead_name", "leadName", "student_name", "studentName", "learner_name", "learnerName", "child_name", "childName", "channel", "source_channel", "sourceChannel", "decision_role", "decisionRole", "decision_maker", "decisionMaker"}
+	serviceListMetadataKeys   = []string{"tags", "agent_domains", "memory_signals"}
+	serviceSearchMetadataKeys = append(append(append(append([]string{}, serviceMetadataKeys...), serviceSummaryKeys...), serviceTranscriptKeys...), serviceTextMetadataKeys...)
 
 	customerDirectRe = regexp.MustCompile(`(?:客户|家长|联系人)[:：]\s*([^\s，,。；;\n]{2,18})`)
 	leadDirectRe     = regexp.MustCompile(`线索[:：]\s*([^\s，,。；;\n]{2,18})`)
@@ -2435,12 +2509,32 @@ func memorySearchText(memory *types.OrganizeMemory) string {
 	if memory == nil {
 		return ""
 	}
-	return strings.Join([]string{
+	parts := []string{
 		memory.Title,
 		stripServiceMarkup(memory.Content),
 		memory.Source,
-		strings.Join(asStringList(memory.Metadata["tags"]), " "),
-	}, "\n")
+	}
+	parts = append(parts, serviceMetadataTextParts(memory.Metadata)...)
+	return strings.Join(parts, "\n")
+}
+
+func serviceMetadataTextParts(metadata types.JSONMap) []string {
+	if len(metadata) == 0 {
+		return nil
+	}
+	parts := make([]string, 0, len(serviceSearchMetadataKeys)+len(serviceListMetadataKeys))
+	for _, key := range serviceSearchMetadataKeys {
+		if value := asString(metadata[key]); value != "" {
+			parts = append(parts, stripServiceMarkup(value))
+		}
+	}
+	for _, key := range serviceListMetadataKeys {
+		values := asStringList(metadata[key])
+		if len(values) > 0 {
+			parts = append(parts, strings.Join(values, " "))
+		}
+	}
+	return parts
 }
 
 func extractCustomerName(memory *types.OrganizeMemory) string {
@@ -2777,6 +2871,8 @@ func asStringList(value any) []string {
 	switch v := value.(type) {
 	case []string:
 		return cleanStringArray(v, 100, 128)
+	case types.StringArray:
+		return cleanStringArray([]string(v), 100, 128)
 	case []any:
 		out := make([]string, 0, len(v))
 		for _, item := range v {

@@ -62,6 +62,63 @@ func TestServiceExtractMemoryRecognizesHtmlEditorNote(t *testing.T) {
 	require.Contains(t, extracted.Reminder.MemoryEvidence[0].Summary, "小明妈妈礼拜三")
 }
 
+func TestServiceExtractMemoryRecognizesAudioTranscriptMetadata(t *testing.T) {
+	ctx := context.Background()
+	db := newServiceDailyReportTestDB(t)
+	serviceRepo := repository.NewServiceRepository(db)
+	organizeRepo := repository.NewOrganizeRepository(db)
+	svc := NewServiceService(serviceRepo, organizeRepo)
+
+	const tenantID uint64 = 7
+	const userID = "user-a"
+	profile, err := svc.CreateWorkProfile(ctx, tenantID, userID, types.ServiceWorkProfileInput{
+		Name:           "招生顾问服务助理",
+		RoleType:       "consultant",
+		MemoryScope:    "本人记忆 · 试听咨询相关",
+		DefaultProfile: true,
+		Enabled:        true,
+		State:          types.ServiceWorkProfileStateEnabled,
+	})
+	require.NoError(t, err)
+	_, err = svc.ReplaceAgentSettings(ctx, tenantID, userID, profile.ID, types.WorkProfileAgentSettingsInput{
+		Settings: []types.WorkProfileAgentSettingInput{
+			{
+				AgentDomain:      types.ServiceAgentDomainSalesConsulting,
+				Enabled:          true,
+				DisplayName:      "招生咨询",
+				WorkDocDirectory: "线索/",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	memory := &types.OrganizeMemory{
+		TenantID: tenantID,
+		UserID:   userID,
+		Kind:     types.OrganizeMemoryKindAudio,
+		Title:    "试听电话",
+		Content:  "<p>录音已保存，等待转写。</p>",
+		Source:   "语音记录",
+		Metadata: types.JSONMap{
+			"transcription_status": "completed",
+			"transcript":           "小明妈妈电话里咨询体验课安排，也问了报名政策和后续跟进节奏。",
+		},
+	}
+	require.NoError(t, organizeRepo.CreateMemory(ctx, memory))
+
+	extracted, err := svc.ExtractMemory(ctx, tenantID, userID, memory.ID)
+	require.NoError(t, err)
+	if !extracted.Generated {
+		t.Fatalf("expected service reminder to be generated, reason=%s", extracted.Reason)
+	}
+	require.NotNil(t, extracted.Reminder)
+	require.Equal(t, types.ServiceAgentDomainSalesConsulting, extracted.Reminder.AgentDomain)
+	require.Equal(t, "小明妈妈", extracted.Reminder.Metadata["customer_name"])
+	require.Equal(t, "售前试听", extracted.Reminder.Stage)
+	require.Contains(t, extracted.Reminder.Summary, "小明妈妈电话里咨询体验课")
+	require.Contains(t, extracted.Reminder.MemoryEvidence[0].Summary, "小明妈妈电话里咨询体验课")
+}
+
 func TestServiceListWorkProfilesMaterializesMemberDescription(t *testing.T) {
 	ctx := context.Background()
 	db := newServiceDailyReportTestDB(t)
@@ -92,6 +149,43 @@ func TestServiceListWorkProfilesMaterializesMemberDescription(t *testing.T) {
 	profiles, err = svc.ListWorkProfiles(ctx, tenantID, "")
 	require.NoError(t, err)
 	require.Len(t, profiles, 1)
+}
+
+func TestServiceBootstrapHydratesUpdatedMemberDescription(t *testing.T) {
+	ctx := context.Background()
+	db := newServiceDailyReportTestDB(t)
+	serviceRepo := repository.NewServiceRepository(db)
+	organizeRepo := repository.NewOrganizeRepository(db)
+	memberRepo := repository.NewTenantMemberRepository(db)
+	svc := NewServiceServiceWithMembers(serviceRepo, organizeRepo, memberRepo)
+	memberService := NewTenantMemberService(memberRepo, nil, nil)
+
+	const tenantID uint64 = 7
+	const userID = "user-a"
+	require.NoError(t, memberRepo.Create(ctx, &types.TenantMember{
+		TenantID:               tenantID,
+		UserID:                 userID,
+		Role:                   types.TenantRoleContributor,
+		Status:                 types.TenantMemberStatusActive,
+		WorkProfileDescription: "负责试听邀约和家长跟进。",
+	}))
+
+	bootstrap, err := svc.GetBootstrap(ctx, tenantID, userID)
+	require.NoError(t, err)
+	require.NotNil(t, bootstrap.Profile)
+	require.Equal(t, "负责试听邀约和家长跟进。", bootstrap.Profile.WorkProfileDescription)
+
+	require.NoError(t, memberService.UpdateWorkProfileDescription(
+		ctx,
+		userID,
+		tenantID,
+		"负责续费沟通和课后服务，沟通风格专业温和。",
+	))
+
+	bootstrap, err = svc.GetBootstrap(ctx, tenantID, userID)
+	require.NoError(t, err)
+	require.NotNil(t, bootstrap.Profile)
+	require.Equal(t, "负责续费沟通和课后服务，沟通风格专业温和。", bootstrap.Profile.WorkProfileDescription)
 }
 
 func TestServiceExtractMemoryReportsAgentNotEnabledAfterProfileMaterialized(t *testing.T) {
