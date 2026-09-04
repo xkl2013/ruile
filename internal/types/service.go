@@ -141,23 +141,26 @@ func IsValidAgentActionDraftStatus(status string) bool {
 }
 
 type UserWorkProfile struct {
-	ID             string         `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID       uint64         `json:"tenant_id" gorm:"not null;index"`
-	UserID         string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	Name           string         `json:"name" gorm:"type:varchar(255);not null"`
-	RoleType       string         `json:"role_type" gorm:"type:varchar(64);not null;default:''"`
-	CampusScope    StringArray    `json:"campus_scope,omitempty" gorm:"type:jsonb;not null;default:'[]'"`
-	CourseScope    StringArray    `json:"course_scope,omitempty" gorm:"type:jsonb;not null;default:'[]'"`
-	MemoryScope    string         `json:"memory_scope" gorm:"type:text;not null;default:''"`
-	TonePreference string         `json:"tone_preference" gorm:"type:varchar(255);not null;default:''"`
-	DefaultProfile bool           `json:"default_profile" gorm:"not null;default:false;index"`
-	Enabled        bool           `json:"enabled" gorm:"not null;default:false;index"`
-	State          string         `json:"state" gorm:"type:varchar(32);not null;default:'draft';index"`
-	CreatedBy      string         `json:"created_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
-	UpdatedBy      string         `json:"updated_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
-	CreatedAt      time.Time      `json:"created_at"`
-	UpdatedAt      time.Time      `json:"updated_at"`
-	DeletedAt      gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+	ID       string `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID uint64 `json:"tenant_id" gorm:"not null;index"`
+	UserID   string `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	Name     string `json:"name" gorm:"type:varchar(255);not null"`
+	// WorkProfileDescription is sourced from the tenant membership. It is
+	// returned with service bootstrap data but is not stored in this table.
+	WorkProfileDescription string         `json:"work_profile_description,omitempty" gorm:"-"`
+	RoleType               string         `json:"role_type" gorm:"type:varchar(64);not null;default:''"`
+	CampusScope            StringArray    `json:"campus_scope,omitempty" gorm:"type:jsonb;not null;default:'[]'"`
+	CourseScope            StringArray    `json:"course_scope,omitempty" gorm:"type:jsonb;not null;default:'[]'"`
+	MemoryScope            string         `json:"memory_scope" gorm:"type:text;not null;default:''"`
+	TonePreference         string         `json:"tone_preference" gorm:"type:varchar(255);not null;default:''"`
+	DefaultProfile         bool           `json:"default_profile" gorm:"not null;default:false;index"`
+	Enabled                bool           `json:"enabled" gorm:"not null;default:false;index"`
+	State                  string         `json:"state" gorm:"type:varchar(32);not null;default:'draft';index"`
+	CreatedBy              string         `json:"created_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	UpdatedBy              string         `json:"updated_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	CreatedAt              time.Time      `json:"created_at"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+	DeletedAt              gorm.DeletedAt `json:"deleted_at" gorm:"index"`
 }
 
 func (UserWorkProfile) TableName() string { return "user_work_profiles" }

@@ -6,6 +6,7 @@ export interface ServiceWorkProfile {
   tenant_id: number
   user_id: string
   name: string
+  work_profile_description?: string
   role_type?: string
   campus_scope?: string[]
   course_scope?: string[]
