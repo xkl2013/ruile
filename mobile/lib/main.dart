@@ -111,6 +111,19 @@ bool _isAuthFailureStatus(int statusCode) {
       statusCode == HttpStatus.forbidden;
 }
 
+String _serviceExtractionReasonMessage(String reason) {
+  switch (reason.trim()) {
+    case 'profile_not_configured':
+      return '服务提醒还未配置，请联系工程师开启';
+    case 'agent_not_enabled':
+      return '这类服务能力还未开启，请联系工程师配置';
+    case 'memory_not_relevant':
+      return '这条记忆缺少客户身份或服务信号';
+    default:
+      return '未生成服务提醒';
+  }
+}
+
 void _notifyImageAuthFailure(Object error, VoidCallback? onAuthFailure) {
   if (onAuthFailure == null) return;
   if (error is! NetworkImageLoadException) return;
@@ -3477,6 +3490,7 @@ class _NotesPageState extends State<NotesPage> {
   bool _loadingNotes = false;
   bool _notesReloadQueued = false;
   String? _notesError;
+  final Set<String> _serviceExtractingMemoryIds = <String>{};
   Offset? _edgeSwipeStart;
   bool _edgeSwipeFromLeft = false;
   bool _edgeSwipeFromRight = false;
@@ -3692,6 +3706,58 @@ class _NotesPageState extends State<NotesPage> {
     }
   }
 
+  bool _isExtractingService(_NoteItem note) {
+    final memoryID = note.id.trim();
+    return memoryID.isNotEmpty &&
+        _serviceExtractingMemoryIds.contains(memoryID);
+  }
+
+  Future<void> _extractServiceFromNote(_NoteItem note) async {
+    final memoryID = note.id.trim();
+    if (memoryID.isEmpty) {
+      _showMessage('请先保存记忆后再提取服务');
+      return;
+    }
+    if (!_apiClient.isConfigured) {
+      _showMessage('登录后可提取服务');
+      return;
+    }
+    if (_serviceExtractingMemoryIds.contains(memoryID)) return;
+
+    setState(() {
+      _serviceExtractingMemoryIds.add(memoryID);
+    });
+    try {
+      final result = await _apiClient.extractServiceMemory(memoryID);
+      if (!mounted) return;
+      if (!result.generated) {
+        _showMessage(_serviceExtractionReasonMessage(result.reason));
+        return;
+      }
+
+      final reminderTitle = result.reminder?.title.trim() ?? '';
+      _showMessage(
+        reminderTitle.isEmpty ? '服务已提取' : '服务已提取：$reminderTitle',
+      );
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      _showMessage('服务提取失败：${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('服务提取失败：$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _serviceExtractingMemoryIds.remove(memoryID);
+        });
+      }
+    }
+  }
+
   Future<void> _openRecordMemory() async {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
@@ -3759,6 +3825,7 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   void _showNoteActions(_NoteItem note) {
+    final extractingService = _isExtractingService(note);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -3774,6 +3841,23 @@ class _NotesPageState extends State<NotesPage> {
                   Navigator.pop(context);
                   unawaited(_openNote(note));
                 },
+              ),
+              ListTile(
+                enabled: !extractingService,
+                leading: extractingService
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.support_agent_outlined),
+                title: Text(extractingService ? '服务提取中' : '提取服务'),
+                onTap: extractingService
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        unawaited(_extractServiceFromNote(note));
+                      },
               ),
               ListTile(
                 leading: const Icon(Icons.ios_share),
@@ -3853,7 +3937,10 @@ class _NotesPageState extends State<NotesPage> {
                     for (var index = 0; index < notes.length; index++) ...[
                       _NoteCard(
                         note: notes[index],
+                        serviceExtracting: _isExtractingService(notes[index]),
                         onTap: () => unawaited(_openNote(notes[index])),
+                        onExtractServiceTap: () =>
+                            unawaited(_extractServiceFromNote(notes[index])),
                         onMoreTap: () => _showNoteActions(notes[index]),
                       ),
                       if (index != notes.length - 1)
@@ -8582,12 +8669,16 @@ class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
     required this.onTap,
+    required this.onExtractServiceTap,
     required this.onMoreTap,
+    this.serviceExtracting = false,
   });
 
   final _NoteItem note;
   final VoidCallback onTap;
+  final VoidCallback onExtractServiceTap;
   final VoidCallback onMoreTap;
+  final bool serviceExtracting;
 
   @override
   Widget build(BuildContext context) {
@@ -8646,6 +8737,12 @@ class _NoteCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       _TranscriptionStatusChip(note: note),
                     ],
+                    const SizedBox(width: 8),
+                    _NoteServiceActionButton(
+                      extracting: serviceExtracting,
+                      onTap: onExtractServiceTap,
+                    ),
+                    const SizedBox(width: 4),
                     IconButton(
                       tooltip: '更多',
                       onPressed: onMoreTap,
@@ -8661,6 +8758,71 @@ class _NoteCard extends StatelessWidget {
                   ],
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NoteServiceActionButton extends StatelessWidget {
+  const _NoteServiceActionButton({
+    required this.extracting,
+    required this.onTap,
+  });
+
+  final bool extracting;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = extracting ? AppColors.textTertiary : AppColors.accent;
+    return Tooltip(
+      message: extracting ? '服务提取中' : '提取服务',
+      child: Material(
+        color: extracting
+            ? const Color(0xFFF4F6F9)
+            : AppColors.accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: extracting ? null : onTap,
+          child: SizedBox(
+            width: 82,
+            height: 34,
+            child: Center(
+              child: extracting
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(color),
+                      ),
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.support_agent_outlined,
+                          size: 15,
+                          color: color,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '提取服务',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1,
+                            color: color,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
           ),
         ),
@@ -8988,19 +9150,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     if (_note.id.trim().isEmpty) return '请先保存记忆后再提取服务';
     if (!_apiClient.isConfigured) return '登录后可查看服务卡片';
     return '这条记忆还没有提取出可关联的服务提醒。';
-  }
-
-  String _serviceExtractionReasonMessage(String reason) {
-    switch (reason.trim()) {
-      case 'profile_not_configured':
-        return '服务提醒还未配置，请联系工程师开启';
-      case 'agent_not_enabled':
-        return '这类服务能力还未开启，请联系工程师配置';
-      case 'memory_not_relevant':
-        return '这条记忆缺少客户身份或服务信号';
-      default:
-        return '未生成服务提醒';
-    }
   }
 
   Future<void> _loadLinkedServiceReminders({bool silent = false}) async {

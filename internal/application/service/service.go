@@ -35,6 +35,12 @@ const (
 	serviceMaxShortText    = 255
 )
 
+var serviceDefaultExtractionAgentDomains = []string{
+	types.ServiceAgentDomainSalesConsulting,
+	types.ServiceAgentDomainCustomerService,
+	types.ServiceAgentDomainScheduling,
+}
+
 type serviceService struct {
 	repo    interfaces.ServiceRepository
 	members interfaces.TenantMemberRepository
@@ -723,7 +729,50 @@ func (s *serviceService) defaultProfileAndSettings(
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(settings) == 0 {
+		seeded, err := s.ensureDefaultExtractionAgentSettings(ctx, tenantID, userID, profile)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(seeded) > 0 {
+			settings = seeded
+		}
+	}
 	return profile, settings, nil
+}
+
+func (s *serviceService) ensureDefaultExtractionAgentSettings(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	profile *types.UserWorkProfile,
+) ([]*types.WorkProfileAgentSetting, error) {
+	if profile == nil || tenantID == 0 || strings.TrimSpace(profile.ID) == "" {
+		return nil, nil
+	}
+	existing, err := s.repo.ListAgentSettings(ctx, tenantID, profile.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	if len(existing) > 0 {
+		return nil, nil
+	}
+	operatorUserID := firstNonEmpty(profile.UpdatedBy, profile.CreatedBy, profile.UserID, userID)
+	settings := make([]*types.WorkProfileAgentSetting, 0, len(serviceDefaultExtractionAgentDomains))
+	for index, domain := range serviceDefaultExtractionAgentDomains {
+		setting, err := buildAgentSetting(tenantID, operatorUserID, profile.ID, types.WorkProfileAgentSettingInput{
+			AgentDomain: domain,
+			Enabled:     true,
+		}, index)
+		if err != nil {
+			return nil, err
+		}
+		settings = append(settings, setting)
+	}
+	if err := s.repo.ReplaceAgentSettings(ctx, tenantID, profile.ID, settings); err != nil {
+		return nil, err
+	}
+	return s.repo.ListAgentSettings(ctx, tenantID, profile.ID, true)
 }
 
 func (s *serviceService) hydrateWorkProfileDescription(

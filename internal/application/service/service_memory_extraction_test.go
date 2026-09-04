@@ -188,7 +188,7 @@ func TestServiceBootstrapHydratesUpdatedMemberDescription(t *testing.T) {
 	require.Equal(t, "负责续费沟通和课后服务，沟通风格专业温和。", bootstrap.Profile.WorkProfileDescription)
 }
 
-func TestServiceExtractMemoryReportsAgentNotEnabledAfterProfileMaterialized(t *testing.T) {
+func TestServiceExtractMemoryAutoEnablesDefaultAgentsAfterProfileMaterialized(t *testing.T) {
 	ctx := context.Background()
 	db := newServiceDailyReportTestDB(t)
 	serviceRepo := repository.NewServiceRepository(db)
@@ -205,6 +205,65 @@ func TestServiceExtractMemoryReportsAgentNotEnabledAfterProfileMaterialized(t *t
 		Status:                 types.TenantMemberStatusActive,
 		WorkProfileDescription: "负责试听邀约和家长跟进。",
 	}))
+	memory := &types.OrganizeMemory{
+		TenantID: tenantID,
+		UserID:   userID,
+		Kind:     types.OrganizeMemoryKindNote,
+		Title:    "试听课",
+		Content:  `<p>小明妈妈礼拜三给孩子安排了试听课</p>`,
+		Source:   "手动输入",
+	}
+	require.NoError(t, organizeRepo.CreateMemory(ctx, memory))
+
+	extracted, err := svc.ExtractMemory(ctx, tenantID, userID, memory.ID)
+	require.NoError(t, err)
+	require.True(t, extracted.Generated)
+	require.NotNil(t, extracted.Reminder)
+	require.Equal(t, types.ServiceAgentDomainSalesConsulting, extracted.Reminder.AgentDomain)
+
+	settings, err := svc.ListAgentSettings(ctx, tenantID, extracted.Reminder.ProfileID, true)
+	require.NoError(t, err)
+	domains := make([]string, 0, len(settings))
+	for _, setting := range settings {
+		domains = append(domains, setting.AgentDomain)
+	}
+	require.ElementsMatch(t, []string{
+		types.ServiceAgentDomainSalesConsulting,
+		types.ServiceAgentDomainCustomerService,
+		types.ServiceAgentDomainScheduling,
+	}, domains)
+}
+
+func TestServiceExtractMemoryRespectsExplicitDisabledAgentSettings(t *testing.T) {
+	ctx := context.Background()
+	db := newServiceDailyReportTestDB(t)
+	serviceRepo := repository.NewServiceRepository(db)
+	organizeRepo := repository.NewOrganizeRepository(db)
+	memberRepo := repository.NewTenantMemberRepository(db)
+	svc := NewServiceServiceWithMembers(serviceRepo, organizeRepo, memberRepo)
+
+	const tenantID uint64 = 7
+	const userID = "user-a"
+	require.NoError(t, memberRepo.Create(ctx, &types.TenantMember{
+		TenantID:               tenantID,
+		UserID:                 userID,
+		Role:                   types.TenantRoleContributor,
+		Status:                 types.TenantMemberStatusActive,
+		WorkProfileDescription: "负责试听邀约和家长跟进。",
+	}))
+	profiles, err := svc.ListWorkProfiles(ctx, tenantID, userID)
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	_, err = svc.ReplaceAgentSettings(ctx, tenantID, userID, profiles[0].ID, types.WorkProfileAgentSettingsInput{
+		Settings: []types.WorkProfileAgentSettingInput{
+			{
+				AgentDomain: types.ServiceAgentDomainSalesConsulting,
+				Enabled:     false,
+			},
+		},
+	})
+	require.NoError(t, err)
+
 	memory := &types.OrganizeMemory{
 		TenantID: tenantID,
 		UserID:   userID,
