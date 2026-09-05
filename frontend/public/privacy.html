@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="睿乐大脑隐私政策，说明我们如何收集、使用、存储、共享和保护用户个人信息。"
+    />
+    <title>隐私政策｜睿乐大脑</title>
+    <link rel="icon" href="/favicon.ico" />
+    <style>
+      :root {
+        --ink: #11233c;
+        --ink-soft: #526174;
+        --muted: #7f8995;
+        --paper: #f7f6f1;
+        --white: #ffffff;
+        --green: #14b86a;
+        --green-dark: #07804b;
+        --green-pale: #dff3e8;
+        --gold: #d8a621;
+        --line: #d9dcd7;
+        --shadow: 0 22px 58px rgba(17, 35, 60, 0.1);
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(247, 246, 241, 0.92) 280px),
+          var(--paper);
+        color: var(--ink);
+        font-family: var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .container {
+        width: min(1100px, calc(100% - 72px));
+        margin: 0 auto;
+      }
+
+      .site-header {
+        border-bottom: 1px solid rgba(17, 35, 60, 0.08);
+        background: var(--paper);
+      }
+
+      .nav-wrap {
+        display: flex;
+        min-height: 82px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--green-pale);
+        color: var(--green-dark);
+        font-family: var(--mono);
+      }
+
+      .brand-extension {
+        padding: 5px 8px;
+        color: var(--green-dark);
+        border: 1px solid rgba(7, 128, 75, 0.24);
+        border-radius: 3px;
+        font-size: 11px;
+      }
+
+      .nav-link {
+        color: var(--ink-soft);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .policy-hero {
+        padding: 88px 0 58px;
+        border-bottom: 1px solid rgba(17, 35, 60, 0.08);
+      }
+
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 22px;
+        color: var(--green-dark);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+      }
+
+      .eyebrow-line {
+        width: 22px;
+        height: 2px;
+        background: var(--gold);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 58px;
+        font-weight: 620;
+        letter-spacing: 0;
+        line-height: 1.12;
+      }
+
+      .policy-hero p:not(.eyebrow) {
+        max-width: 820px;
+        margin: 22px 0 0;
+        color: var(--ink-soft);
+        font-size: 17px;
+        line-height: 1.9;
+      }
+
+      .policy-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 28px;
+      }
+
+      .policy-meta span {
+        padding: 9px 12px;
+        border: 1px solid rgba(7, 128, 75, 0.18);
+        border-radius: 3px;
+        background: rgba(223, 243, 232, 0.62);
+        color: var(--green-dark);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .policy-content {
+        padding: 76px 0 120px;
+      }
+
+      .policy-layout {
+        display: grid;
+        grid-template-columns: 230px minmax(0, 1fr);
+        align-items: start;
+        gap: 52px;
+      }
+
+      .policy-toc {
+        position: sticky;
+        top: 28px;
+        display: grid;
+        gap: 6px;
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: 0 10px 32px rgba(17, 35, 60, 0.08);
+      }
+
+      .policy-toc a {
+        padding: 10px 11px;
+        border-radius: 3px;
+        color: var(--ink-soft);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .policy-toc a:hover {
+        background: var(--green-pale);
+        color: var(--green-dark);
+      }
+
+      .policy-card {
+        padding: 54px 62px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: var(--white);
+        box-shadow: var(--shadow);
+      }
+
+      .policy-section {
+        scroll-margin-top: 34px;
+      }
+
+      .policy-section + .policy-section {
+        margin-top: 52px;
+        padding-top: 42px;
+        border-top: 1px solid rgba(17, 35, 60, 0.1);
+      }
+
+      h2 {
+        margin: 0 0 18px;
+        font-size: 27px;
+        font-weight: 620;
+        letter-spacing: 0;
+        line-height: 1.35;
+      }
+
+      p {
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 15px;
+        line-height: 1.95;
+      }
+
+      p + p,
+      ul + p,
+      .policy-table + p {
+        margin-top: 18px;
+      }
+
+      ul {
+        display: grid;
+        gap: 13px;
+        margin: 18px 0 0;
+        padding-left: 20px;
+      }
+
+      li {
+        color: var(--ink-soft);
+        font-size: 15px;
+        line-height: 1.9;
+      }
+
+      li::marker {
+        color: var(--green-dark);
+      }
+
+      strong {
+        color: var(--ink);
+      }
+
+      .policy-table {
+        display: grid;
+        overflow: hidden;
+        margin-top: 20px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+      }
+
+      .policy-table > div {
+        display: grid;
+        grid-template-columns: 140px minmax(0, 1fr);
+        background: #fff;
+      }
+
+      .policy-table > div + div {
+        border-top: 1px solid var(--line);
+      }
+
+      .policy-table span {
+        padding: 17px 18px;
+        background: #f7faf7;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .policy-table p {
+        padding: 17px 20px;
+        font-size: 14px;
+        line-height: 1.75;
+      }
+
+      .policy-contact {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        margin-top: 20px;
+        padding: 18px 20px;
+        border: 1px solid rgba(7, 128, 75, 0.2);
+        border-radius: 4px;
+        background: var(--green-pale);
+      }
+
+      .policy-contact span {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .policy-contact a {
+        color: var(--green-dark);
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .policy-note {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .site-footer {
+        background: #0a1c2c;
+        color: #fff;
+      }
+
+      .footer-inner {
+        display: flex;
+        justify-content: space-between;
+        gap: 28px;
+        padding: 26px 0;
+        color: #889b99;
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .footer-inner a {
+        color: #9ee5be;
+      }
+
+      @media (max-width: 900px) {
+        .container {
+          width: min(100% - 44px, 680px);
+        }
+
+        .policy-layout {
+          grid-template-columns: 1fr;
+          gap: 28px;
+        }
+
+        .policy-toc {
+          position: static;
+          display: flex;
+          overflow-x: auto;
+          padding: 12px;
+          white-space: nowrap;
+        }
+
+        .policy-toc a {
+          flex: 0 0 auto;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .container {
+          width: calc(100% - 36px);
+        }
+
+        .nav-wrap {
+          min-height: 72px;
+        }
+
+        .nav-link {
+          display: none;
+        }
+
+        .policy-hero {
+          padding: 58px 0 42px;
+        }
+
+        h1 {
+          font-size: 42px;
+        }
+
+        .policy-hero p:not(.eyebrow) {
+          font-size: 14px;
+          line-height: 1.8;
+        }
+
+        .policy-content {
+          padding: 42px 0 84px;
+        }
+
+        .policy-card {
+          padding: 30px 22px;
+        }
+
+        .policy-section + .policy-section {
+          margin-top: 36px;
+          padding-top: 30px;
+        }
+
+        h2 {
+          font-size: 21px;
+        }
+
+        p,
+        li {
+          font-size: 13px;
+        }
+
+        .policy-table > div {
+          grid-template-columns: 1fr;
+        }
+
+        .policy-table p {
+          padding-top: 0;
+        }
+
+        .policy-contact,
+        .footer-inner {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container nav-wrap">
+        <a class="brand" href="/">
+          <span class="brand-mark">睿</span>
+          <span>睿乐大脑</span>
+          <span class="brand-extension">幼教版</span>
+        </a>
+        <a class="nav-link" href="/">返回首页</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="policy-hero">
+        <div class="container">
+          <p class="eyebrow"><span class="eyebrow-line"></span> PRIVACY POLICY</p>
+          <h1>隐私政策</h1>
+          <p>
+            本政策说明睿乐大脑移动端及相关服务如何收集、使用、存储、共享和保护你的个人信息。请在使用服务前仔细阅读并理解本政策。
+          </p>
+          <div class="policy-meta">
+            <span>生效日期：2026 年 9 月 5 日</span>
+            <span>适用产品：睿乐大脑 App</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="policy-content">
+        <div class="container policy-layout">
+          <aside class="policy-toc" aria-label="隐私政策目录">
+            <a href="#intro">一、适用范围</a>
+            <a href="#collection">二、我们收集的信息</a>
+            <a href="#permissions">三、系统权限</a>
+            <a href="#use">四、信息使用方式</a>
+            <a href="#sharing">五、共享与委托处理</a>
+            <a href="#storage">六、存储与保护</a>
+            <a href="#rights">七、你的权利</a>
+            <a href="#children">八、未成年人信息</a>
+            <a href="#updates">九、政策更新</a>
+            <a href="#contact-policy">十、联系我们</a>
+          </aside>
+
+          <article class="policy-card">
+            <section id="intro" class="policy-section">
+              <h2>一、适用范围</h2>
+              <p>
+                本隐私政策适用于睿乐大脑 App、官网以及我们围绕早幼教机构知识库、运营提醒、语音记忆、服务跟进和 AI 辅助分析提供的相关服务。
+              </p>
+              <p>
+                如果某些服务由机构客户部署、管理或配置，你所在机构可能作为相关数据的管理方。我们会按照机构授权、服务协议以及适用法律要求处理相关信息。
+              </p>
+            </section>
+
+            <section id="collection" class="policy-section">
+              <h2>二、我们收集的信息</h2>
+              <p>为实现产品功能和保障服务安全，我们可能在必要范围内收集以下信息：</p>
+              <ul>
+                <li><strong>账号与身份信息：</strong>例如手机号、邮箱、姓名或昵称、所属机构、角色权限、登录状态等。</li>
+                <li><strong>你主动提交的内容：</strong>例如文字记忆、服务提醒、家长跟进记录、知识库资料、图片、文档、录音文件及其转写文本。</li>
+                <li><strong>音频与语音识别信息：</strong>当你主动录音或同步录音卡内容时，我们会处理音频文件，并可根据你的操作生成转写文本、摘要和待办提醒。</li>
+                <li><strong>设备与运行信息：</strong>例如设备型号、操作系统版本、App 版本、网络状态、崩溃日志、操作日志和基础诊断信息。</li>
+                <li><strong>业务使用信息：</strong>例如功能访问记录、知识库检索记录、内容处理状态、服务任务状态等，用于提供服务和改进产品体验。</li>
+              </ul>
+              <p>
+                我们不会主动收集与你使用服务无关的信息。对于需要你主动上传或授权开启的内容，我们会在获得你的操作或授权后处理。
+              </p>
+            </section>
+
+            <section id="permissions" class="policy-section">
+              <h2>三、系统权限</h2>
+              <p>睿乐大脑 App 可能会根据具体功能请求以下系统权限。你可以在设备系统设置中管理或撤回授权。</p>
+              <div class="policy-table" role="table" aria-label="系统权限说明">
+                <div role="row">
+                  <span role="cell">麦克风</span>
+                  <p role="cell">用于录制语音记忆、保存本地音频，并在你发起操作后生成转写或摘要。</p>
+                </div>
+                <div role="row">
+                  <span role="cell">语音识别</span>
+                  <p role="cell">用于识别录音内容并生成可检索、可整理的记忆文本。</p>
+                </div>
+                <div role="row">
+                  <span role="cell">蓝牙</span>
+                  <p role="cell">用于扫描、连接和同步录音卡等外部设备。</p>
+                </div>
+              </div>
+              <p>
+                拒绝或撤回某项权限后，不会影响其他基础功能，但依赖该权限的录音、识别或设备同步功能可能无法使用。
+              </p>
+            </section>
+
+            <section id="use" class="policy-section">
+              <h2>四、信息使用方式</h2>
+              <p>我们会基于以下目的使用收集到的信息：</p>
+              <ul>
+                <li>创建和维护账号、验证用户身份、管理机构空间和角色权限。</li>
+                <li>提供语音记忆、录音转写、知识库管理、内容检索、服务提醒和运营辅助分析等功能。</li>
+                <li>根据用户上传内容生成摘要、标签、待办事项、服务建议或知识库条目。</li>
+                <li>排查故障、保障账号与系统安全、防止滥用和未经授权访问。</li>
+                <li>在去标识化或汇总统计的前提下，改进产品体验和服务质量。</li>
+              </ul>
+            </section>
+
+            <section id="sharing" class="policy-section">
+              <h2>五、共享与委托处理</h2>
+              <p>
+                我们不会出售你的个人信息。为实现必要功能，我们可能在最小必要范围内将相关数据提供给基础设施、云存储、语音识别、消息通知、安全风控或模型服务供应商处理。
+              </p>
+              <p>
+                对于机构客户数据，我们会按照机构配置和授权提供访问控制。除法律法规要求、取得明确授权或履行服务所必需外，我们不会向无关第三方披露个人信息。
+              </p>
+            </section>
+
+            <section id="storage" class="policy-section">
+              <h2>六、存储与保护</h2>
+              <p>
+                我们会采取加密传输、访问控制、权限分级、日志审计、备份与安全监控等合理措施保护信息安全。个人信息的保存期限以实现本政策所述目的所需的最短期限为原则，法律法规或机构服务协议另有要求的除外。
+              </p>
+              <p>
+                如果你所在机构使用本地或私有云部署，相关数据的存储位置、保留期限和访问权限可能由机构管理员配置和管理。
+              </p>
+            </section>
+
+            <section id="rights" class="policy-section">
+              <h2>七、你的权利</h2>
+              <p>
+                你可以依法请求访问、更正、复制、删除你的个人信息，或撤回授权、注销账号、限制或拒绝部分处理活动。对于机构管理的账号，部分请求可能需要联系机构管理员共同处理。
+              </p>
+              <p>
+                你可以通过本政策末尾的联系方式提交请求。我们会在核验身份后，在法律法规规定的期限内处理。
+              </p>
+            </section>
+
+            <section id="children" class="policy-section">
+              <h2>八、未成年人信息</h2>
+              <p>
+                睿乐大脑主要面向早幼教机构及其工作人员。若服务过程中涉及儿童相关记录、课堂资料或家园沟通内容，机构和用户应确保已取得必要授权，并遵守适用的未成年人个人信息保护要求。
+              </p>
+              <p>
+                我们会按照最小必要原则处理相关信息，并建议机构管理员对包含儿童信息的资料设置更严格的访问权限。
+              </p>
+            </section>
+
+            <section id="updates" class="policy-section">
+              <h2>九、政策更新</h2>
+              <p>
+                我们可能根据产品功能、法律法规或业务变化更新本政策。重大变更发生时，我们会通过页面公告、站内通知或其他合理方式提示你。
+              </p>
+            </section>
+
+            <section id="contact-policy" class="policy-section">
+              <h2>十、联系我们</h2>
+              <p>
+                如果你对本隐私政策或个人信息处理有任何问题、意见或请求，可以通过以下方式联系我们：
+              </p>
+              <div class="policy-contact">
+                <span>隐私联系邮箱</span>
+                <a href="mailto:privacy@ruile.ai">privacy@ruile.ai</a>
+              </div>
+              <p class="policy-note">
+                上线前请将本页中的联系邮箱、运营主体名称和其他必要信息替换为你的正式信息。
+              </p>
+            </section>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <span>© 2026 睿乐大脑 · 早幼教 AI 运营中枢</span>
+        <a href="/">返回首页</a>
+      </div>
+    </footer>
+  </body>
+</html>

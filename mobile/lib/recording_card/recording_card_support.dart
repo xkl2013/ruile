@@ -588,30 +588,29 @@ class RecordingCardProtocol {
 class RecordingCardLocalStore {
   const RecordingCardLocalStore();
 
-  Future<List<RecordingCardFileEntry>> loadFiles(String deviceId) async {
-    final metadataDir = await _metadataDir(deviceId);
-    if (!await metadataDir.exists()) {
+  Future<List<RecordingCardFileEntry>> loadAllFiles() async {
+    final root = await getApplicationDocumentsDirectory();
+    final cardsRoot =
+        Directory('${root.path}${Platform.pathSeparator}recording_cards');
+    if (!await cardsRoot.exists()) {
       return const [];
     }
 
     final files = <RecordingCardFileEntry>[];
-    await for (final entity in metadataDir.list(followLinks: false)) {
-      if (entity is! File || !entity.path.endsWith('.json')) continue;
-      try {
-        final json = jsonDecode(await entity.readAsString());
-        if (json is Map<String, dynamic>) {
-          files.add(RecordingCardFileEntry.fromJson(json));
-        } else if (json is Map) {
-          files.add(
-            RecordingCardFileEntry.fromJson(
-              json.map((key, value) => MapEntry(key.toString(), value)),
-            ),
-          );
-        }
-      } catch (_) {
-        continue;
-      }
+    await for (final entity in cardsRoot.list(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final metadataDir =
+          Directory('${entity.path}${Platform.pathSeparator}metadata');
+      files.addAll(await _loadFilesFromMetadataDir(metadataDir));
     }
+
+    files.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return files;
+  }
+
+  Future<List<RecordingCardFileEntry>> loadFiles(String deviceId) async {
+    final metadataDir = await _metadataDir(deviceId);
+    final files = await _loadFilesFromMetadataDir(metadataDir);
 
     files.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
     return files;
@@ -663,6 +662,7 @@ class RecordingCardLocalStore {
     if (await meta.exists()) {
       await meta.delete();
     }
+    RecordingCardFileQueueBus.notifyChanged();
   }
 
   Future<String> audioFilePath(String deviceId, String fileNameNoExt) async {
@@ -751,10 +751,62 @@ class RecordingCardLocalStore {
     }
     return dir;
   }
+
+  Future<List<RecordingCardFileEntry>> _loadFilesFromMetadataDir(
+    Directory metadataDir,
+  ) async {
+    if (!await metadataDir.exists()) {
+      return const [];
+    }
+
+    final files = <RecordingCardFileEntry>[];
+    await for (final entity in metadataDir.list(followLinks: false)) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      final entry = await _readMetadataEntry(entity);
+      if (entry != null) {
+        files.add(entry);
+      }
+    }
+    return files;
+  }
+
+  Future<RecordingCardFileEntry?> _readMetadataEntry(File file) async {
+    try {
+      final json = jsonDecode(await file.readAsString());
+      if (json is Map<String, dynamic>) {
+        return RecordingCardFileEntry.fromJson(json);
+      }
+      if (json is Map) {
+        return RecordingCardFileEntry.fromJson(
+          json.map((key, value) => MapEntry(key.toString(), value)),
+        );
+      }
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
 }
 
 class RecordingCardAppSyncBus {
   RecordingCardAppSyncBus._();
+
+  static final ValueNotifier<int> notifier = ValueNotifier<int>(0);
+  static String? latestMemoryId;
+
+  static void notifyChanged({String? memoryId}) {
+    final normalizedMemoryId = memoryId?.trim() ?? '';
+    if (normalizedMemoryId.isNotEmpty) {
+      latestMemoryId = normalizedMemoryId;
+    } else {
+      latestMemoryId = null;
+    }
+    notifier.value += 1;
+  }
+}
+
+class RecordingCardFileQueueBus {
+  RecordingCardFileQueueBus._();
 
   static final ValueNotifier<int> notifier = ValueNotifier<int>(0);
 

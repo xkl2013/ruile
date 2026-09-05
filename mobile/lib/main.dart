@@ -1211,6 +1211,7 @@ class _RuileApiClient {
       for (final key in const [
         'items',
         'list',
+        'reminders',
         'knowledge_bases',
         'knowledgeBases',
         'knowledges',
@@ -1218,6 +1219,10 @@ class _RuileApiClient {
       ]) {
         final value = data[key];
         if (value is List) return value.cast<Object?>();
+        if (value is Map) {
+          final nested = _extractList(value);
+          if (nested.isNotEmpty) return nested;
+        }
       }
     }
     return const [];
@@ -1963,12 +1968,19 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _openRecordingCardFromDrawer() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => RecordingCardDevicePage(
-          onAuthFailure: widget.onLogout,
+    unawaited(
+      Navigator.of(context)
+          .push<void>(
+        MaterialPageRoute<void>(
+          builder: (context) => RecordingCardDevicePage(
+            onAuthFailure: widget.onLogout,
+          ),
         ),
-      ),
+      )
+          .then((_) {
+        RecordingCardFileQueueBus.notifyChanged();
+        RecordingCardAppSyncBus.notifyChanged();
+      }),
     );
   }
 
@@ -2000,6 +2012,7 @@ class _MainShellState extends State<MainShell> {
         authToken: widget.session.token,
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
+        onOpenRecordingCard: _openRecordingCardFromDrawer,
       ),
       DiscoverPage(
         authToken: widget.session.token,
@@ -3467,11 +3480,13 @@ class NotesPage extends StatefulWidget {
     this.authToken = AppApiConfig.authToken,
     this.tenantId = AppApiConfig.tenantId,
     required this.onAuthFailure,
+    required this.onOpenRecordingCard,
   });
 
   final String authToken;
   final String tenantId;
   final VoidCallback onAuthFailure;
+  final VoidCallback onOpenRecordingCard;
 
   @override
   State<NotesPage> createState() => _NotesPageState();
@@ -3483,8 +3498,15 @@ class _NotesPageState extends State<NotesPage> {
 
   late final _RuileApiClient _apiClient;
   late final VoidCallback _recordingCardSyncListener;
+  late final VoidCallback _recordingCardQueueListener;
+  final RecordingCardLocalStore _recordingCardStore =
+      const RecordingCardLocalStore();
+  final List<Timer> _recordingCardMemoryRefreshTimers = <Timer>[];
   var _sortNewestFirst = true;
   List<_KnowledgeBase> _knowledgeBases = const [];
+  _RecordingCardPendingSummary _recordingCardPendingSummary =
+      _RecordingCardPendingSummary.empty;
+  String _pendingRemoteMemoryId = '';
   bool _loadingKnowledgeBases = true;
   List<_NoteItem> _notes = [];
   bool _loadingNotes = false;
@@ -3504,18 +3526,61 @@ class _NotesPageState extends State<NotesPage> {
       tenantId: widget.tenantId,
       onAuthFailure: widget.onAuthFailure,
     );
-    _recordingCardSyncListener = () {
-      unawaited(_loadRemoteMemories());
+    _recordingCardSyncListener = _handleRecordingCardAppSyncChanged;
+    _recordingCardQueueListener = () {
+      unawaited(_loadRecordingCardPendingSummary());
     };
     RecordingCardAppSyncBus.notifier.addListener(_recordingCardSyncListener);
+    RecordingCardFileQueueBus.notifier.addListener(_recordingCardQueueListener);
     _loadRemoteKnowledgeBases();
     unawaited(_loadRemoteMemories());
+    unawaited(_loadRecordingCardPendingSummary());
   }
 
   @override
   void dispose() {
+    _cancelRecordingCardMemoryRefreshTimers();
     RecordingCardAppSyncBus.notifier.removeListener(_recordingCardSyncListener);
+    RecordingCardFileQueueBus.notifier
+        .removeListener(_recordingCardQueueListener);
     super.dispose();
+  }
+
+  void _handleRecordingCardAppSyncChanged() {
+    final memoryId = RecordingCardAppSyncBus.latestMemoryId?.trim() ?? '';
+    if (memoryId.isNotEmpty) {
+      _pendingRemoteMemoryId = memoryId;
+    }
+    unawaited(_loadRecordingCardPendingSummary());
+    _scheduleRecordingCardMemoryRefresh(memoryId: memoryId);
+  }
+
+  void _scheduleRecordingCardMemoryRefresh({String memoryId = ''}) {
+    final normalizedMemoryId = memoryId.trim();
+    if (normalizedMemoryId.isNotEmpty) {
+      _pendingRemoteMemoryId = normalizedMemoryId;
+    }
+    _cancelRecordingCardMemoryRefreshTimers();
+    unawaited(_loadRemoteMemories(memoryId: normalizedMemoryId));
+    for (final delay in const [
+      Duration(seconds: 1),
+      Duration(seconds: 3),
+      Duration(seconds: 8),
+    ]) {
+      _recordingCardMemoryRefreshTimers.add(
+        Timer(delay, () {
+          if (!mounted) return;
+          unawaited(_loadRemoteMemories(memoryId: _pendingRemoteMemoryId));
+        }),
+      );
+    }
+  }
+
+  void _cancelRecordingCardMemoryRefreshTimers() {
+    for (final timer in _recordingCardMemoryRefreshTimers) {
+      timer.cancel();
+    }
+    _recordingCardMemoryRefreshTimers.clear();
   }
 
   Future<void> _loadRemoteKnowledgeBases() async {
@@ -3547,7 +3612,14 @@ class _NotesPageState extends State<NotesPage> {
     }
   }
 
-  Future<void> _loadRemoteMemories() async {
+  Future<void> _loadRemoteMemories({String memoryId = ''}) async {
+    final requestedMemoryId = memoryId.trim().isNotEmpty
+        ? memoryId.trim()
+        : _pendingRemoteMemoryId.trim();
+    if (requestedMemoryId.isNotEmpty) {
+      _pendingRemoteMemoryId = requestedMemoryId;
+    }
+
     if (_loadingNotes) {
       _notesReloadQueued = true;
       return;
@@ -3572,12 +3644,37 @@ class _NotesPageState extends State<NotesPage> {
           if (occurredCompare != 0) return occurredCompare;
           return b.createdAt.compareTo(a.createdAt);
         });
-      final notes =
-          sortedMemories.map((memory) => memory.toNoteItem()).toList();
+      var notes = sortedMemories.map((memory) => memory.toNoteItem()).toList();
+      var requestedMemoryVisible = requestedMemoryId.isEmpty ||
+          notes.any((note) => note.id == requestedMemoryId);
+      if (requestedMemoryId.isNotEmpty && !requestedMemoryVisible) {
+        try {
+          final memory =
+              await _apiClient.fetchOrganizeMemory(requestedMemoryId);
+          if (memory != null) {
+            final note = memory.toNoteItem();
+            notes = [
+              note,
+              for (final existing in notes)
+                if (existing.id != requestedMemoryId) existing,
+            ];
+            requestedMemoryVisible = true;
+          }
+        } on _ApiException catch (error) {
+          if (error.isAuthFailure) rethrow;
+          debugPrint('Failed to load created memory detail: $error');
+        } catch (error) {
+          debugPrint('Failed to load created memory detail: $error');
+        }
+      }
       setState(() {
         _notes = notes;
         _notesError = null;
       });
+      if (requestedMemoryVisible &&
+          _pendingRemoteMemoryId == requestedMemoryId) {
+        _pendingRemoteMemoryId = '';
+      }
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
         widget.onAuthFailure();
@@ -3610,8 +3707,21 @@ class _NotesPageState extends State<NotesPage> {
       shouldReload = _notesReloadQueued;
       _notesReloadQueued = false;
       if (mounted && shouldReload) {
-        unawaited(_loadRemoteMemories());
+        unawaited(_loadRemoteMemories(memoryId: _pendingRemoteMemoryId));
       }
+    }
+  }
+
+  Future<void> _loadRecordingCardPendingSummary() async {
+    try {
+      final entries = await _recordingCardStore.loadAllFiles();
+      if (!mounted) return;
+      setState(() {
+        _recordingCardPendingSummary =
+            _RecordingCardPendingSummary.fromEntries(entries);
+      });
+    } catch (error) {
+      debugPrint('Failed to load recording card pending summary: $error');
     }
   }
 
@@ -3623,6 +3733,7 @@ class _NotesPageState extends State<NotesPage> {
     await Future.wait<void>([
       _loadRemoteKnowledgeBases(),
       _loadRemoteMemories(),
+      _loadRecordingCardPendingSummary(),
     ]);
   }
 
@@ -3912,6 +4023,13 @@ class _NotesPageState extends State<NotesPage> {
                     loading: _loadingKnowledgeBases,
                     onTap: _openKnowledgeBase,
                   ),
+                  if (_recordingCardPendingSummary.hasPending) ...[
+                    const SizedBox(height: 16),
+                    _RecordingCardPendingSyncCard(
+                      summary: _recordingCardPendingSummary,
+                      onTap: widget.onOpenRecordingCard,
+                    ),
+                  ],
                   const SizedBox(height: 26),
                   _NotesToolbar(
                     newestFirst: _sortNewestFirst,
@@ -3950,6 +4068,246 @@ class _NotesPageState extends State<NotesPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordingCardPendingSummary {
+  const _RecordingCardPendingSummary({
+    required this.pendingCount,
+    required this.bluetoothPendingCount,
+    required this.cloudPendingCount,
+    required this.failedCount,
+    required this.pausedCount,
+    required this.bluetoothPendingBytes,
+  });
+
+  static const empty = _RecordingCardPendingSummary(
+    pendingCount: 0,
+    bluetoothPendingCount: 0,
+    cloudPendingCount: 0,
+    failedCount: 0,
+    pausedCount: 0,
+    bluetoothPendingBytes: 0,
+  );
+
+  final int pendingCount;
+  final int bluetoothPendingCount;
+  final int cloudPendingCount;
+  final int failedCount;
+  final int pausedCount;
+  final int bluetoothPendingBytes;
+
+  bool get hasPending => pendingCount > 0;
+
+  factory _RecordingCardPendingSummary.fromEntries(
+    Iterable<RecordingCardFileEntry> entries,
+  ) {
+    var pendingCount = 0;
+    var bluetoothPendingCount = 0;
+    var cloudPendingCount = 0;
+    var failedCount = 0;
+    var pausedCount = 0;
+    var bluetoothPendingBytes = 0;
+
+    for (final entry in entries) {
+      if (entry.fileNameNoExt.trim().isEmpty ||
+          entry.transferStatus == RecordingCardFileTransferStatus.synced ||
+          entry.transferStatus ==
+              RecordingCardFileTransferStatus.deletedOnDevice) {
+        continue;
+      }
+
+      pendingCount += 1;
+      if (!entry.isDownloaded) {
+        bluetoothPendingCount += 1;
+        if (entry.fileSizeBytes > 0) {
+          bluetoothPendingBytes += (entry.fileSizeBytes - entry.syncedBytes)
+              .clamp(0, entry.fileSizeBytes)
+              .toInt();
+        }
+      }
+      if (entry.transferStatus.needsCloudSync) {
+        cloudPendingCount += 1;
+      }
+      if (entry.transferStatus == RecordingCardFileTransferStatus.failed ||
+          entry.transferStatus ==
+              RecordingCardFileTransferStatus.cloudSyncFailed ||
+          entry.transferStatus ==
+              RecordingCardFileTransferStatus.checksumFailed) {
+        failedCount += 1;
+      }
+      if (entry.transferStatus == RecordingCardFileTransferStatus.paused) {
+        pausedCount += 1;
+      }
+    }
+
+    return _RecordingCardPendingSummary(
+      pendingCount: pendingCount,
+      bluetoothPendingCount: bluetoothPendingCount,
+      cloudPendingCount: cloudPendingCount,
+      failedCount: failedCount,
+      pausedCount: pausedCount,
+      bluetoothPendingBytes: bluetoothPendingBytes,
+    );
+  }
+}
+
+class _RecordingCardPendingSyncCard extends StatelessWidget {
+  const _RecordingCardPendingSyncCard({
+    required this.summary,
+    required this.onTap,
+  });
+
+  final _RecordingCardPendingSummary summary;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizeText = summary.bluetoothPendingBytes <= 0
+        ? ''
+        : ' · 待传 ${RecordingCardProtocol.formatFileSize(summary.bluetoothPendingBytes)}';
+
+    return ValueListenableBuilder<RecordingCardConnectionStatus>(
+      valueListenable: RecordingCardConnectionStatusBus.notifier,
+      builder: (context, status, child) {
+        final deviceName =
+            status.deviceName.trim().isEmpty ? '录音卡' : status.deviceName.trim();
+        final connectionText =
+            status.connected ? '已连接 $deviceName，打开查看进度' : '连接录音卡后继续同步';
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x05000000),
+                blurRadius: 14,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Material(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadii.card),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 15, 12, 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: AppColors.accent.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.memory_outlined,
+                        size: 20,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '录音卡有 ${summary.pendingCount} 条音频未同步',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.cardTitle.copyWith(
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '$connectionText$sizeText',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.meta.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if (summary.bluetoothPendingCount > 0)
+                                _RecordingCardPendingChip(
+                                  label: '待蓝牙 ${summary.bluetoothPendingCount}',
+                                  color: AppColors.control,
+                                ),
+                              if (summary.cloudPendingCount > 0)
+                                _RecordingCardPendingChip(
+                                  label: '待生成 ${summary.cloudPendingCount}',
+                                  color: const Color(0xFF1F6FE5),
+                                ),
+                              if (summary.pausedCount > 0)
+                                _RecordingCardPendingChip(
+                                  label: '已暂停 ${summary.pausedCount}',
+                                  color: const Color(0xFFB7791F),
+                                ),
+                              if (summary.failedCount > 0)
+                                _RecordingCardPendingChip(
+                                  label: '失败 ${summary.failedCount}',
+                                  color: const Color(0xFFB42318),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 22,
+                      color: AppColors.textTertiary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RecordingCardPendingChip extends StatelessWidget {
+  const _RecordingCardPendingChip({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 11,
+          height: 1.1,
+          color: color,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -9134,6 +9492,23 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     ];
   }
 
+  List<_ServiceReminder> _prioritizeLinkedServiceReminders(
+    List<_ServiceReminder> reminders,
+    String memoryID,
+  ) {
+    final normalizedMemoryID = memoryID.trim();
+    if (normalizedMemoryID.isEmpty || reminders.length <= 1) {
+      return reminders;
+    }
+    return List<_ServiceReminder>.of(reminders)
+      ..sort((a, b) {
+        final aLinked = a.sourceMemoryIds.contains(normalizedMemoryID);
+        final bLinked = b.sourceMemoryIds.contains(normalizedMemoryID);
+        if (aLinked == bLinked) return 0;
+        return aLinked ? -1 : 1;
+      });
+  }
+
   String get _serviceButtonTooltip {
     if (_serviceExtracting) return '服务提取中';
     if (_serviceLoading && !_serviceLoaded) return '加载服务中';
@@ -9185,12 +9560,15 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     }
 
     try {
-      final reminders = await _apiClient.fetchServiceReminders(
-        memoryId: memoryID,
+      final reminders = _prioritizeLinkedServiceReminders(
+        await _apiClient.fetchServiceReminders(memoryId: memoryID),
+        memoryID,
       );
       if (!mounted || requestSeq != _serviceRequestSeq) return;
       setState(() {
-        _serviceReminders = reminders;
+        if (reminders.isNotEmpty || !silent || _serviceReminders.isEmpty) {
+          _serviceReminders = reminders;
+        }
         _serviceLoaded = true;
         _serviceError = null;
       });
@@ -10011,16 +10389,9 @@ class _MemoryServicePanel extends StatelessWidget {
             message: emptyMessage,
           )
         else
-          Column(
-            children: [
-              for (var index = 0; index < reminders.length; index++) ...[
-                _ServiceReminderListTile(
-                  reminder: reminders[index],
-                  onTap: () => onTapReminder(reminders[index]),
-                ),
-                if (index != reminders.length - 1) const SizedBox(height: 12),
-              ],
-            ],
+          _ServiceReminderListCard(
+            reminders: reminders,
+            onTap: onTapReminder,
           ),
       ],
     );
@@ -11107,7 +11478,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
         remoteMemoryId: uploadResult.id,
         remoteAudioUrl: remoteAudioUrl,
       );
-      RecordingCardAppSyncBus.notifyChanged();
+      RecordingCardAppSyncBus.notifyChanged(memoryId: uploadResult.id);
       if (mounted) {
         setState(() {
           _statusText = '云端同步完成，转写处理中';
@@ -11706,8 +12077,9 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
     });
 
     try {
+      var memoryId = '';
       if (widget.apiClient.isConfigured) {
-        await widget.apiClient.createOrganizeMemory(
+        memoryId = await widget.apiClient.createOrganizeMemory(
           kind: 'note',
           title: title,
           content: content,
@@ -11719,7 +12091,7 @@ class _TextMemoryDraftState extends State<_TextMemoryDraft> {
         );
       }
       if (!mounted) return;
-      RecordingCardAppSyncBus.notifyChanged();
+      RecordingCardAppSyncBus.notifyChanged(memoryId: memoryId);
       Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
@@ -13350,6 +13722,9 @@ class AssistantPage extends StatefulWidget {
 class _AssistantPageState extends State<AssistantPage> {
   late _RuileApiClient _apiClient;
   List<_ServiceReminder> _reminders = const [];
+  var _openReminderCount = 0;
+  var _completedReminderCount = 0;
+  var _totalReminderCount = 0;
   var _loading = true;
   var _loaded = false;
   var _refreshing = false;
@@ -13398,6 +13773,9 @@ class _AssistantPageState extends State<AssistantPage> {
       if (!mounted) return;
       setState(() {
         _reminders = const [];
+        _openReminderCount = 0;
+        _completedReminderCount = 0;
+        _totalReminderCount = 0;
         _loading = false;
         _refreshing = false;
         _loaded = true;
@@ -13407,9 +13785,23 @@ class _AssistantPageState extends State<AssistantPage> {
 
     try {
       final result = await _apiClient.fetchServiceBootstrap(refresh: refresh);
+      var reminders = result.reminders;
+      if (reminders.isEmpty && result.total > 0) {
+        try {
+          reminders = await _apiClient.fetchServiceReminders(
+            pageSize: result.total > 100 ? 100 : result.total,
+          );
+        } catch (error) {
+          debugPrint('Failed to load service reminder list fallback: $error');
+        }
+      }
       if (!mounted) return;
       setState(() {
-        _reminders = result.reminders;
+        _reminders = reminders;
+        _openReminderCount = _openReminderCountFor(reminders, result.stats);
+        _completedReminderCount =
+            _completedReminderCountFor(reminders, result.stats);
+        _totalReminderCount = _totalReminderCountFor(reminders, result);
         _loading = false;
         _refreshing = false;
         _loaded = true;
@@ -13454,6 +13846,48 @@ class _AssistantPageState extends State<AssistantPage> {
     return items;
   }
 
+  int _openReminderCountFor(
+    List<_ServiceReminder> reminders,
+    Map<String, int> stats,
+  ) {
+    if (stats.isNotEmpty) {
+      return _sumReminderStats(stats, const [
+        'candidate',
+        'pending',
+        'generated',
+        'snoozed',
+        'recompute_required',
+      ]);
+    }
+    return reminders.where((item) => item.isOpen).length;
+  }
+
+  int _completedReminderCountFor(
+    List<_ServiceReminder> reminders,
+    Map<String, int> stats,
+  ) {
+    if (stats.isNotEmpty) {
+      return _sumReminderStats(stats, const ['confirmed', 'completed']);
+    }
+    return reminders.where((item) => item.isCompleted).length;
+  }
+
+  int _totalReminderCountFor(
+    List<_ServiceReminder> reminders,
+    _ServiceBootstrapResult result,
+  ) {
+    if (result.total > 0) return result.total;
+    final statsTotal = result.stats.values.fold<int>(
+      0,
+      (sum, value) => sum + value,
+    );
+    return statsTotal > 0 ? statsTotal : reminders.length;
+  }
+
+  int _sumReminderStats(Map<String, int> stats, List<String> statuses) {
+    return statuses.fold<int>(0, (sum, status) => sum + (stats[status] ?? 0));
+  }
+
   int _countWhere(bool Function(_ServiceReminder) test) {
     return _reminders.where(test).length;
   }
@@ -13493,8 +13927,14 @@ class _AssistantPageState extends State<AssistantPage> {
   @override
   Widget build(BuildContext context) {
     final visibleReminders = _visibleReminders;
-    final openCount = _countWhere((item) => item.isOpen);
-    final completedCount = _countWhere((item) => item.isCompleted);
+    final openCount = _totalReminderCount > 0
+        ? _openReminderCount
+        : _countWhere((item) => item.isOpen);
+    final completedCount = _totalReminderCount > 0
+        ? _completedReminderCount
+        : _countWhere((item) => item.isCompleted);
+    final totalCount =
+        _totalReminderCount > 0 ? _totalReminderCount : _reminders.length;
 
     return DecoratedBox(
       decoration: const BoxDecoration(color: AppColors.background),
@@ -13554,7 +13994,7 @@ class _AssistantPageState extends State<AssistantPage> {
               _ServiceOverview(
                 openCount: openCount,
                 completedCount: completedCount,
-                totalCount: _reminders.length,
+                totalCount: totalCount,
               ),
               const SizedBox(height: 18),
               if (_loading && _reminders.isEmpty)
@@ -13572,18 +14012,10 @@ class _AssistantPageState extends State<AssistantPage> {
                   message: _emptyMessage,
                 )
               else
-                for (var index = 0;
-                    index < visibleReminders.length;
-                    index++) ...[
-                  _ServiceReminderListTile(
-                    reminder: visibleReminders[index],
-                    onTap: () => unawaited(
-                      _openReminder(visibleReminders[index]),
-                    ),
-                  ),
-                  if (index != visibleReminders.length - 1)
-                    const SizedBox(height: 12),
-                ],
+                _ServiceReminderListCard(
+                  reminders: visibleReminders,
+                  onTap: (reminder) => unawaited(_openReminder(reminder)),
+                ),
             ],
           ),
         ),
@@ -13692,6 +14124,32 @@ class _ServiceOverviewDivider extends StatelessWidget {
   }
 }
 
+class _ServiceReminderListCard extends StatelessWidget {
+  const _ServiceReminderListCard({
+    required this.reminders,
+    required this.onTap,
+  });
+
+  final List<_ServiceReminder> reminders;
+  final ValueChanged<_ServiceReminder> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var index = 0; index < reminders.length; index++) ...[
+          _ServiceReminderListTile(
+            reminder: reminders[index],
+            onTap: () => onTap(reminders[index]),
+          ),
+          if (index != reminders.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
 class _ServiceReminderListTile extends StatelessWidget {
   const _ServiceReminderListTile({
     required this.reminder,
@@ -13704,132 +14162,125 @@ class _ServiceReminderListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = _customerSpaceStatusColor(reminder.status);
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border(
-              left: BorderSide(color: reminder.priorityColor, width: 3),
-              top: const BorderSide(color: AppColors.border),
-              right: const BorderSide(color: AppColors.border),
-              bottom: const BorderSide(color: AppColors.border),
-            ),
+    final title = reminder.displayTitle;
+    final summaryText = reminder.summaryText;
+    final nextActionText = reminder.nextActionText;
+    final stageText = reminder.stageText;
+    final riskText = _normalizeSpaces(reminder.riskLabel);
+    final metaParts = [
+      reminder.customerName,
+      reminder.displayDueLabel,
+      if (stageText.isNotEmpty) stageText,
+      if (riskText.isNotEmpty) riskText,
+      reminder.priorityLabel,
+      if (reminder.sourceMemoryCount > 0) '${reminder.sourceMemoryCount} 条记忆',
+    ].map(_normalizeSpaces).where((item) => item.isNotEmpty).toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFEEF1F5)),
+        color: const Color(0xFFFEFFFF),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x05000000),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _ServiceReminderAvatar(reminder: reminder),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            reminder.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              height: 1.3,
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          height: 1.3,
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
                         ),
-                        const SizedBox(width: 8),
-                        Text(
-                          reminder.dueLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTextStyles.meta.copyWith(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      [
-                        reminder.customerName,
-                        if (reminder.riskLabel.trim().isNotEmpty)
-                          reminder.riskLabel,
-                        if (reminder.nextAction.trim().isNotEmpty)
-                          reminder.nextAction,
-                      ].join(' · '),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTextStyles.body.copyWith(
-                        fontSize: 13,
-                        height: 1.42,
                       ),
                     ),
-                    const SizedBox(height: 9),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        _CustomerSpaceTinyBadge(
-                          label: reminder.statusLabel,
-                          color: statusColor,
-                        ),
-                        if (reminder.stage.trim().isNotEmpty)
-                          _CustomerSpaceTinyBadge(
-                            label: reminder.stage,
-                            color: AppColors.control,
-                          ),
-                        if (reminder.sourceMemoryCount > 0)
-                          _CustomerSpaceTinyBadge(
-                            label: '${reminder.sourceMemoryCount} 条记忆',
-                            color: AppColors.textSecondary,
-                          ),
-                      ],
+                    const SizedBox(width: 8),
+                    Text(
+                      reminder.statusLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.2,
+                        color: statusColor,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(
-                Icons.chevron_right,
-                size: 22,
-                color: AppColors.textTertiary,
-              ),
-            ],
+                const SizedBox(height: 7),
+                Text(
+                  summaryText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.42,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  '下一步：$nextActionText',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.42,
+                    color: AppColors.control,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        metaParts.join(' · '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          height: 1.2,
+                          color: AppColors.textTertiary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 16,
+                      color: AppColors.textTertiary,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ServiceReminderAvatar extends StatelessWidget {
-  const _ServiceReminderAvatar({required this.reminder});
-
-  final _ServiceReminder reminder;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: reminder.priorityColor.withValues(alpha: 0.12),
-        shape: BoxShape.circle,
-      ),
-      child: Text(
-        reminder.avatarText,
-        style: TextStyle(
-          fontSize: 17,
-          color: reminder.priorityColor,
-          fontWeight: FontWeight.w800,
         ),
       ),
     );
@@ -15083,17 +15534,7 @@ class _ServiceBootstrapResult {
   });
 
   factory _ServiceBootstrapResult.fromApi(Map<String, dynamic> json) {
-    final rawReminders = json['reminders'];
-    final reminders = <_ServiceReminder>[
-      if (rawReminders is List)
-        for (final item in rawReminders)
-          if (item is Map<String, dynamic>)
-            _ServiceReminder.fromApi(item)
-          else if (item is Map)
-            _ServiceReminder.fromApi(
-              item.map((key, value) => MapEntry(key.toString(), value)),
-            ),
-    ];
+    final reminders = _readServiceReminderList(json);
     final rawStats = _readMap(json, const ['stats']);
     final stats = <String, int>{
       for (final entry in rawStats.entries)
@@ -15105,7 +15546,9 @@ class _ServiceBootstrapResult {
     final profileMap = _readMap(json, const ['profile']);
     return _ServiceBootstrapResult(
       reminders: reminders,
-      total: _readInt(json, const ['total']) ?? reminders.length,
+      total: _readInt(json, const ['total']) ??
+          _readInt(_readMap(json, const ['reminders']), const ['total']) ??
+          reminders.length,
       stats: stats,
       profile:
           profileMap.isEmpty ? null : _ServiceWorkProfile.fromApi(profileMap),
@@ -15116,6 +15559,43 @@ class _ServiceBootstrapResult {
   final int total;
   final Map<String, int> stats;
   final _ServiceWorkProfile? profile;
+}
+
+List<_ServiceReminder> _readServiceReminderList(Object? rawValue) {
+  if (rawValue is List) {
+    return [
+      for (final item in rawValue)
+        if (item is Map<String, dynamic>)
+          _ServiceReminder.fromApi(item)
+        else if (item is Map)
+          _ServiceReminder.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  final map = rawValue is Map<String, dynamic>
+      ? rawValue
+      : rawValue is Map
+          ? rawValue.map((key, value) => MapEntry(key.toString(), value))
+          : const <String, dynamic>{};
+  if (map.isEmpty) return const [];
+
+  for (final key in const [
+    'reminders',
+    'items',
+    'list',
+    'records',
+    'results',
+    'rows',
+    'data',
+  ]) {
+    final value = map[key];
+    if (value == null) continue;
+    final reminders = _readServiceReminderList(value);
+    if (reminders.isNotEmpty) return reminders;
+  }
+  return const [];
 }
 
 class _ServiceMemoryExtractionResult {
@@ -15517,53 +15997,150 @@ class _ServiceReminder {
 
   factory _ServiceReminder.fromApi(Map<String, dynamic> json) {
     final metadata = _readMap(json, const ['metadata']);
-    final dueText = _readString(json, const ['due_text']);
-    final dueAt = _readString(json, const ['due_at', 'updated_at']);
-    final sourceMemoryIds = _readStringList(json, const ['source_memory_ids']);
-    final confidence = _readDouble(json, const ['confidence']) ?? 0;
+    String readServiceString(List<String> keys, {String fallback = ''}) {
+      final direct = _readString(json, keys);
+      if (direct.isNotEmpty) return direct;
+      return _readString(metadata, keys, fallback: fallback);
+    }
+
+    List<String> readServiceStringList(List<String> keys) {
+      final direct = _readStringList(json, keys);
+      if (direct.isNotEmpty) return direct;
+      return _readStringList(metadata, keys);
+    }
+
+    int? readServiceInt(List<String> keys) {
+      return _readInt(json, keys) ?? _readInt(metadata, keys);
+    }
+
+    double? readServiceDouble(List<String> keys) {
+      return _readDouble(json, keys) ?? _readDouble(metadata, keys);
+    }
+
+    final dueText = readServiceString(const ['due_text', 'dueText']);
+    final dueAt = readServiceString(
+      const [
+        'due_at',
+        'dueAt',
+        'next_follow_up_at',
+        'nextFollowUpAt',
+        'follow_up_at',
+        'followUpAt',
+        'updated_at',
+        'updatedAt',
+      ],
+    );
+    final sourceMemoryIds = readServiceStringList(
+      const ['source_memory_ids', 'sourceMemoryIds', 'memory_ids', 'memoryIds'],
+    );
+    final confidence = readServiceDouble(const ['confidence']) ?? 0;
     final memoryEvidence = _readMemoryEvidenceList(json['memory_evidence']);
     final workDocs = _readWorkDocList(json['work_docs']);
-    final updatedAt = _readString(json, const ['updated_at', 'created_at']);
+    final updatedAt = readServiceString(
+      const ['updated_at', 'updatedAt', 'created_at', 'createdAt'],
+    );
     return _ServiceReminder(
-      id: _readString(json, const ['id']),
-      title: _readString(json, const ['title'], fallback: '服务提醒'),
-      summary: _readString(json, const ['summary']),
-      status: _readString(json, const ['status'], fallback: 'pending'),
-      priority: _readString(json, const ['priority'], fallback: 'low'),
+      id: readServiceString(const ['id']),
+      title: readServiceString(
+        const [
+          'title',
+          'customer_name',
+          'customerName',
+          'parent_name',
+          'parentName',
+          'contact_name',
+          'contactName',
+          'lead_name',
+          'leadName',
+          'name',
+        ],
+        fallback: '服务提醒',
+      ),
+      summary: readServiceString(
+        const ['summary', 'assist_reason', 'assistReason', 'description'],
+      ),
+      status: readServiceString(
+        const ['status', 'state'],
+        fallback: 'pending',
+      ),
+      priority: readServiceString(
+        const ['priority', 'priority_key', 'priorityKey'],
+        fallback: 'low',
+      ),
       dueLabel: dueText.isNotEmpty
           ? dueText
           : (dueAt.isEmpty ? '待确认时间' : _formatApiDate(dueAt)),
-      stage: _readString(json, const ['stage']),
-      riskLabel: _readString(json, const ['risk_label']),
-      primaryAction: _readString(json, const ['primary_action']),
-      nextAction: _readString(json, const ['next_action']),
-      sourceMemoryCount: _readInt(json, const ['source_memory_count']) ??
-          sourceMemoryIds.length,
-      subjectId: _readString(json, const ['subject_id']),
-      profileId: _readString(json, const ['profile_id']),
-      agentDomain: _readString(json, const ['agent_domain']),
+      stage: readServiceString(
+        const [
+          'stage',
+          'stageText',
+          'sales_stage',
+          'salesStage',
+          'service_stage',
+          'serviceStage',
+        ],
+      ),
+      riskLabel: readServiceString(
+        const ['risk_label', 'riskLabel', 'risk', 'concern'],
+      ),
+      primaryAction: readServiceString(
+        const ['primary_action', 'primaryAction'],
+      ),
+      nextAction: readServiceString(
+        const [
+          'next_action',
+          'nextAction',
+          'follow_up_action',
+          'followUpAction',
+        ],
+      ),
+      sourceMemoryCount:
+          readServiceInt(const ['source_memory_count', 'sourceMemoryCount']) ??
+              sourceMemoryIds.length,
+      subjectId: readServiceString(const ['subject_id', 'subjectId']),
+      profileId: readServiceString(const ['profile_id', 'profileId']),
+      agentDomain: readServiceString(const ['agent_domain', 'agentDomain']),
       dueAt: dueAt,
-      channel: _readString(json, const ['channel'], fallback: '记忆'),
-      decisionRole: _readString(json, const ['decision_role']),
-      assistReason: _readString(json, const ['assist_reason']),
-      avoidAction: _readString(json, const ['avoid_action']),
-      contextItems: _readStringList(json, const ['context_items']),
-      memorySignals: _readStringList(json, const ['memory_signals']),
+      channel: readServiceString(
+        const ['channel', 'source_channel', 'sourceChannel'],
+        fallback: '记忆',
+      ),
+      decisionRole: readServiceString(
+        const [
+          'decision_role',
+          'decisionRole',
+          'decision_maker',
+          'decisionMaker',
+        ],
+      ),
+      assistReason: readServiceString(
+        const ['assist_reason', 'assistReason', 'reason'],
+      ),
+      avoidAction: readServiceString(const ['avoid_action', 'avoidAction']),
+      contextItems:
+          readServiceStringList(const ['context_items', 'contextItems']),
+      memorySignals:
+          readServiceStringList(const ['memory_signals', 'memorySignals']),
       sourceMemoryIds: sourceMemoryIds,
       lastMemoryLabel: _formatApiDate(
-        _readString(json, const ['last_memory_at', 'updated_at']),
+        readServiceString(
+          const ['last_memory_at', 'lastMemoryAt', 'updated_at', 'updatedAt'],
+        ),
       ),
       confidence: confidence,
       confidenceLabel: _formatConfidenceLabel(confidence),
-      salesHighlights: _readStringList(json, const ['sales_highlights']),
-      writeBackStatus: _readString(json, const ['write_back_status']),
-      writeBackDraft: _readString(json, const ['write_back_draft']),
-      replyDraft: _readString(json, const ['reply_draft']),
+      salesHighlights:
+          readServiceStringList(const ['sales_highlights', 'salesHighlights']),
+      writeBackStatus:
+          readServiceString(const ['write_back_status', 'writeBackStatus']),
+      writeBackDraft:
+          readServiceString(const ['write_back_draft', 'writeBackDraft']),
+      replyDraft: readServiceString(const ['reply_draft', 'replyDraft']),
       metadata: metadata,
       memoryEvidence: memoryEvidence,
       workDocs: workDocs,
       createdLabel: _formatApiDate(
-        _readString(json, const ['created_at']),
+        readServiceString(const ['created_at', 'createdAt']),
       ),
       updatedLabel: updatedAt.isEmpty ? '' : _formatApiDate(updatedAt),
     );
@@ -15604,14 +16181,70 @@ class _ServiceReminder {
   final String createdLabel;
   final String updatedLabel;
 
+  String get displayTitle {
+    final normalizedTitle = _normalizeSpaces(title);
+    if (normalizedTitle.isNotEmpty && normalizedTitle != '服务提醒') {
+      return normalizedTitle;
+    }
+    final normalizedCustomer = _normalizeSpaces(customerName);
+    if (normalizedCustomer.isNotEmpty &&
+        normalizedCustomer != '待补充客户' &&
+        normalizedCustomer != '服务提醒') {
+      return '$normalizedCustomer的服务提醒';
+    }
+    for (final value in [nextAction, primaryAction, summary, assistReason]) {
+      final normalized = _normalizeSpaces(value);
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '服务提醒';
+  }
+
+  String get displayDueLabel {
+    final normalized = _normalizeSpaces(dueLabel);
+    return normalized.isEmpty ? '待确认时间' : normalized;
+  }
+
+  String get stageText {
+    for (final value in [
+      stage,
+      _readString(
+        metadata,
+        const [
+          'stage',
+          'stageText',
+          'sales_stage',
+          'salesStage',
+          'service_stage',
+          'serviceStage',
+        ],
+      ),
+    ]) {
+      final normalized = _normalizeSpaces(value);
+      if (normalized.isNotEmpty) return normalized;
+    }
+    return '';
+  }
+
   String get customerName {
     final fromMetadata = _readString(
       metadata,
-      const ['customer_name', 'customerName', 'name'],
+      const [
+        'customer_name',
+        'customerName',
+        'parent_name',
+        'parentName',
+        'contact_name',
+        'contactName',
+        'lead_name',
+        'leadName',
+        'name',
+      ],
     );
-    return fromMetadata.isNotEmpty
-        ? fromMetadata
-        : (title.trim().isEmpty ? '待补充客户' : title.trim());
+    if (fromMetadata.isNotEmpty) return fromMetadata;
+    final normalizedTitle = _normalizeSpaces(title);
+    return normalizedTitle.isEmpty || normalizedTitle == '服务提醒'
+        ? '待补充客户'
+        : normalizedTitle;
   }
 
   String get studentName {

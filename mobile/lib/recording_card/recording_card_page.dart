@@ -300,6 +300,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   Timer? _recordingTickTimer;
   Timer? _postRecordingFileListTimer;
   Timer? _deleteDeviceFileTimeoutTimer;
+  final Set<String> _postRecordingKnownFileKeys = <String>{};
 
   BleStatus _bleStatus = BleStatus.unknown;
   DeviceConnectionState _connectionState = DeviceConnectionState.disconnected;
@@ -339,6 +340,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   bool _cloudSyncInProgress = false;
   bool _clearingDeviceFiles = false;
   bool _handlingDownloadFailure = false;
+  bool _postRecordingFileListRefreshInFlight = false;
   bool _awaitingStopAck = false;
   bool _stopRequestedForRetry = false;
   bool _stopRequestedForPause = false;
@@ -359,6 +361,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   final Set<String> _firstFileListPageKeys = <String>{};
   Endian _audioAddressByteOrder = Endian.big;
   int _activeTransferToken = 0;
+  int _postRecordingFileListRefreshAttempt = 0;
   RecordingCardFileEntry? _activeFile;
   RandomAccessFile? _activeFileWriter;
   BytesBuilder? _activeAudioBuffer;
@@ -370,6 +373,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   DateTime? _lastDownloadPersistAt;
   DateTime? _downloadStartedAt;
   DateTime? _lastDownloadSpeedSampleAt;
+  DateTime? _lastRecordingStatusPollAt;
   int _lastDownloadPersistedBytes = 0;
   int _lastDownloadSpeedSampleBytes = 0;
   double? _downloadSpeedBytesPerSecond;
@@ -377,9 +381,12 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   static const Duration _downloadUiUpdateInterval = Duration(seconds: 1);
   static const Duration _downloadPersistInterval = Duration(seconds: 4);
   static const Duration _cloudSyncTransientRetryDelay = Duration(seconds: 20);
+  static const Duration _postRecordingFileListRetryDelay = Duration(seconds: 3);
+  static const Duration _recordingStatusPollInterval = Duration(seconds: 5);
   static const int _audioPayloadMaxBytes = 240;
   static const int _downloadPersistByteInterval = 256 * 1024;
   static const int _audioWriteBufferByteThreshold = 64 * 1024;
+  static const int _postRecordingFileListMaxAttempts = 5;
 
   @override
   void initState() {
@@ -923,6 +930,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   void _schedulePostRecordingFileListRefresh({
     Duration delay = const Duration(seconds: 2),
     String message = '录音已保存，正在读取文件',
+    int attempt = 0,
   }) {
     if (!mounted ||
         _activeDeviceId == null ||
@@ -933,7 +941,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _postRecordingFileListTimer?.cancel();
     _postRecordingFileListTimer = Timer(delay, () {
       _postRecordingFileListTimer = null;
-      unawaited(_runPostRecordingFileListRefresh());
+      unawaited(_runPostRecordingFileListRefresh(attempt: attempt));
     });
 
     if (message.isNotEmpty &&
@@ -947,28 +955,102 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
   }
 
-  Future<void> _runPostRecordingFileListRefresh() async {
+  void _preparePostRecordingFileDiscovery() {
+    _postRecordingKnownFileKeys
+      ..clear()
+      ..addAll(_fileEntries.keys);
+    _postRecordingFileListRefreshAttempt = 0;
+    _postRecordingFileListRefreshInFlight = false;
+  }
+
+  void _resetPostRecordingFileDiscovery() {
+    _postRecordingFileListTimer?.cancel();
+    _postRecordingFileListTimer = null;
+    _postRecordingKnownFileKeys.clear();
+    _postRecordingFileListRefreshAttempt = 0;
+    _postRecordingFileListRefreshInFlight = false;
+  }
+
+  bool _hasDiscoveredPostRecordingFile() {
+    return _fileEntries.keys.any(
+      (fileName) => !_postRecordingKnownFileKeys.contains(fileName),
+    );
+  }
+
+  bool _retryPostRecordingFileDiscoveryIfNeeded() {
+    if (!_postRecordingFileListRefreshInFlight) return false;
+    _postRecordingFileListRefreshInFlight = false;
+    if (_hasDiscoveredPostRecordingFile()) {
+      _postRecordingKnownFileKeys.clear();
+      return false;
+    }
+
+    final nextAttempt = _postRecordingFileListRefreshAttempt + 1;
+    if (nextAttempt >= _postRecordingFileListMaxAttempts) {
+      _postRecordingKnownFileKeys.clear();
+      return false;
+    }
+
+    _schedulePostRecordingFileListRefresh(
+      delay: _postRecordingFileListRetryDelay,
+      message: '录音文件仍在保存，稍后再次读取',
+      attempt: nextAttempt,
+    );
+    return true;
+  }
+
+  Future<void> _runPostRecordingFileListRefresh({int attempt = 0}) async {
     if (!mounted ||
         _activeDeviceId == null ||
         _connectionState != DeviceConnectionState.connected) {
       return;
     }
 
-    if (_activeFile != null || _loadingFileList || _awaitingFileListPage) {
+    if (_bluetoothTransferBusy ||
+        _cloudSyncInProgress ||
+        _clearingDeviceFiles ||
+        _deleteDeviceFileCompleter != null ||
+        _loadingFileList ||
+        _awaitingFileListPage) {
       _schedulePostRecordingFileListRefresh(
-        delay: const Duration(seconds: 3),
+        delay: _postRecordingFileListRetryDelay,
         message: '',
+        attempt: attempt,
       );
       return;
     }
 
+    _postRecordingFileListRefreshAttempt = attempt;
+    _postRecordingFileListRefreshInFlight = true;
     if (mounted) {
       setState(() {
         _fileSyncMessage = '正在读取录音卡保存后的文件列表';
         _fileSyncError = null;
       });
     }
-    await _refreshFileList(force: true);
+    try {
+      await _refreshFileList(force: true);
+    } catch (error) {
+      _postRecordingFileListRefreshInFlight = false;
+      if (!mounted) return;
+      setState(() {
+        _fileSyncError = '录音文件列表读取失败：$error';
+      });
+      final nextAttempt = attempt + 1;
+      if (nextAttempt < _postRecordingFileListMaxAttempts) {
+        _schedulePostRecordingFileListRefresh(
+          delay: _postRecordingFileListRetryDelay,
+          message: '录音文件列表读取失败，稍后重试',
+          attempt: nextAttempt,
+        );
+      } else {
+        _postRecordingKnownFileKeys.clear();
+      }
+      return;
+    }
+    if (mounted && !_loadingFileList && !_awaitingFileListPage) {
+      _retryPostRecordingFileDiscoveryIfNeeded();
+    }
   }
 
   Future<void> _refreshDeviceInfo({bool safeInitial = false}) async {
@@ -1395,6 +1477,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _connectionSession.saveSnapshot(snapshot);
     _publishRecordingSnapshot(snapshot);
     if (recordingJustStopped) {
+      _preparePostRecordingFileDiscovery();
       _schedulePostRecordingFileListRefresh();
     }
   }
@@ -1422,8 +1505,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _handleRecordingStarted(List<int> payload) {
-    _postRecordingFileListTimer?.cancel();
-    _postRecordingFileListTimer = null;
+    _resetPostRecordingFileDiscovery();
     final fileName = _normalizeDeviceFileName(
       RecordingCardProtocol.decodeAscii(payload),
     );
@@ -1462,6 +1544,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _handleRecordingStopped(List<int> payload) {
+    _preparePostRecordingFileDiscovery();
     final completion = _parseRecordingCompletionPayload(payload);
     final snapshot =
         (_snapshot ?? _DeviceSnapshot(deviceId: _activeDeviceId ?? ''))
@@ -1512,6 +1595,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _handleRecordingFailure(List<int> _) {
+    _resetPostRecordingFileDiscovery();
     _applySnapshot(
       (_snapshot ?? _DeviceSnapshot(deviceId: _activeDeviceId ?? '')).copyWith(
         recordingState: 0,
@@ -1778,10 +1862,21 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     RecordingCardFileEntry entry, {
     bool persist = true,
   }) {
+    final previous = _fileEntries[entry.fileNameNoExt];
     final next = entry.copyWith(updatedAt: DateTime.now());
     _fileEntries[next.fileNameNoExt] = next;
     if (persist) {
-      unawaited(_localStore.saveFile(next));
+      final shouldNotifyQueue = previous == null ||
+          previous.transferStatus != next.transferStatus ||
+          previous.cloudMemoryId != next.cloudMemoryId ||
+          previous.lastError != next.lastError;
+      unawaited(
+        _localStore.saveFile(next).then<void>((_) {
+          if (shouldNotifyQueue) {
+            RecordingCardFileQueueBus.notifyChanged();
+          }
+        }),
+      );
     }
     return next;
   }
@@ -1855,11 +1950,22 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (!mounted) return;
 
     if (_fileListFallbackStage >= 2) {
+      final wasPostRecordingRefresh = _postRecordingFileListRefreshInFlight;
+      final discoveredPostRecordingFile =
+          wasPostRecordingRefresh && _hasDiscoveredPostRecordingFile();
       setState(() {
         _loadingFileList = false;
         _awaitingFileListPage = false;
-        _fileSyncError = exhaustedError;
+        _fileSyncError = wasPostRecordingRefresh ? null : exhaustedError;
       });
+      if (_retryPostRecordingFileDiscoveryIfNeeded()) return;
+      if (wasPostRecordingRefresh && !discoveredPostRecordingFile) {
+        setState(() {
+          _fileSyncMessage = '未发现刚结束的录音，请稍后手动刷新';
+          _fileSyncError = exhaustedError;
+        });
+      }
+      unawaited(_advanceSyncQueue());
       return;
     }
 
@@ -2008,6 +2114,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
   void _finishFileListSync() {
     if (!mounted) return;
+    final wasPostRecordingRefresh = _postRecordingFileListRefreshInFlight;
+    final discoveredPostRecordingFile =
+        wasPostRecordingRefresh && _hasDiscoveredPostRecordingFile();
     setState(() {
       _loadingFileList = false;
       _awaitingFileListPage = false;
@@ -2018,6 +2127,14 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
               : '文件列表已读取，正在自动导入';
       _lastFileSyncAt = DateTime.now();
     });
+    if (_retryPostRecordingFileDiscoveryIfNeeded()) return;
+    if (wasPostRecordingRefresh &&
+        !discoveredPostRecordingFile &&
+        _fileEntries.isEmpty) {
+      setState(() {
+        _fileSyncMessage = '未发现刚结束的录音，请稍后手动刷新';
+      });
+    }
     unawaited(_advanceSyncQueue());
   }
 
@@ -2547,6 +2664,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _handleShortRecordingNotice() {
+    _resetPostRecordingFileDiscovery();
     _applySnapshot(
       (_snapshot ?? _DeviceSnapshot(deviceId: _activeDeviceId ?? '')).copyWith(
         recordingState: 0,
@@ -3791,7 +3909,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         lastError: '',
       );
       _upsertFileEntry(synced);
-      RecordingCardAppSyncBus.notifyChanged();
+      RecordingCardAppSyncBus.notifyChanged(memoryId: uploadResult.id);
       if (!mounted) return;
       setState(() {
         _fileSyncMessage = '${_recordingMemoryTitle(synced)} 已生成记忆，正在删除设备文件';
@@ -4027,6 +4145,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
   Future<void> _stopDeviceRecording() async {
     if (!await _canSendDeviceCommand()) return;
+    _preparePostRecordingFileDiscovery();
     final sent = await _runRecordCommand(
       command: const _CommandFrame(0x04),
       pendingMessage: '正在结束录音',
@@ -4036,6 +4155,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         delay: const Duration(seconds: 5),
         message: '已发送结束命令，等待设备保存文件',
       );
+    } else {
+      _resetPostRecordingFileDiscovery();
     }
   }
 
@@ -4290,9 +4411,11 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
           _recordingTickTimer = null;
           return;
         }
+        final now = DateTime.now();
+        _maybePollRecordingStatusDuringRecording(now);
         final next = current.copyWith(
           recordingDurationSeconds: (current.recordingDurationSeconds ?? 0) + 1,
-          lastUpdatedAt: DateTime.now(),
+          lastUpdatedAt: now,
         );
         setState(() {
           _snapshot = next;
@@ -4306,11 +4429,34 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
     _recordingTickTimer?.cancel();
     _recordingTickTimer = null;
+    _lastRecordingStatusPollAt = null;
+  }
+
+  void _maybePollRecordingStatusDuringRecording(DateTime now) {
+    if (_activeDeviceId == null ||
+        _connectionState != DeviceConnectionState.connected ||
+        _recordCommandBusy ||
+        _bluetoothTransferBusy) {
+      return;
+    }
+    final lastPoll = _lastRecordingStatusPollAt;
+    if (lastPoll != null &&
+        now.difference(lastPoll) < _recordingStatusPollInterval) {
+      return;
+    }
+    _lastRecordingStatusPollAt = now;
+    unawaited(
+      _writeCommand(const _CommandFrame(0x0f)).catchError(
+        (Object error, StackTrace stackTrace) {
+          _logRecordingCardProtocol('RECORDING_STATUS poll failed: $error');
+        },
+      ),
+    );
   }
 
   Future<void> _handleDeviceDisconnected() async {
-    _postRecordingFileListTimer?.cancel();
-    _postRecordingFileListTimer = null;
+    _resetPostRecordingFileDiscovery();
+    _lastRecordingStatusPollAt = null;
     _commandNotifyBuffer.clear();
     _audioNotifyBuffer.clear();
     await _notifySubscription?.cancel();
@@ -4348,8 +4494,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   Future<void> _disconnect({bool restartScan = false}) async {
-    _postRecordingFileListTimer?.cancel();
-    _postRecordingFileListTimer = null;
+    _resetPostRecordingFileDiscovery();
+    _lastRecordingStatusPollAt = null;
     _commandNotifyBuffer.clear();
     _audioNotifyBuffer.clear();
     await _notifySubscription?.cancel();
