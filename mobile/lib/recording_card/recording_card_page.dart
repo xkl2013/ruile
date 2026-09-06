@@ -1945,19 +1945,35 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     });
   }
 
-  void _requestNextFileListFallback({required String exhaustedError}) {
+  void _requestNextFileListFallback({
+    required String exhaustedError,
+    bool emptyQueueFailureMeansNoFiles = false,
+  }) {
     _fileListTimeoutTimer?.cancel();
     if (!mounted) return;
 
-    if (_fileListFallbackStage >= 2) {
+    if (_fileListFallbackStage >= 1) {
       final wasPostRecordingRefresh = _postRecordingFileListRefreshInFlight;
       final discoveredPostRecordingFile =
           wasPostRecordingRefresh && _hasDiscoveredPostRecordingFile();
+      final treatAsEmptyDeviceList = emptyQueueFailureMeansNoFiles &&
+          !wasPostRecordingRefresh &&
+          _fileEntries.isEmpty;
       setState(() {
         _loadingFileList = false;
         _awaitingFileListPage = false;
-        _fileSyncError = wasPostRecordingRefresh ? null : exhaustedError;
+        if (treatAsEmptyDeviceList) {
+          _fileSyncMessage = '设备中没有录音文件';
+          _fileSyncError = null;
+          _lastFileSyncAt = DateTime.now();
+        } else {
+          _fileSyncError = wasPostRecordingRefresh ? null : exhaustedError;
+        }
       });
+      if (treatAsEmptyDeviceList) {
+        unawaited(_advanceSyncQueue());
+        return;
+      }
       if (_retryPostRecordingFileDiscoveryIfNeeded()) return;
       if (wasPostRecordingRefresh && !discoveredPostRecordingFile) {
         setState(() {
@@ -1970,12 +1986,12 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
 
     _fileListFallbackRequested = true;
-    _fileListFallbackStage += 1;
+    _fileListFallbackStage = 1;
     unawaited(
       _requestFileListPage(
         pageIndex: 0,
         pageSize: 0,
-        fallbackWithoutPaging: _fileListFallbackStage >= 2,
+        fallbackWithoutPaging: true,
       ),
     );
   }
@@ -2071,17 +2087,6 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         ..clear()
         ..addAll(_currentFileListPageKeys);
     }
-    if (_fileListPageIndex == 0 &&
-        _currentFileListPageEntries == 0 &&
-        _fileListFallbackStage < 2) {
-      setState(() {
-        _fileSyncMessage = '当前文件列表为空，正在尝试兼容模式';
-      });
-      _requestNextFileListFallback(
-        exhaustedError: '设备中没有录音文件',
-      );
-      return;
-    }
     if (repeatedFirstPage || pageWithoutNewFiles) {
       _logRecordingCardProtocol(
         'FILE_LIST_STOP repeatedFirstPage=$repeatedFirstPage '
@@ -2144,6 +2149,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
     _requestNextFileListFallback(
       exhaustedError: '文件列表获取失败，请检查设备端是否支持 0x05。',
+      emptyQueueFailureMeansNoFiles: true,
     );
   }
 

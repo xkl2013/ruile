@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="睿乐大脑录音卡硬件指南，说明设备连接、录音、同步、参数设置和常见问题处理。"
+    />
+    <title>录音卡硬件指南｜睿乐大脑</title>
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/help/help-page.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container nav-wrap">
+        <a class="brand" href="/">
+          <span class="brand-mark">睿</span>
+          <span>睿乐大脑</span>
+          <span class="brand-extension">幼教版</span>
+        </a>
+        <nav class="header-links" aria-label="帮助中心导航">
+          <a class="nav-link" href="/help/user-guide.html">使用文档</a>
+          <a class="nav-link" href="/help/recording-card-guide.html" aria-current="page">录音卡硬件指南</a>
+          <a class="nav-link" href="/help/about.html">关于我们</a>
+          <a class="nav-link" href="/">返回首页</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="help-hero">
+        <div class="container">
+          <p class="eyebrow"><span class="eyebrow-line"></span> RECORDING CARD</p>
+          <h1>录音卡硬件指南</h1>
+          <p>
+            本指南说明如何在移动端连接录音卡、控制录音、同步录音文件，并处理常见蓝牙与文件读取问题。实际按钮、指示灯和容量表现以你手中的设备型号为准。
+          </p>
+          <div class="help-meta">
+            <span>适用版本：v1.0.0</span>
+            <span>公开页面：无需登录访问</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="help-content">
+        <div class="container help-layout">
+          <aside class="help-toc" aria-label="录音卡指南目录">
+            <a href="#prepare">一、使用前准备</a>
+            <a href="#connect">二、连接设备</a>
+            <a href="#record">三、录音控制</a>
+            <a href="#sync">四、同步文件</a>
+            <a href="#settings">五、参数设置</a>
+            <a href="#issues">六、常见问题</a>
+          </aside>
+
+          <article class="help-card">
+            <section id="prepare" class="help-section">
+              <h2>一、使用前准备</h2>
+              <p>
+                使用录音卡前，请确认设备电量充足，手机蓝牙已开启，App 已获得蓝牙相关权限。若系统弹出蓝牙、附近设备或定位权限提示，请按实际系统要求授权，否则可能无法扫描或连接设备。
+              </p>
+              <ul>
+                <li>首次使用前建议将录音卡充电至 50% 以上。</li>
+                <li>保持手机与录音卡在近距离范围内，减少墙体和金属物遮挡。</li>
+                <li>避免同时让多台手机连接同一张录音卡。</li>
+              </ul>
+            </section>
+
+            <section id="connect" class="help-section">
+              <h2>二、连接设备</h2>
+              <p>
+                进入 App 的“我的设备”或“录音卡”入口后，点击扫描或刷新。找到目标设备后发起连接，连接成功后页面会显示设备 MAC、录音状态、降噪等级和分段录音时长等信息。
+              </p>
+              <div class="help-table" role="table" aria-label="连接状态说明">
+                <div role="row">
+                  <span role="cell">未发现设备</span>
+                  <p role="cell">确认录音卡已开机且未被其他手机占用，然后重新扫描。</p>
+                </div>
+                <div role="row">
+                  <span role="cell">连接失败</span>
+                  <p role="cell">关闭手机蓝牙后重新开启，或重启录音卡再尝试连接。</p>
+                </div>
+                <div role="row">
+                  <span role="cell">连接断开</span>
+                  <p role="cell">靠近设备后点击刷新，必要时在系统蓝牙设置中忽略设备后重新连接。</p>
+                </div>
+              </div>
+            </section>
+
+            <section id="record" class="help-section">
+              <h2>三、录音控制</h2>
+              <p>
+                设备连接成功后，可以在 App 中查看当前录音状态，并根据设备支持情况执行开始、暂停和结束录音。若按钮不可用，表示当前状态或设备固件暂不支持该操作。
+              </p>
+              <ul>
+                <li><strong>开始：</strong>用于开启一段新的录音。</li>
+                <li><strong>暂停：</strong>用于临时中断录音，后续可继续或结束。</li>
+                <li><strong>结束：</strong>用于停止录音并让设备生成可同步文件。</li>
+              </ul>
+            </section>
+
+            <section id="sync" class="help-section">
+              <h2>四、同步文件</h2>
+              <p>
+                点击文件刷新后，App 会读取录音卡中的文件列表。读取成功后可选择录音文件导入，导入过程需要保持设备连接稳定，避免切换应用或锁屏过久。
+              </p>
+              <ul>
+                <li>若文件列表为空，请确认设备上已经结束录音并生成文件。</li>
+                <li>若读取失败，请先刷新设备状态，再重新读取文件列表。</li>
+                <li>传输过程中保持手机靠近录音卡，等待导入完成后再断开设备。</li>
+              </ul>
+              <div class="note-box">
+                <strong>文件列表读取失败</strong>
+                <p>如果页面提示“文件列表获取失败，请检查设备端是否支持”，通常表示设备固件不支持当前文件列表协议，或设备尚未完成文件生成。请重启设备、更新固件或联系设备提供方确认支持情况。</p>
+              </div>
+            </section>
+
+            <section id="settings" class="help-section">
+              <h2>五、参数设置</h2>
+              <p>
+                录音卡页面可能提供降噪等级和分段录音时长等设置。调整设置后，App 会把参数写入设备；写入结果取决于当前设备固件能力。
+              </p>
+              <div class="help-table" role="table" aria-label="参数设置说明">
+                <div role="row">
+                  <span role="cell">降噪等级</span>
+                  <p role="cell">可根据现场环境选择关、低、中、高，嘈杂环境可提高等级。</p>
+                </div>
+                <div role="row">
+                  <span role="cell">分段时长</span>
+                  <p role="cell">用于控制录音文件自动切分周期，便于后续同步和整理。</p>
+                </div>
+              </div>
+            </section>
+
+            <section id="issues" class="help-section">
+              <h2>六、常见问题</h2>
+              <ul>
+                <li><strong>无法扫描：</strong>确认系统蓝牙权限已开启，并让设备处于可连接状态。</li>
+                <li><strong>同步很慢：</strong>减少距离和遮挡，避免同时运行大量蓝牙设备。</li>
+                <li><strong>没有录音文件：</strong>确认录音已经结束，设备已完成文件保存。</li>
+                <li><strong>状态不刷新：</strong>断开后重新连接，或重启 App 与录音卡。</li>
+              </ul>
+            </section>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-inner">
+        <span>© 2026 睿乐大脑 · 早幼教 AI 运营中枢</span>
+        <a href="/privacy.html">隐私政策</a>
+      </div>
+    </footer>
+  </body>
+</html>

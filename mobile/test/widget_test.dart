@@ -160,6 +160,72 @@ void main() {
     expect(find.text('服务模块产生客户后会出现在这里'), findsOneWidget);
   });
 
+  testWidgets('opens user settings from the drawer profile header', (
+    tester,
+  ) async {
+    const session = AuthSession(
+      token: '',
+      userName: '地平线',
+      tenantName: '睿乐空间',
+    );
+    await tester.pumpWidget(const RuileMobileApp(initialSession: session));
+
+    await tester.tap(find.byTooltip('菜单'));
+    await _pumpTransition(tester);
+
+    final drawer = find.byType(Drawer);
+    expect(
+      find.descendant(of: drawer, matching: find.text('地平线')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.descendant(of: drawer, matching: find.text('地平线')));
+    await _pumpTransition(tester);
+    await _pumpTransition(tester);
+
+    expect(find.text('我的账号'), findsOneWidget);
+    expect(find.text('版本信息'), findsOneWidget);
+    expect(find.text('版本说明'), findsOneWidget);
+    expect(find.text('v1.0.0'), findsOneWidget);
+    expect(find.text('帮助中心'), findsOneWidget);
+    expect(find.text('使用文档'), findsOneWidget);
+    expect(find.text('录音卡硬件指南'), findsOneWidget);
+    expect(find.text('关于我们'), findsOneWidget);
+    expect(find.text('开发票'), findsNothing);
+    expect(find.text('帮助与客服'), findsNothing);
+    expect(find.text('版本更新'), findsNothing);
+    expect(find.text('版本介绍'), findsNothing);
+    expect(find.text('地平线'), findsNothing);
+    expect(find.text('睿乐空间'), findsNothing);
+    expect(find.text('退出登录'), findsOneWidget);
+
+    await tester.tap(find.text('关于我们'));
+    await tester.pump();
+    expect(find.text('关于我们 功能待接入'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('user-settings-back')));
+    await _pumpTransition(tester);
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.text('我的账号'), findsNothing);
+    expect(find.text('知识库'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('菜单'));
+    await _pumpTransition(tester);
+    await tester.tap(
+      find.descendant(of: find.byType(Drawer), matching: find.text('地平线')),
+    );
+    await _pumpTransition(tester);
+    await _pumpTransition(tester);
+
+    expect(find.text('我的账号'), findsOneWidget);
+    await tester.tap(find.text('退出登录'));
+    await _pumpTransition(tester);
+    await tester.pump();
+
+    expect(find.text('登录睿乐大脑'), findsOneWidget);
+  });
+
   testWidgets('opens avatar profile from the drawer and shows description', (
     tester,
   ) async {

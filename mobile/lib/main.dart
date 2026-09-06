@@ -1992,6 +1992,15 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  void _openUserSettingsFromDrawer() {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _UserSettingsPage(onLogout: widget.onLogout),
+      ),
+    );
+  }
+
   void _openAvatarProfileFromDrawer() {
     if (!mounted) return;
     Navigator.of(context).push(
@@ -2035,6 +2044,7 @@ class _MainShellState extends State<MainShell> {
         customerSpaceCount: _customerSpaceCount,
         onOpenCustomerSpaces: _openCustomerSpaceListFromDrawer,
         onOpenRecordingCard: _openRecordingCardFromDrawer,
+        onOpenUserSettings: _openUserSettingsFromDrawer,
         onOpenAvatarProfile: _openAvatarProfileFromDrawer,
         onOpenDaily: _openDailyReportFromDrawer,
       ),
@@ -2066,6 +2076,7 @@ class _MainSideDrawer extends StatelessWidget {
     required this.session,
     required this.onOpenCustomerSpaces,
     required this.onOpenRecordingCard,
+    required this.onOpenUserSettings,
     required this.onOpenAvatarProfile,
     required this.onOpenDaily,
     this.customerSpaceCount,
@@ -2074,6 +2085,7 @@ class _MainSideDrawer extends StatelessWidget {
   final AuthSession session;
   final VoidCallback onOpenCustomerSpaces;
   final VoidCallback onOpenRecordingCard;
+  final VoidCallback onOpenUserSettings;
   final VoidCallback onOpenAvatarProfile;
   final VoidCallback onOpenDaily;
   final int? customerSpaceCount;
@@ -2103,7 +2115,10 @@ class _MainSideDrawer extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(22, 20, 22, 28),
           children: [
-            _DrawerProfileHeader(userName: userName),
+            _DrawerProfileHeader(
+              userName: userName,
+              onTap: () => _closeAndRun(context, onOpenUserSettings),
+            ),
             const SizedBox(height: 26),
             const Divider(height: 1, color: AppColors.border),
             const SizedBox(height: 18),
@@ -2150,15 +2165,17 @@ class _MainSideDrawer extends StatelessWidget {
 class _DrawerProfileHeader extends StatelessWidget {
   const _DrawerProfileHeader({
     required this.userName,
+    required this.onTap,
   });
 
   final String userName;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(10),
-      onTap: () => Navigator.of(context).pop(),
+      onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
@@ -2343,6 +2360,269 @@ class _DrawerConnectionDot extends StatelessWidget {
       decoration: const BoxDecoration(
         color: Color(0xFF52C49A),
         shape: BoxShape.circle,
+      ),
+    );
+  }
+}
+
+class _UserSettingsPage extends StatelessWidget {
+  const _UserSettingsPage({
+    required this.onLogout,
+  });
+
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            const _UserSettingsTitleBar(),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(10, 18, 10, 28),
+                children: [
+                  const _UserSettingsSectionTitle('版本信息'),
+                  const SizedBox(height: 14),
+                  const _UserSettingsSection(
+                    children: [
+                      _UserSettingsRow(
+                        icon: Icons.refresh,
+                        title: '版本说明',
+                        trailingText: 'v1.0.0',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+                  const _UserSettingsSectionTitle('帮助中心'),
+                  const SizedBox(height: 14),
+                  const _UserSettingsSection(
+                    children: [
+                      _UserSettingsRow(
+                        icon: Icons.description_outlined,
+                        title: '使用文档',
+                      ),
+                      _UserSettingsRow(
+                        icon: Icons.menu_book_outlined,
+                        title: '录音卡硬件指南',
+                      ),
+                      _UserSettingsRow(
+                        icon: Icons.help_outline,
+                        title: '关于我们',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+                  _UserSettingsLogoutButton(onTap: onLogout),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UserSettingsTitleBar extends StatelessWidget {
+  const _UserSettingsTitleBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 56,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const Center(
+            child: Text(
+              '我的账号',
+              style: TextStyle(
+                fontSize: 16,
+                height: 1.2,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 10,
+            child: Material(
+              color: AppColors.surface,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => Navigator.of(context).popUntil(
+                  (route) => route.isFirst,
+                ),
+                child: const SizedBox(
+                  key: Key('user-settings-back'),
+                  width: 44,
+                  height: 44,
+                  child: Tooltip(
+                    message: '返回',
+                    child: Icon(
+                      Icons.chevron_left,
+                      color: AppColors.textPrimary,
+                      size: 26,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserSettingsSectionTitle extends StatelessWidget {
+  const _UserSettingsSectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 18,
+        height: 1.25,
+        color: AppColors.textPrimary,
+        fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+}
+
+class _UserSettingsSection extends StatelessWidget {
+  const _UserSettingsSection({
+    required this.children,
+  });
+
+  final List<_UserSettingsRow> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          for (var index = 0; index < children.length; index++) ...[
+            children[index],
+            if (index != children.length - 1)
+              const Divider(
+                height: 1,
+                indent: 68,
+                endIndent: 18,
+                color: Color(0xFFECEEF3),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _UserSettingsRow extends StatelessWidget {
+  const _UserSettingsRow({
+    required this.icon,
+    required this.title,
+    this.trailingText,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? trailingText;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 68,
+      child: Row(
+        children: [
+          const SizedBox(width: 26),
+          Icon(
+            icon,
+            color: AppColors.textPrimary,
+            size: 21,
+          ),
+          const SizedBox(width: 22),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                height: 1.2,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          if (trailingText case final trailingText?)
+            Padding(
+              padding: const EdgeInsets.only(left: 12),
+              child: Text(
+                trailingText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 16,
+                  height: 1.2,
+                  color: AppColors.textTertiary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          const Icon(
+            Icons.chevron_right,
+            color: AppColors.textTertiary,
+            size: 24,
+          ),
+          const SizedBox(width: 18),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserSettingsLogoutButton extends StatelessWidget {
+  const _UserSettingsLogoutButton({
+    required this.onTap,
+  });
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: const SizedBox(
+          height: 52,
+          child: Center(
+            child: Text(
+              '退出登录',
+              style: TextStyle(
+                fontSize: 16,
+                height: 1.2,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -3969,14 +4249,6 @@ class _NotesPageState extends State<NotesPage> {
                         Navigator.pop(context);
                         unawaited(_extractServiceFromNote(note));
                       },
-              ),
-              ListTile(
-                leading: const Icon(Icons.ios_share),
-                title: const Text('分享'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showMessage('分享功能待接入');
-                },
               ),
               ListTile(
                 leading: const Icon(Icons.delete_outline),
@@ -9930,22 +10202,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.copy_outlined),
-                title: const Text('复制标题'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showMessage('复制功能待接入');
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.ios_share),
-                title: const Text('分享'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showMessage('分享功能待接入');
-                },
-              ),
-              ListTile(
                 leading: const Icon(Icons.delete_outline, color: Colors.red),
                 title: const Text(
                   '删除笔记',
@@ -10021,15 +10277,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                     loading: _sproutCreating,
                     enabled: !_sproutLoading && !_sproutCreating,
                     onTap: () => unawaited(_handleSproutAction()),
-                  ),
-                  const SizedBox(width: 14),
-                  _KnowledgeRoundButton(
-                    tooltip: '分享',
-                    icon: Icons.open_in_new,
-                    backgroundColor: _buttonColor,
-                    size: 40,
-                    iconSize: 22,
-                    onTap: () => _showMessage('分享功能待接入'),
                   ),
                   const SizedBox(width: 14),
                   _KnowledgeRoundButton(

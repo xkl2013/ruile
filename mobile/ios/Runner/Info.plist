@@ -34,6 +34,8 @@
 	<string>用于录制语音记忆并保存为本地音频。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>用于实时识别录音内容并生成记忆文本。</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 北京睿乐创科技有限公司</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
