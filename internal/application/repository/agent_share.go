@@ -166,38 +166,41 @@ func (r *agentShareRepository) CountByOrganizations(ctx context.Context, orgIDs 
 	return out, nil
 }
 
-// ListSharedAgentsForTenant lists all agents shared to organizations that the
-// caller's tenant participates in. Plan 3 of #1303 keys this on tenant rather
-// than user.
+// ListSharedAgentsForTenant lists all agents shared to organizations where the
+// current account participates. tenantID is kept for the historical signature;
+// membership visibility is not scoped by the member's source tenant.
 func (r *agentShareRepository) ListSharedAgentsForTenant(ctx context.Context, tenantID uint64) ([]*types.AgentShare, error) {
 	var shares []*types.AgentShare
-	err := r.db.WithContext(ctx).
+	q := r.db.WithContext(ctx).
+		Distinct("agent_shares.*").
 		Joins("JOIN custom_agents ON custom_agents.id = agent_shares.agent_id AND custom_agents.tenant_id = agent_shares.source_tenant_id AND custom_agents.deleted_at IS NULL").
 		Preload("Agent").
 		Preload("Organization").
 		Joins("JOIN organization_tenant_members otm ON otm.organization_id = agent_shares.organization_id").
 		Joins("JOIN organizations ON organizations.id = agent_shares.organization_id AND organizations.deleted_at IS NULL").
-		Where("otm.tenant_id = ?", tenantID).
-		Where("agent_shares.deleted_at IS NULL").
-		Order("agent_shares.created_at DESC").
-		Find(&shares).Error
+		Where("agent_shares.deleted_at IS NULL")
+	q = applyCurrentOrganizationMemberScope(ctx, q, "otm.representative_user_id")
+	err := q.Order("agent_shares.created_at DESC").Find(&shares).Error
 	if err != nil {
 		return nil, err
 	}
+	_ = tenantID
 	return shares, nil
 }
 
 // GetShareByAgentIDForTenant returns one share for the given agentID that the
-// tenant can reach (tenant participates in some org with the share), excluding
+// current account can reach (the account participates in some org with the share), excluding
 // source_tenant_id == excludeTenantID. Single query.
 func (r *agentShareRepository) GetShareByAgentIDForTenant(ctx context.Context, tenantID uint64, agentID string, excludeTenantID uint64) (*types.AgentShare, error) {
 	var share types.AgentShare
-	tx := r.db.WithContext(ctx).
+	q := r.db.WithContext(ctx).
+		Distinct("agent_shares.*").
 		Joins("JOIN organization_tenant_members otm ON otm.organization_id = agent_shares.organization_id").
 		Where("agent_shares.agent_id = ?", agentID).
-		Where("otm.tenant_id = ?", tenantID).
 		Where("agent_shares.source_tenant_id != ?", excludeTenantID).
-		Where("agent_shares.deleted_at IS NULL").
+		Where("agent_shares.deleted_at IS NULL")
+	q = applyCurrentOrganizationMemberScope(ctx, q, "otm.representative_user_id")
+	tx := q.
 		Order("agent_shares.id").
 		Limit(1).
 		Find(&share)
@@ -207,5 +210,6 @@ func (r *agentShareRepository) GetShareByAgentIDForTenant(ctx context.Context, t
 	if tx.RowsAffected == 0 {
 		return nil, ErrAgentShareNotFound
 	}
+	_ = tenantID
 	return &share, nil
 }

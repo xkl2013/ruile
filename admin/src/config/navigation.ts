@@ -40,8 +40,8 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       },
       {
         key: 'workspace-members',
-        label: '成员管理',
-        description: '空间成员和角色管理',
+        label: '用户管理',
+        description: '当前空间全量用户和角色管理',
         icon: 'usergroup',
         path: '/workspaces/current/members',
         minRole: 'viewer',

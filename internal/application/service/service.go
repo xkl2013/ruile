@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
@@ -35,15 +38,97 @@ const (
 	serviceMaxShortText    = 255
 )
 
-var serviceDefaultExtractionAgentDomains = []string{
-	types.ServiceAgentDomainSalesConsulting,
-	types.ServiceAgentDomainCustomerService,
-	types.ServiceAgentDomainScheduling,
+const (
+	serviceAgentSettingsSourceKey      = "auto_profile_source"
+	serviceAgentSettingsHashKey        = "auto_profile_hash"
+	serviceAgentSettingsModelKey       = "auto_profile_model_id"
+	serviceAgentSettingsReasonKey      = "auto_profile_reason"
+	serviceAgentSettingsSourceLLM      = "work_profile_description_llm"
+	serviceAgentSettingsSourceFallback = "work_profile_description_rules"
+
+	serviceMemoryExtractionSourceLLM      = "memory_service_llm"
+	serviceMemoryExtractionSourceFallback = "memory_service_rules"
+)
+
+var serviceAgentCapabilityPlanSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "enabled_domains": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["memory_router", "lead_intake", "sales_consulting", "customer_service", "schedule_coordination", "after_sale_risk", "daily_review"]
+      }
+    },
+    "reason": { "type": "string" }
+  },
+  "required": ["enabled_domains"]
+}`)
+
+type serviceAgentCapabilityPlan struct {
+	EnabledDomains []string `json:"enabled_domains"`
+	Reason         string   `json:"reason,omitempty"`
+}
+
+var serviceMemoryExtractionPlanSchema = json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "should_generate": { "type": "boolean" },
+    "agent_domain": {
+      "type": "string",
+      "enum": ["memory_router", "lead_intake", "sales_consulting", "customer_service", "schedule_coordination", "after_sale_risk", "daily_review"]
+    },
+    "service_mode": { "type": "string" },
+    "subject_name": { "type": "string" },
+    "customer_name": { "type": "string" },
+    "student_name": { "type": "string" },
+    "title": { "type": "string" },
+    "summary": { "type": "string" },
+    "stage": { "type": "string" },
+    "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+    "due_text": { "type": "string" },
+    "risk_label": { "type": "string" },
+    "assist_reason": { "type": "string" },
+    "primary_action": { "type": "string" },
+    "next_action": { "type": "string" },
+    "avoid_action": { "type": "string" },
+    "reply_draft": { "type": "string" },
+    "memory_signals": { "type": "array", "items": { "type": "string" } },
+    "sales_highlights": { "type": "array", "items": { "type": "string" } },
+    "work_doc_directory": { "type": "string" },
+    "reason": { "type": "string" }
+  },
+  "required": ["should_generate"]
+}`)
+
+type serviceMemoryExtractionPlan struct {
+	ShouldGenerate   bool     `json:"should_generate"`
+	AgentDomain      string   `json:"agent_domain,omitempty"`
+	ServiceMode      string   `json:"service_mode,omitempty"`
+	SubjectName      string   `json:"subject_name,omitempty"`
+	CustomerName     string   `json:"customer_name,omitempty"`
+	StudentName      string   `json:"student_name,omitempty"`
+	Title            string   `json:"title,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
+	Stage            string   `json:"stage,omitempty"`
+	Priority         string   `json:"priority,omitempty"`
+	DueText          string   `json:"due_text,omitempty"`
+	RiskLabel        string   `json:"risk_label,omitempty"`
+	AssistReason     string   `json:"assist_reason,omitempty"`
+	PrimaryAction    string   `json:"primary_action,omitempty"`
+	NextAction       string   `json:"next_action,omitempty"`
+	AvoidAction      string   `json:"avoid_action,omitempty"`
+	ReplyDraft       string   `json:"reply_draft,omitempty"`
+	MemorySignals    []string `json:"memory_signals,omitempty"`
+	SalesHighlights  []string `json:"sales_highlights,omitempty"`
+	WorkDocDirectory string   `json:"work_doc_directory,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
 }
 
 type serviceService struct {
-	repo    interfaces.ServiceRepository
-	members interfaces.TenantMemberRepository
+	repo         interfaces.ServiceRepository
+	members      interfaces.TenantMemberRepository
+	modelService interfaces.ModelService
 
 	organize interfaces.OrganizeRepository
 }
@@ -52,7 +137,7 @@ func NewServiceService(
 	repo interfaces.ServiceRepository,
 	organize interfaces.OrganizeRepository,
 ) interfaces.ServiceService {
-	return newServiceService(repo, organize, nil)
+	return newServiceService(repo, organize, nil, nil)
 }
 
 func NewServiceServiceWithMembers(
@@ -60,15 +145,25 @@ func NewServiceServiceWithMembers(
 	organize interfaces.OrganizeRepository,
 	members interfaces.TenantMemberRepository,
 ) interfaces.ServiceService {
-	return newServiceService(repo, organize, members)
+	return newServiceService(repo, organize, members, nil)
+}
+
+func NewServiceServiceWithMembersAndModel(
+	repo interfaces.ServiceRepository,
+	organize interfaces.OrganizeRepository,
+	members interfaces.TenantMemberRepository,
+	modelService interfaces.ModelService,
+) interfaces.ServiceService {
+	return newServiceService(repo, organize, members, modelService)
 }
 
 func newServiceService(
 	repo interfaces.ServiceRepository,
 	organize interfaces.OrganizeRepository,
 	members interfaces.TenantMemberRepository,
+	modelService interfaces.ModelService,
 ) interfaces.ServiceService {
-	return &serviceService{repo: repo, organize: organize, members: members}
+	return &serviceService{repo: repo, organize: organize, members: members, modelService: modelService}
 }
 
 func (s *serviceService) GetBootstrap(ctx context.Context, tenantID uint64, userID string) (*types.ServiceBootstrap, error) {
@@ -226,6 +321,7 @@ func (s *serviceService) ExtractMemory(ctx context.Context, tenantID uint64, use
 	if err := validateServiceScope(tenantID, userID); err != nil {
 		return nil, err
 	}
+	ctx = withServiceTenantContext(ctx, tenantID)
 	memoryID = strings.TrimSpace(memoryID)
 	if memoryID == "" {
 		return nil, ErrServiceNotFound
@@ -241,21 +337,6 @@ func (s *serviceService) ExtractMemory(ctx context.Context, tenantID uint64, use
 			Reason:    "profile_not_configured",
 		}, nil
 	}
-	if len(settings) == 0 {
-		return &types.ServiceMemoryExtraction{
-			MemoryID:  memoryID,
-			Generated: false,
-			Reason:    "agent_not_enabled",
-		}, nil
-	}
-	enabledDomains := enabledServiceAgentSettings(settings)
-	if len(enabledDomains) == 0 {
-		return &types.ServiceMemoryExtraction{
-			MemoryID:  memoryID,
-			Generated: false,
-			Reason:    "agent_not_enabled",
-		}, nil
-	}
 	memory, err := s.organize.GetMemory(ctx, tenantID, userID, memoryID)
 	if err != nil {
 		return nil, err
@@ -263,17 +344,20 @@ func (s *serviceService) ExtractMemory(ctx context.Context, tenantID uint64, use
 	if memory == nil {
 		return nil, ErrServiceNotFound
 	}
+	enabledDomains := enabledServiceAgentSettings(settings)
+	if len(settings) == 0 || len(enabledDomains) == 0 {
+		return s.extractMemoryWithGeneratedService(ctx, tenantID, userID, profile, enabledDomains, memory, "agent_not_enabled")
+	}
 	if !isServiceMemory(memory) {
-		return &types.ServiceMemoryExtraction{
-			MemoryID:  memory.ID,
-			Generated: false,
-			Reason:    "memory_not_relevant",
-		}, nil
+		return s.extractMemoryWithGeneratedService(ctx, tenantID, userID, profile, enabledDomains, memory, "memory_not_relevant")
 	}
 	s.annotateMemoryRoute(ctx, memory)
 	reminder, reason, err := s.upsertServiceMemoryGroup(ctx, tenantID, userID, profile, enabledDomains, extractCustomerName(memory), []*types.OrganizeMemory{memory})
 	if err != nil {
 		return nil, err
+	}
+	if reminder == nil && reason == "agent_not_enabled" {
+		return s.extractMemoryWithGeneratedService(ctx, tenantID, userID, profile, enabledDomains, memory, reason)
 	}
 	return &types.ServiceMemoryExtraction{
 		MemoryID:  memory.ID,
@@ -319,11 +403,19 @@ func (s *serviceService) GenerateDailyReport(
 		return nil, err
 	}
 	reportReminders := filterRemindersForDailyReport(reminders, period)
+	var dailySources []*types.AgentWorkDoc
+	if period.Range != types.ServiceDailyReportRangeDay {
+		dailySources, err = s.dailySourceReportDocs(ctx, tenantID, userID, profile.ID, period)
+		if err != nil {
+			return nil, err
+		}
+	}
+	stats := buildDailyReportStats(reportReminders, dailySources)
 	reportSubject := buildDailyReportSubject(tenantID, userID, profile.ID)
 	if err := s.repo.UpsertSubject(ctx, reportSubject); err != nil {
 		return nil, err
 	}
-	content := buildDailyReportMarkdown(period, reportReminders)
+	content := buildDailyReportMarkdown(period, profile, reportReminders, dailySources, stats)
 	sourceMemoryIDs := sourceMemoryIDsFromReminders(reportReminders)
 	now := time.Now().UTC()
 	doc := &types.AgentWorkDoc{
@@ -339,23 +431,40 @@ func (s *serviceService) GenerateDailyReport(
 		Status:          types.AgentWorkDocStatusCurrent,
 		SourceMemoryIDs: sourceMemoryIDs,
 		Metadata: types.JSONMap{
-			"source":          "service_module",
-			"trigger":         "user_requested",
-			"report_range":    period.Range,
-			"report_date":     period.ReportDate,
-			"period_start":    period.Start.UTC().Format(time.RFC3339),
-			"period_end":      period.End.UTC().Format(time.RFC3339),
-			"timezone":        period.Location.String(),
-			"stage":           "已生成",
-			"stage_key":       "formed",
-			"updated":         now.In(period.Location).Format("01月02日 15:04") + " 生成",
-			"action_count":    len(reportReminders),
-			"customer_count":  dailyReportCustomerCount(reportReminders),
-			"chips":           dailyReportChips(reportReminders),
-			"generated_by":    userID,
-			"generated_at":    now.Format(time.RFC3339),
-			"source_profile":  profile.ID,
-			"source_doc_type": types.AgentWorkDocTypeDailyReport,
+			"source":                 "service_module",
+			"trigger":                normalizeServiceDailyReportTrigger(input.Trigger),
+			"report_range":           period.Range,
+			"report_date":            period.ReportDate,
+			"period_start":           period.Start.UTC().Format(time.RFC3339),
+			"period_end":             period.End.UTC().Format(time.RFC3339),
+			"period_label":           dailyReportPeriodLabel(period),
+			"timezone":               period.Location.String(),
+			"stage":                  "已生成",
+			"stage_key":              "formed",
+			"updated":                now.In(period.Location).Format("01月02日 15:04") + " 生成",
+			"action_count":           stats.ActionCount,
+			"customer_count":         stats.SubjectCount,
+			"subject_count":          stats.SubjectCount,
+			"open_action_count":      stats.OpenActionCount,
+			"closed_action_count":    stats.ClosedActionCount,
+			"high_risk_count":        stats.HighRiskCount,
+			"knowledge_gap_count":    stats.KnowledgeGapCount,
+			"source_memory_count":    stats.SourceMemoryCount,
+			"daily_source_count":     stats.DailySourceCount,
+			"evidence_complete_rate": stats.EvidenceCompleteRate,
+			"profile_id":             profile.ID,
+			"profile_name":           profile.Name,
+			"profile_description":    profile.WorkProfileDescription,
+			"memory_scope":           profile.MemoryScope,
+			"can_supplement":         period.Range == types.ServiceDailyReportRangeDay,
+			"collection_source":      "avatar_memory_reminders",
+			"daily_report_logic":     "memory_to_work_loop",
+			"write_back_policy":      "manual_confirmation",
+			"chips":                  dailyReportChips(reportReminders, dailySources),
+			"generated_by":           userID,
+			"generated_at":           now.Format(time.RFC3339),
+			"source_profile":         profile.ID,
+			"source_doc_type":        types.AgentWorkDocTypeDailyReport,
 		},
 		UpdatedAt: now,
 	}
@@ -406,6 +515,41 @@ func (s *serviceService) ListDailyReports(
 		reports = append(reports, serviceDailyReportFromDoc(doc))
 	}
 	return reports, total, nil
+}
+
+func (s *serviceService) dailySourceReportDocs(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	profileID string,
+	period serviceDailyReportPeriod,
+) ([]*types.AgentWorkDoc, error) {
+	docs, _, err := s.repo.ListDailyReportDocs(ctx, types.ServiceDailyReportListQuery{
+		TenantID:  tenantID,
+		UserID:    userID,
+		ProfileID: profileID,
+		Range:     types.ServiceDailyReportRangeDay,
+		Page:      1,
+		PageSize:  serviceMaxPageSize,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*types.AgentWorkDoc, 0, len(docs))
+	for _, doc := range docs {
+		if dailyReportDocInPeriod(doc, period) {
+			out = append(out, doc)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left := dailyReportDocStartTime(out[i], period.Location)
+		right := dailyReportDocStartTime(out[j], period.Location)
+		if left.Equal(right) {
+			return out[i].Title < out[j].Title
+		}
+		return left.Before(right)
+	})
+	return out, nil
 }
 
 func (s *serviceService) ListCustomerSpaces(
@@ -653,7 +797,18 @@ func (s *serviceService) ListAgentSettings(ctx context.Context, tenantID uint64,
 	if tenantID == 0 || strings.TrimSpace(profileID) == "" {
 		return nil, ErrServiceInvalidScope
 	}
-	return s.repo.ListAgentSettings(ctx, tenantID, strings.TrimSpace(profileID), onlyEnabled)
+	ctx = withServiceTenantContext(ctx, tenantID)
+	profile, err := s.repo.GetWorkProfile(ctx, tenantID, strings.TrimSpace(profileID))
+	if err != nil || profile == nil {
+		return nil, err
+	}
+	if err := s.hydrateWorkProfileDescription(ctx, tenantID, profile.UserID, profile); err != nil {
+		return nil, err
+	}
+	if _, err := s.ensureInferredAgentSettings(ctx, tenantID, profile.UserID, profile); err != nil {
+		return nil, err
+	}
+	return s.repo.ListAgentSettings(ctx, tenantID, profile.ID, onlyEnabled)
 }
 
 func (s *serviceService) CreateActionDraft(
@@ -715,6 +870,7 @@ func (s *serviceService) UpdateActionDraftStatus(ctx context.Context, tenantID u
 func (s *serviceService) defaultProfileAndSettings(
 	ctx context.Context, tenantID uint64, userID string,
 ) (*types.UserWorkProfile, []*types.WorkProfileAgentSetting, error) {
+	ctx = withServiceTenantContext(ctx, tenantID)
 	profile, err := s.repo.GetDefaultWorkProfile(ctx, tenantID, userID)
 	if err != nil {
 		return nil, nil, err
@@ -725,23 +881,54 @@ func (s *serviceService) defaultProfileAndSettings(
 			return profile, nil, err
 		}
 	}
+	if err := s.hydrateWorkProfileDescription(ctx, tenantID, userID, profile); err != nil {
+		return nil, nil, err
+	}
 	settings, err := s.repo.ListAgentSettings(ctx, tenantID, profile.ID, true)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(settings) == 0 {
-		seeded, err := s.ensureDefaultExtractionAgentSettings(ctx, tenantID, userID, profile)
+	if s.shouldInferAgentSettings(profile, settings) {
+		inferred, err := s.ensureInferredAgentSettings(ctx, tenantID, userID, profile)
 		if err != nil {
 			return nil, nil, err
 		}
-		if len(seeded) > 0 {
-			settings = seeded
+		if len(inferred) > 0 {
+			settings = inferred
 		}
 	}
 	return profile, settings, nil
 }
 
-func (s *serviceService) ensureDefaultExtractionAgentSettings(
+func (s *serviceService) shouldInferAgentSettings(
+	profile *types.UserWorkProfile,
+	enabledSettings []*types.WorkProfileAgentSetting,
+) bool {
+	if profile == nil || strings.TrimSpace(profile.ID) == "" {
+		return false
+	}
+	if strings.TrimSpace(workProfileAgentInferenceText(profile)) == "" {
+		return false
+	}
+	if len(enabledSettings) == 0 {
+		return true
+	}
+	hash := workProfileAgentSettingsHash(profile)
+	for _, setting := range enabledSettings {
+		if setting == nil {
+			continue
+		}
+		if asString(setting.OutputPolicy[serviceAgentSettingsSourceKey]) == "" {
+			return false
+		}
+		if asString(setting.OutputPolicy[serviceAgentSettingsHashKey]) != hash {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *serviceService) ensureInferredAgentSettings(
 	ctx context.Context,
 	tenantID uint64,
 	userID string,
@@ -750,29 +937,1087 @@ func (s *serviceService) ensureDefaultExtractionAgentSettings(
 	if profile == nil || tenantID == 0 || strings.TrimSpace(profile.ID) == "" {
 		return nil, nil
 	}
+	if err := s.hydrateWorkProfileDescription(ctx, tenantID, userID, profile); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(profile.WorkProfileDescription) == "" {
+		return s.repo.ListAgentSettings(ctx, tenantID, profile.ID, true)
+	}
 	existing, err := s.repo.ListAgentSettings(ctx, tenantID, profile.ID, false)
 	if err != nil {
 		return nil, err
 	}
-	if len(existing) > 0 {
-		return nil, nil
+	hash := workProfileAgentSettingsHash(profile)
+	if !shouldReplaceAgentSettingsFromProfile(existing, hash) {
+		return s.repo.ListAgentSettings(ctx, tenantID, profile.ID, true)
 	}
 	operatorUserID := firstNonEmpty(profile.UpdatedBy, profile.CreatedBy, profile.UserID, userID)
-	settings := make([]*types.WorkProfileAgentSetting, 0, len(serviceDefaultExtractionAgentDomains))
-	for index, domain := range serviceDefaultExtractionAgentDomains {
-		setting, err := buildAgentSetting(tenantID, operatorUserID, profile.ID, types.WorkProfileAgentSettingInput{
-			AgentDomain: domain,
-			Enabled:     true,
-		}, index)
-		if err != nil {
-			return nil, err
-		}
-		settings = append(settings, setting)
+	plan, source, modelID := s.inferAgentCapabilityPlan(ctx, profile)
+	settings, err := buildInferredAgentSettings(
+		tenantID,
+		operatorUserID,
+		profile.ID,
+		s.ListAgentTemplates(ctx),
+		plan,
+		source,
+		modelID,
+		hash,
+	)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.repo.ReplaceAgentSettings(ctx, tenantID, profile.ID, settings); err != nil {
 		return nil, err
 	}
 	return s.repo.ListAgentSettings(ctx, tenantID, profile.ID, true)
+}
+
+func shouldReplaceAgentSettingsFromProfile(settings []*types.WorkProfileAgentSetting, hash string) bool {
+	if len(settings) == 0 {
+		return true
+	}
+	enabledCount := 0
+	for _, setting := range settings {
+		if setting == nil {
+			continue
+		}
+		if setting.Enabled {
+			enabledCount++
+		}
+		if asString(setting.OutputPolicy[serviceAgentSettingsSourceKey]) != "" {
+			if asString(setting.OutputPolicy[serviceAgentSettingsHashKey]) != hash {
+				return true
+			}
+		}
+	}
+	if enabledCount == 0 {
+		return true
+	}
+	return false
+}
+
+func buildInferredAgentSettings(
+	tenantID uint64,
+	operatorUserID string,
+	profileID string,
+	templates []types.ServiceAgentTemplate,
+	plan serviceAgentCapabilityPlan,
+	source string,
+	modelID string,
+	hash string,
+) ([]*types.WorkProfileAgentSetting, error) {
+	enabledDomains := normalizedServiceAgentDomainSet(plan.EnabledDomains)
+	enabledDomains[types.ServiceAgentDomainMemoryRouter] = true
+	if !hasEnabledExtractionAgentDomain(enabledDomains) {
+		enabledDomains[types.ServiceAgentDomainCustomerService] = true
+	}
+	if source == "" {
+		source = serviceAgentSettingsSourceFallback
+	}
+	settings := make([]*types.WorkProfileAgentSetting, 0, len(templates))
+	for index, tmpl := range templates {
+		setting, err := buildAgentSetting(tenantID, operatorUserID, profileID, types.WorkProfileAgentSettingInput{
+			AgentDomain:      tmpl.AgentDomain,
+			Enabled:          enabledDomains[tmpl.AgentDomain],
+			DisplayName:      tmpl.DisplayName,
+			DisplayOrder:     index + 1,
+			MemoryFilter:     tmpl.MemoryFilter,
+			WorkDocDirectory: tmpl.WorkDocDirectory,
+			SelectedSkills:   tmpl.SelectedSkills,
+			OutputPolicy:     tmpl.OutputPolicy,
+		}, index)
+		if err != nil {
+			return nil, err
+		}
+		setting.OutputPolicy = mergeJSONMap(setting.OutputPolicy, types.JSONMap{
+			serviceAgentSettingsSourceKey: source,
+			serviceAgentSettingsHashKey:   hash,
+			serviceAgentSettingsReasonKey: trimMax(plan.Reason, serviceMaxTitleLength),
+		})
+		if modelID != "" {
+			setting.OutputPolicy[serviceAgentSettingsModelKey] = modelID
+		}
+		settings = append(settings, setting)
+	}
+	return settings, nil
+}
+
+func (s *serviceService) inferAgentCapabilityPlan(
+	ctx context.Context,
+	profile *types.UserWorkProfile,
+) (serviceAgentCapabilityPlan, string, string) {
+	description := workProfileAgentInferenceText(profile)
+	if strings.TrimSpace(description) == "" {
+		return fallbackServiceAgentCapabilityPlan(profile), serviceAgentSettingsSourceFallback, ""
+	}
+	if modelID := s.defaultServiceChatModelID(ctx); modelID != "" {
+		if plan, err := s.generateAgentCapabilityPlanWithModel(ctx, modelID, profile, description); err == nil {
+			if normalized := normalizeServiceAgentCapabilityPlan(plan); len(normalized.EnabledDomains) > 0 {
+				return normalized, serviceAgentSettingsSourceLLM, modelID
+			}
+		} else {
+			logger.Warnf(ctx, "service agent capability inference failed: model=%s err=%v", modelID, err)
+		}
+	}
+	return fallbackServiceAgentCapabilityPlan(profile), serviceAgentSettingsSourceFallback, ""
+}
+
+func (s *serviceService) generateAgentCapabilityPlanWithModel(
+	ctx context.Context,
+	modelID string,
+	profile *types.UserWorkProfile,
+	description string,
+) (serviceAgentCapabilityPlan, error) {
+	if s.modelService == nil {
+		return serviceAgentCapabilityPlan{}, errors.New("model service is not configured")
+	}
+	chatModel, err := s.modelService.GetChatModel(ctx, modelID)
+	if err != nil || chatModel == nil {
+		return serviceAgentCapabilityPlan{}, fmt.Errorf("get chat model: %w", err)
+	}
+	tmpls := s.ListAgentTemplates(ctx)
+	prompt := buildServiceAgentCapabilityPrompt(profile, description, tmpls)
+	thinking := false
+	resp, err := chatModel.Chat(ctx, []chat.Message{
+		{
+			Role:    "system",
+			Content: "你是服务能力配置助手。你只根据成员分身描述判断应启用哪些服务能力，不输出 Markdown，不输出多余解释。",
+		},
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}, &chat.ChatOptions{
+		Temperature: 0.15,
+		MaxTokens:   800,
+		Thinking:    &thinking,
+		Format:      serviceAgentCapabilityPlanSchema,
+	})
+	if err != nil {
+		return serviceAgentCapabilityPlan{}, err
+	}
+	if resp == nil || strings.TrimSpace(resp.Content) == "" {
+		return serviceAgentCapabilityPlan{}, errors.New("empty plan response")
+	}
+	return parseServiceAgentCapabilityPlan(resp.Content)
+}
+
+func parseServiceAgentCapabilityPlan(raw string) (serviceAgentCapabilityPlan, error) {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSpace(strings.TrimSuffix(raw, "```"))
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		raw = raw[start : end+1]
+	}
+	var plan serviceAgentCapabilityPlan
+	if err := json.Unmarshal([]byte(raw), &plan); err != nil {
+		return serviceAgentCapabilityPlan{}, err
+	}
+	return normalizeServiceAgentCapabilityPlan(plan), nil
+}
+
+func normalizeServiceAgentCapabilityPlan(plan serviceAgentCapabilityPlan) serviceAgentCapabilityPlan {
+	seen := map[string]bool{}
+	enabled := make([]string, 0, len(plan.EnabledDomains))
+	for _, domain := range plan.EnabledDomains {
+		domain = strings.TrimSpace(domain)
+		if !types.IsValidServiceAgentDomain(domain) || seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		enabled = append(enabled, domain)
+	}
+	if !seen[types.ServiceAgentDomainMemoryRouter] {
+		enabled = append([]string{types.ServiceAgentDomainMemoryRouter}, enabled...)
+	}
+	if len(enabled) > 4 {
+		enabled = enabled[:4]
+	}
+	plan.EnabledDomains = enabled
+	plan.Reason = trimMax(strings.TrimSpace(plan.Reason), serviceMaxTitleLength)
+	return plan
+}
+
+func fallbackServiceAgentCapabilityPlan(profile *types.UserWorkProfile) serviceAgentCapabilityPlan {
+	description := workProfileAgentInferenceText(profile)
+	enabled := []string{types.ServiceAgentDomainMemoryRouter}
+	switch {
+	case containsAny(description, []string{"排课", "调课", "请假", "补课", "老师", "教室", "教务"}):
+		enabled = append(enabled, types.ServiceAgentDomainScheduling, types.ServiceAgentDomainCustomerService)
+	case containsAny(description, []string{"投诉", "退费", "退款", "不满", "售后", "闭环", "反馈"}):
+		enabled = append(enabled, types.ServiceAgentDomainCustomerService, types.ServiceAgentDomainAfterSaleRisk)
+	case containsAny(description, []string{"试听", "体验课", "咨询", "报名", "邀约", "招生", "顾问"}):
+		enabled = append(enabled, types.ServiceAgentDomainLeadIntake, types.ServiceAgentDomainSalesConsulting, types.ServiceAgentDomainCustomerService)
+	case containsAny(description, []string{"续费", "续课", "到期", "课次"}):
+		enabled = append(enabled, types.ServiceAgentDomainCustomerService)
+	case containsAny(description, []string{"日报", "复盘", "经营", "总结"}):
+		enabled = append(enabled, types.ServiceAgentDomainDailyReview, types.ServiceAgentDomainCustomerService)
+	default:
+		enabled = append(enabled, types.ServiceAgentDomainCustomerService)
+	}
+	return normalizeServiceAgentCapabilityPlan(serviceAgentCapabilityPlan{
+		EnabledDomains: enabled,
+		Reason:         "基于分身描述规则兜底自动开启服务能力",
+	})
+}
+
+func buildServiceAgentCapabilityPrompt(
+	profile *types.UserWorkProfile,
+	description string,
+	templates []types.ServiceAgentTemplate,
+) string {
+	var b strings.Builder
+	b.WriteString("分身信息：\n")
+	if profile != nil {
+		b.WriteString("姓名/名称：")
+		b.WriteString(firstNonEmpty(profile.Name, "未命名分身"))
+		b.WriteString("\n")
+		if profile.RoleType != "" {
+			b.WriteString("岗位类型：")
+			b.WriteString(profile.RoleType)
+			b.WriteString("\n")
+		}
+		if profile.MemoryScope != "" {
+			b.WriteString("记忆范围：")
+			b.WriteString(profile.MemoryScope)
+			b.WriteString("\n")
+		}
+		if profile.TonePreference != "" {
+			b.WriteString("沟通风格：")
+			b.WriteString(profile.TonePreference)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("分身描述：")
+	b.WriteString(description)
+	b.WriteString("\n\n可选服务能力：\n")
+	for _, tmpl := range templates {
+		b.WriteString("- ")
+		b.WriteString(tmpl.AgentDomain)
+		b.WriteString("：")
+		b.WriteString(tmpl.Description)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n要求：\n")
+	b.WriteString("1. 只能从可选服务能力里选择，不要新增。\n")
+	b.WriteString("2. 只开启与岗位职责直接相关的能力。\n")
+	b.WriteString("3. 至少保留 memory_router；如果描述明显服务客户/家长/学员，还要开启 customer_service。\n")
+	b.WriteString("4. 输出 enabled_domains 数组，按优先级从高到低排列。\n")
+	return b.String()
+}
+
+func (s *serviceService) defaultServiceChatModelID(ctx context.Context) string {
+	if s.modelService == nil {
+		return ""
+	}
+	if _, ok := types.TenantIDFromContext(ctx); !ok {
+		return ""
+	}
+	models, err := s.modelService.ListModels(ctx)
+	if err != nil {
+		return ""
+	}
+	var fallback string
+	for _, model := range models {
+		if model == nil || model.Status != types.ModelStatusActive || model.Type != types.ModelTypeKnowledgeQA {
+			continue
+		}
+		if model.IsDefault {
+			return model.ID
+		}
+		if fallback == "" {
+			fallback = model.ID
+		}
+	}
+	return fallback
+}
+
+func workProfileAgentInferenceText(profile *types.UserWorkProfile) string {
+	if profile == nil {
+		return ""
+	}
+	description := strings.TrimSpace(profile.WorkProfileDescription)
+	if description == "" {
+		return ""
+	}
+	parts := []string{
+		trimMax(strings.TrimSpace(profile.Name), 120),
+		trimMax(strings.TrimSpace(profile.RoleType), 80),
+		trimMax(description, 1500),
+		trimMax(strings.TrimSpace(profile.MemoryScope), 160),
+		trimMax(strings.TrimSpace(profile.TonePreference), 160),
+		strings.Join(cleanStringArray([]string(profile.CampusScope), 10, 80), "、"),
+		strings.Join(cleanStringArray([]string(profile.CourseScope), 10, 80), "、"),
+	}
+	return strings.Join(cleanStringArray(parts, 10, 256), "\n")
+}
+
+func workProfileAgentSettingsHash(profile *types.UserWorkProfile) string {
+	if profile == nil {
+		return ""
+	}
+	return deterministicServiceID(
+		"service-agent-settings",
+		strconv.FormatUint(profile.TenantID, 10),
+		profile.UserID,
+		strings.TrimSpace(profile.Name),
+		strings.TrimSpace(profile.RoleType),
+		strings.Join([]string(profile.CampusScope), "|"),
+		strings.Join([]string(profile.CourseScope), "|"),
+		strings.TrimSpace(profile.MemoryScope),
+		strings.TrimSpace(profile.TonePreference),
+		strings.TrimSpace(profile.WorkProfileDescription),
+	)
+}
+
+func normalizedServiceAgentDomainSet(domains []string) map[string]bool {
+	out := make(map[string]bool, len(domains))
+	for _, domain := range domains {
+		domain = strings.TrimSpace(domain)
+		if types.IsValidServiceAgentDomain(domain) {
+			out[domain] = true
+		}
+	}
+	return out
+}
+
+func hasEnabledExtractionAgentDomain(domains map[string]bool) bool {
+	if domains[types.ServiceAgentDomainSalesConsulting] || domains[types.ServiceAgentDomainLeadIntake] {
+		return true
+	}
+	return domains[types.ServiceAgentDomainCustomerService] || domains[types.ServiceAgentDomainScheduling] || domains[types.ServiceAgentDomainAfterSaleRisk]
+}
+
+func memoryHasCustomerIdentity(memory *types.OrganizeMemory) bool {
+	if memory == nil {
+		return false
+	}
+	if extractCustomerName(memory) != "" {
+		return true
+	}
+	if firstMetadataString(memory.Metadata, "student_name", "studentName", "learner_name", "learnerName", "child_name", "childName") != "" {
+		return true
+	}
+	text := memorySearchText(memory)
+	return regexp.MustCompile(`(?:家长|妈妈|爸爸|学员|学生|孩子)[:：]`).MatchString(text)
+}
+
+func isCustomerFacingStage(stage string) bool {
+	switch strings.TrimSpace(stage) {
+	case "客户摘要", "售前试听", "报名确认", "续费服务", "在园服务", "转介绍", "客户跟进", "排课调课":
+		return true
+	default:
+		return false
+	}
+}
+
+func genericServiceModeFromText(text string) string {
+	switch {
+	case containsAny(text, []string{"投资", "财报", "估值", "研究", "分析", "IDM", "GaN", "半导体", "龙头"}):
+		return "投资分析"
+	case containsAny(text, []string{"培训", "教研", "讲师", "签到", "资料", "大纲"}):
+		return "培训准备"
+	case containsAny(text, []string{"会议", "纪要", "议程", "参会", "汇报"}):
+		return "会议纪要"
+	case containsAny(text, []string{"项目", "方案", "计划", "事项", "推进"}):
+		return "事项整理"
+	default:
+		return "通用服务"
+	}
+}
+
+func genericNextActionForServiceMode(mode string) string {
+	switch mode {
+	case "投资分析":
+		return "先提炼核心结论、风险点和下一步跟踪项。"
+	case "培训准备":
+		return "先整理培训清单，再确认负责人、讲师和交付时间。"
+	case "会议纪要":
+		return "先补齐议题、结论和待办。"
+	case "事项整理":
+		return "先把记忆中的事实转成可确认事项。"
+	default:
+		return "先把记忆整理成可执行事项，再确认下一步。"
+	}
+}
+
+func genericPrimaryActionForServiceMode(mode string) string {
+	switch mode {
+	case "投资分析":
+		return "先把文档里的投资判断、依据和后续动作分开整理。"
+	case "培训准备":
+		return "先把培训流程、资料和资源需求拆成清单。"
+	case "会议纪要":
+		return "先沉淀会议结论，再落到待办和责任人。"
+	case "事项整理":
+		return "先把记忆中的关键事实归并为可执行条目。"
+	default:
+		return "先确认记忆里的真实事实，再生成可执行内容。"
+	}
+}
+
+func genericReplyDraftForServiceMode(mode, subject string) string {
+	switch mode {
+	case "投资分析":
+		return fmt.Sprintf("我先把%s整理成投资分析要点和后续跟踪项。", firstNonEmpty(subject, "这条记忆"))
+	case "培训准备":
+		return fmt.Sprintf("我先把%s整理成培训准备清单，并补齐下一步安排。", firstNonEmpty(subject, "这条记忆"))
+	case "会议纪要":
+		return fmt.Sprintf("我先把%s整理成会议纪要和待办事项。", firstNonEmpty(subject, "这条记忆"))
+	case "事项整理":
+		return fmt.Sprintf("我先把%s整理成可确认的事项清单。", firstNonEmpty(subject, "这条记忆"))
+	default:
+		return fmt.Sprintf("我先把%s整理成待确认事项。", firstNonEmpty(subject, "这条记忆"))
+	}
+}
+
+func genericRiskLabelForServiceMode(mode string) string {
+	if mode == "投资分析" {
+		return "投资风险待确认"
+	}
+	return "待判断"
+}
+
+func nonCustomerSubjectName(plan serviceMemoryExtractionPlan, memory *types.OrganizeMemory, text string) string {
+	memoryTitle := ""
+	if memory != nil {
+		memoryTitle = trimMax(memory.Title, serviceMaxShortText)
+	}
+	modelCustomerName := trimMax(plan.CustomerName, serviceMaxShortText)
+	for _, raw := range []string{plan.SubjectName, plan.Title} {
+		candidate := trimMax(raw, serviceMaxShortText)
+		if candidate == "" || isCustomerFacingGeneratedText(candidate, modelCustomerName, text) {
+			continue
+		}
+		if memoryTitle == "" || strings.Contains(text, candidate) || strings.Contains(memoryTitle, candidate) || strings.Contains(candidate, memoryTitle) {
+			return candidate
+		}
+	}
+	return firstNonEmpty(memoryTitle, genericServiceModeFromText(text), "服务事项")
+}
+
+func isCustomerFacingGeneratedText(value, modelCustomerName, memoryText string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	modelCustomerName = strings.TrimSpace(modelCustomerName)
+	if modelCustomerName != "" && !strings.Contains(memoryText, modelCustomerName) && strings.Contains(value, modelCustomerName) {
+		return true
+	}
+	return regexp.MustCompile(`客户摘要|客户跟进|客户状态|客户服务|客户事实|售前试听|试听|体验课|报名确认|报名|招生|续费服务|在园服务|转介绍|价格顾虑|适应焦虑|续费窗口|售后风险|家长|妈妈|爸爸|孩子|学员|续课|退费`).MatchString(value)
+}
+
+func hasCustomerFacingGeneratedText(values []string, modelCustomerName, memoryText string) bool {
+	for _, value := range values {
+		if isCustomerFacingGeneratedText(value, modelCustomerName, memoryText) {
+			return true
+		}
+	}
+	return false
+}
+
+func withServiceTenantContext(ctx context.Context, tenantID uint64) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tenantID == 0 {
+		return ctx
+	}
+	if _, ok := types.TenantIDFromContext(ctx); ok {
+		return ctx
+	}
+	return context.WithValue(ctx, types.TenantIDContextKey, tenantID)
+}
+
+func (s *serviceService) extractMemoryWithGeneratedService(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	profile *types.UserWorkProfile,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	memory *types.OrganizeMemory,
+	fallbackReason string,
+) (*types.ServiceMemoryExtraction, error) {
+	reminder, reason, err := s.upsertModelGeneratedServiceMemory(
+		ctx,
+		tenantID,
+		userID,
+		profile,
+		enabledDomains,
+		memory,
+		fallbackReason,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &types.ServiceMemoryExtraction{
+		MemoryID:  memory.ID,
+		Generated: reminder != nil,
+		Reason:    reason,
+		Reminder:  reminder,
+	}, nil
+}
+
+func (s *serviceService) upsertModelGeneratedServiceMemory(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	profile *types.UserWorkProfile,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	memory *types.OrganizeMemory,
+	fallbackReason string,
+) (*types.ServiceReminder, string, error) {
+	plan, source, modelID := s.inferServiceMemoryExtractionPlan(ctx, profile, enabledDomains, memory)
+	if !plan.ShouldGenerate {
+		return nil, firstNonEmpty(plan.Reason, fallbackReason, "memory_not_relevant"), nil
+	}
+	setting := s.generatedServiceAgentSetting(ctx, tenantID, userID, profile, enabledDomains, plan, source, modelID)
+	if setting == nil {
+		return nil, firstNonEmpty(fallbackReason, "agent_not_enabled"), nil
+	}
+	reminder := buildReminderFromServiceMemoryPlan(tenantID, userID, profile, memory, plan, setting, source, modelID)
+	subjectName := firstNonEmpty(
+		asString(reminder.Metadata["customer_name"]),
+		asString(reminder.Metadata["subject_name"]),
+		reminder.Title,
+		asString(reminder.Metadata["service_mode"]),
+	)
+	subject := buildServiceSubject(
+		tenantID,
+		userID,
+		subjectName,
+		asString(reminder.Metadata["student_name"]),
+		reminder.Confidence,
+	)
+	if err := s.repo.UpsertSubject(ctx, subject); err != nil {
+		return nil, "", err
+	}
+	reminder.SubjectID = subject.ID
+	reminder.ProfileID = profile.ID
+	reminder.Metadata = mergeJSONMap(reminder.Metadata, types.JSONMap{
+		"subject_id":         subject.ID,
+		"work_doc_directory": setting.WorkDocDirectory,
+		"agent_display_name": setting.DisplayName,
+	})
+	if err := s.repo.UpsertReminder(ctx, reminder); err != nil {
+		return nil, "", err
+	}
+	for _, doc := range buildWorkDocs(tenantID, userID, profile.ID, subject.ID, reminder, []*types.OrganizeMemory{memory}) {
+		links := buildWorkDocLinks(doc, reminder, []*types.OrganizeMemory{memory})
+		if err := s.repo.UpsertWorkDocWithLinks(ctx, doc, links); err != nil {
+			return nil, "", err
+		}
+	}
+	persisted, err := s.repo.GetReminder(ctx, tenantID, userID, reminder.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	return persisted, "generated", nil
+}
+
+func (s *serviceService) inferServiceMemoryExtractionPlan(
+	ctx context.Context,
+	profile *types.UserWorkProfile,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	memory *types.OrganizeMemory,
+) (serviceMemoryExtractionPlan, string, string) {
+	if strings.TrimSpace(memorySearchText(memory)) == "" {
+		return serviceMemoryExtractionPlan{
+			ShouldGenerate: false,
+			Reason:         "记忆内容为空，无法生成服务事项",
+		}, serviceMemoryExtractionSourceFallback, ""
+	}
+	if modelID := s.defaultServiceChatModelID(ctx); modelID != "" {
+		if plan, err := s.generateServiceMemoryExtractionPlanWithModel(ctx, modelID, profile, enabledDomains, memory); err == nil {
+			normalized := normalizeServiceMemoryExtractionPlan(plan, profile, enabledDomains, memory)
+			if normalized.ShouldGenerate {
+				return normalized, serviceMemoryExtractionSourceLLM, modelID
+			}
+			return normalized, serviceMemoryExtractionSourceLLM, modelID
+		} else {
+			logger.Warnf(ctx, "service memory extraction inference failed: model=%s memory=%s err=%v", modelID, memory.ID, err)
+		}
+	}
+	return fallbackServiceMemoryExtractionPlan(profile, enabledDomains, memory), serviceMemoryExtractionSourceFallback, ""
+}
+
+func (s *serviceService) generateServiceMemoryExtractionPlanWithModel(
+	ctx context.Context,
+	modelID string,
+	profile *types.UserWorkProfile,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	memory *types.OrganizeMemory,
+) (serviceMemoryExtractionPlan, error) {
+	if s.modelService == nil {
+		return serviceMemoryExtractionPlan{}, errors.New("model service is not configured")
+	}
+	chatModel, err := s.modelService.GetChatModel(ctx, modelID)
+	if err != nil || chatModel == nil {
+		return serviceMemoryExtractionPlan{}, fmt.Errorf("get chat model: %w", err)
+	}
+	prompt := buildServiceMemoryExtractionPrompt(profile, memory, enabledDomains, s.ListAgentTemplates(ctx))
+	thinking := false
+	resp, err := chatModel.Chat(ctx, []chat.Message{
+		{
+			Role:    "system",
+			Content: "你是睿乐服务助理。你根据分身描述和记忆内容生成精准服务事项；只能输出 JSON，不输出 Markdown 或解释。",
+		},
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}, &chat.ChatOptions{
+		Temperature: 0.2,
+		MaxTokens:   1200,
+		Thinking:    &thinking,
+		Format:      serviceMemoryExtractionPlanSchema,
+	})
+	if err != nil {
+		return serviceMemoryExtractionPlan{}, err
+	}
+	if resp == nil || strings.TrimSpace(resp.Content) == "" {
+		return serviceMemoryExtractionPlan{}, errors.New("empty service extraction response")
+	}
+	return parseServiceMemoryExtractionPlan(resp.Content)
+}
+
+func parseServiceMemoryExtractionPlan(raw string) (serviceMemoryExtractionPlan, error) {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSpace(strings.TrimSuffix(raw, "```"))
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		raw = raw[start : end+1]
+	}
+	var plan serviceMemoryExtractionPlan
+	if err := json.Unmarshal([]byte(raw), &plan); err != nil {
+		return serviceMemoryExtractionPlan{}, err
+	}
+	return plan, nil
+}
+
+func normalizeServiceMemoryExtractionPlan(
+	plan serviceMemoryExtractionPlan,
+	profile *types.UserWorkProfile,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	memory *types.OrganizeMemory,
+) serviceMemoryExtractionPlan {
+	text := memorySearchText(memory)
+	memoryCustomerName := extractCustomerName(memory)
+	modelCustomerName := trimMax(plan.CustomerName, serviceMaxShortText)
+	hasCustomerIdentity := memoryHasCustomerIdentity(memory)
+	stage := firstNonEmpty(trimMax(plan.Stage, 128), trimMax(plan.ServiceMode, 128), inferStage(text))
+	riskLabel := firstNonEmpty(trimMax(plan.RiskLabel, 128), inferRiskLabel(text))
+	customerName := firstNonEmpty(memoryCustomerName, modelCustomerName)
+	subjectName := firstNonEmpty(
+		trimMax(plan.SubjectName, serviceMaxShortText),
+		trimMax(plan.Title, serviceMaxShortText),
+		trimMax(memory.Title, serviceMaxShortText),
+		"服务事项",
+	)
+	studentName := firstNonEmpty(trimMax(plan.StudentName, serviceMaxShortText), extractStudentName(memory, customerName), "待补充")
+	priority := strings.ToLower(strings.TrimSpace(plan.Priority))
+	if !types.IsValidServicePriority(priority) {
+		priority = inferPriority(text, riskLabel)
+	}
+	domain := normalizeGeneratedServiceAgentDomain(plan.AgentDomain, stage, riskLabel, text, enabledDomains)
+	serviceMode := firstNonEmpty(trimMax(plan.ServiceMode, 128), stage, serviceAgentDomainLabel(domain))
+	summary := firstNonEmpty(trimMax(plan.Summary, 512), serviceMemoryExcerpt(memory))
+	nextAction := firstNonEmpty(trimMax(plan.NextAction, 512), inferNextAction(stage, riskLabel))
+	primaryAction := firstNonEmpty(trimMax(plan.PrimaryAction, 512), inferPrimaryAction(stage, riskLabel))
+	avoidAction := firstNonEmpty(trimMax(plan.AvoidAction, 512), inferAvoidAction(riskLabel))
+	replyDraft := firstNonEmpty(trimMax(plan.ReplyDraft, 800), inferReplyDraft(customerName, stage, riskLabel))
+	_, dueText := inferDue(plan.DueText, priority)
+	if !hasCustomerIdentity {
+		subjectName = nonCustomerSubjectName(plan, memory, text)
+		if strings.TrimSpace(serviceMode) == "" || isCustomerFacingStage(serviceMode) || isCustomerFacingGeneratedText(serviceMode, modelCustomerName, text) {
+			serviceMode = firstNonEmpty(genericServiceModeFromText(text), subjectName, "通用服务")
+		}
+		if strings.TrimSpace(stage) == "" || isCustomerFacingStage(stage) || isCustomerFacingGeneratedText(stage, modelCustomerName, text) {
+			stage = serviceMode
+		}
+		if isCustomerFacingGeneratedText(riskLabel, modelCustomerName, text) {
+			riskLabel = genericRiskLabelForServiceMode(serviceMode)
+		}
+		customerName = ""
+		studentName = ""
+		subjectName = firstNonEmpty(subjectName, serviceMode, trimMax(memory.Title, serviceMaxShortText))
+		if strings.TrimSpace(summary) == "" || isCustomerFacingGeneratedText(summary, modelCustomerName, text) {
+			summary = firstNonEmpty(contentExcerpt(memorySearchText(memory), ""), subjectName)
+		}
+		if strings.TrimSpace(nextAction) == "" || isCustomerFacingGeneratedText(nextAction, modelCustomerName, text) || nextAction == inferNextAction(stage, riskLabel) {
+			nextAction = genericNextActionForServiceMode(serviceMode)
+		}
+		if strings.TrimSpace(primaryAction) == "" || isCustomerFacingGeneratedText(primaryAction, modelCustomerName, text) || primaryAction == inferPrimaryAction(stage, riskLabel) {
+			primaryAction = genericPrimaryActionForServiceMode(serviceMode)
+		}
+		if strings.TrimSpace(avoidAction) == "" || isCustomerFacingGeneratedText(avoidAction, modelCustomerName, text) || avoidAction == inferAvoidAction(riskLabel) {
+			avoidAction = "不要把未确认的内容直接当作已完成事项，先整理成可执行清单。"
+		}
+		if strings.TrimSpace(replyDraft) == "" || isCustomerFacingGeneratedText(replyDraft, modelCustomerName, text) || replyDraft == inferReplyDraft(customerName, stage, riskLabel) {
+			replyDraft = genericReplyDraftForServiceMode(serviceMode, subjectName)
+		}
+		if isCustomerFacingGeneratedText(plan.Title, modelCustomerName, text) {
+			plan.Title = ""
+		}
+		if isCustomerFacingGeneratedText(plan.AssistReason, modelCustomerName, text) {
+			plan.AssistReason = ""
+		}
+		if strings.TrimSpace(plan.AssistReason) == "" {
+			plan.AssistReason = fmt.Sprintf("基于分身%s和当前记忆自动生成%s。", firstNonEmpty(profileName(profile), "服务助理"), serviceMode)
+		}
+		if len(plan.SalesHighlights) == 0 || hasCustomerFacingGeneratedText(plan.SalesHighlights, modelCustomerName, text) {
+			plan.SalesHighlights = []string{fmt.Sprintf("该记忆可沉淀为%s，适合整理成待确认事项。", serviceMode)}
+		}
+		if domain == types.ServiceAgentDomainSalesConsulting || domain == types.ServiceAgentDomainLeadIntake {
+			domain = types.ServiceAgentDomainCustomerService
+		}
+	}
+	plan.ShouldGenerate = plan.ShouldGenerate || summary != "" || nextAction != ""
+	plan.AgentDomain = domain
+	plan.ServiceMode = serviceMode
+	plan.SubjectName = subjectName
+	plan.CustomerName = customerName
+	plan.StudentName = studentName
+	plan.Title = firstNonEmpty(trimMax(plan.Title, serviceMaxTitleLength), subjectName, trimMax(memory.Title, serviceMaxTitleLength), serviceMode)
+	plan.Summary = summary
+	plan.Stage = stage
+	plan.Priority = priority
+	plan.DueText = dueText
+	plan.RiskLabel = riskLabel
+	plan.AssistReason = firstNonEmpty(trimMax(plan.AssistReason, 800), fmt.Sprintf("由%s生成服务事项：%s", firstNonEmpty(profileName(profile), "服务助理"), summary))
+	plan.PrimaryAction = primaryAction
+	plan.NextAction = nextAction
+	plan.AvoidAction = avoidAction
+	plan.ReplyDraft = replyDraft
+	plan.MemorySignals = cleanStringArray(plan.MemorySignals, 8, 64)
+	if len(plan.MemorySignals) == 0 {
+		plan.MemorySignals = cleanStringArray(deriveMemorySignals(text, nil), 8, 64)
+	}
+	if len(plan.MemorySignals) == 0 {
+		plan.MemorySignals = types.StringArray{serviceMode}
+	}
+	plan.SalesHighlights = cleanStringArray(plan.SalesHighlights, 6, 160)
+	if len(plan.SalesHighlights) == 0 {
+		plan.SalesHighlights = cleanStringArray(salesHighlightsFrom(stage, riskLabel, text), 6, 160)
+	}
+	plan.WorkDocDirectory = trimMax(plan.WorkDocDirectory, serviceMaxShortText)
+	plan.Reason = trimMax(plan.Reason, serviceMaxTitleLength)
+	return plan
+}
+
+func normalizeGeneratedServiceAgentDomain(
+	raw string,
+	stage string,
+	riskLabel string,
+	text string,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+) string {
+	raw = strings.TrimSpace(raw)
+	if types.IsValidServiceAgentDomain(raw) && raw != types.ServiceAgentDomainMemoryRouter {
+		return raw
+	}
+	inferred := domainForText(text, stage, riskLabel)
+	if types.IsValidServiceAgentDomain(inferred) && inferred != types.ServiceAgentDomainMemoryRouter {
+		return inferred
+	}
+	for _, domain := range []string{
+		types.ServiceAgentDomainSalesConsulting,
+		types.ServiceAgentDomainCustomerService,
+		types.ServiceAgentDomainScheduling,
+		types.ServiceAgentDomainAfterSaleRisk,
+		types.ServiceAgentDomainLeadIntake,
+	} {
+		if enabledDomains[domain] != nil {
+			return domain
+		}
+	}
+	return types.ServiceAgentDomainCustomerService
+}
+
+func fallbackServiceMemoryExtractionPlan(
+	profile *types.UserWorkProfile,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	memory *types.OrganizeMemory,
+) serviceMemoryExtractionPlan {
+	text := memorySearchText(memory)
+	stage := inferStage(text)
+	hasCustomerIdentity := memoryHasCustomerIdentity(memory)
+	if !hasCustomerIdentity {
+		stage = genericServiceModeFromText(text)
+	} else if containsAny(text, []string{"培训", "准备", "清单", "会议", "教研", "资料", "事项"}) {
+		stage = "服务事项"
+	}
+	riskLabel := inferRiskLabel(text)
+	domain := normalizeGeneratedServiceAgentDomain("", stage, riskLabel, text, enabledDomains)
+	customerName := extractCustomerName(memory)
+	subjectName := firstNonEmpty(trimMax(memory.Title, serviceMaxShortText), stage, "服务事项")
+	summary := serviceMemoryExcerpt(memory)
+	nextAction := inferNextAction(stage, riskLabel)
+	primaryAction := "先把记忆中的事实转成可确认事项，再补齐负责人、时间和交付物。"
+	replyDraft := fmt.Sprintf("我先把「%s」整理成待确认事项，并补齐负责人、时间和下一步。", firstNonEmpty(memory.Title, "这条记忆"))
+	if !hasCustomerIdentity {
+		riskLabel = genericRiskLabelForServiceMode(stage)
+		nextAction = genericNextActionForServiceMode(stage)
+		primaryAction = genericPrimaryActionForServiceMode(stage)
+		replyDraft = genericReplyDraftForServiceMode(stage, subjectName)
+	} else if stage == "服务事项" {
+		nextAction = "整理服务事项清单并确认下一步负责人和时间"
+	}
+	return normalizeServiceMemoryExtractionPlan(serviceMemoryExtractionPlan{
+		ShouldGenerate:  true,
+		AgentDomain:     domain,
+		ServiceMode:     stage,
+		SubjectName:     subjectName,
+		CustomerName:    customerName,
+		Title:           firstNonEmpty(memory.Title, stage),
+		Summary:         summary,
+		Stage:           stage,
+		Priority:        inferPriority(text, riskLabel),
+		RiskLabel:       riskLabel,
+		AssistReason:    fmt.Sprintf("基于分身%s和当前记忆自动生成服务事项。", firstNonEmpty(profileName(profile), "服务助理")),
+		PrimaryAction:   primaryAction,
+		NextAction:      nextAction,
+		AvoidAction:     "不要把模型生成内容直接当作已完成事实，先人工确认后再执行。",
+		ReplyDraft:      replyDraft,
+		MemorySignals:   deriveMemorySignals(text, nil),
+		SalesHighlights: []string{"这条记忆可转成服务事项，适合沉淀为下一步动作。"},
+		Reason:          "规则兜底生成服务模式和服务内容",
+	}, profile, enabledDomains, memory)
+}
+
+func (s *serviceService) generatedServiceAgentSetting(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	profile *types.UserWorkProfile,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	plan serviceMemoryExtractionPlan,
+	source string,
+	modelID string,
+) *types.WorkProfileAgentSetting {
+	if setting, ok := serviceAgentSettingForDomain(enabledDomains, plan.AgentDomain); ok && setting != nil {
+		return setting
+	}
+	operatorUserID := userID
+	if profile != nil {
+		operatorUserID = firstNonEmpty(profile.UpdatedBy, profile.CreatedBy, profile.UserID, userID)
+	}
+	tmpl := serviceAgentTemplateForDomain(s.ListAgentTemplates(ctx), plan.AgentDomain)
+	displayName := firstNonEmpty(plan.ServiceMode, serviceAgentDomainLabel(plan.AgentDomain))
+	workDocDirectory := firstNonEmpty(plan.WorkDocDirectory, generatedServiceWorkDocDirectory(plan), defaultWorkDocDirectory(plan.AgentDomain))
+	setting, err := buildAgentSetting(tenantID, operatorUserID, profileID(profile), types.WorkProfileAgentSettingInput{
+		AgentDomain:      plan.AgentDomain,
+		Enabled:          true,
+		DisplayName:      displayName,
+		WorkDocDirectory: workDocDirectory,
+		MemoryFilter:     tmpl.MemoryFilter,
+		SelectedSkills:   tmpl.SelectedSkills,
+		OutputPolicy: mergeJSONMap(tmpl.OutputPolicy, types.JSONMap{
+			"service_mode":               plan.ServiceMode,
+			"generated_service_source":   source,
+			"generated_service_model_id": modelID,
+		}),
+	}, 0)
+	if err != nil {
+		return nil
+	}
+	return setting
+}
+
+func serviceAgentTemplateForDomain(templates []types.ServiceAgentTemplate, domain string) types.ServiceAgentTemplate {
+	for _, tmpl := range templates {
+		if tmpl.AgentDomain == domain {
+			return tmpl
+		}
+	}
+	return types.ServiceAgentTemplate{}
+}
+
+func generatedServiceWorkDocDirectory(plan serviceMemoryExtractionPlan) string {
+	mode := strings.TrimSpace(plan.ServiceMode)
+	if mode == "" {
+		return ""
+	}
+	return "服务/" + sanitizePathSegment(mode) + "/"
+}
+
+func buildReminderFromServiceMemoryPlan(
+	tenantID uint64,
+	userID string,
+	profile *types.UserWorkProfile,
+	memory *types.OrganizeMemory,
+	plan serviceMemoryExtractionPlan,
+	setting *types.WorkProfileAgentSetting,
+	source string,
+	modelID string,
+) *types.ServiceReminder {
+	dueAt, dueText := inferDue(plan.DueText, plan.Priority)
+	lastMemoryAt := memory.UpdatedAt
+	if !memory.OccurredAt.IsZero() {
+		lastMemoryAt = memory.OccurredAt
+	}
+	sourceMemoryIDs := cleanStringArray([]string{memory.ID}, 100, 64)
+	confidence := 0.78
+	if source == serviceMemoryExtractionSourceLLM {
+		confidence = 0.84
+	}
+	displayName := firstNonEmpty(plan.SubjectName, plan.CustomerName, plan.Title, plan.ServiceMode, "服务事项")
+	subjectKey := serviceSubjectKey(plan.CustomerName, plan.StudentName)
+	if subjectKey == "" {
+		subjectKey = serviceSubjectKey(plan.SubjectName, memory.ID)
+	}
+	reminderID := deterministicServiceID("service-reminder", profileID(profile), subjectKey, plan.AgentDomain, memory.ID)
+	metadata := types.JSONMap{
+		"customer_name":              plan.CustomerName,
+		"student_name":               plan.StudentName,
+		"subject_name":               plan.SubjectName,
+		"service_mode":               plan.ServiceMode,
+		"memory_scope":               profileMemoryScope(profile),
+		"source_type":                "memory",
+		"generated_service_source":   source,
+		"generated_service_model_id": modelID,
+		"generated_service_reason":   plan.Reason,
+		"work_doc_directory":         setting.WorkDocDirectory,
+		"agent_display_name":         setting.DisplayName,
+	}
+	return &types.ServiceReminder{
+		ID:                reminderID,
+		TenantID:          tenantID,
+		UserID:            userID,
+		ProfileID:         profileID(profile),
+		AgentDomain:       plan.AgentDomain,
+		Title:             plan.Title,
+		Summary:           plan.Summary,
+		Status:            types.ServiceReminderStatusPending,
+		Priority:          plan.Priority,
+		DueAt:             dueAt,
+		DueText:           dueText,
+		Stage:             plan.Stage,
+		Channel:           inferChannel(memorySearchText(memory)),
+		DecisionRole:      inferDecisionRole(memorySearchText(memory)),
+		RiskLabel:         plan.RiskLabel,
+		AssistReason:      plan.AssistReason,
+		PrimaryAction:     plan.PrimaryAction,
+		NextAction:        plan.NextAction,
+		AvoidAction:       plan.AvoidAction,
+		ContextItems:      cleanStringArray(append([]string{"个人记忆", plan.ServiceMode}, plan.MemorySignals...), 10, 64),
+		MemorySignals:     cleanStringArray(plan.MemorySignals, 10, 64),
+		SourceMemoryIDs:   sourceMemoryIDs,
+		SourceMemoryCount: len(sourceMemoryIDs),
+		LastMemoryAt:      &lastMemoryAt,
+		Confidence:        confidence,
+		SalesHighlights:   cleanStringArray(plan.SalesHighlights, 6, 160),
+		WriteBackStatus:   "待确认",
+		WriteBackDraft:    fmt.Sprintf("%s｜%s。依据：%s", displayName, plan.NextAction, firstNonEmpty(memory.Title, "当前记忆")),
+		ReplyDraft:        plan.ReplyDraft,
+		Metadata:          metadata,
+		UpdatedAt:         time.Now().UTC(),
+	}
+}
+
+func buildServiceMemoryExtractionPrompt(
+	profile *types.UserWorkProfile,
+	memory *types.OrganizeMemory,
+	enabledDomains map[string]*types.WorkProfileAgentSetting,
+	templates []types.ServiceAgentTemplate,
+) string {
+	var b strings.Builder
+	hasCustomerIdentity := memoryHasCustomerIdentity(memory)
+	customerName := extractCustomerName(memory)
+	b.WriteString("分身描述：\n")
+	b.WriteString(firstNonEmpty(workProfileAgentInferenceText(profile), profileName(profile), "未配置分身描述"))
+	b.WriteString("\n\n已启用服务能力：\n")
+	enabledLines := enabledServiceSettingPromptLines(enabledDomains)
+	if len(enabledLines) == 0 {
+		b.WriteString("- 无业务服务能力，需要根据记忆自动生成服务模式和内容。\n")
+	} else {
+		b.WriteString(strings.Join(enabledLines, "\n"))
+		b.WriteString("\n")
+	}
+	b.WriteString("\n可用内置存储域：\n")
+	for _, tmpl := range templates {
+		if tmpl.AgentDomain == types.ServiceAgentDomainMemoryRouter {
+			continue
+		}
+		b.WriteString("- ")
+		b.WriteString(tmpl.AgentDomain)
+		b.WriteString("：")
+		b.WriteString(tmpl.Description)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n当前记忆：\n")
+	b.WriteString("标题：")
+	b.WriteString(firstNonEmpty(memory.Title, "未命名记忆"))
+	b.WriteString("\n来源：")
+	b.WriteString(firstNonEmpty(memory.Source, "个人记忆"))
+	b.WriteString("\n内容：")
+	b.WriteString(trimMax(memorySearchText(memory), 2000))
+	if len(memory.Metadata) > 0 {
+		if raw, err := json.Marshal(memory.Metadata); err == nil {
+			b.WriteString("\n元数据：")
+			b.WriteString(trimMax(string(raw), 1000))
+		}
+	}
+	b.WriteString("\n客户身份判断：")
+	if hasCustomerIdentity {
+		b.WriteString("当前记忆检测到明确客户/家长/学员身份")
+		if customerName != "" {
+			b.WriteString("：")
+			b.WriteString(customerName)
+		}
+		b.WriteString("。")
+	} else {
+		b.WriteString("当前记忆没有明确客户/家长/学员身份。")
+	}
+	b.WriteString("\n\n要求：\n")
+	b.WriteString("1. 如果已启用能力能精准覆盖当前记忆，agent_domain 选择对应能力。\n")
+	b.WriteString("2. 如果没有配置对应能力，不要拒绝；生成 service_mode 表示新的服务模式，并把 agent_domain 映射到最接近的内置存储域。\n")
+	b.WriteString("3. customer_name/student_name 只能填写当前记忆中明确出现的客户、家长、学员或孩子身份；没有明确身份时必须留空，禁止编造“小明妈妈”等示例人物。\n")
+	b.WriteString("4. subject_name 用当前记忆的真实主题、项目、公司、文档名或事项对象；非客户类记忆必须用 subject_name 承载对象，不要把对象写进 customer_name。\n")
+	b.WriteString("5. 如果记忆是投资、研报、财报、估值、公司分析、股票跟踪类内容，service_mode 应围绕投研分析，summary/primary_action/next_action/reply_draft 必须聚焦投资结论、依据、风险和后续跟踪项，不能输出客户摘要、售前试听或招生销售话术。\n")
+	b.WriteString("6. next_action、primary_action、reply_draft 必须是可执行服务内容，且只能基于当前记忆事实。\n")
+	b.WriteString("7. 只有记忆完全没有可行动信息时，should_generate 才能为 false。\n")
+	return b.String()
+}
+
+func enabledServiceSettingPromptLines(enabledDomains map[string]*types.WorkProfileAgentSetting) []string {
+	keys := make([]string, 0, len(enabledDomains))
+	for domain := range enabledDomains {
+		if domain != types.ServiceAgentDomainMemoryRouter {
+			keys = append(keys, domain)
+		}
+	}
+	sort.Strings(keys)
+	lines := make([]string, 0, len(keys))
+	for _, domain := range keys {
+		setting := enabledDomains[domain]
+		if setting == nil {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s：%s，工作目录：%s", domain, setting.DisplayName, setting.WorkDocDirectory))
+	}
+	return lines
+}
+
+func profileName(profile *types.UserWorkProfile) string {
+	if profile == nil {
+		return ""
+	}
+	return strings.TrimSpace(profile.Name)
+}
+
+func profileMemoryScope(profile *types.UserWorkProfile) string {
+	if profile == nil {
+		return ""
+	}
+	return strings.TrimSpace(profile.MemoryScope)
 }
 
 func (s *serviceService) hydrateWorkProfileDescription(
@@ -1228,7 +2473,7 @@ func buildServiceSubject(tenantID uint64, userID, name, studentName string, conf
 		TenantID:        tenantID,
 		OwnerUserID:     userID,
 		SubjectKey:      serviceSubjectKey(name, studentName),
-		DisplayName:     firstNonEmpty(name, "待补充客户"),
+		DisplayName:     firstNonEmpty(name, "服务事项"),
 		StudentName:     studentName,
 		Relation:        inferRelation(name),
 		Aliases:         types.StringArray{firstNonEmpty(name, studentName)},
@@ -1258,6 +2503,8 @@ func buildActionDraftFromReminder(
 			"reply_draft":    reminder.ReplyDraft,
 			"next_action":    reminder.NextAction,
 			"service_stage":  reminder.Stage,
+			"service_mode":   reminder.Metadata["service_mode"],
+			"subject_name":   reminder.Metadata["subject_name"],
 			"customer_name":  reminder.Metadata["customer_name"],
 			"student_name":   reminder.Metadata["student_name"],
 			"external_write": "draft_only",
@@ -1409,7 +2656,11 @@ func buildWorkDocs(
 ) []*types.AgentWorkDoc {
 	customerName := asString(reminder.Metadata["customer_name"])
 	studentName := asString(reminder.Metadata["student_name"])
-	subjectLabel := firstNonEmpty(studentName, customerName, "客户")
+	if studentName == "待补充" && customerName == "" {
+		studentName = ""
+	}
+	subjectName := asString(reminder.Metadata["subject_name"])
+	subjectLabel := firstNonEmpty(studentName, customerName, subjectName, reminder.Title, "服务事项")
 	workDocDirectory := strings.Trim(asString(reminder.Metadata["work_doc_directory"]), "/")
 	if workDocDirectory == "" {
 		workDocDirectory = strings.Trim(defaultWorkDocDirectory(reminder.AgentDomain), "/")
@@ -1417,12 +2668,18 @@ func buildWorkDocs(
 	basePath := workDocDirectory + "/" + sanitizePathSegment(subjectLabel)
 	sourceIDs := cleanStringArray(reminder.SourceMemoryIDs, 100, 64)
 	now := time.Now().UTC()
+	summaryDocName := "服务摘要.md"
+	summaryDocTitle := "服务摘要"
+	if customerName != "" {
+		summaryDocName = "客户摘要.md"
+		summaryDocTitle = "客户摘要"
+	}
 	docs := []struct {
 		name    string
 		title   string
 		content string
 	}{
-		{"客户摘要.md", "客户摘要", buildCustomerSummaryMarkdown(reminder, memories)},
+		{summaryDocName, summaryDocTitle, buildServiceSummaryMarkdown(reminder, memories)},
 		{"跟进记录.md", "跟进记录", buildFollowUpMarkdown(reminder, memories)},
 		{"未闭环事项.md", "未闭环事项", buildOpenItemsMarkdown(reminder)},
 		{"证据索引.md", "证据索引", buildEvidenceMarkdown(reminder, memories)},
@@ -1445,6 +2702,7 @@ func buildWorkDocs(
 				"subject_id":    subjectID,
 				"customer_name": customerName,
 				"student_name":  studentName,
+				"subject_name":  subjectName,
 				"source":        "service_module",
 			},
 			UpdatedAt: now,
@@ -1486,7 +2744,28 @@ func buildWorkDocLinks(
 	return links
 }
 
-func buildCustomerSummaryMarkdown(reminder *types.ServiceReminder, memories []*types.OrganizeMemory) string {
+func buildServiceSummaryMarkdown(reminder *types.ServiceReminder, memories []*types.OrganizeMemory) string {
+	customerName := asString(reminder.Metadata["customer_name"])
+	studentName := asString(reminder.Metadata["student_name"])
+	subjectName := firstNonEmpty(asString(reminder.Metadata["subject_name"]), reminder.Title, asString(reminder.Metadata["service_mode"]), "服务事项")
+	if customerName == "" {
+		return serviceDocFrontMatter("service_workspace", reminder) + fmt.Sprintf(`# %s
+
+## 当前摘要
+
+%s
+
+## 当前阶段
+
+- 服务模式：%s
+- 风险/关注：%s
+- 渠道：%s
+
+## 下一步建议
+
+%s
+`, subjectName, reminder.Summary, firstNonEmpty(asString(reminder.Metadata["service_mode"]), reminder.Stage), reminder.RiskLabel, reminder.Channel, reminder.NextAction) + sourceMemoryBullets(memories)
+	}
 	return serviceDocFrontMatter("customer_workspace", reminder) + fmt.Sprintf(`# %s / %s
 
 ## 当前摘要
@@ -1503,7 +2782,7 @@ func buildCustomerSummaryMarkdown(reminder *types.ServiceReminder, memories []*t
 ## 下一步建议
 
 %s
-`, asString(reminder.Metadata["student_name"]), asString(reminder.Metadata["customer_name"]),
+`, studentName, customerName,
 		reminder.Summary, reminder.Stage, reminder.RiskLabel, reminder.DecisionRole, reminder.Channel, reminder.NextAction) + sourceMemoryBullets(memories)
 }
 
@@ -1597,7 +2876,7 @@ func buildCustomerSpaceSummary(
 	summary := firstNonEmpty(
 		customerSpaceSummaryFromDocs(customerDocs),
 		customerSpaceSummaryFromReminder(latestReminder),
-		"暂无客户摘要",
+		"暂无服务摘要",
 	)
 	stage := ""
 	riskLabel := ""
@@ -1621,7 +2900,7 @@ func buildCustomerSpaceSummary(
 		riskLabel,
 		latestAction,
 	}, 4, 80)
-	name := firstNonEmpty(subject.DisplayName, subject.StudentName, "待补充客户")
+	name := firstNonEmpty(subject.DisplayName, subject.StudentName, "服务事项")
 	description := summary
 	if subject.StudentName != "" && subject.DisplayName != subject.StudentName {
 		description = fmt.Sprintf("%s · 学员：%s", summary, subject.StudentName)
@@ -1710,7 +2989,7 @@ func customerSpaceSummaryFromDocs(docs []*types.AgentWorkDoc) string {
 		if doc == nil {
 			continue
 		}
-		if doc.Title == "客户摘要" || strings.HasSuffix(doc.DocPath, "/客户摘要.md") {
+		if doc.Title == "客户摘要" || doc.Title == "服务摘要" || strings.HasSuffix(doc.DocPath, "/客户摘要.md") || strings.HasSuffix(doc.DocPath, "/服务摘要.md") {
 			return markdownSectionExcerpt(doc.Content, "当前摘要", "")
 		}
 	}
@@ -1929,6 +3208,17 @@ func normalizeServiceDailyReportRange(reportRange string) string {
 	}
 }
 
+func normalizeServiceDailyReportTrigger(trigger string) string {
+	switch strings.ToLower(strings.TrimSpace(trigger)) {
+	case "supplement", "backfill", "补记", "补入":
+		return "supplement"
+	case "scheduled", "schedule", "auto", "自动":
+		return "scheduled"
+	default:
+		return "user_requested"
+	}
+}
+
 func serviceDailyReportLocation(timezone string) *time.Location {
 	name := strings.TrimSpace(timezone)
 	if name == "" {
@@ -2044,16 +3334,64 @@ func buildDailyReportSubject(tenantID uint64, userID, profileID string) *types.S
 	}
 }
 
-func buildDailyReportMarkdown(period serviceDailyReportPeriod, reminders []*types.ServiceReminder) string {
+type serviceDailyReportStats struct {
+	ActionCount          int
+	SubjectCount         int
+	OpenActionCount      int
+	ClosedActionCount    int
+	HighRiskCount        int
+	KnowledgeGapCount    int
+	SourceMemoryCount    int
+	DailySourceCount     int
+	EvidenceCompleteRate int
+}
+
+func buildDailyReportStats(reminders []*types.ServiceReminder, dailySources []*types.AgentWorkDoc) serviceDailyReportStats {
+	return serviceDailyReportStats{
+		ActionCount:          len(reminders),
+		SubjectCount:         dailyReportSubjectCount(reminders),
+		OpenActionCount:      dailyReportOpenActionCount(reminders),
+		ClosedActionCount:    dailyReportClosedActionCount(reminders),
+		HighRiskCount:        dailyReportHighRiskCount(reminders),
+		KnowledgeGapCount:    dailyReportKnowledgeGapCount(reminders),
+		SourceMemoryCount:    len(sourceMemoryIDsFromReminders(reminders)),
+		DailySourceCount:     len(dailySources),
+		EvidenceCompleteRate: dailyReportEvidenceCompleteRate(reminders),
+	}
+}
+
+func buildDailyReportMarkdown(
+	period serviceDailyReportPeriod,
+	profile *types.UserWorkProfile,
+	reminders []*types.ServiceReminder,
+	dailySources []*types.AgentWorkDoc,
+	stats serviceDailyReportStats,
+) string {
 	stageLines := dailyReportStageLines(reminders)
 	riskLines := dailyReportRiskLines(reminders)
 	actionLines := dailyReportActionLines(reminders)
 	gapLines := dailyReportKnowledgeGapLines(reminders)
 	evidenceLines := dailyReportEvidenceLines(reminders)
+	sourceSection := ""
+	writeBackSectionIndex := 6
+	if period.Range != types.ServiceDailyReportRangeDay || len(dailySources) > 0 {
+		sourceSection = fmt.Sprintf(`
+
+## 6、日粒度来源
+
+%s
+`, dailyReportDailySourceLines(period, dailySources))
+		writeBackSectionIndex = 7
+	}
 
 	return fmt.Sprintf(`# %s
 
 %s
+
+分身：%s
+收录范围：%s
+生成逻辑：从分身授权记忆提取工作事项，形成提醒、日报和回写建议；动作确认后回写记忆，知识缺口进入知识库审核。
+统计：%d 个动作，覆盖 %d 个服务对象，%d 条来源记忆，高风险 %d 条，证据完整率 %d%%。
 
 ## 1、服务回顾
 
@@ -2074,15 +3412,21 @@ func buildDailyReportMarkdown(period serviceDailyReportPeriod, reminders []*type
 ## 5、证据来源
 
 %s
-`, dailyReportTitle(period), dailyReportDiagnosis(reminders), stageLines, riskLines, actionLines, gapLines, evidenceLines)
+%s
+## %d、回写建议
+
+%s
+`, dailyReportTitle(period), dailyReportDiagnosis(reminders, stats), dailyReportProfileName(profile), dailyReportMemoryScope(profile),
+		stats.ActionCount, stats.SubjectCount, stats.SourceMemoryCount, stats.HighRiskCount, stats.EvidenceCompleteRate,
+		stageLines, riskLines, actionLines, gapLines, evidenceLines, sourceSection, writeBackSectionIndex, dailyReportWriteBackLines(period, stats))
 }
 
 func dailyReportTitle(period serviceDailyReportPeriod) string {
 	switch period.Range {
 	case types.ServiceDailyReportRangeWeek:
-		return fmt.Sprintf("%s-%s服务日报", formatReportShortDate(period.Start), formatReportShortDate(period.End.Add(-time.Nanosecond)))
+		return fmt.Sprintf("%s-%s服务周报", formatReportShortDate(period.Start), formatReportShortDate(period.End.Add(-time.Nanosecond)))
 	case types.ServiceDailyReportRangeMonth:
-		return period.Start.Format("2006年1月服务日报")
+		return period.Start.Format("2006年1月服务月报")
 	default:
 		return period.Start.Format("2006年1月2日服务日报")
 	}
@@ -2103,28 +3447,37 @@ func formatReportShortDate(value time.Time) string {
 	return value.Format("1月2日")
 }
 
-func dailyReportDiagnosis(reminders []*types.ServiceReminder) string {
-	total := len(reminders)
-	customerCount := dailyReportCustomerCount(reminders)
-	highRisk := 0
-	pending := 0
-	completed := 0
-	for _, reminder := range reminders {
-		if reminder.Priority == types.ServicePriorityHigh || reminder.RiskLabel == "售后风险" || reminder.RiskLabel == "未闭环" {
-			highRisk++
-		}
-		if isOpenServiceReminderStatus(reminder.Status) {
-			pending++
-		}
-		if reminder.Status == types.ServiceReminderStatusConfirmed || reminder.Status == types.ServiceReminderStatusCompleted {
-			completed++
-		}
+func dailyReportPeriodLabel(period serviceDailyReportPeriod) string {
+	switch period.Range {
+	case types.ServiceDailyReportRangeWeek:
+		return fmt.Sprintf("%s-%s", formatReportShortDate(period.Start), formatReportShortDate(period.End.Add(-time.Nanosecond)))
+	case types.ServiceDailyReportRangeMonth:
+		return period.Start.Format("2006年1月")
+	default:
+		return period.Start.Format("1月2日")
 	}
-	if total == 0 {
-		return "当前没有可汇总的服务提醒。建议先补充客户服务记忆或刷新服务提醒，再生成日报。"
+}
+
+func dailyReportProfileName(profile *types.UserWorkProfile) string {
+	if profile == nil {
+		return "服务分身"
 	}
-	return fmt.Sprintf("本次共汇总 %d 个服务动作，覆盖 %d 位客户；其中高风险 %d 条，待处理 %d 条，已确认或完成 %d 条。",
-		total, customerCount, highRisk, pending, completed)
+	return firstNonEmpty(profile.Name, "服务分身")
+}
+
+func dailyReportMemoryScope(profile *types.UserWorkProfile) string {
+	if profile == nil {
+		return "本人服务相关记忆"
+	}
+	return firstNonEmpty(profile.MemoryScope, "本人服务相关记忆")
+}
+
+func dailyReportDiagnosis(reminders []*types.ServiceReminder, stats serviceDailyReportStats) string {
+	if stats.ActionCount == 0 {
+		return "当前没有可汇总的服务提醒。建议先补充工作记忆或刷新分身服务提醒，再生成日报。"
+	}
+	return fmt.Sprintf("本次共汇总 %d 个工作动作，覆盖 %d 个服务对象；其中高风险 %d 条，待处理 %d 条，已确认或完成 %d 条。",
+		stats.ActionCount, stats.SubjectCount, stats.HighRiskCount, stats.OpenActionCount, stats.ClosedActionCount)
 }
 
 func dailyReportStageLines(reminders []*types.ServiceReminder) string {
@@ -2172,7 +3525,13 @@ func dailyReportActionLines(reminders []*types.ServiceReminder) string {
 	}
 	lines := make([]string, 0, len(reminders))
 	for _, reminder := range reminders {
-		customerName := firstNonEmpty(asString(reminder.Metadata["customer_name"]), reminder.Title, "待补充客户")
+		subjectName := firstNonEmpty(
+			asString(reminder.Metadata["customer_name"]),
+			asString(reminder.Metadata["subject_name"]),
+			reminder.Title,
+			asString(reminder.Metadata["service_mode"]),
+			"服务事项",
+		)
 		confidence := "待确认"
 		if reminder.Confidence >= 0.8 {
 			confidence = "较高"
@@ -2180,8 +3539,8 @@ func dailyReportActionLines(reminders []*types.ServiceReminder) string {
 			confidence = "低"
 		}
 		lines = append(lines, fmt.Sprintf("- %s：%s（%s，%s，%s）",
-			customerName,
-			firstNonEmpty(reminder.NextAction, "确认客户状态并补一条下一步记忆"),
+			subjectName,
+			firstNonEmpty(reminder.NextAction, "确认服务事项并补一条下一步记忆"),
 			firstNonEmpty(reminder.DueText, formatMonthDay(serviceReminderReferenceTime(reminder))),
 			serviceReminderStatusLabel(reminder.Status),
 			confidence,
@@ -2343,10 +3702,100 @@ func sourceMemoryIDsFromReminders(reminders []*types.ServiceReminder) types.Stri
 	return cleanStringArray(ids, 100, 64)
 }
 
-func dailyReportCustomerCount(reminders []*types.ServiceReminder) int {
+func dailyReportHighRiskCount(reminders []*types.ServiceReminder) int {
+	count := 0
+	for _, reminder := range reminders {
+		if reminder == nil {
+			continue
+		}
+		if reminder.Priority == types.ServicePriorityHigh || reminder.RiskLabel == "售后风险" || reminder.RiskLabel == "未闭环" || reminder.RiskLabel == "价格顾虑" {
+			count++
+		}
+	}
+	return count
+}
+
+func dailyReportOpenActionCount(reminders []*types.ServiceReminder) int {
+	count := 0
+	for _, reminder := range reminders {
+		if reminder != nil && isOpenServiceReminderStatus(reminder.Status) {
+			count++
+		}
+	}
+	return count
+}
+
+func dailyReportClosedActionCount(reminders []*types.ServiceReminder) int {
+	count := 0
+	for _, reminder := range reminders {
+		if reminder == nil {
+			continue
+		}
+		if reminder.Status == types.ServiceReminderStatusConfirmed || reminder.Status == types.ServiceReminderStatusCompleted {
+			count++
+		}
+	}
+	return count
+}
+
+func dailyReportKnowledgeGapCount(reminders []*types.ServiceReminder) int {
+	if len(reminders) == 0 {
+		return 0
+	}
+	count := 0
+	if hasRiskLabel(reminders, "价格顾虑") {
+		count++
+	}
+	if hasRiskLabel(reminders, "适应焦虑") {
+		count++
+	}
+	if hasRiskLabel(reminders, "售后风险") || hasRiskLabel(reminders, "未闭环") {
+		count++
+	}
+	if hasStage(reminders, "续费服务") || hasRiskLabel(reminders, "续费窗口") {
+		count++
+	}
+	if hasLowConfidenceReminder(reminders) {
+		count++
+	}
+	if count == 0 {
+		return 1
+	}
+	if count > 4 {
+		return 4
+	}
+	return count
+}
+
+func dailyReportEvidenceCompleteRate(reminders []*types.ServiceReminder) int {
+	if len(reminders) == 0 {
+		return 0
+	}
+	covered := 0
+	for _, reminder := range reminders {
+		if reminder == nil {
+			continue
+		}
+		if len(reminder.SourceMemoryIDs) > 0 || len(reminder.MemoryEvidence) > 0 {
+			covered++
+		}
+	}
+	return int(float64(covered) / float64(len(reminders)) * 100)
+}
+
+func dailyReportSubjectCount(reminders []*types.ServiceReminder) int {
 	seen := map[string]bool{}
 	for _, reminder := range reminders {
-		key := firstNonEmpty(reminder.SubjectID, asString(reminder.Metadata["customer_name"]), reminder.Title)
+		if reminder == nil {
+			continue
+		}
+		key := firstNonEmpty(
+			reminder.SubjectID,
+			asString(reminder.Metadata["subject_name"]),
+			asString(reminder.Metadata["customer_name"]),
+			asString(reminder.Metadata["service_mode"]),
+			reminder.Title,
+		)
 		if key != "" {
 			seen[key] = true
 		}
@@ -2354,10 +3803,17 @@ func dailyReportCustomerCount(reminders []*types.ServiceReminder) int {
 	return len(seen)
 }
 
-func dailyReportChips(reminders []*types.ServiceReminder) types.StringArray {
-	chips := []string{"业务洞察", "风险归因", "行动闭环"}
+func dailyReportCustomerCount(reminders []*types.ServiceReminder) int {
+	return dailyReportSubjectCount(reminders)
+}
+
+func dailyReportChips(reminders []*types.ServiceReminder, dailySources []*types.AgentWorkDoc) types.StringArray {
+	chips := []string{"分身日报", "记忆提取", "行动闭环"}
 	if len(reminders) == 0 {
-		chips = []string{"暂无提醒", "待补记忆"}
+		chips = []string{"分身日报", "暂无提醒", "待补记忆"}
+	}
+	if len(dailySources) > 0 {
+		chips = append(chips, "日粒度汇总")
 	}
 	if hasRiskLabel(reminders, "售后风险") || hasRiskLabel(reminders, "未闭环") {
 		chips = append(chips, "风险闭环")
@@ -2369,6 +3825,92 @@ func dailyReportChips(reminders []*types.ServiceReminder) types.StringArray {
 		chips = append(chips, "续费服务")
 	}
 	return cleanStringArray(chips, 6, 16)
+}
+
+func dailyReportDailySourceLines(period serviceDailyReportPeriod, docs []*types.AgentWorkDoc) string {
+	if len(docs) == 0 {
+		if period.Range == types.ServiceDailyReportRangeDay {
+			return "- 当前为日粒度日报，无需引用其他日报。"
+		}
+		return "- 暂无已生成的日粒度日报，本次直接从分身服务提醒汇总。"
+	}
+	lines := make([]string, 0, len(docs))
+	for _, doc := range docs {
+		if doc == nil {
+			continue
+		}
+		metadata := normalizeJSONMap(doc.Metadata)
+		subjectCount := firstPositiveInt(asInt(metadata["subject_count"]), asInt(metadata["customer_count"]))
+		line := fmt.Sprintf("- %s：%s（%d 个动作，%d 个服务对象）",
+			firstNonEmpty(asString(metadata["period_label"]), formatReportShortDate(dailyReportDocStartTime(doc, period.Location))),
+			firstNonEmpty(doc.Title, "服务日报"),
+			asInt(metadata["action_count"]),
+			subjectCount,
+		)
+		lines = append(lines, line)
+		if len(lines) >= 12 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return "- 暂无已生成的日粒度日报，本次直接从分身服务提醒汇总。"
+	}
+	return strings.Join(lines, "\n")
+}
+
+func dailyReportWriteBackLines(period serviceDailyReportPeriod, stats serviceDailyReportStats) string {
+	lines := []string{}
+	if period.Range == types.ServiceDailyReportRangeDay {
+		lines = append(lines, "- 今天遗漏的事实可继续补记，重新生成会覆盖同一日期日报并保留来源索引。")
+	} else {
+		lines = append(lines, "- 周/月结论先回看对应日粒度日报，必要时回到具体日期补齐记忆。")
+	}
+	if stats.OpenActionCount > 0 {
+		lines = append(lines, "- 未闭环动作继续留在服务提醒列表，完成后再回写执行结果。")
+	}
+	if stats.KnowledgeGapCount > 0 {
+		lines = append(lines, "- 知识补齐建议进入知识库审核，不直接写入公共知识库。")
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "- 当前没有新的回写动作，保留日报作为可检索工作产物。")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func dailyReportDocInPeriod(doc *types.AgentWorkDoc, period serviceDailyReportPeriod) bool {
+	if doc == nil {
+		return false
+	}
+	start := dailyReportDocStartTime(doc, period.Location)
+	if start.IsZero() {
+		return false
+	}
+	return !start.Before(period.Start) && start.Before(period.End)
+}
+
+func dailyReportDocStartTime(doc *types.AgentWorkDoc, loc *time.Location) time.Time {
+	if doc == nil {
+		return time.Time{}
+	}
+	if loc == nil {
+		loc = serviceDailyReportLocation("")
+	}
+	metadata := normalizeJSONMap(doc.Metadata)
+	if raw := asString(metadata["period_start"]); raw != "" {
+		if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+			local := parsed.In(loc)
+			return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+		}
+	}
+	date := strings.TrimPrefix(strings.TrimSuffix(doc.DocPath, ".md"), "日报/")
+	if strings.Contains(date, "/") {
+		return time.Time{}
+	}
+	parsed, err := time.ParseInLocation("2006-01-02", date, loc)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, loc)
 }
 
 func buildDailyReportMemoryLinks(
@@ -2411,22 +3953,35 @@ func serviceDailyReportFromDoc(doc *types.AgentWorkDoc) *types.ServiceDailyRepor
 		return nil
 	}
 	metadata := normalizeJSONMap(doc.Metadata)
+	subjectCount := firstPositiveInt(asInt(metadata["subject_count"]), asInt(metadata["customer_count"]))
 	return &types.ServiceDailyReport{
-		ID:              doc.ID,
-		Title:           doc.Title,
-		Summary:         firstNonEmpty(asString(metadata["summary"]), contentExcerpt(doc.Content, doc.Title)),
-		Content:         doc.Content,
-		Range:           firstNonEmpty(asString(metadata["report_range"]), inferDailyReportRangeFromPath(doc.DocPath)),
-		Stage:           firstNonEmpty(asString(metadata["stage"]), "已生成"),
-		StageKey:        firstNonEmpty(asString(metadata["stage_key"]), "formed"),
-		Updated:         firstNonEmpty(asString(metadata["updated"]), formatMonthDay(doc.UpdatedAt)),
-		ActionCount:     asInt(metadata["action_count"]),
-		CustomerCount:   asInt(metadata["customer_count"]),
-		Chips:           cleanStringArray(asStringList(metadata["chips"]), 6, 16),
-		SourceMemoryIDs: cleanStringArray(doc.SourceMemoryIDs, 100, 64),
-		Metadata:        metadata,
-		CreatedAt:       doc.CreatedAt,
-		UpdatedAt:       doc.UpdatedAt,
+		ID:                   doc.ID,
+		Title:                doc.Title,
+		Summary:              firstNonEmpty(asString(metadata["summary"]), contentExcerpt(doc.Content, doc.Title)),
+		Content:              doc.Content,
+		Range:                firstNonEmpty(asString(metadata["report_range"]), inferDailyReportRangeFromPath(doc.DocPath)),
+		Stage:                firstNonEmpty(asString(metadata["stage"]), "已生成"),
+		StageKey:             firstNonEmpty(asString(metadata["stage_key"]), "formed"),
+		Updated:              firstNonEmpty(asString(metadata["updated"]), formatMonthDay(doc.UpdatedAt)),
+		ActionCount:          asInt(metadata["action_count"]),
+		CustomerCount:        subjectCount,
+		SubjectCount:         subjectCount,
+		OpenActionCount:      asInt(metadata["open_action_count"]),
+		ClosedActionCount:    asInt(metadata["closed_action_count"]),
+		HighRiskCount:        asInt(metadata["high_risk_count"]),
+		KnowledgeGapCount:    asInt(metadata["knowledge_gap_count"]),
+		SourceMemoryCount:    asInt(metadata["source_memory_count"]),
+		DailySourceCount:     asInt(metadata["daily_source_count"]),
+		EvidenceCompleteRate: asInt(metadata["evidence_complete_rate"]),
+		ProfileID:            firstNonEmpty(asString(metadata["profile_id"]), doc.ProfileID),
+		ProfileName:          asString(metadata["profile_name"]),
+		MemoryScope:          asString(metadata["memory_scope"]),
+		CanSupplement:        asBool(metadata["can_supplement"]),
+		Chips:                cleanStringArray(asStringList(metadata["chips"]), 6, 16),
+		SourceMemoryIDs:      cleanStringArray(doc.SourceMemoryIDs, 100, 64),
+		Metadata:             metadata,
+		CreatedAt:            doc.CreatedAt,
+		UpdatedAt:            doc.UpdatedAt,
 	}
 }
 
@@ -2462,6 +4017,27 @@ func asInt(value any) int {
 	default:
 		return 0
 	}
+}
+
+func asBool(value any) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case string:
+		parsed, _ := strconv.ParseBool(strings.TrimSpace(v))
+		return parsed
+	default:
+		return false
+	}
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 type jsonNumber interface {

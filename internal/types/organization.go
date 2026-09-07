@@ -70,21 +70,19 @@ type Organization struct {
 	// User ID of the organization owner
 	OwnerID string `json:"owner_id" gorm:"type:varchar(36);not null;index"`
 	// OwnerTenantID is the tenant the owner belonged to when the
-	// organization was created. Plan 3 (#1303) treats this tenant as
-	// the org's "owning tenant": its membership row in
-	// organization_tenant_members is undeletable / unchangeable so
-	// the org can never be orphaned even if the owner user later
-	// switches tenants or is soft-deleted. See migration 000046.
+	// organization was created. It is retained for workspace context and
+	// legacy data; owner protections use OwnerID.
 	OwnerTenantID uint64 `json:"owner_tenant_id" gorm:"not null;index"`
-	// Unique invitation code for joining the organization
+	// Compatibility-only invite code column. Self-service joining is disabled;
+	// organization membership is managed through admin-added tenant members.
 	InviteCode string `json:"invite_code" gorm:"type:varchar(32);uniqueIndex"`
-	// When the current invite code expires; nil means no expiry
+	// Compatibility-only expiry for the invite code column.
 	InviteCodeExpiresAt *time.Time `json:"invite_code_expires_at" gorm:"type:timestamp with time zone"`
-	// Invite link validity in days: 0=never, 1/7/30
+	// Compatibility-only invite validity. Not exposed in organization responses.
 	InviteCodeValidityDays int `json:"invite_code_validity_days" gorm:"default:7"`
-	// Whether joining requires admin approval
+	// Deprecated join-setting column retained for existing schemas.
 	RequireApproval bool `json:"require_approval" gorm:"default:false"`
-	// Whether the space is open for search (discoverable; non-members can search and join by org ID)
+	// Deprecated discovery column retained for existing schemas.
 	Searchable bool `json:"searchable" gorm:"default:false"`
 	// Max members allowed; 0 means no limit
 	MemberLimit int `json:"member_limit" gorm:"default:50"`
@@ -106,12 +104,11 @@ func (Organization) TableName() string {
 	return "organizations"
 }
 
-// OrganizationTenantMember represents a tenant participating in an
-// organization. Plan 3 of #1303 lifts the "Org member" abstraction from
-// per-user (`organization_members`) to per-tenant (this table). The
-// representative_user_id is informational only — the user who first
-// brought this tenant into the org — and is used purely for UI/audit
-// labels. Permission checks are driven exclusively by (org, tenant, role).
+// OrganizationTenantMember represents one account participating in an
+// organization. The historical table name is kept, but representative_user_id
+// is the user who receives the shared-space grant. tenant_id is retained as
+// the member-management source context. Permission checks use
+// (org, representative_user_id, role).
 type OrganizationTenantMember struct {
 	ID                   string        `json:"id" gorm:"type:varchar(36);primaryKey"`
 	OrganizationID       string        `json:"organization_id" gorm:"type:varchar(36);not null;index"`
@@ -129,67 +126,6 @@ type OrganizationTenantMember struct {
 // TableName returns the table name for GORM
 func (OrganizationTenantMember) TableName() string {
 	return "organization_tenant_members"
-}
-
-// JoinRequestStatus represents the status of a join request
-type JoinRequestStatus string
-
-const (
-	JoinRequestStatusPending  JoinRequestStatus = "pending"
-	JoinRequestStatusApproved JoinRequestStatus = "approved"
-	JoinRequestStatusRejected JoinRequestStatus = "rejected"
-)
-
-// JoinRequestType represents the type of a join request
-type JoinRequestType string
-
-const (
-	// JoinRequestTypeJoin is for new member join requests
-	JoinRequestTypeJoin JoinRequestType = "join"
-	// JoinRequestTypeUpgrade is for role upgrade requests from existing members
-	JoinRequestTypeUpgrade JoinRequestType = "upgrade"
-)
-
-// OrganizationJoinRequest represents a request to join an organization or upgrade role
-type OrganizationJoinRequest struct {
-	// Unique identifier
-	ID string `json:"id" gorm:"type:varchar(36);primaryKey"`
-	// Organization ID
-	OrganizationID string `json:"organization_id" gorm:"type:varchar(36);not null;index"`
-	// User ID of the requester
-	UserID string `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	// Tenant ID of the requester
-	TenantID uint64 `json:"tenant_id" gorm:"not null"`
-	// Type of request: 'join' for new member, 'upgrade' for role upgrade
-	RequestType JoinRequestType `json:"request_type" gorm:"type:varchar(32);not null;default:'join';index"`
-	// Previous role before upgrade (only for upgrade requests)
-	PrevRole OrgMemberRole `json:"prev_role" gorm:"column:prev_role;type:varchar(32)"`
-	// Role requested by the applicant (admin/editor/viewer)
-	RequestedRole OrgMemberRole `json:"requested_role" gorm:"type:varchar(32);not null;default:'viewer'"`
-	// Status of the request
-	Status JoinRequestStatus `json:"status" gorm:"type:varchar(32);not null;default:'pending';index"`
-	// Optional message from the requester
-	Message string `json:"message" gorm:"type:text"`
-	// User ID of the admin who reviewed the request
-	ReviewedBy string `json:"reviewed_by" gorm:"type:varchar(36)"`
-	// Time when the request was reviewed
-	ReviewedAt *time.Time `json:"reviewed_at"`
-	// Optional message from the reviewer
-	ReviewMessage string `json:"review_message" gorm:"type:text"`
-	// Creation time
-	CreatedAt time.Time `json:"created_at"`
-	// Last updated time
-	UpdatedAt time.Time `json:"updated_at"`
-
-	// Associations (not stored in database)
-	Organization *Organization `json:"organization,omitempty" gorm:"foreignKey:OrganizationID"`
-	User         *User         `json:"user,omitempty" gorm:"foreignKey:UserID"`
-	Reviewer     *User         `json:"reviewer,omitempty" gorm:"foreignKey:ReviewedBy"`
-}
-
-// TableName returns the table name for GORM
-func (OrganizationJoinRequest) TableName() string {
-	return "organization_join_requests"
 }
 
 // KnowledgeBaseShare represents a sharing record of a knowledge base to an organization
@@ -309,22 +245,18 @@ func (TenantDisabledSharedAgent) TableName() string {
 
 // CreateOrganizationRequest represents a request to create an organization
 type CreateOrganizationRequest struct {
-	Name                   string `json:"name" binding:"required,min=1,max=255"`
-	Description            string `json:"description" binding:"max=1000"`
-	Avatar                 string `json:"avatar" binding:"omitempty,max=512"` // optional avatar URL
-	InviteCodeValidityDays *int   `json:"invite_code_validity_days"`          // optional: 0=never, 1, 7, 30; default 7
-	MemberLimit            *int   `json:"member_limit"`                       // optional: max members; 0=unlimited; default 50
+	Name        string `json:"name" binding:"required,min=1,max=255"`
+	Description string `json:"description" binding:"max=1000"`
+	Avatar      string `json:"avatar" binding:"omitempty,max=512"` // optional avatar URL
+	MemberLimit *int   `json:"member_limit"`                       // optional: max members; 0=unlimited; default 50
 }
 
 // UpdateOrganizationRequest represents a request to update an organization
 type UpdateOrganizationRequest struct {
-	Name                   *string `json:"name" binding:"omitempty,min=1,max=255"`
-	Description            *string `json:"description" binding:"omitempty,max=1000"`
-	Avatar                 *string `json:"avatar" binding:"omitempty,max=512"` // optional avatar URL
-	RequireApproval        *bool   `json:"require_approval"`
-	Searchable             *bool   `json:"searchable"`                // open for search so others can discover and join
-	InviteCodeValidityDays *int    `json:"invite_code_validity_days"` // 0=never, 1, 7, 30
-	MemberLimit            *int    `json:"member_limit"`              // max members; 0=unlimited
+	Name        *string `json:"name" binding:"omitempty,min=1,max=255"`
+	Description *string `json:"description" binding:"omitempty,max=1000"`
+	Avatar      *string `json:"avatar" binding:"omitempty,max=512"` // optional avatar URL
+	MemberLimit *int    `json:"member_limit"`                       // max members; 0=unlimited
 }
 
 // AddMemberRequest represents a request to add a member to an organization
@@ -338,45 +270,16 @@ type UpdateMemberRoleRequest struct {
 	Role OrgMemberRole `json:"role" binding:"required"`
 }
 
-// JoinOrganizationRequest represents a request to join an organization via invite code
-type JoinOrganizationRequest struct {
-	InviteCode string `json:"invite_code" binding:"required,min=8,max=32"`
-}
-
-// SubmitJoinRequestRequest represents a request to submit a join request for approval
-type SubmitJoinRequestRequest struct {
-	InviteCode string        `json:"invite_code" binding:"required,min=8,max=32"`
-	Message    string        `json:"message" binding:"max=500"`
-	Role       OrgMemberRole `json:"role"` // Optional: role the applicant requests (admin/editor/viewer); default viewer
-}
-
-// ReviewJoinRequestRequest represents a request to review a join request
-type ReviewJoinRequestRequest struct {
-	Approved bool          `json:"approved"`
-	Message  string        `json:"message" binding:"max=500"`
-	Role     OrgMemberRole `json:"role"` // Optional: role to assign when approving; overrides applicant's requested role
-}
-
-// RequestRoleUpgradeRequest represents a request to upgrade role in an organization
-type RequestRoleUpgradeRequest struct {
-	RequestedRole OrgMemberRole `json:"requested_role" binding:"required"` // The role user wants to upgrade to
-	Message       string        `json:"message" binding:"max=500"`         // Optional message explaining the reason
-}
-
-// InviteMemberRequest represents a request to directly invite a workspace to an organization.
+// InviteMemberRequest represents a request to directly add a member to an organization.
 //
-// Plan 3 (#1303) moved membership to the workspace level: an invitation enrols a whole
-// workspace into the organization, with one user attached purely as the representative
-// (display/audit). Callers SHOULD set TenantID and optionally
-// RepresentativeUserID. For backward compatibility with older SDK callers that
-// still send UserID alone, the handler resolves that user's TenantID and uses
-// the user as the representative.
+// Callers should set RepresentativeUserID/UserID. TenantID is a hidden source
+// context used to validate the account against member management. For backward
+// compatibility with older SDK callers that still send UserID alone, the
+// handler resolves one active TenantID for that user.
 type InviteMemberRequest struct {
-	// TenantID is the workspace to enrol as an org member. Preferred field.
+	// TenantID is the hidden member-management source context.
 	TenantID uint64 `json:"tenant_id"`
-	// RepresentativeUserID identifies the user attached to the OTM row for
-	// display/audit. Optional: when unset, the handler picks a stable default
-	// (the user from the legacy UserID field, or the workspace's owner).
+	// RepresentativeUserID identifies the account receiving access.
 	RepresentativeUserID string `json:"representative_user_id"`
 	// UserID is retained for backward compatibility. When set without
 	// TenantID, the handler resolves the user's TenantID and uses this
@@ -403,56 +306,50 @@ type OrganizationResponse struct {
 	Description string `json:"description"`
 	Avatar      string `json:"avatar,omitempty"`
 	OwnerID     string `json:"owner_id"`
-	// OwnerTenantID is the persisted owner workspace of the organization
-	// (Plan 3, migration 000046). Frontend uses this to identify the
-	// "owner row" in the workspace-keyed members list — comparing
-	// member.tenant_id against owner_tenant_id is the post-Plan-3
-	// equivalent of the old member.user_id == owner_id check.
-	OwnerTenantID           uint64     `json:"owner_tenant_id"`
-	InviteCode              string     `json:"invite_code,omitempty"`
-	InviteCodeExpiresAt     *time.Time `json:"invite_code_expires_at,omitempty"`
-	InviteCodeValidityDays  int        `json:"invite_code_validity_days"`
-	RequireApproval         bool       `json:"require_approval"`
-	Searchable              bool       `json:"searchable"`
-	MemberLimit             int        `json:"member_limit"` // 0 = unlimited
-	MemberCount             int        `json:"member_count"`
-	ShareCount              int        `json:"share_count"`                // 共享到该组织的知识库数量
-	AgentShareCount         int        `json:"agent_share_count"`          // 共享到该组织的智能体数量
-	PendingJoinRequestCount int        `json:"pending_join_request_count"` // 待审批加入申请数（仅管理员可见）
-	IsOwner                 bool       `json:"is_owner"`
-	MyRole                  string     `json:"my_role,omitempty"`
-	HasPendingUpgrade       bool       `json:"has_pending_upgrade"` // 当前用户是否有待处理的权限升级申请
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	// OwnerTenantID is the persisted owner workspace of the organization.
+	OwnerTenantID   uint64    `json:"owner_tenant_id"`
+	MemberLimit     int       `json:"member_limit"` // 0 = unlimited
+	MemberCount     int       `json:"member_count"`
+	ShareCount      int       `json:"share_count"`       // 共享到该组织的知识库数量
+	AgentShareCount int       `json:"agent_share_count"` // 共享到该组织的智能体数量
+	IsOwner         bool      `json:"is_owner"`
+	MyRole          string    `json:"my_role,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // OrganizationMemberResponse represents a member in API responses.
 //
-// Post-Plan-3: every row is a (org, tenant) tuple. TenantID + TenantName
-// are the primary identity; UserID / Username / Phone / Email / Avatar describe
-// the representative user (informational, may be empty if the rep user
-// was soft-deleted). RepresentativeUserID is the same value as UserID,
-// kept as an explicit alias so frontends can stop relying on the
-// misleading user_id field name.
+// Every row is one concrete account grant. TenantID/TenantName are retained as
+// legacy/source context; UserID/RepresentativeUserID are the account identity.
 type OrganizationMemberResponse struct {
-	ID                   string    `json:"id"`
-	UserID               string    `json:"user_id"`
-	RepresentativeUserID string    `json:"representative_user_id"`
-	Username             string    `json:"username"`
-	Phone                string    `json:"phone,omitempty"`
-	Email                string    `json:"email"`
-	Avatar               string    `json:"avatar"`
-	Role                 string    `json:"role"`
-	TenantID             uint64    `json:"tenant_id"`
-	TenantName           string    `json:"tenant_name,omitempty"`
-	JoinedAt             time.Time `json:"joined_at"`
+	ID                   string                        `json:"id"`
+	UserID               string                        `json:"user_id"`
+	RepresentativeUserID string                        `json:"representative_user_id"`
+	Username             string                        `json:"username"`
+	Phone                string                        `json:"phone,omitempty"`
+	Email                string                        `json:"email"`
+	Avatar               string                        `json:"avatar"`
+	Role                 string                        `json:"role"`
+	TenantID             uint64                        `json:"tenant_id"`
+	TenantName           string                        `json:"tenant_name,omitempty"`
+	JoinedAt             time.Time                     `json:"joined_at"`
+	TenantMembers        []TenantMemberSummaryResponse `json:"tenant_members,omitempty"`
 }
 
-// TenantInviteCandidate is one row in the search-tenants-for-invite picker.
-// Plan 3 invites a tenant; users serve as labels. We surface the tenant
-// identity together with a "representative" user (the matching user that
-// caused this tenant to show up in the search). Multiple users may belong
-// to the same tenant; deduplication is by TenantID.
+// TenantMemberSummaryResponse is retained for old clients. The current member
+// roster no longer nests every tenant user under a shared-space row.
+type TenantMemberSummaryResponse struct {
+	UserID   string `json:"user_id"`
+	Username string `json:"username"`
+	Phone    string `json:"phone,omitempty"`
+	Email    string `json:"email"`
+	Avatar   string `json:"avatar,omitempty"`
+	Role     string `json:"role"`
+	Status   string `json:"status"`
+}
+
+// TenantInviteCandidate is a legacy row in the search-tenants-for-invite picker.
 type TenantInviteCandidate struct {
 	TenantID               uint64 `json:"tenant_id"`
 	TenantName             string `json:"tenant_name"`
@@ -464,11 +361,9 @@ type TenantInviteCandidate struct {
 }
 
 // UserInviteCandidate is one row in the search-users-for-invite picker.
-// The UI lets admins choose a user from the global user list, while the
-// write model still enrols that user's tenant into the organization.
-// IsAlreadyMember is true when the user's tenant is already present in
-// the org; selecting another user from that tenant would not create a
-// second membership row.
+// The UI lets admins choose an active account from tenant_members, the same
+// source used by member management. IsAlreadyMember is true when that account
+// is already present in the shared space.
 type UserInviteCandidate struct {
 	ID              string `json:"id"`
 	UserID          string `json:"user_id"`
@@ -540,54 +435,6 @@ type ResourceCountsByOrgResponse struct {
 	Agents struct {
 		ByOrganization map[string]int `json:"by_organization"`
 	} `json:"agents"`
-}
-
-// SearchableOrganizationItem is a searchable org item for discovery (no invite code)
-type SearchableOrganizationItem struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	Avatar          string `json:"avatar,omitempty"`
-	MemberCount     int    `json:"member_count"`
-	MemberLimit     int    `json:"member_limit"` // 0 = unlimited
-	ShareCount      int    `json:"share_count"`
-	AgentShareCount int    `json:"agent_share_count"` // 共享到该组织的智能体数量
-	IsAlreadyMember bool   `json:"is_already_member"`
-	RequireApproval bool   `json:"require_approval"`
-}
-
-// ListSearchableOrganizationsResponse is the response for searching discoverable organizations
-type ListSearchableOrganizationsResponse struct {
-	Organizations []SearchableOrganizationItem `json:"organizations"`
-	Total         int64                        `json:"total"`
-}
-
-// JoinByOrganizationIDRequest is used to join a searchable organization by ID (no invite code)
-type JoinByOrganizationIDRequest struct {
-	OrganizationID string        `json:"organization_id" binding:"required"`
-	Message        string        `json:"message" binding:"max=500"` // Optional message for join request
-	Role           OrgMemberRole `json:"role"`                      // Optional: requested role (admin/editor/viewer); default viewer
-}
-
-// JoinRequestResponse represents a join request in API responses
-type JoinRequestResponse struct {
-	ID            string     `json:"id"`
-	UserID        string     `json:"user_id"`
-	Username      string     `json:"username"`
-	Email         string     `json:"email"`
-	Message       string     `json:"message"`
-	RequestType   string     `json:"request_type"`   // 'join' or 'upgrade'
-	PrevRole      string     `json:"prev_role"`      // Previous role (only for upgrade requests)
-	RequestedRole string     `json:"requested_role"` // Role the applicant requested (admin/editor/viewer)
-	Status        string     `json:"status"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ReviewedAt    *time.Time `json:"reviewed_at,omitempty"`
-}
-
-// ListJoinRequestsResponse represents the response for listing join requests
-type ListJoinRequestsResponse struct {
-	Requests []JoinRequestResponse `json:"requests"`
-	Total    int64                 `json:"total"`
 }
 
 // ListMembersResponse represents the response for listing members

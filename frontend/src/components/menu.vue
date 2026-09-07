@@ -79,13 +79,8 @@
                                         :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
                                         :class="{ 'icon--avatar': item.path === 'creatChat' }" alt="">
                                 </div>
-                                <template v-if="!uiStore.sidebarCollapsed">
-                                    <span class="menu_title" :title="item.title">{{ item.title }}</span>
-                                    <span v-if="item.path === 'organizations' && orgStore.totalPendingJoinRequestCount > 0"
-                                        class="menu-pending-badge"
-                                        :title="t('organization.settings.pendingJoinRequestsBadge')">{{
-                                            orgStore.totalPendingJoinRequestCount }}</span>
-                                </template>
+                                <span v-if="!uiStore.sidebarCollapsed" class="menu_title" :title="item.title">{{
+                                    item.title }}</span>
                             </div>
                         </div>
                     </t-tooltip>
@@ -1830,21 +1825,6 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
     display: flex;
     align-items: center;
     gap: 4px;
-    flex-shrink: 0;
-}
-
-.menu-pending-badge {
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    margin-left: 6px;
-    border-radius: 9px;
-    background: rgba(250, 173, 20, 0.2);
-    color: var(--td-warning-color);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 18px;
-    text-align: center;
     flex-shrink: 0;
 }
 

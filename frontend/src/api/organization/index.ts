@@ -7,45 +7,23 @@ export interface Organization {
   description: string
   avatar?: string
   owner_id: string
-  /**
-   * Persisted owner tenant of the organization (Plan 3, migration 000046).
-   * After Plan 3, member ownership is tenant-keyed: identifying the
-   * "owner row" in the members list means matching member.tenant_id
-   * against owner_tenant_id (NOT member.user_id against owner_id).
-   * May be 0 on pre-000046 legacy rows; in that case fall back to
-   * owner_id for display only.
-   */
+  /** Persisted owner tenant of the organization, retained as workspace context. */
   owner_tenant_id: number
-  invite_code?: string
-  invite_code_expires_at?: string | null
-  invite_code_validity_days?: number
-  require_approval?: boolean
-  searchable?: boolean
   /** Max members; 0 = unlimited */
   member_limit?: number
   member_count?: number
   share_count?: number
   agent_share_count?: number
-  pending_join_request_count?: number
   is_owner?: boolean
   my_role?: string
-  has_pending_upgrade?: boolean
   created_at: string
   updated_at: string
 }
 
 /**
- * OrganizationMember represents one row in the organization's per-tenant
- * member list (Plan 3 / migration 000045). Each row is a (org, tenant)
- * tuple; the user fields describe the *representative* user attached to
- * that row for display/audit, not the member identity itself.
- *
- * - `tenant_id` + `tenant_name` are the canonical member identity.
- * - `representative_user_id` is the post-Plan-3 explicit alias; `user_id`
- *   is kept for backward compatibility and points at the same value.
- * - Two users belonging to the *same* tenant produce a single row here
- *   (UNIQUE(org_id, tenant_id)); the rep is the user who first brought
- *   the tenant in.
+ * OrganizationMember represents one concrete member row in the shared space.
+ * `user_id` and `representative_user_id` identify the account who receives
+ * access. `tenant_id` is hidden user-management source context.
  */
 export interface OrganizationMember {
   id: string
@@ -59,6 +37,18 @@ export interface OrganizationMember {
   tenant_id: number
   tenant_name?: string
   joined_at: string
+  /** Legacy-only, no longer rendered by the shared-space member UI. */
+  tenant_members?: TenantMemberSummary[]
+}
+
+export interface TenantMemberSummary {
+  user_id: string
+  username?: string
+  phone?: string
+  email?: string
+  avatar?: string
+  role?: string
+  status?: string
 }
 
 export interface KnowledgeBaseShare {
@@ -116,39 +106,11 @@ export type OrganizationSharedKnowledgeBaseItem = SharedKnowledgeBase & {
   source_from_agent?: SourceFromAgentInfo
 }
 
-export interface OrganizationPreview {
-  id: string
-  name: string
-  description: string
-  avatar?: string
-  member_count: number
-  share_count: number
-  agent_share_count?: number
-  is_already_member: boolean
-  require_approval: boolean
-  created_at: string
-}
-
-/** Searchable (discoverable) organization item for join flow */
-export interface SearchableOrganizationItem {
-  id: string
-  name: string
-  description: string
-  avatar?: string
-  member_count: number
-  member_limit: number // 0 = unlimited
-  share_count: number
-  agent_share_count?: number
-  is_already_member: boolean
-  require_approval: boolean
-}
-
 // Request types
 export interface CreateOrganizationRequest {
   name: string
   description?: string
   avatar?: string
-  invite_code_validity_days?: number // 0=never, 1, 7, 30; default 7
   member_limit?: number // 0=unlimited; default 50
 }
 
@@ -156,18 +118,11 @@ export interface UpdateOrganizationRequest {
   name?: string
   description?: string
   avatar?: string
-  require_approval?: boolean
-  searchable?: boolean
-  invite_code_validity_days?: number // 0=never, 1, 7, 30
   member_limit?: number // 0=unlimited
 }
 
 export interface UpdateMemberRoleRequest {
   role: 'admin' | 'editor' | 'viewer'
-}
-
-export interface JoinOrganizationRequest {
-  invite_code: string
 }
 
 export interface ShareKnowledgeBaseRequest {
@@ -203,50 +158,7 @@ export interface ListMembersResponse {
   total: number
 }
 
-export interface JoinRequestResponse {
-  id: string
-  user_id: string
-  username: string
-  email: string
-  message: string
-  request_type: 'join' | 'upgrade' // 'join' for new member, 'upgrade' for role upgrade
-  prev_role?: string // Previous role (only for upgrade requests)
-  requested_role: string // Role applicant requested: admin, editor, viewer
-  status: string
-  created_at: string
-  reviewed_at?: string
-}
-
-export interface ListJoinRequestsResponse {
-  requests: JoinRequestResponse[]
-  total: number
-}
-
-export interface SubmitJoinRequestRequest {
-  invite_code: string
-  message?: string
-  role?: 'admin' | 'editor' | 'viewer' // Optional: role applicant requests; default viewer
-}
-
-export interface ReviewJoinRequestRequest {
-  approved: boolean
-  message?: string
-  role?: 'admin' | 'editor' | 'viewer' // Optional: role to assign when approving; overrides applicant's requested role
-}
-
-export interface RequestRoleUpgradeRequest {
-  requested_role: 'admin' | 'editor' | 'viewer' // The role user wants to upgrade to
-  message?: string // Optional message explaining the reason
-}
-
-/**
- * InviteMemberRequest enrols a *tenant* into the organization (Plan 3).
- * - `tenant_id` is the preferred identity for the invitee.
- * - `representative_user_id` is optional metadata for the OTM row's
- *   display/audit; when omitted the server picks a sensible default.
- * - `user_id` is kept for backward compatibility with pre-Plan-3 callers
- *   (the server resolves the user's tenant if `tenant_id` is unset).
- */
+/** InviteMemberRequest adds a concrete member to the organization. */
 export interface InviteMemberRequest {
   tenant_id?: number
   representative_user_id?: string
@@ -254,6 +166,12 @@ export interface InviteMemberRequest {
   role: 'admin' | 'editor' | 'viewer'
 }
 
+/**
+ * UserSearchResult is backed by active tenant_members rows in the current
+ * workspace user-management data. Results are presented account-first;
+ * tenant_id is only the hidden source context needed when submitting the
+ * add-member request.
+ */
 export interface UserSearchResult {
   id?: string
   user_id?: string
@@ -400,85 +318,6 @@ export async function deleteOrganization(id: string): Promise<ApiResponse<void>>
 }
 
 /**
- * Join organization by invite code
- */
-export async function joinOrganization(req: JoinOrganizationRequest): Promise<ApiResponse<Organization>> {
-  try {
-    const response = await post('/api/v1/organizations/join', req)
-    return response as unknown as ApiResponse<Organization>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to join organization' }
-  }
-}
-
-/**
- * Submit a join request (for organizations that require approval).
- * Optional role: applicant's requested role (admin/editor/viewer); default viewer.
- */
-export async function submitJoinRequest(req: SubmitJoinRequestRequest): Promise<ApiResponse<void>> {
-  try {
-    const response = await post('/api/v1/organizations/join-request', req)
-    return response as unknown as ApiResponse<void>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to submit join request' }
-  }
-}
-
-/**
- * Preview organization by invite code (without joining)
- */
-export async function previewOrganization(inviteCode: string): Promise<ApiResponse<OrganizationPreview>> {
-  try {
-    const response = await get(`/api/v1/organizations/preview/${inviteCode}`)
-    return response as unknown as ApiResponse<OrganizationPreview>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to preview organization' }
-  }
-}
-
-/**
- * Search searchable (discoverable) organizations
- */
-export async function searchSearchableOrganizations(
-  q: string = '',
-  limit: number = 20
-): Promise<ApiResponse<{ data: SearchableOrganizationItem[]; total: number }>> {
-  try {
-    const params = new URLSearchParams()
-    if (q) params.set('q', q)
-    params.set('limit', String(limit))
-    const response = await get(`/api/v1/organizations/search?${params.toString()}`)
-    const res = response as unknown as { success: boolean; data?: SearchableOrganizationItem[]; total?: number; message?: string }
-    return {
-      success: res.success,
-      data: res.success ? { data: res.data || [], total: res.total ?? 0 } : undefined,
-      message: res.message,
-    }
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to search organizations' }
-  }
-}
-
-/**
- * Join a searchable organization by ID (no invite code)
- */
-export async function joinOrganizationById(
-  organizationId: string,
-  message?: string,
-  role?: 'admin' | 'editor' | 'viewer'
-): Promise<ApiResponse<Organization>> {
-  try {
-    const body: { organization_id: string; message?: string; role?: string } = { organization_id: organizationId }
-    if (message) body.message = message
-    if (role) body.role = role
-    const response = await post('/api/v1/organizations/join-by-id', body)
-    return response as unknown as ApiResponse<Organization>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to join organization' }
-  }
-}
-
-/**
  * Leave organization
  */
 export async function leaveOrganization(id: string): Promise<ApiResponse<void>> {
@@ -490,34 +329,7 @@ export async function leaveOrganization(id: string): Promise<ApiResponse<void>> 
   }
 }
 
-/**
- * Request role upgrade in an organization
- */
-export async function requestRoleUpgrade(
-  orgId: string,
-  request: RequestRoleUpgradeRequest
-): Promise<ApiResponse<JoinRequestResponse>> {
-  try {
-    const response = await post(`/api/v1/organizations/${orgId}/request-upgrade`, request)
-    return response as unknown as ApiResponse<JoinRequestResponse>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to submit upgrade request' }
-  }
-}
-
-/**
- * Generate new invite code
- */
-export async function generateInviteCode(id: string): Promise<ApiResponse<{ invite_code: string }>> {
-  try {
-    const response = await post(`/api/v1/organizations/${id}/invite-code`, {})
-    return response as unknown as ApiResponse<{ invite_code: string }>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to generate invite code' }
-  }
-}
-
-// Member management
+// Participating user management
 
 /**
  * List organization members
@@ -532,11 +344,11 @@ export async function listMembers(orgId: string): Promise<ApiResponse<ListMember
 }
 
 /**
- * Update member role (member is identified by tenant_id)
+ * Update member role (member is identified by organization member row ID)
  */
-export async function updateMemberRole(orgId: string, tenantId: number, req: UpdateMemberRoleRequest): Promise<ApiResponse<void>> {
+export async function updateMemberRole(orgId: string, memberId: string, req: UpdateMemberRoleRequest): Promise<ApiResponse<void>> {
   try {
-    const response = await put(`/api/v1/organizations/${orgId}/members/${tenantId}`, req)
+    const response = await put(`/api/v1/organizations/${orgId}/members/${memberId}`, req)
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to update member role' }
@@ -544,38 +356,14 @@ export async function updateMemberRole(orgId: string, tenantId: number, req: Upd
 }
 
 /**
- * Remove member (member is identified by tenant_id)
+ * Remove member (member is identified by organization member row ID)
  */
-export async function removeMember(orgId: string, tenantId: number): Promise<ApiResponse<void>> {
+export async function removeMember(orgId: string, memberId: string): Promise<ApiResponse<void>> {
   try {
-    const response = await del(`/api/v1/organizations/${orgId}/members/${tenantId}`)
+    const response = await del(`/api/v1/organizations/${orgId}/members/${memberId}`)
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to remove member' }
-  }
-}
-
-/**
- * List join requests (pending) for an organization (admin only)
- */
-export async function listJoinRequests(orgId: string): Promise<ApiResponse<ListJoinRequestsResponse>> {
-  try {
-    const response = await get(`/api/v1/organizations/${orgId}/join-requests`)
-    return response as unknown as ApiResponse<ListJoinRequestsResponse>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to list join requests' }
-  }
-}
-
-/**
- * Review join request (approve or reject) - admin only
- */
-export async function reviewJoinRequest(orgId: string, requestId: string, req: ReviewJoinRequestRequest): Promise<ApiResponse<void>> {
-  try {
-    const response = await put(`/api/v1/organizations/${orgId}/join-requests/${requestId}/review`, req)
-    return response as unknown as ApiResponse<void>
-  } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to review join request' }
   }
 }
 
@@ -749,9 +537,7 @@ export async function listOrgAgentShares(orgId: string): Promise<ApiResponse<Lis
 }
 
 /**
- * Search candidate tenants for inviting to organization (excludes tenants
- * already in the org). The endpoint matches by tenant name, username, or
- * phone/login identifier and de-duplicates results by tenant_id.
+ * Search candidate workspaces for legacy inviting flows.
  */
 export async function searchTenantsForInvite(
   orgId: string,
@@ -775,12 +561,14 @@ export async function searchUsersForInvite(
     const response = await get(`/api/v1/organizations/${orgId}/search-users?q=${encodeURIComponent(query)}&limit=${limit}`)
     return response as unknown as ApiResponse<UserSearchResult[]>
   } catch (error: any) {
-    return { success: false, message: error.message || 'Failed to search users' }
+    return { success: false, message: error.message || 'Failed to search member candidates' }
   }
 }
 
 /**
- * Invite a user to organization directly (admin only)
+ * Add a member to the organization directly (admin only). Prefer sending
+ * representative_user_id/user_id; tenant_id is retained as hidden source
+ * context for validation against user management.
  */
 export async function inviteMember(
   orgId: string,

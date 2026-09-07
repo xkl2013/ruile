@@ -552,24 +552,37 @@ type ServiceDailyReportInput struct {
 	Range    string `json:"range,omitempty"`
 	Date     string `json:"date,omitempty"`
 	Timezone string `json:"timezone,omitempty"`
+	Trigger  string `json:"trigger,omitempty"`
 }
 
 type ServiceDailyReport struct {
-	ID              string      `json:"id"`
-	Title           string      `json:"title"`
-	Summary         string      `json:"summary,omitempty"`
-	Content         string      `json:"content"`
-	Range           string      `json:"range"`
-	Stage           string      `json:"stage"`
-	StageKey        string      `json:"stage_key"`
-	Updated         string      `json:"updated"`
-	ActionCount     int         `json:"action_count"`
-	CustomerCount   int         `json:"customer_count"`
-	Chips           StringArray `json:"chips,omitempty"`
-	SourceMemoryIDs StringArray `json:"source_memory_ids,omitempty"`
-	Metadata        JSONMap     `json:"metadata,omitempty"`
-	CreatedAt       time.Time   `json:"created_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
+	ID                   string      `json:"id"`
+	Title                string      `json:"title"`
+	Summary              string      `json:"summary,omitempty"`
+	Content              string      `json:"content"`
+	Range                string      `json:"range"`
+	Stage                string      `json:"stage"`
+	StageKey             string      `json:"stage_key"`
+	Updated              string      `json:"updated"`
+	ActionCount          int         `json:"action_count"`
+	CustomerCount        int         `json:"customer_count"`
+	SubjectCount         int         `json:"subject_count"`
+	OpenActionCount      int         `json:"open_action_count"`
+	ClosedActionCount    int         `json:"closed_action_count"`
+	HighRiskCount        int         `json:"high_risk_count"`
+	KnowledgeGapCount    int         `json:"knowledge_gap_count"`
+	SourceMemoryCount    int         `json:"source_memory_count"`
+	DailySourceCount     int         `json:"daily_source_count"`
+	EvidenceCompleteRate int         `json:"evidence_complete_rate"`
+	ProfileID            string      `json:"profile_id,omitempty"`
+	ProfileName          string      `json:"profile_name,omitempty"`
+	MemoryScope          string      `json:"memory_scope,omitempty"`
+	CanSupplement        bool        `json:"can_supplement"`
+	Chips                StringArray `json:"chips,omitempty"`
+	SourceMemoryIDs      StringArray `json:"source_memory_ids,omitempty"`
+	Metadata             JSONMap     `json:"metadata,omitempty"`
+	CreatedAt            time.Time   `json:"created_at"`
+	UpdatedAt            time.Time   `json:"updated_at"`
 }
 
 type ServiceCustomerSpace struct {

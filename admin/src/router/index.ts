@@ -71,8 +71,8 @@ const moduleRoutes: RouteRecordRaw[] = [
     }),
     meta: {
       navKey: 'workspace-members',
-      title: '成员管理',
-      description: '管理空间成员、角色和空间审计。',
+      title: '用户管理',
+      description: '维护当前空间全量用户、角色和空间审计。',
       minRole: 'viewer',
     },
   },
@@ -217,7 +217,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'service-config',
       title: '服务配置',
-      description: '基于成员分身描述管理服务能力。',
+      description: '基于员工分身描述管理服务能力。',
       minRole: 'admin',
     },
   },
@@ -228,7 +228,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'organizations',
       title: '共享空间',
-      description: '管理共享空间、参与空间、加入申请和跨空间共享。',
+      description: '管理共享空间、参与空间和跨空间共享。',
       minRole: 'viewer',
     },
   },

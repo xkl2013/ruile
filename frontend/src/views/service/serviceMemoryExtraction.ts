@@ -16,6 +16,9 @@ export interface ServiceTask {
   subjectId?: string
   sourceType: ServiceTaskSource
   status?: string
+  hasCustomerIdentity: boolean
+  subjectName: string
+  serviceMode: string
   customerName: string
   studentName: string
   title: string
@@ -47,6 +50,9 @@ export const emptyServiceTask: ServiceTask = {
   id: '',
   subjectId: '',
   sourceType: 'memory',
+  hasCustomerIdentity: false,
+  subjectName: '',
+  serviceMode: '',
   customerName: '',
   studentName: '待补充',
   title: '',
@@ -460,6 +466,9 @@ const buildMemoryServiceTask = (customerName: string, memories: OrganizeMemory[]
   return {
     id: `memory-task-${customerName || index}`,
     sourceType: 'memory',
+    hasCustomerIdentity: Boolean(customerName),
+    subjectName: customerName || latest.title || stage,
+    serviceMode: stage,
     customerName,
     studentName,
     title: latest.title || `${stage}线索`,

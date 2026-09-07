@@ -118,20 +118,6 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresInit: false, requiresTenant: false }
     },
     {
-      path: "/join",
-      name: "joinOrganization",
-      component: ExternalRedirectView,
-      beforeEnter: (to) => {
-        const query = normalizeStringQuery(to.query)
-        if (query.code && !query.invite_code) {
-          query.invite_code = query.code
-        }
-        delete query.code
-        return redirectToAdmin({ path: '/spaces/organizations', query })
-      },
-      meta: { requiresInit: true, requiresAuth: true }
-    },
-    {
       path: "/knowledgeBase",
       name: "home",
       component: () => import("../views/knowledge/KnowledgeBase.vue"),

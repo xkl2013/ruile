@@ -5,9 +5,36 @@ import (
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/stretchr/testify/require"
 )
+
+type staticChatModel struct {
+	response string
+}
+
+func (m *staticChatModel) Chat(context.Context, []chat.Message, *chat.ChatOptions) (*types.ChatResponse, error) {
+	return &types.ChatResponse{Content: m.response}, nil
+}
+
+func (m *staticChatModel) ChatStream(context.Context, []chat.Message, *chat.ChatOptions) (<-chan types.StreamResponse, error) {
+	ch := make(chan types.StreamResponse)
+	close(ch)
+	return ch, nil
+}
+
+func (m *staticChatModel) GetModelName() string { return "static" }
+func (m *staticChatModel) GetModelID() string   { return "static" }
+
+type autoInferenceModelService struct {
+	stubModelService
+	models []*types.Model
+}
+
+func (s *autoInferenceModelService) ListModels(context.Context) ([]*types.Model, error) {
+	return s.models, nil
+}
 
 func TestServiceExtractMemoryRecognizesHtmlEditorNote(t *testing.T) {
 	ctx := context.Background()
@@ -189,12 +216,21 @@ func TestServiceBootstrapHydratesUpdatedMemberDescription(t *testing.T) {
 }
 
 func TestServiceExtractMemoryAutoEnablesDefaultAgentsAfterProfileMaterialized(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(7))
 	db := newServiceDailyReportTestDB(t)
 	serviceRepo := repository.NewServiceRepository(db)
 	organizeRepo := repository.NewOrganizeRepository(db)
 	memberRepo := repository.NewTenantMemberRepository(db)
-	svc := NewServiceServiceWithMembers(serviceRepo, organizeRepo, memberRepo)
+	svc := NewServiceServiceWithMembersAndModel(serviceRepo, organizeRepo, memberRepo, &autoInferenceModelService{
+		stubModelService: stubModelService{
+			chatModel: &staticChatModel{
+				response: `{"enabled_domains":["sales_consulting","customer_service","schedule_coordination"],"reason":"岗位描述以试听邀约、家长跟进和排课协调为主"}`,
+			},
+		},
+		models: []*types.Model{
+			{ID: "chat-1", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
+		},
+	})
 
 	const tenantID uint64 = 7
 	const userID = "user-a"
@@ -220,6 +256,7 @@ func TestServiceExtractMemoryAutoEnablesDefaultAgentsAfterProfileMaterialized(t 
 	require.True(t, extracted.Generated)
 	require.NotNil(t, extracted.Reminder)
 	require.Equal(t, types.ServiceAgentDomainSalesConsulting, extracted.Reminder.AgentDomain)
+	require.NotEqual(t, "agent_not_enabled", extracted.Reason)
 
 	settings, err := svc.ListAgentSettings(ctx, tenantID, extracted.Reminder.ProfileID, true)
 	require.NoError(t, err)
@@ -231,11 +268,12 @@ func TestServiceExtractMemoryAutoEnablesDefaultAgentsAfterProfileMaterialized(t 
 		types.ServiceAgentDomainSalesConsulting,
 		types.ServiceAgentDomainCustomerService,
 		types.ServiceAgentDomainScheduling,
+		types.ServiceAgentDomainMemoryRouter,
 	}, domains)
 }
 
-func TestServiceExtractMemoryRespectsExplicitDisabledAgentSettings(t *testing.T) {
-	ctx := context.Background()
+func TestServiceExtractMemoryAutoRebuildsDisabledAgentSettings(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(7))
 	db := newServiceDailyReportTestDB(t)
 	serviceRepo := repository.NewServiceRepository(db)
 	organizeRepo := repository.NewOrganizeRepository(db)
@@ -276,6 +314,158 @@ func TestServiceExtractMemoryRespectsExplicitDisabledAgentSettings(t *testing.T)
 
 	extracted, err := svc.ExtractMemory(ctx, tenantID, userID, memory.ID)
 	require.NoError(t, err)
-	require.False(t, extracted.Generated)
-	require.Equal(t, "agent_not_enabled", extracted.Reason)
+	require.True(t, extracted.Generated)
+	require.NotEqual(t, "agent_not_enabled", extracted.Reason)
+
+	settings, err := svc.ListAgentSettings(ctx, tenantID, extracted.Reminder.ProfileID, true)
+	require.NoError(t, err)
+	domains := make([]string, 0, len(settings))
+	for _, setting := range settings {
+		domains = append(domains, setting.AgentDomain)
+	}
+	require.ElementsMatch(t, []string{
+		types.ServiceAgentDomainMemoryRouter,
+		types.ServiceAgentDomainLeadIntake,
+		types.ServiceAgentDomainSalesConsulting,
+		types.ServiceAgentDomainCustomerService,
+	}, domains)
+}
+
+func TestServiceExtractMemoryGeneratesModeWhenConfiguredAbilitiesDoNotMatch(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(7))
+	db := newServiceDailyReportTestDB(t)
+	serviceRepo := repository.NewServiceRepository(db)
+	organizeRepo := repository.NewOrganizeRepository(db)
+	memberRepo := repository.NewTenantMemberRepository(db)
+	svc := NewServiceServiceWithMembersAndModel(serviceRepo, organizeRepo, memberRepo, &autoInferenceModelService{
+		stubModelService: stubModelService{
+			chatModel: &staticChatModel{
+				response: `{"should_generate":true,"agent_domain":"customer_service","service_mode":"内部培训准备","subject_name":"就业课培训","customer_name":"就业课培训","student_name":"待补充","title":"就业课培训准备事项","summary":"需要梳理就业课培训前的资料、人员和时间安排。","stage":"培训准备","priority":"medium","due_text":"本周","risk_label":"待判断","assist_reason":"记忆包含可转服务的培训准备事项，但现有能力没有专门配置内部培训。","primary_action":"先整理培训清单，再确认负责人、讲师和交付时间。","next_action":"周五前确认讲师、签到表和设备检查清单。","avoid_action":"不要把未确认的培训安排当成已完成事项。","reply_draft":"我先把就业课培训准备事项整理成清单，并在周五前确认讲师、签到表和设备检查。","memory_signals":["培训准备","清单确认"],"sales_highlights":["该记忆适合生成内部培训服务事项。"],"reason":"未命中现有配置能力，自动生成内部培训服务模式"}`,
+			},
+		},
+		models: []*types.Model{
+			{ID: "chat-1", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
+		},
+	})
+
+	const tenantID uint64 = 7
+	const userID = "user-a"
+	require.NoError(t, memberRepo.Create(ctx, &types.TenantMember{
+		TenantID:               tenantID,
+		UserID:                 userID,
+		Role:                   types.TenantRoleContributor,
+		Status:                 types.TenantMemberStatusActive,
+		WorkProfileDescription: "我是睿乐园园长，主要服务园区家长、幼儿及教职员工的协同事项。",
+	}))
+	profiles, err := svc.ListWorkProfiles(ctx, tenantID, userID)
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	_, err = svc.ReplaceAgentSettings(ctx, tenantID, userID, profiles[0].ID, types.WorkProfileAgentSettingsInput{
+		Settings: []types.WorkProfileAgentSettingInput{
+			{
+				AgentDomain: types.ServiceAgentDomainMemoryRouter,
+				Enabled:     true,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	memory := &types.OrganizeMemory{
+		TenantID: tenantID,
+		UserID:   userID,
+		Kind:     types.OrganizeMemoryKindNote,
+		Title:    "就业课培训准备事项",
+		Content:  `<p>整理就业课培训大纲、签到表和设备检查，周五前确认讲师。</p>`,
+		Source:   "手动输入",
+	}
+	require.NoError(t, organizeRepo.CreateMemory(ctx, memory))
+
+	extracted, err := svc.ExtractMemory(ctx, tenantID, userID, memory.ID)
+	require.NoError(t, err)
+	require.True(t, extracted.Generated)
+	require.Equal(t, "generated", extracted.Reason)
+	require.NotNil(t, extracted.Reminder)
+	require.Equal(t, types.ServiceAgentDomainCustomerService, extracted.Reminder.AgentDomain)
+	require.Equal(t, "内部培训准备", extracted.Reminder.Metadata["service_mode"])
+	require.Equal(t, "就业课培训", extracted.Reminder.Metadata["subject_name"])
+	require.Empty(t, extracted.Reminder.Metadata["customer_name"])
+	require.Equal(t, "培训准备", extracted.Reminder.Stage)
+	require.Equal(t, "周五前确认讲师、签到表和设备检查清单。", extracted.Reminder.NextAction)
+	require.Contains(t, extracted.Reminder.PrimaryAction, "整理培训清单")
+	require.Contains(t, extracted.Reminder.ReplyDraft, "就业课培训准备事项")
+}
+
+func TestServiceExtractMemorySanitizesCustomerHallucinationForInvestmentDocument(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(7))
+	db := newServiceDailyReportTestDB(t)
+	serviceRepo := repository.NewServiceRepository(db)
+	organizeRepo := repository.NewOrganizeRepository(db)
+	memberRepo := repository.NewTenantMemberRepository(db)
+	svc := NewServiceServiceWithMembersAndModel(serviceRepo, organizeRepo, memberRepo, &autoInferenceModelService{
+		stubModelService: stubModelService{
+			chatModel: &staticChatModel{
+				response: `{"should_generate":true,"agent_domain":"sales_consulting","service_mode":"售前试听","subject_name":"小明妈妈","customer_name":"小明妈妈","student_name":"小明","title":"客户摘要","summary":"小明妈妈礼拜三给孩子安排了试听课，到时候直接过来就行了。","stage":"售前试听","priority":"medium","risk_label":"价格顾虑","assist_reason":"客户有试听安排。","primary_action":"先确认客户状态，再生成可发送话术。","next_action":"完成试听后回访并确认下一步安排。","avoid_action":"不要遗漏家长关注点。","reply_draft":"您好，我根据最近记录把孩子试听情况整理了一下。","sales_highlights":["出现售前接触信号。"],"reason":"模型误判为客户服务"}`,
+			},
+		},
+		models: []*types.Model{
+			{ID: "chat-1", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
+		},
+	})
+
+	const tenantID uint64 = 7
+	const userID = "user-a"
+	require.NoError(t, memberRepo.Create(ctx, &types.TenantMember{
+		TenantID:               tenantID,
+		UserID:                 userID,
+		Role:                   types.TenantRoleContributor,
+		Status:                 types.TenantMemberStatusActive,
+		WorkProfileDescription: "负责整理投资研究资料和跟踪事项。",
+	}))
+	profiles, err := svc.ListWorkProfiles(ctx, tenantID, userID)
+	require.NoError(t, err)
+	require.Len(t, profiles, 1)
+	_, err = svc.ReplaceAgentSettings(ctx, tenantID, userID, profiles[0].ID, types.WorkProfileAgentSettingsInput{
+		Settings: []types.WorkProfileAgentSettingInput{
+			{
+				AgentDomain: types.ServiceAgentDomainMemoryRouter,
+				Enabled:     true,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	memory := &types.OrganizeMemory{
+		TenantID: tenantID,
+		UserID:   userID,
+		Kind:     types.OrganizeMemoryKindNote,
+		Title:    "英诺赛科GaN IDM龙头投资分析",
+		Content:  `<p>英诺赛科（02577.HK）深度投资报告：GaN IDM龙头，关注收入增长、毛利率改善、估值消化和功率半导体需求风险。</p>`,
+		Source:   "文件导入",
+	}
+	require.NoError(t, organizeRepo.CreateMemory(ctx, memory))
+
+	extracted, err := svc.ExtractMemory(ctx, tenantID, userID, memory.ID)
+	require.NoError(t, err)
+	require.True(t, extracted.Generated)
+	require.Equal(t, "generated", extracted.Reason)
+	require.NotNil(t, extracted.Reminder)
+	require.Empty(t, extracted.Reminder.Metadata["customer_name"])
+	require.Equal(t, "英诺赛科GaN IDM龙头投资分析", extracted.Reminder.Metadata["subject_name"])
+	require.Equal(t, "投资分析", extracted.Reminder.Metadata["service_mode"])
+	require.Equal(t, "英诺赛科GaN IDM龙头投资分析", extracted.Reminder.Title)
+	require.Equal(t, "投资分析", extracted.Reminder.Stage)
+	require.Equal(t, "投资风险待确认", extracted.Reminder.RiskLabel)
+	require.Contains(t, extracted.Reminder.NextAction, "核心结论")
+	require.Contains(t, extracted.Reminder.PrimaryAction, "投资判断")
+	require.NotContains(t, extracted.Reminder.Summary, "小明妈妈")
+	require.NotContains(t, extracted.Reminder.ReplyDraft, "孩子")
+	require.Contains(t, extracted.Reminder.WriteBackDraft, "英诺赛科")
+
+	docTitles := make([]string, 0, len(extracted.Reminder.WorkDocs))
+	for _, doc := range extracted.Reminder.WorkDocs {
+		docTitles = append(docTitles, doc.Title)
+		require.NotContains(t, doc.DocPath, "待补充客户")
+	}
+	require.Contains(t, docTitles, "服务摘要")
+	require.NotContains(t, docTitles, "客户摘要")
 }

@@ -3,7 +3,7 @@
     <div class="service-config-page__header">
       <div>
         <h2>服务配置</h2>
-        <p>服务项继续在这里展示；员工分身在成员管理维护，AI 根据分身描述匹配可用服务能力。</p>
+        <p>服务项继续在这里展示；员工分身在用户管理维护，AI 根据分身描述匹配可用服务能力。</p>
       </div>
     </div>
 
@@ -15,7 +15,7 @@
       </article>
       <article>
         <span>分身来源</span>
-        <strong>成员管理</strong>
+        <strong>用户管理</strong>
         <em>必填描述</em>
       </article>
       <article>
@@ -29,7 +29,7 @@
       <div class="panel-title">
         <span>
           <strong>服务项</strong>
-          <em>这些服务能力保留在服务配置中查看；具体成员能力由员工分身描述驱动。</em>
+          <em>这些服务能力保留在服务配置中查看；具体用户能力由员工分身描述驱动。</em>
         </span>
         <t-tag theme="warning" variant="light">分身不在此页维护</t-tag>
       </div>
@@ -74,8 +74,8 @@
               <dd>{{ serviceOutput(item.agent_domain) }}</dd>
             </div>
             <div>
-              <dt>成员分身</dt>
-              <dd>在成员管理中配置</dd>
+              <dt>员工分身</dt>
+              <dd>在用户管理中配置</dd>
             </div>
           </dl>
         </article>
@@ -108,7 +108,7 @@
         <t-alert
           v-if="profileLoadFailed"
           theme="warning"
-          message="成员分身读取失败，请确认当前账号有管理权限。"
+          message="员工分身读取失败，请确认当前账号有管理权限。"
         />
 
         <t-form :data="editForm" label-align="top" @submit.prevent>
@@ -118,13 +118,13 @@
               :options="profileOptions"
               :loading="profileLoading || editLoading"
               :disabled="editSaving"
-              placeholder="选择需要编辑的成员分身"
+              placeholder="选择需要编辑的员工分身"
               @change="handleEditProfileChange"
             />
           </t-form-item>
 
           <div v-if="profileOptions.length === 0" class="agent-edit-empty">
-            暂无可配置分身，请先在成员管理中补充分身描述。
+            暂无可配置分身，请先在用户管理中补充分身描述。
           </div>
 
           <template v-else>
@@ -562,10 +562,10 @@ function serviceCategory(domain: string) {
 
 function serviceInputSource(domain: string) {
   const sources: Record<string, string> = {
-    memory_router: '成员分身、记忆内容',
+    memory_router: '员工分身、记忆内容',
     daily_review: '服务提醒、处理状态',
   }
-  return sources[domain] || '成员分身、客户服务记忆'
+  return sources[domain] || '员工分身、客户服务记忆'
 }
 
 function serviceOutput(domain: string) {

@@ -58,9 +58,9 @@ func agentRequiresRerankModel(agent *types.CustomAgent) bool {
 
 // agentShareService implements AgentShareService.
 //
-// Plan 3 of #1303: visibility and access checks key on the caller's
-// tenant. callerTenantRole flows through every read path so the 3-D
-// cap (tenant Viewer → at most OrgRoleViewer) lands consistently.
+// Visibility and access checks key on the current shared-space member.
+// callerTenantRole flows through every read path so the 3-D cap
+// (tenant Viewer to at most OrgRoleViewer) lands consistently.
 type agentShareService struct {
 	shareRepo    interfaces.AgentShareRepository
 	disabledRepo interfaces.TenantDisabledSharedAgentRepository
@@ -114,7 +114,7 @@ func (s *agentShareService) ShareAgent(ctx context.Context, agentID string, orgI
 		return nil, err
 	}
 
-	// Caller's tenant must be an org member with editor+ role to share.
+	// Caller must be an org member with editor+ role to share.
 	tm, err := s.orgRepo.GetTenantMember(ctx, orgID, tenantID)
 	if err != nil {
 		if errors.Is(err, repository.ErrOrgMemberNotFound) {
@@ -175,13 +175,13 @@ func (s *agentShareService) RemoveShare(ctx context.Context, shareID string, use
 	if share.SharedByUserID == userID {
 		return s.shareRepo.Delete(ctx, shareID)
 	}
-	// (2) Source-tenant Admin+ — Plan 3 ownership is tenant-level.
+	// (2) Source-tenant Admin+.
 	if tenantID != 0 && tenantID == share.SourceTenantID {
 		if types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) {
 			return s.shareRepo.Delete(ctx, shareID)
 		}
 	}
-	// (3) Org admin in the target org (governance / sharer-left repair).
+	// (3) Current account is org admin in the target org (governance / sharer-left repair).
 	if tm, err := s.orgRepo.GetTenantMember(ctx, share.OrganizationID, tenantID); err == nil && tm.Role == types.OrgRoleAdmin {
 		return s.shareRepo.Delete(ctx, shareID)
 	}
@@ -213,7 +213,7 @@ func (s *agentShareService) ListSharesByOrganization(ctx context.Context, orgID 
 	return s.shareRepo.ListByOrganization(ctx, orgID)
 }
 
-// ListSharedAgents lists agents reachable from the caller's tenant.
+// ListSharedAgents lists agents reachable from the current shared-space member.
 func (s *agentShareService) ListSharedAgents(ctx context.Context, tenantID uint64, callerTenantRole types.TenantRole) ([]*types.SharedAgentInfo, error) {
 	shares, err := s.shareRepo.ListSharedAgentsForTenant(ctx, tenantID)
 	if err != nil {
@@ -354,7 +354,7 @@ func (s *agentShareService) ListSharedAgentsInOrganization(ctx context.Context, 
 }
 
 // ListSharedAgentsInOrganizations returns per-org agent lists (batch); only
-// orgs where the caller's tenant is a member.
+// orgs where the current account participates.
 func (s *agentShareService) ListSharedAgentsInOrganizations(ctx context.Context, orgIDs []string, tenantID uint64, callerTenantRole types.TenantRole) (map[string][]*types.OrganizationSharedAgentItem, error) {
 	out := make(map[string][]*types.OrganizationSharedAgentItem)
 	if len(orgIDs) == 0 {
@@ -436,7 +436,7 @@ func (s *agentShareService) SetSharedAgentDisabledByMe(ctx context.Context, tena
 }
 
 // GetSharedAgentForTenant returns the shared agent by agentID if the caller's
-// tenant has access; source tenant is resolved from the share. One share
+// account has access; source tenant is resolved from the share. One share
 // lookup + one agent lookup.
 //
 // callerTenantRole is currently only used for symmetry / future caps on
@@ -526,7 +526,7 @@ func (s *agentShareService) GetShareByAgentAndOrg(ctx context.Context, agentID s
 }
 
 // GetShareByAgentIDForTenant returns one share for the given agentID that the
-// tenant can reach, excluding source_tenant_id == excludeTenantID.
+// current account can reach, excluding source_tenant_id == excludeTenantID.
 func (s *agentShareService) GetShareByAgentIDForTenant(ctx context.Context, tenantID uint64, agentID string, excludeTenantID uint64) (*types.AgentShare, error) {
 	return s.shareRepo.GetShareByAgentIDForTenant(ctx, tenantID, agentID, excludeTenantID)
 }

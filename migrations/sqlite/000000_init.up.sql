@@ -579,8 +579,10 @@ CREATE TABLE IF NOT EXISTS organization_tenant_members (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_org_tenant_members_unique ON organization_tenant_members(organization_id, tenant_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_org_tenant_members_unique ON organization_tenant_members(organization_id, representative_user_id) WHERE representative_user_id <> '';
 CREATE INDEX IF NOT EXISTS idx_org_tenant_members_by_tenant ON organization_tenant_members(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_org_tenant_members_by_user ON organization_tenant_members(representative_user_id);
+CREATE INDEX IF NOT EXISTS idx_org_tenant_members_by_tenant_user ON organization_tenant_members(tenant_id, representative_user_id);
 CREATE INDEX IF NOT EXISTS idx_org_tenant_members_role ON organization_tenant_members(organization_id, role);
 
 CREATE TABLE IF NOT EXISTS kb_shares (

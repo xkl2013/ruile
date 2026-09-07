@@ -119,8 +119,33 @@
 	                </div>
 	              </div>
 
+              <section v-if="audioSourceCardVisible" class="memory-audio-panel memory-audio-panel--source" aria-label="录音播放">
+                <div class="memory-audio-player" aria-label="录音播放">
+                  <template v-if="audioPlayerUrl">
+                    <audio class="memory-audio-native" :src="audioPlayerUrl" controls preload="metadata">
+                      您的浏览器不支持音频播放
+                    </audio>
+                    <div class="memory-audio-transcript-chip">
+                      <t-icon name="file-word" size="14px" />
+                      <span>文稿</span>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div class="memory-audio-loading" aria-live="polite">
+                      <t-loading v-if="audioPlayerLoading" size="small" />
+                      <t-icon v-else name="error-circle" size="16px" />
+                      <span>{{ audioPlayerLoading ? '加载音频中' : audioPlayerError || '音频暂不可播放' }}</span>
+                    </div>
+                    <div class="memory-audio-transcript-chip">
+                      <t-icon name="file-word" size="14px" />
+                      <span>文稿</span>
+                    </div>
+                  </template>
+                </div>
+              </section>
+
               <button
-                v-if="sourceFileCardVisible"
+                v-else-if="sourceFileCardVisible"
                 type="button"
                 class="memory-note-source-card"
                 :aria-label="`预览源文件 ${sourceFileName}`"
@@ -166,36 +191,6 @@
 
               <div class="memory-note-tab-panels">
                 <section v-show="noteActiveTab === 'content'" class="memory-note-panel-view">
-                  <section v-if="isAudioMemory" class="memory-audio-panel" aria-label="录音详情">
-                    <div class="memory-audio-player" aria-label="录音播放">
-                      <template v-if="audioSourceUrl">
-                        <audio class="memory-audio-native" :src="audioSourceUrl" controls preload="metadata"></audio>
-                        <div class="memory-audio-transcript-chip">
-                          <t-icon name="file-word" size="14px" />
-                          <span>文稿</span>
-                        </div>
-                      </template>
-                      <template v-else>
-                        <button type="button" class="memory-audio-play" aria-label="播放录音">
-                          <t-icon name="play-circle" size="18px" />
-                        </button>
-                        <div class="memory-audio-track-wrap">
-                          <div class="memory-audio-track" aria-hidden="true">
-                            <span class="memory-audio-thumb"></span>
-                            <span class="memory-audio-progress"></span>
-                          </div>
-                          <div class="memory-audio-time-row">
-                            <span>00:00</span>
-                            <span>{{ audioDurationLabel }}</span>
-                          </div>
-                        </div>
-                        <div class="memory-audio-transcript-chip">
-                          <t-icon name="file-word" size="14px" />
-                          <span>文稿</span>
-                        </div>
-                      </template>
-                    </div>
-                  </section>
                   <div
                     class="document-editor-shell document-editor-shell--memory-note"
                     :class="{ 'document-editor-shell--audio': isAudioMemory }"
@@ -221,11 +216,11 @@
                   <article v-else-if="noteServiceTask" class="memory-note-service-card">
                     <div class="memory-note-service-head">
                       <div class="memory-note-service-head-copy">
-                        <span>客户摘要</span>
+                        <span>{{ noteServiceSummaryLabel }}</span>
                         <div>
-                          <h2>{{ noteServiceTask.customerName }}</h2>
+                          <h2>{{ noteServiceDisplayTitle }}</h2>
                           <em :class="`priority-${noteServiceTask.priorityKey}`">
-                            {{ noteServiceTask.stage }} · {{ noteServiceTask.confidenceLabel }}
+                            {{ noteServiceSubtitle }}
                           </em>
                         </div>
                       </div>
@@ -241,7 +236,7 @@
                     </dl>
 
                     <section class="memory-note-service-section">
-                      <h3>有利于销售的信息</h3>
+                      <h3>{{ noteServiceHighlightTitle }}</h3>
                       <ul>
                         <li v-for="item in noteServiceTask.salesHighlights" :key="item">{{ item }}</li>
                       </ul>
@@ -287,7 +282,7 @@
                   <div v-else class="memory-note-service-empty">
                     <t-icon name="search" size="24px" />
                     <strong>暂无服务资料</strong>
-                    <p>这条记忆没有识别到客户身份和销售服务信号。</p>
+                    <p>这条记忆还没有提取出可执行服务事项。</p>
                   </div>
                 </section>
 
@@ -468,12 +463,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { TiptapProEditor, type FeatureConfig, type TiptapProEditorExpose } from 'tiptap-ui-kit'
 import 'tiptap-ui-kit/style.css'
 import DocumentPreview from '@/components/document-preview.vue'
+import { getDown } from '@/utils/request'
 import {
   createOrganizeMemory,
   createOrganizeSproutReportFromMemory,
@@ -568,6 +564,9 @@ const noteServiceExtracting = ref(false)
 const linkedServiceReminderTask = ref<ServiceTask | null>(null)
 const linkedServiceReminderLoading = ref(false)
 const sourcePreviewVisible = ref(false)
+const audioPlayerUrl = ref('')
+const audioPlayerLoading = ref(false)
+const audioPlayerError = ref('')
 const sproutPreviewVisible = ref(false)
 const outputDraft = ref<OrganizeOutput | null>(null)
 const outputCategory = ref<DiscoverCategoryKey | ''>('')
@@ -575,6 +574,8 @@ const sproutDraft = ref<OrganizeSproutReport | null>(null)
 const discoverCategoryOptions = DISCOVER_CATEGORY_OPTIONS
 let noteSproutRequestSeq = 0
 let linkedServiceReminderRequestSeq = 0
+let audioPlayerRequestSeq = 0
+let audioPlayerObjectUrl = ''
 
 const editorFeatures: FeatureConfig = {
   headerNav: false,
@@ -608,7 +609,6 @@ const memoryAssetLabel = computed(() => {
 })
 
 const isAudioMemory = computed(() => documentType.value === 'memory' && memoryKind.value === 'audio')
-const audioDurationLabel = computed(() => formatDuration(memoryDurationSeconds.value || 0))
 const editorPlaceholder = computed(() => {
   if (isAudioMemory.value) return '录音转写内容'
   if (isMemoryDocument.value) return '输入正文'
@@ -674,12 +674,6 @@ const escapeHtml = (value: string) => {
 const normalizeTitle = (value = '') => value.trim().slice(0, 512)
 
 const asTrimmedString = (value: unknown) => (typeof value === 'string' ? value.trim() : '')
-
-const formatDuration = (seconds?: number) => {
-  const safeSeconds = Math.max(0, seconds || 0)
-  const minutes = Math.floor(safeSeconds / 60)
-  return `${String(minutes).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`
-}
 
 const formatDateLabel = (value: string) => {
   const date = new Date(value)
@@ -845,6 +839,68 @@ const fileTypeFromMime = (value = '') => {
   return ''
 }
 
+const isProviderFilePath = (value = '') => /^[a-z][a-z\d+.-]*:\/\//i.test(value)
+  && !/^https?:\/\//i.test(value)
+  && !value.startsWith('blob:')
+  && !value.startsWith('data:')
+
+const buildFileProxyUrl = (source = '') => `/files?${new URLSearchParams({ file_path: source }).toString()}`
+
+const normalizeAuthenticatedFileProxyUrl = (value = '') => {
+  const source = value.trim()
+  if (!source) return ''
+  if (source.startsWith('/api/v1/files?')) {
+    return source.replace(/^\/api\/v1\/files(?=\?)/, '/files')
+  }
+  if (!/^https?:\/\//i.test(source)) return source
+
+  try {
+    const url = new URL(source)
+    if (url.pathname === '/api/v1/files' && url.searchParams.has('file_path')) {
+      url.pathname = '/files'
+      return url.toString()
+    }
+  } catch {
+    return source
+  }
+  return source
+}
+
+const playbackUrlFromSource = (value = '') => {
+  const source = normalizeAuthenticatedFileProxyUrl(value)
+  if (!source) return ''
+  if (isProviderFilePath(source)) return buildFileProxyUrl(source)
+  if (
+    /^https?:\/\//i.test(source) ||
+    source.startsWith('//') ||
+    source.startsWith('/') ||
+    source.startsWith('blob:') ||
+    source.startsWith('data:')
+  ) {
+    return source
+  }
+  return buildFileProxyUrl(source)
+}
+
+const shouldHydrateAudioPlaybackUrl = (value = '') => {
+  const source = normalizeAuthenticatedFileProxyUrl(value)
+  if (!source) return false
+  if (source.startsWith('/files?') && source.includes('file_path=')) return true
+  if (!/^https?:\/\//i.test(source)) return false
+
+  try {
+    const url = new URL(source)
+    const apiBase = (import.meta.env.VITE_API_BASE_URL || '').trim()
+    const apiBaseOrigin = /^https?:\/\//i.test(apiBase) ? new URL(apiBase).origin : ''
+    const sameTrustedOrigin = typeof window === 'undefined'
+      ? Boolean(apiBaseOrigin)
+      : url.origin === window.location.origin || Boolean(apiBaseOrigin && url.origin === apiBaseOrigin)
+    return sameTrustedOrigin && url.pathname === '/files' && url.searchParams.has('file_path')
+  } catch {
+    return false
+  }
+}
+
 const sourceFilePath = computed(() => {
   const metadata = memoryMetadata.value || {}
   return (
@@ -912,8 +968,7 @@ const sourceFileIcon = computed(() => {
 const sourceFilePreviewUrl = computed(() => {
   const source = sourceFilePath.value
   if (!source) return ''
-  if (/^https?:\/\//i.test(source) || source.startsWith('blob:') || source.startsWith('data:')) return source
-  return `/files?${new URLSearchParams({ file_path: source }).toString()}`
+  return playbackUrlFromSource(source)
 })
 
 const sourceFileCardVisible = computed(() => isMemoryDocument.value && Boolean(sourceFilePath.value))
@@ -950,8 +1005,31 @@ const noteServiceTask = computed<ServiceTask | null>(() => {
   return memory ? buildServiceTaskFromMemory(memory) : null
 })
 
+const noteServiceHasCustomerIdentity = computed(() => Boolean(noteServiceTask.value?.hasCustomerIdentity))
+
+const noteServiceSummaryLabel = computed(() => (
+  noteServiceHasCustomerIdentity.value ? '客户摘要' : '服务摘要'
+))
+
+const noteServiceDisplayTitle = computed(() => {
+  const task = noteServiceTask.value
+  if (!task) return ''
+  if (task.hasCustomerIdentity) return task.customerName || task.subjectName || task.title || '服务事项'
+  return task.subjectName || task.title || task.serviceMode || task.customerName || '服务事项'
+})
+
+const noteServiceSubtitle = computed(() => {
+  const task = noteServiceTask.value
+  if (!task) return ''
+  return [task.serviceMode || task.stage, task.confidenceLabel].filter(Boolean).join(' · ')
+})
+
+const noteServiceHighlightTitle = computed(() => (
+  noteServiceHasCustomerIdentity.value ? '有利于销售的信息' : '关键信息'
+))
+
 const noteServiceActionLabel = computed(() => {
-  if (linkedServiceReminderTask.value) return '已提取服务'
+  if (linkedServiceReminderTask.value) return '重新提取服务'
   return '提取服务'
 })
 
@@ -969,10 +1047,13 @@ const noteServiceSourceMemory = computed(() => {
 const noteServiceFacts = computed(() => {
   const task = noteServiceTask.value
   if (!task) return []
+  const subjectFact = task.hasCustomerIdentity
+    ? (task.studentName && task.studentName !== '待补充' ? task.studentName : '待补充')
+    : (task.subjectName || task.title || task.serviceMode || '待补充')
   return [
-    { label: '阶段', value: task.stage },
-    { label: '学员', value: task.studentName && task.studentName !== '待补充' ? task.studentName : '待补充' },
-    { label: '风险', value: task.riskLabel },
+    { label: task.hasCustomerIdentity ? '阶段' : '模式', value: task.serviceMode || task.stage },
+    { label: task.hasCustomerIdentity ? '学员' : '主题', value: subjectFact },
+    { label: '风险/关注', value: task.riskLabel },
     { label: '下一步', value: task.nextAction },
     { label: '来源', value: `${task.sourceMemoryCount} 条记忆` },
     { label: '置信度', value: task.confidenceLabel },
@@ -980,9 +1061,9 @@ const noteServiceFacts = computed(() => {
 })
 
 const serviceExtractionReasonMessage = (reason?: string) => {
-  if (reason === 'profile_not_configured') return '服务提醒还未配置，请联系工程师开启'
-  if (reason === 'agent_not_enabled') return '这类服务能力还未开启，请联系工程师配置'
-  if (reason === 'memory_not_relevant') return '这条记忆缺少客户身份或服务信号'
+  if (reason === 'profile_not_configured') return '请先配置分身描述'
+  if (reason === 'agent_not_enabled') return '暂未生成匹配的服务模式'
+  if (reason === 'memory_not_relevant') return '这条记忆缺少可执行服务信号'
   return '未生成服务提醒'
 }
 
@@ -1019,10 +1100,7 @@ const loadLinkedServiceReminder = async (memoryID: string, options?: { silent?: 
 
 const extractCurrentMemoryToService = async () => {
   if (!isActionableMemory.value || noteServiceExtracting.value) return
-  if (linkedServiceReminderTask.value) {
-    noteActiveTab.value = 'service'
-    return
-  }
+  const hadLinkedReminder = Boolean(linkedServiceReminderTask.value)
   if (saving.value) {
     MessagePlugin.info('正在保存笔记，请稍后')
     return
@@ -1055,7 +1133,7 @@ const extractCurrentMemoryToService = async () => {
       await loadLinkedServiceReminder(memoryID, { silent: true })
     }
     noteActiveTab.value = 'service'
-    MessagePlugin.success('服务提醒已生成')
+    MessagePlugin.success(hadLinkedReminder ? '服务提醒已重新生成' : '服务提醒已生成')
   } catch (error: any) {
     MessagePlugin.error(serviceExtractionErrorMessage(error))
   } finally {
@@ -1295,8 +1373,12 @@ const audioSourcePath = (metadata: Record<string, unknown>) => {
   return (
     asTrimmedString(metadata.audio_url) ||
     asTrimmedString(metadata.audioUrl) ||
+    asTrimmedString(metadata.audio_file_url) ||
+    asTrimmedString(metadata.audioFileUrl) ||
     asTrimmedString(metadata.audio_path) ||
     asTrimmedString(metadata.audioPath) ||
+    asTrimmedString(metadata.audio_file_path) ||
+    asTrimmedString(metadata.audioFilePath) ||
     asTrimmedString(metadata.media_url) ||
     asTrimmedString(metadata.mediaUrl) ||
     asTrimmedString(metadata.media_path) ||
@@ -1309,18 +1391,77 @@ const audioSourcePath = (metadata: Record<string, unknown>) => {
     asTrimmedString(metadata.sourcePath) ||
     asTrimmedString(metadata.preview_url) ||
     asTrimmedString(metadata.previewUrl) ||
-    asTrimmedString(metadata.file_path)
+    asTrimmedString(metadata.file_path) ||
+    asTrimmedString(metadata.storage_path) ||
+    asTrimmedString(metadata.url)
   )
 }
 
 const audioSourceUrl = computed(() => {
   if (!isAudioMemory.value) return ''
   const metadata = memoryMetadata.value || {}
-  const source = audioSourcePath(metadata)
+  const source = audioSourcePath(metadata) || sourceFilePath.value
   if (!source) return ''
-  if (/^https?:\/\//i.test(source) || source.startsWith('blob:') || source.startsWith('data:')) return source
-  return `/files?${new URLSearchParams({ file_path: source }).toString()}`
+  return playbackUrlFromSource(source)
 })
+
+const audioSourceCardVisible = computed(() => isAudioMemory.value && Boolean(audioSourceUrl.value))
+
+const audioMimeType = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  return (
+    asTrimmedString(metadata.audio_mime_type) ||
+    asTrimmedString(metadata.audioMimeType) ||
+    asTrimmedString(metadata.mime_type) ||
+    asTrimmedString(metadata.mimeType) ||
+    (sourceFilePreviewType.value === 'wav' ? 'audio/wav' : '') ||
+    (sourceFilePreviewType.value === 'm4a' ? 'audio/mp4' : '') ||
+    (sourceFilePreviewType.value === 'flac' ? 'audio/flac' : '') ||
+    (sourceFilePreviewType.value === 'ogg' ? 'audio/ogg' : '') ||
+    (sourceFilePreviewType.value === 'mp3' ? 'audio/mpeg' : '')
+  )
+})
+
+const revokeAudioPlayerObjectUrl = () => {
+  if (!audioPlayerObjectUrl) return
+  URL.revokeObjectURL(audioPlayerObjectUrl)
+  audioPlayerObjectUrl = ''
+}
+
+const loadAudioPlayerUrl = async (sourceUrl: string) => {
+  const requestSeq = ++audioPlayerRequestSeq
+  revokeAudioPlayerObjectUrl()
+  audioPlayerUrl.value = ''
+  audioPlayerError.value = ''
+  if (!sourceUrl) {
+    audioPlayerLoading.value = false
+    return
+  }
+  if (!shouldHydrateAudioPlaybackUrl(sourceUrl)) {
+    audioPlayerLoading.value = false
+    audioPlayerUrl.value = sourceUrl
+    return
+  }
+
+  audioPlayerLoading.value = true
+  try {
+    const rawBlob = await getDown(sourceUrl)
+    if (requestSeq !== audioPlayerRequestSeq) return
+    const blob = rawBlob.type || !audioMimeType.value
+      ? rawBlob
+      : new Blob([rawBlob], { type: audioMimeType.value })
+    const blobUrl = URL.createObjectURL(blob)
+    audioPlayerObjectUrl = blobUrl
+    audioPlayerUrl.value = blobUrl
+  } catch {
+    if (requestSeq !== audioPlayerRequestSeq) return
+    audioPlayerError.value = '音频加载失败'
+  } finally {
+    if (requestSeq === audioPlayerRequestSeq) {
+      audioPlayerLoading.value = false
+    }
+  }
+}
 
 const readQuery = (key: string) => readParam(route.query[key])
 
@@ -1725,6 +1866,19 @@ watch(title, () => {
 })
 
 watch(
+  audioSourceUrl,
+  (sourceUrl) => {
+    void loadAudioPlayerUrl(sourceUrl)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  audioPlayerRequestSeq += 1
+  revokeAudioPlayerObjectUrl()
+})
+
+watch(
   () => `${route.params.documentType}:${route.params.id}`,
   () => {
     if (skipNextRouteLoad) {
@@ -1999,6 +2153,10 @@ watch(
   margin-bottom: 14px;
 }
 
+.memory-audio-panel--source {
+  margin-bottom: 0;
+}
+
 .memory-audio-player {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) 58px;
@@ -2012,19 +2170,6 @@ watch(
   box-sizing: border-box;
 }
 
-.memory-audio-play {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 50%;
-  background: #eef1f6;
-  color: #464c57;
-  cursor: pointer;
-}
-
 .memory-audio-native {
   width: 100%;
   min-width: 0;
@@ -2032,46 +2177,15 @@ watch(
   height: 32px;
 }
 
-.memory-audio-track-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-width: 0;
-}
-
-.memory-audio-track {
-  position: relative;
-  height: 4px;
-  border-radius: 999px;
-  background: #dde2eb;
-}
-
-.memory-audio-thumb {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #20242b;
-  transform: translate(-2px, -50%);
-}
-
-.memory-audio-progress {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 18%;
-  border-radius: 999px;
-  background: #6e7684;
-}
-
-.memory-audio-time-row {
-  display: flex;
+.memory-audio-loading {
+  display: inline-flex;
+  grid-column: 1 / 3;
   align-items: center;
-  justify-content: space-between;
-  color: rgba(55, 53, 47, 0.62);
-  font-size: 12px;
-  line-height: 16px;
+  gap: 8px;
+  min-width: 0;
+  color: rgba(55, 53, 47, 0.58);
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .memory-audio-transcript-chip {

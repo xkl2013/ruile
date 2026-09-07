@@ -75,6 +75,8 @@ export interface ServiceReminderDTO {
   due_at?: string
   due_text?: string
   stage?: string
+  service_mode?: string
+  subject_name?: string
   channel?: string
   decision_role?: string
   risk_label?: string
@@ -157,6 +159,18 @@ export interface ServiceDailyReportDTO {
   updated?: string
   action_count?: number
   customer_count?: number
+  subject_count?: number
+  open_action_count?: number
+  closed_action_count?: number
+  high_risk_count?: number
+  knowledge_gap_count?: number
+  source_memory_count?: number
+  daily_source_count?: number
+  evidence_complete_rate?: number
+  profile_id?: string
+  profile_name?: string
+  memory_scope?: string
+  can_supplement?: boolean
   chips?: string[]
   source_memory_ids?: string[]
   metadata?: Record<string, unknown>
@@ -270,17 +284,24 @@ const taskSource: ServiceTaskSource = 'memory'
 
 export function mapServiceReminderToTask(item: ServiceReminderDTO): ServiceTask {
   const metadata = item.metadata || {}
-  const customerName = asString(metadata.customer_name) || item.title || '待补充客户'
-  const studentName = asString(metadata.student_name) || '待补充'
+  const subjectName = asString(metadata.subject_name) || asString(item.subject_name) || item.title || ''
+  const serviceMode = asString(metadata.service_mode) || asString(item.service_mode) || item.stage || ''
+  const rawCustomerName = asString(metadata.customer_name)
+  const hasCustomerIdentity = Boolean(rawCustomerName)
+  const customerName = rawCustomerName || subjectName || item.title || '服务事项'
+  const studentName = asString(metadata.student_name) || (hasCustomerIdentity ? '待补充' : '')
   return {
     id: item.id,
     subjectId: item.subject_id,
     sourceType: taskSource,
+    hasCustomerIdentity,
+    subjectName,
+    serviceMode,
     customerName,
     studentName,
     title: item.title || customerName,
     summary: item.summary || '',
-    stage: item.stage || '客户跟进',
+    stage: item.stage || serviceMode || (hasCustomerIdentity ? '客户跟进' : '服务事项'),
     priorityKey: item.priority || 'low',
     dueText: item.due_text || formatMemoryDateLabel(item.due_at),
     channel: item.channel || '记忆',
@@ -288,7 +309,7 @@ export function mapServiceReminderToTask(item: ServiceReminderDTO): ServiceTask 
     riskLabel: item.risk_label || '待判断',
     assistReason: item.assist_reason || item.summary || '',
     primaryAction: item.primary_action || '',
-    nextAction: item.next_action || '确认客户状态并补一条下一步记忆',
+    nextAction: item.next_action || (hasCustomerIdentity ? '确认客户状态并补一条下一步记忆' : '确认服务事项并补充下一步'),
     avoidAction: item.avoid_action || '',
     contextItems: asStringList(item.context_items),
     memorySignals: asStringList(item.memory_signals),
@@ -338,6 +359,7 @@ export function generateServiceDailyReport(data?: {
   range?: ServiceDailyReportRange
   date?: string
   timezone?: string
+  trigger?: string
 }) {
   return post<ServiceResponse<ServiceDailyReportDTO>>('/api/v1/service/daily-reports', data || {})
 }

@@ -56,7 +56,7 @@
     </div>
 
     <div class="members-tab-layout">
-      <!-- Toolbar 已被并入「空间成员」列表头：搜索框紧贴列表头右
+      <!-- Toolbar 已被并入「空间用户」列表头：搜索框紧贴列表头右
            侧，邀请按钮再往右一个图标位，所有「针对这张列表」的控
            件聚到同一行，独立 toolbar 不复存在。 -->
 
@@ -1689,7 +1689,7 @@ async function onRoleChange(row: TenantMember, newRole: string) {
 }
 
 // 原地 popconfirm 替代 DialogPlugin 模态确认：与"共享资源删除"等其它列表内
-// 的删除入口风格统一，避免一个简单的二次确认打断成员管理表格的浏览节奏。
+// 的删除入口风格统一，避免一个简单的二次确认打断用户管理表格的浏览节奏。
 // 错误分支保持与旧实现一致（409 last-owner / 404 not-found / 兜底）。
 async function removeRow(row: TenantMember) {
   try {
@@ -1920,7 +1920,7 @@ watch(
   }
 }
 
-/* 列表上方的标题行：「空间成员 [N] · 筛选出 K」 左侧；右侧
+/* 列表上方的标题行：「空间用户 [N] · 筛选出 K」 左侧；右侧
    是「搜索 + 邀请按钮」一组。视觉级别与「待接受邀请」一致。 */
 .members-list-wrap {
   display: flex;

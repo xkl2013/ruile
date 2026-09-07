@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -25,10 +26,8 @@ type OrganizationHandler struct {
 	customAgentService interfaces.CustomAgentService
 	userService        interfaces.UserService
 	memberService      interfaces.TenantMemberService
-	// tenantService is used to resolve tenant_name in member listings
-	// and to back the tenant-centric invite picker. Plan 3 lifts org
-	// membership to the tenant level, so the UI needs to surface the
-	// tenant identity rather than the representative user alone.
+	// tenantService is used to validate hidden user-management source
+	// context. Shared-space membership itself is account-based.
 	tenantService interfaces.TenantService
 	kbService     interfaces.KnowledgeBaseService
 	knowledgeRepo interfaces.KnowledgeRepository
@@ -89,10 +88,6 @@ func (h *OrganizationHandler) CreateOrganization(c *gin.Context) {
 	org, err := h.orgService.CreateOrganization(ctx, userID, tenantID, &req)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to create organization: %v", err)
-		if errors.Is(err, service.ErrInvalidValidityDays) {
-			c.Error(apperrors.NewValidationError(err.Error()))
-			return
-		}
 		c.Error(apperrors.NewInternalServerError("Failed to create organization").WithDetails(err.Error()))
 		return
 	}
@@ -128,19 +123,12 @@ func (h *OrganizationHandler) GetOrganization(c *gin.Context) {
 		return
 	}
 
-	// Membership / visibility gate. Without this, any authenticated
-	// user could enumerate organizations by guessing UUIDs and learn
-	// names / owner_id / counts. We allow access when either:
-	//   1. the caller's tenant is a member of the org, or
-	//   2. the org has opted in to discovery (Searchable = true), which
-	//      is the same surface area returned by GET /organizations/search.
-	// Anything else returns 404 (not 403) so we don't even confirm the
-	// org's existence to non-members of private orgs.
-	if !org.Searchable {
-		if _, err := h.orgService.GetTenantMember(ctx, orgID, tenantID); err != nil {
-			c.Error(apperrors.NewNotFoundError("Organization not found"))
-			return
-		}
+	// Organization joining is admin-managed only, so organization details are
+	// visible only to participating members. Return 404 to avoid confirming
+	// existence to non-members.
+	if _, err := h.orgService.GetTenantMember(ctx, orgID, tenantID); err != nil {
+		c.Error(apperrors.NewNotFoundError("Organization not found"))
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -326,10 +314,6 @@ func (h *OrganizationHandler) UpdateOrganization(c *gin.Context) {
 	org, err := h.orgService.UpdateOrganization(ctx, orgID, userID, tenantID, &req)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to update organization: %v", err)
-		if errors.Is(err, service.ErrInvalidValidityDays) {
-			c.Error(apperrors.NewValidationError(err.Error()))
-			return
-		}
 		if errors.Is(err, service.ErrOrgMemberLimitTooLow) {
 			c.Error(apperrors.NewValidationError("当前成员数已超过新的上限，请先移除成员或设置更大的上限"))
 			return
@@ -372,9 +356,9 @@ func (h *OrganizationHandler) DeleteOrganization(c *gin.Context) {
 	})
 }
 
-// ListMembers lists all tenant-members of an organization
+// ListMembers lists all accounts in an organization
 // @Summary      获取组织成员列表
-// @Description  获取组织的所有成员（按空间）
+// @Description  获取组织的所有参与账号
 // @Tags         组织管理
 // @Produce      json
 // @Param        id  path  string  true  "组织ID"
@@ -387,13 +371,10 @@ func (h *OrganizationHandler) ListMembers(c *gin.Context) {
 	orgID := c.Param("id")
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
 
-	// Member roster is sensitive: it surfaces every tenant in the org
-	// plus the representative user (username/phone/avatar). Only orgs
-	// the caller's tenant actually belongs to may be listed; non-members
-	// get 403 — mirrors ListOrgShares / ListOrgAgentShares which already
-	// gate on GetTenantMember.
+	// Member roster is sensitive. Only concrete members of this shared space
+	// may list it.
 	if _, err := h.orgService.GetTenantMember(ctx, orgID, tenantID); err != nil {
-		c.Error(apperrors.NewForbiddenError("Your workspace is not a member of this organization"))
+		c.Error(apperrors.NewForbiddenError("You are not a member of this organization"))
 		return
 	}
 
@@ -403,13 +384,12 @@ func (h *OrganizationHandler) ListMembers(c *gin.Context) {
 		c.Error(apperrors.NewInternalServerError("Failed to list members").WithDetails(err.Error()))
 		return
 	}
-
-	// Collect tenant IDs to resolve tenant names in one round-trip.
-	tenantIDs := make([]uint64, 0, len(members))
-	for _, m := range members {
-		tenantIDs = append(tenantIDs, m.TenantID)
+	members, err = h.filterMembersInCurrentUserManagement(ctx, tenantID, members)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to filter organization members by current tenant members: %v", err)
+		c.Error(apperrors.NewInternalServerError("Failed to list members").WithDetails(err.Error()))
+		return
 	}
-	tenantByID, _ := h.tenantService.GetTenantsByIDs(ctx, tenantIDs)
 
 	response := make([]types.OrganizationMemberResponse, 0, len(members))
 	for _, m := range members {
@@ -420,9 +400,6 @@ func (h *OrganizationHandler) ListMembers(c *gin.Context) {
 			Role:                 string(m.Role),
 			TenantID:             m.TenantID,
 			JoinedAt:             m.CreatedAt,
-		}
-		if t, ok := tenantByID[m.TenantID]; ok && t != nil {
-			resp.TenantName = t.Name
 		}
 		if m.RepresentativeUser != nil {
 			resp.Username = m.RepresentativeUser.Username
@@ -442,27 +419,29 @@ func (h *OrganizationHandler) ListMembers(c *gin.Context) {
 	})
 }
 
-// UpdateMemberRole updates a tenant-member's role
+// UpdateMemberRole updates a member row's role
 // @Summary      更新成员角色
-// @Description  更新组织成员（空间）的角色（需要管理员权限）
+// @Description  更新组织成员的角色（需要管理员权限）
 // @Tags         组织管理
 // @Accept       json
 // @Produce      json
 // @Param        id          path      string                       true  "组织ID"
-// @Param        tenant_id   path      string                       true  "成员空间ID"
+// @Param        member_id   path      string                       true  "成员ID"
 // @Param        request     body      types.UpdateMemberRoleRequest  true  "角色信息"
 // @Success      200      {object}  map[string]interface{}
 // @Failure      403      {object}  apperrors.AppError
 // @Security     Bearer
-// @Router       /organizations/{id}/members/{tenant_id} [put]
+// @Router       /organizations/{id}/members/{member_id} [put]
 func (h *OrganizationHandler) UpdateMemberRole(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	orgID := c.Param("id")
-	memberTenantIDStr := c.Param("tenant_id")
-	memberTenantID, err := strconv.ParseUint(memberTenantIDStr, 10, 64)
-	if err != nil {
-		c.Error(apperrors.NewValidationError("Invalid workspace ID"))
+	memberID := c.Param("member_id")
+	if memberID == "" {
+		memberID = c.Param("tenant_id")
+	}
+	if strings.TrimSpace(memberID) == "" {
+		c.Error(apperrors.NewValidationError("Invalid member ID"))
 		return
 	}
 	operatorUserID := c.GetString(types.UserIDContextKey.String())
@@ -474,8 +453,14 @@ func (h *OrganizationHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
-	if err := h.orgService.UpdateTenantMemberRole(ctx, orgID, memberTenantID, req.Role, operatorUserID, operatorTenantID); err != nil {
-		logger.Errorf(ctx, "Failed to update member role: %v", err)
+	var updateErr error
+	if memberTenantID, parseErr := strconv.ParseUint(memberID, 10, 64); parseErr == nil {
+		updateErr = h.orgService.UpdateTenantMemberRole(ctx, orgID, memberTenantID, req.Role, operatorUserID, operatorTenantID)
+	} else {
+		updateErr = h.orgService.UpdateTenantMemberRoleByID(ctx, orgID, memberID, req.Role, operatorUserID, operatorTenantID)
+	}
+	if updateErr != nil {
+		logger.Errorf(ctx, "Failed to update member role: %v", updateErr)
 		c.Error(apperrors.NewForbiddenError("Permission denied or invalid operation"))
 		return
 	}
@@ -486,31 +471,39 @@ func (h *OrganizationHandler) UpdateMemberRole(c *gin.Context) {
 	})
 }
 
-// RemoveMember removes a tenant-member from an organization
+// RemoveMember removes a member row from an organization
 // @Summary      移除成员
-// @Description  从组织中移除成员空间（需要管理员权限）
+// @Description  从组织中移除成员（需要管理员权限）
 // @Tags         组织管理
 // @Param        id         path  string  true  "组织ID"
-// @Param        tenant_id  path  string  true  "成员空间ID"
+// @Param        member_id  path  string  true  "成员ID"
 // @Success      200      {object}  map[string]interface{}
 // @Failure      403      {object}  apperrors.AppError
 // @Security     Bearer
-// @Router       /organizations/{id}/members/{tenant_id} [delete]
+// @Router       /organizations/{id}/members/{member_id} [delete]
 func (h *OrganizationHandler) RemoveMember(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	orgID := c.Param("id")
-	memberTenantIDStr := c.Param("tenant_id")
-	memberTenantID, err := strconv.ParseUint(memberTenantIDStr, 10, 64)
-	if err != nil {
-		c.Error(apperrors.NewValidationError("Invalid workspace ID"))
+	memberID := c.Param("member_id")
+	if memberID == "" {
+		memberID = c.Param("tenant_id")
+	}
+	if strings.TrimSpace(memberID) == "" {
+		c.Error(apperrors.NewValidationError("Invalid member ID"))
 		return
 	}
 	operatorUserID := c.GetString(types.UserIDContextKey.String())
 	operatorTenantID := c.GetUint64(types.TenantIDContextKey.String())
 
-	if err := h.orgService.RemoveTenantMember(ctx, orgID, memberTenantID, operatorUserID, operatorTenantID); err != nil {
-		logger.Errorf(ctx, "Failed to remove member: %v", err)
+	var removeErr error
+	if memberTenantID, parseErr := strconv.ParseUint(memberID, 10, 64); parseErr == nil {
+		removeErr = h.orgService.RemoveTenantMember(ctx, orgID, memberTenantID, operatorUserID, operatorTenantID)
+	} else {
+		removeErr = h.orgService.RemoveTenantMemberByID(ctx, orgID, memberID, operatorUserID, operatorTenantID)
+	}
+	if removeErr != nil {
+		logger.Errorf(ctx, "Failed to remove member: %v", removeErr)
 		c.Error(apperrors.NewForbiddenError("Permission denied or invalid operation"))
 		return
 	}
@@ -518,354 +511,6 @@ func (h *OrganizationHandler) RemoveMember(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Member removed successfully",
-	})
-}
-
-// GenerateInviteCode generates a new invite code
-// @Summary      生成邀请码
-// @Description  生成新的组织邀请码（需要管理员权限）
-// @Tags         组织管理
-// @Produce      json
-// @Param        id  path  string  true  "组织ID"
-// @Success      200  {object}  map[string]interface{}
-// @Failure      403  {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/{id}/invite-code [post]
-func (h *OrganizationHandler) GenerateInviteCode(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	orgID := c.Param("id")
-	userID := c.GetString(types.UserIDContextKey.String())
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-
-	code, err := h.orgService.GenerateInviteCode(ctx, orgID, userID, tenantID)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to generate invite code: %v", err)
-		c.Error(apperrors.NewForbiddenError("Permission denied"))
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
-		"invite_code": code,
-	})
-}
-
-// PreviewByInviteCode previews organization info by invite code (without joining)
-// @Summary      通过邀请码预览组织
-// @Description  通过邀请码获取组织基本信息（不加入）
-// @Tags         组织管理
-// @Produce      json
-// @Param        code  path  string  true  "邀请码"
-// @Success      200   {object}  map[string]interface{}
-// @Failure      404   {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/preview/{code} [get]
-func (h *OrganizationHandler) PreviewByInviteCode(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	inviteCode := c.Param("code")
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-
-	// Get organization by invite code
-	org, err := h.orgService.GetOrganizationByInviteCode(ctx, inviteCode)
-	if err != nil {
-		c.Error(apperrors.NewNotFoundError("Invalid invite code"))
-		return
-	}
-
-	// Get member count
-	members, _ := h.orgService.ListTenantMembers(ctx, org.ID)
-	memberCount := len(members)
-
-	// Get shared knowledge bases count
-	shares, _ := h.shareService.ListSharesByOrganization(ctx, org.ID)
-	shareCount := len(shares)
-	// Get shared agents count
-	agentShares, _ := h.agentShareService.ListSharesByOrganization(ctx, org.ID)
-	agentShareCount := len(agentShares)
-
-	// Check if caller's tenant is already a member
-	_, memberErr := h.orgService.GetTenantMember(ctx, org.ID, tenantID)
-	isAlreadyMember := memberErr == nil
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"id":                org.ID,
-			"name":              org.Name,
-			"description":       org.Description,
-			"avatar":            org.Avatar,
-			"member_count":      memberCount,
-			"share_count":       shareCount,
-			"agent_share_count": agentShareCount,
-			"is_already_member": isAlreadyMember,
-			"require_approval":  org.RequireApproval,
-			"created_at":        org.CreatedAt,
-		},
-	})
-}
-
-// JoinByInviteCode joins an organization by invite code
-// @Summary      通过邀请码加入组织
-// @Description  使用邀请码加入组织
-// @Tags         组织管理
-// @Accept       json
-// @Produce      json
-// @Param        request  body      types.JoinOrganizationRequest  true  "邀请码"
-// @Success      200      {object}  map[string]interface{}
-// @Failure      404      {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/join [post]
-func (h *OrganizationHandler) JoinByInviteCode(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	userID := c.GetString(types.UserIDContextKey.String())
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-
-	var req types.JoinOrganizationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
-		return
-	}
-
-	org, err := h.orgService.JoinByInviteCode(ctx, req.InviteCode, userID, tenantID)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to join organization: %v", err)
-		if errors.Is(err, service.ErrOrgMemberLimitReached) {
-			c.Error(apperrors.NewValidationError("该空间成员已满，无法加入"))
-			return
-		}
-		c.Error(apperrors.NewNotFoundError("Invalid invite code"))
-		return
-	}
-
-	logger.Infof(ctx, "User %s joined organization %s", secutils.SanitizeForLog(userID), org.ID)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    h.toOrgResponse(ctx, org, userID),
-	})
-}
-
-// SubmitJoinRequest submits a join request for organizations that require approval
-// @Summary      提交加入申请
-// @Description  对需要审核的组织提交加入申请
-// @Tags         组织管理
-// @Accept       json
-// @Produce      json
-// @Param        request  body      types.SubmitJoinRequestRequest  true  "申请信息"
-// @Success      200      {object}  map[string]interface{}
-// @Failure      400      {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/join-request [post]
-func (h *OrganizationHandler) SubmitJoinRequest(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	userID := c.GetString(types.UserIDContextKey.String())
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-
-	var req types.SubmitJoinRequestRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
-		return
-	}
-
-	// Get organization by invite code
-	org, err := h.orgService.GetOrganizationByInviteCode(ctx, req.InviteCode)
-	if err != nil {
-		c.Error(apperrors.NewNotFoundError("Invalid invite code"))
-		return
-	}
-
-	// Check if organization requires approval
-	if !org.RequireApproval {
-		c.Error(apperrors.NewValidationError("This organization does not require approval. Use the join endpoint instead."))
-		return
-	}
-
-	// Check if caller's tenant is already a member
-	_, memberErr := h.orgService.GetTenantMember(ctx, org.ID, tenantID)
-	if memberErr == nil {
-		c.Error(apperrors.NewValidationError("Your workspace is already a member of this organization"))
-		return
-	}
-
-	// Validate requested role: only viewer/editor/admin allowed
-	requestedRole := req.Role
-	if requestedRole != "" && !requestedRole.IsValid() {
-		c.Error(apperrors.NewValidationError("Invalid role; must be viewer, editor, or admin"))
-		return
-	}
-
-	// Submit join request (service defaults to viewer if role empty)
-	request, err := h.orgService.SubmitJoinRequest(ctx, org.ID, userID, tenantID, req.Message, requestedRole)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to submit join request: %v", err)
-		if errors.Is(err, service.ErrOrgMemberLimitReached) {
-			c.Error(apperrors.NewValidationError("该空间成员已满，无法提交加入申请"))
-			return
-		}
-		if err.Error() == "pending request already exists" {
-			c.Error(apperrors.NewValidationError("You have already submitted a request to join this organization"))
-			return
-		}
-		c.Error(apperrors.NewInternalServerError("Failed to submit join request"))
-		return
-	}
-
-	logger.Infof(ctx, "User %s submitted join request for organization %s", secutils.SanitizeForLog(userID), org.ID)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    request,
-	})
-}
-
-// SearchOrganizations returns searchable (discoverable) organizations
-// @Summary      搜索可加入的空间
-// @Description  搜索已开放可被搜索的空间，用于发现并加入
-// @Tags         组织管理
-// @Produce      json
-// @Param        q      query  string  false  "搜索关键词（空间名称或描述）"
-// @Param        limit  query  int     false  "返回数量限制" default(20)
-// @Success      200    {object}  map[string]interface{}
-// @Security     Bearer
-// @Router       /organizations/search [get]
-func (h *OrganizationHandler) SearchOrganizations(c *gin.Context) {
-	ctx := c.Request.Context()
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-	query := c.Query("q")
-	limit := 20
-	if l := c.Query("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
-			limit = n
-		}
-	}
-	resp, err := h.orgService.SearchSearchableOrganizations(ctx, tenantID, query, limit)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to search organizations: %v", err)
-		c.Error(apperrors.NewInternalServerError("Failed to search organizations"))
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    resp.Organizations,
-		"total":   resp.Total,
-	})
-}
-
-// JoinByOrganizationID joins a searchable organization by ID (no invite code)
-// @Summary      通过空间 ID 加入（可搜索空间）
-// @Description  加入已开放可被搜索的空间，无需邀请码
-// @Tags         组织管理
-// @Accept       json
-// @Produce      json
-// @Param        request  body      types.JoinByOrganizationIDRequest  true  "空间 ID"
-// @Success      200      {object}  map[string]interface{}
-// @Failure      403      {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/join-by-id [post]
-func (h *OrganizationHandler) JoinByOrganizationID(c *gin.Context) {
-	ctx := c.Request.Context()
-	userID := c.GetString(types.UserIDContextKey.String())
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-	var req types.JoinByOrganizationIDRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
-		return
-	}
-	// Validate requested role if provided
-	requestedRole := req.Role
-	if requestedRole != "" && !requestedRole.IsValid() {
-		c.Error(apperrors.NewValidationError("Invalid role; must be viewer, editor, or admin"))
-		return
-	}
-	org, err := h.orgService.JoinByOrganizationID(ctx, req.OrganizationID, userID, tenantID, req.Message, requestedRole)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to join organization by ID: %v", err)
-		if errors.Is(err, service.ErrOrgNotFound) {
-			c.Error(apperrors.NewNotFoundError("Organization not found or not open for search"))
-			return
-		}
-		if errors.Is(err, service.ErrOrgPermissionDenied) {
-			c.Error(apperrors.NewForbiddenError("Organization not open for search"))
-			return
-		}
-		if errors.Is(err, service.ErrOrgMemberLimitReached) {
-			c.Error(apperrors.NewValidationError("该空间成员已满，无法加入"))
-			return
-		}
-		if errors.Is(err, service.ErrInvalidRole) {
-			c.Error(apperrors.NewValidationError("Invalid role"))
-			return
-		}
-		c.Error(apperrors.NewInternalServerError("Failed to join organization"))
-		return
-	}
-	logger.Infof(ctx, "User %s joined organization %s by ID", secutils.SanitizeForLog(userID), org.ID)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    h.toOrgResponse(ctx, org, userID),
-	})
-}
-
-// RequestRoleUpgrade submits a request to upgrade role in an organization
-// @Summary      申请权限升级
-// @Description  现有成员申请更高权限
-// @Tags         组织管理
-// @Accept       json
-// @Produce      json
-// @Param        id       path      string                          true  "组织ID"
-// @Param        request  body      types.RequestRoleUpgradeRequest  true  "申请信息"
-// @Success      200      {object}  map[string]interface{}
-// @Failure      400      {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/{id}/request-upgrade [post]
-func (h *OrganizationHandler) RequestRoleUpgrade(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	orgID := c.Param("id")
-	userID := c.GetString(types.UserIDContextKey.String())
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-
-	var req types.RequestRoleUpgradeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
-		return
-	}
-
-	// Validate requested role
-	if !req.RequestedRole.IsValid() {
-		c.Error(apperrors.NewValidationError("Invalid role; must be viewer, editor, or admin"))
-		return
-	}
-
-	request, err := h.orgService.RequestRoleUpgrade(ctx, orgID, userID, tenantID, req.RequestedRole, req.Message)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to submit role upgrade request: %v", err)
-		if err.Error() == "pending request already exists" {
-			c.Error(apperrors.NewValidationError("You already have a pending upgrade request"))
-			return
-		}
-		if err.Error() == "user is not a member of this organization" {
-			c.Error(apperrors.NewValidationError("You are not a member of this organization"))
-			return
-		}
-		if err.Error() == "user is already an admin" {
-			c.Error(apperrors.NewValidationError("You are already an admin"))
-			return
-		}
-		if err.Error() == "cannot request upgrade to same or lower role" {
-			c.Error(apperrors.NewValidationError("Cannot request upgrade to same or lower role"))
-			return
-		}
-		c.Error(apperrors.NewInternalServerError("Failed to submit upgrade request"))
-		return
-	}
-
-	logger.Infof(ctx, "User %s submitted role upgrade request for organization %s", secutils.SanitizeForLog(userID), orgID)
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    request,
 	})
 }
 
@@ -885,23 +530,19 @@ func (h *OrganizationHandler) LeaveOrganization(c *gin.Context) {
 	userID := c.GetString(types.UserIDContextKey.String())
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
 
-	// Check if caller's tenant is the owner tenant. Post-Plan-3, "owner
-	// can't leave" is a tenant-level rule: the owner_tenant_id row is the
-	// one that may not depart the org. Legacy rows with OwnerTenantID == 0
-	// fall back to the user-level rule so we don't break pre-000046 data.
+	// The creator user cannot leave the shared space.
 	org, err := h.orgService.GetOrganization(ctx, orgID)
 	if err != nil {
 		c.Error(apperrors.NewNotFoundError("Organization not found"))
 		return
 	}
 
-	isOwnerTenant := org.OwnerTenantID != 0 && org.OwnerTenantID == tenantID
-	if isOwnerTenant || (org.OwnerTenantID == 0 && org.OwnerID == userID) {
+	if org.OwnerID == userID {
 		c.Error(apperrors.NewForbiddenError("Organization owner cannot leave. Please transfer ownership or delete the organization."))
 		return
 	}
 
-	// Remove the caller's tenant from the organization (self-leave)
+	// Remove the caller's concrete member row from the organization.
 	if err := h.orgService.RemoveTenantMember(ctx, orgID, tenantID, userID, tenantID); err != nil {
 		logger.Errorf(ctx, "Failed to leave organization: %v", err)
 		c.Error(apperrors.NewInternalServerError("Failed to leave organization"))
@@ -911,135 +552,6 @@ func (h *OrganizationHandler) LeaveOrganization(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Left organization successfully",
-	})
-}
-
-// ListJoinRequests lists pending join requests for an organization (admin only)
-// @Summary      获取待审核加入申请列表
-// @Description  获取组织的待审核加入申请（仅管理员）
-// @Tags         组织管理
-// @Produce      json
-// @Param        id   path  string  true  "组织ID"
-// @Success      200  {object}  map[string]interface{}
-// @Failure      403  {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/{id}/join-requests [get]
-func (h *OrganizationHandler) ListJoinRequests(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	orgID := c.Param("id")
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-
-	// Check admin: caller's tenant must be admin in the org
-	isAdmin, err := h.orgService.IsTenantOrgAdmin(ctx, orgID, tenantID)
-	if err != nil || !isAdmin {
-		c.Error(apperrors.NewForbiddenError("Only organization admins can view join requests"))
-		return
-	}
-
-	requests, err := h.orgService.ListJoinRequests(ctx, orgID)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to list join requests: %v", err)
-		c.Error(apperrors.NewInternalServerError("Failed to list join requests"))
-		return
-	}
-
-	// Only return pending requests for approval UI
-	resp := make([]types.JoinRequestResponse, 0)
-	for _, r := range requests {
-		if r.Status != types.JoinRequestStatusPending {
-			continue
-		}
-		item := types.JoinRequestResponse{
-			ID:            r.ID,
-			UserID:        r.UserID,
-			Message:       r.Message,
-			RequestType:   string(r.RequestType),
-			PrevRole:      string(r.PrevRole),
-			RequestedRole: string(r.RequestedRole),
-			Status:        string(r.Status),
-			CreatedAt:     r.CreatedAt,
-			ReviewedAt:    r.ReviewedAt,
-		}
-		// Default request_type to 'join' for backward compatibility
-		if item.RequestType == "" {
-			item.RequestType = string(types.JoinRequestTypeJoin)
-		}
-		if r.User != nil {
-			item.Username = r.User.Username
-			item.Email = r.User.Email
-		}
-		resp = append(resp, item)
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": types.ListJoinRequestsResponse{
-			Requests: resp,
-			Total:    int64(len(resp)),
-		},
-	})
-}
-
-// ReviewJoinRequest approves or rejects a join request (admin only)
-// @Summary      审核加入申请
-// @Description  通过或拒绝加入申请（仅管理员）
-// @Tags         组织管理
-// @Accept       json
-// @Produce      json
-// @Param        id          path  string  true  "组织ID"
-// @Param        request_id  path  string  true  "申请ID"
-// @Param        request    body  types.ReviewJoinRequestRequest  true  "审核结果"
-// @Success      200  {object}  map[string]interface{}
-// @Failure      403  {object}  apperrors.AppError
-// @Security     Bearer
-// @Router       /organizations/{id}/join-requests/{request_id}/review [put]
-func (h *OrganizationHandler) ReviewJoinRequest(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	orgID := c.Param("id")
-	requestID := c.Param("request_id")
-	userID := c.GetString(types.UserIDContextKey.String())
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-
-	// Check admin: caller's tenant must be admin in the org
-	isAdmin, err := h.orgService.IsTenantOrgAdmin(ctx, orgID, tenantID)
-	if err != nil || !isAdmin {
-		c.Error(apperrors.NewForbiddenError("Only organization admins can review join requests"))
-		return
-	}
-
-	var req types.ReviewJoinRequestRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("Invalid request parameters").WithDetails(err.Error()))
-		return
-	}
-	var assignRole *types.OrgMemberRole
-	if req.Role != "" {
-		if !req.Role.IsValid() {
-			c.Error(apperrors.NewValidationError("Invalid role; must be viewer, editor, or admin"))
-			return
-		}
-		assignRole = &req.Role
-	}
-
-	if err := h.orgService.ReviewJoinRequest(ctx, orgID, requestID, req.Approved, userID, tenantID, req.Message, assignRole); err != nil {
-		logger.Errorf(ctx, "Failed to review join request: %v", err)
-		if errors.Is(err, service.ErrOrgMemberLimitReached) {
-			c.Error(apperrors.NewValidationError("空间成员已满，无法通过该加入申请"))
-			return
-		}
-		if err.Error() == "request has already been reviewed" {
-			c.Error(apperrors.NewValidationError("Request has already been reviewed"))
-			return
-		}
-		c.Error(apperrors.NewInternalServerError("Failed to review join request"))
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Review completed",
 	})
 }
 
@@ -1794,36 +1306,28 @@ func (h *OrganizationHandler) SetSharedAgentDisabledByMe(c *gin.Context) {
 // toOrgResponse converts an organization to response format
 func (h *OrganizationHandler) toOrgResponse(ctx context.Context, org *types.Organization, currentUserID string) types.OrganizationResponse {
 	currentTenantID := types.MustTenantIDFromContext(ctx)
-	// Post-Plan-3 the canonical "is the caller the owner side?" check
-	// is tenant-based: org.OwnerTenantID is the pinned column; legacy
-	// rows with OwnerTenantID == 0 (pre-000046, unlikely in prod)
-	// fall back to the user-id check so we don't show the wrong tenant
-	// as "owner" in those edge cases.
-	isOwner := false
-	if org.OwnerTenantID != 0 {
-		isOwner = org.OwnerTenantID == currentTenantID
-	} else {
-		isOwner = org.OwnerID == currentUserID
-	}
+	isOwner := org.OwnerID == currentUserID || types.IsSystemAdminFromContext(ctx)
 	resp := types.OrganizationResponse{
-		ID:                     org.ID,
-		Name:                   org.Name,
-		Description:            org.Description,
-		Avatar:                 org.Avatar,
-		OwnerID:                org.OwnerID,
-		OwnerTenantID:          org.OwnerTenantID,
-		IsOwner:                isOwner,
-		RequireApproval:        org.RequireApproval,
-		Searchable:             org.Searchable,
-		MemberLimit:            org.MemberLimit,
-		InviteCodeValidityDays: org.InviteCodeValidityDays,
-		CreatedAt:              org.CreatedAt,
-		UpdatedAt:              org.UpdatedAt,
+		ID:            org.ID,
+		Name:          org.Name,
+		Description:   org.Description,
+		Avatar:        org.Avatar,
+		OwnerID:       org.OwnerID,
+		OwnerTenantID: org.OwnerTenantID,
+		IsOwner:       isOwner,
+		MemberLimit:   org.MemberLimit,
+		CreatedAt:     org.CreatedAt,
+		UpdatedAt:     org.UpdatedAt,
 	}
 
-	// Get member count (per-tenant)
+	// Get member count.
 	if members, err := h.orgService.ListTenantMembers(ctx, org.ID); err == nil {
-		resp.MemberCount = len(members)
+		if filtered, filterErr := h.filterMembersInCurrentUserManagement(ctx, currentTenantID, members); filterErr == nil {
+			resp.MemberCount = len(filtered)
+		} else {
+			logger.Warnf(ctx, "Failed to filter organization member count by current tenant members: org=%s tenant=%d err=%v",
+				org.ID, currentTenantID, filterErr)
+		}
 	}
 
 	// Get shared knowledge base count for this organization
@@ -1836,27 +1340,8 @@ func (h *OrganizationHandler) toOrgResponse(ctx context.Context, org *types.Orga
 	}
 
 	// Get current tenant's role in this organization
-	isAdmin := false
 	if role, err := h.orgService.GetTenantRoleInOrg(ctx, org.ID, currentTenantID); err == nil {
 		resp.MyRole = string(role)
-		isAdmin = (role == types.OrgRoleAdmin)
-	}
-	// Invite-code / pending-request visibility is keyed on whether the
-	// caller can administer the org. Post-Plan-3 that's "isAdmin in the
-	// caller's tenant context, OR the caller's tenant is the owner
-	// tenant"; we already computed isOwner with the tenant-first logic
-	// above, so reuse it instead of comparing user IDs again.
-	if isAdmin || isOwner {
-		resp.InviteCode = org.InviteCode
-		resp.InviteCodeExpiresAt = org.InviteCodeExpiresAt
-		if n, err := h.orgService.CountPendingJoinRequests(ctx, org.ID); err == nil {
-			resp.PendingJoinRequestCount = int(n)
-		}
-	}
-
-	// Check if current tenant has pending upgrade request
-	if _, err := h.orgService.GetPendingUpgradeRequest(ctx, org.ID, currentTenantID); err == nil {
-		resp.HasPendingUpgrade = true
 	}
 
 	return resp
@@ -2037,14 +1522,14 @@ func (h *OrganizationHandler) SearchTenantsForInvite(c *gin.Context) {
 	})
 }
 
-// SearchUsersForInvite searches users for the add-member picker.
+// SearchUsersForInvite searches active user-management rows for the add-member picker.
 //
-// The UI is user-centric because admins naturally search for a person.
-// The write model remains tenant-centric: InviteMember resolves the
-// selected user_id to that user's tenant and enrols the tenant once.
+// The data source is tenant_members, i.e. the same membership data shown in
+// user management for the current tenant. InviteMember grants only selected
+// current-tenant accounts access to the shared space.
 //
 // @Summary      搜索可添加用户
-// @Description  从用户列表搜索用户用于添加共享空间成员；提交时按用户所属空间授权
+// @Description  从当前空间用户管理数据搜索有效账号用于添加共享空间成员；提交时按账号授权
 // @Tags         组织管理
 // @Produce      json
 // @Param        id     path   string  true   "组织ID"
@@ -2078,19 +1563,24 @@ func (h *OrganizationHandler) SearchUsersForInvite(c *gin.Context) {
 		}
 	}
 
-	var users []*types.User
-	if query == "" {
-		users, err = h.listUsersForInviteDefault(ctx, orgID, limit)
-	} else {
-		users, err = h.userService.SearchUsers(ctx, query, inviteSearchFetchLimit(limit))
-	}
-	if err != nil {
-		logger.Errorf(ctx, "Failed to list users for invite: %v", err)
-		c.Error(apperrors.NewInternalServerError("Failed to list users"))
+	if h.memberService == nil || h.tenantService == nil || h.userService == nil {
+		c.Error(apperrors.NewInternalServerError("User management data is unavailable"))
 		return
 	}
 
-	candidates := h.projectUserInviteCandidates(ctx, orgID, users, limit)
+	var rows []inviteMemberCandidateRow
+	if query == "" {
+		rows, err = h.listMemberInviteCandidateRowsDefault(ctx, tenantID, limit)
+	} else {
+		rows, err = h.searchMemberInviteCandidateRows(ctx, query, tenantID, limit)
+	}
+	if err != nil {
+		logger.Errorf(ctx, "Failed to list user-management candidates for invite: %v", err)
+		c.Error(apperrors.NewInternalServerError("Failed to list member candidates"))
+		return
+	}
+
+	candidates := h.projectMemberInviteCandidates(ctx, orgID, rows, limit)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -2106,75 +1596,157 @@ func inviteSearchFetchLimit(limit int) int {
 	return fetchLimit
 }
 
-func (h *OrganizationHandler) listUsersForInviteDefault(
-	ctx context.Context,
-	orgID string,
-	limit int,
-) ([]*types.User, error) {
-	fetchLimit := inviteSearchFetchLimit(limit)
-	const maxPages = 5
-
-	users := make([]*types.User, 0, fetchLimit)
-	for page := 0; page < maxPages; page++ {
-		batch, err := h.userService.ListUsers(ctx, page*fetchLimit, fetchLimit)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, batch...)
-		if len(h.projectUserInviteCandidates(ctx, orgID, users, limit)) >= limit {
-			break
-		}
-		if len(batch) < fetchLimit {
-			break
-		}
-	}
-	return users, nil
+type inviteMemberCandidateRow struct {
+	member *types.TenantMember
+	user   *types.User
 }
 
-func (h *OrganizationHandler) projectUserInviteCandidates(
+func isActiveInviteMemberRow(member *types.TenantMember) bool {
+	return member != nil &&
+		member.UserID != "" &&
+		member.TenantID != 0 &&
+		member.Status == types.TenantMemberStatusActive
+}
+
+func isActiveInviteMemberRowInTenant(member *types.TenantMember, tenantID uint64) bool {
+	return isActiveInviteMemberRow(member) && member.TenantID == tenantID
+}
+
+func (h *OrganizationHandler) filterMembersInCurrentUserManagement(
+	ctx context.Context,
+	tenantID uint64,
+	members []*types.OrganizationTenantMember,
+) ([]*types.OrganizationTenantMember, error) {
+	if h.memberService == nil {
+		return nil, errors.New("user management service is unavailable")
+	}
+	tenantMembers, err := h.memberService.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	activeUsers := make(map[string]struct{}, len(tenantMembers))
+	for _, member := range tenantMembers {
+		if isActiveInviteMemberRowInTenant(member, tenantID) {
+			activeUsers[member.UserID] = struct{}{}
+		}
+	}
+	filtered := make([]*types.OrganizationTenantMember, 0, len(members))
+	for _, member := range members {
+		if member == nil || strings.TrimSpace(member.RepresentativeUserID) == "" {
+			continue
+		}
+		if _, ok := activeUsers[member.RepresentativeUserID]; !ok {
+			continue
+		}
+		filtered = append(filtered, member)
+	}
+	return filtered, nil
+}
+
+func (h *OrganizationHandler) listMemberInviteCandidateRowsDefault(
+	ctx context.Context,
+	tenantID uint64,
+	limit int,
+) ([]inviteMemberCandidateRow, error) {
+	fetchLimit := inviteSearchFetchLimit(limit)
+
+	members, err := h.memberService.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]inviteMemberCandidateRow, 0, fetchLimit)
+	for _, member := range members {
+		if !isActiveInviteMemberRowInTenant(member, tenantID) {
+			continue
+		}
+		rows = append(rows, inviteMemberCandidateRow{member: member})
+		if len(rows) >= fetchLimit {
+			return rows, nil
+		}
+	}
+	return rows, nil
+}
+
+func (h *OrganizationHandler) searchMemberInviteCandidateRows(
+	ctx context.Context,
+	query string,
+	tenantID uint64,
+	limit int,
+) ([]inviteMemberCandidateRow, error) {
+	users, err := h.userService.SearchUsers(ctx, query, inviteSearchFetchLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+
+	rows := make([]inviteMemberCandidateRow, 0, len(users))
+	for _, user := range users {
+		if user == nil || user.ID == "" {
+			continue
+		}
+		members, err := h.memberService.ListByUser(ctx, user.ID)
+		if err != nil {
+			logger.Warnf(ctx, "failed to list user memberships for invite candidates: user=%s err=%v",
+				secutils.SanitizeForLog(user.ID), err)
+			continue
+		}
+		for _, member := range members {
+			if !isActiveInviteMemberRowInTenant(member, tenantID) {
+				continue
+			}
+			rows = append(rows, inviteMemberCandidateRow{member: member, user: user})
+			if len(rows) >= inviteSearchFetchLimit(limit) {
+				return rows, nil
+			}
+		}
+	}
+	return rows, nil
+}
+
+func (h *OrganizationHandler) projectMemberInviteCandidates(
 	ctx context.Context,
 	orgID string,
-	users []*types.User,
+	rows []inviteMemberCandidateRow,
 	limit int,
 ) []types.UserInviteCandidate {
 	existingMembers, _ := h.orgService.ListTenantMembers(ctx, orgID)
-	existingTenantIDs := make(map[uint64]bool, len(existingMembers))
+	existingMemberUsers := make(map[string]bool, len(existingMembers))
 	for _, m := range existingMembers {
-		if m != nil {
-			existingTenantIDs[m.TenantID] = true
+		if m != nil && m.RepresentativeUserID != "" {
+			existingMemberUsers[m.RepresentativeUserID] = true
 		}
 	}
 
-	candidates := make([]types.UserInviteCandidate, 0, len(users))
-	tenantIDs := make([]uint64, 0, len(users))
-	seenTenantIDs := make(map[uint64]bool, len(users))
-	for _, u := range users {
-		if u == nil {
+	filteredRows := make([]inviteMemberCandidateRow, 0, len(rows))
+	tenantIDs := make([]uint64, 0, len(rows))
+	userIDs := make([]string, 0, len(rows))
+	usersByID := make(map[string]*types.User, len(rows))
+	seenTenantIDs := make(map[uint64]bool, len(rows))
+	seenUserIDs := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if !isActiveInviteMemberRow(row.member) {
 			continue
 		}
-		resolvedTenantID := h.resolveInviteUserTenantID(ctx, u)
-		if resolvedTenantID != 0 && !seenTenantIDs[resolvedTenantID] {
-			seenTenantIDs[resolvedTenantID] = true
-			tenantIDs = append(tenantIDs, resolvedTenantID)
+		if seenUserIDs[row.member.UserID] {
+			continue
 		}
-		candidate := types.UserInviteCandidate{
-			ID:              u.ID,
-			UserID:          u.ID,
-			Username:        u.Username,
-			Phone:           u.Email,
-			Email:           u.Email,
-			Avatar:          u.Avatar,
-			TenantID:        resolvedTenantID,
-			IsAlreadyMember: existingTenantIDs[resolvedTenantID],
+		seenUserIDs[row.member.UserID] = true
+		filteredRows = append(filteredRows, row)
+
+		if row.user != nil && row.user.ID != "" {
+			usersByID[row.user.ID] = row.user
 		}
-		candidates = append(candidates, candidate)
-		if limit > 0 && len(candidates) >= limit {
-			break
+		if !seenTenantIDs[row.member.TenantID] {
+			seenTenantIDs[row.member.TenantID] = true
+			tenantIDs = append(tenantIDs, row.member.TenantID)
+		}
+		if _, ok := usersByID[row.member.UserID]; !ok {
+			userIDs = append(userIDs, row.member.UserID)
 		}
 	}
 
-	if len(candidates) == 0 {
-		return candidates
+	if len(filteredRows) == 0 {
+		return []types.UserInviteCandidate{}
 	}
 
 	tenantByID := map[uint64]*types.Tenant{}
@@ -2185,53 +1757,52 @@ func (h *OrganizationHandler) projectUserInviteCandidates(
 			logger.Warnf(ctx, "failed to resolve invite user candidate tenants: %v", err)
 		}
 	}
-	for i := range candidates {
-		if t, ok := tenantByID[candidates[i].TenantID]; ok && t != nil {
-			candidates[i].TenantName = t.Name
+
+	if h.userService != nil && len(userIDs) > 0 {
+		if users, err := h.userService.GetUsersByIDs(ctx, userIDs); err == nil {
+			for id, user := range users {
+				if user != nil {
+					usersByID[id] = user
+				}
+			}
+		} else {
+			logger.Warnf(ctx, "failed to resolve invite member candidate users: %v", err)
 		}
 	}
 
-	return candidates
-}
-
-func (h *OrganizationHandler) resolveInviteUserTenantID(ctx context.Context, user *types.User) uint64 {
-	if user == nil {
-		return 0
-	}
-	if user.TenantID != 0 {
-		return user.TenantID
-	}
-	if h.memberService == nil {
-		return 0
-	}
-	members, err := h.memberService.ListByUser(ctx, user.ID)
-	if err != nil {
-		logger.Warnf(ctx, "failed to resolve invite user tenant memberships: user=%s err=%v",
-			secutils.SanitizeForLog(user.ID), err)
-		return 0
-	}
-	for _, member := range members {
-		if member == nil || member.TenantID == 0 || member.Status != types.TenantMemberStatusActive {
+	candidates := make([]types.UserInviteCandidate, 0, len(filteredRows))
+	for _, row := range filteredRows {
+		member := row.member
+		user := usersByID[member.UserID]
+		tenant := tenantByID[member.TenantID]
+		if user == nil || !user.IsActive {
 			continue
 		}
-		if h.tenantService != nil {
-			if _, err := h.tenantService.GetTenantByID(ctx, member.TenantID); err != nil {
-				logger.Warnf(ctx, "invite user tenant not loadable: user=%s tenant=%d err=%v",
-					secutils.SanitizeForLog(user.ID), member.TenantID, err)
-				continue
-			}
+		tenantName := ""
+		if tenant != nil {
+			tenantName = tenant.Name
 		}
-		return member.TenantID
+		candidates = append(candidates, types.UserInviteCandidate{
+			ID:              user.ID,
+			UserID:          user.ID,
+			Username:        user.Username,
+			Phone:           user.Email,
+			Email:           user.Email,
+			Avatar:          user.Avatar,
+			TenantID:        member.TenantID,
+			TenantName:      tenantName,
+			IsAlreadyMember: existingMemberUsers[user.ID],
+		})
+		if limit > 0 && len(candidates) >= limit {
+			break
+		}
 	}
-	return 0
+	return candidates
 }
 
 func (h *OrganizationHandler) inviteUserHasTenant(ctx context.Context, user *types.User, tenantID uint64) bool {
 	if user == nil || tenantID == 0 {
 		return false
-	}
-	if user.TenantID == tenantID {
-		return true
 	}
 	if h.memberService == nil {
 		return false
@@ -2243,14 +1814,14 @@ func (h *OrganizationHandler) inviteUserHasTenant(ctx context.Context, user *typ
 		return false
 	}
 	for _, member := range members {
-		if member != nil && member.TenantID == tenantID && member.Status == types.TenantMemberStatusActive {
+		if isActiveInviteMemberRowInTenant(member, tenantID) {
 			return true
 		}
 	}
 	return false
 }
 
-// InviteMember directly adds a user to organization
+// InviteMember directly adds a member to organization
 // @Summary      邀请成员
 // @Description  管理员直接添加用户为组织成员
 // @Tags         组织管理
@@ -2289,92 +1860,66 @@ func (h *OrganizationHandler) InviteMember(c *gin.Context) {
 		return
 	}
 
-	// Plan 3: resolve the (target tenant, representative user) pair.
-	//
-	//  - Preferred: caller supplies tenant_id directly (and optionally
-	//    representative_user_id) — this matches the tenant-centric mental
-	//    model and lets admins invite any user as the rep.
-	//  - Legacy:   caller supplies only user_id — handler looks up that
-	//    user's tenant and uses the same user as the rep, preserving the
-	//    pre-Plan-3 SDK contract.
-	targetTenantID := req.TenantID
-	representativeUserID := req.RepresentativeUserID
-	switch {
-	case targetTenantID != 0:
-		// Tenant-id path: validate the tenant exists; pick a sensible
-		// representative when the caller didn't pin one.
-		if _, err := h.tenantService.GetTenantByID(ctx, targetTenantID); err != nil {
-			c.Error(apperrors.NewNotFoundError("Workspace not found"))
-			return
-		}
-		if representativeUserID == "" {
-			// Fall back to the legacy user_id field if it was sent, so
-			// existing clients that learned to send both keep working.
-			representativeUserID = req.UserID
-		}
-		if representativeUserID != "" {
-			// If a representative is named, sanity-check it belongs to
-			// the target tenant. We don't hard-fail when it doesn't —
-			// the membership row is keyed by tenant_id, the rep field
-			// is informational — but we strip the inconsistent value
-			// so the audit log doesn't lie.
-			if u, err := h.userService.GetUserByID(ctx, representativeUserID); err != nil || !h.inviteUserHasTenant(ctx, u, targetTenantID) {
-				logger.Warnf(ctx, "representative_user_id %s does not belong to tenant %d; dropping",
-					secutils.SanitizeForLog(representativeUserID), targetTenantID)
-				representativeUserID = ""
-			}
-		}
-		if representativeUserID == "" {
-			if u, err := h.userService.GetUserByTenantID(ctx, targetTenantID); err == nil && u != nil {
-				representativeUserID = u.ID
-			}
-		}
-	case req.UserID != "":
-		// Legacy path: resolve target tenant from the user.
-		invitedUser, err := h.userService.GetUserByID(ctx, req.UserID)
-		if err != nil {
-			c.Error(apperrors.NewNotFoundError("User not found"))
-			return
-		}
-		resolvedTenantID := h.resolveInviteUserTenantID(ctx, invitedUser)
-		if resolvedTenantID == 0 {
-			c.Error(apperrors.NewValidationError("User does not belong to a workspace"))
-			return
-		}
-		if _, err := h.tenantService.GetTenantByID(ctx, resolvedTenantID); err != nil {
-			c.Error(apperrors.NewNotFoundError("Workspace not found"))
-			return
-		}
-		targetTenantID = resolvedTenantID
-		if representativeUserID == "" {
-			representativeUserID = req.UserID
-		}
-	default:
-		c.Error(apperrors.NewValidationError("Either tenant_id or user_id is required"))
+	if h.memberService == nil || h.tenantService == nil || h.userService == nil {
+		c.Error(apperrors.NewInternalServerError("User management data is unavailable"))
 		return
 	}
 
-	// Check if target tenant is already a member of this org.
-	if _, memberErr := h.orgService.GetTenantMember(ctx, orgID, targetTenantID); memberErr == nil {
-		c.Error(apperrors.NewValidationError("Workspace is already a member of this organization"))
+	targetTenantID := tenantID
+	if req.TenantID != 0 && req.TenantID != tenantID {
+		c.Error(apperrors.NewValidationError("Member must belong to the current workspace"))
+		return
+	}
+	if _, err := h.tenantService.GetTenantByID(ctx, targetTenantID); err != nil {
+		c.Error(apperrors.NewNotFoundError("Workspace not found"))
 		return
 	}
 
-	// Add tenant member with the chosen representative.
+	representativeUserID := strings.TrimSpace(req.RepresentativeUserID)
+	if representativeUserID == "" {
+		representativeUserID = strings.TrimSpace(req.UserID)
+	}
+	if representativeUserID == "" {
+		c.Error(apperrors.NewValidationError("Member user is required"))
+		return
+	}
+	invitedUser, err := h.userService.GetUserByID(ctx, representativeUserID)
+	if err != nil || invitedUser == nil {
+		c.Error(apperrors.NewNotFoundError("User not found"))
+		return
+	}
+	if !invitedUser.IsActive || !h.inviteUserHasTenant(ctx, invitedUser, targetTenantID) {
+		logger.Warnf(ctx, "representative_user_id %s is not an active member of tenant %d",
+			secutils.SanitizeForLog(representativeUserID), targetTenantID)
+		c.Error(apperrors.NewValidationError("Member must belong to the current workspace"))
+		return
+	}
+
+	// Check if the exact member is already in this org.
+	if _, memberErr := h.orgService.GetTenantMemberByUser(ctx, orgID, targetTenantID, representativeUserID); memberErr == nil {
+		c.Error(apperrors.NewValidationError("Member is already in this organization"))
+		return
+	}
+
+	// Add the concrete member with tenant context.
 	if err := h.orgService.AddTenantMember(ctx, orgID, targetTenantID, representativeUserID, req.Role); err != nil {
 		logger.Errorf(ctx, "Failed to add member: %v", err)
 		if errors.Is(err, service.ErrOrgMemberLimitReached) {
 			c.Error(apperrors.NewValidationError("该空间成员已满，无法添加新成员"))
 			return
 		}
+		if errors.Is(err, repository.ErrOrgMemberAlreadyExists) {
+			c.Error(apperrors.NewValidationError("Member is already in this organization"))
+			return
+		}
 		c.Error(apperrors.NewInternalServerError("Failed to add member"))
 		return
 	}
 
-	logger.Infof(ctx, "User %s invited tenant %d (rep user %s) to organization %s with role %s",
+	logger.Infof(ctx, "User %s added account %s from source tenant %d to organization %s with role %s",
 		secutils.SanitizeForLog(userID),
-		targetTenantID,
 		secutils.SanitizeForLog(representativeUserID),
+		targetTenantID,
 		orgID,
 		req.Role)
 

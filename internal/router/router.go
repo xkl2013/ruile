@@ -1309,16 +1309,6 @@ func RegisterOrganizationRoutes(r *gin.RouterGroup, orgHandler *handler.Organiza
 		// List my organizations — Viewer+ floor so revoked/non-member
 		// accounts whose JWT still validates can't enumerate org membership.
 		orgs.GET("", g.Viewer(), orgHandler.ListMyOrganizations)
-		// Preview organization by invite code (without joining) — Viewer+
-		orgs.GET("/preview/:code", g.Viewer(), orgHandler.PreviewByInviteCode)
-		// Join organization by invite code (Admin+ in caller's tenant only)
-		orgs.POST("/join", g.Admin(), orgHandler.JoinByInviteCode)
-		// Submit join request (for organizations that require approval) (Admin+)
-		orgs.POST("/join-request", g.Admin(), orgHandler.SubmitJoinRequest)
-		// Search searchable (discoverable) organizations — Viewer+
-		orgs.GET("/search", g.Viewer(), orgHandler.SearchOrganizations)
-		// Join searchable organization by ID (no invite code) (Admin+)
-		orgs.POST("/join-by-id", g.Admin(), orgHandler.JoinByOrganizationID)
 		// Get organization by ID — Viewer+
 		orgs.GET("/:id", g.Viewer(), orgHandler.GetOrganization)
 		// Update organization — Admin+ in caller's tenant.
@@ -1332,14 +1322,6 @@ func RegisterOrganizationRoutes(r *gin.RouterGroup, orgHandler *handler.Organiza
 		orgs.DELETE("/:id", g.Admin(), orgHandler.DeleteOrganization)
 		// Leave organization (Admin+ in caller's tenant only)
 		orgs.POST("/:id/leave", g.Admin(), orgHandler.LeaveOrganization)
-		// Request role upgrade (Admin+ in caller's tenant only).
-		// An upgrade approval changes the whole tenant's org role, so it
-		// must not be initiated by a tenant Viewer/Contributor.
-		orgs.POST("/:id/request-upgrade", g.Admin(), orgHandler.RequestRoleUpgrade)
-		// Generate invite code — Admin+ in caller's tenant. Issuing an
-		// invite code is an admin action; the service layer additionally
-		// requires the caller's tenant to be admin in the org.
-		orgs.POST("/:id/invite-code", g.Admin(), orgHandler.GenerateInviteCode)
 		// Search tenants for invite (admin only). Plan 3 changed the
 		// unit of membership to "tenant"; this endpoint returns
 		// candidate tenants (with one representative user attached)
@@ -1353,22 +1335,13 @@ func RegisterOrganizationRoutes(r *gin.RouterGroup, orgHandler *handler.Organiza
 		orgs.POST("/:id/invite", g.Admin(), orgHandler.InviteMember)
 		// List members — Viewer+
 		orgs.GET("/:id/members", g.Viewer(), orgHandler.ListMembers)
-		// Update member role (path parameter is the member tenant_id) —
+		// Update member role (path parameter is the member row ID) —
 		// Admin+ in caller's tenant. Changing another tenant's org role
 		// is the symmetric counterpart of removing them; both must be
 		// gated the same way.
-		orgs.PUT("/:id/members/:tenant_id", g.Admin(), orgHandler.UpdateMemberRole)
-		// Remove member (path parameter is the member tenant_id).
-		// Both self-removal (caller's own tenant) and admin-removal-of-other
-		// take a whole tenant out of the org, so the route must be Admin+
-		// in the caller's tenant — symmetric with POST /:id/leave above.
-		orgs.DELETE("/:id/members/:tenant_id", g.Admin(), orgHandler.RemoveMember)
-		// List join requests (admin only) — caller's tenant must be at
-		// least Admin to even see the queue (a tenant Viewer has no
-		// authority to act on it).
-		orgs.GET("/:id/join-requests", g.Admin(), orgHandler.ListJoinRequests)
-		// Review join request (admin only)
-		orgs.PUT("/:id/join-requests/:request_id/review", g.Admin(), orgHandler.ReviewJoinRequest)
+		orgs.PUT("/:id/members/:member_id", g.Admin(), orgHandler.UpdateMemberRole)
+		// Remove member (path parameter is the member row ID).
+		orgs.DELETE("/:id/members/:member_id", g.Admin(), orgHandler.RemoveMember)
 		// List knowledge bases shared to this organization — Viewer+
 		orgs.GET("/:id/shares", g.Viewer(), orgHandler.ListOrgShares)
 		// List agents shared to this organization — Viewer+

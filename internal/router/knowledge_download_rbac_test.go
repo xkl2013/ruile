@@ -22,6 +22,18 @@ type stubKnowledgeDownloadService struct {
 	knowledge *types.Knowledge
 }
 
+type downloadCloseNotifyRecorder struct {
+	*httptest.ResponseRecorder
+	closeNotify chan bool
+}
+
+func (r *downloadCloseNotifyRecorder) CloseNotify() <-chan bool {
+	if r.closeNotify == nil {
+		r.closeNotify = make(chan bool, 1)
+	}
+	return r.closeNotify
+}
+
 func (s *stubKnowledgeDownloadService) GetKnowledgeByIDOnly(context.Context, string) (*types.Knowledge, error) {
 	return s.knowledge, nil
 }
@@ -83,7 +95,7 @@ func TestKnowledgeDownloadRequiresAdminRole(t *testing.T) {
 
 func TestKnowledgeDownloadAllowsAdminRole(t *testing.T) {
 	engine := newKnowledgeDownloadRBACEngine(types.TenantRoleAdmin)
-	rec := httptest.NewRecorder()
+	rec := &downloadCloseNotifyRecorder{ResponseRecorder: httptest.NewRecorder()}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/knowledge-1/download", nil)
 
 	engine.ServeHTTP(rec, req)

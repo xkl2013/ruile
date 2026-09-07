@@ -39,6 +39,15 @@
           </button>
           <button
             type="button"
+            class="service-action-btn service-header-action"
+            :disabled="serviceDailyReportsGenerating"
+            @click="supplementTodayReport"
+          >
+            <t-icon :name="serviceDailyReportsGenerating ? 'loading' : 'edit-1'" />
+            补入今日
+          </button>
+          <button
+            type="button"
             class="rail-icon-btn"
             :disabled="serviceDailyReportsLoading"
             title="刷新日报"
@@ -337,11 +346,13 @@
                 <OrganizeSproutIcon class="review-heading-icon" />
                 <span>日报</span>
               </div>
-              <p>汇总客户服务动作、沟通风险和下阶段建议，形成个人可回看的服务日报。</p>
+              <p>从分身授权记忆提取工作事项，生成可回看、可追问、可补记的工作日报。</p>
             </div>
             <div class="review-hero-stats">
               <span><strong>{{ filteredReviewReports.length }}</strong> 份日报</span>
               <span><strong>{{ reviewTotalActions }}</strong> 个动作</span>
+              <span><strong>{{ reviewTotalSourceMemories }}</strong> 条来源记忆</span>
+              <span><strong>{{ reviewTotalHighRisks }}</strong> 条高风险</span>
             </div>
           </div>
 
@@ -400,7 +411,8 @@
                       <span>{{ report.updated }}</span>
                       <span class="review-report-meta-separator">|</span>
                       <span>{{ report.actionCount }} 个动作</span>
-                      <span>{{ report.customerCount }} 位客户</span>
+                      <span>{{ report.subjectCount }} 个对象</span>
+                      <span>{{ report.sourceMemoryCount }} 条记忆</span>
                     </div>
                   </div>
                 </article>
@@ -529,6 +541,17 @@
           </div>
           <div class="review-preview-actions">
             <t-button
+              variant="outline"
+              theme="default"
+              size="small"
+              class="review-preview-chat-action"
+              :loading="isActiveReviewReportChatLoading"
+              @click="activeReviewReport && openReviewChat(activeReviewReport)"
+            >
+              <template #icon><t-icon name="chat" size="16px" /></template>
+              问分身
+            </t-button>
+            <t-button
               variant="text"
               theme="default"
               size="small"
@@ -546,12 +569,43 @@
             <div class="review-preview-meta">
               <span>{{ activeReviewReport.updated }}</span>
               <span>{{ activeReviewReport.actionCount }} 个动作</span>
-              <span>{{ activeReviewReport.customerCount }} 位客户</span>
+              <span>{{ activeReviewReport.subjectCount }} 个对象</span>
+              <span>{{ activeReviewReport.sourceMemoryCount }} 条记忆</span>
+              <span>{{ activeReviewReport.highRiskCount }} 条高风险</span>
+              <span>{{ activeReviewReport.evidenceCompleteRate }}% 证据完整</span>
             </div>
             <h1>{{ activeReviewReport.title }}</h1>
 
             <div class="review-preview-content" v-html="activeReviewReport.renderedHtml" />
           </div>
+
+          <section
+            v-if="activeReviewReportChatSessionId || isActiveReviewReportChatLoading || reviewChatSessionError"
+            class="review-preview-chat"
+            aria-label="日报分身对话"
+          >
+            <div class="review-preview-chat-head">
+              <span>问分身</span>
+              <em>{{ activeReviewReportChatHasMessages ? '已开始对话' : '基于当前日报' }}</em>
+            </div>
+            <div class="service-agent-chat-shell review-preview-chat-shell">
+              <ChatView
+                v-if="activeReviewReportChatSessionId"
+                :key="`${activeReviewReport.id}:${activeReviewReportChatSessionId}`"
+                ref="reviewChatViewRef"
+                :session_id="activeReviewReportChatSessionId"
+                :agent-id="serviceAssistantAgentId"
+                :quoted-context="activeReviewReportAgentContext"
+                embedded-input-placeholder="继续追问这份日报"
+                embedded-mode
+                @message-state-change="handleReviewChatMessageState"
+              />
+              <div v-else class="service-agent-state">
+                <t-icon :name="isActiveReviewReportChatLoading ? 'loading' : 'chat'" />
+                <span>{{ activeReviewReportStateText }}</span>
+              </div>
+            </div>
+          </section>
         </div>
       </template>
     </t-drawer>
@@ -598,7 +652,7 @@ import {
   updateServiceReminderStatus,
 } from '@/api/service'
 
-type ReviewRange = 'week' | 'month'
+type ReviewRange = 'day' | 'week' | 'month'
 type ReviewStageKey = 'formed' | 'expandable' | 'organizing'
 type CustomerDetailType = 'followUp' | 'profile'
 type ServiceReminderFilter = 'all' | 'lead' | 'customer' | 'schedule' | 'risk'
@@ -652,6 +706,17 @@ interface ServiceReviewReport {
   updatedAt: string
   actionCount: number
   customerCount: number
+  subjectCount: number
+  openActionCount: number
+  closedActionCount: number
+  highRiskCount: number
+  knowledgeGapCount: number
+  sourceMemoryCount: number
+  dailySourceCount: number
+  evidenceCompleteRate: number
+  profileName: string
+  memoryScope: string
+  canSupplement: boolean
   chips: string[]
 }
 
@@ -688,7 +753,7 @@ const activeView = computed<ServiceTab>({
 
 const keyword = ref('')
 const serviceReminderFilter = ref<ServiceReminderFilter>('all')
-const reviewRange = ref<ReviewRange>('week')
+const reviewRange = ref<ReviewRange>('day')
 const reviewPreviewVisible = ref(false)
 const activeReviewReport = ref<ServiceReviewReport | null>(null)
 const customerDetailVisible = ref(false)
@@ -698,10 +763,15 @@ const closedTaskIds = ref<string[]>([])
 const ignoredTaskIds = ref<string[]>([])
 const snoozedTaskIds = ref<string[]>([])
 const serviceChatViewRef = ref<ServiceChatViewExpose | null>(null)
+const reviewChatViewRef = ref<ServiceChatViewExpose | null>(null)
 const serviceChatSessionIds = ref<Record<string, string>>({})
 const serviceChatSessionLoadingId = ref('')
 const serviceChatSessionError = ref('')
 const serviceChatHasMessagesByTask = ref<Record<string, boolean>>({})
+const reviewChatSessionIds = ref<Record<string, string>>({})
+const reviewChatSessionLoadingId = ref('')
+const reviewChatSessionError = ref('')
+const reviewChatHasMessagesByReport = ref<Record<string, boolean>>({})
 const serviceAgentSuggestions = ref<SuggestedQuestion[]>([])
 const serviceAgentSuggestionsLoading = ref(false)
 const serviceAgentSuggestionsLoaded = ref(false)
@@ -718,9 +788,12 @@ const serviceMemoriesLoading = ref(false)
 const serviceMemoriesLoaded = ref(false)
 const serviceMemoriesError = ref('')
 const serviceChatSessionRequests = new Map<string, Promise<string>>()
+const reviewChatSessionRequests = new Map<string, Promise<string>>()
 let serviceChatSessionRequestSeed = 0
+let reviewChatSessionRequestSeed = 0
 
 const reviewRangeTabs: Array<{ label: string; value: ReviewRange }> = [
+  { label: '今日', value: 'day' },
   { label: '本周', value: 'week' },
   { label: '本月', value: 'month' },
 ]
@@ -743,7 +816,33 @@ const enrichServiceReviewReport = (
   }
 }
 
-const normalizeReviewReportRange = (range?: string): ReviewRange => (range === 'month' ? 'month' : 'week')
+const normalizeReviewReportRange = (range?: string): ReviewRange => {
+  if (range === 'month') return 'month'
+  if (range === 'week') return 'week'
+  return 'day'
+}
+
+const asReportMetadataNumber = (metadata: Record<string, unknown> | undefined, key: string) => {
+  const value = metadata?.[key]
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+const asReportMetadataString = (metadata: Record<string, unknown> | undefined, key: string) => {
+  const value = metadata?.[key]
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+const asReportMetadataBoolean = (metadata: Record<string, unknown> | undefined, key: string) => {
+  const value = metadata?.[key]
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') return value === 'true'
+  return false
+}
 
 const formatReviewReportUpdated = (value?: string) => {
   if (!value) return '刚刚生成'
@@ -752,26 +851,44 @@ const formatReviewReportUpdated = (value?: string) => {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
-const mapServiceDailyReportToReviewReport = (item: ServiceDailyReportDTO): ServiceReviewReport => enrichServiceReviewReport({
-  id: item.id,
-  title: item.title || '服务日报',
-  content: item.content || item.summary || '# 服务日报\n\n暂无日报内容。',
-  stage: item.stage || '已生成',
-  stageKey: item.stage_key === 'organizing' ? 'organizing' : 'formed',
-  range: normalizeReviewReportRange(item.range),
-  updated: item.updated || formatReviewReportUpdated(item.updated_at),
-  updatedAt: item.updated_at || item.created_at || new Date().toISOString(),
-  actionCount: item.action_count || 0,
-  customerCount: item.customer_count || 0,
-  chips: item.chips || [],
-})
+const mapServiceDailyReportToReviewReport = (item: ServiceDailyReportDTO): ServiceReviewReport => {
+  const metadata = item.metadata || {}
+  const metadataSubjectCount = asReportMetadataNumber(metadata, 'subject_count') || asReportMetadataNumber(metadata, 'customer_count')
+  const subjectCount = item.subject_count ?? item.customer_count ?? metadataSubjectCount
+  const backendSourceMemoryCount = item.source_memory_count ?? asReportMetadataNumber(metadata, 'source_memory_count')
+  const sourceMemoryCount = backendSourceMemoryCount || item.source_memory_ids?.length || 0
+  return enrichServiceReviewReport({
+    id: item.id,
+    title: item.title || '服务日报',
+    content: item.content || item.summary || '# 服务日报\n\n暂无日报内容。',
+    stage: item.stage || '已生成',
+    stageKey: item.stage_key === 'organizing' ? 'organizing' : 'formed',
+    range: normalizeReviewReportRange(item.range),
+    updated: item.updated || formatReviewReportUpdated(item.updated_at),
+    updatedAt: item.updated_at || item.created_at || new Date().toISOString(),
+    actionCount: item.action_count ?? asReportMetadataNumber(metadata, 'action_count'),
+    customerCount: subjectCount,
+    subjectCount,
+    openActionCount: item.open_action_count ?? asReportMetadataNumber(metadata, 'open_action_count'),
+    closedActionCount: item.closed_action_count ?? asReportMetadataNumber(metadata, 'closed_action_count'),
+    highRiskCount: item.high_risk_count ?? asReportMetadataNumber(metadata, 'high_risk_count'),
+    knowledgeGapCount: item.knowledge_gap_count ?? asReportMetadataNumber(metadata, 'knowledge_gap_count'),
+    sourceMemoryCount,
+    dailySourceCount: item.daily_source_count ?? asReportMetadataNumber(metadata, 'daily_source_count'),
+    evidenceCompleteRate: item.evidence_complete_rate ?? asReportMetadataNumber(metadata, 'evidence_complete_rate'),
+    profileName: item.profile_name || asReportMetadataString(metadata, 'profile_name') || serviceWorkProfile.value?.name || '服务分身',
+    memoryScope: item.memory_scope || asReportMetadataString(metadata, 'memory_scope') || activeServiceMemoryScope.value,
+    canSupplement: item.can_supplement ?? asReportMetadataBoolean(metadata, 'can_supplement'),
+    chips: item.chips || [],
+  })
+}
 
 const memoryDerivedTasks = computed(() => backendServiceTasks.value)
 const serviceTasks = computed(() => memoryDerivedTasks.value)
 
 const pageMeta = computed(() => {
   if (activeView.value === 'review') {
-    return { title: '日报', description: '查看客户服务回顾、风险提醒和下阶段建议' }
+    return { title: '日报', description: '从分身记忆生成今日工作复盘，并回看周/月闭环' }
   }
   return { title: '服务提醒', description: '从记忆笔记整理今天要服务谁、为什么提醒和下一步动作' }
 })
@@ -817,6 +934,24 @@ const reviewHighRiskTasks = computed(() => serviceTasks.value.filter((task) =>
 const reviewPendingWriteBackCount = computed(() => serviceTasks.value.filter((task) =>
   !closedTaskIds.value.includes(task.id) && task.writeBackStatus.includes('待'),
 ).length)
+const reviewSourceMemoryCount = computed(() => new Set(serviceTasks.value.flatMap((task) => task.memoryEvidence.map((memory) => memory.id).filter(Boolean))).size)
+const reviewEvidenceCompleteRate = computed(() => {
+  if (serviceTasks.value.length === 0) return 0
+  const covered = serviceTasks.value.filter((task) => task.sourceMemoryCount > 0 || task.memoryEvidence.length > 0).length
+  return Math.round((covered / serviceTasks.value.length) * 100)
+})
+const reviewReportRangeLabel = (range: ReviewRange) => {
+  if (range === 'month') return '本月'
+  if (range === 'week') return '本周'
+  return '今日'
+}
+const reviewRangeLabel = computed(() => reviewReportRangeLabel(reviewRange.value))
+const todayReportDate = () => {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
 
 const reviewStageInsights = computed<ServiceReviewStageInsight[]>(() => {
   const total = Math.max(serviceTasks.value.length, 1)
@@ -965,7 +1100,7 @@ const reviewDiagnosis = computed(() => {
 })
 
 const buildServiceReviewReportContent = () => {
-  const rangeLabel = reviewRange.value === 'week' ? '本周' : '本月'
+  const rangeLabel = reviewRangeLabel.value
   const stageLines = reviewStageInsights.value
     .map((stage) => `- ${stage.label}：${stage.count} 条会话，建议动作：${stage.action}`)
     .join('\n')
@@ -983,6 +1118,11 @@ const buildServiceReviewReportContent = () => {
 
 ${reviewDiagnosis.value}
 
+分身：${serviceWorkProfile.value?.name || '服务分身'}
+收录范围：${activeServiceMemoryScope.value}
+生成逻辑：从分身授权记忆提取工作事项，形成提醒、日报和回写建议；动作确认后回写记忆，知识缺口进入知识库审核。
+统计：${reviewActionRows.value.length} 个动作，覆盖 ${reviewActiveTaskCount.value} 个服务对象，${reviewSourceMemoryCount.value} 条来源记忆，高风险 ${reviewHighRiskTasks.value.length} 条。
+
 ## 1、服务回顾
 
 ${stageLines || '- 暂无可回顾的客户阶段。'}
@@ -997,12 +1137,21 @@ ${actionLines || '- 暂无待处理动作。'}
 
 ## 4、知识补齐
 
-${gapLines || '- 暂无知识补齐建议。'}`
+${gapLines || '- 暂无知识补齐建议。'}
+
+## 5、证据来源
+
+- 当前实时预览来自服务提醒列表，生成后会写入来源记忆索引。
+
+## 6、回写建议
+
+- 动作完成后在服务提醒中确认，系统会沉淀动作草稿和执行结果。
+- 知识补齐建议进入知识库审核，不直接写入公共知识库。`
 }
 
 const currentReviewReport = computed<ServiceReviewReport>(() => enrichServiceReviewReport({
   id: `review-live-${reviewRange.value}`,
-  title: `${reviewRange.value === 'week' ? '本周' : '本月'}记忆驱动日报`,
+  title: `${reviewRangeLabel.value}记忆驱动日报`,
   content: buildServiceReviewReportContent(),
   stage: memoryDerivedTasks.value.length > 0 ? '记忆生成' : '等待记忆',
   stageKey: memoryDerivedTasks.value.length > 0 ? 'formed' : 'organizing',
@@ -1011,6 +1160,17 @@ const currentReviewReport = computed<ServiceReviewReport>(() => enrichServiceRev
   updatedAt: new Date().toISOString(),
   actionCount: reviewActionRows.value.length,
   customerCount: reviewActiveTaskCount.value,
+  subjectCount: reviewActiveTaskCount.value,
+  openActionCount: reviewActiveTasks.value.length,
+  closedActionCount: closedTaskIds.value.length,
+  highRiskCount: reviewHighRiskTasks.value.length,
+  knowledgeGapCount: reviewKnowledgeGaps.value.length,
+  sourceMemoryCount: reviewSourceMemoryCount.value,
+  dailySourceCount: 0,
+  evidenceCompleteRate: reviewEvidenceCompleteRate.value,
+  profileName: serviceWorkProfile.value?.name || '服务分身',
+  memoryScope: activeServiceMemoryScope.value,
+  canSupplement: reviewRange.value === 'day',
   chips: ['业务洞察', '风险归因', '行动闭环'],
 }))
 
@@ -1022,9 +1182,11 @@ const reviewReports = computed(() => {
 })
 const filteredReviewReports = computed(() => reviewReports.value.filter((report) => report.range === reviewRange.value))
 const reviewTotalActions = computed(() => filteredReviewReports.value.reduce((total, report) => total + report.actionCount, 0))
+const reviewTotalSourceMemories = computed(() => filteredReviewReports.value.reduce((total, report) => total + report.sourceMemoryCount, 0))
+const reviewTotalHighRisks = computed(() => filteredReviewReports.value.reduce((total, report) => total + report.highRiskCount, 0))
 const reviewReportGroups = computed(() => [{
   key: reviewRange.value,
-  label: reviewRange.value === 'week' ? '本周' : '本月',
+  label: reviewRangeLabel.value,
   reports: filteredReviewReports.value,
 }])
 
@@ -1239,6 +1401,8 @@ const buildServiceAgentContext = (task: ServiceTask) => [
 
 const buildServiceChatSessionTitle = (task: ServiceTask) => `${task.customerName} · ${task.title}`
 const buildServiceChatSessionDescription = (task: ServiceTask) => `service-task:${task.id};agent:${serviceAssistantAgentId}`
+const buildReviewChatSessionTitle = (report: ServiceReviewReport) => `${report.title} · 分身日报`
+const buildReviewChatSessionDescription = (report: ServiceReviewReport) => `service-daily-report:${report.id};agent:${serviceAssistantAgentId}`
 
 const ensureServiceChatSession = async (task = activeTask.value) => {
   if (!task.id) return ''
@@ -1286,6 +1450,101 @@ const ensureServiceChatSession = async (task = activeTask.value) => {
   })()
 
   serviceChatSessionRequests.set(task.id, request)
+  return request
+}
+
+const trimReviewReportContext = (value: string, maxLength = 6000) => {
+  const text = value.trim()
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength)}\n...`
+}
+
+const buildReviewReportAgentContext = (report: ServiceReviewReport) => [
+  '以下是分身生成的日报产物，请把它作为本轮对话上下文。不要逐字复述，除非用户明确要求。',
+  '请把个人记忆视为事实层，把公共知识库视为课程、政策、话术和服务规则来源。事实不足时请指出需要补充哪条记忆。',
+  '<service_daily_report_context>',
+  `分身：${report.profileName}`,
+  `收录范围：${report.memoryScope}`,
+  `报告范围：${reviewReportRangeLabel(report.range)}`,
+  `动作数：${report.actionCount}`,
+  `服务对象数：${report.subjectCount}`,
+  `待闭环动作：${report.openActionCount}`,
+  `高风险：${report.highRiskCount}`,
+  `知识缺口：${report.knowledgeGapCount}`,
+  `来源记忆数：${report.sourceMemoryCount}`,
+  `日粒度来源数：${report.dailySourceCount}`,
+  `证据完整率：${report.evidenceCompleteRate}%`,
+  '日报正文：',
+  trimReviewReportContext(report.content),
+  '</service_daily_report_context>',
+  '请基于这份日报继续分析、拆动作、补话术或判断哪些内容适合进入知识库审核。',
+].join('\n')
+
+const activeReviewReportChatSessionId = computed(() => {
+  const report = activeReviewReport.value
+  return report ? reviewChatSessionIds.value[report.id] || '' : ''
+})
+const isActiveReviewReportChatLoading = computed(() => {
+  const report = activeReviewReport.value
+  return Boolean(report && reviewChatSessionLoadingId.value === report.id)
+})
+const activeReviewReportChatHasMessages = computed(() => {
+  const report = activeReviewReport.value
+  return Boolean(report && reviewChatHasMessagesByReport.value[report.id])
+})
+const activeReviewReportAgentContext = computed(() => activeReviewReport.value ? buildReviewReportAgentContext(activeReviewReport.value) : '')
+const activeReviewReportStateText = computed(() => {
+  if (isActiveReviewReportChatLoading.value) return '正在准备分身'
+  if (reviewChatSessionError.value) return reviewChatSessionError.value
+  return '分身暂不可用'
+})
+
+const ensureReviewChatSession = async (report?: ServiceReviewReport | null) => {
+  if (!report?.id) return ''
+
+  const existingSessionId = reviewChatSessionIds.value[report.id]
+  if (existingSessionId) return existingSessionId
+
+  const pendingRequest = reviewChatSessionRequests.get(report.id)
+  if (pendingRequest) return pendingRequest
+
+  const requestId = ++reviewChatSessionRequestSeed
+  reviewChatSessionLoadingId.value = report.id
+  reviewChatSessionError.value = ''
+
+  const request = (async () => {
+    try {
+      const response = await createSessions({
+        title: buildReviewChatSessionTitle(report),
+        description: buildReviewChatSessionDescription(report),
+      })
+      const sessionId = response?.data?.id
+      if (!sessionId) {
+        throw new Error('missing session id')
+      }
+      reviewChatSessionIds.value = {
+        ...reviewChatSessionIds.value,
+        [report.id]: sessionId,
+      }
+      reviewChatHasMessagesByReport.value = {
+        ...reviewChatHasMessagesByReport.value,
+        [report.id]: false,
+      }
+      return sessionId
+    } catch (error) {
+      console.error('[ServiceAgent] Failed to create review session:', error)
+      reviewChatSessionError.value = '分身对话创建失败，请稍后重试'
+      MessagePlugin.error(reviewChatSessionError.value)
+      return ''
+    } finally {
+      reviewChatSessionRequests.delete(report.id)
+      if (requestId === reviewChatSessionRequestSeed) {
+        reviewChatSessionLoadingId.value = ''
+      }
+    }
+  })()
+
+  reviewChatSessionRequests.set(report.id, request)
   return request
 }
 
@@ -1347,15 +1606,21 @@ const loadServiceDailyReports = async (force = false) => {
   }
 }
 
-const generateReviewReport = async () => {
+const generateReviewReportWithTrigger = async (
+  trigger = 'user_requested',
+  date?: string,
+  range: ReviewRange = reviewRange.value,
+) => {
   if (serviceDailyReportsGenerating.value) return
 
   serviceDailyReportsGenerating.value = true
   serviceDailyReportsError.value = ''
   try {
     const response = await generateServiceDailyReport({
-      range: reviewRange.value,
+      range,
+      date,
       timezone: serviceReportTimezone(),
+      trigger,
     })
     const report = mapServiceDailyReportToReviewReport(response.data)
     backendReviewReports.value = [
@@ -1372,6 +1637,13 @@ const generateReviewReport = async () => {
   } finally {
     serviceDailyReportsGenerating.value = false
   }
+}
+
+const generateReviewReport = () => generateReviewReportWithTrigger('user_requested')
+
+const supplementTodayReport = async () => {
+  reviewRange.value = 'day'
+  await generateReviewReportWithTrigger('supplement', todayReportDate(), 'day')
 }
 
 const loadServiceAgentSuggestions = async (force = false) => {
@@ -1405,6 +1677,17 @@ const handleServiceChatMessageState = (state: ServiceChatMessageState) => {
   serviceChatHasMessagesByTask.value = {
     ...serviceChatHasMessagesByTask.value,
     [taskId]: Boolean(state.hasMessages || (state.messageCount ?? 0) > 0),
+  }
+}
+
+const handleReviewChatMessageState = (state: ServiceChatMessageState) => {
+  const matchedReport = Object.entries(reviewChatSessionIds.value)
+    .find(([, sessionId]) => sessionId === state.sessionId)
+  const reportId = matchedReport?.[0] || activeReviewReport.value?.id
+  if (!reportId) return
+  reviewChatHasMessagesByReport.value = {
+    ...reviewChatHasMessagesByReport.value,
+    [reportId]: Boolean(state.hasMessages || (state.messageCount ?? 0) > 0),
   }
 }
 
@@ -1489,6 +1772,13 @@ const setReviewRange = (range: ReviewRange) => {
 const openReviewPreview = (report: ServiceReviewReport) => {
   activeReviewReport.value = report
   reviewPreviewVisible.value = true
+}
+
+const openReviewChat = async (report: ServiceReviewReport) => {
+  activeReviewReport.value = report
+  reviewPreviewVisible.value = true
+  await ensureReviewChatSession(report)
+  await nextTick()
 }
 
 const closeReviewPreview = () => {
@@ -2795,7 +3085,7 @@ const closeReviewPreview = () => {
 
 .review-hero-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(86px, 1fr));
+  grid-template-columns: repeat(4, minmax(86px, 1fr));
   gap: 10px;
   flex: 0 0 auto;
 
@@ -3308,6 +3598,12 @@ const closeReviewPreview = () => {
   border-radius: 6px !important;
 }
 
+.review-preview-chat-action {
+  min-height: 30px !important;
+  border-radius: 6px !important;
+  font-size: 12px;
+}
+
 .review-preview-page {
   min-height: 100%;
   padding: 22px 26px 48px;
@@ -3411,6 +3707,46 @@ const closeReviewPreview = () => {
   :deep(li) {
     margin: 4px 0;
   }
+}
+
+.review-preview-chat {
+  margin-top: 14px;
+  border: 1px solid #ded2bf;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(38, 34, 29, 0.06);
+}
+
+.review-preview-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #edf0f3;
+  background: #fffdf8;
+  box-sizing: border-box;
+
+  span {
+    color: var(--td-text-color-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 20px;
+  }
+
+  em {
+    color: var(--td-text-color-secondary);
+    font-style: normal;
+    font-size: 12px;
+    line-height: 18px;
+  }
+}
+
+.review-preview-chat-shell {
+  height: min(520px, 62vh);
+  min-height: 360px;
 }
 
 @media (max-width: 1180px) {
@@ -3537,6 +3873,7 @@ const closeReviewPreview = () => {
 
   .review-hero-stats {
     width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .review-report-card {
@@ -3554,6 +3891,10 @@ const closeReviewPreview = () => {
 
   .review-preview-body {
     padding: 22px 18px 28px;
+  }
+
+  .review-preview-chat-shell {
+    min-height: 300px;
   }
 }
 </style>

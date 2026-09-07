@@ -127,6 +127,9 @@ func (h *ServiceHandler) GenerateDailyReport(c *gin.Context) {
 	if req.Timezone == "" {
 		req.Timezone = strings.TrimSpace(c.Query("timezone"))
 	}
+	if req.Trigger == "" {
+		req.Trigger = strings.TrimSpace(c.Query("trigger"))
+	}
 	report, err := h.service.GenerateDailyReport(ctx, tenantID, userID, req)
 	if err != nil {
 		h.handleError(c, err)

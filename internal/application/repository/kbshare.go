@@ -145,26 +145,29 @@ func (r *kbShareRepository) ListByOrganizations(ctx context.Context, orgIDs []st
 	return shares, nil
 }
 
-// ListSharedKBsForTenant lists all knowledge bases shared to organizations that the tenant participates in.
+// ListSharedKBsForTenant lists all knowledge bases shared to organizations
+// where the current account participates. tenantID is kept for the historical
+// signature; membership visibility is not scoped by the member's source tenant.
 // Excludes shares for soft-deleted organizations and soft-deleted knowledge bases.
 func (r *kbShareRepository) ListSharedKBsForTenant(ctx context.Context, tenantID uint64) ([]*types.KnowledgeBaseShare, error) {
 	var shares []*types.KnowledgeBaseShare
 
-	// Get shares for organizations the tenant is a member of; exclude deleted orgs and deleted KBs.
-	err := r.db.WithContext(ctx).
+	// Get shares for organizations the current account can access; exclude deleted orgs and deleted KBs.
+	q := r.db.WithContext(ctx).
+		Distinct("kb_shares.*").
 		Joins("JOIN knowledge_bases ON knowledge_bases.id = kb_shares.knowledge_base_id AND knowledge_bases.deleted_at IS NULL").
 		Preload("KnowledgeBase").
 		Preload("Organization").
 		Joins("JOIN organization_tenant_members otm ON otm.organization_id = kb_shares.organization_id").
 		Joins("JOIN organizations ON organizations.id = kb_shares.organization_id AND organizations.deleted_at IS NULL").
-		Where("otm.tenant_id = ?", tenantID).
-		Where("kb_shares.deleted_at IS NULL").
-		Order("kb_shares.created_at DESC").
-		Find(&shares).Error
+		Where("kb_shares.deleted_at IS NULL")
+	q = applyCurrentOrganizationMemberScope(ctx, q, "otm.representative_user_id")
+	err := q.Order("kb_shares.created_at DESC").Find(&shares).Error
 
 	if err != nil {
 		return nil, err
 	}
+	_ = tenantID
 	return shares, nil
 }
 

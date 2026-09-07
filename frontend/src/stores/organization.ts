@@ -5,7 +5,6 @@ import type {
   OrganizationMember,
   SharedKnowledgeBase,
   SharedAgentInfo,
-  OrganizationPreview,
   ResourceCountsByOrg
 } from '@/api/organization'
 import {
@@ -13,10 +12,7 @@ import {
   createOrganization,
   updateOrganization,
   deleteOrganization,
-  joinOrganization,
-  previewOrganization,
   leaveOrganization,
-  generateInviteCode,
   listMembers,
   updateMemberRole,
   removeMember,
@@ -31,7 +27,6 @@ export const useOrganizationStore = defineStore('organization', () => {
   const currentMembers = ref<OrganizationMember[]>([])
   const sharedKnowledgeBases = ref<SharedKnowledgeBase[]>([])
   const sharedAgents = ref<SharedAgentInfo[]>([])
-  const previewData = ref<OrganizationPreview | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
   /** 各空间内知识库/智能体数量（由 GET /organizations 的 resource_counts 填充，供列表侧栏使用） */
@@ -55,11 +50,6 @@ export const useOrganizationStore = defineStore('organization', () => {
 
   const joinedOrganizations = computed(() => 
     organizations.value.filter(org => !org.is_owner)
-  )
-
-  /** 当前用户作为管理员/创建者可见的待审批加入申请总数（用于侧栏提醒） */
-  const totalPendingJoinRequestCount = computed(() =>
-    organizations.value.reduce((sum, org) => sum + (org.pending_join_request_count ?? 0), 0)
   )
 
   // Actions
@@ -184,57 +174,6 @@ export const useOrganizationStore = defineStore('organization', () => {
   }
 
   /**
-   * Preview an organization by invite code (without joining)
-   */
-  async function preview(inviteCode: string) {
-    loading.value = true
-    error.value = null
-    previewData.value = null
-    try {
-      const response = await previewOrganization(inviteCode)
-      if (response.success && response.data) {
-        previewData.value = response.data
-        return response.data
-      } else {
-        error.value = response.message || 'Failed to preview organization'
-        return null
-      }
-    } catch (e: any) {
-      error.value = e.message || 'Failed to preview organization'
-      return null
-    } finally {
-      loading.value = false
-    }
-  }
-
-  /**
-   * Join an organization by invite code
-   */
-  async function join(inviteCode: string) {
-    loading.value = true
-    error.value = null
-    try {
-      const response = await joinOrganization({ invite_code: inviteCode })
-      if (response.success && response.data) {
-        // Check if already in list
-        const exists = organizations.value.some(o => o.id === response.data!.id)
-        if (!exists) {
-          organizations.value.unshift(response.data)
-        }
-        return response.data
-      } else {
-        error.value = response.message || 'Failed to join organization'
-        return null
-      }
-    } catch (e: any) {
-      error.value = e.message || 'Failed to join organization'
-      return null
-    } finally {
-      loading.value = false
-    }
-  }
-
-  /**
    * Leave an organization
    */
   async function leave(id: string) {
@@ -255,35 +194,6 @@ export const useOrganizationStore = defineStore('organization', () => {
     } catch (e: any) {
       error.value = e.message || 'Failed to leave organization'
       return false
-    } finally {
-      loading.value = false
-    }
-  }
-
-  /**
-   * Generate a new invite code
-   */
-  async function refreshInviteCode(id: string) {
-    loading.value = true
-    error.value = null
-    try {
-      const response = await generateInviteCode(id)
-      if (response.success && response.data) {
-        const org = organizations.value.find(o => o.id === id)
-        if (org) {
-          org.invite_code = response.data.invite_code
-        }
-        if (currentOrganization.value?.id === id) {
-          currentOrganization.value.invite_code = response.data.invite_code
-        }
-        return response.data.invite_code
-      } else {
-        error.value = response.message || 'Failed to generate invite code'
-        return null
-      }
-    } catch (e: any) {
-      error.value = e.message || 'Failed to generate invite code'
-      return null
     } finally {
       loading.value = false
     }
@@ -313,15 +223,15 @@ export const useOrganizationStore = defineStore('organization', () => {
   }
 
   /**
-   * Update a member's role (member identified by tenant_id)
+   * Update a member's role (member identified by organization member row ID)
    */
-  async function changeMemberRole(orgId: string, tenantId: number, role: 'admin' | 'editor' | 'viewer') {
+  async function changeMemberRole(orgId: string, memberId: string, role: 'admin' | 'editor' | 'viewer') {
     loading.value = true
     error.value = null
     try {
-      const response = await updateMemberRole(orgId, tenantId, { role })
+      const response = await updateMemberRole(orgId, memberId, { role })
       if (response.success) {
-        const member = currentMembers.value.find(m => m.tenant_id === tenantId)
+        const member = currentMembers.value.find(m => m.id === memberId)
         if (member) {
           member.role = role
         }
@@ -339,15 +249,15 @@ export const useOrganizationStore = defineStore('organization', () => {
   }
 
   /**
-   * Remove a member from organization (member identified by tenant_id)
+   * Remove a member from organization (member identified by organization member row ID)
    */
-  async function kickMember(orgId: string, tenantId: number) {
+  async function kickMember(orgId: string, memberId: string) {
     loading.value = true
     error.value = null
     try {
-      const response = await removeMember(orgId, tenantId)
+      const response = await removeMember(orgId, memberId)
       if (response.success) {
-        currentMembers.value = currentMembers.value.filter(m => m.tenant_id !== tenantId)
+        currentMembers.value = currentMembers.value.filter(m => m.id !== memberId)
         return true
       } else {
         error.value = response.message || 'Failed to remove member'
@@ -478,7 +388,6 @@ export const useOrganizationStore = defineStore('organization', () => {
     sharedKnowledgeBases.value = []
     sharedAgents.value = []
     resourceCounts.value = null
-    previewData.value = null
     error.value = null
     sharedKbLoadedAt = 0
     sharedAgentsLoadedAt = 0
@@ -496,7 +405,6 @@ export const useOrganizationStore = defineStore('organization', () => {
     sharedKnowledgeBases,
     sharedAgents,
     resourceCounts,
-    previewData,
     loading,
     error,
 
@@ -504,17 +412,13 @@ export const useOrganizationStore = defineStore('organization', () => {
     myOrganizations,
     ownedOrganizations,
     joinedOrganizations,
-    totalPendingJoinRequestCount,
 
     // Actions
     fetchOrganizations,
     create,
     update,
     remove,
-    preview,
-    join,
     leave,
-    refreshInviteCode,
     fetchMembers,
     changeMemberRole,
     kickMember,

@@ -99,120 +99,22 @@
                       </div>
                     </div>
 
-                    <!-- 参与空间加入方式 (仅管理员可见) -->
+                    <!-- 参与空间数量上限 (仅管理员可见) -->
                     <div v-if="isAdmin && orgId" class="setting-row setting-row-vertical">
                       <div class="setting-info full-width">
-                        <label>{{ $t('organization.settings.inviteMembers') }}</label>
-                        <p class="desc">{{ $t('organization.settings.inviteMembersDesc') }}</p>
+                        <label>{{ $t('organization.settings.memberLimit') }}</label>
+                        <p class="desc">{{ $t('organization.settings.memberLimitDesc') }}</p>
                       </div>
                       <div class="setting-control full-width">
-                        <div class="invite-card">
-                          <!-- 邀请码 -->
-                          <div class="invite-method">
-                            <div class="invite-method-header">
-                              <t-icon name="qrcode" class="invite-icon" />
-                              <span class="invite-method-title">{{ $t('organization.inviteCode') }}</span>
-                            </div>
-                            <div class="invite-code-box">
-                              <span class="invite-code-value">{{ inviteCode }}</span>
-                              <div class="invite-code-actions">
-                                <t-tooltip :content="$t('common.copy')">
-                                  <t-button variant="text" size="small" @click="copyInviteCode">
-                                    <t-icon name="file-copy" />
-                                  </t-button>
-                                </t-tooltip>
-                                <t-tooltip :content="$t('organization.refreshInviteCode')">
-                                  <t-button variant="text" size="small" @click="refreshInviteCode"
-                                    :loading="refreshingCode">
-                                    <t-icon name="refresh" />
-                                  </t-button>
-                                </t-tooltip>
-                              </div>
-                            </div>
-                            <p v-if="inviteCode" class="invite-remaining">{{ remainingValidityText }}</p>
-                          </div>
-
-                          <div class="invite-divider"></div>
-
-                          <!-- 邀请链接有效期 -->
-                          <div class="invite-method">
-                            <div class="invite-method-header">
-                              <t-icon name="time" class="invite-icon" />
-                              <span class="invite-method-title">{{ $t('organization.settings.inviteLinkValidity')
-                              }}</span>
-                            </div>
-                            <p class="invite-validity-desc">{{ $t('organization.settings.inviteLinkValidityDesc') }}</p>
-                            <t-select v-model="formData.invite_code_validity_days" :options="inviteValidityOptions"
-                              size="small" class="invite-validity-select" :disabled="!isAdmin"
-                              @change="handleValidityChange" />
-                          </div>
-
-                          <div class="invite-divider"></div>
-
-                          <!-- 邀请链接 -->
-                          <div class="invite-method">
-                            <div class="invite-method-header">
-                              <t-icon name="link" class="invite-icon" />
-                              <span class="invite-method-title">{{ $t('organization.settings.inviteLink') }}</span>
-                            </div>
-                            <div class="invite-link-box">
-                              <span class="invite-link-value">{{ inviteLink }}</span>
-                              <t-tooltip :content="$t('common.copy')">
-                                <t-button variant="text" size="small" @click="copyInviteLink">
-                                  <t-icon name="file-copy" />
-                                </t-button>
-                              </t-tooltip>
-                            </div>
-                          </div>
-
-                          <div class="invite-divider"></div>
-
-                          <!-- 需要审核开关 -->
-                          <div class="invite-method">
-                            <div class="invite-method-header">
-                              <t-icon name="check-circle" class="invite-icon" />
-                              <span class="invite-method-title">{{ $t('organization.settings.requireApproval') }}</span>
-                            </div>
-                            <div class="approval-toggle">
-                              <t-switch v-model="formData.require_approval" @change="handleApprovalToggle" />
-                              <span class="approval-desc">{{ $t('organization.settings.requireApprovalDesc') }}</span>
-                            </div>
-                          </div>
-
-                          <div class="invite-divider"></div>
-
-                          <!-- 开放可被搜索 -->
-                          <div class="invite-method">
-                            <div class="invite-method-header">
-                              <t-icon name="search" class="invite-icon" />
-                              <span class="invite-method-title">{{ $t('organization.settings.searchable') }}</span>
-                            </div>
-                            <div class="approval-toggle">
-                              <t-switch v-model="formData.searchable" @change="handleSearchableToggle" />
-                              <span class="approval-desc">{{ $t('organization.settings.searchableDesc') }}</span>
-                            </div>
-                          </div>
-
-                          <div class="invite-divider"></div>
-
-                          <!-- 成员人数上限 -->
-                          <div class="invite-method">
-                            <div class="invite-method-header">
-                              <t-icon name="user-add" class="invite-icon" />
-                              <span class="invite-method-title">{{ $t('organization.settings.memberLimit') }}</span>
-                            </div>
-                            <p class="invite-validity-desc">{{ $t('organization.settings.memberLimitDesc') }}</p>
-                            <div class="member-limit-input-row">
-                              <t-input-number v-model="formData.member_limit" :min="0" :max="10000"
-                                :placeholder="$t('organization.settings.memberLimitPlaceholder')" theme="normal"
-                                style="width: 140px;" />
-                              <span class="member-limit-hint">{{ $t('organization.settings.memberLimitHint', {
-                                count:
-                                  orgInfo?.member_count
-                                  ?? 0
-                              }) }}</span>
-                            </div>
-                          </div>
+                        <div class="member-limit-input-row">
+                          <t-input-number v-model="formData.member_limit" :min="0" :max="10000"
+                            :placeholder="$t('organization.settings.memberLimitPlaceholder')" theme="normal"
+                            style="width: 140px;" />
+                          <span class="member-limit-hint">{{ $t('organization.settings.memberLimitHint', {
+                            count:
+                              orgInfo?.member_count
+                              ?? 0
+                          }) }}</span>
                         </div>
                       </div>
                     </div>
@@ -221,99 +123,11 @@
                   </div>
                 </div>
 
-                <!-- 参与空间管理（含角色权限说明） -->
+                <!-- 参与空间管理 -->
                 <div v-show="currentSection === 'members'" class="section">
                   <div class="section-header">
                     <h2>{{ $t('organization.manageMembers') }}</h2>
                     <p class="section-description">{{ $t('organization.settings.membersDesc') }}</p>
-                  </div>
-
-                  <!-- 角色权限说明 -->
-                  <div class="permissions-compact">
-                    <div class="permissions-compact-header">
-                      <span class="permissions-compact-title">{{ $t('organization.editor.permissionsTitle') }}</span>
-                      <span class="permissions-compact-desc">{{ $t('organization.editor.permissionsDesc') }}</span>
-                    </div>
-                    <div class="permissions-compact-grid">
-                      <div :class="['perm-role-block', 'admin', { 'is-me': orgInfo?.my_role === 'admin' }]">
-                        <div class="perm-role-tag">
-                          <t-icon name="user-safety" size="12px" />
-                          <span>{{ $t('organization.role.admin') }}</span>
-                          <span v-if="orgInfo?.my_role === 'admin'" class="me-badge">{{ $t('common.me') }}</span>
-                        </div>
-                        <div class="perm-items">
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.viewerPerm1')
-                          }}</span>
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.editorPerm1')
-                          }}</span>
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.useSharedAgentsPerm') }}</span>
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.shareKBPerm')
-                          }}</span>
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.adminPerm1')
-                          }}</span>
-                        </div>
-                      </div>
-                      <div :class="['perm-role-block', 'editor', { 'is-me': orgInfo?.my_role === 'editor' }]">
-                        <div class="perm-role-tag">
-                          <t-icon name="edit" size="12px" />
-                          <span>{{ $t('organization.role.editor') }}</span>
-                          <span v-if="orgInfo?.my_role === 'editor'" class="me-badge">{{ $t('common.me') }}</span>
-                        </div>
-                        <div class="perm-items">
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.viewerPerm1')
-                          }}</span>
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.editorPerm1')
-                          }}</span>
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.useSharedAgentsPerm') }}</span>
-                          <span class="perm-item no"><t-icon name="close" size="12px" />{{
-                            $t('organization.editor.shareKBPerm')
-                          }}</span>
-                          <span class="perm-item no"><t-icon name="close" size="12px" />{{
-                            $t('organization.editor.adminPerm1')
-                          }}</span>
-                        </div>
-                      </div>
-                      <div :class="['perm-role-block', 'viewer', { 'is-me': orgInfo?.my_role === 'viewer' }]">
-                        <div class="perm-role-tag">
-                          <t-icon name="browse" size="12px" />
-                          <span>{{ $t('organization.role.viewer') }}</span>
-                          <span v-if="orgInfo?.my_role === 'viewer'" class="me-badge">{{ $t('common.me') }}</span>
-                        </div>
-                        <div class="perm-items">
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.viewerPerm1')
-                          }}</span>
-                          <span class="perm-item no"><t-icon name="close" size="12px" />{{
-                            $t('organization.editor.editorPerm1')
-                          }}</span>
-                          <span class="perm-item has"><t-icon name="check" size="12px" />{{
-                            $t('organization.editor.useSharedAgentsPerm') }}</span>
-                          <span class="perm-item no"><t-icon name="close" size="12px" />{{
-                            $t('organization.editor.shareKBPerm')
-                          }}</span>
-                          <span class="perm-item no"><t-icon name="close" size="12px" />{{
-                            $t('organization.editor.adminPerm1')
-                          }}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <!-- 申请权限升级按钮（非管理员可见） -->
-                    <div v-if="canRequestUpgrade" class="permissions-upgrade-action">
-                      <t-button variant="outline" size="small" @click="showUpgradeDialog = true"
-                        :disabled="hasPendingUpgrade">
-                        <template #icon><t-icon name="arrow-up" /></template>
-                        {{ hasPendingUpgrade ? $t('organization.upgrade.pending') :
-                          $t('organization.upgrade.requestUpgrade') }}
-                      </t-button>
-                    </div>
                   </div>
 
                   <div class="settings-group members-group">
@@ -335,16 +149,16 @@
                       <div class="members-list">
                         <div v-for="member in filteredMembers" :key="member.id" class="member-item" :class="{
                           'is-owner': isOwnerMember(member),
-                          'is-me': member.user_id === authStore.currentUserId
+                          'is-me': memberContainsCurrentUser(member)
                         }">
-                          <div class="member-avatar" :class="{ 'is-me': member.user_id === authStore.currentUserId }">
+                          <div class="member-avatar" :class="{ 'is-me': memberContainsCurrentUser(member) }">
                             <img v-if="member.avatar" :src="member.avatar" alt="" />
                             <t-icon v-else name="user" size="20px" />
                           </div>
                           <div class="member-info">
                             <span class="member-name">
                               {{ memberPrimaryLabel(member) }}
-                              <span v-if="member.user_id === authStore.currentUserId" class="me-tag">{{ $t('common.me')
+                              <span v-if="memberContainsCurrentUser(member)" class="me-tag">{{ $t('common.me')
                               }}</span>
                             </span>
                             <span class="member-email">{{ memberSecondaryLabel(member) }}</span>
@@ -373,67 +187,6 @@
                         </div>
                         <div v-if="filteredMembers.length === 0" class="empty-members">
                           {{ $t('organization.noMembers') }}
-                        </div>
-                      </div>
-                    </t-loading>
-                  </div>
-                </div>
-
-                <!-- 加入申请（待审核） -->
-                <div v-show="currentSection === 'joinRequests'" class="section">
-                  <div class="section-header">
-                    <h2>{{ $t('organization.settings.joinRequests') }}</h2>
-                    <p class="section-description">{{ $t('organization.settings.joinRequestsDesc') }}</p>
-                  </div>
-
-                  <div class="settings-group">
-                    <t-loading :loading="joinRequestsLoading">
-                      <div v-if="joinRequests.length === 0 && !joinRequestsLoading" class="empty-join-requests">
-                        <div class="empty-icon">
-                          <t-icon name="check-circle" size="48px" />
-                        </div>
-                        <p class="empty-text">{{ $t('organization.settings.noPendingRequests') }}</p>
-                      </div>
-                      <div v-else class="join-requests-list">
-                        <div v-for="req in joinRequests" :key="req.id" class="join-request-item">
-                          <div class="request-user">
-                            <div class="request-avatar">
-                              <t-icon name="user" size="20px" />
-                            </div>
-                            <div class="request-info">
-                              <span class="request-name">
-                                {{ req.username || req.email || req.user_id }}
-                                <t-tag v-if="req.request_type === 'upgrade'" size="small" theme="warning"
-                                  class="request-type-tag">
-                                  {{ $t('organization.upgrade.upgradeRequest') }}
-                                </t-tag>
-                              </span>
-                              <span class="request-email">{{ req.email }}</span>
-                              <p v-if="req.message" class="request-message">{{ req.message }}</p>
-                              <span v-if="req.request_type === 'upgrade' && req.prev_role" class="request-prev-role">
-                                {{ $t('organization.upgrade.currentRole') }}：{{ roleLabel(req.prev_role) }} → {{
-                                  roleLabel(req.requested_role) }}
-                              </span>
-                              <span v-else class="request-requested-role">{{ $t('organization.invite.requestRole') }}：{{
-                                roleLabel(req.requested_role) }}</span>
-                              <span class="request-time">{{ formatDate(req.created_at) }}</span>
-                            </div>
-                          </div>
-                          <div class="request-actions">
-                            <div class="request-assign-role">
-                              <span class="request-assign-label">{{ $t('organization.settings.assignRole') }}</span>
-                              <t-select v-model="assignRoleMap[req.id]" class="request-role-select"
-                                :options="orgRoleOptions" size="small" />
-                            </div>
-                            <t-button theme="primary" size="small" :loading="reviewingRequestId === req.id"
-                              @click="handleApproveRequest(req)">
-                              {{ $t('organization.settings.approve') }}
-                            </t-button>
-                            <t-button theme="default" variant="outline" size="small"
-                              :loading="reviewingRequestId === req.id" @click="handleRejectRequest(req)">
-                              {{ $t('organization.settings.reject') }}
-                            </t-button>
-                          </div>
                         </div>
                       </div>
                     </t-loading>
@@ -617,38 +370,14 @@
       </div>
     </Transition>
 
-    <!-- 申请权限升级弹窗 -->
-    <t-dialog v-model:visible="showUpgradeDialog" :header="$t('organization.upgrade.dialogTitle')"
-      :confirm-btn="{ content: $t('common.confirm'), loading: upgradeSubmitting }" :cancel-btn="$t('common.cancel')"
-      @confirm="handleSubmitUpgrade">
-      <div class="upgrade-dialog-content">
-        <p class="upgrade-current-role">
-          {{ $t('organization.upgrade.currentRole') }}：
-          <t-tag size="small" :theme="getRoleTheme(orgInfo?.my_role || 'viewer')">
-            {{ $t(`organization.role.${orgInfo?.my_role || 'viewer'}`) }}
-          </t-tag>
-        </p>
-        <div class="upgrade-form-item">
-          <label>{{ $t('organization.upgrade.selectRole') }}</label>
-          <t-select v-model="upgradeForm.requested_role" :options="upgradeRoleOptions"
-            :placeholder="$t('organization.upgrade.selectRole')" />
-        </div>
-        <div class="upgrade-form-item">
-          <label>{{ $t('organization.upgrade.reason') }}</label>
-          <t-textarea v-model="upgradeForm.message" :placeholder="$t('organization.upgrade.reasonPlaceholder')"
-            :autosize="{ minRows: 2, maxRows: 4 }" :maxlength="500" />
-        </div>
-      </div>
-    </t-dialog>
-
-    <!-- 添加参与空间弹窗（从用户列表选择，按用户所属空间授权） -->
+    <!-- 添加参与成员弹窗（从成员管理数据选择，按成员本人授权） -->
     <t-dialog v-model:visible="showAddMemberDialog" :header="$t('organization.addMember.dialogTitle')"
-      :confirm-btn="{ content: $t('organization.addMember.confirmBtn'), loading: addMemberSubmitting, disabled: selectedUserId == null }"
+      :confirm-btn="{ content: $t('organization.addMember.confirmBtn'), loading: addMemberSubmitting, disabled: selectedInviteCandidate == null }"
       :cancel-btn="$t('common.cancel')" @confirm="handleAddMember" @close="resetAddMemberDialog" width="420px">
       <div class="add-member-dialog">
         <div class="add-member-field">
           <label>{{ $t('organization.addMember.searchUser') }}</label>
-          <t-select v-model="selectedUserId" :placeholder="$t('organization.addMember.searchPlaceholder')"
+          <t-select v-model="selectedInviteCandidateKey" :placeholder="$t('organization.addMember.searchPlaceholder')"
             filterable :filter="() => true" :loading="userSearchLoading" @search="handleUserSearch" clearable
             :options="userSearchOptions" @focus="loadDefaultUserList"
             @visible-change="handleUserSelectVisibleChange" />
@@ -676,21 +405,16 @@ import {
   updateOrganization,
   updateMemberRole,
   removeMember,
-  generateInviteCode,
   listOrgShares,
   listOrgAgentShares,
-  listJoinRequests,
-  reviewJoinRequest,
   removeShare,
   removeAgentShare,
-  requestRoleUpgrade,
   searchUsersForInvite,
   inviteMember,
   type Organization,
   type OrganizationMember,
   type KnowledgeBaseShare,
   type AgentShareResponse,
-  type JoinRequestResponse,
   type UserSearchResult
 } from '@/api/organization'
 import { useOrganizationStore } from '@/stores/organization'
@@ -727,40 +451,24 @@ const orgInfo = ref<Organization | null>(null)
 const members = ref<OrganizationMember[]>([])
 const sharedKnowledgeBases = ref<KnowledgeBaseShare[]>([])
 const sharedAgents = ref<AgentShareResponse[]>([])
-const joinRequests = ref<JoinRequestResponse[]>([])
-const joinRequestsLoading = ref(false)
-const reviewingRequestId = ref<string | null>(null)
 const sharesLoading = ref(false)
 const membersLoading = ref(false)
 const memberSearchQuery = ref('')
 const submitting = ref(false)
-const refreshingCode = ref(false)
-const inviteCode = ref('')
-const inviteCodeExpiresAt = ref<string | null>(null)
-const showUpgradeDialog = ref(false)
-const upgradeSubmitting = ref(false)
-const hasPendingUpgrade = ref(false)
-const upgradeForm = ref({
-  requested_role: 'editor' as 'admin' | 'editor' | 'viewer',
-  message: ''
-})
 
-// 添加参与空间从用户列表选择；后端会根据 user_id 解析其所属空间并建立共享空间关系。
+// 添加参与成员从成员管理数据选择；后端按 user_id 建立共享空间关系，tenant_id 只作为隐藏来源上下文。
 const showAddMemberDialog = ref(false)
 const addMemberSubmitting = ref(false)
 const userSearchLoading = ref(false)
 const userSearchResults = ref<UserSearchResult[]>([])
 const userSearchBootstrapped = ref(false)
-const selectedUserId = ref<string | null>(null)
+const selectedInviteCandidateKey = ref<string | null>(null)
 const addMemberRole = ref<'admin' | 'editor' | 'viewer'>('viewer')
 
 const formData = ref({
   name: '',
   description: '',
   avatar: '' as string,
-  require_approval: false,
-  searchable: false,
-  invite_code_validity_days: 7 as number,
   member_limit: 50 as number // 0 = unlimited
 })
 
@@ -790,8 +498,7 @@ function clearAvatarEmoji() {
 // Computed
 const isCreateMode = computed(() => props.mode === 'create')
 const isEditMode = computed(() => props.mode === 'edit' || props.mode === 'create')
-// 后端组织相关变更接口（保存设置、邀请、搜索用户、改/删成员、审核加入申请、
-// 升级申请、刷新邀请码、移除共享等）在路由层都要求当前空间角色 ≥ admin（见
+// 后端组织相关变更接口（保存设置、邀请、搜索用户、改/删成员、移除共享等）在路由层都要求当前空间角色 ≥ admin（见
 // internal/router/router.go 的 RegisterOrganizationRoutes）。跨空间超管可绕过。
 // 因此前端任何"管理类"入口必须同时满足：组织内是 admin/owner ∩ 当前空间 admin+。
 const hasTenantAdmin = computed(
@@ -810,38 +517,32 @@ const showTenantRoleHint = computed(() => {
   return !!orgAdmin && !hasTenantAdmin.value
 })
 
-// 是否可以申请权限升级（非管理员成员可申请；后端也要求空间 admin+）
-const canRequestUpgrade = computed(() => {
-  if (isCreateMode.value || !props.orgId) return false
-  const myRole = orgInfo.value?.my_role
-  if (!myRole || myRole === 'admin') return false
-  return hasTenantAdmin.value
-})
-
-// 可申请的角色选项（比当前角色高的角色）
-const upgradeRoleOptions = computed(() => {
-  const myRole = orgInfo.value?.my_role || 'viewer'
-  const options = []
-  if (myRole === 'viewer') {
-    options.push({ label: t('organization.role.editor'), value: 'editor' })
-    options.push({ label: t('organization.role.admin'), value: 'admin' })
-  } else if (myRole === 'editor') {
-    options.push({ label: t('organization.role.admin'), value: 'admin' })
-  }
-  return options
-})
-
-// 添加参与空间时可选的角色
+// 添加参与成员时可选的角色
 const addMemberRoleOptions = computed(() => [
   { label: t('organization.role.viewer'), value: 'viewer' },
   { label: t('organization.role.editor'), value: 'editor' },
   { label: t('organization.role.admin'), value: 'admin' },
 ])
 
+const inviteCandidateUserId = (u: UserSearchResult): string =>
+  u.user_id || u.id || u.representative_user_id || ''
+
+const inviteCandidateKey = (u: UserSearchResult): string => {
+  const userId = inviteCandidateUserId(u)
+  return userId
+}
+
+const selectedInviteCandidate = computed(() => {
+  const selectedKey = selectedInviteCandidateKey.value
+  if (!selectedKey) return null
+  return userSearchResults.value.find((u) => inviteCandidateKey(u) === selectedKey) || null
+})
+
 const userSearchOptions = computed(() =>
   userSearchResults.value.flatMap((u) => {
-    const userId = u.user_id || u.id || u.representative_user_id || ''
-    if (!userId) return []
+    const userId = inviteCandidateUserId(u)
+    const value = inviteCandidateKey(u)
+    if (!userId || !value) return []
     const username = u.username || u.representative_username || ''
     const phone = u.phone || u.representative_phone || u.email || u.representative_email || ''
     const userLabel = username || phone || userId
@@ -849,8 +550,8 @@ const userSearchOptions = computed(() =>
     const joined = u.is_already_member ? ` (${t('organization.addMember.alreadyInSpace')})` : ''
     return [{
       label: `${userLabel}${contact}${joined}`,
-      value: userId,
-      disabled: !!u.is_already_member,
+      value,
+      disabled: !!u.is_already_member || !u.tenant_id,
     }]
   })
 )
@@ -864,18 +565,9 @@ const navItems = computed(() => {
   const items: { key: string; icon: string; label: string; badge?: number }[] = [
     { key: 'basic', icon: 'info-circle', label: t('organization.editor.navBasic') },
   ]
-  // 只有在编辑已有组织时才显示成员管理、加入申请（仅管理员）、共享知识库
+  // 只有在编辑已有组织时才显示参与成员和共享资源
   if (props.orgId && !isCreateMode.value) {
     items.push({ key: 'members', icon: 'user', label: t('organization.manageMembers') })
-    if (isAdmin.value) {
-      const pendingCount = orgInfo.value?.pending_join_request_count ?? 0
-      items.push({
-        key: 'joinRequests',
-        icon: 'user-add',
-        label: t('organization.settings.joinRequests'),
-        badge: pendingCount > 0 ? pendingCount : undefined
-      })
-    }
     items.push({
       key: 'sharedKb',
       icon: 'folder-open',
@@ -902,64 +594,34 @@ const filteredMembers = computed(() => {
   const query = memberSearchQuery.value.toLowerCase()
   if (!query) return members.value
   return members.value.filter((m) =>
-    (m.tenant_name || '').toLowerCase().includes(query) ||
     (m.username || '').toLowerCase().includes(query) ||
-    (m.phone || m.email || '').toLowerCase().includes(query)
+    (m.phone || '').toLowerCase().includes(query) ||
+    (m.email || '').toLowerCase().includes(query) ||
+    (m.representative_user_id || m.user_id || '').toLowerCase().includes(query)
   )
 })
 
-// 成员行的主标题：优先展示「空间名」，回退到代表用户名 / 空间 ID。Plan 3
-// 之后每一行成员都对应一个空间，UI 必须先于代表用户呈现空间身份，
-// 否则用户会误以为这是按"人"加进来的。
 const memberPrimaryLabel = (m: OrganizationMember): string => {
-  return m.tenant_name || m.username || `tenant#${m.tenant_id}`
+  return m.username || m.phone || m.email || m.representative_user_id || m.user_id || `member#${m.id}`
 }
 
-// 副标题：主标题展示的是空间名时，副标题展示代表用户名；如果主标题已经
-// 是用户名（无 tenant_name 时的回退），副标题留空，避免重复信息。
-// 手机号在参与空间列表里不是主要身份；当前行已经按空间聚合，副标题只展示代表用户。
 const memberSecondaryLabel = (m: OrganizationMember): string => {
-  if (m.tenant_name && m.username) {
-    return m.username
-  }
-  return ''
+  const primary = memberPrimaryLabel(m)
+  const contact = m.phone || m.email || ''
+  if (contact && contact !== primary) return contact
+  const accountID = m.representative_user_id || m.user_id || ''
+  return accountID && accountID !== primary ? accountID : ''
 }
 
-// Owner identification is tenant-keyed after Plan 3 (#1303): the org's
-// pinned owner_tenant_id (migration 000046) is the authority on which
-// row in the per-tenant members list represents the owner. Falling
-// back to owner_id (user-id) only matters for legacy rows where
-// owner_tenant_id wasn't backfilled — in that case the old per-user
-// rule is still better than nothing.
+const memberContainsCurrentUser = (m: OrganizationMember): boolean => {
+  const currentUserId = authStore.currentUserId
+  if (!currentUserId) return false
+  return m.user_id === currentUserId || m.representative_user_id === currentUserId
+}
+
 const isOwnerMember = (member: OrganizationMember): boolean => {
-  const ownerTenantID = orgInfo.value?.owner_tenant_id
-  if (ownerTenantID && ownerTenantID > 0) {
-    return member.tenant_id === ownerTenantID
-  }
-  return member.user_id === orgInfo.value?.owner_id
+  return member.user_id === orgInfo.value?.owner_id || member.representative_user_id === orgInfo.value?.owner_id
 }
-
-const inviteLink = computed(() => {
-  if (!inviteCode.value) return ''
-  return `${window.location.origin}/join?code=${inviteCode.value}`
-})
-
-const inviteValidityOptions = computed(() => [
-  { label: t('organization.settings.validity1Day'), value: 1 },
-  { label: t('organization.settings.validity7Days'), value: 7 },
-  { label: t('organization.settings.validity30Days'), value: 30 },
-  { label: t('organization.settings.validityNever'), value: 0 }
-])
-
-const remainingValidityText = computed(() => {
-  const at = inviteCodeExpiresAt.value
-  if (!at) return t('organization.settings.remainingValidityNever')
-  const exp = new Date(at)
-  const now = new Date()
-  if (exp.getTime() <= now.getTime()) return t('organization.settings.remainingValidityExpired')
-  const days = Math.ceil((exp.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
-  return t('organization.settings.remainingValidity', { n: days })
-})
 
 // Methods
 const handleClose = () => {
@@ -972,21 +634,13 @@ const fetchOrgDetail = async () => {
     const res = await getOrganization(props.orgId)
     if (res.success && res.data) {
       orgInfo.value = res.data
-      const validity = res.data.invite_code_validity_days
       const memberLimit = res.data.member_limit
       formData.value = {
         name: res.data.name,
         description: res.data.description || '',
         avatar: res.data.avatar || '',
-        require_approval: res.data.require_approval || false,
-        searchable: res.data.searchable || false,
-        invite_code_validity_days: typeof validity === 'number' ? validity : 7,
         member_limit: typeof memberLimit === 'number' && memberLimit >= 0 ? memberLimit : 50
       }
-      inviteCode.value = res.data.invite_code || ''
-      inviteCodeExpiresAt.value = res.data.invite_code_expires_at ?? null
-      // 初始化是否有待处理的升级申请
-      hasPendingUpgrade.value = res.data.has_pending_upgrade || false
     }
   } catch (error) {
     console.error('Failed to fetch org:', error)
@@ -1035,81 +689,6 @@ const fetchSharedKBs = async () => {
   }
 }
 
-const orgRoleOptions = [
-  { label: t('organization.role.viewer'), value: 'viewer' },
-  { label: t('organization.role.editor'), value: 'editor' },
-  { label: t('organization.role.admin'), value: 'admin' },
-]
-const assignRoleMap = ref<Record<string, 'viewer' | 'editor' | 'admin'>>({})
-
-function roleLabel(role: string) {
-  if (role === 'admin') return t('organization.role.admin')
-  if (role === 'editor') return t('organization.role.editor')
-  return t('organization.role.viewer')
-}
-
-const fetchJoinRequests = async () => {
-  if (!props.orgId) return
-  joinRequestsLoading.value = true
-  try {
-    const res = await listJoinRequests(props.orgId)
-    if (res.success && res.data) {
-      joinRequests.value = res.data.requests || []
-      assignRoleMap.value = {}
-      joinRequests.value.forEach((r) => {
-        const rRole = (r.requested_role === 'admin' || r.requested_role === 'editor' || r.requested_role === 'viewer') ? r.requested_role : 'viewer'
-        assignRoleMap.value[r.id] = rRole
-      })
-    } else {
-      joinRequests.value = []
-    }
-  } catch (error) {
-    console.error('Failed to fetch join requests:', error)
-    joinRequests.value = []
-  } finally {
-    joinRequestsLoading.value = false
-  }
-}
-
-const handleApproveRequest = async (req: JoinRequestResponse) => {
-  if (!props.orgId) return
-  reviewingRequestId.value = req.id
-  const assignRole = assignRoleMap.value[req.id] ?? (req.requested_role === 'admin' || req.requested_role === 'editor' ? req.requested_role : 'viewer')
-  try {
-    const res = await reviewJoinRequest(props.orgId, req.id, { approved: true, role: assignRole })
-    if (res.success) {
-      MessagePlugin.success(t('organization.settings.approveSuccess'))
-      joinRequests.value = joinRequests.value.filter(r => r.id !== req.id)
-      await fetchOrgDetail()
-    } else {
-      MessagePlugin.error(res.message || t('organization.settings.reviewFailed'))
-    }
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || t('organization.settings.reviewFailed'))
-  } finally {
-    reviewingRequestId.value = null
-  }
-}
-
-const handleRejectRequest = async (req: JoinRequestResponse) => {
-  if (!props.orgId) return
-  reviewingRequestId.value = req.id
-  try {
-    const res = await reviewJoinRequest(props.orgId, req.id, { approved: false })
-    if (res.success) {
-      MessagePlugin.success(t('organization.settings.rejectSuccess'))
-      joinRequests.value = joinRequests.value.filter(r => r.id !== req.id)
-      await fetchOrgDetail()
-    } else {
-      MessagePlugin.error(res.message || t('organization.settings.reviewFailed'))
-    }
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || t('organization.settings.reviewFailed'))
-  } finally {
-    reviewingRequestId.value = null
-  }
-}
-
 const handleSave = async () => {
   if (!formData.value.name.trim()) {
     MessagePlugin.warning(t('organization.nameRequired'))
@@ -1139,9 +718,6 @@ const handleSave = async () => {
         name: formData.value.name.trim(),
         description: formData.value.description.trim(),
         avatar: formData.value.avatar || undefined,
-        require_approval: formData.value.require_approval,
-        searchable: formData.value.searchable,
-        invite_code_validity_days: formData.value.invite_code_validity_days,
         member_limit: formData.value.member_limit
       })
       if (res.success) {
@@ -1162,7 +738,7 @@ const handleSave = async () => {
 const handleRoleChange = async (member: OrganizationMember, newRole: string) => {
   if (!props.orgId) return
   try {
-    const res = await updateMemberRole(props.orgId, member.tenant_id, {
+    const res = await updateMemberRole(props.orgId, member.id, {
       role: newRole as 'admin' | 'editor' | 'viewer'
     })
     if (res.success) {
@@ -1181,7 +757,7 @@ const confirmRemoveMember = async (member: OrganizationMember) => {
   if (!props.orgId) return
 
   try {
-    const res = await removeMember(props.orgId, member.tenant_id)
+    const res = await removeMember(props.orgId, member.id)
     if (res.success) {
       MessagePlugin.success(t('organization.memberRemoved'))
       fetchMembers()
@@ -1193,32 +769,7 @@ const confirmRemoveMember = async (member: OrganizationMember) => {
   }
 }
 
-const handleSubmitUpgrade = async () => {
-  if (!props.orgId) return
-
-  upgradeSubmitting.value = true
-  try {
-    const res = await requestRoleUpgrade(props.orgId, {
-      requested_role: upgradeForm.value.requested_role,
-      message: upgradeForm.value.message
-    })
-    if (res.success) {
-      MessagePlugin.success(t('organization.upgrade.submitSuccess'))
-      showUpgradeDialog.value = false
-      hasPendingUpgrade.value = true
-      // Reset form
-      upgradeForm.value = { requested_role: 'editor', message: '' }
-    } else {
-      MessagePlugin.error(res.message || t('organization.upgrade.submitFailed'))
-    }
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || t('organization.upgrade.submitFailed'))
-  } finally {
-    upgradeSubmitting.value = false
-  }
-}
-
-// 添加参与空间：唤起用户列表，并支持用户名 / 手机号模糊搜索。
+// 添加参与成员：唤起成员管理候选列表，并支持用户名 / 手机号模糊搜索。
 let userSearchTimer: ReturnType<typeof setTimeout> | null = null
 const fetchUserInviteCandidates = async (query = '') => {
   if (!props.orgId) return
@@ -1229,7 +780,7 @@ const fetchUserInviteCandidates = async (query = '') => {
       userSearchResults.value = res.data
     }
   } catch (error) {
-    console.error('Failed to search users:', error)
+    console.error('Failed to search member candidates:', error)
   } finally {
     userSearchLoading.value = false
   }
@@ -1262,14 +813,18 @@ const handleUserSearch = (query: string) => {
   }, 300)
 }
 
-// 添加参与空间：提交选中的用户，后端按该用户所属空间建立共享空间关系。
+// 添加参与成员：提交选中的成员行，后端按该成员本人建立共享空间关系。
 const handleAddMember = async () => {
-  if (!props.orgId || selectedUserId.value == null) return
+  const candidate = selectedInviteCandidate.value
+  const representativeUserId = candidate ? inviteCandidateUserId(candidate) : ''
+  if (!props.orgId || !candidate?.tenant_id || !representativeUserId) return
 
   addMemberSubmitting.value = true
   try {
     const res = await inviteMember(props.orgId, {
-      user_id: selectedUserId.value,
+      tenant_id: candidate.tenant_id,
+      representative_user_id: representativeUserId,
+      user_id: representativeUserId,
       role: addMemberRole.value,
     })
     if (res.success) {
@@ -1287,130 +842,12 @@ const handleAddMember = async () => {
   }
 }
 
-// 重置添加参与空间弹窗
+// 重置添加参与成员弹窗
 const resetAddMemberDialog = () => {
-  selectedUserId.value = null
+  selectedInviteCandidateKey.value = null
   addMemberRole.value = 'viewer'
   userSearchResults.value = []
   userSearchBootstrapped.value = false
-}
-
-const fallbackCopyText = (text: string) => {
-  const textArea = document.createElement('textarea')
-  textArea.value = text
-  textArea.style.position = 'fixed'
-  textArea.style.opacity = '0'
-  document.body.appendChild(textArea)
-  textArea.select()
-  document.execCommand('copy')
-  document.body.removeChild(textArea)
-}
-
-const copyInviteCode = async () => {
-  if (inviteCode.value) {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(inviteCode.value)
-      } else {
-        fallbackCopyText(inviteCode.value)
-      }
-      MessagePlugin.success(t('common.copied'))
-    } catch {
-      fallbackCopyText(inviteCode.value)
-      MessagePlugin.success(t('common.copied'))
-    }
-  }
-}
-
-const copyInviteLink = async () => {
-  if (inviteLink.value) {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(inviteLink.value)
-      } else {
-        fallbackCopyText(inviteLink.value)
-      }
-      MessagePlugin.success(t('common.copied'))
-    } catch {
-      fallbackCopyText(inviteLink.value)
-      MessagePlugin.success(t('common.copied'))
-    }
-  }
-}
-
-const refreshInviteCode = async () => {
-  if (!props.orgId) return
-  refreshingCode.value = true
-  try {
-    const res = await generateInviteCode(props.orgId) as any
-    if (res.success) {
-      inviteCode.value = res.invite_code || (res as any).data?.invite_code
-      MessagePlugin.success(t('organization.inviteCodeRefreshed'))
-      await fetchOrgDetail()
-    } else {
-      MessagePlugin.error(res.message || t('organization.inviteCodeRefreshFailed'))
-    }
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || t('organization.inviteCodeRefreshFailed'))
-  } finally {
-    refreshingCode.value = false
-  }
-}
-
-const handleValidityChange = async (value: number) => {
-  if (!props.orgId) return
-  try {
-    const res = await updateOrganization(props.orgId, { invite_code_validity_days: value })
-    if (res.success) {
-      MessagePlugin.success(t('common.saveSuccess'))
-    } else {
-      formData.value.invite_code_validity_days = orgInfo.value?.invite_code_validity_days ?? 7
-      MessagePlugin.error(res.message || t('common.saveFailed'))
-    }
-  } catch (error: any) {
-    formData.value.invite_code_validity_days = orgInfo.value?.invite_code_validity_days ?? 7
-    MessagePlugin.error(error?.message || t('common.saveFailed'))
-  }
-}
-
-// 切换审核开关时立即保存
-const handleApprovalToggle = async (value: boolean) => {
-  if (!props.orgId) return
-  try {
-    const res = await updateOrganization(props.orgId, {
-      require_approval: value
-    })
-    if (res.success) {
-      MessagePlugin.success(t('common.saveSuccess'))
-    } else {
-      // 回滚
-      formData.value.require_approval = !value
-      MessagePlugin.error(res.message || t('common.saveFailed'))
-    }
-  } catch (error: any) {
-    // 回滚
-    formData.value.require_approval = !value
-    MessagePlugin.error(error?.message || t('common.saveFailed'))
-  }
-}
-
-// 切换开放可被搜索时立即保存
-const handleSearchableToggle = async (value: boolean) => {
-  if (!props.orgId) return
-  try {
-    const res = await updateOrganization(props.orgId, {
-      searchable: value
-    })
-    if (res.success) {
-      MessagePlugin.success(t('common.saveSuccess'))
-    } else {
-      formData.value.searchable = !value
-      MessagePlugin.error(res.message || t('common.saveFailed'))
-    }
-  } catch (error: any) {
-    formData.value.searchable = !value
-    MessagePlugin.error(error?.message || t('common.saveFailed'))
-  }
 }
 
 const handleShareClick = (share: KnowledgeBaseShare) => {
@@ -1542,15 +979,12 @@ watch(() => props.visible, (newVal) => {
   if (newVal) {
     currentSection.value = 'basic'
     memberSearchQuery.value = ''
-    joinRequests.value = []
     if (props.mode === 'create') {
       // 创建模式：重置表单
-      formData.value = { name: '', description: '', avatar: '', require_approval: false, searchable: false, invite_code_validity_days: 7, member_limit: 50 }
+      formData.value = { name: '', description: '', avatar: '', member_limit: 50 }
       orgInfo.value = null
       members.value = []
       sharedKnowledgeBases.value = []
-      inviteCode.value = ''
-      inviteCodeExpiresAt.value = null
     } else if (props.orgId) {
       fetchOrgDetail()
       fetchMembers()
@@ -1562,12 +996,6 @@ watch(() => props.visible, (newVal) => {
       agentScopePopoverTimer.value = null
     }
     agentScopePopover.value = null
-  }
-})
-
-watch(currentSection, (section) => {
-  if (section === 'joinRequests' && props.orgId) {
-    fetchJoinRequests()
   }
 })
 </script>
@@ -1963,250 +1391,15 @@ watch(currentSection, (section) => {
   color: var(--td-brand-color-active);
 }
 
-// 邀请卡片样式
-.invite-card {
-  background: var(--td-bg-color-secondarycontainer);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 10px;
-  padding: 16px;
+.member-limit-input-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
 
-  .invite-method {
-    .invite-method-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
-
-      .invite-icon {
-        font-size: 16px;
-        color: @primary-color;
-      }
-
-      .invite-method-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--td-text-color-primary);
-      }
-    }
-  }
-
-  .invite-code-box {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--td-bg-color-container);
-    border: 1px solid var(--td-component-stroke);
-    border-radius: 8px;
-    padding: 10px 14px;
-
-    .invite-code-value {
-      font-family: var(--app-font-family-mono);
-      font-size: 16px;
-      font-weight: 600;
-      letter-spacing: 2px;
-      color: @primary-color;
-    }
-
-    .invite-code-actions {
-      display: flex;
-      gap: 4px;
-    }
-  }
-
-  .invite-remaining {
-    margin: 8px 0 0;
+  .member-limit-hint {
     font-size: 12px;
     color: var(--td-text-color-secondary);
-  }
-
-  .invite-validity-desc {
-    font-size: 12px;
-    color: var(--td-text-color-secondary);
-    margin: 4px 0 10px;
-    line-height: 1.4;
-  }
-
-  .invite-validity-select {
-    min-width: 140px;
-  }
-
-  .member-limit-input-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 8px;
-
-    .member-limit-hint {
-      font-size: 12px;
-      color: var(--td-text-color-secondary);
-    }
-  }
-
-  .invite-divider {
-    height: 1px;
-    background: var(--td-bg-color-secondarycontainer);
-    margin: 12px 0;
-  }
-
-  .invite-link-box {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--td-bg-color-container);
-    border: 1px solid var(--td-component-stroke);
-    border-radius: 8px;
-    padding: 10px 14px;
-    gap: 12px;
-
-    .invite-link-value {
-      flex: 1;
-      font-size: 12px;
-      color: var(--td-text-color-secondary);
-      word-break: break-all;
-      line-height: 1.4;
-    }
-  }
-
-  .approval-toggle {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    .approval-desc {
-      font-size: 13px;
-      color: var(--td-text-color-placeholder);
-    }
-  }
-}
-
-// 成员权限紧凑展示
-.permissions-compact {
-  margin-bottom: 20px;
-  padding: 12px;
-  background: var(--td-bg-color-container);
-  border-radius: 8px;
-
-  .permissions-compact-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-
-    .permissions-compact-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--td-text-color-primary);
-    }
-
-    .permissions-compact-desc {
-      font-size: 12px;
-      color: var(--td-text-color-secondary);
-    }
-  }
-
-  .permissions-compact-grid {
-    display: flex;
-    gap: 8px;
-  }
-
-  .permissions-upgrade-action {
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px dashed var(--td-component-stroke);
-    display: flex;
-    justify-content: flex-end;
-
-    .t-button {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-
-      .t-icon {
-        font-size: 14px;
-      }
-    }
-  }
-
-  .perm-role-block {
-    flex: 1;
-    background: var(--td-bg-color-container);
-    border-radius: 6px;
-    padding: 10px;
-    border: 1px solid var(--td-component-stroke);
-    transition: all 0.15s ease;
-    position: relative;
-
-    &.is-me {
-      border-left: 3px solid @primary-color;
-      background: rgba(7, 192, 95, 0.04);
-    }
-
-    .perm-role-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 500;
-      margin-bottom: 8px;
-
-      .me-badge {
-        padding: 0 4px;
-        background: @primary-color;
-        color: var(--td-text-color-anti);
-        border-radius: 3px;
-        font-size: 10px;
-        font-weight: 500;
-        margin-left: 2px;
-      }
-    }
-
-    &.admin .perm-role-tag {
-      background: var(--td-brand-color-light);
-      color: @primary-color;
-    }
-
-    &.editor .perm-role-tag {
-      background: rgba(237, 112, 46, 0.1);
-      color: var(--td-warning-color);
-    }
-
-    &.viewer .perm-role-tag {
-      background: rgba(134, 144, 156, 0.1);
-      color: var(--td-text-color-secondary);
-    }
-
-    .perm-items {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .perm-item {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      line-height: 1.3;
-
-      &.has {
-        color: var(--td-text-color-secondary);
-
-        .t-icon {
-          color: @primary-color;
-        }
-      }
-
-      &.no {
-        color: var(--td-text-color-placeholder);
-        text-decoration: line-through;
-
-        .t-icon {
-          color: var(--td-text-color-placeholder);
-        }
-      }
-    }
   }
 }
 
@@ -2302,6 +1495,33 @@ watch(currentSection, (section) => {
         font-size: 12px;
         color: var(--td-text-color-secondary);
       }
+
+      .member-tenant-users {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .member-tenant-user {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        max-width: 160px;
+        height: 22px;
+        padding: 0 7px;
+        border-radius: 4px;
+        background: var(--td-bg-color-secondarycontainer);
+        color: var(--td-text-color-secondary);
+        font-size: 12px;
+        line-height: 22px;
+      }
+
+      .member-tenant-user-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
 
     .member-role {
@@ -2379,142 +1599,6 @@ watch(currentSection, (section) => {
     font-weight: 600;
     color: var(--td-text-color-primary);
     margin: 0 0 12px 0;
-  }
-}
-
-// Join requests
-.empty-join-requests {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 20px;
-
-  .empty-icon {
-    color: var(--td-brand-color);
-    margin-bottom: 16px;
-  }
-
-  .empty-text {
-    font-size: 14px;
-    color: var(--td-text-color-secondary);
-    margin: 0;
-  }
-}
-
-.join-requests-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 400px;
-  overflow-y: auto;
-
-  .join-request-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 12px 16px;
-    background: var(--td-bg-color-container);
-    border-radius: 8px;
-    transition: background 0.2s;
-
-    &:hover {
-      background: var(--td-bg-color-secondarycontainer);
-    }
-
-    .request-user {
-      display: flex;
-      align-items: flex-start;
-      gap: 12px;
-      flex: 1;
-      min-width: 0;
-    }
-
-    .request-avatar {
-      width: 36px;
-      height: 36px;
-      border-radius: 50%;
-      background: var(--td-brand-color-light);
-      color: var(--td-brand-color);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .request-info {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-
-      .request-name {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--td-text-color-primary);
-
-        .request-type-tag {
-          flex-shrink: 0;
-        }
-      }
-
-      .request-email {
-        font-size: 12px;
-        color: var(--td-text-color-secondary);
-      }
-
-      .request-prev-role {
-        font-size: 12px;
-        color: var(--td-warning-color);
-        margin-top: 2px;
-      }
-
-      .request-message {
-        font-size: 12px;
-        color: var(--td-text-color-secondary);
-        margin: 4px 0 0;
-        line-height: 1.4;
-      }
-
-      .request-requested-role {
-        font-size: 12px;
-        color: var(--td-text-color-secondary);
-        margin-top: 2px;
-      }
-
-      .request-time {
-        font-size: 12px;
-        color: var(--td-text-color-placeholder);
-        margin-top: 4px;
-      }
-    }
-
-    .request-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-shrink: 0;
-
-      .request-assign-role {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-
-        .request-assign-label {
-          font-size: 12px;
-          color: var(--td-text-color-secondary);
-          white-space: nowrap;
-        }
-
-        .request-role-select {
-          min-width: 100px;
-        }
-      }
-    }
   }
 }
 
@@ -2691,34 +1775,6 @@ watch(currentSection, (section) => {
 .modal-leave-from {
   .settings-modal {
     transform: scale(1) translateY(0);
-  }
-}
-
-// 升级申请弹窗样式
-.upgrade-dialog-content {
-  .upgrade-current-role {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
-    font-size: 14px;
-    color: var(--td-text-color-secondary);
-  }
-
-  .upgrade-form-item {
-    margin-bottom: 16px;
-
-    label {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--td-text-color-primary);
-    }
-
-    &:last-child {
-      margin-bottom: 0;
-    }
   }
 }
 

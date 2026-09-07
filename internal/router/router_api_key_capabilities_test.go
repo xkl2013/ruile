@@ -359,7 +359,8 @@ func TestTenantMemberRoutesDeclareManageMembersCapability(t *testing.T) {
 func TestOrganizationRoutesDeclareManageSpacesCapability(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	g := &rbacGuards{}
-	v1 := gin.New().Group("/api/v1")
+	r := gin.New()
+	v1 := r.Group("/api/v1")
 
 	RegisterOrganizationRoutes(v1, &handler.OrganizationHandler{}, g)
 
@@ -369,12 +370,10 @@ func TestOrganizationRoutesDeclareManageSpacesCapability(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/v1/organizations"},
 		{http.MethodGet, "/api/v1/organizations"},
-		{http.MethodPost, "/api/v1/organizations/join"},
-		{http.MethodGet, "/api/v1/organizations/search"},
 		{http.MethodPut, "/api/v1/organizations/:id"},
-		{http.MethodPost, "/api/v1/organizations/:id/invite-code"},
+		{http.MethodPost, "/api/v1/organizations/:id/invite"},
 		{http.MethodGet, "/api/v1/organizations/:id/members"},
-		{http.MethodPut, "/api/v1/organizations/:id/members/:tenant_id"},
+		{http.MethodPut, "/api/v1/organizations/:id/members/:member_id"},
 		{http.MethodGet, "/api/v1/shared-knowledge-bases"},
 		{http.MethodGet, "/api/v1/shared-agents"},
 		{http.MethodPost, "/api/v1/shared-agents/disabled"},
@@ -388,6 +387,31 @@ func TestOrganizationRoutesDeclareManageSpacesCapability(t *testing.T) {
 			}
 			if !policyHasCapability(policy, types.APIKeyCapabilityManageSpaces) {
 				t.Fatalf("policy capabilities = %#v, want manage_spaces", policy.Capabilities)
+			}
+		})
+	}
+
+	removedSelfJoinRoutes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/organizations/preview/:code"},
+		{http.MethodPost, "/api/v1/organizations/join"},
+		{http.MethodPost, "/api/v1/organizations/join-request"},
+		{http.MethodGet, "/api/v1/organizations/search"},
+		{http.MethodPost, "/api/v1/organizations/join-by-id"},
+		{http.MethodPost, "/api/v1/organizations/:id/request-upgrade"},
+		{http.MethodPost, "/api/v1/organizations/:id/invite-code"},
+		{http.MethodGet, "/api/v1/organizations/:id/join-requests"},
+		{http.MethodPut, "/api/v1/organizations/:id/join-requests/:request_id/review"},
+	}
+	for _, tc := range removedSelfJoinRoutes {
+		t.Run("removed "+tc.method+" "+tc.path, func(t *testing.T) {
+			if ginRouteExists(r, tc.method, tc.path) {
+				t.Fatalf("self-service organization join route should not be registered: %s %s", tc.method, tc.path)
+			}
+			if _, ok := g.apiKeyAuthorizer.Lookup(tc.method, tc.path); ok {
+				t.Fatalf("self-service organization join route should not declare an API-key policy: %s %s", tc.method, tc.path)
 			}
 		})
 	}
@@ -560,6 +584,15 @@ func mustLookupAPIKeyPolicy(
 func policyHasCapability(policy middleware.APIKeyRoutePolicy, cap types.APIKeyCapability) bool {
 	for _, got := range policy.Capabilities {
 		if got == cap {
+			return true
+		}
+	}
+	return false
+}
+
+func ginRouteExists(r *gin.Engine, method string, path string) bool {
+	for _, route := range r.Routes() {
+		if route.Method == method && route.Path == path {
 			return true
 		}
 	}
