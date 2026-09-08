@@ -5813,10 +5813,10 @@ export default {
       shareKBPerm: 'Share knowledge bases to space',
       editorPerm1: 'Edit shared knowledge base content',
       editorPerm2: 'View and search knowledge bases',
-      editorPerm3: 'Manage space settings and members',
+      editorPerm3: 'Cannot manage space settings and members',
       viewerPerm1: 'View and search knowledge bases',
-      viewerPerm2: 'Edit knowledge base content',
-      viewerPerm3: 'Manage space settings',
+      viewerPerm2: 'Cannot edit knowledge base content',
+      viewerPerm3: 'Cannot manage space settings',
       ownerNote: 'As the space creator, you will automatically become an admin with full permissions.',
     },
     addMember: {

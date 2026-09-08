@@ -86,6 +86,7 @@ export interface SharedKnowledgeBase {
   share_id: string
   organization_id: string
   org_name: string
+  /** Effective permission after share permission, organization role, and workspace role caps */
   permission: 'admin' | 'editor' | 'viewer'
   source_tenant_id: number
   shared_at: string

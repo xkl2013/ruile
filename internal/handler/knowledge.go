@@ -1201,10 +1201,6 @@ func (h *KnowledgeHandler) BatchDeleteKnowledge(c *gin.Context) {
 		c.Error(errors.NewForbiddenError("No permission to delete knowledge"))
 		return
 	}
-	if err := h.requireKBOwnershipOrAdmin(c, kbID); err != nil {
-		c.Error(err)
-		return
-	}
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, effectiveTenantID)
 
 	// Single batch fetch to validate that every id exists and belongs to the
@@ -2260,53 +2256,40 @@ func (h *KnowledgeHandler) MoveKnowledge(c *gin.Context) {
 		return
 	}
 
-	tenantID, exists := c.Get(types.TenantIDContextKey.String())
-	if !exists {
-		c.Error(errors.NewUnauthorizedError("Unauthorized"))
-		return
-	}
 	if err := requireTenantAPIKeyKnowledgeBases(ctx, req.SourceKBID, req.TargetKBID); err != nil {
 		c.Error(err)
 		return
 	}
 
-	// Validate source KB
-	sourceKB, err := h.kbService.GetKnowledgeBaseByID(ctx, req.SourceKBID)
+	// Validate source and target KB access. Shared-space editor/admin can
+	// move content as long as both KBs resolve to the same source tenant and
+	// both pass the KBAccessWrite matrix.
+	sourceKB, sourceKBID, sourceTenantID, sourcePermission, err := h.validateKnowledgeBaseAccessWithKBID(c, req.SourceKBID)
 	if err != nil {
-		if goerrors.Is(err, repository.ErrKnowledgeBaseNotFound) {
-			c.Error(errors.NewNotFoundError("Source knowledge base not found"))
-			return
-		}
-		c.Error(errors.NewInternalServerError(err.Error()))
+		c.Error(err)
 		return
 	}
-	if sourceKB.TenantID != tenantID.(uint64) {
+	if sourcePermission != types.OrgRoleAdmin && sourcePermission != types.OrgRoleEditor {
 		c.Error(errors.NewForbiddenError("No permission to access source knowledge base"))
 		return
 	}
-	if err := h.requireKBOwnershipOrAdmin(c, req.SourceKBID); err != nil {
+
+	targetKB, targetKBID, targetTenantID, targetPermission, err := h.validateKnowledgeBaseAccessWithKBID(c, req.TargetKBID)
+	if err != nil {
 		c.Error(err)
 		return
 	}
-
-	// Validate target KB
-	targetKB, err := h.kbService.GetKnowledgeBaseByID(ctx, req.TargetKBID)
-	if err != nil {
-		if goerrors.Is(err, repository.ErrKnowledgeBaseNotFound) {
-			c.Error(errors.NewNotFoundError("Target knowledge base not found"))
-			return
-		}
-		c.Error(errors.NewInternalServerError(err.Error()))
-		return
-	}
-	if targetKB.TenantID != tenantID.(uint64) {
+	if targetPermission != types.OrgRoleAdmin && targetPermission != types.OrgRoleEditor {
 		c.Error(errors.NewForbiddenError("No permission to access target knowledge base"))
 		return
 	}
-	if err := h.requireKBOwnershipOrAdmin(c, req.TargetKBID); err != nil {
-		c.Error(err)
+	if sourceTenantID != targetTenantID {
+		c.Error(errors.NewBadRequestError("Source and target knowledge bases must belong to the same source workspace"))
 		return
 	}
+
+	effectiveTenantID := sourceTenantID
+	ctx = context.WithValue(ctx, types.TenantIDContextKey, effectiveTenantID)
 
 	// Validate type match
 	if sourceKB.Type != targetKB.Type {
@@ -2339,7 +2322,7 @@ func (h *KnowledgeHandler) MoveKnowledge(c *gin.Context) {
 			c.Error(errors.NewBadRequestError(fmt.Sprintf("Knowledge item %s not found", kID)))
 			return
 		}
-		if knowledge.KnowledgeBaseID != req.SourceKBID {
+		if knowledge.KnowledgeBaseID != sourceKBID {
 			c.Error(errors.NewBadRequestError(fmt.Sprintf("Knowledge item %s does not belong to the source knowledge base", kID)))
 			return
 		}
@@ -2350,15 +2333,15 @@ func (h *KnowledgeHandler) MoveKnowledge(c *gin.Context) {
 	}
 
 	// Generate task ID
-	taskID := utils.GenerateTaskID("kg_move", tenantID.(uint64), req.SourceKBID)
+	taskID := utils.GenerateTaskID("kg_move", effectiveTenantID, sourceKBID)
 
 	// Create move payload
 	payload := types.KnowledgeMovePayload{
-		TenantID:     tenantID.(uint64),
+		TenantID:     effectiveTenantID,
 		TaskID:       taskID,
 		KnowledgeIDs: req.KnowledgeIDs,
-		SourceKBID:   req.SourceKBID,
-		TargetKBID:   req.TargetKBID,
+		SourceKBID:   sourceKBID,
+		TargetKBID:   targetKBID,
 		Mode:         req.Mode,
 	}
 	langfuse.InjectTracing(ctx, &payload)
@@ -2382,13 +2365,13 @@ func (h *KnowledgeHandler) MoveKnowledge(c *gin.Context) {
 	}
 
 	logger.Infof(ctx, "MoveKnowledge: task enqueued: %s, asynq_id: %s, source: %s, target: %s, count: %d",
-		taskID, info.ID, secutils.SanitizeForLog(req.SourceKBID), secutils.SanitizeForLog(req.TargetKBID), len(req.KnowledgeIDs))
+		taskID, info.ID, secutils.SanitizeForLog(sourceKBID), secutils.SanitizeForLog(targetKBID), len(req.KnowledgeIDs))
 
 	// Save initial progress
 	initialProgress := &types.KnowledgeMoveProgress{
 		TaskID:     taskID,
-		SourceKBID: req.SourceKBID,
-		TargetKBID: req.TargetKBID,
+		SourceKBID: sourceKBID,
+		TargetKBID: targetKBID,
 		Status:     types.KBCloneStatusPending,
 		Total:      len(req.KnowledgeIDs),
 		Progress:   0,
@@ -2404,8 +2387,8 @@ func (h *KnowledgeHandler) MoveKnowledge(c *gin.Context) {
 		"success": true,
 		"data": MoveKnowledgeResponse{
 			TaskID:         taskID,
-			SourceKBID:     req.SourceKBID,
-			TargetKBID:     req.TargetKBID,
+			SourceKBID:     sourceKBID,
+			TargetKBID:     targetKBID,
 			KnowledgeCount: len(req.KnowledgeIDs),
 			Message:        "Knowledge move task started",
 		},

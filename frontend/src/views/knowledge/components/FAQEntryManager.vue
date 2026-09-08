@@ -1036,15 +1036,10 @@ const canEdit = computed(() => {
   return orgStore.canEditKB(props.kbId, false)
 })
 
-// Can manage (delete, settings, share): same isViaShare-first rule. For
-// shared KBs only an 'admin' share grant qualifies — editor/viewer (and
-// even being the creator viewed via share) never grant delete/settings.
-const canManage = computed(() => {
-  if (isViaShare.value) return orgStore.canManageKB(props.kbId, false)
-  if (isOwner.value) return true
-  if (authStore.hasRole('admin')) return true
-  return orgStore.canManageKB(props.kbId, false)
-})
+// FAQ entry/tag delete is KB content mutation, not shared-space settings.
+// Keep it aligned with canEdit so shared admin/editor can operate and shared
+// viewer remains read-only.
+const canManage = computed(() => canEdit.value)
 
 const canManageKnowledgeBaseSettingsByRole = computed(() =>
   authStore.hasRole('admin') || authStore.isSystemAdmin,

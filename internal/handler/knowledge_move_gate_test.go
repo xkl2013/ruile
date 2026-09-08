@@ -53,6 +53,10 @@ func newMoveGateRouter(kb interfaces.KnowledgeBaseService, kg interfaces.Knowled
 	r.Use(middleware.ErrorHandler())
 	r.Use(func(c *gin.Context) {
 		c.Set(types.TenantIDContextKey.String(), uint64(1))
+		ctx := context.WithValue(c.Request.Context(), types.TenantIDContextKey, uint64(1))
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleAdmin)
+		ctx = context.WithValue(ctx, types.UserIDContextKey, "u-test")
+		c.Request = c.Request.WithContext(ctx)
 		c.Set(types.UserIDContextKey.String(), "u-test")
 		c.Next()
 	})

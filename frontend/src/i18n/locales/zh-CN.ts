@@ -5239,10 +5239,10 @@ export default {
       shareKBPerm: "共享知识库到共享空间",
       editorPerm1: "编辑共享知识库内容",
       editorPerm2: "查看和检索知识库",
-      editorPerm3: "管理共享空间设置和参与成员",
+      editorPerm3: "不可管理共享空间设置和参与成员",
       viewerPerm1: "查看和检索知识库",
-      viewerPerm2: "编辑知识库内容",
-      viewerPerm3: "管理共享空间设置",
+      viewerPerm2: "不可编辑知识库内容",
+      viewerPerm3: "不可管理共享空间设置",
       ownerNote: "作为共享空间创建者，当前空间将自动拥有管理员权限。",
     },
     addMember: {

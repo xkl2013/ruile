@@ -289,20 +289,10 @@ const canEditKnowledgeBaseSettings = computed(() => {
 
 const canEditKnowledgeBaseDirectories = computed(() => canEdit.value && !isFAQ.value);
 
-// Can mutate knowledge (move / batch-delete): the backend gate for these
-// two endpoints is g.Contributor(), so the caller MUST be Contributor+
-// in their tenant on top of having KB edit permission. Without the extra
-// role check, an org-share-editor whose tenant role is Viewer would see
-// the "Move" / "Batch manage" entries and 403 on click. For shared KBs
-// the local tenant role is irrelevant — canEdit already encodes the share
-// grant, so trust it.
-const canMutateKnowledge = computed(() => {
-  if (!canEdit.value) return false;
-  if (isViaShare.value) return true;
-  if (isOwner.value) return true;
-  if (authStore.hasRole('admin')) return true;
-  return authStore.hasRole('contributor');
-});
+// Document move / batch-delete are KB content mutations. They follow the
+// same effective KB write permission as upload, reparse, and single delete:
+// owner/admin or shared admin/editor can operate; shared viewer stays read-only.
+const canMutateKnowledge = computed(() => canEdit.value);
 
 // Effective permission: from direct org share list or from GET /knowledge-bases/:id (e.g. agent-visible KB)
 const effectiveKBPermission = computed(() => orgStore.getKBPermission(kbId.value) || kbInfo.value?.my_permission || '');

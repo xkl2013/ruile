@@ -5211,10 +5211,10 @@ export default {
       shareKBPerm: "지식베이스를 스페이스에 공유",
       editorPerm1: "공유 지식베이스 콘텐츠 편집",
       editorPerm2: "지식베이스 보기 및 검색",
-      editorPerm3: "스페이스 설정 및 구성원 관리",
+      editorPerm3: "스페이스 설정 및 구성원 관리 불가",
       viewerPerm1: "지식베이스 보기 및 검색",
-      viewerPerm2: "지식베이스 콘텐츠 편집",
-      viewerPerm3: "스페이스 설정 관리",
+      viewerPerm2: "지식베이스 콘텐츠 편집 불가",
+      viewerPerm3: "스페이스 설정 관리 불가",
       ownerNote:
         "스페이스 작성자로서 귀하는 자동으로 스페이스의 관리자가 되며 모든 권한을 갖게 됩니다.",
     },
