@@ -1,9 +1,11 @@
 import { fileURLToPath, URL } from 'node:url'
 import { resolve, dirname } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { defineConfig } from 'vite'
+import type { Plugin as VitePlugin } from 'vite'
+import type { Plugin as EsbuildPlugin } from 'esbuild'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 
@@ -16,6 +18,7 @@ const DEV_PROXY_TARGET =
   process.env.VITE_DEV_PROXY_TARGET ||
   process.env.FRONTEND_BACKEND_URL ||
   'http://localhost:8080'
+const VUE_ROUTER_DEVTOOLS_ASSIGN = 'instance.__vrv_devtools = info;'
 
 function resolveFrontendCommit(): string {
   const fromEnv = process.env.VITE_FRONTEND_COMMIT || process.env.GITHUB_SHA
@@ -43,6 +46,56 @@ function resolveVueOfficePptxEntry(): string {
   }
 }
 
+function patchVueRouterDevtoolsNullRef(code: string): string {
+  if (
+    !code.includes(VUE_ROUTER_DEVTOOLS_ASSIGN) ||
+    code.includes(`if (instance) ${VUE_ROUTER_DEVTOOLS_ASSIGN}`)
+  ) {
+    return code
+  }
+
+  return code.replace(
+    VUE_ROUTER_DEVTOOLS_ASSIGN,
+    `if (instance) ${VUE_ROUTER_DEVTOOLS_ASSIGN}`,
+  )
+}
+
+function vueRouterDevtoolsNullRefPatch(): VitePlugin {
+  const vueRouterDistFilter = /vue-router[/\\]dist[/\\]vue-router\.mjs$/
+  const optimizedVueRouterFilter = /[/\\]node_modules[/\\]\.vite[/\\]deps[/\\]vue-router\.js(?:\?.*)?$/
+  const esbuildPatch: EsbuildPlugin = {
+    name: 'admin-vue-router-devtools-null-ref-patch',
+    setup(build) {
+      build.onLoad({ filter: vueRouterDistFilter }, (args) => ({
+        contents: patchVueRouterDevtoolsNullRef(readFileSync(args.path, 'utf8')),
+        loader: 'js',
+      }))
+    },
+  }
+
+  return {
+    name: 'admin-vue-router-devtools-null-ref-patch',
+    enforce: 'pre',
+    config() {
+      return {
+        optimizeDeps: {
+          esbuildOptions: {
+            plugins: [esbuildPatch],
+          },
+        },
+      }
+    },
+    transform(code, id) {
+      if (!vueRouterDistFilter.test(id) && !optimizedVueRouterFilter.test(id)) {
+        return null
+      }
+
+      const patched = patchVueRouterDevtoolsNullRef(code)
+      return patched === code ? null : { code: patched, map: null }
+    },
+  }
+}
+
 export default defineConfig({
   base: process.env.VITE_ADMIN_BASE || '/admin/',
   publicDir: fileURLToPath(new URL('../frontend/public', import.meta.url)),
@@ -52,6 +105,7 @@ export default defineConfig({
     'import.meta.env.VITE_API_BASE_URL': JSON.stringify(process.env.VITE_ADMIN_API_BASE_URL || '/'),
   },
   plugins: [
+    vueRouterDevtoolsNullRefPatch(),
     vue(),
     vueJsx(),
   ],
