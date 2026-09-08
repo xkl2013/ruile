@@ -3,6 +3,26 @@ import i18n from '@/i18n'
 
 const t = (key: string) => i18n.global.t(key)
 
+function messageWithDetails(error: any, fallback: string): string {
+  const message = error?.message || fallback
+  const details = error?.error?.details ?? error?.details
+  let detailText = ''
+  if (typeof details === 'string') {
+    detailText = details.trim()
+  } else if (details) {
+    try {
+      detailText = JSON.stringify(details)
+    } catch {
+      detailText = ''
+    }
+  }
+
+  if (!detailText || detailText === message || message.includes(detailText)) {
+    return message
+  }
+  return `${message}: ${detailText}`
+}
+
 export interface TenantStorageUsage {
   quota_bytes: number
   used_bytes: number
@@ -81,6 +101,14 @@ export interface OIDCConfigResponse {
   enabled: boolean
   provider_display_name?: string
   message?: string
+}
+
+export interface SMSLoginConfigResponse {
+  success: boolean
+  registration_mode: 'self_serve' | 'invite_only' | string
+  sms_login_enabled?: boolean
+  sms_send_cooldown_seconds?: number
+  sms_code_validity_seconds?: number
 }
 
 // 用户注册接口
@@ -279,6 +307,9 @@ export async function getOIDCConfig(): Promise<OIDCConfigResponse> {
 export interface AuthConfigResponse {
   success: boolean
   registration_mode: 'self_serve' | 'invite_only' | string
+  sms_login_enabled?: boolean
+  sms_send_cooldown_seconds?: number
+  sms_code_validity_seconds?: number
 }
 
 export async function getAuthConfig(): Promise<AuthConfigResponse> {
@@ -287,6 +318,44 @@ export async function getAuthConfig(): Promise<AuthConfigResponse> {
     return response as unknown as AuthConfigResponse
   } catch {
     return { success: false, registration_mode: 'invite_only' }
+  }
+}
+
+export interface SMSSendCodeRequest {
+  phone: string
+}
+
+export interface SMSLoginRequest {
+  phone: string
+  code: string
+}
+
+export interface SMSActionResponse {
+  success: boolean
+  message?: string
+}
+
+export async function sendSMSLoginCode(data: SMSSendCodeRequest): Promise<SMSActionResponse> {
+  try {
+    const response = await post('/api/v1/auth/sms/send-code', data)
+    return response as unknown as SMSActionResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      message: messageWithDetails(error, t('auth.codeSendFailed')),
+    }
+  }
+}
+
+export async function smsLogin(data: SMSLoginRequest): Promise<LoginResponse> {
+  try {
+    const response = await post('/api/v1/auth/sms/login', data)
+    return response as unknown as LoginResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      message: messageWithDetails(error, t('error.auth.loginFailed')),
+    }
   }
 }
 

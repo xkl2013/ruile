@@ -68,6 +68,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     name: 'adminWorkspaceMembers',
     component: createModulePage(() => import('@/views/settings/TenantMembers.vue'), {
       disableInvitations: true,
+      hideHeader: true,
     }),
     meta: {
       navKey: 'workspace-members',

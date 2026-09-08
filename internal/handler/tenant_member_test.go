@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -140,9 +141,9 @@ func (s *stubMemberService) ReactivateMember(ctx context.Context, userID string,
 	return s.reactivate(ctx, userID, tenantID)
 }
 
-// stubMemberUserService satisfies just the two UserService methods the
-// handler reaches: GetUserByEmail (AddMember translation) and
-// GetUserByID (ListMembers hydration).
+// stubMemberUserService satisfies the UserService methods reached by the
+// tenant-member handler. GetUserByEmail is also used by AdminCreateMember to
+// decide whether to reuse a global account or create one.
 type stubMemberUserService struct {
 	interfaces.UserService
 	getByEmail  func(ctx context.Context, email string) (*types.User, error)
@@ -156,6 +157,9 @@ type stubMemberUserService struct {
 }
 
 func (s *stubMemberUserService) GetUserByEmail(ctx context.Context, email string) (*types.User, error) {
+	if s.getByEmail == nil {
+		return nil, apprepo.ErrUserNotFound
+	}
 	return s.getByEmail(ctx, email)
 }
 
@@ -549,6 +553,9 @@ func TestTenantMember_AdminCreateMember_DefaultPasswordAndRole(t *testing.T) {
 		},
 	}
 	us := &stubMemberUserService{
+		getByEmail: func(context.Context, string) (*types.User, error) {
+			return nil, apprepo.ErrUserNotFound
+		},
 		adminCreate: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
 			copyReq := *req
 			capturedReq = &copyReq
@@ -587,6 +594,106 @@ func TestTenantMember_AdminCreateMember_DefaultPasswordAndRole(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"work_profile_description":"园长负责招生跟进和家校服务"`) {
 		t.Fatalf("response should include work profile description: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"account_created":true`) {
+		t.Fatalf("new account response should flag account_created: %s", w.Body.String())
+	}
+}
+
+func TestTenantMember_AdminCreateMember_ReusesExistingAccount(t *testing.T) {
+	adminCreateCalled := false
+	var addUserID string
+	ms := &stubMemberService{
+		addWithProfile: func(_ context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error) {
+			if tenantID != 1 || role != types.TenantRoleContributor {
+				t.Fatalf("unexpected membership target: tenant=%d role=%s", tenantID, role)
+			}
+			if invitedBy != nil {
+				t.Fatalf("existing-account member should remain a manual addition")
+			}
+			if description != "负责投资人沟通" {
+				t.Fatalf("description = %q", description)
+			}
+			addUserID = userID
+			return &types.TenantMember{
+				UserID:                 userID,
+				TenantID:               tenantID,
+				Role:                   role,
+				Status:                 types.TenantMemberStatusActive,
+				Source:                 types.TenantMemberSourceManual,
+				WorkProfileDescription: description,
+				JoinedAt:               time.Now(),
+			}, nil
+		},
+	}
+	us := &stubMemberUserService{
+		getByEmail: func(_ context.Context, phone string) (*types.User, error) {
+			if phone != "13901156168" {
+				t.Fatalf("lookup phone = %q", phone)
+			}
+			return &types.User{ID: "u-existing", Username: "孙涛", Email: phone}, nil
+		},
+		adminCreate: func(context.Context, *types.RegisterRequest) (*types.User, error) {
+			adminCreateCalled = true
+			return nil, errors.New("must not create an existing account")
+		},
+	}
+	h := newTestMemberHandler(ms, us)
+
+	body := map[string]any{
+		"phone":                    "13901156168",
+		"name":                     "孙涛（新录入名称不应覆盖既有账号）",
+		"work_profile_description": "负责投资人沟通",
+	}
+	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/admin-create", body,
+		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
+	}
+	if adminCreateCalled {
+		t.Fatalf("AdminCreateUser must not run for an existing phone")
+	}
+	if addUserID != "u-existing" {
+		t.Fatalf("added user = %q, want existing account", addUserID)
+	}
+	if !strings.Contains(w.Body.String(), `"account_created":false`) {
+		t.Fatalf("existing account response should flag account_created=false: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"username":"孙涛"`) {
+		t.Fatalf("response should keep existing account identity: %s", w.Body.String())
+	}
+}
+
+func TestTenantMember_AdminCreateMember_DoesNotDeleteExistingAccountWhenMembershipFails(t *testing.T) {
+	deleteCalled := false
+	ms := &stubMemberService{
+		addWithProfile: func(context.Context, string, uint64, types.TenantRole, *string, string) (*types.TenantMember, error) {
+			return nil, service.ErrMembershipAlreadyExists
+		},
+	}
+	us := &stubMemberUserService{
+		getByEmail: func(context.Context, string) (*types.User, error) {
+			return &types.User{ID: "u-existing", Username: "孙涛", Email: "13901156168"}, nil
+		},
+		deleteUser: func(context.Context, string) error {
+			deleteCalled = true
+			return nil
+		},
+	}
+	h := newTestMemberHandler(ms, us)
+
+	body := map[string]any{
+		"phone":                    "13901156168",
+		"name":                     "孙涛",
+		"work_profile_description": "负责投资人沟通",
+	}
+	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/admin-create", body,
+		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", w.Code, w.Body.String())
+	}
+	if deleteCalled {
+		t.Fatalf("a failed membership add must not delete an existing account")
 	}
 }
 

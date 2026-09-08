@@ -22,6 +22,7 @@ type Config struct {
 	KnowledgeBase   *KnowledgeBaseConfig   `yaml:"knowledge_base"   json:"knowledge_base"`
 	Tenant          *TenantConfig          `yaml:"tenant"           json:"tenant"`
 	Auth            *AuthConfig            `yaml:"auth"             json:"auth"`
+	SMS             *SMSConfig             `yaml:"sms"              json:"sms"`
 	Audit           *AuditConfig           `yaml:"audit"            json:"audit"`
 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
@@ -280,6 +281,34 @@ type AuthConfig struct {
 	// workspace and makes the registrant its Owner.
 	DefaultTenantMode string `yaml:"default_tenant_mode" json:"default_tenant_mode"`
 }
+
+// SMSConfig controls Alibaba Cloud SMS verification login.
+type SMSConfig struct {
+	Enabled                       bool   `yaml:"enabled"                          json:"enabled"`
+	AccessKeyID                   string `yaml:"access_key_id"                    json:"-"`
+	AccessKeySecret               string `yaml:"access_key_secret"                json:"-"`
+	RegionID                      string `yaml:"region_id"                       json:"region_id"`
+	Endpoint                      string `yaml:"endpoint"                        json:"endpoint"`
+	SignName                      string `yaml:"sign_name"                       json:"sign_name"`
+	TemplateCode                  string `yaml:"template_code"                   json:"template_code"`
+	CodeValiditySeconds           int    `yaml:"code_validity_seconds"           json:"code_validity_seconds"`
+	SendCooldownSeconds           int    `yaml:"send_cooldown_seconds"           json:"send_cooldown_seconds"`
+	MaxSendsPerPhonePerHour       int    `yaml:"max_sends_per_phone_per_hour"    json:"max_sends_per_phone_per_hour"`
+	MaxSendsPerIPPerHour          int    `yaml:"max_sends_per_ip_per_hour"       json:"max_sends_per_ip_per_hour"`
+	MaxVerifyAttemptsPerPhoneHour int    `yaml:"max_verify_attempts_phone_hour"  json:"max_verify_attempts_phone_hour"`
+	MaxVerifyAttemptsPerIPHour    int    `yaml:"max_verify_attempts_ip_hour"     json:"max_verify_attempts_ip_hour"`
+}
+
+const (
+	SMSDefaultRegionID                      = "cn-hangzhou"
+	SMSDefaultEndpoint                      = "dysmsapi.aliyuncs.com"
+	SMSDefaultCodeValiditySeconds           = 300
+	SMSDefaultSendCooldownSeconds           = 60
+	SMSDefaultMaxSendsPerPhonePerHour       = 5
+	SMSDefaultMaxSendsPerIPPerHour          = 30
+	SMSDefaultMaxVerifyAttemptsPerPhoneHour = 20
+	SMSDefaultMaxVerifyAttemptsPerIPHour    = 60
+)
 
 // AuthRegistrationMode constants used by handlers and middleware.
 const (
@@ -578,6 +607,7 @@ func LoadConfig() (*Config, error) {
 	applyAgentEnvOverrides(&cfg)
 	applyKnowledgeBaseEnvOverrides(&cfg)
 	applyAuthAndTenantDefaults(&cfg)
+	applySMSDefaults(&cfg)
 	applyAuditDefaults(&cfg)
 
 	if err := ValidateConfig(&cfg); err != nil {
@@ -639,6 +669,41 @@ func ValidateConfig(cfg *Config) error {
 	if cfg.Audit != nil && cfg.Audit.RetentionDays < 0 {
 		errs = append(errs, fmt.Sprintf("audit.retention_days must be >= 0 (got %d); use 0 to disable purge",
 			cfg.Audit.RetentionDays))
+	}
+
+	if cfg.SMS != nil {
+		if cfg.SMS.CodeValiditySeconds < 0 {
+			errs = append(errs, "sms.code_validity_seconds must be >= 0")
+		}
+		if cfg.SMS.SendCooldownSeconds < 0 {
+			errs = append(errs, "sms.send_cooldown_seconds must be >= 0")
+		}
+		if cfg.SMS.MaxSendsPerPhonePerHour < 0 {
+			errs = append(errs, "sms.max_sends_per_phone_per_hour must be >= 0")
+		}
+		if cfg.SMS.MaxSendsPerIPPerHour < 0 {
+			errs = append(errs, "sms.max_sends_per_ip_per_hour must be >= 0")
+		}
+		if cfg.SMS.MaxVerifyAttemptsPerPhoneHour < 0 {
+			errs = append(errs, "sms.max_verify_attempts_phone_hour must be >= 0")
+		}
+		if cfg.SMS.MaxVerifyAttemptsPerIPHour < 0 {
+			errs = append(errs, "sms.max_verify_attempts_ip_hour must be >= 0")
+		}
+		if cfg.SMS.Enabled {
+			if strings.TrimSpace(cfg.SMS.AccessKeyID) == "" {
+				errs = append(errs, "sms.access_key_id is required when SMS login is enabled")
+			}
+			if strings.TrimSpace(cfg.SMS.AccessKeySecret) == "" {
+				errs = append(errs, "sms.access_key_secret is required when SMS login is enabled")
+			}
+			if strings.TrimSpace(cfg.SMS.SignName) == "" {
+				errs = append(errs, "sms.sign_name is required when SMS login is enabled")
+			}
+			if strings.TrimSpace(cfg.SMS.TemplateCode) == "" {
+				errs = append(errs, "sms.template_code is required when SMS login is enabled")
+			}
+		}
 	}
 
 	if cfg.Conversation != nil {
@@ -888,6 +953,106 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 			)
 		}
 	}
+}
+
+func applySMSDefaults(cfg *Config) {
+	if cfg.SMS == nil {
+		cfg.SMS = &SMSConfig{}
+	}
+
+	if value := strings.TrimSpace(os.Getenv("WEKNORA_SMS_ENABLED")); value != "" {
+		enabled, err := strconv.ParseBool(value)
+		if err != nil {
+			fmt.Printf("[config] WEKNORA_SMS_ENABLED=%q is not a boolean, ignoring\n", value)
+		} else {
+			cfg.SMS.Enabled = enabled
+		}
+	}
+
+	if value := firstNonEmptyEnv("ALIBABA_CLOUD_ACCESS_KEY_ID", "WEKNORA_SMS_ACCESS_KEY_ID"); value != "" {
+		cfg.SMS.AccessKeyID = value
+	}
+	if value := firstNonEmptyEnv("ALIBABA_CLOUD_ACCESS_KEY_SECRET", "WEKNORA_SMS_ACCESS_KEY_SECRET"); value != "" {
+		cfg.SMS.AccessKeySecret = value
+	}
+	if value := firstNonEmptyEnv("WEKNORA_SMS_REGION_ID", "ALIBABA_CLOUD_REGION_ID"); value != "" {
+		cfg.SMS.RegionID = value
+	}
+	if value := strings.TrimSpace(os.Getenv("WEKNORA_SMS_ENDPOINT")); value != "" {
+		cfg.SMS.Endpoint = value
+	}
+	if value := firstNonEmptyEnv("WEKNORA_SMS_SIGN_NAME", "ALIBABA_CLOUD_SMS_SIGN_NAME"); value != "" {
+		cfg.SMS.SignName = value
+	}
+	if value := firstNonEmptyEnv("WEKNORA_SMS_TEMPLATE_CODE", "ALIBABA_CLOUD_SMS_TEMPLATE_CODE"); value != "" {
+		cfg.SMS.TemplateCode = value
+	}
+
+	if strings.TrimSpace(cfg.SMS.RegionID) == "" {
+		cfg.SMS.RegionID = SMSDefaultRegionID
+	}
+	if strings.TrimSpace(cfg.SMS.Endpoint) == "" {
+		cfg.SMS.Endpoint = SMSDefaultEndpoint
+	}
+	if cfg.SMS.CodeValiditySeconds <= 0 {
+		cfg.SMS.CodeValiditySeconds = SMSDefaultCodeValiditySeconds
+	}
+	if cfg.SMS.SendCooldownSeconds <= 0 {
+		cfg.SMS.SendCooldownSeconds = SMSDefaultSendCooldownSeconds
+	}
+	if cfg.SMS.MaxSendsPerPhonePerHour <= 0 {
+		cfg.SMS.MaxSendsPerPhonePerHour = SMSDefaultMaxSendsPerPhonePerHour
+	}
+	if cfg.SMS.MaxSendsPerIPPerHour <= 0 {
+		cfg.SMS.MaxSendsPerIPPerHour = SMSDefaultMaxSendsPerIPPerHour
+	}
+	if cfg.SMS.MaxVerifyAttemptsPerPhoneHour <= 0 {
+		cfg.SMS.MaxVerifyAttemptsPerPhoneHour = SMSDefaultMaxVerifyAttemptsPerPhoneHour
+	}
+	if cfg.SMS.MaxVerifyAttemptsPerIPHour <= 0 {
+		cfg.SMS.MaxVerifyAttemptsPerIPHour = SMSDefaultMaxVerifyAttemptsPerIPHour
+	}
+
+	applyPositiveIntEnv("WEKNORA_SMS_CODE_VALIDITY_SECONDS", func(v int) {
+		cfg.SMS.CodeValiditySeconds = v
+	})
+	applyPositiveIntEnv("WEKNORA_SMS_SEND_COOLDOWN_SECONDS", func(v int) {
+		cfg.SMS.SendCooldownSeconds = v
+	})
+	applyPositiveIntEnv("WEKNORA_SMS_MAX_SENDS_PER_PHONE_PER_HOUR", func(v int) {
+		cfg.SMS.MaxSendsPerPhonePerHour = v
+	})
+	applyPositiveIntEnv("WEKNORA_SMS_MAX_SENDS_PER_IP_PER_HOUR", func(v int) {
+		cfg.SMS.MaxSendsPerIPPerHour = v
+	})
+	applyPositiveIntEnv("WEKNORA_SMS_MAX_VERIFY_ATTEMPTS_PER_PHONE_HOUR", func(v int) {
+		cfg.SMS.MaxVerifyAttemptsPerPhoneHour = v
+	})
+	applyPositiveIntEnv("WEKNORA_SMS_MAX_VERIFY_ATTEMPTS_PER_IP_HOUR", func(v int) {
+		cfg.SMS.MaxVerifyAttemptsPerIPHour = v
+	})
+}
+
+func firstNonEmptyEnv(names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func applyPositiveIntEnv(name string, set func(int)) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		fmt.Printf("[config] %s=%q is not a positive integer, ignoring\n", name, value)
+		return
+	}
+	set(n)
 }
 
 // applyAuditDefaults fills in defaults for the Audit config section

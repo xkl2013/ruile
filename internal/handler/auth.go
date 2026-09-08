@@ -126,6 +126,10 @@ func (h *AuthHandler) resolveDefaultTenantMode(ctx context.Context) types.Tenant
 	return types.TenantProvisioningCreatePersonal
 }
 
+func (h *AuthHandler) resolveSMSLoginEnabled() bool {
+	return h != nil && h.configInfo != nil && h.configInfo.SMS != nil && h.configInfo.SMS.Enabled
+}
+
 func normalizePhoneOrEmail(phone, email string) string {
 	if trimmed := strings.TrimSpace(phone); trimmed != "" {
 		return trimmed
@@ -771,7 +775,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 
 // GetAuthConfig godoc
 // @Summary      获取认证配置
-// @Description  返回当前部署的注册模式等公开认证配置，供前端决定是否展示注册入口
+// @Description  返回当前部署的注册模式与短信登录开关等公开认证配置
 // @Tags         认证
 // @Accept       json
 // @Produce      json
@@ -787,9 +791,26 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 	// signal can never disagree with the API enforcement signal.
 	mode := h.resolveRegistrationMode(c.Request.Context())
 	c.JSON(http.StatusOK, gin.H{
-		"success":           true,
-		"registration_mode": mode,
+		"success":                   true,
+		"registration_mode":         mode,
+		"sms_login_enabled":         h.resolveSMSLoginEnabled(),
+		"sms_send_cooldown_seconds": h.resolveSMSSendCooldownSeconds(),
+		"sms_code_validity_seconds": h.resolveSMSCodeValiditySeconds(),
 	})
+}
+
+func (h *AuthHandler) resolveSMSSendCooldownSeconds() int {
+	if h == nil || h.configInfo == nil || h.configInfo.SMS == nil || h.configInfo.SMS.SendCooldownSeconds <= 0 {
+		return config.SMSDefaultSendCooldownSeconds
+	}
+	return h.configInfo.SMS.SendCooldownSeconds
+}
+
+func (h *AuthHandler) resolveSMSCodeValiditySeconds() int {
+	if h == nil || h.configInfo == nil || h.configInfo.SMS == nil || h.configInfo.SMS.CodeValiditySeconds <= 0 {
+		return config.SMSDefaultCodeValiditySeconds
+	}
+	return h.configInfo.SMS.CodeValiditySeconds
 }
 
 // SwitchTenant godoc

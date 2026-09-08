@@ -376,8 +376,8 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 }
 
 // AdminCreateMember godoc
-// @Summary      管理员创建账号并加入空间
-// @Description  Admin 录入姓名和手机号创建 tenantless 账号，并以默认密码 rl+手机号后六位加入当前空间；默认角色为 Contributor。
+// @Summary      管理员添加用户到空间
+// @Description  Admin 按手机号添加用户：已有账号直接加入当前空间；未注册手机号创建 tenantless 账号，并以默认密码 rl+手机号后六位加入当前空间。默认角色为 Contributor。
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json
@@ -431,26 +431,47 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.AdminCreateUser(ctx, &types.RegisterRequest{
-		Username:           name,
-		Phone:              phone,
-		Password:           defaultAdminCreatedPassword(phone),
-		TenantProvisioning: types.TenantProvisioningTenantless,
-	})
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
-			c.Error(apperrors.NewConflictError(err.Error()))
+	// Phone is the global account identity. A user can be a member of more
+	// than one workspace, so an existing account must be reused here instead
+	// of treating it as a duplicate-create conflict. The supplied name only
+	// applies when creating a new account; an existing account keeps its
+	// identity fields while receiving a tenant-scoped member profile below.
+	user, lookupErr := h.userService.GetUserByEmail(ctx, phone)
+	accountCreated := false
+	switch {
+	case lookupErr == nil && user != nil:
+		// Reuse the existing account.
+	case lookupErr != nil && !errors.Is(lookupErr, apprepo.ErrUserNotFound):
+		logger.Errorf(ctx, "AdminCreateMember account lookup failed: phone=%s err=%v",
+			secutils.SanitizeForLog(phone), lookupErr)
+		c.Error(apperrors.NewInternalServerError("failed to look up user").WithDetails(lookupErr.Error()))
+		return
+	default:
+		var err error
+		user, err = h.userService.AdminCreateUser(ctx, &types.RegisterRequest{
+			Username:           name,
+			Phone:              phone,
+			Password:           defaultAdminCreatedPassword(phone),
+			TenantProvisioning: types.TenantProvisioningTenantless,
+		})
+		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+				c.Error(apperrors.NewConflictError(err.Error()))
+				return
+			}
+			logger.Errorf(ctx, "AdminCreateUser failed: phone=%s err=%v", secutils.SanitizeForLog(phone), err)
+			c.Error(apperrors.NewInternalServerError("failed to create user").WithDetails(err.Error()))
 			return
 		}
-		logger.Errorf(ctx, "AdminCreateUser failed: phone=%s err=%v", secutils.SanitizeForLog(phone), err)
-		c.Error(apperrors.NewInternalServerError("failed to create user").WithDetails(err.Error()))
-		return
+		accountCreated = true
 	}
 
 	member, err := h.memberService.AddMemberWithProfile(ctx, user.ID, tenantID, role, nil, workProfileDescription)
 	if err != nil {
-		if cleanupErr := h.userService.DeleteUser(ctx, user.ID); cleanupErr != nil {
-			logger.Warnf(ctx, "failed to roll back admin-created user %s after member add failure: %v", user.ID, cleanupErr)
+		if accountCreated {
+			if cleanupErr := h.userService.DeleteUser(ctx, user.ID); cleanupErr != nil {
+				logger.Warnf(ctx, "failed to roll back admin-created user %s after member add failure: %v", user.ID, cleanupErr)
+			}
 		}
 		switch {
 		case errors.Is(err, service.ErrInvalidTenantRole):
@@ -484,8 +505,9 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 		SuspendedAt:            member.SuspendedAt,
 	}
 	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"data":    resp,
+		"success":         true,
+		"data":            resp,
+		"account_created": accountCreated,
 	})
 }
 

@@ -102,6 +102,7 @@
         <div class="form-card" v-if="!isRegisterMode">
           <div class="form-header">
             <h2 class="form-title">登录睿乐大脑</h2>
+            <p class="form-subtitle">{{ loginSubtitle }}</p>
           </div>
 
           <div class="form-content">
@@ -112,14 +113,34 @@
                   autocomplete="tel" inputmode="tel" size="large" :disabled="loading" />
               </t-form-item>
 
-              <t-form-item :label="$t('auth.password')" name="password">
-                <t-input v-model="formData.password" :placeholder="$t('auth.passwordPlaceholder')" type="password"
-                  autocomplete="current-password" size="large" :disabled="loading" @enter="handleLogin" />
-              </t-form-item>
+              <template v-if="isSMSMode">
+                <t-form-item :label="$t('auth.verificationCode')" name="code">
+                  <div class="sms-code-row">
+                    <t-input v-model="formData.code" :placeholder="$t('auth.codePlaceholder')" autocomplete="one-time-code"
+                      inputmode="numeric" size="large" :disabled="loading" @enter="handleLogin" />
+                    <t-button theme="primary" variant="outline" size="large" :loading="smsSending" :disabled="loading || smsSending || smsCooldown > 0"
+                      class="sms-code-button" @click="handleSendSmsCode">
+                      {{ sendCodeButtonLabel }}
+                    </t-button>
+                  </div>
+                </t-form-item>
+              </template>
+              <template v-else>
+                <t-form-item :label="$t('auth.password')" name="password">
+                  <t-input v-model="formData.password" :placeholder="$t('auth.passwordPlaceholder')" type="password"
+                    autocomplete="current-password" size="large" :disabled="loading" @enter="handleLogin" />
+                </t-form-item>
+              </template>
 
               <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
-                {{ loading ? $t('auth.loggingIn') : $t('auth.login') }}
+                {{ submitButtonLabel }}
               </t-button>
+
+              <div class="login-alternative">
+                <t-button theme="default" variant="text" size="small" :disabled="loading" @click="toggleLoginMode">
+                  {{ alternateLoginLabel }}
+                </t-button>
+              </div>
 
               <div class="register-cta" v-if="registrationEnabled">
                 <div class="register-cta__divider">
@@ -212,18 +233,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, nextTick, onMounted, computed } from 'vue'
+import { ref, reactive, nextTick, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoleLabel } from '@/composables/useRoleLabel'
 import { notifyLoginSuccess } from '@/utils/loginNotify'
 import {
   login,
+  smsLogin,
   register,
   getOIDCAuthorizationURL,
   getOIDCConfig,
   autoSetup,
   getAuthConfig,
+  sendSMSLoginCode,
   userInfoFromApi,
   getInvitationByToken,
   registerByInvite,
@@ -244,10 +267,16 @@ const registerFormRef = ref()
 
 // State management
 const loading = ref(false)
+const smsSending = ref(false)
 const oidcLoading = ref(false)
 const isRegisterMode = ref(false)
 const oidcEnabled = ref(false)
 const oidcProviderName = ref('')
+const loginMode = ref<'sms' | 'password'>('sms')
+const loginModeTouched = ref(false)
+const smsCooldown = ref(0)
+const smsCooldownSeconds = ref(60)
+let smsCooldownTimer: number | undefined
 // registrationEnabled fails closed until /auth/config says self-service
 // registration is enabled. Invitation tokens can still switch the form into
 // invitation registration mode.
@@ -275,11 +304,14 @@ const oidcLoginText = computed(() => {
   return t('auth.oidcLogin')
 })
 const phonePattern = /^1[3-9]\d{9}$/
+const codePattern = /^\d{4,8}$/
+const isSMSMode = computed(() => loginMode.value === 'sms')
 
 // Login form data
 const formData = reactive<{ [key: string]: any }>({
   phone: '',
   password: '',
+  code: '',
 })
 
 // Register form data
@@ -296,14 +328,54 @@ const formRules = computed(() => ({
     { required: true, message: t('auth.phoneRequired'), type: 'error' },
     { pattern: phonePattern, message: t('auth.phoneInvalid'), type: 'error' }
   ],
-  password: [
-    { required: true, message: t('auth.passwordRequired'), type: 'error' },
-    { min: 8, message: t('auth.passwordMinLength'), type: 'error' },
-    { max: 32, message: t('auth.passwordMaxLength'), type: 'error' },
-    { pattern: /[a-zA-Z]/, message: t('auth.passwordMustContainLetter'), type: 'error' },
-    { pattern: /\d/, message: t('auth.passwordMustContainNumber'), type: 'error' }
-  ]
+  ...(isSMSMode.value
+    ? {
+        code: [
+          { required: true, message: t('auth.codeRequired'), type: 'error' },
+          { pattern: codePattern, message: t('auth.codeInvalid'), type: 'error' },
+        ],
+      }
+    : {
+        password: [
+          { required: true, message: t('auth.passwordRequired'), type: 'error' },
+          { min: 8, message: t('auth.passwordMinLength'), type: 'error' },
+          { max: 32, message: t('auth.passwordMaxLength'), type: 'error' },
+          { pattern: /[a-zA-Z]/, message: t('auth.passwordMustContainLetter'), type: 'error' },
+          { pattern: /\d/, message: t('auth.passwordMustContainNumber'), type: 'error' }
+        ]
+      }),
 }))
+
+const loginSubtitle = computed(() => {
+  if (isSMSMode.value) {
+    return t('auth.smsLoginHint')
+  }
+  return t('auth.loginHint')
+})
+
+const submitButtonLabel = computed(() => {
+  if (loading.value) {
+    return t('auth.loggingIn')
+  }
+  if (isSMSMode.value) {
+    return t('auth.loginWithCode')
+  }
+  return t('auth.login')
+})
+
+const alternateLoginLabel = computed(() => (
+  isSMSMode.value ? t('auth.otherLoginMethod') : t('auth.smsLogin')
+))
+
+const sendCodeButtonLabel = computed(() => {
+  if (smsSending.value) {
+    return t('auth.sendingCode')
+  }
+  if (smsCooldown.value > 0) {
+    return t('auth.codeResendIn', { seconds: smsCooldown.value })
+  }
+  return t('auth.sendCode')
+})
 
 // Register form validation rules
 const registerRules = computed(() => ({
@@ -345,6 +417,72 @@ const toggleMode = () => {
   Object.keys(registerData).forEach(key => {
     (registerData as any)[key] = ''
   })
+}
+
+const setLoginMode = (value: 'sms' | 'password') => {
+  loginModeTouched.value = true
+  loginMode.value = value
+  if (loginMode.value === 'sms') {
+    formData.password = ''
+  } else {
+    formData.code = ''
+  }
+}
+
+const toggleLoginMode = () => {
+  setLoginMode(isSMSMode.value ? 'password' : 'sms')
+}
+
+const clearSmsCooldown = () => {
+  if (smsCooldownTimer !== undefined) {
+    window.clearInterval(smsCooldownTimer)
+    smsCooldownTimer = undefined
+  }
+}
+
+const startSmsCooldown = (seconds: number) => {
+  clearSmsCooldown()
+  smsCooldown.value = Math.max(0, Math.floor(seconds))
+  if (smsCooldown.value <= 0) {
+    return
+  }
+  smsCooldownTimer = window.setInterval(() => {
+    smsCooldown.value = Math.max(0, smsCooldown.value - 1)
+    if (smsCooldown.value <= 0) {
+      clearSmsCooldown()
+    }
+  }, 1000)
+}
+
+const handleSendSmsCode = async () => {
+  try {
+    const phone = formData.phone.trim()
+    if (!phone) {
+      MessagePlugin.error(t('auth.phoneRequired'))
+      return
+    }
+    if (!phonePattern.test(phone)) {
+      MessagePlugin.error(t('auth.phoneInvalid'))
+      return
+    }
+    if (smsCooldown.value > 0 || smsSending.value) {
+      return
+    }
+
+    smsSending.value = true
+    const response = await sendSMSLoginCode({ phone })
+    if (response.success) {
+      MessagePlugin.success(response.message || t('auth.codeSent'))
+      startSmsCooldown(smsCooldownSeconds.value)
+    } else {
+      MessagePlugin.error(response.message || t('auth.codeSendFailed'))
+    }
+  } catch (error: any) {
+    console.error('发送短信验证码失败:', error)
+    MessagePlugin.error(error.message || t('auth.codeSendFailed'))
+  } finally {
+    smsSending.value = false
+  }
 }
 
 const persistLoginResponse = async (response: any) => {
@@ -421,8 +559,15 @@ const loadAuthConfig = async () => {
   try {
     const response = await getAuthConfig()
     registrationEnabled.value = response.registration_mode !== 'invite_only'
+    smsCooldownSeconds.value = response.sms_send_cooldown_seconds || 60
+    if (!loginModeTouched.value) {
+      loginMode.value = 'sms'
+    }
   } catch {
     registrationEnabled.value = false
+    if (!loginModeTouched.value) {
+      loginMode.value = 'sms'
+    }
   }
 }
 
@@ -454,10 +599,16 @@ const handleLogin = async () => {
 
     loading.value = true
 
-    const response = await login({
-      phone: formData.phone.trim(),
-      password: formData.password,
-    })
+    const phone = formData.phone.trim()
+    const response = isSMSMode.value
+      ? await smsLogin({
+        phone,
+        code: formData.code.trim(),
+      })
+      : await login({
+        phone,
+        password: formData.password,
+      })
 
     if (response.success) {
       await persistLoginResponse(response)
@@ -569,6 +720,7 @@ onMounted(async () => {
     // they're explicitly trying to register, not bootstrap a Lite
     // single-user instance.
     loadOIDCConfig()
+    loadAuthConfig()
     return
   }
 
@@ -595,6 +747,10 @@ onMounted(async () => {
 
   loadOIDCConfig()
   loadAuthConfig()
+})
+
+onUnmounted(() => {
+  clearSmsCooldown()
 })
 </script>
 
@@ -975,6 +1131,31 @@ onMounted(async () => {
 }
 
 .form-content {
+  .sms-code-row {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .sms-code-button {
+    flex: 0 0 132px;
+    white-space: nowrap;
+  }
+
+  .login-alternative {
+    display: flex;
+    justify-content: center;
+    margin: 10px 0 4px;
+  }
+
+  .login-hint {
+    margin: -4px 0 14px;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
   :deep(.auth-form) {
     .t-form__item {
       margin-bottom: 18px;
@@ -1176,6 +1357,17 @@ onMounted(async () => {
   .form-title {
     font-size: 22px;
   }
+
+  .form-content {
+    .sms-code-row {
+      flex-direction: column;
+    }
+
+    .sms-code-button {
+      width: 100%;
+      flex-basis: auto;
+    }
+  }
 }
 
 @media (max-width: 480px) {
@@ -1194,6 +1386,7 @@ onMounted(async () => {
   .form-header {
     margin-bottom: 24px;
   }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

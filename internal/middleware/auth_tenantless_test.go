@@ -30,6 +30,24 @@ func TestTenantOptionalAPISurface(t *testing.T) {
 	}
 }
 
+func TestNoAuthAPISurfaceIncludesSMSLogin(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+		want   bool
+	}{
+		{http.MethodPost, "/api/v1/auth/sms/send-code", true},
+		{http.MethodPost, "/api/v1/auth/sms/login", true},
+		{http.MethodGet, "/api/v1/auth/sms/send-code", false},
+		{http.MethodPost, "/api/v1/auth/change-password", false},
+	}
+	for _, tt := range tests {
+		if got := isNoAuthAPI(tt.path, tt.method); got != tt.want {
+			t.Errorf("isNoAuthAPI(%s %s) = %v, want %v", tt.method, tt.path, got, tt.want)
+		}
+	}
+}
+
 func TestResolveFirstMembershipTarget(t *testing.T) {
 	members := newFakeMemberService()
 	members.seedActive("tenantless-user", 42, types.TenantRoleViewer)

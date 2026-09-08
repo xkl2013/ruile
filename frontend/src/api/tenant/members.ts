@@ -80,6 +80,8 @@ export interface AdminCreateMemberRequest {
 export interface AddMemberResponse {
   success: boolean
   data?: TenantMember
+  /** True only when admin-create had to create a new global account. */
+  account_created?: boolean
   message?: string
 }
 

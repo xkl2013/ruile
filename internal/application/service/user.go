@@ -90,6 +90,8 @@ type userService struct {
 	config        *config.Config
 }
 
+var _ interfaces.VerifiedPhoneLoginService = (*userService)(nil)
+
 // NewUserService creates a new user service instance
 func NewUserService(
 	configInfo *config.Config,
@@ -309,6 +311,47 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 	}
 	logger.Info(ctx, "Password verification successful")
 
+	return s.completeLogin(ctx, user, "Login successful")
+}
+
+// LoginWithVerifiedPhone completes login after SMS verification succeeds.
+func (s *userService) LoginWithVerifiedPhone(ctx context.Context, phone string) (*types.LoginResponse, error) {
+	logger.Info(ctx, "Start SMS login")
+	identity := normalizePhoneOrEmail(phone, "")
+	if identity == "" {
+		return &types.LoginResponse{
+			Success: false,
+			Message: "Invalid verification code",
+		}, nil
+	}
+
+	user, err := s.userRepo.GetUserByEmail(ctx, identity)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to get user by verified phone: %v", err)
+		return &types.LoginResponse{
+			Success: false,
+			Message: "Invalid verification code",
+		}, nil
+	}
+	if user == nil {
+		logger.Warn(ctx, "User not found for verified phone login")
+		return &types.LoginResponse{
+			Success: false,
+			Message: "Invalid verification code",
+		}, nil
+	}
+	if !user.IsActive {
+		logger.Warn(ctx, "User account is disabled")
+		return &types.LoginResponse{
+			Success: false,
+			Message: "Account is disabled",
+		}, nil
+	}
+
+	return s.completeLogin(ctx, user, "Login successful")
+}
+
+func (s *userService) completeLogin(ctx context.Context, user *types.User, successMessage string) (*types.LoginResponse, error) {
 	// Generate tokens. Resolve the target tenant once so the JWT claim
 	// and the tenant we return below agree — otherwise an honoured
 	// "last active tenant" preference would mint a token for tenant N
@@ -342,7 +385,7 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 	logger.Info(ctx, "User logged in successfully")
 	return &types.LoginResponse{
 		Success:      true,
-		Message:      "Login successful",
+		Message:      successMessage,
 		User:         user,
 		ActiveTenant: tenant,
 		Memberships:  memberships,

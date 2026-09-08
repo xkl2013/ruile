@@ -65,6 +65,7 @@ type RouterParams struct {
 	ModelCredentialsHandler      *handler.ModelCredentialsHandler
 	EvaluationHandler            *handler.EvaluationHandler
 	AuthHandler                  *handler.AuthHandler
+	SMSAuthHandler               *handler.SMSAuthHandler
 	InitializationHandler        *handler.InitializationHandler
 	SystemHandler                *handler.SystemHandler
 	MCPServiceHandler            *handler.MCPServiceHandler
@@ -229,6 +230,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		v1.Use(rbacGuards.apiKeyAuthorizer.Middleware())
 
 		RegisterAuthRoutes(v1, params.AuthHandler, rbacGuards)
+		RegisterSMSAuthRoutes(v1, params.SMSAuthHandler)
 		RegisterTenantRoutes(v1, params.TenantHandler, params.TenantMemberHandler, params.TenantInvitationHandler, params.AuditLogHandler, rbacGuards)
 		RegisterMyInvitationRoutes(v1, params.TenantInvitationHandler)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
@@ -870,6 +872,15 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	g.apiKeyRoute(r, http.MethodGet, "/auth/me", apiKeyAny(), handler.GetCurrentUser)
 	r.PUT("/auth/me/preferences", handler.UpdateMyPreferences)
 	r.POST("/auth/change-password", handler.ChangePassword)
+}
+
+// RegisterSMSAuthRoutes registers SMS verification login routes.
+func RegisterSMSAuthRoutes(r *gin.RouterGroup, handler *handler.SMSAuthHandler) {
+	if handler == nil {
+		return
+	}
+	r.POST("/auth/sms/send-code", handler.SendLoginCode)
+	r.POST("/auth/sms/login", handler.Login)
 }
 
 func RegisterInitializationRoutes(r *gin.RouterGroup, handler *handler.InitializationHandler, g *rbacGuards) {

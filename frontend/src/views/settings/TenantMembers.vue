@@ -5,7 +5,7 @@
          section*. The audit-log entry sits on the right of the header
          row — secondary navigation that opens the audit drawer; gated
          to Admin+ so non-managers don't see a button they can't use. -->
-    <div class="section-header">
+    <div v-if="!props.hideHeader" class="section-header">
       <div class="section-header-row">
         <div class="section-header-titlewrap">
           <h2>{{ $t('tenantMember.title') }}</h2>
@@ -615,8 +615,10 @@ const { t, tm, locale } = useI18n()
 const authStore = useAuthStore()
 const props = withDefaults(defineProps<{
   disableInvitations?: boolean
+  hideHeader?: boolean
 }>(), {
   disableInvitations: false,
+  hideHeader: false,
 })
 
 /** 悬停层限制在视口内，内容由内部滚动 */
@@ -1541,7 +1543,11 @@ async function submitCreateMember() {
     membersPage.value = 1
     await loadMembers()
     if (auditLoadedOnce.value) reloadAuditLog()
-    MessagePlugin.success(t('tenantMember.create.success', { password: `rl${phone.slice(-6)}` }))
+    MessagePlugin.success(
+      resp.account_created
+        ? t('tenantMember.create.success', { password: `rl${phone.slice(-6)}` })
+        : t('tenantMember.create.existingAccountSuccess'),
+    )
   } catch (err: any) {
     const status = err?.status
     if (status === 409) {
