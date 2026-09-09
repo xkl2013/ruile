@@ -77,6 +77,19 @@ scp scripts/deploy_aliyun_acr_image.local.sh root@<ECS_PUBLIC_IP>:/tmp/weknora-d
 ssh root@<ECS_PUBLIC_IP> 'WEKNORA_VERSION=<new-version> bash /tmp/weknora-deploy.sh'
 ```
 
+如果线上需要短信验证码登录，首次执行脚本前确保 ECS 的部署目录 `.env` 已有短信配置，或在执行脚本时传入：
+
+```bash
+ssh root@<ECS_PUBLIC_IP> '
+  WEKNORA_SMS_ENABLED=true \
+  ALIBABA_CLOUD_ACCESS_KEY_ID=<access-key-id> \
+  ALIBABA_CLOUD_ACCESS_KEY_SECRET=<access-key-secret> \
+  WEKNORA_SMS_SIGN_NAME=<sms-sign-name> \
+  WEKNORA_SMS_TEMPLATE_CODE=<sms-template-code> \
+  bash /tmp/weknora-deploy.sh
+'
+```
+
 部署完成后访问：
 
 ```text
@@ -262,6 +275,24 @@ set_env APP_PORT "127.0.0.1:8080"
 set_env WEKNORA_SANDBOX_DOCKER_IMAGE "registry.cn-beijing.aliyuncs.com/rl-knowledge/weknora-sandbox:<version>"
 ```
 
+如果线上使用短信验证码登录，继续写入阿里云短信配置：
+
+```bash
+set_env WEKNORA_SMS_ENABLED "true"
+set_env ALIBABA_CLOUD_ACCESS_KEY_ID "<access-key-id>"
+set_env ALIBABA_CLOUD_ACCESS_KEY_SECRET "<access-key-secret>"
+set_env ALIBABA_CLOUD_REGION_ID "cn-hangzhou"
+set_env WEKNORA_SMS_ENDPOINT "dysmsapi.aliyuncs.com"
+set_env WEKNORA_SMS_SIGN_NAME "<sms-sign-name>"
+set_env WEKNORA_SMS_TEMPLATE_CODE "<sms-template-code>"
+set_env WEKNORA_SMS_CODE_VALIDITY_SECONDS "300"
+set_env WEKNORA_SMS_SEND_COOLDOWN_SECONDS "60"
+set_env WEKNORA_SMS_MAX_SENDS_PER_PHONE_PER_HOUR "5"
+set_env WEKNORA_SMS_MAX_SENDS_PER_IP_PER_HOUR "30"
+set_env WEKNORA_SMS_MAX_VERIFY_ATTEMPTS_PER_PHONE_HOUR "20"
+set_env WEKNORA_SMS_MAX_VERIFY_ATTEMPTS_PER_IP_HOUR "60"
+```
+
 把 `<version>` 替换为第 2 步推送出来的 tag，例如：
 
 ```bash
@@ -324,6 +355,7 @@ docker compose -f docker-compose.yml -f docker-compose.acr.yml up -d --no-build
 docker compose -f docker-compose.yml -f docker-compose.acr.yml ps
 docker compose -f docker-compose.yml -f docker-compose.acr.yml logs --tail=100 app
 curl -f http://127.0.0.1:8080/health
+curl -f http://127.0.0.1:8080/api/v1/auth/config
 ```
 
 浏览器访问：

@@ -827,11 +827,51 @@ func migrateLegacyStorageBackends(db *gorm.DB) {
 			}
 			backendIDs[provider] = backend.ID
 		}
-		if tenant.DefaultStorageBackendID == nil {
-			if id := backendIDs[defaultProvider]; id != "" {
-				if err := db.Model(&types.Tenant{}).Where("id = ?", tenant.ID).Update("default_storage_backend_id", id).Error; err != nil {
+		defaultBackendID := strings.TrimSpace(backendIDs[defaultProvider])
+		oldEnvDefaultID := ""
+		if defaultBackendID != "" {
+			currentDefaultID := ""
+			if tenant.DefaultStorageBackendID != nil {
+				currentDefaultID = strings.TrimSpace(*tenant.DefaultStorageBackendID)
+			}
+			if currentDefaultID == "" {
+				if err := db.Model(&types.Tenant{}).Where("id = ?", tenant.ID).Update("default_storage_backend_id", defaultBackendID).Error; err != nil {
 					logger.Warnf(context.Background(), "Failed to set default storage backend for workspace %d: %v", tenant.ID, err)
 				}
+			} else if currentDefaultID != defaultBackendID {
+				var currentDefault types.StorageBackend
+				err := db.Where("tenant_id = ? AND id = ?", tenant.ID, currentDefaultID).First(&currentDefault).Error
+				if err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						if updateErr := db.Model(&types.Tenant{}).Where("id = ?", tenant.ID).Update("default_storage_backend_id", defaultBackendID).Error; updateErr != nil {
+							logger.Warnf(context.Background(), "Failed to replace missing default storage backend for workspace %d: %v", tenant.ID, updateErr)
+						}
+					} else {
+						logger.Warnf(context.Background(), "Failed to load default storage backend for workspace %d: %v", tenant.ID, err)
+					}
+				} else if currentDefault.Source == types.StorageBackendSourceEnv && currentDefault.LegacyAlias {
+					oldEnvDefaultID = currentDefaultID
+					if err := db.Model(&types.Tenant{}).Where("id = ?", tenant.ID).Update("default_storage_backend_id", defaultBackendID).Error; err != nil {
+						logger.Warnf(context.Background(), "Failed to switch env default storage backend for workspace %d: %v", tenant.ID, err)
+						oldEnvDefaultID = ""
+					} else {
+						logger.Infof(context.Background(), "Switched workspace %d env default storage backend from %s to %s", tenant.ID, currentDefault.Provider, defaultProvider)
+					}
+				}
+			}
+		}
+
+		if oldEnvDefaultID != "" && defaultBackendID != "" {
+			result := db.Model(&types.KnowledgeBase{}).
+				Where("tenant_id = ? AND storage_backend_id = ?", tenant.ID, oldEnvDefaultID).
+				Updates(map[string]interface{}{
+					"storage_backend_id":      defaultBackendID,
+					"storage_provider_config": fmt.Sprintf(`{"provider":"%s"}`, defaultProvider),
+				})
+			if result.Error != nil {
+				logger.Warnf(context.Background(), "Failed to switch env storage backend for workspace %d knowledge bases: %v", tenant.ID, result.Error)
+			} else if result.RowsAffected > 0 {
+				logger.Infof(context.Background(), "Switched %d knowledge bases in workspace %d from env storage backend %s to %s", result.RowsAffected, tenant.ID, oldEnvDefaultID, defaultProvider)
 			}
 		}
 

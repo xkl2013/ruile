@@ -136,7 +136,7 @@
                 {{ submitButtonLabel }}
               </t-button>
 
-              <div class="login-alternative">
+              <div v-if="smsLoginEnabled" class="login-alternative">
                 <t-button theme="default" variant="text" size="small" :disabled="loading" @click="toggleLoginMode">
                   {{ alternateLoginLabel }}
                 </t-button>
@@ -271,8 +271,9 @@ const smsSending = ref(false)
 const oidcLoading = ref(false)
 const isRegisterMode = ref(false)
 const oidcEnabled = ref(false)
+const smsLoginEnabled = ref(false)
 const oidcProviderName = ref('')
-const loginMode = ref<'sms' | 'password'>('sms')
+const loginMode = ref<'sms' | 'password'>('password')
 const loginModeTouched = ref(false)
 const smsCooldown = ref(0)
 const smsCooldownSeconds = ref(60)
@@ -420,6 +421,11 @@ const toggleMode = () => {
 }
 
 const setLoginMode = (value: 'sms' | 'password') => {
+  if (value === 'sms' && !smsLoginEnabled.value) {
+    loginMode.value = 'password'
+    formData.code = ''
+    return
+  }
   loginModeTouched.value = true
   loginMode.value = value
   if (loginMode.value === 'sms') {
@@ -559,15 +565,19 @@ const loadAuthConfig = async () => {
   try {
     const response = await getAuthConfig()
     registrationEnabled.value = response.registration_mode !== 'invite_only'
+    smsLoginEnabled.value = response.sms_login_enabled === true
     smsCooldownSeconds.value = response.sms_send_cooldown_seconds || 60
-    if (!loginModeTouched.value) {
+    if (!smsLoginEnabled.value) {
+      loginMode.value = 'password'
+      formData.code = ''
+    } else if (!loginModeTouched.value) {
       loginMode.value = 'sms'
     }
   } catch {
     registrationEnabled.value = false
-    if (!loginModeTouched.value) {
-      loginMode.value = 'sms'
-    }
+    smsLoginEnabled.value = false
+    loginMode.value = 'password'
+    formData.code = ''
   }
 }
 
