@@ -30,6 +30,44 @@ func (s *tagTargetKnowledgeBaseService) GetKnowledgeBasesByIDsOnly(
 	return out, nil
 }
 
+func (s *tagTargetKnowledgeBaseService) ListKnowledgeBases(ctx context.Context) ([]*types.KnowledgeBase, error) {
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	out := make([]*types.KnowledgeBase, 0, len(s.kbs))
+	for _, kb := range s.kbs {
+		if kb != nil && (tenantID == 0 || kb.TenantID == tenantID) {
+			out = append(out, kb)
+		}
+	}
+	return out, nil
+}
+
+type tagTargetKBShareService struct {
+	interfaces.KBShareService
+	allowed map[string]bool
+	shared  []*types.SharedKnowledgeBaseInfo
+}
+
+func (s *tagTargetKBShareService) HasTenantKBPermission(
+	_ context.Context,
+	kbID string,
+	_ uint64,
+	_ types.TenantRole,
+	_ types.OrgMemberRole,
+) (bool, error) {
+	return s != nil && s.allowed[kbID], nil
+}
+
+func (s *tagTargetKBShareService) ListSharedKnowledgeBases(
+	_ context.Context,
+	_ uint64,
+	_ types.TenantRole,
+) ([]*types.SharedKnowledgeBaseInfo, error) {
+	if s == nil {
+		return nil, nil
+	}
+	return s.shared, nil
+}
+
 type tagTargetKnowledgeService struct {
 	interfaces.KnowledgeService
 	knowledges []*types.Knowledge
@@ -148,7 +186,144 @@ func TestBuildAgentConfig_TagOnlyScopePreservesRetrievalTarget(t *testing.T) {
 }
 
 func tagTargetContext() context.Context {
-	return context.WithValue(context.Background(), types.TenantIDContextKey, uint64(100))
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(100))
+	ctx = context.WithValue(ctx, types.UserIDContextKey, "admin-user")
+	ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleAdmin)
+	return ctx
+}
+
+func tagTargetUserContext(userID string, role types.TenantRole) context.Context {
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(100))
+	ctx = context.WithValue(ctx, types.UserIDContextKey, userID)
+	ctx = context.WithValue(ctx, types.TenantRoleContextKey, role)
+	return ctx
+}
+
+func newSearchVisibilitySessionService() *sessionService {
+	return &sessionService{
+		cfg: &config.Config{},
+		knowledgeBaseService: &tagTargetKnowledgeBaseService{
+			kbs: map[string]*types.KnowledgeBase{
+				"own-kb": {
+					ID: "own-kb", TenantID: 100, CreatorID: "user-1",
+					Type:             types.KnowledgeBaseTypeDocument,
+					IndexingStrategy: types.IndexingStrategy{VectorEnabled: true},
+				},
+				"other-kb": {
+					ID: "other-kb", TenantID: 100, CreatorID: "user-2",
+					Type:             types.KnowledgeBaseTypeDocument,
+					IndexingStrategy: types.IndexingStrategy{VectorEnabled: true},
+				},
+				"same-tenant-shared-kb": {
+					ID: "same-tenant-shared-kb", TenantID: 100, CreatorID: "user-2",
+					Type:             types.KnowledgeBaseTypeDocument,
+					IndexingStrategy: types.IndexingStrategy{VectorEnabled: true},
+				},
+				"cross-tenant-shared-kb": {
+					ID: "cross-tenant-shared-kb", TenantID: 200, CreatorID: "user-3",
+					Type:             types.KnowledgeBaseTypeDocument,
+					IndexingStrategy: types.IndexingStrategy{VectorEnabled: true},
+				},
+			},
+		},
+		knowledgeService: &tagTargetKnowledgeService{
+			knowledges: []*types.Knowledge{
+				{ID: "own-doc", TenantID: 100, KnowledgeBaseID: "own-kb"},
+				{ID: "other-doc", TenantID: 100, KnowledgeBaseID: "other-kb"},
+				{ID: "same-tenant-shared-doc", TenantID: 100, KnowledgeBaseID: "same-tenant-shared-kb"},
+				{ID: "cross-tenant-shared-doc", TenantID: 200, KnowledgeBaseID: "cross-tenant-shared-kb"},
+			},
+		},
+		kbShareService: &tagTargetKBShareService{
+			allowed: map[string]bool{
+				"same-tenant-shared-kb":  true,
+				"cross-tenant-shared-kb": true,
+			},
+			shared: []*types.SharedKnowledgeBaseInfo{
+				{KnowledgeBase: &types.KnowledgeBase{
+					ID: "cross-tenant-shared-kb", TenantID: 200, CreatorID: "user-3",
+					Type:             types.KnowledgeBaseTypeDocument,
+					IndexingStrategy: types.IndexingStrategy{VectorEnabled: true},
+				}},
+			},
+		},
+	}
+}
+
+func TestBuildSearchTargets_FiltersUnauthorizedSameTenantTargets(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+
+	targets, err := svc.buildSearchTargets(
+		tagTargetUserContext("user-1", types.TenantRoleContributor),
+		100,
+		[]string{"own-kb", "other-kb", "same-tenant-shared-kb", "cross-tenant-shared-kb"},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, targets, 3)
+	assert.True(t, targets.ContainsKB("own-kb"))
+	assert.False(t, targets.ContainsKB("other-kb"))
+	assert.True(t, targets.ContainsKB("same-tenant-shared-kb"))
+	assert.True(t, targets.ContainsKB("cross-tenant-shared-kb"))
+	assert.Equal(t, uint64(200), targets.GetTenantIDForKB("cross-tenant-shared-kb"))
+}
+
+func TestBuildSearchTargets_FiltersKnowledgeIDsByParentKBAccess(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+
+	targets, err := svc.buildSearchTargets(
+		tagTargetUserContext("user-1", types.TenantRoleContributor),
+		100,
+		nil,
+		[]string{"own-doc", "other-doc", "same-tenant-shared-doc", "cross-tenant-shared-doc"},
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, targets, 3)
+	assert.ElementsMatch(t, []string{"own-doc", "same-tenant-shared-doc", "cross-tenant-shared-doc"}, targets.GetAllKnowledgeIDs())
+	assert.NotContains(t, targets.GetAllKnowledgeIDs(), "other-doc")
+	assert.Equal(t, uint64(200), targets.GetTenantIDForKB("cross-tenant-shared-kb"))
+}
+
+func TestBuildSearchTargets_AdminCanSearchTenantKnowledgeBases(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+
+	targets, err := svc.buildSearchTargets(
+		tagTargetUserContext("admin-user", types.TenantRoleAdmin),
+		100,
+		[]string{"own-kb", "other-kb"},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, targets, 2)
+	assert.True(t, targets.ContainsKB("own-kb"))
+	assert.True(t, targets.ContainsKB("other-kb"))
+}
+
+func TestResolveKnowledgeBasesFromAgentAllFiltersToCallerReadableKBs(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+	agent := &types.CustomAgent{
+		ID:       "agent-1",
+		TenantID: 100,
+		Config: types.CustomAgentConfig{
+			AgentMode:       types.AgentModeQuickAnswer,
+			KBSelectionMode: "all",
+		},
+	}
+
+	kbIDs := svc.resolveKnowledgeBasesFromAgent(
+		tagTargetUserContext("user-1", types.TenantRoleContributor),
+		agent,
+		100,
+	)
+
+	assert.ElementsMatch(t, []string{"own-kb", "same-tenant-shared-kb", "cross-tenant-shared-kb"}, kbIDs)
+	assert.NotContains(t, kbIDs, "other-kb")
 }
 
 func TestBuildSearchTargets_DocumentTagScopeResolvesKnowledgeIDs(t *testing.T) {

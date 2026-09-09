@@ -608,12 +608,14 @@ func (s *customAgentService) getSuggestedQuestions(
 	// KB even when that KB is present in the agent's preselected KB list. Other
 	// explicitly selected KBs remain additive.
 	effectiveKBIDs = excludeSuggestionStrings(effectiveKBIDs, resolvedTags.KnowledgeBaseIDs)
+	effectiveKBIDs = s.filterReadableSuggestionKnowledgeBaseIDs(ctx, tenantID, effectiveKBIDs)
 
 	filteredKBIDs, err := types.FilterKnowledgeBasesForTenantAPIKeyScope(ctx, kbIDs, effectiveKBIDs)
 	if err != nil {
 		return nil, err
 	}
 	effectiveKBIDs = filteredKBIDs
+	knowledgeIDs, knowledgeScopeKBIDs := s.filterReadableSuggestionKnowledgeScope(ctx, tenantID, knowledgeIDs)
 
 	if len(effectiveKBIDs) == 0 && len(knowledgeIDs) == 0 && len(resolvedTags.TagIDsByTenant) == 0 {
 		return finalizeStarterSuggestions(curated, nil, starterMode, limit), nil
@@ -647,7 +649,7 @@ func (s *customAgentService) getSuggestedQuestions(
 	// rows live under that tenant. Without this grouping a caller in tenant A
 	// querying a KB shared from tenant B would hit `tenant_id = A` and get zero
 	// rows back — the symptom is "suggested questions never appear for shared KBs".
-	scopeKBIDs := mergeUniqueStrings(queryKBIDs, resolvedTags.KnowledgeBaseIDs)
+	scopeKBIDs := mergeUniqueStrings(mergeUniqueStrings(queryKBIDs, resolvedTags.KnowledgeBaseIDs), knowledgeScopeKBIDs)
 	kbGroups := s.groupKBIDsByEffectiveTenant(ctx, tenantID, scopeKBIDs)
 	// Always keep the caller's tenant in the iteration so knowledge_ids-only
 	// requests (no kbIDs) still execute one query under the caller's tenant.
@@ -1058,7 +1060,7 @@ func (s *customAgentService) groupKBIDsByEffectiveTenant(
 	kbIDs []string,
 ) map[uint64][]string {
 	out := make(map[uint64][]string)
-	if len(kbIDs) == 0 {
+	if len(kbIDs) == 0 || s.kbService == nil {
 		return out
 	}
 	kbs, err := s.kbService.GetKnowledgeBasesByIDsOnly(ctx, kbIDs)
@@ -1066,9 +1068,6 @@ func (s *customAgentService) groupKBIDsByEffectiveTenant(
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"kb_ids": kbIDs,
 		})
-		// Fall back to caller's tenant so at least in-tenant KBs are queryable;
-		// chunk repo filtering will drop anything that doesn't match.
-		out[callerTenantID] = append(out[callerTenantID], kbIDs...)
 		return out
 	}
 	kbByID := make(map[string]*types.KnowledgeBase, len(kbs))
@@ -1077,24 +1076,16 @@ func (s *customAgentService) groupKBIDsByEffectiveTenant(
 			kbByID[kb.ID] = kb
 		}
 	}
-	callerRole := types.TenantRoleFromContext(ctx)
 	for _, kbID := range kbIDs {
 		kb := kbByID[kbID]
-		if kb == nil {
+		tenantID, ok := s.resolveSuggestionReadableKnowledgeBaseTenant(ctx, callerTenantID, kb)
+		if !ok {
 			continue
 		}
-		if kb.TenantID == callerTenantID {
-			out[callerTenantID] = append(out[callerTenantID], kbID)
+		if tenantID == 0 {
 			continue
 		}
-		if s.kbShareService == nil {
-			continue
-		}
-		ok, err := s.kbShareService.HasTenantKBPermission(ctx, kbID, callerTenantID, callerRole, types.OrgRoleViewer)
-		if err != nil || !ok {
-			continue
-		}
-		out[kb.TenantID] = append(out[kb.TenantID], kbID)
+		out[tenantID] = append(out[tenantID], kbID)
 	}
 	return out
 }

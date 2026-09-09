@@ -85,9 +85,31 @@ func (st SearchTargets) GetAllKnowledgeBaseIDs() []string {
 	seen := make(map[string]bool)
 	var result []string
 	for _, t := range st {
+		if t == nil || t.KnowledgeBaseID == "" {
+			continue
+		}
 		if !seen[t.KnowledgeBaseID] {
 			seen[t.KnowledgeBaseID] = true
 			result = append(result, t.KnowledgeBaseID)
+		}
+	}
+	return result
+}
+
+// GetAllKnowledgeIDs returns all unique concrete knowledge IDs from search targets.
+func (st SearchTargets) GetAllKnowledgeIDs() []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, t := range st {
+		if t == nil {
+			continue
+		}
+		for _, id := range t.KnowledgeIDs {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			result = append(result, id)
 		}
 	}
 	return result

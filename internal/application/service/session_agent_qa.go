@@ -35,6 +35,9 @@ func (s *sessionService) AgentQA(
 		logger.Warnf(ctx, "Custom agent not provided for session: %s", sessionID)
 		return errors.New("custom agent configuration is required for agent QA")
 	}
+	if req.Session != nil && req.Session.TenantID != 0 {
+		ctx = context.WithValue(ctx, types.SessionTenantIDContextKey, req.Session.TenantID)
+	}
 
 	// Resolve retrieval tenant using shared helper
 	agentTenantID := s.resolveRetrievalTenantID(ctx, req)
@@ -300,6 +303,8 @@ func (s *sessionService) buildAgentConfig(
 		return nil, fmt.Errorf("build search targets: %w", err)
 	}
 	agentConfig.SearchTargets = searchTargets
+	agentConfig.KnowledgeBases = filterKnowledgeBaseIDsBySearchTargets(agentConfig.KnowledgeBases, searchTargets)
+	agentConfig.KnowledgeIDs = filterKnowledgeIDsBySearchTargets(agentConfig.KnowledgeIDs, searchTargets)
 	// Document tags are stored in knowledge_tag_relations, so document-KB tag
 	// scopes are resolved to concrete knowledge IDs before retrieval. Preserve
 	// those resolved IDs as this turn's pinned documents as well: otherwise the
