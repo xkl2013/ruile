@@ -114,18 +114,6 @@ func (s *knowledgeService) getVLMConfig(ctx context.Context, kb *types.Knowledge
 }
 
 func (s *knowledgeService) buildStorageConfig(ctx context.Context, kb *types.KnowledgeBase) *types.DocParserStorageConfig {
-	if storageForceEnvDefault() {
-		if envCfg := storageConfigFromEnvironment(); envCfg != nil {
-			kbID := ""
-			if kb != nil {
-				kbID = kb.ID
-			}
-			logger.Infof(ctx, "[storage] buildStorageConfig forced env default: kb=%s provider=%s bucket=%s path_prefix=%s endpoint=%s",
-				kbID, strings.ToLower(envCfg.Provider), envCfg.BucketName, envCfg.PathPrefix, envCfg.Endpoint)
-			return envCfg
-		}
-	}
-
 	provider := kb.GetStorageProvider()
 	tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
 	backendID := ""
@@ -278,11 +266,6 @@ func (s *knowledgeService) resolveFileService(ctx context.Context, kb *types.Kno
 		return s.fileSvc
 	}
 
-	if storageForceEnvDefault() {
-		logger.Infof(ctx, "[storage] resolveFileService forced env default: kb=%s provider=%s", kb.ID, strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE"))))
-		return s.fileSvc
-	}
-
 	provider := kb.GetStorageProvider()
 
 	tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
@@ -299,6 +282,9 @@ func (s *knowledgeService) resolveFileService(ctx context.Context, kb *types.Kno
 		}
 		if err != nil {
 			logger.Errorf(ctx, "Failed to resolve storage backend for kb=%s: %v", kb.ID, err)
+			if backendID != "" {
+				return unavailableFileService{err: fmt.Errorf("resolve storage backend %s for knowledge base %s: %w", backendID, kb.ID, err)}
+			}
 		}
 	}
 	if provider == "" && tenant != nil && tenant.StorageEngineConfig != nil {
@@ -322,42 +308,43 @@ func (s *knowledgeService) resolveFileService(ctx context.Context, kb *types.Kno
 	return svc
 }
 
-func storageForceEnvDefault() bool {
-	if strings.TrimSpace(os.Getenv("STORAGE_TYPE")) == "" {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("WEKNORA_STORAGE_FORCE_ENV_DEFAULT"))) {
-	case "true", "1", "yes", "on":
-		return true
-	default:
-		return false
-	}
+type unavailableFileService struct {
+	err error
 }
 
-func storageConfigFromEnvironment() *types.DocParserStorageConfig {
-	provider := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE")))
-	if provider == "" {
-		return nil
+func (s unavailableFileService) failure() error {
+	if s.err != nil {
+		return s.err
 	}
-	out := &types.DocParserStorageConfig{Provider: strings.ToUpper(provider)}
-	switch provider {
-	case "oss":
-		out.Endpoint = strings.TrimSpace(os.Getenv("OSS_ENDPOINT"))
-		out.Region = strings.TrimSpace(os.Getenv("OSS_REGION"))
-		out.AccessKeyID = strings.TrimSpace(os.Getenv("OSS_ACCESS_KEY"))
-		out.SecretAccessKey = strings.TrimSpace(os.Getenv("OSS_SECRET_KEY"))
-		out.BucketName = strings.TrimSpace(os.Getenv("OSS_BUCKET_NAME"))
-		out.PathPrefix = strings.TrimSpace(os.Getenv("OSS_PATH_PREFIX"))
-		if out.PathPrefix == "" {
-			out.PathPrefix = "weknora/"
-		}
-		if out.Endpoint == "" || out.Region == "" || out.AccessKeyID == "" || out.SecretAccessKey == "" || out.BucketName == "" {
-			return nil
-		}
-		return out
-	default:
-		return nil
-	}
+	return fmt.Errorf("file service unavailable")
+}
+
+func (s unavailableFileService) CheckConnectivity(ctx context.Context) error {
+	return s.failure()
+}
+
+func (s unavailableFileService) SaveFile(ctx context.Context, file *multipart.FileHeader, tenantID uint64, knowledgeID string) (string, error) {
+	return "", s.failure()
+}
+
+func (s unavailableFileService) SaveBytes(ctx context.Context, data []byte, tenantID uint64, fileName string, temp bool) (string, error) {
+	return "", s.failure()
+}
+
+func (s unavailableFileService) GetFile(ctx context.Context, filePath string) (io.ReadCloser, error) {
+	return nil, s.failure()
+}
+
+func (s unavailableFileService) GetFileURL(ctx context.Context, filePath string) (string, error) {
+	return "", s.failure()
+}
+
+func (s unavailableFileService) DeleteFile(ctx context.Context, filePath string) error {
+	return s.failure()
+}
+
+func (s unavailableFileService) CopyFile(ctx context.Context, srcPath string, tenantID uint64, knowledgeID string) (string, error) {
+	return "", s.failure()
 }
 
 // resolveFileServiceForPath is like resolveFileService but adds a safety check:

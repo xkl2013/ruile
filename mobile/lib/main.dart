@@ -4085,6 +4085,7 @@ class _NotesPageState extends State<NotesPage> {
 
     try {
       await _apiClient.deleteOrganizeMemory(noteId);
+      await _deleteLocalMobileMemoryCaches(noteId);
       if (!mounted) return;
       _showMessage('已删除笔记');
       unawaited(_loadRemoteMemories());
@@ -10181,6 +10182,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
 
     try {
       await _apiClient.deleteOrganizeMemory(noteId);
+      await _deleteLocalMobileMemoryCaches(noteId);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on _ApiException catch (error) {
@@ -11384,6 +11386,37 @@ class _LocalRecordDraftStore {
     }
   }
 
+  Future<void> deleteByRemoteMemoryId(String remoteMemoryId) async {
+    final targetID = remoteMemoryId.trim();
+    if (targetID.isEmpty) return;
+
+    final dir = await _ensureDirectory();
+    if (!await dir.exists()) return;
+
+    await for (final entity in dir.list(followLinks: false)) {
+      if (entity is! File || !entity.path.endsWith('.json')) continue;
+      try {
+        final raw = jsonDecode(await entity.readAsString());
+        if (raw is! Map) continue;
+        final storedID = raw['remote_memory_id']?.toString().trim() ?? '';
+        if (storedID != targetID) continue;
+
+        final audioPath = raw['audio_path']?.toString().trim() ?? '';
+        if (audioPath.isNotEmpty) {
+          final audio = File(audioPath);
+          if (await audio.exists()) {
+            await audio.delete();
+          }
+        }
+        if (await entity.exists()) {
+          await entity.delete();
+        }
+      } catch (_) {
+        // A malformed local cache must not block remote memory deletion.
+      }
+    }
+  }
+
   Future<Directory> _ensureDirectory() async {
     final root = await getApplicationDocumentsDirectory();
     final dir = Directory(_joinPath(root, 'memory_records'));
@@ -11395,6 +11428,22 @@ class _LocalRecordDraftStore {
 
   String _joinPath(Directory dir, String child) {
     return '${dir.path}${Platform.pathSeparator}$child';
+  }
+}
+
+Future<void> _deleteLocalMobileMemoryCaches(String remoteMemoryId) async {
+  final targetID = remoteMemoryId.trim();
+  if (targetID.isEmpty) return;
+
+  try {
+    await const _LocalRecordDraftStore().deleteByRemoteMemoryId(targetID);
+  } catch (error) {
+    debugPrint('Failed to delete local recording draft $targetID: $error');
+  }
+  try {
+    await const RecordingCardLocalStore().deleteByCloudMemoryId(targetID);
+  } catch (error) {
+    debugPrint('Failed to delete local recording card cache $targetID: $error');
   }
 }
 

@@ -8,11 +8,13 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/Tencent/WeKnora/internal/utils"
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss"
@@ -151,6 +153,100 @@ func NewOssFileServiceWithTempBucket(endpoint, region, accessKey, secretKey, buc
 		bucketName:     bucketName,
 		tempBucketName: tempBucketName,
 	}, nil
+}
+
+// OssFileMigrator uploads existing local files to one concrete OSS backend.
+// It is intentionally separate from FileService because migration must keep a
+// deterministic object key and must not create a second application resource.
+type OssFileMigrator struct {
+	service *ossFileService
+}
+
+// NewOssFileMigrator creates an OSS uploader for storage migration.
+func NewOssFileMigrator(config types.StorageBackendConfig) (*OssFileMigrator, error) {
+	client, err := newOSSClient(
+		strings.TrimSpace(config.Endpoint),
+		strings.TrimSpace(config.Region),
+		strings.TrimSpace(config.AccessKeyID),
+		strings.TrimSpace(config.SecretAccessKey),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if err := ossEnsureBucket(client, strings.TrimSpace(config.BucketName)); err != nil {
+		return nil, err
+	}
+
+	return &OssFileMigrator{
+		service: &ossFileService{
+			client:     client,
+			bucketName: strings.TrimSpace(config.BucketName),
+		},
+	}, nil
+}
+
+// UploadLocalFile uploads an existing local file to the requested OSS object
+// key and returns the provider path. The caller owns database updates.
+func (m *OssFileMigrator) UploadLocalFile(ctx context.Context, sourcePath, objectKey, contentType string) (string, error) {
+	if m == nil || m.service == nil {
+		return "", fmt.Errorf("OSS file migrator is not initialized")
+	}
+	if err := utils.SafeObjectKey(objectKey); err != nil {
+		return "", fmt.Errorf("invalid OSS object key: %w", err)
+	}
+
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("stat local source file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("local source is not a regular file")
+	}
+
+	src, err := os.Open(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("open local source file: %w", err)
+	}
+	defer src.Close()
+
+	if strings.TrimSpace(contentType) == "" {
+		contentType = utils.GetContentTypeByExt(filepath.Ext(sourcePath))
+	}
+	if err := m.service.uploadReader(ctx, src, info.Size(), objectKey, contentType); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s%s/%s", ossScheme, m.service.bucketName, objectKey), nil
+}
+
+func (s *ossFileService) uploadReader(ctx context.Context, src io.Reader, size int64, objectName, contentType string) error {
+	// Use Uploader for files > 10MB (auto multipart with concurrent uploads).
+	const multipartThreshold = 10 * 1024 * 1024
+	if size > multipartThreshold {
+		uploader := s.client.NewUploader(func(uo *oss.UploaderOptions) {
+			uo.PartSize = 10 * 1024 * 1024
+			uo.ParallelNum = 3
+		})
+		_, err := uploader.UploadFrom(ctx, &oss.PutObjectRequest{
+			Bucket:      oss.Ptr(s.bucketName),
+			Key:         oss.Ptr(objectName),
+			ContentType: oss.Ptr(contentType),
+		}, src)
+		if err != nil {
+			return fmt.Errorf("failed to upload local file to OSS (multipart): %w", err)
+		}
+		return nil
+	}
+
+	_, err := s.client.PutObject(ctx, &oss.PutObjectRequest{
+		Bucket:      oss.Ptr(s.bucketName),
+		Key:         oss.Ptr(objectName),
+		Body:        src,
+		ContentType: oss.Ptr(contentType),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upload local file to OSS: %w", err)
+	}
+	return nil
 }
 
 // CheckOssConnectivity tests OSS connectivity using the provided credentials.

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -199,6 +200,103 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rotated.FeaturedOutputs, 3)
 	require.NotEqual(t, discover.FeaturedOutputs[0].ID, rotated.FeaturedOutputs[0].ID)
+}
+
+func TestOrganizeServiceDeleteMemoryDeletesUploadedFile(t *testing.T) {
+	ctx := context.Background()
+	fileSvc := &stubOrganizeFileService{}
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		fileSvc,
+		&stubOrganizeDocumentReader{},
+	)
+
+	memory, err := svc.CreateMemoryFromUpload(
+		ctx,
+		7,
+		"user-a",
+		"mobile-recording.m4a",
+		"audio/mp4",
+		[]byte("audio-bytes"),
+		types.OrganizeMemoryInput{
+			Kind:   types.OrganizeMemoryKindAudio,
+			Title:  "移动端录音",
+			Source: "语音记录",
+			Metadata: types.JSONMap{
+				"audio_local_path": "/var/mobile/Containers/Data/mobile-recording.m4a",
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, memory)
+	filePath, ok := memory.Metadata["file_path"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, filePath)
+
+	require.NoError(t, svc.DeleteMemory(ctx, 7, "user-a", memory.ID))
+	require.Equal(t, []string{filePath}, fileSvc.deletedPaths)
+
+	_, err = svc.GetMemory(ctx, 7, "user-a", memory.ID)
+	require.ErrorIs(t, err, ErrOrganizeNotFound)
+}
+
+func TestOrganizeServiceDeleteOutputDeletesUploadedFile(t *testing.T) {
+	ctx := context.Background()
+	fileSvc := &stubOrganizeFileService{}
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		fileSvc,
+		&stubOrganizeDocumentReader{},
+	)
+
+	output, err := svc.CreateOutputFromUpload(
+		ctx,
+		7,
+		"user-a",
+		"discover-upload.md",
+		"text/markdown",
+		[]byte("# 发现内容"),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, output)
+	filePath, ok := output.Metadata["file_path"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, filePath)
+
+	require.NoError(t, svc.DeleteOutput(ctx, 7, "user-a", output.ID))
+	require.Equal(t, []string{filePath}, fileSvc.deletedPaths)
+
+	_, err = svc.GetOutput(ctx, 7, "user-a", output.ID)
+	require.ErrorIs(t, err, ErrOrganizeNotFound)
+}
+
+func TestOrganizeServiceDeleteMemoryKeepsRecordWhenFileDeleteFails(t *testing.T) {
+	ctx := context.Background()
+	fileSvc := &stubOrganizeFileService{deleteErr: errors.New("oss unavailable")}
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		fileSvc,
+		&stubOrganizeDocumentReader{},
+	)
+
+	memory, err := svc.CreateMemoryFromUpload(
+		ctx,
+		7,
+		"user-a",
+		"mobile-recording.m4a",
+		"audio/mp4",
+		[]byte("audio-bytes"),
+		types.OrganizeMemoryInput{Title: "移动端录音"},
+	)
+	require.NoError(t, err)
+
+	require.Error(t, svc.DeleteMemory(ctx, 7, "user-a", memory.ID))
+	remaining, err := svc.GetMemory(ctx, 7, "user-a", memory.ID)
+	require.NoError(t, err)
+	require.NotNil(t, remaining)
 }
 
 func TestOrganizeServiceCreateSproutReportFromMemoryGeneratesWithRoleConfig(t *testing.T) {

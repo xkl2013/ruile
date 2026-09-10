@@ -37,7 +37,7 @@ func (s *organizeService) CreateOutputFromUpload(
 	if err := validateOrganizeScope(tenantID, userID); err != nil {
 		return nil, err
 	}
-	if s.fileService == nil {
+	if s.fileService == nil && s.storageResolver == nil {
 		return nil, fmt.Errorf("file service is not configured")
 	}
 	if len(data) == 0 {
@@ -76,7 +76,11 @@ func (s *organizeService) CreateOutputFromUpload(
 	}
 
 	storageName := fmt.Sprintf("organize_output_%s%s", uuid.NewString()[:12], filepath.Ext(cleanName))
-	storagePath, saveErr := s.fileService.SaveBytes(ctx, data, tenantID, storageName, false)
+	fileService, resolveErr := s.resolveOrganizeFileService(ctx, tenantID, "")
+	if resolveErr != nil {
+		return nil, resolveErr
+	}
+	storagePath, saveErr := fileService.SaveBytes(ctx, data, tenantID, storageName, false)
 	if saveErr != nil {
 		return nil, fmt.Errorf("save upload file: %w", saveErr)
 	}
@@ -116,7 +120,7 @@ func (s *organizeService) CreateOutputFromUpload(
 		Metadata:      normalizeJSONMap(metadata),
 	}
 	if err := s.repo.CreateOutput(ctx, output, nil); err != nil {
-		_ = s.fileService.DeleteFile(ctx, storagePath)
+		_ = fileService.DeleteFile(ctx, storagePath)
 		return nil, err
 	}
 	return s.repo.GetOutput(ctx, tenantID, userID, output.ID)

@@ -2,63 +2,121 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
-type failIfCalledStorageResolver struct{}
+type fixedStorageResolver struct {
+	fileSvc interfaces.FileService
+	backend *types.StorageBackend
+}
 
-func (failIfCalledStorageResolver) ResolveFileService(
+func (r fixedStorageResolver) ResolveFileService(
 	ctx context.Context,
 	tenant *types.Tenant,
 	backendID, provider, localBaseDir string,
 ) (interfaces.FileService, string, error) {
-	return nil, "", fmt.Errorf("resolver should not be called")
+	return r.fileSvc, r.backend.Provider, nil
 }
 
-func (failIfCalledStorageResolver) ResolveBackend(
+func (r fixedStorageResolver) ResolveBackend(
 	ctx context.Context,
 	tenant *types.Tenant,
 	backendID, provider string,
 ) (*types.StorageBackend, error) {
-	return nil, fmt.Errorf("resolver should not be called")
+	return r.backend, nil
 }
 
-func TestStorageForceEnvDefaultOverridesKnowledgeBaseStorage(t *testing.T) {
-	t.Setenv("STORAGE_TYPE", "oss")
+type failingStorageResolver struct {
+	err error
+}
+
+func (r failingStorageResolver) ResolveFileService(
+	ctx context.Context,
+	tenant *types.Tenant,
+	backendID, provider, localBaseDir string,
+) (interfaces.FileService, string, error) {
+	return nil, "", r.err
+}
+
+func (r failingStorageResolver) ResolveBackend(
+	ctx context.Context,
+	tenant *types.Tenant,
+	backendID, provider string,
+) (*types.StorageBackend, error) {
+	return nil, r.err
+}
+
+func TestKnowledgeBaseStorageBindingTakesPrecedenceOverForcedEnvironment(t *testing.T) {
+	t.Setenv("STORAGE_TYPE", "local")
 	t.Setenv("WEKNORA_STORAGE_FORCE_ENV_DEFAULT", "true")
-	t.Setenv("OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com")
-	t.Setenv("OSS_REGION", "cn-beijing")
-	t.Setenv("OSS_ACCESS_KEY", "access")
-	t.Setenv("OSS_SECRET_KEY", "secret")
-	t.Setenv("OSS_BUCKET_NAME", "rl-knowledge")
-	t.Setenv("OSS_PATH_PREFIX", "weknora/")
 
 	fileSvc := &createKnowledgeFileServiceStub{}
+	backendID := "kb-oss"
+	backend := &types.StorageBackend{
+		ID:       backendID,
+		TenantID: 7,
+		Provider: "oss",
+		Status:   types.StorageBackendStatusActive,
+		Config: types.StorageBackendConfig{
+			Endpoint:        "https://oss-cn-beijing.aliyuncs.com",
+			Region:          "cn-beijing",
+			AccessKeyID:     "access",
+			SecretAccessKey: "secret",
+			BucketName:      "rl-knowledge",
+			PathPrefix:      "weknora/",
+		},
+	}
 	s := &knowledgeService{
 		fileSvc:         fileSvc,
-		storageResolver: failIfCalledStorageResolver{},
+		storageResolver: fixedStorageResolver{fileSvc: fileSvc, backend: backend},
 	}
-	backendID := "legacy-local"
 	kb := &types.KnowledgeBase{
-		ID:                    "kb-local",
+		ID:                    "kb-oss",
 		StorageBackendID:      &backendID,
 		StorageProviderConfig: &types.StorageProviderConfig{Provider: "local"},
 	}
+	ctx := context.WithValue(context.Background(), types.TenantInfoContextKey, &types.Tenant{ID: 7})
 
-	if got := s.resolveFileService(context.Background(), kb); got != fileSvc {
-		t.Fatalf("resolveFileService should use global env file service when forced")
+	if got := s.resolveFileService(ctx, kb); got != fileSvc {
+		t.Fatalf("resolveFileService should use the explicitly bound backend service")
 	}
 
-	cfg := s.buildStorageConfig(context.Background(), kb)
+	cfg := s.buildStorageConfig(ctx, kb)
 	if cfg == nil {
 		t.Fatalf("buildStorageConfig returned nil")
 	}
 	if cfg.Provider != "OSS" || cfg.BucketName != "rl-knowledge" || cfg.Endpoint != "https://oss-cn-beijing.aliyuncs.com" {
-		t.Fatalf("buildStorageConfig = %+v, want OSS env config", cfg)
+		t.Fatalf("buildStorageConfig = %+v, want explicitly bound OSS config", cfg)
+	}
+}
+
+func TestExplicitStorageBindingDoesNotFallbackToGlobalOnResolverError(t *testing.T) {
+	global := &createKnowledgeFileServiceStub{}
+	backendID := "missing-oss"
+	s := &knowledgeService{
+		fileSvc:         global,
+		storageResolver: failingStorageResolver{err: errors.New("storage backend not found")},
+	}
+	kb := &types.KnowledgeBase{
+		ID:                    "kb-oss",
+		StorageBackendID:      &backendID,
+		StorageProviderConfig: &types.StorageProviderConfig{Provider: "oss"},
+	}
+	ctx := context.WithValue(context.Background(), types.TenantInfoContextKey, &types.Tenant{ID: 7})
+
+	fileSvc := s.resolveFileService(ctx, kb)
+	if fileSvc == global {
+		t.Fatalf("explicit storage backend resolution failure must not fall back to global file service")
+	}
+	if _, err := fileSvc.SaveFile(ctx, newMultipartFileHeader(t, "doc.txt", "hello"), 7, "knowledge-1"); err == nil {
+		t.Fatalf("SaveFile should fail when the explicitly bound storage backend cannot be resolved")
+	}
+	if global.saveCalls != 0 {
+		t.Fatalf("global file service was used after explicit backend resolver error")
 	}
 }
 

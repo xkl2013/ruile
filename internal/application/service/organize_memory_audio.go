@@ -39,7 +39,7 @@ func (s *organizeService) CreateMemoryFromUpload(
 	if err := validateOrganizeScope(tenantID, userID); err != nil {
 		return nil, err
 	}
-	if s.fileService == nil {
+	if s.fileService == nil && s.storageResolver == nil {
 		return nil, fmt.Errorf("file service is not configured")
 	}
 	if len(data) == 0 {
@@ -108,12 +108,16 @@ func (s *organizeService) CreateMemoryFromUpload(
 	}
 
 	storageName := fmt.Sprintf("organize_memory_%s%s", uuid.NewString()[:12], filepath.Ext(storedName))
-	storagePath, saveErr := s.fileService.SaveBytes(ctx, storedBytes, tenantID, storageName, false)
+	fileService, resolveErr := s.resolveOrganizeFileService(ctx, tenantID, "")
+	if resolveErr != nil {
+		return nil, resolveErr
+	}
+	storagePath, saveErr := fileService.SaveBytes(ctx, storedBytes, tenantID, storageName, false)
 	if saveErr != nil {
 		return nil, fmt.Errorf("save audio file: %w", saveErr)
 	}
 
-	audioURL := resolveOrganizeMemoryAudioURL(ctx, s.fileService, storagePath)
+	audioURL := resolveOrganizeMemoryAudioURL(ctx, fileService, storagePath)
 
 	content := trimMax(input.Content, 0)
 	if content == "" {
@@ -153,7 +157,7 @@ func (s *organizeService) CreateMemoryFromUpload(
 		Metadata:        metadata,
 	}
 	if err := s.repo.CreateMemory(ctx, memory); err != nil {
-		_ = s.fileService.DeleteFile(ctx, storagePath)
+		_ = fileService.DeleteFile(ctx, storagePath)
 		return nil, err
 	}
 
@@ -268,7 +272,11 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 	}
 
 	audioFileName := organizeMemoryAudioFileName(metadata, filePath)
-	file, err := s.fileService.GetFile(ctx, filePath)
+	fileService, resolveErr := s.resolveOrganizeFileService(ctx, payload.TenantID, filePath)
+	if resolveErr != nil {
+		return s.failOrganizeMemoryTranscription(ctx, memory, "failed to resolve audio storage", resolveErr)
+	}
+	file, err := fileService.GetFile(ctx, filePath)
 	if err != nil {
 		return s.failOrganizeMemoryTranscription(ctx, memory, "failed to open audio file", err)
 	}

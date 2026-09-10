@@ -36,6 +36,9 @@ type organizeService struct {
 	repo            interfaces.OrganizeRepository
 	modelService    interfaces.ModelService
 	fileService     interfaces.FileService
+	storageResolver interfaces.StorageBackendResolver
+	tenantRepo      interfaces.TenantRepository
+	resourceCatalog interfaces.ResourceCatalog
 	taskEnqueuer    interfaces.TaskEnqueuer
 	documentReader  interfaces.DocumentReader
 	audioTranscoder func(context.Context, []byte, string) ([]byte, string, error)
@@ -47,11 +50,17 @@ func NewOrganizeService(
 	fileService interfaces.FileService,
 	taskEnqueuer interfaces.TaskEnqueuer,
 	documentReader interfaces.DocumentReader,
+	storageResolver interfaces.StorageBackendResolver,
+	tenantRepo interfaces.TenantRepository,
+	resourceCatalog interfaces.ResourceCatalog,
 ) interfaces.OrganizeService {
 	return &organizeService{
 		repo:            repo,
 		modelService:    modelService,
 		fileService:     fileService,
+		storageResolver: storageResolver,
+		tenantRepo:      tenantRepo,
+		resourceCatalog: resourceCatalog,
 		taskEnqueuer:    taskEnqueuer,
 		documentReader:  documentReader,
 		audioTranscoder: transcodeOrganizeAudioToMP3,
@@ -131,7 +140,20 @@ func (s *organizeService) UpdateMemory(
 }
 
 func (s *organizeService) DeleteMemory(ctx context.Context, tenantID uint64, userID, id string) error {
-	if _, err := s.GetMemory(ctx, tenantID, userID, id); err != nil {
+	memory, err := s.GetMemory(ctx, tenantID, userID, id)
+	if err != nil {
+		return err
+	}
+	if err := s.deleteOrganizeStoredFile(
+		ctx,
+		tenantID,
+		"memory",
+		strings.TrimSpace(id),
+		memory.Metadata,
+		"audio_file_path",
+		"file_path",
+		"storage_path",
+	); err != nil {
 		return err
 	}
 	return s.repo.DeleteMemory(ctx, tenantID, userID, strings.TrimSpace(id))
@@ -202,7 +224,19 @@ func (s *organizeService) UpdateOutput(
 }
 
 func (s *organizeService) DeleteOutput(ctx context.Context, tenantID uint64, userID, id string) error {
-	if _, err := s.GetOutput(ctx, tenantID, userID, id); err != nil {
+	output, err := s.GetOutput(ctx, tenantID, userID, id)
+	if err != nil {
+		return err
+	}
+	if err := s.deleteOrganizeStoredFile(
+		ctx,
+		tenantID,
+		"output",
+		strings.TrimSpace(id),
+		output.Metadata,
+		"file_path",
+		"storage_path",
+	); err != nil {
 		return err
 	}
 	return s.repo.DeleteOutput(ctx, tenantID, userID, strings.TrimSpace(id))

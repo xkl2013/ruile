@@ -195,6 +195,57 @@ func TestCreateKnowledgeFromFilePersistsStoredFilePathOnCreate(t *testing.T) {
 	require.Equal(t, 1, task.calls)
 }
 
+func TestCreateKnowledgeFromFileUsesExplicitStorageBackend(t *testing.T) {
+	t.Parallel()
+
+	repo := &createKnowledgeFileRepoStub{}
+	globalFileSvc := &createKnowledgeFileServiceStub{}
+	boundFileSvc := &createKnowledgeFileServiceStub{}
+	task := &createKnowledgeTaskEnqueuerStub{}
+	backendID := "oss-backend"
+	kb := &types.KnowledgeBase{
+		ID:                    "kb-1",
+		StorageBackendID:      &backendID,
+		StorageProviderConfig: &types.StorageProviderConfig{Provider: "oss"},
+	}
+	backend := &types.StorageBackend{
+		ID:       backendID,
+		TenantID: 1,
+		Provider: "oss",
+		Status:   types.StorageBackendStatusActive,
+		Config: types.StorageBackendConfig{
+			Endpoint:   "https://oss-cn-beijing.aliyuncs.com",
+			Region:     "cn-beijing",
+			BucketName: "rl-knowledge",
+			PathPrefix: "weknora/",
+		},
+	}
+	svc := &knowledgeService{
+		repo:            repo,
+		kbService:       &createKnowledgeFileKBServiceStub{kb: kb},
+		fileSvc:         globalFileSvc,
+		storageResolver: fixedStorageResolver{fileSvc: boundFileSvc, backend: backend},
+		task:            task,
+	}
+
+	knowledge, err := svc.CreateKnowledgeFromFile(
+		newCreateKnowledgeFileContext(),
+		"kb-1",
+		newMultipartFileHeader(t, "doc.txt", "hello"),
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, knowledge)
+	require.Equal(t, 1, boundFileSvc.saveCalls)
+	require.Zero(t, globalFileSvc.saveCalls)
+}
+
 func TestCreateKnowledgeFromFileDeletesStoredFileWhenCreateFails(t *testing.T) {
 	t.Parallel()
 

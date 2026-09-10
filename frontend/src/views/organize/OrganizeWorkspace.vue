@@ -633,6 +633,7 @@ import DocumentPreview from '@/components/document-preview.vue'
 import {
   createOrganizeSproutReportFromMemory,
   deleteOrganizeMemory,
+  deleteOrganizeOutput,
   getOrganizeDiscover,
   listOrganizeMemories,
   listOrganizeSproutReports,
@@ -1124,16 +1125,24 @@ const canEditActiveOutputPreview = computed(() => {
 })
 
 const getOutputStatusMenuOptions = (currentStatus?: OrganizeOutputStatus) => {
-  return editableOutputStatusOptions.map((option) => ({
-    content: option.label,
-    value: option.value,
-    disabled: option.value === currentStatus,
-    prefixIcon: () =>
-      h(TIcon, {
-        name: option.value === currentStatus ? 'check-circle-filled' : 'check-circle',
-        size: '16px',
-      }),
-  }))
+  return [
+    ...editableOutputStatusOptions.map((option) => ({
+      content: option.label,
+      value: option.value,
+      disabled: option.value === currentStatus,
+      prefixIcon: () =>
+        h(TIcon, {
+          name: option.value === currentStatus ? 'check-circle-filled' : 'check-circle',
+          size: '16px',
+        }),
+    })),
+    {
+      content: '删除',
+      value: 'delete',
+      theme: 'error' as const,
+      prefixIcon: () => h(TIcon, { name: 'delete', size: '16px' }),
+    },
+  ]
 }
 
 const sproutReportTime = (report: SproutReportItem) => {
@@ -2026,6 +2035,41 @@ const closeOutputPreview = () => {
   outputPreviewVisible.value = false
 }
 
+const removeOutputFromLists = (id: string) => {
+  outputs.value = outputs.value.filter((item) => item.id !== id)
+  featuredOutputs.value = featuredOutputs.value.filter((item) => item.id !== id)
+  if (activeOutputPreview.value?.id === id) {
+    activeOutputPreview.value = null
+    outputPreviewVisible.value = false
+  }
+}
+
+const deleteOutputItem = (item: OutputItem) => {
+  const dialog = DialogPlugin.confirm({
+    header: '删除发现',
+    body: `确认删除「${item.title || '无标题'}」？源文件也会一并删除。`,
+    confirmBtn: { content: '删除', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      try {
+        if (item.persisted) {
+          const response = await deleteOrganizeOutput(item.id)
+          if (response?.success === false) {
+            throw new Error(response.message || '删除失败')
+          }
+        }
+        removeOutputFromLists(item.id)
+        MessagePlugin.success('已删除')
+        dialog.destroy()
+        void refreshDiscoverData({ resetPage: true })
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || '删除失败')
+      }
+    },
+    onCancel: () => dialog.destroy(),
+  })
+}
+
 const editActiveOutputPreview = () => {
   const item = activeOutputPreview.value
   if (!item || !canEditActiveOutputPreview.value) return
@@ -2066,6 +2110,10 @@ const updateOutputStatus = async (item: OutputItem, nextStatus: OrganizeOutputSt
 }
 
 const handleOutputStatusMenuClick = (item: OutputItem, action: { value: string | number | boolean }) => {
+  if (String(action.value) === 'delete') {
+    deleteOutputItem(item)
+    return
+  }
   void updateOutputStatus(item, String(action.value) as OrganizeOutputStatus)
 }
 

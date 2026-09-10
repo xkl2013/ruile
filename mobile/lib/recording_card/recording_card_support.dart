@@ -608,6 +608,17 @@ class RecordingCardLocalStore {
     return files;
   }
 
+  Future<void> deleteByCloudMemoryId(String cloudMemoryId) async {
+    final targetID = cloudMemoryId.trim();
+    if (targetID.isEmpty) return;
+
+    final entries = await loadAllFiles();
+    for (final entry in entries) {
+      if (entry.cloudMemoryId.trim() != targetID) continue;
+      await deleteFile(entry.deviceId, entry.fileNameNoExt);
+    }
+  }
+
   Future<List<RecordingCardFileEntry>> loadFiles(String deviceId) async {
     final metadataDir = await _metadataDir(deviceId);
     final files = await _loadFilesFromMetadataDir(metadataDir);
@@ -655,9 +666,13 @@ class RecordingCardLocalStore {
     String fileNameNoExt,
   ) async {
     final audio = File(await audioFilePath(deviceId, fileNameNoExt));
+    final playable = File(await playableFilePath(deviceId, fileNameNoExt));
     final meta = await metadataFile(deviceId, fileNameNoExt);
     if (await audio.exists()) {
       await audio.delete();
+    }
+    if (await playable.exists()) {
+      await playable.delete();
     }
     if (await meta.exists()) {
       await meta.delete();

@@ -168,7 +168,10 @@ func readOrganizeOutputTags(t *testing.T, metadata types.JSONMap) []string {
 }
 
 type stubOrganizeFileService struct {
-	fileURL string
+	fileURL      string
+	saveCalls    int
+	deletedPaths []string
+	deleteErr    error
 }
 
 func (s *stubOrganizeFileService) CheckConnectivity(context.Context) error { return nil }
@@ -176,6 +179,7 @@ func (s *stubOrganizeFileService) SaveFile(context.Context, *multipart.FileHeade
 	return "", nil
 }
 func (s *stubOrganizeFileService) SaveBytes(_ context.Context, _ []byte, tenantID uint64, fileName string, _ bool) (string, error) {
+	s.saveCalls++
 	return "local://" + strings.TrimSpace(fileName), nil
 }
 func (s *stubOrganizeFileService) GetFile(context.Context, string) (io.ReadCloser, error) {
@@ -184,7 +188,10 @@ func (s *stubOrganizeFileService) GetFile(context.Context, string) (io.ReadClose
 func (s *stubOrganizeFileService) GetFileURL(context.Context, string) (string, error) {
 	return s.fileURL, nil
 }
-func (s *stubOrganizeFileService) DeleteFile(context.Context, string) error { return nil }
+func (s *stubOrganizeFileService) DeleteFile(_ context.Context, filePath string) error {
+	s.deletedPaths = append(s.deletedPaths, filePath)
+	return s.deleteErr
+}
 func (s *stubOrganizeFileService) CopyFile(context.Context, string, uint64, string) (string, error) {
 	return "", nil
 }

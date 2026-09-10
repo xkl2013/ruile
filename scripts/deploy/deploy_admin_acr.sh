@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build and push only the WeKnora app image to Alibaba Cloud ACR.
+# Build and push only the WeKnora Admin image to Alibaba Cloud ACR.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 ACR_ENV_FILE="${ACR_ENV_FILE:-$PROJECT_ROOT/.acr.env}"
 if [[ -f "$ACR_ENV_FILE" ]]; then
@@ -33,50 +33,32 @@ Options:
   --username <username>    ACR username. Default: ACR_USERNAME or configured default.
   --tag <tag>              Image tag. Default: ${IMAGE_TAG}
   --platform <platform>    Docker target platform. Default: ${ACR_BUILD_PLATFORM}
-  --skip-build             Only tag/push an existing wechatopenai/weknora-app:latest.
+  --skip-build             Only tag/push an existing wechatopenai/weknora-admin:latest.
   --skip-login             Do not run docker login.
   -h, --help               Show this help.
 
 Environment:
   ACR_ENV_FILE             Env file to load. Default: .acr.env in project root.
   ACR_PASSWORD             ACR password. If unset, existing docker credentials are used.
-  GO_BASE                  Optional Go builder image override.
-  DEBIAN_BASE              Optional Debian runtime image override.
-  APK_MIRROR_ARG           Debian apt mirror host. Default: mirrors.aliyun.com.
-  GOPROXY                  Go proxy. Default: https://goproxy.cn,direct.
-  GOSUMDB                  Go checksum DB. Default: off.
+  NGINX_BASE               Optional nginx image override.
+  VITE_ADMIN_BASE          Admin public base path. Default: /admin/.
+  VITE_ADMIN_API_BASE_URL  Admin API base URL. Default: /.
 
 Image pushed:
-  ${ACR_REGISTRY}/${ACR_NAMESPACE}/weknora-app:${IMAGE_TAG}
+  ${ACR_REGISTRY}/${ACR_NAMESPACE}/weknora-admin:${IMAGE_TAG}
 EOF
 }
 
 log() {
-  printf '[deploy-app] %s\n' "$*"
+  printf '[deploy-admin] %s\n' "$*"
 }
 
 fail() {
-  printf '[deploy-app] ERROR: %s\n' "$*" >&2
+  printf '[deploy-admin] ERROR: %s\n' "$*" >&2
   exit 1
 }
 
 target_arch() {
-  case "$1" in
-    linux/amd64) printf 'amd64' ;;
-    linux/arm64) printf 'arm64' ;;
-    *) printf '%s' "$1" | awk -F/ '{print $2}' ;;
-  esac
-}
-
-builder_platform() {
-  case "$(uname -m)" in
-    x86_64|amd64) printf 'linux/amd64' ;;
-    aarch64|arm64) printf 'linux/arm64' ;;
-    *) printf 'linux/amd64' ;;
-  esac
-}
-
-platform_arch() {
   case "$1" in
     linux/amd64) printf 'amd64' ;;
     linux/arm64) printf 'arm64' ;;
@@ -102,49 +84,6 @@ maybe_login() {
 
   log "logging in to ${ACR_REGISTRY}"
   printf '%s' "$ACR_PASSWORD" | docker login "$ACR_REGISTRY" --username "$ACR_USERNAME" --password-stdin
-}
-
-pick_go_base() {
-  if [[ -n "${GO_BASE:-}" ]]; then
-    return 0
-  fi
-
-  local build_arch
-  build_arch="$(platform_arch "$(builder_platform)")"
-
-  if docker image inspect "golang:1.26-bookworm-${build_arch}" >/dev/null 2>&1; then
-    export GO_BASE="golang:1.26-bookworm-${build_arch}"
-  elif docker image inspect "${ACR_REGISTRY}/${ACR_NAMESPACE}/base-golang:1.26-bookworm-${build_arch}" >/dev/null 2>&1; then
-    export GO_BASE="${ACR_REGISTRY}/${ACR_NAMESPACE}/base-golang:1.26-bookworm-${build_arch}"
-  else
-    export GO_BASE="golang:1.26-bookworm"
-  fi
-}
-
-prepare_debian_base() {
-  if [[ -n "${DEBIAN_BASE:-}" ]]; then
-    return 0
-  fi
-
-  if [[ "${APP_USE_ALIYUN_DEBIAN_BASE:-true}" != "true" ]]; then
-    export DEBIAN_BASE="debian:12.12-slim"
-    return 0
-  fi
-
-  local arch
-  local image
-  arch="$(target_arch "$ACR_BUILD_PLATFORM")"
-  image="weknora-local-base/debian:12.12-slim-aliyun-${arch}"
-  if ! docker image inspect "$image" >/dev/null 2>&1; then
-    log "creating local Debian base with Aliyun apt mirror: ${image}"
-    docker build --progress=plain --platform "$ACR_BUILD_PLATFORM" -t "$image" - <<'EOF'
-ARG DEBIAN_BASE=debian:12.12-slim
-FROM ${DEBIAN_BASE}
-RUN sed -i 's@deb.debian.org@mirrors.aliyun.com@g' /etc/apt/sources.list.d/debian.sources
-EOF
-  fi
-
-  export DEBIAN_BASE="$image"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -195,22 +134,16 @@ docker info >/dev/null 2>&1 || fail "docker daemon is not running"
 maybe_login
 
 if [[ "$SKIP_BUILD" != true ]]; then
-  pick_go_base
-  prepare_debian_base
-
   export PLATFORM="$ACR_BUILD_PLATFORM"
   export TARGETARCH
   TARGETARCH="$(target_arch "$ACR_BUILD_PLATFORM")"
-  export APK_MIRROR_ARG="${APK_MIRROR_ARG:-mirrors.aliyun.com}"
-  export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
-  export GOSUMDB="${GOSUMDB:-off}"
 
-  log "building app image for ${PLATFORM}"
-  "$PROJECT_ROOT/scripts/build_images.sh" --app
+  log "building Admin image for ${PLATFORM}"
+  "$PROJECT_ROOT/scripts/build_images.sh" --admin
 fi
 
-local_image="wechatopenai/weknora-app:latest"
-remote_image="${ACR_REGISTRY}/${ACR_NAMESPACE}/weknora-app:${IMAGE_TAG}"
+local_image="wechatopenai/weknora-admin:latest"
+remote_image="${ACR_REGISTRY}/${ACR_NAMESPACE}/weknora-admin:${IMAGE_TAG}"
 
 log "tagging ${local_image} -> ${remote_image}"
 docker tag "$local_image" "$remote_image"

@@ -18,6 +18,14 @@ test('memory add button opens create/import menu', () => {
   assert.ok(source.includes("openDocumentEditor('memory', imported.id, imported)"))
 })
 
+test('discover output menu exposes deletion and uses the output delete API', () => {
+  assert.ok(apiSource.includes('deleteOrganizeOutput'))
+  assert.ok(apiSource.includes('/api/v1/organize/outputs/${encodeURIComponent(id)}'))
+  assert.ok(source.includes("value: 'delete'"))
+  assert.ok(source.includes('deleteOutputItem'))
+  assert.ok(source.includes('源文件也会一并删除'))
+})
+
 test('sprout report cards show linked memory references', () => {
   assert.ok(apiSource.includes('memory_refs?: OrganizeMemoryReference[]'))
   assert.ok(source.includes('sproutReportReferenceLabels(report)'))

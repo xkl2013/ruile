@@ -110,6 +110,8 @@ export default defineConfig({
     vueJsx(),
   ],
   resolve: {
+    // Admin reuses frontend/src, so keep one Vue/Pinia/router runtime.
+    dedupe: ['vue', 'pinia', 'vue-router'],
     alias: {
       '@': fileURLToPath(new URL('../frontend/src', import.meta.url)),
       '@admin': fileURLToPath(new URL('./src', import.meta.url)),

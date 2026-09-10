@@ -197,6 +197,10 @@ export function getOrganizeOutput(id: string) {
   return get<OrganizeResponse<OrganizeOutput>>(`/api/v1/organize/outputs/${encodeURIComponent(id)}`)
 }
 
+export function deleteOrganizeOutput(id: string) {
+  return del<OrganizeResponse<null>>(`/api/v1/organize/outputs/${encodeURIComponent(id)}`)
+}
+
 export function listOrganizeSproutReports(params?: OrganizeListParams & { stage?: OrganizeSproutStage; memory_id?: string }) {
   return get<OrganizeResponse<OrganizeListData<OrganizeSproutReport>>>(withQuery('/api/v1/organize/sprout-reports', params))
 }

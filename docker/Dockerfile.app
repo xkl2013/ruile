@@ -76,6 +76,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     fi && \
     export GOTMPDIR=/tmp/go-build GOCACHE=/root/.cache/go-build && \
     make build-prod
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/tmp/go-build \
+    if [ "${TARGETARCH}" = "amd64" ]; then \
+        export CC=x86_64-linux-gnu-gcc CXX=x86_64-linux-gnu-g++; \
+    fi && \
+    export GOTMPDIR=/tmp/go-build GOCACHE=/root/.cache/go-build && \
+    GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} CGO_ENABLED=1 \
+    go build -o /app/WeKnora-storage-migrate ./cmd/storage-migrate
 RUN --mount=type=cache,target=/go/pkg/mod cp -r /go/pkg/mod/github.com/yanyiwu/ /app/yanyiwu/
 
 # Final stage
@@ -131,6 +140,7 @@ COPY --from=builder /app/skills/preloaded ./skills/preloaded
 # Keep a read-only backup so bind-mount cannot erase built-in skills
 COPY --from=builder /app/skills/preloaded ./skills/_builtin
 COPY --from=builder /app/WeKnora .
+COPY --from=builder /app/WeKnora-storage-migrate .
 
 # Copy and make entrypoint script executable
 COPY --from=builder /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
