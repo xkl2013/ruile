@@ -74,6 +74,49 @@ func TestMigrateLegacyStorageBackendsSwitchesEnvDefaultToCurrentEnvironment(t *t
 	assert.JSONEq(t, `{"provider":"oss"}`, kbProvider)
 }
 
+func TestMigrateLegacyStorageBackendsForceEnvDefaultOverridesLegacyLocalDefault(t *testing.T) {
+	t.Setenv("STORAGE_TYPE", "oss")
+	t.Setenv("WEKNORA_STORAGE_FORCE_ENV_DEFAULT", "true")
+	t.Setenv("OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com")
+	t.Setenv("OSS_REGION", "cn-beijing")
+	t.Setenv("OSS_ACCESS_KEY", "access")
+	t.Setenv("OSS_SECRET_KEY", "secret")
+	t.Setenv("OSS_BUCKET_NAME", "rl-knowledge")
+	t.Setenv("OSS_PATH_PREFIX", "weknora/")
+
+	db := newStorageMigrationTestDB(t)
+	tenantConfig, err := (&types.StorageEngineConfig{DefaultProvider: "local", Local: &types.LocalEngineConfig{PathPrefix: "legacy"}}).Value()
+	require.NoError(t, err)
+	require.NoError(t, db.Exec("INSERT INTO tenants(id, name, storage_engine_config, default_storage_backend_id) VALUES (?, ?, ?, ?)", 7, "workspace", tenantConfig, "legacy-local").Error)
+	require.NoError(t, db.Create(&types.StorageBackend{
+		ID:          "legacy-local",
+		TenantID:    7,
+		Name:        "Local",
+		Provider:    "local",
+		Source:      types.StorageBackendSourceUser,
+		Status:      types.StorageBackendStatusActive,
+		LegacyAlias: true,
+	}).Error)
+	require.NoError(t, db.Exec(
+		"INSERT INTO knowledge_bases(id, tenant_id, storage_provider_config, storage_backend_id, cos_config) VALUES (?, ?, ?, ?, ?)",
+		"kb-a", 7, `{"provider":"local"}`, "legacy-local", []byte("{}"),
+	).Error)
+
+	migrateLegacyStorageBackends(db)
+
+	var ossBackend types.StorageBackend
+	require.NoError(t, db.Where("tenant_id = ? AND provider = ? AND legacy_alias = ?", 7, "oss", true).First(&ossBackend).Error)
+
+	var tenantDefault, kbBackend, kbProvider string
+	require.NoError(t, db.Raw("SELECT default_storage_backend_id FROM tenants WHERE id = 7").Scan(&tenantDefault).Error)
+	require.NoError(t, db.Raw("SELECT storage_backend_id FROM knowledge_bases WHERE id = 'kb-a'").Scan(&kbBackend).Error)
+	require.NoError(t, db.Raw("SELECT storage_provider_config FROM knowledge_bases WHERE id = 'kb-a'").Scan(&kbProvider).Error)
+
+	assert.Equal(t, ossBackend.ID, tenantDefault)
+	assert.Equal(t, ossBackend.ID, kbBackend)
+	assert.JSONEq(t, `{"provider":"oss"}`, kbProvider)
+}
+
 func TestMigrateLegacyStorageBackendsKeepsUserManagedDefault(t *testing.T) {
 	t.Setenv("STORAGE_TYPE", "oss")
 	t.Setenv("OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com")

@@ -114,6 +114,18 @@ func (s *knowledgeService) getVLMConfig(ctx context.Context, kb *types.Knowledge
 }
 
 func (s *knowledgeService) buildStorageConfig(ctx context.Context, kb *types.KnowledgeBase) *types.DocParserStorageConfig {
+	if storageForceEnvDefault() {
+		if envCfg := storageConfigFromEnvironment(); envCfg != nil {
+			kbID := ""
+			if kb != nil {
+				kbID = kb.ID
+			}
+			logger.Infof(ctx, "[storage] buildStorageConfig forced env default: kb=%s provider=%s bucket=%s path_prefix=%s endpoint=%s",
+				kbID, strings.ToLower(envCfg.Provider), envCfg.BucketName, envCfg.PathPrefix, envCfg.Endpoint)
+			return envCfg
+		}
+	}
+
 	provider := kb.GetStorageProvider()
 	tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
 	backendID := ""
@@ -266,6 +278,11 @@ func (s *knowledgeService) resolveFileService(ctx context.Context, kb *types.Kno
 		return s.fileSvc
 	}
 
+	if storageForceEnvDefault() {
+		logger.Infof(ctx, "[storage] resolveFileService forced env default: kb=%s provider=%s", kb.ID, strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE"))))
+		return s.fileSvc
+	}
+
 	provider := kb.GetStorageProvider()
 
 	tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
@@ -303,6 +320,44 @@ func (s *knowledgeService) resolveFileService(ctx context.Context, kb *types.Kno
 	}
 	logger.Infof(ctx, "[storage] resolveFileService selected: kb=%s provider=%s", kb.ID, resolvedProvider)
 	return svc
+}
+
+func storageForceEnvDefault() bool {
+	if strings.TrimSpace(os.Getenv("STORAGE_TYPE")) == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("WEKNORA_STORAGE_FORCE_ENV_DEFAULT"))) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func storageConfigFromEnvironment() *types.DocParserStorageConfig {
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE")))
+	if provider == "" {
+		return nil
+	}
+	out := &types.DocParserStorageConfig{Provider: strings.ToUpper(provider)}
+	switch provider {
+	case "oss":
+		out.Endpoint = strings.TrimSpace(os.Getenv("OSS_ENDPOINT"))
+		out.Region = strings.TrimSpace(os.Getenv("OSS_REGION"))
+		out.AccessKeyID = strings.TrimSpace(os.Getenv("OSS_ACCESS_KEY"))
+		out.SecretAccessKey = strings.TrimSpace(os.Getenv("OSS_SECRET_KEY"))
+		out.BucketName = strings.TrimSpace(os.Getenv("OSS_BUCKET_NAME"))
+		out.PathPrefix = strings.TrimSpace(os.Getenv("OSS_PATH_PREFIX"))
+		if out.PathPrefix == "" {
+			out.PathPrefix = "weknora/"
+		}
+		if out.Endpoint == "" || out.Region == "" || out.AccessKeyID == "" || out.SecretAccessKey == "" || out.BucketName == "" {
+			return nil
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // resolveFileServiceForPath is like resolveFileService but adds a safety check:

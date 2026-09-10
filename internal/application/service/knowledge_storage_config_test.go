@@ -2,10 +2,65 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
+
+type failIfCalledStorageResolver struct{}
+
+func (failIfCalledStorageResolver) ResolveFileService(
+	ctx context.Context,
+	tenant *types.Tenant,
+	backendID, provider, localBaseDir string,
+) (interfaces.FileService, string, error) {
+	return nil, "", fmt.Errorf("resolver should not be called")
+}
+
+func (failIfCalledStorageResolver) ResolveBackend(
+	ctx context.Context,
+	tenant *types.Tenant,
+	backendID, provider string,
+) (*types.StorageBackend, error) {
+	return nil, fmt.Errorf("resolver should not be called")
+}
+
+func TestStorageForceEnvDefaultOverridesKnowledgeBaseStorage(t *testing.T) {
+	t.Setenv("STORAGE_TYPE", "oss")
+	t.Setenv("WEKNORA_STORAGE_FORCE_ENV_DEFAULT", "true")
+	t.Setenv("OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com")
+	t.Setenv("OSS_REGION", "cn-beijing")
+	t.Setenv("OSS_ACCESS_KEY", "access")
+	t.Setenv("OSS_SECRET_KEY", "secret")
+	t.Setenv("OSS_BUCKET_NAME", "rl-knowledge")
+	t.Setenv("OSS_PATH_PREFIX", "weknora/")
+
+	fileSvc := &createKnowledgeFileServiceStub{}
+	s := &knowledgeService{
+		fileSvc:         fileSvc,
+		storageResolver: failIfCalledStorageResolver{},
+	}
+	backendID := "legacy-local"
+	kb := &types.KnowledgeBase{
+		ID:                    "kb-local",
+		StorageBackendID:      &backendID,
+		StorageProviderConfig: &types.StorageProviderConfig{Provider: "local"},
+	}
+
+	if got := s.resolveFileService(context.Background(), kb); got != fileSvc {
+		t.Fatalf("resolveFileService should use global env file service when forced")
+	}
+
+	cfg := s.buildStorageConfig(context.Background(), kb)
+	if cfg == nil {
+		t.Fatalf("buildStorageConfig returned nil")
+	}
+	if cfg.Provider != "OSS" || cfg.BucketName != "rl-knowledge" || cfg.Endpoint != "https://oss-cn-beijing.aliyuncs.com" {
+		t.Fatalf("buildStorageConfig = %+v, want OSS env config", cfg)
+	}
+}
 
 // TestBuildStorageConfig_TenantMergeAllProviders pins the tenant-merge branch
 // of (knowledgeService).buildStorageConfig: every provider listed in

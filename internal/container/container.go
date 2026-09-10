@@ -779,12 +779,16 @@ func migrateLegacyStorageBackends(db *gorm.DB) {
 	}
 	for _, tenant := range tenants {
 		legacy := tenant.StorageEngineConfig
+		envProvider := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE")))
+		forceEnvDefault := storageForceEnvDefault() && envProvider != ""
 		defaultProvider := ""
-		if legacy != nil {
+		if forceEnvDefault {
+			defaultProvider = envProvider
+		} else if legacy != nil {
 			defaultProvider = strings.ToLower(strings.TrimSpace(legacy.DefaultProvider))
 		}
 		if defaultProvider == "" {
-			defaultProvider = strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE")))
+			defaultProvider = envProvider
 		}
 		if defaultProvider == "" {
 			defaultProvider = "local"
@@ -849,7 +853,7 @@ func migrateLegacyStorageBackends(db *gorm.DB) {
 					} else {
 						logger.Warnf(context.Background(), "Failed to load default storage backend for workspace %d: %v", tenant.ID, err)
 					}
-				} else if currentDefault.Source == types.StorageBackendSourceEnv && currentDefault.LegacyAlias {
+				} else if currentDefault.LegacyAlias && (currentDefault.Source == types.StorageBackendSourceEnv || forceEnvDefault) {
 					oldEnvDefaultID = currentDefaultID
 					if err := db.Model(&types.Tenant{}).Where("id = ?", tenant.ID).Update("default_storage_backend_id", defaultBackendID).Error; err != nil {
 						logger.Warnf(context.Background(), "Failed to switch env default storage backend for workspace %d: %v", tenant.ID, err)
@@ -866,12 +870,33 @@ func migrateLegacyStorageBackends(db *gorm.DB) {
 				Where("tenant_id = ? AND storage_backend_id = ?", tenant.ID, oldEnvDefaultID).
 				Updates(map[string]interface{}{
 					"storage_backend_id":      defaultBackendID,
-					"storage_provider_config": fmt.Sprintf(`{"provider":"%s"}`, defaultProvider),
+					"storage_provider_config": types.StorageProviderConfig{Provider: defaultProvider},
 				})
 			if result.Error != nil {
 				logger.Warnf(context.Background(), "Failed to switch env storage backend for workspace %d knowledge bases: %v", tenant.ID, result.Error)
 			} else if result.RowsAffected > 0 {
 				logger.Infof(context.Background(), "Switched %d knowledge bases in workspace %d from env storage backend %s to %s", result.RowsAffected, tenant.ID, oldEnvDefaultID, defaultProvider)
+			}
+		}
+
+		if forceEnvDefault && defaultBackendID != "" {
+			var legacyBackendIDs []string
+			if err := db.Model(&types.StorageBackend{}).
+				Where("tenant_id = ? AND legacy_alias = ? AND id <> ?", tenant.ID, true, defaultBackendID).
+				Pluck("id", &legacyBackendIDs).Error; err != nil {
+				logger.Warnf(context.Background(), "Failed to load legacy storage backends for workspace %d: %v", tenant.ID, err)
+			} else if len(legacyBackendIDs) > 0 {
+				result := db.Model(&types.KnowledgeBase{}).
+					Where("tenant_id = ? AND storage_backend_id IN ?", tenant.ID, legacyBackendIDs).
+					Updates(map[string]interface{}{
+						"storage_backend_id":      defaultBackendID,
+						"storage_provider_config": types.StorageProviderConfig{Provider: defaultProvider},
+					})
+				if result.Error != nil {
+					logger.Warnf(context.Background(), "Failed to force env storage backend for workspace %d knowledge bases: %v", tenant.ID, result.Error)
+				} else if result.RowsAffected > 0 {
+					logger.Infof(context.Background(), "Forced %d knowledge bases in workspace %d to env storage backend %s", result.RowsAffected, tenant.ID, defaultProvider)
+				}
 			}
 		}
 
@@ -881,13 +906,26 @@ func migrateLegacyStorageBackends(db *gorm.DB) {
 		}
 		for _, kb := range kbs {
 			provider := kb.GetStorageProvider()
-			if provider == "" {
+			if provider == "" || forceEnvDefault {
 				provider = defaultProvider
 			}
 			if id := backendIDs[provider]; id != "" {
-				_ = db.Model(&types.KnowledgeBase{}).Where("id = ? AND storage_backend_id IS NULL", kb.ID).Update("storage_backend_id", id).Error
+				updates := map[string]interface{}{"storage_backend_id": id}
+				if forceEnvDefault {
+					updates["storage_provider_config"] = types.StorageProviderConfig{Provider: provider}
+				}
+				_ = db.Model(&types.KnowledgeBase{}).Where("id = ? AND storage_backend_id IS NULL", kb.ID).Updates(updates).Error
 			}
 		}
+	}
+}
+
+func storageForceEnvDefault() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("WEKNORA_STORAGE_FORCE_ENV_DEFAULT"))) {
+	case "true", "1", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 
