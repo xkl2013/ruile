@@ -1,6 +1,8 @@
 import { get, post, put, del, postUpload, getDown } from "../../utils/request";
 import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess';
 
+const KNOWLEDGE_FILE_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
 // 知识库管理 API（列表、创建、获取、更新、删除、复制）
 export function listKnowledgeBases(params?: {
   agent_id?: string;
@@ -262,7 +264,9 @@ export function uploadKnowledgeFile(
       formData.append(key, value);
     }
   });
-  return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/file`, formData, onProgress);
+  return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/file`, formData, onProgress, {
+    timeout: KNOWLEDGE_FILE_UPLOAD_TIMEOUT_MS,
+  });
 }
 
 // 从URL创建知识
