@@ -8,7 +8,7 @@ import hljs from "highlight.js";
 import "highlight.js/styles/github.css";
 import mermaid from "mermaid";
 import { onMounted, ref, nextTick, onUnmounted, watch, computed } from "vue";
-import { downKnowledgeDetails, deleteGeneratedQuestion, getChunkByIdOnly, previewKnowledgeFile } from "@/api/knowledge-base/index";
+import { deleteGeneratedQuestion, getChunkByIdOnly, previewKnowledgeFile } from "@/api/knowledge-base/index";
 import { MessagePlugin, DialogPlugin } from "tdesign-vue-next";
 import { sanitizeHTML, safeMarkdownToHTML, createSafeImage, isValidImageURL, hydrateProtectedFileImages, isValidURL } from '@/utils/security';
 import { normalizeSpuriousTablePrefixes } from '@/utils/markdownTableNormalize';
@@ -31,7 +31,6 @@ const canDeleteGeneratedQuestion = computed(() => {
   return authStore.hasRole('admin');
 });
 
-const canDownloadFile = computed(() => authStore.hasRole('admin'));
 const isSummaryRegenerationBusy = computed(() => {
   const parseStatus = String(props.details?.parse_status ?? '');
   const summaryStatus = String(props.details?.summary_status ?? '');
@@ -324,7 +323,6 @@ const docMarkdownRoot = ref<HTMLElement | null>(null)
 
 const getMarkdownRenderRoot = (): ParentNode | null =>
   docMarkdownRoot.value ?? (mdContentWrap.value as ParentNode | null) ?? null
-let url = ref('')
 // 视图模式：chunks / merged / preview
 // file 类型默认「预览」，URL / 手动创建 默认「全文」
 const viewMode = ref<'chunks' | 'merged' | 'preview'>('merged');
@@ -561,6 +559,7 @@ const previewSupportedTypes = new Set([
   'ini', 'conf', 'log', 'sql', 'rs', 'rb', 'php', 'swift', 'kt',
   'scala', 'r', 'lua', 'pl', 'toml',
   'mp3', 'wav', 'm4a', 'flac', 'ogg',
+  'mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'flv',
 ]);
 
 const canPreview = (): boolean => {
@@ -1020,32 +1019,6 @@ watch(() => props.details?.description, () => {
 });
 watch(summaryRef, () => checkSummaryOverflow());
 
-const downloadFile = () => {
-  downKnowledgeDetails(props.details.id)
-    .then((result) => {
-      if (result) {
-        if (url.value) {
-          URL.revokeObjectURL(url.value);
-        }
-        url.value = URL.createObjectURL(result);
-        const link = document.createElement("a");
-        link.style.display = "none";
-        link.setAttribute("href", url.value);
-        const needsExt = props.details.type === 'manual' && !props.details.title.toLowerCase().endsWith('.md');
-        const ext = needsExt ? '.md' : '';
-        link.setAttribute("download", props.details.title + ext);
-        document.body.appendChild(link);
-        link.click();
-        nextTick(() => {
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url.value);
-        })
-      }
-    })
-    .catch((err) => {
-      MessagePlugin.error(t('file.downloadFailed'));
-    });
-};
 const requestNextChunkPage = () => {
   if (loadingChunks || props.details?.chunkLoading) return;
   const total = props.details?.total ?? 0;
@@ -1104,13 +1077,6 @@ const handleDetailsScroll = () => {
             <div class="doc-drawer-header-title">{{ getDisplayTitle() }}</div>
           </div>
           <div class="header-actions">
-            <t-button v-if="canDownloadFile && (details.type === 'file' || details.type === 'manual')"
-              class="header-action-btn" size="small" variant="text" shape="square" theme="default"
-              :title="$t('common.download') || 'Download'" @click="downloadFile()">
-              <template #icon>
-                <t-icon name="download" size="16px" />
-              </template>
-            </t-button>
             <t-button v-if="details.id && hasTimelineSpans" class="header-action-btn trace-entry-btn" size="small"
               variant="text" shape="square" :theme="traceEntryTheme" :title="traceEntryTitle" @click="openTimeline">
               <template #icon>

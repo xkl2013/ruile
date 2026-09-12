@@ -31,6 +31,7 @@ type migrationOptions struct {
 	localBaseDir string
 	limit        int
 	execute      bool
+	scope        string
 }
 
 type migrationStats struct {
@@ -74,6 +75,9 @@ func main() {
 	if opts.limit < 0 {
 		log.Fatal("--limit must be >= 0")
 	}
+	if opts.scope != "knowledge" && opts.scope != "all" {
+		log.Fatalf("--scope must be knowledge or all, got %q", opts.scope)
+	}
 
 	ctx := context.Background()
 	db, err := openDatabase(ctx)
@@ -101,6 +105,17 @@ func main() {
 	query := db.WithContext(ctx).
 		Where("tenant_id = ? AND LOWER(provider) = ? AND state = ?", opts.tenantID, "local", types.ResourceStateActive).
 		Order("created_at ASC")
+	if opts.scope == "knowledge" {
+		query = query.Where(`
+			EXISTS (
+				SELECT 1
+				FROM resource_bindings rb
+				WHERE rb.resource_id = resources.id
+				  AND rb.tenant_id = resources.tenant_id
+				  AND rb.owner_type = ?
+			)
+		`, "knowledge")
+	}
 	if opts.limit > 0 {
 		query = query.Limit(opts.limit)
 	}
@@ -113,12 +128,13 @@ func main() {
 		log.Fatalf("load legacy local storage backends: %v", err)
 	}
 
-	log.Printf("target backend=%s tenant=%d bucket=%s prefix=%s local_base_dir=%s resources=%d mode=%s",
+	log.Printf("target backend=%s tenant=%d bucket=%s prefix=%s local_base_dir=%s scope=%s resources=%d mode=%s",
 		target.ID,
 		target.TenantID,
 		target.Config.BucketName,
 		normalizedPrefix(target.Config.PathPrefix),
 		opts.localBaseDir,
+		opts.scope,
 		len(resources),
 		map[bool]string{true: "execute", false: "dry-run"}[opts.execute],
 	)
@@ -215,10 +231,15 @@ func parseOptions() migrationOptions {
 	flag.StringVar(&opts.localBaseDir, "local-base-dir", defaultBaseDir, "local storage base directory mounted in the container")
 	flag.IntVar(&opts.limit, "limit", 0, "maximum resources to process; 0 means all")
 	flag.BoolVar(&opts.execute, "execute", false, "upload files and update resources; default is dry-run")
+	flag.StringVar(&opts.scope, "scope", "knowledge", "migration scope: knowledge (default) or all")
 	flag.Parse()
 
 	opts.backendID = strings.TrimSpace(opts.backendID)
 	opts.localBaseDir = strings.TrimSpace(opts.localBaseDir)
+	opts.scope = strings.ToLower(strings.TrimSpace(opts.scope))
+	if opts.scope == "" {
+		opts.scope = "knowledge"
+	}
 	if opts.localBaseDir == "" {
 		opts.localBaseDir = defaultLocalStorageBaseDir
 	}
