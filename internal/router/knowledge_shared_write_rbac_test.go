@@ -43,6 +43,8 @@ type sharedWriteKnowledgeServiceStub struct {
 	uploadTenantID    uint64
 	uploadKBID        string
 	uploadFilename    string
+	uploadContextErr  error
+	uploadDoneClosed  bool
 	lastBatchCalled   bool
 	lastBatchTenantID uint64
 	lastBatchIDs      []string
@@ -63,6 +65,13 @@ func (s *sharedWriteKnowledgeServiceStub) CreateKnowledgeFromFile(
 	s.uploadKBID = kbID
 	s.uploadFilename = file.Filename
 	s.uploadTenantID, _ = types.TenantIDFromContext(ctx)
+	s.uploadContextErr = ctx.Err()
+	select {
+	case <-ctx.Done():
+		s.uploadDoneClosed = true
+	default:
+		s.uploadDoneClosed = false
+	}
 	return &types.Knowledge{
 		ID:              "created-knowledge",
 		TenantID:        s.uploadTenantID,
@@ -323,6 +332,29 @@ func TestSharedKnowledgeFileUploadPermission(t *testing.T) {
 				t.Fatal("upload service should not run for read-only shared members")
 			}
 		})
+	}
+}
+
+func TestKnowledgeFileUploadServiceContextSurvivesRequestCancellation(t *testing.T) {
+	h := newSharedWriteHarness(t, types.TenantRoleContributor, types.OrgRoleEditor)
+	req := multipartFileRequest(t, http.MethodPost, "/api/v1/knowledge-bases/kb-shared/knowledge/file", "large-demo.txt", "hello")
+	canceledCtx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(canceledCtx)
+
+	rec := h.serve(req)
+
+	if got := rec.Code; got != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", got, http.StatusOK, rec.Body.String())
+	}
+	if !h.kg.uploadCalled {
+		t.Fatal("upload service was not called")
+	}
+	if h.kg.uploadContextErr != nil {
+		t.Fatalf("upload context err = %v, want nil", h.kg.uploadContextErr)
+	}
+	if h.kg.uploadDoneClosed {
+		t.Fatal("upload context was already canceled")
 	}
 }
 

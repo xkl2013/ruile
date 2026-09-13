@@ -40,6 +40,8 @@ type KnowledgeHandler struct {
 	spanRepo          repository.KnowledgeSpanRepository
 }
 
+const knowledgeFileUploadOperationTimeout = 30 * time.Minute
+
 // NewKnowledgeHandler creates a new knowledge handler instance
 func NewKnowledgeHandler(
 	cfg *config.Config,
@@ -430,8 +432,11 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 
 	channel := c.PostForm("channel")
 
-	// Create knowledge entry from the file
-	knowledge, err := h.kgService.CreateKnowledgeFromFile(ctx, kbID, file, metadata, enableMultimodel, customFileName, tagIDs, channel, processOverrides)
+	// The multipart body is already parsed; keep storage/DB finalization alive
+	// if the browser disconnects while OSS multipart upload is still running.
+	uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), knowledgeFileUploadOperationTimeout)
+	defer cancelUpload()
+	knowledge, err := h.kgService.CreateKnowledgeFromFile(uploadCtx, kbID, file, metadata, enableMultimodel, customFileName, tagIDs, channel, processOverrides)
 	// Check for duplicate knowledge error
 	if err != nil {
 		if h.handleDuplicateKnowledgeError(c, err, knowledge, "file") {
