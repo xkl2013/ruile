@@ -27,9 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>用于扫描、连接和同步录音卡设备。</string>
+	<string>用于扫描、连接和同步记忆卡设备。</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>用于扫描、连接和同步录音卡设备。</string>
+	<string>用于扫描、连接和同步记忆卡设备。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>用于录制语音记忆并保存为本地音频。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

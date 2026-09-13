@@ -53,6 +53,9 @@ class RecordingCardApiClient {
   final String tenantId;
   final void Function()? onAuthFailure;
 
+  static const _jsonResponseTimeout = Duration(seconds: 12);
+  static const _multipartResponseTimeout = Duration(seconds: 60);
+
   Future<String> createOrganizeMemory({
     required String kind,
     required String title,
@@ -126,8 +129,11 @@ class RecordingCardApiClient {
     request.headers.contentType = ContentType.json;
     request.write(jsonEncode(body));
 
-    final response = await request.close().timeout(const Duration(seconds: 12));
-    final responseBody = await response.transform(utf8.decoder).join();
+    final response = await request.close().timeout(_jsonResponseTimeout);
+    final responseBody = await _readResponseBody(
+      response,
+      timeout: _jsonResponseTimeout,
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       String message = responseBody;
@@ -201,9 +207,11 @@ class RecordingCardApiClient {
     await request.addStream(file.openRead());
     request.add(utf8.encode('\r\n--$boundary--\r\n'));
 
-    final response =
-        await request.close().timeout(const Duration(seconds: 120));
-    final responseBody = await response.transform(utf8.decoder).join();
+    final response = await request.close().timeout(_multipartResponseTimeout);
+    final responseBody = await _readResponseBody(
+      response,
+      timeout: _multipartResponseTimeout,
+    );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       String message = responseBody;
@@ -227,6 +235,13 @@ class RecordingCardApiClient {
     }
     if (responseBody.trim().isEmpty) return null;
     return jsonDecode(responseBody);
+  }
+
+  Future<String> _readResponseBody(
+    HttpClientResponse response, {
+    required Duration timeout,
+  }) {
+    return response.transform(utf8.decoder).join().timeout(timeout);
   }
 
   Future<void> _applyCommonHeaders(HttpClientRequest request) async {

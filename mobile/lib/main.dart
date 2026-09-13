@@ -11,8 +11,13 @@ import 'package:pdfx/pdfx.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
 
-import 'recording_card/recording_card_page.dart';
+import 'recording_card/jieli_recording_card_page.dart';
 import 'recording_card/recording_card_support.dart';
+
+const bool _launchJieliDebug = bool.fromEnvironment(
+  'RUILE_JIELI_DEBUG',
+  defaultValue: false,
+);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,6 +78,7 @@ class RuileMobileApp extends StatelessWidget {
       home: _AuthGate(
         initialSession: initialSession,
         restoreStoredSession: restoreStoredSession,
+        openJieliDebug: _launchJieliDebug,
       ),
     );
   }
@@ -1308,10 +1314,12 @@ class _AuthGate extends StatefulWidget {
   const _AuthGate({
     required this.initialSession,
     required this.restoreStoredSession,
+    this.openJieliDebug = false,
   });
 
   final AuthSession? initialSession;
   final bool restoreStoredSession;
+  final bool openJieliDebug;
 
   @override
   State<_AuthGate> createState() => _AuthGateState();
@@ -1411,6 +1419,7 @@ class _AuthGateState extends State<_AuthGate> {
     return MainShell(
       session: session,
       onLogout: _handleLogout,
+      openRecordingCardOnLaunch: widget.openJieliDebug,
     );
   }
 }
@@ -1449,6 +1458,7 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const _legalConsentError = '请先阅读并同意《服务协议》和《隐私政策》';
   static final _phonePattern = RegExp(r'^1[3-9]\d{9}$');
   static final _letterPattern = RegExp(r'[a-zA-Z]');
   static final _numberPattern = RegExp(r'\d');
@@ -1460,6 +1470,7 @@ class _LoginPageState extends State<LoginPage> {
 
   var _loading = false;
   var _obscurePassword = true;
+  var _acceptedLegal = false;
   String? _submitError;
 
   @override
@@ -1492,6 +1503,12 @@ class _LoginPageState extends State<LoginPage> {
       _submitError = null;
     });
     if (_formKey.currentState?.validate() != true) return;
+    if (!_acceptedLegal) {
+      setState(() {
+        _submitError = _legalConsentError;
+      });
+      return;
+    }
 
     setState(() {
       _loading = true;
@@ -1524,6 +1541,23 @@ class _LoginPageState extends State<LoginPage> {
     }
     if (error is TimeoutException) return '登录超时，请稍后重试';
     return '登录错误，请检查手机号或密码';
+  }
+
+  void _setAcceptedLegal(bool? value) {
+    setState(() {
+      _acceptedLegal = value ?? false;
+      if (_acceptedLegal && _submitError == _legalConsentError) {
+        _submitError = null;
+      }
+    });
+  }
+
+  void _openLegalDocument(_LegalDocumentSpec document) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _LegalDocumentPage(document: document),
+      ),
+    );
   }
 
   @override
@@ -1660,6 +1694,19 @@ class _LoginPageState extends State<LoginPage> {
                                         ),
                                 ),
                               ),
+                              const SizedBox(height: 16),
+                              _LegalConsentRow(
+                                accepted: _acceptedLegal,
+                                enabled: !_loading,
+                                onChanged: _setAcceptedLegal,
+                                onOpenServiceAgreement: () =>
+                                    _openLegalDocument(
+                                  _LegalDocuments.serviceAgreement,
+                                ),
+                                onOpenPrivacyPolicy: () => _openLegalDocument(
+                                  _LegalDocuments.privacyPolicy,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1671,6 +1718,235 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _LegalConsentRow extends StatelessWidget {
+  const _LegalConsentRow({
+    required this.accepted,
+    required this.enabled,
+    required this.onChanged,
+    required this.onOpenServiceAgreement,
+    required this.onOpenPrivacyPolicy,
+  });
+
+  final bool accepted;
+  final bool enabled;
+  final ValueChanged<bool?> onChanged;
+  final VoidCallback onOpenServiceAgreement;
+  final VoidCallback onOpenPrivacyPolicy;
+
+  @override
+  Widget build(BuildContext context) {
+    const textStyle = TextStyle(
+      fontSize: 12,
+      height: 1.55,
+      color: AppColors.textTertiary,
+      fontWeight: FontWeight.w500,
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _LegalCheckButton(
+          accepted: accepted,
+          enabled: enabled,
+          onChanged: onChanged,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text('我已阅读并同意', style: textStyle),
+                _LegalInlineLink(
+                  label: '《服务协议》',
+                  onTap: onOpenServiceAgreement,
+                ),
+                const Text('和', style: textStyle),
+                _LegalInlineLink(
+                  label: '《隐私政策》',
+                  onTap: onOpenPrivacyPolicy,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LegalCheckButton extends StatelessWidget {
+  const _LegalCheckButton({
+    required this.accepted,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final bool accepted;
+  final bool enabled;
+  final ValueChanged<bool?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final fillColor = accepted
+        ? AppColors.textPrimary
+        : AppColors.surface.withValues(alpha: enabled ? 1 : 0.6);
+    final borderColor = accepted ? AppColors.textPrimary : AppColors.border;
+
+    return Semantics(
+      checked: accepted,
+      button: true,
+      label: '同意服务协议和隐私政策',
+      child: InkWell(
+        onTap: enabled ? () => onChanged(!accepted) : null,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: fillColor,
+              border: Border.all(color: borderColor, width: 1.4),
+            ),
+            child: accepted
+                ? const Icon(
+                    Icons.check_rounded,
+                    size: 16,
+                    color: AppColors.surface,
+                  )
+                : null,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LegalInlineLink extends StatelessWidget {
+  const _LegalInlineLink({
+    required this.label,
+    required this.onTap,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            height: 1.55,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LegalDocumentSpec {
+  const _LegalDocumentSpec({
+    required this.title,
+    required this.assetPath,
+  });
+
+  final String title;
+  final String assetPath;
+}
+
+class _LegalDocuments {
+  static const serviceAgreement = _LegalDocumentSpec(
+    title: '服务协议',
+    assetPath: 'assets/legal/service-agreement.zh-CN.md',
+  );
+
+  static const privacyPolicy = _LegalDocumentSpec(
+    title: '隐私政策',
+    assetPath: 'assets/legal/privacy-policy.zh-CN.md',
+  );
+
+  const _LegalDocuments._();
+}
+
+class _LegalDocumentPage extends StatelessWidget {
+  const _LegalDocumentPage({
+    required this.document,
+  });
+
+  final _LegalDocumentSpec document;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: Text(
+          document.title,
+          key: const Key('legal-document-title'),
+        ),
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
+        surfaceTintColor: Colors.transparent,
+      ),
+      body: FutureBuilder<String>(
+        future: rootBundle.loadString(document.assetPath),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return const Center(
+              child: CircularProgressIndicator(
+                color: Color(0xFF07C05F),
+              ),
+            );
+          }
+
+          if (snapshot.hasError || snapshot.data == null) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  '协议内容读取失败，请稍后重试。',
+                  textAlign: TextAlign.center,
+                  style: AppTextStyles.body,
+                ),
+              ),
+            );
+          }
+
+          return SafeArea(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+              children: [
+                SelectableText(
+                  key: const Key('legal-document-body'),
+                  snapshot.data!,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.78,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -1869,10 +2145,12 @@ class MainShell extends StatefulWidget {
     super.key,
     required this.session,
     required this.onLogout,
+    this.openRecordingCardOnLaunch = false,
   });
 
   final AuthSession session;
   final VoidCallback onLogout;
+  final bool openRecordingCardOnLaunch;
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -1893,6 +2171,12 @@ class _MainShellState extends State<MainShell> {
       onAuthFailure: widget.onLogout,
     );
     unawaited(_loadCustomerSpaceCount());
+    if (widget.openRecordingCardOnLaunch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _openRecordingCardFromDrawer();
+      });
+    }
   }
 
   Future<void> _loadCustomerSpaceCount() async {
@@ -1972,8 +2256,15 @@ class _MainShellState extends State<MainShell> {
       Navigator.of(context)
           .push<void>(
         MaterialPageRoute<void>(
-          builder: (context) => RecordingCardDevicePage(
+          builder: (context) => JieliRecordingCardPage(
             onAuthFailure: widget.onLogout,
+            onReturnHome: () {
+              if (!mounted) return;
+              _selectTab(0);
+              Navigator.of(context, rootNavigator: true).popUntil(
+                (route) => route.isFirst,
+              );
+            },
           ),
         ),
       )
@@ -2131,7 +2422,7 @@ class _MainSideDrawer extends StatelessWidget {
             ),
             _DrawerMenuItem(
               icon: Icons.memory_outlined,
-              title: '录音卡',
+              title: '记忆卡',
               trailing: ValueListenableBuilder<RecordingCardConnectionStatus>(
                 valueListenable: RecordingCardConnectionStatusBus.notifier,
                 builder: (context, status, child) {
@@ -2304,7 +2595,7 @@ class _DrawerRecordingCardStatus extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final deviceName =
-        status.deviceName.trim().isEmpty ? 'LY02' : status.deviceName.trim();
+        status.deviceName.trim().isEmpty ? 'X9' : status.deviceName.trim();
 
     return Padding(
       padding: const EdgeInsets.only(left: 12),
@@ -2372,6 +2663,29 @@ class _UserSettingsPage extends StatelessWidget {
 
   final VoidCallback onLogout;
 
+  void _openHelpCenter(
+    BuildContext context, {
+    required String title,
+    required _HelpCenterSection initialSection,
+  }) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _HelpCenterPage(
+          title: title,
+          initialSection: initialSection,
+        ),
+      ),
+    );
+  }
+
+  void _openAbout(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const _AboutPage(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2398,25 +2712,584 @@ class _UserSettingsPage extends StatelessWidget {
                   const SizedBox(height: 28),
                   const _UserSettingsSectionTitle('帮助中心'),
                   const SizedBox(height: 14),
-                  const _UserSettingsSection(
+                  _UserSettingsSection(
                     children: [
                       _UserSettingsRow(
                         icon: Icons.description_outlined,
                         title: '使用文档',
+                        onTap: () => _openHelpCenter(
+                          context,
+                          title: '使用文档',
+                          initialSection: _HelpCenterSection.usage,
+                        ),
                       ),
                       _UserSettingsRow(
                         icon: Icons.menu_book_outlined,
-                        title: '录音卡硬件指南',
+                        title: '记忆卡硬件指南',
+                        onTap: () => _openHelpCenter(
+                          context,
+                          title: '记忆卡硬件指南',
+                          initialSection: _HelpCenterSection.recordingCard,
+                        ),
                       ),
                       _UserSettingsRow(
                         icon: Icons.help_outline,
                         title: '关于我们',
+                        onTap: () => _openAbout(context),
                       ),
                     ],
                   ),
                   const SizedBox(height: 28),
                   _UserSettingsLogoutButton(onTap: onLogout),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _HelpCenterSection {
+  usage,
+  recordingCard,
+}
+
+class _HelpCenterPage extends StatelessWidget {
+  const _HelpCenterPage({
+    required this.title,
+    required this.initialSection,
+  });
+
+  final String title;
+  final _HelpCenterSection initialSection;
+
+  void _openLegalDocument(BuildContext context, _LegalDocumentSpec document) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _LegalDocumentPage(document: document),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final usageExpanded = initialSection == _HelpCenterSection.usage;
+    final recordingCardExpanded =
+        initialSection == _HelpCenterSection.recordingCard;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _HelpCenterTitleBar(title: title),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(10, 18, 10, 30),
+                children: [
+                  const _HelpCenterIntro(),
+                  const SizedBox(height: 24),
+                  _HelpCenterGroup(
+                    title: '开始使用',
+                    icon: Icons.rocket_launch_outlined,
+                    initiallyExpanded: usageExpanded,
+                    items: const [
+                      _HelpCenterFaq(
+                        question: '如何开始使用？',
+                        answer:
+                            '登录账号后，首页会展示当前账号有权限查看的记忆和知识库。点击底部“录入”，即可选择录音或文字方式创建一条新记忆。',
+                      ),
+                      _HelpCenterFaq(
+                        question: '登录账号和权限从哪里获取？',
+                        answer:
+                            '账号通常由所在机构或服务管理员开通。客户空间、知识库和服务提醒是否可见，取决于当前账号所属空间和权限配置。',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _HelpCenterGroup(
+                    title: '记录与整理',
+                    icon: Icons.auto_awesome_motion_outlined,
+                    initiallyExpanded: usageExpanded,
+                    items: const [
+                      _HelpCenterFaq(
+                        question: '如何创建文字记忆？',
+                        answer:
+                            '点击“录入”后选择“文字”，填写标题和正文并提交。建议一条记忆只记录一个主题，后续更容易搜索、整理和复盘。',
+                      ),
+                      _HelpCenterFaq(
+                        question: '如何创建录音记忆？',
+                        answer:
+                            '点击“录入”后选择“录音”，首次使用时请允许麦克风权限。结束录音并保存后，系统会生成录音记忆；转写和整理完成需要一点时间。',
+                      ),
+                      _HelpCenterFaq(
+                        question: '如何查找知识库内容？',
+                        answer:
+                            '在首页打开知识库，可以按目录浏览文件和资料。搜索、问答和内容查看结果会遵循当前账号权限，无法看到没有授权的空间或文件。',
+                      ),
+                      _HelpCenterFaq(
+                        question: '客户空间和服务提醒有什么用？',
+                        answer:
+                            '客户空间用于集中查看服务模块产生的客户资料，服务提醒用于跟进待处理事项。相关内容由机构配置和业务模块产生，未配置时可能暂时为空。',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _HelpCenterGroup(
+                    title: '记忆卡',
+                    icon: Icons.memory_outlined,
+                    initiallyExpanded: recordingCardExpanded,
+                    items: const [
+                      _HelpCenterFaq(
+                        question: '如何连接记忆卡？',
+                        answer:
+                            '请先打开手机蓝牙，并允许应用使用蓝牙或附近设备权限。进入“记忆卡”页面，选择附近设备后等待连接状态变为“已连接”。',
+                      ),
+                      _HelpCenterFaq(
+                        question: '记忆卡如何同步内容？',
+                        answer:
+                            '记忆卡连接成功后，应用会读取设备中的待同步音频。请保持设备电量充足、手机网络正常，并在同步完成前不要关闭页面或移除设备。',
+                      ),
+                      _HelpCenterFaq(
+                        question: '记忆卡连接或同步失败怎么办？',
+                        answer:
+                            '请确认记忆卡有电且距离手机较近，关闭其他可能连接该设备的应用后重试。仍然失败时，可关闭再打开蓝牙，重新进入“记忆卡”页面连接。',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  const _HelpCenterGroup(
+                    title: '账号与隐私',
+                    icon: Icons.shield_outlined,
+                    initiallyExpanded: false,
+                    items: [
+                      _HelpCenterFaq(
+                        question: '应用会申请哪些权限？',
+                        answer:
+                            '录音功能需要麦克风权限，记忆卡功能需要蓝牙或附近设备权限。应用只在对应功能需要时申请和使用权限，你可以在手机系统设置中随时管理。',
+                      ),
+                      _HelpCenterFaq(
+                        question: '如何查看服务协议和隐私政策？',
+                        answer:
+                            '登录页可以直接打开《服务协议》和《隐私政策》。你也可以在下面的协议入口中随时查看当前版本内容。',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _HelpCenterLegalLinks(
+                    onOpenServiceAgreement: () => _openLegalDocument(
+                      context,
+                      _LegalDocuments.serviceAgreement,
+                    ),
+                    onOpenPrivacyPolicy: () => _openLegalDocument(
+                      context,
+                      _LegalDocuments.privacyPolicy,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const _HelpCenterContactNote(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HelpCenterTitleBar extends StatelessWidget {
+  const _HelpCenterTitleBar({
+    required this.title,
+  });
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 56,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Center(
+            child: Text(
+              key: const Key('help-center-title'),
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                height: 1.2,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 10,
+            child: Material(
+              color: AppColors.surface,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => Navigator.maybePop(context),
+                child: const SizedBox(
+                  key: Key('help-center-back'),
+                  width: 44,
+                  height: 44,
+                  child: Tooltip(
+                    message: '返回',
+                    child: Icon(
+                      Icons.chevron_left,
+                      color: AppColors.textPrimary,
+                      size: 26,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HelpCenterIntro extends StatelessWidget {
+  const _HelpCenterIntro();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.fromLTRB(20, 18, 20, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '让每一次记录都能被找到',
+              style: TextStyle(
+                fontSize: 17,
+                height: 1.3,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              '这里整理了睿乐大脑的常用操作说明，帮助你完成记录、整理、同步和查找。',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.55,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HelpCenterGroup extends StatelessWidget {
+  const _HelpCenterGroup({
+    required this.title,
+    required this.icon,
+    required this.items,
+    required this.initiallyExpanded,
+  });
+
+  final String title;
+  final IconData icon;
+  final List<_HelpCenterFaq> items;
+  final bool initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+            child: Row(
+              children: [
+                Icon(icon, color: AppColors.control, size: 20),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    height: 1.25,
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (var index = 0; index < items.length; index++) ...[
+            _HelpCenterFaqTile(
+              item: items[index],
+              initiallyExpanded: initiallyExpanded && index == 0,
+            ),
+            if (index != items.length - 1)
+              const Divider(
+                height: 1,
+                indent: 20,
+                endIndent: 20,
+                color: Color(0xFFECEEF3),
+              ),
+          ],
+          const SizedBox(height: 6),
+        ],
+      ),
+    );
+  }
+}
+
+class _HelpCenterFaq {
+  const _HelpCenterFaq({
+    required this.question,
+    required this.answer,
+  });
+
+  final String question;
+  final String answer;
+}
+
+class _HelpCenterFaqTile extends StatelessWidget {
+  const _HelpCenterFaqTile({
+    required this.item,
+    required this.initiallyExpanded,
+  });
+
+  final _HelpCenterFaq item;
+  final bool initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExpansionTile(
+      initiallyExpanded: initiallyExpanded,
+      tilePadding: const EdgeInsets.symmetric(horizontal: 20),
+      childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      shape: const Border(),
+      collapsedShape: const Border(),
+      iconColor: AppColors.control,
+      collapsedIconColor: AppColors.textTertiary,
+      title: Text(
+        item.question,
+        style: const TextStyle(
+          fontSize: 14,
+          height: 1.35,
+          color: AppColors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            item.answer,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HelpCenterLegalLinks extends StatelessWidget {
+  const _HelpCenterLegalLinks({
+    required this.onOpenServiceAgreement,
+    required this.onOpenPrivacyPolicy,
+  });
+
+  final VoidCallback onOpenServiceAgreement;
+  final VoidCallback onOpenPrivacyPolicy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          ListTile(
+            key: const Key('help-center-service-agreement'),
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('服务协议'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenServiceAgreement,
+          ),
+          const Divider(
+            height: 1,
+            indent: 72,
+            endIndent: 18,
+            color: Color(0xFFECEEF3),
+          ),
+          ListTile(
+            key: const Key('help-center-privacy-policy'),
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('隐私政策'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenPrivacyPolicy,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HelpCenterContactNote extends StatelessWidget {
+  const _HelpCenterContactNote();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(8, 0, 8, 4),
+      child: Text(
+        '遇到账号开通、权限配置或设备问题时，请联系所在机构管理员或服务顾问，并提供问题截图、设备型号和发生时间，方便快速定位。',
+        style: TextStyle(
+          fontSize: 12,
+          height: 1.55,
+          color: AppColors.textTertiary,
+        ),
+      ),
+    );
+  }
+}
+
+class _AboutPage extends StatelessWidget {
+  const _AboutPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            const _HelpCenterTitleBar(title: '关于我们'),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(10, 18, 10, 30),
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.fromLTRB(22, 26, 22, 26),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.psychology_outlined,
+                            size: 52,
+                            color: AppColors.control,
+                          ),
+                          SizedBox(height: 14),
+                          Text(
+                            '睿乐大脑',
+                            style: TextStyle(
+                              fontSize: 23,
+                              height: 1.2,
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 10),
+                          Text(
+                            '早幼教团队的运营记录、知识沉淀与 AI 辅助工具',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              height: 1.5,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const _AboutInfoSection(
+                    title: '我们做什么',
+                    body:
+                        '睿乐大脑通过文字记忆、录音记忆、记忆卡、知识库、客户空间和服务提醒，把一线信息整理成可查、可复盘的工作资料，帮助团队减少重复沟通，让经验持续沉淀。',
+                  ),
+                  const SizedBox(height: 14),
+                  const _AboutInfoSection(
+                    title: 'AI 辅助说明',
+                    body:
+                        '系统可能使用语音识别、文本整理、检索和生成式 AI 提供转写、摘要、问答或建议。AI 结果用于辅助工作，请结合原始记录和实际情况进行判断。',
+                  ),
+                  const SizedBox(height: 14),
+                  const _AboutInfoSection(
+                    title: '产品信息',
+                    body: '版本：v1.0.0\n运营者：北京睿乐创科技有限公司',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AboutInfoSection extends StatelessWidget {
+  const _AboutInfoSection({
+    required this.title,
+    required this.body,
+  });
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.25,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              body,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.6,
+                color: AppColors.textSecondary,
               ),
             ),
           ],
@@ -2535,60 +3408,65 @@ class _UserSettingsRow extends StatelessWidget {
     required this.icon,
     required this.title,
     this.trailingText,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String? trailingText;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 68,
-      child: Row(
-        children: [
-          const SizedBox(width: 26),
-          Icon(
-            icon,
-            color: AppColors.textPrimary,
-            size: 21,
-          ),
-          const SizedBox(width: 22),
-          Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 16,
-                height: 1.2,
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w700,
-              ),
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: 68,
+        child: Row(
+          children: [
+            const SizedBox(width: 26),
+            Icon(
+              icon,
+              color: AppColors.textPrimary,
+              size: 21,
             ),
-          ),
-          if (trailingText case final trailingText?)
-            Padding(
-              padding: const EdgeInsets.only(left: 12),
+            const SizedBox(width: 22),
+            Expanded(
               child: Text(
-                trailingText,
+                title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 16,
                   height: 1.2,
-                  color: AppColors.textTertiary,
+                  color: AppColors.textPrimary,
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ),
-          const Icon(
-            Icons.chevron_right,
-            color: AppColors.textTertiary,
-            size: 24,
-          ),
-          const SizedBox(width: 18),
-        ],
+            if (trailingText case final trailingText?)
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Text(
+                  trailingText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    height: 1.2,
+                    color: AppColors.textTertiary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            const Icon(
+              Icons.chevron_right,
+              color: AppColors.textTertiary,
+              size: 24,
+            ),
+            const SizedBox(width: 18),
+          ],
+        ),
       ),
     );
   }
@@ -4001,7 +4879,7 @@ class _NotesPageState extends State<NotesPage> {
             _RecordingCardPendingSummary.fromEntries(entries);
       });
     } catch (error) {
-      debugPrint('Failed to load recording card pending summary: $error');
+      debugPrint('Failed to load memory card pending summary: $error');
     }
   }
 
@@ -4447,9 +5325,9 @@ class _RecordingCardPendingSyncCard extends StatelessWidget {
       valueListenable: RecordingCardConnectionStatusBus.notifier,
       builder: (context, status, child) {
         final deviceName =
-            status.deviceName.trim().isEmpty ? '录音卡' : status.deviceName.trim();
+            status.deviceName.trim().isEmpty ? '记忆卡' : status.deviceName.trim();
         final connectionText =
-            status.connected ? '已连接 $deviceName，打开查看进度' : '连接录音卡后继续同步';
+            status.connected ? '已连接 $deviceName，打开查看进度' : '连接记忆卡后继续同步';
 
         return DecoratedBox(
           decoration: BoxDecoration(
@@ -4492,7 +5370,7 @@ class _RecordingCardPendingSyncCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '录音卡有 ${summary.pendingCount} 条音频未同步',
+                            '记忆卡有 ${summary.pendingCount} 条音频未同步',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTextStyles.cardTitle.copyWith(
@@ -12265,7 +13143,7 @@ String _organizeMemoryKindLabel(String kind) {
     case 'audio':
       return '语音记忆';
     case 'audio_card':
-      return '录音卡记忆';
+      return '记忆卡记忆';
     default:
       return '';
   }
@@ -17125,6 +18003,11 @@ class _OrganizeMemoryReference {
   final String title;
   final String kind;
   final String source;
+
+  String get displaySource {
+    if (kind.trim() == 'audio_card') return '记忆卡';
+    return _normalizeSpaces(source);
+  }
 }
 
 class _OrganizeSproutReport {
@@ -17213,7 +18096,7 @@ class _OrganizeSproutReport {
     final parts = <String>[_formatRecordDateTime(updatedAt)];
     if (count > 0) parts.add('$count 条记忆');
     if (memoryRefs.isNotEmpty) {
-      final source = _normalizeSpaces(memoryRefs.first.source);
+      final source = memoryRefs.first.displaySource;
       if (source.isNotEmpty) parts.add(source);
     }
     return parts.join(' · ');
@@ -17395,7 +18278,8 @@ class _OrganizeMemory {
 
   String _organizeMemorySummaryText() {
     final parts = <String>[];
-    final sourceText = _normalizeSpaces(source);
+    final sourceText =
+        kind.trim() == 'audio_card' ? '记忆卡' : _normalizeSpaces(source);
     if (sourceText.isNotEmpty) {
       parts.add(sourceText);
     }

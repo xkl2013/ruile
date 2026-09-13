@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:ruile_mobile/recording_card/recording_card_support.dart';
 
 void main() {
-  test('decodes timestamp file names from recording card file list', () {
+  test('decodes timestamp file names from memory card file list', () {
     final payload = <int>[
       ...'2026-08-29 12:07:21'.codeUnits,
       0x00,
