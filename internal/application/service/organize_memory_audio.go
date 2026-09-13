@@ -101,7 +101,7 @@ func (s *organizeService) CreateMemoryFromUpload(
 	source := trimMax(input.Source, organizeMaxShortText)
 	if source == "" {
 		if kind == types.OrganizeMemoryKindAudioCard {
-			source = "录音卡"
+			source = "记忆卡"
 		} else {
 			source = "语音记录"
 		}
@@ -409,7 +409,7 @@ func (s *organizeService) failOrganizeMemoryTranscription(
 func memoryUploadSource(kind string) string {
 	switch normalizeMemoryKind(kind) {
 	case types.OrganizeMemoryKindAudioCard:
-		return "录音卡"
+		return "记忆卡"
 	case types.OrganizeMemoryKindAudio:
 		return "语音记录"
 	default:

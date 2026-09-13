@@ -435,7 +435,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
                 _connectionState != DeviceConnectionState.connected &&
                 mounted) {
               setState(() {
-                _message = '点击右上角搜索录音卡';
+                _message = '点击右上角搜索记忆卡';
               });
             }
           }
@@ -458,7 +458,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
     if (!mounted) return;
     setState(() {
-      _message = '点击右上角搜索录音卡';
+      _message = '点击右上角搜索记忆卡';
     });
   }
 
@@ -475,7 +475,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _activeDeviceId = deviceId;
         _connectionState = DeviceConnectionState.connected;
         _connecting = false;
-        _message = '录音卡已连接';
+        _message = '记忆卡已连接';
         _error = null;
         _snapshot = _connectionSession.snapshot ??
             _DeviceSnapshot(deviceId: deviceId, deviceName: 'LY02');
@@ -491,7 +491,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _activeDeviceId = deviceId;
         _connectionState = connectionState;
         _connecting = true;
-        _message = '正在连接录音卡';
+        _message = '正在连接记忆卡';
         _error = null;
       });
       return true;
@@ -626,7 +626,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       if (!mounted) return;
       setState(() {
         _error = null;
-        _message = '正在搜索录音卡';
+        _message = '正在搜索记忆卡';
       });
       return;
     }
@@ -642,7 +642,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       setState(() {
         _scanning = true;
         _error = null;
-        _message = '正在搜索录音卡';
+        _message = '正在搜索记忆卡';
         _scanRetryAllowedAt = null;
         _foundDevices.clear();
       });
@@ -668,7 +668,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       _scanning = false;
       _scanSubscription = null;
       if (retryAt == null) {
-        _error = '搜索录音卡失败，请稍后重试。';
+        _error = '搜索记忆卡失败，请稍后重试。';
         _message = null;
         _scanRetryAllowedAt = null;
       } else {
@@ -729,7 +729,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       if (_activeDeviceId == device.id) {
         if (!mounted) return;
         setState(() {
-          _message = '录音卡已连接';
+          _message = '记忆卡已连接';
         });
         await _restoreActiveConnection();
         return;
@@ -741,7 +741,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       setState(() {
         _connecting = true;
         _activeDeviceId = device.id;
-        _message = '正在连接录音卡';
+        _message = '正在连接记忆卡';
       });
       return;
     }
@@ -899,7 +899,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       await _loadCachedFiles(deviceId);
       if (!mounted || _activeDeviceId != deviceId) return;
       setState(() {
-        _message = '录音卡已连接';
+        _message = '记忆卡已连接';
         _fileSyncMessage = '如需导入已有录音，请点击文件区刷新。';
         _fileSyncError = null;
       });
@@ -1024,7 +1024,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _postRecordingFileListRefreshInFlight = true;
     if (mounted) {
       setState(() {
-        _fileSyncMessage = '正在读取录音卡保存后的文件列表';
+        _fileSyncMessage = '正在读取记忆卡保存后的文件列表';
         _fileSyncError = null;
       });
     }
@@ -1366,7 +1366,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (!mounted) return;
     final fileName = _activeFile?.fileNameNoExt.trim() ?? '';
     final message = _clearingDeviceFiles
-        ? '正在清空录音卡，请完成后再返回。'
+        ? '正在清空记忆卡，请完成后再返回。'
         : _cloudSyncInProgress
             ? '正在生成记忆并清理设备文件，请完成后再返回。'
             : fileName.isEmpty
@@ -1519,7 +1519,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _applySnapshot(snapshot);
     if (!mounted) return;
     setState(() {
-      _fileSyncMessage = fileName.isEmpty ? '录音卡已开始录音' : '录音卡已开始录音：$fileName';
+      _fileSyncMessage = fileName.isEmpty ? '记忆卡已开始录音' : '记忆卡已开始录音：$fileName';
       _fileSyncError = null;
     });
   }
@@ -2261,7 +2261,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
     if (_connectionState != DeviceConnectionState.connected) {
       setState(() {
-        _fileSyncMessage = '请先连接录音卡';
+        _fileSyncMessage = '请先连接记忆卡';
         _fileSyncError = null;
       });
       return;
@@ -2337,7 +2337,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
     if (_connectionState != DeviceConnectionState.connected) {
       setState(() {
-        _fileSyncError = '请先连接录音卡';
+        _fileSyncError = '请先连接记忆卡';
         _fileSyncMessage = null;
       });
       return;
@@ -2474,7 +2474,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (_activeDeviceId == null ||
         _connectionState != DeviceConnectionState.connected) {
       setState(() {
-        _fileSyncError = '请先连接录音卡';
+        _fileSyncError = '请先连接记忆卡';
         _fileSyncMessage = null;
       });
       return;
@@ -2514,9 +2514,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('清空录音卡？'),
+          title: const Text('清空记忆卡？'),
           content: Text(
-            '将删除录音卡设备中的 ${candidates.length} 个录音文件$sizeText。'
+            '将删除记忆卡设备中的 ${candidates.length} 个录音文件$sizeText。'
             '已生成的记忆和手机本地缓存不会删除，未导入的源文件删除后无法恢复。',
           ),
           actions: [
@@ -2557,7 +2557,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     RecordingCardFileEntry? failedEntry;
     setState(() {
       _clearingDeviceFiles = true;
-      _fileSyncMessage = '正在清空录音卡 0/${candidates.length}';
+      _fileSyncMessage = '正在清空记忆卡 0/${candidates.length}';
       _fileSyncError = null;
     });
 
@@ -2587,7 +2587,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
           break;
         }
         setState(() {
-          _fileSyncMessage = '正在清空录音卡 ${deletedCount + 1}/${candidates.length}';
+          _fileSyncMessage = '正在清空记忆卡 ${deletedCount + 1}/${candidates.length}';
           _fileSyncError = null;
         });
         final deleted = await _deleteDeviceFile(entry);
@@ -2611,7 +2611,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     RecordingCardAppSyncBus.notifyChanged();
     if (failedEntry == null && deletedCount == candidates.length) {
       setState(() {
-        _fileSyncMessage = '录音卡已清空（$deletedCount 个文件）';
+        _fileSyncMessage = '记忆卡已清空（$deletedCount 个文件）';
         _fileSyncError = null;
         _lastFileSyncAt = DateTime.now();
       });
@@ -2623,7 +2623,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     setState(() {
       _fileSyncMessage = '已删除 $deletedCount 个，剩余 $remaining 个待清空';
       _fileSyncError = failedEntry == null
-          ? '清空录音卡未完成'
+          ? '清空记忆卡未完成'
           : '${failedEntry.fileNameNoExt} 删除失败';
       _lastFileSyncAt = DateTime.now();
     });
@@ -3890,7 +3890,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       'local_playable_path': syncing.localPlayablePath,
       'mobile_local_id': syncing.id,
       'import_policy': 'auto_after_bluetooth',
-      'source_label': '来自录音卡',
+      'source_label': '来自记忆卡',
       'transcription_status': 'pending',
       'transfer_status': syncing.transferStatus.name,
     };
@@ -3899,10 +3899,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       final uploadResult = await _apiClient.uploadOrganizeMemoryAudio(
         filePath: localAudioPath,
         fileName: localFileName,
-        kind: 'audio',
+        kind: 'audio_card',
         title: _recordingMemoryTitle(syncing),
         content: _recordingMemoryContentHtml(syncing),
-        source: '录音卡',
+        source: '记忆卡',
         occurredAt: syncing.createdAtFromDevice ?? syncing.createdAt,
         durationSeconds: syncing.durationSeconds ?? 0,
         metadata: metadata,
@@ -3946,7 +3946,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       final prompt = error.isAuthFailure
           ? '请先登录后再生成记忆'
           : (isInterfaceMismatch
-              ? '云端接口与当前版本不兼容，请更新服务端录音卡记忆接口后重试。'
+              ? '云端接口与当前版本不兼容，请更新服务端记忆卡记忆接口后重试。'
               : '生成记忆失败：${error.message}');
       final failed = syncing.copyWith(
         transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
@@ -4030,7 +4030,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
   String _recordingMemoryTitle(RecordingCardFileEntry entry) {
     final occurredAt = entry.createdAtFromDevice ?? entry.createdAt;
-    return '录音卡记录 · ${_formatMemoryDateShort(occurredAt)}';
+    return '记忆卡记录 · ${_formatMemoryDateShort(occurredAt)}';
   }
 
   String _recordingMemoryContentHtml(RecordingCardFileEntry entry) {
@@ -4040,7 +4040,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
             ? ''
             : ' · 时长 ${_formatDurationText(entry.durationSeconds!)}';
     return '<p>录音已保存，等待转写。</p>'
-        '<p>来源：录音卡 · 原文件 ${escape(entry.fileNameNoExt)}$duration</p>';
+        '<p>来源：记忆卡 · 原文件 ${escape(entry.fileNameNoExt)}$duration</p>';
   }
 
   Future<void> _retryFileTransfer(RecordingCardFileEntry entry) async {
@@ -4048,7 +4048,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (_activeFile?.fileNameNoExt == entry.fileNameNoExt) return;
     if (_clearingDeviceFiles) {
       setState(() {
-        _fileSyncMessage = '正在清空录音卡，请稍后';
+        _fileSyncMessage = '正在清空记忆卡，请稍后';
         _fileSyncError = null;
       });
       return;
@@ -4135,7 +4135,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (!await _canSendDeviceCommand()) return;
     await _runRecordCommand(
       command: const _CommandFrame(0x03),
-      pendingMessage: '正在让录音卡开始录音',
+      pendingMessage: '正在让记忆卡开始录音',
     );
   }
 
@@ -4238,8 +4238,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
           title: const Text('删除这条录音？'),
           content: Text(
             isSynced
-                ? '将从录音卡设备中删除 ${entry.fileNameNoExt}。已生成的记忆和手机本地缓存不会删除。'
-                : '将从录音卡设备中删除 ${entry.fileNameNoExt}。未完成导入的音频删除后无法继续从录音卡补传。',
+                ? '将从记忆卡设备中删除 ${entry.fileNameNoExt}。已生成的记忆和手机本地缓存不会删除。'
+                : '将从记忆卡设备中删除 ${entry.fileNameNoExt}。未完成导入的音频删除后无法继续从记忆卡补传。',
           ),
           actions: [
             TextButton(
@@ -4344,7 +4344,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _connectionState != DeviceConnectionState.connected) {
       if (!mounted) return false;
       setState(() {
-        _fileSyncError = '请先连接录音卡';
+        _fileSyncError = '请先连接记忆卡';
       });
       return false;
     }
@@ -4587,7 +4587,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
           ),
           actions: [
             IconButton(
-              tooltip: _filePipelineBusy ? '正在处理录音' : '搜索录音卡',
+              tooltip: _filePipelineBusy ? '正在处理录音' : '搜索记忆卡',
               onPressed:
                   _scanning || _startingScan || _connecting || _filePipelineBusy
                       ? null
@@ -4801,7 +4801,7 @@ class _FileSyncCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '录音卡导入',
+                      '记忆卡导入',
                       style: TextStyle(
                         color: _DeviceDetailColors.textPrimary,
                         fontSize: 16,
@@ -4867,7 +4867,7 @@ class _FileSyncCard extends StatelessWidget {
               ),
               IconButton(
                 tooltip:
-                    deviceFileCount > 0 ? '清空录音卡（$deviceFileCount 个）' : '清空录音卡',
+                    deviceFileCount > 0 ? '清空记忆卡（$deviceFileCount 个）' : '清空记忆卡',
                 onPressed: onClearDeviceFiles,
                 color: const Color(0xFFB42318),
                 disabledColor: _DeviceDetailColors.textMuted,
@@ -5081,7 +5081,7 @@ class _FileSyncEntryRow extends StatelessWidget {
     final fileTime = entry.createdAtFromDevice ?? entry.createdAt;
     final title = entry.createdAtFromDevice == null
         ? entry.fileNameNoExt
-        : '录音卡记录 · ${_formatMemoryDateShort(entry.createdAtFromDevice!)}';
+        : '记忆卡记录 · ${_formatMemoryDateShort(entry.createdAtFromDevice!)}';
     final metaParts = <String>[
       entry.displaySize,
       if (entry.createdAtFromDevice == null)
@@ -5593,7 +5593,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
           lastUpdatedAt: snapshot.lastUpdatedAt,
           recordingState: _recordingStateLabel(snapshot.recordingState),
           refreshing: refreshing,
-          primaryLabel: hasDevice ? '刷新' : '搜索录音卡',
+          primaryLabel: hasDevice ? '刷新' : '搜索记忆卡',
           primaryIcon: hasDevice ? Icons.refresh : Icons.bluetooth_searching,
           onPrimary: hasDevice
               ? (canRefresh ? onRefresh : null)
@@ -6883,16 +6883,16 @@ String? _deviceNoticeText({
   required String? error,
 }) {
   if (error != null) return error;
-  if (bleStatus == BleStatus.unauthorized) return '需要开启蓝牙权限才能连接录音卡。';
+  if (bleStatus == BleStatus.unauthorized) return '需要开启蓝牙权限才能连接记忆卡。';
   if (bleStatus == BleStatus.poweredOff) return '请先打开手机蓝牙。';
-  if (bleStatus == BleStatus.locationServicesDisabled) return '请打开定位服务后再搜索录音卡。';
+  if (bleStatus == BleStatus.locationServicesDisabled) return '请打开定位服务后再搜索记忆卡。';
   if (bleStatus == BleStatus.unsupported) return '当前设备不支持蓝牙连接。';
   if (refreshing) return '正在刷新设备信息';
   if (connecting || connectionState == DeviceConnectionState.connecting) {
-    return '正在连接录音卡';
+    return '正在连接记忆卡';
   }
-  if (scanning) return '正在搜索录音卡';
-  if (!hasDevice) return message ?? '未连接录音卡，请确认设备已开机并靠近手机。';
+  if (scanning) return '正在搜索记忆卡';
+  if (!hasDevice) return message ?? '未连接记忆卡，请确认设备已开机并靠近手机。';
   if (connectionState == DeviceConnectionState.disconnecting) return '正在断开连接';
   if (connectionState == DeviceConnectionState.disconnected) return '设备已断开';
   return null;

@@ -678,6 +678,11 @@ class RecordingCardLocalStore {
     return '${dir.path}${Platform.pathSeparator}${_safeSegment(fileNameNoExt)}.m4a';
   }
 
+  Future<String> sourceAudioFilePath(String deviceId, String fileName) async {
+    final dir = await _filesDir(deviceId);
+    return '${dir.path}${Platform.pathSeparator}${_safeSegment(fileName)}';
+  }
+
   Future<File> audioFile(String deviceId, String fileNameNoExt) async {
     return File(await audioFilePath(deviceId, fileNameNoExt));
   }
