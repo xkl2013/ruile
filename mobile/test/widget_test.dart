@@ -19,6 +19,8 @@ void main() {
     expect(find.text('登录睿乐大脑'), findsOneWidget);
     expect(find.text('手机号'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);
+    expect(find.text('《服务协议》'), findsOneWidget);
+    expect(find.text('《隐私政策》'), findsOneWidget);
 
     await tester.tap(find.text('登录'));
     await tester.pump();
@@ -33,6 +35,34 @@ void main() {
 
     expect(find.text('请输入正确的手机号'), findsOneWidget);
     expect(find.text('密码必须包含数字'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextFormField).at(0), '13258978288');
+    await tester.enterText(find.byType(TextFormField).at(1), 'abc12345');
+    await tester.tap(find.text('登录'));
+    await tester.pump();
+
+    expect(find.text('请先阅读并同意《服务协议》和《隐私政策》'), findsOneWidget);
+  });
+
+  testWidgets('opens legal documents from login page', (tester) async {
+    await tester.pumpWidget(
+      const RuileMobileApp(restoreStoredSession: false),
+    );
+
+    await tester.tap(find.text('《服务协议》'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('服务协议'), findsOneWidget);
+    expect(find.textContaining('睿乐大脑服务协议'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('《隐私政策》'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('隐私政策'), findsOneWidget);
+    expect(find.textContaining('睿乐大脑隐私政策'), findsOneWidget);
   });
 
   testWidgets('shows the notes home screen', (tester) async {
@@ -189,7 +219,7 @@ void main() {
     expect(find.text('v1.0.0'), findsOneWidget);
     expect(find.text('帮助中心'), findsOneWidget);
     expect(find.text('使用文档'), findsOneWidget);
-    expect(find.text('录音卡硬件指南'), findsOneWidget);
+    expect(find.text('记忆卡硬件指南'), findsOneWidget);
     expect(find.text('关于我们'), findsOneWidget);
     expect(find.text('开发票'), findsNothing);
     expect(find.text('帮助与客服'), findsNothing);
@@ -199,31 +229,21 @@ void main() {
     expect(find.text('睿乐空间'), findsNothing);
     expect(find.text('退出登录'), findsOneWidget);
 
-    await tester.tap(find.text('关于我们'));
-    await tester.pump();
-    expect(find.text('关于我们 功能待接入'), findsNothing);
-
-    await tester.tap(find.byKey(const Key('user-settings-back')));
+    await tester.tap(find.text('使用文档'));
     await _pumpTransition(tester);
-    await tester.pump(const Duration(seconds: 1));
+    expect(find.byKey(const Key('help-center-title')), findsOneWidget);
+    expect(find.text('让每一次记录都能被找到'), findsOneWidget);
+    expect(find.text('如何开始使用？'), findsOneWidget);
+    expect(find.textContaining('登录账号后，首页会展示'), findsOneWidget);
 
-    expect(find.text('我的账号'), findsNothing);
-    expect(find.text('知识库'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('菜单'));
-    await _pumpTransition(tester);
-    await tester.tap(
-      find.descendant(of: find.byType(Drawer), matching: find.text('地平线')),
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('help-center-privacy-policy')),
+      500,
+      scrollable: find.byType(Scrollable).last,
     );
-    await _pumpTransition(tester);
-    await _pumpTransition(tester);
-
-    expect(find.text('我的账号'), findsOneWidget);
-    await tester.tap(find.text('退出登录'));
-    await _pumpTransition(tester);
-    await tester.pump();
-
-    expect(find.text('登录睿乐大脑'), findsOneWidget);
+    expect(
+        find.byKey(const Key('help-center-service-agreement')), findsOneWidget);
+    expect(find.byKey(const Key('help-center-privacy-policy')), findsOneWidget);
   });
 
   testWidgets('opens avatar profile from the drawer and shows description', (

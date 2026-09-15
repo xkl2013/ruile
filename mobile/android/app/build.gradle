@@ -25,6 +25,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled true
     }
 
     buildTypes {
@@ -37,4 +38,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation fileTree(include: ["*.aar"], dir: "libs/jieli")
+    implementation "androidx.multidex:multidex:2.0.1"
+    implementation "androidx.room:room-runtime:2.3.0"
 }

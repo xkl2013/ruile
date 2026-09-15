@@ -29,7 +29,7 @@ func TestOrganizeServiceCreateMemoryFromUpload_EnqueuesTranscription(t *testing.
 		types.OrganizeMemoryInput{
 			Kind:   types.OrganizeMemoryKindAudioCard,
 			Title:  "REC0001",
-			Source: "录音卡",
+			Source: "记忆卡",
 			Metadata: types.JSONMap{
 				"sync_source":      "recording_card",
 				"local_audio_path": "/tmp/REC0001.sbc",
@@ -125,7 +125,7 @@ func TestOrganizeServiceCreateMemoryFromUpload_CleansNestedMetadata(t *testing.T
 		types.OrganizeMemoryInput{
 			Kind:   types.OrganizeMemoryKindAudioCard,
 			Title:  "REC0002",
-			Source: "录音卡",
+			Source: "记忆卡",
 			Metadata: types.JSONMap{
 				"device_name": "教学区" + string([]byte{0xb0}),
 				"nested": types.JSONMap{
