@@ -26,7 +26,7 @@ func (s *invitedRegistrationUserService) GetUserByEmail(context.Context, string)
 
 func (s *invitedRegistrationUserService) Register(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
 	s.registeredMode = req.TenantProvisioning
-	return &types.User{ID: "new-user", Username: req.Username, Email: req.Email, IsActive: true}, nil
+	return &types.User{ID: "new-user", Username: req.Username, Email: req.Email, TenantID: 7, IsActive: true}, nil
 }
 
 func (s *invitedRegistrationUserService) UpdateUser(_ context.Context, user *types.User) error {
@@ -37,6 +37,14 @@ func (s *invitedRegistrationUserService) UpdateUser(_ context.Context, user *typ
 
 func (s *invitedRegistrationUserService) GenerateTokens(context.Context, *types.User) (string, string, error) {
 	return "access", "refresh", nil
+}
+
+func (s *invitedRegistrationUserService) BuildLoginMemberships(_ context.Context, user *types.User, tenant *types.Tenant) []types.Membership {
+	return []types.Membership{{
+		TenantID:   user.TenantID,
+		TenantName: tenantNameOrEmpty(tenant),
+		Role:       types.TenantRoleOwner,
+	}}
 }
 
 type invitedRegistrationInvitationService struct {
@@ -59,7 +67,7 @@ type invitedRegistrationTenantService struct {
 	interfaces.TenantService
 }
 
-func TestRegisterByInviteRestoresTenantlessAccountWhenInviteExpiresDuringRegistration(t *testing.T) {
+func TestRegisterByInviteKeepsPersonalAccountWhenInviteExpiresDuringRegistration(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	users := &invitedRegistrationUserService{}
 	h := &AuthHandler{
@@ -80,19 +88,19 @@ func TestRegisterByInviteRestoresTenantlessAccountWhenInviteExpiresDuringRegistr
 	if w.Code != http.StatusGone {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if users.updatedTenant != 0 {
-		t.Fatalf("updated tenant=%d, want tenantless rollback", users.updatedTenant)
+	if users.registeredMode != types.TenantProvisioningCreatePersonal {
+		t.Fatalf("register mode=%q, want create_personal", users.registeredMode)
 	}
-	if len(users.updateCalls) != 2 || users.updateCalls[0] != 42 || users.updateCalls[1] != 0 {
-		t.Fatalf("update calls=%v, want [42 0]", users.updateCalls)
+	if len(users.updateCalls) != 0 {
+		t.Fatalf("update calls=%v, want no home-tenant rewrites", users.updateCalls)
 	}
 }
 
 func (s *invitedRegistrationTenantService) GetTenantByID(context.Context, uint64) (*types.Tenant, error) {
-	return &types.Tenant{ID: 42, Name: "Invited Workspace"}, nil
+	return &types.Tenant{ID: 7, Name: "Personal Workspace"}, nil
 }
 
-func TestRegisterByInviteUsesInvitedTenantWithoutPersonalTenant(t *testing.T) {
+func TestRegisterByInviteKeepsPersonalTenantAsHome(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	users := &invitedRegistrationUserService{}
 	h := &AuthHandler{
@@ -113,10 +121,10 @@ func TestRegisterByInviteUsesInvitedTenantWithoutPersonalTenant(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if users.registeredMode != types.TenantProvisioningTenantless {
-		t.Fatalf("register mode=%q, want tenantless", users.registeredMode)
+	if users.registeredMode != types.TenantProvisioningCreatePersonal {
+		t.Fatalf("register mode=%q, want create_personal", users.registeredMode)
 	}
-	if users.updatedTenant != 42 {
-		t.Fatalf("updated tenant=%d, want 42", users.updatedTenant)
+	if len(users.updateCalls) != 0 {
+		t.Fatalf("update calls=%v, want no home-tenant rewrites", users.updateCalls)
 	}
 }

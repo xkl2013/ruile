@@ -40,6 +40,26 @@ type KnowledgeHandler struct {
 	spanRepo          repository.KnowledgeSpanRepository
 }
 
+var errKnowledgeBaseAccessResolverUnavailable = goerrors.New("knowledge base access resolver unavailable")
+
+func resolveKnowledgeBaseAccessSafely(
+	resolver interfaces.KnowledgeBaseAccessResolver,
+	ctx context.Context,
+	kbID string,
+	opts types.KnowledgeBaseAccessOptions,
+) (access *types.KnowledgeBaseAccess, err error) {
+	if resolver == nil {
+		return nil, errKnowledgeBaseAccessResolverUnavailable
+	}
+	defer func() {
+		if recover() != nil {
+			access = nil
+			err = errKnowledgeBaseAccessResolverUnavailable
+		}
+	}()
+	return resolver.ResolveKnowledgeBaseAccess(ctx, kbID, opts)
+}
+
 const knowledgeFileUploadOperationTimeout = 30 * time.Minute
 
 // NewKnowledgeHandler creates a new knowledge handler instance
@@ -106,7 +126,6 @@ func (h *KnowledgeHandler) validateKnowledgeBaseAccessWithKBID(c *gin.Context, k
 		logger.Error(ctx, "Failed to get tenant ID")
 		return nil, "", 0, "", errors.NewUnauthorizedError("Unauthorized")
 	}
-	userID, userExists := c.Get(types.UserIDContextKey.String())
 	callerTenantRole := types.TenantRoleFromContext(ctx)
 	kbID = secutils.SanitizeForLog(kbID)
 	if kbID == "" {
@@ -115,46 +134,54 @@ func (h *KnowledgeHandler) validateKnowledgeBaseAccessWithKBID(c *gin.Context, k
 	if err := requireTenantAPIKeyKnowledgeBase(ctx, kbID); err != nil {
 		return nil, kbID, 0, "", err
 	}
+	access, accessErr := resolveKnowledgeBaseAccessSafely(h.kbService, ctx, kbID, types.KnowledgeBaseAccessOptions{
+		RequiredPermission: types.OrgRoleViewer,
+	})
+	if accessErr == nil && access != nil && access.KnowledgeBase != nil {
+		return access.KnowledgeBase, kbID, access.EffectiveTenantID, access.Permission, nil
+	}
+	if goerrors.Is(accessErr, types.ErrKnowledgeBaseAccessUnauthorized) {
+		return nil, kbID, 0, "", errors.NewUnauthorizedError("Unauthorized")
+	}
+	if goerrors.Is(accessErr, types.ErrKnowledgeBaseAccessNotFound) {
+		return nil, kbID, 0, "", errors.NewNotFoundError("knowledge base not found")
+	}
+	if accessErr != nil &&
+		!goerrors.Is(accessErr, types.ErrKnowledgeBaseAccessForbidden) &&
+		!goerrors.Is(accessErr, errKnowledgeBaseAccessResolverUnavailable) {
+		logger.ErrorWithFields(ctx, accessErr, map[string]interface{}{"kb_id": kbID})
+		return nil, kbID, 0, "", errors.NewInternalServerError(accessErr.Error())
+	}
 	kb, err := h.kbService.GetKnowledgeBaseByID(ctx, kbID)
 	if err != nil {
-		// Same not-found-vs-real-error split as knowledgebase.go's
-		// validateAndGetKnowledgeBase: ErrKnowledgeBaseNotFound is the
-		// expected outcome for a probed/stale kb id and must surface as
-		// 404, not the generic 500 the original code produced.
 		if goerrors.Is(err, repository.ErrKnowledgeBaseNotFound) {
 			return nil, kbID, 0, "", errors.NewNotFoundError("knowledge base not found")
 		}
 		logger.ErrorWithFields(ctx, err, nil)
 		return nil, kbID, 0, "", errors.NewInternalServerError(err.Error())
 	}
-	if kb.TenantID == tenantID {
-		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
-			types.IsSystemAdminFromContext(ctx) ||
-			callerTenantRole.HasPermission(types.TenantRoleAdmin) {
-			return kb, kbID, tenantID, types.OrgRoleAdmin, nil
-		}
-		if userExists {
-			if userIDStr, ok := userID.(string); ok && kb.CreatorID != "" && kb.CreatorID == userIDStr {
+	if goerrors.Is(accessErr, errKnowledgeBaseAccessResolverUnavailable) {
+		userID, userExists := c.Get(types.UserIDContextKey.String())
+		if kb.TenantID == tenantID {
+			if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
+				types.IsSystemAdminFromContext(ctx) ||
+				callerTenantRole.HasPermission(types.TenantRoleAdmin) {
 				return kb, kbID, tenantID, types.OrgRoleAdmin, nil
 			}
-		}
-	}
-	if h.kbShareService != nil {
-		permission, isShared, permErr := h.kbShareService.CheckTenantKBPermission(ctx, kbID, tenantID, callerTenantRole)
-		if permErr == nil && isShared {
-			sourceTenantID, srcErr := h.kbShareService.GetKBSourceTenant(ctx, kbID)
-			if srcErr == nil {
-				logger.Infof(ctx, "Tenant %d accessing shared KB %s with permission %s, source tenant: %d",
-					tenantID, kbID, permission, sourceTenantID)
-				return kb, kbID, sourceTenantID, permission, nil
+			if userExists {
+				if userIDStr, ok := userID.(string); ok && kb.CreatorID != "" && kb.CreatorID == userIDStr {
+					return kb, kbID, tenantID, types.OrgRoleAdmin, nil
+				}
 			}
 		}
-	}
-	if h.agentShareService != nil {
-		can, err := h.agentShareService.TenantCanAccessKBViaSomeSharedAgent(ctx, tenantID, callerTenantRole, kb)
-		if err == nil && can {
-			logger.Infof(ctx, "Tenant %d accessing KB %s via some shared agent", tenantID, kbID)
-			return kb, kbID, kb.TenantID, types.OrgRoleViewer, nil
+		if h.kbShareService != nil {
+			permission, isShared, permErr := h.kbShareService.CheckTenantKBPermission(ctx, kbID, tenantID, callerTenantRole)
+			if permErr == nil && isShared {
+				sourceTenantID, srcErr := h.kbShareService.GetKBSourceTenant(ctx, kbID)
+				if srcErr == nil {
+					return kb, kbID, sourceTenantID, permission, nil
+				}
+			}
 		}
 	}
 	logger.Warnf(ctx, "Permission denied to access KB %s, tenant ID: %d, KB tenant: %d", kbID, tenantID, kb.TenantID)
@@ -169,7 +196,6 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
 	if tenantID == 0 {
 		return nil, ctx, errors.NewUnauthorizedError("Unauthorized")
 	}
-	userID, userExists := c.Get(types.UserIDContextKey.String())
 	callerTenantRole := types.TenantRoleFromContext(ctx)
 
 	knowledge, err := h.kgService.GetKnowledgeByIDOnly(ctx, knowledgeID)
@@ -180,63 +206,61 @@ func (h *KnowledgeHandler) resolveKnowledgeAndValidateKBAccess(c *gin.Context, k
 		return nil, ctx, err
 	}
 
-	// Same-tenant knowledge: Admin+ can access all tenant KB content;
-	// ordinary members access content in KBs they created. Non-creators
-	// fall through to organization sharing below so shared spaces can grant
-	// access to teammate-owned KB content in the same workspace.
-	if knowledge.TenantID == tenantID {
-		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
-			types.IsSystemAdminFromContext(ctx) ||
-			callerTenantRole.HasPermission(types.TenantRoleAdmin) {
-			return knowledge, context.WithValue(ctx, types.TenantIDContextKey, tenantID), nil
-		}
-		if userExists {
-			userIDStr, ok := userID.(string)
-			if ok && userIDStr != "" && h.kbService != nil {
-				kb, kbErr := h.kbService.GetKnowledgeBaseByID(ctx, knowledge.KnowledgeBaseID)
-				if kbErr == nil && kb != nil && kb.CreatorID != "" && kb.CreatorID == userIDStr {
-					return knowledge, context.WithValue(ctx, types.TenantIDContextKey, tenantID), nil
-				}
+	// The route-level KB access guard has already checked the parent KB and
+	// may have rewritten the request context to the source tenant. Reusing
+	// its canonical result avoids resolving a shared KB again with the
+	// caller's home-tenant role, which could otherwise overstate permission.
+	if access, ok := middleware.KBAccessFromContext(c); ok &&
+		access != nil &&
+		access.KnowledgeBase != nil &&
+		access.KnowledgeBase.ID == knowledge.KnowledgeBaseID {
+		return knowledge, context.WithValue(ctx, types.TenantIDContextKey, access.EffectiveTenantID), nil
+	}
+
+	access, accessErr := resolveKnowledgeBaseAccessSafely(h.kbService, ctx, knowledge.KnowledgeBaseID, types.KnowledgeBaseAccessOptions{
+		RequiredPermission: requiredPermission,
+	})
+	if accessErr == nil && access != nil {
+		return knowledge, context.WithValue(ctx, types.TenantIDContextKey, access.EffectiveTenantID), nil
+	}
+	if goerrors.Is(accessErr, types.ErrKnowledgeBaseAccessUnauthorized) {
+		return nil, ctx, errors.NewUnauthorizedError("Unauthorized")
+	}
+	if goerrors.Is(accessErr, types.ErrKnowledgeBaseAccessNotFound) {
+		return nil, ctx, errors.NewNotFoundError("knowledge base not found")
+	}
+	if accessErr != nil &&
+		!goerrors.Is(accessErr, types.ErrKnowledgeBaseAccessForbidden) &&
+		!goerrors.Is(accessErr, errKnowledgeBaseAccessResolverUnavailable) {
+		logger.ErrorWithFields(ctx, accessErr, map[string]interface{}{
+			"knowledge_base_id": knowledge.KnowledgeBaseID,
+		})
+		return nil, ctx, errors.NewInternalServerError(accessErr.Error())
+	}
+
+	// Compatibility fallback for lightweight integrations that implement the
+	// historical KnowledgeBaseService methods but not the access resolver.
+	if goerrors.Is(accessErr, errKnowledgeBaseAccessResolverUnavailable) {
+		userID, userExists := c.Get(types.UserIDContextKey.String())
+		if knowledge.TenantID == tenantID {
+			if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok ||
+				types.IsSystemAdminFromContext(ctx) ||
+				callerTenantRole.HasPermission(types.TenantRoleAdmin) {
+				return knowledge, context.WithValue(ctx, types.TenantIDContextKey, tenantID), nil
 			}
-		}
-	}
-	// Shared KB: check organization permission
-	if h.kbShareService != nil {
-		permission, isShared, permErr := h.kbShareService.CheckTenantKBPermission(ctx, knowledge.KnowledgeBaseID, tenantID, callerTenantRole)
-		if permErr == nil && isShared && permission.HasPermission(requiredPermission) {
-			effectiveTenantID := knowledge.TenantID
-			return knowledge, context.WithValue(ctx, types.TenantIDContextKey, effectiveTenantID), nil
-		}
-	}
-	// Shared agent: request passes agent_id, or user has any shared agent that can access this KB
-	if h.agentShareService != nil && requiredPermission == types.OrgRoleViewer {
-		agentID := c.Query("agent_id")
-		if agentID != "" {
-			agent, err := h.agentShareService.GetSharedAgentForTenant(ctx, tenantID, callerTenantRole, agentID)
-			if err == nil && agent != nil {
-				if knowledge.TenantID != agent.TenantID {
-					return nil, ctx, errors.NewForbiddenError("Permission denied to access this knowledge")
-				}
-				mode := agent.Config.KBSelectionMode
-				if mode == "none" {
-					return nil, ctx, errors.NewForbiddenError("Permission denied to access this knowledge")
-				}
-				if mode == "all" {
-					return knowledge, context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
-				}
-				if mode == "selected" {
-					for _, kbID := range agent.Config.KnowledgeBases {
-						if kbID == knowledge.KnowledgeBaseID {
-							return knowledge, context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
-						}
+			if userExists {
+				userIDStr, ok := userID.(string)
+				if ok && userIDStr != "" && h.kbService != nil {
+					kb, kbErr := h.kbService.GetKnowledgeBaseByID(ctx, knowledge.KnowledgeBaseID)
+					if kbErr == nil && kb != nil && kb.CreatorID != "" && kb.CreatorID == userIDStr {
+						return knowledge, context.WithValue(ctx, types.TenantIDContextKey, tenantID), nil
 					}
-					return nil, ctx, errors.NewForbiddenError("Permission denied to access this knowledge")
 				}
 			}
-		} else {
-			kbRef := &types.KnowledgeBase{ID: knowledge.KnowledgeBaseID, TenantID: knowledge.TenantID}
-			can, err := h.agentShareService.TenantCanAccessKBViaSomeSharedAgent(ctx, tenantID, callerTenantRole, kbRef)
-			if err == nil && can {
+		}
+		if h.kbShareService != nil {
+			permission, isShared, permErr := h.kbShareService.CheckTenantKBPermission(ctx, knowledge.KnowledgeBaseID, tenantID, callerTenantRole)
+			if permErr == nil && isShared && permission.HasPermission(requiredPermission) {
 				return knowledge, context.WithValue(ctx, types.TenantIDContextKey, knowledge.TenantID), nil
 			}
 		}
@@ -1513,7 +1537,7 @@ func (h *KnowledgeHandler) GetKnowledgeBatch(c *gin.Context) {
 		}
 		_ = userID
 		effectiveTenantID = agent.TenantID
-		agentAllowedKBIDs = resolveAgentAllowedKBIDs(agent)
+		agentAllowedKBIDs = h.readableKnowledgeBaseIDsForSharedAgent(ctx, agent)
 
 		if agentAllowedKBIDs != nil && len(agentAllowedKBIDs) == 0 {
 			c.JSON(http.StatusOK, gin.H{"success": true, "data": []*types.Knowledge{}})
@@ -2028,7 +2052,7 @@ func (h *KnowledgeHandler) UpdateImageInfo(c *gin.Context) {
 
 // SearchKnowledge godoc
 // @Summary      Search knowledge
-// @Description  Search knowledge files by keyword. Pass recent=true without a keyword to browse recent files. When agent_id is set (shared agent), scope is the agent's configured knowledge bases.
+// @Description  Search knowledge files by keyword. Pass recent=true without a keyword to browse recent files. When agent_id is set, the effective scope is the intersection of the shared Agent's configured knowledge bases and the caller's ordinary KB permissions.
 // @Tags         Knowledge
 // @Accept       json
 // @Produce      json
@@ -2036,7 +2060,7 @@ func (h *KnowledgeHandler) UpdateImageInfo(c *gin.Context) {
 // @Param        offset     query     int     false "Offset for pagination"
 // @Param        limit      query     int     false "Limit for pagination (default 20)"
 // @Param        file_types query     string  false "Comma-separated file extensions to filter (e.g., csv,xlsx)"
-// @Param        agent_id   query     string  false "Shared agent ID (search within agent's KB scope)"
+// @Param        agent_id   query     string  false "Shared agent ID (search within Agent scope intersected with caller permissions)"
 // @Param        recent     query     bool    false "Return recent files when keyword is empty"
 // @Success      200         {object}  map[string]interface{}     "Search results"
 // @Failure      400         {object}  errors.AppError            "Invalid request"
@@ -2110,15 +2134,26 @@ func (h *KnowledgeHandler) SearchKnowledge(c *gin.Context) {
 			})
 			return
 		}
-		var scopes []types.KnowledgeSearchScope
-		if mode == "selected" && len(agent.Config.KnowledgeBases) > 0 {
-			for _, kbID := range agent.Config.KnowledgeBases {
-				if kbID != "" {
-					scopes = append(scopes, types.KnowledgeSearchScope{TenantID: sourceTenantID, KBID: kbID})
-				}
-			}
+		readableKBIDs := h.readableKnowledgeBaseIDsForSharedAgent(ctx, agent)
+		if len(readableKBIDs) == 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success":  true,
+				"data":     []interface{}{},
+				"has_more": false,
+				"total":    0,
+			})
+			return
 		}
-		if len(scopes) == 0 {
+		readableSet := make(map[string]bool, len(readableKBIDs))
+		for _, id := range readableKBIDs {
+			readableSet[id] = true
+		}
+		var scopes []types.KnowledgeSearchScope
+		if mode == "selected" {
+			for _, kbID := range readableKBIDs {
+				scopes = append(scopes, types.KnowledgeSearchScope{TenantID: sourceTenantID, KBID: kbID})
+			}
+		} else {
 			kbs, err := h.kbService.ListKnowledgeBasesByTenantID(ctx, sourceTenantID)
 			if err != nil {
 				logger.ErrorWithFields(ctx, err, nil)
@@ -2133,7 +2168,7 @@ func (h *KnowledgeHandler) SearchKnowledge(c *gin.Context) {
 			filter := tools.DeriveKBFilterForAgent(agent.Config.AgentMode, agent.Config.AllowedTools)
 			removed := 0
 			for _, kb := range kbs {
-				if kb == nil || kb.Type != types.KnowledgeBaseTypeDocument {
+				if kb == nil || !readableSet[kb.ID] || kb.Type != types.KnowledgeBaseTypeDocument {
 					continue
 				}
 				if !filter.IsEmpty() && !tools.KBSatisfiesAgentRequirements(kb.Capabilities(), agent.Config.AgentMode, agent.Config.AllowedTools) {
@@ -2439,24 +2474,54 @@ func (h *KnowledgeHandler) GetKnowledgeMoveProgress(c *gin.Context) {
 	})
 }
 
-// resolveAgentAllowedKBIDs returns the set of knowledge base IDs that the
-// shared agent is allowed to access based on its KBSelectionMode config.
-// Returns nil when no restriction applies ("all" mode), or a concrete slice
-// (possibly empty for "none" mode) when the results must be filtered.
-func resolveAgentAllowedKBIDs(agent *types.CustomAgent) []string {
-	switch agent.Config.KBSelectionMode {
-	case "all":
+// readableKnowledgeBaseIDsForSharedAgent returns the intersection of the
+// shared Agent's configured KB scope and the caller's ordinary KB access.
+// An Agent share is not itself a KB publication.
+func (h *KnowledgeHandler) readableKnowledgeBaseIDsForSharedAgent(
+	ctx context.Context,
+	agent *types.CustomAgent,
+) []string {
+	if agent == nil || h.kbService == nil {
 		return nil
+	}
+	kbs, err := h.kbService.ListKnowledgeBasesByTenantID(ctx, agent.TenantID)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to list shared Agent knowledge bases: %v", err)
+		return nil
+	}
+	configured := make(map[string]bool)
+	switch agent.Config.KBSelectionMode {
 	case "none":
 		return []string{}
 	case "selected":
-		return agent.Config.KnowledgeBases
-	default:
-		if len(agent.Config.KnowledgeBases) > 0 {
-			return agent.Config.KnowledgeBases
+		for _, id := range agent.Config.KnowledgeBases {
+			if id != "" {
+				configured[id] = true
+			}
 		}
-		return nil
+	default:
+		for _, kb := range kbs {
+			if kb != nil && kb.ID != "" {
+				configured[kb.ID] = true
+			}
+		}
 	}
+	if len(configured) == 0 {
+		return []string{}
+	}
+	ids := make([]string, 0, len(configured))
+	for _, kb := range kbs {
+		if kb == nil || !configured[kb.ID] {
+			continue
+		}
+		access, accessErr := h.kbService.ResolveKnowledgeBaseAccess(ctx, kb.ID, types.KnowledgeBaseAccessOptions{
+			RequiredPermission: types.OrgRoleViewer,
+		})
+		if accessErr == nil && access != nil {
+			ids = append(ids, kb.ID)
+		}
+	}
+	return ids
 }
 
 // parseCommaSeparatedTagIDs splits a comma-separated string of tag IDs and

@@ -26,11 +26,11 @@ type InitializationConfig struct {
 // CLI. Field tags are snake_case (the CLI envelope convention), remapped from
 // the server's camelCase.
 type KBModelConfigView struct {
-	RetrievalReady bool                  `json:"retrieval_ready"` // embedding model bound → KB can embed/retrieve
-	Embedding      ModelSlotView         `json:"embedding"`
-	LLM            ModelSlotView         `json:"llm"`
-	Rerank         RerankSlotView        `json:"rerank"`
-	Multimodal     MultimodalSlotView    `json:"multimodal"`
+	RetrievalReady bool               `json:"retrieval_ready"` // embedding model bound → KB can embed/retrieve
+	Embedding      ModelSlotView      `json:"embedding"`
+	LLM            ModelSlotView      `json:"llm"`
+	Rerank         RerankSlotView     `json:"rerank"`
+	Multimodal     MultimodalSlotView `json:"multimodal"`
 }
 
 // ModelSlotView is one non-secret model slot (embedding / llm).
@@ -122,7 +122,8 @@ func (c *Client) GetInitializationConfig(ctx context.Context, kbID string) (*KBM
 	return view, nil
 }
 
-// InitializeByKB initializes a knowledge base with model configuration
+// InitializeByKB is retained for compatibility but the server rejects
+// per-KB advanced configuration writes. Use the workspace defaults API.
 func (c *Client) InitializeByKB(ctx context.Context, kbID string, config *InitializationConfig) error {
 	resp, err := c.doRequest(ctx, http.MethodPost, fmt.Sprintf("/api/v1/initialization/initialize/%s", kbID), config, nil)
 	if err != nil {
@@ -131,11 +132,8 @@ func (c *Client) InitializeByKB(ctx context.Context, kbID string, config *Initia
 	return parseResponse(resp, nil)
 }
 
-// UpdateKBConfig updates the model configuration for a knowledge base.
-//
-// Deprecated: the PUT /initialization/config endpoint binds KBModelConfigRequest
-// (fields llmModelId / embeddingModelId), not InitializationConfig, so this
-// method sends a shape the server rejects. Use SetKBModelConfig instead.
+// UpdateKBConfig is retained for compatibility but the server rejects
+// per-KB advanced configuration writes. Use the workspace defaults API.
 func (c *Client) UpdateKBConfig(ctx context.Context, kbID string, config *InitializationConfig) error {
 	resp, err := c.doRequest(ctx, http.MethodPut, fmt.Sprintf("/api/v1/initialization/config/%s", kbID), config, nil)
 	if err != nil {
@@ -144,19 +142,16 @@ func (c *Client) UpdateKBConfig(ctx context.Context, kbID string, config *Initia
 	return parseResponse(resp, nil)
 }
 
-// KBModelConfig points a knowledge base at already-registered models. Field
-// names match the server's KBModelConfigRequest (PUT
-// /initialization/config/:kbId). LLMModelID is required server-side;
-// EmbeddingModelID is optional (omitted when RAG indexing is disabled).
+// KBModelConfig is retained for source compatibility with older clients.
+// The server no longer accepts it for per-KB updates.
 type KBModelConfig struct {
 	LLMModelID       string `json:"llmModelId"`
 	EmbeddingModelID string `json:"embeddingModelId,omitempty"`
 }
 
-// SetKBModelConfig binds a knowledge base to already-registered models via PUT
-// /initialization/config/:kbId. Register models first with CreateModel; the
-// server rejects unknown model ids and refuses to change the embedding model of
-// a KB that already has documents.
+// SetKBModelConfig is retained for source compatibility with older clients.
+// The server rejects per-KB advanced configuration writes; use the workspace
+// defaults API instead.
 func (c *Client) SetKBModelConfig(ctx context.Context, kbID string, cfg *KBModelConfig) error {
 	resp, err := c.doRequest(ctx, http.MethodPut, fmt.Sprintf("/api/v1/initialization/config/%s", kbID), cfg, nil)
 	if err != nil {

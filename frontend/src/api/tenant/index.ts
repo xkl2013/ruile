@@ -21,6 +21,15 @@ export interface TenantInfo {
   name: string
   description?: string
   status?: string
+  space_type?: 'personal' | 'organization' | 'legacy' | string
+  edition?: 'personal' | 'enterprise' | string
+  edition_version?: number
+  edition_capabilities?: {
+    edition: string
+    version: number
+    features: Record<string, boolean>
+    limits: Record<string, number>
+  }
   business?: string
   storage_quota?: number
   storage_used?: number
@@ -304,6 +313,40 @@ export async function createTenant(
       message: code === 2005
         ? t('tenant.create.disabled')
         : (error.message || t('error.tenant.createFailed')),
+    }
+  }
+}
+
+export interface CreateEnterpriseWorkspacePayload {
+  name: string
+  description?: string
+}
+
+function createIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `enterprise-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/**
+ * 为当前用户开通企业空间。后端保留个人主页，并通过 tenant_members
+ * 建立新的 Owner 关系；请求带有幂等键，网络重试不会重复创建空间。
+ */
+export async function createEnterpriseWorkspace(
+  payload: CreateEnterpriseWorkspacePayload,
+): Promise<{ success: boolean; data?: TenantInfo; message?: string }> {
+  try {
+    const response = await post('/api/v1/tenants/enterprise', payload, {
+      headers: {
+        'Idempotency-Key': createIdempotencyKey(),
+      },
+    })
+    return response as unknown as { success: boolean; data?: TenantInfo; message?: string }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || t('tenant.enterprise.failed'),
     }
   }
 }

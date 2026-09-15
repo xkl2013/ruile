@@ -32,7 +32,7 @@
             <span class="icon-label">{{ workspaceLabel }}</span>
           </div>
         </t-tooltip>
-        <!-- Shared spaces group: per-org/space entries only. We dropped
+        <!-- Team Spaces group: per-org/space entries only. We dropped
              the aggregate "协作" / shared-with-me entry — its meaning
              oscillated between "everything shared to me" and "things I
              can edit", and either reading duplicated information already
@@ -108,7 +108,7 @@
           </div>
           <span v-if="countMine !== undefined" class="item-count">{{ countMine }}</span>
         </div>
-        <!-- Shared spaces group — per-org entries only; the aggregate
+        <!-- Team Spaces group — per-org entries only; the aggregate
              entry was removed (see collapsed strip for rationale). -->
         <template v-if="organizationsWithCount.length">
           <div class="sidebar-section">

@@ -187,6 +187,10 @@ func newSearchUsersInviteRouter(h *OrganizationHandler) *gin.Engine {
 	return r
 }
 
+func inviteSpaceTypePtr(spaceType types.SpaceType) *types.SpaceType {
+	return &spaceType
+}
+
 func TestSearchUsersForInviteReturnsCurrentUserManagementCandidates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -287,6 +291,37 @@ func TestSearchUsersForInviteReturnsCurrentUserManagementCandidates(t *testing.T
 		case "other-tenant", "global-only", "inactive", "suspended":
 			t.Fatalf("unexpected non-active user-management candidate: %+v", candidate)
 		}
+	}
+}
+
+func TestSearchUsersForInviteRejectsPersonalWorkspaceAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	orgSvc := &searchUsersInviteOrgService{admin: true}
+	userSvc := &searchUsersInviteUserService{}
+	tenantSvc := &searchUsersInviteTenantService{
+		tenants: map[uint64]*types.Tenant{
+			1: {ID: 1, Name: "Personal Workspace", Status: "active", SpaceType: inviteSpaceTypePtr(types.SpaceTypePersonal)},
+		},
+	}
+	memberSvc := &searchUsersInviteMemberService{}
+
+	h := &OrganizationHandler{
+		orgService:    orgSvc,
+		userService:   userSvc,
+		memberService: memberSvc,
+		tenantService: tenantSvc,
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/organizations/org-1/search-users?q=can&limit=25", nil)
+	newSearchUsersInviteRouter(h).ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if len(memberSvc.listByTenantCalls) != 0 {
+		t.Fatalf("personal workspace should not list invite candidates: %+v", memberSvc.listByTenantCalls)
 	}
 }
 
@@ -636,6 +671,49 @@ func TestInviteMemberResolvesTenantlessUserFromMembership(t *testing.T) {
 	if orgSvc.addedOrgID != "org-1" || orgSvc.addedTenant != 1 || orgSvc.addedRep != "user-phone" || orgSvc.addedRole != types.OrgRoleViewer {
 		t.Fatalf("unexpected AddTenantMember call: org=%q tenant=%d rep=%q role=%s",
 			orgSvc.addedOrgID, orgSvc.addedTenant, orgSvc.addedRep, orgSvc.addedRole)
+	}
+}
+
+func TestInviteMemberRejectsPersonalWorkspaceAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	orgSvc := &searchUsersInviteOrgService{admin: true}
+	userSvc := &searchUsersInviteUserService{
+		users: []*types.User{
+			{ID: "user-phone", Username: "2333", Email: "13258978277", TenantID: 0, IsActive: true},
+		},
+	}
+	tenantSvc := &searchUsersInviteTenantService{
+		tenants: map[uint64]*types.Tenant{
+			1: {ID: 1, Name: "Personal Workspace", Status: "active", SpaceType: inviteSpaceTypePtr(types.SpaceTypePersonal)},
+		},
+	}
+	memberSvc := &searchUsersInviteMemberService{
+		byUser: map[string][]*types.TenantMember{
+			"user-phone": {
+				{UserID: "user-phone", TenantID: 1, Status: types.TenantMemberStatusActive},
+			},
+		},
+	}
+
+	h := &OrganizationHandler{
+		orgService:    orgSvc,
+		userService:   userSvc,
+		memberService: memberSvc,
+		tenantService: tenantSvc,
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/organizations/org-1/invite",
+		strings.NewReader(`{"user_id":"user-phone","role":"viewer"}`))
+	req.Header.Set("Content-Type", "application/json")
+	newSearchUsersInviteRouter(h).ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if orgSvc.addedRep != "" {
+		t.Fatalf("personal workspace user should not be added: %+v", orgSvc)
 	}
 }
 

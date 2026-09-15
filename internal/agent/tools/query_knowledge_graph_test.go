@@ -34,11 +34,37 @@ func (s *stubKnowledgeBaseService) GetKnowledgeBasesByIDsOnly(context.Context, [
 	return nil, nil
 }
 
+func (s *stubKnowledgeBaseService) ResolveKnowledgeBaseAccess(
+	context.Context,
+	string,
+	types.KnowledgeBaseAccessOptions,
+) (*types.KnowledgeBaseAccess, error) {
+	return nil, types.ErrKnowledgeBaseAccessForbidden
+}
+
 func (s *stubKnowledgeBaseService) FillKnowledgeBaseCounts(context.Context, *types.KnowledgeBase) error {
 	return nil
 }
 
 func (s *stubKnowledgeBaseService) ListKnowledgeBases(context.Context) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
+
+func (s *stubKnowledgeBaseService) ListMyKnowledgeBases(context.Context) (*types.MyKnowledgeBaseList, error) {
+	return nil, nil
+}
+
+func (s *stubKnowledgeBaseService) SubscribeKnowledgeBase(
+	context.Context,
+	string,
+) (*types.KnowledgeBaseSubscriptionResult, error) {
+	return nil, nil
+}
+
+func (s *stubKnowledgeBaseService) UnsubscribeKnowledgeBase(
+	context.Context,
+	string,
+) (*types.KnowledgeBaseSubscriptionResult, error) {
 	return nil, nil
 }
 

@@ -159,6 +159,7 @@ type Membership struct {
 	TenantID   uint64     `json:"tenant_id"`
 	TenantName string     `json:"tenant_name"`
 	Role       TenantRole `json:"role"`
+	SpaceType  *SpaceType `json:"space_type,omitempty"`
 }
 
 // TenantMemberResponse is the API projection of a TenantMember row joined

@@ -38,8 +38,10 @@
 - 订阅只是个人快捷入口，不是权限来源。
 - 存储管理按个人空间和组织空间分别计算，订阅和共享空间不复制文件也不占用额外存储。
 - 本期不开发 Token/积分账户、计费、扣减和额度管理；模型调用继续沿用现有技术链路，不增加产品级余额拦截。
-- 知识库创建保持极简：当前选中的空间决定归属，用户只填写名称和描述，其余配置由后台默认配置自动注入。
+- 知识库创建保持极简：默认创建到个人空间；具备企业知识库创建权限的员工只在创建弹窗内选择企业归属，其余配置由后台默认配置自动注入。
 - 所有最终权限以后端统一计算为准，前端只展示权限结果。
+- 新注册账号由后台静默创建个人空间，不要求用户先创建空间或选择组织。
+- 企业账号邀请员工采用账号级共享授权，不要求员工接受邀请、加入组织或切换到企业空间；员工登录后在自己的账号下查看被授权的知识库数据。
 
 ## 1. 背景
 
@@ -55,7 +57,7 @@
 ## 2. 目标
 
 1. 支持个人用户创建自己的私有知识库。
-2. 明确个人知识库不可共享、不可发布、不可加入共享空间、不可被他人订阅。
+2. 明确个人知识库不可共享、不可发布、不可被他人订阅；共享空间成员资格按账号版本判断，个人版本账号不能加入共享空间，只有组织账号可以加入。
 3. 支持组织内创建组织知识库。
 4. 支持组织内创建共享空间，并将组织员工、组织知识库加入共享空间。
 5. 已加入共享空间的员工可以查看共享空间内的知识库。
@@ -116,21 +118,21 @@
 | 组织员工 | `tenant_members` |
 | 组织知识库 | `knowledge_bases.tenant_id = 组织空间 ID` |
 | 创建者 | `knowledge_bases.creator_id` |
-| 组织内部共享空间 | 新增 `shared_spaces`，隶属于一个组织空间 |
+| 组织内部共享空间 | 复用现有 `organizations`、`organization_tenant_members`、`kb_shares`，通过共享空间范围和归属校验支持组织内部模式 |
 | 订阅 | 新增 `knowledge_base_subscriptions` |
 | 存储配额/用量 | 复用 `tenants.storage_quota`、`tenants.storage_used` |
 | 存储实例 | 复用 `storage_backends`、`tenants.default_storage_backend_id` |
 | 知识库存储绑定 | 后台自动写入 `knowledge_bases.storage_backend_id`，不作为创建表单输入 |
 | Token/积分管理 | 后续版本规划，本期不新增账户、流水、计价和员工限额表 |
 
-说明：现有 `organizations / kb_shares` 更偏跨空间共享关系。第一版的「组织内部共享空间」建议作为组织内协作能力单独建模，避免和跨空间协作概念混用。
+说明：当前工程已经把 `organizations` 实现为共享空间实体，已有共享空间创建、成员管理、知识库共享、角色权限和共享知识库列表能力。本次不新增 `shared_spaces` 平行模型，而是在现有模型上增加必要的范围标识和组织内校验。历史跨空间共享继续保留，新建的组织内部共享空间使用同一套 API 和数据模型。
 
 ## 5. 核心规则
 
 ### 5.1 个人知识库规则
 
 - 个人知识库只能由创建者本人查看、检索、问答、上传、编辑、删除。
-- 个人知识库不能加入共享空间。
+- 个人知识库不会因为账号加入组织或共享空间而自动进入共享空间。
 - 个人知识库不能分享给组织员工。
 - 个人知识库不能发布或允许订阅。
 - 个人知识库不能被组织管理员查看或接管。
@@ -152,9 +154,10 @@
 
 - 共享空间隶属于单个组织。
 - 共享空间只能添加本组织员工。
+- 个人版本账号不能加入共享空间；只有宿主组织空间内的组织账号可以成为共享空间成员。
 - 共享空间只能添加本组织知识库。
 - 共享空间成员默认可查看空间内知识库。
-- 第一版共享空间知识库权限只做 `viewer`；后续可扩展 `editor`。
+- 复用现有共享空间成员角色 `admin/editor/viewer` 和知识库共享权限 `viewer/editor`；新建组织内部共享关系默认使用 `viewer`。
 - 员工被移出共享空间后，立即失去通过该共享空间获得的知识库访问权。
 - 知识库从共享空间移除后，空间成员立即失去通过该空间获得的访问权。
 
@@ -172,7 +175,7 @@
 - 原个人空间继续保留。
 - 原个人知识库继续保持私有，不自动进入组织空间。
 - 当前账号自动成为新组织空间的 Owner。
-- 升级完成后，用户可以在个人空间和组织空间之间切换。
+- 升级完成后，个人空间仍作为账号默认空间；主前端不要求员工在个人空间和组织空间之间切换，组织成员关系作为后台授权来源。
 - 用户可选择把个人知识库复制到组织空间，但默认不复制。
 - 第一版只支持复制到组织空间，不支持直接转移个人知识库所有权。
 - 复制后的组织知识库是一个新知识库，归属组织空间；原个人知识库仍归属个人空间。
@@ -199,14 +202,19 @@
 
 ### 5.8 知识库创建与默认配置规则
 
-- 创建知识库时，当前登录账号正在使用的空间决定知识库归属：
-  - 当前为个人空间时，创建个人知识库；
-  - 当前为组织空间时，创建组织知识库。
-- 创建表单只包含：
+- 主前端知识库列表以账号为中心展示“我创建的、共享给我的、我订阅的”内容，不要求员工先切换个人空间或企业空间。
+- 创建知识库默认创建到账号的个人空间。只有同时满足以下条件时，创建表单才显示“知识库归属”选择：
+  - 账号属于至少一个企业空间；
+  - 在企业空间中的角色为 Contributor、Admin 或 Owner；
+  - 成员状态为 active。
+- 创建表单包含：
   - 知识库名称；
   - 知识库描述。
-- 创建请求不得由前端传入 `tenant_id`、`owner_type`、`storage_backend_id`、模型 ID、解析配置、切片配置或向量库配置。
-- 后端从登录上下文解析当前空间，并校验当前用户是否有在该空间创建知识库的权限。
+  - 符合权限时额外显示的创建归属：`personal` 或 `enterprise`；
+  - 当账号拥有多个可创建企业空间时，额外选择企业空间。
+- 创建请求可以传入创建意图 `scope` 和经过选择的 `enterprise_tenant_id`，但不得传入可绕过权限校验的任意 `tenant_id`、`owner_type`、`storage_backend_id`、模型 ID、解析配置、切片配置或向量库配置。
+- 后端默认将省略的 `scope` 解析为 `personal`，并将个人知识库创建到账号个人空间；选择 `enterprise` 时，后端必须从当前账号的 active 企业成员关系中解析目标空间，并校验角色至少为 Contributor。
+- 员工即使当前处于个人空间上下文，也可以创建其有权限的企业知识库；创建成功后，企业知识库仍按账号维度出现在“我创建的”列表中。成员关系被移除或停用后，员工失去该企业知识库的访问权限。
 - 后端创建知识库时自动注入默认配置，至少包括：
   - 知识库类型和默认图标；
   - 文档解析和抽取配置；
@@ -216,10 +224,20 @@
   - 默认存储实例；
   - 默认访问权限。
 - 普通用户在创建完成后不需要继续配置知识库，即可上传内容、检索和问答。
-- 普通用户不能在知识库设置页修改上述高级配置；知识库设置页只保留名称、描述、内容管理、共享空间和订阅等与业务协作有关的入口。
-- 后台默认配置按“全局默认配置 -> 空间/组织默认配置 -> 知识库创建时解析”的顺序生效；如无空间级覆盖，则使用全局默认配置。
-- 默认配置在创建时解析并记录配置版本。后续后台修改默认配置只影响新建知识库，不自动改变已有知识库，避免线上知识库行为突然变化。
-- 已有知识库确需调整高级配置时，由后台管理员执行配置迁移或重新绑定，不向普通用户开放。
+- 普通用户不能在知识库设置页修改上述高级配置；主前端知识库设置只保留名称、描述、内容管理和目录信息。
+- 后台默认配置按“全局默认配置 -> 空间/组织统一配置 -> 知识库运行时配置”的顺序生效；如无空间级覆盖，则使用全局默认配置。
+- 空间/组织统一配置由 admin 工程维护，保存后作为后续新建知识库的默认值；已有知识库保持当前运行时配置，需通过显式迁移流程变更。
+- 主前端不提供模型、解析、切片、索引、向量库、存储或共享空间治理等高级配置；知识库本体只保留名称、描述、内容管理和目录信息，订阅入口保留在列表卡片。
+- 涉及已有文件的 embedding、存储实例或索引策略变更，必须在 admin 中明确提示影响范围，并通过重建/迁移流程保证历史索引和物理文件的一致性。
+
+### 5.9 账号登录与企业邀请授权规则
+
+- 新用户完成注册后，后端自动创建一个 `space_type=personal` 的个人空间，并将其作为账号默认空间；前端不展示“创建空间”步骤。
+- 企业/组织空间的 Owner 或 Admin 才能邀请员工账号并授予共享数据权限。
+- 邀请成功后，授权在后台立即生效，不产生需要员工处理的“接受邀请”步骤。
+- 被邀请员工保留自己的个人空间和默认登录空间，不自动进入、切换或选择企业/组织空间。
+- 员工登录后，以当前账号为维度查询“我创建的、共享给我的、我订阅的”知识库；共享数据来自后台已建立的授权关系，不依赖员工当前选中的空间。
+- 员工端不展示“接受邀请”“加入组织”或页面级“选择组织”入口；只有创建知识库时，符合权限的员工可以在创建表单内选择企业知识库及目标企业空间。企业管理员仍可在后台管理员工和共享关系。
 
 ## 6. 用户角色与权限
 
@@ -237,9 +255,10 @@
 | 角色 | 说明 | 关键权限 |
 | --- | --- | --- |
 | Admin | 共享空间管理员 | 管理该共享空间成员和空间知识库 |
+| Editor | 共享空间编辑者 | 可维护被授予编辑权限的共享知识库，不可管理空间成员 |
 | Viewer | 共享空间成员 | 查看该共享空间内知识库 |
 
-第一版不引入共享空间 `Editor`。如需允许共享空间成员维护内容，可在后续版本增加 `Editor`，并在知识库加入共享空间时配置 `viewer/editor`。
+当前系统已经支持共享空间 `Editor` 和知识库 `viewer/editor` 组合。本次改版保留该能力，重点增加个人知识库禁止共享和组织内部模式的归属校验。
 
 ### 6.3 操作权限矩阵
 
@@ -292,7 +311,7 @@
 验收标准：
 
 - 只能选择本组织知识库。
-- 个人知识库不可出现在可加入列表。
+- 可加入列表只展示宿主组织空间下的知识库；限制依据是知识库所属空间是否为共享空间宿主组织，不按“个人知识库”标签单独判断。
 - 被加入空间的员工可在「共享给我的」看到该知识库。
 
 ### 7.4 员工查看共享给自己的知识库
@@ -359,21 +378,24 @@ Token/积分账户、计价、消费明细、员工限额、充值和后台发�
 
 验收标准：
 
-- 用户打开创建弹窗后只看到名称和描述两个字段。
-- 当前选中的个人空间或组织空间自动作为知识库归属，不要求用户再次选择空间。
+- 普通用户打开创建弹窗后只看到名称和描述两个字段。
+- 具备企业知识库创建权限的员工在创建弹窗内额外看到“知识库归属”；默认选中个人知识库，可切换为企业知识库。
+- 员工拥有多个可创建企业空间时，选择企业知识库后必须选择具体企业空间；只有一个时由系统自动确定。
+- 创建知识库不要求员工先切换当前空间；个人空间上下文下也可以创建有权限的企业知识库。
 - 创建成功后，知识库可以直接进入内容上传和问答流程。
 - 创建表单不展示模型、解析、切片、向量、检索和存储配置。
-- 后台默认配置变更不会影响已有知识库。
+- admin 保存空间统一配置后，仅影响后续新建知识库；已有知识库不隐式改写，涉及存量索引或存储的变更需进入显式重建/迁移流程。
 
 ## 8. 功能需求
 
 ### 8.1 知识库归属
 
-FR-001：创建知识库时，后端必须根据当前登录上下文确定创建位置。
+FR-001：创建知识库时，后端必须根据当前账号、个人空间和企业成员关系确定创建位置，不得仅依赖当前活动空间。
 
-- 当前活动空间为个人空间：创建个人知识库。
-- 当前活动空间为组织空间：创建组织知识库。
-- 前端不提交可任意指定的 `tenant_id`，避免越权创建。
+- `scope` 省略或为 `personal`：创建到账号个人空间。
+- `scope=enterprise`：仅允许创建到账号 active 成员关系中角色至少为 Contributor 的企业空间。
+- 账号只有一个可创建企业空间时，后端可以自动确定目标；账号有多个时，必须校验 `enterprise_tenant_id` 属于可选目标。
+- 前端不得提交可任意指定的 `tenant_id`，避免越权创建。
 
 FR-002：知识库响应中应返回归属信息。
 
@@ -391,16 +413,18 @@ FR-002：知识库响应中应返回归属信息。
 
 FR-003：个人知识库必须在后端禁止共享、发布、被订阅。
 
-FR-004：创建知识库请求只允许提交名称和描述。
+FR-004：创建知识库请求只允许提交名称、描述和受控的创建意图字段。
 
 ```json
 {
   "name": "招生资料",
-  "description": "招生话术、活动方案和常见问答"
+  "description": "招生话术、活动方案和常见问答",
+  "scope": "enterprise",
+  "enterprise_tenant_id": 10001
 }
 ```
 
-以下字段不得作为普通用户创建请求的一部分：
+其中 `scope` 只能取 `personal` 或 `enterprise`，`enterprise_tenant_id` 仅作为企业空间选择提示，最终目标必须由后端结合当前账号成员关系重新校验。以下字段不得作为普通用户创建请求的一部分：
 
 - `tenant_id`；
 - `owner_type`；
@@ -428,14 +452,15 @@ FR-006：知识库创建成功后不要求用户继续完成配置。
 
 - 创建成功后直接进入知识库内容页。
 - 用户可以立即上传文件、导入内容、检索和问答。
-- 普通用户设置页只提供名称、描述、内容管理、共享空间和订阅等业务入口。
+- 普通用户知识库设置页只提供名称、描述、内容管理和目录信息；共享空间治理由 admin 工程承载，订阅入口保留在列表卡片。
 - 高级配置由后台默认配置或后台迁移流程维护。
 
-FR-007：后台默认配置变更只影响新建知识库。
+FR-007：后台统一配置变更默认仅对后续新建知识库生效，存量知识库通过显式迁移变更。
 
-- 创建知识库时记录使用的默认配置版本。
-- 已有知识库继续使用创建时解析的配置。
-- 后台管理员如需变更已有知识库，必须显式发起迁移并记录审计。
+- admin 保存统一配置时展示当前空间受影响的知识库数量。
+- 保存成功后仅更新空间默认配置，已有非临时知识库保持不变，并返回需要显式迁移的提示。
+- 新建知识库自动继承当前空间统一配置。
+- 涉及历史索引、存储实例或物理文件的高风险变更，必须显式进入重建/迁移流程并记录审计。
 
 ### 8.2 我的知识库列表
 
@@ -498,9 +523,10 @@ FR-030：共享空间只能添加本组织员工。
 
 FR-031：添加成员时可设置角色。
 
-第一版角色：
+复用现有角色：
 
 - `admin`
+- `editor`
 - `viewer`
 
 FR-032：移除成员后，该成员立即失去通过该共享空间获得的知识库访问权。
@@ -511,13 +537,13 @@ FR-033：组织员工被移出组织或停用时，应自动失去所有共享�
 
 FR-040：共享空间只能添加本组织知识库。
 
-FR-041：个人知识库不可加入共享空间。
+FR-041：知识库加入共享空间时按宿主组织空间校验，不按“个人知识库”标签单独判断。
 
 FR-042：同一知识库可以加入多个共享空间。
 
 FR-043：从共享空间移除知识库时，不删除知识库本体。
 
-FR-044：第一版共享空间内知识库权限固定为只读。
+FR-044：共享空间知识库权限沿用现有 `viewer/editor`，新建组织内部共享关系默认使用 `viewer`；是否可编辑同时受共享权限、共享空间角色和知识库统一访问解析结果限制。
 
 ### 8.6 订阅
 
@@ -876,71 +902,39 @@ ADD COLUMN IF NOT EXISTS config_version VARCHAR(64) NOT NULL DEFAULT 'default';
 - `config_source = migrated`：由后台迁移流程调整；
 - `config_version`：记录创建或迁移时使用的配置版本。
 
-### 9.3 shared_spaces
+### 9.3 现有共享空间模型复用
+
+当前工程已经具备共享空间完整数据模型，本次不新增 `shared_spaces`、`shared_space_members` 或 `shared_space_knowledge_bases` 表。
+
+| 目标能力 | 复用现有对象 | 本次改造 |
+| --- | --- | --- |
+| 共享空间本体 | `organizations` | 增加可选 `sharing_scope`，区分历史跨空间共享和组织内部共享 |
+| 共享空间归属组织 | `organizations.owner_tenant_id` | 组织内部模式下作为宿主组织空间 ID，历史数据保持原值 |
+| 共享空间成员 | `organization_tenant_members` | 继续使用 `representative_user_id` 表示具体登录账号；组织内部模式下校验账号属于宿主组织 |
+| 共享空间知识库 | `kb_shares` | 继续使用 `organization_id`、`source_tenant_id` 和 `permission`；组织内部模式下要求知识库属于宿主组织 |
+| 共享空间角色 | `organization_tenant_members.role` | 继续复用 `admin/editor/viewer`，不再新增一套角色表 |
+| 共享知识库列表 | `/organizations/:id/shared-knowledge-bases`、`/shared-knowledge-bases` | 扩展返回来源、订阅状态和访问能力 |
+
+建议增加的兼容字段：
 
 ```sql
-CREATE TABLE shared_spaces (
-    id VARCHAR(36) PRIMARY KEY,
-    tenant_id BIGINT NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    created_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE
-);
+ALTER TABLE organizations
+ADD COLUMN IF NOT EXISTS sharing_scope VARCHAR(32);
 ```
 
-索引：
+取值建议：
 
-```sql
-CREATE INDEX idx_shared_spaces_tenant_id ON shared_spaces(tenant_id) WHERE deleted_at IS NULL;
-CREATE INDEX idx_shared_spaces_created_by ON shared_spaces(created_by) WHERE deleted_at IS NULL;
-```
+- `legacy_cross_space`：已有跨空间共享组织，保持现有权限和访问语义；
+- `tenant_internal`：新建的组织内部共享空间，成员和知识库必须来自 `owner_tenant_id` 对应的组织空间；
+- `NULL`：尚未确认的存量数据，按历史逻辑处理。
 
-### 9.4 shared_space_members
+组织内部模式的约束由 service 层统一执行：
 
-```sql
-CREATE TABLE shared_space_members (
-    id VARCHAR(36) PRIMARY KEY,
-    shared_space_id VARCHAR(36) NOT NULL,
-    user_id VARCHAR(36) NOT NULL,
-    role VARCHAR(20) NOT NULL DEFAULT 'viewer',
-    added_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE
-);
-```
-
-约束：
-
-```sql
-CREATE UNIQUE INDEX uq_shared_space_members_space_user
-ON shared_space_members(shared_space_id, user_id)
-WHERE deleted_at IS NULL;
-```
-
-### 9.5 shared_space_knowledge_bases
-
-```sql
-CREATE TABLE shared_space_knowledge_bases (
-    id VARCHAR(36) PRIMARY KEY,
-    shared_space_id VARCHAR(36) NOT NULL,
-    knowledge_base_id VARCHAR(36) NOT NULL,
-    permission VARCHAR(20) NOT NULL DEFAULT 'viewer',
-    added_by VARCHAR(36) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP WITH TIME ZONE
-);
-```
-
-约束：
-
-```sql
-CREATE UNIQUE INDEX uq_shared_space_kbs_space_kb
-ON shared_space_knowledge_bases(shared_space_id, knowledge_base_id)
-WHERE deleted_at IS NULL;
-```
+- `organization_tenant_members.tenant_id = organizations.owner_tenant_id`；
+- 成员 `representative_user_id` 必须是该组织空间的有效员工；
+- `kb_shares.source_tenant_id = organizations.owner_tenant_id`；
+- 被加入共享空间的知识库来源空间必须等于共享空间宿主组织空间；
+- 历史 `legacy_cross_space` 数据不执行上述回写和强制转换。
 
 ### 9.6 knowledge_base_subscriptions
 
@@ -1211,8 +1205,9 @@ POST /api/v1/knowledge-bases
 
 创建规则：
 
-- 当前活动空间从登录上下文读取，不由请求体传入。
-- 后端根据当前活动空间判断创建个人知识库或组织知识库。
+- 默认创建到当前账号的个人空间，不依赖当前活动空间。
+- 具备企业知识库创建权限的员工可以提交受控的 `scope=enterprise`；多企业空间时同时提交经过成员关系校验的 `enterprise_tenant_id`。
+- 后端根据当前账号的个人空间和 active 企业成员关系解析最终归属，不能信任请求体直接指定空间。
 - 后端自动注入后台默认配置。
 - 前端不需要传递模型、解析、切片、向量或存储字段。
 
@@ -1262,12 +1257,14 @@ GET /api/v1/knowledge-bases/my
 
 ### 10.3 共享空间
 
+本次复用现有 `/organizations` API，不新增 `/shared-spaces` 路由组。产品界面可以将组织记录展示为“共享空间”，但后端继续使用现有组织接口和 ID。
+
 ```text
-GET    /api/v1/shared-spaces
-POST   /api/v1/shared-spaces
-GET    /api/v1/shared-spaces/:id
-PUT    /api/v1/shared-spaces/:id
-DELETE /api/v1/shared-spaces/:id
+GET    /api/v1/organizations
+POST   /api/v1/organizations
+GET    /api/v1/organizations/:id
+PUT    /api/v1/organizations/:id
+DELETE /api/v1/organizations/:id
 ```
 
 创建请求：
@@ -1282,10 +1279,10 @@ DELETE /api/v1/shared-spaces/:id
 ### 10.4 共享空间成员
 
 ```text
-GET    /api/v1/shared-spaces/:id/members
-POST   /api/v1/shared-spaces/:id/members
-PUT    /api/v1/shared-spaces/:id/members/:member_id
-DELETE /api/v1/shared-spaces/:id/members/:member_id
+GET    /api/v1/organizations/:id/members
+POST   /api/v1/organizations/:id/invite
+PUT    /api/v1/organizations/:id/members/:member_id
+DELETE /api/v1/organizations/:id/members/:member_id
 ```
 
 添加成员请求：
@@ -1297,12 +1294,16 @@ DELETE /api/v1/shared-spaces/:id/members/:member_id
 }
 ```
 
+该接口由企业/组织空间的 Owner 或 Admin 使用。成功后直接建立后台成员或共享授权关系，不向被邀请员工生成待处理邀请，也不改变员工的默认个人空间。
+
 ### 10.5 共享空间知识库
 
 ```text
-GET    /api/v1/shared-spaces/:id/knowledge-bases
-POST   /api/v1/shared-spaces/:id/knowledge-bases
-DELETE /api/v1/shared-spaces/:id/knowledge-bases/:kb_id
+GET    /api/v1/organizations/:id/shares
+GET    /api/v1/organizations/:id/shared-knowledge-bases
+POST   /api/v1/knowledge-bases/:id/shares
+PUT    /api/v1/knowledge-bases/:id/shares/:share_id
+DELETE /api/v1/knowledge-bases/:id/shares/:share_id
 ```
 
 添加知识库请求：
@@ -1313,6 +1314,8 @@ DELETE /api/v1/shared-spaces/:id/knowledge-bases/:kb_id
   "permission": "viewer"
 }
 ```
+
+组织内部共享空间复用以上接口，但创建、邀请和添加知识库时由后端根据共享空间记录读取并校验 `sharing_scope=tenant_internal` 的组织上下文；客户端不直接决定共享范围。历史跨空间共享接口保持原有行为。
 
 ### 10.6 订阅
 
@@ -1666,6 +1669,8 @@ Release(ctx, reservationID)
 - 是否已订阅；
 - 文档数量、解析状态。
 
+员工登录后不进入组织选择流程；知识库首页仍以账号维度展示共享授权结果，并将已授权知识库放入“共享给我的”。
+
 ### 11.2 个人知识库设置
 
 个人知识库创建入口：
@@ -1705,15 +1710,15 @@ Release(ctx, reservationID)
   - 创建
 ```
 
-当前正在使用的组织空间自动作为知识库归属。创建后直接进入内容管理，不要求继续配置模型、解析、切片、向量或存储。
+默认创建到账号个人空间；具备企业知识库创建权限的员工可以在创建弹窗内选择企业知识库，创建后直接进入内容管理，不要求继续配置模型、解析、切片、向量或存储。
 
-组织知识库设置页展示：
+主前端组织知识库设置页展示：
 
 - 基础信息；
 - 文档管理；
-- 加入共享空间；
-- 已加入共享空间列表；
-- 订阅状态。
+- 目录信息。
+
+共享空间加入、已加入共享空间列表和共享关系治理在 admin 工程中维护；员工订阅状态在知识库列表卡片展示。
 
 组织知识库设置页不展示：
 
@@ -1816,8 +1821,9 @@ Release(ctx, reservationID)
 
 知识库创建/设置页：
 
-- 创建表单只包含名称和描述。
-- 当前活动空间自动决定知识库归属。
+- 普通用户创建表单只包含名称和描述。
+- 符合权限的员工在创建表单内额外看到个人/企业归属选择；多企业空间时选择目标企业空间。
+- 创建不要求先切换当前活动空间，个人上下文也可以创建有权限的企业知识库。
 - 存储实例由后台默认配置自动绑定。
 - 模型、解析、切片、向量、检索和存储配置由后台默认配置自动注入。
 - 配额不足时，上传按钮和复制动作应展示明确阻断原因。
@@ -1900,7 +1906,7 @@ Release(ctx, reservationID)
 
 | 场景 | 处理 |
 | --- | --- |
-| 个人 KB 尝试加入共享空间 | 403，提示个人知识库不可共享 |
+| 个人版本账号尝试加入共享空间 | 403，提示个人版本账号不能加入共享空间 |
 | 非组织员工加入共享空间 | 400 或 403，提示只能添加本组织员工 |
 | 添加外组织 KB 到共享空间 | 403，提示只能添加本组织知识库 |
 | 失去访问权后打开订阅 KB | 403，提示当前无访问权限 |
@@ -1925,11 +1931,15 @@ Release(ctx, reservationID)
 
 ### 13.2 现有共享能力兼容
 
-当前系统已有跨空间共享能力，第一版建议：
+当前系统已经存在共享空间完整逻辑，包括组织创建、成员角色、知识库共享、共享知识库列表和权限计算。本次改版采用“复用现有模型、增加内部模式”的策略：
 
-- 保留现有跨空间共享接口，不在本 PRD 中扩大使用范围。
-- 新增组织内部共享空间能力时，使用独立路由和表，避免和旧 `organizations / kb_shares` 语义冲突。
-- 后续如要统一，可做一轮产品命名治理：跨空间共享空间、组织内部共享空间、组织空间三者分开命名。
+- 继续使用 `organizations` 作为共享空间实体。
+- 继续使用 `organization_tenant_members` 管理共享空间成员。
+- 继续使用 `kb_shares` 管理共享空间与知识库关系。
+- 通过 `organizations.sharing_scope` 区分 `legacy_cross_space` 和 `tenant_internal`。
+- 历史共享空间默认标记为 `legacy_cross_space` 或保持兼容态，不迁移成员和知识库关系。
+- 组织内部模式只在新建或管理员确认的共享空间上启用组织内成员和知识库校验。
+- 不新增 `/shared-spaces` 路由，也不新建一套共享空间 repository、service 和权限模型。
 
 ### 13.3 API 兼容
 
@@ -1943,7 +1953,7 @@ Release(ctx, reservationID)
 - 升级企业不修改原个人知识库的 `tenant_id`、`creator_id`、文件、索引、订阅关系。
 - 新组织空间复用现有 `tenants` 和 `tenant_members`。
 - 原个人账号获得一个新的组织成员身份，因此登录响应中的 memberships 会增加一条组织空间记录。
-- 现有空间切换器可直接用于个人空间和组织空间切换。
+- 现有 tenant 上下文和成员关系继续保留用于后端鉴权、管理员治理和兼容旧接口；员工主前端不以空间切换作为日常工作流。
 - 若当前部署没有个人空间概念，第一版可以把“升级企业”限定为新注册个人账号之后的流程；存量空间先保持 `legacy` 兼容态，后续由管理员确认类型。
 
 ### 13.5 存储管理兼容
@@ -1959,12 +1969,12 @@ Release(ctx, reservationID)
 ### 13.6 知识库默认配置兼容
 
 - 保留现有 `knowledge_bases` 中的模型、解析、切片、向量和索引字段，继续作为运行时配置载体。
-- 新建知识库时由 `KnowledgeBaseDefaultsService` 自动填充这些字段。
-- 现有知识库不因本次改版被重置配置。
-- 旧接口如果仍允许提交高级配置，第一阶段可以继续兼容读取，但新前端不再发送；后续应在 handler DTO 中移除或忽略普通用户字段。
-- 后台默认配置变更只作用于新建知识库。
-- 对已有知识库的配置迁移必须显式执行，并记录配置版本、操作者、迁移前后摘要和审计日志。
-- 创建接口返回 `config_source`、`config_version`，不要求前端展示具体模型和存储配置。
+- 新增空间级 `knowledge_base_defaults_config`，由 `KnowledgeBaseDefaultsService` 维护统一配置。
+- admin 保存统一配置时仅更新空间默认配置，不批量改写当前空间已有知识库；存量知识库变更由显式迁移流程记录 `config_source=workspace_default` 和统一配置版本。
+- 新建知识库时由 `KnowledgeBaseDefaultsService` 继承当前空间统一配置。
+- 主前端不再发送高级配置；旧接口可暂时兼容读取，但普通用户不能通过主前端修改模型、解析、切片、索引、向量库或存储配置。
+- 本期不提供按知识库的高级配置覆盖；旧的按知识库高级配置写接口保留路由兼容，但统一返回冲突提示并引导使用 admin 统一配置页。
+- 涉及已有索引或物理文件的配置变更，必须由 admin 触发显式重建/迁移，不能隐式修改文件路径或直接复用不兼容的向量索引。
 
 ### 13.7 Token/积分管理兼容（后续版本）
 
@@ -2020,7 +2030,7 @@ Release(ctx, reservationID)
 
 - 个人用户可以创建个人知识库。
 - 个人知识库只有本人可见。
-- 个人知识库没有共享空间入口。
+- 个人版本账号没有共享空间成员入口；个人知识库不自动进入共享空间。
 - 后端拒绝个人知识库共享和被订阅。
 
 ### 15.2 组织知识库
@@ -2054,7 +2064,7 @@ Release(ctx, reservationID)
 
 - 个人账号可以创建组织空间。
 - 当前账号自动成为新组织 Owner。
-- 个人空间仍在空间切换器中可见。
+- 个人空间仍作为账号默认归属保留，但员工主前端不单独展示个人/组织空间切换入口。
 - 个人知识库未被自动共享给组织。
 - 勾选复制的个人知识库在组织空间中生成新的组织知识库。
 - 复制后的组织知识库可以加入共享空间。
@@ -2087,13 +2097,21 @@ Release(ctx, reservationID)
 
 ### 15.9 知识库创建与默认配置
 
-- 创建知识库表单只展示名称和描述。
-- 当前活动空间自动决定知识库归属。
+- 普通用户创建知识库表单只展示名称和描述；符合权限的员工额外看到受控的个人/企业归属选择。
+- 默认创建到账号个人空间，不依赖当前活动空间；企业归属必须通过 active 企业成员关系解析。
 - 创建请求不接受 `tenant_id`、模型、解析、切片、向量和存储配置。
 - 创建成功后，后台自动写入默认配置和配置版本。
 - 创建完成后用户可以直接进入内容上传、检索和问答流程。
 - 个人和组织知识库设置页均不展示高级配置入口。
-- 后台默认配置变更不影响已有知识库。
+- admin 保存空间统一配置后，仅影响后续新建知识库；已有知识库不隐式改写，涉及索引或存储的变更需进入显式重建/迁移流程。
+
+### 15.10 员工登录与共享授权
+
+- 新用户登录前已由后台拥有个人空间，不出现创建空间或选择组织步骤。
+- 企业/组织 Owner 或 Admin 邀请员工后，授权立即生效。
+- 员工登录后保留自己的个人空间，不自动进入或切换企业/组织空间。
+- 员工可以在“共享给我的”查看被授权知识库的数据。
+- 员工端不展示“接受邀请”“加入组织”和“选择组织”入口。
 
 ## 16. 四版本实施路线
 
@@ -2102,7 +2120,7 @@ Release(ctx, reservationID)
 | 版本 | 产品目标 | 主要上线内容 | 线上策略 |
 | --- | --- | --- | --- |
 | V1 | 兼容基础与极简创建 | 空间类型兼容字段、统一权限解析、默认配置注入、创建接口收敛为名称和描述 | 新表和新字段先灰度，旧列表和旧共享能力保持不变 |
-| V2 | 组织内部协作 | 内部共享空间、成员/知识库管理、订阅、三分类知识库列表 | 不转换历史跨空间共享，先对新组织或灰度租户启用 |
+| V2 | 现有共享空间增强 | 复用现有共享空间、增加组织内部范围校验、订阅、三分类知识库列表 | 不转换历史跨空间共享，先对新组织或灰度租户启用 |
 | V3 | 企业化与存储治理 | 个人升级企业、知识库复制、空间存储用量、配额提示、Admin 管理 | 升级新增组织空间，复制生成新知识库，原个人数据不变 |
 | V4 | 后台治理与存量收尾 | 默认配置后台管理、存量配置迁移、审计、批量操作、失效订阅和旧入口收敛 | 所有存量变更显式执行，观察期后再关闭旧 UI，保留旧 API |
 
@@ -2123,8 +2141,8 @@ Release(ctx, reservationID)
 | 知识库归属 | `internal/types/knowledgebase.go`、`knowledge_bases.tenant_id` | 继续表示知识库所属空间 |
 | 创建者归属 | `knowledge_bases.creator_id` | 继续支撑“我创建的”和创建者管理权 |
 | 知识库列表与详情 | `internal/handler/knowledgebase.go` | 新增账号维度列表，并逐步替换散落权限判断 |
-| 路由注册 | `internal/router/router.go` | 新增 shared-spaces、subscriptions、enterprise-upgrade 路由组 |
-| 组织/共享空间旧能力 | `internal/types/organization.go`、`internal/handler/organization.go` | 暂保留为跨空间共享能力，不直接承载组织内部共享空间 |
+| 路由注册 | `internal/router/router.go` | 复用现有 organizations、knowledge-base shares 路由，新增 subscriptions、enterprise-upgrade 等路由 |
+| 组织/共享空间 | `internal/types/organization.go`、`internal/handler/organization.go`、`internal/application/service/organization.go`、`internal/application/service/kbshare.go` | 直接复用现有共享空间 CRUD、成员、知识库共享和访问列表；增加 `sharing_scope` 和组织内校验 |
 | 主前端知识库页 | `frontend/src/views/knowledge/KnowledgeBaseList.vue` | 改成三分类视图 |
 | 主前端资源缓存 | `frontend/src/stores/chatResources.ts` | 增加 my knowledge bases 缓存 |
 | 组织管理 UI | `admin/src/views/organization/OrganizationList.vue`、`frontend/src/views/organization/*` | 可借鉴成员选择和空间管理交互 |
@@ -2139,8 +2157,8 @@ Release(ctx, reservationID)
 
 ### 17.2 当前工程需要避免的复用误区
 
-1. 不建议直接复用现有 `organizations / kb_shares` 做组织内部共享空间。该模型当前偏跨空间共享，直接承载组织内部共享会让“组织空间”和“共享空间”概念混淆。
-2. 不建议只在前端隐藏个人知识库共享入口。个人知识库不可共享必须在后端路由和 service 层强校验。
+1. 不新增 `shared_spaces` 平行模型。当前 `organizations / organization_tenant_members / kb_shares` 已经是可运行的共享空间能力，改版应在现有模型上扩展。
+2. 不建议只在前端隐藏个人版本账号的共享空间入口。个人版本账号不可创建或加入共享空间必须在后端路由强校验；个人知识库共享和订阅规则仍由知识库访问链路校验。
 3. 不建议继续把权限散落在 `validateAndGetKnowledgeBase`、`callerCanViewTenantKnowledgeBase`、前端 `canEdit` 中重复判断。需要抽一个统一访问解析器。
 4. 不建议升级企业时修改个人空间类型。应新增组织空间。
 5. 不建议为共享空间和订阅新增独立存储池。共享空间和订阅都应引用原知识库，不复制存储。
@@ -2153,19 +2171,17 @@ Release(ctx, reservationID)
 新增迁移，建议命名为下一版本号，例如：
 
 ```text
-migrations/versioned/000082_personal_org_shared_spaces.up.sql
-migrations/versioned/000082_personal_org_shared_spaces.down.sql
+migrations/versioned/000082_personal_org_kb_v2.up.sql
+migrations/versioned/000082_personal_org_kb_v2.down.sql
 ```
 
 迁移内容：
 
 - `tenants.space_type`
+- `organizations.sharing_scope`
 - `knowledge_bases.config_source`
 - `knowledge_bases.config_version`
 - 可选：`knowledge_base_config_profiles`
-- `shared_spaces`
-- `shared_space_members`
-- `shared_space_knowledge_bases`
 - `knowledge_base_subscriptions`
 
 存储管理不需要新增核心存储表，优先复用：
@@ -2182,7 +2198,7 @@ migrations/versioned/000082_personal_org_shared_spaces.down.sql
 ```text
 internal/types/tenant.go
 internal/types/knowledgebase.go
-internal/types/shared_space.go        # 新增
+internal/types/organization.go       # 扩展 sharing_scope 和内部模式请求
 internal/types/knowledge_subscription.go  # 新增
 internal/types/knowledgebase_config_profile.go # 新增
 ```
@@ -2190,23 +2206,25 @@ internal/types/knowledgebase_config_profile.go # 新增
 接口文件：
 
 ```text
-internal/types/interfaces/shared_space.go       # 新增
+internal/types/interfaces/organization.go       # 复用并扩展现有接口
 internal/types/interfaces/knowledge_subscription.go  # 新增
 ```
 
 #### 后端 P1：Repository 和 Service
 
-新增 repository：
+复用和扩展现有 repository：
 
 ```text
-internal/application/repository/shared_space.go
+internal/application/repository/organization.go
+internal/application/repository/kbshare.go
 internal/application/repository/knowledge_subscription.go
 ```
 
 新增 service：
 
 ```text
-internal/application/service/shared_space.go
+internal/application/service/organization.go
+internal/application/service/kbshare.go
 internal/application/service/knowledge_subscription.go
 internal/application/service/knowledgebase_access.go
 internal/application/service/enterprise_upgrade.go
@@ -2227,7 +2245,8 @@ ListMyKnowledgeBases(ctx) (*MyKnowledgeBaseList, error)
 permission: viewer/editor/manager
 access_source: created/organization_admin/shared_space/subscription
 owner_type: personal/organization
-shared_space_id
+organization_id
+sharing_scope: tenant_internal/legacy_cross_space
 is_subscribed
 effective_tenant_id
 ```
@@ -2279,10 +2298,10 @@ internal/handler/knowledge.go
 - `ListKnowledgeBases` 保持旧接口兼容。
 - 新增 `ListMyKnowledgeBases`。
 - `validateAndGetKnowledgeBase` 逐步改为调用 `ResolveKnowledgeBaseAccess`。
-- 知识库创建 handler 只接收名称和描述，并从当前活动空间解析 `tenant_id`。
+- 知识库创建 handler 接收名称、描述和受控创建意图，并从账号个人空间或 active 企业成员关系解析 `tenant_id`。
 - 知识库创建 service 调用 `ResolveDefaults` 和 `ApplyDefaults`，不接受用户传入的高级配置。
 - 文档上传、列表、预览、搜索、删除、目录配置、FAQ、Wiki、标签等入口统一使用访问解析结果。
-- 个人知识库在分享、订阅、加入共享空间路由中强制拒绝。
+- 个人版本账号在共享空间创建、成员候选和邀请加入路由中强制拒绝；个人知识库的分享和订阅限制仍在知识库访问链路校验。
 
 修改路由：
 
@@ -2293,7 +2312,7 @@ internal/router/router.go
 新增路由组：
 
 ```text
-/api/v1/shared-spaces
+/api/v1/organizations              # 复用现有共享空间 API
 /api/v1/knowledge-bases
 /api/v1/knowledge-bases/my
 /api/v1/knowledge-bases/:id/subscribe
@@ -2333,7 +2352,7 @@ internal/container/container.go
 新增 API：
 
 ```text
-frontend/src/api/shared-space/index.ts
+frontend/src/api/organization/index.ts  # 扩展现有共享空间 API
 frontend/src/api/knowledge-subscription/index.ts
 frontend/src/api/enterprise-upgrade/index.ts
 frontend/src/api/storage-usage/index.ts
@@ -2369,9 +2388,11 @@ frontend/src/views/knowledge/KnowledgeBaseEditorModal.vue
 ```text
 name
 description
+scope（具备企业创建权限时）
+enterprise_tenant_id（多企业空间时）
 ```
 
-当前活动空间从 `authStore` 或空间上下文读取，前端不拼接或覆盖 `tenant_id`、模型、解析和存储配置。
+前端不拼接或覆盖 `tenant_id`、模型、解析和存储配置；`scope` 只表达创建意图，后端必须重新校验企业成员关系。
 
 #### 主前端 P1：知识库首页
 
@@ -2388,7 +2409,7 @@ frontend/src/components/ResourceOriginBadge.vue
 
 - 知识库首页改为三分类。
 - 卡片展示 `owner_type`、`access_source`、`is_subscribed`。
-- 个人知识库隐藏共享、发布、加入共享空间、订阅相关入口。
+- 个人版本账号隐藏共享空间入口；个人知识库隐藏共享、发布、订阅相关入口。
 - 共享给我的知识库展示所属共享空间。
 - 我订阅的知识库展示来源和失效状态。
 
@@ -2413,7 +2434,7 @@ frontend/src/stores/menu.ts
 - 创建组织空间；
 - 当前账号成为 Owner；
 - 复制个人知识库到组织空间；
-- 完成后刷新 auth memberships 和空间切换器。
+- 完成后刷新 auth memberships；员工主前端继续按账号聚合知识库，不要求切换空间。
 
 #### 主前端 P3：个人存储展示
 
@@ -2438,11 +2459,10 @@ frontend/src/views/knowledge/KnowledgeBase.vue
 
 #### Admin P1：共享空间管理
 
-建议优先放在 admin 工程：
+复用现有 admin 组织/共享空间页面，不新建平行的 SharedSpace 页面：
 
 ```text
-admin/src/views/shared-space/SharedSpaceList.vue
-admin/src/views/shared-space/SharedSpaceDetail.vue
+admin/src/views/organization/OrganizationList.vue
 admin/src/router/index.ts
 admin/src/config/navigation.ts
 ```
@@ -2467,11 +2487,11 @@ frontend/src/views/knowledge/settings/KBShareSettings.vue
 
 改造内容：
 
-- 组织知识库设置页增加“内部共享空间”。
-- 个人知识库不显示共享设置。
-- 现有 `KBShareSettings` 保留给跨空间共享，不混入内部共享空间。
-- 移除普通用户可见的解析配置、模型配置、向量存储和存储实例选择。
-- 知识库设置页只保留名称、描述、内容管理和内部共享关系。
+- admin 知识库设置和共享空间管理页继续承载“内部共享空间”治理。
+- 主前端个人知识库和组织知识库都不显示共享设置。
+- 现有 `KBShareSettings` 在 admin 工程中扩展共享范围和宿主组织校验，继续承载跨空间和组织内部共享。
+- 移除普通用户可见的解析配置、模型配置、向量存储、存储实例选择和共享空间治理入口。
+- 主前端知识库设置只保留名称、描述、内容管理和目录信息。
 
 #### Admin P3：组织存储管理
 
@@ -2523,22 +2543,24 @@ admin/src/config/navigation.ts
 后端建议新增测试：
 
 ```text
-internal/application/service/shared_space_test.go
+internal/application/service/knowledge_shared_access_test.go  # 扩展现有共享访问测试
+internal/application/service/organization_member_scope_test.go # 扩展现有成员范围测试
 internal/application/service/knowledge_subscription_test.go
 internal/application/service/knowledgebase_access_test.go
 internal/application/service/storage_usage_test.go
 internal/application/service/knowledgebase_defaults_test.go
-internal/handler/shared_space_test.go
+internal/handler/organization_list_members_test.go             # 扩展现有共享空间成员测试
+internal/handler/organization_user_invite_test.go              # 扩展现有邀请测试
 internal/handler/enterprise_upgrade_test.go
 internal/handler/storage_usage_test.go
 internal/handler/knowledgebase_create_test.go
 internal/handler/knowledgebase_defaults_test.go
-internal/router/shared_space_rbac_test.go
+internal/router/knowledge_shared_write_rbac_test.go            # 扩展现有共享写权限测试
 ```
 
 核心用例：
 
-- 个人知识库不可加入共享空间。
+- 个人版本账号不可加入共享空间。
 - 个人知识库不可被他人订阅。
 - 组织知识库加入共享空间后，空间成员可读。
 - 移除共享空间成员后访问立即失效。
@@ -2549,11 +2571,11 @@ internal/router/shared_space_rbac_test.go
 - 共享空间和订阅不增加存储用量。
 - 个人知识库复制到组织空间后消耗组织空间配额。
 - 配额不足时上传和复制被拒绝。
-- 创建知识库只接收名称和描述。
-- 当前活动个人空间/组织空间正确决定知识库归属。
+- 创建知识库接收名称、描述和受控创建意图。
+- 默认创建到账号个人空间；符合权限的员工可在创建弹窗内选择企业归属，不能通过请求体任意指定空间。
 - 后端自动写入默认模型、解析、向量和存储配置。
 - 普通用户传入高级配置字段时被忽略或拒绝。
-- 后台默认配置变更不影响已有知识库。
+- admin 保存空间统一配置后，仅影响后续新建知识库；已有知识库不隐式改写，涉及索引或存储的变更需进入显式重建/迁移流程。
 - 默认配置保存前执行完整性校验。
 - 新建知识库使用最新有效配置版本。
 - 普通用户无权访问后台默认配置接口。
@@ -2578,7 +2600,7 @@ admin/src/views/settings/KnowledgeBaseDefaults.test.ts
 - 共享空间失效态。
 - 存储用量展示；
 - 配额不足错误提示。
-- 创建弹窗只展示名称和描述；
+- 普通用户创建弹窗只展示名称和描述，符合权限的员工额外展示归属选择；
 - 创建成功后直接进入知识库内容页；
 - 不展示模型、解析和存储配置控件。
 
@@ -2612,7 +2634,7 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 | 版本 | 目标 | 后端/数据 | 主前端 | Admin/运营 | 存量迁移边界 |
 | --- | --- | --- | --- | --- | --- |
 | V1 | 兼容基础与极简创建 | 迁移、默认配置解析器、统一访问解析器、创建 DTO、feature flags | 创建弹窗只提交名称和描述；旧列表保持不变 | 先不开放复杂治理页面，提供必要的诊断数据 | 只做盘点和元数据回填，不改归属、不改共享关系、不移动文件 |
-| V2 | 组织内部共享与订阅 | shared-spaces、subscriptions、账号维度聚合列表、权限扩展 | 三分类列表、共享来源、订阅/取消订阅、空间知识库入口 | 共享空间基本 CRUD、成员和知识库管理 | 不自动迁移 `organizations/kb_shares`，新能力仅写新表 |
+| V2 | 现有共享空间增强与订阅 | 复用 `organizations/kb_shares`、增加 `sharing_scope` 校验、subscriptions、账号维度聚合列表 | 三分类列表、共享来源、订阅/取消订阅、空间知识库入口 | 复用共享空间 CRUD，增加共享范围和宿主组织展示 | 不迁移 `organizations/kb_shares`，只新增订阅关系 |
 | V3 | 企业升级与存储治理 | enterprise upgrade、复制任务、storage usage、配额校验、审计任务状态 | 升级企业、空间切换、复制知识库、用量和配额提示 | 组织存储概览、默认实例展示、共享空间治理增强 | 新建组织和复制任务可产生新数据，原个人空间完全保留 |
 | V4 | 默认配置治理与存量收尾 | 配置版本、显式迁移、editor、批量操作、失效订阅、旧 API 兼容 | 失效态和错误态完善，旧入口收敛 | 默认配置管理、存量空间确认、配置迁移、审计报表 | 只迁移管理员明确选择的空间/知识库，观察期后再关闭旧 UI |
 
@@ -2626,12 +2648,12 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 
 - 新增可空的 `tenants.space_type`，取值为 `personal`、`organization`、`legacy`；存量不确定空间保持 `legacy`。
 - 新增 `knowledge_bases.config_source`、`knowledge_bases.config_version`，存量知识库标记为 `legacy`，不重写其运行配置。
-- 建立 `shared_spaces`、`shared_space_members`、`shared_space_knowledge_bases`、`knowledge_base_subscriptions` 表和索引，但暂不对全量用户开放写入。
+- 扩展现有 `organizations` 增加 `sharing_scope` 兼容字段；复用已有 `organization_tenant_members` 和 `kb_shares`，只新增 `knowledge_base_subscriptions` 表。
 - 新增统一 `ResolveKnowledgeBaseAccess`，先复现当前创建者、租户 RBAC、历史 `kb_shares` 的访问结果，再预留新共享空间和订阅来源。
 - 新增 `CreateKnowledgeBaseRequest`，只允许名称和描述；`tenant_id`、模型、解析、切片、向量、存储等字段由后端上下文和默认配置生成。
 - 兼容旧客户端传入的高级字段：第一阶段忽略并记录审计或 debug 信息，不能让旧客户端绕过默认配置。
 - 新增默认配置解析服务，创建知识库时自动填充现有模型、解析、切片、向量、检索和存储字段。
-- 增加版本开关：默认关闭新空间规则、共享空间读写和个人知识库新增共享拦截。
+- 增加版本开关：默认关闭组织内部共享范围校验、三分类聚合读取和个人知识库新增共享拦截；现有跨空间共享读写继续按原逻辑运行。
 
 **前端和 Admin 开发**
 
@@ -2654,22 +2676,23 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 - 新旧权限解析结果对账一致。
 - 出现问题时可以关闭 feature flags 恢复旧流程。
 
-#### 17.7.2 V2：组织内部共享与订阅
+#### 17.7.2 V2：现有共享空间增强与订阅
 
 **版本目标**
 
-正式上线组织内部共享空间和账号维度的知识库入口，使员工能够查看组织分配给自己的共享知识库，并通过订阅建立个人快捷入口。
+在现有共享空间能力上增加组织内部模式和账号维度的知识库入口，使员工能够查看组织分配给自己的共享知识库，并通过订阅建立个人快捷入口。
 
 **后端和数据开发**
 
-- 实现共享空间 CRUD。
-- 实现共享空间成员添加、移除和角色校验；第一版空间成员权限固定为 `viewer`。
-- 实现组织知识库加入和移除共享空间。
-- 强制校验共享空间、空间成员和知识库属于同一组织空间。
-- 个人知识库禁止新增共享、加入组织内部共享空间和被其他用户订阅。
+- 复用现有共享空间 CRUD、成员添加/移除、角色管理和知识库共享接口，不再新建一套 API。
+- 增加 `tenant_internal` 共享空间模式；第一版空间成员和共享知识库权限沿用现有 `admin/editor/viewer` 体系。
+- 在现有知识库共享接口中增加组织内部模式校验：成员和知识库必须来自共享空间的宿主组织。
+- 现有 `organizations/:id/shared-knowledge-bases` 和 `/shared-knowledge-bases` 扩展返回三分类所需的来源信息。
+- 个人版本账号禁止创建或加入组织内部共享空间；个人知识库禁止新增共享和被其他用户订阅。
 - 实现 `/api/v1/knowledge-bases/my`，返回“我创建的、共享给我的、我订阅的”三类结果。
+- 员工邀请采用后台即时授权；员工登录后保留个人空间，通过账号维度聚合读取被授权的共享知识库。
 - 实现订阅、取消订阅和失权校验；订阅不参与授权。
-- 三类列表同时兼容新的内部共享关系和历史 `kb_shares`，结果中必须标识来源。
+- 三类列表同时兼容 `tenant_internal` 和 `legacy_cross_space` 共享空间，结果中必须标识来源。
 - 处理共享成员移除、知识库移除和订阅失权后的即时权限失效。
 
 **前端和 Admin 开发**
@@ -2677,13 +2700,14 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 - 主前端知识库首页增加三分类入口和来源标识。
 - 组织知识库卡片提供订阅/取消订阅；个人知识库不显示共享和订阅入口。
 - 共享空间内的知识库显示“共享给我”来源，不复制知识库内容。
-- Admin 增加共享空间列表、创建/编辑、成员管理和知识库管理。
-- 保留当前跨空间共享页面，产品名称明确为“跨空间共享”，避免与内部共享空间混淆。
+- 员工端隐藏接受邀请、加入组织、组织选择和空间创建入口，不因共享授权切换当前空间。
+- Admin 复用现有共享空间列表、创建/编辑、成员管理和知识库管理页面，增加共享范围和宿主组织展示。
+- 现有共享空间页面根据 `sharing_scope` 显示“组织内部共享”或“跨空间共享”，不新增平行菜单。
 
 **线上迁移与影响**
 
-- 不从现有 `organizations`、`organization_tenant_members`、`kb_shares` 自动生成新的内部共享空间。
-- 新功能只写入新表，历史共享继续由原模型提供访问。
+- 不迁移现有 `organizations`、`organization_tenant_members`、`kb_shares` 的成员和知识库关系。
+- 新建组织内部共享空间仍写入现有组织和共享关系表，通过 `sharing_scope` 标记新语义。
 - 新列表上线前先进行双读对账：旧 `/knowledge-bases` 与新聚合接口对比“当前用户已有访问权的知识库”。
 - 共享空间和订阅不复制文件、索引、资源绑定，不增加存储用量。
 
@@ -2695,6 +2719,7 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 - 订阅只改变“我订阅的”入口，不扩大权限。
 - 个人知识库所有新增共享入口在后端被拒绝。
 - 历史 `kb_shares` 访问不丢失。
+- 被邀请员工登录后保留个人空间，并能在“共享给我的”查看已授权知识库。
 
 #### 17.7.3 V3：企业升级与存储治理
 
@@ -2750,7 +2775,7 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 - 支持按单个知识库、指定空间和批量预览执行配置迁移。
 - 对 `vector_store_id`、存储实例和索引重建等高风险变更使用异步任务，不在普通保存设置时隐式执行。
 - 增加审计记录：共享空间变更、成员变更、订阅、企业升级、知识库复制、默认配置变更和配置迁移。
-- 支持共享空间 `editor`、批量成员/知识库操作和失效订阅清理。
+- 完善现有共享空间 `editor` 权限的统一校验，增加批量成员/知识库操作和失效订阅清理。
 - 增加资源、存储实例、文件类型和知识库维度的用量细分。
 
 **前端和 Admin 开发**
@@ -2765,7 +2790,7 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 - 只有管理员明确选择的空间和知识库才执行存量迁移。
 - `legacy` 空间不自动变成个人或组织；必须完成数据核对后再确认类型。
 - 历史 `kb_shares` 不因新模型上线自动撤销。
-- 默认配置变更只影响新建知识库；已有知识库必须显式发起迁移。
+- 统一配置保存后作为后续新建知识库默认值；已有知识库不隐式改写，涉及索引或存储的变更必须显式发起重建/迁移。
 - 观察期内保留旧 API、旧表、旧字段和源存储，确认无误后再关闭旧 UI。
 
 **V4 退出标准**
@@ -2785,14 +2810,14 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 | 租户/空间 | 已有 `tenants`，当前实际承担工作空间和数据隔离职责 | 继续复用 `tenant`，新增个人/组织空间标识时采用兼容字段，不改写已有 `tenant_id` |
 | 组织成员与 RBAC | 已有 `tenant_members`、`viewer/contributor/admin/owner` 角色和知识库 `creator_id` | 继续作为组织成员和基础权限来源，新增共享空间权限时在其上叠加，不复制一套组织角色 |
 | 创建者权限 | 已有创建者字段和 `KBAccessRead/Write` 等访问判断 | 保留 `creator_id`，统一扩展访问解析器，避免前端或单个 handler 自行判断 |
-| 当前 `organizations` | 已有 `organizations`、`organization_tenant_members`、`kb_shares`，语义是跨租户/跨空间共享 | 不直接改造成组织内部共享空间；继续兼容现有共享关系，产品文案可命名为“跨空间共享” |
-| 组织成员按账号管理 | `000081_org_members_by_user` 已将现有组织成员关系收敛到具体账号 | 可以复用其中的账号权限经验，但新组织内部共享空间仍建议独立建模 |
+| 当前 `organizations` | 已有组织/共享空间 CRUD、成员、角色、知识库共享和列表能力 | 直接复用；增加 `sharing_scope` 区分历史跨空间和组织内部模式 |
+| 组织成员按账号管理 | `000081_org_members_by_user` 已将现有共享空间成员关系收敛到具体账号 | 直接复用 `representative_user_id`，组织内部模式下增加宿主组织成员校验 |
 | 存储后端 | 已有 `storage_backends`、租户默认存储、知识库存储绑定和资源目录 | 继续复用；共享、订阅不移动文件，个人升级企业复制内容时才产生新的存储用量 |
 | 资源目录 | 已有 `resources/resource_bindings/resource_access_grants`，资源路径和存储后端绑定已经存在 | 迁移只补充空间归属和权限校验，不直接修改物理路径 |
 | 知识库创建 | 前端创建弹窗已经隐藏大部分高级配置，但仍会提交完整配置对象；后端也接受完整知识库 JSON | 先在后端增加创建 DTO 白名单和默认配置注入，再逐步移除前端旧字段 |
 | 知识库高级配置 | Admin 和知识库设置页仍可配置模型、解析、切片、向量、存储等高级项 | 普通创建流程不再暴露；后台默认配置和已有知识库配置分离管理 |
 | “我创建的/共享给我的/我订阅的” | 当前已有个人创建、组织共享、收藏/最近使用等列表能力，但没有完整的订阅模型 | 新增订阅表和聚合查询，保留原有 `/knowledge-bases` 兼容返回 |
-| 组织内部共享空间 | 当前没有 `shared_spaces`、空间成员和空间知识库关系表 | 新增独立表和 API，不从现有 `organizations` 数据自动转换 |
+| 组织内部共享空间 | 当前已有共享空间逻辑，但默认偏跨空间共享 | 复用现有 `organizations`、`organization_tenant_members`、`kb_shares`，只增加范围字段和组织内校验 |
 | Token/积分 | 当前没有本期所需的产品级积分账户和消费模型 | 本期不新增、不迁移、不改变现有技术 token usage |
 | 存储迁移 | 已有本地/对象存储迁移工具和知识库范围迁移能力 | 与产品空间改版分开发布，先做预览和校验，再执行对象迁移 |
 
@@ -2805,37 +2830,43 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 
 | 风险 | 说明 | 建议 |
 | --- | --- | --- |
-| 新旧共享空间概念混淆 | 当前已有跨空间共享说明，新需求是组织内部共享空间 | 产品文案中明确区分组织空间、内部共享空间、跨空间共享 |
+| 共享空间范围混淆 | 当前共享空间既支持跨空间协作，本次又增加组织内部模式 | 用 `sharing_scope` 区分历史跨空间和组织内部共享，前端展示明确来源 |
 | 权限重复计算 | 前端、handler、middleware 各算一遍容易不一致 | 后端统一 `ResolveKnowledgeBaseAccess` |
 | 订阅被误解为授权 | 用户可能认为订阅后永久可访问 | UI 文案说明订阅只是快捷入口 |
 | 存量空间类型迁移 | 老空间无法仅凭一列数据准确判断个人/组织，且部分空间可能已有历史跨空间共享 | 先标记为 `legacy` 或保持兼容态；只对判断明确的空间回填，禁止一刀切改成个人或组织 |
 | 多组织集团需求扩展 | 后续可能需要跨组织共享 | 第一版不做，未来用跨空间共享或共享空间分组扩展 |
 | 升级企业误伤个人隐私 | 自动迁移或共享个人知识库会破坏隐私承诺 | 升级只新增组织空间，个人知识库默认不动 |
-| 现有 `organizations` 继续存在 | 新旧共享空间能力并存时产品命名可能混乱 | admin 中把现有能力命名为跨空间共享，内部能力命名为组织内部共享空间 |
+| 现有共享空间兼容 | 现有 `organizations` 已有线上成员和知识库共享关系 | 不新增平行模型，保留旧字段和接口，通过范围字段逐步收敛产品语义 |
 | 存储用量口径不一致 | 文件、解析文本、向量索引估算可能不是同一口径 | 第一版沿用当前 `storage_used/storage_size` 口径，后续再细分 |
 | 复制知识库成本不可见 | 用户复制个人 KB 到组织时可能意外占用组织配额 | 复制前预估用量并提示目标组织剩余容量 |
 | Token/积分延期 | 本期不做产品级余额、计价和额度控制，后续接入范围可能扩大 | 后续单独立项，补充数据模型、计价方案、兼容策略和验收标准 |
-| 默认配置变更影响线上知识库 | 后台修改默认模型或解析配置可能改变已有知识库行为 | 默认配置按版本生效，只影响新建知识库；已有知识库必须显式迁移 |
-| 创建接口被高级字段绕过 | 旧客户端可能继续提交模型、存储或解析参数 | 后端 DTO 白名单只接受名称和描述，并在 service 层二次过滤 |
+| 统一配置变更影响线上知识库 | 后台修改统一模型或解析配置会改变当前空间已有非临时知识库行为 | admin 保存前展示影响范围；索引和存储相关变更进入显式重建/迁移流程 |
+| 创建接口被高级字段绕过 | 旧客户端可能继续提交模型、存储或解析参数，或伪造企业空间 | 后端 DTO 白名单只接受名称、描述和受控创建意图，并在 service/handler 层二次校验 |
 | 默认配置不完整导致知识库不可用 | 某类知识库缺少模型、向量或存储默认值 | 发布默认配置前做完整性校验，创建前拒绝不完整配置并提示后台管理员 |
 
-## 19. 开放问题
+## 19. 已确认决策与开放问题
 
-1. 新用户注册后是否默认创建个人空间？
-2. 组织员工创建知识库时，默认创建到个人空间还是当前选中的组织空间？
-3. 组织 Contributor 是否默认可以创建组织知识库，还是需要组织开关控制？
-4. 共享空间管理员是否必须是组织 Admin，还是可以由组织 Admin 指派普通员工担任？
-5. 「我创建的」是否需要按个人知识库和组织知识库再做二级分组？
-6. 失效订阅是否显示在列表中并提示无权限，还是直接隐藏？
-7. 个人升级企业后，是否允许立即邀请员工，还是先进入组织空间后再邀请？
-8. 本路线 V3 采用完整内容复制并重建必要索引；仅复制配置不作为企业升级交付能力。
-9. 个人版 SaaS 是否允许配置自定义存储实例？
-10. 组织空间的存储配额由系统管理员设置，还是组织 Owner 可自行购买/扩容？
-11. 存储用量是否需要拆分为原始文件、解析文本、向量索引、临时文件四类？
-12. Token/积分模块后续是否独立立项，个人和组织是否采用统一计价模型？
-13. 后台默认配置按全局、组织、套餐还是部署环境分层维护？
-14. 默认配置变更后，已有知识库是否允许后台批量迁移？
-15. 创建知识库后是否允许后台管理员修改名称和描述之外的高级配置，还是只能重建知识库？
+### 19.1 已确认决策
+
+- 新注册账号默认由后台静默创建个人空间。
+- 企业/组织 Owner 或 Admin 邀请员工后，后台直接建立共享授权并立即生效。
+- 被邀请员工保留个人空间，不接受邀请、不选择组织、不切换到企业空间。
+- 员工登录后通过账号维度查看“共享给我的”知识库数据。
+- 知识库默认创建到个人空间；具备企业创建权限的员工仅在创建知识库弹窗内选择企业归属。
+
+### 19.2 开放问题
+
+1. 共享空间管理员是否必须是组织 Admin，还是可以由组织 Admin 指派普通员工担任？
+2. 「我创建的」是否需要按个人知识库和组织知识库再做二级分组？
+3. 失效订阅是否显示在列表中并提示无权限，还是直接隐藏？
+4. 本路线 V3 采用完整内容复制并重建必要索引；仅复制配置不作为企业升级交付能力。
+5. 个人版 SaaS 是否允许配置自定义存储实例？
+6. 组织空间的存储配额由系统管理员设置，还是组织 Owner 可自行购买/扩容？
+7. 存储用量是否需要拆分为原始文件、解析文本、向量索引、临时文件四类？
+8. Token/积分模块后续是否独立立项，个人和组织是否采用统一计价模型？
+9. 后台默认配置按全局、组织、套餐还是部署环境分层维护？
+10. 默认配置变更后，已有知识库是否允许后台批量迁移？
+11. 创建知识库后是否允许后台管理员修改名称和描述之外的高级配置，还是只能重建知识库？
 
 ## 20. 基于当前工程的线上影响与迁移方案
 
@@ -2844,10 +2875,10 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 本次改版必须按照“新增模型、兼容读取、逐步切换、可回滚”的方式实施，不做直接改表语义或批量改归属的迁移。
 
 1. 不修改线上知识库已有的 `tenant_id`、`creator_id`、`vector_store_id` 和物理存储路径。
-2. 不把当前 `organizations/kb_shares` 直接转换成新的组织内部共享空间。
+2. 不新建平行共享空间模型；当前 `organizations/organization_tenant_members/kb_shares` 直接作为共享空间能力的基础。
 3. 不因为个人升级企业而自动移动、复制或共享个人知识库。
 4. 不因为后台默认配置变化而批量覆盖已有知识库配置。
-5. 新表、新字段先以可空或兼容状态发布，数据校验完成后再打开新行为。
+5. 新字段先以可空或兼容状态发布，数据校验完成后再打开组织内部模式。
 6. 旧 API、旧前端和旧客户端在灰度期间仍然可以访问原有知识库。
 7. 所有涉及文件、解析文本、向量索引的复制或迁移都必须有任务记录、进度、校验结果和失败重试。
 8. 数据库迁移、产品空间迁移和对象存储迁移拆成独立发布单元，不能在一次上线中同时改变三套数据边界。
@@ -2860,50 +2891,37 @@ npm --prefix frontend test -- src/views/knowledge/KnowledgeBaseList.test.mjs
 | `tenant_members` | 空间成员和 RBAC | 继续作为组织员工和基础角色来源 | 不迁移 |
 | `knowledge_bases.tenant_id` | 知识库所属空间 | 继续作为最终归属和配额计费边界 | 不改写 |
 | `knowledge_bases.creator_id` | 知识库创建者 | 继续用于个人可见和创建者管理权限 | 不改写；空值保持兼容 |
-| `organizations` | 跨租户/跨空间协作容器 | 保留为旧的跨空间共享能力，必要时在产品界面改名 | 不转换 |
-| `kb_shares` | 知识库与跨空间共享关系 | 保留，继续提供历史共享访问 | 不删除、不批量撤销 |
-| 新增 `shared_spaces` | 组织内部共享空间 | 只关联一个组织空间，成员和知识库必须来自同一组织空间 | 新表，无历史自动导入 |
-| 新增 `shared_space_members` | 共享空间内的具体账号 | 只允许加入组织成员 | 新表，无历史自动导入 |
-| 新增 `shared_space_knowledge_bases` | 共享空间内的组织知识库 | 只允许加入组织知识库 | 新表，无历史自动导入 |
+| `organizations` | 已有共享空间实体，当前支持跨空间协作 | 增加 `sharing_scope`，继续承载历史跨空间和新的组织内部共享 | 只回填范围，不改 ID |
+| `organization_tenant_members` | 共享空间成员关系，当前已按具体账号授权 | 组织内部模式下限制成员必须属于 `owner_tenant_id` 宿主组织 | 不迁移成员关系 |
+| `kb_shares` | 共享空间与知识库关系，当前支持 viewer/editor/admin 权限 | 组织内部模式下限制 `source_tenant_id = owner_tenant_id` | 不删除、不批量撤销 |
 | 新增 `knowledge_base_subscriptions` | 用户快捷入口 | 只保留用户和知识库引用，不复制内容和权限 | 新表，不从收藏自动推断 |
 | `storage_backends/resources` | 存储实例和物理资源 | 继续复用，增加新访问解析规则 | 不搬迁物理文件 |
-| 知识库高级配置字段 | 每个知识库当前独立保存的配置 | 标记为历史配置，新增知识库使用后台默认配置 | 不批量覆盖 |
+| 知识库高级配置字段 | 每个知识库当前独立保存的配置 | 继续作为运行时载体，由空间级统一配置供新建知识库继承 | 显式迁移时才覆盖存量知识库 |
 
 ### 20.3 数据库改造建议
 
 当前仓库的版本化迁移已经包含到 `000081`，实际开发时应在发布分支的最新迁移之后创建下一可用版本，并同步维护 SQLite 初始化结构。不能只修改 PostgreSQL 版本化迁移而遗漏 `migrations/sqlite/000000_init.up.sql`。
 
-建议新增以下结构：
+建议新增或扩展以下结构：
 
 ```text
 tenants
   space_type              nullable: personal | organization | legacy
 
-shared_spaces
-  id
-  tenant_id               只能指向组织空间
-  name
-  description
-  status
-  created_by
-  created_at
-  updated_at
+organizations
+  sharing_scope           nullable: legacy_cross_space | tenant_internal
+  owner_tenant_id        组织内部模式的宿主组织空间
 
-shared_space_members
-  shared_space_id
-  user_id
-  role                    第一版固定 viewer，保留后续 editor 扩展
-  status
-  created_at
-  updated_at
-  unique(shared_space_id, user_id)
+organization_tenant_members
+  organization_id
+  representative_user_id  具体登录账号
+  tenant_id               成员管理来源和宿主组织校验字段
+  role                    owner/admin/editor/viewer
 
-shared_space_knowledge_bases
-  shared_space_id
+kb_shares
+  organization_id
   knowledge_base_id
-  created_by
-  created_at
-  unique(shared_space_id, knowledge_base_id)
+  source_tenant_id        组织内部模式必须等于 owner_tenant_id
 
 knowledge_base_subscriptions
   user_id
@@ -2922,7 +2940,7 @@ knowledge_bases
 
 - `space_type` 在数据库内部保留 `legacy`，但产品接口只向用户暴露“个人空间”和“组织空间”两种正式类型。
 - 不新增第二个“知识库所有者 ID”字段，空间所有权继续以 `tenant_id` 为准；组织 Owner 继续以 `tenant_members.role=owner` 为准，避免产生两个权威来源。
-- `shared_spaces` 必须通过数据库约束或 service 层校验保证 `shared_space.tenant_id = knowledge_bases.tenant_id`，禁止把个人知识库加入组织内部共享空间。
+- `tenant_internal` 共享空间必须通过 service 层校验保证 `organization_tenant_members.tenant_id = organizations.owner_tenant_id`，且 `kb_shares.source_tenant_id = organizations.owner_tenant_id`；限制依据是宿主组织空间关系，不按“个人知识库”标签单独判断。
 - `knowledge_base_subscriptions` 不参与授权判断，访问权限必须由统一的 `ResolveKnowledgeBaseAccess` 计算。
 - `config_source/config_version` 仅用于追踪知识库创建时使用的默认配置版本，不代表要求重新应用配置。
 - 本次不删除历史表、不删除旧字段、不重命名 `organizations` 和 `organization_tenant_members`，为回滚和线上排查保留原始数据。
@@ -2963,6 +2981,13 @@ knowledge_bases
 - 管理员在后台确认空间类型后，才启用对应的新产品规则。
 - 不根据知识库名称、描述或当前前端选中状态推断空间类型。
 
+共享空间范围回填规则：
+
+- 已存在的 `organizations` 默认标记为 `legacy_cross_space`，不改变其成员和 `kb_shares` 关系。
+- 新创建、明确属于某个组织空间的共享空间标记为 `tenant_internal`，并写入 `owner_tenant_id`。
+- 存量共享空间只有在管理员确认其成员和知识库均属于同一宿主组织后，才允许从 `legacy_cross_space` 切换为 `tenant_internal`。
+- `sharing_scope` 的切换只改变新增关系的校验策略，不撤销既有共享关系；历史关系的访问仍按兼容规则计算。
+
 ### 20.6 知识库存量迁移
 
 已有知识库不做物理迁移，只做元数据兼容和访问规则扩展。
@@ -2982,17 +3007,16 @@ knowledge_bases
 #### 20.6.2 历史共享兼容
 
 - 已存在的 `kb_shares` 继续有效，不能因为租户被标记为 `personal` 就自动撤销。
-- 新的个人空间知识库禁止新增共享、加入内部共享空间和被他人订阅。
+- 新的个人空间账号禁止创建或加入内部共享空间；个人空间知识库禁止新增共享和被他人订阅。
 - 对已经存在历史共享关系的个人候选空间，标记为 `legacy_shared` 的兼容状态；访问保留到用户主动撤销或管理员确认迁移策略。
-- 新的“共享给我的”列表应同时读取历史 `kb_shares` 和新的 `shared_space_knowledge_bases`，并显示来源类型。
+- 新的“共享给我的”列表读取现有 `kb_shares`，同时根据所属 `organizations.sharing_scope` 显示“组织内部共享”或“跨空间共享”来源。
 
 #### 20.6.3 默认配置兼容
 
-- 存量知识库的模型、解析、切片、向量和存储配置全部视为历史配置，不因新增默认配置而改变。
-- `config_source` 可回填为 `legacy`，`config_version` 可以为空。
-- 新建知识库才使用当前有效的后台默认配置。
-- 存量配置迁移必须是后台显式操作，支持单个知识库、指定空间和批量预览三种方式。
-- 涉及 `vector_store_id`、存储实例或索引重建的迁移，必须单独创建异步任务并提供失败回滚，不允许在普通保存设置时隐式执行。
+- 存量知识库的模型、解析、切片、向量和存储配置在统一配置启用前视为历史配置。
+- admin 保存统一配置后，仅更新空间默认值；存量知识库在显式迁移时才切换到 `config_source=workspace_default`，并写入统一配置版本。
+- 新建知识库使用当前空间统一配置。
+- 存量配置变更必须在后台展示影响范围；涉及索引或存储的高风险变更需要显式重建/迁移和失败回滚。
 
 ### 20.7 个人升级企业的线上迁移
 
@@ -3043,10 +3067,10 @@ knowledge_bases
 | --- | --- | --- |
 | R0 | 盘点脚本、数据快照、迁移前检查和回滚开关 | 开启只读检查 |
 | R1 | 新增字段、新表、新索引、审计字段 | 新功能关闭 |
-| R2 | 后端统一访问解析器，兼容读取历史共享和新共享空间 | 保持旧列表 |
-| R3 | 新增内部共享空间 API、订阅 API、存储概览 API | 仅内部测试租户开启 |
+| R2 | 后端统一访问解析器，兼容读取历史共享和 `sharing_scope` | 保持旧列表 |
+| R3 | 组织内部共享范围校验、订阅 API、存储概览 API | 仅内部测试租户开启 |
 | R4 | 新建知识库仅提交名称和描述，后端默认配置注入 | 仅新建请求开启，旧编辑不变 |
-| R5 | 个人/组织空间规则和个人知识库新增共享拦截 | 仅确认过类型的空间开启 |
+| R5 | 个人/组织空间规则、个人版本账号共享空间拦截和个人知识库新增共享拦截 | 仅确认过类型的空间开启 |
 | R6 | 前端三分类列表、空间切换、企业升级和复制任务 | 小范围灰度 |
 | R7 | Admin 批量治理、配置迁移和存量空间确认 | 管理员按需执行 |
 | R8 | 观察期结束后关闭旧 UI 入口，保留旧 API 和数据库兼容字段 | 仅在确认无回滚需求后执行 |
@@ -3073,7 +3097,7 @@ knowledge_base_enterprise_copy_enabled
 | 上传、删除、解析 | 受新的统一权限解析器影响 | 重点验证创建者、组织 Admin、共享 viewer/editor、API Key |
 | 创建知识库 | 新请求不再允许用户选择高级配置 | 后端兼容接收旧字段，但忽略或审计，不让旧客户端绕过默认配置 |
 | 编辑存量知识库 | 不应被新默认配置覆盖 | 保留现有配置编辑权限，按权限逐步收敛到后台治理 |
-| 加入内部共享空间 | 只允许组织知识库 | 校验知识库租户和共享空间租户一致 |
+| 加入内部共享空间 | 知识库来源空间必须等于共享空间宿主组织空间 | 校验 `kb_shares.source_tenant_id` 与共享空间 `owner_tenant_id` 一致 |
 | 个人升级企业 | 新增组织空间和可选复制任务 | 原个人空间不变，复制为新知识库 |
 | 订阅/取消订阅 | 只影响个人列表 | 不新增文件、索引和存储用量 |
 | 修改存储默认实例 | 只影响后续新建知识库 | 已有知识库继续使用原绑定 |
@@ -3088,7 +3112,7 @@ knowledge_base_enterprise_copy_enabled
 - 租户数、知识库数、文档数、分块数、FAQ 数、Wiki 数、标签数、数据源数前后一致。
 - 每个知识库的 `tenant_id`、`creator_id`、`vector_store_id` 和存储绑定未被意外改变。
 - 历史 `kb_shares` 数量和活跃状态不减少，除非有明确的用户撤销记录。
-- 新共享空间成员和知识库关系不存在跨组织、跨租户绑定。
+- `tenant_internal` 共享空间的成员和 `kb_shares` 关系不存在跨组织、跨租户绑定。
 - 订阅记录中的用户和知识库均存在，失权订阅不会被误当作授权。
 - `storage_used`、资源数量和文件大小在复制或对象存储迁移后可以解释。
 
@@ -3103,13 +3127,13 @@ knowledge_base_enterprise_copy_enabled
 - 组织管理员访问其他员工创建的知识库；
 - 历史跨空间共享 viewer/editor；
 - API Key 和系统合成用户；
-- 个人知识库新增共享、加入共享空间、被订阅的拒绝结果。
+- 个人版本账号创建/加入共享空间，以及个人知识库新增共享、被订阅的拒绝结果。
 
 #### 20.11.3 回滚策略
 
 - 数据库：只关闭新功能开关，保留新增表和字段，不执行破坏性 down migration。
 - 前端：回退到原知识库列表和原创建弹窗，旧接口继续工作。
-- 权限：关闭新共享空间解析，恢复历史 `kb_shares` 和当前租户 RBAC 逻辑。
+- 权限：关闭 `tenant_internal` 范围解析，恢复历史 `kb_shares` 和当前租户 RBAC 逻辑。
 - 企业升级：删除未完成的目标组织和本次任务产生的目标资源，原个人空间不做任何修改。
 - 配置：关闭默认配置注入不影响已有知识库；新建知识库回到兼容默认值前必须确认后台配置完整。
 - 存储：源文件和旧路径保留，迁移失败时切回旧路径；在校验窗口结束前不得清理源端。

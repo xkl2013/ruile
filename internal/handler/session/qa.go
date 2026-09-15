@@ -137,7 +137,10 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 	}
 
 	// Get custom agent if agent_id is provided. Backend resolves shared agent from share relation (no client-provided tenant).
-	customAgent, effectiveTenantID := h.resolveAgent(ctx, c, request.AgentID)
+	customAgent, effectiveTenantID, sharedAgent := h.resolveAgent(ctx, c, request.AgentID)
+	if sharedAgent {
+		ctx = context.WithValue(ctx, types.SharedAgentContextKey, true)
+	}
 
 	// Merge @mentioned items into knowledge_base_ids and knowledge_ids
 	kbIDs, knowledgeIDs := mergeKnowledgeTargets(request.KnowledgeBaseIDs, request.KnowledgeIds, request.MentionedItems)
@@ -444,10 +447,12 @@ func cloneTagScopes(scopes []types.TagScope) []types.TagScope {
 }
 
 // resolveAgent resolves the custom agent by ID, trying shared agent first, then own agent.
-// Returns (nil, 0) if agentID is empty or not found.
-func (h *Handler) resolveAgent(ctx context.Context, c *gin.Context, agentID string) (*types.CustomAgent, uint64) {
+// The third return value is true only when the Agent was resolved through a
+// team-space share. It cannot be inferred from tenant IDs because internal
+// team-space sharing can keep both sides in the same enterprise tenant.
+func (h *Handler) resolveAgent(ctx context.Context, c *gin.Context, agentID string) (*types.CustomAgent, uint64, bool) {
 	if agentID == "" {
-		return nil, 0
+		return nil, 0, false
 	}
 
 	logger.Infof(ctx, "Resolving agent, agent ID: %s", secutils.SanitizeForLog(agentID))
@@ -455,6 +460,7 @@ func (h *Handler) resolveAgent(ctx context.Context, c *gin.Context, agentID stri
 	// Try shared agent first
 	var customAgent *types.CustomAgent
 	var effectiveTenantID uint64
+	var sharedAgent bool
 	userIDVal, _ := c.Get(types.UserIDContextKey.String())
 	currentTenantID := c.GetUint64(types.TenantIDContextKey.String())
 	if h.agentShareService != nil && userIDVal != nil && currentTenantID != 0 {
@@ -463,6 +469,7 @@ func (h *Handler) resolveAgent(ctx context.Context, c *gin.Context, agentID stri
 		if err == nil && agent != nil {
 			effectiveTenantID = agent.TenantID
 			customAgent = agent
+			sharedAgent = true
 			logger.Infof(ctx, "Using shared agent: ID=%s, Name=%s, effectiveTenantID=%d (retrieval scope)",
 				customAgent.ID, customAgent.Name, effectiveTenantID)
 		}
@@ -484,7 +491,7 @@ func (h *Handler) resolveAgent(ctx context.Context, c *gin.Context, agentID stri
 			customAgent.ID, customAgent.Name, customAgent.IsBuiltin, customAgent.Config.AgentMode, effectiveTenantID)
 	}
 
-	return customAgent, effectiveTenantID
+	return customAgent, effectiveTenantID, sharedAgent
 }
 
 // mergeKnowledgeTargets merges request KB/knowledge IDs with @mentioned items into deduplicated slices.

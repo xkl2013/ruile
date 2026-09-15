@@ -62,6 +62,15 @@ export interface LoginResponse {
     name: string
     description: string
     status: string
+    space_type?: 'personal' | 'organization' | 'legacy' | string
+    edition?: 'personal' | 'enterprise' | string
+    edition_version?: number
+    edition_capabilities?: {
+      edition: string
+      version: number
+      features: Record<string, boolean>
+      limits: Record<string, number>
+    }
     business: string
     storage_quota: number
     storage_used: number
@@ -77,6 +86,7 @@ export interface LoginResponse {
     name: string
     description?: string
     status?: string
+    space_type?: 'personal' | 'organization' | 'legacy' | string
     business?: string
     storage_quota?: number
     storage_used?: number
@@ -122,6 +132,20 @@ export interface RegisterRequest {
 export interface RegisterResponse {
   success: boolean
   message?: string
+  user?: LoginResponse['user']
+  tenant?: {
+    id: number
+    name: string
+    space_type?: 'personal' | 'organization' | 'legacy' | string
+    edition?: 'personal' | 'enterprise' | string
+  }
+  active_tenant?: {
+    id: number
+    name: string
+    space_type?: 'personal' | 'organization' | 'legacy' | string
+    edition?: 'personal' | 'enterprise' | string
+  }
+  // Kept for clients that still consume the old nested registration shape.
   data?: {
     user: {
       id: string
@@ -206,6 +230,15 @@ export interface TenantInfo {
   name: string
   description?: string
   status?: string
+  space_type?: 'personal' | 'organization' | 'legacy' | string
+  edition?: 'personal' | 'enterprise' | string
+  edition_version?: number
+  edition_capabilities?: {
+    edition: string
+    version: number
+    features: Record<string, boolean>
+    limits: Record<string, number>
+  }
   business?: string
   owner_id: string
   storage_quota?: number
@@ -260,6 +293,24 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
     return {
       success: false,
       message: error.message || t('error.auth.loginFailed')
+    }
+  }
+}
+
+/**
+ * 为当前账号切换活动空间并重新签发令牌。
+ */
+export async function switchTenant(data: {
+  tenant_id: number
+  refresh_token?: string
+}): Promise<LoginResponse> {
+  try {
+    const response = await post('/api/v1/auth/switch-tenant', data)
+    return response as unknown as LoginResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || t('tenant.switchFailed'),
     }
   }
 }
@@ -400,6 +451,7 @@ export interface MembershipInfo {
   tenant_id: number
   tenant_name?: string
   role: string
+  space_type?: 'personal' | 'organization' | 'legacy' | string
 }
 
 /**

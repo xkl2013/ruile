@@ -13,10 +13,12 @@ import (
 )
 
 var (
-	ErrShareNotFound         = errors.New("share not found")
-	ErrSharePermissionDenied = errors.New("permission denied for this share operation")
-	ErrKBNotFound            = errors.New("knowledge base not found")
-	ErrNotKBOwner            = errors.New("only knowledge base owner can share")
+	ErrShareNotFound                             = errors.New("share not found")
+	ErrSharePermissionDenied                     = errors.New("permission denied for this share operation")
+	ErrKBNotFound                                = errors.New("knowledge base not found")
+	ErrNotKBOwner                                = errors.New("only knowledge base owner can share")
+	ErrPersonalWorkspaceCannotShareKnowledgeBase = errors.New("personal workspaces cannot share knowledge bases")
+	ErrKnowledgeBaseOutsideOrganizationWorkspace = errors.New("knowledge base is outside the organization's workspace")
 	// ErrOrgRoleCannotShare: only editors and admins (in tenant's org role) may share KBs to that org; viewers cannot
 	ErrOrgRoleCannotShare = errors.New("only editors and admins can share knowledge bases to this organization")
 )
@@ -34,27 +36,30 @@ var (
 // — Viewer in your own tenant cannot write — even when the access is
 // routed through cross-tenant sharing.
 type kbShareService struct {
-	shareRepo interfaces.KBShareRepository
-	orgRepo   interfaces.OrganizationRepository
-	kbRepo    interfaces.KnowledgeBaseRepository
-	kgRepo    interfaces.KnowledgeRepository
-	chunkRepo interfaces.ChunkRepository
+	shareRepo  interfaces.KBShareRepository
+	orgRepo    interfaces.OrganizationRepository
+	tenantRepo interfaces.TenantRepository
+	kbRepo     interfaces.KnowledgeBaseRepository
+	kgRepo     interfaces.KnowledgeRepository
+	chunkRepo  interfaces.ChunkRepository
 }
 
 // NewKBShareService creates a new knowledge base share service
 func NewKBShareService(
 	shareRepo interfaces.KBShareRepository,
 	orgRepo interfaces.OrganizationRepository,
+	tenantRepo interfaces.TenantRepository,
 	kbRepo interfaces.KnowledgeBaseRepository,
 	kgRepo interfaces.KnowledgeRepository,
 	chunkRepo interfaces.ChunkRepository,
 ) interfaces.KBShareService {
 	return &kbShareService{
-		shareRepo: shareRepo,
-		orgRepo:   orgRepo,
-		kbRepo:    kbRepo,
-		kgRepo:    kgRepo,
-		chunkRepo: chunkRepo,
+		shareRepo:  shareRepo,
+		orgRepo:    orgRepo,
+		tenantRepo: tenantRepo,
+		kbRepo:     kbRepo,
+		kgRepo:     kgRepo,
+		chunkRepo:  chunkRepo,
 	}
 }
 
@@ -88,12 +93,21 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 		return nil, ErrNotKBOwner
 	}
 
-	_, err = s.orgRepo.GetByID(ctx, orgID)
+	org, err := s.orgRepo.GetByID(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, repository.ErrOrganizationNotFound) {
 			return nil, ErrOrgNotFound
 		}
 		return nil, err
+	}
+	if s.sourceTenantIsPersonal(ctx, sourceTenantID) {
+		return nil, ErrPersonalWorkspaceCannotShareKnowledgeBase
+	}
+	if org.SharingScope != nil &&
+		*org.SharingScope == types.SharingScopeTenantInternal &&
+		org.OwnerTenantID != 0 &&
+		org.OwnerTenantID != sourceTenantID {
+		return nil, ErrKnowledgeBaseOutsideOrganizationWorkspace
 	}
 
 	// Source member must have editor+ role in the org to share.
@@ -103,6 +117,9 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 			return nil, ErrTenantNotInOrg
 		}
 		return nil, err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, sourceTenantID, tm) {
+		return nil, ErrTenantNotInOrg
 	}
 	if !tm.Role.HasPermission(types.OrgRoleEditor) {
 		return nil, ErrOrgRoleCannotShare
@@ -210,6 +227,10 @@ func (s *kbShareService) callerCanManageShare(
 	if types.IsSystemAdminFromContext(ctx) {
 		return true
 	}
+	org, err := loadOrganizationForShare(ctx, s.orgRepo, shareOrgID, nil)
+	if err != nil || !teamSpaceAllowsActiveTenant(ctx, org, callerTenantID, nil) {
+		return false
+	}
 	// (1) Original sharer.
 	if shareSharedByUserID == callerUserID {
 		return true
@@ -222,7 +243,9 @@ func (s *kbShareService) callerCanManageShare(
 		}
 	}
 	// (3) Current member is org admin in the target org (governance / sharer-left repair).
-	if tm, err := s.orgRepo.GetTenantMember(ctx, shareOrgID, callerTenantID); err == nil && tm.Role == types.OrgRoleAdmin {
+	if tm, err := s.orgRepo.GetTenantMember(ctx, shareOrgID, callerTenantID); err == nil &&
+		teamSpaceAllowsActiveTenant(ctx, org, callerTenantID, tm) &&
+		tm.Role == types.OrgRoleAdmin {
 		return true
 	}
 	return false
@@ -246,7 +269,7 @@ func (s *kbShareService) ListSharesByOrganization(ctx context.Context, orgID str
 }
 
 // ListSharedKnowledgeBases lists all knowledge bases reachable from the
-// current shared-space member via cross-tenant org shares.
+// current team-space member.
 func (s *kbShareService) ListSharedKnowledgeBases(ctx context.Context, tenantID uint64, callerTenantRole types.TenantRole) ([]*types.SharedKnowledgeBaseInfo, error) {
 	shares, err := s.shareRepo.ListSharedKBsForTenant(ctx, tenantID)
 	if err != nil {
@@ -259,11 +282,18 @@ func (s *kbShareService) ListSharedKnowledgeBases(ctx context.Context, tenantID 
 		if share.KnowledgeBase == nil {
 			continue
 		}
+		if s.sourceTenantIsPersonal(ctx, share.SourceTenantID) {
+			continue
+		}
 
 		kbID := share.KnowledgeBase.ID
 
 		tm, err := s.orgRepo.GetTenantMember(ctx, share.OrganizationID, tenantID)
 		if err != nil {
+			continue
+		}
+		org, err := loadOrganizationForShare(ctx, s.orgRepo, share.OrganizationID, share.Organization)
+		if err != nil || !teamSpaceAllowsActiveTenant(ctx, org, tenantID, tm) {
 			continue
 		}
 
@@ -332,6 +362,13 @@ func (s *kbShareService) ListSharedKnowledgeBasesInOrganization(ctx context.Cont
 		}
 		return nil, err
 	}
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, tm) {
+		return nil, ErrTenantNotInOrg
+	}
 
 	shares, err := s.shareRepo.ListByOrganization(ctx, orgID)
 	if err != nil {
@@ -341,6 +378,9 @@ func (s *kbShareService) ListSharedKnowledgeBasesInOrganization(ctx context.Cont
 	result := make([]*types.OrganizationSharedKnowledgeBaseItem, 0, len(shares))
 	for _, share := range shares {
 		if share.KnowledgeBase == nil {
+			continue
+		}
+		if s.sourceTenantIsPersonal(ctx, share.SourceTenantID) {
 			continue
 		}
 
@@ -394,9 +434,22 @@ func (s *kbShareService) ListSharedKnowledgeBaseIDsByOrganizations(ctx context.C
 	if err != nil {
 		return nil, err
 	}
+	orgCache := make(map[string]*types.Organization)
 	byOrg := make(map[string][]string)
 	for _, share := range shares {
 		if share == nil || members[share.OrganizationID] == nil {
+			continue
+		}
+		org, ok := orgCache[share.OrganizationID]
+		if !ok {
+			var err error
+			org, err = loadOrganizationForShare(ctx, s.orgRepo, share.OrganizationID, share.Organization)
+			if err != nil {
+				continue
+			}
+			orgCache[share.OrganizationID] = org
+		}
+		if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, members[share.OrganizationID]) {
 			continue
 		}
 		kbID := share.KnowledgeBaseID
@@ -450,8 +503,15 @@ func (s *kbShareService) CheckTenantKBPermission(ctx context.Context, kbID strin
 	isShared := false
 
 	for _, share := range shares {
+		if s.sourceTenantIsPersonal(ctx, share.SourceTenantID) {
+			continue
+		}
 		tm, err := s.orgRepo.GetTenantMember(ctx, share.OrganizationID, callerTenantID)
 		if err != nil {
+			continue
+		}
+		org, err := loadOrganizationForShare(ctx, s.orgRepo, share.OrganizationID, share.Organization)
+		if err != nil || !teamSpaceAllowsActiveTenant(ctx, org, callerTenantID, tm) {
 			continue
 		}
 
@@ -489,6 +549,9 @@ func (s *kbShareService) GetKBSourceTenant(ctx context.Context, kbID string) (ui
 	}
 
 	if len(shares) > 0 {
+		if s.sourceTenantIsPersonal(ctx, shares[0].SourceTenantID) {
+			return 0, ErrPersonalWorkspaceCannotShareKnowledgeBase
+		}
 		return shares[0].SourceTenantID, nil
 	}
 
@@ -498,6 +561,21 @@ func (s *kbShareService) GetKBSourceTenant(ctx context.Context, kbID string) (ui
 	}
 
 	return kb.TenantID, nil
+}
+
+func (s *kbShareService) sourceTenantIsPersonal(ctx context.Context, tenantID uint64) bool {
+	if s.tenantRepo == nil || tenantID == 0 {
+		return false
+	}
+	tenant, err := s.tenantRepo.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to resolve source tenant %d while checking shared KB access: %v", tenantID, err)
+		// Unknown source tenants are not exposed through team-space paths.
+		return true
+	}
+	return tenant != nil &&
+		tenant.SpaceType != nil &&
+		*tenant.SpaceType == types.SpaceTypePersonal
 }
 
 // CountSharesByKnowledgeBaseIDs counts the number of shares for multiple knowledge bases

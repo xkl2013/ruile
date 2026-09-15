@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { listKnowledgeBases, getKnowledgeBaseById } from '@/api/knowledge-base'
+import {
+  listKnowledgeBases,
+  listMyKnowledgeBases,
+  getKnowledgeBaseById,
+  type MyKnowledgeBaseList,
+} from '@/api/knowledge-base'
 import { listAgents, type CustomAgent } from '@/api/agent'
 import { listModels, type ModelConfig } from '@/api/model'
 import { listWebSearchProviders, type WebSearchProviderEntity } from '@/api/web-search-provider'
@@ -9,7 +14,7 @@ import { useOrganizationStore } from '@/stores/organization'
 /** 空间级资源缓存 TTL */
 const CACHE_TTL_MS = 60_000
 
-type ResourceKey = 'knowledgeBases' | 'agents' | 'models' | 'webSearchProviders'
+type ResourceKey = 'knowledgeBases' | 'myKnowledgeBases' | 'agents' | 'models' | 'webSearchProviders'
 
 export type ListCreatorFilter = 'all' | 'mine' | 'others'
 
@@ -23,6 +28,7 @@ function isKbModelReady(kb: any): boolean {
 
 export const useChatResourcesStore = defineStore('chatResources', () => {
   const rawKnowledgeBases = ref<any[]>([])
+  const myKnowledgeBases = ref<MyKnowledgeBaseList>({ created: [], shared: [], subscribed: [] })
   const agents = ref<CustomAgent[]>([])
   const disabledOwnAgentIds = ref<string[]>([])
   const allModels = ref<ModelConfig[]>([])
@@ -33,6 +39,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
   // creator==='all' 的列表请求单独去重：首屏 platform 预取与对话页 onMounted
   // 可能并发触发，缓存尚未写入时不去重会重复打 listKnowledgeBases / listAgents。
   let kbAllInflight: Promise<any[]> | null = null
+  let myKbInflight: Promise<MyKnowledgeBaseList> | null = null
   let agentsAllInflight: Promise<{ data: CustomAgent[]; disabled_own_agent_ids: string[] }> | null = null
   // 代际计数：force 与非 force 并发时句柄会被后来者覆盖，旧请求结束时凭此判断
   // 自己是否仍是最新的那次，避免误清正在飞行的句柄。
@@ -101,6 +108,35 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
 
   async function ensureKnowledgeBases(force = false): Promise<void> {
     await fetchKnowledgeBasesForList({ creator: 'all' }, force)
+  }
+
+  function normalizeMyKnowledgeBaseList(response: any): MyKnowledgeBaseList {
+    const data = response?.data || {}
+    return {
+      created: Array.isArray(data.created) ? data.created : [],
+      shared: Array.isArray(data.shared) ? data.shared : [],
+      subscribed: Array.isArray(data.subscribed) ? data.subscribed : [],
+    }
+  }
+
+  async function fetchMyKnowledgeBases(force = false): Promise<MyKnowledgeBaseList> {
+    if (!force && isFresh('myKnowledgeBases')) {
+      return myKnowledgeBases.value
+    }
+    if (!force && myKbInflight) return myKbInflight
+
+    myKbInflight = (async () => {
+      try {
+        const response = await listMyKnowledgeBases()
+        const data = normalizeMyKnowledgeBaseList(response)
+        myKnowledgeBases.value = data
+        loadedAt.value.myKnowledgeBases = Date.now()
+        return data
+      } finally {
+        myKbInflight = null
+      }
+    })()
+    return myKbInflight
   }
 
   /**
@@ -250,6 +286,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     if (keys.length === 0) {
       loadedAt.value = {}
       rawKnowledgeBases.value = []
+      myKnowledgeBases.value = { created: [], shared: [], subscribed: [] }
       agents.value = []
       disabledOwnAgentIds.value = []
       allModels.value = []
@@ -259,6 +296,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       inflight.clear()
       agentKbInflight.clear()
       kbAllInflight = null
+      myKbInflight = null
       agentsAllInflight = null
       invalidateKnowledgeBaseDetail()
       return
@@ -271,7 +309,13 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       agentKbCache.clear()
       agentKbInflight.clear()
       kbAllInflight = null
+      myKbInflight = null
+      delete loadedAt.value.myKnowledgeBases
+      myKnowledgeBases.value = { created: [], shared: [], subscribed: [] }
       invalidateKnowledgeBaseDetail()
+    }
+    if (keys.includes('myKnowledgeBases')) {
+      myKbInflight = null
     }
     if (keys.includes('agents')) {
       agentsAllInflight = null
@@ -280,6 +324,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
 
   return {
     rawKnowledgeBases,
+    myKnowledgeBases,
     validKnowledgeBases,
     agents,
     disabledOwnAgentIds,
@@ -288,6 +333,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     webSearchProviders,
     isFresh,
     fetchKnowledgeBasesForList,
+    fetchMyKnowledgeBases,
     fetchAgentsForList,
     ensureKnowledgeBases,
     ensureAgents,

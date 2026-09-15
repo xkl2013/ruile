@@ -36,3 +36,10 @@ type KnowledgeBaseSubscription struct {
 func (KnowledgeBaseSubscription) TableName() string {
 	return "knowledge_base_subscriptions"
 }
+
+// KnowledgeBaseSubscriptionResult is returned by subscribe/unsubscribe APIs.
+type KnowledgeBaseSubscriptionResult struct {
+	KnowledgeBaseID string `json:"knowledge_base_id"`
+	Subscribed      bool   `json:"subscribed"`
+	SubscriptionID  string `json:"subscription_id,omitempty"`
+}

@@ -137,6 +137,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useOrganizationStore } from '@/stores/organization'
+import { useAuthStore } from '@/stores/auth'
 import { shareKnowledgeBase, listKBShares, removeShare } from '@/api/organization'
 import type { KnowledgeBaseShare } from '@/api/organization'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
@@ -144,6 +145,7 @@ import SpaceAvatar from '@/components/SpaceAvatar.vue'
 const { t } = useI18n()
 const router = useRouter()
 const orgStore = useOrganizationStore()
+const authStore = useAuthStore()
 
 interface Props {
   visible: boolean
@@ -177,9 +179,11 @@ const shareForm = ref({
 // Only show organizations where user can share (editor or admin); exclude viewer-only orgs and already shared
 const availableOrganizations = computed(() => {
   const sharedOrgIds = new Set(shares.value.map(s => s.organization_id))
+  if (!authStore.canPublishKnowledgeBases) return []
   return orgStore.organizations.filter(
     (org) =>
       !sharedOrgIds.has(org.id) &&
+      org.sharing_scope === 'tenant_internal' &&
       (org.is_owner === true || org.my_role === 'admin' || org.my_role === 'editor')
   )
 })
@@ -196,6 +200,7 @@ watch(() => props.visible, async (newVal) => {
 })
 
 async function loadOrganizations() {
+  if (!authStore.canPublishKnowledgeBases) return
   loadingOrgs.value = true
   try {
     await orgStore.fetchOrganizations()
@@ -269,9 +274,10 @@ function handleClose() {
 
 // Navigate to organization settings
 function handleGoToOrgSettings(orgId: string) {
+  if (!authStore.canUseTeamSpaces) return
   router.push({
-    path: '/platform/organizations',
-    query: { orgId }
+    path: '/platform/settings',
+    query: { section: 'sharedSpace', orgId }
   })
   // 关闭当前弹窗
   emit('update:visible', false)

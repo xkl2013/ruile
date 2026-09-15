@@ -71,14 +71,14 @@ func TestApplyAuthAndTenantDefaults_SelfServiceTenantCreation(t *testing.T) {
 }
 
 func TestApplyAuthAndTenantDefaults_DefaultTenantMode(t *testing.T) {
-	t.Run("enterprise default leaves user tenantless", func(t *testing.T) {
+	t.Run("default creates a personal workspace", func(t *testing.T) {
 		t.Setenv("WEKNORA_AUTH_DEFAULT_TENANT_MODE", "")
 		cfg := &Config{Auth: &AuthConfig{}}
 
 		applyAuthAndTenantDefaults(cfg)
 
-		if cfg.Auth.DefaultTenantMode != AuthDefaultTenantModeTenantless {
-			t.Fatalf("default_tenant_mode = %q, want %q", cfg.Auth.DefaultTenantMode, AuthDefaultTenantModeTenantless)
+		if cfg.Auth.DefaultTenantMode != AuthDefaultTenantModeCreatePersonal {
+			t.Fatalf("default_tenant_mode = %q, want %q", cfg.Auth.DefaultTenantMode, AuthDefaultTenantModeCreatePersonal)
 		}
 	})
 

@@ -48,13 +48,6 @@ function redirectToAdmin(target: Parameters<typeof buildAdminURL>[0]) {
   return false
 }
 
-function resolveAdminIntegrationPath(query: Record<string, string>) {
-  const raw = (query.tab || query.section || '').toLowerCase()
-  if (raw === 'embed') return '/publish/embed'
-  if (raw === 'api') return '/security/api-keys'
-  return '/publish/im'
-}
-
 function shouldTryAutoSetup() {
   return localStorage.getItem(AUTO_SETUP_FAILED_KEY) !== 'true'
 }
@@ -132,8 +125,7 @@ const router = createRouter({
       children: [
         {
           path: "tenant",
-          component: ExternalRedirectView,
-          beforeEnter: () => redirectToAdmin('/workspaces/current/overview'),
+          redirect: { path: "/platform/settings", query: { section: "tenant" } },
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -238,14 +230,7 @@ const router = createRouter({
         },
         {
           path: "integrations",
-          component: ExternalRedirectView,
-          beforeEnter: (to) => {
-            const query = normalizeStringQuery(to.query)
-            const path = resolveAdminIntegrationPath(query)
-            delete query.tab
-            delete query.section
-            return redirectToAdmin({ path, query })
-          },
+          redirect: "/platform/settings",
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
@@ -270,11 +255,15 @@ const router = createRouter({
           path: "organizations",
           name: "organizationList",
           component: ExternalRedirectView,
-          beforeEnter: (to) => redirectToAdmin({
-            path: '/spaces/organizations',
-            query: normalizeStringQuery(to.query),
+          // 保留旧入口，统一回到主站设置中的团队空间管理。
+          beforeEnter: (to) => ({
+            path: '/platform/settings',
+            query: {
+              ...normalizeStringQuery(to.query),
+              section: 'sharedSpace',
+            },
           }),
-          meta: { requiresInit: true, requiresAuth: true, requiresAdmin: true }
+          meta: { requiresInit: true, requiresAuth: true, requiresEnterprise: true }
         },
         // Compatibility redirects for /platform/system/* URLs. System
         // administration now lives in the standalone admin project.
@@ -331,6 +320,10 @@ function persistLoginResponse(authStore: ReturnType<typeof useAuthStore>, respon
       owner_id: response.user.id || '',
       description: response.tenant.description,
       status: response.tenant.status,
+      space_type: response.tenant.space_type,
+      edition: response.tenant.edition,
+      edition_version: response.tenant.edition_version,
+      edition_capabilities: response.tenant.edition_capabilities,
       business: response.tenant.business,
       storage_quota: response.tenant.storage_quota,
       storage_used: response.tenant.storage_used,
@@ -371,6 +364,10 @@ async function hydrateSessionFromToken(authStore: ReturnType<typeof useAuthStore
         owner_id: tenant.owner_id || user.id || '',
         description: tenant.description,
         status: tenant.status,
+        space_type: tenant.space_type,
+        edition: tenant.edition,
+        edition_version: tenant.edition_version,
+        edition_capabilities: tenant.edition_capabilities,
         business: tenant.business,
         storage_quota: tenant.storage_quota,
         storage_used: tenant.storage_used,
@@ -515,6 +512,11 @@ router.beforeEach(async (to, from, next) => {
       next('/platform/knowledge-bases')
       return
     }
+  }
+
+  if (to.meta.requiresEnterprise === true && !authStore.canUseTeamSpaces) {
+    next('/platform/knowledge-bases')
+    return
   }
 
   next()

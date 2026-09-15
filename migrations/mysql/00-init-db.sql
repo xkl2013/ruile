@@ -16,9 +16,12 @@ CREATE TABLE tenants (
     storage_quota BIGINT NOT NULL DEFAULT 10737418240,
     storage_used BIGINT NOT NULL DEFAULT 0,
     agent_config JSON DEFAULT NULL COMMENT 'Tenant-level agent configuration in JSON format',
+    knowledge_base_defaults_config JSON DEFAULT NULL COMMENT 'Advanced knowledge-base configuration shared by all non-temporary knowledge bases in this workspace',
+    provisioning_key VARCHAR(128) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP NULL DEFAULT NULL
+    deleted_at TIMESTAMP NULL DEFAULT NULL,
+    UNIQUE KEY uq_tenants_provisioning_key (provisioning_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 AUTO_INCREMENT=10000;
 
 CREATE TABLE models (

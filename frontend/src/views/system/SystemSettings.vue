@@ -7,8 +7,8 @@
 
     Visual contract: matches the canonical Settings-modal pane skeleton
     (`.section-header` + `.settings-group` + `.setting-row` /
-    `.setting-info` / `.setting-control`) used by GeneralSettings,
-    OllamaSettings, etc. Avoid bespoke layout here; the modal already
+    `.setting-info` / `.setting-control`) used by GeneralSettings and
+    sibling settings panes. Avoid bespoke layout here; the modal already
     constrains width and padding via `.content-wrapper--full`.
 
     UI principle: every control auto-persists, no Save button. The

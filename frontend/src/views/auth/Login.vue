@@ -320,7 +320,7 @@ const registerData = reactive<{ [key: string]: any }>({
   username: '',
   phone: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
 })
 
 // Login form validation rules
@@ -415,9 +415,10 @@ const registerRules = computed(() => ({
 const toggleMode = () => {
   isRegisterMode.value = !isRegisterMode.value
 
-  Object.keys(registerData).forEach(key => {
-    (registerData as any)[key] = ''
-  })
+  registerData.username = ''
+  registerData.phone = ''
+  registerData.password = ''
+  registerData.confirmPassword = ''
 }
 
 const setLoginMode = (value: 'sms' | 'password') => {
@@ -514,6 +515,10 @@ const persistLoginResponse = async (response: any) => {
         id: String(activeTenant.id) || '',
         name: activeTenant.name || '',
         owner_id: response.user.id || '',
+        space_type: activeTenant.space_type,
+        edition: activeTenant.edition,
+        edition_version: activeTenant.edition_version,
+        edition_capabilities: activeTenant.edition_capabilities,
         created_at: activeTenant.created_at || new Date().toISOString(),
         updated_at: activeTenant.updated_at || new Date().toISOString()
       })
@@ -667,7 +672,7 @@ const handleRegister = async () => {
     const response = await register({
       username: registerData.username.trim(),
       phone: registerData.phone.trim(),
-      password: registerData.password
+      password: registerData.password,
     })
 
     if (response.success) {

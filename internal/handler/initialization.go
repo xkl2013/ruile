@@ -238,7 +238,7 @@ type InitializationRequest struct {
 
 // UpdateKBConfig godoc
 // @Summary      更新知识库配置
-// @Description  根据知识库ID更新模型和分块配置
+// @Description  已废弃按知识库写入高级配置；请使用当前工作区统一配置接口
 // @Tags         初始化
 // @Accept       json
 // @Produce      json
@@ -246,6 +246,7 @@ type InitializationRequest struct {
 // @Param        request  body      KBModelConfigRequest true  "配置请求"
 // @Success      200      {object}  map[string]interface{}  "更新成功"
 // @Failure      400      {object}  errors.AppError         "请求参数错误"
+// @Failure      409      {object}  errors.AppError         "知识库高级配置由工作区统一维护"
 // @Failure      404      {object}  errors.AppError         "知识库不存在"
 // @Security     Bearer
 // @Security     ApiKeyAuth
@@ -253,6 +254,8 @@ type InitializationRequest struct {
 func (h *InitializationHandler) UpdateKBConfig(c *gin.Context) {
 	ctx := c.Request.Context()
 	kbIdStr := utils.SanitizeForLog(c.Param("kbId"))
+	c.Error(errors.NewConflictError("知识库模型、解析、索引、多模态、图谱和存储配置由当前工作区统一管理，请在 Admin 的知识库统一配置页面修改"))
+	return
 
 	var req KBModelConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -510,7 +513,7 @@ func (h *InitializationHandler) UpdateKBConfig(c *gin.Context) {
 
 // InitializeByKB godoc
 // @Summary      初始化知识库配置
-// @Description  根据知识库ID执行完整配置更新
+// @Description  已废弃按知识库写入高级配置；请使用当前工作区统一配置接口
 // @Tags         初始化
 // @Accept       json
 // @Produce      json
@@ -518,12 +521,15 @@ func (h *InitializationHandler) UpdateKBConfig(c *gin.Context) {
 // @Param        request  body      handler.InitializationRequest  true  "初始化请求"
 // @Success      200      {object}  map[string]interface{}  "初始化成功"
 // @Failure      400      {object}  errors.AppError         "请求参数错误"
+// @Failure      409      {object}  errors.AppError         "知识库高级配置由工作区统一维护"
 // @Security     Bearer
 // @Security     ApiKeyAuth
 // @Router       /initialization/initialize/{kbId} [post]
 func (h *InitializationHandler) InitializeByKB(c *gin.Context) {
 	ctx := c.Request.Context()
 	kbIdStr := utils.SanitizeForLog(c.Param("kbId"))
+	c.Error(errors.NewConflictError("知识库模型、解析、索引、多模态、图谱和存储配置由当前工作区统一管理，请在 Admin 的知识库统一配置页面修改"))
+	return
 
 	req, err := h.bindInitializationRequest(ctx, c)
 	if err != nil {

@@ -255,7 +255,8 @@ func (s *sessionService) buildAgentConfig(
 	// Apply per-turn @Skill / @MCP scope. Each helper narrows the agent's
 	// whitelist to the mentioned items and records the pinned set used for the
 	// <must_use> hint, keeping all scope logic in one place per resource type.
-	isSharedAgent := req.Session != nil && req.Session.TenantID != customAgent.TenantID
+	isSharedAgent := types.IsSharedAgentFromContext(ctx) ||
+		(req.Session != nil && req.Session.TenantID != customAgent.TenantID)
 	applyPerRequestSkillScope(ctx, agentConfig, customAgent.Config.SkillsSelectionMode, req.SkillNames)
 	applyPerRequestMCPScope(ctx, agentConfig, customAgent.Config.MCPServices, isSharedAgent, req.MCPServiceIDs)
 

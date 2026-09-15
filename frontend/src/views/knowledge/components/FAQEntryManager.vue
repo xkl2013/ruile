@@ -40,13 +40,26 @@
               <t-icon name="chevron-right" class="breadcrumb-separator" />
               <span class="breadcrumb-current">{{ $t('knowledgeEditor.faq.title') }}</span>
             </h2>
-            <!-- 标题行右侧的动作锚点：与文档详情页保持一致的「信息 + 设置」两个圆形按钮。
-                 FAQ 类型知识库不传 supportedFileTypes，可上传格式行会自动隐藏。 -->
             <div class="kb-title-actions">
               <KBInfoPopover
                 v-if="kbInfo && !authStore.isLiteMode"
                 :kb-info="kbInfo"
               />
+              <t-tooltip
+                v-if="kbInfo && canEditKnowledgeBaseIdentity"
+                :content="$t('knowledgeBase.edit')"
+                placement="top"
+              >
+                <button
+                  type="button"
+                  class="kb-title-action-button"
+                  :aria-label="$t('knowledgeBase.edit')"
+                  :title="$t('knowledgeBase.edit')"
+                  @click="basicInfoDialogVisible = true"
+                >
+                  <t-icon name="edit-1" size="16px" />
+                </button>
+              </t-tooltip>
             </div>
           </div>
           <p class="faq-subtitle">{{ $t('knowledgeEditor.faq.subtitle') }}</p>
@@ -911,6 +924,13 @@
       </div>
     </t-drawer>
 
+    <KnowledgeBaseBasicInfoDialog
+      v-if="kbInfo"
+      v-model:visible="basicInfoDialogVisible"
+      :kb-info="kbInfo"
+      :can-edit="canEditKnowledgeBaseIdentity"
+      @success="handleBasicInfoSuccess"
+    />
   </div>
 </template>
 
@@ -949,6 +969,7 @@ import FAQTagTooltip from '@/components/FAQTagTooltip.vue'
 import KBInfoPopover from '@/components/KBInfoPopover.vue'
 import KBSwitcherDropdown from '@/components/KBSwitcherDropdown.vue'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
+import KnowledgeBaseBasicInfoDialog from './KnowledgeBaseBasicInfoDialog.vue'
 
 interface FAQEntry {
   id: number
@@ -1041,16 +1062,22 @@ const canEdit = computed(() => {
 // viewer remains read-only.
 const canManage = computed(() => canEdit.value)
 
-const canManageKnowledgeBaseSettingsByRole = computed(() =>
-  authStore.hasRole('admin') || authStore.isSystemAdmin,
-)
-
-const canEditKnowledgeBaseSettings = computed(() => {
-  if (!canManageKnowledgeBaseSettingsByRole.value) return false
-  if (authStore.isSystemAdmin) return true
-  if (isViaShare.value) return orgStore.canManageKB(props.kbId, false)
-  return true
+// Shared-space editors can maintain FAQ content, but only the KB owner or a
+// home-space admin can edit the KB name and description.
+const canEditKnowledgeBaseIdentity = computed(() => {
+  if (isViaShare.value) return false
+  return isOwner.value || authStore.hasRole('admin') || authStore.isSystemAdmin
 })
+
+const basicInfoDialogVisible = ref(false)
+
+const handleBasicInfoSuccess = (data: any) => {
+  if (!data) return
+  kbInfo.value = {
+    ...kbInfo.value,
+    ...data,
+  }
+}
 
 // FAQ 操作：新建组（新建条目 + 导入）
 const faqCreateOptions = computed(() => {
@@ -3488,6 +3515,26 @@ watch(() => entries.value.map(e => ({
     gap: 6px;
     flex-shrink: 0;
     margin-left: 4px;
+  }
+
+  .kb-title-action-button {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--td-text-color-placeholder);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.2s ease, color 0.2s ease;
+
+    &:hover {
+      background: var(--td-bg-color-secondarycontainer);
+      color: var(--td-text-color-primary);
+    }
   }
 
   .faq-breadcrumb {

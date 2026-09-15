@@ -34,15 +34,6 @@
               <div class="landing-step-body">
                 <div class="landing-step-title">{{ $t(`integrations.claw.steps.${step}.title`) }}</div>
                 <p class="landing-step-desc">{{ $t(`integrations.claw.steps.${step}.desc`) }}</p>
-                <t-button
-                  v-if="step === 'api'"
-                  size="small"
-                  variant="outline"
-                  class="landing-step-action"
-                  @click="openApiSettings"
-                >
-                  {{ $t('integrations.claw.openApiSettings') }}
-                </t-button>
                 <div v-if="step === 'env'" class="landing-step-embed">
                   <div class="code-toolbar">
                     <pre class="code-toolbar__code">{{ envExample }}</pre>
@@ -89,7 +80,6 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useApiBaseUrlDisplay } from '@/composables/useApiBaseUrlDisplay'
 import IntegrationLandingLayout from './IntegrationLandingLayout.vue'
-import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const { t } = useI18n()
 const { apiBaseUrlDisplay } = useApiBaseUrlDisplay()
@@ -111,10 +101,6 @@ const envExample = computed(() => {
   const base = apiBaseUrlDisplay.value || 'https://your-server.com/api/v1'
   return `export WEKNORA_BASE_URL="${base}"\nexport WEKNORA_API_KEY="sk-your-api-key"`
 })
-
-const openApiSettings = () => {
-  navigateToAdmin('/security/api-keys')
-}
 
 const copyText = async (text: string, successKey: string) => {
   if (!text) return

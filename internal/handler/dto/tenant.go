@@ -34,6 +34,10 @@ type TenantResponse struct {
 	Name                string                      `json:"name"`
 	Description         string                      `json:"description"`
 	Status              string                      `json:"status"`
+	SpaceType           *types.SpaceType            `json:"space_type,omitempty"`
+	Edition             types.EditionCode           `json:"edition"`
+	EditionVersion      int                         `json:"edition_version"`
+	EditionCapabilities *types.EditionEntitlements  `json:"edition_capabilities"`
 	RetrieverEngines    types.RetrieverEngines      `json:"retriever_engines"`
 	Business            string                      `json:"business"`
 	StorageQuota        int64                       `json:"storage_quota"`
@@ -64,21 +68,25 @@ func NewTenantResponseWithRole(tenant *types.Tenant, role types.TenantRole) *Ten
 	}
 	includeSecrets := role.HasPermission(types.TenantRoleAdmin)
 	resp := &TenantResponse{
-		ID:                tenant.ID,
-		Name:              tenant.Name,
-		Description:       tenant.Description,
-		Status:            tenant.Status,
-		RetrieverEngines:  tenant.RetrieverEngines,
-		Business:          tenant.Business,
-		StorageQuota:      tenant.StorageQuota,
-		StorageUsed:       tenant.StorageUsed,
-		StorageUsage:      NewTenantStorageUsageResponse(tenant.StorageUsed, tenant.StorageQuota),
-		ContextConfig:     tenant.ContextConfig,
-		ChatHistoryConfig: tenant.ChatHistoryConfig,
-		RetrievalConfig:   tenant.RetrievalConfig,
-		CreatedAt:         tenant.CreatedAt,
-		UpdatedAt:         tenant.UpdatedAt,
-		DeletedAt:         tenant.DeletedAt,
+		ID:                  tenant.ID,
+		Name:                tenant.Name,
+		Description:         tenant.Description,
+		Status:              tenant.Status,
+		SpaceType:           tenant.SpaceType,
+		Edition:             types.EditionForTenant(tenant),
+		EditionVersion:      1,
+		EditionCapabilities: types.EditionEntitlementsForTenant(tenant),
+		RetrieverEngines:    tenant.RetrieverEngines,
+		Business:            tenant.Business,
+		StorageQuota:        tenant.StorageQuota,
+		StorageUsed:         tenant.StorageUsed,
+		StorageUsage:        NewTenantStorageUsageResponse(tenant.StorageUsed, tenant.StorageQuota),
+		ContextConfig:       tenant.ContextConfig,
+		ChatHistoryConfig:   tenant.ChatHistoryConfig,
+		RetrievalConfig:     tenant.RetrievalConfig,
+		CreatedAt:           tenant.CreatedAt,
+		UpdatedAt:           tenant.UpdatedAt,
+		DeletedAt:           tenant.DeletedAt,
 	}
 	if includeSecrets {
 		resp.WebSearchConfig = types.WebSearchConfigForResponse(tenant.WebSearchConfig, true)

@@ -19,6 +19,7 @@ import {
   listSharedKnowledgeBases,
   listSharedAgents
 } from '@/api/organization'
+import { useAuthStore } from '@/stores/auth'
 
 export const useOrganizationStore = defineStore('organization', () => {
   // State
@@ -53,12 +54,35 @@ export const useOrganizationStore = defineStore('organization', () => {
   )
 
   // Actions
+  function canUseTeamSpaceResources(): boolean {
+    return useAuthStore().canUseTeamSpaces
+  }
+
+  function clearTeamSpaceResourceState() {
+    organizations.value = []
+    currentOrganization.value = null
+    currentMembers.value = []
+    sharedKnowledgeBases.value = []
+    sharedAgents.value = []
+    resourceCounts.value = null
+    error.value = null
+    organizationsLoadedAt = 0
+    sharedKbLoadedAt = 0
+    sharedAgentsLoadedAt = 0
+    fetchOrganizationsPromise = null
+    fetchSharedKbPromise = null
+    fetchSharedAgentsPromise = null
+  }
 
   /**
    * Fetch all organizations the user belongs to.
    * 去重 + 短期缓存，列表页与侧栏等多处共用。
    */
   async function fetchOrganizations(options?: { force?: boolean }) {
+    if (!canUseTeamSpaceResources()) {
+      clearTeamSpaceResourceState()
+      return
+    }
     const force = options?.force ?? false
     if (
       !force &&
@@ -276,6 +300,10 @@ export const useOrganizationStore = defineStore('organization', () => {
    * 去重 + 短期缓存，避免对话页等多处并发重复请求。
    */
   async function fetchSharedKnowledgeBases(options?: { force?: boolean }) {
+    if (!canUseTeamSpaceResources()) {
+      clearTeamSpaceResourceState()
+      return []
+    }
     const force = options?.force ?? false
     if (
       !force &&
@@ -314,6 +342,10 @@ export const useOrganizationStore = defineStore('organization', () => {
    * 去重 + 短期缓存。
    */
   async function fetchSharedAgents(options?: { force?: boolean }) {
+    if (!canUseTeamSpaceResources()) {
+      clearTeamSpaceResourceState()
+      return []
+    }
     const force = options?.force ?? false
     if (
       !force &&

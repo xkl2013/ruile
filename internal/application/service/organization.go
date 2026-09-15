@@ -23,14 +23,16 @@ const DefaultInviteCodeValidityDays = 7
 const DefaultMemberLimit = 200
 
 var (
-	ErrOrgNotFound           = errors.New("organization not found")
-	ErrOrgPermissionDenied   = errors.New("permission denied for this organization")
-	ErrCannotRemoveOwner     = errors.New("cannot remove organization owner")
-	ErrCannotChangeOwnerRole = errors.New("cannot change organization owner role")
-	ErrTenantNotInOrg        = errors.New("member is not in this organization")
-	ErrInvalidRole           = errors.New("invalid role")
-	ErrOrgMemberLimitReached = errors.New("organization member limit reached")
-	ErrOrgMemberLimitTooLow  = errors.New("member limit cannot be lower than current member count")
+	ErrOrgNotFound                             = errors.New("organization not found")
+	ErrOrgPermissionDenied                     = errors.New("permission denied for this organization")
+	ErrCannotRemoveOwner                       = errors.New("cannot remove organization owner")
+	ErrCannotChangeOwnerRole                   = errors.New("cannot change organization owner role")
+	ErrTenantNotInOrg                          = errors.New("member is not in this organization")
+	ErrInvalidRole                             = errors.New("invalid role")
+	ErrOrgMemberLimitReached                   = errors.New("organization member limit reached")
+	ErrOrgMemberLimitTooLow                    = errors.New("member limit cannot be lower than current member count")
+	ErrPersonalWorkspaceCannotUseSharedSpace   = errors.New("personal workspaces cannot use shared spaces")
+	ErrOrganizationMemberOutsideOwnerWorkspace = errors.New("team-space members must belong to the owner enterprise workspace")
 )
 
 // organizationService implements OrganizationService.
@@ -40,6 +42,7 @@ var (
 type organizationService struct {
 	orgRepo        interfaces.OrganizationRepository
 	userRepo       interfaces.UserRepository
+	tenantRepo     interfaces.TenantRepository
 	shareRepo      interfaces.KBShareRepository
 	agentShareRepo interfaces.AgentShareRepository
 }
@@ -48,12 +51,14 @@ type organizationService struct {
 func NewOrganizationService(
 	orgRepo interfaces.OrganizationRepository,
 	userRepo interfaces.UserRepository,
+	tenantRepo interfaces.TenantRepository,
 	shareRepo interfaces.KBShareRepository,
 	agentShareRepo interfaces.AgentShareRepository,
 ) interfaces.OrganizationService {
 	return &organizationService{
 		orgRepo:        orgRepo,
 		userRepo:       userRepo,
+		tenantRepo:     tenantRepo,
 		shareRepo:      shareRepo,
 		agentShareRepo: agentShareRepo,
 	}
@@ -72,6 +77,9 @@ func resolveInviteExpiry(validityDays int, now time.Time) *time.Time {
 // is enrolled at admin role and userID is recorded as the representative.
 func (s *organizationService) CreateOrganization(ctx context.Context, userID string, tenantID uint64, req *types.CreateOrganizationRequest) (*types.Organization, error) {
 	logger.Infof(ctx, "Creating organization: %s by user: %s in tenant: %d", req.Name, userID, tenantID)
+	if err := s.ensureTenantCanUseSharedSpace(ctx, tenantID); err != nil {
+		return nil, err
+	}
 
 	memberLimit := DefaultMemberLimit
 	if req.MemberLimit != nil {
@@ -87,7 +95,11 @@ func (s *organizationService) CreateOrganization(ctx context.Context, userID str
 		Name:        req.Name,
 		Description: req.Description,
 		Avatar:      strings.TrimSpace(req.Avatar),
-		OwnerID:     userID,
+		SharingScope: func() *types.SharingScope {
+			scope := types.SharingScopeTenantInternal
+			return &scope
+		}(),
+		OwnerID: userID,
 		// Owning tenant is pinned at create time; never changes even if
 		// the owner user later moves to another tenant. See migration
 		// 000046 and the isOwnerTenant helper below.
@@ -107,7 +119,7 @@ func (s *organizationService) CreateOrganization(ctx context.Context, userID str
 
 	// Enrol the creator account as admin. The membership row carries tenant_id
 	// for member-management source context, but userID is the actual
-	// shared-space member.
+	// team-space member.
 	joinedAt := now
 	member := &types.OrganizationTenantMember{
 		ID:                   uuid.New().String(),
@@ -146,7 +158,17 @@ func (s *organizationService) GetOrganization(ctx context.Context, id string) (*
 // ListTenantOrganizations lists all organizations the current account
 // participates in. tenantID is retained for the legacy interface.
 func (s *organizationService) ListTenantOrganizations(ctx context.Context, tenantID uint64) ([]*types.Organization, error) {
-	return s.orgRepo.ListByTenantID(ctx, tenantID)
+	orgs, err := s.orgRepo.ListByTenantID(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]*types.Organization, 0, len(orgs))
+	for _, org := range orgs {
+		if teamSpaceAllowsActiveTenant(ctx, org, tenantID, nil) {
+			filtered = append(filtered, org)
+		}
+	}
+	return filtered, nil
 }
 
 // UpdateOrganization updates an organization. The operator must be an admin
@@ -210,7 +232,9 @@ func (s *organizationService) DeleteOrganization(ctx context.Context, id string,
 	if !types.IsSystemAdminFromContext(ctx) && org.OwnerID != userID {
 		return ErrOrgPermissionDenied
 	}
-	_ = tenantID
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, nil) {
+		return ErrOrgPermissionDenied
+	}
 
 	if err := s.shareRepo.DeleteByOrganizationID(ctx, id); err != nil {
 		logger.Warnf(ctx, "Failed to delete KB shares for organization %s: %v", id, err)
@@ -227,6 +251,9 @@ func (s *organizationService) AddTenantMember(ctx context.Context, orgID string,
 	if !role.IsValid() {
 		return ErrInvalidRole
 	}
+	if err := s.ensureTenantCanUseSharedSpace(ctx, tenantID); err != nil {
+		return err
+	}
 	representativeUserID = strings.TrimSpace(representativeUserID)
 	if representativeUserID == "" {
 		return ErrTenantNotInOrg
@@ -235,6 +262,12 @@ func (s *organizationService) AddTenantMember(ctx context.Context, orgID string,
 	org, err := s.orgRepo.GetByID(ctx, orgID)
 	if err != nil {
 		return err
+	}
+	if org.SharingScope != nil &&
+		*org.SharingScope == types.SharingScopeTenantInternal &&
+		org.OwnerTenantID != 0 &&
+		tenantID != org.OwnerTenantID {
+		return ErrOrganizationMemberOutsideOwnerWorkspace
 	}
 	if org.MemberLimit > 0 {
 		count, errCount := s.orgRepo.CountTenantMembers(ctx, orgID)
@@ -259,6 +292,20 @@ func (s *organizationService) AddTenantMember(ctx context.Context, orgID string,
 	}
 
 	return s.orgRepo.AddTenantMember(ctx, member)
+}
+
+func (s *organizationService) ensureTenantCanUseSharedSpace(ctx context.Context, tenantID uint64) error {
+	if s.tenantRepo == nil || tenantID == 0 {
+		return nil
+	}
+	tenant, err := s.tenantRepo.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if tenant != nil && tenant.SpaceType != nil && *tenant.SpaceType == types.SpaceTypePersonal {
+		return ErrPersonalWorkspaceCannotUseSharedSpace
+	}
+	return nil
 }
 
 // RemoveTenantMemberByID removes one concrete member row from an organization.
@@ -406,6 +453,13 @@ func (s *organizationService) GetTenantMember(ctx context.Context, orgID string,
 		}
 		return nil, err
 	}
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, member) {
+		return nil, ErrTenantNotInOrg
+	}
 	return member, nil
 }
 
@@ -435,6 +489,13 @@ func (s *organizationService) IsTenantOrgAdmin(ctx context.Context, orgID string
 		}
 		return false, err
 	}
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		return false, err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, member) {
+		return false, nil
+	}
 	return member.Role == types.OrgRoleAdmin, nil
 }
 
@@ -449,6 +510,13 @@ func (s *organizationService) GetTenantRoleInOrg(ctx context.Context, orgID stri
 			return "", ErrTenantNotInOrg
 		}
 		return "", err
+	}
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		return "", err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, member) {
+		return "", ErrTenantNotInOrg
 	}
 	return member.Role, nil
 }

@@ -170,6 +170,8 @@ export interface KBModelConfigRequest {
     }
 }
 
+// Deprecated: per-KB advanced configuration writes are rejected by the API.
+// Use updateKnowledgeBaseDefaults from the knowledge-base API instead.
 export function updateKBConfig(kbId: string, config: KBModelConfigRequest): Promise<any> {
     return new Promise((resolve, reject) => {
         console.log('Starting KB config update (simplified)...', kbId, config);
@@ -185,7 +187,7 @@ export function updateKBConfig(kbId: string, config: KBModelConfigRequest): Prom
     });
 }
 
-// 根据知识库ID执行配置更新（旧版，保留兼容性）
+// Deprecated: per-KB advanced configuration writes are rejected by the API.
 export function initializeSystemByKB(kbId: string, config: InitializationConfig): Promise<any> {
     return new Promise((resolve, reject) => {
         console.log('Starting KB config update...', kbId, config);

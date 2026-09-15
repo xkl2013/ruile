@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="visible" class="settings-overlay" @click.self="handleClose">
-        <div class="settings-modal" :class="{ 'simple-create': isSimpleCreateMode }">
+        <div class="settings-modal" :class="{ 'simple-create': isSimpleFormMode }">
           <!-- 关闭按钮 -->
           <button class="close-btn" @click="handleClose" :aria-label="$t('general.close')">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
@@ -10,9 +10,9 @@
             </svg>
           </button>
 
-          <div class="settings-container" :class="{ 'simple-create': isSimpleCreateMode }">
+          <div class="settings-container" :class="{ 'simple-create': isSimpleFormMode }">
             <!-- 左侧导航 -->
-            <div v-if="!isSimpleCreateMode" class="settings-sidebar">
+            <div v-if="!isSimpleFormMode" class="settings-sidebar">
               <div class="sidebar-header">
                 <h2 class="sidebar-title">{{ mode === 'create' ? $t('knowledgeEditor.titleCreate') : $t('knowledgeEditor.titleEdit') }}</h2>
               </div>
@@ -45,7 +45,39 @@
                       <p class="section-desc">{{ $t('knowledgeEditor.basic.description') }}</p>
                     </div>
                     <div class="section-body">
-                      <div v-if="mode === 'edit' && props.kbId" class="form-item">
+                      <div v-if="mode === 'create' && canChooseEnterprise" class="form-item">
+                        <label class="form-label">{{ $t('knowledgeEditor.basic.createScopeLabel') }}</label>
+                        <t-radio-group v-model="createScope" class="create-scope-options">
+                          <t-radio-button value="personal">
+                            {{ $t('knowledgeEditor.basic.createScopePersonal') }}
+                          </t-radio-button>
+                          <t-radio-button value="enterprise">
+                            {{ $t('knowledgeEditor.basic.createScopeEnterprise') }}
+                          </t-radio-button>
+                        </t-radio-group>
+                        <p class="form-tip">{{ $t('knowledgeEditor.basic.createScopeDescription') }}</p>
+                      </div>
+
+                      <div
+                        v-if="mode === 'create' && canChooseEnterprise && createScope === 'enterprise' && enterpriseCreateTargets.length > 1"
+                        class="form-item"
+                      >
+                        <label class="form-label required">{{ $t('knowledgeEditor.basic.enterpriseTargetLabel') }}</label>
+                        <t-select
+                          v-model="enterpriseTargetTenantId"
+                          :placeholder="$t('knowledgeEditor.basic.enterpriseTargetPlaceholder')"
+                          :clearable="false"
+                        >
+                          <t-option
+                            v-for="target in enterpriseCreateTargets"
+                            :key="target.tenant_id"
+                            :value="target.tenant_id"
+                            :label="target.tenant_name"
+                          />
+                        </t-select>
+                      </div>
+
+                      <div v-if="showKnowledgeBaseIdentityExtras && mode === 'edit' && props.kbId" class="form-item">
                         <label class="form-label">{{ $t('knowledgeEditor.basic.kbId') }}</label>
                         <p class="form-tip">{{ $t('knowledgeEditor.basic.kbIdDesc') }}</p>
                         <div class="kb-id-field">
@@ -59,7 +91,7 @@
                         </div>
                       </div>
 
-                      <div class="form-item kb-icon-field">
+                      <div v-if="showKnowledgeBaseIdentityExtras" class="form-item kb-icon-field">
                         <label class="form-label">{{ $t('knowledgeEditor.basic.icon') }}</label>
                         <t-popup
                           v-model:visible="iconPickerVisible"
@@ -247,7 +279,7 @@
                 </div>
 
                 <!-- 模型配置 -->
-                <div v-show="currentSection === 'models'" class="section">
+                <div v-if="showAdvancedConfigurationSections" v-show="currentSection === 'models'" class="section">
                   <KBModelConfig
                     ref="modelConfigRef"
                     v-if="formData"
@@ -261,7 +293,7 @@
                 </div>
 
                 <!-- VectorStore 绑定 -->
-                <div v-show="currentSection === 'vectorStore'" class="section">
+                <div v-if="showAdvancedConfigurationSections" v-show="currentSection === 'vectorStore'" class="section">
                   <KBVectorStoreSettings
                     v-if="formData"
                     :mode="mode"
@@ -275,7 +307,7 @@
                 </div>
 
                 <!-- FAQ 配置 -->
-                <div v-if="isFAQ && formData" v-show="currentSection === 'faq'" class="section">
+                <div v-if="showAdvancedConfigurationSections && isFAQ && formData" v-show="currentSection === 'faq'" class="section">
                   <div class="section-content">
                     <div class="section-header">
                       <h3 class="section-title">{{ $t('knowledgeEditor.faq.title') }}</h3>
@@ -310,7 +342,7 @@
                 </div>
 
                 <!-- 解析引擎 -->
-                <div v-if="!isFAQ && formData && currentSection === 'parser'" class="section">
+                <div v-if="showAdvancedConfigurationSections && !isFAQ && formData && currentSection === 'parser'" class="section">
                   <KBParserSettings
                     :parser-engine-rules="formData.chunkingConfig.parserEngineRules"
                     @update:parser-engine-rules="handleParserEngineRulesUpdate"
@@ -318,7 +350,7 @@
                 </div>
 
                 <!-- 存储引擎 -->
-                <div v-if="!isFAQ && formData && currentSection === 'storage'" class="section">
+                <div v-if="showAdvancedConfigurationSections && !isFAQ && formData && currentSection === 'storage'" class="section">
                   <KBStorageSettings
                     :storage-backend-id="formData.storageBackendId"
                     :storage-provider="formData.storageProvider"
@@ -329,7 +361,7 @@
                 </div>
 
                 <!-- 分块设置 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'chunking'" class="section">
+                <div v-if="showAdvancedConfigurationSections && !isFAQ" v-show="currentSection === 'chunking'" class="section">
                   <KBChunkingSettings
                     v-if="formData"
                     :config="formData.chunkingConfig"
@@ -338,7 +370,7 @@
                 </div>
 
                 <!-- 多模态配置 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'multimodal'" class="section">
+                <div v-if="showAdvancedConfigurationSections && !isFAQ" v-show="currentSection === 'multimodal'" class="section">
                   <div v-if="formData" class="kb-multimodal-settings">
                     <div class="section-header">
                       <h2>{{ $t('knowledgeEditor.multimodal.title') }}</h2>
@@ -446,7 +478,7 @@
                 </div>
 
                 <!-- 音频处理（ASR）设置 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'asr'" class="section">
+                <div v-if="showAdvancedConfigurationSections && !isFAQ" v-show="currentSection === 'asr'" class="section">
                   <div v-if="formData" class="kb-multimodal-settings">
                     <div class="section-header">
                       <h2>{{ $t('knowledgeEditor.asr.title') }}</h2>
@@ -491,7 +523,7 @@
                 </div>
 
                 <!-- 知识图谱 -->
-                <div v-if="!isFAQ && currentSection === 'graph'" class="section">
+                <div v-if="showAdvancedConfigurationSections && !isFAQ && currentSection === 'graph'" class="section">
                   <GraphSettings
                     v-if="formData"
                     :graph-extract="formData.nodeExtractConfig"
@@ -502,7 +534,7 @@
                 </div>
 
                 <!-- 高级设置 -->
-                <div v-if="!isFAQ" v-show="currentSection === 'advanced'" class="section">
+                <div v-if="showAdvancedConfigurationSections && !isFAQ" v-show="currentSection === 'advanced'" class="section">
                   <KBAdvancedSettings
                     ref="advancedSettingsRef"
                     v-if="formData"
@@ -516,12 +548,12 @@
                 </div>
 
                 <!-- 数据源管理（仅编辑模式） -->
-                <div v-if="mode === 'edit' && kbId && currentSection === 'datasource'" class="section">
+                <div v-if="showAdvancedConfigurationSections && mode === 'edit' && kbId && currentSection === 'datasource'" class="section">
                   <DataSourceSettings :kb-id="kbId" @count="dsCount = $event" />
                 </div>
 
                 <!-- 共享设置（仅编辑模式） -->
-                <div v-if="mode === 'edit' && kbId && currentSection === 'share'" class="section">
+                <div v-if="showAdvancedConfigurationSections && mode === 'edit' && kbId && currentSection === 'share'" class="section">
                   <KBShareSettings :kb-id="kbId" :can-share="canShareKB" />
                 </div>
               </div>
@@ -594,6 +626,23 @@ const props = defineProps<{
   initialType?: 'document' | 'faq'
 }>()
 
+type KnowledgeBaseCreateScope = 'personal' | 'enterprise'
+
+const createScope = ref<KnowledgeBaseCreateScope>('personal')
+const enterpriseTargetTenantId = ref<number | null>(null)
+const enterpriseCreateTargets = computed(() => authStore.enterpriseKnowledgeBaseTargets)
+const canChooseEnterprise = computed(
+  () => props.mode === 'create' && enterpriseCreateTargets.value.length > 0,
+)
+
+const resetCreateScope = () => {
+  createScope.value = 'personal'
+  enterpriseTargetTenantId.value =
+    enterpriseCreateTargets.value.length === 1
+      ? enterpriseCreateTargets.value[0].tenant_id
+      : null
+}
+
 // Emits
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
@@ -625,11 +674,17 @@ const copyKbId = async () => {
 }
 
 const currentSection = ref<string>('basic')
+// This component lives in the main frontend. Runtime KB configuration is now
+// owned by the standalone admin app; user-facing KB settings stay basic-only.
+const showAdvancedConfigurationSections = computed(() => false)
+const isSimpleCreateMode = computed(() => props.mode === 'create')
+const isSimpleFormMode = computed(() => isSimpleCreateMode.value || !showAdvancedConfigurationSections.value)
+const showKnowledgeBaseIdentityExtras = computed(() => showAdvancedConfigurationSections.value)
 
 const onKbEditorFocusSection = (event: Event) => {
   const section = (event as CustomEvent<{ section?: string }>).detail?.section
   if (section) {
-    currentSection.value = section
+    setCurrentSection(section)
   }
 }
 
@@ -673,8 +728,7 @@ const kbIconOptions = KNOWLEDGE_BASE_ICON_OPTIONS
 const KB_ICON_UPLOAD_MAX_BYTES = 5 * 1024 * 1024
 const KB_ICON_IMAGE_SIZE = 96
 
-const isSimpleCreateMode = computed(() => props.mode === 'create')
-const showConfigurationFields = computed(() => !isSimpleCreateMode.value)
+const showConfigurationFields = computed(() => showAdvancedConfigurationSections.value && !isSimpleCreateMode.value)
 const showAdminModelActions = computed(() =>
   typeof window !== 'undefined' && window.location.pathname.startsWith('/admin/'),
 )
@@ -686,7 +740,7 @@ const navItems = computed(() => {
   const items: { key: string; icon: string; label: string; badge?: number }[] = [
     { key: 'basic', icon: 'info-circle', label: t('knowledgeEditor.sidebar.basic') },
   ]
-  if (isSimpleCreateMode.value) return items
+  if (!showAdvancedConfigurationSections.value || isSimpleCreateMode.value) return items
   items.push(
     { key: 'models', icon: 'control-platform', label: t('knowledgeEditor.sidebar.models') },
     // VectorStore binding section — present in both create and edit
@@ -715,6 +769,10 @@ const navItems = computed(() => {
   }
   return items
 })
+
+const setCurrentSection = (section: string | null | undefined) => {
+  currentSection.value = navItems.value.some((item) => item.key === section) ? String(section) : 'basic'
+}
 
 // 左侧导航分组（与 AgentEditorModal 对齐）
 const navGroups = computed(() => {
@@ -809,6 +867,21 @@ watch(
   }
 )
 
+watch(
+  enterpriseCreateTargets,
+  (targets) => {
+    if (targets.length === 0) {
+      createScope.value = 'personal'
+      enterpriseTargetTenantId.value = null
+      return
+    }
+    if (!targets.some((target) => target.tenant_id === enterpriseTargetTenantId.value)) {
+      enterpriseTargetTenantId.value = targets.length === 1 ? targets[0].tenant_id : null
+    }
+  },
+  { immediate: true },
+)
+
 // 初始化表单数据
 const initFormData = (type: 'document' | 'faq' = 'document') => {
   return createDefaultKnowledgeBaseFormData(type)
@@ -834,7 +907,9 @@ const loadKBData = async () => {
   try {
     const [kbInfo, filesResult] = await Promise.all([
       getKnowledgeBaseById(props.kbId),
-      listKnowledgeFiles(props.kbId, { page: 1, page_size: 1 })
+      showAdvancedConfigurationSections.value
+        ? listKnowledgeFiles(props.kbId, { page: 1, page_size: 1 })
+        : Promise.resolve({ total: 0 }),
     ])
     
     if (!kbInfo || !kbInfo.data) {
@@ -1254,6 +1329,18 @@ const validateForm = (): boolean => {
     return false
   }
 
+  if (
+    props.mode === 'create' &&
+    canChooseEnterprise.value &&
+    createScope.value === 'enterprise' &&
+    enterpriseCreateTargets.value.length > 1 &&
+    enterpriseTargetTenantId.value == null
+  ) {
+    MessagePlugin.warning(t('knowledgeEditor.basic.enterpriseTargetRequired'))
+    currentSection.value = 'basic'
+    return false
+  }
+
   // 验证索引策略 — 文档类型至少需要开启一种
   if (formData.value.type !== 'faq') {
     const s = formData.value.indexingStrategy
@@ -1266,6 +1353,10 @@ const validateForm = (): boolean => {
 
   if (props.mode === 'create') {
     applyDefaultCreateConfig()
+    return true
+  }
+
+  if (!showAdvancedConfigurationSections.value) {
     return true
   }
 
@@ -1308,6 +1399,36 @@ const validateForm = (): boolean => {
 // 构建提交数据
 const buildSubmitData = () => {
   if (!formData.value) return null
+
+  if (props.mode === 'create') {
+    const selectedEnterpriseTenantId =
+      enterpriseTargetTenantId.value ?? enterpriseCreateTargets.value[0]?.tenant_id
+    const scope: KnowledgeBaseCreateScope =
+      canChooseEnterprise.value && createScope.value === 'enterprise'
+        ? 'enterprise'
+        : 'personal'
+    const data: {
+      name: string
+      description: string
+      scope: KnowledgeBaseCreateScope
+      enterprise_tenant_id?: number
+    } = {
+      name: formData.value.name,
+      description: formData.value.description,
+      scope,
+    }
+    if (scope === 'enterprise' && selectedEnterpriseTenantId != null) {
+      data.enterprise_tenant_id = selectedEnterpriseTenantId
+    }
+    return data
+  }
+
+  if (!showAdvancedConfigurationSections.value) {
+    return {
+      name: formData.value.name,
+      description: formData.value.description,
+    }
+  }
 
   const data: any = {
     name: formData.value.name,
@@ -1489,7 +1610,7 @@ const doSubmit = async () => {
     }
 
     if (props.mode === 'create') {
-      // 创建模式：一次性创建知识库及所有配置
+      // 创建模式只提交基本信息，配置由后端默认解析。
       const result: any = await createKnowledgeBase(data)
       if (!result.success || !result.data?.id) {
         throw new Error(result.message || t('knowledgeEditor.messages.createFailed'))
@@ -1506,6 +1627,17 @@ const doSubmit = async () => {
       // 编辑模式：分别更新基本信息和配置
       if (!props.kbId) {
         throw new Error(t('knowledgeEditor.messages.missingId'))
+      }
+
+      if (!showAdvancedConfigurationSections.value) {
+        await updateKnowledgeBase(props.kbId, {
+          name: data.name,
+          description: data.description,
+        })
+        MessagePlugin.success(t('knowledgeEditor.messages.updateSuccess'))
+        emit('success', props.kbId)
+        handleClose()
+        return
       }
 
       // 1. 更新基本信息（名称、描述）和 FAQ/Wiki 配置
@@ -1662,6 +1794,8 @@ const resetState = () => {
   kbCreatorId.value = ''
   iconPickerVisible.value = false
   iconCustomized.value = false
+  createScope.value = 'personal'
+  enterpriseTargetTenantId.value = null
 }
 
 // 关闭弹窗
@@ -1678,22 +1812,22 @@ watch(() => props.visible, async (newVal) => {
     // 打开弹窗时，先重置状态
     resetState()
     
-    // 新建知识库只填写基础信息；编辑模式仍支持按指定 section 打开完整配置。
+    // 新建和用户端编辑都只填写基础信息；高级配置入口在 admin 工程。
     if (props.mode === 'edit' && uiStore.kbEditorInitialSection) {
-      currentSection.value = uiStore.kbEditorInitialSection
+      setCurrentSection(uiStore.kbEditorInitialSection)
     }
     
-    // 加载模型列表与空间默认存储引擎（创建 KB 时即使用，不依赖是否打开「存储引擎」Tab）
-    await Promise.all([loadAllModels(), loadTenantDefaultStorageProvider()])
-    
-    // 根据模式加载数据
     if (props.mode === 'edit' && props.kbId) {
+      // 用户端编辑只需要基础信息；高级配置入口在 admin 工程。
+      if (showAdvancedConfigurationSections.value) {
+        await Promise.all([loadAllModels(), loadTenantDefaultStorageProvider()])
+      }
       await loadKBData()
     } else {
-      // 创建模式：初始化空表单，并预填空间默认存储引擎
+      // 创建模式只初始化基础字段；默认配置由后端注入。
       formData.value = initFormData(props.initialType || 'document')
-      applyDefaultCreateConfig()
       hasFiles.value = false
+      resetCreateScope()
     }
   } else {
     // 关闭弹窗时，延迟重置状态（等待动画结束）

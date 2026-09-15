@@ -443,14 +443,25 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 	kb := g.apiKeyGroup(kbgrp, apiKeyRetrieve(apiKeyFullAccess()))
 	kbManagement := kb.With(apiKeyManageKnowledgeBases(apiKeyFullAccess()))
 	{
-		// 创建知识库 — JWT Admin+；API key 需 manage_kbs 或 full-access。
-		kbManagement.POST("", g.Admin(), handler.CreateKnowledgeBase)
+		// 创建知识库 — 先允许已登录用户进入，具体归属范围与创建权限
+		// 由 handler 根据请求 scope 和目标成员关系校验；这样员工在
+		// 个人首页也能创建企业知识库，而不需要切换激活空间。
+		// API key 仍由 kbManagement 的 manage_kbs/full-access 能力控制。
+		kbManagement.POST("", g.Viewer(), handler.CreateKnowledgeBase)
 		// 创建前上传知识库图标 — 产出可保存到 icon 字段的短存储引用。
 		kbManagement.POST("/icon", g.Admin(), handler.UploadKnowledgeBaseIconForCreate)
 		// 获取知识库列表 — Viewer+ for JWT callers; retrieve-capable API keys pass via the gate.
 		kb.GET("", g.Viewer(), handler.ListKnowledgeBases)
+		// 获取当前账号维度的三分类知识库列表。账号快捷入口不对 API Key 开放。
+		kbgrp.GET("/my", g.Viewer(), handler.ListMyKnowledgeBases)
+		// 获取当前账号订阅的知识库。账号快捷入口不对 API Key 开放。
+		kbgrp.GET("/subscriptions", g.Viewer(), handler.ListKnowledgeBaseSubscriptions)
 		// 更新知识库排序 — 空间级管理操作；API key 需全空间 KB 管理权限。
 		kbManagement.PUT("/order", g.AdminOrSystemAdmin(), handler.ReorderKnowledgeBases)
+		// 订阅/取消订阅是账号级快捷入口操作，不对 API Key 开放；订阅前由
+		// service 统一校验 KB read 权限，取消订阅允许清理已失效快捷入口。
+		kbgrp.POST("/:id/subscribe", g.Viewer(), handler.SubscribeKnowledgeBase)
+		kbgrp.DELETE("/:id/subscribe", g.Viewer(), handler.UnsubscribeKnowledgeBase)
 		// 获取知识库详情 — Viewer+ 且对 KB 有 read 权限
 		kb.GET("/:id", g.Viewer(), g.KBAccessRead("id"), handler.GetKnowledgeBase)
 		// 更新知识库名称/描述和轻量配置 — JWT Viewer+ 进入后由 KBAccessWrite
@@ -678,6 +689,11 @@ func RegisterTenantRoutes(
 		// 空间，所以越过 PathTenantMatch 守卫不会扩大攻击面。
 		// 创建空间不对 API key 开放（注册在原始 group，默认拒绝）。
 		tenantRoutes.POST("", handler.CreateTenant)
+		// Intent-based upgrade: creates a new enterprise workspace while
+		// preserving the caller's personal home workspace. The handler
+		// enforces self-service policy, owner membership, quota, and the
+		// optional Idempotency-Key protocol.
+		tenantRoutes.POST("/enterprise", handler.CreateEnterpriseWorkspace)
 		g.apiKeyRoute(
 			tenantRoutes,
 			http.MethodGet,
@@ -877,11 +893,11 @@ func RegisterInitializationRoutes(r *gin.RouterGroup, handler *handler.Initializ
 	// GetCurrentConfigByKB 是只读，Viewer+ 即可（KB 受限 key 可读其范围内的 KB）。
 	g.apiKeyRoute(r, http.MethodGet, "/initialization/config/:kbId",
 		apiKeyRetrieve(apiKeyFullAccess()), g.Viewer(), g.KBAccessRead("kbId"), handler.GetCurrentConfigByKB)
-	// InitializeByKB / UpdateKBConfig 都是改 KB 的核心模型/storage 配置 —
-	// 跟 PUT /knowledge-bases/:id 同等敏感，JWT 侧要求 Admin+ 或系统管理员；
-	// 普通跨空间共享 KB 还需要 admin 级 KB 权限（系统管理员由 KBAccess
-	// 直接按源空间管理）。API-key 主体短路角色守卫，KB allow-list 只能靠
-	// KBAccess 兜底。
+	// The legacy per-KB initialization routes remain for read/write contract
+	// compatibility. Their handlers reject advanced configuration writes;
+	// unified configuration is managed through the tenant KV endpoint below.
+	// Keep the existing guards so old clients still receive the same
+	// authorization behavior before the deprecation response.
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/initialize/:kbId",
 		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.AdminOrSystemAdmin(), g.KBAccessManage("kbId"), handler.InitializeByKB)
 	g.apiKeyRoute(r, http.MethodPut, "/initialization/config/:kbId",

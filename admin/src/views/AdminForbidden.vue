@@ -22,6 +22,7 @@ const router = useRouter()
 const message = computed(() => {
   const reason = route.query.reason
   if (reason === 'system_admin') return '该页面只允许系统管理员访问。'
+  if (reason === 'enterprise') return '该页面仅企业版空间可用，请先切换到企业空间。'
   if (typeof reason === 'string') return `该页面需要 ${reason} 或更高空间角色。`
   return '当前账号或当前空间没有访问该后台页面的权限。'
 })
@@ -30,4 +31,3 @@ function openWorkspace() {
   window.location.href = '/platform/knowledge-bases'
 }
 </script>
-

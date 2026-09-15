@@ -1,8 +1,20 @@
 <template>
   <div class="tenant-info">
     <div class="section-header">
-      <h2>{{ $t('tenant.title') }}</h2>
-      <p class="section-description">{{ $t('tenant.sectionDescription') }}</p>
+      <div class="section-title-row">
+        <div>
+          <h2>{{ $t('tenant.title') }}</h2>
+          <p class="section-description">{{ $t('tenant.sectionDescription') }}</p>
+        </div>
+        <div class="section-header-actions">
+          <t-button v-if="canOpenEnterprise" theme="primary" size="medium" @click="enterpriseDialogVisible = true">
+            <template #icon>
+              <t-icon name="usergroup-add" />
+            </template>
+            {{ $t('tenant.enterprise.openAction') }}
+          </t-button>
+        </div>
+      </div>
     </div>
 
     <!-- Loading state -->
@@ -253,6 +265,8 @@
           clearable />
       </div>
     </t-dialog>
+
+    <CreateEnterpriseWorkspaceDialog v-model:visible="enterpriseDialogVisible" />
   </div>
 </template>
 
@@ -261,6 +275,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { getCurrentUser, type TenantInfo } from '@/api/auth'
 import { deleteTenant as deleteTenantApi, updateTenant as updateTenantApi } from '@/api/tenant'
+import CreateEnterpriseWorkspaceDialog from '@/components/CreateEnterpriseWorkspaceDialog.vue'
 import {
   leaveTenant,
   fetchAllTenantMembers,
@@ -285,10 +300,17 @@ const authStore = useAuthStore()
 const tenantInfo = ref<TenantInfo | null>(null)
 const loading = ref(true)
 const error = ref('')
+const enterpriseDialogVisible = ref(false)
 
 // 仅 owner 可改空间名（与后端 router.go 中 g.Owner() 守卫一致；
 // 服务端始终是权限的最终裁判，这里只决定 UI 是否露出入口）。
 const canEditTenant = computed(() => authStore.hasRole('owner'))
+const canOpenEnterprise = computed(
+  () =>
+    authStore.isPersonalWorkspace &&
+    authStore.hasRole('owner') &&
+    !authStore.hasEnterpriseMembership,
+)
 
 interface NormalizedTenantStorageUsage {
   quotaBytes: number
@@ -824,6 +846,13 @@ onMounted(() => {
 .section-header {
   margin-bottom: 32px;
 
+  .section-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
   h2 {
     font-size: 20px;
     font-weight: 600;
@@ -837,6 +866,14 @@ onMounted(() => {
     margin: 0;
     line-height: 1.5;
   }
+}
+
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .loading-inline {
@@ -1020,6 +1057,15 @@ onMounted(() => {
 }
 
 @media (max-width: 560px) {
+  .section-title-row {
+    flex-direction: column;
+  }
+
+  .section-header-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .leave-space-panel-inner {
     flex-direction: column;
     align-items: stretch;

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -90,6 +91,150 @@ func (r *knowledgeBaseRepository) ListKnowledgeBasesByTenantID(
 		return nil, err
 	}
 	return kbs, nil
+}
+
+// ListKnowledgeBasesByCreatorID lists non-temporary KBs created by a user
+// across workspaces. Caller-level visibility is resolved above the repository
+// because subscriptions and shared-space access are not tenant-local filters.
+func (r *knowledgeBaseRepository) ListKnowledgeBasesByCreatorID(
+	ctx context.Context,
+	userID string,
+) ([]*types.KnowledgeBase, error) {
+	if userID == "" {
+		return []*types.KnowledgeBase{}, nil
+	}
+	var kbs []*types.KnowledgeBase
+	if err := orderKnowledgeBasesByManualOrder(
+		r.db.WithContext(ctx).Where("creator_id = ? AND is_temporary = ?", userID, false),
+	).Find(&kbs).Error; err != nil {
+		return nil, err
+	}
+	return kbs, nil
+}
+
+// ListActiveKnowledgeBaseSubscriptionsByUserID lists active subscription
+// shortcuts for a user. A returned row is not an access grant; callers must
+// re-check KB visibility before exposing it.
+func (r *knowledgeBaseRepository) ListActiveKnowledgeBaseSubscriptionsByUserID(
+	ctx context.Context,
+	userID string,
+) ([]*types.KnowledgeBaseSubscription, error) {
+	if userID == "" {
+		return []*types.KnowledgeBaseSubscription{}, nil
+	}
+	var subscriptions []*types.KnowledgeBaseSubscription
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND status = ?", userID, types.KnowledgeBaseSubscriptionActive).
+		Order("updated_at DESC").
+		Order("created_at DESC").
+		Order("id ASC").
+		Find(&subscriptions).Error; err != nil {
+		return nil, err
+	}
+	return subscriptions, nil
+}
+
+// UpsertKnowledgeBaseSubscription creates or reactivates a user's personal
+// shortcut to a KB. The caller is responsible for access validation.
+func (r *knowledgeBaseRepository) UpsertKnowledgeBaseSubscription(
+	ctx context.Context,
+	userID string,
+	kbID string,
+) (*types.KnowledgeBaseSubscription, error) {
+	if userID == "" {
+		return nil, errors.New("knowledge_base_subscriptions: empty user_id")
+	}
+	if kbID == "" {
+		return nil, errors.New("knowledge_base_subscriptions: empty knowledge_base_id")
+	}
+
+	var sub types.KnowledgeBaseSubscription
+	err := r.db.WithContext(ctx).
+		Where("user_id = ? AND knowledge_base_id = ?", userID, kbID).
+		First(&sub).Error
+	now := time.Now().UTC()
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		sub = types.KnowledgeBaseSubscription{
+			ID:              uuid.NewString(),
+			UserID:          userID,
+			KnowledgeBaseID: kbID,
+			Status:          types.KnowledgeBaseSubscriptionActive,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		}
+		if err := r.db.WithContext(ctx).Create(&sub).Error; err != nil {
+			return nil, err
+		}
+		return &sub, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if sub.Status == types.KnowledgeBaseSubscriptionActive {
+		return &sub, nil
+	}
+
+	err = r.db.WithContext(ctx).
+		Model(&types.KnowledgeBaseSubscription{}).
+		Where("id = ?", sub.ID).
+		Updates(map[string]interface{}{
+			"status":     types.KnowledgeBaseSubscriptionActive,
+			"updated_at": now,
+		}).Error
+	if err != nil {
+		return nil, err
+	}
+	sub.Status = types.KnowledgeBaseSubscriptionActive
+	sub.UpdatedAt = now
+	return &sub, nil
+}
+
+// CancelKnowledgeBaseSubscription cancels a user's personal shortcut. Missing
+// rows are treated as a successful no-op so callers can retry safely.
+func (r *knowledgeBaseRepository) CancelKnowledgeBaseSubscription(
+	ctx context.Context,
+	userID string,
+	kbID string,
+) (*types.KnowledgeBaseSubscription, error) {
+	if userID == "" {
+		return nil, errors.New("knowledge_base_subscriptions: empty user_id")
+	}
+	if kbID == "" {
+		return nil, errors.New("knowledge_base_subscriptions: empty knowledge_base_id")
+	}
+
+	var sub types.KnowledgeBaseSubscription
+	err := r.db.WithContext(ctx).
+		Where("user_id = ? AND knowledge_base_id = ?", userID, kbID).
+		First(&sub).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return &types.KnowledgeBaseSubscription{
+			UserID:          userID,
+			KnowledgeBaseID: kbID,
+			Status:          types.KnowledgeBaseSubscriptionCancelled,
+		}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if sub.Status == types.KnowledgeBaseSubscriptionCancelled {
+		return &sub, nil
+	}
+
+	now := time.Now().UTC()
+	err = r.db.WithContext(ctx).
+		Model(&types.KnowledgeBaseSubscription{}).
+		Where("id = ?", sub.ID).
+		Updates(map[string]interface{}{
+			"status":     types.KnowledgeBaseSubscriptionCancelled,
+			"updated_at": now,
+		}).Error
+	if err != nil {
+		return nil, err
+	}
+	sub.Status = types.KnowledgeBaseSubscriptionCancelled
+	sub.UpdatedAt = now
+	return &sub, nil
 }
 
 func orderKnowledgeBasesByManualOrder(db *gorm.DB) *gorm.DB {

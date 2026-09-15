@@ -67,8 +67,18 @@ func (f *fakeRegistry) GetByStoreID(storeID string) (interfaces.RetrieveEngineSe
 // keyed by ID. No tenant scoping is applied — the tested paths already
 // enforce that explicitly.
 type fakeKBRepo struct {
-	rows      map[string]*types.KnowledgeBase
-	createErr error
+	rows          map[string]*types.KnowledgeBase
+	subscriptions []*types.KnowledgeBaseSubscription
+	createErr     error
+}
+
+type defaultKBModelService struct {
+	interfaces.ModelService
+	models []*types.Model
+}
+
+func (s *defaultKBModelService) ListModels(context.Context) ([]*types.Model, error) {
+	return s.models, nil
 }
 
 func newFakeKBRepo() *fakeKBRepo { return &fakeKBRepo{rows: map[string]*types.KnowledgeBase{}} }
@@ -90,8 +100,14 @@ func (r *fakeKBRepo) GetKnowledgeBaseByIDAndTenant(_ context.Context, id string,
 	}
 	return kb, nil
 }
-func (r *fakeKBRepo) GetKnowledgeBaseByIDs(_ context.Context, _ []string) ([]*types.KnowledgeBase, error) {
-	return nil, nil
+func (r *fakeKBRepo) GetKnowledgeBaseByIDs(_ context.Context, ids []string) ([]*types.KnowledgeBase, error) {
+	rows := make([]*types.KnowledgeBase, 0, len(ids))
+	for _, id := range ids {
+		if kb := r.rows[id]; kb != nil {
+			rows = append(rows, kb)
+		}
+	}
+	return rows, nil
 }
 func (r *fakeKBRepo) ListKnowledgeBases(_ context.Context) ([]*types.KnowledgeBase, error) {
 	return nil, nil
@@ -104,6 +120,75 @@ func (r *fakeKBRepo) ListKnowledgeBasesByTenantID(_ context.Context, tenantID ui
 		}
 	}
 	return rows, nil
+}
+func (r *fakeKBRepo) ListKnowledgeBasesByCreatorID(_ context.Context, userID string) ([]*types.KnowledgeBase, error) {
+	rows := make([]*types.KnowledgeBase, 0, len(r.rows))
+	for _, kb := range r.rows {
+		if kb != nil && kb.CreatorID == userID && !kb.IsTemporary {
+			rows = append(rows, kb)
+		}
+	}
+	return rows, nil
+}
+func (r *fakeKBRepo) ListActiveKnowledgeBaseSubscriptionsByUserID(_ context.Context, userID string) ([]*types.KnowledgeBaseSubscription, error) {
+	rows := make([]*types.KnowledgeBaseSubscription, 0, len(r.subscriptions))
+	for _, sub := range r.subscriptions {
+		if sub != nil && sub.UserID == userID && sub.Status == types.KnowledgeBaseSubscriptionActive {
+			rows = append(rows, sub)
+		}
+	}
+	return rows, nil
+}
+func (r *fakeKBRepo) UpsertKnowledgeBaseSubscription(
+	_ context.Context,
+	userID string,
+	kbID string,
+) (*types.KnowledgeBaseSubscription, error) {
+	for _, sub := range r.subscriptions {
+		if sub != nil && sub.UserID == userID && sub.KnowledgeBaseID == kbID {
+			sub.Status = types.KnowledgeBaseSubscriptionActive
+			if sub.ID == "" {
+				sub.ID = "sub-" + kbID
+			}
+			if sub.CreatedAt.IsZero() {
+				sub.CreatedAt = time.Now().UTC()
+			}
+			sub.UpdatedAt = time.Now().UTC()
+			return sub, nil
+		}
+	}
+	now := time.Now().UTC()
+	sub := &types.KnowledgeBaseSubscription{
+		ID:              "sub-" + kbID,
+		UserID:          userID,
+		KnowledgeBaseID: kbID,
+		Status:          types.KnowledgeBaseSubscriptionActive,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	r.subscriptions = append(r.subscriptions, sub)
+	return sub, nil
+}
+func (r *fakeKBRepo) CancelKnowledgeBaseSubscription(
+	_ context.Context,
+	userID string,
+	kbID string,
+) (*types.KnowledgeBaseSubscription, error) {
+	for _, sub := range r.subscriptions {
+		if sub != nil && sub.UserID == userID && sub.KnowledgeBaseID == kbID {
+			sub.Status = types.KnowledgeBaseSubscriptionCancelled
+			if sub.ID == "" {
+				sub.ID = "sub-" + kbID
+			}
+			sub.UpdatedAt = time.Now().UTC()
+			return sub, nil
+		}
+	}
+	return &types.KnowledgeBaseSubscription{
+		UserID:          userID,
+		KnowledgeBaseID: kbID,
+		Status:          types.KnowledgeBaseSubscriptionCancelled,
+	}, nil
 }
 func (r *fakeKBRepo) UpdateKnowledgeBase(_ context.Context, _ *types.KnowledgeBase) error {
 	return nil
@@ -169,6 +254,84 @@ func TestCreateKnowledgeBase_DefaultStorageProviderFromTenant(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "cos", kbExplicit.GetStorageProvider())
+}
+
+func TestUpdateKnowledgeBase_RejectsWorkspaceAdvancedConfig(t *testing.T) {
+	repo := newFakeKBRepo()
+	repo.rows["kb-1"] = &types.KnowledgeBase{
+		ID:       "kb-1",
+		TenantID: 1,
+		Name:     "original",
+	}
+	svc := newPR3KBService(repo, &fakeRegistry{registered: map[string]struct{}{}}, &fakeOwnership{})
+
+	_, err := svc.UpdateKnowledgeBase(
+		ctxWithTenant(1),
+		"kb-1",
+		"renamed",
+		"description",
+		nil,
+		&types.KnowledgeBaseConfig{},
+		nil,
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "统一管理")
+	assert.Equal(t, "original", repo.rows["kb-1"].Name)
+}
+
+func TestCreateKnowledgeBase_AppliesBackendDefaults(t *testing.T) {
+	repo := newFakeKBRepo()
+	svc := newPR3KBService(repo, &fakeRegistry{registered: map[string]struct{}{}}, &fakeOwnership{})
+
+	kb, err := svc.CreateKnowledgeBase(ctxWithTenantStorage(1, "minio"), &types.KnowledgeBase{Name: "kb"})
+	require.NoError(t, err)
+	require.NotNil(t, kb.ConfigSource)
+	assert.Equal(t, types.KnowledgeBaseConfigSourceDefault, *kb.ConfigSource)
+	require.NotNil(t, kb.ConfigVersion)
+	assert.Equal(t, knowledgeBaseDefaultConfigVersion, *kb.ConfigVersion)
+	assert.Equal(t, 512, kb.ChunkingConfig.ChunkSize)
+	assert.Equal(t, 80, kb.ChunkingConfig.ChunkOverlap)
+	assert.Equal(t, "auto", kb.ChunkingConfig.Strategy)
+	require.NotNil(t, kb.QuestionGenerationConfig)
+	assert.True(t, kb.QuestionGenerationConfig.Enabled)
+	assert.Equal(t, 3, kb.QuestionGenerationConfig.QuestionCount)
+}
+
+func TestCreateKnowledgeBase_ResolvesDefaultModels(t *testing.T) {
+	repo := newFakeKBRepo()
+	svc := newPR3KBService(repo, &fakeRegistry{registered: map[string]struct{}{}}, &fakeOwnership{})
+	svc.modelService = &defaultKBModelService{
+		models: []*types.Model{
+			{ID: "chat-default", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
+			{ID: "chat-fallback", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive},
+			{ID: "embedding-default", Type: types.ModelTypeEmbedding, Status: types.ModelStatusActive, IsDefault: true},
+			{ID: "embedding-inactive", Type: types.ModelTypeEmbedding, Status: types.ModelStatusDownloading, IsDefault: true},
+		},
+	}
+
+	kb, err := svc.CreateKnowledgeBase(ctxWithTenant(1), &types.KnowledgeBase{Name: "kb"})
+	require.NoError(t, err)
+	assert.Equal(t, "embedding-default", kb.EmbeddingModelID)
+	assert.Equal(t, "chat-default", kb.SummaryModelID)
+}
+
+func TestCreateKnowledgeBase_PreservesExplicitConfigMetadata(t *testing.T) {
+	repo := newFakeKBRepo()
+	svc := newPR3KBService(repo, &fakeRegistry{registered: map[string]struct{}{}}, &fakeOwnership{})
+	source := types.KnowledgeBaseConfigSourceLegacy
+	version := "legacy-v1"
+
+	kb, err := svc.CreateKnowledgeBase(ctxWithTenant(1), &types.KnowledgeBase{
+		Name:          "legacy",
+		ConfigSource:  &source,
+		ConfigVersion: &version,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, kb.ConfigSource)
+	require.NotNil(t, kb.ConfigVersion)
+	assert.Equal(t, source, *kb.ConfigSource)
+	assert.Equal(t, version, *kb.ConfigVersion)
 }
 
 func TestCreateKnowledgeBase_DefaultStorageProviderRespectsAllowList(t *testing.T) {

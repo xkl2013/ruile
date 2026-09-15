@@ -36,14 +36,6 @@
                         <line x1="2.94" y1="12.5" x2="15.06" y2="12.5" stroke="currentColor" stroke-width="1.2"
                           stroke-linecap="round" />
                       </svg>
-                      <!-- 睿乐大脑云使用自定义 W 图标 -->
-                      <svg v-else-if="item.key === 'weknoracloud'" width="17" height="17" viewBox="0 0 18 18"
-                        fill="none" xmlns="http://www.w3.org/2000/svg" class="nav-icon">
-                        <rect x="1.5" y="1.5" width="15" height="15" rx="3.5" stroke="currentColor" stroke-width="1.2"
-                          fill="none" />
-                        <path d="M4.5 5.5L6.5 12.5L9 7.5L11.5 12.5L13.5 5.5" stroke="currentColor" stroke-width="1.3"
-                          stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                      </svg>
                       <span v-else-if="item.emoji" class="nav-icon nav-icon-emoji">{{ item.emoji }}</span>
                       <t-icon v-else :name="item.icon" class="nav-icon" />
                       <span class="nav-label">{{ item.label }}</span>
@@ -69,7 +61,10 @@
 
             <!-- 右侧内容区域 -->
             <div class="settings-content">
-              <div class="content-wrapper">
+              <div class="content-wrapper" :class="{
+                'content-wrapper--wide': currentSection === 'members',
+                'content-wrapper--team-space': currentSection === 'sharedSpace',
+              }">
                 <!-- 角色不允许访问当前 section（deep-link 进来 / 跨空间切换后角色降级）—— 优先于具体 section 渲染。
                      正常导航走 navItems filter 不会到这里，但 watch(navItems) 的 fallback 会在角色降级
                      的瞬间触发；这一段做兜底兼容旧 URL。 -->
@@ -96,6 +91,22 @@
                   <div v-if="currentSection === 'userprofile'" class="section">
                     <UserProfile />
                   </div>
+
+                  <!-- 当前登录用户的空间信息：展示 /auth/me 返回的 active tenant，
+                     跟随空间切换器变化，不再跳转到开发运营后台。 -->
+                  <div v-if="currentSection === 'tenant'" class="section">
+                    <TenantInfo />
+                  </div>
+
+                  <!-- 企业版团队成员管理：展示当前企业空间的全部成员。 -->
+                  <div v-if="currentSection === 'members'" class="section section--fill">
+                    <TenantMembers />
+                  </div>
+
+                  <!-- 企业版团队空间管理 -->
+                  <div v-if="currentSection === 'sharedSpace'" class="section section--fill">
+                    <OrganizationList />
+                  </div>
                 </template>
               </div>
             </div>
@@ -114,21 +125,31 @@ import { useI18n } from 'vue-i18n'
 import SystemInfo from './SystemInfo.vue'
 import UserProfile from './UserProfile.vue'
 import GeneralSettings from './GeneralSettings.vue'
+import TenantInfo from './TenantInfo.vue'
+import TenantMembers from './TenantMembers.vue'
+import OrganizationList from '@/views/organization/OrganizationList.vue'
+import { useAuthStore } from '@/stores/auth'
 import { navigateToAdmin, type AdminNavigationTarget } from '@/utils/adminNavigation'
 
 const route = useRoute()
 const router = useRouter()
 const uiStore = useUIStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 
 const currentSection = ref<string>('general')
 const currentSubSection = ref<string>('')
 const expandedMenus = ref<string[]>([])
 
-type IntegrationTab = 'im' | 'embed' | 'api'
-const INTEGRATION_TABS: IntegrationTab[] = ['im', 'embed', 'api']
-const LOCAL_SETTING_SECTIONS = new Set(['general', 'userprofile', 'system'])
-const INTEGRATION_SECTION_PREFIX = 'integration-'
+const LOCAL_SETTING_SECTIONS = new Set([
+  'general',
+  'userprofile',
+  'tenant',
+  'system',
+  'members',
+  'sharedSpace',
+])
+const ENTERPRISE_SETTING_SECTIONS = new Set(['members', 'sharedSpace'])
 
 function openAdminAgentsFromCurrentRoute(section?: string): AdminNavigationTarget {
   return {
@@ -165,23 +186,6 @@ type NavGroup = {
   items: NavItem[]
 }
 
-const integrationSectionKey = (tab: IntegrationTab) => `${INTEGRATION_SECTION_PREFIX}${tab}`
-
-const integrationTabFromSection = (section: string): IntegrationTab => {
-  const raw = section.startsWith(INTEGRATION_SECTION_PREFIX)
-    ? section.slice(INTEGRATION_SECTION_PREFIX.length)
-    : section
-  if (INTEGRATION_TABS.includes(raw as IntegrationTab)) {
-    return raw as IntegrationTab
-  }
-  return 'im'
-}
-
-const isIntegrationSection = (section: string) => {
-  return section.startsWith(INTEGRATION_SECTION_PREFIX) &&
-    INTEGRATION_TABS.includes(integrationTabFromSection(section))
-}
-
 const normalizeModelSubSection = (subSection?: string | null) => {
   const aliases: Record<string, string> = {
     knowledgeqa: 'chat',
@@ -196,11 +200,8 @@ const normalizeModelSubSection = (subSection?: string | null) => {
 }
 
 const normalizeSettingsSection = (section: string) => {
-  if (section === 'api') {
-    return integrationSectionKey('api')
-  }
-  if (section === 'integrations') {
-    return integrationSectionKey(integrationTabFromSection((route.query.tab as string) || 'im'))
+  if (section === 'api' || section === 'integrations' || section.startsWith('integration-')) {
+    return 'general'
   }
   return section
 }
@@ -210,11 +211,8 @@ const buildAdminSectionTarget = (
   subSection?: string | null,
 ): AdminNavigationTarget | null => {
   if (LOCAL_SETTING_SECTIONS.has(section)) return null
-  if (section === 'tenant') return '/workspaces/current/overview'
-  if (section === 'members') return '/workspaces/current/members'
   if (section === 'chathistory') return '/workspaces/current/chat-history'
   if (section === 'agents') return openAdminAgentsFromCurrentRoute(subSection || undefined)
-  if (section === 'sharedSpace') return '/spaces/organizations'
   if (section === 'models') {
     const modelType = normalizeModelSubSection(
       subSection || (typeof route.query.tab === 'string' ? route.query.tab : ''),
@@ -224,8 +222,6 @@ const buildAdminSectionTarget = (
       query: { type: modelType || undefined },
     }
   }
-  if (section === 'ollama') return '/runtime/ollama'
-  if (section === 'weknoracloud') return '/runtime/weknora-cloud'
   if (section === 'vectorstore') return '/data/vector-stores'
   if (section === 'parser') return '/data/parser-engines'
   if (section === 'storage') return '/data/storage-backends'
@@ -233,12 +229,6 @@ const buildAdminSectionTarget = (
   if (section === 'mcp') return '/extensions/mcp-services'
   if (section === 'system-global') return '/system/settings'
   if (section === 'runtime-queues') return '/system/runtime-queues'
-  if (isIntegrationSection(section)) {
-    const tab = integrationTabFromSection(section)
-    if (tab === 'embed') return '/publish/embed'
-    if (tab === 'api') return '/security/api-keys'
-    return '/publish/im'
-  }
   return null
 }
 
@@ -249,12 +239,27 @@ const openAdminSection = (section: string, subSection?: string | null): boolean 
   return true
 }
 
-const canSeeSection = (key: string): boolean => LOCAL_SETTING_SECTIONS.has(key)
+const canSeeSection = (key: string): boolean =>
+  LOCAL_SETTING_SECTIONS.has(key)
+  && (!ENTERPRISE_SETTING_SECTIONS.has(key) || authStore.canUseTeamSpaces)
 
 const navItems = computed(() => {
   const all: NavItem[] = [
     { key: 'general', icon: 'setting', label: t('general.title') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
+    { key: 'tenant', icon: 'home', label: t('settings.tenantInfo') },
+    ...(authStore.canUseTeamSpaces ? [
+      {
+        key: 'members',
+        icon: 'usergroup',
+        label: t('settings.teamSpace.memberManagement'),
+      },
+      {
+        key: 'sharedSpace',
+        icon: 'usergroup-add',
+        label: t('settings.teamSpace.spaceManagement'),
+      },
+    ] : []),
     { key: 'system', icon: 'info-circle', label: t('settings.versionInfo') },
   ]
   return all
@@ -267,7 +272,12 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'account',
       label: t('settings.navGroups.account'),
-      items: pickItems(['general', 'userprofile']),
+      items: pickItems(['general', 'userprofile', 'tenant']),
+    },
+    {
+      key: 'team',
+      label: t('settings.navGroups.team'),
+      items: pickItems(['members', 'sharedSpace']),
     },
     {
       key: 'platform',
@@ -349,7 +359,7 @@ watch(() => uiStore.settingsInitialSection, (section) => {
       ? uiStore.settingsInitialSubSection
       : undefined
     if (openAdminSection(normalizedSection, initialSubSection)) return
-    currentSection.value = normalizedSection
+    currentSection.value = canSeeSection(normalizedSection) ? normalizedSection : 'general'
     const navItem = (navItems.value as any[]).find((item) => item.key === normalizedSection)
     if (navItem && navItem.children && navItem.children.length > 0) {
       if (!expandedMenus.value.includes(section)) {
@@ -376,7 +386,7 @@ watch(
     if (!isVisible || typeof section !== 'string') return
     const normalizedSection = normalizeSettingsSection(section)
     if (openAdminSection(normalizedSection, typeof tab === 'string' ? tab : undefined)) return
-    currentSection.value = normalizedSection
+    currentSection.value = canSeeSection(normalizedSection) ? normalizedSection : 'general'
     currentSubSection.value = ''
   },
   { immediate: true },
@@ -673,6 +683,14 @@ onUnmounted(() => {
   }
 
   &--agent-list {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  &--team-space {
     max-width: none;
     width: 100%;
     height: 100%;

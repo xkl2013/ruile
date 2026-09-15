@@ -27,6 +27,11 @@ const (
 	// SessionTenantIDContextKey is the context key for session owner's tenant ID.
 	// When set (e.g. in pipeline with shared agent), session/message lookups use this instead of TenantIDContextKey.
 	SessionTenantIDContextKey ContextKey = "SessionTenantID"
+	// SharedAgentContextKey marks a request that resolved an Agent through an
+	// explicit team-space share. It is separate from tenant identity because
+	// an internal team-space share can keep the caller and Agent in the same
+	// enterprise tenant.
+	SharedAgentContextKey ContextKey = "SharedAgent"
 	// EmbedQueryContextKey is the context key for embedding query text
 	EmbedQueryContextKey ContextKey = "EmbedQuery"
 	// LanguageContextKey is the context key for user language preference (e.g. "zh-CN", "en-US")

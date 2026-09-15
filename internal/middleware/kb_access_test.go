@@ -31,6 +31,21 @@ func (s *stubKBLookup) GetKnowledgeBaseByID(_ context.Context, id string) (*type
 	return nil, apprepo.ErrKnowledgeBaseNotFound
 }
 
+type stubKBAccessResolver struct {
+	access *types.KnowledgeBaseAccess
+	err    error
+	seen   types.KnowledgeBaseAccessOptions
+}
+
+func (s *stubKBAccessResolver) ResolveKnowledgeBaseAccess(
+	_ context.Context,
+	_ string,
+	opts types.KnowledgeBaseAccessOptions,
+) (*types.KnowledgeBaseAccess, error) {
+	s.seen = opts
+	return s.access, s.err
+}
+
 // stubKBShareForGuard implements just the methods the guard touches —
 // CheckTenantKBPermission and GetKBSourceTenant. The other methods on
 // the interface panic so any unintended new dependency surfaces
@@ -221,6 +236,7 @@ func runGuard(
 	guard := RequireKBAccess(
 		KBIDFromParam("id"),
 		requiredPerm,
+		nil,
 		kbsvc,
 		shareSvc,
 		agentSvc,
@@ -247,6 +263,44 @@ func TestRequireKBAccess_OwnKB(t *testing.T) {
 	got, ok := types.TenantIDFromContext(c.Request.Context())
 	require.True(t, ok)
 	require.Equal(t, uint64(100), got)
+}
+
+func TestRequireKBAccess_UsesServiceResolver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Params = gin.Params{{Key: "id", Value: "kb-service"}}
+	req := httptest.NewRequest("GET", "/", nil)
+	c.Request = req.WithContext(context.WithValue(req.Context(), types.TenantIDContextKey, uint64(100)))
+
+	resolver := &stubKBAccessResolver{
+		access: &types.KnowledgeBaseAccess{
+			KnowledgeBase:     &types.KnowledgeBase{ID: "kb-service", TenantID: 200},
+			EffectiveTenantID: 200,
+			Permission:        types.OrgRoleEditor,
+			AccessSource:      types.KnowledgeBaseAccessSourceSharedSpace,
+		},
+	}
+	guard := RequireKBAccess(
+		KBIDFromParam("id"),
+		types.OrgRoleEditor,
+		resolver,
+		&stubKBLookup{},
+		nil,
+		nil,
+		cfgRBAC(true),
+	)
+
+	guard(c)
+
+	require.False(t, c.IsAborted())
+	require.Equal(t, types.OrgRoleEditor, resolver.seen.RequiredPermission)
+	access, ok := KBAccessFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, types.KnowledgeBaseAccessSourceSharedSpace, access.AccessSource)
+	got, ok := types.TenantIDFromContext(c.Request.Context())
+	require.True(t, ok)
+	require.Equal(t, uint64(200), got)
 }
 
 func TestRequireKBAccess_SameTenantNonCreator_Aborts(t *testing.T) {
@@ -365,6 +419,7 @@ func TestRequireKBAccess_NoTenant_Aborts(t *testing.T) {
 	guard := RequireKBAccess(
 		KBIDFromParam("id"),
 		types.OrgRoleViewer,
+		nil,
 		&stubKBLookup{},
 		nil,
 		nil,
@@ -376,10 +431,10 @@ func TestRequireKBAccess_NoTenant_Aborts(t *testing.T) {
 
 // ---------- Agent-share fallback ----------
 
-func TestRequireKBAccess_AgentShare_AnyAgent_ViewerOnly(t *testing.T) {
-	// No org-share entry; caller has at least one shared agent that can
-	// access this KB. Required permission is Viewer, so the agent-share
-	// branch activates and grants read access at the source tenant.
+func TestRequireKBAccess_AgentShare_DoesNotGrantViewerAccess(t *testing.T) {
+	// Agent configuration is not a knowledge-base publication. Even when a
+	// shared Agent carries this KB, the caller still needs an owner or an
+	// explicit team-space KB share.
 	agent := &stubAgentShareForGuard{
 		kbsViaSomeAgent: map[string]bool{"kb-shared": true},
 	}
@@ -389,11 +444,43 @@ func TestRequireKBAccess_AgentShare_AnyAgent_ViewerOnly(t *testing.T) {
 		nil,
 		guardOpts{agentShare: agent},
 	)
-	require.False(t, c.IsAborted())
-	access, ok := KBAccessFromContext(c)
-	require.True(t, ok)
-	require.Equal(t, uint64(200), access.EffectiveTenantID)
-	require.Equal(t, types.OrgRoleViewer, access.Permission, "agent share grants viewer only")
+	require.True(t, c.IsAborted())
+	_, ok := KBAccessFromContext(c)
+	require.False(t, ok)
+}
+
+func TestRequireKBAccess_ServiceForbiddenDoesNotUseSharedAgentFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Params = gin.Params{{Key: "id", Value: "kb-shared"}}
+	req := httptest.NewRequest("GET", "/", nil)
+	ctx := context.WithValue(req.Context(), types.TenantIDContextKey, uint64(100))
+	ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleViewer)
+	c.Request = req.WithContext(ctx)
+
+	resolver := &stubKBAccessResolver{err: types.ErrKnowledgeBaseAccessForbidden}
+	kbsvc := &stubKBLookup{kbs: map[string]*types.KnowledgeBase{
+		"kb-shared": {ID: "kb-shared", TenantID: 200},
+	}}
+	agent := &stubAgentShareForGuard{
+		kbsViaSomeAgent: map[string]bool{"kb-shared": true},
+	}
+	guard := RequireKBAccess(
+		KBIDFromParam("id"),
+		types.OrgRoleViewer,
+		resolver,
+		kbsvc,
+		nil,
+		agent,
+		cfgRBAC(true),
+	)
+
+	guard(c)
+
+	require.True(t, c.IsAborted())
+	_, ok := KBAccessFromContext(c)
+	require.False(t, ok)
 }
 
 func TestRequireKBAccess_AgentShare_EditorRequired_Aborts(t *testing.T) {
@@ -413,9 +500,9 @@ func TestRequireKBAccess_AgentShare_EditorRequired_Aborts(t *testing.T) {
 	require.True(t, c.IsAborted(), "agent share must NOT satisfy Editor requirement")
 }
 
-func TestRequireKBAccess_AgentShare_SpecificAgent_ModeAll(t *testing.T) {
-	// ?agent_id=A and A has KBSelectionMode=all on the source tenant.
-	// Guard should accept regardless of which KB.
+func TestRequireKBAccess_AgentShare_SpecificAgent_ModeAllDoesNotGrant(t *testing.T) {
+	// ?agent_id=A only narrows Agent-facing retrieval. It is not an access
+	// grant for direct KB routes.
 	agent := &stubAgentShareForGuard{
 		agents: map[string]*types.CustomAgent{
 			"agent-A": {
@@ -433,12 +520,10 @@ func TestRequireKBAccess_AgentShare_SpecificAgent_ModeAll(t *testing.T) {
 		nil,
 		guardOpts{agentShare: agent, agentID: "agent-A"},
 	)
-	require.False(t, c.IsAborted())
-	access, _ := KBAccessFromContext(c)
-	require.Equal(t, types.OrgRoleViewer, access.Permission)
+	require.True(t, c.IsAborted())
 }
 
-func TestRequireKBAccess_AgentShare_SpecificAgent_ModeSelected_Match(t *testing.T) {
+func TestRequireKBAccess_AgentShare_SpecificAgent_ModeSelectedMatchDoesNotGrant(t *testing.T) {
 	agent := &stubAgentShareForGuard{
 		agents: map[string]*types.CustomAgent{
 			"agent-A": {
@@ -457,7 +542,7 @@ func TestRequireKBAccess_AgentShare_SpecificAgent_ModeSelected_Match(t *testing.
 		nil,
 		guardOpts{agentShare: agent, agentID: "agent-A"},
 	)
-	require.False(t, c.IsAborted())
+	require.True(t, c.IsAborted())
 }
 
 func TestRequireKBAccess_AgentShare_SpecificAgent_ModeSelected_Miss(t *testing.T) {
@@ -557,6 +642,7 @@ func TestRequireKBAccess_Forbidden_FailOpenWhenRBACDisabled(t *testing.T) {
 	guard := RequireKBAccess(
 		KBIDFromParam("id"),
 		types.OrgRoleEditor, // would-deny
+		nil,
 		kbsvc, share, nil,
 		cfgRBAC(false), // enforcement off
 	)
@@ -579,6 +665,7 @@ func TestRequireKBAccess_NotFound_FiresEvenWhenRBACDisabled(t *testing.T) {
 	guard := RequireKBAccess(
 		KBIDFromParam("id"),
 		types.OrgRoleViewer,
+		nil,
 		&stubKBLookup{kbs: map[string]*types.KnowledgeBase{}},
 		nil, nil,
 		cfgRBAC(false),

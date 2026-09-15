@@ -221,10 +221,13 @@ const authStore = useAuthStore()
 
 // 后端 /api/v1/organizations 下的写操作（创建、管理员添加参与空间、改设置等）
 // 在路由层都要求当前空间角色 ≥ admin。前端只用于 UI 渲染，安全边界仍在服务端。
+const canUseTeamSpaces = computed(() => authStore.canUseTeamSpaces)
 const canManageOrg = computed(
-  () => authStore.hasRole('admin') || authStore.canAccessAllTenants
+  () => canUseTeamSpaces.value && (authStore.hasRole('admin') || authStore.canAccessAllTenants)
 )
-const noPermissionTip = computed(() => t('organization.rbac.needTenantAdminTip'))
+const noPermissionTip = computed(() =>
+  canUseTeamSpaces.value ? t('organization.rbac.needTenantAdminTip') : t('organization.rbac.enterpriseOnly')
+)
 
 // State
 const showSettingsModal = ref(false)
@@ -356,7 +359,11 @@ async function confirmDelete() {
 
 // Lifecycle
 onMounted(async () => {
-  orgStore.fetchOrganizations()
+  if (canUseTeamSpaces.value) {
+    orgStore.fetchOrganizations()
+  } else {
+    orgStore.clearState()
+  }
   window.addEventListener('openOrganizationDialog', handleOrganizationDialogEvent)
 
   // 检查 URL 中是否有 orgId，如果有则打开空间设置

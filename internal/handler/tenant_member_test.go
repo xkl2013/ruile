@@ -583,8 +583,8 @@ func TestTenantMember_AdminCreateMember_DefaultPasswordAndRole(t *testing.T) {
 	if capturedReq.Password != "rl978288" {
 		t.Fatalf("default password = %q, want rl978288", capturedReq.Password)
 	}
-	if capturedReq.TenantProvisioning != types.TenantProvisioningTenantless {
-		t.Fatalf("tenant provisioning = %s, want tenantless", capturedReq.TenantProvisioning)
+	if capturedReq.TenantProvisioning != types.TenantProvisioningCreatePersonal {
+		t.Fatalf("tenant provisioning = %s, want create_personal", capturedReq.TenantProvisioning)
 	}
 	if capturedInvitedBy != nil {
 		t.Fatalf("admin-created members should be manual source, invitedBy=%v", capturedInvitedBy)

@@ -275,10 +275,9 @@ type AuthConfig struct {
 	//   "self_serve"           — anyone may register; provisioning then follows
 	//                             DefaultTenantMode.
 	RegistrationMode string `yaml:"registration_mode" json:"registration_mode"`
-	// DefaultTenantMode controls public password-registration provisioning.
-	// tenantless creates only the identity and waits for an invitation or an
-	// explicit self-service tenant creation; create_personal auto-creates a
-	// workspace and makes the registrant its Owner.
+	// DefaultTenantMode is retained for legacy configuration compatibility.
+	// User-facing account creation now always provisions a personal workspace;
+	// tenantless is no longer used by auth handlers.
 	DefaultTenantMode string `yaml:"default_tenant_mode" json:"default_tenant_mode"`
 }
 
@@ -858,7 +857,7 @@ func applyAgentEnvOverrides(cfg *Config) {
 //
 // Defaults:
 //   - auth.registration_mode  -> "invite_only" (enterprise default)
-//   - auth.default_tenant_mode -> "tenantless" (no automatic personal workspace)
+//   - auth.default_tenant_mode -> "create_personal" (automatic personal workspace)
 //   - tenant.enable_rbac      -> true (enforce role checks unless an
 //     operator explicitly opts into the logging-only rollout window via
 //     config.yaml `enable_rbac: false` or `WEKNORA_TENANT_ENABLE_RBAC=false`).
@@ -914,7 +913,7 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 		cfg.Auth.DefaultTenantMode = value
 	}
 	if strings.TrimSpace(cfg.Auth.DefaultTenantMode) == "" {
-		cfg.Auth.DefaultTenantMode = AuthDefaultTenantModeTenantless
+		cfg.Auth.DefaultTenantMode = AuthDefaultTenantModeCreatePersonal
 	}
 
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_TENANT_ENABLE_RBAC")); value != "" {

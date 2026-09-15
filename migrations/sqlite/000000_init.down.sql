@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS tenant_disabled_shared_agents;
 DROP TABLE IF EXISTS agent_shares;
 DROP TABLE IF EXISTS organization_join_requests;
 DROP TABLE IF EXISTS kb_shares;
+DROP TABLE IF EXISTS knowledge_base_subscriptions;
 DROP TABLE IF EXISTS organization_tenant_members;
 DROP TABLE IF EXISTS organizations;
 DROP TABLE IF EXISTS custom_agents;

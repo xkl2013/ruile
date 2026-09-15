@@ -138,11 +138,11 @@ var registry = map[string]settingSpec{
 	"auth.default_tenant_mode": {
 		Type:     "string",
 		EnvName:  "WEKNORA_AUTH_DEFAULT_TENANT_MODE",
-		Default:  "tenantless",
+		Default:  "create_personal",
 		Enum:     []string{"create_personal", "tenantless"},
 		Category: "auth",
 		Description: "公开注册成功后的默认空间策略。create_personal = 自动创建个人空间并设为 Owner；" +
-			"tenantless = 仅创建用户，等待接受邀请或主动创建空间。修改后只影响新注册用户。",
+			"tenantless = 遗留兼容值，用户侧账号创建仍会自动创建个人空间。",
 	},
 	// tenant.max_owned_per_user caps how many tenants a single non-superuser
 	// can create (and Own) via self-service POST /tenants. Read on every
@@ -869,7 +869,8 @@ func isLegacyEnterpriseBootstrapDefaultRow(row *types.SystemSetting) bool {
 	case "auth.registration_mode":
 		return jsonEqual(row.Value, types.JSON(`"self_serve"`))
 	case "auth.default_tenant_mode":
-		return jsonEqual(row.Value, types.JSON(`"create_personal"`))
+		return jsonEqual(row.Value, types.JSON(`"create_personal"`)) ||
+			jsonEqual(row.Value, types.JSON(`"tenantless"`))
 	case "tenant.self_service_creation_enabled":
 		return jsonEqual(row.Value, types.JSON(`true`))
 	default:

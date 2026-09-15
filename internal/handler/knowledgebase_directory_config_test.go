@@ -256,6 +256,36 @@ func TestUpdateKnowledgeBase_DirectoryConfigAllowsTenantAdmin(t *testing.T) {
 	}
 }
 
+func TestUpdateKnowledgeBase_RejectsPerKnowledgeBaseAdvancedConfig(t *testing.T) {
+	body := `{
+		"name":"kb",
+		"description":"desc",
+		"config":{}
+	}`
+	svc := &stubKBDirectoryConfigService{
+		kb: &types.KnowledgeBase{
+			ID:       "kb-1",
+			Name:     "kb",
+			TenantID: 1,
+		},
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/knowledge-bases/kb-1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	newDirectoryConfigUpdateRouter(svc, 1, "u-admin", types.TenantRoleAdmin).ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for per-KB advanced config, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.updateCalled {
+		t.Fatal("per-KB advanced config must not reach service")
+	}
+	if !strings.Contains(w.Body.String(), "统一管理") {
+		t.Fatalf("expected unified-config guidance, body=%s", w.Body.String())
+	}
+}
+
 func TestReorderKnowledgeBasesRequiresAdmin(t *testing.T) {
 	body := `{"knowledge_base_ids":["kb-2","kb-1"]}`
 	svc := &stubKBDirectoryConfigService{

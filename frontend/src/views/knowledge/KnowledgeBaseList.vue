@@ -8,6 +8,17 @@
           </div>
           <p class="header-subtitle" style="--wails-draggable: drag">{{ $t('knowledgeList.subtitle') }}</p>
         </div>
+        <t-button
+          v-if="canCreateKnowledgeBase"
+          class="kb-create-btn"
+          theme="primary"
+          data-guide="kb-create-button"
+          style="--wails-draggable: no-drag"
+          @click="openCreate()"
+        >
+          <template #icon><t-icon name="folder-add" /></template>
+          {{ $t('knowledgeList.create') }}
+        </t-button>
       </div>
       <div class="kb-list-main">
         <!-- creator filter intentionally removed from chrome: every card
@@ -60,6 +71,23 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <div class="kb-category-tabs" role="tablist" aria-label="知识库分类">
+          <button
+            v-for="tab in myKbCategoryTabs"
+            :key="tab.key"
+            type="button"
+            class="kb-category-tab"
+            :class="{ active: activeMyKbCategory === tab.key }"
+            role="tab"
+            :aria-selected="activeMyKbCategory === tab.key"
+            @click="activeMyKbCategory = tab.key"
+          >
+            <t-icon :name="tab.icon" />
+            <span>{{ tab.label }}</span>
+            <strong>{{ tab.count }}</strong>
+          </button>
         </div>
 
         <!-- 骨架屏占位 -->
@@ -192,6 +220,16 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
+                  <t-tooltip :content="knowledgeBaseScopeLabel(kb)" placement="top">
+                    <span
+                      class="kb-scope-icon"
+                      :class="`kb-scope-icon--${knowledgeBaseScope(kb)}`"
+                      role="img"
+                      :aria-label="knowledgeBaseScopeLabel(kb)"
+                    >
+                      <t-icon :name="knowledgeBaseScopeIcon(kb)" size="14px" />
+                    </span>
+                  </t-tooltip>
                   <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
@@ -279,16 +317,37 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
+                  <t-tooltip :content="knowledgeBaseScopeLabel(kb)" placement="top">
+                    <span
+                      class="kb-scope-icon"
+                      :class="`kb-scope-icon--${knowledgeBaseScope(kb)}`"
+                      role="img"
+                      :aria-label="knowledgeBaseScopeLabel(kb)"
+                    >
+                      <t-icon :name="knowledgeBaseScopeIcon(kb)" size="14px" />
+                    </span>
+                  </t-tooltip>
                   <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
-                <t-tooltip :content="$t('knowledgeList.menu.viewDetails')" placement="top">
-                  <button type="button" class="shared-detail-trigger" @click.stop="openSharedDetailFromAll(kb)"
-                    :aria-label="$t('knowledgeList.menu.viewDetails')">
-                    <t-icon name="info-circle" size="16px" />
-                  </button>
-                </t-tooltip>
+                <div class="card-header-actions">
+                  <t-tooltip v-if="canShowSubscriptionAction(kb)" :content="subscriptionActionLabel(kb)"
+                    placement="top">
+                    <button type="button" class="kb-subscribe-trigger"
+                      :class="{ 'is-subscribed': isKnowledgeBaseSubscribed(kb) }"
+                      :disabled="isSubscriptionBusy(kb.id)" @click.stop="toggleKnowledgeBaseSubscription(kb)"
+                      :aria-label="subscriptionActionLabel(kb)">
+                      <t-icon :name="isKnowledgeBaseSubscribed(kb) ? 'bookmark-filled' : 'bookmark'" size="16px" />
+                    </button>
+                  </t-tooltip>
+                  <t-tooltip :content="$t('knowledgeList.menu.viewDetails')" placement="top">
+                    <button type="button" class="shared-detail-trigger" @click.stop="openSharedDetailFromAll(kb)"
+                      :aria-label="$t('knowledgeList.menu.viewDetails')">
+                      <t-icon name="info-circle" size="16px" />
+                    </button>
+                  </t-tooltip>
+                </div>
               </div>
 
               <!-- 卡片内容 -->
@@ -411,6 +470,16 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="kb.name">
+                  <t-tooltip :content="knowledgeBaseScopeLabel(kb)" placement="top">
+                    <span
+                      class="kb-scope-icon"
+                      :class="`kb-scope-icon--${knowledgeBaseScope(kb)}`"
+                      role="img"
+                      :aria-label="knowledgeBaseScopeLabel(kb)"
+                    >
+                      <t-icon :name="knowledgeBaseScopeIcon(kb)" size="14px" />
+                    </span>
+                  </t-tooltip>
                   <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
@@ -550,17 +619,39 @@
               <!-- 卡片头部 -->
               <div class="card-header">
                 <span class="card-title" :title="shared.knowledge_base.name">
+                  <t-tooltip :content="knowledgeBaseScopeLabel(shared.knowledge_base, 'enterprise')" placement="top">
+                    <span
+                      class="kb-scope-icon"
+                      :class="`kb-scope-icon--${knowledgeBaseScope(shared.knowledge_base, 'enterprise')}`"
+                      role="img"
+                      :aria-label="knowledgeBaseScopeLabel(shared.knowledge_base, 'enterprise')"
+                    >
+                      <t-icon :name="knowledgeBaseScopeIcon(shared.knowledge_base, 'enterprise')" size="14px" />
+                    </span>
+                  </t-tooltip>
                   <KnowledgeBaseIcon :icon="shared.knowledge_base.icon" :icon-url="shared.knowledge_base.icon_url" :type="shared.knowledge_base.type"
                     size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(shared.knowledge_base)" />
                   <span class="card-title-text">{{ shared.knowledge_base.name }}</span>
                 </span>
-                <t-tooltip v-if="!shared.is_mine" :content="$t('knowledgeList.menu.viewDetails')" placement="top">
-                  <button type="button" class="shared-detail-trigger" @click.stop="openSharedDetail(shared)"
-                    :aria-label="$t('knowledgeList.menu.viewDetails')">
-                    <t-icon name="info-circle" size="16px" />
-                  </button>
-                </t-tooltip>
+                <div v-if="!shared.is_mine" class="card-header-actions">
+                  <t-tooltip :content="subscriptionActionLabel(shared.knowledge_base as any)" placement="top">
+                    <button type="button" class="kb-subscribe-trigger"
+                      :class="{ 'is-subscribed': isKnowledgeBaseSubscribed(shared.knowledge_base as any) }"
+                      :disabled="isSubscriptionBusy(shared.knowledge_base.id)"
+                      @click.stop="toggleKnowledgeBaseSubscription(shared.knowledge_base as any)"
+                      :aria-label="subscriptionActionLabel(shared.knowledge_base as any)">
+                      <t-icon :name="isKnowledgeBaseSubscribed(shared.knowledge_base as any) ? 'bookmark-filled' : 'bookmark'"
+                        size="16px" />
+                    </button>
+                  </t-tooltip>
+                  <t-tooltip :content="$t('knowledgeList.menu.viewDetails')" placement="top">
+                    <button type="button" class="shared-detail-trigger" @click.stop="openSharedDetail(shared)"
+                      :aria-label="$t('knowledgeList.menu.viewDetails')">
+                      <t-icon name="info-circle" size="16px" />
+                    </button>
+                  </t-tooltip>
+                </div>
               </div>
 
               <!-- 卡片内容 -->
@@ -593,11 +684,11 @@
           </template>
         </div>
 
-        <!-- 全部空状态：主应用不再提供新建知识库入口。 -->
+        <!-- 全部空状态 -->
         <div v-if="spaceSelection === 'all' && filteredKnowledgeBases.length === 0 && !loading" class="empty-state">
           <img class="empty-img" src="@/assets/img/upload.svg" alt="">
-          <span class="empty-txt">{{ $t('knowledgeList.empty.title') }}</span>
-          <span class="empty-desc">{{ $t('knowledgeList.empty.description') }}</span>
+          <span class="empty-txt">{{ activeMyKbEmptyTitle }}</span>
+          <span class="empty-desc">{{ activeMyKbEmptyDescription }}</span>
         </div>
 
         <!-- 收藏空状态：不放创建按钮——「没有收藏」 ≠ 「没有知识库」，
@@ -631,6 +722,15 @@
         </div>
       </div>
     </div>
+
+    <!-- 主应用创建入口：只填写名称和描述，默认配置由后端注入。 -->
+    <KnowledgeBaseEditorModal
+      :visible="createVisible"
+      mode="create"
+      :initial-type="createInitialType"
+      @update:visible="createVisible = $event"
+      @success="handleCreateSuccess"
+    />
 
     <!-- 右侧：共享知识库详情面板 -->
     <Teleport to="body">
@@ -707,13 +807,18 @@
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
-import { togglePinKnowledgeBase } from '@/api/knowledge-base'
+import {
+  subscribeKnowledgeBase,
+  togglePinKnowledgeBase,
+  unsubscribeKnowledgeBase,
+  type MyKnowledgeBaseList,
+  type MyKnowledgeBaseListItem,
+} from '@/api/knowledge-base'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { formatStringDate } from '@/utils/index'
 import { useAuthStore } from '@/stores/auth'
 import { useOrganizationStore } from '@/stores/organization'
 import { listOrganizationSharedKnowledgeBases, type SharedKnowledgeBase, type OrganizationSharedKnowledgeBaseItem, type SourceFromAgentInfo } from '@/api/organization'
-import { mergeAllScopeKnowledgeBases, type OwnedKnowledgeBase, type SharedKnowledgeBaseLike } from './kbListMerge'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import KbWikiBadge from './components/KbWikiBadge.vue'
 import ResourceOriginBadge from '@/components/ResourceOriginBadge.vue'
@@ -721,6 +826,7 @@ import { shouldShowResourceOriginBadge } from '@/utils/card-list-badge'
 import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
 import { useI18n } from 'vue-i18n'
 import { useResourcePins } from '@/composables/useResourcePins'
+import KnowledgeBaseEditorModal from './KnowledgeBaseEditorModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -732,11 +838,26 @@ const { t } = useI18n()
 const canEditKnowledgeBaseSettings = computed(() =>
   authStore.hasRole('admin') || authStore.isSystemAdmin,
 )
+const canCreateKnowledgeBase = computed(
+  () =>
+    authStore.canCreatePersonalKnowledgeBase ||
+    authStore.canCreateEnterpriseKnowledgeBase,
+)
+const createVisible = ref(false)
+const createInitialType = ref<'document' | 'faq'>('document')
+type MyKbCategoryKey = 'created' | 'shared' | 'subscribed'
+const activeMyKbCategory = ref<MyKbCategoryKey>('created')
+type KnowledgeBaseScope = 'personal' | 'enterprise' | 'subscribed'
+type KnowledgeBaseScopeSource = {
+  id?: string
+  owner_type?: string
+  access_source?: string
+  list_category?: MyKbCategoryKey
+}
 
-// Scope selector UI has been removed; the list always shows the aggregate
-// "all" view.
+// The list is account-centred. Personal and enterprise creation scopes are
+// selected only inside KnowledgeBaseEditorModal, never as a page-level mode.
 const spaceSelection = ref('all')
-const creatorFilter = ref<'all' | 'mine' | 'others'>('all')
 
 // Per-user favorites + recents (localStorage-backed). isFavorite & touchRecent
 // are wired into card render and click handlers below.
@@ -767,23 +888,86 @@ interface KB {
   processing_count?: number;
   share_count?: number;
   is_pinned?: boolean;
+  access_source?: string;
+  effective_tenant_id?: number;
+  my_permission?: string;
+  permission?: string;
+  owner_type?: string;
+  organization_id?: string;
+  org_name?: string;
+  sharing_scope?: string;
+  share_id?: string;
+  shared_at?: string;
+  is_subscribed?: boolean;
+  subscription_id?: string;
+  subscribed_at?: string;
   // creator_id is the owner-id matched against authStore.user.id when
   // gating the per-card more-menu (Settings / Delete). Empty for legacy
   // KBs created before PR 5; those fall back to the role gate.
   creator_id?: string;
   // creator_name 由后端 list 接口回填，仅用于卡片右下角来源徽章的 tooltip。
   creator_name?: string;
+  list_category?: MyKbCategoryKey;
 }
 
 const kbs = ref<KB[]>([])
+const myKbList = ref<MyKnowledgeBaseList>({ created: [], shared: [], subscribed: [] })
+const myCreatedKbs = ref<KB[]>([])
+const mySharedKbs = ref<KB[]>([])
+const mySubscribedKbs = ref<KB[]>([])
 const loading = ref(false)
 const currentMoreIndex = ref<number>(-1)
 const highlightedKbId = ref<string | null>(null)
 const highlightedCardRef = ref<HTMLElement | null>(null)
 const uploadTasks = ref<UploadTaskState[]>([])
+const subscriptionBusyIds = ref<Set<string>>(new Set())
 const uploadCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
 let uploadRefreshTimer: ReturnType<typeof setTimeout> | null = null
 const UPLOAD_CLEANUP_DELAY = 10000
+
+const myKbCategoryTabs = computed(() => [
+  {
+    key: 'created' as const,
+    label: t('knowledgeList.sections.mine') as string,
+    icon: 'user',
+    count: myCreatedKbs.value.length,
+  },
+  {
+    key: 'shared' as const,
+    label: t('knowledgeList.tabs.sharedToMe') as string,
+    icon: 'usergroup-add',
+    count: mySharedKbs.value.length,
+  },
+  {
+    key: 'subscribed' as const,
+    label: t('knowledgeList.tabs.subscribed') as string,
+    icon: 'bookmark',
+    count: mySubscribedKbs.value.length,
+  },
+])
+
+const subscribedKbIds = computed(() => {
+  const ids = new Set<string>()
+  for (const kb of mySubscribedKbs.value) {
+    if (kb?.id) ids.add(kb.id)
+  }
+  for (const kb of [...myCreatedKbs.value, ...mySharedKbs.value]) {
+    if (kb?.id && kb.is_subscribed) ids.add(kb.id)
+  }
+  return ids
+})
+
+const activeMyKbEmptyTitle = computed(() => {
+  if (activeMyKbCategory.value === 'shared') return t('knowledgeList.empty.sharedTitle') as string
+  if (activeMyKbCategory.value === 'subscribed') return t('knowledgeList.empty.subscribedTitle') as string
+  return t('knowledgeList.empty.title') as string
+})
+
+const activeMyKbEmptyDescription = computed(() => {
+  if (activeMyKbCategory.value === 'shared') return t('knowledgeList.empty.sharedDescription') as string
+  if (activeMyKbCategory.value === 'subscribed') return t('knowledgeList.empty.subscribedDescription') as string
+  return t('knowledgeList.empty.description') as string
+})
 
 // Shared knowledge bases (everything cross-tenant shared to me, including
 // viewer-only). Used by the per-space views and the "all" aggregate so
@@ -870,6 +1054,16 @@ const kbResourceIndex = computed(() => {
   const map = new Map<string, { kb: any; isMine: boolean; shared?: SharedKnowledgeBase }>()
   for (const kb of kbs.value) {
     map.set(kb.id, { kb, isMine: true })
+  }
+  for (const kb of mySharedKbs.value) {
+    if (!map.has(kb.id)) {
+      map.set(kb.id, { kb, isMine: false })
+    }
+  }
+  for (const kb of mySubscribedKbs.value) {
+    if (!map.has(kb.id)) {
+      map.set(kb.id, { kb, isMine: isAccountOwnedKb(kb) })
+    }
   }
   for (const shared of sharedKbs.value) {
     if (!shared.knowledge_base) continue
@@ -1043,18 +1237,13 @@ const filteredKnowledgeBases = computed(() => {
   if (spaceSelection.value !== 'all') {
     return []
   }
-  // The "All" scope merges own + shared KBs. The card template keys each
-  // row by `kb.id`, so the same KB surfacing twice — owned *and* shared
-  // back, or shared into the caller's view through two different orgs —
-  // produced duplicate `v-for` keys and blanked the list once there were
-  // ≥2 entries (#795). mergeAllScopeKnowledgeBases de-duplicates by KB id
-  // (owned wins; most-privileged share kept) while preserving the existing
-  // pinned → mine → teammate → shared(editable-first) ordering.
-  return mergeAllScopeKnowledgeBases(
-    kbs.value as unknown as OwnedKnowledgeBase[],
-    sharedKbs.value as unknown as SharedKnowledgeBaseLike[],
-    authStore.user?.id,
-  ) as unknown as Array<(KB & { isMine: true }) | (SharedKnowledgeBase['knowledge_base'] & { isMine: false; permission: string; shared_at: string; share_id: string } & any)>
+  if (activeMyKbCategory.value === 'shared') {
+    return mySharedKbs.value.map(kb => mapMyKbRowForCard(kb, false, 'shared'))
+  }
+  if (activeMyKbCategory.value === 'subscribed') {
+    return mySubscribedKbs.value.map(kb => mapMyKbRowForCard(kb, isAccountOwnedKb(kb), 'subscribed'))
+  }
+  return myCreatedKbs.value.map(kb => mapMyKbRowForCard(kb, true, 'created'))
 })
 
 interface UploadTaskState {
@@ -1075,26 +1264,82 @@ interface UploadSummary {
   hasError: boolean
 }
 
-const applyKbListData = (data: any[]) => {
-  kbs.value = data
-    .filter(canReadTenantKnowledgeBase)
-    .map((kb: any) => ({
-      ...kb,
-      updated_at: kb.updated_at ? formatStringDate(new Date(kb.updated_at)) : '',
-      showMore: false,
-      isProcessing: kb.is_processing || false,
-      processing_count: kb.processing_count || 0
-    }))
+const normalizeMyKbRow = (row: MyKnowledgeBaseListItem, listCategory: MyKbCategoryKey): KB => ({
+  ...(row as any),
+  updated_at: row.updated_at ? formatStringDate(new Date(row.updated_at)) : '',
+  showMore: false,
+  isProcessing: row.is_processing || false,
+  processing_count: row.processing_count || 0,
+  permission: row.my_permission || (row as any).permission,
+  is_subscribed: !!row.is_subscribed,
+  list_category: listCategory,
+})
+
+const applyMyKbListData = (data: MyKnowledgeBaseList) => {
+  myKbList.value = {
+    created: Array.isArray(data.created) ? data.created : [],
+    shared: Array.isArray(data.shared) ? data.shared : [],
+    subscribed: Array.isArray(data.subscribed) ? data.subscribed : [],
+  }
+  myCreatedKbs.value = myKbList.value.created.map(row => normalizeMyKbRow(row, 'created'))
+  mySharedKbs.value = myKbList.value.shared.map(row => normalizeMyKbRow(row, 'shared'))
+  mySubscribedKbs.value = myKbList.value.subscribed.map(row => normalizeMyKbRow(row, 'subscribed'))
+  kbs.value = myCreatedKbs.value
+}
+
+function isAccountOwnedKb(kb: { access_source?: string; creator_id?: string }): boolean {
+  if (kb.access_source === 'shared_space' || kb.access_source === 'shared_agent') return false
+  return isMyKb(kb)
+}
+
+function mapMyKbRowForCard(kb: KB, isMine: boolean, listCategory?: MyKbCategoryKey) {
+  return {
+    ...kb,
+    isMine,
+    list_category: listCategory || kb.list_category,
+    permission: kb.permission || kb.my_permission,
+    shared_at: kb.shared_at || kb.subscribed_at || '',
+    share_id: kb.share_id || kb.subscription_id || '',
+    org_name: kb.org_name || '',
+  } as any
+}
+
+function knowledgeBaseScope(kb: KnowledgeBaseScopeSource, fallback: KnowledgeBaseScope = 'personal'): KnowledgeBaseScope {
+  if (
+    fallback === 'subscribed'
+    || kb?.list_category === 'subscribed'
+    || kb?.access_source === 'subscription'
+  ) {
+    return 'subscribed'
+  }
+  if (
+    fallback === 'enterprise'
+    || kb?.owner_type === 'organization'
+    || kb?.access_source === 'shared_space'
+    || kb?.access_source === 'shared_agent'
+  ) {
+    return 'enterprise'
+  }
+  return 'personal'
+}
+
+function knowledgeBaseScopeIcon(kb: KnowledgeBaseScopeSource, fallback?: KnowledgeBaseScope) {
+  const icons: Record<KnowledgeBaseScope, string> = {
+    personal: 'user',
+    enterprise: 'building',
+    subscribed: 'bookmark',
+  }
+  return icons[knowledgeBaseScope(kb, fallback)]
+}
+
+function knowledgeBaseScopeLabel(kb: KnowledgeBaseScopeSource, fallback?: KnowledgeBaseScope) {
+  return t(`knowledgeList.scope.${knowledgeBaseScope(kb, fallback)}`) as string
 }
 
 const fetchList = (force = false) => {
   loading.value = true
-  // The creator filter only applies to the caller's own tenant KBs (the
-  // first call). Shared KBs are inherently "not mine" so we don't filter
-  // them server-side; the segmented control is also hidden whenever the
-  // user is browsing the shared / per-space scopes.
   return Promise.all([
-    chatResources.fetchKnowledgeBasesForList({ creator: creatorFilter.value }, force).then(applyKbListData),
+    chatResources.fetchMyKnowledgeBases(force).then(applyMyKbListData),
     orgStore.fetchSharedKnowledgeBases({ force }),
     orgStore.fetchOrganizations({ force }),
   ]).finally(() => { loading.value = false }).then(() => {
@@ -1102,6 +1347,33 @@ const fetchList = (force = false) => {
     const counts = orgStore.resourceCounts?.knowledge_bases?.by_organization
     if (counts) spaceCountByOrg.value = { ...counts }
   })
+}
+
+function normalizeCreateType(value: unknown): 'document' | 'faq' {
+  const raw = Array.isArray(value) ? value[0] : value
+  return raw === 'faq' ? 'faq' : 'document'
+}
+
+function openCreate(type: 'document' | 'faq' = 'document') {
+  if (!canCreateKnowledgeBase.value) return
+  createInitialType.value = type
+  createVisible.value = true
+}
+
+async function handleCreateSuccess(kbId: string) {
+  createVisible.value = false
+  chatResources.invalidate('knowledgeBases')
+  await fetchList(true)
+  if (kbId) {
+    goDetail(kbId)
+  }
+}
+
+function consumeCreateQuery() {
+  if (route.query.create !== '1') return
+  openCreate(normalizeCreateType(route.query.type))
+  const { create: _create, type: _type, ...rest } = route.query
+  void router.replace({ query: rest })
 }
 
 const clearHiddenListQuery = () => {
@@ -1137,16 +1409,10 @@ watch(spaceSelection, (val) => {
   })
 }, { immediate: true })
 
-// Refetch when the creator filter flips. We re-pull the whole list rather
-// than filtering in-memory so the server stays the single source of truth
-// (and we don't need to worry about stale share_count or pagination later).
-watch(creatorFilter, () => {
-  fetchList(true)
-})
-
 onMounted(() => {
   clearHiddenListQuery()
   fetchList().then(() => {
+    consumeCreateQuery()
     // 检查路由参数中是否有需要高亮的知识库ID
     const highlightKbId = route.query.highlightKbId as string
     if (highlightKbId) {
@@ -1198,11 +1464,6 @@ const onVisibleChange = (visible: boolean) => {
   if (!visible) {
     currentMoreIndex.value = -1
   }
-}
-
-function canReadTenantKnowledgeBase(kb: { creator_id?: string }): boolean {
-  if (canEditKnowledgeBaseSettings.value) return true
-  return isMyKb(kb)
 }
 
 // isMyKb 仅用于卡片右下角徽章在「我创建」与「同空间其他成员创建」之间切换。
@@ -1263,6 +1524,57 @@ const handleTogglePinById = async (id: string) => {
   }
 }
 
+const isSubscriptionBusy = (id?: string) => !!id && subscriptionBusyIds.value.has(id)
+
+const setSubscriptionBusy = (id: string, busy: boolean) => {
+  const next = new Set(subscriptionBusyIds.value)
+  if (busy) next.add(id)
+  else next.delete(id)
+  subscriptionBusyIds.value = next
+}
+
+const canShowSubscriptionAction = (kb: { id?: string; owner_type?: string; access_source?: string; creator_id?: string }) => {
+  if (!kb?.id) return false
+  if (isAccountOwnedKb(kb)) return false
+  if (kb.owner_type === 'personal') return false
+  return true
+}
+
+const isKnowledgeBaseSubscribed = (kb: { id?: string; is_subscribed?: boolean }) =>
+  !!(kb?.id && (kb.is_subscribed || subscribedKbIds.value.has(kb.id)))
+
+const subscriptionActionLabel = (kb: { is_subscribed?: boolean }) =>
+  isKnowledgeBaseSubscribed(kb)
+    ? t('knowledgeList.subscription.unsubscribe') as string
+    : t('knowledgeList.subscription.subscribe') as string
+
+const toggleKnowledgeBaseSubscription = async (kb: { id?: string; is_subscribed?: boolean }) => {
+  const kbId = kb?.id || ''
+  if (!kbId || isSubscriptionBusy(kbId)) return
+
+  const wasSubscribed = isKnowledgeBaseSubscribed(kb)
+  setSubscriptionBusy(kbId, true)
+  try {
+    const res: any = wasSubscribed
+      ? await unsubscribeKnowledgeBase(kbId)
+      : await subscribeKnowledgeBase(kbId)
+    if (res?.success === false) {
+      throw new Error(res.message || t('knowledgeList.subscription.failed') as string)
+    }
+    MessagePlugin.success(
+      wasSubscribed
+        ? t('knowledgeList.subscription.unsubscribeSuccess')
+        : t('knowledgeList.subscription.subscribeSuccess')
+    )
+    chatResources.invalidate('myKnowledgeBases')
+    await fetchList(true)
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeList.subscription.failed'))
+  } finally {
+    setSubscriptionBusy(kbId, false)
+  }
+}
+
 const handleSharedKbClick = (sharedKb: SharedKnowledgeBase) => {
   pins.touchRecent('kb', sharedKb.knowledge_base.id)
   // 跳转到共享知识库详情页
@@ -1291,7 +1603,17 @@ const openSharedDetailFromAll = (kb: any) => {
   if (sharedKb) {
     currentSharedKbForDetail.value = sharedKb
     sharedDetailPanelVisible.value = true
+    return
   }
+  currentSharedKbForDetail.value = {
+    knowledge_base: kb,
+    permission: kb.permission || kb.my_permission || 'viewer',
+    shared_at: kb.shared_at || kb.subscribed_at || '',
+    share_id: kb.share_id || kb.subscription_id || '',
+    organization_id: kb.organization_id || '',
+    org_name: kb.org_name || '',
+  } as SharedKbDetailItem
+  sharedDetailPanelVisible.value = true
 }
 
 // 打开右侧详情面板（空间 Tab：直接共享或来自智能体）
@@ -1593,6 +1915,73 @@ const handleUploadFinishedEvent = (event: Event) => {
   min-height: 200px;
   padding: 12px;
   background: var(--td-bg-color-container);
+}
+
+.kb-category-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.kb-category-tab {
+  height: 36px;
+  min-width: 120px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-secondary);
+  font-family: var(--app-font-family);
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s, background 0.16s;
+
+  .t-icon {
+    color: inherit;
+  }
+
+  strong {
+    min-width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--td-bg-color-secondarycontainer);
+    color: var(--td-text-color-placeholder);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 20px;
+  }
+
+  &:hover {
+    color: var(--td-text-color-primary);
+    border-color: var(--td-brand-color-5);
+  }
+
+  &.active {
+    color: var(--td-brand-color);
+    border-color: var(--td-brand-color);
+    background: var(--td-brand-color-light);
+
+    strong {
+      background: var(--td-bg-color-container);
+      color: var(--td-brand-color);
+    }
+  }
 }
 
 .shared-by-me-badge {
@@ -2208,6 +2597,24 @@ const handleUploadFinishedEvent = (event: Event) => {
     flex-shrink: 0;
   }
 
+  .kb-scope-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+    color: var(--td-text-color-secondary);
+
+    &.kb-scope-icon--enterprise {
+      color: var(--td-brand-color);
+    }
+
+    &.kb-scope-icon--subscribed {
+      color: var(--td-warning-color, #e37318);
+    }
+  }
+
   .card-title-text {
     min-width: 0;
     overflow: hidden;
@@ -2236,6 +2643,15 @@ const handleUploadFinishedEvent = (event: Event) => {
   .permission-tag {
     flex-shrink: 0;
   }
+}
+
+.card-header-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  min-width: 62px;
 }
 
 .card-title {
@@ -2660,11 +3076,14 @@ const handleUploadFinishedEvent = (event: Event) => {
 /* 下拉菜单样式已统一至 @/assets/dropdown-menu.less */
 
 // 共享知识库卡片：详情触发（替代三点，用「查看详情」链接样式）
+.kb-subscribe-trigger,
 .shared-detail-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -2681,6 +3100,20 @@ const handleUploadFinishedEvent = (event: Event) => {
   &:hover {
     background: rgba(7, 192, 95, 0.08);
     color: var(--td-brand-color);
+  }
+}
+
+.kb-subscribe-trigger {
+  color: var(--td-text-color-secondary);
+
+  &.is-subscribed {
+    color: var(--td-brand-color);
+    background: rgba(7, 192, 95, 0.08);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
   }
 }
 

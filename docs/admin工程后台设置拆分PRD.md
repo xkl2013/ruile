@@ -4,7 +4,7 @@
 
 适用仓库：`/Users/jamgogh/Desktop/agent/ruile`
 
-执行修正：本阶段优先把 Agent 列表和 Agent 编辑配置迁入 `admin` 工程；知识库后台治理属于 P2 范围，不替代 Agent 编辑迁移目标。
+执行修正：本阶段优先把 Agent 列表和 Agent 编辑配置迁入 `admin` 工程；知识库内容和资源治理不进入 Admin 导航，仅保留运行配置中的工作区统一知识库配置。
 
 ## 1. 背景
 
@@ -44,16 +44,18 @@
 | `/platform/tenant` | 重定向到 settings | 改为跳转 admin 的空间概览 |
 | `/platform/agents` | 重定向到 settings 的智能体 section | 改为跳转 admin 的智能体管理 |
 | `/platform/integrations` | 重定向到 settings 的集成 section | 改为跳转 admin 的发布与 API 集成 |
-| `/platform/organizations` | 组织和共享空间管理 | 迁入 admin |
+| `/platform/organizations` | 组织和团队空间管理 | 保留兼容入口，统一跳转主站「设置 → 团队 → 空间管理」，不迁入 admin |
 | `/platform/system/*` | 系统设置、管理员、队列兼容入口 | 迁入 admin system |
-| 知识库设置弹窗 | 知识库模型、解析、存储、分享、数据源等 | 分阶段迁入 admin 的知识库资源管理 |
+| 知识库设置弹窗 | 知识库模型、解析、存储、分享、数据源等 | 内容和资源操作留在主工作台；统一模型、解析、索引和存储配置迁入 admin「运行配置 → 知识库配置」 |
 
 ### 4.2 当前设置页模块
 
 当前 `frontend/src/views/settings/Settings.vue` 已经聚合以下模块：
 
 - 账号：`GeneralSettings`、`UserProfile`
-- 空间：`TenantInfo`、`TenantMembers`、`ChatHistorySettings`、共享空间入口
+- 个人：`TenantInfo`
+- 团队：企业版主站设置中的 `TenantMembers` 成员管理和团队空间管理
+- 空间后台：`ChatHistorySettings` 等空间级配置继续由 admin 承载
 - 智能体：`AgentList`
 - 发布集成：IM、Embed、API 集成
 - 模型与运行时：`ModelSettings`、`OllamaSettings`、`WeKnoraCloudSettings`
@@ -85,10 +87,10 @@ P0 是后台拆分的首批范围，原因是这些模块直接影响平台安�
 | 用户密码重置 | 系统管理员功能 | `/api/v1/system/admin/users/:id/reset-password` | `/admin/system/users` | `system_admin` | 建议和系统用户搜索列表合并 |
 | 运行队列管理 | `views/system/RuntimeQueues.vue` | `/api/v1/system/admin/runtime-queues` | `/admin/system/runtime-queues` | `system_admin` | 含队列状态、任务列表、任务操作 |
 | 系统审计 | 后端已有系统审计接口 | `/api/v1/system/admin/audit-log` | `/admin/system/audit-log` | `system_admin` | 第一阶段可先做列表和筛选 |
-| 空间概览与编辑 | `TenantInfo.vue` | `/api/v1/tenants/:id` | `/admin/workspaces/current/overview` | `viewer` 读，`owner` 改 | 删除空间必须 owner 二次确认 |
-| 成员管理 | `TenantMembers.vue` | `/api/v1/tenants/:id/members` | `/admin/workspaces/current/members` | `admin` 写，`viewer` 读 | 包含 suspend、reactivate、remove、role update |
-| 空间邀请 | `TenantMembers.vue` 内部能力 | `/api/v1/tenants/:id/invitations` | `/admin/workspaces/current/invitations` | `admin` | 用户接受邀请仍留主工程 |
-| 空间审计 | 成员和空间管理相关 | `/api/v1/tenants/:id/audit-log` | `/admin/workspaces/current/audit-log` | `admin` | 建议作为企业空间二级页 |
+| 个人主页与空间信息 | `TenantInfo.vue` | `/api/v1/tenants/:id` | 主站 `/platform/settings?section=tenant` | `viewer` 读，`owner` 改 | 入口位于「设置 → 账户 → 个人主页」；删除空间必须 owner 二次确认 |
+| 成员管理 | `TenantMembers.vue` | `/api/v1/tenants/:id/members` | 主站 `/platform/settings?section=members` | 企业版 `admin` 写，`viewer` 读 | 归属「设置 → 团队 → 成员管理」，包含 suspend、reactivate、remove、role update；Admin 旧地址仅兼容跳转 |
+| 空间邀请 | `TenantMembers.vue` 内部能力 | `/api/v1/tenants/:id/invitations` | 主站 `/platform/settings?section=members` | 企业版 `admin` | 成员邀请和接受邀请均由主站用户侧承载 |
+| 空间审计 | 成员和空间管理相关 | `/api/v1/tenants/:id/audit-log` | 主站成员管理页审计抽屉 | 企业版 `admin` | Admin 旧审计地址兼容跳转到成员管理 |
 | API Key 管理 | `ApiIntegrationSettings.vue` | `/api/v1/tenants/:id/api-keys` | `/admin/security/api-keys` | `owner` | 涉及密钥创建、删除、测试 |
 | API Principal 配置 | API 集成设置 | `/api/v1/tenants/:id/api-principal-config` | `/admin/security/api-principal` | `owner` | 与 API Key 放同一个安全模块 |
 | 聊天历史配置 | `ChatHistorySettings.vue` | `/api/v1/tenants/kv/chat-history-config` | `/admin/workspaces/current/chat-history` | `admin` | 空间级行为配置，迁入 admin |
@@ -108,27 +110,20 @@ P1 是空间 Admin 常用配置，建议在 P0 shell 稳定后迁移。
 | 网络搜索 | `WebSearchSettings.vue` | `/api/v1/web-search-providers` | `/admin/extensions/web-search` | `viewer` 读，`admin` 写 | Provider 凭据脱敏 |
 | MCP 服务 | `McpSettings.vue`、`McpServiceDialog.vue` | `/api/v1/mcp-services` | `/admin/extensions/mcp-services` | `viewer` 读，`admin` 写 | per-user OAuth 和 tool approval 不迁入 admin |
 | 智能体配置 | `AgentList.vue`、`AgentEditorModal.vue` | `/api/v1/agents` | `/admin/agents` | `viewer` 读，`admin` 写 | 这里是智能体配置，不是聊天执行页 |
-| 服务配置 | `admin/src/views/AdminServiceProfiles.vue`、`TenantMembers.vue` | `/api/v1/service/agent-templates`、`/api/v1/tenants/:id/members/:user_id/profile`、`/api/v1/tenants/:id/members/work-profile/suggest` | `/admin/service/profiles`、`/admin/workspaces/current/members` | `admin` 写，`viewer` 不开放 | 服务配置页保留服务项展示；成员分身描述在成员管理中作为必填字段维护，不再在服务配置页提供 per-member 分身表单 |
+| 服务配置 | `admin/src/views/AdminServiceProfiles.vue`、`TenantMembers.vue` | `/api/v1/service/agent-templates`、`/api/v1/tenants/:id/members/:user_id/profile`、`/api/v1/tenants/:id/members/work-profile/suggest` | `/admin/service/profiles`、主站 `/platform/settings?section=members` | `admin` 写，`viewer` 不开放 | 服务配置页保留服务项展示；成员分身描述在主站成员管理中作为必填字段维护，不再在服务配置页提供 per-member 分身表单 |
 | IM 发布渠道 | `IMChannelPanel.vue` | `/api/v1/agents/:id/im-channels`、`/api/v1/im-channels` | `/admin/publish/im` | `viewer` 读，`admin` 写 | 微信二维码、启停等操作保留 admin |
 | Embed 发布渠道 | `AgentEmbedChannelPanel.vue` | `/api/v1/agents/:id/embed-channels`、`/api/v1/embed-channels` | `/admin/publish/embed` | `viewer` 读，`admin` 写 | preview 可读，token rotate 需 admin |
-| 组织和共享空间 | `OrganizationList.vue`、`OrganizationSettingsModal.vue`、`OrganizationEditorModal.vue` | `/api/v1/organizations` | `/admin/spaces/organizations` | `viewer` 读，`admin` 写 | 当前前端路由已要求 admin，迁移优先级高 |
+| 组织和团队空间 | `OrganizationList.vue`、`OrganizationSettingsModal.vue`、`OrganizationEditorModal.vue` | `/api/v1/organizations` | 主站 `/platform/settings?section=sharedSpace` | 企业版成员可读，当前空间 `admin` 可写 | 面向企业用户的自助入口；Admin 不提供独立导航 |
 
-### 5.3 P2 迁入 admin 的知识库资源管理模块
+### 5.3 运行配置中的知识库配置
 
-知识库设置和内容工作台耦合较深，建议作为 P2 单独拆。拆分时只迁移管理配置和资源治理，知识库消费和日常内容阅读仍留在主工程。
+知识库内容列表、创建、删除、阅读、分享、目录和标签属于主工作台业务，不进入 Admin 的资产治理导航。Admin 只承载当前工作区统一的知识库高级默认配置，作为运行配置的一部分。
 
 | 模块 | 当前前端位置 | 主要后端接口 | 目标 admin 路径 | 权限 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| 知识库创建、复制、删除 | `KnowledgeBaseList.vue`、`KnowledgeBaseMenu.vue` | `/api/v1/knowledge-bases` | `/admin/knowledge-bases` | `admin` 或创建者规则 | 删除必须二次确认 |
-| 知识库排序 | 知识库列表 | `/api/v1/knowledge-bases/order` | `/admin/knowledge-bases/order` | `admin` 或 `system_admin` | 当前已是 admin-only 操作 |
-| 知识库图标和基础信息 | `KnowledgeBaseEditorModal.vue` | `/api/v1/knowledge-bases/:id`、`/icon` | `/admin/knowledge-bases/:id/basic` | KB 写权限或 admin | 主工程仅保留展示 |
-| 知识库模型绑定 | `KnowledgeBaseEditorModal.vue` | `/api/v1/knowledge-bases/:id/config` | `/admin/knowledge-bases/:id/models` | `KBAccessManage` 或 admin | 包含 LLM、embedding、rerank、ASR、OCR、VLM |
-| 知识库解析和分块 | `KnowledgeBaseEditorModal.vue` | `/api/v1/knowledge-bases/:id/config` | `/admin/knowledge-bases/:id/processing` | `KBAccessManage` 或 admin | 包含 parser、chunking、多模态、图谱和高级项 |
-| 知识库存储和向量库 | `KnowledgeBaseEditorModal.vue` | `/api/v1/knowledge-bases/:id/config` | `/admin/knowledge-bases/:id/storage` | `KBAccessManage` 或 admin | 使用 P1 的数据基础设施配置结果 |
-| 知识库数据源 | `DataSourceSettings.vue`、`DataSourceEditorDialog.vue` | `/api/v1/datasource` | `/admin/knowledge-bases/:id/data-sources` | `viewer` 看日志，`admin` 写 | 同步、暂停、恢复、校验都属于后台操作 |
-| 知识库分享 | `KBShareSettings` 相关能力 | 知识库分享接口、组织分享接口 | `/admin/knowledge-bases/:id/sharing` | 创建者、admin、system_admin | 区分客户私有记忆和公司公共知识库 |
-| 知识库目录配置 | 知识库目录设置 | `/api/v1/knowledge-bases/:id/directory-config` | `/admin/knowledge-bases/:id/directories` | `KBAccessManage` 或 admin | 当前记忆中已有 admin 权限边界 |
-| 知识库标签 | `KnowledgeTags` 相关能力 | `/api/v1/knowledge-bases/:id/tags` | `/admin/knowledge-bases/:id/tags` | 创建者、admin、KB 写权限 | 可与基础信息页合并 |
+| 知识库统一高级配置 | `AdminKnowledgeBaseDefaults.vue` | `/api/v1/tenants/kv/knowledge-base-config` | `/admin/runtime/knowledge-base` | 空间 `admin` 或 `system_admin` | 当前空间全部非临时知识库共用一份配置，不提供按知识库覆盖，包含模型、解析、分块、多模态、图谱和存储绑定等配置 |
+| 知识库存储和向量库 | admin 全局基础设施页面 | `/api/v1/tenants/kv/storage-engine-config`、向量库/存储后端接口 | `/admin/data/storage-backends`、`/admin/data/vector-stores` | `admin` 或 `system_admin` | 存储实例和向量库的基础设施配置集中在 admin 维护 |
+| 知识库内容和资源治理 | 主前端知识库工作台 | `/api/v1/knowledge-bases`、文件、数据源、分享和目录接口 | 主前端知识库工作台 | 按现有知识库权限 | Admin 保留历史 URL 兼容跳转，不再提供资产治理菜单 |
 
 ### 5.4 保留在主前端的模块
 
@@ -150,16 +145,16 @@ P1 是空间 Admin 常用配置，建议在 P0 shell 稳定后迁移。
 
 | 一级导航 | 二级页面 | 承载模块 |
 | --- | --- | --- |
-| 概览 | 工作区概览、运行状态 | 当前租户、关键配置健康状态、待处理告警 |
-| 工作区 | 基础信息、成员、邀请、聊天历史、审计 | tenant 管理 |
-| 知识库 | 知识库列表、基础信息、处理配置、数据源、分享、目录、标签 | P2 资源管理 |
+| 系统空间 | 系统概览、聊天历史、产品版本 | 系统运行状态、跨空间规模统计（按权限展示）、系统支持的个人版和企业版能力 |
+| 工作区 | 基础信息、空间级配置 | tenant 管理和当前空间后台配置 |
+| 团队 | 成员管理、邀请、成员审计、组织空间 | 企业用户侧的成员和团队空间治理 |
 | 智能体 | 智能体列表、编辑、调试配置、推荐问题 | agent 配置管理 |
 | 服务交付 | 员工分身、服务能力、发布测试、配置审计 | AI 工程师为用户开通服务提醒能力 |
 | 发布 | IM 渠道、嵌入渠道 | 外部触达和发布配置 |
 | 安全 | API Key、API Principal、密钥使用记录 | 凭证和接口访问 |
-| 模型与运行时 | 模型、Ollama、睿乐大脑云 | 模型供应商和运行配置 |
+| 模型与运行时 | 模型、知识库配置、Ollama、睿乐大脑云 | 模型供应商、知识库处理默认项和运行配置 |
 | 数据与扩展 | 向量库、解析引擎、存储、网络搜索、MCP 服务 | 基础设施连接 |
-| 共享空间 | 组织列表、成员、共享关系 | organization 管理 |
+| 共享空间 | 组织列表、共享关系 | organization 管理 |
 | 系统管理 | 全局设置、系统管理员、运行队列、系统审计、用户管理 | `system_admin` 专属 |
 
 ## 7. 路由兼容策略
@@ -176,23 +171,28 @@ P1 是空间 Admin 常用配置，建议在 P0 shell 稳定后迁移。
 | `/platform/settings?section=vectorstore` | `/admin/data/vector-stores` |
 | `/platform/settings?section=parser` | `/admin/data/parser-engines` |
 | `/platform/settings?section=storage` | `/admin/data/storage-backends` |
-| `/platform/settings?section=members` | `/admin/workspaces/current/members` |
-| `/platform/settings?section=tenant` | `/admin/workspaces/current/overview` |
+| `/platform/settings?section=members` | 主站「设置 → 团队 → 成员管理」 |
+| `/platform/settings?section=tenant` | 主站「设置 → 账户 → 个人主页」 |
+| `/admin/workspaces/current/overview` | `/platform/settings?section=tenant` |
 | `/platform/settings?section=agents` | `/admin/agents` |
 | `/platform/settings?section=integrations&tab=im` | `/admin/publish/im` |
 | `/platform/settings?section=integrations&tab=embed` | `/admin/publish/embed` |
 | `/platform/settings?section=integrations&tab=api` | `/admin/security/api-keys` |
 | `/platform/settings?section=system-global` | `/admin/system/settings` |
 | `/platform/settings?section=runtime-queues` | `/admin/system/runtime-queues` |
-| `/platform/organizations` | `/admin/spaces/organizations` |
-| 知识库设置弹窗 | `/admin/knowledge-bases/:kbId/settings` |
+| `/platform/organizations` | `/platform/settings?section=sharedSpace` |
+| `/admin/workspaces/current/members` | `/platform/settings?section=members` |
+| `/admin/workspaces/current/audit-log` | `/platform/settings?section=members` |
+| `/admin/knowledge-bases`、`/admin/knowledge-bases/settings` | `/admin/runtime/knowledge-base` |
+| 知识库统一配置页 | `/admin/runtime/knowledge-base` |
 
 兼容跳转规则：
 
-1. 已登录且有权限：直接跳 admin 对应页面。
+1. 已登录且有权限：按模块归属进入 admin 或主站企业用户侧页面。
 2. 已登录但无权限：显示 admin 无权限页，并提供返回工作台。
 3. 未登录：跳 admin 登录页，登录后回到目标页。
 4. 主工程中的老设置页第一阶段可保留个人设置和跳转入口，第二阶段再移除已迁移页面。
+5. 团队空间和企业成员管理是企业用户侧能力：企业版在主站设置显示「团队 → 成员管理、空间管理」，个人版隐藏；旧主站和 Admin 路径均回到对应入口。
 
 ## 8. 技术方案
 
@@ -332,12 +332,12 @@ packages/
 - 支持从知识库或智能体管理页跳到相关组织共享设置。
 - 共享关系变更必须进入审计。
 
-### 9.9 知识库资源管理
+### 9.9 知识库运行配置
 
-- 支持知识库列表、创建、复制、删除、排序、图标管理。
-- 支持基础信息、模型绑定、解析和分块、多模态、图谱、存储、数据源、分享、目录、标签。
-- 主工程知识库详情页只保留使用和消费视图，管理按钮跳 admin。
-- 对共享知识库必须严格沿用 `KBAccessWrite`、`KBAccessManage`、创建者、admin、system_admin 的既有边界。
+- 运行配置下提供工作区统一知识库配置。
+- 支持模型绑定、解析和分块、多模态、图谱、存储绑定和索引策略。
+- 保存统一配置只影响后续新建知识库；存量知识库必须通过显式迁移变更。
+- 知识库列表、创建、删除、文件、数据源、分享、目录和标签继续留在主工作台。
 
 ### 9.10 系统管理
 
@@ -462,14 +462,14 @@ packages/
 - 成员管理可以维护必填分身描述，AI 一键录入可基于岗位生成初稿。
 - 主工程不再展示这些后台配置表单。
 
-### M4：P2 知识库资源管理迁移
+### M4：知识库配置归入运行配置
 
 交付：
 
-- 知识库列表和资源管理。
-- 知识库设置页替代现有大型弹窗。
-- 数据源、分享、目录、标签管理。
-- 主工程知识库详情页管理按钮跳 admin。
+- Admin「运行配置 → 知识库配置」页面。
+- 工作区统一模型、解析、分块、多模态、图谱、存储和索引默认项。
+- 历史 `/admin/knowledge-bases*` 地址兼容跳转到新的运行配置入口。
+- 知识库内容和资源操作继续由主工作台承载。
 
 验收：
 
@@ -709,7 +709,7 @@ admin 工程不应该做成客户自助后台。它的使用者是软件开发�
 
 - 园所空间概览
 - 成员和角色
-- 知识库资源管理
+- 知识库统一运行配置
 - 智能体管理
 - 员工分身配置
 - 发布渠道

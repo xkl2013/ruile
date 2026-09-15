@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, reactive, computed, nextTick } from "vue";
-import { MessagePlugin } from "tdesign-vue-next";
+import { DialogPlugin, MessagePlugin } from "tdesign-vue-next";
 import DocContent from "@/components/doc-content.vue";
 import useKnowledgeBase from '@/hooks/useKnowledgeBase';
 import { useRoute, useRouter } from 'vue-router';
@@ -8,6 +8,7 @@ import EmptyKnowledge from '@/components/empty-knowledge.vue';
 import ContextualGuide from '@/components/ContextualGuide.vue';
 import KBInfoPopover from '@/components/KBInfoPopover.vue';
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue';
+import KnowledgeBaseBasicInfoDialog from './components/KnowledgeBaseBasicInfoDialog.vue';
 import { getSessionsList, createSessions, generateSessionsTitle } from "@/api/chat/index";
 import { useMenuStore } from '@/stores/menu';
 import { useUIStore } from '@/stores/ui';
@@ -273,18 +274,11 @@ const canEdit = computed(() => {
   return orgStore.canEditKB(kbId.value, false);
 });
 
-// Knowledge-base settings are workspace administration now. Keep content
-// editing (`canEdit`) separate so document operations can retain their
-// existing creator/share-editor behaviour.
-const canManageKnowledgeBaseSettingsByRole = computed(() =>
-  authStore.hasRole('admin') || authStore.isSystemAdmin,
-);
-
-const canEditKnowledgeBaseSettings = computed(() => {
-  if (!canManageKnowledgeBaseSettingsByRole.value) return false;
-  if (authStore.isSystemAdmin) return true;
-  if (isViaShare.value) return orgStore.canManageKB(kbId.value, false);
-  return true;
+// Shared-space editors can maintain content, but only the KB owner or a
+// home-space admin can edit the KB name and description.
+const canEditKnowledgeBaseIdentity = computed(() => {
+  if (isViaShare.value) return false;
+  return isOwner.value || authStore.hasRole('admin') || authStore.isSystemAdmin;
 });
 
 const canEditKnowledgeBaseDirectories = computed(() => canEdit.value && !isFAQ.value);
@@ -606,6 +600,15 @@ const directorySaving = ref(false);
 const directoryCountsByPath = ref<Record<string, number>>({});
 const directoryRootTotal = ref(0);
 const directoryCountsLoaded = ref(false);
+const basicInfoDialogVisible = ref(false);
+
+const handleBasicInfoSuccess = (data: any) => {
+  if (!data) return;
+  kbInfo.value = {
+    ...kbInfo.value,
+    ...data,
+  };
+};
 
 const normalizeDocumentPath = (item: DirectorySourceItem) => {
   const candidates = [
@@ -713,6 +716,13 @@ const normalizeDirectoryPath = (value: unknown) => String(value || '')
   .map(part => part.trim())
   .filter(Boolean)
   .join('/');
+
+const isDirectoryPathOrDescendant = (path: string, targetPath: string) => {
+  const normalizedPath = normalizeDirectoryPath(path);
+  const normalizedTargetPath = normalizeDirectoryPath(targetPath);
+  if (!normalizedPath || !normalizedTargetPath) return false;
+  return normalizedPath === normalizedTargetPath || normalizedPath.startsWith(`${normalizedTargetPath}/`);
+};
 
 const normalizeManualDirectoryNode = (item: any): ManualDirectoryNode | null => {
   const path = normalizeDirectoryPath(item?.path);
@@ -1071,6 +1081,11 @@ const canMoveDirectoryUp = (path: string) =>
   && !directorySaving.value
   && getDirectorySiblingIndex(path) > 0;
 
+const canDeleteDirectory = (directory: DirectoryNode) =>
+  canEditKnowledgeBaseDirectories.value
+  && !directorySaving.value
+  && directory.manual === true;
+
 const moveDirectoryUp = async (path: string) => {
   if (!canMoveDirectoryUp(path)) return;
   const parentPath = getDirectoryParentPath(path);
@@ -1089,6 +1104,52 @@ const moveDirectoryUp = async (path: string) => {
   if (!saved.ok) {
     MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
   }
+};
+
+const deleteDirectory = (directory: DirectoryNode) => {
+  if (!canDeleteDirectory(directory)) return;
+  const targetPath = normalizeDirectoryPath(directory.path);
+  if (!targetPath) return;
+  const affected = manualDirectoryNodes.value.filter(item =>
+    isDirectoryPathOrDescendant(item.path, targetPath),
+  );
+  const childCount = Math.max(0, affected.length - 1);
+  const dialog = DialogPlugin.confirm({
+    header: t('knowledgeBase.deleteDirectoryTitle'),
+    body: childCount > 0
+      ? t('knowledgeBase.deleteDirectoryConfirmWithChildren', { path: targetPath, count: childCount })
+      : t('knowledgeBase.deleteDirectoryConfirm', { path: targetPath }),
+    confirmBtn: { content: t('common.delete'), theme: 'danger' },
+    cancelBtn: t('common.cancel'),
+    onConfirm: async () => {
+      dialog.destroy();
+      const nextDirectories = manualDirectoryNodes.value.filter(item =>
+        !isDirectoryPathOrDescendant(item.path, targetPath),
+      );
+      const nextOrders = directoryOrders.value
+        .filter(order => !isDirectoryPathOrDescendant(order.parentPath, targetPath))
+        .map(order => ({
+          parentPath: order.parentPath,
+          paths: order.paths.filter(path => !isDirectoryPathOrDescendant(path, targetPath)),
+        }))
+        .filter(order => order.paths.length > 0);
+      const saved = await persistManualDirectoryState({
+        rootDescription: rootDirectoryDescription.value,
+        directories: nextDirectories,
+        directoryOrders: nextOrders,
+      });
+      if (!saved.ok) {
+        MessagePlugin.error(getDirectoryPersistErrorMessage(saved.error));
+        return;
+      }
+      if (isDirectoryPathOrDescendant(activeDirectoryPath.value, targetPath)) {
+        selectDirectory(getDirectoryParentPath(targetPath));
+      }
+      MessagePlugin.success(t('knowledgeBase.directoryDeleteSuccess'));
+    },
+    onCancel: () => dialog.destroy(),
+    onClose: () => dialog.destroy(),
+  });
 };
 
 const visibleDocumentItems = computed<KnowledgeCard[]>(() => {
@@ -2773,10 +2834,24 @@ async function createNewSession(value: string): Promise<void> {
                 </t-tooltip>
               </template>
             </h2>
-            <!-- 标题行右侧仅保留信息入口。 -->
             <div class="kb-title-actions">
               <KBInfoPopover v-if="kbInfo && !authStore.isLiteMode" :kb-info="kbInfo"
                 :supported-file-types="[...supportedFileTypes]" />
+              <t-tooltip
+                v-if="kbInfo && canEditKnowledgeBaseIdentity"
+                :content="$t('knowledgeBase.edit')"
+                placement="top"
+              >
+                <button
+                  type="button"
+                  class="kb-title-action-button"
+                  :aria-label="$t('knowledgeBase.edit')"
+                  :title="$t('knowledgeBase.edit')"
+                  @click="basicInfoDialogVisible = true"
+                >
+                  <t-icon name="edit-1" size="16px" />
+                </button>
+              </t-tooltip>
             </div>
           </div>
         </div>
@@ -2893,6 +2968,19 @@ async function createNewSession(value: string): Promise<void> {
                     @keydown.space.stop
                   >
                     <t-icon name="folder-add" size="14px" />
+                  </button>
+                  <button
+                    v-if="directory.manual"
+                    type="button"
+                    class="directory-tree-action directory-tree-action--danger"
+                    :title="$t('knowledgeBase.deleteDirectory')"
+                    :aria-label="$t('knowledgeBase.deleteDirectory')"
+                    :disabled="!canDeleteDirectory(directory)"
+                    @click.stop="deleteDirectory(directory)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                  >
+                    <t-icon name="delete" size="14px" />
                   </button>
                 </span>
               </div>
@@ -3176,6 +3264,14 @@ async function createNewSession(value: string): Promise<void> {
       </t-form>
     </div>
   </t-dialog>
+
+  <KnowledgeBaseBasicInfoDialog
+    v-if="kbInfo"
+    v-model:visible="basicInfoDialogVisible"
+    :kb-info="kbInfo"
+    :can-edit="canEditKnowledgeBaseIdentity"
+    @success="handleBasicInfoSuccess"
+  />
 
   <ContextualGuide tour="kbDetail" :when="showKbDetailContextualGuide" />
 
@@ -3711,6 +3807,12 @@ async function createNewSession(value: string): Promise<void> {
     cursor: default;
     opacity: 0.45;
   }
+
+  &.directory-tree-action--danger:hover:not(:disabled),
+  &.directory-tree-action--danger:focus-visible:not(:disabled) {
+    color: var(--td-error-color);
+    background: color-mix(in srgb, var(--td-error-color) 10%, transparent);
+  }
 }
 
 .directory-empty-state {
@@ -4116,6 +4218,26 @@ async function createNewSession(value: string): Promise<void> {
     gap: 6px;
     flex-shrink: 0;
     margin-left: 4px;
+  }
+
+  .kb-title-action-button {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--td-text-color-placeholder);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.2s ease, color 0.2s ease;
+
+    &:hover {
+      background: var(--td-bg-color-secondarycontainer);
+      color: var(--td-text-color-primary);
+    }
   }
 
   .document-breadcrumb {

@@ -14,9 +14,21 @@ import (
 	"gorm.io/gorm"
 )
 
+// KnowledgeBaseAccessResolver resolves the caller's effective permission,
+// source tenant, and ownership metadata for one knowledge base.
+type KnowledgeBaseAccessResolver interface {
+	ResolveKnowledgeBaseAccess(
+		ctx context.Context,
+		kbID string,
+		opts types.KnowledgeBaseAccessOptions,
+	) (*types.KnowledgeBaseAccess, error)
+}
+
 // KnowledgeBaseService defines the knowledge base service interface
 // Provides high-level operations for knowledge base creation, querying, updating, deletion, and content searching
 type KnowledgeBaseService interface {
+	KnowledgeBaseAccessResolver
+
 	// CreateKnowledgeBase creates a new knowledge base
 	// Parameters:
 	//   - ctx: Context information, carrying request tracking, user identity, etc.
@@ -58,17 +70,29 @@ type KnowledgeBaseService interface {
 	//   - List of knowledge base objects
 	//   - Possible errors such as insufficient permissions, etc.
 	ListKnowledgeBases(ctx context.Context) ([]*types.KnowledgeBase, error)
+	// ListMyKnowledgeBases returns the account-centred knowledge-base groups
+	// used by the V2 "created / shared / subscribed" entry point.
+	ListMyKnowledgeBases(ctx context.Context) (*types.MyKnowledgeBaseList, error)
+	// SubscribeKnowledgeBase creates or reactivates the caller's personal
+	// shortcut to an already-readable knowledge base.
+	SubscribeKnowledgeBase(ctx context.Context, kbID string) (*types.KnowledgeBaseSubscriptionResult, error)
+	// UnsubscribeKnowledgeBase cancels the caller's shortcut. It is idempotent
+	// and does not require the KB to still be readable.
+	UnsubscribeKnowledgeBase(ctx context.Context, kbID string) (*types.KnowledgeBaseSubscriptionResult, error)
 	// ListKnowledgeBasesByTenantID lists all knowledge bases for a specific tenant (e.g. for shared agent context).
 	ListKnowledgeBasesByTenantID(ctx context.Context, tenantID uint64) ([]*types.KnowledgeBase, error)
 
-	// UpdateKnowledgeBase updates knowledge base information
+	// UpdateKnowledgeBase updates basic knowledge base information and
+	// directory organization. The config argument is retained for source
+	// compatibility, but advanced configuration is now workspace-managed and
+	// must be changed through KnowledgeBaseDefaultsService.
 	// Parameters:
 	//   - ctx: Context information
 	//   - id: Unique identifier of the knowledge base
 	//   - name: New knowledge base name
 	//   - description: New knowledge base description
 	//   - icon: Optional new display icon (nil keeps the existing icon)
-	//   - config: Knowledge base configuration, including chunking strategy, vectorization settings, etc.
+	//   - config: Deprecated per-KB advanced configuration; non-nil values are rejected.
 	// Returns:
 	//   - Updated knowledge base object
 	//   - Possible errors such as not existing, insufficient permissions, etc.
@@ -211,6 +235,29 @@ type KnowledgeBaseRepository interface {
 	//   - List of knowledge base objects
 	//   - Possible errors such as database errors, etc.
 	ListKnowledgeBasesByTenantID(ctx context.Context, tenantID uint64) ([]*types.KnowledgeBase, error)
+	// ListKnowledgeBasesByCreatorID lists non-temporary knowledge bases created
+	// by a concrete user account across workspaces.
+	ListKnowledgeBasesByCreatorID(ctx context.Context, userID string) ([]*types.KnowledgeBase, error)
+	// ListActiveKnowledgeBaseSubscriptionsByUserID lists active personal
+	// shortcuts for a user. Subscription rows never grant access by themselves.
+	ListActiveKnowledgeBaseSubscriptionsByUserID(
+		ctx context.Context,
+		userID string,
+	) ([]*types.KnowledgeBaseSubscription, error)
+	// UpsertKnowledgeBaseSubscription creates or reactivates the personal
+	// shortcut row for a user and KB. This row is metadata only, never an access grant.
+	UpsertKnowledgeBaseSubscription(
+		ctx context.Context,
+		userID string,
+		kbID string,
+	) (*types.KnowledgeBaseSubscription, error)
+	// CancelKnowledgeBaseSubscription marks a shortcut as cancelled. Missing
+	// rows are treated as a successful no-op.
+	CancelKnowledgeBaseSubscription(
+		ctx context.Context,
+		userID string,
+		kbID string,
+	) (*types.KnowledgeBaseSubscription, error)
 
 	// UpdateKnowledgeBase updates a knowledge base record
 	// Parameters:

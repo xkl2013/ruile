@@ -43,6 +43,9 @@ func (s *sessionService) KnowledgeQA(
 		},
 	})
 	ctx = setupCtx
+	if req.Session != nil && req.Session.TenantID != 0 {
+		ctx = context.WithValue(ctx, types.SessionTenantIDContextKey, req.Session.TenantID)
+	}
 
 	// Resolve knowledge bases using shared helper
 	knowledgeBaseIDs, knowledgeIDs, err := s.resolveKnowledgeBases(ctx, req)
@@ -70,10 +73,6 @@ func (s *sessionService) KnowledgeQA(
 	var vlmModelID string
 	if req.CustomAgent != nil {
 		vlmModelID = req.CustomAgent.Config.VLMModelID
-	}
-
-	if req.Session != nil && req.Session.TenantID != 0 {
-		ctx = context.WithValue(ctx, types.SessionTenantIDContextKey, req.Session.TenantID)
 	}
 
 	// Resolve retrieval tenant scope using shared helper
@@ -317,9 +316,10 @@ func (s *sessionService) selectChatModelID(
 }
 
 // resolveKnowledgeBasesFromAgent resolves knowledge base IDs based on agent's KBSelectionMode.
-// sessionTenantID is the tenant of the current session (caller); it is compared with
-// customAgent.TenantID to detect the shared-agent scenario and avoid leaking the
-// current user's personal shared KBs into the agent's retrieval scope.
+// sessionTenantID is the tenant of the current session (caller). The request
+// context also carries an explicit shared-agent marker so tenant-internal
+// team-space shares are handled as shared even when both sides use the same
+// enterprise tenant.
 //
 // Returns the resolved knowledge base IDs based on the selection mode:
 //   - "all": fetches all knowledge bases for the tenant
@@ -366,17 +366,16 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 		if retrievalTenantID == 0 {
 			retrievalTenantID = types.MustTenantIDFromContext(ctx)
 		}
-		isSharedAgent := sessionTenantID != 0 && sessionTenantID != retrievalTenantID
+		isSharedAgent := types.IsSharedAgentFromContext(ctx) ||
+			(sessionTenantID != 0 && sessionTenantID != retrievalTenantID)
 		for _, kb := range allKBs {
 			if !accept(kb) {
 				ownSkipped++
 				continue
 			}
-			if !isSharedAgent {
-				if _, ok := s.resolveReadableKnowledgeBaseTenant(ctx, retrievalTenantID, kb.ID, kb); !ok {
-					ownPermissionSkipped++
-					continue
-				}
+			if _, ok := s.resolveReadableKnowledgeBaseTenant(ctx, retrievalTenantID, kb.ID, kb); !ok {
+				ownPermissionSkipped++
+				continue
 			}
 			kbIDs = append(kbIDs, kb.ID)
 			kbIDSet[kb.ID] = true
@@ -425,9 +424,16 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 				"KBSelectionMode=all: permission filter removed %d tenant KBs for agent %s",
 				ownPermissionSkipped, customAgent.ID)
 		}
-		logger.Infof(ctx, "KBSelectionMode=all: loaded %d knowledge bases (own + shared)", len(kbIDs))
+		logger.Infof(ctx, "KBSelectionMode=all: loaded %d caller-readable knowledge bases (own + published)", len(kbIDs))
 		return kbIDs
 	case "selected":
+		if types.IsSharedAgentFromContext(ctx) ||
+			(sessionTenantID != 0 && sessionTenantID != customAgent.TenantID) {
+			filtered := s.filterAgentKnowledgeBaseIDsForCaller(ctx, customAgent, customAgent.Config.KnowledgeBases)
+			logger.Infof(ctx, "KBSelectionMode=selected: caller-readable intersection contains %d of %d configured knowledge bases",
+				len(filtered), len(customAgent.Config.KnowledgeBases))
+			return filtered
+		}
 		logger.Infof(ctx, "KBSelectionMode=selected: using %d configured knowledge bases", len(customAgent.Config.KnowledgeBases))
 		return customAgent.Config.KnowledgeBases
 	case "none":
@@ -438,8 +444,55 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 		if len(customAgent.Config.KnowledgeBases) > 0 {
 			logger.Infof(ctx, "KBSelectionMode not set: using %d configured knowledge bases", len(customAgent.Config.KnowledgeBases))
 		}
+		if types.IsSharedAgentFromContext(ctx) ||
+			(sessionTenantID != 0 && sessionTenantID != customAgent.TenantID) {
+			return s.filterAgentKnowledgeBaseIDsForCaller(ctx, customAgent, customAgent.Config.KnowledgeBases)
+		}
 		return customAgent.Config.KnowledgeBases
 	}
+}
+
+// filterAgentKnowledgeBaseIDsForCaller applies the explicit team-space
+// publication boundary to a shared Agent. Agent configuration is only a
+// narrowing capability; it can never grant a caller access to an unpublished
+// knowledge base.
+func (s *sessionService) filterAgentKnowledgeBaseIDsForCaller(
+	ctx context.Context,
+	customAgent *types.CustomAgent,
+	configuredIDs []string,
+) []string {
+	if customAgent == nil || len(configuredIDs) == 0 || s.knowledgeBaseService == nil {
+		return nil
+	}
+	kbs, err := s.knowledgeBaseService.GetKnowledgeBasesByIDsOnly(ctx, uniqueNonEmptyStrings(configuredIDs))
+	if err != nil {
+		logger.Warnf(ctx, "Failed to load shared Agent knowledge bases for access filtering: %v", err)
+		return nil
+	}
+	kbByID := make(map[string]*types.KnowledgeBase, len(kbs))
+	for _, kb := range kbs {
+		if kb != nil {
+			kbByID[kb.ID] = kb
+		}
+	}
+	retrievalTenantID := customAgent.TenantID
+	if retrievalTenantID == 0 {
+		retrievalTenantID = types.MustTenantIDFromContext(ctx)
+	}
+	filtered := make([]string, 0, len(configuredIDs))
+	seen := make(map[string]bool, len(configuredIDs))
+	for _, kbID := range configuredIDs {
+		if kbID == "" || seen[kbID] {
+			continue
+		}
+		seen[kbID] = true
+		if _, ok := s.resolveReadableKnowledgeBaseTenant(ctx, retrievalTenantID, kbID, kbByID[kbID]); ok {
+			filtered = append(filtered, kbID)
+			continue
+		}
+		logger.Warnf(ctx, "Dropping unpublished KB %s from shared Agent %s", kbID, customAgent.ID)
+	}
+	return filtered
 }
 
 // buildSearchTargets computes the unified search targets from knowledgeBaseIDs and knowledgeIDs.

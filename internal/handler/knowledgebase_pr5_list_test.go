@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,11 +29,44 @@ import (
 // the interface keeps the rest nil-panic'ing intentionally.
 type stubListKBService struct {
 	interfaces.KnowledgeBaseService
-	kbs []*types.KnowledgeBase
+	kbs               []*types.KnowledgeBase
+	myList            *types.MyKnowledgeBaseList
+	subscribeResult   *types.KnowledgeBaseSubscriptionResult
+	unsubscribeResult *types.KnowledgeBaseSubscriptionResult
+	subscribeID       string
+	unsubscribeID     string
+	subscribeErr      error
+	unsubscribeErr    error
 }
 
 func (s *stubListKBService) ListKnowledgeBases(context.Context) ([]*types.KnowledgeBase, error) {
 	return s.kbs, nil
+}
+
+func (s *stubListKBService) ListMyKnowledgeBases(context.Context) (*types.MyKnowledgeBaseList, error) {
+	return s.myList, nil
+}
+
+func (s *stubListKBService) SubscribeKnowledgeBase(
+	_ context.Context,
+	kbID string,
+) (*types.KnowledgeBaseSubscriptionResult, error) {
+	s.subscribeID = kbID
+	if s.subscribeErr != nil {
+		return nil, s.subscribeErr
+	}
+	return s.subscribeResult, nil
+}
+
+func (s *stubListKBService) UnsubscribeKnowledgeBase(
+	_ context.Context,
+	kbID string,
+) (*types.KnowledgeBaseSubscriptionResult, error) {
+	s.unsubscribeID = kbID
+	if s.unsubscribeErr != nil {
+		return nil, s.unsubscribeErr
+	}
+	return s.unsubscribeResult, nil
 }
 
 // stubVectorStoreService satisfies the two service methods the list
@@ -65,6 +99,20 @@ func (s *stubVectorStoreService) BatchResolveStoreView(
 		}
 	}
 	return out, nil
+}
+
+func (s *stubVectorStoreService) ResolveStoreView(
+	_ context.Context,
+	_ uint64,
+	storeID string,
+) (types.StoreDisplay, error) {
+	if s.batchErr != nil {
+		return types.StoreDisplay{}, s.batchErr
+	}
+	if v, ok := s.batch[storeID]; ok {
+		return v, nil
+	}
+	return types.UnavailableStoreDisplay(), nil
 }
 
 func (s *stubVectorStoreService) EnvDefaultStoreView(_ context.Context) types.StoreDisplay {
@@ -105,6 +153,54 @@ func newListKBRouterWithRole(
 	})
 	h := &KnowledgeBaseHandler{service: svc, vectorStoreService: vss}
 	r.GET("/knowledge-bases", h.ListKnowledgeBases)
+	return r
+}
+
+func newMyListKBRouter(
+	t *testing.T,
+	svc interfaces.KnowledgeBaseService,
+	vss interfaces.VectorStoreService,
+) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.ErrorHandler())
+	r.Use(func(c *gin.Context) {
+		c.Set(types.TenantIDContextKey.String(), uint64(1))
+		c.Set(types.UserIDContextKey.String(), "u-test")
+		ctx := c.Request.Context()
+		ctx = context.WithValue(ctx, types.TenantIDContextKey, uint64(1))
+		ctx = context.WithValue(ctx, types.UserIDContextKey, "u-test")
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleAdmin)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+	h := &KnowledgeBaseHandler{service: svc, vectorStoreService: vss}
+	r.GET("/knowledge-bases/my", h.ListMyKnowledgeBases)
+	return r
+}
+
+func newSubscriptionKBRouter(
+	t *testing.T,
+	svc interfaces.KnowledgeBaseService,
+	vss interfaces.VectorStoreService,
+) *gin.Engine {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.ErrorHandler())
+	r.Use(func(c *gin.Context) {
+		ctx := c.Request.Context()
+		ctx = context.WithValue(ctx, types.TenantIDContextKey, uint64(1))
+		ctx = context.WithValue(ctx, types.UserIDContextKey, "u-test")
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleAdmin)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+	h := &KnowledgeBaseHandler{service: svc, vectorStoreService: vss}
+	r.GET("/knowledge-bases/subscriptions", h.ListKnowledgeBaseSubscriptions)
+	r.POST("/knowledge-bases/:id/subscribe", h.SubscribeKnowledgeBase)
+	r.DELETE("/knowledge-bases/:id/subscribe", h.UnsubscribeKnowledgeBase)
 	return r
 }
 
@@ -334,5 +430,233 @@ func TestListKB_GracefullyDegradesWhenBatchResolveFails(t *testing.T) {
 	}
 	if envelope.Data[0]["vector_store_source"] != string(types.StoreSourceUnavailable) {
 		t.Errorf("expected fallback source=unavailable, got %v", envelope.Data[0]["vector_store_source"])
+	}
+}
+
+func TestListMyKB_ReturnsGroupedRowsWithAccessMetadata(t *testing.T) {
+	storeMine := "store-mine"
+	storeShared := "store-shared"
+	now := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
+	myList := &types.MyKnowledgeBaseList{
+		Created: []*types.MyKnowledgeBaseListItem{
+			{
+				KnowledgeBase: &types.KnowledgeBase{
+					ID:            "kb-created",
+					Name:          "created",
+					TenantID:      1,
+					CreatorID:     "u-test",
+					VectorStoreID: &storeMine,
+				},
+				EffectiveTenantID: 1,
+				Permission:        types.OrgRoleAdmin,
+				AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+			},
+		},
+		Shared: []*types.MyKnowledgeBaseListItem{
+			{
+				KnowledgeBase: &types.KnowledgeBase{
+					ID:            "kb-shared",
+					Name:          "shared",
+					TenantID:      2,
+					CreatorID:     "u-owner",
+					VectorStoreID: &storeShared,
+				},
+				EffectiveTenantID: 2,
+				Permission:        types.OrgRoleViewer,
+				AccessSource:      types.KnowledgeBaseAccessSourceSharedSpace,
+				OrganizationID:    "org-1",
+				OrgName:           "招生共享空间",
+				IsSubscribed:      true,
+				SubscriptionID:    "sub-shared",
+				SubscribedAt:      &now,
+			},
+		},
+		Subscribed: []*types.MyKnowledgeBaseListItem{},
+	}
+	vss := &stubVectorStoreService{
+		batch: map[string]types.StoreDisplay{
+			storeMine: {
+				Name:       "mine-store",
+				Source:     types.StoreSourceUser,
+				EngineType: "qdrant",
+				Status:     "available",
+			},
+			storeShared: {
+				Name:       "foreign-store",
+				Source:     types.StoreSourceUser,
+				EngineType: "postgres",
+				Status:     "available",
+			},
+		},
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/knowledge-bases/my", nil)
+	newMyListKBRouter(t, &stubListKBService{myList: myList}, vss).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Created    []map[string]interface{} `json:"created"`
+			Shared     []map[string]interface{} `json:"shared"`
+			Subscribed []map[string]interface{} `json:"subscribed"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v body=%s", err, w.Body.String())
+	}
+	if !envelope.Success {
+		t.Fatalf("expected success response body=%s", w.Body.String())
+	}
+	if len(envelope.Data.Created) != 1 || len(envelope.Data.Shared) != 1 || len(envelope.Data.Subscribed) != 0 {
+		t.Fatalf("unexpected groups: created=%d shared=%d subscribed=%d body=%s",
+			len(envelope.Data.Created), len(envelope.Data.Shared), len(envelope.Data.Subscribed), w.Body.String())
+	}
+
+	created := envelope.Data.Created[0]
+	if created["access_source"] != string(types.KnowledgeBaseAccessSourceCreated) {
+		t.Fatalf("created access_source mismatch: %v", created["access_source"])
+	}
+	if created["my_permission"] != string(types.OrgRoleAdmin) {
+		t.Fatalf("created my_permission mismatch: %v", created["my_permission"])
+	}
+	if created["vector_store_name"] != "mine-store" {
+		t.Fatalf("created row should expose owned store metadata, got %v", created["vector_store_name"])
+	}
+
+	shared := envelope.Data.Shared[0]
+	if shared["access_source"] != string(types.KnowledgeBaseAccessSourceSharedSpace) {
+		t.Fatalf("shared access_source mismatch: %v", shared["access_source"])
+	}
+	if shared["is_subscribed"] != true {
+		t.Fatalf("shared row should be marked subscribed")
+	}
+	if shared["subscription_id"] != "sub-shared" {
+		t.Fatalf("shared subscription id mismatch: %v", shared["subscription_id"])
+	}
+	if _, ok := shared["vector_store_id"]; ok {
+		t.Fatalf("shared row must strip foreign vector_store_id: %v", shared["vector_store_id"])
+	}
+	if shared["vector_store_source"] != string(types.StoreSourceShared) {
+		t.Fatalf("shared vector_store_source mismatch: %v", shared["vector_store_source"])
+	}
+	serialized, _ := json.Marshal(shared)
+	if strings.Contains(string(serialized), storeShared) || strings.Contains(string(serialized), "foreign-store") {
+		t.Fatalf("shared row leaked foreign store metadata: %s", serialized)
+	}
+}
+
+func TestListKnowledgeBaseSubscriptions_ReturnsSubscribedRows(t *testing.T) {
+	now := time.Date(2026, 9, 13, 10, 0, 0, 0, time.UTC)
+	myList := &types.MyKnowledgeBaseList{
+		Created: []*types.MyKnowledgeBaseListItem{
+			{
+				KnowledgeBase:     &types.KnowledgeBase{ID: "kb-created", Name: "created", TenantID: 1},
+				EffectiveTenantID: 1,
+				Permission:        types.OrgRoleAdmin,
+				AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+			},
+		},
+		Subscribed: []*types.MyKnowledgeBaseListItem{
+			{
+				KnowledgeBase:     &types.KnowledgeBase{ID: "kb-sub", Name: "subscribed", TenantID: 1},
+				EffectiveTenantID: 1,
+				Permission:        types.OrgRoleViewer,
+				AccessSource:      types.KnowledgeBaseAccessSourceSharedSpace,
+				IsSubscribed:      true,
+				SubscriptionID:    "sub-1",
+				SubscribedAt:      &now,
+			},
+		},
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/knowledge-bases/subscriptions", nil)
+	newSubscriptionKBRouter(t, &stubListKBService{myList: myList}, nil).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Success bool                     `json:"success"`
+		Data    []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v body=%s", err, w.Body.String())
+	}
+	if !envelope.Success || len(envelope.Data) != 1 {
+		t.Fatalf("expected one subscribed row, got %d body=%s", len(envelope.Data), w.Body.String())
+	}
+	row := envelope.Data[0]
+	if row["id"] != "kb-sub" {
+		t.Fatalf("expected subscribed KB row, got %v", row["id"])
+	}
+	if row["is_subscribed"] != true || row["subscription_id"] != "sub-1" {
+		t.Fatalf("subscription metadata missing: %+v", row)
+	}
+}
+
+func TestSubscribeKnowledgeBase_ReturnsSubscriptionResult(t *testing.T) {
+	svc := &stubListKBService{
+		subscribeResult: &types.KnowledgeBaseSubscriptionResult{
+			KnowledgeBaseID: "kb-1",
+			Subscribed:      true,
+			SubscriptionID:  "sub-1",
+		},
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/knowledge-bases/kb-1/subscribe", nil)
+	newSubscriptionKBRouter(t, svc, nil).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.subscribeID != "kb-1" {
+		t.Fatalf("expected service to receive kb-1, got %q", svc.subscribeID)
+	}
+	var envelope struct {
+		Success bool                                  `json:"success"`
+		Data    types.KnowledgeBaseSubscriptionResult `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v body=%s", err, w.Body.String())
+	}
+	if !envelope.Success || !envelope.Data.Subscribed || envelope.Data.SubscriptionID != "sub-1" {
+		t.Fatalf("unexpected response: %+v", envelope)
+	}
+}
+
+func TestUnsubscribeKnowledgeBase_ReturnsSubscriptionResult(t *testing.T) {
+	svc := &stubListKBService{
+		unsubscribeResult: &types.KnowledgeBaseSubscriptionResult{
+			KnowledgeBaseID: "kb-1",
+			Subscribed:      false,
+			SubscriptionID:  "sub-1",
+		},
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/knowledge-bases/kb-1/subscribe", nil)
+	newSubscriptionKBRouter(t, svc, nil).ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.unsubscribeID != "kb-1" {
+		t.Fatalf("expected service to receive kb-1, got %q", svc.unsubscribeID)
+	}
+	var envelope struct {
+		Success bool                                  `json:"success"`
+		Data    types.KnowledgeBaseSubscriptionResult `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode: %v body=%s", err, w.Body.String())
+	}
+	if !envelope.Success || envelope.Data.Subscribed || envelope.Data.SubscriptionID != "sub-1" {
+		t.Fatalf("unexpected response: %+v", envelope)
 	}
 }

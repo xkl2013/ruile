@@ -6,6 +6,26 @@ import (
 	"gorm.io/gorm"
 )
 
+// SharingScope identifies whether a shared space uses the historical
+// cross-workspace semantics or the new organization-internal boundary.
+type SharingScope string
+
+const (
+	SharingScopeLegacyCrossSpace SharingScope = "legacy_cross_space"
+	SharingScopeTenantInternal   SharingScope = "tenant_internal"
+)
+
+// IsValid reports whether the sharing scope is one of the supported persisted
+// values.
+func (s SharingScope) IsValid() bool {
+	switch s {
+	case SharingScopeLegacyCrossSpace, SharingScopeTenantInternal:
+		return true
+	default:
+		return false
+	}
+}
+
 // OrgMemberRole represents the role of an organization member
 type OrgMemberRole string
 
@@ -65,6 +85,9 @@ type Organization struct {
 	Name string `json:"name" gorm:"type:varchar(255);not null"`
 	// Description of the organization
 	Description string `json:"description" gorm:"type:text"`
+	// SharingScope is nullable while existing shared spaces remain on their
+	// historical semantics until explicitly classified.
+	SharingScope *SharingScope `json:"sharing_scope,omitempty" gorm:"column:sharing_scope;type:varchar(32)"`
 	// Avatar URL for display in list and settings
 	Avatar string `json:"avatar" gorm:"type:varchar(512)"`
 	// User ID of the organization owner
@@ -301,11 +324,12 @@ type UpdateSharePermissionRequest struct {
 
 // OrganizationResponse represents an organization in API responses
 type OrganizationResponse struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Avatar      string `json:"avatar,omitempty"`
-	OwnerID     string `json:"owner_id"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Description  string        `json:"description"`
+	Avatar       string        `json:"avatar,omitempty"`
+	SharingScope *SharingScope `json:"sharing_scope,omitempty"`
+	OwnerID      string        `json:"owner_id"`
 	// OwnerTenantID is the persisted owner workspace of the organization.
 	OwnerTenantID   uint64    `json:"owner_tenant_id"`
 	MemberLimit     int       `json:"member_limit"` // 0 = unlimited

@@ -113,6 +113,15 @@ func SessionTenantIDFromContext(ctx context.Context) (uint64, bool) {
 	return TenantIDFromContext(ctx)
 }
 
+// IsSharedAgentFromContext reports whether the current request selected an
+// Agent through an explicit team-space share. This must not be inferred only
+// from tenant IDs because tenant-internal sharing deliberately keeps both
+// resources in the same enterprise tenant.
+func IsSharedAgentFromContext(ctx context.Context) bool {
+	v, ok := ctx.Value(SharedAgentContextKey).(bool)
+	return ok && v
+}
+
 // WithMCPOAuthNonInteractive marks ctx as originating from a channel that cannot
 // complete an in-conversation MCP OAuth prompt (e.g. an IM bot). The agent uses
 // this to emit a one-shot authorization notice instead of blocking on the OAuth

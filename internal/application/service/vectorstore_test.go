@@ -829,6 +829,8 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     tenant_id INTEGER NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     creator_id VARCHAR(36),
+    config_source VARCHAR(32),
+    config_version VARCHAR(64),
     type VARCHAR(32) NOT NULL DEFAULT 'document',
     chunking_config TEXT NOT NULL DEFAULT '{}',
     image_processing_config TEXT NOT NULL DEFAULT '{}',
@@ -948,6 +950,29 @@ func (r *realKBRepo) ListKnowledgeBases(_ context.Context) ([]*types.KnowledgeBa
 	return nil, nil
 }
 func (r *realKBRepo) ListKnowledgeBasesByTenantID(_ context.Context, _ uint64) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
+func (r *realKBRepo) ListKnowledgeBasesByCreatorID(_ context.Context, _ string) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
+func (r *realKBRepo) ListActiveKnowledgeBaseSubscriptionsByUserID(
+	_ context.Context,
+	_ string,
+) ([]*types.KnowledgeBaseSubscription, error) {
+	return nil, nil
+}
+func (r *realKBRepo) UpsertKnowledgeBaseSubscription(
+	_ context.Context,
+	_ string,
+	_ string,
+) (*types.KnowledgeBaseSubscription, error) {
+	return nil, nil
+}
+func (r *realKBRepo) CancelKnowledgeBaseSubscription(
+	_ context.Context,
+	_ string,
+	_ string,
+) (*types.KnowledgeBaseSubscription, error) {
 	return nil, nil
 }
 func (r *realKBRepo) UpdateKnowledgeBase(_ context.Context, _ *types.KnowledgeBase) error {

@@ -86,6 +86,7 @@ const userOptions = computed(() => [
 
 function canSeeItem(item: AdminNavItem): boolean {
   if (item.requiresSystemAdmin) return authStore.isSystemAdmin
+  if (item.editionFeature && !authStore.hasEditionFeature(item.editionFeature)) return false
   if (item.minRole) return authStore.hasRole(item.minRole)
   return true
 }

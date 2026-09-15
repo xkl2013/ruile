@@ -43,7 +43,12 @@ export const useAuthStore = defineStore('auth', () => {
   // along with their role in each. Populated from /auth/login response.
   // v1 deployments will typically have length 1; the field is wired now
   // so PR 3 can render a tenant-switcher UI without a store migration.
-  const memberships = ref<Array<{ tenant_id: number; tenant_name?: string; role: string }>>([])
+  const memberships = ref<Array<{
+    tenant_id: number
+    tenant_name?: string
+    role: string
+    space_type?: string
+  }>>([])
   const isLiteMode = ref(false)
   // pendingInvitationCount is the number of pending tenant invitations
   // addressed to the current user. Renders as a badge next to the
@@ -94,6 +99,26 @@ export const useAuthStore = defineStore('auth', () => {
     if (fromMembership?.tenant_name) return fromMembership.tenant_name
     if (tenant.value && String(tenant.value.id) === tid) return tenant.value.name || ''
     return ''
+  })
+
+  const currentTenantSpaceType = computed(() => {
+    const tid =
+      selectedTenantId.value !== null && selectedTenantId.value !== undefined
+        ? String(selectedTenantId.value)
+        : tenant.value?.id
+        ? String(tenant.value.id)
+        : ''
+    const fromMembership = memberships.value.find((m) => String(m.tenant_id) === tid)
+    return fromMembership?.space_type || tenant.value?.space_type || ''
+  })
+
+  const isPersonalWorkspace = computed(() => currentTenantSpaceType.value === 'personal')
+  const isEnterpriseWorkspace = computed(() => {
+    if (isPersonalWorkspace.value) return false
+    // Unclassified legacy workspaces remain enterprise-compatible during
+    // rollout. A tenant must be selected before showing enterprise entry
+    // points; tenantless onboarding remains neutral.
+    return Boolean(selectedTenantId.value || tenant.value?.id)
   })
 
   const currentUserId = computed(() => {
@@ -178,10 +203,118 @@ export const useAuthStore = defineStore('auth', () => {
     return (ROLE_LEVEL[currentTenantRole.value] ?? 0) >= ROLE_LEVEL[min]
   }
 
+  // The main product UI is account-centred, so creation permissions must not
+  // depend on whichever tenant happens to be active in the current token.
+  // These targets are only a rendering hint; the API validates them again.
+  const enterpriseKnowledgeBaseTargets = computed(() => {
+    const targets = new Map<number, {
+      tenant_id: number
+      tenant_name: string
+      role: string
+    }>()
+
+    for (const membership of memberships.value) {
+      const tenantID = Number(membership.tenant_id)
+      if (
+        !tenantID ||
+        membership.space_type !== 'organization' ||
+        (ROLE_LEVEL[String(membership.role).toLowerCase()] ?? 0) < ROLE_LEVEL.contributor
+      ) {
+        continue
+      }
+      targets.set(tenantID, {
+        tenant_id: tenantID,
+        tenant_name: membership.tenant_name || `#${tenantID}`,
+        role: String(membership.role).toLowerCase(),
+      })
+    }
+
+    // A system administrator may operate in the currently active enterprise
+    // workspace even when that workspace is not represented by a member row.
+    const activeTenantID = Number(
+      selectedTenantId.value || tenant.value?.id || 0,
+    )
+    if (
+      isSystemAdmin.value &&
+      activeTenantID > 0 &&
+      currentTenantSpaceType.value === 'organization'
+    ) {
+      targets.set(activeTenantID, {
+        tenant_id: activeTenantID,
+        tenant_name: currentTenantName.value || `#${activeTenantID}`,
+        role: 'admin',
+      })
+    }
+
+    return Array.from(targets.values()).sort((a, b) =>
+      a.tenant_name.localeCompare(b.tenant_name),
+    )
+  })
+
+  const canCreateEnterpriseKnowledgeBase = computed(
+    () => enterpriseKnowledgeBaseTargets.value.length > 0,
+  )
+  const canCreatePersonalKnowledgeBase = computed(
+    () => Number(user.value?.tenant_id || 0) > 0 || hasValidTenant.value,
+  )
+  const hasEnterpriseMembership = computed(() =>
+    memberships.value.some((membership) => membership.space_type === 'organization'),
+  )
+
   const effectiveTenantId = computed(() => {
     // 如果选择了其他空间，使用选择的空间ID，否则使用用户默认空间ID
     return selectedTenantId.value || (tenant.value?.id ? Number(tenant.value.id) : null)
   })
+
+  const currentEditionFeatures = computed<Record<string, boolean> | null>(() => {
+    const tenantID = tenant.value?.id ? Number(tenant.value.id) : null
+    // When the active tenant is only known from the membership list, the
+    // edition feature map may still belong to the previous tenant snapshot.
+    // Fall back to space_type in that case instead of applying stale flags.
+    if (effectiveTenantId.value && tenantID && effectiveTenantId.value !== tenantID) {
+      return null
+    }
+    const features = tenant.value?.edition_capabilities?.features
+    return features && typeof features === 'object' ? features : null
+  })
+
+  const enterpriseFeatureFallbacks = new Set([
+    'workspace.members.manage',
+    'workspace.shared_spaces',
+    'workspace.enterprise_invite',
+    'knowledge.share',
+    'knowledge.publish',
+    'agent.enterprise_manage',
+    'skill.enterprise_manage',
+    'channel.embed',
+    'channel.im',
+    'tenant.api_keys',
+    'tenant.audit_log',
+    'tenant.storage_backend_manage',
+    'knowledge.defaults_manage',
+  ])
+
+  const hasEditionFeature = (feature: string): boolean => {
+    const key = String(feature || '').trim()
+    if (!key) return true
+    if (enterpriseFeatureFallbacks.has(key) && !isEnterpriseWorkspace.value) {
+      return false
+    }
+    const features = currentEditionFeatures.value
+    if (features && Object.prototype.hasOwnProperty.call(features, key)) {
+      return features[key] === true
+    }
+    if (enterpriseFeatureFallbacks.has(key)) {
+      return isEnterpriseWorkspace.value
+    }
+    return true
+  }
+
+  const canUseTeamSpaces = computed(() => hasEditionFeature('workspace.shared_spaces'))
+  const canManageWorkspaceMembers = computed(() => hasEditionFeature('workspace.members.manage'))
+  const canPublishKnowledgeBases = computed(
+    () => hasEditionFeature('knowledge.publish') && hasEditionFeature('knowledge.share')
+  )
 
   // 操作方法
   const setUser = (userData: UserInfo) => {
@@ -280,6 +413,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     if (tenantChanged) {
       clearTenantScopedClientState()
+      clearSessionResourceCaches()
     }
   }
 
@@ -288,7 +422,12 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const setMemberships = (
-    list: Array<{ tenant_id: number; tenant_name?: string; role: string }>
+    list: Array<{
+      tenant_id: number
+      tenant_name?: string
+      role: string
+      space_type?: string
+    }>
   ) => {
     memberships.value = Array.isArray(list) ? list : []
     localStorage.setItem('weknora_memberships', JSON.stringify(memberships.value))
@@ -348,6 +487,10 @@ export const useAuthStore = defineStore('auth', () => {
           owner_id: tenantSnapshot.owner_id || u.id || '',
           description: tenantSnapshot.description,
           status: tenantSnapshot.status,
+          space_type: tenantSnapshot.space_type,
+          edition: tenantSnapshot.edition,
+          edition_version: tenantSnapshot.edition_version,
+          edition_capabilities: tenantSnapshot.edition_capabilities,
           business: tenantSnapshot.business,
           storage_quota: tenantSnapshot.storage_quota,
           storage_used: tenantSnapshot.storage_used,
@@ -531,12 +674,23 @@ export const useAuthStore = defineStore('auth', () => {
     hasValidTenant,
     currentTenantId,
     currentTenantName,
+    currentTenantSpaceType,
+    isPersonalWorkspace,
+    isEnterpriseWorkspace,
     currentUserId,
     canAccessAllTenants,
     isSystemAdmin,
     currentTenantRole,
     hasRole,
+    enterpriseKnowledgeBaseTargets,
+    canCreateEnterpriseKnowledgeBase,
+    canCreatePersonalKnowledgeBase,
+    hasEnterpriseMembership,
     effectiveTenantId,
+    hasEditionFeature,
+    canUseTeamSpaces,
+    canManageWorkspaceMembers,
+    canPublishKnowledgeBases,
     isLiteMode,
 
     // 方法

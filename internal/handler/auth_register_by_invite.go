@@ -155,8 +155,7 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		return
 	}
 
-	inv, err := h.invitationSvc.LookupByToken(ctx, req.Token)
-	if err != nil {
+	if _, err := h.invitationSvc.LookupByToken(ctx, req.Token); err != nil {
 		c.Error(&apperrors.AppError{
 			Code:     apperrors.ErrNotFound,
 			Message:  "invitation link is invalid or has been revoked",
@@ -180,7 +179,7 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 	registerReq := &types.RegisterRequest{
 		Username:           req.Username,
 		Password:           req.Password,
-		TenantProvisioning: types.TenantProvisioningTenantless,
+		TenantProvisioning: types.TenantProvisioningCreatePersonal,
 	}
 	if phoneProvided {
 		registerReq.Phone = identity
@@ -196,26 +195,10 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		return
 	}
 
-	// The invited tenant becomes the user's initial/default tenant. No
-	user.TenantID = inv.TenantID
-	if err := h.userService.UpdateUser(ctx, user); err != nil {
-		logger.Errorf(ctx, "register-by-invite: failed to set home tenant for user %s: %v", user.ID, err)
-		_ = h.userService.DeleteUser(ctx, user.ID)
-		c.Error(apperrors.NewInternalServerError("failed to finalise invited account").WithDetails(err.Error()))
-		return
-	}
-
 	if _, err := h.invitationSvc.AcceptByToken(ctx, req.Token, user.ID); err != nil {
-		// Race: link was revoked between Lookup and Accept. Keep the new
-		// account, but restore it to tenantless so it does not point at a
-		// tenant for which no membership was created. If even that repair
-		// fails, remove the half-provisioned identity.
+		// Race: link was revoked between Lookup and Accept. Keep the newly
+		// created personal account; it simply has no enterprise authorization.
 		logger.Errorf(ctx, "register-by-invite: accept failed for user %s: %v", user.ID, err)
-		user.TenantID = 0
-		if rollbackErr := h.userService.UpdateUser(ctx, user); rollbackErr != nil {
-			logger.Errorf(ctx, "register-by-invite: failed to restore tenantless user %s: %v", user.ID, rollbackErr)
-			_ = h.userService.DeleteUser(ctx, user.ID)
-		}
 		c.Error(&apperrors.AppError{
 			Code:     apperrors.ErrNotFound,
 			Message:  "invitation link is no longer valid; please log in to your new account",
@@ -231,17 +214,17 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		return
 	}
 
-	tenant, _ := h.tenantService.GetTenantByID(ctx, inv.TenantID)
+	var tenant *types.Tenant
+	if user.TenantID > 0 {
+		tenant, _ = h.tenantService.GetTenantByID(ctx, user.TenantID)
+	}
+	memberships := h.userService.BuildLoginMemberships(ctx, user, tenant)
 	c.JSON(http.StatusCreated, dto.NewAuthLoginResponse(&types.LoginResponse{
 		Success:      true,
 		Message:      "Registration successful",
 		User:         user,
 		ActiveTenant: tenant,
-		Memberships: []types.Membership{{
-			TenantID:   inv.TenantID,
-			TenantName: tenantNameOrEmpty(tenant),
-			Role:       inv.Role,
-		}},
+		Memberships:  memberships,
 		Token:        accessToken,
 		RefreshToken: refreshToken,
 	}))

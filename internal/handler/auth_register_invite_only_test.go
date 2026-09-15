@@ -163,14 +163,14 @@ func TestRegister_PhonePayloadReachesUserService(t *testing.T) {
 }
 
 func TestRegister_SelfServeAllowsRegistration(t *testing.T) {
-	// Explicit self_serve keeps public registration available, but the
-	// enterprise default provisioning is tenantless.
+	// Explicit self_serve keeps public registration available, and the
+	// default provisioning creates a personal workspace.
 	called := false
 	us := &stubRegisterUserService{
 		register: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
 			called = true
-			if req.TenantProvisioning != types.TenantProvisioningTenantless {
-				t.Fatalf("default provisioning = %q, want tenantless", req.TenantProvisioning)
+			if req.TenantProvisioning != types.TenantProvisioningCreatePersonal {
+				t.Fatalf("default provisioning = %q, want create_personal", req.TenantProvisioning)
 			}
 			return &types.User{ID: "u1", Email: "alice@example.com"}, nil
 		},
@@ -278,11 +278,11 @@ func TestRegister_DoesNotPromoteWhenExistingUsersHaveNoSystemAdmin(t *testing.T)
 	}
 }
 
-func TestRegister_TenantlessProvisioningFromConfig(t *testing.T) {
+func TestRegister_LegacyTenantlessConfigStillCreatesPersonalWorkspace(t *testing.T) {
 	us := &stubRegisterUserService{
 		register: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
-			if req.TenantProvisioning != types.TenantProvisioningTenantless {
-				t.Fatalf("provisioning = %q, want tenantless", req.TenantProvisioning)
+			if req.TenantProvisioning != types.TenantProvisioningCreatePersonal {
+				t.Fatalf("provisioning = %q, want create_personal", req.TenantProvisioning)
 			}
 			return &types.User{ID: "u1", Email: "alice@example.com"}, nil
 		},
@@ -296,7 +296,7 @@ func TestRegister_TenantlessProvisioningFromConfig(t *testing.T) {
 
 	w := doRegister(t, newRegisterTestRouter(h), validRegisterBody())
 	if w.Code != http.StatusCreated {
-		t.Fatalf("tenantless self-serve registration got %d body=%s", w.Code, w.Body.String())
+		t.Fatalf("self-serve registration got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

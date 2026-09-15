@@ -1076,7 +1076,7 @@ export default {
       title: 'No Custom Agents',
       description: 'Click the button in the top right to create your first agent',
       sharedTitle: 'No shared agents yet',
-      sharedDescription: 'Agents will appear here after a shared-space admin adds this workspace, or after someone shares an agent directly with you',
+      sharedDescription: 'Agents will appear here after a Team Space admin adds this member account, or after someone shares an agent directly with you',
       favoritesTitle: 'No favorites yet',
       favoritesDescription: 'Star an agent from its card to add it here',
       recentsTitle: 'Nothing here yet',
@@ -1088,7 +1088,7 @@ export default {
     },
     shareScope: {
       title: 'Share Scope',
-      desc: 'Space members have read-only access to this agent and will use it according to your current configuration; your changes to the agent will sync to shared spaces. To allow space members to edit knowledge base content, share the knowledge base to the space.',
+      desc: 'Space members have read-only access to this agent and will use it according to your current configuration; your changes to the agent will sync to team spaces. To allow space members to edit knowledge base content, share the knowledge base to the space.',
       knowledgeBase: 'Knowledge bases',
       chatModel: 'Chat model',
       rerankModel: 'Rerank model',
@@ -1192,14 +1192,20 @@ export default {
     versionInfo: 'Информация о версии',
     taskQueue: 'Очереди задач',
     tenantInfo: 'Информация о пространстве',
+    personalHome: 'Личная страница',
     apiInfo: 'Информация API',
     navGroups: {
       account: 'Аккаунт',
       workspace: 'Пространство',
+      team: 'Команда',
       modelsRuntime: 'Модели',
       dataExtensions: 'Данные и расширения',
       systemAdministration: 'Системное администрирование',
       platform: 'Платформа',
+    },
+    teamSpace: {
+      memberManagement: 'Управление участниками',
+      spaceManagement: 'Управление пространствами',
     },
     roleDenied: {
       title: 'Недостаточно прав',
@@ -2958,7 +2964,6 @@ export default {
       ollamaNotSupportRerank: 'Ollama не поддерживает модели ReRank, используйте удалённый API',
       ollamaNotSupportOcr: 'OCR-моделям нужен OpenAI-совместимый API с поддержкой изображений, используйте удалённый API',
       ollamaNotSupportAsr: 'Модели ASR используют OpenAI-совместимый API транскрибации, используйте удалённый API',
-      goToOllamaSettings: 'Открыть настройки',
       validation: {
         modelNameRequired: 'Введите название модели',
         modelNameEmpty: 'Название модели не может быть пустым',
@@ -3088,7 +3093,7 @@ export default {
       title: 'Базы знаний отсутствуют',
       description: 'Нажмите «Создать базу знаний» в левом быстром действии, чтобы добавить первую базу.',
       sharedTitle: 'No shared knowledge bases',
-      sharedDescription: 'Knowledge bases will appear here after a shared-space admin adds this workspace, or after someone shares one directly with you',
+      sharedDescription: 'Knowledge bases will appear here after a Team Space admin adds this member account, or after someone shares one directly with you',
       favoritesTitle: 'No favorites yet',
       favoritesDescription: 'Star a knowledge base from its card to add it here',
       recentsTitle: 'Nothing here yet',
@@ -3160,7 +3165,12 @@ export default {
       myKnowledgeBases: 'My Knowledge Bases',
       sharedToMe: 'Shared with me'
     },
-    emptyShared: 'No collaborative knowledge bases yet. They will appear after this workspace participates in a shared space.',
+    scope: {
+      personal: 'Личная база знаний',
+      enterprise: 'Корпоративная база знаний',
+      subscribed: 'База знаний в подписках'
+    },
+    emptyShared: 'No collaborative knowledge bases yet. They will appear after this workspace participates in a team space.',
     menu: {
       viewDetails: 'View Details',
       duplicate: 'Duplicate'
@@ -3388,10 +3398,17 @@ export default {
       typeDocument: 'Документальная',
       typeFAQ: 'FAQ (вопрос-ответ)',
       typeDescription: 'FAQ подходит для структурированных Q&A; документальный тип поддерживает загрузку файлов и разбиение; Wiki автоматически создает связанные страницы знаний через LLM.',
+      createScopeLabel: 'Область базы знаний',
+      createScopeDescription: 'Выберите место управления базой знаний. Личная база доступна только вам, а корпоративная управляется в корпоративном пространстве.',
+      createScopePersonal: 'Личная база знаний',
+      createScopeEnterprise: 'Корпоративная база знаний',
+      enterpriseTargetLabel: 'Корпоративное пространство',
+      enterpriseTargetPlaceholder: 'Выберите корпоративное пространство',
+      enterpriseTargetRequired: 'Выберите корпоративное пространство',
       nameLabel: 'Название базы знаний',
       namePlaceholder: 'Введите название базы знаний',
       descriptionLabel: 'Описание базы знаний',
-      descriptionPlaceholder: 'Введите описание базы знаний (необязательно)'
+      descriptionPlaceholder: 'Введите описание базы знаний (необязательно)',
     },
     wiki: {
       title: 'Wiki настройки',
@@ -4588,51 +4605,6 @@ export default {
       },
     },
   },
-  ollamaSettings: {
-    title: 'Настройки Ollama',
-    description: 'Управление локальным сервисом Ollama и моделями',
-    status: {
-      label: 'Статус Ollama',
-      desc: 'Автоматическая проверка доступности локального сервиса Ollama. При ошибке адреса или остановке сервиса статус будет «Недоступно».',
-      testing: 'Проверка',
-      available: 'Доступно',
-      unavailable: 'Недоступно',
-      untested: 'Не проверено',
-      retest: 'Проверить снова'
-    },
-    address: {
-      label: 'Адрес сервиса',
-      desc: 'API‑адрес локального сервиса Ollama, определяется автоматически. Чтобы изменить, задайте значение в .env',
-      placeholder: 'http://localhost:11434',
-      failed: 'Ошибка подключения. Проверьте, запущен ли Ollama и корректен ли адрес'
-    },
-    download: {
-      title: 'Загрузка моделей',
-      descPrefix: 'Введите имя модели для загрузки,',
-      browse: 'Открыть каталог моделей Ollama',
-      placeholder: 'например: qwen2.5:0.5b',
-      download: 'Скачать',
-      downloading: 'Загрузка: {name}'
-    },
-    installed: {
-      title: 'Установленные модели',
-      desc: 'Список моделей, установленных в Ollama',
-      empty: 'Установленные модели отсутствуют'
-    },
-    toasts: {
-      connected: 'Соединение установлено',
-      connectFailed: 'Не удалось подключиться. Проверьте, запущен ли Ollama',
-      listFailed: 'Не удалось получить список моделей',
-      downloadFailed: 'Не удалось загрузить. Попробуйте позже',
-      downloadStarted: 'Начата загрузка модели {name}',
-      downloadCompleted: 'Модель {name} загружена',
-      progressFailed: 'Не удалось получить прогресс загрузки'
-    },
-    unknown: 'Неизвестно',
-    today: 'Сегодня',
-    yesterday: 'Вчера',
-    daysAgo: '{days} дней назад'
-  },
   mcpServiceDialog: {
     addTitle: 'Добавить сервис MCP',
     editTitle: 'Редактировать сервис MCP',
@@ -5694,8 +5666,8 @@ export default {
     withWebSearch: 'Web Search',
   },
   organization: {
-    title: 'Shared Spaces',
-    subtitle: 'Create shared spaces, then let admins add participating workspaces for shared knowledge bases and agents',
+    title: 'Team Spaces',
+    subtitle: 'Create team spaces, then let admins add participating workspaces for shared knowledge bases and agents',
     createOrg: 'Create Space',
     createOrgShort: 'New',
     name: 'Space Name',
@@ -5713,9 +5685,10 @@ export default {
     rbac: {
       needTenantAdmin: 'Требуется роль администратора пространства',
       needTenantAdminTip: 'Для этого действия требуется роль admin или выше в текущем пространстве. Обратитесь к владельцу пространства.',
-      cannotCreate: 'Недостаточно прав в текущем пространстве для создания общего пространства',
-      cannotJoin: 'Недостаточно прав в текущем пространстве для управления участием в общем пространстве',
-      cannotManage: 'Недостаточно прав в текущем пространстве для управления общим пространством',
+      enterpriseOnly: 'Командные пространства доступны только в корпоративных пространствах.',
+      cannotCreate: 'Недостаточно прав в текущем пространстве для создания командного пространства',
+      cannotJoin: 'Недостаточно прав в текущем пространстве для управления участием в командном пространстве',
+      cannotManage: 'Недостаточно прав в текущем пространстве для управления командным пространством',
     },
     invite: {
       knowledgeBases: 'Knowledge Bases',
@@ -5740,7 +5713,7 @@ export default {
     roleUpdateFailed: 'Failed to update role',
     memberRemoved: 'Member removed',
     memberRemoveFailed: 'Failed to remove member',
-    empty: 'You have not joined any shared space yet',
+    empty: 'You have not joined any team space yet',
     emptyDesc: 'Create a space, then admins can add participating workspaces',
     all: 'All',
     createdByMe: 'Created by me',
@@ -5751,7 +5724,7 @@ export default {
     emptyCreated: 'You have not created any space yet',
     emptyCreatedDesc: 'Click "Create Space" to create one',
     emptyJoined: 'You have not joined any space yet',
-    emptyJoinedDesc: 'Wait for a shared-space admin to add this workspace',
+    emptyJoinedDesc: 'Wait for a Team Space admin to add this member account',
     role: {
       admin: 'Admin',
       editor: 'Editor',
@@ -6416,11 +6389,11 @@ export default {
     description: 'Просмотр базовых данных аккаунта (ID пользователя, имя, email, дата регистрации).',
   },
   tenantMember: {
-    title: 'Участники',
-    sectionDescription: 'Приглашайте коллег в пространство и управляйте их ролями. Добавлять и удалять участников может только Владелец.',
+    title: 'Управление участниками',
+    sectionDescription: 'Управляйте всеми участниками корпоративного пространства и их ролями. Добавлять и удалять участников может только Владелец.',
     learnRbacGuide: 'Подробнее о RBAC',
     totalCount: 'Участников: {n}',
-    listTitle: 'Участники пространства',
+    listTitle: 'Все участники компании',
     filterMatched: 'найдено: {n}',
     loading: 'Загрузка участников…',
     retry: 'Повторить',

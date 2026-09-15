@@ -44,10 +44,6 @@ func (s *sessionService) resolveReadableKnowledgeBaseTenant(
 		return 0, false
 	}
 
-	if isSharedAgentRuntime(ctx, retrievalTenantID) && kb.TenantID == retrievalTenantID {
-		return kb.TenantID, true
-	}
-
 	if kb.TenantID == retrievalTenantID && callerIsTenantAdmin(ctx) {
 		return kb.TenantID, true
 	}
@@ -86,7 +82,8 @@ func callerIsTenantAdmin(ctx context.Context) bool {
 
 func isSharedAgentRuntime(ctx context.Context, retrievalTenantID uint64) bool {
 	sessionTenantID, ok := types.SessionTenantIDFromContext(ctx)
-	return ok && sessionTenantID != 0 && retrievalTenantID != 0 && sessionTenantID != retrievalTenantID
+	return types.IsSharedAgentFromContext(ctx) ||
+		(ok && sessionTenantID != 0 && retrievalTenantID != 0 && sessionTenantID != retrievalTenantID)
 }
 
 func callerTenantIDForSearchVisibility(ctx context.Context, retrievalTenantID uint64) uint64 {

@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     tenant_id INTEGER NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     type VARCHAR(32) NOT NULL DEFAULT 'document',
+    config_source VARCHAR(32),
+    config_version VARCHAR(64),
     chunking_config TEXT NOT NULL DEFAULT '{}',
     image_processing_config TEXT NOT NULL DEFAULT '{}',
     embedding_model_id VARCHAR(64) NOT NULL,
@@ -53,6 +55,23 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
 );
 `
 
+const knowledgeBaseSubscriptionsTestDDL = `
+CREATE TABLE IF NOT EXISTS knowledge_base_subscriptions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    knowledge_base_id VARCHAR(36) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kb_subscriptions_user_kb
+    ON knowledge_base_subscriptions(user_id, knowledge_base_id);
+CREATE INDEX IF NOT EXISTS idx_kb_subscriptions_user
+    ON knowledge_base_subscriptions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_kb_subscriptions_kb
+    ON knowledge_base_subscriptions(knowledge_base_id, status);
+`
+
 // setupKBTestDB creates an in-memory SQLite database containing the
 // knowledge_bases table with the vector_store_id column included, so that
 // tests can exercise the GORM behavior of the VectorStoreID field.
@@ -61,6 +80,7 @@ func setupKBTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.Exec(knowledgeBasesTestDDL).Error)
+	require.NoError(t, db.Exec(knowledgeBaseSubscriptionsTestDDL).Error)
 	return db
 }
 
@@ -156,6 +176,168 @@ func TestListKnowledgeBasesByTenantID_ManualOrderBeforeUnordered(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 3)
 	assert.Equal(t, []string{"kb-b", "kb-a", "kb-c"}, []string{got[0].ID, got[1].ID, got[2].ID})
+}
+
+func TestListKnowledgeBasesByCreatorID_ExcludesTemporaryAndOrders(t *testing.T) {
+	db := setupKBTestDB(t)
+	repo := NewKnowledgeBaseRepository(db)
+	now := time.Now().UTC()
+	kbs := []*types.KnowledgeBase{
+		{
+			ID:               "kb-mine-old",
+			Name:             "mine old",
+			TenantID:         1,
+			CreatorID:        "user-1",
+			EmbeddingModelID: "embed",
+			SummaryModelID:   "summary",
+			CreatedAt:        now.Add(-2 * time.Hour),
+		},
+		{
+			ID:               "kb-mine-ordered",
+			Name:             "mine ordered",
+			TenantID:         2,
+			CreatorID:        "user-1",
+			SortOrder:        1024,
+			EmbeddingModelID: "embed",
+			SummaryModelID:   "summary",
+			CreatedAt:        now.Add(-3 * time.Hour),
+		},
+		{
+			ID:               "kb-other",
+			Name:             "other",
+			TenantID:         1,
+			CreatorID:        "user-2",
+			EmbeddingModelID: "embed",
+			SummaryModelID:   "summary",
+			CreatedAt:        now,
+		},
+		{
+			ID:               "kb-temp",
+			Name:             "temp",
+			TenantID:         1,
+			CreatorID:        "user-1",
+			IsTemporary:      true,
+			EmbeddingModelID: "embed",
+			SummaryModelID:   "summary",
+			CreatedAt:        now.Add(time.Hour),
+		},
+	}
+	require.NoError(t, db.Create(&kbs).Error)
+
+	got, err := repo.ListKnowledgeBasesByCreatorID(context.Background(), "user-1")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, []string{"kb-mine-ordered", "kb-mine-old"}, []string{got[0].ID, got[1].ID})
+}
+
+func TestListActiveKnowledgeBaseSubscriptionsByUserID_FiltersAndOrders(t *testing.T) {
+	db := setupKBTestDB(t)
+	repo := NewKnowledgeBaseRepository(db)
+	now := time.Now().UTC()
+	rows := []*types.KnowledgeBaseSubscription{
+		{
+			ID:              "sub-old",
+			UserID:          "user-1",
+			KnowledgeBaseID: "kb-old",
+			Status:          types.KnowledgeBaseSubscriptionActive,
+			CreatedAt:       now.Add(-2 * time.Hour),
+			UpdatedAt:       now.Add(-2 * time.Hour),
+		},
+		{
+			ID:              "sub-new",
+			UserID:          "user-1",
+			KnowledgeBaseID: "kb-new",
+			Status:          types.KnowledgeBaseSubscriptionActive,
+			CreatedAt:       now.Add(-time.Hour),
+			UpdatedAt:       now,
+		},
+		{
+			ID:              "sub-cancelled",
+			UserID:          "user-1",
+			KnowledgeBaseID: "kb-cancelled",
+			Status:          types.KnowledgeBaseSubscriptionCancelled,
+			CreatedAt:       now.Add(time.Hour),
+			UpdatedAt:       now.Add(time.Hour),
+		},
+		{
+			ID:              "sub-other-user",
+			UserID:          "user-2",
+			KnowledgeBaseID: "kb-other",
+			Status:          types.KnowledgeBaseSubscriptionActive,
+			CreatedAt:       now.Add(2 * time.Hour),
+			UpdatedAt:       now.Add(2 * time.Hour),
+		},
+	}
+	require.NoError(t, db.Create(&rows).Error)
+
+	got, err := repo.ListActiveKnowledgeBaseSubscriptionsByUserID(context.Background(), "user-1")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, []string{"sub-new", "sub-old"}, []string{got[0].ID, got[1].ID})
+}
+
+func TestUpsertKnowledgeBaseSubscription_IdempotentAndReactivates(t *testing.T) {
+	db := setupKBTestDB(t)
+	repo := NewKnowledgeBaseRepository(db)
+
+	first, err := repo.UpsertKnowledgeBaseSubscription(context.Background(), "user-1", "kb-1")
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	require.NotEmpty(t, first.ID)
+	assert.Equal(t, types.KnowledgeBaseSubscriptionActive, first.Status)
+
+	second, err := repo.UpsertKnowledgeBaseSubscription(context.Background(), "user-1", "kb-1")
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.Equal(t, first.ID, second.ID)
+
+	var count int64
+	require.NoError(t, db.Model(&types.KnowledgeBaseSubscription{}).
+		Where("user_id = ? AND knowledge_base_id = ?", "user-1", "kb-1").
+		Count(&count).Error)
+	assert.Equal(t, int64(1), count)
+
+	require.NoError(t, db.Model(&types.KnowledgeBaseSubscription{}).
+		Where("id = ?", first.ID).
+		Update("status", types.KnowledgeBaseSubscriptionCancelled).Error)
+
+	reactivated, err := repo.UpsertKnowledgeBaseSubscription(context.Background(), "user-1", "kb-1")
+	require.NoError(t, err)
+	require.NotNil(t, reactivated)
+	assert.Equal(t, first.ID, reactivated.ID)
+	assert.Equal(t, types.KnowledgeBaseSubscriptionActive, reactivated.Status)
+}
+
+func TestCancelKnowledgeBaseSubscription_Idempotent(t *testing.T) {
+	db := setupKBTestDB(t)
+	repo := NewKnowledgeBaseRepository(db)
+
+	missing, err := repo.CancelKnowledgeBaseSubscription(context.Background(), "user-1", "missing")
+	require.NoError(t, err)
+	require.NotNil(t, missing)
+	assert.Empty(t, missing.ID)
+	assert.Equal(t, types.KnowledgeBaseSubscriptionCancelled, missing.Status)
+
+	var count int64
+	require.NoError(t, db.Model(&types.KnowledgeBaseSubscription{}).
+		Where("user_id = ? AND knowledge_base_id = ?", "user-1", "missing").
+		Count(&count).Error)
+	assert.Equal(t, int64(0), count)
+
+	active, err := repo.UpsertKnowledgeBaseSubscription(context.Background(), "user-1", "kb-1")
+	require.NoError(t, err)
+
+	cancelled, err := repo.CancelKnowledgeBaseSubscription(context.Background(), "user-1", "kb-1")
+	require.NoError(t, err)
+	require.NotNil(t, cancelled)
+	assert.Equal(t, active.ID, cancelled.ID)
+	assert.Equal(t, types.KnowledgeBaseSubscriptionCancelled, cancelled.Status)
+
+	again, err := repo.CancelKnowledgeBaseSubscription(context.Background(), "user-1", "kb-1")
+	require.NoError(t, err)
+	require.NotNil(t, again)
+	assert.Equal(t, active.ID, again.ID)
+	assert.Equal(t, types.KnowledgeBaseSubscriptionCancelled, again.Status)
 }
 
 // TestKnowledgeBase_VectorStoreID_Updates_Immutable verifies that

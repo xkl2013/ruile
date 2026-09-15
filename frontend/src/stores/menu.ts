@@ -28,7 +28,6 @@ export const useMenuStore = defineStore('menuStore', () => {
     },
     { title: '', titleKey: 'menu.messages', icon: 'chat', path: 'messages' },
     { title: '', titleKey: 'menu.knowledgeBase', icon: 'zhishiku', path: 'knowledge-bases' },
-    { title: '', titleKey: 'menu.organizations', icon: 'organization', path: 'organizations' },
     { title: '', titleKey: 'menu.settings', icon: 'setting', path: 'settings' },
     { title: '', titleKey: 'menu.logout', icon: 'logout', path: 'logout' }
   ])
@@ -66,7 +65,7 @@ export const useMenuStore = defineStore('menuStore', () => {
       if (authStore.isLiteMode && liteHiddenPaths.has(item.path)) {
         return false
       }
-      if (item.path === 'agents' || item.path === 'organizations') {
+      if (item.path === 'agents') {
         return false
       }
       return true

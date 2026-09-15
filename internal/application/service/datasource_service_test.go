@@ -74,10 +74,32 @@ func (s *processSyncKBService) GetKnowledgeBaseByIDOnly(context.Context, string)
 func (s *processSyncKBService) GetKnowledgeBasesByIDsOnly(context.Context, []string) ([]*types.KnowledgeBase, error) {
 	return nil, nil
 }
+func (s *processSyncKBService) ResolveKnowledgeBaseAccess(
+	context.Context,
+	string,
+	types.KnowledgeBaseAccessOptions,
+) (*types.KnowledgeBaseAccess, error) {
+	return nil, types.ErrKnowledgeBaseAccessForbidden
+}
 func (s *processSyncKBService) FillKnowledgeBaseCounts(context.Context, *types.KnowledgeBase) error {
 	return nil
 }
 func (s *processSyncKBService) ListKnowledgeBases(context.Context) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
+func (s *processSyncKBService) ListMyKnowledgeBases(context.Context) (*types.MyKnowledgeBaseList, error) {
+	return nil, nil
+}
+func (s *processSyncKBService) SubscribeKnowledgeBase(
+	context.Context,
+	string,
+) (*types.KnowledgeBaseSubscriptionResult, error) {
+	return nil, nil
+}
+func (s *processSyncKBService) UnsubscribeKnowledgeBase(
+	context.Context,
+	string,
+) (*types.KnowledgeBaseSubscriptionResult, error) {
 	return nil, nil
 }
 func (s *processSyncKBService) ListKnowledgeBasesByTenantID(context.Context, uint64) ([]*types.KnowledgeBase, error) {

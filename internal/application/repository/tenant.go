@@ -43,6 +43,22 @@ func (r *tenantRepository) GetTenantByID(ctx context.Context, id uint64) (*types
 	return &tenant, nil
 }
 
+// GetTenantByProvisioningKey returns the tenant previously created for an
+// idempotent provisioning command. A missing key is a normal lookup miss and
+// returns (nil, nil), allowing the caller to proceed with the create path.
+func (r *tenantRepository) GetTenantByProvisioningKey(ctx context.Context, key string) (*types.Tenant, error) {
+	var tenant types.Tenant
+	if err := r.db.WithContext(ctx).
+		Where("provisioning_key = ?", key).
+		First(&tenant).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &tenant, nil
+}
+
 // GetTenantsByIDs batches GetTenantByID with a single IN-list query.
 // Returns a map keyed by tenant ID; missing rows are simply absent from
 // the map (no error). An empty input slice short-circuits to an empty map

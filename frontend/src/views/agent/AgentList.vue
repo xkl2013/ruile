@@ -1117,13 +1117,9 @@ const resolveAgentForEdit = (editId: string, sourceTenantId?: string): CustomAge
 
 const checkAndOpenEditModal = () => {
   const editId = route.query.edit as string
-  const section = resolveAgentEditorSectionFromRoute()
+  const requestedSection = resolveAgentEditorSectionFromRoute()
+  const section = ['im', 'embed', 'integrations'].includes(requestedSection) ? 'basic' : requestedSection
   const sourceTenantId = route.query.sourceTenantId as string | undefined
-  if (editId && (section === 'im' || section === 'embed' || section === 'integrations')) {
-    const tab = section === 'embed' ? 'embed' : 'im'
-    openAdminModule(tab === 'embed' ? '/publish/embed' : '/publish/im', { agentId: editId }, true)
-    return
-  }
   if (editId) {
     const agent = resolveAgentForEdit(editId, sourceTenantId)
     if (agent) {

@@ -18,9 +18,9 @@
           <em>结构化问答</em>
         </article>
         <article :class="{ 'is-warning': uninitializedCount > 0 }">
-          <span>待配置</span>
+          <span>待同步</span>
           <strong>{{ uninitializedCount }}</strong>
-          <em>模型或索引未完整</em>
+          <em>统一模型或索引未完整</em>
         </article>
       </div>
     </header>
@@ -29,7 +29,7 @@
       <div class="admin-kb-panel__toolbar">
         <div>
           <h2>知识库资源</h2>
-          <p>只管理后台配置和资源治理；阅读、问答、上传和 wiki 浏览仍在主工作台。</p>
+          <p>只管理后台配置和资源治理；高级配置对当前工作区全部知识库统一生效，阅读、问答、上传和 wiki 浏览仍在主工作台。</p>
         </div>
         <div class="admin-kb-toolbar-actions">
           <t-input
@@ -46,6 +46,14 @@
             <t-option value="faq" label="FAQ 库" />
           </t-select>
           <t-button
+            theme="primary"
+            :disabled="!canConfigureAnyKnowledgeBase"
+            @click="openSettings"
+          >
+            <template #icon><t-icon name="setting" /></template>
+            统一配置
+          </t-button>
+          <t-button
             v-if="canSortKnowledgeBases"
             :theme="sortMode ? 'primary' : 'default'"
             variant="outline"
@@ -55,22 +63,14 @@
             <template #icon><t-icon name="order-adjustment-column" /></template>
             {{ sortMode ? '退出排序' : '排序' }}
           </t-button>
-          <t-button
-            theme="primary"
-            :disabled="!canCreateKnowledgeBase"
-            @click="openCreate()"
-          >
-            <template #icon><t-icon name="folder-add" /></template>
-            新建知识库
-          </t-button>
         </div>
       </div>
 
       <t-alert
-        v-if="!canCreateKnowledgeBase"
+        v-if="!canConfigureAnyKnowledgeBase"
         theme="warning"
         variant="light"
-        message="当前角色只能查看知识库后台状态，创建、删除和排序需要空间 Admin 或系统管理员。"
+        message="当前角色只能查看知识库后台状态，配置和删除需要空间 Admin 或系统管理员，创建知识库请返回主工作台。"
         class="admin-kb-alert"
       />
 
@@ -134,7 +134,7 @@
 
           <template #health="{ row }">
             <t-tag :theme="isInitialized(row) ? 'success' : 'warning'" variant="light">
-              {{ isInitialized(row) ? '已配置' : '待配置' }}
+              {{ isInitialized(row) ? '已同步' : '待同步' }}
             </t-tag>
             <div class="admin-kb-indexing">
               {{ indexingSummary(row) }}
@@ -157,19 +157,6 @@
           <template #operation="{ row, rowIndex }">
             <div class="admin-kb-actions">
               <template v-if="!sortMode">
-                <t-tooltip content="后台设置" placement="top">
-                  <t-button
-                    size="small"
-                    theme="primary"
-                    variant="outline"
-                    class="admin-kb-config-btn"
-                    :disabled="!canConfigure(row)"
-                    @click="openSettings(row)"
-                  >
-                    <template #icon><t-icon name="setting" /></template>
-                    配置
-                  </t-button>
-                </t-tooltip>
                 <t-tooltip content="打开工作台" placement="top">
                   <t-button
                     size="small"
@@ -250,19 +237,12 @@
       </div>
     </section>
 
-    <KnowledgeBaseEditorModal
-      :visible="createVisible"
-      mode="create"
-      :initial-type="createInitialType"
-      @update:visible="createVisible = $event"
-      @success="handleCreateSuccess"
-    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import {
   deleteKnowledgeBase,
@@ -271,7 +251,6 @@ import {
 } from '@/api/knowledge-base'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import VectorStoreBadge from '@/components/VectorStoreBadge.vue'
-import KnowledgeBaseEditorModal from '@/views/knowledge/KnowledgeBaseEditorModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { openMainAppPath } from '@admin/utils/navigation'
@@ -304,20 +283,17 @@ type KnowledgeBaseRow = {
 }
 
 const router = useRouter()
-const route = useRoute()
 const authStore = useAuthStore()
 const chatResources = useChatResourcesStore()
 
 const knowledgeBases = ref<KnowledgeBaseRow[]>([])
 const loading = ref(false)
-const createVisible = ref(false)
-const createInitialType = ref<'document' | 'faq'>('document')
 const keyword = ref('')
 const typeFilter = ref<'all' | 'document' | 'faq'>('all')
 const reorderingId = ref('')
 const sortMode = ref(false)
 
-const canCreateKnowledgeBase = computed(() => authStore.hasRole('admin') || authStore.isSystemAdmin)
+const canConfigureAnyKnowledgeBase = computed(() => authStore.hasRole('admin') || authStore.isSystemAdmin)
 const canSortKnowledgeBases = computed(() => authStore.hasRole('admin') || authStore.isSystemAdmin)
 const isReorderFiltered = computed(() => Boolean(keyword.value.trim()) || typeFilter.value !== 'all')
 
@@ -325,7 +301,7 @@ const columns = computed(() => [
   { colKey: 'name', title: '知识库', minWidth: 280 },
   { colKey: 'type', title: '类型', width: 92 },
   { colKey: 'counts', title: '内容量', width: 92, align: 'right' },
-  { colKey: 'health', title: '配置状态', minWidth: 180 },
+  { colKey: 'health', title: '统一配置状态', minWidth: 180 },
   { colKey: 'vector_store', title: '向量库', minWidth: 180 },
   { colKey: 'updated_at', title: '更新时间', width: 156 },
   { colKey: 'operation', title: sortMode.value ? '排序操作' : '操作', width: 176, fixed: 'right', cell: 'operation' },
@@ -402,17 +378,6 @@ async function fetchList() {
   }
 }
 
-function normalizeCreateType(value: unknown): 'document' | 'faq' {
-  const raw = Array.isArray(value) ? value[0] : value
-  return raw === 'faq' ? 'faq' : 'document'
-}
-
-function openCreate(type: 'document' | 'faq' = 'document') {
-  if (!canCreateKnowledgeBase.value) return
-  createInitialType.value = type
-  createVisible.value = true
-}
-
 function toggleSortMode() {
   if (!canSortKnowledgeBases.value || knowledgeBases.value.length < 2) return
   if (isReorderFiltered.value) {
@@ -422,28 +387,13 @@ function toggleSortMode() {
   sortMode.value = !sortMode.value
 }
 
-function openSettings(row: KnowledgeBaseRow) {
-  if (!canConfigure(row)) return
-  void router.push({
-    name: 'adminKnowledgeBaseSettings',
-    params: { kbId: row.id },
-  })
+function openSettings() {
+  if (!canConfigureAnyKnowledgeBase.value) return
+  void router.push({ name: 'adminKnowledgeBaseSettings' })
 }
 
 function openWorkspace(row: KnowledgeBaseRow) {
   openMainAppPath(`/platform/knowledge-bases/${row.id}`)
-}
-
-async function handleCreateSuccess(kbId: string) {
-  createVisible.value = false
-  chatResources.invalidate('knowledgeBases')
-  await fetchList()
-  if (kbId) {
-    void router.push({
-      name: 'adminKnowledgeBaseSettings',
-      params: { kbId },
-    })
-  }
 }
 
 function deleteKB(row: KnowledgeBaseRow) {
@@ -528,19 +478,9 @@ function formatDate(value?: string): string {
   })
 }
 
-function consumeCreateQuery() {
-  if (route.query.create !== '1') return
-  openCreate(normalizeCreateType(route.query.type))
-  const { create: _create, type: _type, ...rest } = route.query
-  void router.replace({ query: rest })
-}
-
 onMounted(async () => {
   await fetchList()
-  consumeCreateQuery()
 })
-
-watch(() => route.query.create, consumeCreateQuery)
 </script>
 
 <style scoped lang="less">

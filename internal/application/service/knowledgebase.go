@@ -32,6 +32,8 @@ var ErrInvalidTenantID = errors.New("invalid tenant ID")
 
 const maxKnowledgeBaseIconBytes = 4096
 const maxKnowledgeBaseIconUploadBytes = 5 * 1024 * 1024
+const knowledgeBaseDefaultConfigVersion = "default"
+const knowledgeBaseWorkspaceConfigMessage = "知识库模型、解析、索引、多模态、图谱和存储配置由当前工作区统一管理，请在 Admin 的知识库统一配置页面修改"
 
 // knowledgeBaseService implements the knowledge base service interface
 type knowledgeBaseService struct {
@@ -44,6 +46,7 @@ type knowledgeBaseService struct {
 	retrieveEngine  interfaces.RetrieveEngineRegistry
 	ownership       retriever.TenantStoreOwnership
 	tenantRepo      interfaces.TenantRepository
+	memberService   interfaces.TenantMemberService
 	fileSvc         interfaces.FileService
 	storageResolver interfaces.StorageBackendResolver
 	graphEngine     interfaces.RetrieveGraphRepository
@@ -63,6 +66,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 	retrieveEngine interfaces.RetrieveEngineRegistry,
 	ownership retriever.TenantStoreOwnership,
 	tenantRepo interfaces.TenantRepository,
+	memberService interfaces.TenantMemberService,
 	fileSvc interfaces.FileService,
 	storageResolver interfaces.StorageBackendResolver,
 	graphEngine interfaces.RetrieveGraphRepository,
@@ -81,6 +85,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 		retrieveEngine:  retrieveEngine,
 		ownership:       ownership,
 		tenantRepo:      tenantRepo,
+		memberService:   memberService,
 		fileSvc:         fileSvc,
 		storageResolver: storageResolver,
 		graphEngine:     graphEngine,
@@ -128,7 +133,9 @@ func (s *knowledgeBaseService) CreateKnowledgeBase(ctx context.Context,
 	if uid, ok := types.UserIDFromContext(ctx); ok && !types.IsSyntheticUserID(uid) {
 		kb.CreatorID = uid
 	}
-	kb.EnsureDefaults()
+	if err := s.applyKnowledgeBaseCreationDefaults(ctx, kb); err != nil {
+		return nil, err
+	}
 	applyTenantDefaultStorageProvider(ctx, kb)
 	if err := s.applyAndValidateStorageBackend(ctx, kb); err != nil {
 		return nil, err
@@ -557,6 +564,9 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 		logger.Error(ctx, "Knowledge base ID is empty")
 		return nil, errors.New("knowledge base ID cannot be empty")
 	}
+	if config != nil {
+		return nil, apperrors.NewConflictError(knowledgeBaseWorkspaceConfigMessage)
+	}
 
 	logger.Infof(ctx, "Updating knowledge base, ID: %s, name: %s", id, name)
 
@@ -574,34 +584,6 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 	kb.Description = description
 	if icon != nil {
 		kb.Icon = strings.TrimSpace(*icon)
-	}
-	if config != nil {
-		kb.ChunkingConfig = config.ChunkingConfig
-		kb.ImageProcessingConfig = config.ImageProcessingConfig
-		if config.FAQConfig != nil {
-			kb.FAQConfig = config.FAQConfig
-		}
-		if config.WikiConfig != nil {
-			kb.WikiConfig = config.WikiConfig
-		}
-		// Update indexing strategy — syncs to ExtractConfig for backward compat
-		if config.IndexingStrategy != nil {
-			if !config.IndexingStrategy.HasAnyIndexing() {
-				return nil, errors.New("at least one indexing strategy must be enabled")
-			}
-			kb.IndexingStrategy = *config.IndexingStrategy
-			// Ensure WikiConfig exists when wiki indexing is enabled so that
-			// wiki-specific tunables (synthesis model, granularity, …) have a home.
-			if kb.WikiConfig == nil && config.IndexingStrategy.WikiEnabled {
-				kb.WikiConfig = &types.WikiConfig{}
-			}
-			// Sync GraphEnabled → ExtractConfig
-			if kb.ExtractConfig != nil {
-				kb.ExtractConfig.Enabled = config.IndexingStrategy.GraphEnabled
-			} else if config.IndexingStrategy.GraphEnabled {
-				kb.ExtractConfig = &types.ExtractConfig{Enabled: true}
-			}
-		}
 	}
 	if directoryConfig != nil {
 		directoryConfig.Normalize()
@@ -1234,50 +1216,10 @@ func (s *knowledgeBaseService) deleteDataSourcesForKnowledgeBase(ctx context.Con
 	}
 }
 
-// SetEmbeddingModel sets the embedding model for a knowledge base
+// SetEmbeddingModel is retained for source compatibility with older callers.
+// Per-KB advanced configuration is no longer supported.
 func (s *knowledgeBaseService) SetEmbeddingModel(ctx context.Context, id string, modelID string) error {
-	if id == "" {
-		logger.Error(ctx, "Knowledge base ID is empty")
-		return errors.New("knowledge base ID cannot be empty")
-	}
-
-	if modelID == "" {
-		logger.Error(ctx, "Model ID is empty")
-		return errors.New("model ID cannot be empty")
-	}
-
-	logger.Infof(ctx, "Setting embedding model for knowledge base, knowledge base ID: %s, model ID: %s", id, modelID)
-
-	// Get the knowledge base
-	kb, err := s.repo.GetKnowledgeBaseByID(ctx, id)
-	if err != nil {
-		logger.ErrorWithFields(ctx, err, map[string]interface{}{
-			"knowledge_base_id": id,
-		})
-		return err
-	}
-
-	// Update the knowledge base's embedding model
-	kb.EmbeddingModelID = modelID
-	kb.UpdatedAt = time.Now()
-
-	logger.Info(ctx, "Saving knowledge base embedding model update")
-	err = s.repo.UpdateKnowledgeBase(ctx, kb)
-	if err != nil {
-		logger.ErrorWithFields(ctx, err, map[string]interface{}{
-			"knowledge_base_id":  id,
-			"embedding_model_id": modelID,
-		})
-		return err
-	}
-
-	logger.Infof(
-		ctx,
-		"Knowledge base embedding model set successfully, knowledge base ID: %s, model ID: %s",
-		id,
-		modelID,
-	)
-	return nil
+	return apperrors.NewConflictError(knowledgeBaseWorkspaceConfigMessage)
 }
 
 // CopyKnowledgeBase copies a knowledge base to a new knowledge base (shallow copy).

@@ -64,7 +64,7 @@ type OrganizationRepository interface {
 
 // KBShareService defines the knowledge base sharing service interface.
 //
-// Permission resolution keys on the caller's concrete shared-space member.
+// Permission resolution keys on the caller's concrete team-space member.
 // The 3-dimension cap is applied inside CheckTenantKBPermission
 // and is the canonical permission gate for shared KBs:
 //
@@ -154,7 +154,9 @@ type AgentShareService interface {
 	SetSharedAgentDisabledByMe(ctx context.Context, tenantID uint64, agentID string, sourceTenantID uint64, disabled bool) error
 	// GetSharedAgentForTenant returns the shared agent by agentID if the caller's tenant has access; used to resolve KB scope for @ mention.
 	GetSharedAgentForTenant(ctx context.Context, tenantID uint64, callerTenantRole types.TenantRole, agentID string) (*types.CustomAgent, error)
-	// TenantCanAccessKBViaSomeSharedAgent returns true if the caller's tenant has at least one shared agent that can access the given KB (for opening KB detail from "通过智能体可见" list without passing agent_id).
+	// TenantCanAccessKBViaSomeSharedAgent is retained for source compatibility.
+	// Shared Agent configuration is not a KB authorization grant, so current
+	// implementations always return false.
 	TenantCanAccessKBViaSomeSharedAgent(ctx context.Context, tenantID uint64, callerTenantRole types.TenantRole, kb *types.KnowledgeBase) (bool, error)
 	GetShare(ctx context.Context, shareID string) (*types.AgentShare, error)
 	GetShareByAgentAndOrg(ctx context.Context, agentID string, orgID string) (*types.AgentShare, error)

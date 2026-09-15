@@ -183,11 +183,38 @@ type RegisterRequest struct {
 	Email    string `json:"email,omitempty"`
 	Password string `json:"password" binding:"required,min=6"`
 
+	// RegistrationIntent is resolved by the HTTP handler from the public
+	// registration form and is deliberately excluded from JSON binding.
+	// Service callers may set it directly for trusted flows such as tests or
+	// a future server-side onboarding command.
+	RegistrationIntent RegistrationIntent `json:"-"`
+	// EnterpriseName and EnterpriseDescription are used only when
+	// RegistrationIntentEnterprise is selected. They stay server-controlled
+	// at the service boundary so a public caller cannot bypass validation by
+	// crafting an unrelated tenant payload.
+	EnterpriseName        string `json:"-"`
+	EnterpriseDescription string `json:"-"`
+
 	// TenantProvisioning is server-controlled registration context. It is
 	// deliberately excluded from JSON so a public caller cannot choose its
 	// own tenancy semantics. Empty preserves the historical behaviour and is
 	// treated as create_personal by UserService.Register.
 	TenantProvisioning TenantProvisioningMode `json:"-"`
+}
+
+// RegistrationIntent selects the workspace package created together with a
+// newly registered identity. Both intents still create the same global User
+// identity and its personal home workspace; enterprise registration adds an
+// enterprise workspace and makes it the first active workspace after login.
+type RegistrationIntent string
+
+const (
+	RegistrationIntentPersonal   RegistrationIntent = "personal"
+	RegistrationIntentEnterprise RegistrationIntent = "enterprise"
+)
+
+func (i RegistrationIntent) IsValid() bool {
+	return i == RegistrationIntentPersonal || i == RegistrationIntentEnterprise
 }
 
 // TenantProvisioningMode controls what UserService.Register does after it

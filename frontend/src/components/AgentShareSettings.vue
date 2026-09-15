@@ -135,6 +135,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useOrganizationStore } from '@/stores/organization'
+import { useAuthStore } from '@/stores/auth'
 import { shareAgent, listAgentShares, removeAgentShare } from '@/api/organization'
 import type { AgentShareResponse } from '@/api/organization'
 import type { CustomAgent } from '@/api/agent'
@@ -142,6 +143,7 @@ import SpaceAvatar from '@/components/SpaceAvatar.vue'
 
 const { t } = useI18n()
 const orgStore = useOrganizationStore()
+const authStore = useAuthStore()
 
 function getOrgForShare(organizationId: string) {
   return orgStore.organizations.find(o => o.id === organizationId)
@@ -163,14 +165,17 @@ const shares = ref<(AgentShareResponse & { organization_name?: string })[]>([])
 
 const availableOrganizations = computed(() => {
   const sharedOrgIds = new Set(shares.value.map(s => s.organization_id))
+  if (!authStore.canUseTeamSpaces) return []
   return orgStore.organizations.filter(
     (org) =>
       !sharedOrgIds.has(org.id) &&
+      org.sharing_scope === 'tenant_internal' &&
       (org.is_owner === true || org.my_role === 'admin' || org.my_role === 'editor')
   )
 })
 
 async function loadOrganizations() {
+  if (!authStore.canUseTeamSpaces) return
   loadingOrgs.value = true
   try {
     await orgStore.fetchOrganizations()

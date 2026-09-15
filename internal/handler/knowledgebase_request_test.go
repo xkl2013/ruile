@@ -31,6 +31,26 @@ func TestUpdateKBRequest_DoesNotAcceptVectorStoreID(t *testing.T) {
 	})
 }
 
+func TestCreateKBRequest_ContainsBasicFieldsAndCreationScope(t *testing.T) {
+	typ := reflect.TypeOf(CreateKnowledgeBaseRequest{})
+	if typ.NumField() != 4 {
+		t.Fatalf("expected exactly 4 create fields, got %d", typ.NumField())
+	}
+	if typ.Field(0).Name != "Name" || typ.Field(0).Tag.Get("json") != "name" {
+		t.Fatalf("unexpected name field: %#v", typ.Field(0))
+	}
+	if typ.Field(1).Name != "Description" || typ.Field(1).Tag.Get("json") != "description" {
+		t.Fatalf("unexpected description field: %#v", typ.Field(1))
+	}
+	if typ.Field(2).Name != "Scope" || typ.Field(2).Tag.Get("json") != "scope" {
+		t.Fatalf("unexpected scope field: %#v", typ.Field(2))
+	}
+	if typ.Field(3).Name != "EnterpriseTenantID" ||
+		typ.Field(3).Tag.Get("json") != "enterprise_tenant_id,omitempty" {
+		t.Fatalf("unexpected enterprise target field: %#v", typ.Field(3))
+	}
+}
+
 // assertNoVectorStoreIDField walks the visible fields of t (including embedded
 // anonymous structs) and reports any field named VectorStoreID or carrying
 // a json tag of "vector_store_id".

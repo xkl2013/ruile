@@ -215,10 +215,6 @@
                 <span v-if="wkcState === 'expired'">{{ $t('settings.weknoraCloud.credentialExpired') }}</span>
                 <span v-else>{{ $t('settings.weknoraCloud.unconfigured') }}</span>
               </span>
-              <a class="inline-alert__action" @click="goToWkcSettings">
-                {{ $t('settings.weknoraCloud.goToSettings') }}
-                <t-icon name="chevron-right" />
-              </a>
             </div>
           </template>
         </section>
@@ -386,7 +382,6 @@ import {
   type ParserEngineConfig,
 } from '@/api/system'
 import { getWeKnoraCloudStatus } from '@/api/model'
-import { navigateToAdmin } from '@/utils/adminNavigation'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -688,10 +683,6 @@ async function checkWkcStatus() {
   } catch {
     wkcState.value = 'unconfigured'
   }
-}
-
-function goToWkcSettings() {
-  navigateToAdmin('/runtime/weknora-cloud')
 }
 
 onMounted(loadAll)

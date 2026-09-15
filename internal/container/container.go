@@ -203,6 +203,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewUserService))
 	must(container.Provide(service.NewAliyunSMSService))
 	must(container.Provide(service.NewSystemSettingService))
+	must(container.Provide(service.NewKnowledgeBaseDefaultsService))
 	must(container.Provide(service.NewWeKnoraCloudService))
 
 	// Extract services - register individual extracters with names

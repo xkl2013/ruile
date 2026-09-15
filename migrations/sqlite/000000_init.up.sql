@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     description TEXT,
     retriever_engines TEXT NOT NULL DEFAULT '[]',
     status VARCHAR(50) DEFAULT 'active',
+    space_type VARCHAR(32),
     business VARCHAR(255) NOT NULL,
     storage_quota BIGINT NOT NULL DEFAULT 10737418240,
     storage_used BIGINT NOT NULL DEFAULT 0,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     credentials TEXT DEFAULT NULL,
     chat_history_config TEXT,
     retrieval_config TEXT,
+    knowledge_base_defaults_config TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at DATETIME
@@ -76,6 +78,8 @@ CREATE TABLE IF NOT EXISTS knowledge_bases (
     vector_store_id VARCHAR(36),
     storage_backend_id VARCHAR(36),
     creator_id VARCHAR(36),
+    config_source VARCHAR(32),
+    config_version VARCHAR(64),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at DATETIME
@@ -90,6 +94,22 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_bases_storage_backend
     ON knowledge_bases(tenant_id, storage_backend_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_bases_tenant_creator
     ON knowledge_bases(tenant_id, creator_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_base_subscriptions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    knowledge_base_id VARCHAR(36) NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_kb_subscriptions_user_kb
+    ON knowledge_base_subscriptions(user_id, knowledge_base_id);
+CREATE INDEX IF NOT EXISTS idx_kb_subscriptions_user
+    ON knowledge_base_subscriptions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_kb_subscriptions_kb
+    ON knowledge_base_subscriptions(knowledge_base_id, status);
 
 CREATE TABLE IF NOT EXISTS knowledges (
     id VARCHAR(36) PRIMARY KEY,
@@ -549,6 +569,7 @@ CREATE TABLE IF NOT EXISTS organizations (
     id VARCHAR(36) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    sharing_scope VARCHAR(32),
     owner_id VARCHAR(36) NOT NULL,
     -- Plan 3 (#1303): owning tenant pinned at create time; see migration 000046.
     owner_tenant_id INTEGER NOT NULL DEFAULT 0,

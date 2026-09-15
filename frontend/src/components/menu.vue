@@ -37,9 +37,6 @@
             </div>
         </t-tooltip>
 
-        <!-- 空间选择器：仅在用户可切换空间时显示 -->
-        <TenantSelector v-if="canAccessAllTenants && !uiStore.sidebarCollapsed" />
-
         <!-- 折叠时右侧拖拽展开手柄 -->
         <div v-if="uiStore.sidebarCollapsed" class="sidebar-drag-handle" @mousedown="onDragHandleMouseDown" />
 
@@ -76,7 +73,7 @@
                                 <div class="menu_icon">
                                     <t-icon v-if="item.path === 'messages'" name="chat" class="icon menu-icon-symbol" />
                                     <img v-else class="icon"
-                                        :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'organization' ? organizationIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
+                                        :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
                                         :class="{ 'icon--avatar': item.path === 'creatChat' }" alt="">
                                 </div>
                                 <span v-if="!uiStore.sidebarCollapsed" class="menu_title" :title="item.title">{{
@@ -236,11 +233,9 @@ import {
 import { logout as logoutApi } from '@/api/auth';
 import { useMenuStore } from '@/stores/menu';
 import { useAuthStore } from '@/stores/auth';
-import { useOrganizationStore } from '@/stores/organization';
 import { useUIStore } from '@/stores/ui';
 import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
 import UserMenu from '@/components/UserMenu.vue';
-import TenantSelector from '@/components/TenantSelector.vue';
 import KnowledgeBaseMenu from '@/components/KnowledgeBaseMenu.vue';
 import OrganizeMenu from '@/components/OrganizeMenu.vue';
 import { useI18n } from 'vue-i18n';
@@ -277,7 +272,6 @@ const platformLogo = (p: string): string => (p ? PLATFORM_LOGO[p] || '' : '');
 const { t } = useI18n();
 const usemenuStore = useMenuStore();
 const authStore = useAuthStore();
-const orgStore = useOrganizationStore();
 const uiStore = useUIStore();
 const route = useRoute();
 const router = useRouter();
@@ -347,9 +341,6 @@ const batchDisplayCount = computed(() =>
     isAllBatchSelected.value ? total.value : batchSelectedIds.value.length
 )
 
-// 是否可以访问所有空间
-const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
-
 // 是否处于知识库详情页（不包括全局聊天）
 const isInKnowledgeBase = computed<boolean>(() => {
     return route.name === 'knowledgeBaseDetail' ||
@@ -373,9 +364,6 @@ const isInChatDetail = computed<boolean>(() => route.name === 'chat');
 // 是否在智能体列表页面
 const isInAgentList = computed<boolean>(() => route.name === 'agentList');
 
-// 是否在组织列表页面
-const isInOrganizationList = computed<boolean>(() => route.name === 'organizationList');
-
 // 服务模块有自己的提醒列表，侧栏不再同时展示历史会话列表。
 const isInServiceModule = computed<boolean>(() => typeof route.name === 'string' && route.name.startsWith('service'));
 
@@ -390,8 +378,6 @@ const isMenuItemActive = (itemPath: string): boolean => {
                 currentRoute === 'knowledgeBaseSettings';
         case 'agents':
             return currentRoute === 'agentList';
-        case 'organizations':
-            return currentRoute === 'organizationList';
         case 'creatChat':
             return currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat';
         case 'messages':
@@ -422,13 +408,13 @@ const getIconActiveState = (itemPath: string) => {
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) =>
-        item.path === 'knowledge-bases' || item.path === 'organizations' || item.path === 'creatChat' || item.path === 'messages'
+        item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'messages'
     );
 });
 
 const bottomMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => {
-        if (item.path === 'knowledge-bases' || item.path === 'organizations' || item.path === 'creatChat') {
+        if (item.path === 'knowledge-bases' || item.path === 'creatChat') {
             return false;
         }
         return true;
@@ -964,10 +950,6 @@ onMounted(async () => {
         ensureSessionInSidebar(initialChatId);
         await syncActiveBucketFromChat(initialChatId);
     }
-    // 若组织列表未加载则拉取一次，用于侧栏「待审批」角标
-    if (orgStore.organizations.length === 0) {
-        orgStore.fetchOrganizations();
-    }
 });
 
 onUnmounted(() => {
@@ -1004,23 +986,18 @@ let prefixIcon = ref('xiaorui-ai.png');
 let logoutIcon = ref('logout.svg');
 let settingIcon = ref('setting.svg');
 let agentIcon = ref('agent.svg');
-let organizationIcon = ref('organization.svg');
 let pathPrefix = ref(route.name)
 const getIcon = (path: string) => {
     // 根据当前路由状态更新所有图标
     const kbActiveState = getIconActiveState('knowledge-bases');
     const settingsActiveState = getIconActiveState('settings');
     const agentsActiveState = route.name === 'agentList';
-    const organizationsActiveState = route.name === 'organizationList';
 
     // 知识库图标：只在知识库页面显示绿色
     knowledgeIcon.value = kbActiveState.isKbActive ? 'zhishiku-green.svg' : 'zhishiku.svg';
 
     // 智能体图标：只在智能体页面显示绿色
     agentIcon.value = agentsActiveState ? 'agent-green.svg' : 'agent.svg';
-
-    // 组织图标：只在组织页面显示绿色
-    organizationIcon.value = organizationsActiveState ? 'organization-green.svg' : 'organization.svg';
 
     // 小睿 AI 使用品牌头像，激活态由菜单背景承载。
     prefixIcon.value = 'xiaorui-ai.png';
@@ -1043,9 +1020,6 @@ const handleMenuClick = async (path: string) => {
         }
     } else if (path === 'agents') {
         navigateToAdmin('/agents')
-    } else if (path === 'organizations') {
-        // 组织菜单项：跳转到组织列表
-        router.push('/platform/organizations')
     } else if (path === 'settings') {
         // 设置菜单项：打开设置弹窗并跳转路由
         uiStore.openSettings()

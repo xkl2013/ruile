@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS tenants (
     storage_quota BIGINT NOT NULL DEFAULT 10737418240, -- 默认10GB配额(Bytes)
     storage_used BIGINT NOT NULL DEFAULT 0, -- 已使用的存储空间(Bytes)
     agent_config JSONB DEFAULT NULL,
+    knowledge_base_defaults_config JSONB DEFAULT NULL,
+    provisioning_key VARCHAR(128),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP WITH TIME ZONE
@@ -45,6 +47,8 @@ END $$;
 -- Add indexes
 CREATE INDEX IF NOT EXISTS idx_tenants_api_key ON tenants(api_key);
 CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tenants_provisioning_key
+    ON tenants(provisioning_key);
 
 -- Create model table
 DO $$ BEGIN RAISE NOTICE '[Migration 000000] Creating table: models'; END $$;

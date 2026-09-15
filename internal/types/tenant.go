@@ -13,6 +13,29 @@ import (
 	"gorm.io/gorm"
 )
 
+// SpaceType identifies the product-level kind of a workspace.
+//
+// Legacy is intentionally retained for existing workspaces whose ownership
+// cannot be inferred safely from historical data.
+type SpaceType string
+
+const (
+	SpaceTypePersonal     SpaceType = "personal"
+	SpaceTypeOrganization SpaceType = "organization"
+	SpaceTypeLegacy       SpaceType = "legacy"
+)
+
+// IsValid reports whether the space type is one of the supported persisted
+// values.
+func (s SpaceType) IsValid() bool {
+	switch s {
+	case SpaceTypePersonal, SpaceTypeOrganization, SpaceTypeLegacy:
+		return true
+	default:
+		return false
+	}
+}
+
 // retrieverEngineMapping maps RETRIEVE_DRIVER values to retriever engine configurations
 var retrieverEngineMapping = map[string][]RetrieverEngineParams{
 	"postgres": {
@@ -92,6 +115,14 @@ type Tenant struct {
 	Description string `yaml:"description"         json:"description"`
 	// Status
 	Status string `yaml:"status"              json:"status"              gorm:"default:'active'"`
+	// SpaceType is nullable for backward-compatible metadata rollout. A nil
+	// value means the workspace has not been classified yet.
+	SpaceType *SpaceType `yaml:"space_type,omitempty" json:"space_type,omitempty" gorm:"column:space_type;type:varchar(32)"`
+	// ProvisioningKey is an internal idempotency key for intent-based
+	// workspace provisioning commands. It is nullable so ordinary tenants
+	// can continue to be created without participating in that protocol.
+	// The API never exposes this value.
+	ProvisioningKey *string `yaml:"-" json:"-" gorm:"column:provisioning_key;type:varchar(128)"`
 	// Retriever engines
 	RetrieverEngines RetrieverEngines `yaml:"retriever_engines"   json:"retriever_engines"   gorm:"type:json"`
 	// Business
@@ -116,6 +147,9 @@ type Tenant struct {
 	ChatHistoryConfig *ChatHistoryConfig `yaml:"chat_history_config" json:"chat_history_config" gorm:"type:jsonb"`
 	// Retrieval config: global search/retrieval parameters shared by knowledge search and message search
 	RetrievalConfig *RetrievalConfig `yaml:"retrieval_config" json:"retrieval_config" gorm:"type:jsonb"`
+	// KnowledgeBaseDefaultsConfig stores the advanced configuration shared by
+	// all non-temporary knowledge bases in this workspace.
+	KnowledgeBaseDefaultsConfig *KnowledgeBaseDefaultsConfig `yaml:"knowledge_base_defaults_config" json:"knowledge_base_defaults_config" gorm:"column:knowledge_base_defaults_config;type:jsonb"`
 	// API principal config: controls how X-API-Key requests map to terminal principals.
 	APIPrincipalConfig *APIPrincipalConfig `yaml:"api_principal_config" json:"-" gorm:"type:jsonb"`
 	// Creation time

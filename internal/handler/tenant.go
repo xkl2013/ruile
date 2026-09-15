@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,6 +32,7 @@ type TenantHandler struct {
 	userService   interfaces.UserService
 	memberService interfaces.TenantMemberService
 	kbService     interfaces.KnowledgeBaseService
+	kbDefaults    interfaces.KnowledgeBaseDefaultsService
 	config        *config.Config
 	// systemSettingSvc resolves runtime tenant policies and limits.
 	// Reading goes DB > ENV >
@@ -63,6 +66,7 @@ func NewTenantHandler(
 	kbService interfaces.KnowledgeBaseService,
 	config *config.Config,
 	systemSettingSvc interfaces.SystemSettingService,
+	kbDefaults interfaces.KnowledgeBaseDefaultsService,
 ) *TenantHandler {
 	return &TenantHandler{
 		service:          service,
@@ -70,6 +74,7 @@ func NewTenantHandler(
 		userService:      userService,
 		memberService:    memberService,
 		kbService:        kbService,
+		kbDefaults:       kbDefaults,
 		config:           config,
 		systemSettingSvc: systemSettingSvc,
 	}
@@ -86,6 +91,11 @@ func NewTenantHandler(
 // types.Tenant when CanAccessAllTenants is true (see CreateTenant
 // below), but the recommended shape going forward is name+description.
 type createTenantRequest struct {
+	Name        string `json:"name" binding:"required,min=1,max=128"`
+	Description string `json:"description" binding:"max=512"`
+}
+
+type createEnterpriseWorkspaceRequest struct {
 	Name        string `json:"name" binding:"required,min=1,max=128"`
 	Description string `json:"description" binding:"max=512"`
 }
@@ -190,12 +200,86 @@ func (h *TenantHandler) resolveMaxOwnedTenantsPerUser(ctx context.Context) int {
 	if h.config != nil && h.config.Tenant != nil && h.config.Tenant.MaxOwnedPerUser != 0 {
 		fallback = int64(h.config.Tenant.MaxOwnedPerUser)
 	}
+	if h.systemSettingSvc == nil {
+		return int(fallback)
+	}
 	return int(h.systemSettingSvc.GetInt(
 		ctx,
 		"tenant.max_owned_per_user",
 		"WEKNORA_TENANT_MAX_OWNED_PER_USER",
 		fallback,
 	))
+}
+
+func (h *TenantHandler) validateSelfServiceTenantQuota(
+	ctx context.Context,
+	caller *types.User,
+) error {
+	if caller == nil || caller.CanAccessAllTenants || h.memberService == nil {
+		return nil
+	}
+	memberships, listErr := h.memberService.ListByUser(ctx, caller.ID)
+	if listErr != nil {
+		logger.Errorf(ctx, "Failed to count owned tenants for user %s: %v", caller.ID, listErr)
+		return errors.NewInternalServerError("Failed to validate workspace quota").WithDetails(listErr.Error())
+	}
+	ownedCount := 0
+	for _, m := range memberships {
+		if m != nil && m.Role == types.TenantRoleOwner {
+			ownedCount++
+		}
+	}
+	cap := h.resolveMaxOwnedTenantsPerUser(ctx)
+	if cap > 0 && ownedCount >= cap {
+		logger.Warnf(ctx,
+			"User %s reached self-service tenant quota (%d/%d)",
+			caller.ID, ownedCount, cap,
+		)
+		return errors.NewTooManyRequestsError(
+			"reached self-service workspace quota; contact an administrator to raise the limit",
+		)
+	}
+	return nil
+}
+
+func (h *TenantHandler) selfServiceQuotaExceeded(
+	ctx context.Context,
+	caller *types.User,
+) (bool, error) {
+	if caller == nil || caller.CanAccessAllTenants || h.memberService == nil {
+		return false, nil
+	}
+	memberships, err := h.memberService.ListByUser(ctx, caller.ID)
+	if err != nil {
+		return false, err
+	}
+	ownedCount := 0
+	for _, m := range memberships {
+		if m != nil && m.Role == types.TenantRoleOwner {
+			ownedCount++
+		}
+	}
+	cap := h.resolveMaxOwnedTenantsPerUser(ctx)
+	return cap > 0 && ownedCount > cap, nil
+}
+
+func (h *TenantHandler) applyDefaultStorageQuota(ctx context.Context, tenant *types.Tenant) {
+	if tenant == nil || tenant.StorageQuota > 0 {
+		return
+	}
+	gb := int64(10)
+	if h.systemSettingSvc != nil {
+		gb = h.systemSettingSvc.GetInt(
+			ctx,
+			"tenant.default_storage_quota_gb",
+			"WEKNORA_TENANT_DEFAULT_STORAGE_QUOTA_GB",
+			gb,
+		)
+	}
+	if gb <= 0 {
+		gb = 10
+	}
+	tenant.StorageQuota = gb * 1024 * 1024 * 1024
 }
 
 // CreateTenant godoc
@@ -270,40 +354,19 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 		}
 
 		// Per-user quota: cap how many tenants a regular user can spin
-		// up via self-service. Without this any authenticated client
-		// can flood `tenants` (and saturate validateStorageBucketUniqueness
-		// which scans the whole table). Superusers above are exempt
-		// because they're already trusted to manage the catalog.
-		if h.memberService != nil {
-			memberships, listErr := h.memberService.ListByUser(ctx, caller.ID)
-			if listErr != nil {
-				logger.Errorf(ctx, "Failed to count owned tenants for user %s: %v", caller.ID, listErr)
-				c.Error(errors.NewInternalServerError("Failed to validate workspace quota").WithDetails(listErr.Error()))
-				return
-			}
-			ownedCount := 0
-			for _, m := range memberships {
-				if m != nil && m.Role == types.TenantRoleOwner {
-					ownedCount++
-				}
-			}
-			cap := h.resolveMaxOwnedTenantsPerUser(ctx)
-			if cap > 0 && ownedCount >= cap {
-				logger.Warnf(ctx,
-					"User %s reached self-service tenant quota (%d/%d)",
-					caller.ID, ownedCount, cap,
-				)
-				c.Error(errors.NewTooManyRequestsError(
-					"reached self-service workspace quota; contact an administrator to raise the limit",
-				))
-				return
-			}
+		// up via self-service. The same guard is used by the dedicated
+		// enterprise provisioning command below.
+		if quotaErr := h.validateSelfServiceTenantQuota(ctx, caller); quotaErr != nil {
+			c.Error(quotaErr)
+			return
 		}
 
 		tenantData = types.Tenant{
 			Name:        strings.TrimSpace(req.Name),
 			Description: strings.TrimSpace(req.Description),
 		}
+		spaceType := types.SpaceTypeOrganization
+		tenantData.SpaceType = &spaceType
 	}
 
 	// Apply the system-setting-driven default storage quota when the
@@ -316,18 +379,7 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 	// a negative quota that the storage-used checks would interpret as
 	// "unlimited" (StorageQuota <= 0 disables enforcement in
 	// knowledge_create.go).
-	if tenantData.StorageQuota <= 0 {
-		gb := h.systemSettingSvc.GetInt(
-			ctx,
-			"tenant.default_storage_quota_gb",
-			"WEKNORA_TENANT_DEFAULT_STORAGE_QUOTA_GB",
-			10,
-		)
-		if gb <= 0 {
-			gb = 10
-		}
-		tenantData.StorageQuota = gb * 1024 * 1024 * 1024
-	}
+	h.applyDefaultStorageQuota(ctx, &tenantData)
 
 	logger.Infof(ctx, "Creating tenant, name: %s", secutils.SanitizeForLog(tenantData.Name))
 
@@ -475,6 +527,209 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 		"success": true,
 		"data":    data,
 	})
+}
+
+type provisioningKeyTenantLookup interface {
+	GetTenantByProvisioningKey(ctx context.Context, key string) (*types.Tenant, error)
+}
+
+func (h *TenantHandler) lookupTenantByProvisioningKey(
+	ctx context.Context,
+	key string,
+) (*types.Tenant, bool, error) {
+	lookup, ok := h.service.(provisioningKeyTenantLookup)
+	if !ok {
+		return nil, false, nil
+	}
+	tenant, err := lookup.GetTenantByProvisioningKey(ctx, key)
+	return tenant, true, err
+}
+
+func enterpriseProvisioningKey(userID, rawKey string) *string {
+	rawKey = strings.TrimSpace(rawKey)
+	if rawKey == "" {
+		return nil
+	}
+	sum := sha256.Sum256([]byte("enterprise-workspace\x00" + userID + "\x00" + rawKey))
+	value := hex.EncodeToString(sum[:])
+	return &value
+}
+
+func (h *TenantHandler) respondEnterpriseWorkspace(
+	c *gin.Context,
+	tenant *types.Tenant,
+	status int,
+	message string,
+) {
+	c.JSON(status, gin.H{
+		"success": true,
+		"message": message,
+		"data":    dto.NewTenantResponseWithRole(tenant, types.TenantRoleViewer),
+	})
+}
+
+// CreateEnterpriseWorkspace provisions an enterprise workspace for the
+// authenticated user's existing personal home. It is intentionally an
+// action endpoint rather than a flag update: personal data and the user's
+// home TenantID remain unchanged, while the new enterprise tenant is added
+// through the normal tenant_members owner relationship.
+//
+// Idempotency-Key is optional. When present, the key is scoped to the user,
+// hashed before persistence, and stored on the created tenant. Retries return
+// the original tenant after verifying that the caller is still its Owner.
+func (h *TenantHandler) CreateEnterpriseWorkspace(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	caller, err := h.userService.GetCurrentUser(ctx)
+	if err != nil || caller == nil {
+		c.Error(errors.NewUnauthorizedError("authentication required"))
+		return
+	}
+	if !caller.IsSystemAdmin && !caller.CanAccessAllTenants &&
+		!resolveTenantSelfServiceCreationEnabled(ctx, h.config, h.systemSettingSvc) {
+		c.Error(errors.NewTenantCreationDisabledError())
+		return
+	}
+	if caller.TenantID == 0 {
+		c.Error(errors.NewConflictError("personal workspace is required before enabling enterprise"))
+		return
+	}
+
+	homeTenant, err := h.service.GetTenantByID(ctx, caller.TenantID)
+	if err != nil || homeTenant == nil {
+		if err != nil {
+			logger.Errorf(ctx, "Failed to load personal home for user %s: %v", caller.ID, err)
+		}
+		c.Error(errors.NewInternalServerError("Failed to load personal workspace"))
+		return
+	}
+	if homeTenant.SpaceType == nil || *homeTenant.SpaceType != types.SpaceTypePersonal {
+		c.Error(errors.NewConflictError("enterprise can only be enabled from a personal workspace"))
+		return
+	}
+	if h.memberService == nil {
+		c.Error(errors.NewServiceUnavailableError("workspace membership service unavailable"))
+		return
+	}
+
+	var req createEnterpriseWorkspaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(errors.NewValidationError("Invalid enterprise workspace parameters").WithDetails(err.Error()))
+		return
+	}
+	req.Name = strings.TrimSpace(secutils.SanitizeForLog(req.Name))
+	req.Description = strings.TrimSpace(secutils.SanitizeForLog(req.Description))
+	if req.Name == "" {
+		c.Error(errors.NewValidationError("Enterprise workspace name is required"))
+		return
+	}
+
+	rawIdempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if len(rawIdempotencyKey) > 128 {
+		c.Error(errors.NewValidationError("Idempotency-Key must be at most 128 characters"))
+		return
+	}
+	provisioningKey := enterpriseProvisioningKey(caller.ID, rawIdempotencyKey)
+	if provisioningKey != nil {
+		existing, supported, lookupErr := h.lookupTenantByProvisioningKey(ctx, *provisioningKey)
+		if lookupErr != nil {
+			logger.Errorf(ctx, "Failed to resolve enterprise provisioning key for user %s: %v", caller.ID, lookupErr)
+			c.Error(errors.NewInternalServerError("Failed to resolve enterprise workspace request").WithDetails(lookupErr.Error()))
+			return
+		}
+		if !supported {
+			c.Error(errors.NewServiceUnavailableError("enterprise workspace idempotency is unavailable"))
+			return
+		}
+		if existing != nil {
+			membership, membershipErr := h.memberService.GetMembership(ctx, caller.ID, existing.ID)
+			if membershipErr != nil {
+				c.Error(errors.NewInternalServerError("Failed to verify enterprise workspace ownership").WithDetails(membershipErr.Error()))
+				return
+			}
+			if membership == nil || membership.Status != types.TenantMemberStatusActive ||
+				membership.Role != types.TenantRoleOwner {
+				c.Error(errors.NewForbiddenError("enterprise workspace request is not owned by the current user"))
+				return
+			}
+			if _, prefErr := h.userService.UpdateUserPreferences(ctx, caller.ID, types.UserPreferences{
+				LastActiveTenantID: &existing.ID,
+			}); prefErr != nil {
+				c.Error(errors.NewInternalServerError("Failed to activate enterprise workspace").WithDetails(prefErr.Error()))
+				return
+			}
+			h.respondEnterpriseWorkspace(c, existing, http.StatusOK, "Enterprise workspace already provisioned")
+			return
+		}
+	}
+
+	if quotaErr := h.validateSelfServiceTenantQuota(ctx, caller); quotaErr != nil {
+		c.Error(quotaErr)
+		return
+	}
+
+	spaceType := types.SpaceTypeOrganization
+	tenantData := &types.Tenant{
+		Name:            req.Name,
+		Description:     req.Description,
+		SpaceType:       &spaceType,
+		ProvisioningKey: provisioningKey,
+	}
+	h.applyDefaultStorageQuota(ctx, tenantData)
+
+	createdTenant, err := h.service.CreateTenant(ctx, tenantData)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+		} else {
+			c.Error(errors.NewInternalServerError("Failed to create enterprise workspace").WithDetails(err.Error()))
+		}
+		return
+	}
+	if createdTenant == nil || createdTenant.ID == 0 {
+		c.Error(errors.NewInternalServerError("Failed to create enterprise workspace"))
+		return
+	}
+
+	if _, err := h.memberService.EnsureOwner(ctx, caller.ID, createdTenant.ID); err != nil {
+		logger.Errorf(ctx,
+			"Failed to bootstrap enterprise owner membership for user %s tenant %d: %v",
+			caller.ID, createdTenant.ID, err,
+		)
+		_ = h.service.DeleteTenant(ctx, createdTenant.ID)
+		c.Error(errors.NewInternalServerError("Failed to finalise enterprise workspace ownership").WithDetails(err.Error()))
+		return
+	}
+
+	if exceeded, quotaErr := h.selfServiceQuotaExceeded(ctx, caller); quotaErr != nil {
+		logger.Errorf(ctx, "Failed to recount enterprise workspace quota for user %s: %v", caller.ID, quotaErr)
+		_ = h.memberService.RemoveMember(ctx, caller.ID, createdTenant.ID)
+		_ = h.service.DeleteTenant(ctx, createdTenant.ID)
+		c.Error(errors.NewInternalServerError("Failed to validate workspace quota").WithDetails(quotaErr.Error()))
+		return
+	} else if exceeded {
+		_ = h.memberService.RemoveMember(ctx, caller.ID, createdTenant.ID)
+		_ = h.service.DeleteTenant(ctx, createdTenant.ID)
+		c.Error(errors.NewTooManyRequestsError(
+			"reached self-service workspace quota; contact an administrator to raise the limit",
+		))
+		return
+	}
+
+	if _, err := h.userService.UpdateUserPreferences(ctx, caller.ID, types.UserPreferences{
+		LastActiveTenantID: &createdTenant.ID,
+	}); err != nil {
+		logger.Errorf(ctx,
+			"Failed to persist enterprise workspace preference for user %s tenant %d: %v",
+			caller.ID, createdTenant.ID, err,
+		)
+		_ = h.memberService.RemoveMember(ctx, caller.ID, createdTenant.ID)
+		_ = h.service.DeleteTenant(ctx, createdTenant.ID)
+		c.Error(errors.NewInternalServerError("Failed to activate enterprise workspace").WithDetails(err.Error()))
+		return
+	}
+
+	h.respondEnterpriseWorkspace(c, createdTenant, http.StatusCreated, "Enterprise workspace created")
 }
 
 // tenantWithAPIKey returns the tenant serialized as a map with an extra
@@ -1207,7 +1462,7 @@ func (h *TenantHandler) SearchTenants(c *gin.Context) {
 
 // GetTenantKV godoc
 // @Summary      获取空间KV配置
-// @Description  获取空间级别的KV配置（支持web-search-config、prompt-templates、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config）
+// @Description  获取空间级别的KV配置（支持web-search-config、prompt-templates、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config、knowledge-base-config）
 // @Tags         空间管理
 // @Accept       json
 // @Produce      json
@@ -1248,6 +1503,9 @@ func (h *TenantHandler) GetTenantKV(c *gin.Context) {
 	case "retrieval-config":
 		h.GetTenantRetrievalConfig(c)
 		return
+	case "knowledge-base-config":
+		h.GetKnowledgeBaseDefaultsConfig(c)
+		return
 	default:
 		logger.Info(ctx, "KV key not supported", "key", key)
 		c.Error(errors.NewBadRequestError("unsupported key"))
@@ -1257,7 +1515,7 @@ func (h *TenantHandler) GetTenantKV(c *gin.Context) {
 
 // UpdateTenantKV godoc
 // @Summary      更新空间KV配置
-// @Description  更新空间级别的KV配置（支持web-search-config、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config）
+// @Description  更新空间级别的KV配置（支持web-search-config、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config、knowledge-base-config）
 // @Tags         空间管理
 // @Accept       json
 // @Produce      json
@@ -1295,6 +1553,9 @@ func (h *TenantHandler) UpdateTenantKV(c *gin.Context) {
 		return
 	case "retrieval-config":
 		h.updateTenantRetrievalConfigInternal(c)
+		return
+	case "knowledge-base-config":
+		h.updateKnowledgeBaseDefaultsConfig(c)
 		return
 	default:
 		logger.Info(ctx, "KV key not supported", "key", key)
@@ -1654,6 +1915,54 @@ func (h *TenantHandler) GetTenantRetrievalConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    data,
+	})
+}
+
+// GetKnowledgeBaseDefaultsConfig returns the advanced configuration inherited
+// by newly created knowledge bases in the active workspace.
+func (h *TenantHandler) GetKnowledgeBaseDefaultsConfig(c *gin.Context) {
+	ctx := c.Request.Context()
+	if h.kbDefaults == nil {
+		c.Error(errors.NewInternalServerError("knowledge base defaults service is unavailable"))
+		return
+	}
+	cfg, err := h.kbDefaults.Get(ctx)
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to get knowledge base defaults").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    cfg,
+	})
+}
+
+// updateKnowledgeBaseDefaultsConfig updates the workspace-level knowledge
+// base defaults. Existing knowledge bases are intentionally left unchanged;
+// rewriting them requires an explicit migration operation.
+func (h *TenantHandler) updateKnowledgeBaseDefaultsConfig(c *gin.Context) {
+	ctx := c.Request.Context()
+	if h.kbDefaults == nil {
+		c.Error(errors.NewInternalServerError("knowledge base defaults service is unavailable"))
+		return
+	}
+	var cfg types.KnowledgeBaseDefaultsConfig
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.Error(errors.NewValidationError("Invalid knowledge base defaults").WithDetails(err.Error()))
+		return
+	}
+	updated, applied, err := h.kbDefaults.Update(ctx, &cfg)
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":                            true,
+		"data":                               updated,
+		"applied_count":                      applied,
+		"existing_knowledge_bases_unchanged": true,
+		"requires_explicit_migration":        true,
+		"message":                            "工作区默认配置已保存，仅对后续新建知识库生效；已有知识库未修改",
 	})
 }
 

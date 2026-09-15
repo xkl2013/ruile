@@ -36,7 +36,9 @@
                   {{ tenant.name.charAt(0).toUpperCase() }}
                 </div>
                 <div class="tenant-item-info">
-                  <span class="tenant-item-name">{{ tenant.name }}</span>
+                  <div class="tenant-item-name-row">
+                    <span class="tenant-item-name">{{ tenant.name }}</span>
+                  </div>
                   <span class="tenant-item-id">ID: {{ tenant.id }}</span>
                 </div>
               </div>
@@ -210,6 +212,33 @@ const loadTenants = async (append = false) => {
   loading.value = true
   try {
     const keyword = searchQuery.value.trim()
+    if (!authStore.canAccessAllTenants) {
+      const normalizedKeyword = keyword.toLowerCase()
+      const items: TenantInfo[] = (authStore.memberships ?? [])
+        .filter((membership) => {
+          if (!normalizedKeyword) return true
+          return (
+            membership.tenant_name?.toLowerCase().includes(normalizedKeyword) ||
+            String(membership.tenant_id).includes(normalizedKeyword)
+          )
+        })
+        .map((membership) => ({
+          id: Number(membership.tenant_id),
+          name: membership.tenant_name || `#${membership.tenant_id}`,
+          description: '',
+          status: 'active',
+          space_type: membership.space_type,
+          edition: membership.space_type === 'personal' ? 'personal' : 'enterprise',
+          owner_id: authStore.user?.id || '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }))
+      tenants.value = items
+      total.value = items.length
+      authStore.setAllTenants(items)
+      return
+    }
+
     let tenantID: number | undefined = undefined
 
     // 如果是纯数字，同时作为 tenant_id 和 keyword 搜索
@@ -544,6 +573,13 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tenant-item-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .tenant-item-id {

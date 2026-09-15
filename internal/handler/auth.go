@@ -101,28 +101,12 @@ func (h *AuthHandler) resolveRegistrationMode(ctx context.Context) string {
 	return h.systemSettingSvc.GetString(ctx, "auth.registration_mode", "", def)
 }
 
-// resolveDefaultTenantMode returns the provisioning policy for ordinary
-// public password registrations. Invitation registration never uses this
-// value: the invitation itself supplies the target tenant.
+// resolveDefaultTenantMode returns the provisioning policy for user-facing
+// account creation. Product policy is now fixed: every account gets a
+// personal home workspace when it is created. Legacy tenantless configuration
+// is ignored at the handler boundary so stale settings cannot surface the
+// manual "create workspace" onboarding flow.
 func (h *AuthHandler) resolveDefaultTenantMode(ctx context.Context) types.TenantProvisioningMode {
-	def := config.AuthDefaultTenantModeTenantless
-	if h.configInfo != nil && h.configInfo.Auth != nil {
-		if mode := strings.TrimSpace(h.configInfo.Auth.DefaultTenantMode); mode != "" {
-			def = mode
-		}
-	}
-	mode := def
-	if h.systemSettingSvc != nil {
-		mode = h.systemSettingSvc.GetString(
-			ctx,
-			"auth.default_tenant_mode",
-			"WEKNORA_AUTH_DEFAULT_TENANT_MODE",
-			def,
-		)
-	}
-	if mode == config.AuthDefaultTenantModeTenantless {
-		return types.TenantProvisioningTenantless
-	}
 	return types.TenantProvisioningCreatePersonal
 }
 
@@ -149,13 +133,20 @@ func isChinaMobilePhone(phone string) bool {
 	return true
 }
 
+type registerRequest struct {
+	Username string `json:"username" binding:"required,min=2,max=50"`
+	Phone    string `json:"phone,omitempty"`
+	Email    string `json:"email,omitempty"`
+	Password string `json:"password" binding:"required,min=6"`
+}
+
 // Register godoc
 // @Summary      用户注册
-// @Description  注册新用户账号
+// @Description  注册新用户账号，始终创建个人空间。企业空间需登录后在设置中开通。
 // @Tags         认证
 // @Accept       json
 // @Produce      json
-// @Param        request  body      types.RegisterRequest  true  "注册请求参数"
+// @Param        request  body      handler.registerRequest  true  "注册请求参数"
 // @Success      201      {object}  types.RegisterResponse
 // @Failure      400      {object}  errors.AppError  "请求参数错误"
 // @Failure      403      {object}  errors.AppError  "注册功能已禁用"
@@ -178,12 +169,19 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	var req types.RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var publicReq registerRequest
+	if err := c.ShouldBindJSON(&publicReq); err != nil {
 		logger.Error(ctx, "Failed to parse registration request parameters", err)
 		appErr := errors.NewValidationError("Invalid registration parameters").WithDetails(err.Error())
 		c.Error(appErr)
 		return
+	}
+	req := types.RegisterRequest{
+		Username:           publicReq.Username,
+		Phone:              publicReq.Phone,
+		Email:              publicReq.Email,
+		Password:           publicReq.Password,
+		RegistrationIntent: types.RegistrationIntentPersonal,
 	}
 	req.Username = strings.TrimSpace(secutils.SanitizeForLog(req.Username))
 	req.Phone = strings.TrimSpace(secutils.SanitizeForLog(req.Phone))
@@ -228,7 +226,28 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	logger.Infof(ctx, "User registered successfully: %s", secutils.SanitizeForLog(user.Email))
-	c.JSON(http.StatusCreated, response)
+	// Keep the response backward-compatible while adding viewer-safe home
+	// and active workspace snapshots for clients that want to continue
+	// directly into the selected edition. Raw Tenant is intentionally not
+	// returned because it may contain provider credentials.
+	payload := gin.H{
+		"success": response.Success,
+		"message": response.Message,
+		"user":    response.User,
+	}
+	if h.tenantService != nil && user.TenantID > 0 {
+		if homeTenant, tenantErr := h.tenantService.GetTenantByID(ctx, user.TenantID); tenantErr == nil && homeTenant != nil {
+			payload["tenant"] = dto.NewTenantResponseWithRole(homeTenant, types.TenantRoleViewer)
+			activeTenant := homeTenant
+			if preferred := user.Preferences.LastActiveTenantID; preferred != nil && *preferred > 0 && *preferred != user.TenantID {
+				if preferredTenant, preferredErr := h.tenantService.GetTenantByID(ctx, *preferred); preferredErr == nil && preferredTenant != nil {
+					activeTenant = preferredTenant
+				}
+			}
+			payload["active_tenant"] = dto.NewTenantResponseWithRole(activeTenant, types.TenantRoleViewer)
+		}
+	}
+	c.JSON(http.StatusCreated, payload)
 }
 
 // promoteFirstRegisteredUserToSystemAdmin closes the bootstrap gap for fresh
@@ -654,7 +673,10 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 			"memberships":     memberships,
 			"tenant_required": tenant == nil,
 			"capabilities": gin.H{
-				"can_create_tenant": canCreateTenant,
+				"can_create_tenant":    canCreateTenant,
+				"edition":              types.EditionForTenant(tenant),
+				"edition_version":      1,
+				"edition_capabilities": types.EditionEntitlementsForTenant(tenant),
 			},
 		},
 	})

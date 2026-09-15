@@ -6,6 +6,7 @@ export interface Organization {
   name: string
   description: string
   avatar?: string
+  sharing_scope?: 'legacy_cross_space' | 'tenant_internal'
   owner_id: string
   /** Persisted owner tenant of the organization, retained as workspace context. */
   owner_tenant_id: number
@@ -37,7 +38,7 @@ export interface OrganizationMember {
   tenant_id: number
   tenant_name?: string
   joined_at: string
-  /** Legacy-only, no longer rendered by the shared-space member UI. */
+  /** Legacy-only, no longer rendered by the Team Space member UI. */
   tenant_members?: TenantMemberSummary[]
 }
 

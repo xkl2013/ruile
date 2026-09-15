@@ -9,3 +9,10 @@ test('knowledge base directory move-up action uses a supported icon', () => {
   assert.ok(source.includes("name=\"chevron-up\" size=\"14px\""))
   assert.ok(!source.includes("name=\"arrow-up\" size=\"14px\""))
 })
+
+test('knowledge base directory tree exposes manual directory delete action', () => {
+  assert.ok(source.includes('deleteDirectory(directory)'))
+  assert.ok(source.includes("name=\"delete\" size=\"14px\""))
+  assert.ok(source.includes('directory-tree-action--danger'))
+  assert.ok(source.includes('updateKnowledgeBaseDirectoryConfig'))
+})

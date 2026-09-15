@@ -78,6 +78,11 @@ func (h *OrganizationHandler) CreateOrganization(c *gin.Context) {
 	userID := c.GetString(types.UserIDContextKey.String())
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
 
+	if err := h.ensureWorkspaceCanUseSharedSpaces(ctx, tenantID); err != nil {
+		c.Error(err)
+		return
+	}
+
 	var req types.CreateOrganizationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		logger.Errorf(ctx, "Invalid request parameters: %v", err)
@@ -88,6 +93,10 @@ func (h *OrganizationHandler) CreateOrganization(c *gin.Context) {
 	org, err := h.orgService.CreateOrganization(ctx, userID, tenantID, &req)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to create organization: %v", err)
+		if errors.Is(err, service.ErrPersonalWorkspaceCannotUseSharedSpace) {
+			c.Error(apperrors.NewForbiddenError("个人版本账号不能创建或加入团队空间，请切换企业账号"))
+			return
+		}
 		c.Error(apperrors.NewInternalServerError("Failed to create organization").WithDetails(err.Error()))
 		return
 	}
@@ -187,8 +196,8 @@ func (h *OrganizationHandler) ListMyOrganizations(c *gin.Context) {
 	})
 }
 
-// buildResourceCountsByOrg 返回各空间内知识库数与智能体数，供 ListMyOrganizations 和侧栏使用；失败时返回 nil。
-// 使用批量接口：一次拉取所有空间的直接共享 KB ID、一次拉取所有空间的智能体列表，再在内存中按空间合并计数。
+// buildResourceCountsByOrg 返回各团队空间内显式发布的知识库数与共享智能体数，
+// 供 ListMyOrganizations 和侧栏使用；失败时返回 nil。
 func (h *OrganizationHandler) buildResourceCountsByOrg(ctx context.Context, orgs []*types.Organization, userID string, tenantID uint64) *types.ResourceCountsByOrgResponse {
 	orgIDs := make([]string, 0, len(orgs))
 	for _, o := range orgs {
@@ -204,70 +213,12 @@ func (h *OrganizationHandler) buildResourceCountsByOrg(ctx context.Context, orgs
 		logger.Warnf(ctx, "buildResourceCountsByOrg ListSharedKnowledgeBaseIDsByOrganizations: %v", err)
 		return nil
 	}
-	callerTenantRole := types.TenantRoleFromContext(ctx)
-	agentListByOrg, err := h.agentShareService.ListSharedAgentsInOrganizations(ctx, orgIDs, tenantID, callerTenantRole)
-	if err != nil {
-		logger.Warnf(ctx, "buildResourceCountsByOrg ListSharedAgentsInOrganizations: %v", err)
-		return nil
-	}
 	_ = userID
 	byOrgKB := make(map[string]int)
-	tenantKBCache := make(map[uint64][]string) // cache ListKnowledgeBasesByTenantID by tenantID
 	for _, o := range orgs {
 		oid := o.ID
 		directIDs := directKBIDsByOrg[oid]
-		directSet := make(map[string]bool)
-		for _, id := range directIDs {
-			directSet[id] = true
-		}
-		count := len(directIDs)
-		for _, item := range agentListByOrg[oid] {
-			if item.Agent == nil {
-				continue
-			}
-			agent := item.Agent
-			mode := agent.Config.KBSelectionMode
-			if mode == "none" {
-				continue
-			}
-			var kbIDs []string
-			switch mode {
-			case "selected":
-				if len(agent.Config.KnowledgeBases) == 0 {
-					continue
-				}
-				kbIDs = agent.Config.KnowledgeBases
-			case "all":
-				tid := agent.TenantID
-				if _, ok := tenantKBCache[tid]; !ok {
-					kbs, err := h.kbService.ListKnowledgeBasesByTenantID(ctx, tid)
-					if err != nil {
-						logger.Warnf(ctx, "ListKnowledgeBasesByTenantID tenant %d: %v", tid, err)
-						tenantKBCache[tid] = nil
-						continue
-					}
-					ids := make([]string, 0, len(kbs))
-					for _, kb := range kbs {
-						if kb != nil && kb.ID != "" {
-							ids = append(ids, kb.ID)
-						}
-					}
-					tenantKBCache[tid] = ids
-				}
-				kbIDs = tenantKBCache[tid]
-			default:
-				if len(agent.Config.KnowledgeBases) > 0 {
-					kbIDs = agent.Config.KnowledgeBases
-				}
-			}
-			for _, kbID := range kbIDs {
-				if kbID != "" && !directSet[kbID] {
-					directSet[kbID] = true
-					count++
-				}
-			}
-		}
-		byOrgKB[oid] = count
+		byOrgKB[oid] = len(directIDs)
 	}
 	byOrgAgent := make(map[string]int)
 	for _, o := range orgs {
@@ -585,6 +536,11 @@ func (h *OrganizationHandler) ShareKnowledgeBase(c *gin.Context) {
 		logger.Errorf(ctx, "Failed to share knowledge base: %v", err)
 		if errors.Is(err, service.ErrOrgRoleCannotShare) {
 			c.Error(apperrors.NewForbiddenError("Only editors and admins can share knowledge bases to this organization"))
+			return
+		}
+		if errors.Is(err, service.ErrPersonalWorkspaceCannotShareKnowledgeBase) ||
+			errors.Is(err, service.ErrKnowledgeBaseOutsideOrganizationWorkspace) {
+			c.Error(apperrors.NewForbiddenError("个人空间知识库不能共享到企业空间，且企业知识库只能在所属企业空间内共享"))
 			return
 		}
 		c.Error(apperrors.NewForbiddenError("Permission denied or invalid operation"))
@@ -1032,127 +988,10 @@ func (h *OrganizationHandler) ListSharedAgents(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": list, "total": len(list)})
 }
 
-// listSpaceKnowledgeBasesInOrganization returns merged list of direct shared KBs and agent-carried KBs in the org (for list and count).
+// listSpaceKnowledgeBasesInOrganization returns only KBs explicitly published
+// to the team space. Agent configuration is not a publication grant.
 func (h *OrganizationHandler) listSpaceKnowledgeBasesInOrganization(ctx context.Context, orgID string, tenantID uint64, callerTenantRole types.TenantRole) ([]*types.OrganizationSharedKnowledgeBaseItem, error) {
-	directList, err := h.shareService.ListSharedKnowledgeBasesInOrganization(ctx, orgID, tenantID, callerTenantRole)
-	if err != nil {
-		return nil, err
-	}
-
-	directKbIDs := make(map[string]bool)
-	for _, item := range directList {
-		if item.KnowledgeBase != nil && item.KnowledgeBase.ID != "" {
-			directKbIDs[item.KnowledgeBase.ID] = true
-		}
-	}
-
-	agentList, err := h.agentShareService.ListSharedAgentsInOrganization(ctx, orgID, tenantID, callerTenantRole)
-	if err != nil {
-		return directList, nil
-	}
-
-	orgName := ""
-	if len(agentList) > 0 && agentList[0].OrganizationID == orgID {
-		orgName = agentList[0].OrgName
-	}
-	if orgName == "" {
-		if org, err := h.orgService.GetOrganization(ctx, orgID); err == nil && org != nil {
-			orgName = org.Name
-		}
-	}
-
-	merged := make([]*types.OrganizationSharedKnowledgeBaseItem, 0, len(directList)+64)
-	merged = append(merged, directList...)
-
-	for _, agentItem := range agentList {
-		if agentItem.Agent == nil {
-			continue
-		}
-		agent := agentItem.Agent
-		mode := agent.Config.KBSelectionMode
-		if mode == "none" {
-			continue
-		}
-
-		var kbIDs []string
-		switch mode {
-		case "selected":
-			if len(agent.Config.KnowledgeBases) == 0 {
-				continue
-			}
-			kbIDs = agent.Config.KnowledgeBases
-		case "all":
-			kbs, err := h.kbService.ListKnowledgeBasesByTenantID(ctx, agent.TenantID)
-			if err != nil {
-				logger.Warnf(ctx, "ListKnowledgeBasesByTenantID for agent %s: %v", agent.ID, err)
-				continue
-			}
-			kbIDs = make([]string, 0, len(kbs))
-			for _, kb := range kbs {
-				if kb != nil && kb.ID != "" {
-					kbIDs = append(kbIDs, kb.ID)
-				}
-			}
-		default:
-			if len(agent.Config.KnowledgeBases) > 0 {
-				kbIDs = agent.Config.KnowledgeBases
-			}
-		}
-
-		agentName := agent.Name
-		if agentName == "" {
-			agentName = agent.ID
-		}
-		sourceTenantID := agent.TenantID
-
-		for _, kbID := range kbIDs {
-			if kbID == "" || directKbIDs[kbID] {
-				continue
-			}
-			kb, err := h.kbService.GetKnowledgeBaseByIDOnly(ctx, kbID)
-			if err != nil || kb == nil {
-				continue
-			}
-			if kb.TenantID != sourceTenantID {
-				continue
-			}
-			directKbIDs[kbID] = true
-
-			switch kb.Type {
-			case types.KnowledgeBaseTypeDocument:
-				if count, err := h.knowledgeRepo.CountKnowledgeByKnowledgeBaseID(ctx, sourceTenantID, kb.ID); err == nil {
-					kb.KnowledgeCount = count
-				}
-			case types.KnowledgeBaseTypeFAQ:
-				if count, err := h.chunkRepo.CountChunksByKnowledgeBaseID(ctx, sourceTenantID, kb.ID); err == nil {
-					kb.ChunkCount = count
-				}
-			}
-
-			merged = append(merged, &types.OrganizationSharedKnowledgeBaseItem{
-				SharedKnowledgeBaseInfo: types.SharedKnowledgeBaseInfo{
-					KnowledgeBase:  kb,
-					ShareID:        "",
-					OrganizationID: orgID,
-					OrgName:        orgName,
-					Permission:     types.OrgRoleViewer,
-					SourceTenantID: sourceTenantID,
-					SharedAt:       agentItem.SharedAt,
-				},
-				// 即便 KB 是「被共享智能体捎带进来」的，只要它属于当前空间
-				// 就应该归到「我共享的」分组——否则用户会在共享空间里看到
-				// 自己的 KB 出现在「共享给我·仅查看」组里，非常迷惑。
-				IsMine: sourceTenantID == tenantID,
-				SourceFromAgent: &types.SourceFromAgentInfo{
-					AgentID:         agent.ID,
-					AgentName:       agentName,
-					KBSelectionMode: agent.Config.KBSelectionMode,
-				},
-			})
-		}
-	}
-
-	return merged, nil
+	return h.shareService.ListSharedKnowledgeBasesInOrganization(ctx, orgID, tenantID, callerTenantRole)
 }
 
 func filterOrganizationKnowledgeBasesForCallerVisibility(
@@ -1165,20 +1004,10 @@ func filterOrganizationKnowledgeBasesForCallerVisibility(
 		if item == nil || item.KnowledgeBase == nil {
 			continue
 		}
-		// Direct KB shares are the explicit permission grant for this
-		// organization, even when the shared KB belongs to the caller's own
-		// tenant. That is what lets an admin make a teammate-owned KB visible
-		// to ordinary workspace members through a shared space. Agent-carried
-		// current-tenant KBs are not direct grants, so keep applying the normal
-		// tenant KB visibility rule to them.
-		if item.ShareID != "" {
-			filtered = append(filtered, item)
-			continue
-		}
-		if item.IsMine || item.KnowledgeBase.TenantID == tenantID || item.SourceTenantID == tenantID {
-			if callerCanViewTenantKnowledgeBase(ctx, item.KnowledgeBase) {
-				filtered = append(filtered, item)
-			}
+		// A legacy response may still contain an Agent-carried item from an
+		// older caller. It is not an explicit publication and must not appear
+		// in the team-space KB list.
+		if item.ShareID == "" && item.SourceFromAgent != nil {
 			continue
 		}
 		filtered = append(filtered, item)
@@ -1186,9 +1015,10 @@ func filterOrganizationKnowledgeBasesForCallerVisibility(
 	return filtered
 }
 
-// ListOrganizationSharedKnowledgeBases lists visible knowledge bases in the given organization (including those shared by the current tenant and those from shared agents), for the list page when a space is selected.
-// @Summary      获取空间内当前用户可见的知识库（含我共享的、含智能体携带的）
-// @Description  获取指定空间下当前用户可见的共享知识库，包含直接共享的与通过共享智能体可见的，用于列表页空间视角
+// ListOrganizationSharedKnowledgeBases lists knowledge bases explicitly
+// published to the given team space.
+// @Summary      获取团队空间内当前用户可见的知识库
+// @Description  获取指定团队空间下通过显式发布关系可见的知识库；共享智能体不会自动发布知识库
 // @Tags         组织管理
 // @Produce      json
 // @Param        id  path  string  true  "组织ID"
@@ -1213,15 +1043,10 @@ func (h *OrganizationHandler) ListOrganizationSharedKnowledgeBases(c *gin.Contex
 	}
 	list = filterOrganizationKnowledgeBasesForCallerVisibility(ctx, tenantID, list)
 
-	// Project each row through sharedKBRow so cross-tenant strip applies
-	// uniformly across the space view as well. is_mine and the optional
-	// source_from_agent payload are passed through as extras so the
-	// frontend can keep its current rendering branches. Rows where
-	// is_mine is true are still strip-projected here — callers see the
-	// rich view of their own bindings on the regular KB list / detail
-	// endpoints, so dropping the owner-side enrichment from the space
-	// view trades a small UI nicety for a strictly simpler invariant
-	// ("share endpoints never leak vector-store metadata").
+	// Project each row through sharedKBRow so cross-tenant stripping applies
+	// uniformly to the team-space view. Keep the legacy source_from_agent
+	// field only for response compatibility; it is no longer an authorization
+	// source and is absent from new explicit-publication rows.
 	rows := make([]map[string]interface{}, 0, len(list))
 	for _, item := range list {
 		extras := map[string]interface{}{"is_mine": item.IsMine}
@@ -1312,6 +1137,7 @@ func (h *OrganizationHandler) toOrgResponse(ctx context.Context, org *types.Orga
 		Name:          org.Name,
 		Description:   org.Description,
 		Avatar:        org.Avatar,
+		SharingScope:  org.SharingScope,
 		OwnerID:       org.OwnerID,
 		OwnerTenantID: org.OwnerTenantID,
 		IsOwner:       isOwner,
@@ -1406,6 +1232,16 @@ func (h *OrganizationHandler) SearchTenantsForInvite(c *gin.Context) {
 		existingTenantIDs[m.TenantID] = true
 	}
 
+	org, err := h.orgService.GetOrganization(ctx, orgID)
+	if err != nil || org == nil {
+		c.Error(apperrors.NewNotFoundError("Organization not found"))
+		return
+	}
+	internalOwnerTenantID := uint64(0)
+	if org.SharingScope != nil && *org.SharingScope == types.SharingScopeTenantInternal {
+		internalOwnerTenantID = org.OwnerTenantID
+	}
+
 	// 1) Match users by query and group by TenantID. We over-fetch so the
 	//    de-duplication after filtering "already a member" tenants still
 	//    leaves us with enough candidates to fill `limit`.
@@ -1435,6 +1271,9 @@ func (h *OrganizationHandler) SearchTenantsForInvite(c *gin.Context) {
 		if u == nil || u.TenantID == 0 {
 			return
 		}
+		if internalOwnerTenantID != 0 && u.TenantID != internalOwnerTenantID {
+			return
+		}
 		if existingTenantIDs[u.TenantID] {
 			return
 		}
@@ -1458,6 +1297,9 @@ func (h *OrganizationHandler) SearchTenantsForInvite(c *gin.Context) {
 	}
 	addTenantByID := func(tid uint64) {
 		if tid == 0 || existingTenantIDs[tid] {
+			return
+		}
+		if internalOwnerTenantID != 0 && tid != internalOwnerTenantID {
 			return
 		}
 		if _, ok := seen[tid]; ok {
@@ -1529,7 +1371,7 @@ func (h *OrganizationHandler) SearchTenantsForInvite(c *gin.Context) {
 // current-tenant accounts access to the shared space.
 //
 // @Summary      搜索可添加用户
-// @Description  从当前空间用户管理数据搜索有效账号用于添加共享空间成员；提交时按账号授权
+// @Description  从当前企业空间用户管理数据搜索有效账号用于添加团队空间成员；提交时按账号授权
 // @Tags         组织管理
 // @Produce      json
 // @Param        id     path   string  true   "组织ID"
@@ -1565,6 +1407,10 @@ func (h *OrganizationHandler) SearchUsersForInvite(c *gin.Context) {
 
 	if h.memberService == nil || h.tenantService == nil || h.userService == nil {
 		c.Error(apperrors.NewInternalServerError("User management data is unavailable"))
+		return
+	}
+	if err := h.ensureWorkspaceCanUseSharedSpaces(ctx, tenantID); err != nil {
+		c.Error(err)
 		return
 	}
 
@@ -1610,6 +1456,26 @@ func isActiveInviteMemberRow(member *types.TenantMember) bool {
 
 func isActiveInviteMemberRowInTenant(member *types.TenantMember, tenantID uint64) bool {
 	return isActiveInviteMemberRow(member) && member.TenantID == tenantID
+}
+
+func isPersonalWorkspace(tenant *types.Tenant) bool {
+	return tenant != nil && tenant.SpaceType != nil && *tenant.SpaceType == types.SpaceTypePersonal
+}
+
+func (h *OrganizationHandler) ensureWorkspaceCanUseSharedSpaces(ctx context.Context, tenantID uint64) *apperrors.AppError {
+	if h.tenantService == nil {
+		return nil
+	}
+	tenant, err := h.tenantService.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		// Keep historical and unclassified workspaces compatible. Only an
+		// explicit personal workspace is blocked from shared-space membership.
+		return nil
+	}
+	if isPersonalWorkspace(tenant) {
+		return apperrors.NewForbiddenError("个人版本账号不能创建或加入团队空间，请切换企业账号")
+	}
+	return nil
 }
 
 func (h *OrganizationHandler) filterMembersInCurrentUserManagement(
@@ -1864,6 +1730,10 @@ func (h *OrganizationHandler) InviteMember(c *gin.Context) {
 		c.Error(apperrors.NewInternalServerError("User management data is unavailable"))
 		return
 	}
+	if err := h.ensureWorkspaceCanUseSharedSpaces(ctx, tenantID); err != nil {
+		c.Error(err)
+		return
+	}
 
 	targetTenantID := tenantID
 	if req.TenantID != 0 && req.TenantID != tenantID {
@@ -1906,6 +1776,14 @@ func (h *OrganizationHandler) InviteMember(c *gin.Context) {
 		logger.Errorf(ctx, "Failed to add member: %v", err)
 		if errors.Is(err, service.ErrOrgMemberLimitReached) {
 			c.Error(apperrors.NewValidationError("该空间成员已满，无法添加新成员"))
+			return
+		}
+		if errors.Is(err, service.ErrPersonalWorkspaceCannotUseSharedSpace) {
+			c.Error(apperrors.NewForbiddenError("个人版本账号不能创建或加入团队空间，请切换企业账号"))
+			return
+		}
+		if errors.Is(err, service.ErrOrganizationMemberOutsideOwnerWorkspace) {
+			c.Error(apperrors.NewForbiddenError("团队空间成员必须属于创建该团队空间的企业空间"))
 			return
 		}
 		if errors.Is(err, repository.ErrOrgMemberAlreadyExists) {

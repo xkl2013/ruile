@@ -58,13 +58,14 @@ func agentRequiresRerankModel(agent *types.CustomAgent) bool {
 
 // agentShareService implements AgentShareService.
 //
-// Visibility and access checks key on the current shared-space member.
+// Visibility and access checks key on the current team-space member.
 // callerTenantRole flows through every read path so the 3-D cap
 // (tenant Viewer to at most OrgRoleViewer) lands consistently.
 type agentShareService struct {
 	shareRepo    interfaces.AgentShareRepository
 	disabledRepo interfaces.TenantDisabledSharedAgentRepository
 	orgRepo      interfaces.OrganizationRepository
+	tenantRepo   interfaces.TenantRepository
 	agentRepo    interfaces.CustomAgentRepository
 	userRepo     interfaces.UserRepository
 }
@@ -74,6 +75,7 @@ func NewAgentShareService(
 	shareRepo interfaces.AgentShareRepository,
 	disabledRepo interfaces.TenantDisabledSharedAgentRepository,
 	orgRepo interfaces.OrganizationRepository,
+	tenantRepo interfaces.TenantRepository,
 	agentRepo interfaces.CustomAgentRepository,
 	userRepo interfaces.UserRepository,
 ) interfaces.AgentShareService {
@@ -81,6 +83,7 @@ func NewAgentShareService(
 		shareRepo:    shareRepo,
 		disabledRepo: disabledRepo,
 		orgRepo:      orgRepo,
+		tenantRepo:   tenantRepo,
 		agentRepo:    agentRepo,
 		userRepo:     userRepo,
 	}
@@ -106,12 +109,21 @@ func (s *agentShareService) ShareAgent(ctx context.Context, agentID string, orgI
 		return nil, ErrAgentNotConfigured
 	}
 
-	_, err = s.orgRepo.GetByID(ctx, orgID)
+	org, err := s.orgRepo.GetByID(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, repository.ErrOrganizationNotFound) {
 			return nil, ErrOrgNotFound
 		}
 		return nil, err
+	}
+	if s.sourceTenantIsPersonal(ctx, tenantID) {
+		return nil, ErrPersonalWorkspaceCannotUseSharedSpace
+	}
+	if org.SharingScope != nil &&
+		*org.SharingScope == types.SharingScopeTenantInternal &&
+		org.OwnerTenantID != 0 &&
+		org.OwnerTenantID != tenantID {
+		return nil, ErrKnowledgeBaseOutsideOrganizationWorkspace
 	}
 
 	// Caller must be an org member with editor+ role to share.
@@ -121,6 +133,9 @@ func (s *agentShareService) ShareAgent(ctx context.Context, agentID string, orgI
 			return nil, ErrTenantNotInOrg
 		}
 		return nil, err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, tm) {
+		return nil, ErrTenantNotInOrg
 	}
 	if !tm.Role.HasPermission(types.OrgRoleEditor) {
 		return nil, ErrOrgRoleCannotShareAgent
@@ -171,6 +186,13 @@ func (s *agentShareService) RemoveShare(ctx context.Context, shareID string, use
 		}
 		return err
 	}
+	if types.IsSystemAdminFromContext(ctx) {
+		return s.shareRepo.Delete(ctx, shareID)
+	}
+	org, err := loadOrganizationForShare(ctx, s.orgRepo, share.OrganizationID, nil)
+	if err != nil || !teamSpaceAllowsActiveTenant(ctx, org, tenantID, nil) {
+		return ErrAgentSharePermission
+	}
 	// (1) Original sharer.
 	if share.SharedByUserID == userID {
 		return s.shareRepo.Delete(ctx, shareID)
@@ -182,7 +204,9 @@ func (s *agentShareService) RemoveShare(ctx context.Context, shareID string, use
 		}
 	}
 	// (3) Current account is org admin in the target org (governance / sharer-left repair).
-	if tm, err := s.orgRepo.GetTenantMember(ctx, share.OrganizationID, tenantID); err == nil && tm.Role == types.OrgRoleAdmin {
+	if tm, err := s.orgRepo.GetTenantMember(ctx, share.OrganizationID, tenantID); err == nil &&
+		teamSpaceAllowsActiveTenant(ctx, org, tenantID, tm) &&
+		tm.Role == types.OrgRoleAdmin {
 		return s.shareRepo.Delete(ctx, shareID)
 	}
 	return ErrAgentSharePermission
@@ -213,7 +237,7 @@ func (s *agentShareService) ListSharesByOrganization(ctx context.Context, orgID 
 	return s.shareRepo.ListByOrganization(ctx, orgID)
 }
 
-// ListSharedAgents lists agents reachable from the current shared-space member.
+// ListSharedAgents lists agents reachable from the current team-space member.
 func (s *agentShareService) ListSharedAgents(ctx context.Context, tenantID uint64, callerTenantRole types.TenantRole) ([]*types.SharedAgentInfo, error) {
 	shares, err := s.shareRepo.ListSharedAgentsForTenant(ctx, tenantID)
 	if err != nil {
@@ -222,14 +246,21 @@ func (s *agentShareService) ListSharedAgents(ctx context.Context, tenantID uint6
 
 	agentInfoMap := make(map[string]*types.SharedAgentInfo)
 	for _, share := range shares {
-		if share.SourceTenantID == tenantID {
-			continue
-		}
 		if share.Agent == nil {
 			continue
 		}
 		tm, err := s.orgRepo.GetTenantMember(ctx, share.OrganizationID, tenantID)
 		if err != nil {
+			continue
+		}
+		org, err := loadOrganizationForShare(ctx, s.orgRepo, share.OrganizationID, share.Organization)
+		if err != nil || !teamSpaceAllowsActiveTenant(ctx, org, tenantID, tm) {
+			continue
+		}
+		if share.SourceTenantID == tenantID && !isTenantInternalOrganization(org) {
+			continue
+		}
+		if s.sourceTenantIsPersonal(ctx, share.SourceTenantID) {
 			continue
 		}
 		effective := types.MinOrgRole(share.Permission, tm.Role)
@@ -295,6 +326,13 @@ func (s *agentShareService) ListSharedAgentsInOrganization(ctx context.Context, 
 		}
 		return nil, err
 	}
+	org, err := s.orgRepo.GetByID(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, tm) {
+		return nil, ErrTenantNotInOrg
+	}
 
 	shares, err := s.shareRepo.ListByOrganization(ctx, orgID)
 	if err != nil {
@@ -304,6 +342,9 @@ func (s *agentShareService) ListSharedAgentsInOrganization(ctx context.Context, 
 	result := make([]*types.OrganizationSharedAgentItem, 0, len(shares))
 	for _, share := range shares {
 		if share.Agent == nil {
+			continue
+		}
+		if s.sourceTenantIsPersonal(ctx, share.SourceTenantID) {
 			continue
 		}
 
@@ -369,8 +410,21 @@ func (s *agentShareService) ListSharedAgentsInOrganizations(ctx context.Context,
 		return nil, err
 	}
 	byOrg := make(map[string][]*types.AgentShare)
+	orgCache := make(map[string]*types.Organization)
 	for _, share := range shares {
-		if share != nil && members[share.OrganizationID] != nil {
+		if share == nil || members[share.OrganizationID] == nil {
+			continue
+		}
+		org, ok := orgCache[share.OrganizationID]
+		if !ok {
+			var err error
+			org, err = loadOrganizationForShare(ctx, s.orgRepo, share.OrganizationID, share.Organization)
+			if err != nil {
+				continue
+			}
+			orgCache[share.OrganizationID] = org
+		}
+		if teamSpaceAllowsActiveTenant(ctx, org, tenantID, members[share.OrganizationID]) {
 			byOrg[share.OrganizationID] = append(byOrg[share.OrganizationID], share)
 		}
 	}
@@ -385,6 +439,9 @@ func (s *agentShareService) ListSharedAgentsInOrganizations(ctx context.Context,
 		result := make([]*types.OrganizationSharedAgentItem, 0, len(list))
 		for _, share := range list {
 			if share.Agent == nil {
+				continue
+			}
+			if s.sourceTenantIsPersonal(ctx, share.SourceTenantID) {
 				continue
 			}
 			effective := types.MinOrgRole(share.Permission, tm.Role)
@@ -446,12 +503,32 @@ func (s *agentShareService) GetSharedAgentForTenant(ctx context.Context, tenantI
 	if agentID == "" {
 		return nil, ErrAgentShareNotFound
 	}
-	share, err := s.shareRepo.GetShareByAgentIDForTenant(ctx, tenantID, agentID, tenantID)
+	share, err := s.shareRepo.GetShareByAgentIDForTenant(ctx, tenantID, agentID, 0)
 	if err != nil {
 		if errors.Is(err, repository.ErrAgentShareNotFound) {
 			return nil, ErrAgentSharePermission
 		}
 		return nil, err
+	}
+	org, err := loadOrganizationForShare(ctx, s.orgRepo, share.OrganizationID, share.Organization)
+	if err != nil {
+		return nil, err
+	}
+	tm, err := s.orgRepo.GetTenantMember(ctx, share.OrganizationID, tenantID)
+	if err != nil {
+		if errors.Is(err, repository.ErrOrgMemberNotFound) {
+			return nil, ErrAgentSharePermission
+		}
+		return nil, err
+	}
+	if !teamSpaceAllowsActiveTenant(ctx, org, tenantID, tm) {
+		return nil, ErrAgentSharePermission
+	}
+	if share.SourceTenantID == tenantID && !isTenantInternalOrganization(org) {
+		return nil, ErrAgentSharePermission
+	}
+	if s.sourceTenantIsPersonal(ctx, share.SourceTenantID) {
+		return nil, ErrAgentSharePermission
 	}
 	agent, err := s.agentRepo.GetAgentByID(ctx, agentID, share.SourceTenantID)
 	if err != nil {
@@ -464,41 +541,29 @@ func (s *agentShareService) GetSharedAgentForTenant(ctx context.Context, tenantI
 	return agent, nil
 }
 
-// TenantCanAccessKBViaSomeSharedAgent returns true if the caller's tenant has
-// at least one shared agent that can access the given KB (used when opening KB
-// detail from "通过智能体可见" list without agent_id).
+// TenantCanAccessKBViaSomeSharedAgent is retained as a compatibility hook for
+// older callers, but shared Agents are no longer an authorization source for
+// knowledge bases. A KB must be explicitly owned or published to a team space.
 func (s *agentShareService) TenantCanAccessKBViaSomeSharedAgent(ctx context.Context, tenantID uint64, callerTenantRole types.TenantRole, kb *types.KnowledgeBase) (bool, error) {
-	if kb == nil || kb.ID == "" {
-		return false, nil
-	}
-	list, err := s.ListSharedAgents(ctx, tenantID, callerTenantRole)
-	if err != nil || len(list) == 0 {
-		return false, err
-	}
-	for _, info := range list {
-		if info.Agent == nil {
-			continue
-		}
-		agent := info.Agent
-		if agent.TenantID != kb.TenantID {
-			continue
-		}
-		mode := agent.Config.KBSelectionMode
-		if mode == "none" {
-			continue
-		}
-		if mode == "all" {
-			return true, nil
-		}
-		if mode == "selected" {
-			for _, id := range agent.Config.KnowledgeBases {
-				if id == kb.ID {
-					return true, nil
-				}
-			}
-		}
-	}
+	_ = ctx
+	_ = tenantID
+	_ = callerTenantRole
+	_ = kb
 	return false, nil
+}
+
+func (s *agentShareService) sourceTenantIsPersonal(ctx context.Context, tenantID uint64) bool {
+	if s.tenantRepo == nil || tenantID == 0 {
+		return false
+	}
+	tenant, err := s.tenantRepo.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to resolve source tenant %d while checking shared agent access: %v", tenantID, err)
+		return true
+	}
+	return tenant != nil &&
+		tenant.SpaceType != nil &&
+		*tenant.SpaceType == types.SpaceTypePersonal
 }
 
 // GetShare gets an agent share by ID

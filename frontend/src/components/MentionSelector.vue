@@ -477,11 +477,15 @@ function handleOrgClick(orgName: string) {
     (s: any) => s.org_name === orgName
   );
   if (sharedKb?.organization_id) {
-    // 跳转到组织列表页（目前组织详情页可能不存在，先跳转到列表页）
-    router.push('/platform/organizations');
+    router.push({
+      path: '/platform/settings',
+      query: { section: 'sharedSpace' },
+    });
   } else {
-    // 如果找不到组织 ID，也跳转到组织列表页
-    router.push('/platform/organizations');
+    router.push({
+      path: '/platform/settings',
+      query: { section: 'sharedSpace' },
+    });
   }
 }
 

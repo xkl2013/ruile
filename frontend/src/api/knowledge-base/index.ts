@@ -23,6 +23,18 @@ export function listKnowledgeBases(params?: {
   return get(qs ? `/api/v1/knowledge-bases?${qs}` : '/api/v1/knowledge-bases');
 }
 
+export type KnowledgeBasePermission = 'admin' | 'editor' | 'viewer';
+export type KnowledgeBaseAccessSource =
+  | 'created'
+  | 'tenant_admin'
+  | 'system_admin'
+  | 'api_key'
+  | 'shared_space'
+  | 'shared_agent'
+  | 'subscription';
+export type KnowledgeBaseOwnerType = 'personal' | 'organization';
+export type KnowledgeBaseSharingScope = 'legacy_cross_space' | 'tenant_internal';
+
 // Read-only vector-store binding metadata enriched onto every KB
 // response (list, create, get, update, pin). Source carries where the
 // binding points; status reports whether that target is currently
@@ -56,41 +68,124 @@ export interface KnowledgeBaseStoreView {
   icon_url?: string;
 }
 
-export function createKnowledgeBase(data: {
+export interface MyKnowledgeBaseListItem extends KnowledgeBaseStoreView {
+  id: string;
+  name: string;
+  icon?: string;
+  type?: string;
+  description?: string;
+  tenant_id?: number;
+  creator_id?: string;
+  creator_name?: string;
+  knowledge_count?: number;
+  chunk_count?: number;
+  is_processing?: boolean;
+  processing_count?: number;
+  share_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  is_pinned?: boolean;
+  pinned_at?: string | null;
+  access_source: KnowledgeBaseAccessSource;
+  effective_tenant_id: number;
+  my_permission: KnowledgeBasePermission;
+  owner_type?: KnowledgeBaseOwnerType;
+  organization_id?: string;
+  org_name?: string;
+  sharing_scope?: KnowledgeBaseSharingScope;
+  share_id?: string;
+  shared_at?: string;
+  is_subscribed: boolean;
+  subscription_id?: string;
+  subscribed_at?: string;
+  [key: string]: any;
+}
+
+export interface MyKnowledgeBaseList {
+  created: MyKnowledgeBaseListItem[];
+  shared: MyKnowledgeBaseListItem[];
+  subscribed: MyKnowledgeBaseListItem[];
+}
+
+export interface KnowledgeBaseSubscriptionResult {
+  knowledge_base_id: string;
+  subscribed: boolean;
+  subscription_id?: string;
+}
+
+export function listMyKnowledgeBases() {
+  return get('/api/v1/knowledge-bases/my');
+}
+
+export function listKnowledgeBaseSubscriptions() {
+  return get('/api/v1/knowledge-bases/subscriptions');
+}
+
+export function subscribeKnowledgeBase(id: string) {
+  return post(`/api/v1/knowledge-bases/${id}/subscribe`, {});
+}
+
+export function unsubscribeKnowledgeBase(id: string) {
+  return del(`/api/v1/knowledge-bases/${id}/subscribe`);
+}
+
+export type KnowledgeBaseCreationScope = 'personal' | 'enterprise';
+
+export interface CreateKnowledgeBaseRequest {
   name: string;
   description?: string;
-  icon?: string;
-  type?: 'document' | 'faq';
-  chunking_config?: any;
-  embedding_model_id?: string;
-  summary_model_id?: string;
-  // Opt-in binding to a specific tenant-owned VectorStore. Omit (or
-  // send undefined / empty string) to fall back to the env-configured
-  // store. Immutable after creation — UpdateKnowledgeBase intentionally
-  // does not accept this field.
-  vector_store_id?: string;
-  // Concrete tenant-owned storage instance. When omitted, the tenant default
-  // backend is bound by the server at creation time.
-  storage_backend_id?: string;
-  vlm_config?: {
+  /**
+   * Creation intent only. The backend resolves the actual tenant from the
+   * authenticated account and active membership; callers must not send a
+   * raw tenant_id.
+   */
+  scope?: KnowledgeBaseCreationScope;
+  enterprise_tenant_id?: number;
+}
+
+export function createKnowledgeBase(data: CreateKnowledgeBaseRequest) {
+  return post(`/api/v1/knowledge-bases`, data);
+}
+
+export interface KnowledgeBaseDefaultsConfig {
+  summary_model_id: string;
+  embedding_model_id: string;
+  vlm_config: {
     enabled: boolean;
-    model_id?: string;
+    model_id: string;
     description_language?: string;
     custom_instructions?: string;
   };
-  ocr_config?: {
+  ocr_config: {
     enabled: boolean;
-    model_id?: string;
+    model_id: string;
   };
-  storage_provider_config?: { provider: string };
-  storage_config?: any; // legacy, kept for backward compat (dual-write)
-  asr_config?: {
+  asr_config: {
     enabled: boolean;
-    model_id?: string;
+    model_id: string;
     language?: string;
   };
+  chunking_config: {
+    chunk_size: number;
+    chunk_overlap: number;
+    separators: string[];
+    parser_engine_rules?: { file_types: string[]; engine: string }[];
+    enable_parent_child?: boolean;
+    parent_chunk_size?: number;
+    child_chunk_size?: number;
+    strategy?: string;
+    token_limit?: number;
+    languages?: string[];
+    table_metadata_instructions?: string;
+  };
+  storage_provider: string;
+  storage_backend_id: string;
   extract_config?: any;
-  faq_config?: { index_mode: string; question_index_mode?: string };
+  question_generation_config?: {
+    enabled: boolean;
+    question_count: number;
+    custom_instructions?: string;
+  };
   wiki_config?: {
     synthesis_model_id?: string;
     max_pages_per_ingest?: number;
@@ -98,14 +193,24 @@ export function createKnowledgeBase(data: {
     content_instructions?: string;
     extraction_instructions?: string;
   };
-  indexing_strategy?: {
+  faq_config?: {
+    index_mode?: 'question_only' | 'question_answer';
+    question_index_mode?: 'combined' | 'separate';
+  };
+  indexing_strategy: {
     vector_enabled: boolean;
     keyword_enabled: boolean;
     wiki_enabled: boolean;
     graph_enabled: boolean;
   };
-}) {
-  return post(`/api/v1/knowledge-bases`, data);
+}
+
+export function getKnowledgeBaseDefaults() {
+  return get('/api/v1/tenants/kv/knowledge-base-config');
+}
+
+export function updateKnowledgeBaseDefaults(config: KnowledgeBaseDefaultsConfig) {
+  return put('/api/v1/tenants/kv/knowledge-base-config', config);
 }
 
 export function getKnowledgeBaseById(id: string, options?: { agent_id?: string }) {

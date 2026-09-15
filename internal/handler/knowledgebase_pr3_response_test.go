@@ -36,9 +36,12 @@ import (
 type stubKBCreateService struct {
 	interfaces.KnowledgeBaseService
 	createErr error
+	seen      *types.KnowledgeBase
 }
 
 func (s *stubKBCreateService) CreateKnowledgeBase(_ context.Context, kb *types.KnowledgeBase) (*types.KnowledgeBase, error) {
+	seen := *kb
+	s.seen = &seen
 	if s.createErr != nil {
 		return nil, s.createErr
 	}
@@ -54,6 +57,16 @@ func newCreateKBRouter(svc interfaces.KnowledgeBaseService) *gin.Engine {
 	r.Use(func(c *gin.Context) {
 		c.Set(types.TenantIDContextKey.String(), uint64(1))
 		c.Set(types.UserIDContextKey.String(), "u-test")
+		c.Set(types.UserContextKey.String(), &types.User{
+			ID:       "u-test",
+			TenantID: 1,
+		})
+		spaceType := types.SpaceTypePersonal
+		c.Set(types.TenantInfoContextKey.String(), &types.Tenant{
+			ID:        1,
+			SpaceType: &spaceType,
+		})
+		c.Set(types.TenantRoleContextKey.String(), types.TenantRoleContributor)
 		c.Next()
 	})
 	h := &KnowledgeBaseHandler{service: svc}
@@ -98,6 +111,56 @@ func TestCreateKB_PreservesTypedErrorCode_2201(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"code":2201`) {
 		t.Fatalf("expected envelope to contain code 2201, got %s", w.Body.String())
+	}
+}
+
+func TestCreateKB_OnlyPassesBasicFieldsToService(t *testing.T) {
+	svc := &stubKBCreateService{}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/knowledge-bases", strings.NewReader(`{
+		"name":"  sales  ",
+		"description":"  internal playbook  ",
+		"tenant_id":999,
+		"embedding_model_id":"attacker-embedding",
+		"summary_model_id":"attacker-chat",
+		"vector_store_id":"attacker-store",
+		"storage_backend_id":"attacker-backend",
+		"icon":"settings",
+		"type":"faq",
+		"chunking_config":{"chunk_size":1}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	newCreateKBRouter(svc).ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.seen == nil {
+		t.Fatal("expected service to receive a knowledge base")
+	}
+	if svc.seen.Name != "sales" || svc.seen.Description != "internal playbook" {
+		t.Fatalf("unexpected basic fields: %#v", svc.seen)
+	}
+	if svc.seen.TenantID != 0 || svc.seen.EmbeddingModelID != "" || svc.seen.SummaryModelID != "" ||
+		svc.seen.VectorStoreID != nil || svc.seen.StorageBackendID != nil || svc.seen.Icon != "" ||
+		svc.seen.Type != "" || svc.seen.ChunkingConfig.ChunkSize != 0 {
+		t.Fatalf("advanced or ownership fields bypassed create DTO: %#v", svc.seen)
+	}
+}
+
+func TestCreateKB_RejectsBlankName(t *testing.T) {
+	svc := &stubKBCreateService{}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/knowledge-bases",
+		strings.NewReader(`{"name":"   ","description":"desc"}`))
+	req.Header.Set("Content-Type", "application/json")
+	newCreateKBRouter(svc).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if svc.seen != nil {
+		t.Fatal("service must not be called for a blank name")
 	}
 }
 

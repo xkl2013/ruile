@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	werrors "github.com/Tencent/WeKnora/internal/errors"
@@ -25,6 +26,14 @@ type tenantService struct {
 	storageRepo interfaces.StorageBackendRepository
 }
 
+// provisioningKeyTenantRepository is an optional repository capability. It
+// stays separate from TenantRepository so the existing lightweight test
+// doubles and integrations do not need to implement an idempotency lookup
+// they never use.
+type provisioningKeyTenantRepository interface {
+	GetTenantByProvisioningKey(ctx context.Context, key string) (*types.Tenant, error)
+}
+
 // NewTenantService creates a new tenant service instance
 func NewTenantService(repo interfaces.TenantRepository, storageRepo interfaces.StorageBackendRepository) interfaces.TenantService {
 	return &tenantService{repo: repo, storageRepo: storageRepo}
@@ -37,6 +46,10 @@ func (s *tenantService) CreateTenant(ctx context.Context, tenant *types.Tenant) 
 	if tenant.Name == "" {
 		logger.Error(ctx, "Workspace name cannot be empty")
 		return nil, errors.New("workspace name cannot be empty")
+	}
+	if tenant.SpaceType == nil {
+		spaceType := types.SpaceTypeOrganization
+		tenant.SpaceType = &spaceType
 	}
 
 	logger.Infof(ctx, "Creating tenant, name: %s", tenant.Name)
@@ -115,6 +128,22 @@ func (s *tenantService) GetTenantByID(ctx context.Context, id uint64) (*types.Te
 	}
 
 	return tenant, nil
+}
+
+// GetTenantByProvisioningKey is an optional service capability used by the
+// enterprise-workspace provisioning command. A repository without this
+// capability behaves as if no prior request exists; production's tenant
+// repository implements the lookup and is backed by a unique nullable index.
+func (s *tenantService) GetTenantByProvisioningKey(ctx context.Context, key string) (*types.Tenant, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, nil
+	}
+	repo, ok := s.repo.(provisioningKeyTenantRepository)
+	if !ok {
+		return nil, nil
+	}
+	return repo.GetTenantByProvisioningKey(ctx, key)
 }
 
 // GetTenantsByIDs batches GetTenantByID; returns a map keyed by tenant ID.

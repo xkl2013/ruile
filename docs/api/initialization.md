@@ -5,8 +5,8 @@
 | 方法   | 路径                                              | 描述                       |
 | ------ | ------------------------------------------------- | -------------------------- |
 | GET    | `/initialization/config/:kb_id`                   | 获取知识库初始化配置       |
-| POST   | `/initialization/initialize/:kb_id`               | 初始化知识库模型配置       |
-| PUT    | `/initialization/config/:kb_id`                   | 更新知识库模型配置         |
+| POST   | `/initialization/initialize/:kb_id`               | 旧版按知识库配置入口，写入已停用 |
+| PUT    | `/initialization/config/:kb_id`                   | 旧版按知识库配置入口，写入已停用 |
 | GET    | `/initialization/ollama/status`                   | 检查 Ollama 状态           |
 | GET    | `/initialization/ollama/models`                   | 获取本地 Ollama 模型列表   |
 | POST   | `/initialization/ollama/models/check`             | 检查 Ollama 模型是否可用   |
@@ -43,7 +43,11 @@ curl --location 'http://localhost:8080/api/v1/initialization/config/kb-00000001'
 }
 ```
 
-## POST `/initialization/initialize/:kb_id` - 初始化知识库模型配置
+## POST `/initialization/initialize/:kb_id` - 旧版按知识库配置入口
+
+该写入接口保留路由兼容，但已不再允许按知识库修改模型、解析、索引、存储等高级配置，调用会返回 `409 Conflict`。请改用 admin 的工作区统一配置接口：
+
+`PUT /api/v1/tenants/kv/knowledge-base-config`
 
 **请求**:
 
@@ -67,7 +71,11 @@ curl --location 'http://localhost:8080/api/v1/initialization/initialize/kb-00000
 }
 ```
 
-## PUT `/initialization/config/:kb_id` - 更新知识库模型配置
+## PUT `/initialization/config/:kb_id` - 旧版按知识库配置入口
+
+该写入接口保留路由兼容，但已不再允许按知识库修改模型、解析、索引、存储等高级配置，调用会返回 `409 Conflict`。请改用 admin 的工作区统一配置接口：
+
+`PUT /api/v1/tenants/kv/knowledge-base-config`
 
 **请求**:
 

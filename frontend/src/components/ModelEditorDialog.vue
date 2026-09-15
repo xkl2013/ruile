@@ -48,108 +48,8 @@
         </div>
       </section>
 
-      <!--
-        Section 1 — 模型来源 + 模型名称（来源直接决定下方字段，所以放一节）
-      -->
-      <section class="setting-drawer__section">
-        <h4 class="setting-drawer__section-title">{{ $t('model.editor.sectionSource') }}</h4>
-
-        <div class="form-item">
-          <!--
-            Section title already says 「模型来源」，所以这里不再重复 label，
-            直接把分段控件作为 section 的首个内容呈现，避免「双标题」感。
-          -->
-          <div class="source-options" role="radiogroup" :aria-label="$t('model.editor.sourceLabel')">
-            <button
-              type="button"
-              class="source-option"
-              :class="{ 'is-active': formData.source === 'remote' }"
-              role="radio"
-              :aria-checked="formData.source === 'remote'"
-              @click="formData.source = 'remote'"
-            >
-              <t-icon name="cloud" class="source-option__icon" />
-              <span class="source-option__label">{{ $t('model.editor.sourceRemote') }}</span>
-            </button>
-            <button
-              type="button"
-              class="source-option"
-              :class="{ 'is-active': formData.source === 'local', 'is-disabled': !isLocalSourceSelectable }"
-              :disabled="!isLocalSourceSelectable"
-              role="radio"
-              :aria-checked="formData.source === 'local'"
-              @click="formData.source = 'local'"
-            >
-              <t-icon name="server" class="source-option__icon" />
-              <span class="source-option__label">{{ $t('model.editor.sourceLocal') }}</span>
-            </button>
-          </div>
-
-          <!-- ReRank / ASR 模型不支持 Ollama 的提示信息 -->
-          <div v-if="!isLocalSourceSupported" class="ollama-unavailable-tip rerank-tip">
-            <t-icon name="info-circle-filled" class="tip-icon info" />
-            <span class="tip-text">{{ $t(localSourceUnavailableKey) }}</span>
-          </div>
-
-          <!-- Ollama不可用时的提示信息 -->
-          <div v-else-if="shouldShowOllamaUnavailableTip(formData.source, activeModelType, ollamaServiceStatus)"
-            class="ollama-unavailable-tip">
-            <t-icon name="error-circle-filled" class="tip-icon" />
-            <span class="tip-text">{{ $t('model.editor.ollamaUnavailable') }}</span>
-            <t-button variant="text" size="small" @click="goToOllamaSettings" class="tip-link">
-              <template #icon><t-icon name="jump" /></template>
-              {{ $t('model.editor.goToOllamaSettings') }}
-            </t-button>
-          </div>
-        </div>
-
-        <!-- Ollama 本地模型选择器 -->
-        <div v-if="formData.source === 'local'" class="form-item">
-          <label class="form-label required">{{ $t('model.modelName') }}</label>
-          <div class="model-select-row">
-            <t-select v-model="formData.modelName" :loading="loadingOllamaModels" :class="{ 'downloading': downloading }"
-              :style="downloading ? `--progress: ${downloadProgress}%` : ''" filterable :filter="handleModelFilter"
-              :placeholder="$t('model.searchPlaceholder')" @focus="loadOllamaModels"
-              @visible-change="handleDropdownVisibleChange">
-              <!-- 已下载的模型 -->
-              <t-option v-for="model in filteredOllamaModels" :key="model.name" :value="model.name" :label="model.name">
-                <div class="model-option">
-                  <t-icon name="check-circle-filled" class="downloaded-icon" />
-                  <span class="model-name">{{ model.name }}</span>
-                  <span class="model-size">{{ formatModelSize(model.size) }}</span>
-                </div>
-              </t-option>
-
-              <!-- 下载新模型选项（仅当搜索词不在列表中时显示） -->
-              <t-option v-if="showDownloadOption" :value="`__download__${searchKeyword}`"
-                :label="$t('model.editor.downloadLabel', { keyword: searchKeyword })" class="download-option">
-                <div class="model-option download">
-                  <t-icon name="download" class="download-icon" />
-                  <span class="model-name">{{ $t('model.editor.downloadLabel', { keyword: searchKeyword }) }}</span>
-                </div>
-              </t-option>
-
-              <!-- 下载进度后缀 -->
-              <template v-if="downloading" #suffix>
-                <div class="download-suffix">
-                  <t-icon name="loading" class="spinning" />
-                  <span class="progress-text">{{ downloadProgress.toFixed(1) }}%</span>
-                </div>
-              </template>
-            </t-select>
-
-            <!-- 刷新按钮 -->
-            <t-button variant="text" size="small" :loading="loadingOllamaModels" @click="refreshOllamaModels"
-              class="refresh-btn">
-              <t-icon name="refresh" />
-              {{ $t('model.editor.refreshList') }}
-            </t-button>
-          </div>
-        </div>
-      </section>
-
-      <!-- Remote API 配置 -->
-      <template v-if="formData.source === 'remote'">
+      <!-- API 配置 -->
+      <template>
         <section class="setting-drawer__section">
           <h4 class="setting-drawer__section-title">{{ $t('model.editor.sectionProvider') }}</h4>
 
@@ -198,13 +98,6 @@
                 <template v-else>
                   {{ $t('settings.weknoraCloud.credentialUnconfigured') }}
                 </template>
-                <div style="margin-top: 8px;">
-                  <t-button variant="text" size="small" @click="goToWeKnoraCloudSettings"
-                    style="padding: 0; height: auto;">
-                    <template #icon><t-icon name="jump" /></template>
-                    {{ $t('settings.weknoraCloud.goToSettings') }}
-                  </t-button>
-                </div>
               </div>
             </div>
 
@@ -323,13 +216,7 @@
           <div class="dimension-control">
             <t-input v-model.number="formData.dimension" type="number" :min="128" :max="4096"
               :placeholder="$t('model.editor.dimensionPlaceholder')"
-              :disabled="!formData.supportsDimensionOverride || (formData.source === 'local' && checking)" />
-            <!-- Ollama 本地模型：自动检测维度按钮 -->
-            <t-button v-if="formData.source === 'local' && formData.modelName" variant="text" size="small"
-              :loading="checking" @click="checkOllamaDimension" class="dimension-check-btn">
-              <t-icon name="refresh" />
-              {{ $t('model.editor.checkDimension') }}
-            </t-button>
+              :disabled="!formData.supportsDimensionOverride" />
           </div>
           <p v-if="dimensionChecked && dimensionMessage" class="dimension-hint" :class="{ success: dimensionSuccess }">
             {{ dimensionMessage }}
@@ -396,9 +283,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onUnmounted, nextTick } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { checkOllamaModels, checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, checkOCRModel, listOllamaModels, downloadOllamaModel, getDownloadProgress, checkOllamaStatus, listModelProviders, type OllamaModelInfo, type ModelProviderOption } from '@/api/initialization'
+import { checkRemoteModel, testEmbeddingModel, checkRerankModel, checkASRModel, checkOCRModel, listModelProviders, type ModelProviderOption } from '@/api/initialization'
 import {
   getWeKnoraCloudStatus,
   putModelCredentials,
@@ -416,8 +303,6 @@ import CredentialResource, {
   type CredentialFieldDef,
   type CredentialResourceApi,
 } from '@/components/credentials/CredentialResource.vue'
-import { shouldShowOllamaUnavailableTip } from '@/components/modelEditorSourceState'
-import { navigateToAdmin } from '@/utils/adminNavigation'
 
 interface CustomHeaderItem {
   key: string
@@ -810,20 +695,6 @@ const isLkeapRerank = computed(
   () => activeModelType.value === 'rerank' && formData.value.provider === 'lkeap',
 )
 
-const isLocalSourceSupported = computed(() => !['rerank', 'asr', 'ocr'].includes(activeModelType.value))
-
-const isLocalSourceSelectable = computed(() =>
-  isLocalSourceSupported.value && ollamaServiceStatus.value !== false,
-)
-
-const localSourceUnavailableKey = computed(() =>
-  activeModelType.value === 'asr'
-    ? 'model.editor.ollamaNotSupportAsr'
-    : activeModelType.value === 'ocr'
-      ? 'model.editor.ollamaNotSupportOcr'
-    : 'model.editor.ollamaNotSupportRerank',
-)
-
 // Credential resource binding for the shared <CredentialResource> component.
 const credentialFields = computed<CredentialFieldDef<ModelCredentialField>[]>(() => {
   const fields: CredentialFieldDef<ModelCredentialField>[] = [
@@ -875,8 +746,6 @@ const saving = ref(false)
 // reset block in the visible watcher) so we never leak the previous value
 // across editor sessions.
 const showApiKey = ref(false)
-const modelChecked = ref(false)
-const modelAvailable = ref(false)
 const checking = ref(false)
 const remoteChecked = ref(false)
 const remoteAvailable = ref(false)
@@ -884,19 +753,6 @@ const remoteMessage = ref('')
 const dimensionChecked = ref(false)
 const dimensionSuccess = ref(false)
 const dimensionMessage = ref('')
-
-// Ollama 模型状态
-const ollamaModelList = ref<OllamaModelInfo[]>([])
-const loadingOllamaModels = ref(false)
-const searchKeyword = ref('')
-const downloading = ref(false)
-const downloadProgress = ref(0)
-const currentDownloadModel = ref('')
-let downloadInterval: any = null
-
-// Ollama 服务状态
-const ollamaServiceStatus = ref<boolean | null>(null)
-const checkingOllamaStatus = ref(false)
 
 // 睿乐大脑云凭证状态
 const wkcCredentialState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
@@ -917,11 +773,6 @@ const checkWkcCredentialStatus = async () => {
   }
 }
 
-const goToWeKnoraCloudSettings = async () => {
-  emit('update:visible', false)
-  navigateToAdmin('/runtime/weknora-cloud')
-}
-
 const formData = ref<ModelFormData>({
   id: '',
   name: '',
@@ -933,7 +784,7 @@ const formData = ref<ModelFormData>({
   apiKey: '',
   dimension: undefined,
   supportsDimensionOverride: false,
-  interfaceType: 'ollama',
+  interfaceType: undefined,
   isDefault: false,
   supportsVision: false,
   maxConcurrency: undefined,
@@ -1030,35 +881,6 @@ const getBaseUrlDescription = () => {
   return ''
 }
 
-// 检查Ollama服务状态
-const checkOllamaServiceStatus = async () => {
-  console.log('开始检查Ollama服务状态...')
-  checkingOllamaStatus.value = true
-  try {
-    const result = await checkOllamaStatus()
-    ollamaServiceStatus.value = result.available
-    console.log('Ollama服务状态检查完成:', result.available)
-  } catch (error) {
-    console.error('检查Ollama服务状态失败:', error)
-    ollamaServiceStatus.value = false
-  } finally {
-    checkingOllamaStatus.value = false
-  }
-
-  // Ollama 不可用时，新增场景下默认切换到 remote
-  if (ollamaServiceStatus.value === false && !isEdit.value && formData.value.source === 'local') {
-    formData.value.source = 'remote'
-  }
-}
-
-// 打开Ollama设置窗口
-const goToOllamaSettings = async () => {
-  console.log('点击跳转到Ollama设置按钮')
-  // 关闭当前弹窗
-  emit('update:visible', false)
-  navigateToAdmin('/runtime/ollama')
-}
-
 // 上一次打开时的 modelData id：用来判断切换模型/新增 vs. 同一次新增的连续打开
 const lastOpenedModelId = ref<string | null>(null)
 
@@ -1066,9 +888,7 @@ const selectModelType = async (type: EditorModelType) => {
   if (isEdit.value || draftModelType.value === type) return
   draftModelType.value = type
 
-  if (!isLocalSourceSupported.value) {
-    formData.value.source = 'remote'
-  }
+  formData.value.source = 'remote'
   if (type !== 'embedding') {
     formData.value.dimension = undefined
     formData.value.supportsDimensionOverride = false
@@ -1101,16 +921,11 @@ const selectModelType = async (type: EditorModelType) => {
 // 监听 visible 变化，初始化表单
 watch(() => props.visible, (val) => {
   if (val) {
-    // 检查Ollama服务状态
-    checkOllamaServiceStatus()
-
     // 从 API 加载 Model Provider 列表
     loadProviders()
 
     // 每次打开都清理上一次遗留的校验/检测结果，避免编辑别的模型时
     // 直接显示上一次的“连接成功”
-    modelChecked.value = false
-    modelAvailable.value = false
     remoteChecked.value = false
     remoteAvailable.value = false
     remoteMessage.value = ''
@@ -1129,6 +944,7 @@ watch(() => props.visible, (val) => {
         // not by this form's apiKey field.
         formData.value = {
           ...props.modelData,
+          source: 'remote',
           apiKey: '',
           customHeaders: Array.isArray(props.modelData.customHeaders)
             ? props.modelData.customHeaders.map(h => ({ key: h.key, value: h.value }))
@@ -1143,10 +959,7 @@ watch(() => props.visible, (val) => {
 
       lastOpenedModelId.value = currentId
 
-  // ReRank / OCR / ASR 模型强制使用 remote 来源（后端没有 Ollama 实现）
-      if (!isLocalSourceSupported.value) {
-        formData.value.source = 'remote'
-      }
+      formData.value.source = 'remote'
 
       // 如果当前 provider 是睿乐大脑云，检查凭证状态
       if (formData.value.provider === 'weknoracloud') {
@@ -1188,8 +1001,6 @@ const resetForm = () => {
     appSecret: '',
     lkeapRegion: 'ap-guangzhou',
   }
-  modelChecked.value = false
-  modelAvailable.value = false
   remoteChecked.value = false
   remoteAvailable.value = false
   remoteMessage.value = ''
@@ -1277,129 +1088,6 @@ const addCustomHeader = () => {
 const removeCustomHeader = (idx: number) => {
   if (!Array.isArray(formData.value.customHeaders)) return
   formData.value.customHeaders.splice(idx, 1)
-}
-
-// 过滤后的模型列表
-const filteredOllamaModels = computed(() => {
-  if (!searchKeyword.value) return ollamaModelList.value
-  return ollamaModelList.value.filter(model =>
-    model.name.toLowerCase().includes(searchKeyword.value.toLowerCase())
-  )
-})
-
-// 是否显示"下载模型"选项
-const showDownloadOption = computed(() => {
-  if (!searchKeyword.value.trim()) return false
-  // 检查搜索词是否已存在于模型列表中
-  const exists = ollamaModelList.value.some(model =>
-    model.name.toLowerCase() === searchKeyword.value.toLowerCase()
-  )
-  return !exists
-})
-
-// 自定义过滤逻辑（捕获搜索关键词）
-const handleModelFilter = (filterWords: string) => {
-  searchKeyword.value = filterWords
-  return true // 让 TDesign 使用我们的 filteredOllamaModels
-}
-
-// 加载 Ollama 模型列表
-const loadOllamaModels = async () => {
-  // 只在选择 local 来源时加载
-  if (formData.value.source !== 'local') return
-
-  loadingOllamaModels.value = true
-  try {
-    const models = await listOllamaModels()
-    ollamaModelList.value = models
-  } catch (error) {
-    console.error(t('model.editor.loadModelListFailed'), error)
-    MessagePlugin.error(t('model.editor.loadModelListFailed'))
-  } finally {
-    loadingOllamaModels.value = false
-  }
-}
-
-// 刷新模型列表
-const refreshOllamaModels = async () => {
-  ollamaModelList.value = [] // 清空以强制重新加载
-  await loadOllamaModels()
-  MessagePlugin.success(t('model.editor.listRefreshed'))
-}
-
-// 监听下拉框可见性变化
-const handleDropdownVisibleChange = (visible: boolean) => {
-  if (!visible) {
-    searchKeyword.value = ''
-  }
-}
-
-// 格式化模型大小
-const formatModelSize = (bytes: number): string => {
-  if (!bytes || bytes === 0) return ''
-  const gb = bytes / (1024 * 1024 * 1024)
-  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / (1024 * 1024)).toFixed(0)} MB`
-}
-
-// 检查模型状态（Ollama本地模型）
-const checkModelStatus = async () => {
-  if (!formData.value.modelName || formData.value.source !== 'local') {
-    return
-  }
-
-  try {
-    // 调用真实 Ollama API 检查模型是否存在
-    const result = await checkOllamaModels([formData.value.modelName])
-    modelChecked.value = true
-    modelAvailable.value = result.models[formData.value.modelName] || false
-  } catch (error) {
-    console.error('检查模型状态失败:', error)
-    modelChecked.value = false
-    modelAvailable.value = false
-  }
-}
-
-// 检查 Ollama 本地 Embedding 模型维度
-const checkOllamaDimension = async () => {
-  if (!formData.value.modelName || formData.value.source !== 'local' || activeModelType.value !== 'embedding') {
-    return
-  }
-
-  checking.value = true
-  dimensionChecked.value = false
-  dimensionMessage.value = ''
-
-  try {
-    const result = await testEmbeddingModel({
-      source: 'local',
-      modelName: formData.value.modelName,
-      dimension: formData.value.dimension,
-      supportsDimensionOverride: formData.value.supportsDimensionOverride ?? false,
-    })
-
-    dimensionChecked.value = true
-    dimensionSuccess.value = result.available || false
-
-    if (result.available && result.dimension) {
-      formData.value.dimension = result.dimension
-      dimensionMessage.value = t('model.editor.dimensionDetected', { value: result.dimension })
-      MessagePlugin.success(dimensionMessage.value)
-    } else {
-      if (result.message) {
-        console.debug('Backend dimension message:', result.message)
-      }
-      dimensionMessage.value = t('model.editor.dimensionFailed')
-      MessagePlugin.warning(dimensionMessage.value)
-    }
-  } catch (error: any) {
-    console.error('Ollama dimension check failed:', error)
-    dimensionChecked.value = true
-    dimensionSuccess.value = false
-    dimensionMessage.value = t('model.editor.dimensionFailed')
-    MessagePlugin.error(dimensionMessage.value)
-  } finally {
-    checking.value = false
-  }
 }
 
 // 检查 Remote API 连接（根据模型类型调用不同的接口）
@@ -1640,121 +1328,15 @@ const handleConfirm = async () => {
   }
 }
 
-// 监听模型选择变化（处理下载逻辑和自动维度检测提示）
-watch(() => formData.value.modelName, async (newValue, oldValue) => {
-  if (!newValue) return
-
-  // 处理下载逻辑
-  if (newValue.startsWith('__download__')) {
-    // 提取模型名称
-    const modelName = newValue.replace('__download__', '')
-
-    // 重置选择（避免显示 __download__ 前缀）
-    formData.value.modelName = ''
-
-    // 开始下载
-    await startDownload(modelName)
-    return
-  }
-
-  // 如果是 embedding 模型且选择的是 Ollama 本地模型，且模型名称发生了实际变化
-  if (activeModelType.value === 'embedding' &&
-    formData.value.source === 'local' &&
-    newValue !== oldValue &&
-    oldValue !== '') {
-    // 提示用户可以检测维度
-    MessagePlugin.info(t('model.editor.dimensionHint'))
-  }
-})
-
-// 开始下载模型
-const startDownload = async (modelName: string) => {
-  downloading.value = true
-  downloadProgress.value = 0
-  currentDownloadModel.value = modelName
-
-  try {
-    // 启动下载
-    const result = await downloadOllamaModel(modelName)
-    const taskId = result.taskId
-
-    MessagePlugin.success(t('model.editor.downloadStarted', { name: modelName }))
-
-    // 轮询下载进度
-    downloadInterval = setInterval(async () => {
-      try {
-        const progress = await getDownloadProgress(taskId)
-        downloadProgress.value = progress.progress
-
-        if (progress.status === 'completed') {
-          // 下载完成
-          clearInterval(downloadInterval)
-          downloadInterval = null
-          downloading.value = false
-
-          MessagePlugin.success(t('model.editor.downloadCompleted', { name: modelName }))
-
-          // 刷新模型列表
-          await loadOllamaModels()
-
-          // 自动选中新下载的模型
-          formData.value.modelName = modelName
-
-          // 重置状态
-          downloadProgress.value = 0
-          currentDownloadModel.value = ''
-
-        } else if (progress.status === 'failed') {
-          // 下载失败
-          clearInterval(downloadInterval)
-          downloadInterval = null
-          downloading.value = false
-          MessagePlugin.error(progress.message || t('model.editor.downloadFailed', { name: modelName }))
-          downloadProgress.value = 0
-          currentDownloadModel.value = ''
-        }
-      } catch (error) {
-        console.error('获取下载进度失败:', error)
-      }
-    }, 1000) // 每秒查询一次
-
-  } catch (error: any) {
-    downloading.value = false
-    downloadProgress.value = 0
-    currentDownloadModel.value = ''
-    console.error('Download start failed:', error)
-    MessagePlugin.error(t('model.editor.downloadStartFailed'))
-  }
-}
-
-// 组件卸载时清理定时器
-onUnmounted(() => {
-  if (downloadInterval) {
-    clearInterval(downloadInterval)
-  }
-})
-
 // 监听来源变化，清理所有状态
 watch(() => formData.value.source, () => {
   // 重置校验状态
-  modelChecked.value = false
-  modelAvailable.value = false
   remoteChecked.value = false
   remoteAvailable.value = false
   remoteMessage.value = ''
   dimensionChecked.value = false
   dimensionSuccess.value = false
   dimensionMessage.value = ''
-
-  // 清理下载状态
-  searchKeyword.value = ''
-  if (downloadInterval) {
-    clearInterval(downloadInterval)
-    downloadInterval = null
-  }
-  downloading.value = false
-  downloadProgress.value = 0
-  currentDownloadModel.value = ''
 
   if (
     !hydratingForm.value
@@ -1863,62 +1445,6 @@ const handleCancel = () => {
     outline: 2px solid var(--td-brand-color);
     outline-offset: 2px;
   }
-}
-
-// 模型来源分段：紧凑单行 pill 形 segmented。容器自身是浅底圆角条，
-// 选中按钮通过实色背景 + 主题色描边浮出，未选中态接近透明，节省纵向空间。
-.source-options {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px;
-  background: var(--td-bg-color-component);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-}
-
-.source-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  height: 28px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--td-text-color-secondary);
-  line-height: 1;
-  transition: all 0.15s ease;
-
-  &:hover:not(.is-disabled):not(.is-active) {
-    color: var(--td-text-color-primary);
-    background: var(--td-bg-color-container-hover);
-  }
-
-  &.is-active {
-    background: var(--td-bg-color-container);
-    border-color: var(--td-brand-color);
-    color: var(--td-brand-color);
-    font-weight: 500;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  }
-
-  &.is-disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-}
-
-.source-option__icon {
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.source-option__label {
-  white-space: nowrap;
 }
 
 // 输入框样式：只在最外层 .t-input 上调字号，避免在内部 wrap/inner 上重复加边
@@ -2094,108 +1620,6 @@ const handleCancel = () => {
   }
 }
 
-// Ollama 模型选择器样式
-.model-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 4px 0;
-
-  .downloaded-icon {
-    font-size: 14px;
-    color: var(--td-brand-color);
-    flex-shrink: 0;
-  }
-
-  .download-icon {
-    font-size: 14px;
-    color: var(--td-brand-color);
-    flex-shrink: 0;
-  }
-
-  .model-name {
-    flex: 1;
-    font-size: 13px;
-    color: var(--td-text-color-primary);
-  }
-
-  .model-size {
-    font-size: 12px;
-    color: var(--td-text-color-placeholder);
-    margin-left: auto;
-  }
-
-  &.download {
-    .model-name {
-      color: var(--td-brand-color);
-      font-weight: 500;
-    }
-  }
-}
-
-// 下载进度后缀样式
-.download-suffix {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 4px;
-
-  .spinning {
-    animation: spin 1s linear infinite;
-    font-size: 14px;
-    color: var(--td-brand-color);
-  }
-
-  .progress-text {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--td-brand-color);
-  }
-}
-
-// 下载中的选择框进度条效果
-:deep(.t-select.downloading) {
-  .t-input {
-    position: relative;
-    overflow: hidden;
-
-    &::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: var(--progress, 0%);
-      background: linear-gradient(90deg, rgba(7, 192, 95, 0.08), rgba(7, 192, 95, 0.15));
-      transition: width 0.3s ease;
-      z-index: 0;
-      border-radius: 5px 0 0 5px;
-    }
-
-    .t-input__inner,
-    input {
-      position: relative;
-      z-index: 1;
-      background: transparent !important;
-    }
-  }
-}
-
-.model-select-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .t-select {
-    flex: 1;
-  }
-}
-
-.refresh-btn {
-  flex-shrink: 0;
-}
-
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -2215,10 +1639,6 @@ const handleCancel = () => {
   :deep(.t-input) {
     flex: 1;
   }
-}
-
-.dimension-check-btn {
-  flex-shrink: 0;
 }
 
 .dimension-hint {
@@ -2310,81 +1730,6 @@ const handleCancel = () => {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-// Ollama不可用提示样式
-.ollama-unavailable-tip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--td-error-color-light);
-  border: 1px solid var(--td-error-color-focus);
-  border-radius: 8px;
-  font-size: 13px;
-
-  .tip-icon {
-    color: var(--td-error-color);
-    font-size: 16px;
-    flex-shrink: 0;
-    margin-right: 2px;
-
-    &.info {
-      color: var(--td-brand-color);
-    }
-  }
-
-  .tip-text {
-    color: var(--td-error-color);
-    flex: 1;
-    line-height: 1.5;
-  }
-
-  // ReRank提示使用主题绿色风格，与主页面保持一致
-  &.rerank-tip {
-    background: var(--td-success-color-light);
-    border: 1px solid var(--td-success-color-focus);
-    border-left: 3px solid var(--td-brand-color);
-
-    .tip-text {
-      color: var(--td-success-color);
-    }
-  }
-
-  :deep(.tip-link) {
-    color: var(--td-brand-color);
-    font-size: 13px;
-    font-weight: 500;
-    padding: 4px 6px 4px 10px !important;
-    min-height: auto !important;
-    height: auto !important;
-    line-height: 1.4 !important;
-    text-decoration: none;
-    white-space: nowrap;
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 1px;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-
-    &:hover {
-      background: rgba(7, 192, 95, 0.08) !important;
-      color: var(--td-brand-color-active) !important;
-    }
-
-    &:active {
-      background: rgba(7, 192, 95, 0.12) !important;
-    }
-
-    .t-icon {
-      font-size: 14px !important;
-      margin: 0 !important;
-      line-height: 1 !important;
-      display: inline-flex !important;
-      align-items: center !important;
-    }
-  }
 }
 
 // Destructive-action checkbox for "Remove this credential". Styled to match

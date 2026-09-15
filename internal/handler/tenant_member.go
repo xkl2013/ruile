@@ -377,7 +377,7 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 
 // AdminCreateMember godoc
 // @Summary      管理员添加用户到空间
-// @Description  Admin 按手机号添加用户：已有账号直接加入当前空间；未注册手机号创建 tenantless 账号，并以默认密码 rl+手机号后六位加入当前空间。默认角色为 Contributor。
+// @Description  Admin 按手机号添加用户：已有账号直接加入当前空间；未注册手机号先自动创建个人空间账号，并以默认密码 rl+手机号后六位加入当前空间。默认角色为 Contributor。
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json
@@ -452,7 +452,7 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 			Username:           name,
 			Phone:              phone,
 			Password:           defaultAdminCreatedPassword(phone),
-			TenantProvisioning: types.TenantProvisioningTenantless,
+			TenantProvisioning: types.TenantProvisioningCreatePersonal,
 		})
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "already exists") {

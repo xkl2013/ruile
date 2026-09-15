@@ -10,9 +10,16 @@ import AdminNoTenant from '@admin/views/AdminNoTenant.vue'
 import AdminNotFound from '@admin/views/AdminNotFound.vue'
 import AdminWorkspaceEditions from '@admin/views/AdminWorkspaceEditions.vue'
 import type { AdminRole } from '@admin/config/navigation'
+import { buildMainAppURL } from '@admin/utils/navigation'
 
 type ComponentLoader = () => Promise<{ default: Component }>
 type RoutePropsFactory = (route: ReturnType<typeof useRoute>) => Record<string, unknown>
+
+function redirectToMainSettings(section: string) {
+  const target = buildMainAppURL('/platform/settings')
+  window.location.href = `${target}${target.includes('?') ? '&' : '?'}section=${section}`
+  return false
+}
 
 function restoreStoredTokens(authStore: ReturnType<typeof useAuthStore>) {
   authStore.initFromStorage()
@@ -53,33 +60,17 @@ function createModulePage(
 
 const moduleRoutes: RouteRecordRaw[] = [
   {
-    path: 'workspaces/current/overview',
-    name: 'adminWorkspaceOverview',
-    component: createModulePage(() => import('@/views/settings/TenantInfo.vue')),
-    meta: {
-      navKey: 'workspace-overview',
-      title: '空间信息',
-      description: '查看当前空间资料、状态和存储配额。',
-      minRole: 'viewer',
-    },
-  },
-  {
     path: 'workspaces/current/members',
     name: 'adminWorkspaceMembers',
-    component: createModulePage(() => import('@/views/settings/TenantMembers.vue'), {
-      disableInvitations: true,
-      hideHeader: true,
-    }),
-    meta: {
-      navKey: 'workspace-members',
-      title: '用户管理',
-      description: '维护当前空间全量用户、角色和空间审计。',
-      minRole: 'viewer',
-    },
+    beforeEnter: () => redirectToMainSettings('members'),
+    component: AdminNotFound,
+    meta: { requiresTenant: false },
   },
   {
     path: 'workspaces/current/audit-log',
-    redirect: { name: 'adminWorkspaceMembers' },
+    beforeEnter: () => redirectToMainSettings('members'),
+    component: AdminNotFound,
+    meta: { requiresTenant: false },
   },
   {
     path: 'workspaces/current/chat-history',
@@ -99,45 +90,48 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'workspace-editions',
       title: '版本能力',
-      description: '园长版、园所版和集团版的空间形态。',
+      description: '个人版与企业版的空间形态和能力边界。',
       requiresTenant: false,
     },
   },
   {
     path: 'knowledge-bases',
     name: 'adminKnowledgeBases',
-    component: () => import('@admin/views/AdminKnowledgeBases.vue'),
+    redirect: { name: 'adminKnowledgeBaseSettings' },
+  },
+  {
+    path: 'runtime/knowledge-base',
+    name: 'adminKnowledgeBaseSettings',
+    component: () => import('@admin/views/AdminKnowledgeBaseDefaults.vue'),
     meta: {
-      navKey: 'knowledge-bases',
-      title: '知识库资源管理',
-      description: 'P2 范围：知识库创建、排序、分享、目录、数据源和处理配置。',
+      navKey: 'knowledge-base-settings',
+      title: '知识库配置',
+      description: '维护当前工作区知识库的模型、解析、索引和存储默认配置。',
       minRole: 'viewer',
     },
   },
   {
+    path: 'knowledge-bases/settings',
+    redirect: { name: 'adminKnowledgeBaseSettings' },
+  },
+  {
     path: 'knowledge-bases/:kbId/settings',
-    name: 'adminKnowledgeBaseSettings',
-    component: () => import('@admin/views/AdminKnowledgeBaseSettings.vue'),
-    meta: {
-      navKey: 'knowledge-bases',
-      title: '知识库设置',
-      description: 'P2 范围：替代主工程的大型知识库设置弹窗。',
-      minRole: 'viewer',
-    },
+    redirect: (to) => ({
+      name: 'adminKnowledgeBaseSettings',
+      query: { ...to.query },
+    }),
   },
   {
     path: 'knowledge-bases/:kbId/basic',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
-      query: { ...to.query, tab: 'basic' },
+      query: { ...to.query, tab: 'models' },
     }),
   },
   {
     path: 'knowledge-bases/:kbId/models',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
       query: { ...to.query, tab: 'models' },
     }),
   },
@@ -145,7 +139,6 @@ const moduleRoutes: RouteRecordRaw[] = [
     path: 'knowledge-bases/:kbId/processing',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
       query: { ...to.query, tab: 'processing' },
     }),
   },
@@ -153,7 +146,6 @@ const moduleRoutes: RouteRecordRaw[] = [
     path: 'knowledge-bases/:kbId/storage',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
       query: { ...to.query, tab: 'storage' },
     }),
   },
@@ -161,32 +153,28 @@ const moduleRoutes: RouteRecordRaw[] = [
     path: 'knowledge-bases/:kbId/data-sources',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
-      query: { ...to.query, tab: 'dataSources' },
+      query: { ...to.query, tab: 'models' },
     }),
   },
   {
     path: 'knowledge-bases/:kbId/sharing',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
-      query: { ...to.query, tab: 'sharing' },
+      query: { ...to.query, tab: 'models' },
     }),
   },
   {
     path: 'knowledge-bases/:kbId/directories',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
-      query: { ...to.query, tab: 'directories' },
+      query: { ...to.query, tab: 'models' },
     }),
   },
   {
     path: 'knowledge-bases/:kbId/tags',
     redirect: (to) => ({
       name: 'adminKnowledgeBaseSettings',
-      params: to.params,
-      query: { ...to.query, tab: 'tags' },
+      query: { ...to.query, tab: 'models' },
     }),
   },
   {
@@ -225,59 +213,9 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: 'spaces/organizations',
     name: 'adminOrganizations',
-    component: createModulePage(() => import('@/views/organization/OrganizationList.vue')),
-    meta: {
-      navKey: 'organizations',
-      title: '共享空间',
-      description: '管理共享空间、参与空间和跨空间共享。',
-      minRole: 'viewer',
-    },
-  },
-  {
-    path: 'publish/im',
-    name: 'adminPublishIM',
-    component: createModulePage(
-      () => import('@/views/integrations/IntegrationSettingsSection.vue'),
-      { tab: 'im' },
-    ),
-    meta: {
-      navKey: 'publish-im',
-      title: 'IM 渠道',
-      description: '管理微信和 IM 接入渠道。',
-      requiresSystemAdmin: true,
-    },
-  },
-  {
-    path: 'publish/embed',
-    name: 'adminPublishEmbed',
-    component: createModulePage(
-      () => import('@/views/integrations/IntegrationSettingsSection.vue'),
-      { tab: 'embed' },
-    ),
-    meta: {
-      navKey: 'publish-embed',
-      title: '嵌入渠道',
-      description: '管理网页嵌入渠道、预览和 token 轮换。',
-      requiresSystemAdmin: true,
-    },
-  },
-  {
-    path: 'security/api-keys',
-    name: 'adminSecurityApiKeys',
-    component: createModulePage(
-      () => import('@/views/integrations/IntegrationSettingsSection.vue'),
-      { tab: 'api' },
-    ),
-    meta: {
-      navKey: 'security-api-keys',
-      title: 'API Key',
-      description: '管理空间 API Key、能力范围和 API Principal。',
-      requiresSystemAdmin: true,
-    },
-  },
-  {
-    path: 'security/api-principal',
-    redirect: { name: 'adminSecurityApiKeys' },
+    beforeEnter: () => redirectToMainSettings('sharedSpace'),
+    component: AdminNotFound,
+    meta: { requiresTenant: false },
   },
   {
     path: 'models',
@@ -290,17 +228,6 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'models',
       title: '模型',
       description: '管理模型供应商、模型凭据和调试。',
-      requiresSystemAdmin: true,
-    },
-  },
-  {
-    path: 'runtime/ollama',
-    name: 'adminRuntimeOllama',
-    component: createModulePage(() => import('@/views/settings/OllamaSettings.vue')),
-    meta: {
-      navKey: 'runtime-ollama',
-      title: 'Ollama',
-      description: '查看和配置本地模型运行时。',
       requiresSystemAdmin: true,
     },
   },
@@ -432,8 +359,8 @@ const routes: RouteRecordRaw[] = [
         component: AdminOverview,
         meta: {
           navKey: 'overview',
-          title: 'Admin 概览',
-          description: '当前空间的后台入口和权限状态。',
+          title: '系统概览',
+          description: '查看系统运行状态、空间规模和后台能力。',
           requiresTenant: false,
         },
       },
@@ -512,6 +439,14 @@ router.beforeEach(async (to) => {
     return {
       name: 'adminForbidden',
       query: { from: to.fullPath, reason: minRole },
+    }
+  }
+
+  const editionFeature = to.meta.editionFeature as string | undefined
+  if (editionFeature && !authStore.hasEditionFeature(editionFeature)) {
+    return {
+      name: 'adminForbidden',
+      query: { from: to.fullPath, reason: 'enterprise' },
     }
   }
 

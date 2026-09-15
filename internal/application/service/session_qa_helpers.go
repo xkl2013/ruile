@@ -37,7 +37,8 @@ func (s *sessionService) resolveKnowledgeBases(
 		logger.Infof(ctx, "Using request-specified targets: kbs=%v, docs=%v", kbIDs, knowledgeIDs)
 		// When using a shared agent, restrict @mentions to the agent's allowed KB scope
 		// to prevent users from injecting KB/knowledge IDs outside the agent's configured range.
-		if customAgent != nil && req.Session != nil && req.Session.TenantID != customAgent.TenantID {
+		if customAgent != nil && req.Session != nil &&
+			(types.IsSharedAgentFromContext(ctx) || req.Session.TenantID != customAgent.TenantID) {
 			kbIDs, knowledgeIDs = s.restrictMentionsToAgentScope(ctx, customAgent, req.Session.TenantID, kbIDs, knowledgeIDs)
 			req.TagScopes = s.restrictTagScopesToAgentScope(ctx, customAgent, req.Session.TenantID, req.TagScopes)
 		}

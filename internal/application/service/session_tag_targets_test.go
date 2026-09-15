@@ -326,6 +326,29 @@ func TestResolveKnowledgeBasesFromAgentAllFiltersToCallerReadableKBs(t *testing.
 	assert.NotContains(t, kbIDs, "other-kb")
 }
 
+func TestResolveKnowledgeBasesFromSharedAgentUsesPublishedIntersection(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+	ctx := tagTargetUserContext("user-1", types.TenantRoleContributor)
+	ctx = context.WithValue(ctx, types.SharedAgentContextKey, true)
+	agent := &types.CustomAgent{
+		ID:       "shared-agent-1",
+		TenantID: 100,
+		Config: types.CustomAgentConfig{
+			KBSelectionMode: "selected",
+			KnowledgeBases: []string{
+				"own-kb",
+				"other-kb",
+				"same-tenant-shared-kb",
+			},
+		},
+	}
+
+	kbIDs := svc.resolveKnowledgeBasesFromAgent(ctx, agent, 100)
+
+	assert.ElementsMatch(t, []string{"own-kb", "same-tenant-shared-kb"}, kbIDs)
+	assert.NotContains(t, kbIDs, "other-kb")
+}
+
 func TestBuildSearchTargets_DocumentTagScopeResolvesKnowledgeIDs(t *testing.T) {
 	svc := newTagTargetSessionService()
 

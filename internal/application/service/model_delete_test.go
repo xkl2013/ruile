@@ -34,6 +34,29 @@ func (s *stubKBRepoForModelDelete) ListKnowledgeBases(context.Context) ([]*types
 func (s *stubKBRepoForModelDelete) ListKnowledgeBasesByTenantID(context.Context, uint64) ([]*types.KnowledgeBase, error) {
 	return nil, nil
 }
+func (s *stubKBRepoForModelDelete) ListKnowledgeBasesByCreatorID(context.Context, string) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
+func (s *stubKBRepoForModelDelete) ListActiveKnowledgeBaseSubscriptionsByUserID(
+	context.Context,
+	string,
+) ([]*types.KnowledgeBaseSubscription, error) {
+	return nil, nil
+}
+func (s *stubKBRepoForModelDelete) UpsertKnowledgeBaseSubscription(
+	context.Context,
+	string,
+	string,
+) (*types.KnowledgeBaseSubscription, error) {
+	return nil, nil
+}
+func (s *stubKBRepoForModelDelete) CancelKnowledgeBaseSubscription(
+	context.Context,
+	string,
+	string,
+) (*types.KnowledgeBaseSubscription, error) {
+	return nil, nil
+}
 func (s *stubKBRepoForModelDelete) UpdateKnowledgeBase(context.Context, *types.KnowledgeBase) error {
 	return nil
 }

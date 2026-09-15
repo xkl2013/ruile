@@ -223,6 +223,36 @@ func TestKnowledgeBaseLifecycleRoutesDeclareManageCapability(t *testing.T) {
 	}
 }
 
+func TestKnowledgeBaseAccountShortcutRoutesRemainJWTOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	g := &rbacGuards{}
+	r := gin.New()
+	v1 := r.Group("/api/v1")
+
+	RegisterKnowledgeBaseRoutes(v1, &handler.KnowledgeBaseHandler{}, g)
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/knowledge-bases/my"},
+		{http.MethodGet, "/api/v1/knowledge-bases/subscriptions"},
+		{http.MethodPost, "/api/v1/knowledge-bases/:id/subscribe"},
+		{http.MethodDelete, "/api/v1/knowledge-bases/:id/subscribe"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			if !ginRouteExists(r, tc.method, tc.path) {
+				t.Fatalf("route should be registered for JWT callers: %s %s", tc.method, tc.path)
+			}
+			if _, ok := g.apiKeyAuthorizer.Lookup(tc.method, tc.path); ok {
+				t.Fatalf("account shortcut route should remain default-deny for API keys: %s %s", tc.method, tc.path)
+			}
+		})
+	}
+}
+
 func TestKnowledgeReadRoutesDeclareRetrieveCapability(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	g := &rbacGuards{}

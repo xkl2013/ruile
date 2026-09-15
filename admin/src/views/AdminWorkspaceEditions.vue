@@ -2,7 +2,7 @@
   <section class="admin-editions">
     <div class="admin-editions__intro">
       <t-alert theme="info" variant="light">
-        本页面向软件开发者和平台运营者，用来定义客户空间的产品版本、能力开关和升级路径。园长和园所成员不直接使用这个 admin 工程。
+        本页面向平台运营者展示系统支持的产品版本、能力边界和升级路径。个人版与企业版共用同一套账号和知识库底层数据。
       </t-alert>
     </div>
 
@@ -37,31 +37,22 @@
 <script setup lang="ts">
 const editions = [
   {
-    code: 'principal',
-    name: '园长版',
-    space: '园长个人空间',
-    boundary: '保留个人私有资料，面向幼儿园负责人。',
-    admin: '关注园长身份、园所线索、招生场景和升级到园所版。',
-    upgrade: '推荐创建园所空间并选择性迁移资产。',
+    code: 'personal',
+    name: '个人版',
+    space: '个人工作区',
+    boundary: '知识库默认私有，仅账号本人可见和管理。',
+    admin: '不开放成员管理、团队空间、企业存储和企业审计。',
+    upgrade: '可新建企业工作区；个人知识库不自动迁移或共享。',
     icon: 'education',
   },
   {
-    code: 'school',
-    name: '园所版',
-    space: '园所团队空间',
-    boundary: '一个幼儿园一个空间，拥有成员、角色、配额和审计。',
-    admin: '关注成员、权限、知识库、智能体、渠道、审计和续费。',
-    upgrade: '可加入集团组织，接收总部共享资产。',
+    code: 'enterprise',
+    name: '企业版',
+    space: '企业工作区',
+    boundary: '企业知识库归属于工作区，成员按角色和授权协作。',
+    admin: '支持成员、团队空间、企业存储、默认配置和审计治理。',
+    upgrade: '可继续扩展成员、配额和企业级发布能力。',
     icon: 'home',
-  },
-  {
-    code: 'group',
-    name: '集团版',
-    space: '多园所组织',
-    boundary: '参与单位是一个个园所空间，不直接混用所有用户。',
-    admin: '关注总部模板、跨园所共享、参与空间和多空间统计。',
-    upgrade: '可扩展总部、区域、园所多层治理。',
-    icon: 'usergroup',
   },
 ]
 

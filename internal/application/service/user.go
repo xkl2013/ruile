@@ -119,6 +119,9 @@ func normalizePhoneOrEmail(phone, email string) string {
 // Register creates a new user account
 func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
 	logger.Info(ctx, "Start user registration")
+	if req == nil {
+		return nil, errors.New("username, phone and password are required")
+	}
 	identity := normalizePhoneOrEmail(req.Phone, req.Email)
 
 	// Validate input
@@ -156,21 +159,39 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 		return nil, fmt.Errorf("invalid tenant provisioning mode %q", provisioning)
 	}
 
+	registrationIntent := req.RegistrationIntent
+	if registrationIntent == "" {
+		registrationIntent = types.RegistrationIntentPersonal
+	}
+	if !registrationIntent.IsValid() {
+		return nil, fmt.Errorf("invalid registration intent %q", registrationIntent)
+	}
+	if registrationIntent == types.RegistrationIntentEnterprise &&
+		provisioning != types.TenantProvisioningCreatePersonal {
+		return nil, errors.New("enterprise registration requires a personal home workspace")
+	}
+
+	createdTenants := make([]*types.Tenant, 0, 2)
+	rollbackTenants := func() {
+		for i := len(createdTenants) - 1; i >= 0; i-- {
+			tenant := createdTenants[i]
+			if tenant == nil || tenant.ID == 0 || s.tenantService == nil {
+				continue
+			}
+			if rollbackErr := s.tenantService.DeleteTenant(ctx, tenant.ID); rollbackErr != nil {
+				logger.Errorf(ctx, "Failed to roll back tenant %d: %v", tenant.ID, rollbackErr)
+			}
+		}
+	}
+
 	var createdTenant *types.Tenant
 	if provisioning == types.TenantProvisioningCreatePersonal {
-		// Note: RetrieverEngines is left empty - system will use defaults
-		// from RETRIEVE_DRIVER env.
-		tenant := &types.Tenant{
-			Name:        fmt.Sprintf("%s's Workspace", secutils.SanitizeForLog(req.Username)),
-			Description: "Default workspace",
-			Status:      "active",
-		}
-
-		createdTenant, err = s.tenantService.CreateTenant(ctx, tenant)
+		createdTenant, err = s.createPersonalTenant(ctx, req.Username)
 		if err != nil {
 			logger.Errorf(ctx, "Failed to create workspace")
 			return nil, errors.New("failed to create workspace")
 		}
+		createdTenants = append(createdTenants, createdTenant)
 	}
 
 	// Create user
@@ -191,11 +212,7 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	err = s.userRepo.CreateUser(ctx, user)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to create user: %v", err)
-		if createdTenant != nil {
-			if rollbackErr := s.tenantService.DeleteTenant(ctx, createdTenant.ID); rollbackErr != nil {
-				logger.Errorf(ctx, "Failed to roll back tenant %d after user creation failure: %v", createdTenant.ID, rollbackErr)
-			}
-		}
+		rollbackTenants()
 		return nil, errors.New("failed to create user")
 	}
 
@@ -208,8 +225,52 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 			logger.Errorf(ctx, "Failed to create owner membership for user %s tenant %d: %v",
 				user.ID, createdTenant.ID, err)
 			_ = s.userRepo.DeleteUser(ctx, user.ID)
-			_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
+			rollbackTenants()
 			return nil, errors.New("failed to finalise workspace ownership")
+		}
+	}
+
+	if registrationIntent == types.RegistrationIntentEnterprise {
+		if s.memberService == nil {
+			_ = s.userRepo.DeleteUser(ctx, user.ID)
+			rollbackTenants()
+			return nil, errors.New("workspace membership service unavailable")
+		}
+
+		enterpriseTenant, enterpriseErr := s.createEnterpriseTenant(
+			ctx,
+			req.EnterpriseName,
+			req.EnterpriseDescription,
+		)
+		if enterpriseErr != nil {
+			logger.Errorf(ctx, "Failed to create enterprise workspace: %v", enterpriseErr)
+			_ = s.userRepo.DeleteUser(ctx, user.ID)
+			rollbackTenants()
+			return nil, errors.New("failed to create enterprise workspace")
+		}
+		createdTenants = append(createdTenants, enterpriseTenant)
+
+		if _, enterpriseErr = s.memberService.EnsureOwner(ctx, user.ID, enterpriseTenant.ID); enterpriseErr != nil {
+			logger.Errorf(ctx,
+				"Failed to create enterprise owner membership for user %s tenant %d: %v",
+				user.ID, enterpriseTenant.ID, enterpriseErr)
+			_ = s.userRepo.DeleteUser(ctx, user.ID)
+			rollbackTenants()
+			return nil, errors.New("failed to finalise enterprise workspace ownership")
+		}
+
+		// The personal workspace remains User.TenantID (the immutable home
+		// boundary). The enterprise workspace is only the first active
+		// workspace after login.
+		activeTenantID := enterpriseTenant.ID
+		user.Preferences.LastActiveTenantID = &activeTenantID
+		if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+			logger.Errorf(ctx,
+				"Failed to persist enterprise workspace preference for user %s tenant %d: %v",
+				user.ID, enterpriseTenant.ID, err)
+			_ = s.userRepo.DeleteUser(ctx, user.ID)
+			rollbackTenants()
+			return nil, errors.New("failed to finalise enterprise registration")
 		}
 	}
 
@@ -217,9 +278,10 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	return user, nil
 }
 
-// AdminCreateUser creates an active tenantless account for administrator-driven
-// onboarding. The caller controls authorization and membership assignment; this
-// method only owns identity uniqueness, hashing, and persistence.
+// AdminCreateUser creates an active account for administrator-driven
+// onboarding. Account creation always provisions a personal home workspace;
+// caller-assigned organization memberships are added separately as shared
+// authorization and do not become the user's default workspace.
 func (s *userService) AdminCreateUser(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
 	logger.Info(ctx, "Start admin user creation")
 	if req == nil {
@@ -248,24 +310,81 @@ func (s *userService) AdminCreateUser(ctx context.Context, req *types.RegisterRe
 		return nil, errors.New("failed to process password")
 	}
 
+	createdTenant, err := s.createPersonalTenant(ctx, username)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to create workspace for admin-created user")
+		return nil, errors.New("failed to create workspace")
+	}
+
 	now := time.Now()
 	user := &types.User{
 		ID:           uuid.New().String(),
 		Username:     username,
 		Email:        identity,
 		PasswordHash: string(hashedPassword),
-		TenantID:     0,
+		TenantID:     createdTenant.ID,
 		IsActive:     true,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
 	if err := s.userRepo.CreateUser(ctx, user); err != nil {
 		logger.Errorf(ctx, "Failed to create admin-created user: %v", err)
+		_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
 		return nil, errors.New("failed to create user")
+	}
+	if s.memberService != nil {
+		if _, err := s.memberService.EnsureOwner(ctx, user.ID, createdTenant.ID); err != nil {
+			logger.Errorf(ctx, "Failed to create owner membership for admin-created user %s tenant %d: %v",
+				user.ID, createdTenant.ID, err)
+			_ = s.userRepo.DeleteUser(ctx, user.ID)
+			_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
+			return nil, errors.New("failed to finalise workspace ownership")
+		}
 	}
 
 	logger.Info(ctx, "Admin user created successfully")
 	return user, nil
+}
+
+func (s *userService) createPersonalTenant(ctx context.Context, username string) (*types.Tenant, error) {
+	if s.tenantService == nil {
+		return nil, errors.New("tenant service unavailable")
+	}
+	// Note: RetrieverEngines is left empty - system will use defaults
+	// from RETRIEVE_DRIVER env.
+	spaceType := types.SpaceTypePersonal
+	name := strings.TrimSpace(username)
+	if name == "" {
+		name = "User"
+	}
+	tenant := &types.Tenant{
+		Name:        fmt.Sprintf("%s's Workspace", secutils.SanitizeForLog(name)),
+		Description: "Default workspace",
+		Status:      "active",
+		SpaceType:   &spaceType,
+	}
+	return s.tenantService.CreateTenant(ctx, tenant)
+}
+
+func (s *userService) createEnterpriseTenant(
+	ctx context.Context,
+	name string,
+	description string,
+) (*types.Tenant, error) {
+	if s.tenantService == nil {
+		return nil, errors.New("tenant service unavailable")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("enterprise workspace name cannot be empty")
+	}
+	spaceType := types.SpaceTypeOrganization
+	return s.tenantService.CreateTenant(ctx, &types.Tenant{
+		Name:        name,
+		Description: strings.TrimSpace(description),
+		Status:      "active",
+		SpaceType:   &spaceType,
+	})
 }
 
 // Login authenticates a user and returns tokens
@@ -368,8 +487,8 @@ func (s *userService) completeLogin(ctx context.Context, user *types.User, succe
 	}
 	logger.Info(ctx, "Tokens generated successfully")
 
-	// Get tenant information. A zero resolved ID is a valid tenantless
-	// identity, not a failed tenant lookup.
+	// Get tenant information. A zero resolved ID now means personal-space
+	// repair failed; login still returns a response so the client can retry.
 	var tenant *types.Tenant
 	if resolvedTenantID > 0 {
 		tenant, err = s.tenantService.GetTenantByID(ctx, resolvedTenantID)
@@ -459,10 +578,13 @@ func (s *userService) buildMembershipsForUser(
 			continue
 		}
 		name := ""
+		var spaceType *types.SpaceType
 		if activeTenant != nil && m.TenantID == activeTenant.ID {
 			name = activeTenant.Name
+			spaceType = activeTenant.SpaceType
 		} else if t, ok := tenantByID[m.TenantID]; ok && t != nil {
 			name = t.Name
+			spaceType = t.SpaceType
 		}
 		// Drop memberships whose tenant row is gone (deleted tenant or
 		// stale tenant_members left over from before cascade delete).
@@ -473,6 +595,7 @@ func (s *userService) buildMembershipsForUser(
 			TenantID:   m.TenantID,
 			TenantName: name,
 			Role:       m.Role,
+			SpaceType:  spaceType,
 		})
 	}
 	if len(out) == 0 {
@@ -510,6 +633,12 @@ func synthFallbackMembership(user *types.User, activeTenant *types.Tenant) []typ
 		TenantID:   user.TenantID,
 		TenantName: name,
 		Role:       types.TenantRoleViewer,
+		SpaceType: func() *types.SpaceType {
+			if activeTenant == nil {
+				return nil
+			}
+			return activeTenant.SpaceType
+		}(),
 	}}
 }
 
@@ -820,11 +949,12 @@ func (s *userService) GenerateTokens(
 // resolveLoginTenantID picks the tenant whose ID should be encoded in a
 // freshly minted access token. The contract:
 //
-//  1. If the user has no LastActiveTenantID preference set (or it points
-//     at home), return home — the historical behaviour. A tenantless user
-//     with an active membership adopts their earliest membership instead;
-//     this repairs partial invitation/admin-assignment flows.
-//  2. Otherwise validate the preference: the tenant must still exist and
+//  1. If the user is still tenantless, create and persist their personal
+//     home workspace first. Organization memberships are authorization
+//     records and are not adopted as home workspaces.
+//  2. If the user has no LastActiveTenantID preference set (or it points
+//     at home), return home — the historical behaviour.
+//  3. Otherwise validate the preference: the tenant must still exist and
 //     the user must still have an active membership (or be a cross-tenant
 //     superuser). Validation failure logs a warning, best-effort clears
 //     the stale preference (so we don't waste a DB round-trip on every
@@ -836,6 +966,9 @@ func (s *userService) GenerateTokens(
 func (s *userService) resolveLoginTenantID(ctx context.Context, user *types.User) uint64 {
 	if user == nil {
 		return 0
+	}
+	if user.TenantID == 0 {
+		return s.ensurePersonalHomeTenant(ctx, user)
 	}
 	pref := user.Preferences.LastActiveTenantID
 	if pref == nil || *pref == 0 || *pref == user.TenantID {
@@ -878,61 +1011,61 @@ func (s *userService) resolveLoginTenantID(ctx context.Context, user *types.User
 	return preferred
 }
 
-// homeOrFirstMembershipTenant returns the user's home tenant, or — for a
-// tenantless identity (TenantID == 0) — the earliest active membership.
-// Shared by the happy path and the stale-preference fallbacks so a
-// tenantless session with a valid membership never gets a zero-tenant
-// token when a usable tenant is available (repairs partial
-// invitation/admin-assignment flows). resolveFirstMembershipTenant
-// best-effort persists the resolved tenant as the new home.
+// homeOrFirstMembershipTenant returns the user's home tenant, creating a
+// personal home workspace first for historical tenantless accounts.
 func (s *userService) homeOrFirstMembershipTenant(ctx context.Context, user *types.User) uint64 {
 	if user == nil {
 		return 0
 	}
 	if user.TenantID == 0 {
-		return s.resolveFirstMembershipTenant(ctx, user)
+		return s.ensurePersonalHomeTenant(ctx, user)
 	}
 	return user.TenantID
 }
 
-// resolveFirstMembershipTenant makes a tenantless identity usable when an
-// active membership already exists (for example, an invitation was accepted
-// but persisting the default tenant failed). ListByUser is stably ordered by
-// join time, so the earliest valid membership is deterministic. Persisting it
-// as home is best-effort: even if the repair write fails, the freshly issued
-// token can still be scoped to the membership and the next login retries.
-func (s *userService) resolveFirstMembershipTenant(ctx context.Context, user *types.User) uint64 {
-	if user == nil || s.memberService == nil {
+// ensurePersonalHomeTenant repairs historical tenantless accounts by creating
+// the personal home workspace that all new accounts now receive at creation
+// time. Organization memberships remain separate authorization records.
+func (s *userService) ensurePersonalHomeTenant(ctx context.Context, user *types.User) uint64 {
+	if user == nil {
 		return 0
 	}
-	members, err := s.memberService.ListByUser(ctx, user.ID)
+	if user.TenantID != 0 {
+		return user.TenantID
+	}
+	createdTenant, err := s.createPersonalTenant(ctx, user.Username)
 	if err != nil {
-		logger.Warnf(ctx, "resolveLoginTenantID: failed to list memberships for tenantless user %s: %v", user.ID, err)
+		logger.Warnf(ctx, "resolveLoginTenantID: failed to create personal workspace for tenantless user %s: %v", user.ID, err)
 		return 0
 	}
-	for _, member := range members {
-		if member == nil || member.TenantID == 0 || member.Status != types.TenantMemberStatusActive {
-			continue
-		}
-		if s.tenantService != nil {
-			if _, err := s.tenantService.GetTenantByID(ctx, member.TenantID); err != nil {
-				logger.Warnf(ctx, "resolveLoginTenantID: tenant %d for tenantless user %s is unavailable: %v",
-					member.TenantID, user.ID, err)
-				continue
-			}
-		}
 
-		user.TenantID = member.TenantID
-		if s.userRepo != nil {
-			if err := s.userRepo.UpdateUser(ctx, user); err != nil {
-				logger.Warnf(ctx, "resolveLoginTenantID: failed to persist tenant %d for tenantless user %s: %v",
-					member.TenantID, user.ID, err)
-				user.TenantID = 0
+	user.TenantID = createdTenant.ID
+	if s.userRepo != nil {
+		if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+			logger.Warnf(ctx, "resolveLoginTenantID: failed to persist personal workspace %d for user %s: %v",
+				createdTenant.ID, user.ID, err)
+			user.TenantID = 0
+			if s.tenantService != nil {
+				_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
 			}
+			return 0
 		}
-		return member.TenantID
 	}
-	return 0
+	if s.memberService != nil {
+		if _, err := s.memberService.EnsureOwner(ctx, user.ID, createdTenant.ID); err != nil {
+			logger.Warnf(ctx, "resolveLoginTenantID: failed to create owner membership for personal workspace %d user %s: %v",
+				createdTenant.ID, user.ID, err)
+			user.TenantID = 0
+			if s.userRepo != nil {
+				_ = s.userRepo.UpdateUser(ctx, user)
+			}
+			if s.tenantService != nil {
+				_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
+			}
+			return 0
+		}
+	}
+	return createdTenant.ID
 }
 
 // clearLastActiveTenantPreference is the best-effort cleanup half of
@@ -1281,6 +1414,9 @@ func (s *userService) GetCurrentUser(ctx context.Context) (*types.User, error) {
 	user, ok := ctx.Value(types.UserContextKey).(*types.User)
 	if !ok {
 		return nil, errors.New("user not found in context")
+	}
+	if user.TenantID == 0 {
+		s.ensurePersonalHomeTenant(ctx, user)
 	}
 
 	return user, nil

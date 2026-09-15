@@ -14,10 +14,11 @@ import (
 
 const organizationMemberScopeTestDDL = `
 CREATE TABLE IF NOT EXISTS organizations (
-    id VARCHAR(36) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    avatar VARCHAR(512) DEFAULT '',
+	    id VARCHAR(36) PRIMARY KEY,
+	    name VARCHAR(255) NOT NULL,
+	    description TEXT,
+	    sharing_scope VARCHAR(32),
+	    avatar VARCHAR(512) DEFAULT '',
     owner_id VARCHAR(36) NOT NULL,
     owner_tenant_id INTEGER NOT NULL DEFAULT 0,
     invite_code VARCHAR(32),

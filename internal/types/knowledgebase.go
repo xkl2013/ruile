@@ -40,6 +40,27 @@ const (
 	knowledgeBaseDefaultFAQIcon      = "chat-bubble-help"
 )
 
+// KnowledgeBaseConfigSource identifies where a knowledge base's persisted
+// configuration came from.
+type KnowledgeBaseConfigSource string
+
+const (
+	KnowledgeBaseConfigSourceLegacy           KnowledgeBaseConfigSource = "legacy"
+	KnowledgeBaseConfigSourceDefault          KnowledgeBaseConfigSource = "default"
+	KnowledgeBaseConfigSourceWorkspaceDefault KnowledgeBaseConfigSource = "workspace_default"
+)
+
+// IsValid reports whether the configuration source is one of the supported
+// persisted values.
+func (s KnowledgeBaseConfigSource) IsValid() bool {
+	switch s {
+	case KnowledgeBaseConfigSourceLegacy, KnowledgeBaseConfigSourceDefault, KnowledgeBaseConfigSourceWorkspaceDefault:
+		return true
+	default:
+		return false
+	}
+}
+
 // FAQIndexMode represents the FAQ index mode: only index questions or index questions and answers
 type FAQIndexMode string
 
@@ -85,6 +106,12 @@ type KnowledgeBase struct {
 	// Nullable for backward compatibility with rows created before the
 	// RBAC migration backfilled the column to the workspace Owner.
 	CreatorID string `yaml:"creator_id"              json:"creator_id"              gorm:"type:varchar(36);index"`
+	// ConfigSource records whether this KB uses its historical configuration or
+	// a resolved backend default. It is metadata only in the compatibility step.
+	ConfigSource *KnowledgeBaseConfigSource `yaml:"config_source,omitempty" json:"config_source,omitempty" gorm:"column:config_source;type:varchar(32)"`
+	// ConfigVersion records the backend default configuration version used when
+	// the KB was created. Existing rows remain unset until explicitly backfilled.
+	ConfigVersion *string `yaml:"config_version,omitempty" json:"config_version,omitempty" gorm:"column:config_version;type:varchar(64)"`
 	// Chunking configuration
 	ChunkingConfig ChunkingConfig `yaml:"chunking_config"         json:"chunking_config"         gorm:"type:json"`
 	// Image processing configuration
