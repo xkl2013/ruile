@@ -127,6 +127,12 @@ const (
 	// TenantID=0 because the change is system-scope.
 	AuditActionSystemAdminRevoked AuditAction = "system.admin_revoked"
 
+	// AuditActionSystemEnterpriseWorkspaceProvisioned fires when a
+	// SystemAdmin manually opens an enterprise workspace for a selected user.
+	// The user's personal home workspace is preserved; TargetID identifies
+	// the new tenant and TargetUserID identifies the provisioned user.
+	AuditActionSystemEnterpriseWorkspaceProvisioned AuditAction = "system.enterprise_workspace_provisioned"
+
 	// AuditActionSystemUserPasswordReset fires when a SystemAdmin replaces
 	// another user's local password. Details identify the target and record
 	// session revocation, but never contain the old or new password.

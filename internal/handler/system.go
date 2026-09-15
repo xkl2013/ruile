@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +48,7 @@ type SystemHandler struct {
 	neo4jDriver      neo4j.Driver
 	documentReader   interfaces.DocumentReader
 	tenantSvc        interfaces.TenantService
+	memberSvc        interfaces.TenantMemberService
 	userSvc          interfaces.UserService
 	systemSettingSvc interfaces.SystemSettingService
 	// auditSvc is optional — when nil, emitAdminAudit no-ops so unit
@@ -73,6 +76,7 @@ func NewSystemHandler(cfg *config.Config,
 	neo4jDriver neo4j.Driver,
 	documentReader interfaces.DocumentReader,
 	tenantSvc interfaces.TenantService,
+	memberSvc interfaces.TenantMemberService,
 	userSvc interfaces.UserService,
 	systemSettingSvc interfaces.SystemSettingService,
 	auditSvc interfaces.AuditLogService,
@@ -85,6 +89,7 @@ func NewSystemHandler(cfg *config.Config,
 		neo4jDriver:        neo4jDriver,
 		documentReader:     documentReader,
 		tenantSvc:          tenantSvc,
+		memberSvc:          memberSvc,
 		userSvc:            userSvc,
 		systemSettingSvc:   systemSettingSvc,
 		auditSvc:           auditSvc,
@@ -92,6 +97,581 @@ func NewSystemHandler(cfg *config.Config,
 		knowledgeSvc:       knowledgeSvc,
 		storageBackendRepo: storageBackendRepo,
 	}
+}
+
+const (
+	adminEnterpriseProvisioningKeyPrefix        = "system-admin-enterprise-workspace-v1"
+	defaultManualEnterpriseStorageQuotaGB int64 = 100
+	defaultManualEnterpriseCredits        int64 = 100
+)
+
+func adminEnterpriseProvisioningKey(userID string) *string {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil
+	}
+	sum := sha256.Sum256([]byte(adminEnterpriseProvisioningKeyPrefix + "\x00" + userID))
+	value := hex.EncodeToString(sum[:])
+	return &value
+}
+
+// SystemUserSummary is the non-sensitive user projection exposed to
+// SystemAdmin search and enterprise-workspace provisioning.
+type SystemUserSummary struct {
+	ID                    string                        `json:"id"`
+	Username              string                        `json:"username"`
+	Email                 string                        `json:"email"`
+	Avatar                string                        `json:"avatar"`
+	TenantID              uint64                        `json:"tenant_id"`
+	IsActive              bool                          `json:"is_active"`
+	IsSystemAdmin         bool                          `json:"is_system_admin"`
+	EnterpriseMemberships []*SystemEnterpriseMembership `json:"enterprise_memberships,omitempty"`
+	CreatedAt             time.Time                     `json:"created_at"`
+}
+
+type SystemEnterpriseMembership struct {
+	TenantID   uint64           `json:"tenant_id"`
+	TenantName string           `json:"tenant_name"`
+	Role       types.TenantRole `json:"role"`
+}
+
+func newSystemUserSummary(user *types.User) *SystemUserSummary {
+	if user == nil {
+		return nil
+	}
+	return &SystemUserSummary{
+		ID:            user.ID,
+		Username:      user.Username,
+		Email:         user.Email,
+		Avatar:        user.Avatar,
+		TenantID:      user.TenantID,
+		IsActive:      user.IsActive,
+		IsSystemAdmin: user.IsSystemAdmin,
+		CreatedAt:     user.CreatedAt,
+	}
+}
+
+type SearchSystemUsersResponse struct {
+	Users []*SystemUserSummary `json:"users"`
+}
+
+type ListSystemUsersResponse struct {
+	Users    []*SystemUserSummary `json:"users"`
+	Page     int                  `json:"page"`
+	PageSize int                  `json:"page_size"`
+	HasMore  bool                 `json:"has_more"`
+}
+
+type ListSystemEnterprisesResponse struct {
+	Enterprises []*dto.TenantResponse `json:"enterprises"`
+	Total       int                   `json:"total"`
+}
+
+type ProvisionEnterpriseWorkspaceRequest struct {
+	UserID            string `json:"user_id" binding:"required"`
+	Name              string `json:"name" binding:"required,min=1,max=128"`
+	Description       string `json:"description" binding:"max=512"`
+	StorageQuotaGB    *int64 `json:"storage_quota_gb,omitempty"`
+	EnterpriseCredits *int64 `json:"enterprise_credits,omitempty"`
+}
+
+type ProvisionEnterpriseWorkspaceResponse struct {
+	Success      bool                `json:"success"`
+	Message      string              `json:"message,omitempty"`
+	Tenant       *dto.TenantResponse `json:"tenant"`
+	TargetUser   *SystemUserSummary  `json:"target_user"`
+	AlreadyExist bool                `json:"already_exists"`
+}
+
+func (r ProvisionEnterpriseWorkspaceRequest) storageQuotaBytes() (int64, int64, error) {
+	gb := defaultManualEnterpriseStorageQuotaGB
+	if r.StorageQuotaGB != nil {
+		gb = *r.StorageQuotaGB
+	}
+	if gb <= 0 {
+		return 0, 0, errors.New("storage_quota_gb must be greater than 0")
+	}
+	if gb > (1<<63-1)/storageQuotaBytesPerGiB {
+		return 0, 0, errors.New("storage_quota_gb is too large")
+	}
+	return gb * storageQuotaBytesPerGiB, gb, nil
+}
+
+func (r ProvisionEnterpriseWorkspaceRequest) enterpriseCreditsValue() (int64, error) {
+	credits := defaultManualEnterpriseCredits
+	if r.EnterpriseCredits != nil {
+		credits = *r.EnterpriseCredits
+	}
+	if credits < 0 {
+		return 0, errors.New("enterprise_credits must be greater than or equal to 0")
+	}
+	return credits, nil
+}
+
+func (h *SystemHandler) findOwnedEnterpriseWorkspace(
+	ctx context.Context,
+	userID string,
+) (*types.Tenant, error) {
+	if h.memberSvc == nil {
+		return nil, errors.New("tenant membership service unavailable")
+	}
+	memberships, err := h.memberSvc.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, membership := range memberships {
+		if membership == nil ||
+			membership.Status != types.TenantMemberStatusActive ||
+			membership.Role != types.TenantRoleOwner {
+			continue
+		}
+		tenant, tenantErr := h.tenantSvc.GetTenantByID(ctx, membership.TenantID)
+		if tenantErr != nil {
+			return nil, tenantErr
+		}
+		if tenant != nil && tenant.SpaceType != nil &&
+			*tenant.SpaceType == types.SpaceTypeOrganization {
+			return tenant, nil
+		}
+	}
+	return nil, nil
+}
+
+func (h *SystemHandler) lookupSystemProvisioningTenant(
+	ctx context.Context,
+	key string,
+) (*types.Tenant, bool, error) {
+	lookup, ok := h.tenantSvc.(provisioningKeyTenantLookup)
+	if !ok {
+		return nil, false, nil
+	}
+	tenant, err := lookup.GetTenantByProvisioningKey(ctx, key)
+	return tenant, true, err
+}
+
+func (h *SystemHandler) respondProvisionedEnterpriseWorkspace(
+	c *gin.Context,
+	tenant *types.Tenant,
+	target *types.User,
+	status int,
+	alreadyExists bool,
+) {
+	message := "Enterprise workspace provisioned"
+	if alreadyExists {
+		message = "Enterprise workspace already provisioned"
+	}
+	c.JSON(status, ProvisionEnterpriseWorkspaceResponse{
+		Success:      true,
+		Message:      message,
+		Tenant:       dto.NewTenantResponseWithRole(tenant, types.TenantRoleOwner),
+		TargetUser:   newSystemUserSummary(target),
+		AlreadyExist: alreadyExists,
+	})
+}
+
+func (h *SystemHandler) emitEnterpriseProvisioningAudit(
+	ctx context.Context,
+	target *types.User,
+	tenant *types.Tenant,
+	alreadyExists bool,
+) {
+	if h.auditSvc == nil || target == nil || tenant == nil {
+		return
+	}
+	actorID, _ := types.UserIDFromContext(ctx)
+	details, _ := json.Marshal(map[string]any{
+		"target_email":       target.Email,
+		"target_username":    target.Username,
+		"tenant_name":        tenant.Name,
+		"tenant_id":          tenant.ID,
+		"already_exists":     alreadyExists,
+		"storage_quota":      tenant.StorageQuota,
+		"enterprise_credits": tenant.EnterpriseCredits,
+		"provision_source":   "system_admin_manual",
+	})
+	_ = h.auditSvc.Log(ctx, &types.AuditLog{
+		TenantID:     0,
+		ActorUserID:  actorID,
+		ActorRole:    "system_admin",
+		Action:       types.AuditActionSystemEnterpriseWorkspaceProvisioned,
+		TargetType:   "tenant",
+		TargetID:     strconv.FormatUint(tenant.ID, 10),
+		TargetUserID: target.ID,
+		Outcome:      types.AuditOutcomeSuccess,
+		Details:      types.JSON(details),
+	})
+}
+
+// SearchSystemUsers returns a small, non-sensitive user projection for
+// SystemAdmin operations. An empty keyword returns the first page so the
+// Admin surface can be useful before the operator starts typing.
+func (h *SystemHandler) SearchSystemUsers(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	limit := 20
+	if rawLimit := c.Query("limit"); rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	var (
+		users []*types.User
+		err   error
+	)
+	if keyword == "" {
+		users, err = h.userSvc.ListUsers(ctx, 0, limit)
+	} else {
+		users, err = h.userSvc.SearchUsers(ctx, keyword, limit)
+	}
+	if err != nil {
+		logger.Errorf(ctx, "Error searching system users: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search users"})
+		return
+	}
+
+	summaries := make([]*SystemUserSummary, 0, len(users))
+	for _, user := range users {
+		if summary := newSystemUserSummary(user); summary != nil {
+			summaries = append(summaries, summary)
+		}
+	}
+	c.JSON(http.StatusOK, SearchSystemUsersResponse{Users: summaries})
+}
+
+// ListSystemUsers returns a paginated, non-sensitive projection of all
+// accounts for the SystemAdmin membership console. Search results use the
+// existing user search service and are capped by the requested page window.
+func (h *SystemHandler) ListSystemUsers(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	if h.memberSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Workspace membership service unavailable"})
+		return
+	}
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	page := 1
+	if parsed, err := strconv.Atoi(c.Query("page")); err == nil && parsed > 0 {
+		page = parsed
+	}
+	pageSize := 20
+	if parsed, err := strconv.Atoi(c.Query("page_size")); err == nil && parsed > 0 {
+		pageSize = parsed
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	var (
+		users []*types.User
+		err   error
+	)
+	if keyword == "" {
+		users, err = h.userSvc.ListUsers(ctx, (page-1)*pageSize, pageSize+1)
+	} else {
+		fetchLimit := page*pageSize + 1
+		if fetchLimit < pageSize+1 {
+			fetchLimit = pageSize + 1
+		}
+		if fetchLimit > 1000 {
+			fetchLimit = 1000
+		}
+		users, err = h.userSvc.SearchUsers(ctx, keyword, fetchLimit)
+		if page > 1 {
+			offset := (page - 1) * pageSize
+			if offset >= len(users) {
+				users = nil
+			} else {
+				users = users[offset:]
+			}
+		}
+	}
+	if err != nil {
+		logger.Errorf(ctx, "Error listing system users: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list users"})
+		return
+	}
+
+	hasMore := len(users) > pageSize
+	if hasMore {
+		users = users[:pageSize]
+	}
+	summaries := make([]*SystemUserSummary, 0, len(users))
+	for _, user := range users {
+		if summary := newSystemUserSummary(user); summary != nil {
+			summaries = append(summaries, summary)
+		}
+	}
+	if err := h.enrichSystemUserEnterpriseMemberships(ctx, users, summaries); err != nil {
+		logger.Errorf(ctx, "Error loading system user enterprise memberships: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user enterprises"})
+		return
+	}
+	c.JSON(http.StatusOK, ListSystemUsersResponse{
+		Users:    summaries,
+		Page:     page,
+		PageSize: pageSize,
+		HasMore:  hasMore,
+	})
+}
+
+func (h *SystemHandler) enrichSystemUserEnterpriseMemberships(
+	ctx context.Context,
+	users []*types.User,
+	summaries []*SystemUserSummary,
+) error {
+	if len(users) == 0 {
+		return nil
+	}
+
+	membershipsByUser := make(map[string][]*types.TenantMember, len(users))
+	tenantIDs := make([]uint64, 0)
+	seenTenantIDs := make(map[uint64]struct{})
+	for _, user := range users {
+		if user == nil {
+			continue
+		}
+		memberships, err := h.memberSvc.ListByUser(ctx, user.ID)
+		if err != nil {
+			return err
+		}
+		membershipsByUser[user.ID] = memberships
+		for _, membership := range memberships {
+			if membership == nil ||
+				membership.DeletedAt.Valid ||
+				membership.Status != types.TenantMemberStatusActive ||
+				membership.TenantID == 0 {
+				continue
+			}
+			if _, seen := seenTenantIDs[membership.TenantID]; seen {
+				continue
+			}
+			seenTenantIDs[membership.TenantID] = struct{}{}
+			tenantIDs = append(tenantIDs, membership.TenantID)
+		}
+	}
+
+	tenantsByID, err := h.tenantSvc.GetTenantsByIDs(ctx, tenantIDs)
+	if err != nil {
+		return err
+	}
+	summariesByUserID := make(map[string]*SystemUserSummary, len(summaries))
+	for _, summary := range summaries {
+		if summary != nil {
+			summariesByUserID[summary.ID] = summary
+		}
+	}
+	for userID, memberships := range membershipsByUser {
+		summary := summariesByUserID[userID]
+		if summary == nil {
+			continue
+		}
+		for _, membership := range memberships {
+			if membership == nil ||
+				membership.DeletedAt.Valid ||
+				membership.Status != types.TenantMemberStatusActive {
+				continue
+			}
+			tenant := tenantsByID[membership.TenantID]
+			if tenant == nil ||
+				tenant.SpaceType == nil ||
+				*tenant.SpaceType != types.SpaceTypeOrganization {
+				continue
+			}
+			summary.EnterpriseMemberships = append(
+				summary.EnterpriseMemberships,
+				&SystemEnterpriseMembership{
+					TenantID:   tenant.ID,
+					TenantName: tenant.Name,
+					Role:       membership.Role,
+				},
+			)
+		}
+	}
+	return nil
+}
+
+// ListSystemEnterprises returns every organization workspace opened in the
+// system. The enterprise membership console intentionally uses organization
+// space type as the source of truth, regardless of how the workspace was
+// provisioned.
+func (h *SystemHandler) ListSystemEnterprises(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	if h.memberSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Workspace membership service unavailable"})
+		return
+	}
+	keyword := strings.ToLower(strings.TrimSpace(c.Query("keyword")))
+	tenants, err := h.tenantSvc.ListAllTenants(ctx)
+	if err != nil {
+		logger.Errorf(ctx, "Error listing system enterprises: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list enterprises"})
+		return
+	}
+
+	enterprises := make([]*types.Tenant, 0, len(tenants))
+	for _, tenant := range tenants {
+		if tenant == nil || tenant.SpaceType == nil || *tenant.SpaceType != types.SpaceTypeOrganization {
+			continue
+		}
+		if keyword != "" {
+			name := strings.ToLower(tenant.Name)
+			description := strings.ToLower(tenant.Description)
+			if !strings.Contains(name, keyword) && !strings.Contains(description, keyword) {
+				continue
+			}
+		}
+		enterprises = append(enterprises, tenant)
+	}
+
+	tenantIDs := make([]uint64, 0, len(enterprises))
+	for _, tenant := range enterprises {
+		tenantIDs = append(tenantIDs, tenant.ID)
+	}
+	memberCounts, err := h.memberSvc.CountActiveByTenantIDs(ctx, tenantIDs)
+	if err != nil {
+		logger.Errorf(ctx, "Error counting system enterprise members: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count enterprise members"})
+		return
+	}
+	responses := dto.NewTenantResponsesCrossTenant(enterprises)
+	for _, response := range responses {
+		if response != nil {
+			response.MemberCount = memberCounts[response.ID]
+		}
+	}
+
+	c.JSON(http.StatusOK, ListSystemEnterprisesResponse{
+		Enterprises: responses,
+		Total:       len(enterprises),
+	})
+}
+
+// ProvisionEnterpriseWorkspace allows a SystemAdmin to manually open one
+// enterprise workspace for a selected user while preserving that user's
+// personal home workspace. Payment, orders and subscription state are
+// intentionally outside this temporary provisioning flow.
+func (h *SystemHandler) ProvisionEnterpriseWorkspace(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	if h.memberSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Workspace membership service unavailable"})
+		return
+	}
+
+	var req ProvisionEnterpriseWorkspaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid enterprise workspace request: " + err.Error()})
+		return
+	}
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.Name = strings.TrimSpace(secutils.SanitizeForLog(req.Name))
+	req.Description = strings.TrimSpace(secutils.SanitizeForLog(req.Description))
+	if req.UserID == "" || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "user_id and name are required"})
+		return
+	}
+	storageQuotaBytes, _, err := req.storageQuotaBytes()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	enterpriseCredits, err := req.enterpriseCreditsValue()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	target, err := h.userSvc.GetUserByID(ctx, req.UserID)
+	if err != nil || target == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	if !target.IsActive {
+		c.JSON(http.StatusConflict, gin.H{"error": "Cannot provision an enterprise workspace for an inactive user"})
+		return
+	}
+	if target.TenantID == 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Target user must have a personal workspace"})
+		return
+	}
+	homeTenant, err := h.tenantSvc.GetTenantByID(ctx, target.TenantID)
+	if err != nil || homeTenant == nil {
+		logger.Errorf(ctx, "Failed to load target user's home tenant %d: %v", target.TenantID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load target user's personal workspace"})
+		return
+	}
+	if homeTenant.SpaceType == nil || *homeTenant.SpaceType != types.SpaceTypePersonal {
+		c.JSON(http.StatusConflict, gin.H{"error": "Target user must have a personal workspace"})
+		return
+	}
+
+	existing, err := h.findOwnedEnterpriseWorkspace(ctx, target.ID)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to inspect enterprise workspaces for user %s: %v", target.ID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to inspect target user's workspaces"})
+		return
+	}
+	if existing != nil {
+		h.emitEnterpriseProvisioningAudit(ctx, target, existing, true)
+		h.respondProvisionedEnterpriseWorkspace(c, existing, target, http.StatusOK, true)
+		return
+	}
+
+	provisioningKey := adminEnterpriseProvisioningKey(target.ID)
+	if provisioningKey == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Target user ID is required"})
+		return
+	}
+	if existing, supported, lookupErr := h.lookupSystemProvisioningTenant(ctx, *provisioningKey); lookupErr != nil {
+		logger.Errorf(ctx, "Failed to resolve manual enterprise provisioning key: %v", lookupErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve enterprise workspace request"})
+		return
+	} else if supported && existing != nil {
+		h.emitEnterpriseProvisioningAudit(ctx, target, existing, true)
+		h.respondProvisionedEnterpriseWorkspace(c, existing, target, http.StatusOK, true)
+		return
+	}
+
+	spaceType := types.SpaceTypeOrganization
+	tenantData := &types.Tenant{
+		Name:              req.Name,
+		Description:       req.Description,
+		SpaceType:         &spaceType,
+		ProvisioningKey:   provisioningKey,
+		StorageQuota:      storageQuotaBytes,
+		EnterpriseCredits: enterpriseCredits,
+	}
+	created, err := h.tenantSvc.CreateTenant(ctx, tenantData)
+	if err != nil {
+		// A concurrent SystemAdmin request may have won the unique
+		// provisioning-key race. Re-read the deterministic key before
+		// returning a generic create failure.
+		if existing, supported, lookupErr := h.lookupSystemProvisioningTenant(ctx, *provisioningKey); lookupErr == nil &&
+			supported && existing != nil {
+			h.emitEnterpriseProvisioningAudit(ctx, target, existing, true)
+			h.respondProvisionedEnterpriseWorkspace(c, existing, target, http.StatusOK, true)
+			return
+		}
+		logger.Errorf(ctx, "Failed to create enterprise workspace for user %s: %v", target.ID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create enterprise workspace"})
+		return
+	}
+	if created == nil || created.ID == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create enterprise workspace"})
+		return
+	}
+
+	if _, err := h.memberSvc.EnsureOwner(ctx, target.ID, created.ID); err != nil {
+		logger.Errorf(ctx, "Failed to bootstrap enterprise owner membership for user %s tenant %d: %v", target.ID, created.ID, err)
+		_ = h.tenantSvc.DeleteTenant(ctx, created.ID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalise enterprise workspace ownership"})
+		return
+	}
+
+	h.emitEnterpriseProvisioningAudit(ctx, target, created, false)
+	h.respondProvisionedEnterpriseWorkspace(c, created, target, http.StatusCreated, false)
 }
 
 // emitAdminAudit writes one audit row for a system-admin lifecycle event

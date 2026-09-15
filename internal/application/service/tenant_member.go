@@ -281,6 +281,15 @@ func (s *tenantMemberService) ListByTenant(ctx context.Context, tenantID uint64)
 	return s.repo.ListByTenant(ctx, tenantID)
 }
 
+// CountActiveByTenantIDs returns active membership counts for multiple
+// tenants in one repository query.
+func (s *tenantMemberService) CountActiveByTenantIDs(
+	ctx context.Context,
+	tenantIDs []uint64,
+) (map[uint64]int64, error) {
+	return s.repo.CountActiveByTenantIDs(ctx, tenantIDs)
+}
+
 // ListMembersPage returns a slice plus total matching query (handlers parse
 // page/page_size; defensive clamps here mirror list handler limits).
 func (s *tenantMemberService) ListMembersPage(

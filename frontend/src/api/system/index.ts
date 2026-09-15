@@ -335,6 +335,135 @@ export async function resetUserPassword(req: ResetUserPasswordRequest): Promise<
   return response as unknown as { message: string }
 }
 
+export interface SystemUserSummary {
+  id: string
+  username: string
+  email: string
+  avatar?: string
+  tenant_id: number
+  is_active: boolean
+  is_system_admin: boolean
+  enterprise_memberships?: Array<{
+    tenant_id: number
+    tenant_name: string
+    role: string
+  }>
+  created_at: string
+}
+
+export interface SearchSystemUsersResponse {
+  users: SystemUserSummary[]
+}
+
+export interface ListSystemUsersResponse {
+  users: SystemUserSummary[]
+  page: number
+  page_size: number
+  has_more: boolean
+}
+
+export interface SystemEnterpriseSummary {
+  id: number
+  name: string
+  description?: string
+  status?: string
+  space_type?: string
+  edition?: string
+  storage_quota?: number
+  storage_used?: number
+  member_count?: number
+  storage_usage?: {
+    usage_percent?: number
+    status?: string
+    unlimited?: boolean
+  }
+  enterprise_credits?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ListSystemEnterprisesResponse {
+  enterprises: SystemEnterpriseSummary[]
+  total: number
+}
+
+export interface ProvisionEnterpriseWorkspaceRequest {
+  user_id: string
+  name: string
+  description?: string
+  storage_quota_gb?: number
+  enterprise_credits?: number
+}
+
+export interface ProvisionEnterpriseWorkspaceResponse {
+  success: boolean
+  message?: string
+  tenant: {
+    id: number
+    name: string
+    description?: string
+    space_type?: string
+    edition?: string
+    storage_quota?: number
+    enterprise_credits?: number
+    created_at: string
+    updated_at: string
+  }
+  target_user: SystemUserSummary
+  already_exists: boolean
+}
+
+function createProvisioningIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+export async function searchSystemUsers(
+  params?: { keyword?: string; limit?: number },
+): Promise<SearchSystemUsersResponse> {
+  const qs = new URLSearchParams()
+  if (params?.keyword?.trim()) qs.set('keyword', params.keyword.trim())
+  if (params?.limit != null) qs.set('limit', String(params.limit))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const response = await get(`/api/v1/system/admin/users/search${suffix}`)
+  return response as unknown as SearchSystemUsersResponse
+}
+
+export async function listSystemUsers(
+  params?: { keyword?: string; page?: number; page_size?: number },
+): Promise<ListSystemUsersResponse> {
+  const qs = new URLSearchParams()
+  if (params?.keyword?.trim()) qs.set('keyword', params.keyword.trim())
+  if (params?.page != null) qs.set('page', String(params.page))
+  if (params?.page_size != null) qs.set('page_size', String(params.page_size))
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const response = await get(`/api/v1/system/admin/users${suffix}`)
+  return response as unknown as ListSystemUsersResponse
+}
+
+export async function listSystemEnterprises(
+  params?: { keyword?: string },
+): Promise<ListSystemEnterprisesResponse> {
+  const qs = new URLSearchParams()
+  if (params?.keyword?.trim()) qs.set('keyword', params.keyword.trim())
+  const suffix = qs.toString() ? `?${qs.toString()}` : ''
+  const response = await get(`/api/v1/system/admin/enterprises${suffix}`)
+  return response as unknown as ListSystemEnterprisesResponse
+}
+
+export async function provisionEnterpriseWorkspace(
+  req: ProvisionEnterpriseWorkspaceRequest,
+): Promise<ProvisionEnterpriseWorkspaceResponse> {
+  const response = await post(
+    '/api/v1/system/admin/enterprise-workspaces',
+    req,
+    { headers: { 'Idempotency-Key': createProvisioningIdempotencyKey() } },
+  )
+  return response as unknown as ProvisionEnterpriseWorkspaceResponse
+}
+
 // ---- System Settings (P1) ----
 
 /**

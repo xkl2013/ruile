@@ -1291,6 +1291,11 @@ export default {
     tenantInfo: 'Workspace Info',
     personalHome: 'Personal Homepage',
     apiInfo: 'API Info',
+    navItems: {
+      general: 'General',
+      userProfile: 'Personal Homepage',
+      tenant: 'Subscription & Usage',
+    },
     navGroups: {
       account: 'Account',
       workspace: 'Workspace',
@@ -6706,13 +6711,13 @@ export default {
       hris: 'HRIS',
     },
     add: {
-      button: 'Add User',
-      dialogTitle: 'Add User',
+      button: 'Invite User',
+      dialogTitle: 'Invite User',
       phoneLabel: 'Phone',
       phonePlaceholder: 'Enter phone number',
       roleLabel: 'Role',
-      submit: 'Add',
-      success: 'User added',
+      submit: 'Send Invite',
+      success: 'Invitation sent',
     },
     create: {
       button: 'Add user',

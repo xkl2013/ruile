@@ -264,12 +264,20 @@ func (h *TenantHandler) selfServiceQuotaExceeded(
 }
 
 func (h *TenantHandler) applyDefaultStorageQuota(ctx context.Context, tenant *types.Tenant) {
+	applyDefaultStorageQuota(ctx, tenant, h.systemSettingSvc)
+}
+
+func applyDefaultStorageQuota(
+	ctx context.Context,
+	tenant *types.Tenant,
+	systemSettingSvc interfaces.SystemSettingService,
+) {
 	if tenant == nil || tenant.StorageQuota > 0 {
 		return
 	}
 	gb := int64(10)
-	if h.systemSettingSvc != nil {
-		gb = h.systemSettingSvc.GetInt(
+	if systemSettingSvc != nil {
+		gb = systemSettingSvc.GetInt(
 			ctx,
 			"tenant.default_storage_quota_gb",
 			"WEKNORA_TENANT_DEFAULT_STORAGE_QUOTA_GB",

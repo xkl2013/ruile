@@ -1194,6 +1194,11 @@ export default {
     tenantInfo: 'Информация о пространстве',
     personalHome: 'Личная страница',
     apiInfo: 'Информация API',
+    navItems: {
+      general: 'Общие',
+      userProfile: 'Личная страница',
+      tenant: 'Подписка и использование',
+    },
     navGroups: {
       account: 'Аккаунт',
       workspace: 'Пространство',
@@ -6432,7 +6437,7 @@ export default {
       phonePlaceholder: 'Введите номер телефона',
       roleLabel: 'Роль',
       submit: 'Пригласить',
-      success: 'Участник добавлен',
+      success: 'Приглашение отправлено',
     },
     create: {
       button: 'Добавить участника',

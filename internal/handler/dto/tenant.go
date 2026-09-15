@@ -42,6 +42,8 @@ type TenantResponse struct {
 	Business            string                      `json:"business"`
 	StorageQuota        int64                       `json:"storage_quota"`
 	StorageUsed         int64                       `json:"storage_used"`
+	EnterpriseCredits   int64                       `json:"enterprise_credits"`
+	MemberCount         int64                       `json:"member_count"`
 	StorageUsage        *TenantStorageUsageResponse `json:"storage_usage"`
 	ContextConfig       *types.ContextConfig        `json:"context_config,omitempty"`
 	WebSearchConfig     *types.WebSearchConfig      `json:"web_search_config,omitempty"`
@@ -80,6 +82,7 @@ func NewTenantResponseWithRole(tenant *types.Tenant, role types.TenantRole) *Ten
 		Business:            tenant.Business,
 		StorageQuota:        tenant.StorageQuota,
 		StorageUsed:         tenant.StorageUsed,
+		EnterpriseCredits:   tenant.EnterpriseCredits,
 		StorageUsage:        NewTenantStorageUsageResponse(tenant.StorageUsed, tenant.StorageQuota),
 		ContextConfig:       tenant.ContextConfig,
 		ChatHistoryConfig:   tenant.ChatHistoryConfig,

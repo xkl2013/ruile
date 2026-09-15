@@ -92,6 +92,25 @@ func (r *fakeTenantMemberRepo) ListByTenant(ctx context.Context, tenantID uint64
 	return out, nil
 }
 
+func (r *fakeTenantMemberRepo) CountActiveByTenantIDs(
+	ctx context.Context,
+	tenantIDs []uint64,
+) (map[uint64]int64, error) {
+	counts := make(map[uint64]int64, len(tenantIDs))
+	for _, e := range r.rows {
+		if e.DeletedAt.Valid || e.Status != types.TenantMemberStatusActive {
+			continue
+		}
+		for _, tenantID := range tenantIDs {
+			if e.TenantID == tenantID {
+				counts[tenantID]++
+				break
+			}
+		}
+	}
+	return counts, nil
+}
+
 func (r *fakeTenantMemberRepo) filterTenantRows(tenantID uint64, filter types.TenantMemberListFilter) []*types.TenantMember {
 	search := strings.TrimSpace(strings.ToLower(filter.Query))
 	department := strings.TrimSpace(strings.ToLower(filter.Department))

@@ -81,11 +81,6 @@
                     <GeneralSettings />
                   </div>
 
-                  <!-- 系统信息 -->
-                  <div v-if="currentSection === 'system'" class="section">
-                    <SystemInfo />
-                  </div>
-
                   <!-- 用户信息（账户基础信息：ID / 用户名 / 邮箱 / 注册时间）。
                      用户的基本信息不该跟 owner 权限绑定。 -->
                   <div v-if="currentSection === 'userprofile'" class="section">
@@ -122,7 +117,6 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUIStore } from '@/stores/ui'
 import { useI18n } from 'vue-i18n'
-import SystemInfo from './SystemInfo.vue'
 import UserProfile from './UserProfile.vue'
 import GeneralSettings from './GeneralSettings.vue'
 import TenantInfo from './TenantInfo.vue'
@@ -145,7 +139,6 @@ const LOCAL_SETTING_SECTIONS = new Set([
   'general',
   'userprofile',
   'tenant',
-  'system',
   'members',
   'sharedSpace',
 ])
@@ -241,14 +234,18 @@ const openAdminSection = (section: string, subSection?: string | null): boolean 
 
 const canSeeSection = (key: string): boolean =>
   LOCAL_SETTING_SECTIONS.has(key)
-  && (!ENTERPRISE_SETTING_SECTIONS.has(key) || authStore.canUseTeamSpaces)
+  // 企业设置是账号级入口：只要账号拥有企业空间，就允许从设置
+  // 导航进入；不依赖当前正在查看的个人空间或企业空间。
+  && (!ENTERPRISE_SETTING_SECTIONS.has(key) || authStore.hasEnterpriseMembership)
 
 const navItems = computed(() => {
   const all: NavItem[] = [
-    { key: 'general', icon: 'setting', label: t('general.title') },
-    { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
-    { key: 'tenant', icon: 'home', label: t('settings.tenantInfo') },
-    ...(authStore.canUseTeamSpaces ? [
+    { key: 'general', icon: 'setting', label: t('settings.navItems.general') },
+    { key: 'userprofile', icon: 'user', label: t('settings.navItems.userProfile') },
+    { key: 'tenant', icon: 'home', label: t('settings.navItems.tenant') },
+    // 企业成员管理和企业空间管理属于账号级模块。使用成员关系判断，
+    // 避免用户切回个人空间后导航消失，也避免无企业空间账号看到空模块。
+    ...(authStore.hasEnterpriseMembership ? [
       {
         key: 'members',
         icon: 'usergroup',
@@ -260,7 +257,6 @@ const navItems = computed(() => {
         label: t('settings.teamSpace.spaceManagement'),
       },
     ] : []),
-    { key: 'system', icon: 'info-circle', label: t('settings.versionInfo') },
   ]
   return all
 })
@@ -278,11 +274,6 @@ const navGroups = computed<NavGroup[]>(() => {
       key: 'team',
       label: t('settings.navGroups.team'),
       items: pickItems(['members', 'sharedSpace']),
-    },
-    {
-      key: 'platform',
-      label: t('settings.navGroups.platform'),
-      items: pickItems(['system']),
     },
   ].filter((group) => group.items.length > 0)
 })
@@ -414,7 +405,7 @@ const handleSettingsNav = (e: CustomEvent) => {
   if (section) {
     const normalizedSection = normalizeSettingsSection(section)
     if (openAdminSection(normalizedSection, typeof subsection === 'string' ? subsection : undefined)) return
-    currentSection.value = normalizedSection
+    currentSection.value = canSeeSection(normalizedSection) ? normalizedSection : 'general'
     // 如果有子菜单，自动展开
     const navItem = (navItems.value as any[]).find((item: any) => item.key === normalizedSection)
     if (navItem && navItem.children && navItem.children.length > 0) {

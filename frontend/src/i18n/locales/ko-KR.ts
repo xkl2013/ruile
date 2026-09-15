@@ -1147,6 +1147,11 @@ export default {
     tenantInfo: "워크스페이스 정보",
     personalHome: "개인 홈",
     apiInfo: "API 정보",
+    navItems: {
+      general: "일반",
+      userProfile: "개인 홈",
+      tenant: "구독 및 사용량",
+    },
     navGroups: {
       account: "계정",
       workspace: "공간",
@@ -6611,7 +6616,7 @@ export default {
       phonePlaceholder: "휴대폰 번호 입력",
       roleLabel: "역할",
       submit: "초대",
-      success: "멤버를 추가했습니다",
+      success: "초대를 보냈습니다",
     },
     create: {
       button: "멤버 추가",

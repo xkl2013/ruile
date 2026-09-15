@@ -983,7 +983,11 @@ func RegisterSystemAdminRoutes(
 		adminRoutes.POST("/promote", handler.PromoteUserToSystemAdmin)
 		adminRoutes.POST("/revoke", handler.RevokeSystemAdmin)
 		adminRoutes.GET("/list", handler.ListSystemAdmins)
+		adminRoutes.GET("/users", handler.ListSystemUsers)
+		adminRoutes.GET("/users/search", handler.SearchSystemUsers)
 		adminRoutes.POST("/users/reset-password", handler.ResetUserPassword)
+		adminRoutes.GET("/enterprises", handler.ListSystemEnterprises)
+		adminRoutes.POST("/enterprise-workspaces", handler.ProvisionEnterpriseWorkspace)
 
 		// P1: platform-wide system settings (DB-backed runtime tunables).
 		// Reads return raw model rows / arrays (no `gin.H{"data":...}`

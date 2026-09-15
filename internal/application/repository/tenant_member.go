@@ -118,6 +118,37 @@ func (r *tenantMemberRepository) ListByTenant(ctx context.Context, tenantID uint
 	return members, nil
 }
 
+// CountActiveByTenantIDs returns one aggregate row per tenant instead of
+// loading every membership into application memory.
+func (r *tenantMemberRepository) CountActiveByTenantIDs(
+	ctx context.Context,
+	tenantIDs []uint64,
+) (map[uint64]int64, error) {
+	counts := make(map[uint64]int64, len(tenantIDs))
+	if len(tenantIDs) == 0 {
+		return counts, nil
+	}
+
+	type tenantMemberCount struct {
+		TenantID uint64 `gorm:"column:tenant_id"`
+		Count    int64  `gorm:"column:member_count"`
+	}
+	var rows []tenantMemberCount
+	err := r.db.WithContext(ctx).
+		Model(&types.TenantMember{}).
+		Select("tenant_id, COUNT(*) AS member_count").
+		Where("tenant_id IN ? AND status = ? AND deleted_at IS NULL", tenantIDs, types.TenantMemberStatusActive).
+		Group("tenant_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.TenantID] = row.Count
+	}
+	return counts, nil
+}
+
 // CountFilteredByTenant counts active tenant membership rows, optionally
 // restricted to users whose email or username matches search.
 func (r *tenantMemberRepository) CountFilteredByTenant(

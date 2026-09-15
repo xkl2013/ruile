@@ -131,6 +131,8 @@ type Tenant struct {
 	StorageQuota int64 `yaml:"storage_quota"       json:"storage_quota"       gorm:"default:10737418240"`
 	// Storage used (Bytes)
 	StorageUsed int64 `yaml:"storage_used"        json:"storage_used"        gorm:"default:0"`
+	// EnterpriseCredits is the manually assigned enterprise credit balance.
+	EnterpriseCredits int64 `yaml:"enterprise_credits" json:"enterprise_credits" gorm:"column:enterprise_credits;default:0"`
 	// Global Context configuration for this workspace (default for all sessions)
 	ContextConfig *ContextConfig `yaml:"context_config"      json:"context_config"      gorm:"type:jsonb"`
 	// Global WebSearch configuration for this workspace

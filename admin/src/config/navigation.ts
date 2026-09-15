@@ -143,6 +143,30 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     ],
   },
   {
+    key: 'membership',
+    label: '会员',
+    items: [
+      {
+        key: 'member-users',
+        label: '用户管理',
+        description: '查看系统下所有用户账号',
+        icon: 'usergroup',
+        path: '/members/users',
+        requiresSystemAdmin: true,
+        requiresTenant: false,
+      },
+      {
+        key: 'member-enterprises',
+        label: '企业管理',
+        description: '查看系统下已开通的企业会员',
+        icon: 'building-1',
+        path: '/members/enterprises',
+        requiresSystemAdmin: true,
+        requiresTenant: false,
+      },
+    ],
+  },
+  {
     key: 'system',
     label: '平台运维',
     items: [
@@ -152,6 +176,15 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '平台级设置和管理员',
         icon: 'setting',
         path: '/system/settings',
+        requiresSystemAdmin: true,
+        requiresTenant: false,
+      },
+      {
+        key: 'system-enterprise-provisioning',
+        label: '开通企业',
+        description: '为指定用户手工开通企业并配置容量和积分',
+        icon: 'usergroup-add',
+        path: '/system/enterprise-provisioning',
         requiresSystemAdmin: true,
         requiresTenant: false,
       },

@@ -31,6 +31,10 @@ type TenantMemberRepository interface {
 	// ordered by joined_at ascending.
 	ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error)
 
+	// CountActiveByTenantIDs returns active, non-deleted membership counts
+	// grouped by tenant ID. Missing tenant IDs are omitted from the result.
+	CountActiveByTenantIDs(ctx context.Context, tenantIDs []uint64) (map[uint64]int64, error)
+
 	// CountFilteredByTenant counts memberships in tenant. Optional filters match
 	// user email/username, role, lifecycle status, source, and department.
 	CountFilteredByTenant(ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter) (int64, error)

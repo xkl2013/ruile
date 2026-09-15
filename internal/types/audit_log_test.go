@@ -40,6 +40,7 @@ func TestAuditAction_DotNamespaceConvention(t *testing.T) {
 		AuditActionSystemSettingChanged,
 		AuditActionSystemAdminPromoted,
 		AuditActionSystemAdminRevoked,
+		AuditActionSystemEnterpriseWorkspaceProvisioned,
 		AuditActionSystemUserPasswordReset,
 		AuditActionSystemQueueTaskRetried,
 		AuditActionSystemQueueTaskDeleted,
@@ -129,6 +130,7 @@ func TestAuditAction_NoCollisionsAcrossNamespaces(t *testing.T) {
 	register("AuditActionSystemSettingChanged", AuditActionSystemSettingChanged)
 	register("AuditActionSystemAdminPromoted", AuditActionSystemAdminPromoted)
 	register("AuditActionSystemAdminRevoked", AuditActionSystemAdminRevoked)
+	register("AuditActionSystemEnterpriseWorkspaceProvisioned", AuditActionSystemEnterpriseWorkspaceProvisioned)
 	register("AuditActionSystemUserPasswordReset", AuditActionSystemUserPasswordReset)
 	register("AuditActionSystemQueueTaskRetried", AuditActionSystemQueueTaskRetried)
 	register("AuditActionSystemQueueTaskDeleted", AuditActionSystemQueueTaskDeleted)
@@ -147,6 +149,7 @@ func TestAuditAction_SystemNamespacePrefix(t *testing.T) {
 		AuditActionSystemSettingChanged,
 		AuditActionSystemAdminPromoted,
 		AuditActionSystemAdminRevoked,
+		AuditActionSystemEnterpriseWorkspaceProvisioned,
 		AuditActionSystemUserPasswordReset,
 		AuditActionSystemQueueTaskRetried,
 		AuditActionSystemQueueTaskDeleted,
@@ -173,6 +176,7 @@ func TestAuditAction_SystemWireValues(t *testing.T) {
 		{AuditActionSystemSettingChanged, "system.setting_changed"},
 		{AuditActionSystemAdminPromoted, "system.admin_promoted"},
 		{AuditActionSystemAdminRevoked, "system.admin_revoked"},
+		{AuditActionSystemEnterpriseWorkspaceProvisioned, "system.enterprise_workspace_provisioned"},
 		{AuditActionSystemUserPasswordReset, "system.user_password_reset"},
 		{AuditActionSystemQueueTaskRetried, "system.queue_task_retried"},
 		{AuditActionSystemQueueTaskDeleted, "system.queue_task_deleted"},

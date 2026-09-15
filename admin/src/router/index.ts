@@ -298,6 +298,30 @@ const moduleRoutes: RouteRecordRaw[] = [
     },
   },
   {
+    path: 'members/users',
+    name: 'adminMemberUsers',
+    component: () => import('@admin/views/AdminMemberUsers.vue'),
+    meta: {
+      navKey: 'member-users',
+      title: '用户管理',
+      description: '查看系统下所有用户账号。',
+      requiresSystemAdmin: true,
+      requiresTenant: false,
+    },
+  },
+  {
+    path: 'members/enterprises',
+    name: 'adminMemberEnterprises',
+    component: () => import('@admin/views/AdminMemberEnterprises.vue'),
+    meta: {
+      navKey: 'member-enterprises',
+      title: '企业管理',
+      description: '查看系统下已开通的企业会员。',
+      requiresSystemAdmin: true,
+      requiresTenant: false,
+    },
+  },
+  {
     path: 'system/settings',
     name: 'adminSystemSettings',
     component: createModulePage(() => import('@/views/system/SystemSettings.vue')),
@@ -315,7 +339,7 @@ const moduleRoutes: RouteRecordRaw[] = [
   },
   {
     path: 'system/users',
-    redirect: { name: 'adminSystemSettings' },
+    redirect: { name: 'adminEnterpriseProvisioning' },
   },
   {
     path: 'system/audit-log',
@@ -329,6 +353,18 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'system-runtime-queues',
       title: '运行队列',
       description: '查看队列状态、任务列表和运行时模型负载。',
+      requiresSystemAdmin: true,
+      requiresTenant: false,
+    },
+  },
+  {
+    path: 'system/enterprise-provisioning',
+    name: 'adminEnterpriseProvisioning',
+    component: () => import('@admin/views/AdminEnterpriseProvisioning.vue'),
+    meta: {
+      navKey: 'system-enterprise-provisioning',
+      title: '开通企业',
+      description: '由系统管理员为指定用户手工开通企业并配置容量和积分。',
       requiresSystemAdmin: true,
       requiresTenant: false,
     },
