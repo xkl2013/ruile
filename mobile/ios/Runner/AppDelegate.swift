@@ -39,6 +39,11 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     label: "com.ruile.recording_card.jieli.flash_space",
     qos: .utility
   )
+  private let audioEventQueue = DispatchQueue(
+    label: "com.ruile.recording_card.jieli.audio_events",
+    qos: .userInitiated
+  )
+  private let audioEventFlushInterval: TimeInterval = 0.05
 
   private var eventSink: FlutterEventSink?
   private var bleMultiple: JL_BLEMultiple?
@@ -85,6 +90,8 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   private var activeDeleteCluster: UInt32?
   private var activeDeleteName = ""
   private var activeDeleteModel: JLModel_File?
+  private var pendingAudioData = Data()
+  private var audioFlushWorkItem: DispatchWorkItem?
 
   func register(with messenger: FlutterBinaryMessenger) {
     FlutterMethodChannel(
@@ -2187,6 +2194,9 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   private func release() {
     emitRcspReady(activeEntity, ready: false, stage: "release")
     rcspReady = false
+    audioEventQueue.sync {
+      flushPendingAudioData()
+    }
     cancelConnectedEntitySync()
     stopScan(shouldSync: false)
     cancelReadFile()
@@ -2677,14 +2687,24 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   func devAudioManager(_ manager: JLDevAudioManager, audio data: Data) {
-    emit(
-      "audioData",
-      payload: [
-        "source": "jieli_ios",
-        "bytes": FlutterStandardTypedData(bytes: data),
-        "bytes_count": data.count,
-      ]
-    )
+    guard !data.isEmpty else { return }
+    audioEventQueue.async { [weak self] in
+      guard let self else { return }
+      self.pendingAudioData.append(data)
+      if self.pendingAudioData.count >= 16 * 1024 {
+        self.flushPendingAudioData()
+        return
+      }
+      guard self.audioFlushWorkItem == nil else { return }
+      let workItem = DispatchWorkItem { [weak self] in
+        self?.flushPendingAudioData()
+      }
+      self.audioFlushWorkItem = workItem
+      self.audioEventQueue.asyncAfter(
+        deadline: .now() + self.audioEventFlushInterval,
+        execute: workItem
+      )
+    }
   }
 
   func devAudioManager(_ manager: JLDevAudioManager, startByDeviceWithParam param: JLRecordParams) {
@@ -2702,6 +2722,9 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   func devAudioManager(_ manager: JLDevAudioManager, stopByDeviceWithParam param: JLSpeechRecognition) {
+    audioEventQueue.sync {
+      flushPendingAudioData()
+    }
     emit("recordState", payload: [
       "source": "jieli_ios",
       "state": 1,
@@ -2719,6 +2742,22 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     let created = JLDevAudioManager.share(self, withManager: manager)
     audioManager = created
     return created
+  }
+
+  private func flushPendingAudioData() {
+    audioFlushWorkItem?.cancel()
+    audioFlushWorkItem = nil
+    guard !pendingAudioData.isEmpty else { return }
+    let data = pendingAudioData
+    pendingAudioData.removeAll(keepingCapacity: true)
+    emit(
+      "audioData",
+      payload: [
+        "source": "jieli_ios",
+        "bytes": FlutterStandardTypedData(bytes: data),
+        "bytes_count": data.count,
+      ]
+    )
   }
 
 }

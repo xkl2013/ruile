@@ -168,6 +168,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewUserResourceFavoriteRepository))
 	must(container.Provide(repository.NewOrganizeRepository))
 	must(container.Provide(repository.NewServiceRepository))
+	must(container.Provide(repository.NewAgentRunRepository))
+	must(container.Provide(repository.NewExpertPackageRepository))
 	must(container.Provide(service.NewWebSearchStateService))
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
@@ -207,6 +209,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewUserService))
 	must(container.Provide(service.NewAliyunSMSService))
 	must(container.Provide(service.NewSystemSettingService))
+	must(container.Provide(service.NewExpertPackageService))
 	must(container.Provide(service.NewKnowledgeBaseDefaultsService))
 	must(container.Provide(service.NewWeKnoraCloudService))
 
@@ -224,6 +227,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewUserResourceFavoriteService))
 	must(container.Provide(service.NewOrganizeService))
 	must(container.Provide(service.NewServiceServiceWithMembersAndModel))
+	must(container.Provide(service.NewAgentRunService))
 	must(container.Provide(service.NewWikiPageService))
 	must(container.Provide(service.NewWikiLogEntryService))
 	must(container.Provide(service.NewWikiIngestService, dig.Name("wikiIngest")))
@@ -289,6 +293,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		must(container.Provide(router.NewMaintenanceAsynqServer, dig.Name("maintenanceAsynqServer")))
 		must(container.Provide(router.NewSharedAsynqServer, dig.Name("sharedAsynqServer")))
 		must(container.Provide(router.NewWikiAsynqServer, dig.Name("wikiAsynqServer")))
+		must(container.Provide(router.NewAgentAsynqServer, dig.Name("agentAsynqServer")))
 		// Asynq inspector for cancel-by-knowledge-id (best-effort
 		// dequeue of pending/scheduled/retry tasks + active-task cancel).
 		must(container.Provide(router.NewAsynqInspector))
@@ -380,6 +385,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewUserResourceFavoriteHandler))
 	must(container.Provide(handler.NewOrganizeHandler))
 	must(container.Provide(handler.NewServiceHandler))
+	must(container.Provide(handler.NewExpertPackageHandler))
 	must(container.Provide(service.NewSkillService))
 	must(container.Provide(handler.NewSkillHandler))
 	must(container.Provide(handler.NewOrganizationHandler))
@@ -710,7 +716,7 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 		resolveStorageProviderPending(db)
 		migrateLegacyStorageBackends(db)
 
-		} else {
+	} else {
 		logger.Infof(context.Background(), "Auto-migration is disabled (AUTO_MIGRATE=false)")
 	}
 

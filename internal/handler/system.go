@@ -2184,6 +2184,7 @@ type RuntimeQueuesResponse struct {
 	UpstreamConcurrency   int                        `json:"upstream_concurrency"`
 	ParseConcurrency      int                        `json:"parse_concurrency"` // compatibility alias for upstream_concurrency
 	WikiConcurrency       int                        `json:"wiki_concurrency"`  // compatibility field
+	AgentConcurrency      int                        `json:"agent_concurrency"`
 	Pools                 []RuntimeWorkerPool        `json:"pools"`
 	Queues                []types.QueueStat          `json:"queues"`
 	ModelLimiterAvailable bool                       `json:"model_limiter_available"`
@@ -2199,6 +2200,7 @@ func aggregateRuntimeWorkerPools(pools []RuntimeWorkerPool, servers []types.Work
 		types.WorkerPoolMaintenance: types.QueueWeightsForPool(types.WorkerPoolMaintenance),
 		types.WorkerPoolShared:      types.QueueWeightsForSharedPool(),
 		types.WorkerPoolWiki:        types.QueueWeightsForPool(types.WorkerPoolWiki),
+		types.WorkerPoolAgent:       types.QueueWeightsForPool(types.WorkerPoolAgent),
 	}
 	indexes := make(map[string]int, len(pools))
 	for i := range pools {
@@ -2267,6 +2269,7 @@ func (h *SystemHandler) GetRuntimeQueues(c *gin.Context) {
 		UpstreamConcurrency: allocation.UpstreamTotal(),
 		ParseConcurrency:    allocation.UpstreamTotal(),
 		WikiConcurrency:     allocation.Wiki,
+		AgentConcurrency:    allocation.Agent,
 		Pools: []RuntimeWorkerPool{
 			{Name: types.WorkerPoolCore, Concurrency: allocation.Core, QueueCount: queueCounts[types.WorkerPoolCore]},
 			{Name: types.WorkerPoolPostProcess, Concurrency: allocation.PostProcess, QueueCount: queueCounts[types.WorkerPoolPostProcess]},
@@ -2274,6 +2277,7 @@ func (h *SystemHandler) GetRuntimeQueues(c *gin.Context) {
 			{Name: types.WorkerPoolMaintenance, Concurrency: allocation.Maintenance, QueueCount: queueCounts[types.WorkerPoolMaintenance]},
 			{Name: types.WorkerPoolShared, Concurrency: allocation.Shared, QueueCount: len(types.QueueWeightsForSharedPool())},
 			{Name: types.WorkerPoolWiki, Concurrency: allocation.Wiki, QueueCount: queueCounts[types.WorkerPoolWiki]},
+			{Name: types.WorkerPoolAgent, Concurrency: allocation.Agent, QueueCount: queueCounts[types.WorkerPoolAgent]},
 		},
 		Timestamp: time.Now().Unix(),
 	}

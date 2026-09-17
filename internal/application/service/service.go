@@ -416,6 +416,11 @@ func (s *serviceService) GenerateDailyReport(
 		return nil, err
 	}
 	content := buildDailyReportMarkdown(period, profile, reportReminders, dailySources, stats)
+	structuredReport := buildStructuredDailyReport(period, profile, reportReminders, dailySources, stats)
+	structuredReportPayload, err := structuredReport.ToJSONMap()
+	if err != nil {
+		return nil, fmt.Errorf("encode structured daily report: %w", err)
+	}
 	sourceMemoryIDs := sourceMemoryIDsFromReminders(reportReminders)
 	now := time.Now().UTC()
 	doc := &types.AgentWorkDoc{
@@ -465,6 +470,8 @@ func (s *serviceService) GenerateDailyReport(
 			"generated_at":           now.Format(time.RFC3339),
 			"source_profile":         profile.ID,
 			"source_doc_type":        types.AgentWorkDocTypeDailyReport,
+			"output_contract":        types.StructuredReportFormatV1,
+			"structured_report":      structuredReportPayload,
 		},
 		UpdatedAt: now,
 	}
@@ -493,6 +500,21 @@ func (s *serviceService) GetDailyReport(ctx context.Context, tenantID uint64, us
 		return nil, ErrServiceNotFound
 	}
 	return serviceDailyReportFromDoc(doc), nil
+}
+
+func (s *serviceService) RenderDailyReportHTML(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+) (string, error) {
+	report, err := s.GetDailyReport(ctx, tenantID, userID, id)
+	if err != nil {
+		return "", err
+	}
+	if report.StructuredReport == nil {
+		return "", errors.New("daily report structured source is unavailable")
+	}
+	return renderStructuredReportHTML(*report.StructuredReport)
 }
 
 func (s *serviceService) ListDailyReports(
@@ -3421,6 +3443,78 @@ func buildDailyReportMarkdown(
 		stageLines, riskLines, actionLines, gapLines, evidenceLines, sourceSection, writeBackSectionIndex, dailyReportWriteBackLines(period, stats))
 }
 
+func buildStructuredDailyReport(
+	period serviceDailyReportPeriod,
+	profile *types.UserWorkProfile,
+	reminders []*types.ServiceReminder,
+	dailySources []*types.AgentWorkDoc,
+	stats serviceDailyReportStats,
+) types.StructuredReportV1 {
+	sourceMemoryIDs := sourceMemoryIDsFromReminders(reminders)
+	return types.StructuredReportV1{
+		Format:           types.StructuredReportFormatV1,
+		Title:            dailyReportTitle(period),
+		ExecutiveSummary: dailyReportDiagnosis(reminders, stats),
+		Sections: []types.StructuredReportSection{
+			{
+				Type:  "facts",
+				Title: "已知事实",
+				Items: types.StringArray{
+					fmt.Sprintf("服务画像：%s。", dailyReportProfileName(profile)),
+					fmt.Sprintf("汇总 %d 个服务动作，覆盖 %d 个服务对象。", stats.ActionCount, stats.SubjectCount),
+					fmt.Sprintf("关联 %d 条来源记忆，证据完整率 %d%%。", stats.SourceMemoryCount, stats.EvidenceCompleteRate),
+				},
+			},
+			{
+				Type:    "analysis",
+				Title:   "服务回顾",
+				Content: dailyReportStageLines(reminders),
+			},
+			{
+				Type:  "risks",
+				Title: "风险归因",
+				Items: structuredReportItems(dailyReportRiskLines(reminders)),
+			},
+			{
+				Type:  "missing_information",
+				Title: "知识补齐",
+				Items: structuredReportItems(dailyReportKnowledgeGapLines(reminders)),
+			},
+			{
+				Type:  "recommended_actions",
+				Title: "行动闭环",
+				Items: structuredReportItems(dailyReportActionLines(reminders)),
+			},
+			{
+				Type:    "talk_track",
+				Title:   "执行参考",
+				Content: dailyReportWriteBackLines(period, stats),
+			},
+			{
+				Type:  "evidence",
+				Title: "证据来源",
+				Items: structuredReportItems(dailyReportEvidenceLines(reminders)),
+			},
+		},
+		EvidenceRefs: types.StringArray(sourceMemoryIDs),
+	}
+}
+
+func structuredReportItems(markdown string) types.StringArray {
+	items := make([]string, 0)
+	for _, line := range strings.Split(markdown, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(strings.TrimPrefix(line, "-"))
+		if line != "" {
+			items = append(items, line)
+		}
+	}
+	if len(items) == 0 {
+		return types.StringArray{"暂无内容。"}
+	}
+	return types.StringArray(items)
+}
+
 func dailyReportTitle(period serviceDailyReportPeriod) string {
 	switch period.Range {
 	case types.ServiceDailyReportRangeWeek:
@@ -3954,7 +4048,7 @@ func serviceDailyReportFromDoc(doc *types.AgentWorkDoc) *types.ServiceDailyRepor
 	}
 	metadata := normalizeJSONMap(doc.Metadata)
 	subjectCount := firstPositiveInt(asInt(metadata["subject_count"]), asInt(metadata["customer_count"]))
-	return &types.ServiceDailyReport{
+	report := &types.ServiceDailyReport{
 		ID:                   doc.ID,
 		Title:                doc.Title,
 		Summary:              firstNonEmpty(asString(metadata["summary"]), contentExcerpt(doc.Content, doc.Title)),
@@ -3983,6 +4077,16 @@ func serviceDailyReportFromDoc(doc *types.AgentWorkDoc) *types.ServiceDailyRepor
 		CreatedAt:            doc.CreatedAt,
 		UpdatedAt:            doc.UpdatedAt,
 	}
+	if raw, ok := metadata["structured_report"]; ok {
+		if structured, err := types.DecodeStructuredReportV1(raw); err == nil {
+			report.StructuredReport = structured
+		}
+	}
+	if report.StructuredReport == nil {
+		fallback := structuredDailyReportFromServiceReport(report)
+		report.StructuredReport = &fallback
+	}
+	return report
 }
 
 func inferDailyReportRangeFromPath(path string) string {

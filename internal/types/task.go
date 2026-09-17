@@ -10,16 +10,20 @@ const (
 	WorkerPoolMaintenance = "maintenance"
 	WorkerPoolShared      = "shared"
 	WorkerPoolWiki        = "wiki"
+	WorkerPoolAgent       = "agent"
 
 	// Upstream defaults are explicit guarantees plus an elastic pool. The
 	// shared pool may consume core and enrichment queues, so idle capacity in
 	// either stage can be borrowed without sacrificing the dedicated minimums.
+	// Wiki and agent runs use independent capacities and are intentionally
+	// excluded from the historical upstream compatibility total.
 	DefaultCoreWorkerConcurrency        = 8
 	DefaultPostProcessWorkerConcurrency = 2
 	DefaultEnrichmentWorkerConcurrency  = 12
 	DefaultMaintenanceWorkerConcurrency = 4
 	DefaultSharedWorkerConcurrency      = 6
 	DefaultWikiWorkerConcurrency        = 8
+	DefaultAgentWorkerConcurrency       = 2
 	DefaultUpstreamWorkerConcurrency    = DefaultCoreWorkerConcurrency +
 		DefaultPostProcessWorkerConcurrency + DefaultEnrichmentWorkerConcurrency +
 		DefaultMaintenanceWorkerConcurrency + DefaultSharedWorkerConcurrency
@@ -43,6 +47,7 @@ const (
 	QueueSync           = "sync"
 	QueueMaintenance    = "low"
 	QueueWiki           = "wiki"
+	QueueAgent          = "agent"
 )
 
 // QueueDefinition is the single source of truth for queue topology. Worker
@@ -81,6 +86,7 @@ var queueDefinitions = []QueueDefinition{
 		TypeKnowledgeListDelete, TypeKnowledgeListReparse, TypeKnowledgeMove,
 	}},
 	{Name: QueueWiki, Pool: WorkerPoolWiki, Weight: 1, TaskTypes: []string{TypeWikiIngest, TypeWikiFinalize}},
+	{Name: QueueAgent, Pool: WorkerPoolAgent, Weight: 1, TaskTypes: []string{TypeAgentRunExecute}},
 }
 
 // QueueDefinitions returns a copy so callers cannot mutate global topology.
@@ -142,6 +148,7 @@ type WorkerPoolConcurrency struct {
 	Maintenance int
 	Shared      int
 	Wiki        int
+	Agent       int
 }
 
 func DefaultWorkerPoolConcurrency() WorkerPoolConcurrency {
@@ -152,6 +159,7 @@ func DefaultWorkerPoolConcurrency() WorkerPoolConcurrency {
 		Maintenance: DefaultMaintenanceWorkerConcurrency,
 		Shared:      DefaultSharedWorkerConcurrency,
 		Wiki:        DefaultWikiWorkerConcurrency,
+		Agent:       DefaultAgentWorkerConcurrency,
 	}
 }
 
@@ -177,6 +185,7 @@ func ResolveWorkerPoolConcurrency(read func(key, env string, fallback int) int) 
 	allocation.Maintenance = positive("asynq.maintenance_concurrency", "WEKNORA_ASYNQ_MAINTENANCE_CONCURRENCY", allocation.Maintenance)
 	allocation.Shared = positive("asynq.shared_concurrency", "WEKNORA_ASYNQ_SHARED_CONCURRENCY", allocation.Shared)
 	allocation.Wiki = positive("asynq.wiki_concurrency", "WEKNORA_WIKI_ASYNQ_CONCURRENCY", allocation.Wiki)
+	allocation.Agent = positive("asynq.agent_concurrency", "WEKNORA_ASYNQ_AGENT_CONCURRENCY", allocation.Agent)
 	return allocation
 }
 
@@ -248,7 +257,15 @@ const (
 	TypeWikiFinalize             = "wiki:finalize"              // Wiki KB 级收尾任务（防抖：索引重建/死链清理/交叉链接）
 	TypeTemporaryDocumentProcess = "temporary_document:process" // 会话临时文档解析任务
 	TypeOrganizeMemoryTranscribe = "organize_memory:transcribe" // 录音记忆异步转写任务
+	TypeAgentRunExecute          = "agent_run:execute"          // Agent 执行队列任务
 )
+
+// AgentRunTaskPayload identifies a durable agent run. TenantID is duplicated
+// in the payload for queue observability and tenant-scope validation.
+type AgentRunTaskPayload struct {
+	TenantID uint64 `json:"tenant_id"`
+	RunID    string `json:"run_id"`
+}
 
 // ExtractChunkPayload represents the extract chunk task payload
 type ExtractChunkPayload struct {

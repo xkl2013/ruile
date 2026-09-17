@@ -200,6 +200,17 @@ const moduleRoutes: RouteRecordRaw[] = [
     }),
   },
   {
+    path: 'experts',
+    name: 'adminExpertPackages',
+    component: () => import('@admin/views/AdminExpertPackages.vue'),
+    meta: {
+      navKey: 'expert-packages',
+      title: '专家',
+      description: '维护专家包、版本发布和服务绑定。',
+      minRole: 'admin',
+    },
+  },
+  {
     path: 'service/profiles',
     name: 'adminServiceProfiles',
     component: () => import('@admin/views/AdminServiceProfiles.vue'),

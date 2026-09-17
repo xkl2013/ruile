@@ -82,6 +82,7 @@ type RouterParams struct {
 	FAQHandler                   *handler.FAQHandler
 	TagHandler                   *handler.TagHandler
 	CustomAgentHandler           *handler.CustomAgentHandler
+	ExpertPackageHandler         *handler.ExpertPackageHandler
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
 	OrganizeHandler              *handler.OrganizeHandler
 	ServiceHandler               *handler.ServiceHandler
@@ -266,6 +267,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterVectorStoreRoutes(v1, params.VectorStoreHandler, rbacGuards)
 		RegisterStorageBackendRoutes(v1, params.StorageBackendHandler, rbacGuards)
 		RegisterCustomAgentRoutes(v1, params.CustomAgentHandler, rbacGuards)
+		RegisterExpertPackageRoutes(v1, params.ExpertPackageHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterOrganizeRoutes(v1, params.OrganizeHandler, rbacGuards)
 		RegisterServiceRoutes(v1, params.ServiceHandler, rbacGuards)
@@ -1244,6 +1246,25 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 		apiKeyReadAgents(apiKeyManageAgents(apiKeyChat(apiKeyFullAccess()))), g.Viewer(), agentHandler.GetSuggestedQuestions)
 }
 
+// RegisterExpertPackageRoutes exposes the administrator-only expert-package
+// registry. Normal users can never import, publish, or bind agent packages.
+func RegisterExpertPackageRoutes(r *gin.RouterGroup, h *handler.ExpertPackageHandler, g *rbacGuards) {
+	if h == nil {
+		return
+	}
+	packages := g.apiKeyGroup(r.Group("/admin/expert-packages"), apiKeyManageAgents(apiKeyFullAccess()))
+	{
+		packages.POST("/import", g.Admin(), h.ImportArchive)
+		packages.POST("/import-json", g.Admin(), h.Import)
+		packages.GET("", g.Admin(), h.List)
+		packages.GET("/bindings", g.Admin(), h.ListBindings)
+		packages.GET("/:id", g.Admin(), h.Get)
+		packages.POST("/:id/versions/:version_id/publish", g.Admin(), h.Publish)
+		packages.POST("/:id/definitions/:definition_id/test-runs", g.Admin(), h.TestRun)
+		packages.PUT("/:id/bindings", g.Admin(), h.Bind)
+	}
+}
+
 // RegisterUserFavoriteRoutes wires the per-user starred-resource endpoints.
 //
 // Authorization: the handler always derives (user_id, tenant_id) from the
@@ -1314,9 +1335,12 @@ func RegisterServiceRoutes(r *gin.RouterGroup, h *handler.ServiceHandler, g *rba
 		svc.GET("/bootstrap", g.Viewer(), h.GetBootstrap)
 		svc.POST("/refresh", g.Viewer(), h.Refresh)
 		svc.POST("/memories/:memory_id/extract", g.Viewer(), h.ExtractMemory)
+		svc.GET("/agent-runs/:id", g.Viewer(), h.GetAgentRun)
+		svc.POST("/agent-runs/:id/cancel", g.Viewer(), h.CancelAgentRun)
 		svc.GET("/agent-templates", g.Viewer(), h.ListAgentTemplates)
 		svc.GET("/daily-reports", g.Viewer(), h.ListDailyReports)
 		svc.POST("/daily-reports", g.Viewer(), h.GenerateDailyReport)
+		svc.GET("/daily-reports/:id/rendered", g.Viewer(), h.RenderDailyReportHTML)
 		svc.GET("/daily-reports/:id", g.Viewer(), h.GetDailyReport)
 
 		svc.GET("/customer-spaces", g.Viewer(), h.ListCustomerSpaces)

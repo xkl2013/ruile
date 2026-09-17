@@ -16,11 +16,12 @@ import (
 )
 
 type ServiceHandler struct {
-	service interfaces.ServiceService
+	service   interfaces.ServiceService
+	agentRuns interfaces.AgentRunService
 }
 
-func NewServiceHandler(svc interfaces.ServiceService) *ServiceHandler {
-	return &ServiceHandler{service: svc}
+func NewServiceHandler(svc interfaces.ServiceService, agentRuns interfaces.AgentRunService) *ServiceHandler {
+	return &ServiceHandler{service: svc, agentRuns: agentRuns}
 }
 
 func serviceScope(c *gin.Context) (uint64, string, bool) {
@@ -71,12 +72,12 @@ func (h *ServiceHandler) ExtractMemory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	data, err := h.service.ExtractMemory(ctx, tenantID, userID, c.Param("memory_id"))
+	data, err := h.agentRuns.EnqueueMemoryExtraction(ctx, tenantID, userID, c.Param("memory_id"))
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": data})
 }
 
 func (h *ServiceHandler) ListDailyReports(c *gin.Context) {
@@ -107,6 +108,20 @@ func (h *ServiceHandler) GetDailyReport(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": report})
 }
 
+func (h *ServiceHandler) RenderDailyReportHTML(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	rendered, err := h.service.RenderDailyReportHTML(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(rendered))
+}
+
 func (h *ServiceHandler) GenerateDailyReport(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := serviceScope(c)
@@ -130,12 +145,40 @@ func (h *ServiceHandler) GenerateDailyReport(c *gin.Context) {
 	if req.Trigger == "" {
 		req.Trigger = strings.TrimSpace(c.Query("trigger"))
 	}
-	report, err := h.service.GenerateDailyReport(ctx, tenantID, userID, req)
+	run, err := h.agentRuns.EnqueueDailyReport(ctx, tenantID, userID, req)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": report})
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ServiceHandler) GetAgentRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	run, err := h.agentRuns.GetAgentRun(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": run})
+}
+
+func (h *ServiceHandler) CancelAgentRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	run, err := h.agentRuns.CancelAgentRun(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": run})
 }
 
 func (h *ServiceHandler) ListCustomerSpaces(c *gin.Context) {
@@ -464,8 +507,12 @@ func (h *ServiceHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, appsvc.ErrServiceInvalidReportRange),
 		stderrors.Is(err, appsvc.ErrServiceInvalidReportDate),
 		stderrors.Is(err, appsvc.ErrServiceInvalidStatus),
-		stderrors.Is(err, appsvc.ErrServiceProfileNotConfigured):
+		stderrors.Is(err, appsvc.ErrServiceProfileNotConfigured),
+		stderrors.Is(err, appsvc.ErrAgentRunInvalidRequest),
+		stderrors.Is(err, appsvc.ErrAgentRunCannotCancel):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
+	case stderrors.Is(err, appsvc.ErrAgentRunNotFound):
+		c.Error(apperrors.NewNotFoundError(err.Error()))
 	default:
 		logger.ErrorWithFields(c.Request.Context(), err, nil)
 		c.Error(apperrors.NewInternalServerError(err.Error()))

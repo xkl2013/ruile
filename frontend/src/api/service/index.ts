@@ -146,6 +146,94 @@ export interface ServiceMemoryExtraction {
   reminder?: ServiceReminderDTO
 }
 
+export type ServiceAgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface ServiceCardV1 {
+  schema_version: 'service_card_v1'
+  title: string
+  summary: string
+  next_action: string
+}
+
+export interface StructuredReportSectionV1 {
+  type: 'facts' | 'analysis' | 'risks' | 'missing_information' | 'recommended_actions' | 'talk_track' | 'evidence'
+  title: string
+  content?: string
+  items?: string[]
+}
+
+export interface StructuredReportV1 {
+  format: 'structured_report_v1'
+  title: string
+  executive_summary: string
+  sections: StructuredReportSectionV1[]
+  evidence_refs: string[]
+}
+
+export interface ServiceAgentArtifactResultV1 {
+  kind: 'text' | 'report' | 'html' | 'image' | 'pdf' | 'document' | 'spreadsheet' | 'presentation' | 'audio' | 'video' | 'data'
+  role: 'primary' | 'supporting'
+  title: string
+  format?: string
+  content?: StructuredReportV1 | Record<string, unknown>
+}
+
+export interface ServiceAgentEvidenceRefV1 {
+  source_type: string
+  source_id: string
+  relation: string
+  excerpt?: string
+}
+
+export interface ServiceAgentResultValidation {
+  contract: 'agent_result_v1'
+  valid: boolean
+  errors: string[]
+}
+
+export interface ServiceAgentRunResult extends Record<string, unknown> {
+  schema_version?: 'agent_result_v1'
+  decision?: {
+    should_create_card: boolean
+    confidence: number
+    reason: string
+  }
+  card?: ServiceCardV1
+  artifacts?: ServiceAgentArtifactResultV1[]
+  evidence?: ServiceAgentEvidenceRefV1[]
+  validation?: ServiceAgentResultValidation
+  artifact_type?: string
+  daily_report_id?: string
+  memory_id?: string
+  generated?: boolean
+  reason?: string
+  service_reminder_id?: string
+}
+
+export interface ServiceAgentRun {
+  id: string
+  tenant_id: number
+  user_id: string
+  profile_id?: string
+  run_type: 'service_daily_report' | 'service_memory_extract' | 'expert_agent_test'
+  agent_ref?: string
+  agent_version?: string
+  trigger_type?: string
+  trigger_id?: string
+  status: ServiceAgentRunStatus
+  input?: Record<string, unknown>
+  result?: ServiceAgentRunResult
+  error_code?: string
+  error_message?: string
+  task_id?: string
+  attempt?: number
+  queued_at?: string
+  started_at?: string
+  finished_at?: string
+  created_at?: string
+  updated_at?: string
+}
+
 export type ServiceDailyReportRange = 'day' | 'week' | 'month'
 
 export interface ServiceDailyReportDTO {
@@ -153,6 +241,7 @@ export interface ServiceDailyReportDTO {
   title: string
   summary?: string
   content: string
+  structured_report?: StructuredReportV1
   range: ServiceDailyReportRange
   stage: string
   stage_key?: string
@@ -340,9 +429,38 @@ export function refreshServiceModule() {
 }
 
 export function extractServiceMemory(memoryId: string) {
-  return post<ServiceResponse<ServiceMemoryExtraction>>(
+  return post<ServiceResponse<ServiceAgentRun>>(
     `/api/v1/service/memories/${encodeURIComponent(memoryId)}/extract`,
   )
+}
+
+export function getServiceAgentRun(id: string) {
+  return get<ServiceResponse<ServiceAgentRun>>(`/api/v1/service/agent-runs/${encodeURIComponent(id)}`)
+}
+
+export async function waitForServiceAgentRun(
+  id: string,
+  options?: { intervalMs?: number; timeoutMs?: number },
+) {
+  const intervalMs = options?.intervalMs ?? 1200
+  const timeoutMs = options?.timeoutMs ?? 5 * 60 * 1000
+  const deadline = Date.now() + timeoutMs
+
+  while (true) {
+    const response = await getServiceAgentRun(id)
+    const run = response?.data
+    if (!response?.success || !run) {
+      throw new Error(response?.message || '任务状态读取失败')
+    }
+    if (run.status === 'succeeded') return run
+    if (run.status === 'failed' || run.status === 'cancelled') {
+      throw new Error(run.error_message || '任务未完成')
+    }
+    if (Date.now() >= deadline) {
+      throw new Error('任务仍在执行，请稍后在服务空间查看结果')
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, intervalMs))
+  }
 }
 
 export function listServiceDailyReports(params?: {
@@ -355,13 +473,17 @@ export function listServiceDailyReports(params?: {
   return get<ServiceResponse<ServiceListData<ServiceDailyReportDTO>>>(withQuery('/api/v1/service/daily-reports', params))
 }
 
+export function getServiceDailyReport(id: string) {
+  return get<ServiceResponse<ServiceDailyReportDTO>>(`/api/v1/service/daily-reports/${encodeURIComponent(id)}`)
+}
+
 export function generateServiceDailyReport(data?: {
   range?: ServiceDailyReportRange
   date?: string
   timezone?: string
   trigger?: string
 }) {
-  return post<ServiceResponse<ServiceDailyReportDTO>>('/api/v1/service/daily-reports', data || {})
+  return post<ServiceResponse<ServiceAgentRun>>('/api/v1/service/daily-reports', data || {})
 }
 
 export function listServiceCustomerSpaces(params?: {

@@ -34,6 +34,7 @@ type AsynqTaskParams struct {
 	MaintenanceServer    *asynq.Server `name:"maintenanceAsynqServer"`
 	SharedServer         *asynq.Server `name:"sharedAsynqServer"`
 	WikiServer           *asynq.Server `name:"wikiAsynqServer"`
+	AgentServer          *asynq.Server `name:"agentAsynqServer"`
 	KnowledgeService     interfaces.KnowledgeService
 	KnowledgeBaseService interfaces.KnowledgeBaseService
 	TagService           interfaces.KnowledgeTagService
@@ -45,6 +46,7 @@ type AsynqTaskParams struct {
 	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	OrganizeService      interfaces.OrganizeService
+	AgentRunService      interfaces.AgentRunService
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
 	SpanTracker          service.SpanTracker
 }
@@ -224,6 +226,16 @@ func NewWikiAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
 	return newAsynqServer(concurrency, types.QueueWeightsForPool(types.WorkerPoolWiki))
 }
 
+// NewAgentAsynqServer reserves a small, independent pool for durable agent
+// runs. This prevents model-heavy service work from consuming document and
+// enrichment capacity.
+func NewAgentAsynqServer(svc interfaces.SystemSettingService) *asynq.Server {
+	allocation := resolveWorkerPoolConcurrency(svc)
+	log.Printf("asynq agent-pool server starting with concurrency=%d total_upstream=%d",
+		allocation.Agent, allocation.UpstreamTotal())
+	return newAsynqServer(allocation.Agent, types.QueueWeightsForPool(types.WorkerPoolAgent))
+}
+
 func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// Create a new mux and register all handlers
 	mux := asynq.NewServeMux()
@@ -312,6 +324,10 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	mux.HandleFunc(types.TypeWikiIngest, params.WikiIngest.Handle)
 	mux.HandleFunc(types.TypeWikiFinalize, params.WikiIngest.Handle)
 
+	// Agent runs resolve their durable record before dispatching to a domain
+	// service, so retries and result state survive worker restarts.
+	mux.HandleFunc(types.TypeAgentRunExecute, params.AgentRunService.ProcessAgentRun)
+
 	// Run the same mux on every pool. Shared and dedicated servers intentionally
 	// overlap, but Redis dequeue is atomic, so each task still executes once.
 	runPool := func(name string, srv *asynq.Server) {
@@ -327,6 +343,7 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	runPool("maintenance-pool", params.MaintenanceServer)
 	runPool("shared-pool", params.SharedServer)
 	runPool("wiki-pool", params.WikiServer)
+	runPool("agent-pool", params.AgentServer)
 	return mux
 }
 
