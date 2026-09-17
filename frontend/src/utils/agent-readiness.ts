@@ -22,6 +22,22 @@ export function agentHasConfiguredChatModel(
   return models.some(model => model.type === 'KnowledgeQA' && model.id === modelID)
 }
 
+export function withRequestChatModelFallback(
+  config: Pick<CustomAgentConfig, 'model_id' | 'agent_mode'> | undefined,
+  requestModelID: string | undefined,
+): CustomAgentConfig | undefined {
+  if (config?.model_id?.trim()) return config as CustomAgentConfig
+
+  const modelID = requestModelID?.trim()
+  if (!modelID) return config as CustomAgentConfig | undefined
+
+  return {
+    ...(config || {}),
+    agent_mode: config?.agent_mode || 'quick-answer',
+    model_id: modelID,
+  }
+}
+
 /**
  * Keep this aligned with backend agentRequiresRerankModel.
  *

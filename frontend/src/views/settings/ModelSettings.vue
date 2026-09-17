@@ -99,7 +99,8 @@
               </template>
             </p>
             <p v-if="canManageModelPricing" class="model-card__price">
-              {{ modelPriceSummary(model) }}
+              <span class="model-card__price-label">价格区间</span>
+              <span class="model-card__price-value">{{ modelPriceRange(model) }}</span>
             </p>
             <div v-if="canManageModel(model)" class="model-card__footer" @click.stop>
               <t-button
@@ -119,7 +120,7 @@
                 @click.stop="openPriceDialog(model)"
               >
                 <template #icon><t-icon name="wallet" /></template>
-                设置价格
+                维护价格
               </t-button>
             </div>
           </div>
@@ -139,124 +140,47 @@
       </div>
     </t-loading>
 
-    <section v-if="canManageModelPricing" class="model-pricing-panel">
-      <div class="model-pricing-panel__header">
-        <div>
-          <h3>模型价格</h3>
-          <p>模型配置和价格版本统一维护；调价会创建新版本，不修改历史用量账本。</p>
-        </div>
-        <t-button theme="primary" :loading="pricingLoading" @click="openPriceDialog()">
-          <template #icon><t-icon name="add" /></template>
-          新增价格版本
-        </t-button>
-      </div>
-
-      <t-alert
-        v-if="pricingError"
-        theme="error"
-        :message="pricingError"
-        class="model-pricing-panel__alert"
-      />
-
-      <t-loading :loading="pricingLoading" size="small">
-        <div class="model-pricing-panel__table-wrap">
-          <table class="model-pricing-panel__table">
-            <thead>
-              <tr>
-                <th>模型</th>
-                <th>计费模式</th>
-                <th>版本</th>
-                <th>输入</th>
-                <th>缓存读取</th>
-                <th>输出</th>
-                <th>按次 / 按秒</th>
-                <th>倍率</th>
-                <th>生效时间</th>
-                <th>状态</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="price in modelPrices" :key="price.id">
-                <td><strong>{{ price.model_key }}</strong><span>{{ price.provider || '未指定供应商' }}</span></td>
-                <td>{{ pricingModeLabel(price.pricing_mode) }}</td>
-                <td>v{{ price.version }}</td>
-                <td>{{ formatNanoUSDPerMillion(price.input_nanousd_per_m_tokens) }}</td>
-                <td>{{ formatNanoUSDPerMillion(price.cache_read_nanousd_per_m_tokens) }}</td>
-                <td>{{ formatNanoUSDPerMillion(price.output_nanousd_per_m_tokens) }}</td>
-                <td>
-                  <strong>{{ formatNanoUSD(price.call_nanousd_per_call) }} / 次</strong>
-                  <span>{{ formatNanoUSD(price.duration_nanousd_per_second) }} / 秒</span>
-                </td>
-                <td>{{ formatMultiplier(price.model_multiplier_ppm) }}</td>
-                <td>{{ formatDate(price.effective_at) }}</td>
-                <td>
-                  <t-tag :theme="price.status === 'active' ? 'success' : 'default'" variant="light">
-                    {{ price.status }}
-                  </t-tag>
-                </td>
-              </tr>
-              <tr v-if="!pricingLoading && modelPrices.length === 0">
-                <td colspan="10" class="model-pricing-panel__empty">尚未配置模型价格</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </t-loading>
-    </section>
-
     <!-- 模型编辑器抽屉 -->
     <ModelEditorDialog v-model:visible="showDialog" :model-type="currentModelType" :model-data="editingModel"
+      :show-pricing-step="!editingModel && canManageModelPricing"
+      :confirm-text="!editingModel && canManageModelPricing ? '下一步：配置价格' : ''"
       @confirm="handleModelSave" />
     <ModelDebugDrawer v-model:visible="showDebugDrawer" :models="allModels" />
 
     <t-dialog
       v-model:visible="priceDialogVisible"
-      header="新增模型价格版本"
+      :header="priceDialogTitle"
       width="720px"
       top="24px"
-      :confirm-btn="{ content: '保存新版本', loading: savingPrice }"
+      :confirm-btn="{ content: '保存价格', loading: savingPrice }"
       @confirm="saveModelPrice"
     >
       <t-alert
-        theme="info"
-        message="模型名称应与模型配置中的实际调用名称一致。保存后会创建新版本，不修改历史账本。"
+        theme="success"
+        :message="pricingCreationStep
+          ? '基础配置已完成。保存后将启用该模型的首个价格版本。'
+          : '保存价格将创建新版本，不修改历史用量账本。'"
         class="model-pricing-dialog__alert"
       />
       <t-form :data="priceDraft" label-align="top" @submit.prevent>
         <div class="model-pricing-dialog__grid">
-          <t-form-item label="模型名称" required>
-            <t-input v-model="priceDraft.modelKey" placeholder="例如 qwen3.7-max" />
+          <t-form-item label="关联模型">
+            <t-input :value="priceTarget?.modelKey || ''" disabled />
           </t-form-item>
           <t-form-item label="供应商">
-            <t-input v-model="priceDraft.provider" placeholder="例如 aliyun" />
+            <t-input :value="priceTarget?.provider || '未指定'" disabled />
           </t-form-item>
-          <t-form-item label="计费模式" required>
-            <t-select v-model="priceDraft.pricingMode">
-              <t-option value="token" label="按 Token" />
-              <t-option value="call" label="按次" />
-              <t-option value="duration" label="按时长" />
-            </t-select>
+          <t-form-item label="输入价格（元 / 1M Token）" required>
+            <t-input-number v-model="priceDraft.inputCNY" :min="0" :decimal-places="6" />
           </t-form-item>
-          <t-form-item label="模型倍率">
-            <t-input-number v-model="priceDraft.multiplier" :min="0.000001" :decimal-places="6" />
+          <t-form-item label="缓存读取价格（元 / 1M Token）">
+            <t-input-number v-model="priceDraft.cacheReadCNY" :min="0" :decimal-places="6" />
           </t-form-item>
-          <t-form-item label="输入价格（USD / 1M Token）" required>
-            <t-input-number v-model="priceDraft.inputUSD" :min="0" :decimal-places="6" />
+          <t-form-item label="缓存写入价格（元 / 1M Token）">
+            <t-input-number v-model="priceDraft.cacheWriteCNY" :min="0" :decimal-places="6" />
           </t-form-item>
-          <t-form-item label="缓存读取价格（USD / 1M Token）">
-            <t-input-number v-model="priceDraft.cacheReadUSD" :min="0" :decimal-places="6" />
-          </t-form-item>
-          <t-form-item label="缓存写入价格（USD / 1M Token）">
-            <t-input-number v-model="priceDraft.cacheWriteUSD" :min="0" :decimal-places="6" />
-          </t-form-item>
-          <t-form-item label="输出价格（USD / 1M Token）" required>
-            <t-input-number v-model="priceDraft.outputUSD" :min="0" :decimal-places="6" />
-          </t-form-item>
-          <t-form-item label="按次价格（USD / 次）">
-            <t-input-number v-model="priceDraft.callUSD" :min="0" :decimal-places="9" />
-          </t-form-item>
-          <t-form-item label="按时长价格（USD / 秒）">
-            <t-input-number v-model="priceDraft.durationUSD" :min="0" :decimal-places="9" />
+          <t-form-item label="输出价格（元 / 1M Token）" required>
+            <t-input-number v-model="priceDraft.outputCNY" :min="0" :decimal-places="6" />
           </t-form-item>
         </div>
       </t-form>
@@ -299,31 +223,23 @@ const loading = ref(true)
 const activeTypeFilter = ref<FilterType>('all')
 const modelPrices = ref<BillingModelPriceItem[]>([])
 const pricingLoading = ref(false)
-const pricingError = ref('')
 const priceDialogVisible = ref(false)
 const savingPrice = ref(false)
-const priceDraft = reactive<{
+const pricingCreationStep = ref(false)
+const priceTarget = ref<{
   modelKey: string
   provider: string
-  pricingMode: BillingModelPriceItem['pricing_mode']
-  inputUSD: number
-  cacheReadUSD: number
-  cacheWriteUSD: number
-  outputUSD: number
-  callUSD: number
-  durationUSD: number
-  multiplier: number
+} | null>(null)
+const priceDraft = reactive<{
+  inputCNY: number
+  cacheReadCNY: number
+  cacheWriteCNY: number
+  outputCNY: number
 }>({
-  modelKey: '',
-  provider: '',
-  pricingMode: 'token',
-  inputUSD: 0,
-  cacheReadUSD: 0,
-  cacheWriteUSD: 0,
-  outputUSD: 0,
-  callUSD: 0,
-  durationUSD: 0,
-  multiplier: 1,
+  inputCNY: 0,
+  cacheReadCNY: 0,
+  cacheWriteCNY: 0,
+  outputCNY: 0,
 })
 
 // 模型列表数据
@@ -493,62 +409,35 @@ function modelPriceFor(model: any) {
   return activeModelPriceByKey.value.get(normalizeModelKey(model?.modelName || model?.name))
 }
 
-function pricingModeLabel(value: string) {
-  const labels: Record<string, string> = {
-    token: '按 Token',
-    call: '按次',
-    duration: '按时长',
-  }
-  return labels[value] || value || '-'
-}
-
-function formatNanoUSDPerMillion(value: number) {
-  return new Intl.NumberFormat('zh-CN', {
-    style: 'currency',
-    currency: 'USD',
+function formatNanoCNY(value: number) {
+  const amount = (Number(value) || 0) / 1_000_000_000
+  const formatted = new Intl.NumberFormat('zh-CN', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 6,
-  }).format((Number(value) || 0) / 1_000_000_000)
+  }).format(amount)
+  return `${formatted} 元`
 }
 
-function formatNanoUSD(value: number) {
-  return new Intl.NumberFormat('zh-CN', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 9,
-  }).format((Number(value) || 0) / 1_000_000_000)
-}
-
-function formatMultiplier(value: number) {
-  return `${((Number(value) || 1_000_000) / 1_000_000).toFixed(3)}x`
-}
-
-function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '-'
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
-}
-
-function modelPriceBrief(price: BillingModelPriceItem) {
-  if (price.pricing_mode === 'call') {
-    return `${pricingModeLabel(price.pricing_mode)} · ${formatNanoUSD(price.call_nanousd_per_call)} / 次`
-  }
-  if (price.pricing_mode === 'duration') {
-    return `${pricingModeLabel(price.pricing_mode)} · ${formatNanoUSD(price.duration_nanousd_per_second)} / 秒`
-  }
-  return `${formatNanoUSDPerMillion(price.input_nanousd_per_m_tokens)} 入 / ${formatNanoUSDPerMillion(price.output_nanousd_per_m_tokens)} 出`
-}
-
-function modelPriceSummary(model: any) {
+function modelPriceRange(model: any) {
+  if (pricingLoading.value) return '加载中'
   const price = modelPriceFor(model)
-  return price ? modelPriceBrief(price) : '未配置价格'
+  if (!price) return '未配置'
+  if (price.pricing_mode !== 'token') return '未配置'
+
+  const values = [
+    price.input_nanousd_per_m_tokens,
+    price.output_nanousd_per_m_tokens,
+    price.cache_read_nanousd_per_m_tokens,
+    price.cache_write_nanousd_per_m_tokens,
+  ].map(value => Number(value) || 0).filter(value => value > 0)
+
+  if (values.length === 0) {
+    return '0 元 / 1M Token'
+  }
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const rangeText = min === max ? formatNanoCNY(min) : `${formatNanoCNY(min)} - ${formatNanoCNY(max)}`
+  return `${rangeText} / 1M Token`
 }
 
 const emptyHint = computed(() => {
@@ -581,64 +470,85 @@ const loadModels = async () => {
 async function loadModelPrices() {
   if (!canManageModelPricing.value) return
   pricingLoading.value = true
-  pricingError.value = ''
   try {
     modelPrices.value = await listBillingModelPrices()
   } catch (error) {
-    pricingError.value = error instanceof Error ? error.message : '模型价格加载失败'
+    MessagePlugin.error(error instanceof Error ? error.message : '模型价格加载失败')
   } finally {
     pricingLoading.value = false
   }
 }
 
 function resetPriceDraft() {
-  priceDraft.modelKey = ''
-  priceDraft.provider = ''
-  priceDraft.pricingMode = 'token'
-  priceDraft.inputUSD = 0
-  priceDraft.cacheReadUSD = 0
-  priceDraft.cacheWriteUSD = 0
-  priceDraft.outputUSD = 0
-  priceDraft.callUSD = 0
-  priceDraft.durationUSD = 0
-  priceDraft.multiplier = 1
+  priceDraft.inputCNY = 0
+  priceDraft.cacheReadCNY = 0
+  priceDraft.cacheWriteCNY = 0
+  priceDraft.outputCNY = 0
 }
 
-function openPriceDialog(model?: any) {
-  resetPriceDraft()
-  if (model) {
-    priceDraft.modelKey = model.modelName || model.name || ''
-    priceDraft.provider = model.provider || ''
+function priceToNanoCNY(value: number | string | null | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : value
+  const amount = Number(normalized || 0)
+  if (!Number.isFinite(amount) || amount < 0) return 0
+  return Math.round(amount * 1_000_000_000)
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (error && typeof error === 'object') {
+    const maybe = error as { message?: unknown; error?: unknown }
+    if (typeof maybe.message === 'string' && maybe.message) return maybe.message
+    if (typeof maybe.error === 'string' && maybe.error) return maybe.error
+    if (maybe.error && typeof maybe.error === 'object') {
+      const nested = maybe.error as { message?: unknown }
+      if (typeof nested.message === 'string' && nested.message) return nested.message
+    }
   }
+  return fallback
+}
+
+const priceDialogTitle = computed(() => (
+  pricingCreationStep.value ? '第 2 步：配置模型价格' : '配置模型价格'
+))
+
+function openPriceDialog(model: any, fromCreation = false) {
+  resetPriceDraft()
+  priceTarget.value = {
+    modelKey: model.modelName || model.name || '',
+    provider: model.provider || '',
+  }
+  pricingCreationStep.value = fromCreation
   priceDialogVisible.value = true
 }
 
 async function saveModelPrice() {
-  if (!priceDraft.modelKey.trim()) {
-    MessagePlugin.warning('请输入模型名称')
+  if (!priceTarget.value?.modelKey.trim()) {
+    MessagePlugin.warning('未找到关联模型，请返回模型卡片后重试')
     return
   }
   savingPrice.value = true
   try {
     await createBillingModelPriceVersion({
-      model_key: priceDraft.modelKey.trim(),
-      provider: priceDraft.provider.trim(),
-      pricing_mode: priceDraft.pricingMode,
-      input_nanousd_per_m_tokens: Math.round(priceDraft.inputUSD * 1_000_000_000),
-      output_nanousd_per_m_tokens: Math.round(priceDraft.outputUSD * 1_000_000_000),
-      cache_read_nanousd_per_m_tokens: Math.round(priceDraft.cacheReadUSD * 1_000_000_000),
-      cache_write_nanousd_per_m_tokens: Math.round(priceDraft.cacheWriteUSD * 1_000_000_000),
-      call_nanousd_per_call: Math.round(priceDraft.callUSD * 1_000_000_000),
-      duration_nanousd_per_second: Math.round(priceDraft.durationUSD * 1_000_000_000),
-      model_multiplier_ppm: Math.round(priceDraft.multiplier * 1_000_000),
+      model_key: priceTarget.value.modelKey.trim(),
+      provider: priceTarget.value.provider.trim(),
+      pricing_mode: 'token',
+      input_nanousd_per_m_tokens: priceToNanoCNY(priceDraft.inputCNY),
+      output_nanousd_per_m_tokens: priceToNanoCNY(priceDraft.outputCNY),
+      cache_read_nanousd_per_m_tokens: priceToNanoCNY(priceDraft.cacheReadCNY),
+      cache_write_nanousd_per_m_tokens: priceToNanoCNY(priceDraft.cacheWriteCNY),
+      call_nanousd_per_call: 0,
+      duration_nanousd_per_second: 0,
+      model_multiplier_ppm: 1_000_000,
       status: 'active',
     })
     MessagePlugin.success('模型价格版本已创建')
     priceDialogVisible.value = false
+    priceTarget.value = null
+    pricingCreationStep.value = false
     resetPriceDraft()
     await loadModelPrices()
   } catch (error) {
-    MessagePlugin.error(error instanceof Error ? error.message : '模型价格保存失败')
+    MessagePlugin.error(getErrorMessage(error, '模型价格保存失败'))
   } finally {
     savingPrice.value = false
   }
@@ -791,16 +701,20 @@ const handleModelSave = async (modelData: any) => {
       }
     }
 
+    let createdModel: ModelConfig | null = null
     if (editingModel.value && editingModel.value.id) {
       await updateModelAPI(editingModel.value.id, apiModelData)
       MessagePlugin.success(t('modelSettings.toasts.updated'))
     } else {
-      await createModel(apiModelData)
+      createdModel = await createModel(apiModelData)
       MessagePlugin.success(t('modelSettings.toasts.added'))
     }
 
     showDialog.value = false
     await loadModels()
+    if (createdModel && canManageModelPricing.value) {
+      openPriceDialog(convertToLegacyFormat(createdModel), true)
+    }
   } catch (error: any) {
     console.error('保存模型失败:', error)
     MessagePlugin.error(error.message || t('modelSettings.toasts.saveFailed'))
@@ -1179,10 +1093,22 @@ onMounted(() => {
 }
 
 .model-card__price {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   margin: 2px 0 0;
   color: var(--td-text-color-placeholder);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.model-card__price-label {
+  flex-shrink: 0;
+}
+
+.model-card__price-value {
+  min-width: 0;
+  color: var(--td-text-color-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1245,91 +1171,6 @@ onMounted(() => {
   opacity: 1;
 }
 
-.model-pricing-panel {
-  margin-top: 28px;
-  border-top: 1px solid var(--td-component-stroke);
-  padding-top: 22px;
-}
-
-.model-pricing-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 14px;
-
-  h3,
-  p {
-    margin: 0;
-  }
-
-  h3 {
-    color: var(--td-text-color-primary);
-    font-size: 16px;
-    font-weight: 600;
-    line-height: 1.4;
-  }
-
-  p {
-    margin-top: 4px;
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-    line-height: 1.5;
-  }
-}
-
-.model-pricing-panel__alert {
-  margin-bottom: 12px;
-}
-
-.model-pricing-panel__table-wrap {
-  overflow-x: auto;
-}
-
-.model-pricing-panel__table {
-  width: 100%;
-  min-width: 1040px;
-  border-collapse: collapse;
-
-  th,
-  td {
-    padding: 12px;
-    border-bottom: 1px solid var(--td-component-stroke);
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-    text-align: left;
-    vertical-align: middle;
-  }
-
-  th {
-    color: var(--td-text-color-placeholder);
-    font-weight: 500;
-    background: var(--td-bg-color-secondarycontainer);
-  }
-
-  td strong,
-  td span {
-    display: block;
-  }
-
-  td strong {
-    color: var(--td-text-color-primary);
-    font-weight: 600;
-  }
-
-  td span {
-    margin-top: 3px;
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
-}
-
-.model-pricing-panel__empty {
-  height: 112px;
-  color: var(--td-text-color-placeholder);
-  text-align: center !important;
-}
-
 .model-pricing-dialog__alert {
   margin-bottom: 18px;
 }
@@ -1352,8 +1193,7 @@ onMounted(() => {
 }
 
 @media (max-width: 720px) {
-  .section-header__top,
-  .model-pricing-panel__header {
+  .section-header__top {
     align-items: flex-start;
     flex-direction: column;
   }

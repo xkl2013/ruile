@@ -7,6 +7,7 @@ import {
   getAgentNotReadyReasonKeys,
   resolveAgentNotReadySection,
   resolveAgentNotReadyHighlight,
+  withRequestChatModelFallback,
 } from './agent-readiness.ts'
 
 test('does not treat an unrelated built-in chat model as agent configuration', () => {
@@ -28,6 +29,29 @@ test('rejects a configured chat model that no longer exists', () => {
     { model_id: 'deleted-chat' },
     [{ id: 'builtin-chat', type: 'KnowledgeQA' }],
   ), false)
+})
+
+test('uses request chat model fallback for quick-answer readiness', () => {
+  const config = withRequestChatModelFallback(
+    { agent_mode: 'quick-answer' },
+    ' chat-1 ',
+  )
+
+  assert.equal(config?.model_id, 'chat-1')
+  assert.deepEqual(getAgentNotReadyReasonKeys(
+    config,
+    [{ id: 'chat-1', type: 'KnowledgeQA' }],
+    { isAgentMode: false, isSharedAgent: false },
+  ), [])
+})
+
+test('does not override explicitly configured agent chat model with request fallback', () => {
+  const config = withRequestChatModelFallback(
+    { agent_mode: 'quick-answer', model_id: 'agent-chat' },
+    'request-chat',
+  )
+
+  assert.equal(config?.model_id, 'agent-chat')
 })
 
 test('requires rerank when knowledge_search has a knowledge-base scope', () => {

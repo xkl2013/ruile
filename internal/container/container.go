@@ -710,7 +710,7 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 		resolveStorageProviderPending(db)
 		migrateLegacyStorageBackends(db)
 
-		} else {
+	} else {
 		logger.Infof(context.Background(), "Auto-migration is disabled (AUTO_MIGRATE=false)")
 	}
 

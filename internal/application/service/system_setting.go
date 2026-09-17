@@ -202,16 +202,16 @@ var registry = map[string]settingSpec{
 	},
 	"billing.enabled": {
 		Type:        "bool",
-		Default:     false,
+		Default:     true,
 		Category:    "billing",
-		Description: "是否启用新的工作区订阅与模型用量计费能力。默认关闭；关闭时不解析模型价格、不写用量账本，也不改变现有业务行为。",
+		Description: "是否启用工作区订阅与模型用量计费能力。默认开启；可配合 observe 模式仅记录真实 Token 和模拟积分，不扣减余额。",
 	},
 	"billing.enforcement_mode": {
 		Type:        "string",
-		Default:     "off",
+		Default:     "observe",
 		Enum:        []string{"off", "observe", "enforce"},
 		Category:    "billing",
-		Description: "计费执行模式。off 完全关闭；observe 记录真实模型 Token 和模拟积分但不扣减；enforce 仅对个人工作区预留并结算，企业工作区在成员额度上线前自动降级为 observe。",
+		Description: "计费执行模式。默认 observe，记录真实模型 Token 和模拟积分但不扣减；off 完全关闭；enforce 对个人与企业工作区执行预留、成员月额度校验和积分结算。",
 	},
 	"billing.point_micros_per_usd": {
 		Type:        "int",
@@ -224,6 +224,18 @@ var registry = map[string]settingSpec{
 		Default:     int64(1_000_000),
 		Category:    "billing",
 		Description: "模型价格未设置有效倍率时使用的全局倍率。1000000 表示 1.0 倍，只影响之后发生的新调用。",
+	},
+	"billing.default_member_allocation_points": {
+		Type:        "int",
+		Default:     int64(100),
+		Category:    "billing",
+		Description: "旧版企业成员默认额度配置，仅作为 billing.default_member_monthly_limit_points 未设置时的兼容回退。",
+	},
+	"billing.default_member_monthly_limit_points": {
+		Type:        "int",
+		Default:     int64(100),
+		Category:    "billing",
+		Description: "企业首次创建用量策略时采用的默认成员每月积分上限。企业管理员可在订阅和用量页面覆盖该值。",
 	},
 	"asynq.core_concurrency": {
 		Type:            "int",

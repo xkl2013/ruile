@@ -18,17 +18,19 @@ func NewBillingPolicyService(settings interfaces.SystemSettingService) interface
 
 func (s *billingPolicyService) RuntimePolicy(ctx context.Context) types.BillingRuntimePolicy {
 	policy := types.BillingRuntimePolicy{
-		Enabled:                   false,
-		EnforcementMode:           "off",
-		PointMicrosPerUSD:         types.PointMicrosPerPoint,
-		DefaultModelMultiplierPPM: 1_000_000,
+		Enabled:                              false,
+		EnforcementMode:                      "off",
+		PointMicrosPerUSD:                    types.PointMicrosPerPoint,
+		DefaultModelMultiplierPPM:            1_000_000,
+		DefaultMemberMonthlyLimitPointMicros: 100 * types.PointMicrosPerPoint,
+		DefaultMemberAllocationPointMicros:   100 * types.PointMicrosPerPoint,
 	}
 	if s.settings == nil {
 		return policy
 	}
-	policy.Enabled = s.settings.GetBool(ctx, "billing.enabled", "", false)
+	policy.Enabled = s.settings.GetBool(ctx, "billing.enabled", "", true)
 	policy.EnforcementMode = strings.ToLower(strings.TrimSpace(
-		s.settings.GetString(ctx, "billing.enforcement_mode", "", "off"),
+		s.settings.GetString(ctx, "billing.enforcement_mode", "", "observe"),
 	))
 	switch policy.EnforcementMode {
 	case "off", "observe", "enforce":
@@ -53,5 +55,26 @@ func (s *billingPolicyService) RuntimePolicy(ctx context.Context) types.BillingR
 	if policy.DefaultModelMultiplierPPM <= 0 {
 		policy.DefaultModelMultiplierPPM = 1_000_000
 	}
+	defaultMemberMonthlyLimitPoints := s.settings.GetInt(
+		ctx,
+		"billing.default_member_monthly_limit_points",
+		"",
+		-1,
+	)
+	if defaultMemberMonthlyLimitPoints < 0 {
+		defaultMemberMonthlyLimitPoints = s.settings.GetInt(
+			ctx,
+			"billing.default_member_allocation_points",
+			"",
+			100,
+		)
+	}
+	if defaultMemberMonthlyLimitPoints < 0 {
+		defaultMemberMonthlyLimitPoints = 0
+	}
+	policy.DefaultMemberMonthlyLimitPointMicros =
+		defaultMemberMonthlyLimitPoints * types.PointMicrosPerPoint
+	policy.DefaultMemberAllocationPointMicros =
+		policy.DefaultMemberMonthlyLimitPointMicros
 	return policy
 }

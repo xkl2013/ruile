@@ -68,6 +68,60 @@ func (m *openStreamChat) ChatStream(
 func (m *openStreamChat) GetModelName() string { return "mock" }
 func (m *openStreamChat) GetModelID() string   { return "mock" }
 
+type controlledStreamChat struct {
+	ch <-chan types.StreamResponse
+}
+
+func (m *controlledStreamChat) Chat(
+	context.Context,
+	[]chat.Message,
+	*chat.ChatOptions,
+) (*types.ChatResponse, error) {
+	return nil, nil
+}
+
+func (m *controlledStreamChat) ChatStream(
+	context.Context,
+	[]chat.Message,
+	*chat.ChatOptions,
+) (<-chan types.StreamResponse, error) {
+	return m.ch, nil
+}
+
+func (m *controlledStreamChat) GetModelName() string { return "mock" }
+func (m *controlledStreamChat) GetModelID() string   { return "mock" }
+
+type streamBillingRecorder struct {
+	interfaces.UsageBillingService
+	settled chan types.BillingModelUsage
+	release chan string
+}
+
+func (s *streamBillingRecorder) BeginModelUsage(
+	_ context.Context,
+	request types.BillingUsageStartRequest,
+) (*types.BillingUsageHandle, error) {
+	return &types.BillingUsageHandle{Request: request, Mode: "observe"}, nil
+}
+
+func (s *streamBillingRecorder) SettleModelUsage(
+	_ context.Context,
+	_ *types.BillingUsageHandle,
+	usage types.BillingModelUsage,
+) (*types.TenantUsageLedger, error) {
+	s.settled <- usage
+	return nil, nil
+}
+
+func (s *streamBillingRecorder) ReleaseModelUsage(
+	_ context.Context,
+	_ *types.BillingUsageHandle,
+	failureCode string,
+) error {
+	s.release <- failureCode
+	return nil
+}
+
 // stubModelService only needs GetChatModel; the rest is unused for this test.
 type stubModelService struct {
 	interfaces.ModelService
@@ -120,4 +174,72 @@ func TestStreamFlushesHeldAliasOnCancel(t *testing.T) {
 		}
 		return false
 	}, 2*time.Second, 5*time.Millisecond)
+}
+
+func TestStreamBillingWaitsForFinalUsageAfterDone(t *testing.T) {
+	responseChan := make(chan types.StreamResponse, 2)
+	billing := &streamBillingRecorder{
+		settled: make(chan types.BillingModelUsage, 1),
+		release: make(chan string, 1),
+	}
+	bus := &syncEventBus{}
+	chatManage := &types.ChatManage{}
+	chatManage.SessionID = "sess-billing"
+	chatManage.UserContent = "hello"
+	chatManage.EventBus = bus
+
+	plugin := &PluginChatCompletionStream{
+		modelService: &stubModelService{model: &controlledStreamChat{ch: responseChan}},
+		usageBilling: billing,
+	}
+	require.Nil(t, plugin.OnEvent(
+		context.Background(),
+		types.CHAT_COMPLETION_STREAM,
+		chatManage,
+		func() *PluginError { return nil },
+	))
+
+	responseChan <- types.StreamResponse{
+		ResponseType: types.ResponseTypeAnswer,
+		Content:      "answer",
+		Done:         true,
+	}
+	require.Eventually(t, func() bool {
+		return len(bus.finalAnswerContents()) == 1
+	}, 2*time.Second, 5*time.Millisecond)
+
+	select {
+	case usage := <-billing.settled:
+		t.Fatalf("billing settled before final usage arrived: %+v", usage)
+	default:
+	}
+	select {
+	case failureCode := <-billing.release:
+		t.Fatalf("billing released before final usage arrived: %s", failureCode)
+	default:
+	}
+
+	responseChan <- types.StreamResponse{
+		ResponseType: types.ResponseTypeAnswer,
+		Done:         true,
+		Usage: &types.TokenUsage{
+			PromptTokens:     12,
+			CompletionTokens: 3,
+			TotalTokens:      15,
+		},
+	}
+	close(responseChan)
+
+	select {
+	case usage := <-billing.settled:
+		require.Equal(t, int64(12), usage.InputTokens)
+		require.Equal(t, int64(3), usage.OutputTokens)
+	case <-time.After(2 * time.Second):
+		t.Fatal("billing was not settled after the final usage arrived")
+	}
+	select {
+	case failureCode := <-billing.release:
+		t.Fatalf("billing unexpectedly released: %s", failureCode)
+	default:
+	}
 }

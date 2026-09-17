@@ -52,6 +52,7 @@ type SystemHandler struct {
 	userSvc          interfaces.UserService
 	systemSettingSvc interfaces.SystemSettingService
 	subscriptionSvc  interfaces.SubscriptionService
+	usageBillingSvc  interfaces.UsageBillingService
 	// auditSvc is optional — when nil, emitAdminAudit no-ops so unit
 	// tests that wire a partial container still compile. In production
 	// the dig graph always provides one.
@@ -81,6 +82,7 @@ func NewSystemHandler(cfg *config.Config,
 	userSvc interfaces.UserService,
 	systemSettingSvc interfaces.SystemSettingService,
 	subscriptionSvc interfaces.SubscriptionService,
+	usageBillingSvc interfaces.UsageBillingService,
 	auditSvc interfaces.AuditLogService,
 	taskInspector interfaces.TaskInspector,
 	knowledgeSvc interfaces.KnowledgeService,
@@ -95,6 +97,7 @@ func NewSystemHandler(cfg *config.Config,
 		userSvc:            userSvc,
 		systemSettingSvc:   systemSettingSvc,
 		subscriptionSvc:    subscriptionSvc,
+		usageBillingSvc:    usageBillingSvc,
 		auditSvc:           auditSvc,
 		taskInspector:      taskInspector,
 		knowledgeSvc:       knowledgeSvc,
@@ -131,6 +134,7 @@ type SystemUserSummary struct {
 	EnterpriseMemberships   []*SystemEnterpriseMembership `json:"enterprise_memberships,omitempty"`
 	PersonalSubscription    *SystemUserSubscription       `json:"personal_subscription,omitempty"`
 	EnterpriseSubscriptions []*SystemUserSubscription     `json:"enterprise_subscriptions,omitempty"`
+	UsageSummary            *SystemUserUsageSummary       `json:"usage_summary,omitempty"`
 	CreatedAt               time.Time                     `json:"created_at"`
 }
 
@@ -150,6 +154,20 @@ type SystemUserSubscription struct {
 	BillingInterval string    `json:"billing_interval"`
 	Source          string    `json:"source"`
 	CreatedAt       time.Time `json:"created_at"`
+}
+
+type SystemUserUsageSummary struct {
+	LedgerCount                 int64      `json:"ledger_count"`
+	PersonalLedgerCount         int64      `json:"personal_ledger_count"`
+	EnterpriseLedgerCount       int64      `json:"enterprise_ledger_count"`
+	InputTokens                 int64      `json:"input_tokens"`
+	CachedTokens                int64      `json:"cached_tokens"`
+	OutputTokens                int64      `json:"output_tokens"`
+	ReasoningTokens             int64      `json:"reasoning_tokens"`
+	BilledPointMicros           int64      `json:"billed_point_micros"`
+	PersonalBilledPointMicros   int64      `json:"personal_billed_point_micros"`
+	EnterpriseBilledPointMicros int64      `json:"enterprise_billed_point_micros"`
+	LastBillingAt               *time.Time `json:"last_billing_at,omitempty"`
 }
 
 func newSystemUserSummary(user *types.User) *SystemUserSummary {
@@ -426,6 +444,11 @@ func (h *SystemHandler) ListSystemUsers(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user enterprises"})
 		return
 	}
+	if err := h.enrichSystemUserUsageSummaries(ctx, users, summaries); err != nil {
+		logger.Errorf(ctx, "Error loading system user usage summaries: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load user usage summaries"})
+		return
+	}
 	c.JSON(http.StatusOK, ListSystemUsersResponse{
 		Users:    summaries,
 		Page:     page,
@@ -541,6 +564,52 @@ func (h *SystemHandler) enrichSystemUserEnterpriseMemberships(
 			if subscription := subscriptionsByTenantID[tenant.ID]; subscription != nil {
 				summary.EnterpriseSubscriptions = append(summary.EnterpriseSubscriptions, subscription)
 			}
+		}
+	}
+	return nil
+}
+
+func (h *SystemHandler) enrichSystemUserUsageSummaries(
+	ctx context.Context,
+	users []*types.User,
+	summaries []*SystemUserSummary,
+) error {
+	if h.usageBillingSvc == nil || len(users) == 0 {
+		return nil
+	}
+	userIDs := make([]string, 0, len(users))
+	summariesByUserID := make(map[string]*SystemUserSummary, len(summaries))
+	for _, summary := range summaries {
+		if summary == nil {
+			continue
+		}
+		summariesByUserID[summary.ID] = summary
+		userIDs = append(userIDs, summary.ID)
+	}
+	rows, err := h.usageBillingSvc.ListUsageSummaryByActor(ctx, userIDs)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+		summary := summariesByUserID[row.ActorUserID]
+		if summary == nil {
+			continue
+		}
+		summary.UsageSummary = &SystemUserUsageSummary{
+			LedgerCount:                 row.LedgerCount,
+			PersonalLedgerCount:         row.PersonalLedgerCount,
+			EnterpriseLedgerCount:       row.EnterpriseLedgerCount,
+			InputTokens:                 row.InputTokens,
+			CachedTokens:                row.CachedTokens,
+			OutputTokens:                row.OutputTokens,
+			ReasoningTokens:             row.ReasoningTokens,
+			BilledPointMicros:           row.BilledPointMicros,
+			PersonalBilledPointMicros:   row.PersonalBilledPointMicros,
+			EnterpriseBilledPointMicros: row.EnterpriseBilledPointMicros,
+			LastBillingAt:               row.LastBillingAt,
 		}
 	}
 	return nil

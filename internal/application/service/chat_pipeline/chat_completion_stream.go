@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/llmreference"
@@ -137,13 +138,27 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 		answerID := fmt.Sprintf("%s-answer", uuid.New().String()[:8])
 		thinkingOpen := false
 		var finalUsage *types.TokenUsage
+		var outputRunes int64
+		streamFailed := false
 		billingFinished := false
 
-		finishBilling := func(failureCode string) {
+		finishBilling := func(failureCode string, allowEstimate bool) {
 			if billingFinished {
 				return
 			}
 			billingFinished = true
+			if finalUsage == nil && allowEstimate && billingHandle != nil && billingHandle.Mode != "off" {
+				inputTokens := billingHandle.Request.EstimatedUsage.InputTokens
+				outputTokens := estimateRuneTokens(outputRunes)
+				finalUsage = &types.TokenUsage{
+					PromptTokens:     int(inputTokens),
+					CompletionTokens: int(outputTokens),
+					TotalTokens:      int(inputTokens + outputTokens),
+				}
+				if billingHandle.FailureCode == "" {
+					billingHandle.FailureCode = "provider_usage_missing_estimated"
+				}
+			}
 			if finalUsage != nil {
 				settleChatModelBilling(
 					ctx,
@@ -203,7 +218,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 			case <-ctx.Done():
 				flushDecoders()
 				closeThinking()
-				finishBilling("stream_cancelled")
+				finishBilling("stream_cancelled", false)
 				pipelineInfo(ctx, "Stream", "context_cancelled", map[string]interface{}{
 					"session_id": chatManage.SessionID,
 				})
@@ -213,7 +228,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 				if !ok {
 					flushDecoders()
 					closeThinking()
-					finishBilling("stream_closed_without_usage")
+					finishBilling("stream_closed_without_usage", !streamFailed)
 					pipelineInfo(ctx, "Stream", "channel_close", map[string]interface{}{
 						"session_id": chatManage.SessionID,
 					})
@@ -221,6 +236,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 				}
 
 				if response.ResponseType == types.ResponseTypeError {
+					streamFailed = true
 					if response.Usage != nil {
 						finalUsage = response.Usage
 					}
@@ -245,6 +261,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 				}
 
 				if response.ResponseType == types.ResponseTypeThinking {
+					outputRunes += int64(utf8.RuneCountInString(response.Content))
 					response.Content = thinkingRefExpander.Feed(thinkingDecoder.Feed(response.Content))
 					if response.Content != "" {
 						thinkingOpen = true
@@ -265,6 +282,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 				}
 
 				if response.ResponseType == types.ResponseTypeAnswer {
+					outputRunes += int64(utf8.RuneCountInString(response.Content))
 					response.Content = answerRefExpander.Feed(answerDecoder.Feed(response.Content))
 					closeThinking()
 					eventBus.Emit(ctx, types.Event{
@@ -276,9 +294,6 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 							Done:    response.Done,
 						},
 					})
-					if response.Done {
-						finishBilling("stream_completed_without_usage")
-					}
 				}
 			}
 		}

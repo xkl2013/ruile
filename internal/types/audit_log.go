@@ -35,6 +35,15 @@ const (
 	// AuditActionMemberReactivated fires when an operator restores a
 	// suspended membership to active.
 	AuditActionMemberReactivated AuditAction = "rbac.member_reactivated"
+	// AuditActionMemberAllocationChanged fires when an enterprise Owner/Admin
+	// changes the current-period model-usage allocation for a member.
+	AuditActionMemberAllocationChanged AuditAction = "billing.member_allocation_changed"
+	// AuditActionMemberUsagePolicyChanged fires when an enterprise Owner/Admin
+	// changes a member's monthly usage-limit mode or custom limit.
+	AuditActionMemberUsagePolicyChanged AuditAction = "billing.member_usage_policy_changed"
+	// AuditActionEnterpriseBillingPolicyChanged fires when an enterprise
+	// Owner/Admin changes the default member limit or overage behavior.
+	AuditActionEnterpriseBillingPolicyChanged AuditAction = "billing.enterprise_policy_changed"
 	// AuditActionAccessDenied fires when middleware/rbac.go's
 	// RequireRole or RequireOwnershipOrRole rejects a request under
 	// EnableRBAC=true. Subject to 1-minute sliding-window dedup so a

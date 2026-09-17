@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -34,6 +35,8 @@ func newBillingTestRepository(t *testing.T) (*gorm.DB, *billingRepository) {
 		&types.TenantCreditAccount{},
 		&types.TenantCreditTransaction{},
 		&types.BillingModelPrice{},
+		&types.TenantBillingPolicy{},
+		&types.TenantMemberCreditAllocation{},
 		&types.TenantUsageReservation{},
 		&types.TenantUsageLedger{},
 	); err != nil {
@@ -48,6 +51,71 @@ func newBillingTestRepository(t *testing.T) (*gorm.DB, *billingRepository) {
 		t.Fatal(err)
 	}
 	return db, &billingRepository{db: db}
+}
+
+func TestBillingColumnNamesMatchMigrations(t *testing.T) {
+	db, _ := newBillingTestRepository(t)
+
+	expected := map[any][]string{
+		&types.BillingModelPrice{}: {
+			"input_nanousd_per_m_tokens",
+			"output_nanousd_per_m_tokens",
+			"cache_read_nanousd_per_m_tokens",
+			"cache_write_nanousd_per_m_tokens",
+			"call_nanousd_per_call",
+			"duration_nanousd_per_second",
+		},
+		&types.TenantUsageReservation{}: {
+			"estimated_base_cost_nanousd",
+		},
+		&types.TenantUsageLedger{}: {
+			"base_cost_nanousd",
+			"rated_cost_nanousd",
+		},
+		&types.TenantMemberCreditAllocation{}: {
+			"allocated_period_point_micros",
+			"allocated_balance_point_micros",
+			"limit_mode",
+			"monthly_limit_point_micros",
+			"overage_policy",
+		},
+		&types.TenantBillingPolicy{}: {
+			"default_member_monthly_limit_point_micros",
+			"member_overage_policy",
+		},
+	}
+	for model, columns := range expected {
+		for _, column := range columns {
+			if !db.Migrator().HasColumn(model, column) {
+				t.Fatalf("%T missing migration-compatible column %q", model, column)
+			}
+		}
+	}
+
+	wrongColumns := map[any][]string{
+		&types.BillingModelPrice{}: {
+			"input_nano_usd_per_m_tokens",
+			"output_nano_usd_per_m_tokens",
+			"cache_read_nano_usd_per_m_tokens",
+			"cache_write_nano_usd_per_m_tokens",
+			"call_nano_usd_per_call",
+			"duration_nano_usd_per_second",
+		},
+		&types.TenantUsageReservation{}: {
+			"estimated_base_cost_nano_usd",
+		},
+		&types.TenantUsageLedger{}: {
+			"base_cost_nano_usd",
+			"rated_cost_nano_usd",
+		},
+	}
+	for model, columns := range wrongColumns {
+		for _, column := range columns {
+			if db.Migrator().HasColumn(model, column) {
+				t.Fatalf("%T has GORM-derived wrong column %q", model, column)
+			}
+		}
+	}
 }
 
 func TestModelPriceVersionsAndUsageSettlementAreIdempotent(t *testing.T) {
@@ -274,5 +342,243 @@ func TestEnsureTenantBillingClassifiesLegacyWorkspace(t *testing.T) {
 	}
 	if subscription.Status != types.BillingStatusLegacy || plan.Code != types.BillingPlanLegacyCompat {
 		t.Fatalf("subscription=%#v plan=%#v", subscription, plan)
+	}
+}
+
+func TestEnterpriseMemberAllocationAndActorUsageSummary(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	spaceType := types.SpaceTypeOrganization
+	tenant := &types.Tenant{
+		ID:                91,
+		Name:              "企业空间",
+		SpaceType:         &spaceType,
+		EnterpriseCredits: 100,
+	}
+	if err := db.Exec(
+		"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+		tenant.ID,
+		tenant.Name,
+		spaceType,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.EnsureTenantBilling(context.Background(), tenant); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	periodStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	periodEnd := periodStart.AddDate(0, 1, 0)
+	if _, err := repo.EnsureTenantBillingPolicy(
+		context.Background(),
+		tenant.ID,
+		100*types.PointMicrosPerPoint,
+		"system-admin",
+	); err != nil {
+		t.Fatal(err)
+	}
+	allocation, err := repo.EnsureCurrentMemberAllocation(
+		context.Background(),
+		tenant.ID,
+		"user-91",
+		periodStart,
+		periodEnd,
+		100*types.PointMicrosPerPoint,
+		"system-admin",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocationAgain, err := repo.EnsureCurrentMemberAllocation(
+		context.Background(),
+		tenant.ID,
+		"user-91",
+		periodStart,
+		periodEnd,
+		100*types.PointMicrosPerPoint,
+		"system-admin",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allocation.ID != allocationAgain.ID ||
+		allocation.LimitMode != types.MemberLimitModeInherit {
+		t.Fatalf("allocation=%+v allocationAgain=%+v", allocation, allocationAgain)
+	}
+
+	ledger := &types.TenantUsageLedger{
+		ID:                  "ledger-enterprise-91",
+		TenantID:            tenant.ID,
+		ActorUserID:         "user-91",
+		UsageScope:          types.BillingUsageScopeEnterprise,
+		AllocationID:        allocation.ID,
+		RefNo:               "chat:91:message-1:test-model",
+		ModelKey:            "test-model",
+		InputTokens:         120,
+		OutputTokens:        30,
+		BilledPointMicros:   15 * types.PointMicrosPerPoint,
+		Status:              "observed",
+		BillingAt:           now,
+		UsageDate:           now,
+		PricingSnapshotJSON: types.JSON([]byte("{}")),
+	}
+	handle := &types.BillingUsageHandle{
+		Request: types.BillingUsageStartRequest{
+			TenantID:    tenant.ID,
+			ActorUserID: "user-91",
+			RefNo:       ledger.RefNo,
+			ModelKey:    ledger.ModelKey,
+		},
+		Mode:         "observe",
+		UsageScope:   types.BillingUsageScopeEnterprise,
+		AllocationID: allocation.ID,
+	}
+	if _, err := repo.SettleUsage(context.Background(), handle, ledger); err != nil {
+		t.Fatal(err)
+	}
+
+	usage, err := repo.ListUsageSummaryByActor(context.Background(), []string{"user-91"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(usage) != 1 ||
+		usage[0].ActorUserID != "user-91" ||
+		usage[0].EnterpriseLedgerCount != 1 ||
+		usage[0].InputTokens != 120 ||
+		usage[0].OutputTokens != 30 ||
+		usage[0].BilledPointMicros != 15*types.PointMicrosPerPoint {
+		t.Fatalf("usage=%#v", usage)
+	}
+
+	allocations, err := repo.ListMemberAllocations(context.Background(), tenant.ID, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(allocations) != 1 ||
+		allocations[0].ID != allocation.ID ||
+		allocations[0].EffectiveMonthlyLimitPointMicros != 100*types.PointMicrosPerPoint ||
+		allocations[0].UsedPointMicros != 15*types.PointMicrosPerPoint ||
+		allocations[0].LedgerCount != 1 {
+		t.Fatalf("allocations=%#v", allocations)
+	}
+}
+
+func TestEnterpriseReservationHonorsMemberLimitAndOveragePolicy(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	spaceType := types.SpaceTypeOrganization
+	tenant := &types.Tenant{
+		ID:                92,
+		Name:              "额度策略企业",
+		SpaceType:         &spaceType,
+		EnterpriseCredits: 100,
+	}
+	if err := db.Exec(
+		"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+		tenant.ID,
+		tenant.Name,
+		spaceType,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.EnsureTenantBilling(context.Background(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	subscription, plan, err := repo.GetCurrentSubscription(context.Background(), tenant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.IncludedPointMicros = 100 * types.PointMicrosPerPoint
+	if err := db.Model(&types.BillingPlan{}).
+		Where("id = ?", plan.ID).
+		Update("included_point_micros", plan.IncludedPointMicros).Error; err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.EnsureTenantBillingPolicy(
+		context.Background(),
+		tenant.ID,
+		10*types.PointMicrosPerPoint,
+		"owner-92",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	periodStart, periodEnd := billingPeriod(subscription, time.Now().UTC())
+	allocation, err := repo.EnsureCurrentMemberAllocation(
+		context.Background(),
+		tenant.ID,
+		"member-92",
+		periodStart,
+		periodEnd,
+		policy.DefaultMemberMonthlyLimitPointMicros,
+		"owner-92",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handle := &types.BillingUsageHandle{
+		Request: types.BillingUsageStartRequest{
+			TenantID:    tenant.ID,
+			ActorUserID: "member-92",
+			RefNo:       "enterprise-limit-block",
+			ModelKey:    "test-model",
+		},
+		Mode:                          "enforce",
+		UsageScope:                    types.BillingUsageScopeEnterprise,
+		AllocationID:                  allocation.ID,
+		MemberLimitMode:               types.MemberLimitModeInherit,
+		MemberMonthlyLimitPointMicros: 10 * types.PointMicrosPerPoint,
+		MemberOveragePolicy:           types.MemberOveragePolicyBlock,
+		Plan:                          plan,
+		Subscription:                  subscription,
+		Allocation:                    allocation,
+		EnterprisePolicy:              policy,
+	}
+	if _, err := repo.CreateUsageReservation(
+		context.Background(),
+		handle,
+		0,
+		11*types.PointMicrosPerPoint,
+	); !errors.Is(err, ErrInsufficientBillingCredits) {
+		t.Fatalf("expected overage to be blocked, got %v", err)
+	}
+
+	handle.Request.RefNo = "enterprise-limit-use-balance"
+	handle.MemberOveragePolicy = types.MemberOveragePolicyUseEnterpriseBalance
+	reservation, err := repo.CreateUsageReservation(
+		context.Background(),
+		handle,
+		0,
+		11*types.PointMicrosPerPoint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservation.ReservedPeriodPointMicros != 10*types.PointMicrosPerPoint ||
+		reservation.ReservedBalancePointMicros != types.PointMicrosPerPoint {
+		t.Fatalf("reservation=%+v", reservation)
+	}
+	handle.Reservation = reservation
+	now := time.Now().UTC()
+	ledger, err := repo.SettleUsage(context.Background(), handle, &types.TenantUsageLedger{
+		ID:                  "ledger-enterprise-limit-92",
+		TenantID:            tenant.ID,
+		ActorUserID:         "member-92",
+		UsageScope:          types.BillingUsageScopeEnterprise,
+		AllocationID:        allocation.ID,
+		RefNo:               handle.Request.RefNo,
+		ModelKey:            "test-model",
+		BilledPointMicros:   11 * types.PointMicrosPerPoint,
+		Status:              "settled",
+		BillingAt:           now,
+		UsageDate:           now,
+		PricingSnapshotJSON: types.JSON([]byte("{}")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledger.PeriodCoveredPointMicros != 10*types.PointMicrosPerPoint ||
+		ledger.BalanceChargedPointMicros != types.PointMicrosPerPoint {
+		t.Fatalf("ledger=%+v", ledger)
 	}
 }

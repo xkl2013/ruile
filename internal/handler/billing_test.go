@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -54,6 +55,54 @@ func (s *stubUsageBillingService) ListUsageLedgers(
 ) ([]*types.BillingUsageLedgerSummary, error) {
 	return nil, nil
 }
+func (s *stubUsageBillingService) ListUsageSummaryByActor(
+	context.Context,
+	[]string,
+) ([]*types.BillingActorUsageSummary, error) {
+	return nil, nil
+}
+func (s *stubUsageBillingService) ListMemberAllocations(
+	context.Context,
+	uint64,
+	time.Time,
+) ([]*types.TenantMemberCreditAllocationSummary, error) {
+	return nil, nil
+}
+func (s *stubUsageBillingService) GetTenantBillingPolicy(
+	context.Context,
+	uint64,
+) (*types.TenantBillingPolicy, error) {
+	return nil, nil
+}
+func (s *stubUsageBillingService) UpdateTenantBillingPolicy(
+	context.Context,
+	uint64,
+	int64,
+	string,
+	string,
+) (*types.TenantBillingPolicy, error) {
+	return nil, nil
+}
+func (s *stubUsageBillingService) UpdateMemberPolicy(
+	context.Context,
+	uint64,
+	string,
+	string,
+	int64,
+	string,
+) (*types.TenantMemberCreditAllocation, error) {
+	return nil, nil
+}
+func (s *stubUsageBillingService) UpdateMemberAllocation(
+	context.Context,
+	uint64,
+	string,
+	int64,
+	int64,
+	string,
+) (*types.TenantMemberCreditAllocation, error) {
+	return nil, nil
+}
 
 func (s *stubSubscriptionService) EnsureTenantBilling(context.Context, *types.Tenant) error {
 	return nil
@@ -89,7 +138,7 @@ func TestBillingOverviewUsesCurrentTenant(t *testing.T) {
 		},
 		Credits: types.BillingOverviewCredits{BalancePointMicros: 100_000_000},
 	}}
-	h := NewBillingHandler(service, &stubUsageBillingService{})
+	h := NewBillingHandler(service, &stubUsageBillingService{}, nil, nil)
 	router := gin.New()
 	router.GET("/billing/overview", func(c *gin.Context) {
 		ctx := context.WithValue(c.Request.Context(), types.TenantIDContextKey, uint64(42))

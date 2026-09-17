@@ -24,11 +24,16 @@ func estimateMessageTokens(messages []chat.Message) int64 {
 			runes += int64(utf8.RuneCountInString(part.Text))
 		}
 	}
-	if runes == 0 {
+	return estimateRuneTokens(runes)
+}
+
+func estimateRuneTokens(runes int64) int64 {
+	if runes <= 0 {
 		return 0
 	}
 	// Provider tokenizers differ. Four Unicode code points per token is a
-	// conservative transport-independent estimate used only for reservation.
+	// transport-independent fallback used only when exact provider usage is
+	// unavailable.
 	return (runes + 3) / 4
 }
 

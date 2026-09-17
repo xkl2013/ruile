@@ -49,7 +49,6 @@ type ModelParametersDTO struct {
 }
 
 // NewModelResponse converts a stored Model into its response shape.
-//
 func NewModelResponse(ctx context.Context, m *types.Model) *ModelResponse {
 	if m == nil {
 		return nil
