@@ -72,7 +72,9 @@ type OrganizationRepository interface {
 //
 // where tenant_role_cap pins tenant Viewers to OrgRoleViewer regardless
 // of the org-level grant — Viewer in your own tenant must always be
-// read-only on shared resources.
+// read-only on shared resources. When the same account reaches one KB
+// through multiple organizations, the canonical result is the maximum of
+// those per-organization effective roles.
 type KBShareService interface {
 	// Share Management
 	ShareKnowledgeBase(ctx context.Context, kbID string, orgID string, userID string, tenantID uint64, permission types.OrgMemberRole) (*types.KnowledgeBaseShare, error)

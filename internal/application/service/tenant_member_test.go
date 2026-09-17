@@ -316,13 +316,39 @@ func (r *fakeTenantMemberRepo) RemoveOwnerAtomically(
 // Compile-time guard so the test stays in sync with the interface.
 var _ interfaces.TenantMemberRepository = (*fakeTenantMemberRepo)(nil)
 
+type fakeTenantLookupService struct {
+	interfaces.TenantService
+	tenants map[uint64]*types.Tenant
+}
+
+func (s *fakeTenantLookupService) GetTenantByID(_ context.Context, id uint64) (*types.Tenant, error) {
+	return s.tenants[id], nil
+}
+
+func (s *fakeTenantLookupService) GetTenantsByIDs(
+	_ context.Context,
+	ids []uint64,
+) (map[uint64]*types.Tenant, error) {
+	result := make(map[uint64]*types.Tenant, len(ids))
+	for _, id := range ids {
+		if tenant, ok := s.tenants[id]; ok {
+			result[id] = tenant
+		}
+	}
+	return result, nil
+}
+
+func testTenantWithSpaceType(id uint64, spaceType types.SpaceType) *types.Tenant {
+	return &types.Tenant{ID: id, SpaceType: &spaceType}
+}
+
 func newServiceWithRepo() (interfaces.TenantMemberService, *fakeTenantMemberRepo) {
 	r := newFakeRepo()
 	// Audit dependency is intentionally nil — these tests pre-date PR 6
 	// and exercise membership invariants only. The service's audit
 	// hooks are nil-safe (see emitAudit), so passing nil keeps existing
 	// coverage intact without forcing a stub.
-	return NewTenantMemberService(r, nil, nil), r
+	return NewTenantMemberService(r, nil, nil, nil), r
 }
 
 func TestTenantMemberService_AddMember_RejectsInvalidRole(t *testing.T) {
@@ -342,6 +368,47 @@ func TestTenantMemberService_AddMember_RejectsDuplicate(t *testing.T) {
 	_, err := svc.AddMember(ctx, "u1", 1, types.TenantRoleContributor, nil)
 	if !errors.Is(err, ErrMembershipAlreadyExists) {
 		t.Fatalf("want ErrMembershipAlreadyExists, got %v", err)
+	}
+}
+
+func TestTenantMemberService_AddMember_BlocksSecondEnterpriseMembership(t *testing.T) {
+	repo := newFakeRepo()
+	repo.rows = []*types.TenantMember{{
+		UserID: "u1", TenantID: 1,
+		Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive,
+	}}
+	tenantLookup := &fakeTenantLookupService{tenants: map[uint64]*types.Tenant{
+		1: testTenantWithSpaceType(1, types.SpaceTypeOrganization),
+		2: testTenantWithSpaceType(2, types.SpaceTypeOrganization),
+	}}
+	svc := NewTenantMemberService(repo, nil, nil, tenantLookup)
+
+	_, err := svc.AddMember(context.Background(), "u1", 2, types.TenantRoleContributor, nil)
+	if !errors.Is(err, ErrEnterpriseMembershipAlreadyExists) {
+		t.Fatalf("want ErrEnterpriseMembershipAlreadyExists, got %v", err)
+	}
+	if len(repo.rows) != 1 {
+		t.Fatalf("second enterprise membership should not be created, got %d rows", len(repo.rows))
+	}
+}
+
+func TestTenantMemberService_AddMember_AllowsPersonalPlusEnterprise(t *testing.T) {
+	repo := newFakeRepo()
+	repo.rows = []*types.TenantMember{{
+		UserID: "u1", TenantID: 1,
+		Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive,
+	}}
+	tenantLookup := &fakeTenantLookupService{tenants: map[uint64]*types.Tenant{
+		1: testTenantWithSpaceType(1, types.SpaceTypePersonal),
+		2: testTenantWithSpaceType(2, types.SpaceTypeOrganization),
+	}}
+	svc := NewTenantMemberService(repo, nil, nil, tenantLookup)
+
+	if _, err := svc.AddMember(context.Background(), "u1", 2, types.TenantRoleContributor, nil); err != nil {
+		t.Fatalf("personal plus one enterprise membership should be allowed: %v", err)
+	}
+	if len(repo.rows) != 2 {
+		t.Fatalf("want personal and enterprise memberships, got %d rows", len(repo.rows))
 	}
 }
 
@@ -412,6 +479,55 @@ func TestTenantMemberService_EnsureOwner_Idempotent(t *testing.T) {
 	}
 	if len(repo.rows) != 1 {
 		t.Fatalf("want exactly 1 row after idempotent EnsureOwner, got %d", len(repo.rows))
+	}
+	if first.WorkProfileDescription != types.DefaultWorkProfileDescription {
+		t.Fatalf("default work profile = %q, want %q", first.WorkProfileDescription, types.DefaultWorkProfileDescription)
+	}
+	if second.WorkProfileDescription != types.DefaultWorkProfileDescription {
+		t.Fatalf("idempotent EnsureOwner changed default work profile: %q", second.WorkProfileDescription)
+	}
+}
+
+func TestTenantMemberService_EnsureOwner_PreservesExistingWorkProfile(t *testing.T) {
+	svc, repo := newServiceWithRepo()
+	repo.rows = []*types.TenantMember{{
+		UserID:                 "u1",
+		TenantID:               1,
+		Role:                   types.TenantRoleOwner,
+		Status:                 types.TenantMemberStatusActive,
+		WorkProfileDescription: "负责校区经营和团队管理",
+	}}
+
+	member, err := svc.EnsureOwner(context.Background(), "u1", 1)
+	if err != nil {
+		t.Fatalf("EnsureOwner: %v", err)
+	}
+	if member.WorkProfileDescription != "负责校区经营和团队管理" {
+		t.Fatalf("existing work profile was overwritten: %q", member.WorkProfileDescription)
+	}
+	if len(repo.rows) != 1 {
+		t.Fatalf("EnsureOwner should not create a duplicate row, got %d", len(repo.rows))
+	}
+}
+
+func TestTenantMemberService_EnsureOwner_BlocksSecondEnterpriseMembership(t *testing.T) {
+	repo := newFakeRepo()
+	repo.rows = []*types.TenantMember{{
+		UserID: "u1", TenantID: 1,
+		Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive,
+	}}
+	tenantLookup := &fakeTenantLookupService{tenants: map[uint64]*types.Tenant{
+		1: testTenantWithSpaceType(1, types.SpaceTypeOrganization),
+		2: testTenantWithSpaceType(2, types.SpaceTypeOrganization),
+	}}
+	svc := NewTenantMemberService(repo, nil, nil, tenantLookup)
+
+	_, err := svc.EnsureOwner(context.Background(), "u1", 2)
+	if !errors.Is(err, ErrEnterpriseMembershipAlreadyExists) {
+		t.Fatalf("want ErrEnterpriseMembershipAlreadyExists, got %v", err)
+	}
+	if len(repo.rows) != 1 {
+		t.Fatalf("second enterprise owner membership should not be created, got %d rows", len(repo.rows))
 	}
 }
 
@@ -549,7 +665,7 @@ func TestTenantMemberService_RemoveMember_ReturnsNotFound(t *testing.T) {
 func TestTenantMemberService_SuspendMember_RevokesSessionsAndSetsStatus(t *testing.T) {
 	repo := newFakeRepo()
 	tokens := &stubAuthTokenRepo{}
-	svc := NewTenantMemberService(repo, nil, tokens)
+	svc := NewTenantMemberService(repo, nil, tokens, nil)
 	ctx := context.Background()
 	if _, err := svc.EnsureOwner(ctx, "owner", 1); err != nil {
 		t.Fatalf("seed owner: %v", err)

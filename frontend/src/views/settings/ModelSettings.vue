@@ -20,14 +20,6 @@
         </t-button>
       </div>
 
-      <div class="builtin-models-hint" role="note">
-        <p class="builtin-hint-label">{{ $t('modelSettings.builtinModels.title') }}</p>
-        <p class="builtin-hint-text">
-          {{ $t(authStore.isSystemAdmin
-            ? 'modelSettings.builtinModels.descriptionAdmin'
-            : 'modelSettings.builtinModels.description') }}
-        </p>
-      </div>
     </div>
 
     <t-tabs v-model="activeTypeFilter" class="model-type-tabs" data-guide="settings-models">
@@ -49,7 +41,6 @@
         <div v-for="model in filteredModels" :key="`${model._modelType}-${model.id}`" class="model-card" :class="[
           `model-card--${model._modelType}`,
           {
-            'model-card--builtin': model.isBuiltin,
             'model-card--clickable': isModelCardClickable(model),
           },
         ]" :role="isModelCardClickable(model) ? 'button' : undefined"
@@ -62,10 +53,6 @@
           <div class="model-card__body">
             <div class="model-card__header">
               <h3 class="model-card__title">{{ modelDisplayName(model) }}</h3>
-              <span v-if="model.isBuiltin" class="model-card__lock" :title="$t('modelSettings.builtinTag')"
-                :aria-label="$t('modelSettings.builtinTag')">
-                <t-icon :name="authStore.isSystemAdmin ? 'edit-1' : 'lock-on'" />
-              </span>
               <div v-if="canManageModel(model)" class="model-card__actions" @click.stop>
                 <t-dropdown :options="getModelOptions(model._modelType, model)" placement="bottom-right" attach="body"
                   trigger="click"
@@ -111,6 +98,30 @@
                 </span>
               </template>
             </p>
+            <p v-if="canManageModelPricing" class="model-card__price">
+              {{ modelPriceSummary(model) }}
+            </p>
+            <div v-if="canManageModel(model)" class="model-card__footer" @click.stop>
+              <t-button
+                variant="text"
+                size="small"
+                class="model-card__edit-config"
+                @click.stop="editModel(model._modelType, model)"
+              >
+                <template #icon><t-icon name="edit-1" /></template>
+                编辑配置
+              </t-button>
+              <t-button
+                v-if="canManageModelPricing"
+                variant="text"
+                size="small"
+                class="model-card__edit-price"
+                @click.stop="openPriceDialog(model)"
+              >
+                <template #icon><t-icon name="wallet" /></template>
+                设置价格
+              </t-button>
+            </div>
           </div>
         </div>
         <button
@@ -128,22 +139,145 @@
       </div>
     </t-loading>
 
+    <section v-if="canManageModelPricing" class="model-pricing-panel">
+      <div class="model-pricing-panel__header">
+        <div>
+          <h3>模型价格</h3>
+          <p>模型配置和价格版本统一维护；调价会创建新版本，不修改历史用量账本。</p>
+        </div>
+        <t-button theme="primary" :loading="pricingLoading" @click="openPriceDialog()">
+          <template #icon><t-icon name="add" /></template>
+          新增价格版本
+        </t-button>
+      </div>
+
+      <t-alert
+        v-if="pricingError"
+        theme="error"
+        :message="pricingError"
+        class="model-pricing-panel__alert"
+      />
+
+      <t-loading :loading="pricingLoading" size="small">
+        <div class="model-pricing-panel__table-wrap">
+          <table class="model-pricing-panel__table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>计费模式</th>
+                <th>版本</th>
+                <th>输入</th>
+                <th>缓存读取</th>
+                <th>输出</th>
+                <th>按次 / 按秒</th>
+                <th>倍率</th>
+                <th>生效时间</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="price in modelPrices" :key="price.id">
+                <td><strong>{{ price.model_key }}</strong><span>{{ price.provider || '未指定供应商' }}</span></td>
+                <td>{{ pricingModeLabel(price.pricing_mode) }}</td>
+                <td>v{{ price.version }}</td>
+                <td>{{ formatNanoUSDPerMillion(price.input_nanousd_per_m_tokens) }}</td>
+                <td>{{ formatNanoUSDPerMillion(price.cache_read_nanousd_per_m_tokens) }}</td>
+                <td>{{ formatNanoUSDPerMillion(price.output_nanousd_per_m_tokens) }}</td>
+                <td>
+                  <strong>{{ formatNanoUSD(price.call_nanousd_per_call) }} / 次</strong>
+                  <span>{{ formatNanoUSD(price.duration_nanousd_per_second) }} / 秒</span>
+                </td>
+                <td>{{ formatMultiplier(price.model_multiplier_ppm) }}</td>
+                <td>{{ formatDate(price.effective_at) }}</td>
+                <td>
+                  <t-tag :theme="price.status === 'active' ? 'success' : 'default'" variant="light">
+                    {{ price.status }}
+                  </t-tag>
+                </td>
+              </tr>
+              <tr v-if="!pricingLoading && modelPrices.length === 0">
+                <td colspan="10" class="model-pricing-panel__empty">尚未配置模型价格</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </t-loading>
+    </section>
+
     <!-- 模型编辑器抽屉 -->
     <ModelEditorDialog v-model:visible="showDialog" :model-type="currentModelType" :model-data="editingModel"
       @confirm="handleModelSave" />
     <ModelDebugDrawer v-model:visible="showDebugDrawer" :models="allModels" />
 
+    <t-dialog
+      v-model:visible="priceDialogVisible"
+      header="新增模型价格版本"
+      width="720px"
+      top="24px"
+      :confirm-btn="{ content: '保存新版本', loading: savingPrice }"
+      @confirm="saveModelPrice"
+    >
+      <t-alert
+        theme="info"
+        message="模型名称应与模型配置中的实际调用名称一致。保存后会创建新版本，不修改历史账本。"
+        class="model-pricing-dialog__alert"
+      />
+      <t-form :data="priceDraft" label-align="top" @submit.prevent>
+        <div class="model-pricing-dialog__grid">
+          <t-form-item label="模型名称" required>
+            <t-input v-model="priceDraft.modelKey" placeholder="例如 qwen3.7-max" />
+          </t-form-item>
+          <t-form-item label="供应商">
+            <t-input v-model="priceDraft.provider" placeholder="例如 aliyun" />
+          </t-form-item>
+          <t-form-item label="计费模式" required>
+            <t-select v-model="priceDraft.pricingMode">
+              <t-option value="token" label="按 Token" />
+              <t-option value="call" label="按次" />
+              <t-option value="duration" label="按时长" />
+            </t-select>
+          </t-form-item>
+          <t-form-item label="模型倍率">
+            <t-input-number v-model="priceDraft.multiplier" :min="0.000001" :decimal-places="6" />
+          </t-form-item>
+          <t-form-item label="输入价格（USD / 1M Token）" required>
+            <t-input-number v-model="priceDraft.inputUSD" :min="0" :decimal-places="6" />
+          </t-form-item>
+          <t-form-item label="缓存读取价格（USD / 1M Token）">
+            <t-input-number v-model="priceDraft.cacheReadUSD" :min="0" :decimal-places="6" />
+          </t-form-item>
+          <t-form-item label="缓存写入价格（USD / 1M Token）">
+            <t-input-number v-model="priceDraft.cacheWriteUSD" :min="0" :decimal-places="6" />
+          </t-form-item>
+          <t-form-item label="输出价格（USD / 1M Token）" required>
+            <t-input-number v-model="priceDraft.outputUSD" :min="0" :decimal-places="6" />
+          </t-form-item>
+          <t-form-item label="按次价格（USD / 次）">
+            <t-input-number v-model="priceDraft.callUSD" :min="0" :decimal-places="9" />
+          </t-form-item>
+          <t-form-item label="按时长价格（USD / 秒）">
+            <t-input-number v-model="priceDraft.durationUSD" :min="0" :decimal-places="9" />
+          </t-form-item>
+        </div>
+      </t-form>
+    </t-dialog>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { AddIcon, PlayCircleIcon } from 'tdesign-icons-vue-next'
 import { useI18n } from 'vue-i18n'
 import ModelEditorDialog from '@/components/ModelEditorDialog.vue'
 import ModelDebugDrawer from '@/components/ModelDebugDrawer.vue'
 import { listModels, createModel, updateModel as updateModelAPI, deleteModel as deleteModelAPI, type ModelConfig } from '@/api/model'
+import {
+  createBillingModelPriceVersion,
+  listBillingModelPrices,
+  type BillingModelPriceItem,
+} from '@/api/system'
 import { useAuthStore } from '@/stores/auth'
 
 const { t, te } = useI18n()
@@ -163,9 +297,38 @@ const currentModelType = ref<ModelType>('chat')
 const editingModel = ref<any>(null)
 const loading = ref(true)
 const activeTypeFilter = ref<FilterType>('all')
+const modelPrices = ref<BillingModelPriceItem[]>([])
+const pricingLoading = ref(false)
+const pricingError = ref('')
+const priceDialogVisible = ref(false)
+const savingPrice = ref(false)
+const priceDraft = reactive<{
+  modelKey: string
+  provider: string
+  pricingMode: BillingModelPriceItem['pricing_mode']
+  inputUSD: number
+  cacheReadUSD: number
+  cacheWriteUSD: number
+  outputUSD: number
+  callUSD: number
+  durationUSD: number
+  multiplier: number
+}>({
+  modelKey: '',
+  provider: '',
+  pricingMode: 'token',
+  inputUSD: 0,
+  cacheReadUSD: 0,
+  cacheWriteUSD: 0,
+  outputUSD: 0,
+  callUSD: 0,
+  durationUSD: 0,
+  multiplier: 1,
+})
 
 // 模型列表数据
 const allModels = ref<ModelConfig[]>([])
+const canManageModelPricing = computed(() => authStore.isSystemAdmin)
 
 // 后端 type → 前端分组 type 的映射
 const backendTypeToModelType: Record<string, ModelType> = {
@@ -194,7 +357,6 @@ function convertToLegacyFormat(model: ModelConfig) {
     provider: model.parameters.provider || '',
     dimension: model.parameters.embedding_parameters?.dimension,
     supportsDimensionOverride: model.parameters.embedding_parameters?.supports_dimension_override || false,
-    isBuiltin: model.is_builtin || false,
     supportsVision: model.parameters.supports_vision || false,
     maxConcurrency: model.parameters.max_concurrency,
     customHeaders: model.parameters.custom_headers
@@ -313,6 +475,82 @@ const modelDisplayName = (model: any) => {
   return displayName || model.name
 }
 
+const normalizeModelKey = (value?: string | null) => (value || '').trim().toLowerCase()
+
+const activeModelPriceByKey = computed(() => {
+  const rows = new Map<string, BillingModelPriceItem>()
+  for (const price of modelPrices.value) {
+    const key = normalizeModelKey(price.model_key)
+    if (!key || price.status !== 'active') continue
+    if (!rows.has(key)) {
+      rows.set(key, price)
+    }
+  }
+  return rows
+})
+
+function modelPriceFor(model: any) {
+  return activeModelPriceByKey.value.get(normalizeModelKey(model?.modelName || model?.name))
+}
+
+function pricingModeLabel(value: string) {
+  const labels: Record<string, string> = {
+    token: '按 Token',
+    call: '按次',
+    duration: '按时长',
+  }
+  return labels[value] || value || '-'
+}
+
+function formatNanoUSDPerMillion(value: number) {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  }).format((Number(value) || 0) / 1_000_000_000)
+}
+
+function formatNanoUSD(value: number) {
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 9,
+  }).format((Number(value) || 0) / 1_000_000_000)
+}
+
+function formatMultiplier(value: number) {
+  return `${((Number(value) || 1_000_000) / 1_000_000).toFixed(3)}x`
+}
+
+function formatDate(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function modelPriceBrief(price: BillingModelPriceItem) {
+  if (price.pricing_mode === 'call') {
+    return `${pricingModeLabel(price.pricing_mode)} · ${formatNanoUSD(price.call_nanousd_per_call)} / 次`
+  }
+  if (price.pricing_mode === 'duration') {
+    return `${pricingModeLabel(price.pricing_mode)} · ${formatNanoUSD(price.duration_nanousd_per_second)} / 秒`
+  }
+  return `${formatNanoUSDPerMillion(price.input_nanousd_per_m_tokens)} 入 / ${formatNanoUSDPerMillion(price.output_nanousd_per_m_tokens)} 出`
+}
+
+function modelPriceSummary(model: any) {
+  const price = modelPriceFor(model)
+  return price ? modelPriceBrief(price) : '未配置价格'
+}
+
 const emptyHint = computed(() => {
   if (activeTypeFilter.value === 'all') return t('modelSettings.chat.empty')
   const map: Record<ModelType, string> = {
@@ -340,6 +578,72 @@ const loadModels = async () => {
   }
 }
 
+async function loadModelPrices() {
+  if (!canManageModelPricing.value) return
+  pricingLoading.value = true
+  pricingError.value = ''
+  try {
+    modelPrices.value = await listBillingModelPrices()
+  } catch (error) {
+    pricingError.value = error instanceof Error ? error.message : '模型价格加载失败'
+  } finally {
+    pricingLoading.value = false
+  }
+}
+
+function resetPriceDraft() {
+  priceDraft.modelKey = ''
+  priceDraft.provider = ''
+  priceDraft.pricingMode = 'token'
+  priceDraft.inputUSD = 0
+  priceDraft.cacheReadUSD = 0
+  priceDraft.cacheWriteUSD = 0
+  priceDraft.outputUSD = 0
+  priceDraft.callUSD = 0
+  priceDraft.durationUSD = 0
+  priceDraft.multiplier = 1
+}
+
+function openPriceDialog(model?: any) {
+  resetPriceDraft()
+  if (model) {
+    priceDraft.modelKey = model.modelName || model.name || ''
+    priceDraft.provider = model.provider || ''
+  }
+  priceDialogVisible.value = true
+}
+
+async function saveModelPrice() {
+  if (!priceDraft.modelKey.trim()) {
+    MessagePlugin.warning('请输入模型名称')
+    return
+  }
+  savingPrice.value = true
+  try {
+    await createBillingModelPriceVersion({
+      model_key: priceDraft.modelKey.trim(),
+      provider: priceDraft.provider.trim(),
+      pricing_mode: priceDraft.pricingMode,
+      input_nanousd_per_m_tokens: Math.round(priceDraft.inputUSD * 1_000_000_000),
+      output_nanousd_per_m_tokens: Math.round(priceDraft.outputUSD * 1_000_000_000),
+      cache_read_nanousd_per_m_tokens: Math.round(priceDraft.cacheReadUSD * 1_000_000_000),
+      cache_write_nanousd_per_m_tokens: Math.round(priceDraft.cacheWriteUSD * 1_000_000_000),
+      call_nanousd_per_call: Math.round(priceDraft.callUSD * 1_000_000_000),
+      duration_nanousd_per_second: Math.round(priceDraft.durationUSD * 1_000_000_000),
+      model_multiplier_ppm: Math.round(priceDraft.multiplier * 1_000_000),
+      status: 'active',
+    })
+    MessagePlugin.success('模型价格版本已创建')
+    priceDialogVisible.value = false
+    resetPriceDraft()
+    await loadModelPrices()
+  } catch (error) {
+    MessagePlugin.error(error instanceof Error ? error.message : '模型价格保存失败')
+  } finally {
+    savingPrice.value = false
+  }
+}
+
 // 打开添加对话框；类型在抽屉内选择，此处仅按当前 Tab 预填默认值
 const openAddDialog = () => {
   currentModelType.value = activeTypeFilter.value === 'all' ? 'chat' : activeTypeFilter.value
@@ -347,19 +651,13 @@ const openAddDialog = () => {
   showDialog.value = true
 }
 
-// Tenant Admin+ manages tenant models; only SystemAdmin manages shared
-// built-in models. The backend repeats this distinction authoritatively.
-const canEditModel = (model: any) =>
-  model.isBuiltin ? authStore.isSystemAdmin : authStore.hasRole('admin')
+const canEditModel = (_model: any) => authStore.hasRole('admin')
 
 const isModelCardClickable = (model: any) => canEditModel(model)
 
 const canManageModel = (model: any) => canEditModel(model)
 
-// Built-in lifecycle remains deployment-managed (YAML / SQL). The UI only
-// exposes configuration and credential editing to SystemAdmin.
-const canDeleteModel = (model: any) =>
-  authStore.hasRole('admin') && !model.isBuiltin
+const canDeleteModel = (_model: any) => authStore.hasRole('admin')
 
 const onModelCardClick = (event: Event, type: ModelType, model: any) => {
   if (!isModelCardClickable(model)) return
@@ -375,11 +673,7 @@ const onModelCardClick = (event: Event, type: ModelType, model: any) => {
 
 // 编辑模型
 const editModel = (type: ModelType, model: any) => {
-  if (model.isBuiltin && !authStore.isSystemAdmin) {
-    MessagePlugin.warning(t('modelSettings.toasts.builtinCannotEdit'))
-    return
-  }
-  if (!model.isBuiltin && !authStore.hasRole('admin')) {
+  if (!authStore.hasRole('admin')) {
     return
   }
   currentModelType.value = type
@@ -515,12 +809,6 @@ const handleModelSave = async (modelData: any) => {
 
 // 删除模型
 const deleteModel = async (_type: ModelType, modelId: string) => {
-  const model = allModels.value.find(m => m.id === modelId)
-  if (model?.is_builtin) {
-    MessagePlugin.warning(t('modelSettings.toasts.builtinCannotDelete'))
-    return
-  }
-
   try {
     await deleteModelAPI(modelId)
     MessagePlugin.success(t('modelSettings.toasts.deleted'))
@@ -534,16 +822,6 @@ const deleteModel = async (_type: ModelType, modelId: string) => {
 // 获取模型操作菜单选项
 const getModelOptions = (type: ModelType, model: any) => {
   const options: any[] = []
-
-  if (model.isBuiltin) {
-    if (authStore.isSystemAdmin) {
-      options.push({
-        content: t('common.edit'),
-        value: `edit-${type}-${model.id}`
-      })
-    }
-    return options
-  }
 
   // Models are tenant-wide infrastructure (LLM credentials); the
   // backend gates every mutation behind Admin+ (see RegisterModelRoutes).
@@ -634,7 +912,8 @@ function getModelType(type: ModelType): 'KnowledgeQA' | 'Embedding' | 'Rerank' |
 }
 
 onMounted(() => {
-  loadModels()
+  void loadModels()
+  void loadModelPrices()
 })
 </script>
 
@@ -686,29 +965,6 @@ onMounted(() => {
   &:active {
     color: var(--td-brand-color-active);
   }
-}
-
-.builtin-models-hint {
-  margin-top: 12px;
-  padding: 10px 12px;
-  background: var(--td-bg-color-secondarycontainer);
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 6px;
-}
-
-.builtin-hint-label {
-  margin: 0 0 4px 0;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--td-text-color-placeholder);
-  letter-spacing: 0.02em;
-}
-
-.builtin-hint-text {
-  margin: 0 0 6px 0;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--td-text-color-secondary);
 }
 
 .model-list-loading {
@@ -912,34 +1168,6 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-/*
-  Built-in lock indicator. Most cards in a typical install ARE built-in,
-  so loud styling everywhere becomes noise — instead the lock is muted
-  and small by default, and lights up on hover. The signal that matters
-  to users is "which models did I add" → user-added cards stand out by
-  the absence of the lock.
-*/
-.model-card__lock {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  color: var(--td-text-color-placeholder);
-  opacity: 0.6;
-  transition: color 0.15s ease, opacity 0.15s ease;
-
-  .t-icon {
-    font-size: 13px;
-  }
-}
-
-.model-card:hover .model-card__lock {
-  opacity: 1;
-  color: var(--td-text-color-secondary);
-}
-
 .model-card__subtitle {
   margin: 2px 0 0;
   font-size: 12px;
@@ -948,6 +1176,31 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.model-card__price {
+  margin: 2px 0 0;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.model-card__edit-config,
+.model-card__edit-price {
+  padding: 0;
+  color: var(--td-brand-color);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .model-card__sep {
@@ -992,6 +1245,101 @@ onMounted(() => {
   opacity: 1;
 }
 
+.model-pricing-panel {
+  margin-top: 28px;
+  border-top: 1px solid var(--td-component-stroke);
+  padding-top: 22px;
+}
+
+.model-pricing-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+
+  h3,
+  p {
+    margin: 0;
+  }
+
+  h3 {
+    color: var(--td-text-color-primary);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  p {
+    margin-top: 4px;
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+.model-pricing-panel__alert {
+  margin-bottom: 12px;
+}
+
+.model-pricing-panel__table-wrap {
+  overflow-x: auto;
+}
+
+.model-pricing-panel__table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 12px;
+    border-bottom: 1px solid var(--td-component-stroke);
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  th {
+    color: var(--td-text-color-placeholder);
+    font-weight: 500;
+    background: var(--td-bg-color-secondarycontainer);
+  }
+
+  td strong,
+  td span {
+    display: block;
+  }
+
+  td strong {
+    color: var(--td-text-color-primary);
+    font-weight: 600;
+  }
+
+  td span {
+    margin-top: 3px;
+    color: var(--td-text-color-placeholder);
+    font-size: 12px;
+  }
+}
+
+.model-pricing-panel__empty {
+  height: 112px;
+  color: var(--td-text-color-placeholder);
+  text-align: center !important;
+}
+
+.model-pricing-dialog__alert {
+  margin-bottom: 18px;
+}
+
+.model-pricing-dialog__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 18px;
+}
+
 .empty-state {
   padding: 64px 0;
   text-align: center;
@@ -1000,6 +1348,18 @@ onMounted(() => {
     font-size: 14px;
     color: var(--td-text-color-placeholder);
     margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  .section-header__top,
+  .model-pricing-panel__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .model-pricing-dialog__grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

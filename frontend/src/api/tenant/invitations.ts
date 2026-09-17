@@ -71,13 +71,22 @@ function buildTenantInvitationsQuery(options: ListTenantInvitationsParams): stri
   return qs ? `?${qs}` : ''
 }
 
+function tenantScopedConfig(tenantId: number) {
+  return {
+    headers: {
+      'X-Tenant-ID': String(tenantId),
+    },
+  }
+}
+
 export interface CreateInvitationRequest {
   phone?: string
   /** Legacy compatibility for callers that still send an email identifier. */
   email?: string
   role: TenantRole
   message?: string
-  work_profile_description: string
+  /** Optional; the backend assigns the default educator profile when omitted. */
+  work_profile_description?: string
 }
 
 export interface CreateInvitationResponse {
@@ -123,6 +132,7 @@ export async function listTenantInvitations(
   const qs = buildTenantInvitationsQuery(options)
   return (await get(
     `/api/v1/tenants/${tenantId}/invitations${qs}`,
+    tenantScopedConfig(tenantId),
   )) as unknown as ListInvitationsResponse
 }
 
@@ -142,6 +152,7 @@ export async function createInvitation(
   return (await post(
     `/api/v1/tenants/${tenantId}/invitations`,
     body,
+    tenantScopedConfig(tenantId),
   )) as unknown as CreateInvitationResponse
 }
 
@@ -157,6 +168,8 @@ export async function revokeInvitation(
 ): Promise<SimpleResponse> {
   return (await del(
     `/api/v1/tenants/${tenantId}/invitations/${invId}`,
+    undefined,
+    tenantScopedConfig(tenantId),
   )) as unknown as SimpleResponse
 }
 
@@ -236,5 +249,6 @@ export async function createInviteLink(
   return (await post(
     `/api/v1/tenants/${tenantId}/invite-links`,
     body,
+    tenantScopedConfig(tenantId),
   )) as unknown as CreateInviteLinkResponse
 }

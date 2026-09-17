@@ -404,6 +404,34 @@ func knowledgeBaseResponseTenantID(c *gin.Context, kb *types.KnowledgeBase) uint
 	return kb.TenantID
 }
 
+// knowledgeBaseAccessResponseExtras projects the route-level access decision
+// into the detail response. The frontend must not infer write permission from
+// the active tenant role: a tenant Owner/Admin can still hold viewer-only
+// access to a knowledge base shared from another space.
+func knowledgeBaseAccessResponseExtras(
+	c *gin.Context,
+	kb *types.KnowledgeBase,
+	fallbackPermission types.OrgMemberRole,
+) map[string]interface{} {
+	if access, ok := middleware.KBAccessFromContext(c); ok &&
+		access != nil &&
+		access.KnowledgeBase != nil &&
+		kb != nil &&
+		access.KnowledgeBase.ID == kb.ID {
+		return map[string]interface{}{
+			"access_source":       access.AccessSource,
+			"effective_tenant_id": access.EffectiveTenantID,
+			"my_permission":       access.Permission,
+		}
+	}
+
+	tenantID := knowledgeBaseResponseTenantID(c, kb)
+	if kb != nil && kb.TenantID != tenantID && fallbackPermission != "" {
+		return map[string]interface{}{"my_permission": fallbackPermission}
+	}
+	return nil
+}
+
 // HybridSearch godoc
 // @Summary      混合搜索
 // @Description  在知识库中执行向量和关键词混合搜索。推荐使用 POST；GET 携带 JSON 请求体仍受支持（兼容旧客户端）。
@@ -673,11 +701,7 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 	}
 	tenantID := knowledgeBaseResponseTenantID(c, kb)
 	storeView := h.resolveKBStoreView(ctx, kb, tenantID)
-	var extras map[string]interface{}
-	if kb.TenantID != tenantID && permission != "" {
-		// Include my_permission in data so frontend can show role (e.g. "只读") instead of "--" for agent-visible KBs
-		extras = map[string]interface{}{"my_permission": permission}
-	}
+	extras := knowledgeBaseAccessResponseExtras(c, kb, permission)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": h.buildKBResponse(ctx, kb, storeView, extras)})
 }
 

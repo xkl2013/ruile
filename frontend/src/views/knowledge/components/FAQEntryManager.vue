@@ -945,6 +945,9 @@ import { useAuthStore } from '@/stores/auth'
 import { useOrganizationStore } from '@/stores/organization'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import {
+  canWriteKnowledgeBase,
+} from '../knowledgeBasePermission'
+import {
   listFAQEntries,
   upsertFAQEntries,
   createFAQEntry,
@@ -1034,15 +1037,8 @@ const isOwner = computed(() => {
 
 // Current KB's shared record (when accessed via organization share)
 const currentSharedKb = computed(() =>
-  orgStore.sharedKnowledgeBases.find((s) => s.knowledge_base?.id === props.kbId) ?? null,
+  orgStore.getSharedKnowledgeBase(props.kbId),
 )
-
-// Accessed via organization share: presence in the sharedKnowledgeBases list
-// means we reached this KB through a shared space, so the user's local tenant
-// role is irrelevant — only the share grant counts. tenant_id comparison
-// alone is unreliable (a user can be a member of both source and receiving
-// tenants); share-list presence is the authoritative signal.
-const isViaShare = computed(() => !!currentSharedKb.value)
 
 // Can edit: when accessed via an organization share, ONLY the share grant
 // counts — even if the current user happens to be the original creator of
@@ -1050,24 +1046,22 @@ const isViaShare = computed(() => !!currentSharedKb.value)
 // tenant, not on creator_id, so a creator viewing their own KB from a
 // different tenant context will be 403'd on write. Otherwise: KB creator
 // (any role) or tenant Admin+ in the home tenant.
-const canEdit = computed(() => {
-  if (isViaShare.value) return orgStore.canEditKB(props.kbId, false)
-  if (isOwner.value) return true
-  if (authStore.hasRole('admin')) return true
-  return orgStore.canEditKB(props.kbId, false)
-})
+const canEdit = computed(() => canWriteKnowledgeBase({
+  permissionLoaded: knowledgeBasePermissionLoaded.value,
+  kbInfo: kbInfo.value,
+  sharedPermission: currentSharedKb.value?.permission,
+  hasSharedRecord: !!currentSharedKb.value,
+  isOwner: isOwner.value,
+  isTenantAdmin: authStore.hasRole('admin'),
+  isSystemAdmin: authStore.isSystemAdmin,
+}))
 
 // FAQ entry/tag delete is KB content mutation, not shared-space settings.
 // Keep it aligned with canEdit so shared admin/editor can operate and shared
 // viewer remains read-only.
 const canManage = computed(() => canEdit.value)
 
-// Shared-space editors can maintain FAQ content, but only the KB owner or a
-// home-space admin can edit the KB name and description.
-const canEditKnowledgeBaseIdentity = computed(() => {
-  if (isViaShare.value) return false
-  return isOwner.value || authStore.hasRole('admin') || authStore.isSystemAdmin
-})
+const canEditKnowledgeBaseIdentity = computed(() => canEdit.value)
 
 const basicInfoDialogVisible = ref(false)
 
@@ -1186,20 +1180,28 @@ const filteredTags = computed(() => {
 })
 
 const kbInfo = ref<any>(null)
+const knowledgeBasePermissionLoaded = ref(false)
 const knowledgeList = ref<Array<{ id: string; name: string; type?: string }>>([])
 
 const loadKnowledgeInfo = async (kbId: string) => {
   if (!kbId) {
     kbInfo.value = null
+    knowledgeBasePermissionLoaded.value = false
     return
   }
+  knowledgeBasePermissionLoaded.value = false
   try {
-    const res: any = await getKnowledgeBaseById(kbId)
+    const [res] = await Promise.all([
+      getKnowledgeBaseById(kbId),
+      orgStore.fetchSharedKnowledgeBases({ force: true }),
+    ])
     kbInfo.value = res?.data || null
+    knowledgeBasePermissionLoaded.value = true
     return kbInfo.value
   } catch (error) {
     console.error('Failed to load knowledge base info:', error)
     kbInfo.value = null
+    knowledgeBasePermissionLoaded.value = true
     return null
   }
 }

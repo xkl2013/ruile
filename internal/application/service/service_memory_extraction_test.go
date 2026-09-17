@@ -185,7 +185,7 @@ func TestServiceBootstrapHydratesUpdatedMemberDescription(t *testing.T) {
 	organizeRepo := repository.NewOrganizeRepository(db)
 	memberRepo := repository.NewTenantMemberRepository(db)
 	svc := NewServiceServiceWithMembers(serviceRepo, organizeRepo, memberRepo)
-	memberService := NewTenantMemberService(memberRepo, nil, nil)
+	memberService := NewTenantMemberService(memberRepo, nil, nil, nil)
 
 	const tenantID uint64 = 7
 	const userID = "user-a"

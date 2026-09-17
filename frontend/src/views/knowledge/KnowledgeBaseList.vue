@@ -227,7 +227,7 @@
                       role="img"
                       :aria-label="knowledgeBaseScopeLabel(kb)"
                     >
-                      <t-icon :name="knowledgeBaseScopeIcon(kb)" size="14px" />
+                      <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" />
                     </span>
                   </t-tooltip>
                   <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
@@ -324,7 +324,7 @@
                       role="img"
                       :aria-label="knowledgeBaseScopeLabel(kb)"
                     >
-                      <t-icon :name="knowledgeBaseScopeIcon(kb)" size="14px" />
+                      <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" />
                     </span>
                   </t-tooltip>
                   <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
@@ -477,7 +477,7 @@
                       role="img"
                       :aria-label="knowledgeBaseScopeLabel(kb)"
                     >
-                      <t-icon :name="knowledgeBaseScopeIcon(kb)" size="14px" />
+                      <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" />
                     </span>
                   </t-tooltip>
                   <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
@@ -626,7 +626,7 @@
                       role="img"
                       :aria-label="knowledgeBaseScopeLabel(shared.knowledge_base, 'enterprise')"
                     >
-                      <t-icon :name="knowledgeBaseScopeIcon(shared.knowledge_base, 'enterprise')" size="14px" />
+                      <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(shared.knowledge_base, 'enterprise')" />
                     </span>
                   </t-tooltip>
                   <KnowledgeBaseIcon :icon="shared.knowledge_base.icon" :icon-url="shared.knowledge_base.icon_url" :type="shared.knowledge_base.type"
@@ -820,6 +820,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useOrganizationStore } from '@/stores/organization'
 import { listOrganizationSharedKnowledgeBases, type SharedKnowledgeBase, type OrganizationSharedKnowledgeBaseItem, type SourceFromAgentInfo } from '@/api/organization'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
+import KnowledgeBaseScopeIcon from '@/components/KnowledgeBaseScopeIcon.vue'
 import KbWikiBadge from './components/KbWikiBadge.vue'
 import ResourceOriginBadge from '@/components/ResourceOriginBadge.vue'
 import { shouldShowResourceOriginBadge } from '@/utils/card-list-badge'
@@ -827,6 +828,11 @@ import { useTenantModelReadiness } from '@/composables/useTenantModelReadiness'
 import { useI18n } from 'vue-i18n'
 import { useResourcePins } from '@/composables/useResourcePins'
 import KnowledgeBaseEditorModal from './KnowledgeBaseEditorModal.vue'
+import {
+  resolveKnowledgeBaseScope as knowledgeBaseScope,
+  type KnowledgeBaseScope,
+  type KnowledgeBaseScopeSource,
+} from '@/utils/knowledgeBaseScope'
 
 const router = useRouter()
 const route = useRoute()
@@ -847,13 +853,6 @@ const createVisible = ref(false)
 const createInitialType = ref<'document' | 'faq'>('document')
 type MyKbCategoryKey = 'created' | 'shared' | 'subscribed'
 const activeMyKbCategory = ref<MyKbCategoryKey>('created')
-type KnowledgeBaseScope = 'personal' | 'enterprise' | 'subscribed'
-type KnowledgeBaseScopeSource = {
-  id?: string
-  owner_type?: string
-  access_source?: string
-  list_category?: MyKbCategoryKey
-}
 
 // The list is account-centred. Personal and enterprise creation scopes are
 // selected only inside KnowledgeBaseEditorModal, never as a page-level mode.
@@ -1304,34 +1303,6 @@ function mapMyKbRowForCard(kb: KB, isMine: boolean, listCategory?: MyKbCategoryK
   } as any
 }
 
-function knowledgeBaseScope(kb: KnowledgeBaseScopeSource, fallback: KnowledgeBaseScope = 'personal'): KnowledgeBaseScope {
-  if (
-    fallback === 'subscribed'
-    || kb?.list_category === 'subscribed'
-    || kb?.access_source === 'subscription'
-  ) {
-    return 'subscribed'
-  }
-  if (
-    fallback === 'enterprise'
-    || kb?.owner_type === 'organization'
-    || kb?.access_source === 'shared_space'
-    || kb?.access_source === 'shared_agent'
-  ) {
-    return 'enterprise'
-  }
-  return 'personal'
-}
-
-function knowledgeBaseScopeIcon(kb: KnowledgeBaseScopeSource, fallback?: KnowledgeBaseScope) {
-  const icons: Record<KnowledgeBaseScope, string> = {
-    personal: 'user',
-    enterprise: 'building',
-    subscribed: 'bookmark',
-  }
-  return icons[knowledgeBaseScope(kb, fallback)]
-}
-
 function knowledgeBaseScopeLabel(kb: KnowledgeBaseScopeSource, fallback?: KnowledgeBaseScope) {
   return t(`knowledgeList.scope.${knowledgeBaseScope(kb, fallback)}`) as string
 }
@@ -1599,7 +1570,7 @@ const closeSharedDetailPanel = () => {
 
 // 打开右侧详情面板（全部 Tab 共享卡片）
 const openSharedDetailFromAll = (kb: any) => {
-  const sharedKb = sharedKbs.value.find(s => s.knowledge_base.id === kb.id)
+  const sharedKb = orgStore.getSharedKnowledgeBase(kb.id)
   if (sharedKb) {
     currentSharedKbForDetail.value = sharedKb
     sharedDetailPanelVisible.value = true
@@ -2604,15 +2575,6 @@ const handleUploadFinishedEvent = (event: Event) => {
     flex: 0 0 16px;
     width: 16px;
     height: 16px;
-    color: var(--td-text-color-secondary);
-
-    &.kb-scope-icon--enterprise {
-      color: var(--td-brand-color);
-    }
-
-    &.kb-scope-icon--subscribed {
-      color: var(--td-warning-color, #e37318);
-    }
   }
 
   .card-title-text {

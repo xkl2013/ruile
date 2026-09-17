@@ -75,6 +75,31 @@ func (s *knowledgeBaseService) ResolveKnowledgeBaseAccess(
 				OwnerType:         ownerType,
 			}, nil
 		}
+	}
+
+	if kb.TenantID == tenantID {
+		// An explicit team-space share is a scoped authorization boundary even
+		// when the KB and receiving team belong to the same enterprise tenant.
+		// Resolve it before tenant Admin/Owner or creator fallbacks so a viewer
+		// share cannot be silently upgraded to write access by the enterprise
+		// role. System administrators and API keys remain explicit bypasses above.
+		if access, isShared, shareErr := s.resolveSharedKnowledgeBaseAccess(
+			ctx,
+			kb,
+			kbID,
+			tenantID,
+			callerTenantRole,
+			requiredPermission,
+			ownerType,
+		); shareErr != nil {
+			return nil, shareErr
+		} else if isShared {
+			if access != nil {
+				return access, nil
+			}
+			return nil, types.ErrKnowledgeBaseAccessForbidden
+		}
+
 		if callerTenantRole.HasPermission(types.TenantRoleAdmin) {
 			return &types.KnowledgeBaseAccess{
 				KnowledgeBase:     kb,
@@ -123,7 +148,7 @@ func (s *knowledgeBaseService) ResolveKnowledgeBaseAccess(
 		return nil, types.ErrKnowledgeBaseAccessForbidden
 	}
 
-	if access, ok := s.resolveSharedKnowledgeBaseAccess(
+	if access, isShared, shareErr := s.resolveSharedKnowledgeBaseAccess(
 		ctx,
 		kb,
 		kbID,
@@ -131,8 +156,13 @@ func (s *knowledgeBaseService) ResolveKnowledgeBaseAccess(
 		callerTenantRole,
 		requiredPermission,
 		ownerType,
-	); ok {
-		return access, nil
+	); shareErr != nil {
+		return nil, shareErr
+	} else if isShared {
+		if access != nil {
+			return access, nil
+		}
+		return nil, types.ErrKnowledgeBaseAccessForbidden
 	}
 
 	// A personal workspace remains the user's home context, but enterprise
@@ -167,7 +197,7 @@ func (s *knowledgeBaseService) ResolveKnowledgeBaseAccess(
 				}
 
 				memberCtx := withKnowledgeBaseTenantContext(ctx, memberTenant, member.Role)
-				if access, ok := s.resolveSharedKnowledgeBaseAccess(
+				access, isShared, shareErr := s.resolveSharedKnowledgeBaseAccess(
 					memberCtx,
 					kb,
 					kbID,
@@ -175,7 +205,13 @@ func (s *knowledgeBaseService) ResolveKnowledgeBaseAccess(
 					member.Role,
 					requiredPermission,
 					ownerType,
-				); ok {
+				)
+				if shareErr != nil {
+					logger.Warnf(ctx, "[kb_access] failed to resolve shared KB %s for tenant %d: %v",
+						kbID, member.TenantID, shareErr)
+					continue
+				}
+				if isShared && access != nil {
 					return access, nil
 				}
 			}
@@ -219,9 +255,9 @@ func (s *knowledgeBaseService) resolveSharedKnowledgeBaseAccess(
 	callerTenantRole types.TenantRole,
 	requiredPermission types.OrgMemberRole,
 	ownerType *types.SpaceType,
-) (*types.KnowledgeBaseAccess, bool) {
+) (*types.KnowledgeBaseAccess, bool, error) {
 	if s.kbShareService == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	permission, isShared, permErr := s.kbShareService.CheckTenantKBPermission(
 		ctx,
@@ -229,14 +265,23 @@ func (s *knowledgeBaseService) resolveSharedKnowledgeBaseAccess(
 		callerTenantID,
 		callerTenantRole,
 	)
-	if permErr != nil || !isShared || !permission.HasPermission(requiredPermission) {
-		return nil, false
+	if permErr != nil {
+		return nil, false, permErr
+	}
+	if !isShared {
+		return nil, false, nil
+	}
+	if !permission.HasPermission(requiredPermission) {
+		return nil, true, nil
 	}
 
 	sourceTenantID, srcErr := s.kbShareService.GetKBSourceTenant(ctx, kbID)
 	if srcErr != nil || sourceTenantID == 0 {
 		logger.Warnf(ctx, "[kb_access] failed to resolve source tenant for shared KB %s: %v", kbID, srcErr)
-		return nil, false
+		if srcErr == nil {
+			srcErr = fmt.Errorf("shared knowledge base %s has no source tenant", kbID)
+		}
+		return nil, true, srcErr
 	}
 	return &types.KnowledgeBaseAccess{
 		KnowledgeBase:     kb,
@@ -244,7 +289,7 @@ func (s *knowledgeBaseService) resolveSharedKnowledgeBaseAccess(
 		Permission:        permission,
 		AccessSource:      types.KnowledgeBaseAccessSourceSharedSpace,
 		OwnerType:         ownerType,
-	}, true
+	}, true, nil
 }
 
 func (s *knowledgeBaseService) tenantForAccountAccess(ctx context.Context, tenantID uint64) *types.Tenant {

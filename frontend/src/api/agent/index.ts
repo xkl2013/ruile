@@ -147,6 +147,20 @@ export interface CustomAgent {
   updated_at?: string;
 }
 
+export interface AgentRequestOptions {
+  tenantId?: number | string | null;
+}
+
+function tenantScopedConfig(options?: AgentRequestOptions) {
+  const tenantId = Number(options?.tenantId || 0);
+  if (!tenantId) return undefined;
+  return {
+    headers: {
+      'X-Tenant-ID': String(tenantId),
+    },
+  };
+}
+
 // 创建智能体请求
 export interface CreateAgentRequest {
   name: string;
@@ -188,9 +202,12 @@ export function listAgents(params?: {
    * smart-reasoning when a user picks "Created by me".
    */
   creator?: 'all' | 'mine' | 'others';
-}) {
+}, options?: AgentRequestOptions) {
   const qs = params?.creator && params.creator !== 'all' ? `?creator=${params.creator}` : '';
-  return get<{ data: CustomAgent[]; disabled_own_agent_ids?: string[] }>(`/api/v1/agents${qs}`);
+  return get<{ data: CustomAgent[]; disabled_own_agent_ids?: string[] }>(
+    `/api/v1/agents${qs}`,
+    tenantScopedConfig(options),
+  );
 }
 
 // 获取智能体详情

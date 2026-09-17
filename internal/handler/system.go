@@ -51,6 +51,7 @@ type SystemHandler struct {
 	memberSvc        interfaces.TenantMemberService
 	userSvc          interfaces.UserService
 	systemSettingSvc interfaces.SystemSettingService
+	subscriptionSvc  interfaces.SubscriptionService
 	// auditSvc is optional — when nil, emitAdminAudit no-ops so unit
 	// tests that wire a partial container still compile. In production
 	// the dig graph always provides one.
@@ -79,6 +80,7 @@ func NewSystemHandler(cfg *config.Config,
 	memberSvc interfaces.TenantMemberService,
 	userSvc interfaces.UserService,
 	systemSettingSvc interfaces.SystemSettingService,
+	subscriptionSvc interfaces.SubscriptionService,
 	auditSvc interfaces.AuditLogService,
 	taskInspector interfaces.TaskInspector,
 	knowledgeSvc interfaces.KnowledgeService,
@@ -92,6 +94,7 @@ func NewSystemHandler(cfg *config.Config,
 		memberSvc:          memberSvc,
 		userSvc:            userSvc,
 		systemSettingSvc:   systemSettingSvc,
+		subscriptionSvc:    subscriptionSvc,
 		auditSvc:           auditSvc,
 		taskInspector:      taskInspector,
 		knowledgeSvc:       knowledgeSvc,
@@ -118,21 +121,35 @@ func adminEnterpriseProvisioningKey(userID string) *string {
 // SystemUserSummary is the non-sensitive user projection exposed to
 // SystemAdmin search and enterprise-workspace provisioning.
 type SystemUserSummary struct {
-	ID                    string                        `json:"id"`
-	Username              string                        `json:"username"`
-	Email                 string                        `json:"email"`
-	Avatar                string                        `json:"avatar"`
-	TenantID              uint64                        `json:"tenant_id"`
-	IsActive              bool                          `json:"is_active"`
-	IsSystemAdmin         bool                          `json:"is_system_admin"`
-	EnterpriseMemberships []*SystemEnterpriseMembership `json:"enterprise_memberships,omitempty"`
-	CreatedAt             time.Time                     `json:"created_at"`
+	ID                      string                        `json:"id"`
+	Username                string                        `json:"username"`
+	Email                   string                        `json:"email"`
+	Avatar                  string                        `json:"avatar"`
+	TenantID                uint64                        `json:"tenant_id"`
+	IsActive                bool                          `json:"is_active"`
+	IsSystemAdmin           bool                          `json:"is_system_admin"`
+	EnterpriseMemberships   []*SystemEnterpriseMembership `json:"enterprise_memberships,omitempty"`
+	PersonalSubscription    *SystemUserSubscription       `json:"personal_subscription,omitempty"`
+	EnterpriseSubscriptions []*SystemUserSubscription     `json:"enterprise_subscriptions,omitempty"`
+	CreatedAt               time.Time                     `json:"created_at"`
 }
 
 type SystemEnterpriseMembership struct {
 	TenantID   uint64           `json:"tenant_id"`
 	TenantName string           `json:"tenant_name"`
 	Role       types.TenantRole `json:"role"`
+}
+
+type SystemUserSubscription struct {
+	TenantID        uint64    `json:"tenant_id"`
+	TenantName      string    `json:"tenant_name"`
+	SpaceType       string    `json:"space_type"`
+	PlanCode        string    `json:"plan_code"`
+	PlanName        string    `json:"plan_name"`
+	Status          string    `json:"status"`
+	BillingInterval string    `json:"billing_interval"`
+	Source          string    `json:"source"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 func newSystemUserSummary(user *types.User) *SystemUserSummary {
@@ -433,6 +450,12 @@ func (h *SystemHandler) enrichSystemUserEnterpriseMemberships(
 		if user == nil {
 			continue
 		}
+		if user.TenantID != 0 {
+			if _, seen := seenTenantIDs[user.TenantID]; !seen {
+				seenTenantIDs[user.TenantID] = struct{}{}
+				tenantIDs = append(tenantIDs, user.TenantID)
+			}
+		}
 		memberships, err := h.memberSvc.ListByUser(ctx, user.ID)
 		if err != nil {
 			return err
@@ -463,10 +486,37 @@ func (h *SystemHandler) enrichSystemUserEnterpriseMemberships(
 			summariesByUserID[summary.ID] = summary
 		}
 	}
+	subscriptionsByTenantID := make(map[uint64]*SystemUserSubscription)
+	if h.subscriptionSvc != nil {
+		subscriptions, err := h.subscriptionSvc.ListCurrentSubscriptionsByTenantIDs(ctx, tenantIDs)
+		if err != nil {
+			return err
+		}
+		for _, subscription := range subscriptions {
+			if subscription == nil {
+				continue
+			}
+			subscriptionsByTenantID[subscription.TenantID] = &SystemUserSubscription{
+				TenantID:        subscription.TenantID,
+				TenantName:      subscription.TenantName,
+				SpaceType:       subscription.SpaceType,
+				PlanCode:        subscription.PlanCode,
+				PlanName:        subscription.PlanName,
+				Status:          subscription.Status,
+				BillingInterval: subscription.BillingInterval,
+				Source:          subscription.Source,
+				CreatedAt:       subscription.CreatedAt,
+			}
+		}
+	}
 	for userID, memberships := range membershipsByUser {
 		summary := summariesByUserID[userID]
 		if summary == nil {
 			continue
+		}
+		if subscription := subscriptionsByTenantID[summary.TenantID]; subscription != nil &&
+			subscription.SpaceType != string(types.SpaceTypeOrganization) {
+			summary.PersonalSubscription = subscription
 		}
 		for _, membership := range memberships {
 			if membership == nil ||
@@ -488,6 +538,9 @@ func (h *SystemHandler) enrichSystemUserEnterpriseMemberships(
 					Role:       membership.Role,
 				},
 			)
+			if subscription := subscriptionsByTenantID[tenant.ID]; subscription != nil {
+				summary.EnterpriseSubscriptions = append(summary.EnterpriseSubscriptions, subscription)
+			}
 		}
 	}
 	return nil
@@ -537,9 +590,25 @@ func (h *SystemHandler) ListSystemEnterprises(c *gin.Context) {
 		return
 	}
 	responses := dto.NewTenantResponsesCrossTenant(enterprises)
+	creditBalances := make(map[uint64]int64, len(enterprises))
+	if h.subscriptionSvc != nil {
+		accounts, accountErr := h.subscriptionSvc.ListCreditAccounts(ctx)
+		if accountErr != nil {
+			logger.Warnf(ctx, "Error loading enterprise credit accounts; using compatibility field: %v", accountErr)
+		} else {
+			for _, account := range accounts {
+				if account != nil {
+					creditBalances[account.TenantID] = account.BalancePointMicros / types.PointMicrosPerPoint
+				}
+			}
+		}
+	}
 	for _, response := range responses {
 		if response != nil {
 			response.MemberCount = memberCounts[response.ID]
+			if balance, ok := creditBalances[response.ID]; ok {
+				response.EnterpriseCredits = balance
+			}
 		}
 	}
 
@@ -666,6 +735,10 @@ func (h *SystemHandler) ProvisionEnterpriseWorkspace(c *gin.Context) {
 	if _, err := h.memberSvc.EnsureOwner(ctx, target.ID, created.ID); err != nil {
 		logger.Errorf(ctx, "Failed to bootstrap enterprise owner membership for user %s tenant %d: %v", target.ID, created.ID, err)
 		_ = h.tenantSvc.DeleteTenant(ctx, created.ID)
+		if errors.Is(err, service.ErrEnterpriseMembershipAlreadyExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalise enterprise workspace ownership"})
 		return
 	}

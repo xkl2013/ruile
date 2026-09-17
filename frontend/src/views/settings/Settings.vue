@@ -87,6 +87,11 @@
                     <UserProfile />
                   </div>
 
+                  <!-- 当前登录用户在当前空间中的分身描述。 -->
+                  <div v-if="currentSection === 'workprofile'" class="section">
+                    <WorkProfile />
+                  </div>
+
                   <!-- 当前登录用户的空间信息：展示 /auth/me 返回的 active tenant，
                      跟随空间切换器变化，不再跳转到开发运营后台。 -->
                   <div v-if="currentSection === 'tenant'" class="section">
@@ -120,6 +125,7 @@ import { useI18n } from 'vue-i18n'
 import UserProfile from './UserProfile.vue'
 import GeneralSettings from './GeneralSettings.vue'
 import TenantInfo from './TenantInfo.vue'
+import WorkProfile from './WorkProfile.vue'
 import TenantMembers from './TenantMembers.vue'
 import OrganizationList from '@/views/organization/OrganizationList.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -138,6 +144,7 @@ const expandedMenus = ref<string[]>([])
 const LOCAL_SETTING_SECTIONS = new Set([
   'general',
   'userprofile',
+  'workprofile',
   'tenant',
   'members',
   'sharedSpace',
@@ -242,6 +249,7 @@ const navItems = computed(() => {
   const all: NavItem[] = [
     { key: 'general', icon: 'setting', label: t('settings.navItems.general') },
     { key: 'userprofile', icon: 'user', label: t('settings.navItems.userProfile') },
+    { key: 'workprofile', icon: 'user-safety', label: t('settings.navItems.workProfile') },
     { key: 'tenant', icon: 'home', label: t('settings.navItems.tenant') },
     // 企业成员管理和企业空间管理属于账号级模块。使用成员关系判断，
     // 避免用户切回个人空间后导航消失，也避免无企业空间账号看到空模块。
@@ -268,7 +276,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'account',
       label: t('settings.navGroups.account'),
-      items: pickItems(['general', 'userprofile', 'tenant']),
+      items: pickItems(['general', 'userprofile', 'workprofile', 'tenant']),
     },
     {
       key: 'team',

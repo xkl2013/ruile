@@ -60,6 +60,10 @@ import {
   knowledgeNeedsStatusPolling,
   shouldRefreshWikiStatusAfterKnowledgePoll,
 } from './wikiStatusRefresh';
+import {
+  canWriteKnowledgeBase,
+  effectiveKnowledgeBasePermission,
+} from './knowledgeBasePermission';
 import { listMoveTargets, moveKnowledge, getKnowledgeMoveProgress } from '@/api/knowledge-base';
 import { useI18n } from 'vue-i18n';
 import { useMarqueeSelect } from '@/hooks/useMarqueeSelect';
@@ -69,6 +73,7 @@ const route = useRoute();
 const { t } = useI18n();
 const kbId = computed(() => (route.params as any).kbId as string || '');
 const kbInfo = ref<any>(null);
+const knowledgeBasePermissionLoaded = ref(false);
 const uploadSourceRef = ref<InstanceType<typeof KbUploadSourceDropdown> | null>(null);
 const uploading = ref(false);
 const kbLoading = ref(false);
@@ -242,21 +247,8 @@ const isOwner = computed(() => {
 
 // Current KB's shared record (when accessed via organization share)
 const currentSharedKb = computed(() =>
-  orgStore.sharedKnowledgeBases.find((s) => s.knowledge_base?.id === kbId.value) ?? null,
+  orgStore.getSharedKnowledgeBase(kbId.value),
 );
-
-// Accessed via organization share: when the KB shows up in our
-// sharedKnowledgeBases list it means we reached it through a shared space,
-// not because we own/manage it in our tenant. In that case the user's local
-// tenant role does NOT grant edit/manage — only the share grant does.
-// Without this guard a local tenant Admin would see edit/upload entries on
-// a read-only shared KB and get 403'd by the backend on click.
-//
-// Note: tenant_id comparison alone is unreliable — a user can be a member of
-// both the source and receiving tenants, and currentTenantId reflects the
-// active switcher rather than "how this KB became visible to me". Presence
-// in the share list is the authoritative signal.
-const isViaShare = computed(() => !!currentSharedKb.value);
 
 // Can edit: when accessed via an organization share, ONLY the share grant
 // counts — even if the current user happens to be the original creator of
@@ -267,19 +259,17 @@ const isViaShare = computed(() => !!currentSharedKb.value);
 //
 // hasRole('contributor') is intentionally NOT here — being a Contributor
 // in a tenant does not by itself grant edit on someone else's KB.
-const canEdit = computed(() => {
-  if (isViaShare.value) return orgStore.canEditKB(kbId.value, false);
-  if (isOwner.value) return true;
-  if (authStore.hasRole('admin')) return true;
-  return orgStore.canEditKB(kbId.value, false);
-});
+const canEdit = computed(() => canWriteKnowledgeBase({
+  permissionLoaded: knowledgeBasePermissionLoaded.value,
+  kbInfo: kbInfo.value,
+  sharedPermission: currentSharedKb.value?.permission,
+  hasSharedRecord: !!currentSharedKb.value,
+  isOwner: isOwner.value,
+  isTenantAdmin: authStore.hasRole('admin'),
+  isSystemAdmin: authStore.isSystemAdmin,
+}));
 
-// Shared-space editors can maintain content, but only the KB owner or a
-// home-space admin can edit the KB name and description.
-const canEditKnowledgeBaseIdentity = computed(() => {
-  if (isViaShare.value) return false;
-  return isOwner.value || authStore.hasRole('admin') || authStore.isSystemAdmin;
-});
+const canEditKnowledgeBaseIdentity = computed(() => canEdit.value);
 
 const canEditKnowledgeBaseDirectories = computed(() => canEdit.value && !isFAQ.value);
 
@@ -289,7 +279,9 @@ const canEditKnowledgeBaseDirectories = computed(() => canEdit.value && !isFAQ.v
 const canMutateKnowledge = computed(() => canEdit.value);
 
 // Effective permission: from direct org share list or from GET /knowledge-bases/:id (e.g. agent-visible KB)
-const effectiveKBPermission = computed(() => orgStore.getKBPermission(kbId.value) || kbInfo.value?.my_permission || '');
+const effectiveKBPermission = computed(() =>
+  effectiveKnowledgeBasePermission(kbInfo.value, currentSharedKb.value?.permission),
+);
 
 let { cardList, total, moreIndex, details, getKnowled, delKnowledge, openMore, onVisibleChange: _onVisibleChange, getCardDetails, getfDetails } = useKnowledgeBase(kbId.value)
 
@@ -1632,20 +1624,28 @@ const handleKnowledgeTagChange = async (knowledgeId: string, tagIds: string[]) =
   }
 };
 
-const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
+const loadKnowledgeBaseInfo = async (targetKbId: string) => {
   if (!targetKbId) {
     kbInfo.value = null;
+    knowledgeBasePermissionLoaded.value = false;
     cardList.value = [];
     total.value = 0;
     clearDirectoryCounts();
     return;
   }
   kbLoading.value = true;
+  knowledgeBasePermissionLoaded.value = false;
   try {
-    const data = await chatResources.fetchKnowledgeBaseById(targetKbId, force);
+    const [data] = await Promise.all([
+      // Access metadata is authorization-sensitive. Do not reuse a detail
+      // cache entry after entering or switching to a knowledge base.
+      chatResources.fetchKnowledgeBaseById(targetKbId, true),
+      orgStore.fetchSharedKnowledgeBases({ force: true }),
+    ]);
     if (!isCurrentKb(targetKbId)) return;
 
     kbInfo.value = data;
+    knowledgeBasePermissionLoaded.value = true;
     await loadManualDirectoryState(data, targetKbId);
     if (!isCurrentKb(targetKbId)) return;
     selectedTagIds.value = [];
@@ -1667,11 +1667,13 @@ const loadKnowledgeBaseInfo = async (targetKbId: string, force = false) => {
 
     console.error('Failed to load knowledge base info:', error);
     kbInfo.value = null;
+    knowledgeBasePermissionLoaded.value = true;
     cardList.value = [];
     total.value = 0;
     clearDirectoryCounts();
   } finally {
     if (isCurrentKb(targetKbId)) {
+      knowledgeBasePermissionLoaded.value = true;
       kbLoading.value = false;
     }
   }
@@ -1692,6 +1694,7 @@ watch(activeKbTab, (tab) => {
 watch(() => kbId.value, (newKbId, oldKbId) => {
   if (!newKbId) {
     kbInfo.value = null;
+    knowledgeBasePermissionLoaded.value = false;
     cardList.value = [];
     total.value = 0;
     clearDirectoryCounts();

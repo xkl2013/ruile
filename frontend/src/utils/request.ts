@@ -54,7 +54,17 @@ instance.interceptors.request.use(
     // 所以无脑附不会引入新风险。
     if (!isEmbedAuth && !isEmbedPath) {
       const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id');
-      if (selectedTenantId) {
+      const hasExplicitTenantHeader = (() => {
+        const headers = config.headers as any
+        if (!headers) return false
+        if (typeof headers.get === 'function' && headers.get('X-Tenant-ID')) {
+          return true
+        }
+        return Object.keys(headers).some(
+          (key) => key.toLowerCase() === 'x-tenant-id' && headers[key] != null && headers[key] !== '',
+        )
+      })()
+      if (selectedTenantId && !hasExplicitTenantHeader) {
         config.headers["X-Tenant-ID"] = selectedTenantId;
       }
     }
@@ -291,6 +301,6 @@ export function put<T = any>(url: string, data = {}, config?: any): Promise<T> {
   return instance.put<T>(url, data, config) as unknown as Promise<T>;
 }
 
-export function del<T = any>(url: string, data?: any): Promise<T> {
-  return instance.delete<T>(url, { data }) as unknown as Promise<T>;
+export function del<T = any>(url: string, data?: any, config?: any): Promise<T> {
+  return instance.delete<T>(url, { ...(config || {}), data }) as unknown as Promise<T>;
 }

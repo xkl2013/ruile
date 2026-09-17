@@ -24,6 +24,7 @@ type ListTenantsParams struct {
 type tenantService struct {
 	repo        interfaces.TenantRepository // Repository for tenant data operations
 	storageRepo interfaces.StorageBackendRepository
+	billing     interfaces.SubscriptionService
 }
 
 // provisioningKeyTenantRepository is an optional repository capability. It
@@ -37,6 +38,17 @@ type provisioningKeyTenantRepository interface {
 // NewTenantService creates a new tenant service instance
 func NewTenantService(repo interfaces.TenantRepository, storageRepo interfaces.StorageBackendRepository) interfaces.TenantService {
 	return &tenantService{repo: repo, storageRepo: storageRepo}
+}
+
+// NewTenantServiceWithBilling is the production constructor. NewTenantService
+// remains available for focused tests that do not initialize the billing
+// schema.
+func NewTenantServiceWithBilling(
+	repo interfaces.TenantRepository,
+	storageRepo interfaces.StorageBackendRepository,
+	billing interfaces.SubscriptionService,
+) interfaces.TenantService {
+	return &tenantService{repo: repo, storageRepo: storageRepo, billing: billing}
 }
 
 // CreateTenant creates a new tenant
@@ -79,6 +91,15 @@ func (s *tenantService) CreateTenant(ctx context.Context, tenant *types.Tenant) 
 		// avoids leaving a workspace that cannot bind new knowledge bases.
 		_ = s.repo.DeleteTenant(ctx, tenant.ID)
 		return nil, err
+	}
+	if s.billing != nil {
+		if err := s.billing.EnsureTenantBilling(ctx, tenant); err != nil {
+			if tenant.DefaultStorageBackendID != nil && s.storageRepo != nil {
+				_ = s.storageRepo.Delete(ctx, tenant.ID, *tenant.DefaultStorageBackendID)
+			}
+			_ = s.repo.DeleteTenant(ctx, tenant.ID)
+			return nil, err
+		}
 	}
 
 	logger.Infof(ctx, "Tenant created successfully, ID: %d, name: %s", tenant.ID, tenant.Name)

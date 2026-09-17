@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/handler/dto"
@@ -423,7 +425,11 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 					createdTenant.ID, delErr,
 				)
 			}
-			c.Error(errors.NewInternalServerError("Failed to finalise workspace ownership").WithDetails(err.Error()))
+			if stderrors.Is(err, service.ErrEnterpriseMembershipAlreadyExists) {
+				c.Error(errors.NewConflictError(err.Error()))
+			} else {
+				c.Error(errors.NewInternalServerError("Failed to finalise workspace ownership").WithDetails(err.Error()))
+			}
 			return
 		}
 
@@ -705,7 +711,11 @@ func (h *TenantHandler) CreateEnterpriseWorkspace(c *gin.Context) {
 			caller.ID, createdTenant.ID, err,
 		)
 		_ = h.service.DeleteTenant(ctx, createdTenant.ID)
-		c.Error(errors.NewInternalServerError("Failed to finalise enterprise workspace ownership").WithDetails(err.Error()))
+		if stderrors.Is(err, service.ErrEnterpriseMembershipAlreadyExists) {
+			c.Error(errors.NewConflictError(err.Error()))
+		} else {
+			c.Error(errors.NewInternalServerError("Failed to finalise enterprise workspace ownership").WithDetails(err.Error()))
+		}
 		return
 	}
 

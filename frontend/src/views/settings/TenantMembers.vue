@@ -122,14 +122,6 @@
                       <t-select v-model="addForm.role" :options="assignableRoleOptions"
                         :popup-props="roleSelectPopupProps" />
                     </t-form-item>
-                    <t-form-item :label="$t('tenantMember.workProfile.label')" name="workProfileDescription">
-                      <t-textarea
-                        v-model="addForm.workProfileDescription"
-                        :autosize="{ minRows: 3, maxRows: 5 }"
-                        :maxlength="2000"
-                        :placeholder="$t('tenantMember.workProfile.placeholder')"
-                      />
-                    </t-form-item>
                   </t-form>
                   <div v-else class="invite-confirm-body">
                     <p>
@@ -137,10 +129,6 @@
                         phone: addConfirmPhone,
                         role: addConfirmRoleLabel,
                       }) }}
-                    </p>
-                    <p class="invite-confirm-work-profile">
-                      <strong>{{ $t('tenantMember.workProfile.label') }}</strong>
-                      <span>{{ addConfirmWorkProfilePreview }}</span>
                     </p>
                   </div>
                   <div class="invite-popup-footer">
@@ -280,30 +268,9 @@
               <template #department="{ row }">
                 <span class="department-cell">{{ row.department?.trim() || '-' }}</span>
               </template>
-              <template #work_profile_description="{ row }">
-                <div class="work-profile-cell">
-                  <span :class="['work-profile-preview', { 'is-empty': !row.work_profile_description?.trim() }]">
-                    {{ memberWorkProfilePreview(row) }}
-                  </span>
-                </div>
-              </template>
               <template #joined_at="{ row }">{{ formatDate(row.joined_at) }}</template>
               <template #operation="{ row }">
                 <div class="member-actions-cell">
-                  <t-tooltip v-if="canConfigureWorkProfile(row)" :content="$t('tenantMember.workProfile.configure')" placement="top">
-                    <t-button
-                      theme="primary"
-                      variant="text"
-                      size="small"
-                      class="work-profile-action-btn"
-                      :title="$t('tenantMember.workProfile.configure')"
-                      :aria-label="$t('tenantMember.workProfile.configure')"
-                      @click.stop="openWorkProfileDialog(row)"
-                    >
-                      <template #icon><t-icon name="setting-1" /></template>
-                      {{ $t('tenantMember.workProfile.shortButton') }}
-                    </t-button>
-                  </t-tooltip>
                   <t-popconfirm
                     v-if="canManageMemberRow(row) && row.status !== 'suspended'"
                     theme="warning"
@@ -399,53 +366,6 @@
         </p>
       </div>
     </t-dialog>
-
-      <t-dialog
-        v-if="canManage"
-        v-model:visible="workProfileDialogVisible"
-        :header="$t('tenantMember.workProfile.dialogTitle')"
-        width="560px"
-        :confirm-btn="{ content: $t('tenantMember.workProfile.save'), theme: 'primary', loading: workProfileSaving }"
-        :cancel-btn="{ content: $t('common.cancel'), disabled: workProfileSaving }"
-        :close-on-overlay-click="!workProfileSaving"
-        destroy-on-close
-        @confirm="saveWorkProfileDescription"
-        @cancel="workProfileDialogVisible = false"
-        @close="workProfileDialogVisible = false"
-      >
-        <div class="work-profile-dialog">
-          <div v-if="workProfileTarget" class="work-profile-dialog__member">
-            <strong>{{ memberPrimary(workProfileTarget) }}</strong>
-            <span>{{ memberSecondary(workProfileTarget) || workProfileTarget.user_id }}</span>
-          </div>
-          <div class="work-profile-ai-row">
-            <t-input
-              v-model="workProfileForm.jobTitle"
-              :label="$t('tenantMember.workProfile.jobLabel')"
-              :placeholder="$t('tenantMember.workProfile.jobPlaceholder')"
-              :maxlength="80"
-              clearable
-            />
-            <t-button variant="outline" :loading="workProfileSuggesting" @click="suggestWorkProfileDescription">
-              <template #icon><t-icon name="star" /></template>
-              {{ $t('tenantMember.workProfile.suggest') }}
-            </t-button>
-          </div>
-          <t-form ref="workProfileFormRef" :data="workProfileForm" :rules="workProfileRules" label-align="top" @submit.prevent>
-            <t-form-item :label="$t('tenantMember.workProfile.label')" name="description">
-              <t-textarea
-                v-model="workProfileForm.description"
-                :autosize="{ minRows: 5, maxRows: 8 }"
-                :maxlength="2000"
-                :placeholder="$t('tenantMember.workProfile.placeholder')"
-              />
-            </t-form-item>
-          </t-form>
-          <p class="work-profile-dialog__hint">
-            {{ $t('tenantMember.workProfile.hint') }}
-          </p>
-        </div>
-      </t-dialog>
 
     <!-- Audit log drawer. Only rendered for Admin+ because the backend
          route is g.Admin()-gated; rendering it for lower roles would
@@ -581,16 +501,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import {
   listMembers,
   adminCreateMember,
-  generateMemberWorkProfile,
+  DEFAULT_WORK_PROFILE_DESCRIPTION,
   updateMemberRole,
-  updateMemberProfile,
   removeMember,
   suspendMember,
   reactivateMember,
@@ -637,10 +556,8 @@ const loading = ref(false)
 const error = ref('')
 const adding = ref(false)
 const creatingMember = ref(false)
-const workProfileSuggesting = ref(false)
 const createMemberDialogVisible = ref(false)
 const createMemberFormRef = ref<any>(null)
-const workProfileFormRef = ref<any>(null)
 /** 邀请流程：锚在列表头「+」按钮旁的弹出层（非居中模态）。 */
 const invitePopupVisible = ref(false)
 // share-link generator state (separate popup next to the phone
@@ -703,61 +620,57 @@ const auditScrollRoot = ref<HTMLElement | null>(null)
 const auditLoadSentinelEl = ref<HTMLElement | null>(null)
 let auditScrollObserver: IntersectionObserver | null = null
 
-// Add dialog model — reset on each open. Default role is contributor:
+// Add dialog model — reset on each open. Only phone + role are collected;
+// the tenant membership receives the default work profile server-side.
+// Default role is contributor:
 // inviting a fresh member with viewer is too restrictive for the
 // expected "let them collaborate on KBs" use case, and admin/owner
 // should be a deliberate promote step after the user accepts.
-const addForm = reactive<{ phone: string; role: TenantRole; workProfileDescription: string }>({
+const addForm = reactive<{ phone: string; role: TenantRole }>({
   phone: '',
   role: 'contributor',
-  workProfileDescription: '',
 })
 const createMemberForm = reactive<{ name: string; phone: string; workProfileDescription: string }>({
   name: '',
   phone: '',
-  workProfileDescription: '',
+  workProfileDescription: DEFAULT_WORK_PROFILE_DESCRIPTION,
 })
-const workProfileDialogVisible = ref(false)
-const workProfileSaving = ref(false)
-const workProfileTarget = ref<TenantMember | null>(null)
-const workProfileForm = reactive({
-  jobTitle: '',
-  description: '',
-})
+
+const currentUserId = computed(() => authStore.user?.id ?? '')
+
+// 企业设置是账号级入口；从个人空间打开设置页时，也要管理账号拥有的企业空间。
+const activeTenantId = computed(() =>
+  Number(
+    authStore.enterpriseSettingsTenantId ||
+    authStore.effectiveTenantId ||
+    authStore.currentTenantId ||
+    0,
+  ) || 0,
+)
 
 // Role-aware gates. The server enforces every mutation; UI gates here
 // are presentational only, matching the security note in stores/auth.ts.
-const currentRole = computed<TenantRole | ''>(() => (authStore.currentTenantRole || '') as TenantRole | '')
+const currentRole = computed<TenantRole | ''>(() => {
+  const tenantId = activeTenantId.value
+  if (!tenantId) return ''
+  if (authStore.canAccessAllTenants) return 'admin'
+  const membership = authStore.memberships.find((m) => Number(m.tenant_id) === tenantId)
+  return ((membership?.role || '') as TenantRole | '')
+})
 // Admin+ can manage ordinary memberships. Owner-role operations are
 // narrowed by canManageOwnerRoles below, mirroring the handler guards.
-const canManage = computed(
-  () =>
-    currentRole.value === 'owner' ||
-    currentRole.value === 'admin' ||
-    authStore.canAccessAllTenants === true,
-)
+const canManage = computed(() => authStore.hasRoleInTenant(activeTenantId.value, 'admin'))
 const canUseInvitations = computed(() => canManage.value && !props.disableInvitations)
 const canManageOwnerRoles = computed(
   () =>
-    currentRole.value === 'owner' ||
+    authStore.hasRoleInTenant(activeTenantId.value, 'owner') ||
     authStore.canAccessAllTenants === true ||
     authStore.isSystemAdmin === true,
 )
 // Admin+ (and cross-tenant superusers) can view the audit log. Mirrors
 // the server's g.Admin() guard on /tenants/:id/audit-log so we don't
 // render a tab that would just 403.
-const canViewAudit = computed(
-  () =>
-    currentRole.value === 'owner' ||
-    currentRole.value === 'admin' ||
-    authStore.canAccessAllTenants === true,
-)
-const currentUserId = computed(() => authStore.user?.id ?? '')
-
-// Use the active tenant id from the auth store; the route only allows
-// :id == active tenant (auth middleware enforces membership), so we
-// don't expose a tenant picker here.
-const activeTenantId = computed(() => Number(authStore.currentTenantId ?? 0))
+const canViewAudit = computed(() => authStore.hasRoleInTenant(activeTenantId.value, 'admin'))
 
 type SelectOption<T extends string = string> = { label: string; value: T }
 
@@ -850,7 +763,6 @@ const columns = computed(() => [
   { colKey: 'status', title: t('tenantMember.columns.status'), width: 118 },
   { colKey: 'source', title: t('tenantMember.columns.source'), width: 106 },
   { colKey: 'department', title: t('tenantMember.columns.department'), ellipsis: true, minWidth: 116 },
-  { colKey: 'work_profile_description', title: t('tenantMember.columns.workProfile'), minWidth: 280 },
   { colKey: 'joined_at', title: t('tenantMember.columns.joinedAt'), width: 154 },
   { colKey: 'operation', title: t('tenantMember.columns.operations'), width: 128, align: 'left', cell: 'operation' },
 ])
@@ -866,86 +778,12 @@ function memberSecondary(row: { username?: string; email?: string }) {
   return ''
 }
 
-function memberWorkProfilePreview(row: TenantMember) {
-  return row.work_profile_description?.trim() || t('tenantMember.workProfile.empty')
-}
-
-function openWorkProfileDialog(row: TenantMember) {
-  workProfileTarget.value = row
-  workProfileForm.jobTitle = ''
-  workProfileForm.description = row.work_profile_description?.trim() || ''
-  workProfileDialogVisible.value = true
-  nextTick(() => workProfileFormRef.value?.clearValidate?.())
-}
-
-async function suggestWorkProfileDescription() {
-  if (!activeTenantId.value || !workProfileTarget.value) return
-  const jobTitle = workProfileForm.jobTitle.trim()
-  if (!jobTitle) {
-    MessagePlugin.warning(t('tenantMember.workProfile.jobRequired'))
-    return
-  }
-  workProfileSuggesting.value = true
-  try {
-    const resp = await generateMemberWorkProfile(activeTenantId.value, {
-      job_title: jobTitle,
-      member_name: memberPrimary(workProfileTarget.value),
-      existing_description: workProfileForm.description.trim(),
-    })
-    if (!resp.success || !resp.data?.description) {
-      MessagePlugin.error(resp.message || t('tenantMember.workProfile.suggestFailed'))
-      return
-    }
-    workProfileForm.description = resp.data.description.trim()
-    nextTick(() => workProfileFormRef.value?.clearValidate?.())
-    MessagePlugin.success(t('tenantMember.workProfile.suggestSuccess'))
-  } catch (err: any) {
-    MessagePlugin.error(err?.message || t('tenantMember.workProfile.suggestFailed'))
-  } finally {
-    workProfileSuggesting.value = false
-  }
-}
-
-async function saveWorkProfileDescription() {
-  if (!activeTenantId.value || !workProfileTarget.value) return
-  const valid = await workProfileFormRef.value?.validate?.()
-  if (valid !== true) return
-  const target = workProfileTarget.value
-  const description = workProfileForm.description.trim()
-  workProfileSaving.value = true
-  try {
-    const resp = await updateMemberProfile(activeTenantId.value, target.user_id, {
-      work_profile_description: description,
-    })
-    if (!resp.success) {
-      MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
-      return
-    }
-    target.work_profile_description = description
-    const row = members.value.find((member) => member.user_id === target.user_id)
-    if (row) row.work_profile_description = description
-    workProfileDialogVisible.value = false
-    MessagePlugin.success(t('tenantMember.workProfile.success'))
-  } catch (err: any) {
-    MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
-  } finally {
-    workProfileSaving.value = false
-  }
-}
-
 const addFormRules = {
   phone: [
     { required: true, message: t('tenantMember.errors.phoneRequired'), trigger: 'blur' },
     { pattern: /^1[3-9]\d{9}$/, message: t('tenantMember.errors.phoneFormat'), trigger: 'blur' },
   ],
   role: [{ required: true, message: t('tenantMember.errors.roleRequired'), trigger: 'change' }],
-  workProfileDescription: [
-    {
-      validator: (val: string) => (val ?? '').trim().length > 0,
-      message: t('tenantMember.errors.workProfileRequired'),
-      trigger: 'blur',
-    },
-  ],
 }
 
 const createMemberRules = {
@@ -966,16 +804,6 @@ const createMemberRules = {
     { pattern: /^1[3-9]\d{9}$/, message: t('tenantMember.errors.phoneFormat'), trigger: 'blur' },
   ],
   workProfileDescription: [
-    {
-      validator: (val: string) => (val ?? '').trim().length > 0,
-      message: t('tenantMember.errors.workProfileRequired'),
-      trigger: 'blur',
-    },
-  ],
-}
-
-const workProfileRules = {
-  description: [
     {
       validator: (val: string) => (val ?? '').trim().length > 0,
       message: t('tenantMember.errors.workProfileRequired'),
@@ -1009,12 +837,6 @@ function roleIcon(role: TenantRole | string): string {
 
 function canManageMemberRow(row: TenantMember): boolean {
   if (!canManage.value || row.user_id === currentUserId.value) return false
-  if (row.role === 'owner' && !canManageOwnerRoles.value) return false
-  return true
-}
-
-function canConfigureWorkProfile(row: TenantMember): boolean {
-  if (!canManage.value) return false
   if (row.role === 'owner' && !canManageOwnerRoles.value) return false
   return true
 }
@@ -1432,11 +1254,14 @@ onUnmounted(() => {
   detachAuditInfiniteScroll()
 })
 
+onMounted(() => {
+  void authStore.refreshFromAuthMe()
+})
+
 watch(invitePopupVisible, (open) => {
   if (!open) return
   addForm.phone = ''
   addForm.role = 'contributor'
-  addForm.workProfileDescription = ''
   addDialogStep.value = 'form'
 })
 
@@ -1452,7 +1277,7 @@ watch(createMemberDialogVisible, (open) => {
   if (!open) return
   createMemberForm.name = ''
   createMemberForm.phone = ''
-  createMemberForm.workProfileDescription = ''
+  createMemberForm.workProfileDescription = DEFAULT_WORK_PROFILE_DESCRIPTION
   nextTick(() => createMemberFormRef.value?.clearValidate?.())
 })
 
@@ -1510,6 +1335,9 @@ async function submitShareLink() {
 
 function createMemberConflictMessage(message: string): string {
   const lower = message.toLowerCase()
+  if (lower.includes('another enterprise workspace') || lower.includes('already belongs')) {
+    return t('tenantMember.errors.enterpriseMembershipExists')
+  }
   if (lower.includes('phone')) return t('tenantMember.errors.phoneExists')
   if (lower.includes('username')) return t('tenantMember.errors.nameExists')
   return message || t('tenantMember.errors.alreadyMember')
@@ -1569,7 +1397,6 @@ async function submitCreateMember() {
 // the summary always mirrors the current form state.
 const addConfirmPhone = computed(() => addForm.phone.trim())
 const addConfirmRoleLabel = computed(() => t('tenantMember.role.' + addForm.role))
-const addConfirmWorkProfilePreview = computed(() => addForm.workProfileDescription.trim())
 
 // submitAdd is wired to the popup footer primary CTA. On step='form' it
 // validates and swaps to summary; on step='confirm' it fires the API.
@@ -1580,7 +1407,7 @@ async function submitAdd() {
     addDialogStep.value = 'confirm'
     return
   }
-  await sendInvitation(addForm.phone.trim(), addForm.role, addForm.workProfileDescription.trim())
+  await sendInvitation(addForm.phone.trim(), addForm.role)
 }
 
 // goBackToForm un-advances from confirm to form inside the popup.
@@ -1596,7 +1423,7 @@ const dialogConfirmLabel = computed(() =>
 )
 
 // sendInvitation actually fires the create-invitation API call.
-async function sendInvitation(phone: string, role: TenantRole, workProfileDescription: string) {
+async function sendInvitation(phone: string, role: TenantRole) {
   if (role === 'owner' && !canManageOwnerRoles.value) {
     MessagePlugin.error(t('tenantMember.errors.ownerRequiresOwner'))
     return
@@ -1606,7 +1433,6 @@ async function sendInvitation(phone: string, role: TenantRole, workProfileDescri
     const resp = await createInvitation(activeTenantId.value, {
       phone,
       role,
-      work_profile_description: workProfileDescription,
     })
     if (resp.success) {
       invitePopupVisible.value = false
@@ -1619,15 +1445,18 @@ async function sendInvitation(phone: string, role: TenantRole, workProfileDescri
     if (status === 404) {
       MessagePlugin.error(t('tenantMember.errors.userNotFound'))
     } else if (status === 409) {
+      const message = String(err?.message || '').toLowerCase()
       // Server returns the same 409 for both "already a member" and
       // "already a pending invite". The message body discriminates,
       // but for the toast we show both possibilities folded into one
       // helpful line.
       MessagePlugin.error(
-        err?.message ||
-        `${t('tenantInvitation.errors.alreadyMember')} / ${t(
-          'tenantInvitation.errors.pendingExists',
-        )}`,
+        message.includes('another enterprise workspace') || message.includes('already belongs')
+          ? t('tenantInvitation.errors.enterpriseMembershipExists')
+          : err?.message ||
+          `${t('tenantInvitation.errors.alreadyMember')} / ${t(
+            'tenantInvitation.errors.pendingExists',
+          )}`,
       )
     } else if (status === 400) {
       MessagePlugin.error(err?.message || t('tenantMember.errors.invalidRole'))
@@ -2102,88 +1931,12 @@ watch(
   white-space: nowrap;
 }
 
-.work-profile-cell {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-width: 0;
-  min-height: 36px;
-}
-
-.work-profile-preview {
-  display: -webkit-box;
-  min-width: 0;
-  max-width: 420px;
-  overflow: hidden;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.work-profile-preview.is-empty {
-  color: var(--td-text-color-disabled);
-}
-
 .member-actions-cell {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
   min-height: 32px;
-}
-
-.work-profile-action-btn {
-  height: 28px;
-  padding: 0 8px;
-  font-weight: 500;
-}
-
-.work-profile-action-btn :deep(.t-button__text) {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.work-profile-dialog {
-  display: grid;
-  gap: 12px;
-}
-
-.work-profile-dialog__member {
-  display: grid;
-  gap: 3px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--td-bg-color-secondarycontainer);
-}
-
-.work-profile-dialog__member strong {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.work-profile-dialog__member span,
-.work-profile-dialog__hint {
-  margin: 0;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.work-profile-ai-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: end;
-}
-
-@media (max-width: 560px) {
-  .work-profile-ai-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Audit drawer's data-table-shell variant: only used inside the audit
@@ -2427,26 +2180,6 @@ watch(
 
   p {
     margin: 0;
-  }
-}
-
-.invite-confirm-work-profile {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 10px !important;
-  color: var(--td-text-color-secondary);
-
-  strong {
-    color: var(--td-text-color-primary);
-    font-weight: 600;
-  }
-
-  span {
-    display: -webkit-box;
-    overflow: hidden;
-    -webkit-line-clamp: 4;
-    -webkit-box-orient: vertical;
   }
 }
 

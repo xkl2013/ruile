@@ -8,12 +8,14 @@ import (
 
 // TenantMemberService is the business-logic layer over TenantMemberRepository.
 // It enforces tenant-RBAC invariants such as "every tenant with members must
-// keep at least one active Owner". HTTP handlers and other services call this
-// interface rather than the repository directly so the invariants cannot be
-// silently bypassed.
+// keep at least one active Owner" and the account rule that personal
+// membership may coexist with at most one enterprise membership. HTTP handlers
+// and other services call this interface rather than the repository directly
+// so the invariants cannot be silently bypassed.
 type TenantMemberService interface {
 	// AddMember inserts a new active membership row. Returns an error if
-	// (user, tenant) already has an active membership.
+	// (user, tenant) already has an active membership, or the user already
+	// belongs to another enterprise workspace.
 	AddMember(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error)
 
 	// AddMemberWithProfile inserts a member from an operator-managed member

@@ -7,6 +7,21 @@ export type TenantRole = 'owner' | 'admin' | 'contributor' | 'viewer'
 export type TenantMemberStatus = 'active' | 'invited' | 'suspended'
 export type TenantMemberSource = 'manual' | 'invite' | 'sso' | 'scim' | 'ldap' | 'hris'
 
+export const DEFAULT_WORK_PROFILE_DESCRIPTION = `1.【岗位与执教履历】
+- 岗位角色：教培工作者，面向学生、家长、教师和教培团队提供教学与服务支持。
+- 执教/服务领域：课程教学、学员辅导、家校沟通、课程跟进和教育内容整理。
+- 机构环境：根据当前空间提供的课程资料、服务规则和业务信息开展工作，不臆造个人资历或机构信息。
+
+2.【工作与协作偏好】
+- 输出格式偏好：优先使用清晰的分点、步骤、表格或可直接复用的文案。
+- 沟通与决策风格：先确认事实和目标，再给出具体、稳妥、可执行的建议；涉及不确定信息时明确说明。
+- AI 协作期望：协助整理课程资料、分析学习与服务问题、准备家校沟通内容和跟进清单。
+
+3.【近期业务重心】
+- 近期关注：提升教学质量、学习效果、家长满意度和续费、转化跟进效率。
+- 处理边界：不负责超出本人岗位和授权范围的财务审批、人事决策、跨空间数据访问、医疗或心理诊断以及平台运维。
+- 记忆与系统范围：仅读取当前空间授权的知识库、服务规则和与当前工作相关的记忆；涉及外部系统时只生成建议或草稿，不直接执行敏感操作。`
+
 // TenantMember is the API projection of a (user, tenant) membership row,
 // already joined with the user's email/username/avatar by the backend.
 export interface TenantMember {
@@ -64,6 +79,14 @@ function buildMembersQuery(params: ListMembersParams | undefined): string {
   return qs ? `?${qs}` : ''
 }
 
+function tenantScopedConfig(tenantId: number) {
+  return {
+    headers: {
+      'X-Tenant-ID': String(tenantId),
+    },
+  }
+}
+
 export interface AddMemberRequest {
   email: string
   role: TenantRole
@@ -88,6 +111,22 @@ export interface AddMemberResponse {
 export interface SimpleResponse {
   success: boolean
   message?: string
+}
+
+export interface MyMemberProfile {
+  user_id: string
+  tenant_id: number
+  work_profile_description: string
+}
+
+export interface MyMemberProfileResponse {
+  success: boolean
+  data?: MyMemberProfile
+  message?: string
+}
+
+export interface GenerateMyMemberProfileRequest {
+  prompt: string
 }
 
 export interface GenerateMemberWorkProfileRequest {
@@ -118,6 +157,7 @@ export async function listMembers(
   const qs = buildMembersQuery(params)
   return (await get(
     `/api/v1/tenants/${tenantId}/members${qs}`,
+    tenantScopedConfig(tenantId),
   )) as unknown as ListMembersResponse
 }
 
@@ -155,7 +195,11 @@ export async function addMember(
   tenantId: number,
   body: AddMemberRequest,
 ): Promise<AddMemberResponse> {
-  return (await post(`/api/v1/tenants/${tenantId}/members`, body)) as unknown as AddMemberResponse
+  return (await post(
+    `/api/v1/tenants/${tenantId}/members`,
+    body,
+    tenantScopedConfig(tenantId),
+  )) as unknown as AddMemberResponse
 }
 
 /**
@@ -171,6 +215,7 @@ export async function adminCreateMember(
   return (await post(
     `/api/v1/tenants/${tenantId}/members/admin-create`,
     body,
+    tenantScopedConfig(tenantId),
   )) as unknown as AddMemberResponse
 }
 
@@ -185,7 +230,11 @@ export async function updateMemberRole(
   userId: string,
   role: TenantRole,
 ): Promise<SimpleResponse> {
-  return (await put(`/api/v1/tenants/${tenantId}/members/${userId}`, { role })) as unknown as SimpleResponse
+  return (await put(
+    `/api/v1/tenants/${tenantId}/members/${userId}`,
+    { role },
+    tenantScopedConfig(tenantId),
+  )) as unknown as SimpleResponse
 }
 
 /**
@@ -200,7 +249,52 @@ export async function updateMemberProfile(
   return (await put(
     `/api/v1/tenants/${tenantId}/members/${userId}/profile`,
     body,
+    tenantScopedConfig(tenantId),
   )) as unknown as SimpleResponse
+}
+
+/**
+ * Read the current user's tenant-scoped work profile.
+ * Backend: GET /api/v1/tenants/:id/members/me/profile (Viewer+).
+ */
+export async function getMyMemberProfile(
+  tenantId: number,
+): Promise<MyMemberProfileResponse> {
+  return (await get(
+    `/api/v1/tenants/${tenantId}/members/me/profile`,
+    tenantScopedConfig(tenantId),
+  )) as unknown as MyMemberProfileResponse
+}
+
+/**
+ * Update the current user's tenant-scoped work profile.
+ * Backend: PUT /api/v1/tenants/:id/members/me/profile (Viewer+).
+ */
+export async function updateMyMemberProfile(
+  tenantId: number,
+  body: { work_profile_description: string },
+): Promise<SimpleResponse> {
+  return (await put(
+    `/api/v1/tenants/${tenantId}/members/me/profile`,
+    body,
+    tenantScopedConfig(tenantId),
+  )) as unknown as SimpleResponse
+}
+
+/**
+ * Generate the current user's tenant-scoped work profile from an explicit prompt.
+ * Backend: POST /api/v1/tenants/:id/members/me/profile/generate (Viewer+).
+ * The response is a draft; callers must explicitly save it.
+ */
+export async function generateMyMemberProfile(
+  tenantId: number,
+  body: GenerateMyMemberProfileRequest,
+): Promise<GenerateMemberWorkProfileResponse> {
+  return (await post(
+    `/api/v1/tenants/${tenantId}/members/me/profile/generate`,
+    body,
+    tenantScopedConfig(tenantId),
+  )) as unknown as GenerateMemberWorkProfileResponse
 }
 
 /**
@@ -214,6 +308,7 @@ export async function generateMemberWorkProfile(
   return (await post(
     `/api/v1/tenants/${tenantId}/members/work-profile/suggest`,
     body,
+    tenantScopedConfig(tenantId),
   )) as unknown as GenerateMemberWorkProfileResponse
 }
 
@@ -227,7 +322,11 @@ export async function removeMember(
   tenantId: number,
   userId: string,
 ): Promise<SimpleResponse> {
-  return (await del(`/api/v1/tenants/${tenantId}/members/${userId}`)) as unknown as SimpleResponse
+  return (await del(
+    `/api/v1/tenants/${tenantId}/members/${userId}`,
+    undefined,
+    tenantScopedConfig(tenantId),
+  )) as unknown as SimpleResponse
 }
 
 /**
@@ -238,7 +337,11 @@ export async function suspendMember(
   tenantId: number,
   userId: string,
 ): Promise<SimpleResponse> {
-  return (await post(`/api/v1/tenants/${tenantId}/members/${userId}/suspend`)) as unknown as SimpleResponse
+  return (await post(
+    `/api/v1/tenants/${tenantId}/members/${userId}/suspend`,
+    {},
+    tenantScopedConfig(tenantId),
+  )) as unknown as SimpleResponse
 }
 
 /**
@@ -249,7 +352,11 @@ export async function reactivateMember(
   tenantId: number,
   userId: string,
 ): Promise<SimpleResponse> {
-  return (await post(`/api/v1/tenants/${tenantId}/members/${userId}/reactivate`)) as unknown as SimpleResponse
+  return (await post(
+    `/api/v1/tenants/${tenantId}/members/${userId}/reactivate`,
+    {},
+    tenantScopedConfig(tenantId),
+  )) as unknown as SimpleResponse
 }
 
 /**
@@ -259,5 +366,9 @@ export async function reactivateMember(
  * Backend: POST /api/v1/tenants/:id/leave (Viewer+).
  */
 export async function leaveTenant(tenantId: number): Promise<SimpleResponse> {
-  return (await post(`/api/v1/tenants/${tenantId}/leave`)) as unknown as SimpleResponse
+  return (await post(
+    `/api/v1/tenants/${tenantId}/leave`,
+    {},
+    tenantScopedConfig(tenantId),
+  )) as unknown as SimpleResponse
 }

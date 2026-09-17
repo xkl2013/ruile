@@ -199,7 +199,7 @@ func (s *knowledgeBaseService) listAccountSharedKnowledgeBases(
 			}
 			existing, exists := byKBID[info.KnowledgeBase.ID]
 			if !exists ||
-				(info.Permission.HasPermission(existing.Permission) &&
+				(types.MaxOrgRole(existing.Permission, info.Permission) == info.Permission &&
 					info.Permission != existing.Permission) {
 				byKBID[info.KnowledgeBase.ID] = info
 			}

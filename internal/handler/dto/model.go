@@ -11,10 +11,8 @@ import (
 // fields (APIKey, AppSecret) removed by construction. Credential presence
 // metadata lives behind the /credentials subresource, not inlined here.
 //
-// BaseURL is preserved for tenant-owned models (the frontend needs it to
-// render which endpoint a custom model points at). For builtin models it is
-// stripped along with every other field that could leak how a particular
-// tenant configured the upstream provider.
+// BaseURL is preserved only for callers authorized to view integration
+// configuration. Secret fields never appear in this response.
 type ModelResponse struct {
 	ID          string             `json:"id"`
 	TenantID    uint64             `json:"tenant_id"`
@@ -29,8 +27,7 @@ type ModelResponse struct {
 	Status      types.ModelStatus  `json:"status"`
 	CreatedAt   time.Time          `json:"created_at"`
 	UpdatedAt   time.Time          `json:"updated_at"`
-	// Per-field "configured?" map. Omitted for builtin models unless the
-	// caller is a system administrator. See MCPServiceResponse.Credentials.
+	// Per-field "configured?" map. See MCPServiceResponse.Credentials.
 	Credentials map[string]CredentialFieldMetadata `json:"credentials,omitempty"`
 }
 
@@ -53,8 +50,6 @@ type ModelParametersDTO struct {
 
 // NewModelResponse converts a stored Model into its response shape.
 //
-// Builtin models are shared across tenants — strip BaseURL (which can leak
-// the tenant's private endpoint) and any non-shared parameters.
 func NewModelResponse(ctx context.Context, m *types.Model) *ModelResponse {
 	if m == nil {
 		return nil
@@ -71,28 +66,14 @@ func NewModelResponse(ctx context.Context, m *types.Model) *ModelResponse {
 		MaxConcurrency:      m.Parameters.MaxConcurrency,
 		AppID:               m.Parameters.AppID,
 	}
-	canManageBuiltin := m.IsBuiltin && types.IsSystemAdminFromContext(ctx)
-	if !CanViewIntegrationSecrets(ctx) && !canManageBuiltin {
+	if !CanViewIntegrationSecrets(ctx) {
 		params.ExtraConfig = nil
 		params.CustomHeaders = nil
 		params.BaseURL = ""
 	}
-	if m.IsBuiltin && !canManageBuiltin {
-		// Builtin: strip everything that could reveal per-tenant config.
-		// EmbeddingParameters and ParameterSize / Provider / InterfaceType /
-		// SupportsVision are intentionally preserved (they describe the
-		// capability surface, not the configured endpoint).
-		params.BaseURL = ""
-		params.ExtraConfig = nil
-		params.CustomHeaders = nil
-		params.AppID = ""
-	}
-	var creds map[string]CredentialFieldMetadata
-	if !m.IsBuiltin || canManageBuiltin {
-		creds = map[string]CredentialFieldMetadata{
-			"api_key":    {Configured: m.Parameters.APIKey != ""},
-			"app_secret": {Configured: m.Parameters.AppSecret != ""},
-		}
+	creds := map[string]CredentialFieldMetadata{
+		"api_key":    {Configured: m.Parameters.APIKey != ""},
+		"app_secret": {Configured: m.Parameters.AppSecret != ""},
 	}
 	return &ModelResponse{
 		ID:          m.ID,
@@ -104,7 +85,7 @@ func NewModelResponse(ctx context.Context, m *types.Model) *ModelResponse {
 		Description: m.Description,
 		Parameters:  params,
 		IsDefault:   m.IsDefault,
-		IsBuiltin:   m.IsBuiltin,
+		IsBuiltin:   false,
 		Status:      m.Status,
 		CreatedAt:   m.CreatedAt,
 		UpdatedAt:   m.UpdatedAt,

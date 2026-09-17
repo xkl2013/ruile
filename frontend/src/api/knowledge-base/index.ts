@@ -3,8 +3,23 @@ import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess';
 
 const KNOWLEDGE_FILE_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 
+export interface KnowledgeBaseRequestOptions {
+  tenantId?: number | string | null
+}
+
+function tenantScopedConfig(options?: KnowledgeBaseRequestOptions) {
+  const tenantId = Number(options?.tenantId || 0)
+  if (!tenantId) return undefined
+  return {
+    headers: {
+      'X-Tenant-ID': String(tenantId),
+    },
+  }
+}
+
 // 知识库管理 API（列表、创建、获取、更新、删除、复制）
-export function listKnowledgeBases(params?: {
+export function listKnowledgeBases(
+  params?: {
   agent_id?: string;
   /**
    * Optional creator filter. Server-side semantics:
@@ -15,12 +30,17 @@ export function listKnowledgeBases(params?: {
    * mine/others — they fall out of both views by design.
    */
   creator?: 'all' | 'mine' | 'others';
-}) {
+  },
+  options?: KnowledgeBaseRequestOptions,
+) {
   const query = new URLSearchParams();
   if (params?.agent_id) query.set('agent_id', params.agent_id);
   if (params?.creator && params.creator !== 'all') query.set('creator', params.creator);
   const qs = query.toString();
-  return get(qs ? `/api/v1/knowledge-bases?${qs}` : '/api/v1/knowledge-bases');
+  return get(
+    qs ? `/api/v1/knowledge-bases?${qs}` : '/api/v1/knowledge-bases',
+    tenantScopedConfig(options),
+  );
 }
 
 export type KnowledgeBasePermission = 'admin' | 'editor' | 'viewer';

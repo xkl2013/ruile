@@ -15,6 +15,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/middleware"
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/gin-gonic/gin"
@@ -196,6 +197,50 @@ func (s *stubMemberUserService) DeleteUser(ctx context.Context, id string) error
 	return nil
 }
 
+type stubMemberModelService struct {
+	interfaces.ModelService
+	models    []*types.Model
+	chatModel chat.Chat
+}
+
+func (s *stubMemberModelService) ListModels(context.Context) ([]*types.Model, error) {
+	return s.models, nil
+}
+
+func (s *stubMemberModelService) GetChatModel(context.Context, string) (chat.Chat, error) {
+	if s.chatModel == nil {
+		return nil, errors.New("chat model is not configured")
+	}
+	return s.chatModel, nil
+}
+
+type stubMemberChatModel struct {
+	messages []chat.Message
+	content  string
+}
+
+func (m *stubMemberChatModel) Chat(
+	_ context.Context,
+	messages []chat.Message,
+	_ *chat.ChatOptions,
+) (*types.ChatResponse, error) {
+	m.messages = append([]chat.Message(nil), messages...)
+	return &types.ChatResponse{Content: m.content}, nil
+}
+
+func (m *stubMemberChatModel) ChatStream(
+	context.Context,
+	[]chat.Message,
+	*chat.ChatOptions,
+) (<-chan types.StreamResponse, error) {
+	ch := make(chan types.StreamResponse)
+	close(ch)
+	return ch, nil
+}
+
+func (m *stubMemberChatModel) GetModelName() string { return "member-test-chat" }
+func (m *stubMemberChatModel) GetModelID() string   { return "member-test-chat" }
+
 // newTestMemberHandler builds a TenantMemberHandler with no extra
 // dependencies. The cross-tenant URL check moved to
 // middleware.RequirePathTenantMatch in PR 4; tests mount that
@@ -203,6 +248,14 @@ func (s *stubMemberUserService) DeleteUser(ctx context.Context, id string) error
 // the handler.
 func newTestMemberHandler(ms interfaces.TenantMemberService, us interfaces.UserService) *TenantMemberHandler {
 	return NewTenantMemberHandler(ms, us, nil)
+}
+
+func newTestMemberHandlerWithModel(
+	ms interfaces.TenantMemberService,
+	us interfaces.UserService,
+	modelService interfaces.ModelService,
+) *TenantMemberHandler {
+	return NewTenantMemberHandler(ms, us, modelService)
 }
 
 // memberTestRouter wires the handler with the same errorCapture middleware
@@ -228,6 +281,9 @@ func memberTestRouterWithCfg(h *TenantMemberHandler, cfg *config.Config) *gin.En
 	tenantByID.GET("/members", h.ListMembers)
 	tenantByID.POST("/members", h.AddMember)
 	tenantByID.POST("/members/admin-create", h.AdminCreateMember)
+	tenantByID.GET("/members/me/profile", h.GetMyMemberProfile)
+	tenantByID.PUT("/members/me/profile", h.UpdateMyMemberProfile)
+	tenantByID.POST("/members/me/profile/generate", h.GenerateMyMemberProfile)
 	tenantByID.PUT("/members/:user_id", h.UpdateMemberRole)
 	tenantByID.PUT("/members/:user_id/profile", h.UpdateMemberProfile)
 	tenantByID.POST("/members/:user_id/suspend", h.SuspendMember)
@@ -482,6 +538,26 @@ func TestTenantMember_AddMember_DuplicateMaps409(t *testing.T) {
 	}
 }
 
+func TestTenantMember_AddMember_SecondEnterpriseMaps409(t *testing.T) {
+	ms := &stubMemberService{
+		add: func(_ context.Context, _ string, _ uint64, _ types.TenantRole, _ *string) (*types.TenantMember, error) {
+			return nil, service.ErrEnterpriseMembershipAlreadyExists
+		},
+	}
+	us := &stubMemberUserService{
+		getByEmail: func(_ context.Context, _ string) (*types.User, error) {
+			return &types.User{ID: "u-bob", Email: "bob@x.com"}, nil
+		},
+	}
+	h := newTestMemberHandler(ms, us)
+
+	body := map[string]any{"email": "bob@x.com", "role": "contributor", "work_profile_description": "负责家校服务"}
+	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("second enterprise membership must surface as 409, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestTenantMember_AddMember_InvalidRoleRejectedUpfront(t *testing.T) {
 	// Reject obviously bogus roles before paying for the user lookup.
 	called := false
@@ -697,24 +773,39 @@ func TestTenantMember_AdminCreateMember_DoesNotDeleteExistingAccountWhenMembersh
 	}
 }
 
-func TestTenantMember_AdminCreateMember_RequiresWorkProfileDescription(t *testing.T) {
-	calledCreate := false
-	us := &stubMemberUserService{
-		adminCreate: func(context.Context, *types.RegisterRequest) (*types.User, error) {
-			calledCreate = true
-			return &types.User{}, nil
+func TestTenantMember_AdminCreateMember_DefaultsWorkProfileDescription(t *testing.T) {
+	var capturedDescription string
+	ms := &stubMemberService{
+		addWithProfile: func(_ context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string, description string) (*types.TenantMember, error) {
+			capturedDescription = description
+			return &types.TenantMember{
+				UserID: userID, TenantID: tenantID, Role: role,
+				Status:                 types.TenantMemberStatusActive,
+				Source:                 types.TenantMemberSourceManual,
+				WorkProfileDescription: description,
+				JoinedAt:               time.Now(),
+			}, nil
 		},
 	}
-	h := newTestMemberHandler(&stubMemberService{}, us)
+	us := &stubMemberUserService{
+		adminCreate: func(_ context.Context, req *types.RegisterRequest) (*types.User, error) {
+			return &types.User{ID: "u-new", Username: req.Username, Email: req.Phone}, nil
+		},
+	}
+	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"phone": "13258978288", "name": "地平线", "work_profile_description": "   "}
+	body := map[string]any{"phone": "13258978288", "name": "地平线"}
 	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/admin-create", body,
 		memberCtxOpts{callerID: "u-admin", role: types.TenantRoleAdmin})
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("blank work profile must 400, got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
 	}
-	if calledCreate {
-		t.Fatalf("AdminCreateUser must not run when work profile description is blank")
+	if capturedDescription != types.DefaultWorkProfileDescription {
+		t.Fatalf("default work profile = %q, want %q", capturedDescription, types.DefaultWorkProfileDescription)
+	}
+	encodedDescription, _ := json.Marshal(types.DefaultWorkProfileDescription)
+	if !strings.Contains(w.Body.String(), `"work_profile_description":`+string(encodedDescription)) {
+		t.Fatalf("response should include default work profile: %s", w.Body.String())
 	}
 }
 
@@ -855,6 +946,135 @@ func TestTenantMember_UpdateMemberProfile_RequiresDescription(t *testing.T) {
 	w := doJSON(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-bob/profile", body, "u-owner")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("blank work profile must 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTenantMember_GetMyMemberProfile_ReturnsCallerProfile(t *testing.T) {
+	ms := &stubMemberService{
+		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+			if userID != "u-self" || tenantID != 1 {
+				t.Fatalf("unexpected lookup: user=%s tenant=%d", userID, tenantID)
+			}
+			return &types.TenantMember{
+				UserID:                 userID,
+				TenantID:               tenantID,
+				Role:                   types.TenantRoleContributor,
+				Status:                 types.TenantMemberStatusActive,
+				WorkProfileDescription: "负责课程跟进和家校沟通",
+			}, nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	w := doJSON(t, memberTestRouter(h), http.MethodGet, "/tenants/1/members/me/profile", nil, "u-self")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"work_profile_description":"负责课程跟进和家校沟通"`) {
+		t.Fatalf("response should contain caller profile: %s", w.Body.String())
+	}
+}
+
+func TestTenantMember_UpdateMyMemberProfile_UsesCallerID(t *testing.T) {
+	called := false
+	ms := &stubMemberService{
+		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+			return &types.TenantMember{
+				UserID: userID, TenantID: tenantID,
+				Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive,
+			}, nil
+		},
+		updateProfile: func(_ context.Context, userID string, tenantID uint64, description string) error {
+			called = true
+			if userID != "u-self" || tenantID != 1 || description != "负责课程跟进和家校沟通" {
+				t.Fatalf("unexpected update: user=%s tenant=%d description=%q", userID, tenantID, description)
+			}
+			return nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	body := map[string]any{"work_profile_description": "负责课程跟进和家校沟通"}
+	w := doJSON(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/me/profile", body, "u-self")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !called {
+		t.Fatal("UpdateWorkProfileDescription must be called")
+	}
+}
+
+func TestTenantMember_GetMyMemberProfile_RequiresCaller(t *testing.T) {
+	called := false
+	ms := &stubMemberService{
+		getMembership: func(context.Context, string, uint64) (*types.TenantMember, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	w := doJSON(t, memberTestRouter(h), http.MethodGet, "/tenants/1/members/me/profile", nil, "")
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("missing caller must 401, got %d body=%s", w.Code, w.Body.String())
+	}
+	if called {
+		t.Fatal("membership lookup must not run without caller id")
+	}
+}
+
+func TestTenantMember_GenerateMyMemberProfile_UsesCallerPrompt(t *testing.T) {
+	chatModel := &stubMemberChatModel{
+		content: "1.【岗位与执教履历】\n- 岗位角色：招生顾问。\n\n2.【工作与协作偏好】\n- 先确认家长需求，再给出跟进建议。\n\n3.【近期业务重心】\n- 做好试听邀约和报名跟进。",
+	}
+	ms := &stubMemberService{
+		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+			if userID != "u-self" || tenantID != 1 {
+				t.Fatalf("unexpected lookup: user=%s tenant=%d", userID, tenantID)
+			}
+			return &types.TenantMember{
+				UserID:                 userID,
+				TenantID:               tenantID,
+				Role:                   types.TenantRoleViewer,
+				Status:                 types.TenantMemberStatusActive,
+				WorkProfileDescription: types.DefaultWorkProfileDescription,
+			}, nil
+		},
+	}
+	modelService := &stubMemberModelService{
+		models: []*types.Model{{
+			ID:        "chat-1",
+			Type:      types.ModelTypeKnowledgeQA,
+			Status:    types.ModelStatusActive,
+			IsDefault: true,
+		}},
+		chatModel: chatModel,
+	}
+	h := newTestMemberHandlerWithModel(ms, &stubMemberUserService{}, modelService)
+
+	body := map[string]any{
+		"prompt": "我是招生顾问，主要负责幼儿园家长咨询、试听邀约和报名跟进。",
+	}
+	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/me/profile/generate", body, "u-self")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"source":"ai"`) ||
+		!strings.Contains(w.Body.String(), "招生顾问") {
+		t.Fatalf("response should contain AI draft: %s", w.Body.String())
+	}
+	if len(chatModel.messages) != 2 ||
+		!strings.Contains(chatModel.messages[1].Content, "招生顾问") {
+		t.Fatalf("model must receive the caller prompt: %+v", chatModel.messages)
+	}
+}
+
+func TestTenantMember_GenerateMyMemberProfile_RequiresPrompt(t *testing.T) {
+	h := newTestMemberHandler(&stubMemberService{}, &stubMemberUserService{})
+	body := map[string]any{"prompt": "   "}
+	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/me/profile/generate", body, "u-self")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("blank prompt must 400, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

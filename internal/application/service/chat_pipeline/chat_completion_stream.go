@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/llmreference"
@@ -16,16 +17,19 @@ import (
 // PluginChatCompletionStream implements streaming chat completion functionality
 // as a plugin that can be registered to EventManager
 type PluginChatCompletionStream struct {
-	modelService interfaces.ModelService // Interface for model operations
+	modelService interfaces.ModelService
+	usageBilling interfaces.UsageBillingService
 }
 
 // NewPluginChatCompletionStream creates a new PluginChatCompletionStream instance
 // and registers it with the EventManager
 func NewPluginChatCompletionStream(eventManager *EventManager,
 	modelService interfaces.ModelService,
+	usageBilling interfaces.UsageBillingService,
 ) *PluginChatCompletionStream {
 	res := &PluginChatCompletionStream{
 		modelService: modelService,
+		usageBilling: usageBilling,
 	}
 	eventManager.Register(res)
 	return res
@@ -60,6 +64,18 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 	resourceRefs := llmresource.NewRegistry()
 	chatMessages = sourceRefs.EncodeMessages(chatMessages)
 	chatMessages = resourceRefs.EncodeMessages(chatMessages)
+	billingHandle, err := beginChatModelBilling(
+		ctx,
+		p.usageBilling,
+		eventType,
+		chatManage,
+		chatModel,
+		chatMessages,
+		opt,
+	)
+	if err != nil {
+		return ErrBillingRejected.WithError(err)
+	}
 	pipelineInfo(ctx, "Stream", "messages_ready", map[string]interface{}{
 		"message_count": len(chatMessages),
 		"system_prompt": chatMessages[0].Content,
@@ -84,8 +100,10 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 	pipelineInfo(ctx, "Stream", "model_call", map[string]interface{}{
 		"chat_model": chatManage.ChatModelID,
 	})
+	modelStartedAt := time.Now()
 	responseChan, err := chatModel.ChatStream(ctx, chatMessages, opt)
 	if err != nil {
+		releaseChatModelBilling(ctx, p.usageBilling, billingHandle, "model_call_failed")
 		pipelineError(ctx, "Stream", "model_call", map[string]interface{}{
 			"chat_model": chatManage.ChatModelID,
 			"error":      err.Error(),
@@ -93,6 +111,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 		return ErrModelCall.WithError(err)
 	}
 	if responseChan == nil {
+		releaseChatModelBilling(ctx, p.usageBilling, billingHandle, "nil_stream")
 		pipelineError(ctx, "Stream", "model_call", map[string]interface{}{
 			"chat_model": chatManage.ChatModelID,
 			"error":      "nil_channel",
@@ -117,6 +136,26 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 		thinkingID := fmt.Sprintf("%s-thinking", uuid.New().String()[:8])
 		answerID := fmt.Sprintf("%s-answer", uuid.New().String()[:8])
 		thinkingOpen := false
+		var finalUsage *types.TokenUsage
+		billingFinished := false
+
+		finishBilling := func(failureCode string) {
+			if billingFinished {
+				return
+			}
+			billingFinished = true
+			if finalUsage != nil {
+				settleChatModelBilling(
+					ctx,
+					p.usageBilling,
+					billingHandle,
+					finalUsage,
+					time.Since(modelStartedAt),
+				)
+				return
+			}
+			releaseChatModelBilling(ctx, p.usageBilling, billingHandle, failureCode)
+		}
 
 		closeThinking := func() {
 			if !thinkingOpen {
@@ -164,6 +203,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 			case <-ctx.Done():
 				flushDecoders()
 				closeThinking()
+				finishBilling("stream_cancelled")
 				pipelineInfo(ctx, "Stream", "context_cancelled", map[string]interface{}{
 					"session_id": chatManage.SessionID,
 				})
@@ -173,6 +213,7 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 				if !ok {
 					flushDecoders()
 					closeThinking()
+					finishBilling("stream_closed_without_usage")
 					pipelineInfo(ctx, "Stream", "channel_close", map[string]interface{}{
 						"session_id": chatManage.SessionID,
 					})
@@ -180,6 +221,9 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 				}
 
 				if response.ResponseType == types.ResponseTypeError {
+					if response.Usage != nil {
+						finalUsage = response.Usage
+					}
 					pipelineError(ctx, "Stream", "stream_error", map[string]interface{}{
 						"session_id": chatManage.SessionID,
 						"error":      response.Content,
@@ -195,6 +239,9 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 						},
 					})
 					continue
+				}
+				if response.Usage != nil {
+					finalUsage = response.Usage
 				}
 
 				if response.ResponseType == types.ResponseTypeThinking {
@@ -229,6 +276,9 @@ func (p *PluginChatCompletionStream) OnEvent(ctx context.Context,
 							Done:    response.Done,
 						},
 					})
+					if response.Done {
+						finishBilling("stream_completed_without_usage")
+					}
 				}
 			}
 		}

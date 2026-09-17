@@ -15,7 +15,6 @@
               </t-tooltip>
             </div>
           </div>
-          <p class="header-subtitle" style="--wails-draggable: drag">{{ $t('organization.subtitle') }}</p>
         </div>
       </div>
       <div class="org-list-main">
@@ -157,6 +156,7 @@
 
     <!-- Organization Settings Modal (用于创建和编辑组织) -->
     <OrganizationSettingsModal :visible="showSettingsModal" :org-id="settingsOrgId" :mode="settingsMode"
+      :tenant-id="modalTenantId"
       @update:visible="showSettingsModal = $event" @saved="handleSettingsSaved" />
 
     <!-- Delete Confirm Dialog -->
@@ -219,11 +219,13 @@ const router = useRouter()
 const orgStore = useOrganizationStore()
 const authStore = useAuthStore()
 
+const teamSpaceTenantId = computed(() => Number(authStore.enterpriseSettingsTenantId || 0) || null)
+const modalTenantId = computed(() => teamSpaceTenantId.value)
 // 后端 /api/v1/organizations 下的写操作（创建、管理员添加参与空间、改设置等）
-// 在路由层都要求当前空间角色 ≥ admin。前端只用于 UI 渲染，安全边界仍在服务端。
-const canUseTeamSpaces = computed(() => authStore.canUseTeamSpaces)
-const canManageOrg = computed(
-  () => canUseTeamSpaces.value && (authStore.hasRole('admin') || authStore.canAccessAllTenants)
+// 在路由层都要求目标企业空间角色 ≥ admin。前端只用于 UI 渲染，安全边界仍在服务端。
+const canUseTeamSpaces = computed(() => Boolean(teamSpaceTenantId.value))
+const canManageOrg = computed(() =>
+  Boolean(teamSpaceTenantId.value && authStore.hasRoleInTenant(teamSpaceTenantId.value, 'admin'))
 )
 const noPermissionTip = computed(() =>
   canUseTeamSpaces.value ? t('organization.rbac.needTenantAdminTip') : t('organization.rbac.enterpriseOnly')
@@ -306,7 +308,7 @@ function handleCardClick(org: OrgWithUI) {
 }
 
 function handleSettingsSaved() {
-  orgStore.fetchOrganizations()
+  void refreshOrganizations(true)
 }
 
 
@@ -325,7 +327,7 @@ function handleLeave(org: OrgWithUI) {
 
 async function confirmLeave() {
   if (!leavingOrg.value) return
-  const success = await orgStore.leave(leavingOrg.value.id)
+  const success = await orgStore.leave(leavingOrg.value.id, { tenantId: teamSpaceTenantId.value })
   if (success) {
     MessagePlugin.success(t('organization.leaveSuccess'))
     leaveVisible.value = false
@@ -347,7 +349,7 @@ async function confirmDelete() {
     MessagePlugin.warning(t('organization.rbac.cannotManage'))
     return
   }
-  const success = await orgStore.remove(deletingOrg.value.id)
+  const success = await orgStore.remove(deletingOrg.value.id, { tenantId: teamSpaceTenantId.value })
   if (success) {
     MessagePlugin.success(t('organization.deleteSuccess'))
     deleteVisible.value = false
@@ -357,13 +359,19 @@ async function confirmDelete() {
   }
 }
 
+async function refreshOrganizations(force = false) {
+  const tenantId = teamSpaceTenantId.value
+  if (!tenantId) {
+    orgStore.clearState()
+    return
+  }
+  await orgStore.fetchOrganizations({ force, tenantId })
+}
+
 // Lifecycle
 onMounted(async () => {
-  if (canUseTeamSpaces.value) {
-    orgStore.fetchOrganizations()
-  } else {
-    orgStore.clearState()
-  }
+  await authStore.refreshFromAuthMe()
+  await refreshOrganizations()
   window.addEventListener('openOrganizationDialog', handleOrganizationDialogEvent)
 
   // 检查 URL 中是否有 orgId，如果有则打开空间设置
@@ -381,6 +389,11 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('openOrganizationDialog', handleOrganizationDialogEvent)
+})
+
+watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
+  if (tenantId === oldTenantId) return
+  void refreshOrganizations(true)
 })
 </script>
 
@@ -465,15 +478,6 @@ onUnmounted(() => {
     height: 16px;
     filter: brightness(0) invert(1);
   }
-}
-
-.header-subtitle {
-  margin: 0;
-  color: var(--td-text-color-secondary);
-  font-family: var(--app-font-family);
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 20px;
 }
 
 .header-action-btn {

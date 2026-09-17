@@ -3,7 +3,7 @@
     <div class="service-config-page__header">
       <div>
         <h2>服务配置</h2>
-        <p>服务项继续在这里展示；员工分身在用户管理维护，AI 根据分身描述匹配可用服务能力。</p>
+        <p>服务项继续在这里展示；分身描述由账号本人在账户设置中维护，AI 根据描述匹配可用服务能力。</p>
       </div>
     </div>
 
@@ -29,9 +29,9 @@
       <div class="panel-title">
         <span>
           <strong>服务项</strong>
-          <em>这些服务能力保留在服务配置中查看；具体用户能力由员工分身描述驱动。</em>
+          <em>这些服务能力保留在服务配置中查看；具体用户能力由账号分身描述驱动。</em>
         </span>
-        <t-tag theme="warning" variant="light">分身不在此页维护</t-tag>
+        <t-tag theme="warning" variant="light">分身描述在账户设置维护</t-tag>
       </div>
 
       <t-alert
@@ -75,7 +75,7 @@
             </div>
             <div>
               <dt>员工分身</dt>
-              <dd>在用户管理中配置</dd>
+              <dd>由账号本人在账户设置中配置</dd>
             </div>
           </dl>
         </article>
@@ -108,7 +108,7 @@
         <t-alert
           v-if="profileLoadFailed"
           theme="warning"
-          message="员工分身读取失败，请确认当前账号有管理权限。"
+          message="员工分身读取失败，请确认当前账号有管理权限或成员已完成账户设置。"
         />
 
         <t-form :data="editForm" label-align="top" @submit.prevent>
@@ -118,13 +118,13 @@
               :options="profileOptions"
               :loading="profileLoading || editLoading"
               :disabled="editSaving"
-              placeholder="选择需要编辑的员工分身"
+              placeholder="选择需要编辑的分身"
               @change="handleEditProfileChange"
             />
           </t-form-item>
 
           <div v-if="profileOptions.length === 0" class="agent-edit-empty">
-            暂无可配置分身，请先在用户管理中补充分身描述。
+            暂无可配置分身，请让用户先在账户设置中补充分身描述。
           </div>
 
           <template v-else>

@@ -211,7 +211,7 @@ const isOwner = computed<boolean>(() => {
 const currentSharedKb = computed(() => {
   const id = props.kbInfo?.id
   if (!id) return null
-  return orgStore.sharedKnowledgeBases?.find?.((s: any) => s.knowledge_base?.id === id) ?? null
+  return orgStore.getSharedKnowledgeBase(id)
 })
 
 const isViaShare = computed<boolean>(() => !!currentSharedKb.value)

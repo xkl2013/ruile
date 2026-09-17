@@ -51,6 +51,11 @@ var (
 	// (user, tenant) pair already has an active membership.
 	ErrMembershipAlreadyExists = errors.New("tenant membership already exists")
 
+	// ErrEnterpriseMembershipAlreadyExists is returned when a user already
+	// belongs to another enterprise workspace. Personal workspaces are
+	// intentionally excluded from this invariant.
+	ErrEnterpriseMembershipAlreadyExists = errors.New("user already belongs to another enterprise workspace")
+
 	// ErrInvalidTenantRole is returned when the caller passes a role
 	// value that is not one of the four defined TenantRole constants.
 	ErrInvalidTenantRole = errors.New("invalid tenant role")
@@ -81,9 +86,10 @@ const (
 
 // tenantMemberService implements interfaces.TenantMemberService.
 type tenantMemberService struct {
-	repo      interfaces.TenantMemberRepository
-	audit     interfaces.AuditLogService     // optional; nil ⇒ no audit, business ops still succeed
-	tokenRepo interfaces.AuthTokenRepository // optional; nil ⇒ suspend keeps membership state only
+	repo          interfaces.TenantMemberRepository
+	tenantService interfaces.TenantService
+	audit         interfaces.AuditLogService     // optional; nil ⇒ no audit, business ops still succeed
+	tokenRepo     interfaces.AuthTokenRepository // optional; nil ⇒ suspend keeps membership state only
 }
 
 // NewTenantMemberService constructs the service. Wired up via the DI
@@ -97,8 +103,14 @@ func NewTenantMemberService(
 	repo interfaces.TenantMemberRepository,
 	audit interfaces.AuditLogService,
 	tokenRepo interfaces.AuthTokenRepository,
+	tenantService interfaces.TenantService,
 ) interfaces.TenantMemberService {
-	return &tenantMemberService{repo: repo, audit: audit, tokenRepo: tokenRepo}
+	return &tenantMemberService{
+		repo:          repo,
+		tenantService: tenantService,
+		audit:         audit,
+		tokenRepo:     tokenRepo,
+	}
 }
 
 // emitAudit is the per-mutation audit hook. Best-effort: a nil audit
@@ -111,6 +123,71 @@ func (s *tenantMemberService) emitAudit(ctx context.Context, entry *types.AuditL
 		return
 	}
 	_ = s.audit.Log(ctx, entry)
+}
+
+// isEnterpriseTenant treats only explicitly personal workspaces as personal.
+// Legacy and unclassified tenants remain enterprise-compatible during the
+// space-type rollout, so an old workspace cannot become a loophole around the
+// one-enterprise-membership rule.
+func isEnterpriseTenant(tenant *types.Tenant) bool {
+	return tenant != nil && (tenant.SpaceType == nil || *tenant.SpaceType != types.SpaceTypePersonal)
+}
+
+// enforceSingleEnterpriseMembership keeps the account-level invariant:
+// personal membership is allowed alongside one enterprise membership, but a
+// second non-deleted membership in an enterprise-compatible tenant is denied.
+// Suspended or pending rows still count until the membership is removed, so a
+// user cannot bypass the rule by being suspended in the first enterprise.
+func (s *tenantMemberService) enforceSingleEnterpriseMembership(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) error {
+	if s.tenantService == nil || strings.TrimSpace(userID) == "" || tenantID == 0 {
+		return nil
+	}
+
+	targetTenant, err := s.tenantService.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if !isEnterpriseTenant(targetTenant) {
+		return nil
+	}
+
+	memberships, err := s.repo.ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	otherTenantIDs := make([]uint64, 0, len(memberships))
+	seenTenantIDs := make(map[uint64]struct{}, len(memberships))
+	for _, membership := range memberships {
+		if membership == nil ||
+			membership.TenantID == 0 ||
+			membership.TenantID == tenantID ||
+			membership.DeletedAt.Valid {
+			continue
+		}
+		if _, seen := seenTenantIDs[membership.TenantID]; seen {
+			continue
+		}
+		seenTenantIDs[membership.TenantID] = struct{}{}
+		otherTenantIDs = append(otherTenantIDs, membership.TenantID)
+	}
+	if len(otherTenantIDs) == 0 {
+		return nil
+	}
+
+	otherTenants, err := s.tenantService.GetTenantsByIDs(ctx, otherTenantIDs)
+	if err != nil {
+		return err
+	}
+	for _, otherTenant := range otherTenants {
+		if isEnterpriseTenant(otherTenant) {
+			return ErrEnterpriseMembershipAlreadyExists
+		}
+	}
+	return nil
 }
 
 // auditActorRole picks up the caller's role at write-time. Empty if
@@ -177,6 +254,9 @@ func (s *tenantMemberService) addMember(
 	if existing != nil {
 		return nil, ErrMembershipAlreadyExists
 	}
+	if err := s.enforceSingleEnterpriseMembership(ctx, userID, tenantID); err != nil {
+		return nil, err
+	}
 	source := types.TenantMemberSourceManual
 	if invitedBy != nil && strings.TrimSpace(*invitedBy) != "" {
 		source = types.TenantMemberSourceInvite
@@ -232,13 +312,17 @@ func (s *tenantMemberService) EnsureOwner(
 	if existing != nil {
 		return existing, nil
 	}
+	if err := s.enforceSingleEnterpriseMembership(ctx, userID, tenantID); err != nil {
+		return nil, err
+	}
 	member := &types.TenantMember{
-		UserID:   userID,
-		TenantID: tenantID,
-		Role:     types.TenantRoleOwner,
-		Status:   types.TenantMemberStatusActive,
-		Source:   types.TenantMemberSourceManual,
-		JoinedAt: time.Now(),
+		UserID:                 userID,
+		TenantID:               tenantID,
+		Role:                   types.TenantRoleOwner,
+		Status:                 types.TenantMemberStatusActive,
+		Source:                 types.TenantMemberSourceManual,
+		WorkProfileDescription: types.DefaultWorkProfileDescription,
+		JoinedAt:               time.Now(),
 	}
 	if err := s.repo.Create(ctx, member); err != nil {
 		// Idempotent contract: if a concurrent Ensure/AddMember beat us

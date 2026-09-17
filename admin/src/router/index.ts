@@ -227,7 +227,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'models',
       title: '模型',
-      description: '管理模型供应商、模型凭据和调试。',
+      description: '管理模型供应商、模型凭据、价格和调试。',
       requiresSystemAdmin: true,
     },
   },
@@ -317,6 +317,18 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'member-enterprises',
       title: '企业管理',
       description: '查看系统下已开通的企业会员。',
+      requiresSystemAdmin: true,
+      requiresTenant: false,
+    },
+  },
+  {
+    path: 'members/billing',
+    name: 'adminMemberBilling',
+    component: () => import('@admin/views/AdminBilling.vue'),
+    meta: {
+      navKey: 'member-billing',
+      title: '订阅管理',
+      description: '查看套餐、价格、积分账户和用量账本。',
       requiresSystemAdmin: true,
       requiresTenant: false,
     },

@@ -50,8 +50,8 @@
           <thead>
             <tr>
               <th>用户</th>
-              <th>个人工作区</th>
-              <th>归属企业</th>
+              <th>个人订阅</th>
+              <th>企业订阅</th>
               <th>账号状态</th>
               <th>注册时间</th>
             </tr>
@@ -70,24 +70,34 @@
                 </div>
               </td>
               <td>
-                <span v-if="user.tenant_id" class="membership-page__mono">#{{ user.tenant_id }}</span>
-                <span v-else class="membership-page__muted">未创建</span>
+                <div v-if="user.personal_subscription" class="membership-page__subscription">
+                  <strong>{{ user.personal_subscription.plan_name }}</strong>
+                  <span>
+                    {{ user.personal_subscription.tenant_name || `#${user.personal_subscription.tenant_id}` }}
+                    · {{ subscriptionStatusLabel(user.personal_subscription.status) }}
+                  </span>
+                </div>
+                <div v-else-if="user.tenant_id" class="membership-page__subscription">
+                  <strong>#{{ user.tenant_id }}</strong>
+                  <span>未配置订阅</span>
+                </div>
+                <span v-else class="membership-page__muted">未创建个人空间</span>
               </td>
               <td>
                 <div
-                  v-if="user.enterprise_memberships?.length"
-                  class="membership-page__enterprise-tags"
+                  v-if="user.enterprise_subscriptions?.length"
+                  class="membership-page__subscription-list"
                 >
-                  <t-tag
-                    v-for="enterprise in user.enterprise_memberships"
-                    :key="enterprise.tenant_id"
-                    theme="primary"
-                    variant="light"
+                  <div
+                    v-for="subscription in user.enterprise_subscriptions"
+                    :key="subscription.tenant_id"
+                    class="membership-page__subscription"
                   >
-                    {{ enterprise.tenant_name }}
-                  </t-tag>
+                    <strong>{{ subscription.tenant_name }}</strong>
+                    <span>{{ subscription.plan_name }} · {{ subscriptionStatusLabel(subscription.status) }}</span>
+                  </div>
                 </div>
-                <span v-else class="membership-page__muted">未加入企业</span>
+                <span v-else class="membership-page__muted">未加入企业订阅</span>
               </td>
               <td>
                 <div class="membership-page__tags">
@@ -161,6 +171,17 @@ function formatDate(value: string) {
     month: '2-digit',
     day: '2-digit',
   }).format(date)
+}
+
+function subscriptionStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    active: '生效',
+    trialing: '试用',
+    legacy: '兼容',
+    canceled: '已取消',
+    expired: '已过期',
+  }
+  return labels[status] || status || '未知'
 }
 
 async function loadUsers(targetPage = page.value) {
@@ -279,7 +300,7 @@ onMounted(() => {
 
 .membership-page__table {
   width: 100%;
-  min-width: 900px;
+  min-width: 980px;
   border-collapse: collapse;
 }
 
@@ -336,17 +357,33 @@ onMounted(() => {
   font-size: 12px;
 }
 
+.membership-page__subscription,
+.membership-page__subscription-list {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.membership-page__subscription strong {
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.membership-page__subscription span {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.membership-page__subscription-list {
+  max-width: 320px;
+}
+
 .membership-page__tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.membership-page__enterprise-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-width: 300px;
 }
 
 .membership-page__state {

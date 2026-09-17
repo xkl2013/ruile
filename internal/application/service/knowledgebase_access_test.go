@@ -125,6 +125,37 @@ func TestResolveKnowledgeBaseAccess_SameTenantAdminGetsTenantAdminSource(t *test
 	require.Equal(t, types.KnowledgeBaseAccessSourceTenantAdmin, access.AccessSource)
 }
 
+func TestResolveKnowledgeBaseAccess_SameTenantAdminIsCappedByViewerShare(t *testing.T) {
+	repo := newFakeKBRepo()
+	repo.rows["kb-team-viewer"] = &types.KnowledgeBase{
+		ID:        "kb-team-viewer",
+		TenantID:  100,
+		CreatorID: "user-1",
+	}
+	svc := newPR3KBService(repo, &fakeRegistry{}, &fakeOwnership{})
+	svc.kbShareService = &accessKBShareService{
+		permission: types.OrgRoleViewer,
+		shared:     true,
+		source:     100,
+	}
+
+	readAccess, err := svc.ResolveKnowledgeBaseAccess(
+		accessCtx(100, types.TenantRoleOwner, "owner-2", nil),
+		"kb-team-viewer",
+		types.KnowledgeBaseAccessOptions{RequiredPermission: types.OrgRoleViewer},
+	)
+	require.NoError(t, err)
+	require.Equal(t, types.OrgRoleViewer, readAccess.Permission)
+	require.Equal(t, types.KnowledgeBaseAccessSourceSharedSpace, readAccess.AccessSource)
+
+	_, err = svc.ResolveKnowledgeBaseAccess(
+		accessCtx(100, types.TenantRoleOwner, "owner-2", nil),
+		"kb-team-viewer",
+		types.KnowledgeBaseAccessOptions{RequiredPermission: types.OrgRoleEditor},
+	)
+	require.ErrorIs(t, err, types.ErrKnowledgeBaseAccessForbidden)
+}
+
 func TestResolveKnowledgeBaseAccess_CreatorCanOpenEnterpriseKBFromPersonalContext(t *testing.T) {
 	personal := types.SpaceTypePersonal
 	enterprise := types.SpaceTypeOrganization

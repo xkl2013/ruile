@@ -76,7 +76,7 @@ type adminCreateMemberRequest struct {
 	Phone                  string           `json:"phone" binding:"required"`
 	Name                   string           `json:"name" binding:"required"`
 	Role                   types.TenantRole `json:"role"`
-	WorkProfileDescription string           `json:"work_profile_description" binding:"required"`
+	WorkProfileDescription string           `json:"work_profile_description"`
 }
 
 // updateMemberRoleRequest is the JSON body for PUT /tenants/:id/members/:user_id.
@@ -95,6 +95,10 @@ type suggestMemberProfileRequest struct {
 	JobTitle            string `json:"job_title" binding:"required"`
 	MemberName          string `json:"member_name"`
 	ExistingDescription string `json:"existing_description"`
+}
+
+type generateMyMemberProfileRequest struct {
+	Prompt string `json:"prompt" binding:"required"`
 }
 
 // callerCanManageOwnerRoles keeps delegated Admins useful for daily member
@@ -338,7 +342,8 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 			c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrWorkProfileDescriptionRequired):
 			c.Error(apperrors.NewValidationError(err.Error()))
-		case errors.Is(err, service.ErrMembershipAlreadyExists):
+		case errors.Is(err, service.ErrMembershipAlreadyExists),
+			errors.Is(err, service.ErrEnterpriseMembershipAlreadyExists):
 			// 409 reads better than 400 here: the request was syntactically
 			// fine, the conflict is semantic ("already a member").
 			c.Error(apperrors.NewConflictError(err.Error()))
@@ -414,8 +419,7 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 	}
 	workProfileDescription := strings.TrimSpace(req.WorkProfileDescription)
 	if workProfileDescription == "" {
-		c.Error(apperrors.NewValidationError(service.ErrWorkProfileDescriptionRequired.Error()))
-		return
+		workProfileDescription = types.DefaultWorkProfileDescription
 	}
 
 	role := req.Role
@@ -431,11 +435,12 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 		return
 	}
 
-	// Phone is the global account identity. A user can be a member of more
-	// than one workspace, so an existing account must be reused here instead
-	// of treating it as a duplicate-create conflict. The supplied name only
-	// applies when creating a new account; an existing account keeps its
-	// identity fields while receiving a tenant-scoped member profile below.
+	// Phone is the global account identity. An account may have a personal
+	// workspace plus at most one enterprise workspace, so an existing account
+	// must be reused here instead of being treated as a duplicate-create
+	// conflict. The supplied name only applies when creating a new account;
+	// an existing account keeps its identity fields while receiving a
+	// tenant-scoped member profile below.
 	user, lookupErr := h.userService.GetUserByEmail(ctx, phone)
 	accountCreated := false
 	switch {
@@ -478,7 +483,8 @@ func (h *TenantMemberHandler) AdminCreateMember(c *gin.Context) {
 			c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrWorkProfileDescriptionRequired):
 			c.Error(apperrors.NewValidationError(err.Error()))
-		case errors.Is(err, service.ErrMembershipAlreadyExists):
+		case errors.Is(err, service.ErrMembershipAlreadyExists),
+			errors.Is(err, service.ErrEnterpriseMembershipAlreadyExists):
 			c.Error(apperrors.NewConflictError(err.Error()))
 		default:
 			logger.Errorf(ctx, "AdminCreateMember AddMember failed: user=%s tenant=%d err=%v",
@@ -643,6 +649,172 @@ func (h *TenantMemberHandler) UpdateMemberProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// GetMyMemberProfile godoc
+// @Summary      获取当前用户的分身描述
+// @Description  返回当前用户在指定空间中的分身描述；用户只能读取自己的成员资料
+// @Tags         空间成员
+// @Produce      json
+// @Param        id path string true "空间 ID"
+// @Success      200 {object} map[string]interface{}
+// @Security     Bearer
+// @Router       /tenants/{id}/members/me/profile [get]
+func (h *TenantMemberHandler) GetMyMemberProfile(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+	caller, ok := types.UserIDFromContext(ctx)
+	if !ok || caller == "" {
+		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		return
+	}
+
+	member, err := h.memberService.GetMembership(ctx, caller, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed before self member profile read: user=%s tenant=%d err=%v",
+			caller, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load member profile").WithDetails(err.Error()))
+		return
+	}
+	if member == nil {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"user_id":                  member.UserID,
+			"tenant_id":                member.TenantID,
+			"work_profile_description": member.WorkProfileDescription,
+		},
+	})
+}
+
+// UpdateMyMemberProfile godoc
+// @Summary      更新当前用户的分身描述
+// @Description  更新当前用户在指定空间中的分身描述，不改变成员权限
+// @Tags         空间成员
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "空间 ID"
+// @Param        request body updateMemberProfileRequest true "分身描述"
+// @Success      200 {object} map[string]interface{}
+// @Security     Bearer
+// @Router       /tenants/{id}/members/me/profile [put]
+func (h *TenantMemberHandler) UpdateMyMemberProfile(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+	caller, ok := types.UserIDFromContext(ctx)
+	if !ok || caller == "" {
+		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		return
+	}
+
+	var req updateMemberProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+
+	member, err := h.memberService.GetMembership(ctx, caller, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed before self member profile update: user=%s tenant=%d err=%v",
+			caller, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load member profile").WithDetails(err.Error()))
+		return
+	}
+	if member == nil {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+
+	if err := h.memberService.UpdateWorkProfileDescription(ctx, caller, tenantID, req.WorkProfileDescription); err != nil {
+		switch {
+		case errors.Is(err, service.ErrMembershipNotFound):
+			c.Error(apperrors.NewNotFoundError("membership not found"))
+		case errors.Is(err, service.ErrWorkProfileDescriptionRequired):
+			c.Error(apperrors.NewValidationError(err.Error()))
+		default:
+			logger.Errorf(ctx, "UpdateWorkProfileDescription failed for self: user=%s tenant=%d err=%v",
+				caller, tenantID, err)
+			c.Error(apperrors.NewInternalServerError("failed to update member profile").WithDetails(err.Error()))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// GenerateMyMemberProfile godoc
+// @Summary      根据当前用户提示词生成分身描述
+// @Description  当前用户根据自己的提示词生成当前空间中的分身描述草稿；生成结果不会自动保存，也不会读取或更新记忆
+// @Tags         空间成员
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "空间 ID"
+// @Param        request body generateMyMemberProfileRequest true "生成提示词"
+// @Success      200 {object} map[string]interface{}
+// @Security     Bearer
+// @Router       /tenants/{id}/members/me/profile/generate [post]
+func (h *TenantMemberHandler) GenerateMyMemberProfile(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+	caller, ok := types.UserIDFromContext(ctx)
+	if !ok || caller == "" {
+		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		return
+	}
+
+	var req generateMyMemberProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		c.Error(apperrors.NewValidationError("prompt is required"))
+		return
+	}
+	if utf8.RuneCountInString(prompt) > 2000 {
+		c.Error(apperrors.NewValidationError("prompt must be 2000 characters or fewer"))
+		return
+	}
+
+	member, err := h.memberService.GetMembership(ctx, caller, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed before self member profile generation: user=%s tenant=%d err=%v",
+			caller, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load member profile").WithDetails(err.Error()))
+		return
+	}
+	if member == nil {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+
+	description, source, modelID := h.generateMemberWorkProfileFromPrompt(
+		ctx,
+		prompt,
+		strings.TrimSpace(member.WorkProfileDescription),
+	)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"description": description,
+			"source":      source,
+			"model_id":    modelID,
+		},
+	})
+}
+
 // SuggestMemberWorkProfile godoc
 // @Summary      根据岗位生成成员分身描述
 // @Description  Admin 输入岗位后生成可保存到成员管理的分身描述；优先调用默认 KnowledgeQA 模型，模型不可用时返回模板兜底
@@ -689,6 +861,51 @@ func (h *TenantMemberHandler) SuggestMemberWorkProfile(c *gin.Context) {
 			"model_id":    modelID,
 		},
 	})
+}
+
+func (h *TenantMemberHandler) generateMemberWorkProfileFromPrompt(
+	ctx context.Context,
+	prompt string,
+	existingDescription string,
+) (string, string, string) {
+	fallback := types.DefaultWorkProfileDescription
+	if h.modelService == nil {
+		return fallback, "fallback", ""
+	}
+	modelID := h.defaultChatModelID(ctx)
+	if modelID == "" {
+		return fallback, "fallback", ""
+	}
+	chatModel, err := h.modelService.GetChatModel(ctx, modelID)
+	if err != nil || chatModel == nil {
+		logger.Warnf(ctx, "member work profile AI model unavailable for self-generation: model=%s err=%v", modelID, err)
+		return fallback, "fallback", modelID
+	}
+
+	thinking := false
+	resp, err := chatModel.Chat(ctx, []chat.Message{
+		{
+			Role:    "system",
+			Content: "你是睿乐园所/教培服务实施顾问。请根据用户提示词生成可直接保存的“分身描述”，用于明确工作职责、服务对象和处理边界。输出简体中文纯文本，必须使用以下三个标题：1.【岗位与执教履历】、2.【工作与协作偏好】、3.【近期业务重心】；每个标题下使用简洁要点。必须说明服务对象、负责事项、不负责事项、可读取的记忆范围、外部系统边界和沟通风格。只根据用户提示词和已有描述生成，不臆造敏感事实，不扩大用户权限，不输出代码块、前言或解释。",
+		},
+		{
+			Role:    "user",
+			Content: buildMemberWorkProfilePromptFromUserInput(prompt, existingDescription),
+		},
+	}, &chat.ChatOptions{
+		Temperature: 0.25,
+		MaxTokens:   1000,
+		Thinking:    &thinking,
+	})
+	if err != nil || resp == nil || strings.TrimSpace(resp.Content) == "" {
+		logger.Warnf(ctx, "member work profile self-generation failed: model=%s err=%v", modelID, err)
+		return fallback, "fallback", modelID
+	}
+	description := cleanGeneratedWorkProfileDescription(resp.Content)
+	if description == "" {
+		return fallback, "fallback", modelID
+	}
+	return description, "ai", modelID
 }
 
 func (h *TenantMemberHandler) generateMemberWorkProfileDescription(
@@ -813,6 +1030,18 @@ func cleanGeneratedWorkProfileDescription(content string) string {
 		runes = runes[:1200]
 	}
 	return string(runes)
+}
+
+func buildMemberWorkProfilePromptFromUserInput(prompt string, existingDescription string) string {
+	var b strings.Builder
+	b.WriteString("请根据以下用户提示词生成分身描述：\n")
+	b.WriteString(prompt)
+	if existingDescription != "" {
+		b.WriteString("\n\n当前已有分身描述（仅作为修改参考）：\n")
+		b.WriteString(existingDescription)
+	}
+	b.WriteString("\n\n请按照固定标题输出，内容要具体但不要虚构个人履历；保留用户明确提供的岗位、服务对象、工作重点和协作方式。")
+	return b.String()
 }
 
 // RemoveMember godoc

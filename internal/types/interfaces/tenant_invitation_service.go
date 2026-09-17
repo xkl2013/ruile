@@ -27,9 +27,10 @@ type TenantInvitationService interface {
 		message string,
 	) (*types.TenantInvitation, error)
 
-	// CreateWithProfile is the operator-facing targeted invitation
-	// path. It requires a work profile description so accepting the
-	// invitation can create a complete tenant member.
+	// CreateWithProfile is the operator-facing targeted invitation path.
+	// The handler supplies the default work profile when the inviter does
+	// not provide one, so accepting the invitation creates a complete
+	// tenant member without exposing profile configuration in the invite UI.
 	CreateWithProfile(
 		ctx context.Context,
 		tenantID uint64,

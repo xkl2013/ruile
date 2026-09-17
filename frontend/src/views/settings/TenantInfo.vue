@@ -1,1130 +1,675 @@
 <template>
-  <div class="tenant-info">
-    <div class="section-header">
-      <div class="section-title-row">
-        <div>
-          <h2>{{ $t('tenant.title') }}</h2>
-          <p class="section-description">{{ $t('tenant.sectionDescription') }}</p>
-        </div>
-        <div class="section-header-actions">
-          <t-button v-if="canOpenEnterprise" theme="primary" size="medium" @click="enterpriseDialogVisible = true">
-            <template #icon>
-              <t-icon name="usergroup-add" />
-            </template>
-            {{ $t('tenant.enterprise.openAction') }}
-          </t-button>
-        </div>
-      </div>
-    </div>
+  <div class="subscription-usage">
+    <header class="section-header">
+      <h2>{{ t('tenant.subscriptionUsage.title') }}</h2>
+      <p>{{ t('tenant.subscriptionUsage.description') }}</p>
+    </header>
 
-    <!-- Loading state -->
-    <div v-if="loading" class="loading-inline">
+    <div v-if="loading" class="loading-state">
       <t-loading size="small" />
-      <span>{{ $t('tenant.loadingInfo') }}</span>
+      <span>{{ t('tenant.subscriptionUsage.loading') }}</span>
     </div>
 
-    <!-- Error state -->
-    <div v-else-if="error" class="error-inline">
+    <div v-else-if="error" class="error-state">
       <t-alert theme="error" :message="error">
         <template #operation>
-          <t-button size="small" @click="loadInfo">{{ $t('tenant.retry') }}</t-button>
+          <t-button size="small" @click="loadUsage">{{ t('tenant.retry') }}</t-button>
         </template>
       </t-alert>
     </div>
 
-    <!-- Content：信息列表 + 危险操作分区，避免与 setting-row 底边线混用虚线 -->
-    <div v-else class="tenant-info-body">
-      <div class="settings-group">
-        <!-- Tenant ID -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.details.idLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.idDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ tenantInfo?.id || '-' }}</span>
-          </div>
-        </div>
-
-        <!-- Tenant name -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.details.nameLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.nameDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <!-- 只读态：显示名称 + 编辑按钮（owner 才看得见编辑入口）。
-               原地编辑取代弹窗：少一层视觉打断，与其它行的展示节奏一致。 -->
-            <template v-if="!editing">
-              <span class="info-value">{{ tenantInfo?.name || '-' }}</span>
-              <t-button v-if="canEditTenant" theme="default" variant="text" shape="square" size="small"
-                class="edit-btn" :title="$t('tenant.details.editName')" :aria-label="$t('tenant.details.editName')"
-                @click="startEditName">
-                <template #icon>
-                  <t-icon name="edit" />
-                </template>
-              </t-button>
-            </template>
-            <!-- 编辑态：输入框 + 保存/取消。回车保存，Esc 取消。 -->
-            <div v-else class="inline-edit">
-              <t-input v-model="editName" :placeholder="$t('tenant.details.editNamePlaceholder')" :maxlength="64"
-                :disabled="saving" autofocus class="inline-edit-input" @enter="saveTenantName"
-                @keydown="onEditKeydown" />
-              <t-button theme="primary" size="small" :loading="saving" :disabled="!canSubmit" @click="saveTenantName">
-                {{ $t('tenant.details.editNameConfirm') }}
-              </t-button>
-              <t-button theme="default" variant="outline" size="small" :disabled="saving" @click="cancelEditName">
-                {{ $t('tenant.details.editNameCancel') }}
-              </t-button>
+    <div v-else class="usage-content">
+      <div class="usage-card-list">
+        <article v-for="card in usageCards" :key="card.key" class="usage-card">
+          <div class="plan-summary">
+            <div class="plan-icon" :class="`plan-icon--${card.key}`">
+              <t-icon :name="card.icon" size="30px" />
             </div>
-          </div>
-        </div>
-
-        <!-- Tenant description -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.details.descriptionLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.descriptionDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <!-- 只读态：显示描述（空时给占位）+ 编辑按钮（owner 才看得见编辑入口）。
-               与名称同款"原地编辑"模式，少一层弹窗打断。 -->
-            <template v-if="!editingDescription">
-              <span class="info-value description-value" :class="{ 'is-empty': !tenantInfo?.description }">
-                {{ tenantInfo?.description || $t('tenant.details.descriptionEmptyPlaceholder') }}
-              </span>
-              <t-button v-if="canEditTenant" theme="default" variant="text" shape="square" size="small"
-                class="edit-btn" :title="$t('tenant.details.editDescription')"
-                :aria-label="$t('tenant.details.editDescription')" @click="startEditDescription">
-                <template #icon>
-                  <t-icon name="edit" />
-                </template>
-              </t-button>
-            </template>
-            <!-- 编辑态：textarea + 保存/取消。Esc 取消、Ctrl/⌘+Enter 保存；
-               textarea 上 Enter 默认换行更顺手，不接管 Enter 提交。 -->
-            <div v-else class="inline-edit inline-edit-description">
-              <t-textarea v-model="editDescription"
-                :placeholder="$t('tenant.details.editDescriptionPlaceholder')" :maxlength="512"
-                :autosize="{ minRows: 2, maxRows: 6 }" :disabled="savingDescription" autofocus
-                class="inline-edit-textarea" @keydown="onEditDescriptionKeydown" />
-              <div class="inline-edit-actions">
-                <t-button theme="primary" size="small" :loading="savingDescription"
-                  :disabled="!canSubmitDescription" @click="saveTenantDescription">
-                  {{ $t('tenant.details.editNameConfirm') }}
-                </t-button>
-                <t-button theme="default" variant="outline" size="small" :disabled="savingDescription"
-                  @click="cancelEditDescription">
-                  {{ $t('tenant.details.editNameCancel') }}
-                </t-button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tenant business -->
-        <div v-if="tenantInfo?.business" class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.details.businessLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.businessDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ tenantInfo.business }}</span>
-          </div>
-        </div>
-
-        <!-- Tenant status -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.details.statusLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.statusDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <t-tag :theme="getStatusTheme(tenantInfo?.status)" variant="light" size="small">
-              {{ getStatusText(tenantInfo?.status) }}
-            </t-tag>
-          </div>
-        </div>
-
-        <!-- Tenant creation time -->
-        <div class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.details.createdAtLabel') }}</label>
-            <p class="desc">{{ $t('tenant.details.createdAtDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ formatDate(tenantInfo?.created_at) }}</span>
-          </div>
-        </div>
-
-        <!-- Storage quota -->
-        <div v-if="storageUsage" class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.storage.quotaLabel') }}</label>
-            <p class="desc">{{ $t('tenant.storage.quotaDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ storageQuotaText }}</span>
-          </div>
-        </div>
-
-        <!-- Used storage -->
-        <div v-if="storageUsage" class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.storage.usedLabel') }}</label>
-            <p class="desc">{{ $t('tenant.storage.usedDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ storageUsedText }}</span>
-          </div>
-        </div>
-
-        <!-- Remaining storage -->
-        <div v-if="storageUsage" class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.storage.remainingLabel') }}</label>
-            <p class="desc">{{ $t('tenant.storage.remainingDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <span class="info-value">{{ storageRemainingText }}</span>
-          </div>
-        </div>
-
-        <!-- Storage usage -->
-        <div v-if="storageUsage" class="setting-row">
-          <div class="setting-info">
-            <label>{{ $t('tenant.storage.usageLabel') }}</label>
-            <p class="desc">{{ $t('tenant.storage.usageDescription') }}</p>
-          </div>
-          <div class="setting-control">
-            <div class="usage-control">
-              <div class="usage-summary">
-                <span class="usage-text">{{ storageUsagePercentText }}</span>
-                <t-tag :theme="storageStatusTheme" variant="light" size="small">
-                  {{ storageStatusText }}
+            <div class="plan-copy">
+              <div class="plan-title-row">
+                <h3>{{ card.title }}</h3>
+                <t-tag theme="primary" variant="light" size="small">
+                  {{ card.badge }}
                 </t-tag>
               </div>
-              <t-progress v-if="!storageUsage.unlimited" :percentage="storageProgressPercentage"
-                :show-info="false" size="small" :status="storageProgressStatus" class="usage-progress" />
-              <p v-if="storageQuotaIncreaseHint" class="usage-hint">
-                {{ storageQuotaIncreaseHint }}
-              </p>
+              <p>{{ card.description }}</p>
             </div>
           </div>
-        </div>
 
+          <div class="resource-usage">
+            <div class="resource-heading">
+              <span>{{ t('tenant.subscriptionUsage.resourceUsage') }}</span>
+            </div>
+
+            <div class="resource-row">
+              <div class="resource-label-row">
+                <div class="resource-label">
+                  <t-icon name="layers" />
+                  <span>{{ t('tenant.subscriptionUsage.currentPlan') }}</span>
+                </div>
+                <span class="resource-primary">{{ card.planName }}</span>
+              </div>
+              <div class="resource-meta">
+                <span>{{ card.planCode }}</span>
+                <span>{{ card.periodText }}</span>
+              </div>
+            </div>
+
+            <div class="resource-row">
+              <div class="resource-label-row">
+                <div class="resource-label">
+                  <t-icon name="save" />
+                  <span>{{ t('tenant.subscriptionUsage.storageUsage') }}</span>
+                </div>
+                <span class="resource-primary">
+                  {{ t('tenant.subscriptionUsage.usedOfTotal', {
+                    used: card.storage.usedText,
+                    total: card.storage.quotaText,
+                  }) }}
+                </span>
+              </div>
+              <div class="resource-meta">
+                <span>{{ card.storage.percentText }}</span>
+                <span>
+                  {{ t('tenant.subscriptionUsage.remaining', {
+                    amount: card.storage.remainingText,
+                  }) }}
+                </span>
+              </div>
+              <t-progress
+                v-if="!card.storage.unlimited"
+                :percentage="card.storage.progress"
+                :show-info="false"
+                size="small"
+                :status="card.storage.progressStatus"
+              />
+              <div v-else class="unlimited-track">
+                <span />
+              </div>
+            </div>
+
+            <div class="resource-row resource-row--credits">
+              <div class="resource-label-row">
+                <div class="resource-label">
+                  <t-icon name="wealth-1" />
+                  <span>{{ t('tenant.subscriptionUsage.periodCredits') }}</span>
+                </div>
+                <span class="resource-primary resource-primary--credits">
+                  {{ t('tenant.subscriptionUsage.points', { count: card.periodCreditText }) }}
+                </span>
+              </div>
+              <div class="resource-meta">
+                <span>{{ t('tenant.subscriptionUsage.periodCreditsDescription') }}</span>
+                <span>{{ card.periodText }}</span>
+              </div>
+            </div>
+
+            <div class="resource-row resource-row--credits">
+              <div class="resource-label-row">
+                <div class="resource-label">
+                  <t-icon name="wallet" />
+                  <span>{{ t('tenant.subscriptionUsage.creditBalance') }}</span>
+                </div>
+                <span class="resource-primary resource-primary--credits">
+                  {{ t('tenant.subscriptionUsage.points', { count: card.balanceCreditText }) }}
+                </span>
+              </div>
+              <div class="resource-meta">
+                <span>{{ t('tenant.subscriptionUsage.creditAvailable') }}</span>
+                <span>{{ card.creditSource }}</span>
+              </div>
+              <t-progress
+                :percentage="card.balanceCreditMicros > 0 ? 100 : 0"
+                :show-info="false"
+                size="small"
+                status="success"
+              />
+            </div>
+          </div>
+        </article>
       </div>
 
-      <aside v-if="showLeaveDangerZone" class="leave-space-panel" :aria-label="$t('tenant.leaveDangerZone.title')">
-        <div class="leave-space-panel-inner">
-          <div class="leave-space-panel-text">
-            <div class="leave-space-panel-title">{{ $t('tenant.leaveDangerZone.title') }}</div>
-            <p class="leave-space-panel-desc">{{ $t('tenant.leaveDangerZone.desc') }}</p>
+      <section class="recent-usage">
+        <div class="recent-usage__heading">
+          <div>
+            <h3>{{ t('tenant.subscriptionUsage.recentUsage') }}</h3>
+            <p>{{ t('tenant.subscriptionUsage.recentUsageDescription') }}</p>
           </div>
-          <div class="leave-space-panel-action">
-            <t-button theme="danger" variant="outline" size="medium" @click="confirmLeaveTenant">
-              {{ $t('tenant.leaveDangerZone.button') }}
-            </t-button>
-          </div>
+          <t-tag variant="light">{{ usageItems.length }}</t-tag>
         </div>
-      </aside>
-
-      <aside v-if="showDeleteDangerZone" class="leave-space-panel delete-space-panel"
-        :aria-label="$t('tenant.deleteDangerZone.title')">
-        <div class="leave-space-panel-inner">
-          <div class="leave-space-panel-text">
-            <div class="leave-space-panel-title">{{ $t('tenant.deleteDangerZone.title') }}</div>
-            <p class="leave-space-panel-desc">{{ $t('tenant.deleteDangerZone.desc') }}</p>
-          </div>
-          <div class="leave-space-panel-action">
-            <t-button theme="danger" size="medium" @click="confirmDeleteTenant">
-              {{ $t('tenant.deleteDangerZone.button') }}
-            </t-button>
-          </div>
+        <div class="recent-usage__table-wrap">
+          <table class="recent-usage__table">
+            <thead>
+              <tr>
+                <th>{{ t('tenant.subscriptionUsage.model') }}</th>
+                <th>{{ t('tenant.subscriptionUsage.tokens') }}</th>
+                <th>{{ t('tenant.subscriptionUsage.billedCredits') }}</th>
+                <th>{{ t('tenant.subscriptionUsage.usageStatus') }}</th>
+                <th>{{ t('tenant.subscriptionUsage.billingTime') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in usageItems" :key="item.id">
+                <td><strong>{{ item.model_key || '-' }}</strong><span>{{ item.provider || '-' }}</span></td>
+                <td>
+                  <strong>{{ item.input_tokens }} / {{ item.output_tokens }}</strong>
+                  <span>{{ t('tenant.subscriptionUsage.inputOutputTokens') }}</span>
+                </td>
+                <td>{{ formatCredits(item.billed_point_micros) }}</td>
+                <td>
+                  <t-tag :theme="usageStatusTheme(item.status)" variant="light" size="small">
+                    {{ item.status }}
+                  </t-tag>
+                  <span v-if="item.failure_code">{{ item.failure_code }}</span>
+                </td>
+                <td>{{ formatUsageTime(item.billing_at) }}</td>
+              </tr>
+              <tr v-if="usageItems.length === 0">
+                <td colspan="5" class="recent-usage__empty">
+                  {{ t('tenant.subscriptionUsage.noRecentUsage') }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </aside>
-
+      </section>
     </div>
-
-    <t-dialog v-model:visible="deleteTenantVisible" :header="$t('tenant.deleteDangerZone.confirmTitle')"
-      :confirm-btn="{
-        content: $t('tenant.deleteDangerZone.confirm'),
-        theme: 'danger',
-        disabled: deleteConfirmName.trim() !== (tenantInfo?.name || ''),
-        loading: deletingTenant,
-      }" :cancel-btn="$t('common.cancel')" :close-on-overlay-click="!deletingTenant"
-      :close-btn="!deletingTenant" @confirm="deleteCurrentTenant">
-      <div class="delete-tenant-confirm">
-        <p class="delete-tenant-confirm-body">
-          {{ $t('tenant.deleteDangerZone.confirmBody', { name: tenantInfo?.name || '' }) }}
-        </p>
-        <p class="delete-tenant-confirm-hint">
-          {{ $t('tenant.deleteDangerZone.confirmHint', { name: tenantInfo?.name || '' }) }}
-        </p>
-        <t-input v-model="deleteConfirmName" :placeholder="tenantInfo?.name || ''" :disabled="deletingTenant"
-          clearable />
-      </div>
-    </t-dialog>
-
-    <CreateEnterpriseWorkspaceDialog v-model:visible="enterpriseDialogVisible" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
-import { getCurrentUser, type TenantInfo } from '@/api/auth'
-import { deleteTenant as deleteTenantApi, updateTenant as updateTenantApi } from '@/api/tenant'
-import CreateEnterpriseWorkspaceDialog from '@/components/CreateEnterpriseWorkspaceDialog.vue'
-import {
-  leaveTenant,
-  fetchAllTenantMembers,
-  type TenantMember,
-  type TenantRole,
-} from '@/api/tenant/members'
-import { useAuthStore } from '@/stores/auth'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoleLabel, useHomeTenant } from '@/composables/useRoleLabel'
 import {
-  navigateAfterTenantSwitch,
-  persistLastActiveTenantPreference,
-  stashTenantSwitchToast,
-} from '@/utils/tenantSwitch'
+  getBillingOverview,
+  getBillingUsage,
+  type BillingOverview,
+  type BillingUsageItem,
+  type BillingUsageResponse,
+} from '@/api/billing'
+import { useAuthStore } from '@/stores/auth'
+
+type ProgressStatus = 'success' | 'warning' | 'error'
+
+interface StorageDisplay {
+  usedText: string
+  quotaText: string
+  remainingText: string
+  percentText: string
+  progress: number
+  progressStatus: ProgressStatus
+  unlimited: boolean
+}
+
+interface UsageCard {
+  key: string
+  icon: string
+  title: string
+  badge: string
+  description: string
+  planName: string
+  planCode: string
+  periodText: string
+  storage: StorageDisplay
+  periodCreditText: string
+  balanceCreditText: string
+  balanceCreditMicros: number
+  creditSource: string
+}
 
 const { t, locale } = useI18n()
-const { formatRole } = useRoleLabel()
-const { homeTenantId } = useHomeTenant()
 const authStore = useAuthStore()
 
-// Reactive state
-const tenantInfo = ref<TenantInfo | null>(null)
 const loading = ref(true)
 const error = ref('')
-const enterpriseDialogVisible = ref(false)
+const overview = ref<BillingOverview | null>(null)
+const usageItems = ref<BillingUsageItem[]>([])
+let loadSequence = 0
 
-// 仅 owner 可改空间名（与后端 router.go 中 g.Owner() 守卫一致；
-// 服务端始终是权限的最终裁判，这里只决定 UI 是否露出入口）。
-const canEditTenant = computed(() => authStore.hasRole('owner'))
-const canOpenEnterprise = computed(
-  () =>
-    authStore.isPersonalWorkspace &&
-    authStore.hasRole('owner') &&
-    !authStore.hasEnterpriseMembership,
-)
-
-interface NormalizedTenantStorageUsage {
-  quotaBytes: number
-  usedBytes: number
-  remainingBytes: number
-  usagePercent: number
-  warningThresholdPercent: number
-  status: 'ok' | 'warning' | 'exceeded' | 'unlimited' | string
-  unlimited: boolean
-  requiresQuotaIncrease: boolean
-}
+const activeTenantId = computed(() => Number(authStore.user?.tenant_id || 0))
 
 const toFiniteNumber = (value: unknown, fallback = 0) => {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : fallback
-}
-
-const storageUsage = computed<NormalizedTenantStorageUsage | null>(() => {
-  const tenant = tenantInfo.value
-  if (!tenant) return null
-
-  const raw = tenant.storage_usage
-  if (!raw && tenant.storage_quota === undefined && tenant.storage_used === undefined) {
-    return null
-  }
-
-  const quotaBytes = toFiniteNumber(raw?.quota_bytes ?? tenant.storage_quota, 0)
-  const usedBytes = Math.max(0, toFiniteNumber(raw?.used_bytes ?? tenant.storage_used, 0))
-  const unlimited = raw?.unlimited === true || quotaBytes <= 0
-  const warningThresholdPercent = toFiniteNumber(raw?.warning_threshold_percent, 80)
-  const usagePercent = unlimited
-    ? 0
-    : Math.max(0, toFiniteNumber(raw?.usage_percent, quotaBytes > 0 ? (usedBytes / quotaBytes) * 100 : 0))
-  const status =
-    raw?.status ||
-    (unlimited ? 'unlimited' : usedBytes >= quotaBytes ? 'exceeded' : usagePercent >= warningThresholdPercent ? 'warning' : 'ok')
-
-  return {
-    quotaBytes,
-    usedBytes,
-    remainingBytes: unlimited
-      ? 0
-      : Math.max(0, toFiniteNumber(raw?.remaining_bytes, quotaBytes - usedBytes)),
-    usagePercent,
-    warningThresholdPercent,
-    status,
-    unlimited,
-    requiresQuotaIncrease:
-      raw?.requires_quota_increase === true || status === 'warning' || status === 'exceeded',
-  }
-})
-
-const formatPercent = (value: number) => {
-  if (!Number.isFinite(value)) return '0%'
-  const rounded = Math.round(value * 100) / 100
-  return `${String(rounded).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
-}
-
-const storageQuotaText = computed(() => {
-  const usage = storageUsage.value
-  if (!usage) return '-'
-  return usage.unlimited ? t('tenant.storage.unlimited') : formatBytes(usage.quotaBytes)
-})
-
-const storageUsedText = computed(() => {
-  const usage = storageUsage.value
-  return usage ? formatBytes(usage.usedBytes) : '-'
-})
-
-const storageRemainingText = computed(() => {
-  const usage = storageUsage.value
-  if (!usage) return '-'
-  return usage.unlimited ? t('tenant.storage.unlimited') : formatBytes(usage.remainingBytes)
-})
-
-const storageUsagePercentText = computed(() => {
-  const usage = storageUsage.value
-  if (!usage) return '-'
-  return usage.unlimited ? t('tenant.storage.usedOfUnlimited', { used: formatBytes(usage.usedBytes) }) : formatPercent(usage.usagePercent)
-})
-
-const storageProgressPercentage = computed(() => {
-  const percent = storageUsage.value?.usagePercent ?? 0
-  return Math.min(Math.round(percent * 100) / 100, 100)
-})
-
-const storageProgressStatus = computed(() => {
-  switch (storageUsage.value?.status) {
-    case 'exceeded':
-      return 'error'
-    case 'warning':
-      return 'warning'
-    default:
-      return 'success'
-  }
-})
-
-const storageStatusTheme = computed(() => {
-  switch (storageUsage.value?.status) {
-    case 'exceeded':
-      return 'danger'
-    case 'warning':
-      return 'warning'
-    case 'unlimited':
-      return 'default'
-    default:
-      return 'success'
-  }
-})
-
-const storageStatusText = computed(() => {
-  switch (storageUsage.value?.status) {
-    case 'exceeded':
-      return t('tenant.storage.statusExceeded')
-    case 'warning':
-      return t('tenant.storage.statusWarning')
-    case 'unlimited':
-      return t('tenant.storage.statusUnlimited')
-    default:
-      return t('tenant.storage.statusOk')
-  }
-})
-
-const storageQuotaIncreaseHint = computed(() => {
-  const usage = storageUsage.value
-  if (!usage || usage.unlimited || !usage.requiresQuotaIncrease) return ''
-  if (usage.status === 'exceeded') {
-    return t('tenant.storage.exceededHint')
-  }
-  return t('tenant.storage.warningHint', {
-    threshold: formatPercent(usage.warningThresholdPercent),
-  })
-})
-
-/** 与原 TenantMembers.vue 一致：最后一位 Owner 不展示退出，避免与服务端 last-owner 对齐失败。 */
-const activeTenantNumericId = computed(() => Number(authStore.currentTenantId ?? 0))
-
-const leaveMembersSnap = ref<TenantMember[]>([])
-const leaveGateReady = ref(false)
-const leaveGateLoading = ref(false)
-
-const currentTenantRole = computed<TenantRole | ''>(() => (authStore.currentTenantRole || '') as TenantRole | '')
-
-const canLeaveSpace = computed(() => {
-  const r = currentTenantRole.value
-  if (!r || !tenantInfo.value?.id) return false
-  if (r !== 'owner') return true
-  return leaveMembersSnap.value.filter((m) => m.role === 'owner').length > 1
-})
-
-/** 在主内容已成功加载、`listMembers` 放行规则就绪且允许退出时出现。 */
-const showLeaveDangerZone = computed(() => {
-  if (loading.value || error.value || !tenantInfo.value) return false
-  if (!leaveGateReady.value || leaveGateLoading.value) return false
-  if (!currentTenantRole.value) return false
-  if (Number(tenantInfo.value.id) !== activeTenantNumericId.value) return false
-  return canLeaveSpace.value
-})
-
-const showDeleteDangerZone = computed(() => {
-  if (loading.value || error.value || !tenantInfo.value) return false
-  if (Number(tenantInfo.value.id) !== activeTenantNumericId.value) return false
-  return authStore.hasRole('owner')
-})
-
-async function evaluateLeaveGate(): Promise<void> {
-  leaveGateReady.value = false
-  leaveMembersSnap.value = []
-  leaveGateLoading.value = false
-
-  const infoId = tenantInfo.value?.id != null ? Number(tenantInfo.value.id) : 0
-  if (!infoId || !activeTenantNumericId.value || infoId !== activeTenantNumericId.value) {
-    leaveGateReady.value = true
-    return
-  }
-
-  const role = currentTenantRole.value
-  if (!role) {
-    leaveGateReady.value = true
-    return
-  }
-  if (role !== 'owner') {
-    leaveGateReady.value = true
-    return
-  }
-
-  leaveGateLoading.value = true
-  try {
-    leaveMembersSnap.value = await fetchAllTenantMembers(infoId)
-  } finally {
-    leaveGateLoading.value = false
-    leaveGateReady.value = true
-  }
-}
-
-function confirmLeaveTenant() {
-  const tid = Number(tenantInfo.value?.id ?? 0)
-  if (!tid) return
-
-  const dlg = DialogPlugin.confirm({
-    header: t('tenantMember.leave.confirmTitle'),
-    body: t('tenantMember.leave.confirmBody'),
-    confirmBtn: { content: t('tenantMember.leave.confirm'), theme: 'danger' },
-    cancelBtn: t('common.cancel'),
-    onConfirm: async () => {
-      try {
-        const resp = await leaveTenant(tid)
-        if (resp.success) {
-          MessagePlugin.success(t('tenantMember.leave.success'))
-          authStore.logout()
-          window.location.href = '/login'
-        } else {
-          MessagePlugin.error(resp.message || t('tenantMember.errors.generic'))
-        }
-      } catch (err: any) {
-        const status = err?.status
-        if (status === 409) {
-          MessagePlugin.error(t('tenantMember.errors.lastOwner'))
-        } else {
-          MessagePlugin.error(err?.message || t('tenantMember.errors.generic'))
-        }
-      } finally {
-        dlg.destroy()
-      }
-    },
-    onClose: () => dlg.destroy(),
-  })
-}
-
-function confirmDeleteTenant() {
-  const tid = Number(tenantInfo.value?.id ?? 0)
-  const tenantName = tenantInfo.value?.name || ''
-  if (!tid || !tenantName) return
-  deleteConfirmName.value = ''
-  deleteTenantVisible.value = true
-}
-
-async function deleteCurrentTenant() {
-  const tid = Number(tenantInfo.value?.id ?? 0)
-  const tenantName = tenantInfo.value?.name || ''
-  if (!tid || !tenantName) return
-  if (deleteConfirmName.value.trim() !== tenantName) {
-    MessagePlugin.warning(t('tenant.deleteDangerZone.nameMismatch'))
-    return
-  }
-  try {
-    deletingTenant.value = true
-    const resp = await deleteTenantApi(tid)
-    if (resp.success) {
-      MessagePlugin.success(t('tenant.deleteDangerZone.success'))
-      authStore.setMemberships(
-        (authStore.memberships ?? []).filter((m) => m.tenant_id !== tid),
-      )
-      await authStore.refreshFromAuthMe()
-      const next =
-        authStore.memberships.find((m) => m.tenant_id === homeTenantId.value) ??
-        authStore.memberships[0]
-      if (next) {
-        const switchingToHome =
-          homeTenantId.value !== null && homeTenantId.value === next.tenant_id
-        const name = next.tenant_name?.trim() || `#${next.tenant_id}`
-        authStore.setSelectedTenant(next.tenant_id, name)
-        stashTenantSwitchToast({
-          name,
-          role: formatRole(next.role) || undefined,
-          roleEnum: next.role || undefined,
-        })
-        const persist = persistLastActiveTenantPreference(
-          switchingToHome ? null : next.tenant_id,
-        )
-        await Promise.race([persist, new Promise((r) => setTimeout(r, 400))])
-        navigateAfterTenantSwitch()
-        return
-      }
-      authStore.logout()
-      window.location.href = '/login'
-    } else {
-      MessagePlugin.error(resp.message || t('tenant.deleteDangerZone.failed'))
-    }
-  } catch (err: any) {
-    MessagePlugin.error(err?.message || t('tenant.deleteDangerZone.failed'))
-  } finally {
-    deletingTenant.value = false
-    deleteConfirmName.value = ''
-    deleteTenantVisible.value = false
-  }
-}
-
-watch(
-  [() => tenantInfo.value?.id, () => authStore.currentTenantId, () => authStore.currentTenantRole],
-  () => {
-    if (!loading.value && tenantInfo.value && !error.value) {
-      void evaluateLeaveGate()
-    }
-  },
-)
-
-// 原地编辑空间名称：editing 控制行内只读 / 编辑两种形态切换。
-// 不沿用 dialog 是因为这里只有一个字段，弹窗反而打断了配置浏览节奏。
-const editing = ref(false)
-const editName = ref('')
-const saving = ref(false)
-const deleteConfirmName = ref('')
-const deleteTenantVisible = ref(false)
-const deletingTenant = ref(false)
-const editNameTrimmed = computed(() => editName.value.trim())
-// 保存按钮可点条件：非空、改了内容、不在保存中。
-// 后端 name 字段没有 uniqueIndex 也没有重名校验，所以这里不做"是否已存在"的判断；
-// 后端 service 也只在 create 时拒空，update 时不校验，保持前端兜底非空即可。
-const canSubmit = computed(
-  () => !saving.value && !!editNameTrimmed.value && editNameTrimmed.value !== tenantInfo.value?.name,
-)
-
-const startEditName = () => {
-  editName.value = tenantInfo.value?.name || ''
-  editing.value = true
-}
-
-const cancelEditName = () => {
-  if (saving.value) return
-  editing.value = false
-  editName.value = ''
-}
-
-// t-input 自身不冒泡 esc，这里手动处理（与 enter 的体验对称）。
-const onEditKeydown = (_value: any, ctx: { e: KeyboardEvent }) => {
-  if (ctx?.e?.key === 'Escape') {
-    cancelEditName()
-  }
-}
-
-// 原地编辑空间描述：与名称对称的 editing / editValue / saving 三态。
-// 描述允许为空（业务上是可选字段），所以可提交条件不要求非空，只要内容变了即可。
-const editingDescription = ref(false)
-const editDescription = ref('')
-const savingDescription = ref(false)
-const editDescriptionTrimmed = computed(() => editDescription.value.trim())
-const canSubmitDescription = computed(
-  () => !savingDescription.value && editDescriptionTrimmed.value !== (tenantInfo.value?.description || ''),
-)
-
-const startEditDescription = () => {
-  editDescription.value = tenantInfo.value?.description || ''
-  editingDescription.value = true
-}
-
-const cancelEditDescription = () => {
-  if (savingDescription.value) return
-  editingDescription.value = false
-  editDescription.value = ''
-}
-
-// textarea 上 Enter 默认走换行，提交走 Ctrl/⌘+Enter；Esc 取消。
-const onEditDescriptionKeydown = (_value: any, ctx: { e: KeyboardEvent }) => {
-  const e = ctx?.e
-  if (!e) return
-  if (e.key === 'Escape') {
-    cancelEditDescription()
-    return
-  }
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault()
-    void saveTenantDescription()
-  }
-}
-
-const saveTenantDescription = async () => {
-  if (!tenantInfo.value?.id) return
-  const newDesc = editDescriptionTrimmed.value
-  if (newDesc === (tenantInfo.value.description || '')) {
-    editingDescription.value = false
-    return
-  }
-
-  try {
-    savingDescription.value = true
-    const resp = await updateTenantApi(Number(tenantInfo.value.id), { description: newDesc })
-    if (resp.success) {
-      // 本地立即回显，避免等 /auth/me 往返。描述不像名称那样会出现在空间切换器等
-      // 顶部组件里，所以无需同步 authStore.tenant / memberships。
-      if (tenantInfo.value) {
-        tenantInfo.value = { ...tenantInfo.value, description: newDesc }
-      }
-      MessagePlugin.success(t('tenant.details.editDescriptionSuccess'))
-      editingDescription.value = false
-    } else {
-      MessagePlugin.error(resp.message || t('tenant.details.editDescriptionFailed'))
-    }
-  } catch (err: any) {
-    MessagePlugin.error(err?.message || t('tenant.details.editDescriptionFailed'))
-  } finally {
-    savingDescription.value = false
-  }
-}
-
-const saveTenantName = async () => {
-  const newName = editNameTrimmed.value
-  if (!newName) {
-    MessagePlugin.warning(t('tenant.details.editNameRequired'))
-    return
-  }
-  if (!tenantInfo.value?.id) return
-  if (newName === tenantInfo.value.name) {
-    editing.value = false
-    return
-  }
-
-  try {
-    saving.value = true
-    const resp = await updateTenantApi(Number(tenantInfo.value.id), { name: newName })
-    if (resp.success) {
-      // 本地立即回显，避免等 /auth/me 往返；同步刷新登录态里的 tenant
-      // 缓存（若当前激活空间就是 home tenant，顶部空间切换器等地方也跟着更新）。
-      if (tenantInfo.value) {
-        tenantInfo.value = { ...tenantInfo.value, name: newName }
-      }
-      if (authStore.tenant && String(authStore.tenant.id) === String(tenantInfo.value?.id)) {
-        authStore.setTenant({ ...authStore.tenant, name: newName })
-      }
-      // memberships 里的 tenant_name 是空间切换器读的字段，一并同步避免显示旧名字。
-      if (authStore.memberships?.length) {
-        const next = authStore.memberships.map((m) =>
-          String(m.tenant_id) === String(tenantInfo.value?.id)
-            ? { ...m, tenant_name: newName }
-            : m,
-        )
-        authStore.setMemberships(next)
-      }
-      MessagePlugin.success(t('tenant.details.editNameSuccess'))
-      editing.value = false
-    } else {
-      MessagePlugin.error(resp.message || t('tenant.details.editNameFailed'))
-    }
-  } catch (err: any) {
-    MessagePlugin.error(err?.message || t('tenant.details.editNameFailed'))
-  } finally {
-    saving.value = false
-  }
-}
-
-// Methods
-const loadInfo = async () => {
-  try {
-    loading.value = true
-    error.value = ''
-
-    const userResponse = await getCurrentUser()
-
-    const data = userResponse?.data as { tenant?: TenantInfo } | undefined
-    if ((userResponse as any).success && data?.tenant) {
-      tenantInfo.value = data.tenant
-    } else {
-      error.value = userResponse.message || t('tenant.messages.fetchFailed')
-    }
-  } catch (err: any) {
-    error.value = err?.message || t('tenant.messages.networkError')
-  } finally {
-    loading.value = false
-  }
-  // 须在 loading=false 之后再评估：否则退出入口会被 showLeaveDangerZone 里的 loading 条件挡住，
-  // 且部分环境下角色 hydrated 稍晚于 /auth/me 返回。
-  if (tenantInfo.value && !error.value) {
-    await evaluateLeaveGate()
-  }
-}
-
-const getStatusText = (status: string | undefined) => {
-  switch (status) {
-    case 'active':
-      return t('tenant.statusActive')
-    case 'inactive':
-      return t('tenant.statusInactive')
-    case 'suspended':
-      return t('tenant.statusSuspended')
-    default:
-      return t('tenant.statusUnknown')
-  }
-}
-
-const getStatusTheme = (status: string | undefined) => {
-  switch (status) {
-    case 'active':
-      return 'success'
-    case 'inactive':
-      return 'warning'
-    case 'suspended':
-      return 'danger'
-    default:
-      return 'default'
-  }
-}
-
-const formatDate = (dateStr: string | undefined) => {
-  if (!dateStr) return t('tenant.unknown')
-
-  try {
-    const date = new Date(dateStr)
-    const formatter = new Intl.DateTimeFormat(locale.value || 'zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-    return formatter.format(date)
-  } catch {
-    return t('tenant.formatError')
-  }
+  const normalized = Number(value)
+  return Number.isFinite(normalized) ? normalized : fallback
 }
 
 const formatBytes = (bytes: number) => {
   const normalized = Math.max(0, toFiniteNumber(bytes, 0))
   if (normalized === 0) return '0 B'
 
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.min(Math.floor(Math.log(normalized) / Math.log(k)), sizes.length - 1)
-
-  return parseFloat((normalized / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  const unit = 1024
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(normalized) / Math.log(unit)), units.length - 1)
+  return `${parseFloat((normalized / Math.pow(unit, index)).toFixed(2))} ${units[index]}`
 }
 
-// Lifecycle
-onMounted(() => {
-  loadInfo()
+const formatPercent = (value: number) => {
+  const normalized = Math.max(0, toFiniteNumber(value, 0))
+  const rounded = Math.round(normalized * 100) / 100
+  return `${String(rounded).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
+}
+
+const formatCredits = (pointMicros: number) =>
+  new Intl.NumberFormat(locale.value || 'zh-CN', {
+    maximumFractionDigits: 2,
+  }).format(Math.max(0, toFiniteNumber(pointMicros, 0)) / 1_000_000)
+
+const formatUsageTime = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat(locale.value || 'zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+const usageStatusTheme = (status: string): 'success' | 'warning' | 'danger' | 'default' => {
+  if (status === 'settled') return 'success'
+  if (status === 'unpriced' || status === 'reconciliation') return 'danger'
+  if (status === 'observed') return 'warning'
+  return 'default'
+}
+
+const buildStorageDisplay = (raw: BillingOverview['storage']): StorageDisplay => {
+  const quotaBytes = Math.max(0, toFiniteNumber(raw.quota_bytes, 0))
+  const usedBytes = Math.max(0, toFiniteNumber(raw.used_bytes, 0))
+  const unlimited = raw.unlimited === true || quotaBytes <= 0
+  const remainingBytes = unlimited
+    ? 0
+    : Math.max(0, toFiniteNumber(raw.remaining_bytes, quotaBytes - usedBytes))
+  const usagePercent = unlimited
+    ? 0
+    : Math.max(0, toFiniteNumber(raw.usage_percent, quotaBytes > 0 ? (usedBytes / quotaBytes) * 100 : 0))
+  const status = raw.status
+    || (usedBytes >= quotaBytes ? 'exceeded' : usagePercent >= 80 ? 'warning' : 'ok')
+
+  return {
+    usedText: formatBytes(usedBytes),
+    quotaText: unlimited ? t('tenant.storage.unlimited') : formatBytes(quotaBytes),
+    remainingText: unlimited ? t('tenant.storage.unlimited') : formatBytes(remainingBytes),
+    percentText: unlimited
+      ? t('tenant.storage.usedOfUnlimited', { used: formatBytes(usedBytes) })
+      : formatPercent(usagePercent),
+    progress: Math.min(100, Math.round(usagePercent * 100) / 100),
+    progressStatus: status === 'exceeded' ? 'error' : status === 'warning' ? 'warning' : 'success',
+    unlimited,
+  }
+}
+
+const formatPeriod = (billing: BillingOverview) => {
+  const start = billing.subscription.current_period_start
+  const end = billing.subscription.current_period_end
+  if (!start || !end) return t('tenant.subscriptionUsage.noFixedPeriod')
+  const formatter = new Intl.DateTimeFormat(locale.value || 'zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return `${formatter.format(new Date(start))} - ${formatter.format(new Date(end))}`
+}
+
+const usageCards = computed<UsageCard[]>(() => {
+  if (!overview.value) return []
+  const billing = overview.value
+  const isEnterprise = billing.space_type === 'organization'
+  return [{
+    key: billing.space_type,
+    icon: isEnterprise ? 'usergroup' : 'user-circle',
+    title: billing.tenant_name,
+    badge: billing.plan.name,
+    description: isEnterprise
+      ? t('tenant.subscriptionUsage.enterpriseDescription', { name: billing.tenant_name })
+      : t('tenant.subscriptionUsage.personalDescription'),
+    planName: billing.plan.name,
+    planCode: billing.plan.code,
+    periodText: formatPeriod(billing),
+    storage: buildStorageDisplay(billing.storage),
+    periodCreditText: formatCredits(billing.credits.period_point_micros),
+    balanceCreditText: formatCredits(billing.credits.balance_point_micros),
+    balanceCreditMicros: billing.credits.balance_point_micros,
+    creditSource: isEnterprise
+      ? t('tenant.subscriptionUsage.enterpriseCreditSource')
+      : t('tenant.subscriptionUsage.personalCreditSource'),
+  }]
 })
+
+const loadUsage = async () => {
+  const sequence = ++loadSequence
+
+  loading.value = true
+  error.value = ''
+  overview.value = null
+  usageItems.value = []
+
+  if (!activeTenantId.value) {
+    error.value = t('tenant.subscriptionUsage.personalLoadFailed')
+    loading.value = false
+    return
+  }
+
+  const [response, usageResponse] = await Promise.all([
+    getBillingOverview(),
+    getBillingUsage().catch((): BillingUsageResponse => ({ success: false })),
+  ])
+
+  if (sequence !== loadSequence) return
+
+  if (!response.success || !response.data) {
+    error.value = response.message || t('tenant.subscriptionUsage.personalLoadFailed')
+    loading.value = false
+    return
+  }
+
+  overview.value = response.data
+  usageItems.value = usageResponse.success && usageResponse.data ? usageResponse.data : []
+  loading.value = false
+}
+
+watch(
+  activeTenantId,
+  () => {
+    void loadUsage()
+  },
+  { immediate: true },
+)
 </script>
 
 <style lang="less" scoped>
-.tenant-info {
+.subscription-usage {
   width: 100%;
 }
 
 .section-header {
-  margin-bottom: 32px;
-
-  .section-title-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 20px;
-  }
+  margin-bottom: 28px;
 
   h2 {
-    font-size: 20px;
-    font-weight: 600;
+    margin: 0 0 8px;
     color: var(--td-text-color-primary);
-    margin: 0 0 8px 0;
+    font-size: 22px;
+    font-weight: 600;
+    line-height: 1.35;
   }
 
-  .section-description {
-    font-size: 14px;
-    color: var(--td-text-color-secondary);
+  p {
     margin: 0;
-    line-height: 1.5;
+    color: var(--td-text-color-secondary);
+    font-size: 14px;
+    line-height: 1.6;
   }
 }
 
-.section-header-actions {
+.loading-state {
+  min-height: 260px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.loading-inline {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 40px 0;
   justify-content: center;
+  gap: 12px;
   color: var(--td-text-color-secondary);
   font-size: 14px;
 }
 
-.error-inline {
-  padding: 20px 0;
+.error-state {
+  padding-top: 8px;
 }
 
-.tenant-info-body {
+.usage-content,
+.usage-card-list {
   display: flex;
   flex-direction: column;
+  gap: 16px;
 }
 
-.settings-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
+.recent-usage {
+  margin-top: 8px;
+  border-top: 1px solid var(--td-component-stroke);
+  padding-top: 24px;
 }
 
-.setting-row {
+.recent-usage__heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--td-component-stroke);
+  gap: 16px;
+  margin-bottom: 14px;
 
-  &:last-child {
-    border-bottom: none;
-  }
-}
-
-.setting-info {
-  /* 不再 flex:1：标签列固定到 max-content 的合理范围内（CJK label 一般 4~6 字，
-     再加 desc 文案撑宽），不参与剩余空间分配，避免被长内容挤到单字纵向换行。
-     min-width 兜底，desc 字数稍多时也不会被压缩到一字一行。 */
-  flex: 0 0 auto;
-  width: max-content;
-  min-width: 140px;
-  max-width: 40%;
-  padding-right: 24px;
-
-  label {
-    font-size: 15px;
-    font-weight: 500;
-    color: var(--td-text-color-primary);
-    display: block;
-    margin-bottom: 4px;
-  }
-
-  .desc {
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
+  h3,
+  p {
     margin: 0;
-    line-height: 1.5;
   }
-}
 
-.setting-control {
-  /* 反过来：内容列吃掉剩余空间，并允许收缩 + 内部换行，长字符串不会再撑爆行。
-     去掉原先的 min-width:280px 硬约束（短内容也不需要那么宽的展示槽）。 */
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-
-  .info-value {
-    font-size: 14px;
+  h3 {
     color: var(--td-text-color-primary);
-    text-align: right;
-    /* anywhere 比 break-word 激进：连无空格的长串（"WorkspaceDefault..." 这种）
-       也能强制断行，避免单条内容把整行撑出。 */
-    overflow-wrap: anywhere;
-    min-width: 0;
+    font-size: 16px;
   }
 
-  .edit-btn {
-    flex-shrink: 0;
+  p {
+    margin-top: 5px;
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
   }
 }
 
-.inline-edit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  justify-content: flex-end;
-}
-
-.inline-edit-input {
-  /* 行内编辑场景下输入框不能撑满整行，否则右侧两个按钮会贴边；
-     给一个合理上限即可，超出走 t-input 自己的省略。 */
-  max-width: 220px;
-  flex: 1;
-}
-
-/* 描述行的原地编辑：textarea 自身可换行展开，按钮换到下方右对齐，
-   避免名称行那样横向把按钮挤窄。 */
-.inline-edit-description {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  width: 100%;
-  max-width: 360px;
-}
-
-.inline-edit-textarea {
-  width: 100%;
-}
-
-.inline-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* 只读态的描述：多行可换行；空描述用占位色提示用户可点编辑写入。 */
-.description-value {
-  white-space: pre-wrap;
-  word-break: break-word;
-
-  &.is-empty {
-    color: var(--td-text-color-placeholder);
-  }
-}
-
-.leave-space-panel {
-  margin-top: 4px;
-}
-
-.delete-space-panel {
-  margin-top: 12px;
-}
-
-.leave-space-panel-inner {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 16px 18px;
-  border-radius: 10px;
+.recent-usage__table-wrap {
+  overflow-x: auto;
   border: 1px solid var(--td-component-stroke);
-  background-color: var(--td-bg-color-secondarycontainer);
+  border-radius: 8px;
+}
+
+.recent-usage__table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+
+  th,
+  td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--td-component-stroke);
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    text-align: left;
+  }
+
+  th {
+    background: var(--td-bg-color-secondarycontainer);
+    color: var(--td-text-color-secondary);
+    font-weight: 500;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  td strong,
+  td span {
+    display: block;
+  }
+
+  td strong {
+    color: var(--td-text-color-primary);
+  }
+
+  td span {
+    margin-top: 3px;
+    color: var(--td-text-color-placeholder);
+    font-size: 12px;
+  }
+}
+
+.recent-usage__empty {
+  height: 96px;
+  text-align: center !important;
+}
+
+.enterprise-warning {
+  margin-bottom: 2px;
+}
+
+.usage-card {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.72fr) minmax(0, 1.7fr);
+  gap: 30px;
+  padding: 24px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
   box-sizing: border-box;
 }
 
-.leave-space-panel-text {
-  flex: 1;
-  min-width: 0;
-  max-width: min(65%, 28rem);
-  padding-right: 8px;
-}
-
-.leave-space-panel-title {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--td-text-color-primary);
-  line-height: 1.4;
-  margin-bottom: 4px;
-}
-
-.leave-space-panel-desc {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--td-text-color-secondary);
-}
-
-.leave-space-panel-action {
-  flex-shrink: 0;
-}
-
-@media (max-width: 560px) {
-  .section-title-row {
-    flex-direction: column;
-  }
-
-  .section-header-actions {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .leave-space-panel-inner {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .leave-space-panel-text {
-    max-width: none;
-    padding-right: 0;
-  }
-
-  .leave-space-panel-action {
-    display: flex;
-    justify-content: flex-end;
-  }
-}
-
-.usage-control {
-  width: min(360px, 100%);
+.plan-summary {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+
+.plan-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-primary);
+
+  &--enterprise {
+    color: var(--td-brand-color);
+    background: var(--td-brand-color-light);
+  }
+}
+
+.plan-copy {
+  min-width: 0;
+  padding-top: 2px;
+
+  p {
+    margin: 8px 0 0;
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+}
+
+.plan-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 
-  .usage-summary {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .usage-text {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--td-text-color-primary);
-    text-align: right;
-  }
-
-  .usage-progress {
-    width: 100%;
-  }
-
-  .usage-hint {
+  h3 {
+    min-width: 0;
     margin: 0;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--td-warning-color);
-    text-align: right;
+    color: var(--td-text-color-primary);
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
   }
 }
 
-.delete-tenant-confirm-body {
-  margin: 0 0 10px;
-  color: var(--td-text-color-primary);
-  line-height: 1.6;
+.resource-usage {
+  min-width: 0;
 }
 
-.delete-tenant-confirm-hint {
-  margin: 0 0 12px;
+.resource-heading {
+  margin-bottom: 18px;
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.resource-row {
+  padding-bottom: 20px;
+
+  & + & {
+    padding-top: 20px;
+    border-top: 1px solid var(--td-component-stroke);
+  }
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+}
+
+.resource-label-row,
+.resource-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.resource-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  font-weight: 500;
+
+  .t-icon {
+    flex-shrink: 0;
+    color: var(--td-text-color-secondary);
+  }
+}
+
+.resource-primary {
+  flex-shrink: 0;
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+
+  &--credits {
+    color: var(--td-brand-color);
+    font-size: 18px;
+    font-weight: 600;
+  }
+}
+
+.resource-meta {
+  margin: 8px 0 10px;
   color: var(--td-text-color-secondary);
-  line-height: 1.5;
+  font-size: 12px;
+}
+
+.unlimited-track {
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--td-bg-color-secondarycontainer);
+
+  span {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: var(--td-brand-color-light-active);
+  }
+}
+
+@media (max-width: 720px) {
+  .usage-card {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .resource-label-row,
+  .resource-meta {
+    align-items: flex-start;
+  }
+
+  .resource-primary {
+    white-space: normal;
+    text-align: right;
+  }
 }
 </style>

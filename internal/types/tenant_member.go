@@ -11,8 +11,9 @@ import (
 // Tenant roles govern intra-tenant authority (who can create/edit/delete
 // resources, manage tenant settings, etc.) and are orthogonal to the
 // OrgMemberRole defined in organization.go, which governs cross-tenant
-// sharing. A user may therefore carry different TenantRole values in
-// different tenants (one TenantMember row per (user, tenant) pair).
+// sharing. A user may carry different TenantRole values in their personal
+// workspace and single enterprise workspace (one TenantMember row per
+// (user, tenant) pair).
 type TenantRole string
 
 const (
@@ -90,6 +91,24 @@ const (
 	TenantMemberSourceHRIS   TenantMemberSource = "hris"
 )
 
+// DefaultWorkProfileDescription is assigned to the owner membership created
+// during account provisioning. It gives newly created accounts a usable
+// service-facing profile without overwriting later user edits.
+const DefaultWorkProfileDescription = `1.【岗位与执教履历】
+- 岗位角色：教培工作者，面向学生、家长、教师和教培团队提供教学与服务支持。
+- 执教/服务领域：课程教学、学员辅导、家校沟通、课程跟进和教育内容整理。
+- 机构环境：根据当前空间提供的课程资料、服务规则和业务信息开展工作，不臆造个人资历或机构信息。
+
+2.【工作与协作偏好】
+- 输出格式偏好：优先使用清晰的分点、步骤、表格或可直接复用的文案。
+- 沟通与决策风格：先确认事实和目标，再给出具体、稳妥、可执行的建议；涉及不确定信息时明确说明。
+- AI 协作期望：协助整理课程资料、分析学习与服务问题、准备家校沟通内容和跟进清单。
+
+3.【近期业务重心】
+- 近期关注：提升教学质量、学习效果、家长满意度和续费、转化跟进效率。
+- 处理边界：不负责超出本人岗位和授权范围的财务审批、人事决策、跨空间数据访问、医疗或心理诊断以及平台运维。
+- 记忆与系统范围：仅读取当前空间授权的知识库、服务规则和与当前工作相关的记忆；涉及外部系统时只生成建议或草稿，不直接执行敏感操作。`
+
 func (s TenantMemberSource) IsValid() bool {
 	switch s {
 	case TenantMemberSourceManual,
@@ -107,9 +126,9 @@ func (s TenantMemberSource) IsValid() bool {
 // TenantMember represents the (user, tenant) membership record that
 // carries the user's TenantRole for that specific tenant.
 //
-// A user has one TenantMember row per tenant they belong to. The home
-// tenant recorded on User.TenantID is always one of these rows; additional
-// rows are created when an admin adds the user to another tenant.
+// An account may have its personal workspace plus at most one enterprise
+// membership. The home tenant recorded on User.TenantID is always one of
+// these rows.
 type TenantMember struct {
 	// Surrogate primary key.
 	ID uint64 `json:"id" gorm:"primaryKey;autoIncrement"`

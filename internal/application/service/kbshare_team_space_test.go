@@ -46,6 +46,37 @@ func TestCheckTenantKBPermissionAllowsTenantInternalOwnerTenant(t *testing.T) {
 	require.Equal(t, types.OrgRoleEditor, role)
 }
 
+func TestCheckTenantKBPermissionUsesHighestRoleAcrossSharedSpaces(t *testing.T) {
+	svc := newMultiSpaceKBShareService()
+
+	role, isShared, err := svc.CheckTenantKBPermission(
+		context.Background(),
+		"kb-multi-space",
+		100,
+		types.TenantRoleAdmin,
+	)
+
+	require.NoError(t, err)
+	require.True(t, isShared)
+	require.Equal(t, types.OrgRoleEditor, role)
+}
+
+func TestListSharedKnowledgeBasesUsesHighestRoleAcrossSharedSpaces(t *testing.T) {
+	svc := newMultiSpaceKBShareService()
+
+	items, err := svc.ListSharedKnowledgeBases(
+		context.Background(),
+		100,
+		types.TenantRoleAdmin,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, "kb-multi-space", items[0].KnowledgeBase.ID)
+	require.Equal(t, types.OrgRoleEditor, items[0].Permission)
+	require.Equal(t, "space-editor", items[0].OrganizationID)
+}
+
 func TestListSharedKnowledgeBaseIDsByOrganizationsRejectsTenantInternalOutsideActiveTenant(t *testing.T) {
 	svc := newTenantInternalKBShareService()
 
@@ -80,6 +111,59 @@ func newTenantInternalKBShareService() *kbShareService {
 	}
 	return &kbShareService{
 		shareRepo: &teamScopeKBShareRepoStub{shares: []*types.KnowledgeBaseShare{share}},
+		orgRepo:   orgRepo,
+	}
+}
+
+func newMultiSpaceKBShareService() *kbShareService {
+	viewerOrg := &types.Organization{ID: "space-viewer", OwnerTenantID: 100}
+	editorOrg := &types.Organization{ID: "space-editor", OwnerTenantID: 100}
+	kb := &types.KnowledgeBase{
+		ID:       "kb-multi-space",
+		TenantID: 100,
+	}
+	orgRepo := &teamSpaceOrganizationRepoStub{
+		orgsByID: map[string]*types.Organization{
+			viewerOrg.ID: viewerOrg,
+			editorOrg.ID: editorOrg,
+		},
+		members: map[string]*types.OrganizationTenantMember{
+			viewerOrg.ID: {
+				OrganizationID:       viewerOrg.ID,
+				TenantID:             100,
+				RepresentativeUserID: "user-1",
+				Role:                 types.OrgRoleViewer,
+			},
+			editorOrg.ID: {
+				OrganizationID:       editorOrg.ID,
+				TenantID:             100,
+				RepresentativeUserID: "user-1",
+				Role:                 types.OrgRoleEditor,
+			},
+		},
+	}
+	shares := []*types.KnowledgeBaseShare{
+		{
+			ID:              "share-viewer",
+			KnowledgeBaseID: kb.ID,
+			OrganizationID:  viewerOrg.ID,
+			SourceTenantID:  kb.TenantID,
+			Permission:      types.OrgRoleViewer,
+			Organization:    viewerOrg,
+			KnowledgeBase:   kb,
+		},
+		{
+			ID:              "share-editor",
+			KnowledgeBaseID: kb.ID,
+			OrganizationID:  editorOrg.ID,
+			SourceTenantID:  kb.TenantID,
+			Permission:      types.OrgRoleEditor,
+			Organization:    editorOrg,
+			KnowledgeBase:   kb,
+		},
+	}
+	return &kbShareService{
+		shareRepo: &teamScopeKBShareRepoStub{shares: shares},
 		orgRepo:   orgRepo,
 	}
 }

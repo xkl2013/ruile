@@ -1,0 +1,1 @@
+-- Built-in model lifecycle is intentionally not restored on rollback.

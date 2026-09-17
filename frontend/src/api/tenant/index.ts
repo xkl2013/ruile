@@ -34,6 +34,7 @@ export interface TenantInfo {
   storage_quota?: number
   storage_used?: number
   storage_usage?: TenantStorageUsage
+  enterprise_credits?: number
   created_at: string
   updated_at: string
 }
@@ -150,6 +151,31 @@ export interface SearchTenantsResponse {
     page_size: number
   }
   message?: string
+}
+
+/**
+ * 获取指定空间的只读信息。
+ *
+ * 路由要求 URL 中的空间 ID 与请求上下文一致，因此这里显式发送
+ * X-Tenant-ID，避免当前正在浏览个人空间时无法读取所属企业空间的额度，
+ * 或反过来把企业额度误当成个人额度。
+ */
+export async function getTenantById(
+  tenantId: number,
+): Promise<{ success: boolean; data?: TenantInfo; message?: string }> {
+  try {
+    const response = await get(`/api/v1/tenants/${tenantId}`, {
+      headers: {
+        'X-Tenant-ID': String(tenantId),
+      },
+    })
+    return response as unknown as { success: boolean; data?: TenantInfo; message?: string }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || t('error.auth.getTenantFailed'),
+    }
+  }
 }
 
 /**

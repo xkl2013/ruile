@@ -77,6 +77,22 @@ func MinOrgRole(a, b OrgMemberRole) OrgMemberRole {
 	return a
 }
 
+// MaxOrgRole returns the higher role on the admin > editor > viewer ladder.
+// It is used when the same account reaches one resource through multiple
+// shared spaces: any valid stronger grant wins over a weaker grant.
+func MaxOrgRole(a, b OrgMemberRole) OrgMemberRole {
+	if a == "" {
+		return b
+	}
+	if b == "" {
+		return a
+	}
+	if a.HasPermission(b) {
+		return a
+	}
+	return b
+}
+
 // Organization represents a collaboration organization for cross-tenant sharing
 type Organization struct {
 	// Unique identifier of the organization

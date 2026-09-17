@@ -358,13 +358,8 @@ func resolveKBAccessOnce(
 		}, nil
 	}
 
-	// 1. Same-tenant KB. Admin+ can access all tenant KBs; ordinary
-	// members access KBs they created. If a same-tenant KB is explicitly
-	// shared to an organization the caller's tenant belongs to, fall through
-	// to the org-share check below so shared spaces can grant teammate-owned
-	// KB access without making every tenant KB globally visible.
+	// 1. API keys use their explicit KB allow-list/capability grant.
 	if kb.TenantID == tenantID {
-		// API-key principals are already constrained by their KB allow-list.
 		if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
 			return &KBAccess{
 				KnowledgeBase:     kb,
@@ -373,6 +368,38 @@ func resolveKBAccessOnce(
 				AccessSource:      types.KnowledgeBaseAccessSourceAPIKey,
 			}, nil
 		}
+	}
+
+	// 2. An explicit team-space share caps the effective permission even when
+	// the source KB belongs to the same enterprise tenant. Check this before
+	// tenant Admin/Owner and creator fallbacks so viewer shares stay read-only.
+	if kbShareService != nil {
+		permission, isShared, permErr := kbShareService.CheckTenantKBPermission(ctx, kbID, tenantID, callerTenantRole)
+		if permErr != nil {
+			return nil, permErr
+		}
+		if isShared {
+			if !permission.HasPermission(requiredPermission) {
+				return nil, errKBAccessForbidden
+			}
+			source, srcErr := kbShareService.GetKBSourceTenant(ctx, kbID)
+			if srcErr != nil {
+				return nil, srcErr
+			}
+			logger.Infof(ctx, "[kb_access] tenant %d -> shared KB %s perm=%s source=%d",
+				tenantID, kbID, permission, source)
+			return &KBAccess{
+				KnowledgeBase:     kb,
+				EffectiveTenantID: source,
+				Permission:        permission,
+				AccessSource:      types.KnowledgeBaseAccessSourceSharedSpace,
+			}, nil
+		}
+	}
+
+	// 3. Same-tenant KB without a team-space share. Admin+ can access all
+	// tenant KBs; ordinary members can access KBs they created.
+	if kb.TenantID == tenantID {
 		if callerTenantRole.HasPermission(types.TenantRoleAdmin) {
 			return &KBAccess{
 				KnowledgeBase:     kb,
@@ -389,26 +416,6 @@ func resolveKBAccessOnce(
 				Permission:        types.OrgRoleAdmin,
 				AccessSource:      types.KnowledgeBaseAccessSourceCreated,
 			}, nil
-		}
-	}
-
-	// 2. Org-shared KB. Plan 3's 3-D cap is applied inside
-	//    CheckTenantKBPermission; we just check the result satisfies
-	//    the minimum requirement.
-	if kbShareService != nil {
-		permission, isShared, permErr := kbShareService.CheckTenantKBPermission(ctx, kbID, tenantID, callerTenantRole)
-		if permErr == nil && isShared && permission.HasPermission(requiredPermission) {
-			source, srcErr := kbShareService.GetKBSourceTenant(ctx, kbID)
-			if srcErr == nil {
-				logger.Infof(ctx, "[kb_access] tenant %d -> shared KB %s perm=%s source=%d",
-					tenantID, kbID, permission, source)
-				return &KBAccess{
-					KnowledgeBase:     kb,
-					EffectiveTenantID: source,
-					Permission:        permission,
-					AccessSource:      types.KnowledgeBaseAccessSourceSharedSpace,
-				}, nil
-			}
 		}
 	}
 

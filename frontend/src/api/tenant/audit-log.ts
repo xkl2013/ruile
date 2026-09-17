@@ -1,5 +1,13 @@
 import { get } from '@/utils/request'
 
+function tenantScopedConfig(tenantId: number) {
+  return {
+    headers: {
+      'X-Tenant-ID': String(tenantId),
+    },
+  }
+}
+
 // AuditAction mirrors internal/types/audit_log.go's namespaced action
 // enum. The dot prefix (`rbac.`) is deliberate — future PRs will add
 // `kb.*` / `agent.*` namespaces without a schema change, and the
@@ -77,5 +85,5 @@ export async function listAuditLog(
   if (params.actor) qs.append('actor', params.actor)
   const tail = qs.toString()
   const url = `/api/v1/tenants/${tenantId}/audit-log${tail ? '?' + tail : ''}`
-  return (await get(url)) as unknown as ListAuditLogResponse
+  return (await get(url, tenantScopedConfig(tenantId))) as unknown as ListAuditLogResponse
 }

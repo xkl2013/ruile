@@ -334,12 +334,10 @@ func (s *kbShareService) ListSharedKnowledgeBases(ctx context.Context, tenantID 
 		}
 
 		existing, exists := kbInfoMap[kbID]
-		if !exists {
+		if !exists ||
+			(types.MaxOrgRole(existing.Permission, effective) == effective &&
+				existing.Permission != effective) {
 			kbInfoMap[kbID] = info
-		} else {
-			if effective.HasPermission(existing.Permission) && effective != existing.Permission {
-				kbInfoMap[kbID] = info
-			}
 		}
 	}
 
@@ -520,9 +518,7 @@ func (s *kbShareService) CheckTenantKBPermission(ctx context.Context, kbID strin
 		effective := types.MinOrgRole(share.Permission, tm.Role)
 		effective = applyTenantRoleCap(effective, callerTenantRole)
 
-		if highest == "" || effective.HasPermission(highest) {
-			highest = effective
-		}
+		highest = types.MaxOrgRole(highest, effective)
 	}
 
 	return highest, isShared, nil

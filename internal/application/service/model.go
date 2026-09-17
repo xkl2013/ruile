@@ -227,8 +227,6 @@ func (s *modelService) UpdateModel(ctx context.Context, model *types.Model) erro
 	logger.Info(ctx, "Start updating model")
 	logger.Infof(ctx, "Updating model ID: %s, name: %s", model.ID, model.Name)
 
-	// Built-in models are platform-wide. Tenant administrators may view them,
-	// but only a system administrator may change their shared configuration.
 	tenantID := types.MustTenantIDFromContext(ctx)
 	existingModel, err := s.repo.GetByID(ctx, tenantID, model.ID)
 	if err != nil {
@@ -237,17 +235,12 @@ func (s *modelService) UpdateModel(ctx context.Context, model *types.Model) erro
 		})
 		return err
 	}
-	if existingModel != nil && existingModel.IsBuiltin {
-		if !types.IsSystemAdminFromContext(ctx) {
-			logger.Warnf(ctx, "Non-system-admin attempted to update builtin model: %s", model.ID)
-			return apperrors.NewForbiddenError("only system administrators can update builtin models")
-		}
-		// A UI edit is an explicit runtime override. Clear YAML ownership so
-		// the startup reconciler does not silently replace the saved values.
-		model.TenantID = existingModel.TenantID
-		model.IsBuiltin = true
-		model.ManagedBy = ""
+	if existingModel == nil {
+		return ErrModelNotFound
 	}
+	model.TenantID = existingModel.TenantID
+	model.IsBuiltin = false
+	model.ManagedBy = ""
 
 	// Update model in repository
 	err = s.repo.Update(ctx, model)
@@ -279,11 +272,6 @@ func (s *modelService) UpdateModelCredentials(
 	if existing == nil {
 		return nil, ErrModelNotFound
 	}
-	if existing.IsBuiltin && !types.IsSystemAdminFromContext(ctx) {
-		return nil, apperrors.NewForbiddenError(
-			"only system administrators can modify builtin model credentials")
-	}
-
 	changed := false
 	if apiKey != nil && *apiKey != "" && *apiKey != existing.Parameters.APIKey {
 		existing.Parameters.APIKey = *apiKey
@@ -296,10 +284,8 @@ func (s *modelService) UpdateModelCredentials(
 	if !changed {
 		return existing, nil
 	}
-	if existing.IsBuiltin {
-		// Credential changes are also runtime overrides of YAML-managed data.
-		existing.ManagedBy = ""
-	}
+	existing.IsBuiltin = false
+	existing.ManagedBy = ""
 	if err := s.repo.Update(ctx, existing); err != nil {
 		return nil, err
 	}
@@ -317,11 +303,6 @@ func (s *modelService) ClearModelCredential(ctx context.Context, id, field strin
 	if existing == nil {
 		return ErrModelNotFound
 	}
-	if existing.IsBuiltin && !types.IsSystemAdminFromContext(ctx) {
-		return apperrors.NewForbiddenError(
-			"only system administrators can modify builtin model credentials")
-	}
-
 	changed := false
 	switch field {
 	case "api_key":
@@ -340,9 +321,8 @@ func (s *modelService) ClearModelCredential(ctx context.Context, id, field strin
 	if !changed {
 		return nil
 	}
-	if existing.IsBuiltin {
-		existing.ManagedBy = ""
-	}
+	existing.IsBuiltin = false
+	existing.ManagedBy = ""
 	if err := s.repo.Update(ctx, existing); err != nil {
 		return err
 	}
@@ -358,7 +338,6 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	tenantID := types.MustTenantIDFromContext(ctx)
 	logger.Infof(ctx, "Tenant ID: %d", tenantID)
 
-	// Check if the model is builtin - builtin models cannot be deleted
 	existingModel, err := s.repo.GetByID(ctx, tenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -369,11 +348,6 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	if existingModel == nil {
 		return ErrModelNotFound
 	}
-	if existingModel.IsBuiltin {
-		logger.Warnf(ctx, "Attempted to delete builtin model: %s", id)
-		return apperrors.NewBadRequestError("builtin models cannot be deleted")
-	}
-
 	kbCount, err := s.kbRepo.CountByModelID(ctx, tenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{

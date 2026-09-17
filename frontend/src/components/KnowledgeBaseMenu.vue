@@ -21,7 +21,7 @@
         :class="{ active: kb.id === activeKbId }" :title="kb.name" :aria-current="kb.id === activeKbId ? 'page' : undefined"
         @click="openKnowledgeBase(kb.id)" @keydown.enter.prevent="openKnowledgeBase(kb.id)"
         @keydown.space.prevent="openKnowledgeBase(kb.id)">
-        <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-menu-item-icon" />
+        <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" size="medium" class="kb-menu-item-icon" />
         <span class="kb-menu-item-name">{{ kb.name }}</span>
         <span class="kb-menu-item-trailing" @click.stop>
           <span v-if="kb.id === activeKbId" class="kb-menu-item-dot" />
@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -47,7 +47,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useOrganizationStore } from '@/stores/organization'
 import { mergeAllScopeKnowledgeBases } from '@/views/knowledge/kbListMerge'
-import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
+import KnowledgeBaseScopeIcon from '@/components/KnowledgeBaseScopeIcon.vue'
+import { resolveKnowledgeBaseScope as knowledgeBaseScope } from '@/utils/knowledgeBaseScope'
 
 type SidebarKnowledgeBase = {
   id: string
@@ -61,6 +62,9 @@ type SidebarKnowledgeBase = {
   creator_id?: string
   description?: string
   permission?: string
+  owner_type?: string
+  access_source?: string
+  list_category?: 'created' | 'shared' | 'subscribed'
   shared_at?: string
   share_id?: string
   sort_order?: number
@@ -72,7 +76,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 const chatResources = useChatResourcesStore()
 const orgStore = useOrganizationStore()
-const { rawKnowledgeBases } = storeToRefs(chatResources)
+const { rawKnowledgeBases, myKnowledgeBases } = storeToRefs(chatResources)
 const { sharedKnowledgeBases } = storeToRefs(orgStore)
 
 const title = computed(() => t('menu.knowledgeBase'))
@@ -109,23 +113,73 @@ const canReadTenantKnowledgeBase = (kb: SidebarKnowledgeBase): boolean => {
   return !!(kb.creator_id && userId && kb.creator_id === userId)
 }
 
-const tenantKnowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
+const normalizeSidebarKnowledgeBase = (
+  kb: any,
+  extras: Record<string, any> = {},
+): SidebarKnowledgeBase | null => {
+  if (!kb?.id) return null
+  return {
+    id: String(kb.id),
+    name: String(kb.name || kb.id),
+    icon: kb.icon,
+    icon_url: kb.icon_url,
+    type: kb.type,
+    isMine: extras.isMine === true,
+    is_pinned: !!kb.is_pinned,
+    pinned_at: kb.pinned_at,
+    creator_id: kb.creator_id,
+    description: kb.description,
+    permission: extras.permission || kb.my_permission || kb.permission,
+    owner_type: extras.owner_type || kb.owner_type,
+    access_source: extras.access_source || kb.access_source,
+    list_category: extras.list_category || kb.list_category,
+    shared_at: extras.shared_at || kb.shared_at,
+    share_id: extras.share_id || kb.share_id,
+    sort_order: Number(kb.sort_order || 0),
+  }
+}
+
+const accountKnowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
+  const rows = [
+    ...(myKnowledgeBases.value.created || []).map((row: any) => ({ row, listCategory: 'created' as const })),
+    ...(myKnowledgeBases.value.subscribed || []).map((row: any) => ({ row, listCategory: 'subscribed' as const })),
+    ...(myKnowledgeBases.value.shared || []).map((row: any) => ({ row, listCategory: 'shared' as const })),
+  ]
+  const seen = new Set<string>()
+
+  return rows
+    .map(({ row, listCategory }) => {
+      const kb = row?.knowledge_base || row
+      const id = kb?.id ? String(kb.id) : ''
+      if (!id || seen.has(id)) return null
+      seen.add(id)
+      return normalizeSidebarKnowledgeBase(kb, {
+        isMine: row?.access_source === 'created' || kb.creator_id === authStore.user?.id,
+        permission: row?.my_permission || row?.permission,
+        owner_type: row?.owner_type || kb.owner_type,
+        access_source: row?.access_source || kb.access_source,
+        list_category: row?.list_category || listCategory,
+        shared_at: row?.shared_at,
+        share_id: row?.share_id,
+      })
+    })
+    .filter((kb): kb is SidebarKnowledgeBase => !!kb)
+})
+
+const legacyKnowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
   return (rawKnowledgeBases.value as unknown as SidebarKnowledgeBase[])
     .filter(canReadTenantKnowledgeBase)
     .filter((kb: any) => !!kb?.id)
-    .map((kb: any) => ({
-      id: String(kb.id),
-      name: String(kb.name || kb.id),
-      icon: kb.icon,
-      icon_url: kb.icon_url,
-      type: kb.type,
-      isMine: true,
-      is_pinned: !!kb.is_pinned,
-      pinned_at: kb.pinned_at,
-      creator_id: kb.creator_id,
-      description: kb.description,
-      sort_order: Number(kb.sort_order || 0),
-    }))
+    .map((kb: any) => normalizeSidebarKnowledgeBase(kb, { isMine: true }))
+    .filter((kb): kb is SidebarKnowledgeBase => !!kb)
+})
+
+const tenantKnowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
+  // The account-centred endpoint is authoritative for the main knowledge-base
+  // page. Keep the legacy cache as a compatibility fallback for older servers.
+  return accountKnowledgeBases.value.length > 0
+    ? accountKnowledgeBases.value
+    : legacyKnowledgeBases.value
 })
 
 const knowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
@@ -137,22 +191,16 @@ const knowledgeBases = computed<SidebarKnowledgeBase[]>(() => {
   const sharedItems = merged.filter((kb: any) => kb?.isMine !== true)
 
   return [...tenantKnowledgeBases.value, ...sharedItems]
-    .map((kb: any) => ({
-      id: String(kb.id),
-      name: String(kb.name || kb.id),
-      icon: kb.icon,
-      icon_url: kb.icon_url,
-      type: kb.type,
+    .map((kb: any) => normalizeSidebarKnowledgeBase(kb, {
       isMine: kb.isMine === true,
-      is_pinned: !!kb.is_pinned,
-      pinned_at: kb.pinned_at,
-      creator_id: kb.creator_id,
-      description: kb.description,
       permission: kb.permission,
+      owner_type: kb.owner_type,
+      access_source: kb.access_source,
+      list_category: kb.list_category,
       shared_at: kb.shared_at,
       share_id: kb.share_id,
-      sort_order: Number(kb.sort_order || 0),
     }))
+    .filter((kb): kb is SidebarKnowledgeBase => !!kb)
 })
 
 const goToKnowledgeBaseList = async () => {
@@ -180,7 +228,13 @@ const refreshKnowledgeBases = async () => {
   if (refreshing.value) return
   refreshing.value = true
   try {
-    await chatResources.ensureKnowledgeBases(true)
+    await Promise.all([
+      chatResources.fetchMyKnowledgeBases(true).catch(async (error) => {
+        console.warn('[KnowledgeBaseMenu] account-centred list failed, using legacy list:', error)
+        await chatResources.ensureKnowledgeBases(true)
+      }),
+      orgStore.fetchSharedKnowledgeBases({ force: true }),
+    ])
   } catch (error) {
     console.error('[KnowledgeBaseMenu] refresh failed:', error)
   } finally {
@@ -191,6 +245,13 @@ const refreshKnowledgeBases = async () => {
 onMounted(() => {
   void refreshKnowledgeBases()
 })
+
+watch(
+  () => authStore.effectiveTenantId,
+  () => {
+    void refreshKnowledgeBases()
+  },
+)
 </script>
 
 <style scoped lang="less">

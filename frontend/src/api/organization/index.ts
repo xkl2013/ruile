@@ -1,5 +1,19 @@
 import { get, post, put, del } from '@/utils/request'
 
+export interface TenantScopedRequestOptions {
+  tenantId?: number | string | null
+}
+
+function tenantScopedConfig(options?: TenantScopedRequestOptions) {
+  const tenantId = Number(options?.tenantId || 0)
+  if (!tenantId) return undefined
+  return {
+    headers: {
+      'X-Tenant-ID': String(tenantId),
+    },
+  }
+}
+
 // Organization types
 export interface Organization {
   id: string
@@ -262,9 +276,12 @@ export interface ListAgentSharesResponse {
 /**
  * Create a new organization
  */
-export async function createOrganization(req: CreateOrganizationRequest): Promise<ApiResponse<Organization>> {
+export async function createOrganization(
+  req: CreateOrganizationRequest,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<Organization>> {
   try {
-    const response = await post('/api/v1/organizations', req)
+    const response = await post('/api/v1/organizations', req, tenantScopedConfig(options))
     return response as unknown as ApiResponse<Organization>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to create organization' }
@@ -274,9 +291,12 @@ export async function createOrganization(req: CreateOrganizationRequest): Promis
 /**
  * Get organization by ID
  */
-export async function getOrganization(id: string): Promise<ApiResponse<Organization>> {
+export async function getOrganization(
+  id: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<Organization>> {
   try {
-    const response = await get(`/api/v1/organizations/${id}`)
+    const response = await get(`/api/v1/organizations/${id}`, tenantScopedConfig(options))
     return response as unknown as ApiResponse<Organization>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to get organization' }
@@ -286,9 +306,11 @@ export async function getOrganization(id: string): Promise<ApiResponse<Organizat
 /**
  * List my organizations
  */
-export async function listMyOrganizations(): Promise<ApiResponse<ListOrganizationsResponse>> {
+export async function listMyOrganizations(
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<ListOrganizationsResponse>> {
   try {
-    const response = await get('/api/v1/organizations')
+    const response = await get('/api/v1/organizations', tenantScopedConfig(options))
     return response as unknown as ApiResponse<ListOrganizationsResponse>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list organizations' }
@@ -298,9 +320,13 @@ export async function listMyOrganizations(): Promise<ApiResponse<ListOrganizatio
 /**
  * Update organization
  */
-export async function updateOrganization(id: string, req: UpdateOrganizationRequest): Promise<ApiResponse<Organization>> {
+export async function updateOrganization(
+  id: string,
+  req: UpdateOrganizationRequest,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<Organization>> {
   try {
-    const response = await put(`/api/v1/organizations/${id}`, req)
+    const response = await put(`/api/v1/organizations/${id}`, req, tenantScopedConfig(options))
     return response as unknown as ApiResponse<Organization>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to update organization' }
@@ -310,9 +336,12 @@ export async function updateOrganization(id: string, req: UpdateOrganizationRequ
 /**
  * Delete organization
  */
-export async function deleteOrganization(id: string): Promise<ApiResponse<void>> {
+export async function deleteOrganization(
+  id: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await del(`/api/v1/organizations/${id}`)
+    const response = await del(`/api/v1/organizations/${id}`, undefined, tenantScopedConfig(options))
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to delete organization' }
@@ -322,9 +351,12 @@ export async function deleteOrganization(id: string): Promise<ApiResponse<void>>
 /**
  * Leave organization
  */
-export async function leaveOrganization(id: string): Promise<ApiResponse<void>> {
+export async function leaveOrganization(
+  id: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await post(`/api/v1/organizations/${id}/leave`, {})
+    const response = await post(`/api/v1/organizations/${id}/leave`, {}, tenantScopedConfig(options))
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to leave organization' }
@@ -336,9 +368,12 @@ export async function leaveOrganization(id: string): Promise<ApiResponse<void>> 
 /**
  * List organization members
  */
-export async function listMembers(orgId: string): Promise<ApiResponse<ListMembersResponse>> {
+export async function listMembers(
+  orgId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<ListMembersResponse>> {
   try {
-    const response = await get(`/api/v1/organizations/${orgId}/members`)
+    const response = await get(`/api/v1/organizations/${orgId}/members`, tenantScopedConfig(options))
     return response as unknown as ApiResponse<ListMembersResponse>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list members' }
@@ -348,9 +383,18 @@ export async function listMembers(orgId: string): Promise<ApiResponse<ListMember
 /**
  * Update member role (member is identified by organization member row ID)
  */
-export async function updateMemberRole(orgId: string, memberId: string, req: UpdateMemberRoleRequest): Promise<ApiResponse<void>> {
+export async function updateMemberRole(
+  orgId: string,
+  memberId: string,
+  req: UpdateMemberRoleRequest,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await put(`/api/v1/organizations/${orgId}/members/${memberId}`, req)
+    const response = await put(
+      `/api/v1/organizations/${orgId}/members/${memberId}`,
+      req,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to update member role' }
@@ -360,9 +404,17 @@ export async function updateMemberRole(orgId: string, memberId: string, req: Upd
 /**
  * Remove member (member is identified by organization member row ID)
  */
-export async function removeMember(orgId: string, memberId: string): Promise<ApiResponse<void>> {
+export async function removeMember(
+  orgId: string,
+  memberId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await del(`/api/v1/organizations/${orgId}/members/${memberId}`)
+    const response = await del(
+      `/api/v1/organizations/${orgId}/members/${memberId}`,
+      undefined,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to remove member' }
@@ -374,9 +426,13 @@ export async function removeMember(orgId: string, memberId: string): Promise<Api
 /**
  * Share knowledge base to organization
  */
-export async function shareKnowledgeBase(kbId: string, req: ShareKnowledgeBaseRequest): Promise<ApiResponse<KnowledgeBaseShare>> {
+export async function shareKnowledgeBase(
+  kbId: string,
+  req: ShareKnowledgeBaseRequest,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<KnowledgeBaseShare>> {
   try {
-    const response = await post(`/api/v1/knowledge-bases/${kbId}/shares`, req)
+    const response = await post(`/api/v1/knowledge-bases/${kbId}/shares`, req, tenantScopedConfig(options))
     return response as unknown as ApiResponse<KnowledgeBaseShare>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to share knowledge base' }
@@ -386,9 +442,12 @@ export async function shareKnowledgeBase(kbId: string, req: ShareKnowledgeBaseRe
 /**
  * List shares for a knowledge base
  */
-export async function listKBShares(kbId: string): Promise<ApiResponse<ListSharesResponse>> {
+export async function listKBShares(
+  kbId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<ListSharesResponse>> {
   try {
-    const response = await get(`/api/v1/knowledge-bases/${kbId}/shares`)
+    const response = await get(`/api/v1/knowledge-bases/${kbId}/shares`, tenantScopedConfig(options))
     return response as unknown as ApiResponse<ListSharesResponse>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list shares' }
@@ -398,9 +457,18 @@ export async function listKBShares(kbId: string): Promise<ApiResponse<ListShares
 /**
  * Update share permission
  */
-export async function updateSharePermission(kbId: string, shareId: string, req: UpdateSharePermissionRequest): Promise<ApiResponse<void>> {
+export async function updateSharePermission(
+  kbId: string,
+  shareId: string,
+  req: UpdateSharePermissionRequest,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await put(`/api/v1/knowledge-bases/${kbId}/shares/${shareId}`, req)
+    const response = await put(
+      `/api/v1/knowledge-bases/${kbId}/shares/${shareId}`,
+      req,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to update share permission' }
@@ -410,9 +478,17 @@ export async function updateSharePermission(kbId: string, shareId: string, req: 
 /**
  * Remove share
  */
-export async function removeShare(kbId: string, shareId: string): Promise<ApiResponse<void>> {
+export async function removeShare(
+  kbId: string,
+  shareId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await del(`/api/v1/knowledge-bases/${kbId}/shares/${shareId}`)
+    const response = await del(
+      `/api/v1/knowledge-bases/${kbId}/shares/${shareId}`,
+      undefined,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to remove share' }
@@ -422,9 +498,11 @@ export async function removeShare(kbId: string, shareId: string): Promise<ApiRes
 /**
  * List shared knowledge bases (shared to me through organizations)
  */
-export async function listSharedKnowledgeBases(): Promise<ApiResponse<SharedKnowledgeBase[]>> {
+export async function listSharedKnowledgeBases(
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<SharedKnowledgeBase[]>> {
   try {
-    const response = await get('/api/v1/shared-knowledge-bases')
+    const response = await get('/api/v1/shared-knowledge-bases', tenantScopedConfig(options))
     return response as unknown as ApiResponse<SharedKnowledgeBase[]>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list shared knowledge bases' }
@@ -434,9 +512,15 @@ export async function listSharedKnowledgeBases(): Promise<ApiResponse<SharedKnow
 /**
  * List all knowledge bases in an organization (including those shared by current tenant), for list page when a space is selected.
  */
-export async function listOrganizationSharedKnowledgeBases(orgId: string): Promise<ApiResponse<OrganizationSharedKnowledgeBaseItem[]>> {
+export async function listOrganizationSharedKnowledgeBases(
+  orgId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<OrganizationSharedKnowledgeBaseItem[]>> {
   try {
-    const response = await get(`/api/v1/organizations/${orgId}/shared-knowledge-bases`)
+    const response = await get(
+      `/api/v1/organizations/${orgId}/shared-knowledge-bases`,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<OrganizationSharedKnowledgeBaseItem[]>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list organization shared knowledge bases' }
@@ -446,9 +530,12 @@ export async function listOrganizationSharedKnowledgeBases(orgId: string): Promi
 /**
  * List knowledge bases shared to a specific organization
  */
-export async function listOrgShares(orgId: string): Promise<ApiResponse<ListSharesResponse>> {
+export async function listOrgShares(
+  orgId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<ListSharesResponse>> {
   try {
-    const response = await get(`/api/v1/organizations/${orgId}/shares`)
+    const response = await get(`/api/v1/organizations/${orgId}/shares`, tenantScopedConfig(options))
     return response as unknown as ApiResponse<ListSharesResponse>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list organization shares' }
@@ -456,45 +543,71 @@ export async function listOrgShares(orgId: string): Promise<ApiResponse<ListShar
 }
 
 // Agent sharing
-export async function shareAgent(agentId: string, req: ShareKnowledgeBaseRequest): Promise<ApiResponse<AgentShareResponse>> {
+export async function shareAgent(
+  agentId: string,
+  req: ShareKnowledgeBaseRequest,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<AgentShareResponse>> {
   try {
-    const response = await post(`/api/v1/agents/${agentId}/shares`, req)
+    const response = await post(`/api/v1/agents/${agentId}/shares`, req, tenantScopedConfig(options))
     return response as unknown as ApiResponse<AgentShareResponse>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to share agent' }
   }
 }
 
-export async function listAgentShares(agentId: string): Promise<ApiResponse<ListAgentSharesResponse>> {
+export async function listAgentShares(
+  agentId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<ListAgentSharesResponse>> {
   try {
-    const response = await get(`/api/v1/agents/${agentId}/shares`)
+    const response = await get(`/api/v1/agents/${agentId}/shares`, tenantScopedConfig(options))
     return response as unknown as ApiResponse<ListAgentSharesResponse>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list agent shares' }
   }
 }
 
-export async function updateAgentSharePermission(agentId: string, shareId: string, req: UpdateSharePermissionRequest): Promise<ApiResponse<void>> {
+export async function updateAgentSharePermission(
+  agentId: string,
+  shareId: string,
+  req: UpdateSharePermissionRequest,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await put(`/api/v1/agents/${agentId}/shares/${shareId}`, req)
+    const response = await put(
+      `/api/v1/agents/${agentId}/shares/${shareId}`,
+      req,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to update share permission' }
   }
 }
 
-export async function removeAgentShare(agentId: string, shareId: string): Promise<ApiResponse<void>> {
+export async function removeAgentShare(
+  agentId: string,
+  shareId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<void>> {
   try {
-    const response = await del(`/api/v1/agents/${agentId}/shares/${shareId}`)
+    const response = await del(
+      `/api/v1/agents/${agentId}/shares/${shareId}`,
+      undefined,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to remove share' }
   }
 }
 
-export async function listSharedAgents(): Promise<ApiResponse<SharedAgentInfo[]>> {
+export async function listSharedAgents(
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<SharedAgentInfo[]>> {
   try {
-    const response = await get('/api/v1/shared-agents')
+    const response = await get('/api/v1/shared-agents', tenantScopedConfig(options))
     return response as unknown as ApiResponse<SharedAgentInfo[]>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list shared agents' }
@@ -504,9 +617,12 @@ export async function listSharedAgents(): Promise<ApiResponse<SharedAgentInfo[]>
 /**
  * List all agents in an organization (including those shared by current tenant), for list page when a space is selected.
  */
-export async function listOrganizationSharedAgents(orgId: string): Promise<ApiResponse<OrganizationSharedAgentItem[]>> {
+export async function listOrganizationSharedAgents(
+  orgId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<OrganizationSharedAgentItem[]>> {
   try {
-    const response = await get(`/api/v1/organizations/${orgId}/shared-agents`)
+    const response = await get(`/api/v1/organizations/${orgId}/shared-agents`, tenantScopedConfig(options))
     return response as unknown as ApiResponse<OrganizationSharedAgentItem[]>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list organization shared agents' }
@@ -516,22 +632,26 @@ export async function listOrganizationSharedAgents(orgId: string): Promise<ApiRe
 /** 设置当前用户对某共享智能体的停用状态（仅影响本人对话下拉显示） */
 export async function setSharedAgentDisabledByMe(
   agentId: string,
-  disabled: boolean
+  disabled: boolean,
+  options?: TenantScopedRequestOptions,
 ): Promise<ApiResponse<void>> {
   try {
     const response = await post('/api/v1/shared-agents/disabled', {
       agent_id: agentId,
       disabled
-    })
+    }, tenantScopedConfig(options))
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to update preference' }
   }
 }
 
-export async function listOrgAgentShares(orgId: string): Promise<ApiResponse<ListAgentSharesResponse>> {
+export async function listOrgAgentShares(
+  orgId: string,
+  options?: TenantScopedRequestOptions,
+): Promise<ApiResponse<ListAgentSharesResponse>> {
   try {
-    const response = await get(`/api/v1/organizations/${orgId}/agent-shares`)
+    const response = await get(`/api/v1/organizations/${orgId}/agent-shares`, tenantScopedConfig(options))
     return response as unknown as ApiResponse<ListAgentSharesResponse>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to list organization agent shares' }
@@ -544,10 +664,14 @@ export async function listOrgAgentShares(orgId: string): Promise<ApiResponse<Lis
 export async function searchTenantsForInvite(
   orgId: string,
   query: string,
-  limit: number = 10
+  limit: number = 10,
+  options?: TenantScopedRequestOptions,
 ): Promise<ApiResponse<TenantInviteCandidate[]>> {
   try {
-    const response = await get(`/api/v1/organizations/${orgId}/search-tenants?q=${encodeURIComponent(query)}&limit=${limit}`)
+    const response = await get(
+      `/api/v1/organizations/${orgId}/search-tenants?q=${encodeURIComponent(query)}&limit=${limit}`,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<TenantInviteCandidate[]>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to search tenants' }
@@ -557,10 +681,14 @@ export async function searchTenantsForInvite(
 export async function searchUsersForInvite(
   orgId: string,
   query: string = '',
-  limit: number = 10
+  limit: number = 10,
+  options?: TenantScopedRequestOptions,
 ): Promise<ApiResponse<UserSearchResult[]>> {
   try {
-    const response = await get(`/api/v1/organizations/${orgId}/search-users?q=${encodeURIComponent(query)}&limit=${limit}`)
+    const response = await get(
+      `/api/v1/organizations/${orgId}/search-users?q=${encodeURIComponent(query)}&limit=${limit}`,
+      tenantScopedConfig(options),
+    )
     return response as unknown as ApiResponse<UserSearchResult[]>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to search member candidates' }
@@ -574,10 +702,11 @@ export async function searchUsersForInvite(
  */
 export async function inviteMember(
   orgId: string,
-  req: InviteMemberRequest
+  req: InviteMemberRequest,
+  options?: TenantScopedRequestOptions,
 ): Promise<ApiResponse<void>> {
   try {
-    const response = await post(`/api/v1/organizations/${orgId}/invite`, req)
+    const response = await post(`/api/v1/organizations/${orgId}/invite`, req, tenantScopedConfig(options))
     return response as unknown as ApiResponse<void>
   } catch (error: any) {
     return { success: false, message: error.message || 'Failed to invite member' }

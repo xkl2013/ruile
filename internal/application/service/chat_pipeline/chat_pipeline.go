@@ -118,6 +118,10 @@ var (
 		Description: "Failed to call model",
 		ErrorType:   "model_call_failed",
 	}
+	ErrBillingRejected = &PluginError{
+		Description: "Insufficient credits or unavailable model pricing",
+		ErrorType:   "billing_rejected",
+	}
 	ErrGetHistory = &PluginError{
 		Description: "Failed to get conversation history",
 		ErrorType:   "get_history_failed",

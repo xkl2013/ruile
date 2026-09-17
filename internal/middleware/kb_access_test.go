@@ -332,6 +332,23 @@ func TestRequireKBAccess_SameTenantSharedKB_AllowsNonCreator(t *testing.T) {
 	require.Equal(t, types.OrgRoleViewer, access.Permission)
 }
 
+func TestRequireKBAccess_SameTenantOwnerCannotWriteViewerShare(t *testing.T) {
+	share := &stubKBShareForGuard{
+		permission: map[string]types.OrgMemberRole{"kb-1": types.OrgRoleViewer},
+		shared:     map[string]bool{"kb-1": true},
+		source:     map[string]uint64{"kb-1": 100},
+	}
+	_, c := runGuard(t, 100, "kb-1",
+		types.OrgRoleEditor,
+		&types.KnowledgeBase{ID: "kb-1", TenantID: 100, CreatorID: "u-owner"},
+		share,
+		guardOpts{userID: "enterprise-owner", role: types.TenantRoleOwner},
+	)
+	require.True(t, c.IsAborted(), "enterprise Owner must not override a viewer-only team-space share")
+	_, ok := KBAccessFromContext(c)
+	require.False(t, ok)
+}
+
 // TestIsResourceNotFound_RecognisesKnowledgeSentinel pins that a missing
 // *document* (knowledge) is treated as not-found, not a transient error.
 // Regression: ErrKnowledgeNotFound was absent from the predicate, so

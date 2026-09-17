@@ -2,6 +2,7 @@ package chatpipeline
 
 import (
 	"context"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/llmresource"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -11,14 +12,20 @@ import (
 // PluginChatCompletion implements chat completion functionality
 // as a plugin that can be registered to EventManager
 type PluginChatCompletion struct {
-	modelService interfaces.ModelService // Interface for model operations
+	modelService interfaces.ModelService
+	usageBilling interfaces.UsageBillingService
 }
 
 // NewPluginChatCompletion creates a new PluginChatCompletion instance
 // and registers it with the EventManager
-func NewPluginChatCompletion(eventManager *EventManager, modelService interfaces.ModelService) *PluginChatCompletion {
+func NewPluginChatCompletion(
+	eventManager *EventManager,
+	modelService interfaces.ModelService,
+	usageBilling interfaces.UsageBillingService,
+) *PluginChatCompletion {
 	res := &PluginChatCompletion{
 		modelService: modelService,
+		usageBilling: usageBilling,
 	}
 	eventManager.Register(res)
 	return res
@@ -55,19 +62,34 @@ func (p *PluginChatCompletion) OnEvent(
 	resourceRefs := llmresource.NewRegistry()
 	chatMessages = sourceRefs.EncodeMessages(chatMessages)
 	chatMessages = resourceRefs.EncodeMessages(chatMessages)
+	billingHandle, err := beginChatModelBilling(
+		ctx,
+		p.usageBilling,
+		eventType,
+		chatManage,
+		chatModel,
+		chatMessages,
+		opt,
+	)
+	if err != nil {
+		return ErrBillingRejected.WithError(err)
+	}
 
 	// Call the chat model to generate response
 	pipelineInfo(ctx, "Completion", "model_call", map[string]interface{}{
 		"chat_model": chatManage.ChatModelID,
 	})
+	modelStartedAt := time.Now()
 	chatResponse, err := chatModel.Chat(ctx, chatMessages, opt)
 	if err != nil {
+		releaseChatModelBilling(ctx, p.usageBilling, billingHandle, "model_call_failed")
 		pipelineError(ctx, "Completion", "model_call", map[string]interface{}{
 			"chat_model": chatManage.ChatModelID,
 			"error":      err.Error(),
 		})
 		return ErrModelCall.WithError(err)
 	}
+	settleChatModelBilling(ctx, p.usageBilling, billingHandle, &chatResponse.Usage, time.Since(modelStartedAt))
 	resourceRefs.DecodeResponse(chatResponse)
 	sourceRefs.ExpandResponse(chatResponse)
 	if orphans := resourceRefs.OrphanAliases(chatResponse.Content); len(orphans) > 0 {

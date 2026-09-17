@@ -5,7 +5,8 @@ import type {
   OrganizationMember,
   SharedKnowledgeBase,
   SharedAgentInfo,
-  ResourceCountsByOrg
+  ResourceCountsByOrg,
+  TenantScopedRequestOptions
 } from '@/api/organization'
 import {
   listMyOrganizations,
@@ -20,6 +21,14 @@ import {
   listSharedAgents
 } from '@/api/organization'
 import { useAuthStore } from '@/stores/auth'
+import {
+  highestSharedKnowledgeBase,
+  normalizeSharedKnowledgeBasePermission,
+} from '../utils/sharedKnowledgeBasePermission'
+
+type OrganizationStoreOptions = TenantScopedRequestOptions & {
+  force?: boolean
+}
 
 export const useOrganizationStore = defineStore('organization', () => {
   // State
@@ -34,7 +43,10 @@ export const useOrganizationStore = defineStore('organization', () => {
   const resourceCounts = ref<ResourceCountsByOrg | null>(null)
   /** 用于去重：同一时刻只允许一次 GET /organizations 请求 */
   let fetchOrganizationsPromise: Promise<void> | null = null
+  let fetchOrganizationsTenantId: number | null = null
   let organizationsLoadedAt = 0
+  let organizationsLoadedForTenant: number | null = null
+  let fetchOrganizationsGen = 0
   /** 共享资源缓存 TTL，与 chatResources 对齐 */
   const SHARED_RESOURCE_TTL_MS = 60_000
   let sharedKbLoadedAt = 0
@@ -54,7 +66,17 @@ export const useOrganizationStore = defineStore('organization', () => {
   )
 
   // Actions
-  function canUseTeamSpaceResources(): boolean {
+  function normalizeTenantId(tenantId: number | string | null | undefined): number | null {
+    const id = Number(tenantId || 0)
+    return id > 0 ? id : null
+  }
+
+  function scopedOptions(tenantId: number | null): TenantScopedRequestOptions | undefined {
+    return tenantId ? { tenantId } : undefined
+  }
+
+  function canUseTeamSpaceResources(options?: TenantScopedRequestOptions): boolean {
+    if (normalizeTenantId(options?.tenantId)) return true
     return useAuthStore().canUseTeamSpaces
   }
 
@@ -67,9 +89,11 @@ export const useOrganizationStore = defineStore('organization', () => {
     resourceCounts.value = null
     error.value = null
     organizationsLoadedAt = 0
+    organizationsLoadedForTenant = null
     sharedKbLoadedAt = 0
     sharedAgentsLoadedAt = 0
     fetchOrganizationsPromise = null
+    fetchOrganizationsTenantId = null
     fetchSharedKbPromise = null
     fetchSharedAgentsPromise = null
   }
@@ -78,8 +102,9 @@ export const useOrganizationStore = defineStore('organization', () => {
    * Fetch all organizations the user belongs to.
    * 去重 + 短期缓存，列表页与侧栏等多处共用。
    */
-  async function fetchOrganizations(options?: { force?: boolean }) {
-    if (!canUseTeamSpaceResources()) {
+  async function fetchOrganizations(options?: OrganizationStoreOptions) {
+    const requestTenantId = normalizeTenantId(options?.tenantId)
+    if (!canUseTeamSpaceResources(scopedOptions(requestTenantId))) {
       clearTeamSpaceResourceState()
       return
     }
@@ -87,20 +112,26 @@ export const useOrganizationStore = defineStore('organization', () => {
     if (
       !force &&
       organizationsLoadedAt > 0 &&
+      organizationsLoadedForTenant === requestTenantId &&
       Date.now() - organizationsLoadedAt < SHARED_RESOURCE_TTL_MS
     ) {
       return
     }
-    if (fetchOrganizationsPromise) return fetchOrganizationsPromise
+    if (fetchOrganizationsPromise && fetchOrganizationsTenantId === requestTenantId) {
+      return fetchOrganizationsPromise
+    }
     loading.value = true
     error.value = null
+    const gen = ++fetchOrganizationsGen
+    fetchOrganizationsTenantId = requestTenantId
     fetchOrganizationsPromise = (async () => {
       try {
-        const response = await listMyOrganizations()
+        const response = await listMyOrganizations(scopedOptions(requestTenantId))
         if (response.success && response.data) {
           organizations.value = response.data.organizations
           resourceCounts.value = response.data.resource_counts ?? null
           organizationsLoadedAt = Date.now()
+          organizationsLoadedForTenant = requestTenantId
         } else {
           resourceCounts.value = null
           error.value = response.message || 'Failed to fetch organizations'
@@ -109,8 +140,11 @@ export const useOrganizationStore = defineStore('organization', () => {
         error.value = e.message || 'Failed to fetch organizations'
         resourceCounts.value = null
       } finally {
-        loading.value = false
-        fetchOrganizationsPromise = null
+        if (fetchOrganizationsGen === gen) {
+          loading.value = false
+          fetchOrganizationsPromise = null
+          fetchOrganizationsTenantId = null
+        }
       }
     })()
     return fetchOrganizationsPromise
@@ -119,16 +153,18 @@ export const useOrganizationStore = defineStore('organization', () => {
   /**
    * Create a new organization
    */
-  async function create(name: string, description?: string) {
+  async function create(name: string, description?: string, options?: TenantScopedRequestOptions) {
     loading.value = true
     error.value = null
+    const requestTenantId = normalizeTenantId(options?.tenantId)
     try {
-      const response = await createOrganization({ name, description })
+      const response = await createOrganization({ name, description }, scopedOptions(requestTenantId))
       if (response.success && response.data) {
         organizations.value.unshift(response.data)
         // 创建成功后重置缓存时间戳，确保后续 fetchOrganizations() 不会被 TTL 缓存跳过，
         // 从而刷新 resource_counts 等创建接口不返回的聚合字段。
         organizationsLoadedAt = 0
+        organizationsLoadedForTenant = null
         return response.data
       } else {
         error.value = response.message || 'Failed to create organization'
@@ -145,11 +181,12 @@ export const useOrganizationStore = defineStore('organization', () => {
   /**
    * Update an organization
    */
-  async function update(id: string, name?: string, description?: string) {
+  async function update(id: string, name?: string, description?: string, options?: TenantScopedRequestOptions) {
     loading.value = true
     error.value = null
+    const requestTenantId = normalizeTenantId(options?.tenantId)
     try {
-      const response = await updateOrganization(id, { name, description })
+      const response = await updateOrganization(id, { name, description }, scopedOptions(requestTenantId))
       if (response.success && response.data) {
         const index = organizations.value.findIndex(o => o.id === id)
         if (index !== -1) {
@@ -174,13 +211,16 @@ export const useOrganizationStore = defineStore('organization', () => {
   /**
    * Delete an organization
    */
-  async function remove(id: string) {
+  async function remove(id: string, options?: TenantScopedRequestOptions) {
     loading.value = true
     error.value = null
+    const requestTenantId = normalizeTenantId(options?.tenantId)
     try {
-      const response = await deleteOrganization(id)
+      const response = await deleteOrganization(id, scopedOptions(requestTenantId))
       if (response.success) {
         organizations.value = organizations.value.filter(o => o.id !== id)
+        organizationsLoadedAt = 0
+        organizationsLoadedForTenant = null
         if (currentOrganization.value?.id === id) {
           currentOrganization.value = null
         }
@@ -200,13 +240,16 @@ export const useOrganizationStore = defineStore('organization', () => {
   /**
    * Leave an organization
    */
-  async function leave(id: string) {
+  async function leave(id: string, options?: TenantScopedRequestOptions) {
     loading.value = true
     error.value = null
+    const requestTenantId = normalizeTenantId(options?.tenantId)
     try {
-      const response = await leaveOrganization(id)
+      const response = await leaveOrganization(id, scopedOptions(requestTenantId))
       if (response.success) {
         organizations.value = organizations.value.filter(o => o.id !== id)
+        organizationsLoadedAt = 0
+        organizationsLoadedForTenant = null
         if (currentOrganization.value?.id === id) {
           currentOrganization.value = null
         }
@@ -226,11 +269,12 @@ export const useOrganizationStore = defineStore('organization', () => {
   /**
    * Fetch members of an organization
    */
-  async function fetchMembers(orgId: string) {
+  async function fetchMembers(orgId: string, options?: TenantScopedRequestOptions) {
     loading.value = true
     error.value = null
+    const requestTenantId = normalizeTenantId(options?.tenantId)
     try {
-      const response = await listMembers(orgId)
+      const response = await listMembers(orgId, scopedOptions(requestTenantId))
       if (response.success && response.data) {
         currentMembers.value = response.data.members
         return response.data.members
@@ -249,11 +293,17 @@ export const useOrganizationStore = defineStore('organization', () => {
   /**
    * Update a member's role (member identified by organization member row ID)
    */
-  async function changeMemberRole(orgId: string, memberId: string, role: 'admin' | 'editor' | 'viewer') {
+  async function changeMemberRole(
+    orgId: string,
+    memberId: string,
+    role: 'admin' | 'editor' | 'viewer',
+    options?: TenantScopedRequestOptions,
+  ) {
     loading.value = true
     error.value = null
+    const requestTenantId = normalizeTenantId(options?.tenantId)
     try {
-      const response = await updateMemberRole(orgId, memberId, { role })
+      const response = await updateMemberRole(orgId, memberId, { role }, scopedOptions(requestTenantId))
       if (response.success) {
         const member = currentMembers.value.find(m => m.id === memberId)
         if (member) {
@@ -275,11 +325,12 @@ export const useOrganizationStore = defineStore('organization', () => {
   /**
    * Remove a member from organization (member identified by organization member row ID)
    */
-  async function kickMember(orgId: string, memberId: string) {
+  async function kickMember(orgId: string, memberId: string, options?: TenantScopedRequestOptions) {
     loading.value = true
     error.value = null
+    const requestTenantId = normalizeTenantId(options?.tenantId)
     try {
-      const response = await removeMember(orgId, memberId)
+      const response = await removeMember(orgId, memberId, scopedOptions(requestTenantId))
       if (response.success) {
         currentMembers.value = currentMembers.value.filter(m => m.id !== memberId)
         return true
@@ -382,14 +433,14 @@ export const useOrganizationStore = defineStore('organization', () => {
   }
 
   /**
-   * Get user's permission for a specific knowledge base
-   * Returns 'owner' if user owns the KB, or the share permission ('admin' | 'editor' | 'viewer'), or null if no access
+   * Select the strongest effective grant across the user's shared spaces.
    */
+  function getSharedKnowledgeBase(kbId: string): SharedKnowledgeBase | null {
+    return highestSharedKnowledgeBase(sharedKnowledgeBases.value, kbId)
+  }
+
   function getKBPermission(kbId: string): 'owner' | 'admin' | 'editor' | 'viewer' | null {
-    const shared = sharedKnowledgeBases.value.find(
-      s => s.knowledge_base?.id === kbId
-    )
-    return shared?.permission || null
+    return normalizeSharedKnowledgeBasePermission(getSharedKnowledgeBase(kbId)?.permission) || null
   }
 
   /**
@@ -427,6 +478,8 @@ export const useOrganizationStore = defineStore('organization', () => {
     fetchSharedAgentsPromise = null
     organizationsLoadedAt = 0
     fetchOrganizationsPromise = null
+    fetchOrganizationsTenantId = null
+    organizationsLoadedForTenant = null
   }
 
   return {
@@ -457,6 +510,7 @@ export const useOrganizationStore = defineStore('organization', () => {
     fetchSharedKnowledgeBases,
     fetchSharedAgents,
     setCurrentOrganization,
+    getSharedKnowledgeBase,
     getKBPermission,
     canEditKB,
     canManageKB,

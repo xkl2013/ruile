@@ -154,6 +154,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewUserRepository))
 	must(container.Provide(repository.NewAuthTokenRepository))
 	must(container.Provide(repository.NewSystemSettingRepository))
+	must(container.Provide(repository.NewBillingRepository))
 	must(container.Provide(neo4jRepo.NewNeo4jRepository))
 	must(container.Provide(repository.NewMCPServiceRepository))
 	must(container.Provide(repository.NewMCPToolApprovalRepository))
@@ -182,7 +183,10 @@ func BuildContainer(container *dig.Container) *dig.Container {
 
 	// Business service layer
 	logger.Debugf(ctx, "[Container] Registering business services...")
-	must(container.Provide(service.NewTenantService))
+	must(container.Provide(service.NewBillingPolicyService))
+	must(container.Provide(service.NewSubscriptionService))
+	must(container.Provide(service.NewUsageBillingService))
+	must(container.Provide(service.NewTenantServiceWithBilling))
 	must(container.Provide(service.NewTenantAPIKeyService))
 	must(container.Provide(service.NewTenantMemberService))
 	must(container.Provide(service.NewTenantInvitationService))
@@ -361,6 +365,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewAuthHandler))
 	must(container.Provide(handler.NewSMSAuthHandler))
 	must(container.Provide(handler.NewSystemHandler))
+	must(container.Provide(handler.NewBillingHandler))
 	must(container.Provide(handler.NewMCPServiceHandler))
 	must(container.Provide(handler.NewMCPCredentialsHandler))
 	must(container.Provide(handler.NewMCPOAuthHandler))
@@ -705,11 +710,7 @@ func initDatabase(cfg *config.Config) (*gorm.DB, error) {
 		resolveStorageProviderPending(db)
 		migrateLegacyStorageBackends(db)
 
-		// Post-migration: declarative built-in models from config/builtin_models.yaml (optional).
-		if err := types.LoadBuiltinModelsConfig(context.Background(), db, config.ConfigDir()); err != nil {
-			logger.Warnf(context.Background(), "Load builtin models config failed: %v", err)
-		}
-	} else {
+		} else {
 		logger.Infof(context.Background(), "Auto-migration is disabled (AUTO_MIGRATE=false)")
 	}
 

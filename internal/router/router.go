@@ -68,6 +68,7 @@ type RouterParams struct {
 	SMSAuthHandler               *handler.SMSAuthHandler
 	InitializationHandler        *handler.InitializationHandler
 	SystemHandler                *handler.SystemHandler
+	BillingHandler               *handler.BillingHandler
 	MCPServiceHandler            *handler.MCPServiceHandler
 	MCPCredentialsHandler        *handler.MCPCredentialsHandler
 	MCPOAuthHandler              *handler.MCPOAuthHandler
@@ -257,6 +258,8 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterInitializationRoutes(v1, params.InitializationHandler, rbacGuards)
 		RegisterSystemRoutes(v1, params.SystemHandler, rbacGuards)
 		RegisterSystemAdminRoutes(v1, params.SystemHandler, params.AuditLogHandler, rbacGuards)
+		RegisterBillingRoutes(v1, params.BillingHandler, rbacGuards)
+		RegisterSystemBillingAdminRoutes(v1, params.BillingHandler, rbacGuards)
 		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler, params.MCPCredentialsHandler, params.MCPOAuthHandler, rbacGuards)
 		RegisterWebSearchRoutes(v1, params.WebSearchHandler, rbacGuards)
 		RegisterWebSearchProviderRoutes(v1, params.WebSearchProviderHandler, params.WebSearchCredentialsHandler, rbacGuards)
@@ -283,6 +286,31 @@ func NewRouter(params RouterParams) *gin.Engine {
 	}
 
 	return r
+}
+
+// RegisterBillingRoutes exposes the current workspace billing projection and
+// tenant-scoped usage ledger.
+func RegisterBillingRoutes(r *gin.RouterGroup, billingHandler *handler.BillingHandler, g *rbacGuards) {
+	billingRoutes := r.Group("/billing", g.Viewer())
+	billingRoutes.GET("/overview", billingHandler.GetOverview)
+	billingRoutes.GET("/usage", billingHandler.ListCurrentUsage)
+}
+
+// RegisterSystemBillingAdminRoutes exposes deployment-wide billing tables and
+// versioned model-price management to SystemAdmin.
+func RegisterSystemBillingAdminRoutes(
+	r *gin.RouterGroup,
+	billingHandler *handler.BillingHandler,
+	g *rbacGuards,
+) {
+	adminRoutes := r.Group("/system/admin/billing", g.SystemAdmin())
+	adminRoutes.GET("/plans", billingHandler.ListPlans)
+	adminRoutes.GET("/prices", billingHandler.ListPrices)
+	adminRoutes.GET("/subscriptions", billingHandler.ListSubscriptions)
+	adminRoutes.GET("/credit-accounts", billingHandler.ListCreditAccounts)
+	adminRoutes.GET("/model-prices", billingHandler.ListModelPrices)
+	adminRoutes.POST("/model-prices", billingHandler.CreateModelPriceVersion)
+	adminRoutes.GET("/usage-ledgers", billingHandler.ListUsageLedgers)
 }
 
 // RegisterChunkerDebugRoutes wires the read-only chunker preview endpoint
@@ -640,6 +668,7 @@ func RegisterChatRoutes(r *gin.RouterGroup, handler *session.Handler, g *rbacGua
 //   - POST   /:id/members            Admin+ (Owner role assignment stays Owner/SystemAdmin-only in handler)
 //   - POST   /:id/members/admin-create Admin+ (create an account and add it as a member)
 //   - POST   /:id/members/work-profile/suggest Admin+ (generate a member avatar description draft)
+//   - POST   /:id/members/me/profile/generate Viewer+ (generate the caller's avatar description draft)
 //   - PUT    /:id/members/:user_id   Admin+ (Owner role changes stay Owner/SystemAdmin-only in handler)
 //   - POST   /:id/members/:user_id/suspend    Admin+ (Owner suspension stays Owner/SystemAdmin-only in handler)
 //   - POST   /:id/members/:user_id/reactivate Admin+ (Owner reactivation stays Owner/SystemAdmin-only in handler)
@@ -739,6 +768,9 @@ func RegisterTenantRoutes(
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.AddMember)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/admin-create", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.AdminCreateMember)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/work-profile/suggest", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.SuggestMemberWorkProfile)
+				g.apiKeyRoute(tenantByID, http.MethodGet, "/members/me/profile", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.GetMyMemberProfile)
+				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/me/profile", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.UpdateMyMemberProfile)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/me/profile/generate", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.GenerateMyMemberProfile)
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.UpdateMemberRole)
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id/profile", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.UpdateMemberProfile)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/suspend", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.SuspendMember)

@@ -335,6 +335,18 @@ export async function resetUserPassword(req: ResetUserPasswordRequest): Promise<
   return response as unknown as { message: string }
 }
 
+export interface SystemUserSubscription {
+  tenant_id: number
+  tenant_name: string
+  space_type: string
+  plan_code: string
+  plan_name: string
+  status: string
+  billing_interval: string
+  source: string
+  created_at: string
+}
+
 export interface SystemUserSummary {
   id: string
   username: string
@@ -348,6 +360,8 @@ export interface SystemUserSummary {
     tenant_name: string
     role: string
   }>
+  personal_subscription?: SystemUserSubscription
+  enterprise_subscriptions?: SystemUserSubscription[]
   created_at: string
 }
 
@@ -462,6 +476,139 @@ export async function provisionEnterpriseWorkspace(
     { headers: { 'Idempotency-Key': createProvisioningIdempotencyKey() } },
   )
   return response as unknown as ProvisionEnterpriseWorkspaceResponse
+}
+
+export interface BillingPlanItem {
+  id: string
+  code: string
+  name: string
+  description: string
+  edition: string
+  space_type: string
+  status: string
+  is_public: boolean
+  included_storage_bytes: number
+  included_point_micros: number
+  billing_multiplier_ppm: number
+}
+
+export interface BillingPriceItem {
+  id: string
+  plan_id: string
+  code: string
+  currency: string
+  billing_interval: string
+  amount_minor: number
+  status: string
+  is_default: boolean
+}
+
+export interface BillingSubscriptionItem {
+  id: string
+  tenant_id: number
+  tenant_name: string
+  space_type: string
+  plan_code: string
+  plan_name: string
+  status: string
+  billing_interval: string
+  source: string
+  created_at: string
+}
+
+export interface BillingCreditAccountItem {
+  id: string
+  tenant_id: number
+  tenant_name: string
+  space_type: string
+  balance_point_micros: number
+  version: number
+  created_at: string
+}
+
+export async function listBillingPlans(): Promise<BillingPlanItem[]> {
+  return get('/api/v1/system/admin/billing/plans') as unknown as BillingPlanItem[]
+}
+
+export async function listBillingPrices(): Promise<BillingPriceItem[]> {
+  return get('/api/v1/system/admin/billing/prices') as unknown as BillingPriceItem[]
+}
+
+export async function listBillingSubscriptions(): Promise<BillingSubscriptionItem[]> {
+  return get('/api/v1/system/admin/billing/subscriptions') as unknown as BillingSubscriptionItem[]
+}
+
+export async function listBillingCreditAccounts(): Promise<BillingCreditAccountItem[]> {
+  return get('/api/v1/system/admin/billing/credit-accounts') as unknown as BillingCreditAccountItem[]
+}
+
+export interface BillingModelPriceItem {
+  id: string
+  model_key: string
+  provider: string
+  pricing_mode: 'token' | 'call' | 'duration'
+  input_nanousd_per_m_tokens: number
+  output_nanousd_per_m_tokens: number
+  cache_read_nanousd_per_m_tokens: number
+  cache_write_nanousd_per_m_tokens: number
+  call_nanousd_per_call: number
+  duration_nanousd_per_second: number
+  model_multiplier_ppm: number
+  version: number
+  effective_at: string
+  expires_at?: string
+  status: string
+  created_at: string
+}
+
+export interface BillingUsageLedgerItem {
+  id: string
+  tenant_id: number
+  tenant_name: string
+  actor_user_id: string
+  ref_no: string
+  model_key: string
+  provider: string
+  pricing_version: number
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  duration_millis: number
+  base_cost_nanousd: number
+  rated_cost_nanousd: number
+  billed_point_micros: number
+  status: string
+  failure_code: string
+  billing_at: string
+}
+
+export interface CreateBillingModelPriceInput {
+  model_key: string
+  provider?: string
+  pricing_mode: 'token' | 'call' | 'duration'
+  input_nanousd_per_m_tokens: number
+  output_nanousd_per_m_tokens: number
+  cache_read_nanousd_per_m_tokens: number
+  cache_write_nanousd_per_m_tokens: number
+  call_nanousd_per_call: number
+  duration_nanousd_per_second: number
+  model_multiplier_ppm: number
+  effective_at?: string
+  status: string
+}
+
+export async function listBillingModelPrices(): Promise<BillingModelPriceItem[]> {
+  return get('/api/v1/system/admin/billing/model-prices') as unknown as BillingModelPriceItem[]
+}
+
+export async function createBillingModelPriceVersion(
+  input: CreateBillingModelPriceInput,
+): Promise<BillingModelPriceItem> {
+  return post('/api/v1/system/admin/billing/model-prices', input) as unknown as BillingModelPriceItem
+}
+
+export async function listBillingUsageLedgers(limit = 100): Promise<BillingUsageLedgerItem[]> {
+  return get(`/api/v1/system/admin/billing/usage-ledgers?limit=${limit}`) as unknown as BillingUsageLedgerItem[]
 }
 
 // ---- System Settings (P1) ----

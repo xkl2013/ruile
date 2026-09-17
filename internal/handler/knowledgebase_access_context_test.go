@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/middleware"
@@ -79,6 +80,32 @@ func TestValidateAndGetKnowledgeBaseUsesRouteAccessResult(t *testing.T) {
 	}
 	if svc.resolveCalls != 0 {
 		t.Fatalf("handler re-resolved route access %d time(s)", svc.resolveCalls)
+	}
+}
+
+func TestKnowledgeBaseAccessResponseExtrasExposeSharedViewerPermission(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	kb := &types.KnowledgeBase{
+		ID:       "kb-shared-viewer",
+		TenantID: 20,
+	}
+	c.Set(middleware.KBAccessContextKey, &types.KnowledgeBaseAccess{
+		KnowledgeBase:     kb,
+		EffectiveTenantID: 20,
+		Permission:        types.OrgRoleViewer,
+		AccessSource:      types.KnowledgeBaseAccessSourceSharedSpace,
+	})
+
+	got := knowledgeBaseAccessResponseExtras(c, kb, types.OrgRoleViewer)
+	want := map[string]interface{}{
+		"access_source":       types.KnowledgeBaseAccessSourceSharedSpace,
+		"effective_tenant_id": uint64(20),
+		"my_permission":       types.OrgRoleViewer,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("access extras = %#v, want %#v", got, want)
 	}
 }
 

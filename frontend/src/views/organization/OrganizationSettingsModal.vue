@@ -195,17 +195,23 @@
 
                 <!-- 共享知识库（独立侧边栏） -->
                 <div v-show="currentSection === 'sharedKb'" class="section">
-                  <div class="section-header">
-                    <h2>{{ $t('organization.share.sharedKnowledgeBase') }}</h2>
-                    <p class="section-description">{{ $t('organization.settings.sharedDesc') }}</p>
-                    <p class="section-description permission-calc-hint">
-                      <t-tooltip :content="$t('organization.settings.permissionCalcTip')" placement="top">
-                        <span class="hint-inner">
-                          <t-icon name="info-circle" size="14px" />
-                          {{ $t('organization.settings.permissionCalcFormula') }}
-                        </span>
-                      </t-tooltip>
-                    </p>
+                  <div class="section-header section-header-with-action">
+                    <div class="section-header-copy">
+                      <h2>{{ $t('organization.share.sharedKnowledgeBase') }}</h2>
+                      <p class="section-description">{{ $t('organization.settings.sharedDesc') }}</p>
+                      <p class="section-description permission-calc-hint">
+                        <t-tooltip :content="$t('organization.settings.permissionCalcTip')" placement="top">
+                          <span class="hint-inner">
+                            <t-icon name="info-circle" size="14px" />
+                            {{ $t('organization.settings.permissionCalcFormula') }}
+                          </span>
+                        </t-tooltip>
+                      </p>
+                    </div>
+                    <t-button v-if="isAdmin" theme="primary" size="small" @click="openAddKnowledgeBaseDialog">
+                      <template #icon><t-icon name="add" /></template>
+                      {{ $t('organization.settings.addKnowledgeBase') }}
+                    </t-button>
                   </div>
                   <div class="settings-group">
                     <t-loading :loading="sharesLoading">
@@ -215,6 +221,10 @@
                         </div>
                         <p class="empty-text">{{ $t('organization.settings.noSharedKB') }}</p>
                         <p class="empty-subtext">{{ $t('organization.settings.noSharedKBTip') }}</p>
+                        <t-button v-if="isAdmin" theme="primary" class="empty-action" @click="openAddKnowledgeBaseDialog">
+                          <template #icon><t-icon name="add" /></template>
+                          {{ $t('organization.settings.addKnowledgeBase') }}
+                        </t-button>
                       </div>
                       <div v-else class="shared-list">
                         <div v-for="share in sharedKnowledgeBases" :key="share.id" class="shared-item"
@@ -275,52 +285,64 @@
 
                 <!-- 共享智能体（独立侧边栏） -->
                 <div v-show="currentSection === 'sharedAgents'" class="section">
-                  <div class="section-header">
-                    <h2>{{ $t('organization.settings.sharedAgents') }}</h2>
-                    <p class="section-description">{{ $t('organization.settings.sharedAgentsDesc') }}</p>
-                    <p class="section-description permission-calc-hint">
-                      <t-tooltip :content="$t('organization.settings.sharedAgentsKbHint')" placement="top"
-                        :show-delay="300">
-                        <span class="hint-inner">
-                          <t-icon name="info-circle" size="14px" />
-                          {{ $t('organization.settings.sharedAgentsKbHintShort') }}
-                        </span>
-                      </t-tooltip>
-                    </p>
+                  <div class="section-header section-header-with-action">
+                    <div class="section-header-copy">
+                      <h2>{{ $t('organization.settings.sharedAgents') }}</h2>
+                      <p class="section-description">{{ $t('organization.settings.sharedAgentsDesc') }}</p>
+                      <p class="section-description permission-calc-hint">
+                        <t-tooltip :content="$t('organization.settings.sharedAgentsKbHint')" placement="top"
+                          :show-delay="300">
+                          <span class="hint-inner">
+                            <t-icon name="info-circle" size="14px" />
+                            {{ $t('organization.settings.sharedAgentsKbHintShort') }}
+                          </span>
+                        </t-tooltip>
+                      </p>
+                    </div>
+                    <t-button v-if="isAdmin" theme="primary" size="small" @click="openAddAgentDialog">
+                      <template #icon><t-icon name="add" /></template>
+                      {{ $t('organization.settings.addAgent') }}
+                    </t-button>
                   </div>
                   <div class="settings-group">
-                    <div v-if="sharedAgents.length === 0" class="empty-shared">
+                    <div v-if="sharedAgents.length === 0 && !sharesLoading" class="empty-shared">
                       <div class="empty-icon">
                         <img src="@/assets/img/agent.svg" class="empty-icon-agent" alt="" aria-hidden="true" />
                       </div>
                       <p class="empty-text">{{ $t('organization.settings.noSharedAgents') }}</p>
                       <p class="empty-subtext">{{ $t('organization.settings.noSharedAgentsTip') }}</p>
+                      <t-button v-if="isAdmin" theme="primary" class="empty-action" @click="openAddAgentDialog">
+                        <template #icon><t-icon name="add" /></template>
+                        {{ $t('organization.settings.addAgent') }}
+                      </t-button>
                     </div>
-                    <div v-else class="shared-list">
-                      <div v-for="share in sharedAgents" :key="share.id" class="shared-item"
-                        @mouseenter="onSharedAgentMouseEnter(share, $event)" @mousemove="onSharedAgentMouseMove($event)"
-                        @mouseleave="onSharedAgentMouseLeave">
-                        <div class="shared-icon shared-icon-agent-wrap">
-                          <AgentAvatar :name="share.agent_name || share.agent_id" size="small" />
-                        </div>
-                        <div class="shared-info">
-                          <span class="shared-name">{{ share.agent_name || share.agent_id }}</span>
-                          <div class="shared-meta">
-                            <span v-if="share.shared_by_username" class="shared-by"><t-icon name="user" size="12px" />{{
-                              share.shared_by_username }}</span>
-                            <span class="shared-time"><t-icon name="time" size="12px" />{{ formatDate(share.created_at)
-                            }}</span>
+                    <t-loading v-else :loading="sharesLoading">
+                      <div class="shared-list">
+                        <div v-for="share in sharedAgents" :key="share.id" class="shared-item"
+                          @mouseenter="onSharedAgentMouseEnter(share, $event)" @mousemove="onSharedAgentMouseMove($event)"
+                          @mouseleave="onSharedAgentMouseLeave">
+                          <div class="shared-icon shared-icon-agent-wrap">
+                            <AgentAvatar :name="share.agent_name || share.agent_id" size="small" />
                           </div>
+                          <div class="shared-info">
+                            <span class="shared-name">{{ share.agent_name || share.agent_id }}</span>
+                            <div class="shared-meta">
+                              <span v-if="share.shared_by_username" class="shared-by"><t-icon name="user" size="12px" />{{
+                                share.shared_by_username }}</span>
+                              <span class="shared-time"><t-icon name="time" size="12px" />{{ formatDate(share.created_at)
+                              }}</span>
+                            </div>
+                          </div>
+                          <t-popconfirm v-if="isAdmin"
+                            :content="$t('organization.settings.removeAgentShareConfirm', { name: share.agent_name || share.agent_id })"
+                            :confirm-btn="{ content: $t('common.confirm'), theme: 'danger' }"
+                            :cancel-btn="{ content: $t('common.cancel') }" @confirm="handleRemoveAgentShare(share)">
+                            <t-button variant="text" size="small" theme="danger" class="shared-remove-btn"
+                              @click.stop><t-icon name="delete" size="16px" /></t-button>
+                          </t-popconfirm>
                         </div>
-                        <t-popconfirm v-if="isAdmin"
-                          :content="$t('organization.settings.removeAgentShareConfirm', { name: share.agent_name || share.agent_id })"
-                          :confirm-btn="{ content: $t('common.confirm'), theme: 'danger' }"
-                          :cancel-btn="{ content: $t('common.cancel') }" @confirm="handleRemoveAgentShare(share)">
-                          <t-button variant="text" size="small" theme="danger" class="shared-remove-btn"
-                            @click.stop><t-icon name="delete" size="16px" /></t-button>
-                        </t-popconfirm>
                       </div>
-                    </div>
+                    </t-loading>
                   </div>
                 </div>
 
@@ -391,6 +413,145 @@
         </div>
       </div>
     </t-dialog>
+
+    <!-- 从当前团队空间所属企业中选择知识库并共享 -->
+    <t-dialog
+      v-model:visible="showAddKnowledgeBaseDialog"
+      :header="$t('organization.settings.addKnowledgeBaseDialogTitle')"
+      width="620px"
+      :confirm-btn="{
+        content: $t('organization.settings.addKnowledgeBaseConfirm'),
+        loading: addKnowledgeBaseSubmitting,
+        disabled: selectedKnowledgeBaseIds.length === 0
+      }"
+      :cancel-btn="$t('common.cancel')"
+      @confirm="handleAddKnowledgeBases"
+      @close="resetAddKnowledgeBaseDialog"
+    >
+      <div class="add-kb-dialog">
+        <p class="add-kb-dialog-description">{{ $t('organization.settings.addKnowledgeBaseDialogDesc') }}</p>
+
+        <div class="add-kb-toolbar">
+          <t-input
+            v-model="knowledgeBaseSearchQuery"
+            :placeholder="$t('organization.settings.addKnowledgeBaseSearchPlaceholder')"
+            clearable
+          >
+            <template #prefix-icon><t-icon name="search" /></template>
+          </t-input>
+          <t-select
+            v-model="addKnowledgeBasePermission"
+            class="add-kb-permission-select"
+            :placeholder="$t('organization.settings.sharePermissionLabel')"
+          >
+            <t-option value="viewer" :label="$t('organization.share.permissionReadonly')" />
+            <t-option value="editor" :label="$t('organization.share.permissionEditable')" />
+          </t-select>
+        </div>
+
+        <t-loading :loading="enterpriseKnowledgeBasesLoading">
+          <div v-if="filteredEnterpriseKnowledgeBases.length > 0" class="knowledge-base-options">
+            <div
+              v-for="knowledgeBase in filteredEnterpriseKnowledgeBases"
+              :key="knowledgeBase.id"
+              class="knowledge-base-option"
+              @click="toggleKnowledgeBaseSelection(knowledgeBase.id)"
+            >
+              <div class="knowledge-base-option-check" @click.stop>
+                <t-checkbox
+                  :checked="selectedKnowledgeBaseIds.includes(knowledgeBase.id)"
+                  @change="(checked: boolean) => setKnowledgeBaseSelection(knowledgeBase.id, checked)"
+                />
+              </div>
+              <div class="shared-icon shared-icon-kb">
+                <img src="@/assets/img/zhishiku.svg" class="shared-icon-kb-img" alt="" aria-hidden="true" />
+              </div>
+              <div class="knowledge-base-option-info">
+                <span class="knowledge-base-option-name">{{ knowledgeBase.name }}</span>
+                <span v-if="knowledgeBase.description" class="knowledge-base-option-description">
+                  {{ knowledgeBase.description }}
+                </span>
+                <span class="knowledge-base-option-meta">
+                  {{ knowledgeBase.type === 'faq'
+                    ? `${$t('knowledgeEditor.basic.typeFAQ')} · ${knowledgeBase.chunk_count ?? 0}`
+                    : `${$t('knowledgeEditor.basic.typeDocument')} · ${knowledgeBase.knowledge_count ?? 0}` }}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="add-kb-empty">
+            <t-icon name="folder-open" size="28px" />
+            <span>{{ $t('organization.settings.addKnowledgeBaseEmpty') }}</span>
+          </div>
+        </t-loading>
+
+        <div class="add-kb-selection-summary">
+          {{ $t('organization.settings.addKnowledgeBaseSelected', { count: selectedKnowledgeBaseIds.length }) }}
+        </div>
+      </div>
+    </t-dialog>
+
+    <!-- 从当前团队空间所属企业中选择智能体并共享 -->
+    <t-dialog
+      v-model:visible="showAddAgentDialog"
+      :header="$t('organization.settings.addAgentDialogTitle')"
+      width="620px"
+      :confirm-btn="{
+        content: $t('organization.settings.addAgentConfirm'),
+        loading: addAgentSubmitting,
+        disabled: selectedAgentIds.length === 0
+      }"
+      :cancel-btn="$t('common.cancel')"
+      @confirm="handleAddAgents"
+      @close="resetAddAgentDialog"
+    >
+      <div class="add-agent-dialog">
+        <p class="add-agent-dialog-description">{{ $t('organization.settings.addAgentDialogDesc') }}</p>
+
+        <div class="add-agent-toolbar">
+          <t-input
+            v-model="agentSearchQuery"
+            :placeholder="$t('organization.settings.addAgentSearchPlaceholder')"
+            clearable
+          >
+            <template #prefix-icon><t-icon name="search" /></template>
+          </t-input>
+        </div>
+
+        <t-loading :loading="enterpriseAgentsLoading">
+          <div v-if="filteredEnterpriseAgents.length > 0" class="agent-options">
+            <div
+              v-for="agent in filteredEnterpriseAgents"
+              :key="agent.id"
+              class="agent-option"
+              @click="toggleAgentSelection(agent.id)"
+            >
+              <div class="agent-option-check" @click.stop>
+                <t-checkbox
+                  :checked="selectedAgentIds.includes(agent.id)"
+                  @change="(checked: boolean) => setAgentSelection(agent.id, checked)"
+                />
+              </div>
+              <div class="agent-option-avatar">
+                <AgentAvatar :name="agent.name || agent.id" size="small" />
+              </div>
+              <div class="agent-option-info">
+                <span class="agent-option-name">{{ agent.name || agent.id }}</span>
+                <span v-if="agent.description" class="agent-option-description">{{ agent.description }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="add-agent-empty">
+            <t-icon name="control-platform" size="28px" />
+            <span>{{ $t('organization.settings.addAgentEmpty') }}</span>
+          </div>
+        </t-loading>
+
+        <div class="add-agent-selection-summary">
+          {{ $t('organization.settings.addAgentSelected', { count: selectedAgentIds.length }) }}
+        </div>
+      </div>
+    </t-dialog>
   </Teleport>
 </template>
 
@@ -402,6 +563,8 @@ import { useI18n } from 'vue-i18n'
 import {
   getOrganization,
   listMembers,
+  shareKnowledgeBase,
+  shareAgent,
   updateOrganization,
   updateMemberRole,
   removeMember,
@@ -417,6 +580,8 @@ import {
   type AgentShareResponse,
   type UserSearchResult
 } from '@/api/organization'
+import { listKnowledgeBases } from '@/api/knowledge-base'
+import { listAgents, type CustomAgent } from '@/api/agent'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
@@ -434,6 +599,7 @@ interface Props {
   visible: boolean
   orgId?: string
   mode?: 'view' | 'edit' | 'create'
+  tenantId?: number | string | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -452,6 +618,19 @@ const members = ref<OrganizationMember[]>([])
 const sharedKnowledgeBases = ref<KnowledgeBaseShare[]>([])
 const sharedAgents = ref<AgentShareResponse[]>([])
 const sharesLoading = ref(false)
+const showAddKnowledgeBaseDialog = ref(false)
+const enterpriseKnowledgeBasesLoading = ref(false)
+const addKnowledgeBaseSubmitting = ref(false)
+const enterpriseKnowledgeBases = ref<EnterpriseKnowledgeBase[]>([])
+const selectedKnowledgeBaseIds = ref<string[]>([])
+const knowledgeBaseSearchQuery = ref('')
+const addKnowledgeBasePermission = ref<'viewer' | 'editor'>('viewer')
+const showAddAgentDialog = ref(false)
+const enterpriseAgentsLoading = ref(false)
+const addAgentSubmitting = ref(false)
+const enterpriseAgents = ref<CustomAgent[]>([])
+const selectedAgentIds = ref<string[]>([])
+const agentSearchQuery = ref('')
 const membersLoading = ref(false)
 const memberSearchQuery = ref('')
 const submitting = ref(false)
@@ -464,6 +643,17 @@ const userSearchResults = ref<UserSearchResult[]>([])
 const userSearchBootstrapped = ref(false)
 const selectedInviteCandidateKey = ref<string | null>(null)
 const addMemberRole = ref<'admin' | 'editor' | 'viewer'>('viewer')
+
+interface EnterpriseKnowledgeBase {
+  id: string
+  name: string
+  description?: string
+  type?: string
+  tenant_id?: number
+  is_temporary?: boolean
+  knowledge_count?: number
+  chunk_count?: number
+}
 
 const formData = ref({
   name: '',
@@ -498,11 +688,27 @@ function clearAvatarEmoji() {
 // Computed
 const isCreateMode = computed(() => props.mode === 'create')
 const isEditMode = computed(() => props.mode === 'edit' || props.mode === 'create')
-// 后端组织相关变更接口（保存设置、邀请、搜索用户、改/删成员、移除共享等）在路由层都要求当前空间角色 ≥ admin（见
+const requestTenantId = computed(() =>
+  Number(
+    props.tenantId ||
+    (
+      isCreateMode.value
+        ? authStore.manageableEnterpriseTenantId || authStore.enterpriseSettingsTenantId
+        : authStore.enterpriseSettingsTenantId || authStore.manageableEnterpriseTenantId
+    ) ||
+    authStore.effectiveTenantId ||
+    authStore.currentTenantId ||
+    0,
+  ) || 0,
+)
+const requestOptions = computed(() =>
+  requestTenantId.value ? { tenantId: requestTenantId.value } : undefined,
+)
+// 后端组织相关变更接口（保存设置、邀请、搜索用户、改/删成员、移除共享等）在路由层都要求目标企业空间角色 ≥ admin（见
 // internal/router/router.go 的 RegisterOrganizationRoutes）。跨空间超管可绕过。
-// 因此前端任何"管理类"入口必须同时满足：组织内是 admin/owner ∩ 当前空间 admin+。
+// 因此前端任何"管理类"入口必须同时满足：组织内是 admin/owner ∩ 目标企业空间 admin+。
 const hasTenantAdmin = computed(
-  () => authStore.hasRole('admin') || authStore.canAccessAllTenants
+  () => authStore.hasRoleInTenant(requestTenantId.value, 'admin')
 )
 const isAdmin = computed(() => {
   if (isCreateMode.value) return hasTenantAdmin.value
@@ -601,6 +807,40 @@ const filteredMembers = computed(() => {
   )
 })
 
+const availableEnterpriseKnowledgeBases = computed(() => {
+  const sharedIds = new Set(sharedKnowledgeBases.value.map((share) => share.knowledge_base_id))
+  return enterpriseKnowledgeBases.value.filter((knowledgeBase) =>
+    knowledgeBase.id && !sharedIds.has(knowledgeBase.id)
+  )
+})
+
+const filteredEnterpriseKnowledgeBases = computed(() => {
+  const query = knowledgeBaseSearchQuery.value.trim().toLowerCase()
+  if (!query) return availableEnterpriseKnowledgeBases.value
+  return availableEnterpriseKnowledgeBases.value.filter((knowledgeBase) =>
+    [knowledgeBase.name, knowledgeBase.description]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  )
+})
+
+const availableEnterpriseAgents = computed(() => {
+  const sharedIds = new Set(sharedAgents.value.map((share) => share.agent_id))
+  return enterpriseAgents.value.filter((agent) =>
+    agent.id && !sharedIds.has(agent.id)
+  )
+})
+
+const filteredEnterpriseAgents = computed(() => {
+  const query = agentSearchQuery.value.trim().toLowerCase()
+  if (!query) return availableEnterpriseAgents.value
+  return availableEnterpriseAgents.value.filter((agent) =>
+    [agent.name, agent.description]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query))
+  )
+})
+
 const memberPrimaryLabel = (m: OrganizationMember): string => {
   return m.username || m.phone || m.email || m.representative_user_id || m.user_id || `member#${m.id}`
 }
@@ -631,7 +871,7 @@ const handleClose = () => {
 const fetchOrgDetail = async () => {
   if (!props.orgId) return
   try {
-    const res = await getOrganization(props.orgId)
+    const res = await getOrganization(props.orgId, requestOptions.value)
     if (res.success && res.data) {
       orgInfo.value = res.data
       const memberLimit = res.data.member_limit
@@ -651,7 +891,7 @@ const fetchMembers = async () => {
   if (!props.orgId) return
   membersLoading.value = true
   try {
-    const res = await listMembers(props.orgId)
+    const res = await listMembers(props.orgId, requestOptions.value)
     if (res.success && res.data) {
       members.value = res.data.members || []
     }
@@ -667,8 +907,8 @@ const fetchSharedKBs = async () => {
   sharesLoading.value = true
   try {
     const [kbRes, agentRes] = await Promise.all([
-      listOrgShares(props.orgId),
-      listOrgAgentShares(props.orgId)
+      listOrgShares(props.orgId, requestOptions.value),
+      listOrgAgentShares(props.orgId, requestOptions.value)
     ])
     if (kbRes.success && kbRes.data) {
       sharedKnowledgeBases.value = kbRes.data.shares || []
@@ -689,6 +929,211 @@ const fetchSharedKBs = async () => {
   }
 }
 
+const enterpriseKnowledgeBaseTenantId = computed(() =>
+  Number(orgInfo.value?.owner_tenant_id || requestTenantId.value || 0) || 0
+)
+
+const fetchEnterpriseKnowledgeBases = async () => {
+  const tenantId = enterpriseKnowledgeBaseTenantId.value
+  if (!tenantId) {
+    enterpriseKnowledgeBases.value = []
+    return
+  }
+
+  enterpriseKnowledgeBasesLoading.value = true
+  try {
+    const response: any = await listKnowledgeBases(
+      { creator: 'all' },
+      { tenantId },
+    )
+    const rows = Array.isArray(response?.data) ? response.data : []
+    enterpriseKnowledgeBases.value = rows.filter((knowledgeBase: EnterpriseKnowledgeBase) =>
+      knowledgeBase?.id &&
+      !knowledgeBase.is_temporary &&
+      (!knowledgeBase.tenant_id || Number(knowledgeBase.tenant_id) === tenantId)
+    )
+  } catch (error) {
+    console.error('Failed to fetch enterprise knowledge bases:', error)
+    enterpriseKnowledgeBases.value = []
+    MessagePlugin.error(t('organization.settings.addKnowledgeBaseLoadFailed'))
+  } finally {
+    enterpriseKnowledgeBasesLoading.value = false
+  }
+}
+
+const openAddKnowledgeBaseDialog = async () => {
+  if (!props.orgId || !isAdmin.value) return
+  selectedKnowledgeBaseIds.value = []
+  knowledgeBaseSearchQuery.value = ''
+  addKnowledgeBasePermission.value = 'viewer'
+  showAddKnowledgeBaseDialog.value = true
+  await fetchEnterpriseKnowledgeBases()
+}
+
+const setKnowledgeBaseSelection = (knowledgeBaseId: string, checked: boolean) => {
+  const selected = new Set(selectedKnowledgeBaseIds.value)
+  if (checked) selected.add(knowledgeBaseId)
+  else selected.delete(knowledgeBaseId)
+  selectedKnowledgeBaseIds.value = Array.from(selected)
+}
+
+const toggleKnowledgeBaseSelection = (knowledgeBaseId: string) => {
+  setKnowledgeBaseSelection(
+    knowledgeBaseId,
+    !selectedKnowledgeBaseIds.value.includes(knowledgeBaseId),
+  )
+}
+
+const handleAddKnowledgeBases = async () => {
+  if (!props.orgId || selectedKnowledgeBaseIds.value.length === 0) return
+
+  addKnowledgeBaseSubmitting.value = true
+  try {
+    const results = await Promise.all(
+      selectedKnowledgeBaseIds.value.map(async (knowledgeBaseId) => {
+        try {
+          const response = await shareKnowledgeBase(
+            knowledgeBaseId,
+            {
+              organization_id: props.orgId!,
+              permission: addKnowledgeBasePermission.value,
+            },
+            { tenantId: enterpriseKnowledgeBaseTenantId.value },
+          )
+          return { success: response.success, message: response.message }
+        } catch (error: any) {
+          return { success: false, message: error?.message }
+        }
+      }),
+    )
+    const successCount = results.filter((result) => result.success).length
+    const failedCount = results.length - successCount
+
+    if (successCount > 0) {
+      await fetchSharedKBs()
+      showAddKnowledgeBaseDialog.value = false
+      if (failedCount === 0) {
+        MessagePlugin.success(t('organization.settings.addKnowledgeBaseSuccess', { count: successCount }))
+      } else {
+        MessagePlugin.warning(t('organization.settings.addKnowledgeBasePartialSuccess', {
+          success: successCount,
+          failed: failedCount,
+        }))
+      }
+    } else {
+      MessagePlugin.error(t('organization.settings.addKnowledgeBaseFailed'))
+    }
+  } finally {
+    addKnowledgeBaseSubmitting.value = false
+  }
+}
+
+const resetAddKnowledgeBaseDialog = () => {
+  selectedKnowledgeBaseIds.value = []
+  knowledgeBaseSearchQuery.value = ''
+  addKnowledgeBasePermission.value = 'viewer'
+}
+
+const enterpriseAgentTenantId = computed(() =>
+  Number(orgInfo.value?.owner_tenant_id || requestTenantId.value || 0) || 0
+)
+
+const fetchEnterpriseAgents = async () => {
+  const tenantId = enterpriseAgentTenantId.value
+  if (!tenantId) {
+    enterpriseAgents.value = []
+    return
+  }
+
+  enterpriseAgentsLoading.value = true
+  try {
+    const response: any = await listAgents(
+      { creator: 'all' },
+      { tenantId },
+    )
+    const rows = Array.isArray(response?.data) ? response.data : []
+    enterpriseAgents.value = rows.filter((agent: CustomAgent) =>
+      agent?.id &&
+      !agent.is_builtin &&
+      (!agent.tenant_id || Number(agent.tenant_id) === tenantId)
+    )
+  } catch (error) {
+    console.error('Failed to fetch enterprise agents:', error)
+    enterpriseAgents.value = []
+    MessagePlugin.error(t('organization.settings.addAgentLoadFailed'))
+  } finally {
+    enterpriseAgentsLoading.value = false
+  }
+}
+
+const openAddAgentDialog = async () => {
+  if (!props.orgId || !isAdmin.value) return
+  selectedAgentIds.value = []
+  agentSearchQuery.value = ''
+  showAddAgentDialog.value = true
+  await fetchEnterpriseAgents()
+}
+
+const setAgentSelection = (agentId: string, checked: boolean) => {
+  const selected = new Set(selectedAgentIds.value)
+  if (checked) selected.add(agentId)
+  else selected.delete(agentId)
+  selectedAgentIds.value = Array.from(selected)
+}
+
+const toggleAgentSelection = (agentId: string) => {
+  setAgentSelection(agentId, !selectedAgentIds.value.includes(agentId))
+}
+
+const handleAddAgents = async () => {
+  if (!props.orgId || selectedAgentIds.value.length === 0) return
+
+  addAgentSubmitting.value = true
+  try {
+    const results = await Promise.all(
+      selectedAgentIds.value.map(async (agentId) => {
+        try {
+          const response = await shareAgent(
+            agentId,
+            {
+              organization_id: props.orgId!,
+              permission: 'viewer',
+            },
+            { tenantId: enterpriseAgentTenantId.value },
+          )
+          return { success: response.success, message: response.message }
+        } catch (error: any) {
+          return { success: false, message: error?.message }
+        }
+      }),
+    )
+    const successCount = results.filter((result) => result.success).length
+    const failedCount = results.length - successCount
+
+    if (successCount > 0) {
+      await fetchSharedKBs()
+      showAddAgentDialog.value = false
+      if (failedCount === 0) {
+        MessagePlugin.success(t('organization.settings.addAgentSuccess', { count: successCount }))
+      } else {
+        MessagePlugin.warning(t('organization.settings.addAgentPartialSuccess', {
+          success: successCount,
+          failed: failedCount,
+        }))
+      }
+    } else {
+      MessagePlugin.error(t('organization.settings.addAgentFailed'))
+    }
+  } finally {
+    addAgentSubmitting.value = false
+  }
+}
+
+const resetAddAgentDialog = () => {
+  selectedAgentIds.value = []
+  agentSearchQuery.value = ''
+}
+
 const handleSave = async () => {
   if (!formData.value.name.trim()) {
     MessagePlugin.warning(t('organization.nameRequired'))
@@ -702,7 +1147,8 @@ const handleSave = async () => {
       // 创建模式
       const result = await orgStore.create(
         formData.value.name.trim(),
-        formData.value.description.trim()
+        formData.value.description.trim(),
+        requestOptions.value,
       )
       if (result) {
         MessagePlugin.success(t('organization.createSuccess'))
@@ -719,7 +1165,7 @@ const handleSave = async () => {
         description: formData.value.description.trim(),
         avatar: formData.value.avatar || undefined,
         member_limit: formData.value.member_limit
-      })
+      }, requestOptions.value)
       if (res.success) {
         MessagePlugin.success(t('common.saveSuccess'))
         emit('saved')
@@ -740,7 +1186,7 @@ const handleRoleChange = async (member: OrganizationMember, newRole: string) => 
   try {
     const res = await updateMemberRole(props.orgId, member.id, {
       role: newRole as 'admin' | 'editor' | 'viewer'
-    })
+    }, requestOptions.value)
     if (res.success) {
       MessagePlugin.success(t('organization.roleUpdated'))
     } else {
@@ -757,7 +1203,7 @@ const confirmRemoveMember = async (member: OrganizationMember) => {
   if (!props.orgId) return
 
   try {
-    const res = await removeMember(props.orgId, member.id)
+    const res = await removeMember(props.orgId, member.id, requestOptions.value)
     if (res.success) {
       MessagePlugin.success(t('organization.memberRemoved'))
       fetchMembers()
@@ -775,7 +1221,7 @@ const fetchUserInviteCandidates = async (query = '') => {
   if (!props.orgId) return
   userSearchLoading.value = true
   try {
-    const res = await searchUsersForInvite(props.orgId, query, 20)
+    const res = await searchUsersForInvite(props.orgId, query, 20, requestOptions.value)
     if (res.success && res.data) {
       userSearchResults.value = res.data
     }
@@ -826,7 +1272,7 @@ const handleAddMember = async () => {
       representative_user_id: representativeUserId,
       user_id: representativeUserId,
       role: addMemberRole.value,
-    })
+    }, requestOptions.value)
     if (res.success) {
       MessagePlugin.success(t('organization.addMember.success'))
       showAddMemberDialog.value = false
@@ -858,7 +1304,7 @@ const handleShareClick = (share: KnowledgeBaseShare) => {
 const handleRemoveShare = async (share: KnowledgeBaseShare) => {
   if (!props.orgId) return
   try {
-    const res = await removeShare(share.knowledge_base_id, share.id)
+    const res = await removeShare(share.knowledge_base_id, share.id, requestOptions.value)
     if (res.success) {
       MessagePlugin.success(t('organization.settings.removeShareSuccess'))
       sharedKnowledgeBases.value = sharedKnowledgeBases.value.filter(s => s.id !== share.id)
@@ -873,7 +1319,7 @@ const handleRemoveShare = async (share: KnowledgeBaseShare) => {
 const handleRemoveAgentShare = async (share: AgentShareResponse) => {
   if (!props.orgId) return
   try {
-    const res = await removeAgentShare(share.agent_id, share.id)
+    const res = await removeAgentShare(share.agent_id, share.id, requestOptions.value)
     if (res.success) {
       MessagePlugin.success(t('organization.settings.removeShareSuccess'))
       sharedAgents.value = sharedAgents.value.filter(s => s.id !== share.id)
@@ -1232,6 +1678,21 @@ watch(() => props.visible, (newVal) => {
         font-size: 13px;
       }
     }
+
+    &.section-header-with-action {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+
+      .section-header-copy {
+        min-width: 0;
+      }
+
+      .t-button {
+        flex-shrink: 0;
+      }
+    }
   }
 }
 
@@ -1580,12 +2041,230 @@ watch(() => props.visible, (newVal) => {
     margin: 0;
   }
 
+  .empty-action {
+    margin-top: 20px;
+  }
+
   &.small {
     padding: 24px 16px;
 
     .empty-text {
       margin: 0;
     }
+  }
+}
+
+.add-kb-dialog {
+  .add-kb-dialog-description {
+    margin: 0 0 16px;
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .add-kb-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .knowledge-base-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .knowledge-base-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 62px;
+    padding: 10px 12px;
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+
+    &:hover {
+      border-color: var(--td-brand-color);
+      background: var(--td-brand-color-light);
+    }
+
+    .knowledge-base-option-check {
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .shared-icon-kb {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 7px;
+      background: rgba(7, 192, 95, 0.08);
+      flex-shrink: 0;
+    }
+
+    .shared-icon-kb-img {
+      width: 20px;
+      height: 20px;
+    }
+
+    .knowledge-base-option-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .knowledge-base-option-name,
+    .knowledge-base-option-description {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .knowledge-base-option-name {
+      color: var(--td-text-color-primary);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .knowledge-base-option-description,
+    .knowledge-base-option-meta {
+      color: var(--td-text-color-secondary);
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .knowledge-base-option-meta {
+      color: var(--td-text-color-placeholder);
+    }
+  }
+
+  .add-kb-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 180px;
+    color: var(--td-text-color-placeholder);
+    font-size: 13px;
+  }
+
+  .add-kb-selection-summary {
+    margin-top: 12px;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    text-align: right;
+  }
+}
+
+.add-agent-dialog {
+  .add-agent-dialog-description {
+    margin: 0 0 16px;
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .add-agent-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .agent-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+
+  .agent-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 62px;
+    padding: 10px 12px;
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+
+    &:hover {
+      border-color: var(--td-brand-color);
+      background: var(--td-brand-color-light);
+    }
+  }
+
+  .agent-option-check,
+  .agent-option-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .agent-option-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .agent-option-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .agent-option-name,
+  .agent-option-description {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .agent-option-name {
+    color: var(--td-text-color-primary);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .agent-option-description {
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .add-agent-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 180px;
+    color: var(--td-text-color-placeholder);
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .add-agent-selection-summary {
+    margin-top: 12px;
+    color: var(--td-text-color-secondary);
+    font-size: 12px;
+    text-align: right;
   }
 }
 

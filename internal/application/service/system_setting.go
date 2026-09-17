@@ -200,6 +200,31 @@ var registry = map[string]settingSpec{
 			"用于兼容旧版本「创建空间即下发默认 API Key」的行为（属于破坏性变更的回退开关）。" +
 			"每次创建空间时实时读取，修改后立即生效。默认 false（不自动创建，需通过 API Key 管理显式创建）。",
 	},
+	"billing.enabled": {
+		Type:        "bool",
+		Default:     false,
+		Category:    "billing",
+		Description: "是否启用新的工作区订阅与模型用量计费能力。默认关闭；关闭时不解析模型价格、不写用量账本，也不改变现有业务行为。",
+	},
+	"billing.enforcement_mode": {
+		Type:        "string",
+		Default:     "off",
+		Enum:        []string{"off", "observe", "enforce"},
+		Category:    "billing",
+		Description: "计费执行模式。off 完全关闭；observe 记录真实模型 Token 和模拟积分但不扣减；enforce 仅对个人工作区预留并结算，企业工作区在成员额度上线前自动降级为 observe。",
+	},
+	"billing.point_micros_per_usd": {
+		Type:        "int",
+		Default:     int64(types.PointMicrosPerPoint),
+		Category:    "billing",
+		Description: "每 1 美元对应的积分微单位数量。1000000 表示 1 美元换算为 1 积分，只影响之后发生的新调用。",
+	},
+	"billing.default_model_multiplier_ppm": {
+		Type:        "int",
+		Default:     int64(1_000_000),
+		Category:    "billing",
+		Description: "模型价格未设置有效倍率时使用的全局倍率。1000000 表示 1.0 倍，只影响之后发生的新调用。",
+	},
 	"asynq.core_concurrency": {
 		Type:            "int",
 		EnvName:         "WEKNORA_ASYNQ_CORE_CONCURRENCY",

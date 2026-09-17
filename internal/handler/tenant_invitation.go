@@ -52,13 +52,15 @@ func NewTenantInvitationHandler(
 // createInvitationRequest is the JSON body for POST /tenants/:id/invitations.
 // Phone is the user-facing identifier for the current phone-login flow.
 // Email remains accepted for backwards compatibility with older clients.
-// The optional Message is surfaced in the invitee's inbox.
+// The optional Message is surfaced in the invitee's inbox. The work-profile
+// description is optional at the API boundary and defaults to the generic
+// educator profile when the inviter does not provide one.
 type createInvitationRequest struct {
 	Phone                  string           `json:"phone"`
 	Email                  string           `json:"email,omitempty"`
 	Role                   types.TenantRole `json:"role" binding:"required"`
 	Message                string           `json:"message"`
-	WorkProfileDescription string           `json:"work_profile_description" binding:"required"`
+	WorkProfileDescription string           `json:"work_profile_description"`
 }
 
 // parseInvitationIDFromPath reads :inv_id off the gin context.
@@ -294,8 +296,7 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 	}
 	workProfileDescription := strings.TrimSpace(req.WorkProfileDescription)
 	if workProfileDescription == "" {
-		c.Error(apperrors.NewValidationError(service.ErrWorkProfileDescriptionRequired.Error()))
-		return
+		workProfileDescription = types.DefaultWorkProfileDescription
 	}
 
 	user, err := h.userService.GetUserByEmail(ctx, identifier)
@@ -510,6 +511,8 @@ func (h *TenantInvitationHandler) AcceptMyInvitation(c *gin.Context) {
 		case errors.Is(err, service.ErrInvitationNotPending):
 			c.Error(apperrors.NewConflictError(err.Error()))
 		case errors.Is(err, service.ErrInvitationExpired):
+			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrEnterpriseMembershipAlreadyExists):
 			c.Error(apperrors.NewConflictError(err.Error()))
 		default:
 			logger.Errorf(ctx, "AcceptMyInvitation failed: id=%d user=%s err=%v",

@@ -12,6 +12,13 @@ import { useChatResourcesStore } from '@/stores/chatResources'
 import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useOrganizationStore } from '@/stores/organization'
 
+type TenantMembership = {
+  tenant_id: number
+  tenant_name?: string
+  role: string
+  space_type?: string
+}
+
 /** 登出时丢弃 Pinia 内的空间级资源缓存，避免 SPA 重登复用上一账号数据。 */
 function clearSessionResourceCaches() {
   useChatResourcesStore().invalidate()
@@ -43,12 +50,7 @@ export const useAuthStore = defineStore('auth', () => {
   // along with their role in each. Populated from /auth/login response.
   // v1 deployments will typically have length 1; the field is wired now
   // so PR 3 can render a tenant-switcher UI without a store migration.
-  const memberships = ref<Array<{
-    tenant_id: number
-    tenant_name?: string
-    role: string
-    space_type?: string
-  }>>([])
+  const memberships = ref<TenantMembership[]>([])
   const isLiteMode = ref(false)
   // pendingInvitationCount is the number of pending tenant invitations
   // addressed to the current user. Renders as a badge next to the
@@ -199,13 +201,32 @@ export const useAuthStore = defineStore('auth', () => {
     admin: 30,
     owner: 40,
   }
+  const normalizeRole = (role?: string | null): string => String(role || '').toLowerCase()
+  const roleLevel = (role?: string | null): number => ROLE_LEVEL[normalizeRole(role)] ?? 0
   const hasRole = (min: 'viewer' | 'contributor' | 'admin' | 'owner'): boolean => {
-    return (ROLE_LEVEL[currentTenantRole.value] ?? 0) >= ROLE_LEVEL[min]
+    return roleLevel(currentTenantRole.value) >= ROLE_LEVEL[min]
+  }
+  const hasRoleInTenant = (
+    tenantId: number | string | null | undefined,
+    min: 'viewer' | 'contributor' | 'admin' | 'owner',
+  ): boolean => {
+    const targetTenantId = Number(tenantId || 0)
+    if (!targetTenantId) return false
+    if (canAccessAllTenants.value) return true
+    const match = memberships.value.find((m) => Number(m.tenant_id) === targetTenantId)
+    return roleLevel(match?.role) >= ROLE_LEVEL[min]
   }
 
   // The main product UI is account-centred, so creation permissions must not
   // depend on whichever tenant happens to be active in the current token.
   // These targets are only a rendering hint; the API validates them again.
+  const enterpriseMemberships = computed(() =>
+    memberships.value.filter((membership) =>
+      Number(membership.tenant_id) > 0 &&
+      membership.space_type === 'organization',
+    ),
+  )
+
   const enterpriseKnowledgeBaseTargets = computed(() => {
     const targets = new Map<number, {
       tenant_id: number
@@ -218,7 +239,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (
         !tenantID ||
         membership.space_type !== 'organization' ||
-        (ROLE_LEVEL[String(membership.role).toLowerCase()] ?? 0) < ROLE_LEVEL.contributor
+        roleLevel(membership.role) < ROLE_LEVEL.contributor
       ) {
         continue
       }
@@ -257,14 +278,54 @@ export const useAuthStore = defineStore('auth', () => {
   const canCreatePersonalKnowledgeBase = computed(
     () => Number(user.value?.tenant_id || 0) > 0 || hasValidTenant.value,
   )
-  const hasEnterpriseMembership = computed(() =>
-    memberships.value.some((membership) => membership.space_type === 'organization'),
-  )
 
   const effectiveTenantId = computed(() => {
     // 如果选择了其他空间，使用选择的空间ID，否则使用用户默认空间ID
     return selectedTenantId.value || (tenant.value?.id ? Number(tenant.value.id) : null)
   })
+
+  const activeEnterpriseTenantFallbackId = computed(() => {
+    const activeTenantId = Number(effectiveTenantId.value || 0)
+    if (!activeTenantId || currentTenantSpaceType.value === 'personal') return null
+    return activeTenantId
+  })
+
+  const hasEnterpriseMembership = computed(() =>
+    enterpriseMemberships.value.length > 0 || Boolean(activeEnterpriseTenantFallbackId.value),
+  )
+
+  const activeEnterpriseMembership = computed<TenantMembership | null>(() => {
+    const activeTenantId = Number(effectiveTenantId.value || 0)
+    if (!activeTenantId) return null
+    return enterpriseMemberships.value.find((m) => Number(m.tenant_id) === activeTenantId) || null
+  })
+
+  const enterpriseSettingsTenant = computed<TenantMembership | null>(() =>
+    activeEnterpriseMembership.value || enterpriseMemberships.value[0] || null,
+  )
+
+  const manageableEnterpriseTenant = computed<TenantMembership | null>(() => {
+    if (activeEnterpriseMembership.value && roleLevel(activeEnterpriseMembership.value.role) >= ROLE_LEVEL.admin) {
+      return activeEnterpriseMembership.value
+    }
+    return enterpriseMemberships.value.find((m) => roleLevel(m.role) >= ROLE_LEVEL.admin) || null
+  })
+
+  const enterpriseSettingsTenantId = computed(() =>
+    enterpriseSettingsTenant.value
+      ? Number(enterpriseSettingsTenant.value.tenant_id)
+      : activeEnterpriseTenantFallbackId.value,
+  )
+
+  const enterpriseSettingsTenantName = computed(() =>
+    enterpriseSettingsTenant.value?.tenant_name || currentTenantName.value || '',
+  )
+
+  const manageableEnterpriseTenantId = computed(() =>
+    manageableEnterpriseTenant.value
+      ? Number(manageableEnterpriseTenant.value.tenant_id)
+      : (canAccessAllTenants.value ? activeEnterpriseTenantFallbackId.value : null),
+  )
 
   const currentEditionFeatures = computed<Record<string, boolean> | null>(() => {
     const tenantID = tenant.value?.id ? Number(tenant.value.id) : null
@@ -687,6 +748,9 @@ export const useAuthStore = defineStore('auth', () => {
     canCreatePersonalKnowledgeBase,
     hasEnterpriseMembership,
     effectiveTenantId,
+    enterpriseSettingsTenantId,
+    enterpriseSettingsTenantName,
+    manageableEnterpriseTenantId,
     hasEditionFeature,
     canUseTeamSpaces,
     canManageWorkspaceMembers,
@@ -708,6 +772,7 @@ export const useAuthStore = defineStore('auth', () => {
     fetchPendingInvitationCount,
     refreshFromAuthMe,
     getSelectedTenant,
+    hasRoleInTenant,
     setLiteMode,
     logout,
     initFromStorage
