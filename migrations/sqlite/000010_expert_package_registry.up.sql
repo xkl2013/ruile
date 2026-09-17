@@ -1,3 +1,5 @@
+-- Register imported expert packages and their agent definitions.
+
 CREATE TABLE IF NOT EXISTS expert_packages (
     id TEXT PRIMARY KEY,
     tenant_id INTEGER NOT NULL REFERENCES tenants(id),

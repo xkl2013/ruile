@@ -1,3 +1,5 @@
+-- Remove administrator-triggered expert test runs.
+
 DELETE FROM agent_runs WHERE run_type = 'expert_agent_test';
 
 CREATE TABLE agent_runs_old (

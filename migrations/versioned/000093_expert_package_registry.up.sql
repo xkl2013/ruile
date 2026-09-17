@@ -1,3 +1,5 @@
+-- Migration: 000093_expert_package_registry
+
 CREATE TABLE IF NOT EXISTS expert_packages (
     id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
     tenant_id BIGINT NOT NULL REFERENCES tenants(id),

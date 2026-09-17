@@ -1,3 +1,5 @@
+-- Migration: 000094_expert_agent_test_runs
+
 ALTER TABLE agent_runs
     DROP CONSTRAINT IF EXISTS chk_agent_runs_type;
 

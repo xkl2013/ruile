@@ -1,4 +1,4 @@
--- SQLite equivalent of versioned migration 000089.
+-- SQLite equivalent of versioned migration 000092.
 
 CREATE TABLE IF NOT EXISTS agent_runs (
     id TEXT PRIMARY KEY,
