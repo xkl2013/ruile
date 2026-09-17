@@ -181,6 +181,7 @@ import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
 import {
   getAgentNotReadyReasonKeys,
+  withRequestChatModelFallback,
   type AgentNotReadyReasonKey,
 } from '@/utils/agent-readiness';
 import { formatLocalizedList } from '@/utils/format-list';
@@ -200,6 +201,7 @@ const props = defineProps<{
   currentAgentId: string;
   agents?: CustomAgent[];
   allModels?: ModelConfig[];
+  currentChatModelId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -362,7 +364,10 @@ const formatAgentNotReadyReasons = (
 const getAgentNotReadyReasonKeysFor = (agent: CustomAgent, sourceTenantId?: string) => {
   const isAgentMode = agent.config?.agent_mode === 'smart-reasoning';
   const isSharedAgent = !!sourceTenantId;
-  return getAgentNotReadyReasonKeys(agent.config, modelsList.value, {
+  const config = !sourceTenantId && agent.id === BUILTIN_QUICK_ANSWER_ID
+    ? withRequestChatModelFallback(agent.config, props.currentChatModelId)
+    : agent.config;
+  return getAgentNotReadyReasonKeys(config, modelsList.value, {
     isAgentMode,
     isSharedAgent,
   });

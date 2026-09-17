@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -18,6 +19,48 @@ type BillingRepository interface {
 	ListModelPrices(ctx context.Context) ([]*types.BillingModelPrice, error)
 	CreateModelPriceVersion(ctx context.Context, input types.BillingModelPriceInput) (*types.BillingModelPrice, error)
 	GetActiveModelPrice(ctx context.Context, modelKeys ...string) (*types.BillingModelPrice, error)
+	EnsureTenantBillingPolicy(
+		ctx context.Context,
+		tenantID uint64,
+		defaultMemberMonthlyLimitPointMicros int64,
+		actorUserID string,
+	) (*types.TenantBillingPolicy, error)
+	UpdateTenantBillingPolicy(
+		ctx context.Context,
+		tenantID uint64,
+		defaultMemberMonthlyLimitPointMicros int64,
+		memberOveragePolicy string,
+		actorUserID string,
+	) (*types.TenantBillingPolicy, error)
+	EnsureCurrentMemberAllocation(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		periodStart time.Time,
+		periodEnd time.Time,
+		defaultBalancePointMicros int64,
+		actorUserID string,
+	) (*types.TenantMemberCreditAllocation, error)
+	SetCurrentMemberAllocation(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		periodStart time.Time,
+		periodEnd time.Time,
+		allocatedPeriodPointMicros int64,
+		allocatedBalancePointMicros int64,
+		actorUserID string,
+	) (*types.TenantMemberCreditAllocation, error)
+	SetCurrentMemberPolicy(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		periodStart time.Time,
+		periodEnd time.Time,
+		limitMode string,
+		monthlyLimitPointMicros int64,
+		actorUserID string,
+	) (*types.TenantMemberCreditAllocation, error)
 	CreateUsageReservation(
 		ctx context.Context,
 		handle *types.BillingUsageHandle,
@@ -27,6 +70,8 @@ type BillingRepository interface {
 	ReleaseUsageReservation(ctx context.Context, tenantID uint64, refNo, failureCode string) error
 	SettleUsage(ctx context.Context, handle *types.BillingUsageHandle, ledger *types.TenantUsageLedger) (*types.TenantUsageLedger, error)
 	ListUsageLedgers(ctx context.Context, tenantID uint64, limit int) ([]*types.BillingUsageLedgerSummary, error)
+	ListUsageSummaryByActor(ctx context.Context, actorUserIDs []string) ([]*types.BillingActorUsageSummary, error)
+	ListMemberAllocations(ctx context.Context, tenantID uint64, at time.Time) ([]*types.TenantMemberCreditAllocationSummary, error)
 }
 
 type BillingPolicyService interface {
@@ -54,4 +99,30 @@ type UsageBillingService interface {
 	ListModelPrices(ctx context.Context) ([]*types.BillingModelPrice, error)
 	CreateModelPriceVersion(ctx context.Context, input types.BillingModelPriceInput) (*types.BillingModelPrice, error)
 	ListUsageLedgers(ctx context.Context, tenantID uint64, limit int) ([]*types.BillingUsageLedgerSummary, error)
+	ListUsageSummaryByActor(ctx context.Context, actorUserIDs []string) ([]*types.BillingActorUsageSummary, error)
+	ListMemberAllocations(ctx context.Context, tenantID uint64, at time.Time) ([]*types.TenantMemberCreditAllocationSummary, error)
+	GetTenantBillingPolicy(ctx context.Context, tenantID uint64) (*types.TenantBillingPolicy, error)
+	UpdateTenantBillingPolicy(
+		ctx context.Context,
+		tenantID uint64,
+		defaultMemberMonthlyLimitPointMicros int64,
+		memberOveragePolicy string,
+		actorUserID string,
+	) (*types.TenantBillingPolicy, error)
+	UpdateMemberPolicy(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		limitMode string,
+		monthlyLimitPointMicros int64,
+		actorUserID string,
+	) (*types.TenantMemberCreditAllocation, error)
+	UpdateMemberAllocation(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		allocatedPeriodPointMicros int64,
+		allocatedBalancePointMicros int64,
+		actorUserID string,
+	) (*types.TenantMemberCreditAllocation, error)
 }

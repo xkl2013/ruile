@@ -67,3 +67,21 @@ func TestIsBootstrapDefaultRow_PreservesUserModifiedLegacyValues(t *testing.T) {
 		t.Fatal("user-modified self_serve value must not be treated as bootstrap")
 	}
 }
+
+func TestBillingDefaultsObserveUsageWithoutCharging(t *testing.T) {
+	enabled, ok := registry["billing.enabled"]
+	if !ok {
+		t.Fatal("billing.enabled setting is not registered")
+	}
+	if enabled.Default != true {
+		t.Fatalf("billing.enabled default = %v, want true", enabled.Default)
+	}
+
+	mode, ok := registry["billing.enforcement_mode"]
+	if !ok {
+		t.Fatal("billing.enforcement_mode setting is not registered")
+	}
+	if mode.Default != "observe" {
+		t.Fatalf("billing.enforcement_mode default = %v, want observe", mode.Default)
+	}
+}

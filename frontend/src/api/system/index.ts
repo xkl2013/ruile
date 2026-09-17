@@ -347,6 +347,20 @@ export interface SystemUserSubscription {
   created_at: string
 }
 
+export interface SystemUserUsageSummary {
+  ledger_count: number
+  personal_ledger_count: number
+  enterprise_ledger_count: number
+  input_tokens: number
+  cached_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  billed_point_micros: number
+  personal_billed_point_micros: number
+  enterprise_billed_point_micros: number
+  last_billing_at?: string
+}
+
 export interface SystemUserSummary {
   id: string
   username: string
@@ -362,6 +376,7 @@ export interface SystemUserSummary {
   }>
   personal_subscription?: SystemUserSubscription
   enterprise_subscriptions?: SystemUserSubscription[]
+  usage_summary?: SystemUserUsageSummary
   created_at: string
 }
 
@@ -566,6 +581,7 @@ export interface BillingUsageLedgerItem {
   tenant_id: number
   tenant_name: string
   actor_user_id: string
+  allocation_id?: string
   ref_no: string
   model_key: string
   provider: string

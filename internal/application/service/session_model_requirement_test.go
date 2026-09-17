@@ -36,6 +36,65 @@ func TestResolveChatModelIDRequiresConfiguredAgentModel(t *testing.T) {
 	assert.Contains(t, err.Error(), "model_id")
 }
 
+func TestResolveChatModelIDAllowsRequestModelForBuiltinQuickAnswer(t *testing.T) {
+	svc := &sessionService{
+		modelService: &stubModelService{
+			modelsByID: map[string]*types.Model{
+				"request-chat": {
+					ID:   "request-chat",
+					Type: types.ModelTypeKnowledgeQA,
+				},
+			},
+		},
+	}
+	req := &types.QARequest{
+		Session: &types.Session{},
+		CustomAgent: &types.CustomAgent{
+			ID:        types.BuiltinQuickAnswerID,
+			IsBuiltin: true,
+			Config: types.CustomAgentConfig{
+				AgentMode: types.AgentModeQuickAnswer,
+			},
+		},
+		SummaryModelID: "request-chat",
+	}
+
+	modelID, err := svc.resolveChatModelID(context.Background(), req, nil, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "request-chat", modelID)
+}
+
+func TestResolveChatModelIDIgnoresStaleBuiltinQuickAnswerModelWhenRequestModelIsValid(t *testing.T) {
+	svc := &sessionService{
+		modelService: &stubModelService{
+			modelsByID: map[string]*types.Model{
+				"request-chat": {
+					ID:   "request-chat",
+					Type: types.ModelTypeKnowledgeQA,
+				},
+			},
+		},
+	}
+	req := &types.QARequest{
+		Session: &types.Session{},
+		CustomAgent: &types.CustomAgent{
+			ID:        types.BuiltinQuickAnswerID,
+			IsBuiltin: true,
+			Config: types.CustomAgentConfig{
+				AgentMode: types.AgentModeQuickAnswer,
+				ModelID:   "deleted-chat",
+			},
+		},
+		SummaryModelID: "request-chat",
+	}
+
+	modelID, err := svc.resolveChatModelID(context.Background(), req, nil, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "request-chat", modelID)
+}
+
 func TestResolveChatModelIDRejectsUnavailableConfiguredAgentModel(t *testing.T) {
 	svc := &sessionService{
 		modelService: &stubModelService{modelsByID: map[string]*types.Model{}},

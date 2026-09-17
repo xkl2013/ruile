@@ -87,9 +87,11 @@ func (s *sessionService) restrictTagScopesToAgentScope(
 
 // resolveChatModelID resolves the effective chat model ID for a QA request.
 //
-// When an agent is selected, its model configuration must be complete and
+// When a custom agent is selected, its model configuration must be complete and
 // valid. A request-level override may choose another valid model for this
-// request, but it must not make an unconfigured or stale agent appear usable.
+// request, but it must not make an unconfigured or stale custom agent appear
+// usable. The built-in quick-answer entrypoint is the exception: it uses the
+// request summary_model_id from the chat input as the primary model selection.
 //
 // Without an agent, the legacy KB / session / system fallback remains
 // available for non-agent callers.
@@ -102,8 +104,11 @@ func (s *sessionService) resolveChatModelID(
 	summaryModelID := req.SummaryModelID
 	customAgent := req.CustomAgent
 	session := req.Session
+	isBuiltinQuickAnswer := customAgent != nil &&
+		customAgent.ID == types.BuiltinQuickAnswerID &&
+		!customAgent.IsAgentMode()
 
-	if customAgent != nil {
+	if customAgent != nil && !isBuiltinQuickAnswer {
 		configuredModelID := strings.TrimSpace(customAgent.Config.ModelID)
 		if configuredModelID == "" {
 			return "", fmt.Errorf("chat model is not configured: please set model_id on agent %s", customAgent.ID)
@@ -124,8 +129,14 @@ func (s *sessionService) resolveChatModelID(
 		logger.Warnf(ctx, "Request provided invalid summary model ID %s, falling back", summaryModelID)
 	}
 	if customAgent != nil && strings.TrimSpace(customAgent.Config.ModelID) != "" {
-		logger.Infof(ctx, "Using custom agent's model_id: %s", strings.TrimSpace(customAgent.Config.ModelID))
-		return strings.TrimSpace(customAgent.Config.ModelID), nil
+		configuredModelID := strings.TrimSpace(customAgent.Config.ModelID)
+		model, err := s.modelService.GetModelByID(ctx, configuredModelID)
+		if err == nil && model != nil && model.Type == types.ModelTypeKnowledgeQA {
+			logger.Infof(ctx, "Using custom agent's model_id: %s", configuredModelID)
+			return configuredModelID, nil
+		}
+		logger.Warnf(ctx, "Configured chat model %s is unavailable for agent %s, falling back",
+			configuredModelID, customAgent.ID)
 	}
 	return s.selectChatModelID(ctx, session, knowledgeBaseIDs, knowledgeIDs)
 }

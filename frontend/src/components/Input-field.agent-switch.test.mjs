@@ -35,3 +35,8 @@ test('opening the agent selector force refreshes agents', () => {
   assert.match(toggleAgentModeSelector, /void loadAgents\(true\)/)
   assert.doesNotMatch(toggleAgentModeSelector, /isFresh\('agents'\)/)
 })
+
+test('agent selector receives the current chat model for quick-answer readiness', () => {
+  assert.match(inputField, /:current-chat-model-id="selectedModelId"/)
+  assert.match(inputField, /withRequestChatModelFallback\(agent\.config, selectedModelId\.value\)/)
+})

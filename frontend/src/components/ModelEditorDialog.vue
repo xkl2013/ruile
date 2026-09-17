@@ -1,6 +1,7 @@
 <template>
   <SettingDrawer :visible="dialogVisible" :title="isEdit ? $t('model.editor.editTitle') : $t('model.editor.addTitle')"
     :description="getModalDescription()" :icon="modelTypeIcon" :confirm-loading="saving"
+    :confirm-text="props.confirmText"
     :confirm-disabled="formData.provider === 'weknoracloud' && wkcCredentialState !== 'configured'"
     @update:visible="(v: boolean) => dialogVisible = v" @confirm="handleConfirm" @cancel="handleCancel">
 
@@ -28,6 +29,11 @@
     </template>
 
     <t-form ref="formRef" :data="formData" :rules="rules" layout="vertical">
+      <div v-if="props.showPricingStep && !isEdit" class="model-create-flow" aria-label="创建模型步骤">
+        <span class="model-create-flow__step model-create-flow__step--active">1 基础配置</span>
+        <t-icon name="chevron-right" />
+        <span class="model-create-flow__step">2 价格配置</span>
+      </div>
 
       <section v-if="!isEdit" class="setting-drawer__section">
         <h4 class="setting-drawer__section-title">{{ $t('model.editor.sectionType') }}</h4>
@@ -49,9 +55,8 @@
       </section>
 
       <!-- API 配置 -->
-      <template>
-        <section class="setting-drawer__section">
-          <h4 class="setting-drawer__section-title">{{ $t('model.editor.sectionProvider') }}</h4>
+      <section class="setting-drawer__section">
+        <h4 class="setting-drawer__section-title">{{ $t('model.editor.sectionProvider') }}</h4>
 
           <!-- 厂商选择器 -->
           <div class="form-item">
@@ -203,8 +208,7 @@
             Connection test action moved to the drawer footer (footer-left
             slot above) so primary actions live in one row at the bottom.
           -->
-        </section>
-      </template>
+      </section>
 
       <!-- Section 3 — 高级选项（仅在有内容时渲染，避免空 section 出现底部分隔线） -->
       <section v-if="['embedding', 'chat', 'vllm', 'ocr'].includes(activeModelType)" class="setting-drawer__section">
@@ -341,13 +345,17 @@ interface Props {
   visible: boolean
   modelType: EditorModelType
   modelData?: ModelFormData | null
+  showPricingStep?: boolean
+  confirmText?: string
 }
 
 const { t, te } = useI18n()
 
 const props = withDefaults(defineProps<Props>(), {
   visible: false,
-  modelData: null
+  modelData: null,
+  showPricingStep: false,
+  confirmText: '',
 })
 
 const emit = defineEmits<{
@@ -1397,6 +1405,29 @@ const handleCancel = () => {
     font-weight: 500;
     line-height: 1;
   }
+}
+
+.model-create-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  color: var(--td-text-color-placeholder);
+  font-size: 13px;
+  line-height: 1.4;
+
+  .t-icon {
+    font-size: 14px;
+  }
+}
+
+.model-create-flow__step {
+  white-space: nowrap;
+}
+
+.model-create-flow__step--active {
+  color: var(--td-brand-color);
+  font-weight: 600;
 }
 
 .model-type-options {

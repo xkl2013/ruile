@@ -105,6 +105,46 @@ func calculateModelCharge(
 	)
 }
 
+func usageBillingPeriod(subscription *types.TenantSubscription, now time.Time) (time.Time, time.Time) {
+	if subscription != nil && subscription.CurrentPeriodStart != nil && subscription.CurrentPeriodEnd != nil &&
+		subscription.CurrentPeriodEnd.After(*subscription.CurrentPeriodStart) {
+		return subscription.CurrentPeriodStart.UTC(), subscription.CurrentPeriodEnd.UTC()
+	}
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return start, start.AddDate(0, 1, 0)
+}
+
+func effectiveMemberUsagePolicy(
+	enterprisePolicy *types.TenantBillingPolicy,
+	allocation *types.TenantMemberCreditAllocation,
+) (string, int64, string) {
+	limitMode := types.MemberLimitModeInherit
+	monthlyLimit := int64(0)
+	overagePolicy := types.MemberOveragePolicyBlock
+	if enterprisePolicy != nil {
+		monthlyLimit = max(enterprisePolicy.DefaultMemberMonthlyLimitPointMicros, 0)
+		if enterprisePolicy.MemberOveragePolicy == types.MemberOveragePolicyUseEnterpriseBalance {
+			overagePolicy = types.MemberOveragePolicyUseEnterpriseBalance
+		}
+	}
+	if allocation == nil {
+		return limitMode, monthlyLimit, overagePolicy
+	}
+	switch allocation.LimitMode {
+	case types.MemberLimitModeCustom:
+		limitMode = types.MemberLimitModeCustom
+		monthlyLimit = max(allocation.MonthlyLimitPointMicros, 0)
+	case types.MemberLimitModeUnlimited:
+		limitMode = types.MemberLimitModeUnlimited
+		monthlyLimit = 0
+	}
+	switch allocation.OveragePolicy {
+	case types.MemberOveragePolicyBlock, types.MemberOveragePolicyUseEnterpriseBalance:
+		overagePolicy = allocation.OveragePolicy
+	}
+	return limitMode, monthlyLimit, overagePolicy
+}
+
 func (s *usageBillingService) BeginModelUsage(
 	ctx context.Context,
 	req types.BillingUsageStartRequest,
@@ -135,13 +175,56 @@ func (s *usageBillingService) BeginModelUsage(
 		return handle, nil
 	}
 	if plan.SpaceType == types.SpaceTypeOrganization {
-		handle.UsageScope = "enterprise_allocated_usage"
-		if handle.Mode == "enforce" {
-			handle.Mode = "observe"
-			handle.FailureCode = "enterprise_allocation_pending"
+		handle.UsageScope = types.BillingUsageScopeEnterprise
+		if strings.TrimSpace(req.ActorUserID) == "" {
+			handle.FailureCode = "enterprise_actor_missing"
+		} else {
+			enterprisePolicy, err := s.billing.EnsureTenantBillingPolicy(
+				ctx,
+				req.TenantID,
+				policy.DefaultMemberMonthlyLimitPointMicros,
+				req.ActorUserID,
+			)
+			if err != nil {
+				if handle.Mode == "enforce" {
+					return nil, err
+				}
+				handle.FailureCode = "enterprise_policy_unavailable"
+			} else {
+				handle.EnterprisePolicy = enterprisePolicy
+			}
+			periodStart, periodEnd := usageBillingPeriod(subscription, time.Now().UTC())
+			allocation, err := s.billing.EnsureCurrentMemberAllocation(
+				ctx,
+				req.TenantID,
+				req.ActorUserID,
+				periodStart,
+				periodEnd,
+				policy.DefaultMemberMonthlyLimitPointMicros,
+				req.ActorUserID,
+			)
+			if err != nil {
+				if handle.Mode == "enforce" {
+					return nil, err
+				}
+				handle.FailureCode = "enterprise_allocation_unavailable"
+			} else {
+				handle.Allocation = allocation
+				handle.AllocationID = allocation.ID
+				handle.MemberLimitMode,
+					handle.MemberMonthlyLimitPointMicros,
+					handle.MemberOveragePolicy =
+					effectiveMemberUsagePolicy(handle.EnterprisePolicy, allocation)
+				if allocation.Status != types.BillingStatusActive {
+					handle.FailureCode = "enterprise_member_policy_inactive"
+				}
+			}
+		}
+		if handle.Mode == "enforce" && handle.FailureCode != "" {
+			return nil, fmt.Errorf("billing: enterprise usage policy unavailable: %s", handle.FailureCode)
 		}
 	} else {
-		handle.UsageScope = "personal_usage"
+		handle.UsageScope = types.BillingUsageScopePersonal
 	}
 
 	price, err := s.billing.GetActiveModelPrice(ctx, req.ModelKey, req.ModelID)
@@ -240,6 +323,7 @@ func (s *usageBillingService) SettleModelUsage(
 		TenantID:            handle.Request.TenantID,
 		ActorUserID:         handle.Request.ActorUserID,
 		UsageScope:          handle.UsageScope,
+		AllocationID:        handle.AllocationID,
 		RefNo:               handle.Request.RefNo,
 		Source:              handle.Request.Source,
 		SessionID:           handle.Request.SessionID,
@@ -323,4 +407,123 @@ func (s *usageBillingService) ListUsageLedgers(
 	limit int,
 ) ([]*types.BillingUsageLedgerSummary, error) {
 	return s.billing.ListUsageLedgers(ctx, tenantID, limit)
+}
+
+func (s *usageBillingService) ListUsageSummaryByActor(
+	ctx context.Context,
+	actorUserIDs []string,
+) ([]*types.BillingActorUsageSummary, error) {
+	return s.billing.ListUsageSummaryByActor(ctx, actorUserIDs)
+}
+
+func (s *usageBillingService) ListMemberAllocations(
+	ctx context.Context,
+	tenantID uint64,
+	at time.Time,
+) ([]*types.TenantMemberCreditAllocationSummary, error) {
+	return s.billing.ListMemberAllocations(ctx, tenantID, at)
+}
+
+func (s *usageBillingService) GetTenantBillingPolicy(
+	ctx context.Context,
+	tenantID uint64,
+) (*types.TenantBillingPolicy, error) {
+	subscription, plan, err := s.billing.GetCurrentSubscription(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if subscription == nil || plan == nil {
+		return nil, errors.New("billing: current subscription is required")
+	}
+	if plan.SpaceType != types.SpaceTypeOrganization {
+		return nil, errors.New("billing: enterprise policy is available only for enterprise workspaces")
+	}
+	policy := s.policy.RuntimePolicy(ctx)
+	return s.billing.EnsureTenantBillingPolicy(
+		ctx,
+		tenantID,
+		policy.DefaultMemberMonthlyLimitPointMicros,
+		"",
+	)
+}
+
+func (s *usageBillingService) UpdateTenantBillingPolicy(
+	ctx context.Context,
+	tenantID uint64,
+	defaultMemberMonthlyLimitPointMicros int64,
+	memberOveragePolicy string,
+	actorUserID string,
+) (*types.TenantBillingPolicy, error) {
+	if _, err := s.GetTenantBillingPolicy(ctx, tenantID); err != nil {
+		return nil, err
+	}
+	switch memberOveragePolicy {
+	case types.MemberOveragePolicyBlock, types.MemberOveragePolicyUseEnterpriseBalance:
+	default:
+		return nil, errors.New("billing: invalid enterprise member overage policy")
+	}
+	return s.billing.UpdateTenantBillingPolicy(
+		ctx,
+		tenantID,
+		defaultMemberMonthlyLimitPointMicros,
+		memberOveragePolicy,
+		actorUserID,
+	)
+}
+
+func (s *usageBillingService) UpdateMemberPolicy(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	limitMode string,
+	monthlyLimitPointMicros int64,
+	actorUserID string,
+) (*types.TenantMemberCreditAllocation, error) {
+	subscription, plan, err := s.billing.GetCurrentSubscription(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if subscription == nil || plan == nil {
+		return nil, errors.New("billing: current subscription is required")
+	}
+	if plan.SpaceType != types.SpaceTypeOrganization {
+		return nil, errors.New("billing: member usage policies are available only for enterprise workspaces")
+	}
+	switch limitMode {
+	case types.MemberLimitModeInherit, types.MemberLimitModeCustom, types.MemberLimitModeUnlimited:
+	default:
+		return nil, errors.New("billing: invalid member limit mode")
+	}
+	if monthlyLimitPointMicros < 0 {
+		return nil, errors.New("billing: member monthly limit must be non-negative")
+	}
+	periodStart, periodEnd := usageBillingPeriod(subscription, time.Now().UTC())
+	return s.billing.SetCurrentMemberPolicy(
+		ctx,
+		tenantID,
+		userID,
+		periodStart,
+		periodEnd,
+		limitMode,
+		monthlyLimitPointMicros,
+		actorUserID,
+	)
+}
+
+func (s *usageBillingService) UpdateMemberAllocation(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	allocatedPeriodPointMicros int64,
+	allocatedBalancePointMicros int64,
+	actorUserID string,
+) (*types.TenantMemberCreditAllocation, error) {
+	return s.UpdateMemberPolicy(
+		ctx,
+		tenantID,
+		userID,
+		types.MemberLimitModeCustom,
+		allocatedPeriodPointMicros+allocatedBalancePointMicros,
+		actorUserID,
+	)
 }

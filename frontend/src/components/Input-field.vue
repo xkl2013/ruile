@@ -36,6 +36,7 @@ import {
 } from '@/utils/agentWebSearch';
 import {
   getAgentNotReadyReasonKeys,
+  withRequestChatModelFallback,
   type AgentNotReadyReasonKey,
 } from '@/utils/agent-readiness';
 import { formatLocalizedList } from '@/utils/format-list';
@@ -2267,7 +2268,10 @@ const collectAgentNotReadyReasons = (
   sourceTenantId?: string,
 ): string[] => {
   const isSharedAgent = !!sourceTenantId;
-  const keys = getAgentNotReadyReasonKeys(agent.config, allModels.value, {
+  const config = !sourceTenantId && agent.id === BUILTIN_QUICK_ANSWER_ID
+    ? withRequestChatModelFallback(agent.config, selectedModelId.value)
+    : agent.config;
+  const keys = getAgentNotReadyReasonKeys(config, allModels.value, {
     isAgentMode,
     isSharedAgent,
   });
@@ -2435,6 +2439,7 @@ defineExpose({
           <!-- Agent 选择器下拉菜单 -->
           <AgentSelector :visible="showAgentModeSelector" :anchorEl="agentModeButtonRef"
             :currentAgentId="selectedAgentId" :agents="enabledAgents" :all-models="allModels"
+            :current-chat-model-id="selectedModelId"
             @close="closeAgentModeSelector" @select="handleSelectAgent" @not-ready="handleAgentNotReady" />
 
           <!-- WebSearch 开关按钮（智能体未启用时不显示） -->

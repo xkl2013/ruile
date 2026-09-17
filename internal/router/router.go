@@ -296,6 +296,13 @@ func RegisterBillingRoutes(r *gin.RouterGroup, billingHandler *handler.BillingHa
 	billingRoutes := r.Group("/billing", g.Viewer())
 	billingRoutes.GET("/overview", billingHandler.GetOverview)
 	billingRoutes.GET("/usage", billingHandler.ListCurrentUsage)
+	billingRoutes.GET("/policy", billingHandler.GetCurrentTenantBillingPolicy)
+	billingAdminRoutes := r.Group("/billing", g.Admin())
+	billingAdminRoutes.PUT("/policy", billingHandler.UpdateCurrentTenantBillingPolicy)
+	billingAdminRoutes.GET("/member-policies", billingHandler.ListCurrentMemberAllocations)
+	billingAdminRoutes.PUT("/member-policies/:user_id", billingHandler.UpdateCurrentMemberPolicy)
+	billingAdminRoutes.GET("/member-allocations", billingHandler.ListCurrentMemberAllocations)
+	billingAdminRoutes.PUT("/member-allocations/:user_id", billingHandler.UpdateCurrentMemberAllocation)
 }
 
 // RegisterSystemBillingAdminRoutes exposes deployment-wide billing tables and
@@ -313,6 +320,7 @@ func RegisterSystemBillingAdminRoutes(
 	adminRoutes.GET("/model-prices", billingHandler.ListModelPrices)
 	adminRoutes.POST("/model-prices", billingHandler.CreateModelPriceVersion)
 	adminRoutes.GET("/usage-ledgers", billingHandler.ListUsageLedgers)
+	adminRoutes.GET("/member-allocations", billingHandler.ListMemberAllocations)
 }
 
 // RegisterChunkerDebugRoutes wires the read-only chunker preview endpoint

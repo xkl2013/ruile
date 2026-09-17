@@ -99,10 +99,12 @@ type TenantCreditTransaction struct {
 func (TenantCreditTransaction) TableName() string { return "tenant_credit_transactions" }
 
 type BillingRuntimePolicy struct {
-	Enabled                   bool   `json:"enabled"`
-	EnforcementMode           string `json:"enforcement_mode"`
-	PointMicrosPerUSD         int64  `json:"point_micros_per_usd"`
-	DefaultModelMultiplierPPM int64  `json:"default_model_multiplier_ppm"`
+	Enabled                              bool   `json:"enabled"`
+	EnforcementMode                      string `json:"enforcement_mode"`
+	PointMicrosPerUSD                    int64  `json:"point_micros_per_usd"`
+	DefaultModelMultiplierPPM            int64  `json:"default_model_multiplier_ppm"`
+	DefaultMemberMonthlyLimitPointMicros int64  `json:"default_member_monthly_limit_point_micros"`
+	DefaultMemberAllocationPointMicros   int64  `json:"default_member_allocation_point_micros"`
 }
 
 // BillingModelPrice is an immutable version of a model's upstream cost.
@@ -113,12 +115,12 @@ type BillingModelPrice struct {
 	ModelKey                    string     `gorm:"type:varchar(128);not null;uniqueIndex:uq_billing_model_price_version" json:"model_key"`
 	Provider                    string     `gorm:"type:varchar(64);not null;default:''" json:"provider"`
 	PricingMode                 string     `gorm:"type:varchar(32);not null;default:'token'" json:"pricing_mode"`
-	InputNanoUSDPerMTokens      int64      `gorm:"not null;default:0" json:"input_nanousd_per_m_tokens"`
-	OutputNanoUSDPerMTokens     int64      `gorm:"not null;default:0" json:"output_nanousd_per_m_tokens"`
-	CacheReadNanoUSDPerMTokens  int64      `gorm:"not null;default:0" json:"cache_read_nanousd_per_m_tokens"`
-	CacheWriteNanoUSDPerMTokens int64      `gorm:"not null;default:0" json:"cache_write_nanousd_per_m_tokens"`
-	CallNanoUSDPerCall          int64      `gorm:"not null;default:0" json:"call_nanousd_per_call"`
-	DurationNanoUSDPerSecond    int64      `gorm:"not null;default:0" json:"duration_nanousd_per_second"`
+	InputNanoUSDPerMTokens      int64      `gorm:"column:input_nanousd_per_m_tokens;not null;default:0" json:"input_nanousd_per_m_tokens"`
+	OutputNanoUSDPerMTokens     int64      `gorm:"column:output_nanousd_per_m_tokens;not null;default:0" json:"output_nanousd_per_m_tokens"`
+	CacheReadNanoUSDPerMTokens  int64      `gorm:"column:cache_read_nanousd_per_m_tokens;not null;default:0" json:"cache_read_nanousd_per_m_tokens"`
+	CacheWriteNanoUSDPerMTokens int64      `gorm:"column:cache_write_nanousd_per_m_tokens;not null;default:0" json:"cache_write_nanousd_per_m_tokens"`
+	CallNanoUSDPerCall          int64      `gorm:"column:call_nanousd_per_call;not null;default:0" json:"call_nanousd_per_call"`
+	DurationNanoUSDPerSecond    int64      `gorm:"column:duration_nanousd_per_second;not null;default:0" json:"duration_nanousd_per_second"`
 	TieredPricingJSON           JSON       `gorm:"type:jsonb;not null" json:"tiered_pricing_json"`
 	ModelMultiplierPPM          int64      `gorm:"not null;default:1000000" json:"model_multiplier_ppm"`
 	Version                     int        `gorm:"not null;default:1;uniqueIndex:uq_billing_model_price_version" json:"version"`
@@ -157,7 +159,7 @@ type TenantUsageReservation struct {
 	RefNo                      string     `gorm:"type:varchar(160);not null;uniqueIndex:uq_tenant_usage_reservation_ref" json:"ref_no"`
 	ModelKey                   string     `gorm:"type:varchar(128);not null;default:''" json:"model_key"`
 	PricingID                  string     `gorm:"type:varchar(36);not null;default:''" json:"pricing_id"`
-	EstimatedBaseCostNanoUSD   int64      `gorm:"not null;default:0" json:"estimated_base_cost_nanousd"`
+	EstimatedBaseCostNanoUSD   int64      `gorm:"column:estimated_base_cost_nanousd;not null;default:0" json:"estimated_base_cost_nanousd"`
 	EstimatedBilledPointMicros int64      `gorm:"not null;default:0" json:"estimated_billed_point_micros"`
 	ReservedPeriodPointMicros  int64      `gorm:"not null;default:0" json:"reserved_period_point_micros"`
 	ReservedBalancePointMicros int64      `gorm:"not null;default:0" json:"reserved_balance_point_micros"`
@@ -198,8 +200,8 @@ type TenantUsageLedger struct {
 	ReasoningTokens           int64     `gorm:"not null;default:0" json:"reasoning_tokens"`
 	CallCount                 int64     `gorm:"not null;default:1" json:"call_count"`
 	DurationMillis            int64     `gorm:"not null;default:0" json:"duration_millis"`
-	BaseCostNanoUSD           int64     `gorm:"not null;default:0" json:"base_cost_nanousd"`
-	RatedCostNanoUSD          int64     `gorm:"not null;default:0" json:"rated_cost_nanousd"`
+	BaseCostNanoUSD           int64     `gorm:"column:base_cost_nanousd;not null;default:0" json:"base_cost_nanousd"`
+	RatedCostNanoUSD          int64     `gorm:"column:rated_cost_nanousd;not null;default:0" json:"rated_cost_nanousd"`
 	BilledPointMicros         int64     `gorm:"not null;default:0" json:"billed_point_micros"`
 	PeriodCoveredPointMicros  int64     `gorm:"not null;default:0" json:"period_covered_point_micros"`
 	BalanceChargedPointMicros int64     `gorm:"not null;default:0" json:"balance_charged_point_micros"`
@@ -242,14 +244,98 @@ type BillingUsageStartRequest struct {
 }
 
 type BillingUsageHandle struct {
-	Request      BillingUsageStartRequest
-	Mode         string
-	UsageScope   string
-	FailureCode  string
-	Price        *BillingModelPrice
-	Plan         *BillingPlan
-	Subscription *TenantSubscription
-	Reservation  *TenantUsageReservation
+	Request                       BillingUsageStartRequest
+	Mode                          string
+	UsageScope                    string
+	AllocationID                  string
+	FailureCode                   string
+	MemberLimitMode               string
+	MemberMonthlyLimitPointMicros int64
+	MemberOveragePolicy           string
+	Price                         *BillingModelPrice
+	Plan                          *BillingPlan
+	Subscription                  *TenantSubscription
+	Allocation                    *TenantMemberCreditAllocation
+	EnterprisePolicy              *TenantBillingPolicy
+	Reservation                   *TenantUsageReservation
+}
+
+const (
+	MemberLimitModeInherit   = "inherit"
+	MemberLimitModeCustom    = "custom"
+	MemberLimitModeUnlimited = "unlimited"
+
+	MemberOveragePolicyInherit              = "inherit"
+	MemberOveragePolicyBlock                = "block"
+	MemberOveragePolicyUseEnterpriseBalance = "use_enterprise_balance"
+
+	BillingUsageScopePersonal         = "personal_usage"
+	BillingUsageScopeEnterprise       = "enterprise_usage"
+	BillingUsageScopeEnterpriseLegacy = "enterprise_allocated_usage"
+)
+
+type TenantBillingPolicy struct {
+	TenantID                             uint64    `gorm:"primaryKey" json:"tenant_id"`
+	DefaultMemberMonthlyLimitPointMicros int64     `gorm:"not null;default:100000000" json:"default_member_monthly_limit_point_micros"`
+	MemberOveragePolicy                  string    `gorm:"type:varchar(32);not null;default:'block'" json:"member_overage_policy"`
+	UpdatedByUserID                      string    `gorm:"type:varchar(64);not null;default:''" json:"updated_by_user_id"`
+	CreatedAt                            time.Time `json:"created_at"`
+	UpdatedAt                            time.Time `json:"updated_at"`
+}
+
+func (TenantBillingPolicy) TableName() string { return "tenant_billing_policies" }
+
+// TenantMemberCreditAllocation scopes an enterprise member's usable credits
+// for one billing period. Usage is derived from tenant_usage_ledgers by
+// allocation_id; this row is the authorization envelope, not a mutable balance.
+type TenantMemberCreditAllocation struct {
+	ID                          string    `gorm:"type:varchar(36);primaryKey" json:"id"`
+	TenantID                    uint64    `gorm:"not null;uniqueIndex:uq_tenant_member_credit_allocation_period;index" json:"tenant_id"`
+	UserID                      string    `gorm:"type:varchar(64);not null;uniqueIndex:uq_tenant_member_credit_allocation_period;index" json:"user_id"`
+	PeriodStartAt               time.Time `gorm:"not null;uniqueIndex:uq_tenant_member_credit_allocation_period" json:"period_start_at"`
+	PeriodEndAt                 time.Time `gorm:"not null;uniqueIndex:uq_tenant_member_credit_allocation_period" json:"period_end_at"`
+	AllocatedPeriodPointMicros  int64     `gorm:"not null;default:0" json:"allocated_period_point_micros"`
+	AllocatedBalancePointMicros int64     `gorm:"not null;default:0" json:"allocated_balance_point_micros"`
+	LimitMode                   string    `gorm:"type:varchar(32);not null;default:'inherit'" json:"limit_mode"`
+	MonthlyLimitPointMicros     int64     `gorm:"not null;default:0" json:"monthly_limit_point_micros"`
+	OveragePolicy               string    `gorm:"type:varchar(32);not null;default:'inherit'" json:"overage_policy"`
+	Status                      string    `gorm:"type:varchar(32);not null;default:'active';index" json:"status"`
+	CreatedByUserID             string    `gorm:"type:varchar(64);not null;default:''" json:"created_by_user_id"`
+	UpdatedByUserID             string    `gorm:"type:varchar(64);not null;default:''" json:"updated_by_user_id"`
+	SnapshotJSON                JSON      `gorm:"type:jsonb;not null" json:"snapshot_json"`
+	CreatedAt                   time.Time `json:"created_at"`
+	UpdatedAt                   time.Time `json:"updated_at"`
+}
+
+func (TenantMemberCreditAllocation) TableName() string {
+	return "tenant_member_credit_allocations"
+}
+
+type TenantMemberCreditAllocationSummary struct {
+	TenantMemberCreditAllocation
+	EffectiveMonthlyLimitPointMicros int64      `json:"effective_monthly_limit_point_micros"`
+	EffectiveOveragePolicy           string     `json:"effective_overage_policy"`
+	UsedPointMicros                  int64      `json:"used_point_micros"`
+	InputTokens                      int64      `json:"input_tokens"`
+	OutputTokens                     int64      `json:"output_tokens"`
+	ReasoningTokens                  int64      `json:"reasoning_tokens"`
+	LedgerCount                      int64      `json:"ledger_count"`
+	LastBillingAt                    *time.Time `json:"last_billing_at,omitempty"`
+}
+
+type BillingActorUsageSummary struct {
+	ActorUserID                 string     `json:"actor_user_id"`
+	LedgerCount                 int64      `json:"ledger_count"`
+	PersonalLedgerCount         int64      `json:"personal_ledger_count"`
+	EnterpriseLedgerCount       int64      `json:"enterprise_ledger_count"`
+	InputTokens                 int64      `json:"input_tokens"`
+	CachedTokens                int64      `json:"cached_tokens"`
+	OutputTokens                int64      `json:"output_tokens"`
+	ReasoningTokens             int64      `json:"reasoning_tokens"`
+	BilledPointMicros           int64      `json:"billed_point_micros"`
+	PersonalBilledPointMicros   int64      `json:"personal_billed_point_micros"`
+	EnterpriseBilledPointMicros int64      `json:"enterprise_billed_point_micros"`
+	LastBillingAt               *time.Time `json:"last_billing_at,omitempty"`
 }
 
 type BillingOverviewPlan struct {

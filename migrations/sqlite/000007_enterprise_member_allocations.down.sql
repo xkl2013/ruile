@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_tenant_usage_ledgers_allocation;
+DROP INDEX IF EXISTS idx_tenant_member_credit_allocations_active;
+DROP TABLE IF EXISTS tenant_member_credit_allocations;

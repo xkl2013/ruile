@@ -268,6 +268,28 @@
               <template #department="{ row }">
                 <span class="department-cell">{{ row.department?.trim() || '-' }}</span>
               </template>
+              <template #allocation="{ row }">
+                <div class="member-allocation-cell">
+                  <div class="member-allocation-values">
+                    <strong>{{ memberPolicyModeLabel(row.user_id) }}</strong>
+                    <span>
+                      {{ memberUsageSummary(row.user_id) }}
+                    </span>
+                  </div>
+                  <t-tooltip v-if="canManageAllocationRow(row)" :content="$t('tenantMember.allocation.button')" placement="top">
+                    <t-button
+                      theme="primary"
+                      variant="text"
+                      shape="square"
+                      size="small"
+                      :aria-label="$t('tenantMember.allocation.button')"
+                      @click.stop="openAllocationDialog(row)"
+                    >
+                      <template #icon><t-icon name="edit" /></template>
+                    </t-button>
+                  </t-tooltip>
+                </div>
+              </template>
               <template #joined_at="{ row }">{{ formatDate(row.joined_at) }}</template>
               <template #operation="{ row }">
                 <div class="member-actions-cell">
@@ -364,6 +386,68 @@
             {{ createMemberDefaultPassword }}
           </span>
         </p>
+      </div>
+    </t-dialog>
+
+    <t-dialog
+      v-if="canManage"
+      v-model:visible="allocationDialogVisible"
+      :header="$t('tenantMember.allocation.dialogTitle', { name: allocationTargetLabel })"
+      width="520px"
+      :confirm-btn="{
+        content: $t('tenantMember.allocation.save'),
+        theme: 'primary',
+        loading: savingAllocation,
+      }"
+      :cancel-btn="{ content: $t('common.cancel'), disabled: savingAllocation }"
+      :close-on-overlay-click="!savingAllocation"
+      destroy-on-close
+      @confirm="saveAllocation"
+      @cancel="allocationDialogVisible = false"
+      @close="allocationDialogVisible = false"
+    >
+      <div class="member-allocation-dialog">
+        <t-form :data="allocationForm" label-align="top">
+          <t-form-item :label="$t('tenantMember.allocation.limitMode')">
+            <t-radio-group v-model="allocationForm.limitMode">
+              <t-radio-button value="inherit">
+                {{ $t('tenantMember.allocation.inherit') }}
+              </t-radio-button>
+              <t-radio-button value="custom">
+                {{ $t('tenantMember.allocation.custom') }}
+              </t-radio-button>
+              <t-radio-button value="unlimited">
+                {{ $t('tenantMember.allocation.unlimited') }}
+              </t-radio-button>
+            </t-radio-group>
+          </t-form-item>
+          <t-form-item
+            v-if="allocationForm.limitMode === 'custom'"
+            :label="$t('tenantMember.allocation.monthlyLimit')"
+          >
+            <t-input-number
+              v-model="allocationForm.monthlyLimitPoints"
+              :min="0"
+              :max="1000000000"
+              :decimal-places="0"
+              theme="column"
+            />
+          </t-form-item>
+        </t-form>
+        <div class="member-allocation-hint">
+          {{
+            allocationForm.limitMode === 'inherit'
+              ? $t('tenantMember.allocation.inheritDescription', {
+                count: formatAllocationPoints(defaultMemberMonthlyLimitMicros),
+              })
+              : allocationForm.limitMode === 'unlimited'
+                ? $t('tenantMember.allocation.unlimitedDescription')
+                : $t('tenantMember.allocation.customDescription')
+          }}
+        </div>
+        <div v-if="allocationPeriodLabel" class="member-allocation-period">
+          {{ allocationPeriodLabel }}
+        </div>
       </div>
     </t-dialog>
 
@@ -529,6 +613,13 @@ import {
   type AuditAction,
   type AuditOutcome,
 } from '@/api/tenant/audit-log'
+import {
+  getMemberCreditAllocations,
+  getTenantBillingPolicy,
+  updateMemberCreditPolicy,
+  type MemberCreditAllocation,
+  type TenantBillingPolicy,
+} from '@/api/billing'
 
 const { t, tm, locale } = useI18n()
 const authStore = useAuthStore()
@@ -584,6 +675,18 @@ let memberSearchDebounceTimer: number | undefined
 const membersTotal = ref(0)
 const membersPage = ref(1)
 const membersPageSize = ref(20)
+const allocationsByUserID = ref<Record<string, MemberCreditAllocation>>({})
+const tenantBillingPolicy = ref<TenantBillingPolicy | null>(null)
+const allocationDialogVisible = ref(false)
+const allocationTarget = ref<TenantMember | null>(null)
+const savingAllocation = ref(false)
+const allocationForm = reactive<{
+  limitMode: 'inherit' | 'custom' | 'unlimited'
+  monthlyLimitPoints: number
+}>({
+  limitMode: 'inherit',
+  monthlyLimitPoints: 0,
+})
 
 /** 历次分页载荷里见过的成员展示字段，补齐审计表里不在当前页的 user id */
 const memberDisplayByUserId = reactive<Record<string, { username?: string; email?: string }>>({})
@@ -763,9 +866,26 @@ const columns = computed(() => [
   { colKey: 'status', title: t('tenantMember.columns.status'), width: 118 },
   { colKey: 'source', title: t('tenantMember.columns.source'), width: 106 },
   { colKey: 'department', title: t('tenantMember.columns.department'), ellipsis: true, minWidth: 116 },
+  { colKey: 'allocation', title: t('tenantMember.columns.allocation'), width: 180 },
   { colKey: 'joined_at', title: t('tenantMember.columns.joinedAt'), width: 154 },
   { colKey: 'operation', title: t('tenantMember.columns.operations'), width: 128, align: 'left', cell: 'operation' },
 ])
+
+const allocationTargetLabel = computed(() => {
+  const target = allocationTarget.value
+  return target ? memberPrimary(target) : ''
+})
+
+const allocationPeriodLabel = computed(() => {
+  const target = allocationTarget.value
+  if (!target) return ''
+  const allocation = allocationFor(target.user_id)
+  if (!allocation) return ''
+  return t('tenantMember.allocation.period', {
+    start: formatDate(allocation.period_start_at),
+    end: formatDate(allocation.period_end_at),
+  })
+})
 
 function memberPrimary(row: { username?: string; email?: string }) {
   return row.username?.trim() || row.email?.trim() || '—'
@@ -776,6 +896,53 @@ function memberSecondary(row: { username?: string; email?: string }) {
   const mail = row.email?.trim()
   if (name && mail) return mail
   return ''
+}
+
+function allocationFor(userId: string) {
+  return allocationsByUserID.value[userId]
+}
+
+const defaultMemberMonthlyLimitMicros = computed(() =>
+  Math.max(0, tenantBillingPolicy.value?.default_member_monthly_limit_point_micros || 0),
+)
+
+function memberEffectiveMonthlyLimitMicros(userId: string) {
+  const allocation = allocationFor(userId)
+  if (!allocation || allocation.limit_mode === 'inherit') {
+    return defaultMemberMonthlyLimitMicros.value
+  }
+  if (allocation.limit_mode === 'unlimited') return 0
+  return Math.max(
+    0,
+    allocation.effective_monthly_limit_point_micros
+      || allocation.monthly_limit_point_micros
+      || 0,
+  )
+}
+
+function memberPolicyModeLabel(userId: string) {
+  const mode = allocationFor(userId)?.limit_mode || 'inherit'
+  return t(`tenantMember.allocation.mode.${mode}`)
+}
+
+function memberUsageSummary(userId: string) {
+  const allocation = allocationFor(userId)
+  const used = formatAllocationPoints(allocation?.used_point_micros || 0)
+  const mode = allocation?.limit_mode || 'inherit'
+  if (mode === 'unlimited') {
+    return t('tenantMember.allocation.usedUnlimited', { used })
+  }
+  return t('tenantMember.allocation.usedOfLimit', {
+    used,
+    limit: formatAllocationPoints(memberEffectiveMonthlyLimitMicros(userId)),
+  })
+}
+
+function formatAllocationPoints(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0'
+  return new Intl.NumberFormat(locale.value || 'zh-CN', {
+    maximumFractionDigits: 2,
+  }).format(value / 1_000_000)
 }
 
 const addFormRules = {
@@ -837,6 +1004,12 @@ function roleIcon(role: TenantRole | string): string {
 
 function canManageMemberRow(row: TenantMember): boolean {
   if (!canManage.value || row.user_id === currentUserId.value) return false
+  if (row.role === 'owner' && !canManageOwnerRoles.value) return false
+  return true
+}
+
+function canManageAllocationRow(row: TenantMember): boolean {
+  if (!canManage.value) return false
   if (row.role === 'owner' && !canManageOwnerRoles.value) return false
   return true
 }
@@ -906,6 +1079,92 @@ const hasMemberFilters = computed(
     !!memberDepartmentQ.value,
 )
 
+async function loadMemberAllocations() {
+  if (!activeTenantId.value || !canManage.value) {
+    allocationsByUserID.value = {}
+    tenantBillingPolicy.value = null
+    return
+  }
+  const [resp, policyResp] = await Promise.all([
+    getMemberCreditAllocations(activeTenantId.value),
+    getTenantBillingPolicy(activeTenantId.value),
+  ])
+  if (!resp.success) {
+    throw new Error(resp.message || t('tenantMember.allocation.loadError'))
+  }
+  if (!policyResp.success || !policyResp.data) {
+    throw new Error(policyResp.message || t('tenantMember.allocation.loadError'))
+  }
+  tenantBillingPolicy.value = policyResp.data
+  const next: Record<string, MemberCreditAllocation> = {}
+  for (const allocation of resp.data || []) {
+    if (allocation?.user_id) {
+      next[allocation.user_id] = allocation
+    }
+  }
+  allocationsByUserID.value = next
+}
+
+function openAllocationDialog(row: TenantMember) {
+  const allocation = allocationFor(row.user_id)
+  allocationTarget.value = row
+  allocationForm.limitMode = allocation?.limit_mode || 'inherit'
+  allocationForm.monthlyLimitPoints = Math.max(
+    0,
+    Math.round((allocation?.monthly_limit_point_micros || 0) / 1_000_000),
+  )
+  allocationDialogVisible.value = true
+}
+
+async function saveAllocation() {
+  const target = allocationTarget.value
+  if (!target || !activeTenantId.value || savingAllocation.value) return
+  savingAllocation.value = true
+  try {
+    const monthlyLimitPoints = Math.max(
+      0,
+      Math.trunc(Number(allocationForm.monthlyLimitPoints) || 0),
+    )
+    const resp = await updateMemberCreditPolicy(
+      activeTenantId.value,
+      target.user_id,
+      {
+        limit_mode: allocationForm.limitMode,
+        monthly_limit_points: allocationForm.limitMode === 'custom' ? monthlyLimitPoints : 0,
+      },
+    )
+    if (!resp.success || !resp.data) {
+      throw new Error(resp.message || t('tenantMember.allocation.saveError'))
+    }
+    allocationsByUserID.value = {
+      ...allocationsByUserID.value,
+      [target.user_id]: {
+        ...resp.data,
+        effective_monthly_limit_point_micros:
+          resp.data.limit_mode === 'custom'
+            ? resp.data.monthly_limit_point_micros
+            : resp.data.limit_mode === 'unlimited'
+              ? 0
+              : defaultMemberMonthlyLimitMicros.value,
+        effective_overage_policy:
+          tenantBillingPolicy.value?.member_overage_policy || 'block',
+        used_point_micros: allocationFor(target.user_id)?.used_point_micros || 0,
+        input_tokens: allocationFor(target.user_id)?.input_tokens || 0,
+        output_tokens: allocationFor(target.user_id)?.output_tokens || 0,
+        reasoning_tokens: allocationFor(target.user_id)?.reasoning_tokens || 0,
+        ledger_count: allocationFor(target.user_id)?.ledger_count || 0,
+        last_billing_at: allocationFor(target.user_id)?.last_billing_at,
+      },
+    }
+    allocationDialogVisible.value = false
+    MessagePlugin.success(t('tenantMember.allocation.success'))
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenantMember.allocation.saveError'))
+  } finally {
+    savingAllocation.value = false
+  }
+}
+
 async function loadMembers() {
   if (!activeTenantId.value) {
     return
@@ -942,6 +1201,7 @@ async function loadMembers() {
         membersPageSize.value = resp.data.page_size
       }
       rememberMembersForAudit(members.value)
+      await loadMemberAllocations()
     } else {
       error.value = resp.message || t('tenantMember.errors.generic')
     }
@@ -1045,6 +1305,7 @@ function auditActionTheme(
     case 'rbac.member_left':
     case 'rbac.member_role_changed':
     case 'rbac.member_suspended':
+    case 'billing.member_allocation_changed':
       return 'warning'
     default:
       return 'default'
@@ -1931,6 +2192,33 @@ watch(
   white-space: nowrap;
 }
 
+.member-allocation-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.member-allocation-values {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.member-allocation-values strong {
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.member-allocation-values span {
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .member-actions-cell {
   display: flex;
   align-items: center;
@@ -2194,6 +2482,31 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.member-allocation-dialog {
+  display: grid;
+  gap: 4px;
+
+  :deep(.t-input-number) {
+    width: 100%;
+  }
+}
+
+.member-allocation-hint {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.member-allocation-period {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .member-create-password-hint {

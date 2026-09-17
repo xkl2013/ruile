@@ -49,11 +49,12 @@
         <table class="membership-page__table">
           <thead>
             <tr>
-              <th>用户</th>
-              <th>个人订阅</th>
-              <th>企业订阅</th>
-              <th>账号状态</th>
-              <th>注册时间</th>
+	              <th>用户</th>
+	              <th>个人订阅</th>
+	              <th>企业订阅</th>
+	              <th>账户用量</th>
+	              <th>账号状态</th>
+	              <th>注册时间</th>
             </tr>
           </thead>
           <tbody>
@@ -96,10 +97,23 @@
                     <strong>{{ subscription.tenant_name }}</strong>
                     <span>{{ subscription.plan_name }} · {{ subscriptionStatusLabel(subscription.status) }}</span>
                   </div>
-                </div>
-                <span v-else class="membership-page__muted">未加入企业订阅</span>
-              </td>
-              <td>
+	                </div>
+	                <span v-else class="membership-page__muted">未加入企业订阅</span>
+	              </td>
+	              <td>
+	                <div v-if="user.usage_summary?.ledger_count" class="membership-page__usage">
+	                  <strong>{{ formatTokenCount(totalTokens(user)) }} Token</strong>
+	                  <span>
+	                    {{ formatPoints(user.usage_summary.billed_point_micros) }} 积分
+	                    · 企业 {{ user.usage_summary.enterprise_ledger_count || 0 }} 次
+	                  </span>
+	                  <span v-if="user.usage_summary.last_billing_at">
+	                    最近 {{ formatDateTime(user.usage_summary.last_billing_at) }}
+	                  </span>
+	                </div>
+	                <span v-else class="membership-page__muted">暂无调用</span>
+	              </td>
+	              <td>
                 <div class="membership-page__tags">
                   <t-tag :theme="user.is_active ? 'success' : 'danger'" variant="light">
                     {{ user.is_active ? '正常' : '已停用' }}
@@ -171,6 +185,36 @@ function formatDate(value: string) {
     month: '2-digit',
     day: '2-digit',
   }).format(date)
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '未知'
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function formatTokenCount(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0'
+  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatPoints(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0'
+  return new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits: 4,
+  }).format(value / 1_000_000)
+}
+
+function totalTokens(user: SystemUserSummary) {
+  const usage = user.usage_summary
+  if (!usage) return 0
+  return (usage.input_tokens || 0) + (usage.cached_tokens || 0) + (usage.output_tokens || 0)
 }
 
 function subscriptionStatusLabel(status: string) {
@@ -300,7 +344,7 @@ onMounted(() => {
 
 .membership-page__table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1120px;
   border-collapse: collapse;
 }
 
@@ -378,6 +422,24 @@ onMounted(() => {
 
 .membership-page__subscription-list {
   max-width: 320px;
+}
+
+.membership-page__usage {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.membership-page__usage strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.membership-page__usage span {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .membership-page__tags {
