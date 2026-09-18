@@ -459,6 +459,152 @@ func (h *BillingHandler) GetOverview(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": overview})
 }
 
+func (h *BillingHandler) ListPublicCatalog(c *gin.Context) {
+	ctx := c.Request.Context()
+	overview, err := h.currentBillingOverview(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to load billing catalog"})
+		return
+	}
+	plans, err := h.subscriptions.ListPlans(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to list billing plans"})
+		return
+	}
+	prices, err := h.subscriptions.ListPrices(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to list billing prices"})
+		return
+	}
+	if h.operations == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "billing catalog is unavailable"})
+		return
+	}
+	items, err := h.operations.ListPurchaseItems(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to list purchase items"})
+		return
+	}
+
+	allowedPlanIDs := make(map[string]struct{})
+	publicPlans := make([]*types.BillingPlan, 0, len(plans))
+	for _, plan := range plans {
+		if plan == nil || plan.Status != types.BillingStatusActive || !plan.IsPublic {
+			continue
+		}
+		if overview.SpaceType != types.SpaceTypeLegacy && plan.SpaceType != overview.SpaceType {
+			continue
+		}
+		allowedPlanIDs[plan.ID] = struct{}{}
+		publicPlans = append(publicPlans, plan)
+	}
+	publicPrices := make([]*types.BillingPrice, 0, len(prices))
+	for _, price := range prices {
+		if price == nil || price.Status != types.BillingStatusActive {
+			continue
+		}
+		if _, ok := allowedPlanIDs[price.PlanID]; ok {
+			publicPrices = append(publicPrices, price)
+		}
+	}
+
+	edition := string(overview.SpaceType)
+	publicItems := make([]*types.BillingPurchaseItem, 0, len(items))
+	for _, item := range items {
+		if item == nil || item.Status != types.BillingPurchaseItemStatusActive {
+			continue
+		}
+		if item.EditionScope != types.BillingEditionScopeAll &&
+			item.EditionScope != edition {
+			continue
+		}
+		itemType := strings.TrimSpace(c.Query("type"))
+		if itemType != "" && item.ItemType != itemType {
+			continue
+		}
+		publicItems = append(publicItems, item)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": types.BillingPublicCatalog{
+			Plans:         publicPlans,
+			Prices:        publicPrices,
+			PurchaseItems: publicItems,
+			Payment: types.BillingPaymentConfig{
+				Enabled:   false,
+				Currency:  "CNY",
+				Providers: []*types.BillingPaymentProvider{},
+				Reason:    "online payment is not configured",
+			},
+		},
+	})
+}
+
+func (h *BillingHandler) ListCurrentPaymentOrders(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "workspace context is required"})
+		return
+	}
+	if h.operations == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "billing operations are unavailable"})
+		return
+	}
+	rows, err := h.operations.ListPaymentOrders(ctx, tenantID, billingLimit(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to list payment orders"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows})
+}
+
+func (h *BillingHandler) GetCurrentPaymentOrder(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "workspace context is required"})
+		return
+	}
+	if h.operations == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "billing operations are unavailable"})
+		return
+	}
+	row, err := h.operations.GetPaymentOrder(ctx, tenantID, c.Param("order_no"))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"success": false, "message": "payment order not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": row})
+}
+
+func (h *BillingHandler) GetPaymentConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": types.BillingPaymentConfig{
+			Enabled:   false,
+			Currency:  "CNY",
+			Providers: []*types.BillingPaymentProvider{},
+			Reason:    "online payment is not configured",
+		},
+	})
+}
+
+func (h *BillingHandler) currentBillingOverview(
+	ctx context.Context,
+) (*types.BillingOverview, error) {
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		return nil, errors.New("workspace context is required")
+	}
+	return h.subscriptions.GetOverview(ctx, tenantID)
+}
+
 func (h *BillingHandler) hideEnterprisePoolForMember(
 	ctx context.Context,
 	overview *types.BillingOverview,

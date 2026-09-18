@@ -76,6 +76,10 @@ func pricingUsage(usage types.BillingModelUsage) pricing.ModelUsage {
 	}
 }
 
+func usesServicePricing(serviceCode string) bool {
+	return strings.TrimSpace(serviceCode) == types.BillingServiceCodeMCPToolCall
+}
+
 func effectiveMultipliers(
 	policy types.BillingRuntimePolicy,
 	price *types.BillingModelPrice,
@@ -143,36 +147,6 @@ func calculateUsageCharge(
 		planMultiplier,
 		policy.PointMicrosPerUSD,
 	)
-}
-
-var bootstrapServiceNames = map[string]string{
-	"chat.completion":               "对话补充服务",
-	"agent.run":                     "智能体运行",
-	"knowledge.embedding":           "知识库向量化",
-	"knowledge.summary":             "知识摘要",
-	"knowledge.question_generation": "问题生成",
-	"knowledge.graph_extract":       "知识图谱抽取",
-	"file.ocr":                      "OCR",
-	"file.asr":                      "语音识别",
-	"retrieval.rerank":              "重排序",
-	"web_search.query":              "联网搜索",
-	"mcp.tool_call":                 "MCP 工具调用",
-	"embed.chat":                    "嵌入式对话",
-	"im.chat":                       "即时通讯对话",
-}
-
-func bootstrapServicePrice(serviceCode string) *types.BillingServicePrice {
-	name, ok := bootstrapServiceNames[serviceCode]
-	if !ok {
-		return nil
-	}
-	return &types.BillingServicePrice{
-		ServiceCode:          serviceCode,
-		ServiceName:          name,
-		PricingMode:          "call",
-		ServiceMultiplierPPM: pricing.MultiplierScale,
-		Status:               types.BillingStatusActive,
-	}
 }
 
 func requiresModelPrice(req types.BillingUsageStartRequest) bool {
@@ -301,31 +275,36 @@ func (s *usageBillingService) BeginModelUsage(
 		handle.UsageScope = types.BillingUsageScopePersonal
 	}
 
-	price, err := s.billing.GetActiveModelPrice(ctx, req.ModelKey, req.ModelID)
-	if err != nil {
-		return nil, err
-	}
-	handle.Price = price
-	if price == nil && requiresModelPrice(req) {
-		handle.FailureCode = "model_price_missing"
-		if handle.Mode == "enforce" {
-			return nil, fmt.Errorf("billing: no active model price for %q", req.ModelKey)
+	var price *types.BillingModelPrice
+	if !usesServicePricing(req.ServiceCode) {
+		var err error
+		price, err = s.billing.GetActiveModelPrice(ctx, req.ModelKey, req.ModelID)
+		if err != nil {
+			return nil, err
+		}
+		handle.Price = price
+		if price == nil && requiresModelPrice(req) {
+			handle.FailureCode = "model_price_missing"
+			if handle.Mode == "enforce" {
+				return nil, fmt.Errorf("billing: no active model price for %q", req.ModelKey)
+			}
 		}
 	}
-	servicePrice, err := s.billing.GetActiveServicePrice(ctx, req.ServiceCode)
-	if err != nil {
-		return nil, err
-	}
-	if servicePrice == nil {
-		servicePrice = bootstrapServicePrice(req.ServiceCode)
-	}
-	handle.ServicePrice = servicePrice
-	if servicePrice == nil {
-		if handle.FailureCode == "" {
-			handle.FailureCode = "service_price_missing"
+	var servicePrice *types.BillingServicePrice
+	if usesServicePricing(req.ServiceCode) {
+		var err error
+		servicePrice, err = s.billing.GetActiveServicePrice(ctx, req.ServiceCode)
+		if err != nil {
+			return nil, err
 		}
-		if handle.Mode == "enforce" {
-			return nil, fmt.Errorf("billing: no active service price for %q", req.ServiceCode)
+		handle.ServicePrice = servicePrice
+		if servicePrice == nil {
+			if handle.FailureCode == "" {
+				handle.FailureCode = "service_price_missing"
+			}
+			if handle.Mode == "enforce" {
+				return nil, fmt.Errorf("billing: no active service price for %q", req.ServiceCode)
+			}
 		}
 	}
 
@@ -367,10 +346,15 @@ func (s *usageBillingService) SettleModelUsage(
 	var err error
 	status := "observed"
 	failureCode := handle.FailureCode
-	if (handle.Price == nil && requiresModelPrice(handle.Request)) || handle.ServicePrice == nil {
+	if (handle.Price == nil && requiresModelPrice(handle.Request)) ||
+		(usesServicePricing(handle.Request.ServiceCode) && handle.ServicePrice == nil) {
 		status = "unpriced"
 		if failureCode == "" {
-			failureCode = "service_price_missing"
+			if usesServicePricing(handle.Request.ServiceCode) {
+				failureCode = "service_price_missing"
+			} else {
+				failureCode = "model_price_missing"
+			}
 		}
 	} else {
 		charge, err = calculateUsageCharge(

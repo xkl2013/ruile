@@ -14,6 +14,8 @@ const (
 	BillingStatusLegacy   = "legacy"
 	BillingStatusCanceled = "canceled"
 
+	BillingServiceCodeMCPToolCall = "mcp.tool_call"
+
 	PointMicrosPerPoint int64 = 1_000_000
 )
 
@@ -313,8 +315,8 @@ type BillingModelPriceInput struct {
 	Status                      string     `json:"status"`
 }
 
-// BillingServicePrice versions non-model platform costs separately from model
-// costs. This prevents a search/OCR/MCP charge from inheriting model markup.
+// BillingServicePrice versions MCP tool-call costs separately from model costs.
+// Other model-backed operations are billed exclusively by model token pricing.
 type BillingServicePrice struct {
 	ID                   string     `gorm:"type:varchar(36);primaryKey" json:"id"`
 	ServiceCode          string     `gorm:"type:varchar(64);not null;uniqueIndex:uq_billing_service_price_version" json:"service_code"`
@@ -623,6 +625,26 @@ type BillingPaymentOrderSummary struct {
 	TenantName string `json:"tenant_name"`
 	PlanName   string `json:"plan_name"`
 	ItemName   string `json:"item_name"`
+}
+
+type BillingPaymentProvider struct {
+	Provider string   `json:"provider"`
+	Name     string   `json:"name"`
+	Methods  []string `json:"methods"`
+}
+
+type BillingPaymentConfig struct {
+	Enabled   bool                      `json:"enabled"`
+	Currency  string                    `json:"currency"`
+	Providers []*BillingPaymentProvider `json:"providers"`
+	Reason    string                    `json:"reason,omitempty"`
+}
+
+type BillingPublicCatalog struct {
+	Plans         []*BillingPlan         `json:"plans"`
+	Prices        []*BillingPrice        `json:"prices"`
+	PurchaseItems []*BillingPurchaseItem `json:"purchase_items"`
+	Payment       BillingPaymentConfig   `json:"payment"`
 }
 
 type BillingStorageTransactionSummary struct {

@@ -40,6 +40,11 @@ type BillingRepository interface {
 		tenantID uint64,
 		limit int,
 	) ([]*types.BillingPaymentOrderSummary, error)
+	GetPaymentOrder(
+		ctx context.Context,
+		tenantID uint64,
+		orderNo string,
+	) (*types.BillingPaymentOrderSummary, error)
 	CreateManualPaymentOrder(
 		ctx context.Context,
 		input types.BillingManualOrderInput,
@@ -201,6 +206,11 @@ type BillingOperationsService interface {
 		tenantID uint64,
 		limit int,
 	) ([]*types.BillingPaymentOrderSummary, error)
+	GetPaymentOrder(
+		ctx context.Context,
+		tenantID uint64,
+		orderNo string,
+	) (*types.BillingPaymentOrderSummary, error)
 	CreateManualPaymentOrder(
 		ctx context.Context,
 		input types.BillingManualOrderInput,

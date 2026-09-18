@@ -40,6 +40,7 @@ func newBillingTestRepository(t *testing.T) (*gorm.DB, *billingRepository) {
 		&types.TenantCreditAccount{},
 		&types.TenantCreditTransaction{},
 		&types.BillingModelPrice{},
+		&types.BillingServicePrice{},
 		&types.BillingPurchaseItem{},
 		&types.BillingPaymentOrder{},
 		&types.TenantStorageAddonGrant{},
@@ -202,6 +203,17 @@ func TestManualOrdersApplyEntitlementsAndKeepOrderHistory(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("orders=%d", len(rows))
 	}
+
+	order, err := repo.GetPaymentOrder(ctx, tenant.ID, contractOrder.OrderNo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if order == nil || order.OrderNo != contractOrder.OrderNo || order.TenantID != tenant.ID {
+		t.Fatalf("order=%+v", order)
+	}
+	if _, err := repo.GetPaymentOrder(ctx, tenant.ID+1, contractOrder.OrderNo); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("cross-tenant order lookup err=%v", err)
+	}
 }
 
 func TestBillingPlanCatalogCRUDAndDefaultPriceVersion(t *testing.T) {
@@ -354,6 +366,47 @@ func TestBillingColumnNamesMatchMigrations(t *testing.T) {
 				t.Fatalf("%T has GORM-derived wrong column %q", model, column)
 			}
 		}
+	}
+}
+
+func TestServicePricingOnlySupportsMCPToolCalls(t *testing.T) {
+	_, repo := newBillingTestRepository(t)
+	ctx := context.Background()
+
+	if _, err := repo.CreateServicePriceVersion(ctx, types.BillingServicePriceInput{
+		ServiceCode: "web_search.query",
+		ServiceName: "联网搜索",
+		PricingMode: "call",
+	}); err == nil {
+		t.Fatal("web search service pricing should be rejected")
+	}
+	if _, err := repo.CreateServicePriceVersion(ctx, types.BillingServicePriceInput{
+		ServiceCode: types.BillingServiceCodeMCPToolCall,
+		ServiceName: "MCP工具调用",
+		PricingMode: "unit",
+	}); err == nil {
+		t.Fatal("MCP service pricing should only support call mode")
+	}
+
+	created, err := repo.CreateServicePriceVersion(ctx, types.BillingServicePriceInput{
+		ServiceCode:    types.BillingServiceCodeMCPToolCall,
+		ServiceName:    "MCP工具调用",
+		PricingMode:    "call",
+		NanoUSDPerCall: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ServiceCode != types.BillingServiceCodeMCPToolCall || created.PricingMode != "call" {
+		t.Fatalf("created=%+v", created)
+	}
+
+	rows, err := repo.ListServicePrices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ServiceCode != types.BillingServiceCodeMCPToolCall {
+		t.Fatalf("rows=%+v", rows)
 	}
 }
 

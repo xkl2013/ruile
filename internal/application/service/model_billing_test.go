@@ -166,9 +166,9 @@ func TestBillingEmbedderKeepsOwnServiceCode(t *testing.T) {
 	}
 }
 
-func TestBillingToolUsesServicePricingWithoutModel(t *testing.T) {
+func TestBillingMCPToolUsesServicePricingWithoutModel(t *testing.T) {
 	recorder := &usageBillingRecorder{}
-	tool := wrapBillingTool(billingTestTool{}, recorder, "web_search.query")
+	tool := wrapBillingTool(billingTestTool{}, recorder, types.BillingServiceCodeMCPToolCall)
 
 	if _, err := tool.Execute(billingTestContext(), json.RawMessage(`{"query":"billing"}`)); err != nil {
 		t.Fatal(err)
@@ -177,10 +177,22 @@ func TestBillingToolUsesServicePricingWithoutModel(t *testing.T) {
 		t.Fatalf("starts=%d, want 1", len(recorder.starts))
 	}
 	request := recorder.starts[0]
-	if request.ServiceCode != "web_search.query" || request.ModelID != "" || request.ModelKey != "" {
+	if request.ServiceCode != types.BillingServiceCodeMCPToolCall || request.ModelID != "" || request.ModelKey != "" {
 		t.Fatalf("request=%+v, want service-only usage", request)
 	}
-	if len(recorder.settles) != 1 || recorder.settles[0].ServiceUnits != 3 {
-		t.Fatalf("settles=%+v, want 3 result units", recorder.settles)
+	if len(recorder.settles) != 1 || recorder.settles[0].ServiceUnits != 1 {
+		t.Fatalf("settles=%+v, want one MCP call", recorder.settles)
+	}
+}
+
+func TestBillingNonMCPToolIsNotChargedAsService(t *testing.T) {
+	recorder := &usageBillingRecorder{}
+	tool := wrapBillingTool(billingTestTool{}, recorder, "web_search.query")
+
+	if _, err := tool.Execute(billingTestContext(), json.RawMessage(`{"query":"billing"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.starts) != 0 || len(recorder.settles) != 0 {
+		t.Fatalf("web search billing starts=%d settles=%d, want no service charge", len(recorder.starts), len(recorder.settles))
 	}
 }

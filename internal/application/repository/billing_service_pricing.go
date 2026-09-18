@@ -19,6 +19,7 @@ func (r *billingRepository) ListServicePrices(
 ) ([]*types.BillingServicePrice, error) {
 	var rows []*types.BillingServicePrice
 	err := r.db.WithContext(ctx).
+		Where("service_code = ?", types.BillingServiceCodeMCPToolCall).
 		Order("service_code ASC, version DESC").
 		Find(&rows).Error
 	return rows, err
@@ -32,11 +33,14 @@ func (r *billingRepository) CreateServicePriceVersion(
 	if serviceCode == "" {
 		return nil, errors.New("billing: service_code is required")
 	}
+	if serviceCode != types.BillingServiceCodeMCPToolCall {
+		return nil, fmt.Errorf("billing: only %q supports service pricing", types.BillingServiceCodeMCPToolCall)
+	}
 	mode := strings.ToLower(strings.TrimSpace(input.PricingMode))
 	if mode == "" {
 		mode = "call"
 	}
-	if mode != "call" && mode != "unit" {
+	if mode != "call" {
 		return nil, fmt.Errorf("billing: service pricing_mode %q is not supported", mode)
 	}
 	if input.NanoUSDPerCall < 0 || input.NanoUSDPerUnit < 0 {
@@ -109,7 +113,7 @@ func (r *billingRepository) GetActiveServicePrice(
 	serviceCode string,
 ) (*types.BillingServicePrice, error) {
 	serviceCode = strings.TrimSpace(serviceCode)
-	if serviceCode == "" {
+	if serviceCode != types.BillingServiceCodeMCPToolCall {
 		return nil, nil
 	}
 	now := time.Now().UTC()

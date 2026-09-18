@@ -230,6 +230,37 @@ func (r *billingRepository) ListPaymentOrders(
 	return rows, err
 }
 
+func (r *billingRepository) GetPaymentOrder(
+	ctx context.Context,
+	tenantID uint64,
+	orderNo string,
+) (*types.BillingPaymentOrderSummary, error) {
+	orderNo = strings.TrimSpace(orderNo)
+	if orderNo == "" {
+		return nil, errors.New("billing: order_no is required")
+	}
+	query := r.db.WithContext(ctx).
+		Table("billing_payment_orders").
+		Select(`
+			billing_payment_orders.*,
+			tenants.name AS tenant_name,
+			COALESCE(billing_plans.name, '') AS plan_name,
+			COALESCE(billing_purchase_items.name, '') AS item_name
+		`).
+		Joins("JOIN tenants ON tenants.id = billing_payment_orders.tenant_id AND tenants.deleted_at IS NULL").
+		Joins("LEFT JOIN billing_plans ON billing_plans.id = billing_payment_orders.plan_id").
+		Joins("LEFT JOIN billing_purchase_items ON billing_purchase_items.id = billing_payment_orders.item_id").
+		Where("billing_payment_orders.order_no = ?", orderNo)
+	if tenantID > 0 {
+		query = query.Where("billing_payment_orders.tenant_id = ?", tenantID)
+	}
+	var row types.BillingPaymentOrderSummary
+	if err := query.First(&row).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
 func validateManualOrderType(orderType string) (string, error) {
 	orderType = strings.ToLower(strings.TrimSpace(orderType))
 	switch orderType {

@@ -84,6 +84,14 @@ func (s *billingOperationsService) ListPaymentOrders(
 	return s.billing.ListPaymentOrders(ctx, tenantID, limit)
 }
 
+func (s *billingOperationsService) GetPaymentOrder(
+	ctx context.Context,
+	tenantID uint64,
+	orderNo string,
+) (*types.BillingPaymentOrderSummary, error) {
+	return s.billing.GetPaymentOrder(ctx, tenantID, orderNo)
+}
+
 func (s *billingOperationsService) CreateManualPaymentOrder(
 	ctx context.Context,
 	input types.BillingManualOrderInput,

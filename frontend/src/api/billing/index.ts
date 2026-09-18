@@ -1,5 +1,95 @@
 import { get, put } from '@/utils/request'
 
+export interface BillingPaymentProvider {
+  provider: string
+  name: string
+  methods: string[]
+}
+
+export interface BillingPaymentConfig {
+  enabled: boolean
+  currency: string
+  providers: BillingPaymentProvider[]
+  reason?: string
+}
+
+export interface BillingCatalog {
+  plans: Array<{
+    id: string
+    code: string
+    name: string
+    description: string
+    edition: string
+    space_type: 'personal' | 'organization' | 'legacy'
+    status: string
+    is_public: boolean
+    included_storage_bytes: number
+    included_point_micros: number
+    billing_multiplier_ppm: number
+  }>
+  prices: Array<{
+    id: string
+    plan_id: string
+    code: string
+    currency: string
+    billing_interval: string
+    amount_minor: number
+    status: string
+    is_default: boolean
+  }>
+  purchase_items: Array<{
+    id: string
+    code: string
+    item_type: 'topup' | 'storage_addon'
+    edition_scope: 'all' | 'personal' | 'enterprise'
+    name: string
+    description: string
+    currency: string
+    amount_cents: number
+    credit_point_micros: number
+    storage_quota_bytes: number
+    duration_days: number
+    status: string
+    sort_order: number
+  }>
+  payment: BillingPaymentConfig
+}
+
+export interface BillingCatalogResponse {
+  success: boolean
+  data?: BillingCatalog
+  message?: string
+}
+
+export interface BillingOrderItem {
+  id: string
+  order_no: string
+  order_type: 'subscription' | 'topup' | 'storage_addon' | 'manual_contract'
+  tenant_id: number
+  tenant_name: string
+  actor_user_id: string
+  plan_id: string
+  plan_name: string
+  item_id: string
+  item_name: string
+  provider: string
+  payment_method: string
+  status: string
+  currency: string
+  amount_cents: number
+  credit_point_micros: number
+  storage_quota_bytes: number
+  billing_interval: string
+  paid_at?: string
+  created_at: string
+}
+
+export interface BillingOrdersResponse {
+  success: boolean
+  data?: BillingOrderItem[]
+  message?: string
+}
+
 export interface BillingOverview {
   tenant_id: number
   tenant_name: string
@@ -91,6 +181,29 @@ export async function getBillingUsage(
     `/api/v1/billing/usage?limit=${limit}`,
     tenantId ? tenantScopedConfig(tenantId) : undefined,
   ) as unknown as BillingUsageResponse
+}
+
+export async function getBillingCatalog(
+  tenantId?: number,
+  itemType?: 'topup' | 'storage_addon',
+): Promise<BillingCatalogResponse> {
+  const params = new URLSearchParams()
+  if (itemType) params.set('type', itemType)
+  const query = params.toString()
+  return get(
+    `/api/v1/billing/catalog${query ? `?${query}` : ''}`,
+    tenantId ? tenantScopedConfig(tenantId) : undefined,
+  ) as unknown as BillingCatalogResponse
+}
+
+export async function getBillingOrders(
+  limit = 20,
+  tenantId?: number,
+): Promise<BillingOrdersResponse> {
+  return get(
+    `/api/v1/billing/orders?limit=${limit}`,
+    tenantId ? tenantScopedConfig(tenantId) : undefined,
+  ) as unknown as BillingOrdersResponse
 }
 
 export interface MemberCreditAllocation {

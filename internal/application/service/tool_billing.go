@@ -20,7 +20,7 @@ func wrapBillingTool(
 	billing interfaces.UsageBillingService,
 	serviceCode string,
 ) types.Tool {
-	if inner == nil || billing == nil {
+	if inner == nil || billing == nil || !usesServicePricing(serviceCode) {
 		return inner
 	}
 	return &billingTool{
@@ -58,29 +58,6 @@ func (b *billingTool) Execute(
 		return result, err
 	}
 	usage.DurationMillis = time.Since(startedAt).Milliseconds()
-	if b.serviceCode == "web_search.query" {
-		usage.ServiceUnits = toolResultCount(result)
-	}
 	settleDecoratedModelUsage(ctx, b.billing, handle, usage)
 	return result, nil
-}
-
-func toolResultCount(result *types.ToolResult) int64 {
-	if result == nil || result.Data == nil {
-		return 1
-	}
-	switch value := result.Data["count"].(type) {
-	case int:
-		return max(int64(value), 1)
-	case int32:
-		return max(int64(value), 1)
-	case int64:
-		return max(value, 1)
-	case float32:
-		return max(int64(value), 1)
-	case float64:
-		return max(int64(value), 1)
-	default:
-		return 1
-	}
 }

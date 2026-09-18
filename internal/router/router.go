@@ -292,8 +292,12 @@ func NewRouter(params RouterParams) *gin.Engine {
 // tenant-scoped usage ledger.
 func RegisterBillingRoutes(r *gin.RouterGroup, billingHandler *handler.BillingHandler, g *rbacGuards) {
 	billingRoutes := r.Group("/billing", g.Viewer())
+	billingRoutes.GET("/catalog", billingHandler.ListPublicCatalog)
+	billingRoutes.GET("/payment-config", billingHandler.GetPaymentConfig)
 	billingRoutes.GET("/overview", billingHandler.GetOverview)
 	billingRoutes.GET("/usage", billingHandler.ListCurrentUsage)
+	billingRoutes.GET("/orders", billingHandler.ListCurrentPaymentOrders)
+	billingRoutes.GET("/orders/:order_no", billingHandler.GetCurrentPaymentOrder)
 	billingAdminRoutes := r.Group("/billing", g.Admin())
 	billingAdminRoutes.GET("/policy", billingHandler.GetCurrentTenantBillingPolicy)
 	billingAdminRoutes.PUT("/policy", billingHandler.UpdateCurrentTenantBillingPolicy)

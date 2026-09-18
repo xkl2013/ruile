@@ -216,18 +216,18 @@
         </div>
       </t-tab-panel>
 
-      <t-tab-panel value="service-prices" label="服务定价">
+      <t-tab-panel value="service-prices" label="MCP定价">
         <div class="billing-admin__tab-actions">
           <t-button theme="primary" @click="openServicePriceDialog">
             <template #icon><t-icon name="add" /></template>
-            新增服务价格版本
+            新增MCP价格版本
           </t-button>
         </div>
         <div class="billing-admin__table-wrap">
           <table class="billing-admin__table">
             <thead>
               <tr>
-                <th>服务</th>
+                <th>MCP工具</th>
                 <th>计费模式</th>
                 <th>价格</th>
                 <th>服务倍率</th>
@@ -453,7 +453,7 @@
 
     <t-dialog
       v-model:visible="servicePriceDialogVisible"
-      header="新增服务价格版本"
+      header="新增MCP工具价格版本"
       width="620px"
       :confirm-btn="{ content: '保存价格', loading: savingServicePrice }"
       :cancel-btn="{ content: '取消', disabled: savingServicePrice }"
@@ -461,22 +461,13 @@
     >
       <t-form label-align="top">
         <div class="billing-admin__form-grid">
-          <t-form-item label="服务代码" required>
-            <t-input v-model="servicePriceForm.serviceCode" placeholder="例如 web_search.query" />
+          <t-form-item label="服务代码">
+            <t-input model-value="mcp.tool_call" disabled />
           </t-form-item>
-          <t-form-item label="服务名称" required>
-            <t-input v-model="servicePriceForm.serviceName" placeholder="例如 联网搜索" />
+          <t-form-item label="计费模式">
+            <t-input model-value="按次" disabled />
           </t-form-item>
-          <t-form-item label="计费模式" required>
-            <t-select v-model="servicePriceForm.pricingMode">
-              <t-option value="call" label="按次" />
-              <t-option value="unit" label="按量" />
-            </t-select>
-          </t-form-item>
-          <t-form-item v-if="servicePriceForm.pricingMode === 'unit'" label="计费单位" required>
-            <t-input v-model="servicePriceForm.unitName" placeholder="页、秒、Token" />
-          </t-form-item>
-          <t-form-item :label="servicePriceForm.pricingMode === 'unit' ? '价格（元 / 单位）' : '价格（元 / 次）'" required>
+          <t-form-item label="价格（元 / 次）" required>
             <t-input-number v-model="servicePriceForm.priceCNY" :min="0" :decimal-places="6" />
           </t-form-item>
           <t-form-item label="服务倍率">
@@ -931,10 +922,10 @@ async function savePriceVersion() {
 
 function openServicePriceDialog() {
   Object.assign(servicePriceForm, {
-    serviceCode: '',
-    serviceName: '',
+    serviceCode: 'mcp.tool_call',
+    serviceName: 'MCP工具调用',
     pricingMode: 'call',
-    unitName: '',
+    unitName: '次',
     priceCNY: 0,
     multiplier: 1,
   })
@@ -974,24 +965,16 @@ function openManualOrderDialog() {
 }
 
 async function saveServicePrice() {
-  if (!servicePriceForm.serviceCode.trim() || !servicePriceForm.serviceName.trim()) {
-    MessagePlugin.warning('请填写服务代码和服务名称')
-    return
-  }
-  if (servicePriceForm.pricingMode === 'unit' && !servicePriceForm.unitName.trim()) {
-    MessagePlugin.warning('请填写计费单位')
-    return
-  }
   savingServicePrice.value = true
   try {
     const nanoPrice = Math.round(Math.max(0, Number(servicePriceForm.priceCNY) || 0) * 1_000_000_000)
     await createBillingServicePriceVersion({
-      service_code: servicePriceForm.serviceCode.trim(),
-      service_name: servicePriceForm.serviceName.trim(),
-      pricing_mode: servicePriceForm.pricingMode,
-      nanousd_per_call: servicePriceForm.pricingMode === 'call' ? nanoPrice : 0,
-      nanousd_per_unit: servicePriceForm.pricingMode === 'unit' ? nanoPrice : 0,
-      unit_name: servicePriceForm.pricingMode === 'unit' ? servicePriceForm.unitName.trim() : '次',
+      service_code: 'mcp.tool_call',
+      service_name: 'MCP工具调用',
+      pricing_mode: 'call',
+      nanousd_per_call: nanoPrice,
+      nanousd_per_unit: 0,
+      unit_name: '次',
       service_multiplier_ppm: Math.round(Math.max(0.000001, Number(servicePriceForm.multiplier) || 1) * 1_000_000),
       status: 'active',
     })
