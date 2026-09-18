@@ -1393,13 +1393,45 @@ func (s *knowledgeService) indexFAQChunks(ctx context.Context,
 	)
 
 	var size int64
+	storageReservationRef := ""
+	storageReservationCommitted := false
+	defer func() {
+		if storageReservationRef != "" && !storageReservationCommitted {
+			s.releaseKnowledgeStorage(
+				ctx,
+				tenantInfo.ID,
+				storageReservationRef,
+				"faq_index_not_committed",
+			)
+		}
+	}()
 	if adjustStorage {
 		estimateStartTime := time.Now()
 		size = retrieveEngine.EstimateStorageSize(ctx, embeddingModel, indexInfo)
 		estimateDuration := time.Since(estimateStartTime)
 		logger.Debugf(ctx, "indexFAQChunks: estimated storage size %d bytes in %v", size, estimateDuration)
-		if tenantInfo.StorageQuota > 0 && tenantInfo.StorageUsed+size > tenantInfo.StorageQuota {
-			return types.NewStorageQuotaExceededError()
+		if size > 0 {
+			storageReservationRef = fmt.Sprintf(
+				"knowledge:faq_index:%s:%d:%s:%d",
+				knowledge.ID,
+				attemptFromCtx(ctx),
+				chunks[0].ID,
+				len(chunks),
+			)
+			if err := s.reserveKnowledgeStorage(
+				ctx,
+				tenantInfo.ID,
+				storageReservationRef,
+				"faq_index",
+				size,
+				map[string]any{
+					"knowledge_id":      knowledge.ID,
+					"knowledge_base_id": knowledge.KnowledgeBaseID,
+					"chunk_count":       len(chunks),
+				},
+			); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1431,9 +1463,21 @@ func (s *knowledgeService) indexFAQChunks(ctx context.Context,
 
 	if adjustStorage && size > 0 {
 		adjustStartTime := time.Now()
-		if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantInfo.ID, size); err == nil {
-			tenantInfo.StorageUsed += size
+		if err := s.commitKnowledgeStorage(
+			ctx,
+			tenantInfo.ID,
+			storageReservationRef,
+			size,
+			map[string]any{
+				"knowledge_id":      knowledge.ID,
+				"knowledge_base_id": knowledge.KnowledgeBaseID,
+				"chunk_count":       len(chunks),
+			},
+		); err != nil {
+			return err
 		}
+		storageReservationCommitted = true
+		tenantInfo.StorageUsed += size
 		knowledge.StorageSize += size
 		adjustDuration := time.Since(adjustStartTime)
 		if adjustDuration > 50*time.Millisecond {
@@ -1499,7 +1543,24 @@ func (s *knowledgeService) deleteFAQChunkVectors(ctx context.Context,
 		return err
 	}
 	if size > 0 {
-		if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantInfo.ID, -size); err == nil {
+		refNo := fmt.Sprintf(
+			"knowledge:faq_delete:%s:%s:%d",
+			knowledge.ID,
+			chunks[0].ID,
+			len(chunks),
+		)
+		if err := s.recordKnowledgeStorageDelta(
+			ctx,
+			tenantInfo.ID,
+			refNo,
+			"faq_delete",
+			-size,
+			map[string]any{
+				"knowledge_id":      knowledge.ID,
+				"knowledge_base_id": knowledge.KnowledgeBaseID,
+				"chunk_count":       len(chunks),
+			},
+		); err == nil {
 			tenantInfo.StorageUsed -= size
 			if tenantInfo.StorageUsed < 0 {
 				tenantInfo.StorageUsed = 0

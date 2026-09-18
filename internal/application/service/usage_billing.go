@@ -45,9 +45,15 @@ func normalizeUsageRequest(req types.BillingUsageStartRequest) types.BillingUsag
 	return req
 }
 
-func ratesForPrice(price *types.BillingModelPrice) pricing.ModelRates {
+func ratesForPrice(
+	price *types.BillingModelPrice,
+	usage types.BillingModelUsage,
+) (pricing.ModelRates, error) {
 	if price == nil {
-		return pricing.ModelRates{}
+		return pricing.ModelRates{}, nil
+	}
+	if price.PricingMode == "tiered" {
+		return pricing.ResolveTieredModelRates(price.TieredPricingJSON, usage.InputTokens)
 	}
 	return pricing.ModelRates{
 		InputNanoUSDPerMTokens:      price.InputNanoUSDPerMTokens,
@@ -56,7 +62,7 @@ func ratesForPrice(price *types.BillingModelPrice) pricing.ModelRates {
 		CacheWriteNanoUSDPerMTokens: price.CacheWriteNanoUSDPerMTokens,
 		CallNanoUSDPerCall:          price.CallNanoUSDPerCall,
 		DurationNanoUSDPerSecond:    price.DurationNanoUSDPerSecond,
-	}
+	}, nil
 }
 
 func pricingUsage(usage types.BillingModelUsage) pricing.ModelUsage {
@@ -73,8 +79,9 @@ func pricingUsage(usage types.BillingModelUsage) pricing.ModelUsage {
 func effectiveMultipliers(
 	policy types.BillingRuntimePolicy,
 	price *types.BillingModelPrice,
+	servicePrice *types.BillingServicePrice,
 	plan *types.BillingPlan,
-) (int64, int64) {
+) (int64, int64, int64) {
 	modelMultiplier := policy.DefaultModelMultiplierPPM
 	if modelMultiplier <= 0 {
 		modelMultiplier = pricing.MultiplierScale
@@ -82,27 +89,94 @@ func effectiveMultipliers(
 	if price != nil && price.ModelMultiplierPPM > 0 {
 		modelMultiplier = price.ModelMultiplierPPM
 	}
+	serviceMultiplier := policy.DefaultServiceMultiplierPPM
+	if serviceMultiplier <= 0 {
+		serviceMultiplier = pricing.MultiplierScale
+	}
+	if servicePrice != nil && servicePrice.ServiceMultiplierPPM > 0 {
+		serviceMultiplier = servicePrice.ServiceMultiplierPPM
+	}
 	planMultiplier := int64(pricing.MultiplierScale)
 	if plan != nil && plan.BillingMultiplierPPM > 0 {
 		planMultiplier = plan.BillingMultiplierPPM
 	}
-	return modelMultiplier, planMultiplier
+	return modelMultiplier, serviceMultiplier, planMultiplier
 }
 
-func calculateModelCharge(
+func calculateUsageCharge(
 	policy types.BillingRuntimePolicy,
 	price *types.BillingModelPrice,
+	servicePrice *types.BillingServicePrice,
 	plan *types.BillingPlan,
 	usage types.BillingModelUsage,
-) (pricing.ModelCharge, error) {
-	modelMultiplier, planMultiplier := effectiveMultipliers(policy, price, plan)
-	return pricing.CalculateModelCharge(
-		ratesForPrice(price),
-		pricingUsage(usage),
-		policy.PointMicrosPerUSD,
-		modelMultiplier,
-		planMultiplier,
+) (pricing.CombinedCharge, error) {
+	modelRates, err := ratesForPrice(price, usage)
+	if err != nil {
+		return pricing.CombinedCharge{}, err
+	}
+	modelMultiplier, serviceMultiplier, planMultiplier := effectiveMultipliers(
+		policy,
+		price,
+		servicePrice,
+		plan,
 	)
+	serviceMode := "call"
+	serviceRates := pricing.ServiceRates{}
+	if servicePrice != nil {
+		serviceMode = servicePrice.PricingMode
+		serviceRates = pricing.ServiceRates{
+			NanoUSDPerCall: servicePrice.NanoUSDPerCall,
+			NanoUSDPerUnit: servicePrice.NanoUSDPerUnit,
+		}
+	}
+	return pricing.CalculateCombinedCharge(
+		modelRates,
+		pricingUsage(usage),
+		modelMultiplier,
+		serviceMode,
+		serviceRates,
+		pricing.ServiceUsage{
+			CallCount: usage.CallCount,
+			Units:     usage.ServiceUnits,
+		},
+		serviceMultiplier,
+		planMultiplier,
+		policy.PointMicrosPerUSD,
+	)
+}
+
+var bootstrapServiceNames = map[string]string{
+	"chat.completion":               "对话补充服务",
+	"agent.run":                     "智能体运行",
+	"knowledge.embedding":           "知识库向量化",
+	"knowledge.summary":             "知识摘要",
+	"knowledge.question_generation": "问题生成",
+	"knowledge.graph_extract":       "知识图谱抽取",
+	"file.ocr":                      "OCR",
+	"file.asr":                      "语音识别",
+	"retrieval.rerank":              "重排序",
+	"web_search.query":              "联网搜索",
+	"mcp.tool_call":                 "MCP 工具调用",
+	"embed.chat":                    "嵌入式对话",
+	"im.chat":                       "即时通讯对话",
+}
+
+func bootstrapServicePrice(serviceCode string) *types.BillingServicePrice {
+	name, ok := bootstrapServiceNames[serviceCode]
+	if !ok {
+		return nil
+	}
+	return &types.BillingServicePrice{
+		ServiceCode:          serviceCode,
+		ServiceName:          name,
+		PricingMode:          "call",
+		ServiceMultiplierPPM: pricing.MultiplierScale,
+		Status:               types.BillingStatusActive,
+	}
+}
+
+func requiresModelPrice(req types.BillingUsageStartRequest) bool {
+	return strings.TrimSpace(req.ModelKey) != "" || strings.TrimSpace(req.ModelID) != ""
 }
 
 func usageBillingPeriod(subscription *types.TenantSubscription, now time.Time) (time.Time, time.Time) {
@@ -232,15 +306,30 @@ func (s *usageBillingService) BeginModelUsage(
 		return nil, err
 	}
 	handle.Price = price
-	if price == nil {
+	if price == nil && requiresModelPrice(req) {
 		handle.FailureCode = "model_price_missing"
 		if handle.Mode == "enforce" {
 			return nil, fmt.Errorf("billing: no active model price for %q", req.ModelKey)
 		}
-		return handle, nil
+	}
+	servicePrice, err := s.billing.GetActiveServicePrice(ctx, req.ServiceCode)
+	if err != nil {
+		return nil, err
+	}
+	if servicePrice == nil {
+		servicePrice = bootstrapServicePrice(req.ServiceCode)
+	}
+	handle.ServicePrice = servicePrice
+	if servicePrice == nil {
+		if handle.FailureCode == "" {
+			handle.FailureCode = "service_price_missing"
+		}
+		if handle.Mode == "enforce" {
+			return nil, fmt.Errorf("billing: no active service price for %q", req.ServiceCode)
+		}
 	}
 
-	estimate, err := calculateModelCharge(policy, price, plan, req.EstimatedUsage)
+	estimate, err := calculateUsageCharge(policy, price, servicePrice, plan, req.EstimatedUsage)
 	if err != nil {
 		return nil, err
 	}
@@ -274,17 +363,23 @@ func (s *usageBillingService) SettleModelUsage(
 		usage.CallCount = 1
 	}
 	policy := s.policy.RuntimePolicy(ctx)
-	charge := pricing.ModelCharge{}
+	charge := pricing.CombinedCharge{}
 	var err error
 	status := "observed"
 	failureCode := handle.FailureCode
-	if handle.Price == nil {
+	if (handle.Price == nil && requiresModelPrice(handle.Request)) || handle.ServicePrice == nil {
 		status = "unpriced"
 		if failureCode == "" {
-			failureCode = "model_price_missing"
+			failureCode = "service_price_missing"
 		}
 	} else {
-		charge, err = calculateModelCharge(policy, handle.Price, handle.Plan, usage)
+		charge, err = calculateUsageCharge(
+			policy,
+			handle.Price,
+			handle.ServicePrice,
+			handle.Plan,
+			usage,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -292,27 +387,38 @@ func (s *usageBillingService) SettleModelUsage(
 			status = "settled"
 		}
 	}
-	modelMultiplier, planMultiplier := effectiveMultipliers(policy, handle.Price, handle.Plan)
+	modelMultiplier, serviceMultiplier, planMultiplier := effectiveMultipliers(
+		policy,
+		handle.Price,
+		handle.ServicePrice,
+		handle.Plan,
+	)
 	snapshot, err := json.Marshal(map[string]any{
-		"mode":                    handle.Mode,
-		"failure_code":            failureCode,
-		"price":                   handle.Price,
-		"subscription_id":         idOfSubscription(handle.Subscription),
-		"plan_code":               codeOfPlan(handle.Plan),
-		"point_micros_per_usd":    policy.PointMicrosPerUSD,
-		"model_multiplier_ppm":    modelMultiplier,
-		"plan_multiplier_ppm":     planMultiplier,
-		"estimated_usage":         handle.Request.EstimatedUsage,
-		"actual_usage":            usage,
-		"uncached_input_tokens":   charge.UncachedInputTokens,
-		"input_cost_nanousd":      charge.InputCostNanoUSD,
-		"cache_read_cost_nanousd": charge.CacheReadCostNanoUSD,
-		"output_cost_nanousd":     charge.OutputCostNanoUSD,
-		"call_cost_nanousd":       charge.CallCostNanoUSD,
-		"duration_cost_nanousd":   charge.DurationCostNanoUSD,
-		"base_cost_nanousd":       charge.BaseCostNanoUSD,
-		"rated_cost_nanousd":      charge.RatedCostNanoUSD,
-		"billed_point_micros":     charge.BilledPointMicros,
+		"mode":                       handle.Mode,
+		"failure_code":               failureCode,
+		"price":                      handle.Price,
+		"service_price":              handle.ServicePrice,
+		"subscription_id":            idOfSubscription(handle.Subscription),
+		"plan_code":                  codeOfPlan(handle.Plan),
+		"point_micros_per_usd":       policy.PointMicrosPerUSD,
+		"model_multiplier_ppm":       modelMultiplier,
+		"service_multiplier_ppm":     serviceMultiplier,
+		"plan_multiplier_ppm":        planMultiplier,
+		"estimated_usage":            handle.Request.EstimatedUsage,
+		"actual_usage":               usage,
+		"uncached_input_tokens":      charge.Model.UncachedInputTokens,
+		"input_cost_nanousd":         charge.Model.InputCostNanoUSD,
+		"cache_read_cost_nanousd":    charge.Model.CacheReadCostNanoUSD,
+		"output_cost_nanousd":        charge.Model.OutputCostNanoUSD,
+		"model_call_cost_nanousd":    charge.Model.CallCostNanoUSD,
+		"duration_cost_nanousd":      charge.Model.DurationCostNanoUSD,
+		"service_call_cost_nanousd":  charge.Service.CallCostNanoUSD,
+		"service_unit_cost_nanousd":  charge.Service.UnitCostNanoUSD,
+		"model_rated_cost_nanousd":   charge.Model.RatedCostNanoUSD,
+		"service_rated_cost_nanousd": charge.Service.RatedCostNanoUSD,
+		"base_cost_nanousd":          charge.BaseCostNanoUSD,
+		"rated_cost_nanousd":         charge.RatedCostNanoUSD,
+		"billed_point_micros":        charge.BilledPointMicros,
 	})
 	if err != nil {
 		return nil, err
@@ -336,6 +442,7 @@ func (s *usageBillingService) SettleModelUsage(
 		ReasoningTokens:     usage.ReasoningTokens,
 		CallCount:           usage.CallCount,
 		DurationMillis:      usage.DurationMillis,
+		ServiceUnits:        usage.ServiceUnits,
 		BaseCostNanoUSD:     charge.BaseCostNanoUSD,
 		RatedCostNanoUSD:    charge.RatedCostNanoUSD,
 		BilledPointMicros:   charge.BilledPointMicros,
@@ -349,6 +456,10 @@ func (s *usageBillingService) SettleModelUsage(
 		ledger.Provider = handle.Price.Provider
 		ledger.PricingID = handle.Price.ID
 		ledger.PricingVersion = handle.Price.Version
+	}
+	if handle.ServicePrice != nil {
+		ledger.ServicePricingID = handle.ServicePrice.ID
+		ledger.ServicePricingVersion = handle.ServicePrice.Version
 	}
 	row, err := s.billing.SettleUsage(ctx, handle, ledger)
 	if err != nil {
@@ -401,12 +512,34 @@ func (s *usageBillingService) CreateModelPriceVersion(
 	return s.billing.CreateModelPriceVersion(ctx, input)
 }
 
+func (s *usageBillingService) ListServicePrices(
+	ctx context.Context,
+) ([]*types.BillingServicePrice, error) {
+	return s.billing.ListServicePrices(ctx)
+}
+
+func (s *usageBillingService) CreateServicePriceVersion(
+	ctx context.Context,
+	input types.BillingServicePriceInput,
+) (*types.BillingServicePrice, error) {
+	return s.billing.CreateServicePriceVersion(ctx, input)
+}
+
 func (s *usageBillingService) ListUsageLedgers(
 	ctx context.Context,
 	tenantID uint64,
 	limit int,
 ) ([]*types.BillingUsageLedgerSummary, error) {
 	return s.billing.ListUsageLedgers(ctx, tenantID, limit)
+}
+
+func (s *usageBillingService) ListUsageLedgersByActor(
+	ctx context.Context,
+	tenantID uint64,
+	actorUserID string,
+	limit int,
+) ([]*types.BillingUsageLedgerSummary, error) {
+	return s.billing.ListUsageLedgersByActor(ctx, tenantID, actorUserID, limit)
 }
 
 func (s *usageBillingService) ListUsageSummaryByActor(
@@ -510,6 +643,45 @@ func (s *usageBillingService) UpdateMemberPolicy(
 	)
 }
 
+func (s *usageBillingService) UpdateMemberPolicies(
+	ctx context.Context,
+	tenantID uint64,
+	userIDs []string,
+	limitMode string,
+	monthlyLimitPointMicros int64,
+	actorUserID string,
+) ([]*types.TenantMemberCreditAllocation, error) {
+	subscription, plan, err := s.billing.GetCurrentSubscription(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if subscription == nil || plan == nil {
+		return nil, errors.New("billing: current subscription is required")
+	}
+	if plan.SpaceType != types.SpaceTypeOrganization {
+		return nil, errors.New("billing: member usage policies are available only for enterprise workspaces")
+	}
+	switch limitMode {
+	case types.MemberLimitModeInherit, types.MemberLimitModeCustom, types.MemberLimitModeUnlimited:
+	default:
+		return nil, errors.New("billing: invalid member limit mode")
+	}
+	if monthlyLimitPointMicros < 0 {
+		return nil, errors.New("billing: member monthly limit must be non-negative")
+	}
+	periodStart, periodEnd := usageBillingPeriod(subscription, time.Now().UTC())
+	return s.billing.SetCurrentMemberPolicies(
+		ctx,
+		tenantID,
+		userIDs,
+		periodStart,
+		periodEnd,
+		limitMode,
+		monthlyLimitPointMicros,
+		actorUserID,
+	)
+}
+
 func (s *usageBillingService) UpdateMemberAllocation(
 	ctx context.Context,
 	tenantID uint64,
@@ -526,4 +698,12 @@ func (s *usageBillingService) UpdateMemberAllocation(
 		allocatedPeriodPointMicros+allocatedBalancePointMicros,
 		actorUserID,
 	)
+}
+
+func (s *usageBillingService) ListStorageTransactions(
+	ctx context.Context,
+	tenantID uint64,
+	limit int,
+) ([]*types.BillingStorageTransactionSummary, error) {
+	return s.billing.ListStorageTransactions(ctx, tenantID, limit)
 }

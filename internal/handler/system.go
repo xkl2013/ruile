@@ -689,8 +689,9 @@ func (h *SystemHandler) ListSystemEnterprises(c *gin.Context) {
 
 // ProvisionEnterpriseWorkspace allows a SystemAdmin to manually open one
 // enterprise workspace for a selected user while preserving that user's
-// personal home workspace. Payment, orders and subscription state are
-// intentionally outside this temporary provisioning flow.
+// personal home workspace. Tenant creation initializes the enterprise
+// subscription and credit account; this route deliberately does not expose a
+// user-facing payment or checkout flow.
 func (h *SystemHandler) ProvisionEnterpriseWorkspace(c *gin.Context) {
 	ctx := logger.CloneContext(c.Request.Context())
 	if h.memberSvc == nil {

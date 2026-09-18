@@ -80,7 +80,7 @@ func (p *PluginChatCompletion) OnEvent(
 		"chat_model": chatManage.ChatModelID,
 	})
 	modelStartedAt := time.Now()
-	chatResponse, err := chatModel.Chat(ctx, chatMessages, opt)
+	chatResponse, err := chatModel.Chat(types.WithUsageBillingBypass(ctx), chatMessages, opt)
 	if err != nil {
 		releaseChatModelBilling(ctx, p.usageBilling, billingHandle, "model_call_failed")
 		pipelineError(ctx, "Completion", "model_call", map[string]interface{}{

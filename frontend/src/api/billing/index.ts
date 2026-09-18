@@ -31,10 +31,22 @@ export interface BillingOverview {
     usage_percent: number
     unlimited: boolean
     status: string
+    visible?: boolean
   }
   credits: {
     balance_point_micros: number
     period_point_micros: number
+    period_used_point_micros: number
+    period_remaining_point_micros: number
+    visible?: boolean
+  }
+  member_usage?: {
+    member_policy_id: string
+    limit_mode: 'inherit' | 'custom' | 'unlimited'
+    monthly_limit_point_micros: number
+    monthly_used_point_micros: number
+    monthly_remaining_point_micros: number
+    overage_policy: 'block' | 'use_enterprise_balance'
   }
   compatibility_mode: boolean
 }
@@ -139,6 +151,21 @@ export async function updateMemberCreditPolicy(
     input,
     tenantScopedConfig(tenantId),
   ) as unknown as { success: boolean; data?: MemberCreditAllocation; message?: string }
+}
+
+export async function updateMemberCreditPolicies(
+  tenantId: number,
+  input: {
+    user_ids: string[]
+    limit_mode: 'inherit' | 'custom' | 'unlimited'
+    monthly_limit_points: number
+  },
+): Promise<{ success: boolean; data?: MemberCreditAllocation[]; message?: string }> {
+  return put(
+    '/api/v1/billing/member-policies',
+    input,
+    tenantScopedConfig(tenantId),
+  ) as unknown as { success: boolean; data?: MemberCreditAllocation[]; message?: string }
 }
 
 export interface TenantBillingPolicy {

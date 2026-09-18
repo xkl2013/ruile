@@ -22,6 +22,7 @@ func (s *billingPolicyService) RuntimePolicy(ctx context.Context) types.BillingR
 		EnforcementMode:                      "off",
 		PointMicrosPerUSD:                    types.PointMicrosPerPoint,
 		DefaultModelMultiplierPPM:            1_000_000,
+		DefaultServiceMultiplierPPM:          1_000_000,
 		DefaultMemberMonthlyLimitPointMicros: 100 * types.PointMicrosPerPoint,
 		DefaultMemberAllocationPointMicros:   100 * types.PointMicrosPerPoint,
 	}
@@ -54,6 +55,15 @@ func (s *billingPolicyService) RuntimePolicy(ctx context.Context) types.BillingR
 	)
 	if policy.DefaultModelMultiplierPPM <= 0 {
 		policy.DefaultModelMultiplierPPM = 1_000_000
+	}
+	policy.DefaultServiceMultiplierPPM = s.settings.GetInt(
+		ctx,
+		"billing.default_service_multiplier_ppm",
+		"",
+		1_000_000,
+	)
+	if policy.DefaultServiceMultiplierPPM <= 0 {
+		policy.DefaultServiceMultiplierPPM = 1_000_000
 	}
 	defaultMemberMonthlyLimitPoints := s.settings.GetInt(
 		ctx,

@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+type usageBillingBypassContextKey struct{}
+type billingServiceCodeContextKey struct{}
+type billingSourceContextKey struct{}
+
 // EnvLanguage returns the WEKNORA_LANGUAGE environment variable value, or empty string if unset.
 func EnvLanguage() string {
 	return strings.TrimSpace(os.Getenv("WEKNORA_LANGUAGE"))
@@ -157,6 +161,51 @@ func IsBackgroundTask(ctx context.Context) bool {
 	}
 	v, _ := ctx.Value(BackgroundTaskContextKey).(bool)
 	return v
+}
+
+// WithUsageBillingBypass prevents the model-service billing decorator from
+// recording a call that is already billed by a higher-level workflow.
+func WithUsageBillingBypass(ctx context.Context) context.Context {
+	return context.WithValue(ctx, usageBillingBypassContextKey{}, true)
+}
+
+func UsageBillingBypassed(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	v, _ := ctx.Value(usageBillingBypassContextKey{}).(bool)
+	return v
+}
+
+// WithBillingServiceCode labels a model call with the non-model service that
+// initiated it, for example knowledge.summary or knowledge.graph_extract.
+func WithBillingServiceCode(ctx context.Context, serviceCode string) context.Context {
+	return context.WithValue(ctx, billingServiceCodeContextKey{}, strings.TrimSpace(serviceCode))
+}
+
+func BillingServiceCodeFromContext(ctx context.Context, fallback string) string {
+	if ctx != nil {
+		if value, _ := ctx.Value(billingServiceCodeContextKey{}).(string); strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return fallback
+}
+
+// WithBillingSource labels usage by entry channel, for example web, embed, im,
+// or worker. It is deliberately independent from ServiceCode because the same
+// service can be reached through multiple channels.
+func WithBillingSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, billingSourceContextKey{}, strings.TrimSpace(source))
+}
+
+func BillingSourceFromContext(ctx context.Context, fallback string) string {
+	if ctx != nil {
+		if value, _ := ctx.Value(billingSourceContextKey{}).(string); strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return fallback
 }
 
 // LanguageFromContext extracts the language locale string from ctx (e.g. "zh-CN", "en-US").

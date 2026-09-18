@@ -1138,21 +1138,28 @@ func (s *knowledgeBaseService) ProcessKBDelete(ctx context.Context, t *asynq.Tas
 
 		// Delete physical files, extracted images, and adjust storage
 		logger.Infof(ctx, "Deleting physical files and extracted images")
-		storageAdjust := int64(0)
 		for _, knowledge := range knowledgeList {
 			if knowledge.FilePath != "" {
 				if err := s.fileSvc.DeleteFile(ctx, knowledge.FilePath); err != nil {
 					logger.Warnf(ctx, "Failed to delete file %s: %v", knowledge.FilePath, err)
 				}
 			}
-			storageAdjust -= knowledge.StorageSize
-		}
-		deleteExtractedImages(ctx, s.fileSvc, imageURLs)
-		if storageAdjust != 0 {
-			if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantID, storageAdjust); err != nil {
+			if err := recordStorageDeltaWithRepository(
+				ctx,
+				s.tenantRepo,
+				tenantID,
+				"knowledge:delete:"+knowledge.ID,
+				"knowledge_base_delete",
+				-knowledge.StorageSize,
+				map[string]any{
+					"knowledge_id":      knowledge.ID,
+					"knowledge_base_id": knowledge.KnowledgeBaseID,
+				},
+			); err != nil {
 				logger.Warnf(ctx, "Failed to adjust tenant storage: %v", err)
 			}
 		}
+		deleteExtractedImages(ctx, s.fileSvc, imageURLs)
 
 		// Delete knowledge graph data
 		logger.Infof(ctx, "Deleting knowledge graph data")

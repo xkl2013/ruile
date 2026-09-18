@@ -63,6 +63,21 @@ func (r *ToolRegistry) GetTool(name string) (types.Tool, error) {
 	return tool, nil
 }
 
+// WrapTool replaces an already-registered tool with a decorator while
+// preserving the registry's first-wins registration policy.
+func (r *ToolRegistry) WrapTool(name string, wrap func(types.Tool) types.Tool) bool {
+	tool, exists := r.tools[name]
+	if !exists || wrap == nil {
+		return false
+	}
+	wrapped := wrap(tool)
+	if wrapped == nil || wrapped.Name() != name {
+		return false
+	}
+	r.tools[name] = wrapped
+	return true
+}
+
 // ListTools returns all registered tool names sorted alphabetically.
 // Sorting keeps the order stable across calls — Go map iteration is
 // intentionally randomized.

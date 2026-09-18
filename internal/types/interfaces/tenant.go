@@ -62,6 +62,38 @@ type TenantRepository interface {
 	BulkSetStorageQuota(ctx context.Context, quotaBytes int64) (int64, error)
 }
 
+// StorageAccountingRepository is an optional tenant-repository capability
+// used by storage-producing workflows. Keeping it separate avoids forcing
+// unrelated test doubles to implement billing-specific persistence.
+type StorageAccountingRepository interface {
+	ReserveStorage(
+		ctx context.Context,
+		reservation *types.TenantStorageReservation,
+	) (*types.TenantStorageReservation, error)
+	CommitStorageReservation(
+		ctx context.Context,
+		tenantID uint64,
+		refNo string,
+		actualBytes int64,
+		metadata types.JSON,
+	) (*types.TenantStorageTransaction, error)
+	ReleaseStorageReservation(
+		ctx context.Context,
+		tenantID uint64,
+		refNo string,
+		failureCode string,
+	) error
+	RecordStorageTransaction(
+		ctx context.Context,
+		transaction *types.TenantStorageTransaction,
+	) (*types.TenantStorageTransaction, error)
+	ListStorageTransactions(
+		ctx context.Context,
+		tenantID uint64,
+		limit int,
+	) ([]*types.TenantStorageTransaction, error)
+}
+
 type TenantAPIKeyCreateRequest struct {
 	TenantID         uint64
 	Name             string

@@ -85,9 +85,9 @@ func beginChatModelBilling(
 		TenantID:    billingTenantID,
 		ActorUserID: chatManage.UserID,
 		RefNo:       usageRefNo(chatManage, eventType, billingTenantID, chatModel.GetModelID()),
-		Source:      "web",
+		Source:      types.BillingSourceFromContext(ctx, "web"),
 		SessionID:   chatManage.SessionID,
-		ServiceCode: "chat.completion",
+		ServiceCode: types.BillingServiceCodeFromContext(ctx, "chat.completion"),
 		ModelID:     chatModel.GetModelID(),
 		ModelKey:    chatModel.GetModelName(),
 		EstimatedUsage: types.BillingModelUsage{

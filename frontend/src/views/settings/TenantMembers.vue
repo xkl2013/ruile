@@ -90,6 +90,21 @@
                 <template #prefix-icon><t-icon name="usergroup" /></template>
               </t-input>
             </div>
+            <t-tooltip
+              v-if="canManage && selectedMemberUserIDs.length > 0"
+              :content="$t('tenantMember.allocation.batchButton')"
+              placement="top"
+            >
+              <t-button
+                theme="primary"
+                variant="outline"
+                size="small"
+                @click="openBatchAllocationDialog"
+              >
+                <template #icon><t-icon name="user-setting" /></template>
+                {{ selectedMemberUserIDs.length }}
+              </t-button>
+            </t-tooltip>
             <t-tooltip v-if="canManage" :content="$t('tenantMember.create.button')" placement="top">
               <t-button theme="primary" shape="square" size="small" class="members-list-add-btn"
                 :title="$t('tenantMember.create.button')" :aria-label="$t('tenantMember.create.button')"
@@ -228,7 +243,16 @@
         </div>
         <div v-else class="data-table-shell data-table-shell--with-footer">
           <div class="data-table-shell__scroll">
-            <t-table row-key="user_id" :data="members" :columns="columns" size="medium" hover stripe :loading="loading">
+            <t-table
+              v-model:selected-row-keys="selectedMemberUserIDs"
+              row-key="user_id"
+              :data="members"
+              :columns="columns"
+              size="medium"
+              hover
+              stripe
+              :loading="loading"
+            >
               <template #member="{ row }">
                 <div class="member-cell">
                   <span class="member-name">{{ memberPrimary(row) }}</span>
@@ -386,6 +410,55 @@
             {{ createMemberDefaultPassword }}
           </span>
         </p>
+      </div>
+    </t-dialog>
+
+    <t-dialog
+      v-if="canManage"
+      v-model:visible="batchAllocationDialogVisible"
+      :header="$t('tenantMember.allocation.batchDialogTitle', { count: selectedMemberUserIDs.length })"
+      width="520px"
+      :confirm-btn="{
+        content: $t('tenantMember.allocation.batchSave'),
+        theme: 'primary',
+        loading: savingBatchAllocation,
+      }"
+      :cancel-btn="{ content: $t('common.cancel'), disabled: savingBatchAllocation }"
+      :close-on-overlay-click="!savingBatchAllocation"
+      destroy-on-close
+      @confirm="saveBatchAllocation"
+    >
+      <div class="member-allocation-dialog">
+        <t-form :data="batchAllocationForm" label-align="top">
+          <t-form-item :label="$t('tenantMember.allocation.limitMode')">
+            <t-radio-group v-model="batchAllocationForm.limitMode">
+              <t-radio-button value="inherit">
+                {{ $t('tenantMember.allocation.inherit') }}
+              </t-radio-button>
+              <t-radio-button value="custom">
+                {{ $t('tenantMember.allocation.custom') }}
+              </t-radio-button>
+              <t-radio-button value="unlimited">
+                {{ $t('tenantMember.allocation.unlimited') }}
+              </t-radio-button>
+            </t-radio-group>
+          </t-form-item>
+          <t-form-item
+            v-if="batchAllocationForm.limitMode === 'custom'"
+            :label="$t('tenantMember.allocation.monthlyLimit')"
+          >
+            <t-input-number
+              v-model="batchAllocationForm.monthlyLimitPoints"
+              :min="0"
+              :max="1000000000"
+              :decimal-places="0"
+              theme="column"
+            />
+          </t-form-item>
+        </t-form>
+        <div class="member-allocation-hint">
+          {{ $t('tenantMember.allocation.batchDescription', { count: selectedMemberUserIDs.length }) }}
+        </div>
       </div>
     </t-dialog>
 
@@ -616,6 +689,7 @@ import {
 import {
   getMemberCreditAllocations,
   getTenantBillingPolicy,
+  updateMemberCreditPolicies,
   updateMemberCreditPolicy,
   type MemberCreditAllocation,
   type TenantBillingPolicy,
@@ -680,6 +754,16 @@ const tenantBillingPolicy = ref<TenantBillingPolicy | null>(null)
 const allocationDialogVisible = ref(false)
 const allocationTarget = ref<TenantMember | null>(null)
 const savingAllocation = ref(false)
+const selectedMemberUserIDs = ref<Array<string | number>>([])
+const batchAllocationDialogVisible = ref(false)
+const savingBatchAllocation = ref(false)
+const batchAllocationForm = reactive<{
+  limitMode: 'inherit' | 'custom' | 'unlimited'
+  monthlyLimitPoints: number
+}>({
+  limitMode: 'inherit',
+  monthlyLimitPoints: 0,
+})
 const allocationForm = reactive<{
   limitMode: 'inherit' | 'custom' | 'unlimited'
   monthlyLimitPoints: number
@@ -861,6 +945,17 @@ function roleMatrixIcon(role: TenantRole): string {
 }
 
 const columns = computed(() => [
+  ...(canManage.value
+    ? [{
+      colKey: 'row-select',
+      type: 'multiple',
+      width: 48,
+      checkProps: ({ row }: { row: TenantMember }) => ({
+        disabled: row.status !== 'active'
+          || (row.role === 'owner' && !canManageOwnerRoles.value),
+      }),
+    }]
+    : []),
   { colKey: 'member', title: t('tenantMember.columns.member'), ellipsis: true, minWidth: 132 },
   { colKey: 'role', title: t('tenantMember.columns.role'), width: 128 },
   { colKey: 'status', title: t('tenantMember.columns.status'), width: 118 },
@@ -1165,6 +1260,42 @@ async function saveAllocation() {
   }
 }
 
+function openBatchAllocationDialog() {
+  if (selectedMemberUserIDs.value.length === 0) return
+  batchAllocationForm.limitMode = 'inherit'
+  batchAllocationForm.monthlyLimitPoints = 0
+  batchAllocationDialogVisible.value = true
+}
+
+async function saveBatchAllocation() {
+  const userIDs = selectedMemberUserIDs.value.map(String).filter(Boolean)
+  if (!activeTenantId.value || userIDs.length === 0 || savingBatchAllocation.value) return
+  savingBatchAllocation.value = true
+  try {
+    const monthlyLimitPoints = Math.max(
+      0,
+      Math.trunc(Number(batchAllocationForm.monthlyLimitPoints) || 0),
+    )
+    const resp = await updateMemberCreditPolicies(activeTenantId.value, {
+      user_ids: userIDs,
+      limit_mode: batchAllocationForm.limitMode,
+      monthly_limit_points:
+        batchAllocationForm.limitMode === 'custom' ? monthlyLimitPoints : 0,
+    })
+    if (!resp.success) {
+      throw new Error(resp.message || t('tenantMember.allocation.batchSaveError'))
+    }
+    await loadMemberAllocations()
+    selectedMemberUserIDs.value = []
+    batchAllocationDialogVisible.value = false
+    MessagePlugin.success(t('tenantMember.allocation.batchSuccess', { count: userIDs.length }))
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenantMember.allocation.batchSaveError'))
+  } finally {
+    savingBatchAllocation.value = false
+  }
+}
+
 async function loadMembers() {
   if (!activeTenantId.value) {
     return
@@ -1193,6 +1324,7 @@ async function loadMembers() {
         return
       }
       members.value = resp.data.members ?? []
+      selectedMemberUserIDs.value = []
       membersTotal.value = total
       if (typeof resp.data.page === 'number' && resp.data.page > 0) {
         membersPage.value = resp.data.page

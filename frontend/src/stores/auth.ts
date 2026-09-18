@@ -286,7 +286,11 @@ export const useAuthStore = defineStore('auth', () => {
 
   const activeEnterpriseTenantFallbackId = computed(() => {
     const activeTenantId = Number(effectiveTenantId.value || 0)
-    if (!activeTenantId || currentTenantSpaceType.value === 'personal') return null
+    // Enterprise-only settings must never treat an unclassified legacy
+    // workspace as an organization. Legacy workspaces remain usable for
+    // ordinary product features, but they do not own enterprise policies,
+    // members, or shared-space administration.
+    if (!activeTenantId || currentTenantSpaceType.value !== 'organization') return null
     return activeTenantId
   })
 
