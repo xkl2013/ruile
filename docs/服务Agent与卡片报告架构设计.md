@@ -1,24 +1,28 @@
-# 可扩展专家 Agent 服务平台架构设计
+# 可扩展专家 Agent 服务平台 PRD
 
-> 文档状态：主架构设计稿  
-> 更新日期：2026-09-16  
-> 适用项目：ruile  
-> 相关文档：[外部 Agent 包兼容与管理员发布路线](./外部Agent包兼容与管理员发布路线.md)  
-> 当前范围：内置/管理员发布 Agent、服务卡片、连续追问、纠偏、报告与通用产物、临时保存、历史检索和网页分享  
+> 文档状态：V2，专家工作流质量闭环方案
+> 更新日期：2026-09-17
+> 适用项目：ruile
+> 相关文档：[外部 Agent 包兼容与管理员发布路线](./外部Agent包兼容与管理员发布路线.md)
+> 实施基线：当前分支已具备 AgentRun 队列、ZIP 专家包导入、版本发布、工作画像绑定、后台专家测试和 `agent_result_v1` 校验
+> 当前优先范围：需求澄清、Skill 实际加载、专家工作流、质量审查与自动修订、聊天调用、服务卡片和报告交付
+> 后续范围：连续追问、通用产物、临时保存、历史检索、网页分享和脚本型 Skill
 > 暂不包含：CRM、工单、日历、IM 等外部系统的自动写入
 
 ## 阅读导航
 
-- 第 1-5 章：结论、目标、项目基座和总体架构。
+- 第 1-5 章：结论、目标、已实现基线、主要差距和总体架构。
 - 第 6-8 章：Agent 定义、Markdown 编译和运行编排。
 - 第 9-10 章：统一输出协议和数据模型。
 - 第 11-15 章：追问、纠偏、产物生命周期、分享和历史空间。
 - 第 16-18 章：Capability、沙箱、评测和行业参考模式。
-- 第 19-22 章：实施路线、首批 Agent、验收标准和最终建议。
+- 第 19-22 章：最新实施路线、首批验收专家、验收标准和最终建议。
 
 ## 1. 执行摘要
 
-本项目具备运行 Agent 的主要基础能力，但不能把外部 Agent 包的 `agents/*.md` 或其他定义文件直接复制进项目后就自动运行，也不应开放普通用户自行上传和安装 Agent。缺少的不是模型调用本身，而是后台管理员可控的 Agent 包注册、定义编译、版本发布、后台运行、统一输出、产物管理和评测发布这一层平台能力。
+本项目已经完成专家平台第一版基础设施，但当前专家测试仍是“系统提示词 + 用户问题 + 一次模型调用”。这种方式能够验证包是否可以导入和返回合法 JSON，不能验证一个专家是否真正按方法论工作，也无法稳定达到 WorkBuddy 等成熟 Agent 产品的交付质量。
+
+本次 PRD 修订后的首要目标，不再是继续扩充导入格式，而是把已导入专家升级为可重复执行的专家工作流。平台需要在正式生成前补齐关键需求，执行时加载 Skill 正文和项目上下文，生成后经过确定性规则与模型审查，再进行有限次数的定向修订，最后才生成服务卡片和正式产物。
 
 本方案的核心决策如下：
 
@@ -34,6 +38,12 @@
 10. HTML 可以存入 OSS，但浏览器分享必须经过独立的发布网关和受控域名，不能直接公开 OSS 原始地址。
 11. 每次追问、纠偏和重新生成都产生新的运行和内容版本，不静默覆盖历史结果。
 12. 后续接入更多 Agent 时，标准流程是“后台管理员导入、兼容检查、评测、发布、绑定、启用”，而不是为每个 Agent 修改后端和前端。
+13. 专家执行不能以单次 `Chat()` 作为最终运行方式，应复用项目已有 AgentEngine，形成 `intake -> plan -> draft -> review -> revise -> package` 工作流。
+14. 缺少关键输入时，运行进入 `waiting_input`，向用户展示 3-5 个结构化问题；用户补充后恢复原运行，不先生成一份猜测性报告。
+15. `skills` 不只是名称列表。说明型 Skill 的 `SKILL.md` 必须按版本加载到执行上下文，脚本型 Skill 则必须经过 Capability 和沙箱检查。
+16. 最终报告必须同时通过确定性校验和 LLM Critic；低于质量门槛或命中红线时最多自动修订两次。
+17. 用户修改、接受和拒绝结果形成质量信号，但不能直接自动改写已发布 Skill，只能生成待管理员审核的 Skill 候选版本。
+18. 超越竞品的判断标准不是报告字数，而是需求覆盖、事实与假设区分、可执行性、安全合规、产物质量和用户最终修改量。
 
 ## 2. 目标与边界
 
@@ -47,6 +57,10 @@
 - 支持用户保存、分享和检索历史产物。
 - 支持持续增加、升级、灰度和回退 Agent，降低长期运营成本。
 - 支持后台管理员统一维护 Agent 包、评测、发布和回退。
+- 在信息不足时先澄清，不用模型猜测关键业务条件。
+- 让专家包中的说明型 Skill 真正参与执行，并记录实际使用版本。
+- 对报告进行自动评分、红线检查和定向修订。
+- 让管理员能够使用固定测试集比较专家版本、模型和 Skill 的质量差异。
 
 ### 2.2 架构目标
 
@@ -56,6 +70,7 @@
 - 产物逻辑身份与 OSS 物理路径解耦。
 - 临时内容与长期资产解耦。
 - Agent 版本、输入证据、运行记录和产物版本全程可追溯。
+- 需求快照、执行步骤、Skill 使用记录和质量评分全程可追溯。
 - 不同产物类型共享统一生命周期、权限、分享和历史检索机制。
 
 ### 2.3 当前阶段不做
@@ -83,6 +98,10 @@
 | `ResourceAccessGrant` | 可撤销、可过期的分享访问授权 |
 | `Output Contract` | Agent 输出必须遵守的结构化协议 |
 | `Capability` | 平台无关的能力声明，例如联网、脚本、文件写入、报告渲染 |
+| `RequirementSnapshot` | 用户已确认信息、默认值、假设和待补充项的版本化快照 |
+| `AgentRunStep` | 一次运行中的需求检查、规划、生成、审查、修订和制品化步骤 |
+| `QualityAssessment` | 确定性规则和 LLM Critic 产生的评分、红线与修改建议 |
+| `SkillCandidate` | 从高质量运行和用户修改中提取、等待管理员审核的 Skill 更新候选 |
 
 这些对象的关系如下：
 
@@ -135,34 +154,49 @@ flowchart LR
 
 这些领域可以作为第一批内置 Agent 的边界，不需要先重构现有服务业务。
 
-### 4.3 主要缺口
+### 4.3 截至 2026-09-17 的已实现基线
 
-| 缺口 | 影响 |
+| 已实现能力 | 当前结果 |
 | --- | --- |
-| 缺少后台 Agent 包注册、安全扫描和发布中心 | 管理员无法可控引入外部 Agent，用户也无法稳定使用已审核版本 |
-| 缺少 Agent Markdown 编译器 | Markdown 不能稳定转换为项目运行配置 |
-| 缺少版本化 Agent/Skill Registry | Agent 升级、灰度和历史追溯困难 |
-| 缺少 Headless Agent Runner | 服务事项无法作为后台任务标准化执行 |
-| 缺少统一 Output Contract | 不同 Agent 输出难以进入同一业务流程 |
-| 缺少通用 `AgentArtifact` | 图片、HTML、PDF 等只能各自特殊处理 |
-| 缺少服务线程和产物版本模型 | 追问与纠偏容易覆盖原结果或污染空间 |
-| 缺少发布网关 | OSS 中的 HTML 不能安全地直接作为分享网页 |
-| 缺少 Agent Evaluation | Agent 越多，升级回归和运营成本越高 |
+| `AgentRun` 队列 | 日报、记忆提取和专家测试可以异步排队、查询状态、失败重试和取消 |
+| ZIP 专家包导入 | 管理员可以上传 ZIP，系统解析包清单、`agents/*.md`、Skills、资源和诊断 |
+| 幂等重导入 | 相同版本、相同内容返回已有版本；相同版本、不同内容要求升级版本号 |
+| Agent Markdown 基础编译 | Front Matter 和正文可以编译为 `AgentDefinitionVersion` 与 `CustomAgentConfig` |
+| 版本发布与绑定 | 管理员可以发布专家版本，并绑定工作画像 |
+| 管理后台专家测试 | 管理员可以选择模型、输入问题并轮询查看运行结果 |
+| `agent_result_v1` | 当前测试结果可以校验三字段卡片和一个结构化报告 |
+| 基础兼容诊断 | 缺失 Skill 或不支持的 Capability 可以显示阻断或警告 |
 
-### 4.4 现有实现对照
+以上能力证明“专家包可以进入 ruile 并被调用”。它们不是专家质量闭环的完成标志。
 
-| 项目位置 | 当前事实 | 在本方案中的演进方式 |
+### 4.4 当前主要差距
+
+| 缺口 | 当前表现 | 业务影响 |
 | --- | --- | --- |
-| `internal/types/custom_agent.go` | 已有自定义 Agent 配置和系统提示词承载能力 | Agent Markdown 编译后生成或关联现有配置 |
-| `internal/agent/skills` | 已有 Skill 发现、读取和脚本执行基础 | 增加包级命名空间、版本、依赖和能力声明 |
-| `internal/types/service.go` | 已有工作画像、Agent 设置、服务提醒、工作文档、证据关系和动作草稿 | 复用现有业务对象，新增线程、运行和产物对象 |
-| `internal/application/service/service.go` | 已有服务领域、结构化模型输出和服务事项生成流程 | 先接入统一输出协议，再逐步切换到 Registry 和 Headless Runner |
+| 专家测试只执行一次模型调用 | `SystemPrompt + UserPrompt -> Chat()` | 无法规划、复查和定向修改，复杂任务容易输出模板化内容 |
+| Skill 只保存引用 | 导入时检查 `SKILL.md` 是否存在，运行时没有加载正文 | 专家包的方法论没有真正参与回答 |
+| 缺少需求澄清 | 信息不足时仍直接生成报告 | 模型会猜日期、人数、预算、场地等关键条件 |
+| 没有需求快照 | 用户选择、默认值、假设和待确认项没有结构化保存 | 结果难以复现，追问时容易前后不一致 |
+| 没有质量审查与自动修订 | 只检查 JSON Schema 和产物数量 | 章节缺失、预算不一致和安全红线仍可能通过 |
+| 测试产物固定为一个报告 | 当前测试 Schema 限制一个 `structured_report_v1` | 无法验证图片、HTML、PDF 和组合产物 |
+| 没有执行步骤记录 | 只能看到最终运行状态和结果 | 无法判断使用了哪些 Skill、在哪一步退化 |
+| 缺少固定评测集和对照评分 | 管理员主要依靠人工阅读单次回答 | 专家升级和模型切换缺少可靠依据 |
+| 缺少服务线程和版本化产物 | 追问、纠偏尚未形成完整业务链路 | 用户无法围绕同一结果持续完善 |
+| 缺少 Skill 学习治理 | 用户修改不能转成可审核经验 | 专家质量无法低成本持续积累 |
+
+### 4.5 现有实现对照
+
+| 项目位置 | 当前事实 | V2 演进方式 |
+| --- | --- | --- |
+| `internal/application/service/agent_run_expert.go` | 专家测试使用一次结构化模型调用 | 改为 ExpertWorkflowRunner，并复用 AgentEngine |
+| `internal/agent/engine.go` | 已有多轮 ReAct 和工具执行能力 | 作为 draft/revise 阶段的执行内核 |
+| `internal/agent/skills` | 已有 Skill 发现、读取和脚本执行基础 | 增加专家包级 Skill Loader、版本锁定和使用追踪 |
+| `internal/types/custom_agent.go` | 已有系统提示词、轮次、Skills 和工具配置 | 承载编译后的运行参数，不单独承担需求与质量契约 |
+| `internal/types/service.go` | 已有工作画像、服务提醒、工作文档、证据关系和动作草稿 | 复用现有业务对象，新增需求快照、步骤、线程和产物对象 |
 | `internal/types/resource.go` | 已有 `StoredResource`、`ResourceBinding`、临时/长期生命周期和访问授权 | 作为 Agent 文件产物和分享授权的底层基座 |
 | `internal/application/service/file/oss.go` | 已有 OSS 主存储和临时存储实现 | 保存 HTML、PDF、图片和其他文件产物 |
-| `internal/router/router.go` | 通用文件服务对 HTML 等主动内容采用下载策略 | 保持现有安全策略，另建隔离的报告发布网关 |
-| `frontend/src/api/service/index.ts` | 已有服务提醒、工作文档和 Agent 配置 API 类型 | 增加线程、产物、版本和分享 API |
-| `frontend/src/views/service/ServiceWorkspace.vue` | 已有服务提醒详情和服务助理交互 | 收敛卡片三字段，增加追问、纠偏和产物入口 |
-| `docs/记忆笔记驱动多Agent工作助理设计.md` | 已定义记忆驱动、多领域 Agent 和服务工作台方向 | 本文作为 Agent 平台和产物生命周期的专项落地设计 |
+| `admin/src/views/AdminExpertPackages.vue` | 已有导入、诊断、发布、绑定和单问题测试 | 增加需求问答、步骤轨迹、质量评分和版本对比 |
+| `frontend/src/views/service/ServiceWorkspace.vue` | 已有服务提醒详情和服务助理交互 | 增加专家选择、待补充信息、运行进度、追问和产物入口 |
 
 ## 5. 总体架构
 
@@ -186,14 +220,22 @@ flowchart TB
     end
 
     subgraph Runtime["执行平台"]
+        IV["Intake Validator"]
+        RR["Requirement Snapshot / Resume"]
         CB["Context Builder"]
-        RT["Memory Router"]
-        HR["Headless Agent Runner"]
+        SL["Versioned Skill Loader"]
+        PL["Planner"]
+        HR["AgentEngine / Writer"]
+        QC["Rule Validators + LLM Critic"]
+        RV["Targeted Reviser"]
         SB["Sandbox / MCP / Tools"]
         OV["Output Contract Validator"]
-        CB --> RT --> HR
+        IV --> RR --> CB
+        CB --> SL --> PL --> HR
         HR <--> SB
-        HR --> OV
+        HR --> QC
+        QC -->|未通过且未超过上限| RV --> QC
+        QC -->|通过| OV
     end
 
     subgraph Product["业务投影"]
@@ -215,8 +257,17 @@ flowchart TB
         ART --> CENTER
     end
 
-    Input --> CB
-    E --> HR
+    subgraph Learning["评测与经验治理"]
+        TRACE["Run Trace"]
+        EVAL["Eval Suite / Benchmark"]
+        SC["Skill Candidate"]
+        APPROVE["Admin Review"]
+        TRACE --> EVAL
+        TRACE --> SC --> APPROVE --> AR
+    end
+
+    Input --> IV
+    E --> IV
     OV --> CARD
     OV --> DOC
     OV --> ART
@@ -224,14 +275,21 @@ flowchart TB
     CARD --> THREAD
     DOC --> ART
     CARD --> ACTION
+    QC --> TRACE
+    OV --> TRACE
 ```
 
 核心原则：
 
 - Agent 负责判断和生成候选内容。
+- Intake Validator 负责判断信息是否足够，不足时暂停并向用户追问。
+- Skill Loader 负责按专家版本加载实际 Skill 内容，而不是只传递 Skill 名称。
+- Planner、Writer、Critic 和 Reviser 是同一次运行的不同步骤，必须留下可审计轨迹。
 - Output Contract 负责把模型结果变成可信结构。
+- Quality Gate 负责判断内容是否达到交付标准，不能由模型自己宣布通过。
 - 业务服务负责去重、状态和权限。
 - 产物平台负责文件生命周期、版本、预览、分享和检索。
+- 学习机制只生成待审核候选，不自动修改已发布专家。
 - 外部写入始终经过动作层，不由 Agent 直接完成。
 
 ## 6. Agent 定义、注册与发布
@@ -297,7 +355,7 @@ draft
 ```markdown
 ---
 kind: service-agent
-schema_version: "1.0"
+schema_version: "2.0"
 id: customer-service
 version: "1.0.0"
 display_name: 客户服务专家
@@ -305,6 +363,10 @@ description: 识别客户跟进事项、未解决问题和关系维护动作
 domain: customer_service
 status: enabled
 max_turns: 12
+execution_policy:
+  strategy: expert_workflow_v2
+  reasoning: true
+  max_revision_rounds: 2
 skills:
   - evidence-analysis
 capabilities:
@@ -316,8 +378,57 @@ input_sources:
   - memory
   - work_profile
   - customer_context
+required_inputs:
+  - id: service_goal
+    label: 本次服务目标
+    type: string
+    required: true
+    ask_when_missing: true
+  - id: expected_deadline
+    label: 期望完成时间
+    type: date
+    required: false
+    ask_when_missing: false
+  - id: audience
+    label: 结果使用对象
+    type: enum
+    required: true
+    options:
+      - 客户
+      - 一线服务人员
+      - 管理层
+clarification_policy:
+  max_questions_per_round: 5
+  allow_assumptions: true
+  require_assumption_labels: true
 output_contract: agent_result_v1
 card_contract: service_card_v1
+deliverable_spec:
+  primary_kind: report
+  required_sections:
+    - facts
+    - analysis
+    - missing_information
+    - recommended_actions
+  formats:
+    - markdown
+    - html
+  optional_formats:
+    - pdf
+quality_rubric:
+  minimum_score: 85
+  red_lines:
+    - fabricated_evidence
+    - unlabeled_critical_assumption
+    - unauthorized_external_action
+  dimensions:
+    requirement_coverage: 15
+    structure_completeness: 15
+    specificity_and_actionability: 20
+    consistency_and_feasibility: 15
+    evidence_and_assumptions: 10
+    safety_and_compliance: 15
+    artifact_quality: 10
 artifact_policy:
   allowed_kinds:
     - text
@@ -329,6 +440,9 @@ permissions:
   create_artifact: true
   create_action_draft: false
   write_external_system: false
+learning_policy:
+  propose_skill_updates: true
+  auto_publish: false
 ---
 
 # 角色
@@ -358,6 +472,13 @@ permissions:
 - 事实和推测必须分开。
 - 信息不足时明确写“待确认”。
 
+# 质量检查规则
+
+- 每项建议必须能追溯到事实、用户确认信息或明确标注的假设。
+- 下一步动作必须包含动作对象和完成条件；存在明确时限时写出时限。
+- 不得把用户没有确认的信息写成事实。
+- 命中红线时不能生成正式服务卡片。
+
 # 追问与修正规则
 
 - 追问时优先使用当前卡片、最新报告和新增资料。
@@ -376,6 +497,10 @@ permissions:
 - 信息冲突、缺失、低置信度时的处理方式。
 - 连续追问和用户纠偏时的行为规则。
 - 可使用的 Skills 和所需 Capability。
+- 生成前必须确认的字段、提问方式和允许使用的默认值。
+- 交付物必须包含的章节、表格、附件和格式。
+- 质量评分维度、最低分、红线和允许修订次数。
+- 是否允许根据结果提出 Skill 更新候选。
 - 正例、反例和边界样例。
 
 ### 6.7 不能只写在 Markdown 中的规则
@@ -396,7 +521,20 @@ permissions:
 
 ## 7. Agent Markdown 编译器
 
-Agent Markdown 编译器不是模型执行器。它负责把人易于维护的专家文件，转换成平台可校验、可版本化、可执行的 `CustomAgentConfig` 和关联配置。
+Agent Markdown 编译器不是模型执行器。它负责把人易于维护的专家文件转换成平台可校验、可版本化、可执行的 `CompiledExpertDefinition`。`CustomAgentConfig` 只是其中的模型与工具运行配置，不再承载全部专家语义。
+
+建议编译结果至少包含：
+
+```text
+CompiledExpertDefinition
+  ├─ CustomAgentConfig
+  ├─ IntakeContract
+  ├─ DeliverableContract
+  ├─ QualityPolicy
+  ├─ SkillBindings
+  ├─ CapabilityBindings
+  └─ LearningPolicy
+```
 
 编译流程：
 
@@ -406,6 +544,8 @@ Agent Markdown 编译器不是模型执行器。它负责把人易于维护的�
   -> 校验字段与版本
   -> 解析正文和文件引用
   -> 解析 Skills 与 Capability
+  -> 编译 Required Inputs 与 Clarification Policy
+  -> 编译 Deliverable Spec 与 Quality Rubric
   -> 生成规范化配置
   -> 计算定义哈希
   -> 输出兼容性报告
@@ -417,12 +557,22 @@ Agent Markdown 编译器不是模型执行器。它负责把人易于维护的�
 1. 将正文编译为系统提示词或提示词片段。
 2. 将 `max_turns` 映射到执行器轮次，并受平台上限约束。
 3. 将 Skills 绑定为带包名和版本的稳定引用。
-4. 将来源平台工具名转换为抽象 Capability。
-5. 将卡片、报告和产物声明转换为 Output Contract。
-6. 检查缺失文件、Skill、Capability 和非法路径。
-7. 检查危险权限、超长提示词和冲突配置。
-8. 保存源文件哈希、编译结果哈希和编译诊断。
-9. 不覆盖正在使用的旧版本。
+4. 解析每个说明型 Skill 的入口文件、摘要、长度和依赖，并生成可加载索引。
+5. 将来源平台工具名转换为抽象 Capability。
+6. 将 `required_inputs` 编译为 Intake Contract 和前端可渲染问题。
+7. 将卡片、报告、章节和产物声明转换为 Deliverable Contract。
+8. 将评分维度、最低分和红线编译为 Quality Policy。
+9. 检查缺失文件、Skill、Capability、非法路径和循环依赖。
+10. 检查危险权限、超长提示词、重复字段和冲突配置。
+11. 保存源文件哈希、编译结果哈希和编译诊断。
+12. 不覆盖正在使用的旧版本。
+
+兼容策略：
+
+- `schema_version: "1.0"` 的包继续允许导入，但没有声明的 Intake、Deliverable 和 Quality 字段使用平台保守默认值。
+- V1 包在后台显示“基础模式”，不能宣称已通过专家工作流质量门禁。
+- 管理员可以在不修改原始包的前提下增加租户级覆盖配置，但覆盖配置必须独立版本化并参与定义哈希。
+- 编译器只建立 Skill 索引；运行时仍需由 Skill Loader 读取已锁定版本的正文。
 
 编译器解决的是“定义如何进入平台”，不是“Agent 是否回答正确”。正确性由评测、运行校验和用户反馈共同保证。
 
@@ -432,23 +582,32 @@ Agent Markdown 编译器不是模型执行器。它负责把人易于维护的�
 
 ```text
 事件或用户请求
-  -> 创建/定位 ServiceThread
-  -> 选择 Agent 版本
-  -> 组装受权限约束的上下文
-  -> 执行 Agent 和工具
-  -> 校验 agent_result_v1
-  -> 去重、合并和状态决策
-  -> 更新服务卡片
-  -> 保存报告与产物
-  -> 记录 AgentRun 和证据
+  -> 创建 AgentRun 并锁定 Agent/Skill/模型版本
+  -> Intake Validator 检查 required_inputs
+  -> [信息不足] 保存问题并进入 waiting_input
+  -> [用户补充] 生成 RequirementSnapshot 并恢复运行
+  -> Context Builder 组装事实、记忆、文件和线程摘要
+  -> Skill Loader 加载实际 SKILL.md 和必要参考文件
+  -> Planner 形成执行计划和交付检查清单
+  -> AgentEngine 生成初稿
+  -> 确定性 Validator 检查结构、计算、红线和产物
+  -> LLM Critic 按 Quality Rubric 评分并给出修改指令
+  -> [未通过] Reviser 定向修订，最多两轮
+  -> [通过] 校验 agent_result_v1
+  -> 更新服务卡片并保存报告与产物
+  -> 记录步骤、Skill、质量评分、证据和成本
 ```
 
-### 8.2 Headless Agent Runner
+正式运行必须把“业务生成”和“结果包装”分开。Writer 负责生成满足 Deliverable Contract 的内容，Result Packager 再生成三字段卡片和最终 `agent_result_v1`，避免为了满足 JSON Schema 压缩专家的思考和报告结构。
+
+### 8.2 Expert Workflow Runner
 
 服务事项可能由记忆事件、定时任务或批处理触发，不能依赖用户正在聊天。Headless Runner 负责：
 
 - 按版本加载 Agent 和 Skills。
 - 创建 `AgentRun`。
+- 锁定 Agent 定义、Skill、模型、提示词模板和 Quality Policy 版本。
+- 执行 Intake、Plan、Draft、Review、Revise 和 Package 步骤。
 - 组装工作画像、服务对象、记忆、知识库和线程摘要。
 - 执行超时、取消、重试、并发和成本控制。
 - 调用沙箱、MCP 或内部工具。
@@ -457,7 +616,77 @@ Agent Markdown 编译器不是模型执行器。它负责把人易于维护的�
 - 保证同一触发事件幂等。
 - 将结果交给业务服务和产物服务，不直接写任意表。
 
-### 8.3 路由与领域 Agent
+第一阶段实现原则：
+
+- 复用现有 `internal/agent/engine.go`，不另写第二套推理循环。
+- 先支持说明型 Skill。执行 Skill 和联网 Capability 按后续沙箱阶段开放。
+- 管理后台测试与用户正式调用走同一 Workflow Runner，只通过 `run_mode=test|production` 区分是否写入业务表。
+- 测试模式仍保存完整步骤和评分，但不创建正式服务卡片和长期产物。
+
+### 8.3 需求澄清与恢复
+
+Intake Validator 先使用确定性规则检查 `required_inputs`，再由模型判断是否存在影响结果方向的未声明缺口。
+
+问题设计规则：
+
+- 每轮最多提出 5 个问题。
+- 优先使用单选、多选、日期和数字输入，减少开放式长文本。
+- 推荐项必须说明它是默认建议，不能伪装成用户已确认事实。
+- 非关键字段允许使用默认值，但必须进入 `assumptions`。
+- 日期、人数、预算、地点、目标受众等影响方案结构的字段原则上不应猜测。
+
+运行暂停与恢复：
+
+```text
+running/intake
+  -> waiting_input
+  -> 用户提交 answers
+  -> 生成新的 RequirementSnapshot
+  -> 重新进入 queued
+  -> running/planning
+```
+
+同一个业务请求保留同一个 `AgentRun` 根记录，补充信息形成不可变的输入修订。用户在已经生成最终结果后主动改变目标，则创建带 `parent_run_id` 的新运行。
+
+### 8.4 Skill 加载规则
+
+专家运行必须区分三类内容：
+
+| 类型 | 处理方式 |
+| --- | --- |
+| Agent Markdown 正文 | 作为专家角色、目标和边界进入系统上下文 |
+| 说明型 Skill | 由 Skill Loader 读取 `SKILL.md` 和明确引用的参考文件，按预算装入上下文 |
+| 脚本型 Skill | 只有 Capability、依赖和沙箱检查通过后才允许执行 |
+
+加载规则：
+
+- 按 `package_id + package_version + skill_name + skill_hash` 锁定版本。
+- 保存本次实际加载的文件、哈希和截断信息。
+- Skill 内容过长时按摘要、目录和按需读取策略加载，不允许静默丢弃。
+- Agent 声明但未加载成功的必需 Skill 直接阻断运行。
+- 可选 Skill 加载失败时允许降级，但必须进入诊断。
+- 外部包 Skill、租户 Playbook 和项目记忆分层注入，优先级不能互相覆盖。
+
+### 8.5 规划、生成与修订
+
+Planner 输出内部 `execution_plan_v1`，至少包含：
+
+- 已确认需求和明确假设。
+- 报告章节及每章目的。
+- 需要读取的 Skill、证据和工具。
+- 需要进行的计算或一致性检查。
+- 交付物列表。
+- 质量检查清单。
+
+Writer 根据计划生成初稿。Critic 不能只给笼统评价，必须返回结构化的问题位置、严重级别、规则来源和修改动作。Reviser 只处理 Critic 指定的问题，避免每轮整体重写造成事实漂移。
+
+默认最多自动修订两轮。仍未通过时：
+
+- 测试模式：显示最终得分和失败项。
+- 正式模式：不发布正式卡片，将结果保留为候选草稿，并提示用户或管理员处理。
+- 命中安全、合规、越权或伪造证据红线时，不进入自动发布。
+
+### 8.6 路由与领域 Agent
 
 `memory_router` 只输出候选领域，不生成用户可见卡片。领域候选还要经过 `WorkProfileAgentSetting` 过滤。
 
@@ -478,22 +707,90 @@ tenant_id
 + time_window
 ```
 
-### 8.4 运行状态
+### 8.7 运行状态与步骤状态
 
 建议 `AgentRun` 使用：
 
 ```text
 queued
 -> running
+-> waiting_input
 -> validating
 -> succeeded
 -> failed
 -> cancelled
 ```
 
-一次修复性重试应记录为原运行的 attempt；用户主动重新生成或纠偏应创建新的 `AgentRun`，并通过 `parent_run_id` 关联。
+`AgentRun.status` 表示用户可见的总状态，`AgentRun.phase` 表示当前阶段：
+
+```text
+intake
+planning
+drafting
+reviewing
+revising
+packaging
+completed
+```
+
+每个 `AgentRunStep` 单独记录：
+
+- step type、状态和开始结束时间。
+- 使用的模型、提示词模板和 token。
+- 读取的 Skill、证据和工具。
+- 输入摘要、输出引用和错误。
+- 质量评分及修订目标。
+
+一次基础设施失败重试记录为原运行的 `attempt`；自动修订记录为新的 `AgentRunStep`；用户主动重新生成或纠偏创建新的 `AgentRun`，并通过 `parent_run_id` 关联。
+
+### 8.8 下一阶段 API
+
+保留当前创建测试运行和查询运行接口，新增：
+
+```text
+POST /api/v1/agent-runs/{run_id}/answers
+GET  /api/v1/agent-runs/{run_id}/steps
+GET  /api/v1/agent-runs/{run_id}/quality
+POST /api/v1/agent-runs/{run_id}/regenerate
+```
+
+`answers` 接口要求：
+
+- 只允许当前用户或管理员回答其有权限的运行。
+- 只接受 `waiting_input` 状态。
+- 按 Intake Contract 校验类型、选项和必填项。
+- 保存新的 Input Revision 和 Requirement Snapshot。
+- 使用幂等键防止重复提交导致重复恢复。
+- 更新为 `queued` 后重新进入现有 Agent 队列。
+
+查询运行接口在 `waiting_input` 时返回：
+
+```json
+{
+  "status": "waiting_input",
+  "phase": "intake",
+  "interaction": {
+    "schema_version": "intake_request_v1",
+    "questions": []
+  }
+}
+```
+
+管理员测试页面和后续聊天页面必须复用同一响应模型。
 
 ## 9. 统一输出协议
+
+专家工作流包含中间协议和最终协议：
+
+| 协议 | 用途 | 是否用户可见 |
+| --- | --- | --- |
+| `intake_request_v1` | 返回待补充字段、问题、选项和原因 | 是 |
+| `requirement_snapshot_v1` | 保存确认值、默认值、假设和来源 | 部分可见 |
+| `execution_plan_v1` | 保存章节、证据、Skill 和检查计划 | 管理员可见 |
+| `quality_assessment_v1` | 保存评分、红线、问题和修订指令 | 管理员可见，用户可看摘要 |
+| `agent_result_v1` | 最终卡片、报告、产物和证据信封 | 是 |
+
+中间步骤不能伪装成最终 `agent_result_v1`。处于 `waiting_input` 时不生成正式服务卡片和报告产物。
 
 ### 9.1 `agent_result_v1`
 
@@ -540,6 +837,8 @@ queued
 - 一个或多个不同类型产物。
 - 证据引用。
 - 置信度和诊断。
+
+当前后台专家测试限制为一个 `structured_report_v1` 产物，这是第一版实现限制，不是最终协议限制。V2 Workflow Runner 应允许一个主要产物和多个辅助产物，并由 Deliverable Contract 控制种类、数量和是否必需。
 
 ### 9.2 `service_card_v1`
 
@@ -683,11 +982,34 @@ queued
 | `AgentDefinitionVersion` | 编译后的 Agent 定义、提示词哈希和能力声明 |
 | `SkillDefinitionVersion` | Skill 元数据、资源索引和运行声明 |
 | `AgentRun` | 一次执行及其父运行、状态、成本、诊断和版本 |
+| `AgentRunInputRevision` | 首次请求、澄清答案和恢复运行时的不可变输入修订 |
+| `AgentRunStep` | Intake、Plan、Draft、Review、Revise、Package 的步骤记录 |
+| `AgentRequirementSnapshot` | 已确认字段、默认值、假设、缺失项和来源 |
+| `AgentQualityAssessment` | 质量维度得分、红线、问题列表和修改建议 |
 | `ServiceThread` | 卡片、客户或产物的连续追问上下文 |
 | `AgentArtifact` | 通用产物的业务索引和当前版本 |
 | `AgentArtifactVersion` | 产物的不可变内容版本和资源引用 |
 | `AgentEvalSuite` | Agent 评测用例和规则 |
 | `AgentEvalRun` | 某定义版本和模型配置的评测结果 |
+| `SkillCandidate` | 从优秀产物或用户修订中提取的 Skill 新增/修改候选 |
+
+`AgentRun` V2 建议补充：
+
+```text
+parent_run_id
+run_mode
+phase
+agent_definition_version_id
+model_id
+requirement_snapshot_id
+quality_status
+quality_score
+current_step_id
+waiting_reason
+resumed_at
+```
+
+运行表只保存索引和当前状态，大段初稿、审查文本和产物内容保存到步骤输出或资源中，避免运行记录无限膨胀。
 
 ### 10.3 `AgentArtifact` 建议字段
 
@@ -820,12 +1142,41 @@ Agent 生成的报告可能不符合用户意图。纠偏不能简单覆盖旧�
 
 ### 12.3 自动质量控制
 
-- Schema 不通过：自动进行一次受控修复。
-- 产物缺失：标记运行失败，不创建正式卡片。
-- 低置信度：进入候选或人工确认，不直接发布。
-- 无证据关键结论：降低置信度或阻止正式保存。
-- 输出越权动作：删除动作并记录安全诊断。
+质量门禁由两部分组成：
+
+1. 确定性 Validator：检查可以用程序明确判断的问题。
+2. LLM Critic：按专家 `quality_rubric` 判断业务质量并给出定向修改建议。
+
+平台默认质量维度：
+
+| 维度 | 默认分值 | 核心检查 |
+| --- | ---: | --- |
+| 需求覆盖 | 15 | 已确认要求是否全部进入方案 |
+| 结构完整 | 15 | 必需章节、表格、附件是否齐全 |
+| 具体与可执行 | 20 | 动作是否包含对象、负责人、时间或完成条件 |
+| 一致与可行 | 15 | 时间、人数、预算、流程是否前后一致 |
+| 证据与假设 | 10 | 事实、证据、推测和默认值是否区分 |
+| 安全与合规 | 15 | 是否命中行业和专家红线 |
+| 产物质量 | 10 | HTML/PDF/图片是否完整、可读和符合格式 |
+
+默认通过条件：
+
+- 总分不低于 85。
+- 所有必需章节和产物存在。
+- 没有安全、合规、越权和伪造证据红线。
+- 确定性计算和引用校验通过。
+
+自动处理规则：
+
+- Schema 不通过：执行一次结构修复，不改变业务结论。
+- 必需章节或产物缺失：进入定向修订。
+- 预算、总数或日期计算不一致：由程序指出具体字段后修订。
+- 无证据关键结论：改写为明确假设、待确认项或删除结论。
+- 输出越权动作：阻断发布并记录安全诊断，不能只静默删除。
 - 重复事项：合并到已有卡片，不创建重复记录。
+- 自动修订最多两轮，超过后转为候选草稿或人工处理。
+
+Critic 应与 Writer 使用隔离提示词。条件允许时可以使用不同模型，避免生成者直接自评造成稳定偏差。
 
 用户纠偏应沉淀为评测用例，避免相同错误在新版本中反复出现。
 
@@ -1110,6 +1461,63 @@ evals/
 
 高价值纠偏样例经过脱敏和审核后，可以加入回归集。
 
+### 17.5 专家质量基准
+
+每个准备正式发布的专家至少维护 20 个固定用例，成熟专家建议 50 个以上。用例必须包含：
+
+- 信息完整且应直接生成的任务。
+- 缺少关键字段、必须先追问的任务。
+- 包含冲突信息和错误事实的任务。
+- 容易命中行业安全或合规红线的任务。
+- 需要不同产物格式的任务。
+- 用户纠偏后重新生成的任务。
+
+版本对比必须锁定：
+
+- 相同用户输入和 Requirement Snapshot。
+- 相同模型或明确标注模型差异。
+- 相同知识库和项目上下文。
+- 相同评分规则。
+
+对照指标：
+
+| 指标 | 目标 |
+| --- | --- |
+| 必需章节覆盖率 | 100% |
+| 关键假设标注率 | 100% |
+| 红线违规数 | 0 |
+| 责任人/时间/完成条件覆盖率 | 不低于 90% |
+| 预算和数量计算正确率 | 100% |
+| 质量门禁通过率 | 核心用例不低于 90% |
+| 用户接受率 | 持续高于上一个稳定版本 |
+| 用户修改距离 | 持续下降 |
+| PDF/HTML 渲染通过率 | 100% |
+
+与 WorkBuddy 等外部产物做盲评时，不能只比较字数。评审者应隐藏来源，按需求覆盖、具体程度、风险控制、可执行性、产物可读性和需要人工修改的程度评分。
+
+### 17.6 Skill 经验晋升
+
+系统可以从以下来源提出 `SkillCandidate`：
+
+- 高评分且被用户接受的报告。
+- 用户对报告的实质性修改。
+- 多个评测用例重复出现的缺陷修复。
+- 管理员新增的行业规则和红线。
+
+晋升流程：
+
+```text
+运行或修改记录
+  -> 提取候选规则
+  -> 与现有 Skill 做差异对比
+  -> 运行固定回归集
+  -> 管理员审核
+  -> 生成新的 SkillDefinitionVersion
+  -> 灰度发布
+```
+
+禁止模型直接覆盖已发布 Skill。候选必须显示来源、适用范围、可能影响的用例和回归结果，支持拒绝、修改、发布和回退。
+
 ## 18. 行业项目可借鉴的模式
 
 类似需求在 Agent 框架和执行产品中普遍存在，但通常由使用方完成产品层组合：
@@ -1125,121 +1533,185 @@ evals/
 
 ## 19. 分阶段实施路线
 
-### 阶段一：AgentRun 执行队列
+### 阶段零：第一版平台基线，已完成
 
-目标：先把当前同步的服务生成改成可排队、可查询、可失败记录的后台运行入口，类似现有文档处理和服务生成的任务化模式。
+当前分支已经完成：
 
-- 新增 `AgentRun` 记录，状态包括 `queued`、`running`、`succeeded`、`failed`、`cancelled`。
-- 新增 `agent` 队列和 Agent Worker。
-- 将现有日报生成接入队列。
-- 将现有记忆生成服务卡片接入队列。
-- 前端提交任务后返回 `run_id`，通过轮询查看状态。
-- 建立基础幂等、失败记录和取消入口。
-- 不接入外部系统写入。
-- 暂不做独立 Sandbox Runner、用户配额和自动扩容。
+- `AgentRun` 队列、Worker、状态查询、失败记录和取消。
+- 日报、记忆服务生成和专家测试运行类型。
+- ZIP 专家包上传、解析、诊断、幂等重导入和版本存储。
+- Agent Markdown 基础编译、版本发布和工作画像绑定。
+- 管理后台专家列表、详情、发布、绑定和模型测试。
+- `agent_result_v1`、`service_card_v1` 和单一结构化报告校验。
 
-验收结果：
+阶段零的验收结论是“平台链路可运行”，不代表专家回答质量已经达标。
 
-- 点击生成后 HTTP 不再等待模型执行完成。
-- 日报和服务卡片可以通过后台队列生成。
-- 成功后刷新现有服务工作台数据。
-- 失败时用户能看到任务失败，后台能看到错误原因。
-- 后续内置 Agent 和外部 Agent 都能复用同一个运行入口。
+### 阶段一：Expert Workflow V2 核心，P0，已完成
 
-### 阶段二：统一输出协议
+目标：将专家测试从一次模型调用升级为可暂停、可恢复、可审计的工作流。
 
-目标：让现有内置服务 Agent 使用稳定协议，为后续管理员发布 Agent 打基础。
+- 已新增 `waiting_input` 状态和 `phase` 字段。
+- 已新增 `AgentRunInputRevision`、`AgentRequirementSnapshot` 和 `AgentRunStep`。
+- 已编译并执行 `required_inputs` 与 `clarification_policy`，平台确定性校验优先于模型判断。
+- 后台测试弹窗已支持结构化追问、提交答案和恢复运行。
+- 已实现专家包级 Skill Loader，真正读取说明型 `SKILL.md` 并校验哈希。
+- 已记录 Agent、Skill、模型和执行步骤。
+- 已复用现有 AgentEngine 执行 Plan、Draft 和 Package。
+- 测试模式已统一使用 Expert Workflow Runner。
+- 当前仍不开放脚本型 Skill、外部系统写入和普通用户导入。
 
-- 保留当前 `builtin-service-assistant` 和服务领域。
-- 引入 `agent_result_v1`、`service_card_v1` 和 `structured_report_v1`。
-- 卡片正文收敛到标题、摘要、下一步动作。
-- 报告保存结构化源数据并统一渲染 HTML。
-- `AgentRun` 记录 Agent 版本、输入证据、输出协议和校验结果。
-- 不接入外部系统写入。
+建议实现落点：
 
-验收结果：
-
-- 同一服务流程不再依赖自由文本解析。
-- 卡片和报告可以追溯到运行、Agent 版本和证据。
-
-### 阶段三：Agent Markdown 与管理员发布中心
-
-目标：后台管理员接入外部 Agent 包时不再改业务代码，普通用户只使用管理员发布的版本。
-
-- 定义 ruile Expert Package。
-- 实现 Admin Agent Package Importer。
-- 实现 Source Adapter 机制，WorkBuddy 只是首个可选适配器。
-- 实现 Agent Markdown Compiler。
-- 建立版本化 Agent/Skill Registry。
-- 增加 Capability Resolver 和兼容性报告。
-- 导入基础评测文件，并在启用前执行核心回归用例。
-- 增加管理员发布、停用、回退和绑定工作画像/服务领域流程。
+| 层 | 主要改动 |
+| --- | --- |
+| 类型与迁移 | 扩展 `AgentRun`，新增 Input Revision、Requirement Snapshot 和 Run Step |
+| 专家编译 | 扩展 `expert_package.go`，编译 Intake、Deliverable、Quality 和 Skill 索引 |
+| 运行服务 | 新增 Expert Workflow Runner，让现有 `agent_run_expert.go` 委托工作流执行 |
+| Skill | 新增包级 Skill Loader，从已锁定 Package Version 中读取正文 |
+| API | 已增加 answers、steps、quality 和 regenerate 接口 |
+| Admin | 已增加追问表单、步骤轨迹、质量评分和纠偏重新生成入口 |
+| 测试 | 已覆盖暂停恢复、输入版本、Skill 缺失、版本锁定和确定性规则 |
 
 验收结果：
 
-- 纯提示词和说明型 Skills 的 Agent 可以由管理员导入、评测、发布和启用。
-- 缺失能力在安装阶段明确显示。
-- 普通用户不能导入或修改 Agent，只能使用已发布并授权的 Agent。
+- 输入“幼儿园制定国庆亲子运动会方案”时，系统先询问日期、规模、场地和活动形式等关键问题。
+- 未回答关键问题前不生成正式服务卡片和报告。
+- 补充答案后可以恢复同一个运行，不要求用户重新输入原问题。
+- 运行详情显示使用的 Agent、Skill、模型和每个步骤。
+- 删除或损坏必需 `SKILL.md` 时运行被阻断，而不是静默退化。
 
-### 阶段四：线程与通用产物
+### 阶段二：质量门禁与自动修订，P0，已完成基础闭环
 
-目标：支持追问、纠偏和不同类型交付物。
+目标：让专家结果在交付前经过可量化检查，先达到 WorkBuddy 同类质量，再建立可持续超越能力。
 
-- 增加 `ServiceThread`。
-- 增加 `AgentArtifact` 和版本模型。
+- 将 Agent Markdown 升级为 V2 编译结果。
+- 支持 `deliverable_spec`、`quality_rubric`、红线和修订次数。
+- 已实现报告长度、必需章节、关键假设标注和阻断问题的确定性 Validator。
+- 已实现结构化质量评估和隔离的 LLM Critic。
+- 已实现最多两轮定向 Reviser。
+- 管理后台已展示总分、分项分数、红线、问题列表和通过状态。
+- 已支持从已完成/失败运行创建带 `parent_run_id` 的纠偏子运行。
+- 预算合计、日期计算、引用完整性和 WorkBuddy 盲评仍需在下一轮评测集阶段补齐。
+
+建议实现落点：
+
+| 层 | 主要改动 |
+| --- | --- |
+| 质量规则 | 建立 Validator Registry，区分通用规则和专家包规则 |
+| Critic | 定义 `quality_assessment_v1`，使用隔离提示词和可替换模型 |
+| 修订 | 根据 assessment 生成定向修订步骤，限制最大轮次 |
+| 数据 | 保存分项得分、红线、问题定位和修订前后引用 |
+| Admin | 展示评分雷达、问题列表、修订差异和最终结论 |
+| 测试 | 建立固定用例、预算计算、安全红线和回归测试 |
+
+验收结果：
+
+- 必需章节覆盖率 100%，关键假设标注率 100%。
+- 安全、合规、越权和伪造证据红线为 0。
+- 预算和数量计算校验通过。
+- 未达到 85 分时不发布正式结果，并能显示明确失败原因。
+- 同一需求、相同确认信息和相同模型下，Ruile 结果盲评不低于 WorkBuddy。
+
+### 阶段三：聊天调用、服务卡片与连续追问，P1
+
+目标：让普通用户在聊天窗口和服务模块使用管理员已发布的专家。
+
+- 聊天窗口支持选择已绑定专家。
+- 展示待补充信息卡片、结构化选项和运行进度。
+- 最终结果生成三字段服务卡片和详细报告。
+- 增加 `ServiceThread`，关联卡片、运行、需求快照和当前报告。
+- 支持解释型追问、内容修改、补充资料、重新生成和切换专家。
+- 纠偏创建子运行和新版本，不覆盖原结果。
+- 普通用户仍不能上传、编辑或发布专家包。
+
+验收结果：
+
+- 用户可以在一次连续交互中完成提问、补充信息、查看卡片和打开报告。
+- 解释型追问只生成消息，不制造文件。
+- 修改型追问生成新版本，并可查看修改前后差异。
+- 专家测试与聊天正式调用使用同一执行链路。
+
+### 阶段四：通用产物与报告交付，P1
+
+目标：支持不同专家交付文本、Markdown、HTML、PDF、图片和 Office 文件。
+
+- 增加 `AgentArtifact` 和 `AgentArtifactVersion`。
 - 复用 `StoredResource` 的临时/长期生命周期。
+- 结构化报告先渲染可信 HTML，再按需导出 PDF。
+- 建立 HTML/PDF 渲染检查，包括分页、表格溢出、字体和空白页。
 - 建立临时产物保存、升级和清理任务。
 - 建立产物中心和多入口历史查询。
-- 支持 HTML、图片、PDF 和文本产物。
+- 将当前“只能返回一个报告”的测试限制扩展为主要产物加辅助产物。
 
 验收结果：
 
-- 普通追问不产生文件。
-- 正式修改生成新版本。
-- 用户可保存、检索和查看历史产物。
+- 专家可以按声明生成不同产物组合。
+- HTML 和 PDF 内容一致，渲染检查通过率 100%。
+- 用户保存、分享、确认或正式关联后，临时产物自动升级为长期产物。
+- 历史产物通过数据库索引查询，不依赖 OSS 目录。
 
-### 阶段五：分享与发布
+### 阶段五：评测集与 Skill 经验治理，P1
 
-目标：安全地把正式产物提供给外部浏览器用户。
+目标：让管理员能够持续升级专家，而不依赖逐份人工试答。
 
-- 建立 HTML/PDF 渲染服务。
-- 建立独立报告域名和 Share Gateway。
-- 支持过期、撤销、密码和版本锁定。
-- 分享行为自动将临时产物升级为长期产物。
-- 增加访问审计。
+- 增加 `AgentEvalSuite`、`AgentEvalRun` 和固定测试集。
+- 支持专家版本、模型、Skill 的 A/B 对比。
+- 发布前自动执行核心回归用例和质量门禁。
+- 收集用户接受、拒绝、修改和重新生成行为。
+- 从高质量运行和用户修改中生成 `SkillCandidate`。
+- 管理员审核候选后生成新的 Skill 版本，支持灰度和回退。
 
 验收结果：
 
-- 用户可在浏览器中查看分享的 HTML。
-- OSS 保持私有，分享链接可控且可撤销。
+- 每个正式专家至少有 20 个固定用例。
+- P0 用例失败时禁止发布。
+- 管理员可以查看新旧版本质量、成本、延迟和失败项差异。
+- Skill 不会被模型自动覆盖，所有晋升都有来源、审核和版本记录。
 
-### 阶段六：脚本、联网和专用能力
+### 阶段六：脚本、联网和专用能力，P2
 
-目标：覆盖更复杂的外部 Agent。
+目标：覆盖包含脚本、联网、MCP 和专用文件生成能力的复杂专家包。
 
-- 扩展沙箱工作目录和产物回收。
-- 支持版本化 Python/Node 运行时。
-- 支持 Skill 依赖解析。
-- 增加网络白名单和 Secrets Broker。
+- 扩展 AgentRun 级沙箱工作目录和产物回收。
+- 支持版本化 Python/Node 运行时和 Skill 依赖解析。
+- 增加网络白名单、Secrets Broker 和短期凭证。
 - 自动绑定 MCP 和连接器。
 - 按需求增加 PPTX、Office、本地应用等专用 Capability。
 
 验收结果：
 
-- 离线脚本和受控联网专家可以安全运行。
+- 离线脚本和受控联网专家只能在隔离环境运行。
 - 专家包不持有平台主密钥。
+- 工具调用、网络访问和文件输出均可审计。
 
-### 阶段七：完整质量与运营治理
+### 阶段七：分享与规模治理，P2
 
-目标：Agent 数量增长后仍可持续维护。
+目标：安全分享正式产物，并为后续大量用户使用建立治理能力。
 
-- 扩展 Agent Evaluation、自动判分和完整发布门禁。
-- 版本差异、灰度和一键回退。
-- 质量、成本和失败诊断仪表盘。
-- Git 或后台登记源更新检查。
-- 自动停用明显异常版本。
+- 建立独立报告域名和 Share Gateway。
+- 支持过期、撤销、密码、版本锁定和访问审计。
+- 增加版本灰度、一键回退、质量与成本仪表盘。
+- 增加租户配额、并发隔离、Worker 扩容和异常版本自动停用。
+
+验收结果：
+
+- OSS 保持私有，浏览器分享链接可控且可撤销。
+- 单个租户或专家异常不会阻塞全部运行队列。
+- 管理员能够定位失败发生在哪个步骤、模型、Skill 或工具。
+
+当前版本按用户决策暂不以前置服务器扩容为重点。阶段一和阶段二复用现有队列，先验证质量闭环；容量治理在真实使用量形成后实施。
 
 ## 20. 首批 Agent 建议
+
+阶段一和阶段二只选择少量专家验证完整质量链路，不以专家数量作为进度指标。
+
+首个端到端验收专家：
+
+| Agent ID | 用途 | 选择原因 | 重点验收 |
+| --- | --- | --- | --- |
+| `kindergarten-activity-planner` | 幼儿园活动方案策划 | 已有 WorkBuddy 包和同题基准报告，便于直接对照 | 结构化追问、Skill 加载、12 章交付、安全红线、预算校验、HTML/PDF |
+
+服务模块首批业务 Agent：
 
 | Agent ID | 用户可见 | 主要职责 | 主要输出 |
 | --- | --- | --- | --- |
@@ -1251,34 +1723,84 @@ evals/
 | `after-sale-risk` | 是 | 识别交付、售后和关系风险 | 卡片 + 报告 |
 | `daily-review` | 是 | 汇总重点事项和下一步动作 | 日报 |
 
-首批不建议一次发布大量外部 Agent。先用统一协议验证卡片准确率、重复率、追问体验、产物保存率和纠偏闭环，再逐步扩展。
+`kindergarten-activity-planner` 用于证明平台可以执行一个复杂外部专家；服务模块 Agent 用于验证卡片、记忆和工作画像业务闭环。两类专家共用同一 Workflow Runner、质量门禁和产物机制。
+
+首批不建议一次发布大量外部 Agent。先用固定评测集验证需求澄清率、Skill 实际加载率、卡片准确率、追问体验、质量门禁通过率、产物保存率和纠偏闭环，再逐步扩展。
 
 ## 21. 关键验收标准
 
-平台最终应满足：
+### 21.1 下一版本验收，阶段一与阶段二
 
-- 管理员可以导入一个外部 Agent 包，来源可以是 WorkBuddy、其他适配来源或 ruile 原生格式。
-- 系统识别 Agent、Skills、资源、脚本和评测文件。
-- 安装前展示支持、降级和阻断项。
-- Agent Markdown 被编译为不可变、可追溯的运行配置。
-- 只有管理员发布的 Agent 版本可以被普通用户调用。
+功能验收：
+
+- 管理员导入并发布 `kindergarten-activity-planner` 后，可以在后台发起专家工作流测试。
+- 系统能够从专家定义生成结构化澄清问题。
+- 运行可以进入 `waiting_input`，补充答案后恢复执行。
+- 专家声明的说明型 Skill 正文被实际加载，并在运行轨迹中显示文件和哈希。
+- Expert Workflow Runner 使用 Plan、Draft、Review、Revise、Package 步骤，不再只执行一次 `Chat()`。
+- 最终结果仍符合三字段服务卡片和统一产物协议。
+- 质量未通过时不生成正式结果，管理员能看到评分、红线和修订历史。
+
+质量验收：
+
+| 指标 | 通过标准 |
+| --- | --- |
+| 必需输入识别率 | 固定用例 100% |
+| 必需 Skill 加载率 | 100% |
+| 必需章节覆盖率 | 100% |
+| 关键假设标注率 | 100% |
+| 红线违规数 | 0 |
+| 预算/数量/日期校验正确率 | 100% |
+| 质量门禁通过率 | 核心正向用例不低于 90% |
+| 失败诊断可定位率 | 100% 能定位到步骤 |
+| 同题盲评 | 不低于 WorkBuddy 基准 |
+
+固定验收题使用：
+
+```text
+幼儿园制定国庆亲子运动会方案
+```
+
+至少验证两种路径：
+
+1. 不提供补充信息：必须先追问，不能直接生成正式方案。
+2. 提供日期、规模、场地、形式和预算：生成完整报告并通过质量门禁。
+
+### 21.2 聊天与服务模块验收，阶段三
+
+- 只有管理员发布并绑定的专家可以被普通用户调用。
 - 普通用户不能上传、导入、安装或编辑 Agent 包。
-- 记忆事件和用户请求都能触发后台 Agent。
-- Agent 输出通过统一协议生成三字段服务卡片。
-- 详细结果可以是文本、报告、HTML、图片、PDF 或其他声明过的产物。
-- 用户可以围绕卡片继续追问。
-- 错误结果可以纠偏、换 Agent 和生成新版本。
-- 普通问答不会持续制造文件。
-- 新产物默认临时，保存或分享后转为长期。
+- 聊天窗口可以展示结构化问题、运行状态、三字段卡片和详细报告。
+- 追问沿用同一 ServiceThread，不无限拼接历史全文。
+- 用户纠偏后产生新运行和新版本，旧结果可查看且不被覆盖。
+- 解释型追问不生成文件，正式修改才生成产物版本。
+
+### 21.3 产物与治理验收，阶段四以后
+
+- 详细结果可以是文本、报告、HTML、图片、PDF 或专家声明的其他产物。
+- 新产物默认临时，保存、分享或正式关联后转为长期。
 - 历史产物通过数据库索引查询，不依赖 OSS 目录。
-- HTML 可以在独立报告域名安全查看和撤销分享。
-- 每个结果可以追溯 Agent 版本、运行、工具和证据。
+- HTML 可以在独立报告域名安全查看并撤销分享。
+- 每个结果可以追溯 Requirement Snapshot、Agent、Skill、模型、步骤、工具、证据和质量评分。
 - 新版本评测失败时不能替换稳定版本。
 - 增加同类专家不需要修改服务卡片和产物业务代码。
+- Skill 更新必须经过候选、评测、管理员审核和版本发布。
+
+### 21.4 非验收方式
+
+以下现象不能单独证明专家质量达标：
+
+- 报告字数更多。
+- 模型返回了合法 JSON。
+- 包中存在 `skills/` 目录。
+- 页面显示运行成功。
+- 单个演示问题看起来合理。
+
+验收必须基于固定输入、确认需求、运行轨迹、质量评分、红线、产物检查和盲评结果。
 
 ## 22. 最终建议
 
-本项目应建设的不是“一个能读取 WorkBuddy Markdown 的功能”，而是一个由后台管理员维护、可持续接入不同来源 Agent 包的服务 Agent 平台。
+本项目应建设的不是“一个能读取 WorkBuddy Markdown 的功能”，也不是“把专家提示词调用一次并包装成 JSON”，而是一个由后台管理员维护、可以执行专家方法论、验证交付质量并持续积累经验的服务 Agent 平台。
 
 推荐长期结构：
 
@@ -1292,11 +1814,16 @@ evals/
   -> 版本化 Agent/Skill Registry
   -> 评测与发布门禁
   -> 管理员发布与绑定
-  -> Headless Agent Runner
+  -> Intake 与 Requirement Snapshot
+  -> Versioned Skill Loader
+  -> Plan / Draft / Review / Revise
+  -> Quality Gate
   -> agent_result_v1
   -> ServiceReminder / AgentWorkDoc / AgentArtifact
   -> 临时保存、历史检索、HTML/PDF 渲染和分享
+  -> 用户反馈与 Skill Candidate
+  -> 管理员审核和新版本发布
   -> 灰度和回退
 ```
 
-以后只有在新 Agent 需要平台尚不存在的 Capability 时，才开发一次通用适配器。对已经支持的能力，新增 Agent 应主要是管理员导入定义、配置依赖、运行评测、发布和灰度启用，从而把未来运营成本从“持续开发功能”转为“管理 Agent 内容和质量”。
+最新研发顺序应从阶段一开始：先让说明型 Skill 真正参与运行，并完成需求澄清、审查和修订；再接入聊天、产物和经验治理。以后只有在新 Agent 需要平台尚不存在的 Capability 时，才开发一次通用适配器。对已经支持的能力，新增 Agent 应主要是管理员导入定义、配置依赖、运行评测、发布和灰度启用，从而把未来运营成本从“持续开发功能”转为“管理专家内容、评测集和质量规则”。

@@ -246,6 +246,11 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true }
         },
         {
+          path: "chat",
+          redirect: "/platform/creatChat",
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
           path: "chat/:chatid",
           name: "chat",
           component: () => import("../views/chat/index.vue"),

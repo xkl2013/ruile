@@ -167,6 +167,72 @@ func (h *ServiceHandler) GetAgentRun(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": run})
 }
 
+func (h *ServiceHandler) GetAgentRunQuality(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	quality, err := h.agentRuns.GetAgentRunQuality(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": quality})
+}
+
+func (h *ServiceHandler) ListAgentRunSteps(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	steps, err := h.agentRuns.ListAgentRunSteps(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": steps})
+}
+
+func (h *ServiceHandler) SubmitAgentRunAnswers(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.AgentRunAnswersInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid agent run answers").WithDetails(err.Error()))
+		return
+	}
+	run, err := h.agentRuns.SubmitAgentRunAnswers(ctx, tenantID, userID, c.Param("id"), input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ServiceHandler) RegenerateAgentRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.AgentRunRegenerateInput
+	if err := c.ShouldBindJSON(&input); err != nil && !stderrors.Is(err, io.EOF) {
+		c.Error(apperrors.NewBadRequestError("invalid agent run regeneration request").WithDetails(err.Error()))
+		return
+	}
+	run, err := h.agentRuns.RegenerateAgentRun(ctx, tenantID, userID, c.Param("id"), input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
 func (h *ServiceHandler) CancelAgentRun(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := serviceScope(c)
@@ -509,7 +575,9 @@ func (h *ServiceHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, appsvc.ErrServiceInvalidStatus),
 		stderrors.Is(err, appsvc.ErrServiceProfileNotConfigured),
 		stderrors.Is(err, appsvc.ErrAgentRunInvalidRequest),
-		stderrors.Is(err, appsvc.ErrAgentRunCannotCancel):
+		stderrors.Is(err, appsvc.ErrAgentRunCannotCancel),
+		stderrors.Is(err, appsvc.ErrAgentRunNotWaitingInput),
+		stderrors.Is(err, appsvc.ErrAgentRunCannotRegenerate):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	case stderrors.Is(err, appsvc.ErrAgentRunNotFound):
 		c.Error(apperrors.NewNotFoundError(err.Error()))

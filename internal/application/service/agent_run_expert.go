@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
@@ -106,6 +105,25 @@ func (s *agentRunService) EnqueueExpertTest(
 	userID string,
 	input types.ExpertAgentTestInput,
 ) (*types.AgentRun, error) {
+	return s.enqueuePublishedExpertRun(ctx, tenantID, userID, input, "admin_test")
+}
+
+func (s *agentRunService) EnqueuePublishedExpertRun(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	input types.ExpertAgentTestInput,
+) (*types.AgentRun, error) {
+	return s.enqueuePublishedExpertRun(ctx, tenantID, userID, input, "published_expert")
+}
+
+func (s *agentRunService) enqueuePublishedExpertRun(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	input types.ExpertAgentTestInput,
+	triggerType string,
+) (*types.AgentRun, error) {
 	if err := validateServiceScope(tenantID, userID); err != nil {
 		return nil, err
 	}
@@ -145,7 +163,7 @@ func (s *agentRunService) EnqueueExpertTest(
 		AgentRef:     definition.AgentID,
 		AgentVersion: definition.Version,
 		ProfileID:    input.ProfileID,
-		TriggerType:  "admin_test",
+		TriggerType:  triggerType,
 		TriggerID:    definition.ID,
 		Input:        runInput,
 	}, agentRunIdempotencyKey(tenantID, userID, types.AgentRunTypeExpertAgentTest, runInput))
@@ -189,48 +207,7 @@ func (s *agentRunService) executeExpertAgentTest(
 	if err != nil {
 		return types.AgentResultV1{}, nil, "", fmt.Errorf("get expert test model: %w", err)
 	}
-	thinking := expertDefinitionBool(definition.CompiledConfig, "thinking", false)
-	response, err := chatModel.Chat(tenantCtx, []chat.Message{
-		{
-			Role: "system",
-			Content: strings.TrimSpace(definition.SystemPrompt) + `
-
-# 睿乐执行结果协议
-你正在睿乐后台执行一次专家质量测试。无论原始交付格式如何，本次必须只返回一个符合 agent_result_v1 的 JSON 对象，不要在 JSON 外输出 Markdown、代码围栏或解释。
-服务卡片只能包含 title、summary、next_action 三个业务字段；详细内容必须放入唯一的 primary report 产物。
-当请求信息足以形成行动建议时，decision.should_create_card 设为 true 并提供 card；缺少关键事实时可设为 false，此时不要提供 card，并在报告的 missing_information 与 recommended_actions 中说明如何补齐。
-不要编造来源证据。没有可核验来源时 evidence 和 evidence_refs 返回空数组。`,
-		},
-		{
-			Role:    "user",
-			Content: "请处理以下请求，并按睿乐执行结果协议返回结果：\n\n" + input.Prompt,
-		},
-	}, &chat.ChatOptions{
-		Temperature: expertDefinitionFloat(definition.CompiledConfig, "temperature", 0.2),
-		MaxTokens:   expertDefinitionInt(definition.CompiledConfig, "max_completion_tokens", expertAgentTestDefaultTokens, expertAgentTestMaxTokens),
-		Thinking:    &thinking,
-		Format:      expertAgentResultSchema,
-	})
-	if err != nil {
-		return types.AgentResultV1{}, nil, "", fmt.Errorf("execute expert model: %w", err)
-	}
-	if response == nil || strings.TrimSpace(response.Content) == "" {
-		return types.AgentResultV1{}, nil, "", invalidAgentRunOutputError{err: errors.New("expert model returned empty output")}
-	}
-	result, err := decodeExpertAgentResult(response.Content)
-	if err != nil {
-		return types.AgentResultV1{}, nil, "", invalidAgentRunOutputError{err: err}
-	}
-	if err := validateExpertTestResultShape(result); err != nil {
-		return types.AgentResultV1{}, nil, "", invalidAgentRunOutputError{err: err}
-	}
-	return result, types.JSONMap{
-		"artifact_type": "expert_agent_test",
-		"package_id":    input.PackageID,
-		"definition_id": definition.ID,
-		"expert_name":   definition.DisplayName,
-		"model_id":      modelID,
-	}, input.ProfileID, nil
+	return s.executeExpertWorkflow(tenantCtx, run, input, definition, modelID, chatModel)
 }
 
 func (s *agentRunService) resolveExpertTestModelID(

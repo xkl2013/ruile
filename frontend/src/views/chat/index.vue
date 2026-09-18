@@ -3,6 +3,7 @@
         'is-embedded': embeddedMode,
         'is-sidebar-collapsed': uiStore.sidebarCollapsed,
         'has-references-panel': referencesDrawerVisible,
+        'has-expert-artifact-panel': activeExpertArtifact,
     }">
         <ChatHeader v-if="!embeddedMode" :session="currentSession" :has-references-panel="referencesDrawerVisible" />
         <div ref="scrollContainer" class="chat_scroll_box" @scroll="handleScroll">
@@ -88,7 +89,11 @@
                             :session-id="session_id">
                         </usermsg>
                     </div>
-                    <div v-if="session.role == 'assistant' && shouldRenderAssistantMessage(session)">
+                    <div v-if="session.role == 'assistant' && session.isPublishedExpertRun">
+                        <PublishedExpertRunMessage :message="session"
+                            @open-artifact="openExpertArtifact" />
+                    </div>
+                    <div v-else-if="session.role == 'assistant' && shouldRenderAssistantMessage(session)">
                         <botmsg :content="session.content" :session="session" :session-id="session_id"
                             :user-query="getUserQuery(index)" @scroll-bottom="scrollToBottom"
                             :isFirstEnter="isFirstEnter" :embeddedMode="embeddedMode"
@@ -119,6 +124,7 @@
         <div class="input-container" :class="{ 'is-embedded': embeddedMode }">
             <InputField ref="inputFieldRef"
                 @send-msg="(query, modelId, mentionedItems, imageFiles, attachmentFiles) => sendMsg(query, modelId, mentionedItems, imageFiles, attachmentFiles)"
+                @send-published-expert="handlePublishedExpertSend"
                 @stop-generation="handleStopGeneration" :isReplying="isReplying" :sessionId="session_id"
                 :assistantMessageId="currentAssistantMessageId" :agent-id="agentId"
                 :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"></InputField>
@@ -126,6 +132,8 @@
     </div>
     <ChatReferencesDrawer />
     <ChatAttachmentPreviewDrawer />
+    <ExpertArtifactPanel v-if="activeExpertArtifact" :artifact="activeExpertArtifact"
+        @close="activeExpertArtifact = null" />
 </template>
 <script setup>
 import { storeToRefs } from 'pinia';
@@ -134,6 +142,8 @@ import { useRoute, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import InputField from '../../components/Input-field.vue';
 import botmsg from './components/botmsg.vue';
 import usermsg from './components/usermsg.vue';
+import PublishedExpertRunMessage from './components/PublishedExpertRunMessage.vue';
+import ExpertArtifactPanel from './components/ExpertArtifactPanel.vue';
 import { getMessageList, getSession } from "@/api/chat/index";
 import { getSuggestedQuestions } from "@/api/agent/index";
 import { deleteTemporaryAttachment, uploadTemporaryAttachment } from '@/api/chat/temporary-attachments';
@@ -161,6 +171,8 @@ import {
 } from '@/api/message-suggestion';
 import { provideChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
 import { provideChatAttachmentPreviewDrawer } from '@/composables/useChatAttachmentPreviewDrawer';
+import { getServiceAgentRun } from '@/api/service';
+import { runPublishedExpert } from '@/api/expert-package';
 
 const referencesDrawer = provideChatReferencesDrawer();
 provideChatAttachmentPreviewDrawer();
@@ -254,6 +266,7 @@ const emitMessageStateChange = () => {
 };
 const isReplying = ref(false);
 const currentAssistantMessageId = ref(''); // 当前正在生成的 assistant message ID
+const activeExpertArtifact = ref(null);
 // True only while attaching to an in-flight *IM-originated* reply via continue-stream.
 // Such replies are generated on the IM side and never stream through this server, so
 // continue-stream always fails even though the answer is coming — recover by polling
@@ -667,6 +680,84 @@ const handleStopGeneration = () => {
     // 标记当前 assistant 为已结束，避免下一条 query 复用该消息行
     markInFlightAssistantStopped(currentAssistantMessageId.value);
     // 保留 currentAssistantMessageId，Input-field 仍需用它调用 stop API
+};
+
+const openExpertArtifact = (artifact) => {
+    activeExpertArtifact.value = artifact;
+};
+
+const waitForPublishedExpertRun = async (message, runId) => {
+    const deadline = Date.now() + 5 * 60 * 1000;
+    while (Date.now() < deadline) {
+        const response = await getServiceAgentRun(runId);
+        const run = response?.data;
+        if (!response?.success || !run) {
+            throw new Error(response?.message || '专家运行状态读取失败');
+        }
+        message.run = run;
+        if (run.status === 'succeeded' || run.status === 'waiting_input'
+            || run.status === 'failed' || run.status === 'cancelled') {
+            return run;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    }
+    throw new Error('专家运行超时，请稍后重试');
+};
+
+const handlePublishedExpertSend = async (value, modelId, expert) => {
+    stopStream();
+    prepareForNewOutgoingMessage();
+    isReplying.value = true;
+    loading.value = true;
+
+    const localMessageId = `published-expert-${Date.now()}`;
+    messagesList.push({
+        id: `${localMessageId}-user`,
+        content: value,
+        role: 'user',
+        channel: 'web',
+        expert_name: expert.display_name,
+    });
+    const assistantMessage = reactive({
+        id: `${localMessageId}-assistant`,
+        role: 'assistant',
+        isPublishedExpertRun: true,
+        is_completed: false,
+        expert,
+        run: {
+            status: 'queued',
+        },
+    });
+    messagesList.push(assistantMessage);
+    emitMessageStateChange();
+    scrollToBottom(true);
+
+    try {
+        const response = await runPublishedExpert(expert.package_id, expert.definition_id, {
+            prompt: value,
+            model_id: modelId || undefined,
+        });
+        if (!response?.success || !response?.data?.id) {
+            throw new Error(response?.message || '专家运行创建失败');
+        }
+        assistantMessage.run = response.data;
+        const run = await waitForPublishedExpertRun(assistantMessage, response.data.id);
+        assistantMessage.is_completed = true;
+    } catch (error) {
+        assistantMessage.run = {
+            ...(assistantMessage.run || {}),
+            status: 'failed',
+            error_message: error?.message || '专家运行失败',
+        };
+        assistantMessage.is_completed = true;
+        MessagePlugin.error(assistantMessage.run.error_message);
+    } finally {
+        isReplying.value = false;
+        loading.value = false;
+        currentAssistantMessageId.value = '';
+        await nextTick();
+        scrollToBottom(true);
+    }
 };
 
 const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = [], attachmentFiles = []) => {
@@ -1085,6 +1176,13 @@ defineExpose({
             .chat_scroll_box {
                 padding-top: 0;
             }
+        }
+    }
+
+    &.has-expert-artifact-panel:not(.is-embedded) {
+        @media (min-width: 960px) {
+            padding-right: 420px;
+            box-sizing: border-box;
         }
     }
 

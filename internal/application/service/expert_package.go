@@ -25,7 +25,10 @@ var (
 	ErrExpertPackageNotPublished    = errors.New("agent definition version is not published")
 )
 
-const expertPackageMaxPromptRunes = 24000
+const (
+	expertPackageMaxPromptRunes        = 24000
+	expertPackageMaxSkillSnapshotRunes = 120000
+)
 
 type expertPackageService struct {
 	repo        interfaces.ExpertPackageRepository
@@ -152,6 +155,13 @@ func (s *expertPackageService) ListPackages(ctx context.Context, tenantID uint64
 	return s.repo.ListPackages(ctx, tenantID)
 }
 
+func (s *expertPackageService) ListPublishedExperts(ctx context.Context, tenantID uint64) ([]*types.PublishedExpert, error) {
+	if tenantID == 0 {
+		return nil, ErrExpertPackageInvalidInput
+	}
+	return s.repo.ListPublishedExperts(ctx, tenantID)
+}
+
 func (s *expertPackageService) GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error) {
 	pkg, err := s.repo.GetPackage(ctx, tenantID, id)
 	if err != nil {
@@ -226,20 +236,36 @@ func (s *expertPackageService) ListBindings(ctx context.Context, tenantID uint64
 }
 
 type expertAgentFrontMatter struct {
-	Kind           string   `yaml:"kind"`
-	SchemaVersion  string   `yaml:"schema_version"`
-	ID             string   `yaml:"id"`
-	Version        string   `yaml:"version"`
-	DisplayName    string   `yaml:"display_name"`
-	Description    string   `yaml:"description"`
-	Domain         string   `yaml:"domain"`
-	MaxTurns       int      `yaml:"max_turns"`
-	Skills         []string `yaml:"skills"`
-	OutputContract string   `yaml:"output_contract"`
-	Capabilities   struct {
+	Kind                string                `yaml:"kind"`
+	SchemaVersion       string                `yaml:"schema_version"`
+	ID                  string                `yaml:"id"`
+	Version             string                `yaml:"version"`
+	DisplayName         string                `yaml:"display_name"`
+	Description         string                `yaml:"description"`
+	Domain              string                `yaml:"domain"`
+	MaxTurns            int                   `yaml:"max_turns"`
+	Skills              []string              `yaml:"skills"`
+	OutputContract      string                `yaml:"output_contract"`
+	RequiredInputs      []expertRequiredInput `yaml:"required_inputs"`
+	ExecutionPolicy     map[string]any        `yaml:"execution_policy"`
+	ClarificationPolicy map[string]any        `yaml:"clarification_policy"`
+	DeliverableSpec     map[string]any        `yaml:"deliverable_spec"`
+	QualityRubric       map[string]any        `yaml:"quality_rubric"`
+	LearningPolicy      map[string]any        `yaml:"learning_policy"`
+	Capabilities        struct {
 		Required []string `yaml:"required"`
 		Optional []string `yaml:"optional"`
 	} `yaml:"capabilities"`
+}
+
+type expertRequiredInput struct {
+	ID             string   `json:"id" yaml:"id"`
+	Label          string   `json:"label" yaml:"label"`
+	Type           string   `json:"type" yaml:"type"`
+	Required       bool     `json:"required" yaml:"required"`
+	AskWhenMissing bool     `json:"ask_when_missing" yaml:"ask_when_missing"`
+	Options        []string `json:"options,omitempty" yaml:"options"`
+	Description    string   `json:"description,omitempty" yaml:"description"`
 }
 
 type compiledExpertAgent struct {
@@ -295,6 +321,14 @@ func compileExpertPackage(input types.ExpertPackageImportInput) ([]compiledExper
 		if err != nil {
 			return nil, nil, err
 		}
+		config["schema_version"] = firstNonEmpty(frontMatter.SchemaVersion, "1.0")
+		config["required_inputs"] = frontMatter.RequiredInputs
+		config["execution_policy"] = cleanExpertMap(frontMatter.ExecutionPolicy)
+		config["clarification_policy"] = cleanExpertMap(frontMatter.ClarificationPolicy)
+		config["deliverable_spec"] = cleanExpertMap(frontMatter.DeliverableSpec)
+		config["quality_rubric"] = cleanExpertMap(frontMatter.QualityRubric)
+		config["learning_policy"] = cleanExpertMap(frontMatter.LearningPolicy)
+		config["skill_snapshots"] = expertSkillSnapshotsFromText(files, skills)
 		capabilities, err := expertPackageJSONMap(map[string]any{
 			"required": required, "optional": optional,
 		})
@@ -317,6 +351,34 @@ func compileExpertPackage(input types.ExpertPackageImportInput) ([]compiledExper
 		"blocking": cleanExpertStrings(blocking),
 		"warnings": cleanExpertStrings(warnings),
 	}, nil
+}
+
+func cleanExpertMap(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
+	}
+	return value
+}
+
+func expertSkillSnapshotsFromText(files map[string]string, skills []string) []map[string]any {
+	snapshots := make([]map[string]any, 0, len(skills))
+	for _, skill := range skills {
+		skillPath := path.Join("skills", skill, "SKILL.md")
+		content, ok := files[skillPath]
+		if !ok {
+			continue
+		}
+		if utf8.RuneCountInString(content) > expertPackageMaxSkillSnapshotRunes {
+			content = string([]rune(content)[:expertPackageMaxSkillSnapshotRunes])
+		}
+		snapshots = append(snapshots, map[string]any{
+			"name":    skill,
+			"path":    skillPath,
+			"content": content,
+			"sha256":  expertStringHash(content),
+		})
+	}
+	return snapshots
 }
 
 func parseExpertAgentMarkdown(content string) (expertAgentFrontMatter, string, error) {

@@ -74,6 +74,37 @@ func (r *expertPackageRepository) ListPackages(ctx context.Context, tenantID uin
 	return packages, nil
 }
 
+func (r *expertPackageRepository) ListPublishedExperts(ctx context.Context, tenantID uint64) ([]*types.PublishedExpert, error) {
+	var experts []*types.PublishedExpert
+	err := r.db.WithContext(ctx).Table("agent_definition_versions AS d").
+		Select(`
+			d.package_id,
+			d.package_version_id,
+			p.package_key,
+			p.display_name AS package_display_name,
+			p.description AS package_description,
+			v.version AS package_version,
+			d.id AS definition_id,
+			d.agent_id,
+			d.version,
+			d.display_name,
+			d.description,
+			d.domain,
+			d.output_contract,
+			d.skills,
+			d.capabilities
+		`).
+		Joins("JOIN expert_package_versions v ON v.id = d.package_version_id AND v.deleted_at IS NULL").
+		Joins("JOIN expert_packages p ON p.id = d.package_id AND p.deleted_at IS NULL").
+		Where("p.tenant_id = ? AND d.deleted_at IS NULL AND v.state = ?", tenantID, types.ExpertPackageVersionPublished).
+		Order("d.display_name ASC, d.version DESC").
+		Find(&experts).Error
+	if err != nil {
+		return nil, err
+	}
+	return experts, nil
+}
+
 func (r *expertPackageRepository) GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error) {
 	var pkg types.ExpertPackage
 	err := r.db.WithContext(ctx).

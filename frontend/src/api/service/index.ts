@@ -146,7 +146,56 @@ export interface ServiceMemoryExtraction {
   reminder?: ServiceReminderDTO
 }
 
-export type ServiceAgentRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type ServiceAgentRunStatus = 'queued' | 'running' | 'waiting_input' | 'succeeded' | 'failed' | 'cancelled'
+
+export type ServiceAgentRunPhase = 'intake' | 'planning' | 'drafting' | 'reviewing' | 'revising' | 'packaging' | 'completed'
+
+export interface ExpertIntakeQuestion {
+  id: string
+  label: string
+  type: 'text' | 'single_choice' | 'multi_choice' | 'date' | 'number'
+  required: boolean
+  options?: string[]
+  description?: string
+}
+
+export interface ExpertIntakeInteraction {
+  schema_version: 'intake_request_v1'
+  questions: ExpertIntakeQuestion[]
+}
+
+export interface ServiceAgentRunQualityIssue {
+  code: string
+  severity: 'warning' | 'error' | 'red_line'
+  section?: string
+  message: string
+  instruction: string
+}
+
+export interface ServiceAgentRunQuality {
+  score?: number
+  passed?: boolean
+  summary?: string
+  red_lines?: string[]
+  dimensions?: Record<string, number>
+  issues?: ServiceAgentRunQualityIssue[]
+}
+
+export interface ServiceAgentRunStep {
+  id: string
+  run_id: string
+  sequence: number
+  step_type: ServiceAgentRunPhase
+  status: 'running' | 'succeeded' | 'failed'
+  model_id?: string
+  input?: Record<string, unknown>
+  output?: Record<string, unknown>
+  error?: string
+  started_at?: string
+  finished_at?: string
+  created_at?: string
+  updated_at?: string
+}
 
 export interface ServiceCardV1 {
   schema_version: 'service_card_v1'
@@ -215,19 +264,25 @@ export interface ServiceAgentRun {
   tenant_id: number
   user_id: string
   profile_id?: string
+  parent_run_id?: string
+  requirement_snapshot_id?: string
   run_type: 'service_daily_report' | 'service_memory_extract' | 'expert_agent_test'
   agent_ref?: string
   agent_version?: string
   trigger_type?: string
   trigger_id?: string
   status: ServiceAgentRunStatus
+  phase?: ServiceAgentRunPhase
   input?: Record<string, unknown>
+  interaction?: ExpertIntakeInteraction | Record<string, unknown>
+  quality?: ServiceAgentRunQuality
   result?: ServiceAgentRunResult
   error_code?: string
   error_message?: string
   task_id?: string
   attempt?: number
   queued_at?: string
+  resumed_at?: string
   started_at?: string
   finished_at?: string
   created_at?: string
@@ -438,6 +493,32 @@ export function getServiceAgentRun(id: string) {
   return get<ServiceResponse<ServiceAgentRun>>(`/api/v1/service/agent-runs/${encodeURIComponent(id)}`)
 }
 
+export function listServiceAgentRunSteps(id: string) {
+  return get<ServiceResponse<ServiceAgentRunStep[]>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/steps`,
+  )
+}
+
+export function getServiceAgentRunQuality(id: string) {
+  return get<ServiceResponse<ServiceAgentRunQuality>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/quality`,
+  )
+}
+
+export function submitServiceAgentRunAnswers(id: string, answers: Record<string, unknown>) {
+  return post<ServiceResponse<ServiceAgentRun>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/answers`,
+    { answers },
+  )
+}
+
+export function regenerateServiceAgentRun(id: string, feedback?: string) {
+  return post<ServiceResponse<ServiceAgentRun>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/regenerate`,
+    feedback?.trim() ? { feedback: feedback.trim() } : {},
+  )
+}
+
 export async function waitForServiceAgentRun(
   id: string,
   options?: { intervalMs?: number; timeoutMs?: number },
@@ -452,7 +533,7 @@ export async function waitForServiceAgentRun(
     if (!response?.success || !run) {
       throw new Error(response?.message || '任务状态读取失败')
     }
-    if (run.status === 'succeeded') return run
+    if (run.status === 'succeeded' || run.status === 'waiting_input') return run
     if (run.status === 'failed' || run.status === 'cancelled') {
       throw new Error(run.error_message || '任务未完成')
     }

@@ -123,6 +123,26 @@ func (v *AgentDefinitionVersion) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
+// PublishedExpert is the user-facing projection of a published package
+// definition. It omits prompts and compiled runtime configuration.
+type PublishedExpert struct {
+	PackageID          string      `json:"package_id"`
+	PackageVersionID   string      `json:"package_version_id"`
+	PackageKey         string      `json:"package_key"`
+	PackageDisplayName string      `json:"package_display_name"`
+	PackageDescription string      `json:"package_description"`
+	PackageVersion     string      `json:"package_version"`
+	DefinitionID       string      `json:"definition_id"`
+	AgentID            string      `json:"agent_id"`
+	Version            string      `json:"version"`
+	DisplayName        string      `json:"display_name"`
+	Description        string      `json:"description"`
+	Domain             string      `json:"domain"`
+	OutputContract     string      `json:"output_contract"`
+	Skills             StringArray `json:"skills"`
+	Capabilities       JSONMap     `json:"capabilities"`
+}
+
 type AgentBinding struct {
 	ID                       string         `json:"id" gorm:"type:varchar(36);primaryKey"`
 	TenantID                 uint64         `json:"tenant_id" gorm:"not null;index"`

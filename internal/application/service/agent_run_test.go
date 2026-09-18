@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/models/chat"
@@ -35,6 +39,9 @@ func newAgentRunTestService(
 	db := newServiceDailyReportTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&types.AgentRun{},
+		&types.AgentRunStep{},
+		&types.AgentRunInputRevision{},
+		&types.AgentRequirementSnapshot{},
 		&types.ExpertPackage{},
 		&types.ExpertPackageVersion{},
 		&types.AgentDefinitionVersion{},
@@ -50,8 +57,11 @@ func newAgentRunTestService(
 }
 
 type expertTestChatModel struct {
-	response string
-	messages []chat.Message
+	mu              sync.Mutex
+	chatResponses   []string
+	streamResponses []string
+	chatCalls       [][]chat.Message
+	streamCalls     [][]chat.Message
 }
 
 func (m *expertTestChatModel) Chat(
@@ -59,16 +69,39 @@ func (m *expertTestChatModel) Chat(
 	messages []chat.Message,
 	_ *chat.ChatOptions,
 ) (*types.ChatResponse, error) {
-	m.messages = append([]chat.Message(nil), messages...)
-	return &types.ChatResponse{Content: m.response}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.chatCalls = append(m.chatCalls, append([]chat.Message(nil), messages...))
+	if len(m.chatResponses) == 0 {
+		return nil, fmt.Errorf("unexpected Chat call #%d", len(m.chatCalls))
+	}
+	response := m.chatResponses[0]
+	m.chatResponses = m.chatResponses[1:]
+	return &types.ChatResponse{Content: response, FinishReason: "stop"}, nil
 }
 
 func (m *expertTestChatModel) ChatStream(
-	context.Context,
-	[]chat.Message,
-	*chat.ChatOptions,
+	_ context.Context,
+	messages []chat.Message,
+	_ *chat.ChatOptions,
 ) (<-chan types.StreamResponse, error) {
-	return nil, errors.New("streaming is not supported by the expert test model")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamCalls = append(m.streamCalls, append([]chat.Message(nil), messages...))
+	if len(m.streamResponses) == 0 {
+		return nil, fmt.Errorf("unexpected ChatStream call #%d", len(m.streamCalls))
+	}
+	response := m.streamResponses[0]
+	m.streamResponses = m.streamResponses[1:]
+	ch := make(chan types.StreamResponse, 1)
+	ch <- types.StreamResponse{
+		ResponseType: types.ResponseTypeAnswer,
+		Content:      response,
+		Done:         true,
+		FinishReason: "stop",
+	}
+	close(ch)
+	return ch, nil
 }
 
 func (m *expertTestChatModel) GetModelName() string { return "expert-test" }
@@ -99,12 +132,16 @@ func (s *expertTestModelService) GetChatModel(_ context.Context, modelID string)
 
 func newExpertAgentRunTestService(
 	t *testing.T,
-	response string,
+	chatResponses []string,
+	streamResponses []string,
 ) (interfaces.AgentRunService, interfaces.AgentRunRepository, *agentRunTaskEnqueuer, *gorm.DB, *expertTestChatModel) {
 	t.Helper()
 	db := newServiceDailyReportTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&types.AgentRun{},
+		&types.AgentRunStep{},
+		&types.AgentRunInputRevision{},
+		&types.AgentRequirementSnapshot{},
 		&types.ExpertPackage{},
 		&types.ExpertPackageVersion{},
 		&types.AgentDefinitionVersion{},
@@ -114,7 +151,10 @@ func newExpertAgentRunTestService(
 	runRepo := repository.NewAgentRunRepository(db)
 	expertRepo := repository.NewExpertPackageRepository(db)
 	enqueuer := &agentRunTaskEnqueuer{}
-	chatModel := &expertTestChatModel{response: response}
+	chatModel := &expertTestChatModel{
+		chatResponses:   append([]string(nil), chatResponses...),
+		streamResponses: append([]string(nil), streamResponses...),
+	}
 	modelService := &expertTestModelService{chatModel: chatModel}
 	runService := NewAgentRunService(
 		runRepo,
@@ -168,7 +208,7 @@ func TestAgentRunEnqueuesDailyReportOnceAndPersistsArtifactReference(t *testing.
 	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[0]))
 	run, err := runRepo.GetByID(ctx, first.ID)
 	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusSucceeded, run.Status)
+	require.Equal(t, types.AgentRunStatusSucceeded, run.Status, run.ErrorMessage)
 	require.Equal(t, types.BuiltinServiceAssistantVersion, run.AgentVersion)
 	require.Equal(t, profile.ID, run.ProfileID)
 	require.Equal(t, types.AgentResultSchemaV1, run.Result["schema_version"])
@@ -336,38 +376,17 @@ func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *tes
 		}],
 		"evidence":[]
 	}`
-	runService, runRepo, enqueuer, db, chatModel := newExpertAgentRunTestService(t, response)
-	pkg := &types.ExpertPackage{
-		TenantID:     tenantID,
-		PackageKey:   "kindergarten-activity-planner",
-		DisplayName:  "童创",
-		SourceFormat: types.ExpertPackageSourceWorkBuddy,
-	}
-	require.NoError(t, db.Create(pkg).Error)
-	version := &types.ExpertPackageVersion{
-		PackageID:   pkg.ID,
-		Version:     "1.0.0",
-		State:       types.ExpertPackageVersionPublished,
-		PackageHash: "hash",
-	}
-	require.NoError(t, db.Create(version).Error)
-	definition := &types.AgentDefinitionVersion{
-		TenantID:         tenantID,
-		PackageID:        pkg.ID,
-		PackageVersionID: version.ID,
-		AgentID:          "kindergarten-activity-planner",
-		Version:          "1.0.0",
-		DisplayName:      "童创",
-		SystemPrompt:     "你是幼儿园活动策划专家。",
-		OutputContract:   types.AgentResultSchemaV1,
-		DefinitionHash:   "definition-hash",
-		CompiledConfig: types.JSONMap{
-			"allowed_tools":         []string{},
-			"temperature":           0.1,
-			"max_completion_tokens": 3000,
+	runService, runRepo, enqueuer, db, chatModel := newExpertAgentRunTestService(
+		t,
+		[]string{
+			expertTestIntakeReadyJSON(),
+			expertTestPlanJSON(),
+			expertTestQualityPassedJSON(),
+			response,
 		},
-	}
-	require.NoError(t, db.Create(definition).Error)
+		[]string{expertTestLongReport()},
+	)
+	pkg, definition := createPublishedExpertTestDefinition(t, db, tenantID)
 
 	queued, err := runService.EnqueueExpertTest(ctx, tenantID, userID, types.ExpertAgentTestInput{
 		PackageID:    pkg.ID,
@@ -393,15 +412,114 @@ func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *tes
 	require.Equal(t, "中班中秋亲子活动筹备", result.Card.Title)
 	require.Len(t, result.Artifacts, 1)
 	require.True(t, decodeAgentRunValidation(t, run.Result).Valid)
-	require.Len(t, chatModel.messages, 2)
-	require.Contains(t, chatModel.messages[0].Content, "幼儿园活动策划专家")
-	require.Contains(t, chatModel.messages[0].Content, "睿乐执行结果协议")
+	require.Equal(t, types.AgentRunPhaseCompleted, run.Phase)
+	require.EqualValues(t, 92, run.Quality["score"])
+	require.Len(t, chatModel.chatCalls, 4)
+	require.Len(t, chatModel.streamCalls, 1)
+	require.Contains(t, chatModel.chatCalls[0][0].Content, "幼儿园活动策划专家")
+	require.Contains(t, chatModel.chatCalls[0][0].Content, "睿乐需求澄清")
+	steps, err := runService.ListAgentRunSteps(ctx, tenantID, userID, run.ID)
+	require.NoError(t, err)
+	require.Len(t, steps, 5)
+	require.Equal(t, types.AgentRunStepTypeIntake, steps[0].StepType)
+	require.Equal(t, types.AgentRunStepTypePackaging, steps[4].StepType)
+	for _, step := range steps {
+		require.Equal(t, types.AgentRunStepStatusSucceeded, step.Status)
+	}
+}
+
+func TestAgentRunExpertTestWaitsForAnswersAndResumesSameRun(t *testing.T) {
+	ctx := context.Background()
+	const tenantID uint64 = 9
+	const userID = "admin-user"
+	finalResult := `{
+		"schema_version":"agent_result_v1",
+		"decision":{"should_create_card":true,"confidence":0.9,"reason":"需求已补齐并通过质量检查。"},
+		"card":{
+			"schema_version":"service_card_v1",
+			"title":"国庆亲子运动会筹备",
+			"summary":"为120组家庭设计上午半日亲子运动会。",
+			"next_action":"确认操场分区和各班带队教师。"
+		},
+		"artifacts":[{
+			"kind":"report",
+			"role":"primary",
+			"title":"国庆亲子运动会活动方案",
+			"format":"structured_report_v1",
+			"content":{
+				"format":"structured_report_v1",
+				"title":"国庆亲子运动会活动方案",
+				"executive_summary":"按入场、热身、分区项目、颁奖和离场组织。",
+				"sections":[{"type":"analysis","title":"完整方案","content":"完整执行内容见工作流报告。"}],
+				"evidence_refs":[]
+			}
+		}],
+		"evidence":[]
+	}`
+	runService, runRepo, enqueuer, db, _ := newExpertAgentRunTestService(
+		t,
+		[]string{
+			`{"ready":false,"questions":[{"id":"family_count","label":"参与家庭数量","type":"number","required":true},{"id":"event_date","label":"活动日期","type":"date","required":true}],"assumptions":[]}`,
+			expertTestIntakeReadyJSON(),
+			expertTestPlanJSON(),
+			expertTestQualityPassedJSON(),
+			finalResult,
+		},
+		[]string{expertTestLongReport()},
+	)
+	pkg, definition := createPublishedExpertTestDefinition(t, db, tenantID)
+
+	queued, err := runService.EnqueueExpertTest(ctx, tenantID, userID, types.ExpertAgentTestInput{
+		PackageID:    pkg.ID,
+		DefinitionID: definition.ID,
+		Prompt:       "策划国庆亲子运动会。",
+		ModelID:      "chat-1",
+	})
+	require.NoError(t, err)
+	require.Len(t, enqueuer.tasks, 1)
+	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[0]))
+
+	waiting, err := runRepo.GetByID(ctx, queued.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunStatusWaitingInput, waiting.Status)
+	require.Equal(t, types.AgentRunPhaseIntake, waiting.Phase)
+	interaction, err := decodeExpertIntakeInteraction(waiting.Interaction)
+	require.NoError(t, err)
+	require.Len(t, interaction.Questions, 2)
+
+	resumed, err := runService.SubmitAgentRunAnswers(ctx, tenantID, userID, waiting.ID, types.AgentRunAnswersInput{
+		Answers: types.JSONMap{
+			"family_count": 120,
+			"event_date":   "2026-09-28",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunStatusQueued, resumed.Status)
+	require.NotEmpty(t, resumed.RequirementSnapshotID)
+	require.Len(t, enqueuer.tasks, 2)
+	require.NotEqual(t, waiting.TaskID, resumed.TaskID)
+	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[1]))
+
+	completed, err := runRepo.GetByID(ctx, queued.ID)
+	require.NoError(t, err)
+	require.Equal(t, queued.ID, completed.ID)
+	require.Equal(t, types.AgentRunStatusSucceeded, completed.Status, completed.ErrorMessage)
+	require.Equal(t, 2, completed.Attempt)
+	require.NotNil(t, completed.ResumedAt)
+	result := decodeAgentRunResult(t, completed.Result)
+	require.Equal(t, "国庆亲子运动会筹备", result.Card.Title)
+	steps, err := runService.ListAgentRunSteps(ctx, tenantID, userID, completed.ID)
+	require.NoError(t, err)
+	require.Len(t, steps, 6)
+	require.Equal(t, types.AgentRunStepTypeIntake, steps[0].StepType)
+	require.Equal(t, types.AgentRunStepTypeIntake, steps[1].StepType)
+	require.Equal(t, types.AgentRunStepTypePlanning, steps[2].StepType)
 }
 
 func TestAgentRunExpertTestRejectsUnpublishedDefinition(t *testing.T) {
 	ctx := context.Background()
 	const tenantID uint64 = 9
-	runService, _, _, db, _ := newExpertAgentRunTestService(t, `{}`)
+	runService, _, _, db, _ := newExpertAgentRunTestService(t, nil, nil)
 	pkg := &types.ExpertPackage{
 		TenantID:     tenantID,
 		PackageKey:   "testing-expert",
@@ -479,4 +597,214 @@ func decodeAgentRunValidation(t *testing.T, value types.JSONMap) types.AgentResu
 	var validation types.AgentResultValidation
 	require.NoError(t, json.Unmarshal(raw, &validation))
 	return validation
+}
+
+func createPublishedExpertTestDefinition(
+	t *testing.T,
+	db *gorm.DB,
+	tenantID uint64,
+) (*types.ExpertPackage, *types.AgentDefinitionVersion) {
+	t.Helper()
+	pkg := &types.ExpertPackage{
+		TenantID:     tenantID,
+		PackageKey:   "kindergarten-activity-planner",
+		DisplayName:  "童创",
+		SourceFormat: types.ExpertPackageSourceWorkBuddy,
+	}
+	require.NoError(t, db.Create(pkg).Error)
+	version := &types.ExpertPackageVersion{
+		PackageID:   pkg.ID,
+		Version:     "1.0.0",
+		State:       types.ExpertPackageVersionPublished,
+		PackageHash: "hash",
+	}
+	require.NoError(t, db.Create(version).Error)
+	definition := &types.AgentDefinitionVersion{
+		TenantID:         tenantID,
+		PackageID:        pkg.ID,
+		PackageVersionID: version.ID,
+		AgentID:          "kindergarten-activity-planner",
+		Version:          "1.0.0",
+		DisplayName:      "童创",
+		SystemPrompt:     "你是幼儿园活动策划专家。",
+		OutputContract:   types.AgentResultSchemaV1,
+		DefinitionHash:   "definition-hash",
+		CompiledConfig: types.JSONMap{
+			"allowed_tools":         []string{},
+			"temperature":           0.1,
+			"max_completion_tokens": 3000,
+			"quality_rubric": types.JSONMap{
+				"minimum_score": 85,
+			},
+			"execution_policy": types.JSONMap{
+				"max_revision_rounds": 2,
+			},
+		},
+	}
+	require.NoError(t, db.Create(definition).Error)
+	return pkg, definition
+}
+
+func expertTestIntakeReadyJSON() string {
+	return `{"ready":true,"questions":[],"assumptions":[]}`
+}
+
+func expertTestPlanJSON() string {
+	return `{
+		"objective":"形成可直接执行的幼儿园亲子活动方案",
+		"requirements":["覆盖时间、人员、物料、预算和安全安排"],
+		"assumptions":[],
+		"sections":["活动概览","流程安排","人员分工","物料预算","安全预案"],
+		"checklist":["人数一致","预算一致","安全责任明确"]
+	}`
+}
+
+func expertTestQualityPassedJSON() string {
+	return `{
+		"score":92,
+		"passed":true,
+		"summary":"报告结构完整，关键执行参数清晰。",
+		"red_lines":[],
+		"dimensions":{"需求覆盖":94,"可执行性":92,"安全合规":90},
+		"issues":[]
+	}`
+}
+
+func expertTestLongReport() string {
+	section := "活动按签到入场、集体热身、分区项目、补水休整、成果展示和分批离场推进。每个环节明确负责人、协作教师、起止时间、场地边界、所需物料、风险检查和异常处置方式。"
+	return "# 幼儿园亲子活动执行方案\n\n" + strings.Repeat(section+"\n\n", 24)
+}
+
+func TestDeterministicExpertIntakeQuestions(t *testing.T) {
+	config := types.JSONMap{
+		"required_inputs": []map[string]any{
+			{
+				"id":          "event_date",
+				"label":       "活动日期",
+				"type":        "date",
+				"required":    true,
+				"options":     []string{},
+				"description": "用于安排筹备时间。",
+			},
+			{
+				"id":               "audience",
+				"label":            "使用对象",
+				"type":             "enum",
+				"required":         false,
+				"ask_when_missing": true,
+				"options":          []string{"园长", "教师"},
+			},
+			{
+				"id":       "internal_note",
+				"label":    "内部备注",
+				"type":     "text",
+				"required": false,
+			},
+		},
+	}
+
+	questions := deterministicExpertIntakeQuestions(config, types.JSONMap{})
+	require.Len(t, questions, 2)
+	require.Equal(t, "event_date", questions[0].ID)
+	require.Equal(t, "date", questions[0].Type)
+	require.True(t, questions[0].Required)
+	require.Equal(t, "audience", questions[1].ID)
+	require.Equal(t, "single_choice", questions[1].Type)
+	require.False(t, questions[1].Required)
+
+	questions = deterministicExpertIntakeQuestions(config, types.JSONMap{
+		"event_date": "2026-10-01",
+		"audience":   "园长",
+	})
+	require.Empty(t, questions)
+}
+
+func TestValidateExpertIntakeAnswersTypes(t *testing.T) {
+	interaction := types.ExpertIntakeInteraction{
+		SchemaVersion: "intake_request_v1",
+		Questions: []types.ExpertIntakeQuestion{
+			{ID: "event_date", Label: "活动日期", Type: "date", Required: true},
+			{ID: "count", Label: "人数", Type: "number", Required: true},
+			{ID: "audience", Label: "使用对象", Type: "single_choice", Required: true, Options: []string{"园长", "教师"}},
+		},
+	}
+	require.NoError(t, validateExpertIntakeAnswers(interaction, types.JSONMap{
+		"event_date": "2026-10-01",
+		"count":      120,
+		"audience":   "园长",
+	}))
+	require.Error(t, validateExpertIntakeAnswers(interaction, types.JSONMap{
+		"event_date": "2026/10/01",
+		"count":      "很多",
+		"audience":   "家长",
+	}))
+}
+
+func TestNormalizeExpertQualityAppliesDeterministicRules(t *testing.T) {
+	quality := expertQualityAssessment{
+		Score:      96,
+		Passed:     true,
+		Summary:    "模型认为报告质量较高。",
+		RedLines:   []string{},
+		Dimensions: map[string]int{},
+		Issues:     []expertQualityIssue{},
+	}
+	config := types.JSONMap{
+		"quality_rubric": types.JSONMap{"minimum_score": 85},
+		"deliverable_spec": types.JSONMap{
+			"required_sections": []string{"facts", "recommended_actions"},
+		},
+		"clarification_policy": types.JSONMap{
+			"require_assumption_labels": true,
+		},
+	}
+	plan := expertExecutionPlan{
+		Assumptions: []string{"天气以活动前一周预报为准"},
+	}
+	normalizeExpertQuality(&quality, config, plan, strings.Repeat("只有一些泛泛而谈的内容。", 20))
+	require.False(t, quality.Passed)
+	require.Contains(t, quality.Issues, expertQualityIssue{
+		Code:        "required_section_missing",
+		Section:     "facts",
+		Severity:    "error",
+		Message:     "报告缺少必需章节：facts。",
+		Instruction: "增加“facts”章节，并补齐与用户需求相关的具体内容。",
+	})
+	require.True(t, hasExpertQualityIssue(quality.Issues, "report_too_short"))
+	require.True(t, hasExpertQualityIssue(quality.Issues, "assumptions_not_labeled"))
+}
+
+func hasExpertQualityIssue(issues []expertQualityIssue, code string) bool {
+	for _, issue := range issues {
+		if issue.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRegenerateAgentRunCreatesChildRunWithFeedback(t *testing.T) {
+	ctx := context.Background()
+	tenantID := uint64(11)
+	userID := "admin-user"
+	runService, runRepo, _, db := newAgentRunTestService(t)
+	packageRecord, definition := createPublishedExpertTestDefinition(t, db, tenantID)
+
+	parent, err := runService.EnqueueExpertTest(ctx, tenantID, userID, types.ExpertAgentTestInput{
+		PackageID:    packageRecord.ID,
+		DefinitionID: definition.ID,
+		Prompt:       "制定亲子活动方案",
+	})
+	require.NoError(t, err)
+	_, err = runRepo.MarkFailed(ctx, parent.ID, types.AgentRunErrorExecutionFailed, "test failure", time.Now())
+	require.NoError(t, err)
+
+	child, err := runService.RegenerateAgentRun(ctx, tenantID, userID, parent.ID, types.AgentRunRegenerateInput{
+		Feedback: "重点补充安全预案",
+	})
+	require.NoError(t, err)
+	require.Equal(t, parent.ID, child.ParentRunID)
+	require.Equal(t, "regenerate", child.TriggerType)
+	require.Equal(t, types.AgentRunStatusQueued, child.Status)
+	require.Equal(t, "重点补充安全预案", child.Input["feedback"])
 }

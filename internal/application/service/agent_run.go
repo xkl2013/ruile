@@ -9,17 +9,21 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 )
 
 var (
-	ErrAgentRunNotFound       = errors.New("agent run not found")
-	ErrAgentRunCannotCancel   = errors.New("agent run can only be cancelled while queued")
-	ErrAgentRunInvalidRequest = errors.New("invalid agent run request")
+	ErrAgentRunNotFound         = errors.New("agent run not found")
+	ErrAgentRunCannotCancel     = errors.New("agent run can only be cancelled while queued")
+	ErrAgentRunNotWaitingInput  = errors.New("agent run is not waiting for input")
+	ErrAgentRunCannotRegenerate = errors.New("agent run can only be regenerated after it reaches a terminal state")
+	ErrAgentRunInvalidRequest   = errors.New("invalid agent run request")
 )
 
 const (
@@ -125,17 +129,36 @@ func (s *agentRunService) enqueue(
 		}
 		return nil, err
 	}
+	source := "request"
+	if run.TriggerType == "regenerate" {
+		source = "regenerate"
+	}
+	if err := s.repo.CreateInputRevision(ctx, &types.AgentRunInputRevision{
+		RunID:  run.ID,
+		Source: source,
+		Input:  cloneAgentRunJSONMap(run.Input),
+	}); err != nil {
+		_, _ = s.repo.MarkFailed(ctx, run.ID, types.AgentRunErrorInvalidInput, "failed to persist initial input revision", time.Now())
+		return nil, fmt.Errorf("save initial agent run input: %w", err)
+	}
 
-	payload, err := json.Marshal(types.AgentRunTaskPayload{RunID: run.ID, TenantID: tenantID})
+	if err := s.enqueueRunTask(ctx, run); err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
+func (s *agentRunService) enqueueRunTask(ctx context.Context, run *types.AgentRun) error {
+	payload, err := json.Marshal(types.AgentRunTaskPayload{RunID: run.ID, TenantID: run.TenantID})
 	if err != nil {
 		_, _ = s.repo.MarkFailed(ctx, run.ID, types.AgentRunErrorInvalidInput, "failed to encode agent run payload", time.Now())
-		return nil, fmt.Errorf("encode agent run task payload: %w", err)
+		return fmt.Errorf("encode agent run task payload: %w", err)
 	}
-	taskID := secutils.GenerateTaskID("agent_run", tenantID, run.ID)
+	taskID := secutils.GenerateTaskID("agent_run", run.TenantID, run.ID)
 	queue, ok := types.QueueForTaskType(types.TypeAgentRunExecute)
 	if !ok {
 		_, _ = s.repo.MarkFailed(ctx, run.ID, types.AgentRunErrorEnqueueFailed, "agent queue is not configured", time.Now())
-		return nil, errors.New("agent queue is not configured")
+		return errors.New("agent queue is not configured")
 	}
 	if _, err := s.taskClient.Enqueue(
 		asynq.NewTask(types.TypeAgentRunExecute, payload),
@@ -145,13 +168,13 @@ func (s *agentRunService) enqueue(
 		asynq.Timeout(agentRunTimeout),
 	); err != nil {
 		_, _ = s.repo.MarkFailed(ctx, run.ID, types.AgentRunErrorEnqueueFailed, truncateAgentRunError(err), time.Now())
-		return nil, fmt.Errorf("enqueue agent run: %w", err)
+		return fmt.Errorf("enqueue agent run: %w", err)
 	}
 	if err := s.repo.SetTaskID(ctx, run.ID, taskID); err != nil {
-		return nil, fmt.Errorf("save agent run task id: %w", err)
+		return fmt.Errorf("save agent run task id: %w", err)
 	}
 	run.TaskID = taskID
-	return run, nil
+	return nil
 }
 
 func (s *agentRunService) GetAgentRun(
@@ -170,6 +193,159 @@ func (s *agentRunService) GetAgentRun(
 		return nil, ErrAgentRunNotFound
 	}
 	return run, nil
+}
+
+func (s *agentRunService) GetAgentRunQuality(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+) (types.JSONMap, error) {
+	run, err := s.GetAgentRun(ctx, tenantID, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	return cloneAgentRunJSONMap(run.Quality), nil
+}
+
+func (s *agentRunService) ListAgentRunSteps(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+) ([]*types.AgentRunStep, error) {
+	run, err := s.GetAgentRun(ctx, tenantID, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListSteps(ctx, run.ID)
+}
+
+func (s *agentRunService) SubmitAgentRunAnswers(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+	answerInput types.AgentRunAnswersInput,
+) (*types.AgentRun, error) {
+	run, err := s.GetAgentRun(ctx, tenantID, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	if run.Status != types.AgentRunStatusWaitingInput {
+		return nil, ErrAgentRunNotWaitingInput
+	}
+	if len(answerInput.Answers) == 0 {
+		return nil, ErrAgentRunInvalidRequest
+	}
+	questions, err := decodeExpertIntakeInteraction(run.Interaction)
+	if err != nil {
+		return nil, ErrAgentRunInvalidRequest
+	}
+	if err := validateExpertIntakeAnswers(questions, answerInput.Answers); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrAgentRunInvalidRequest, err)
+	}
+
+	var expertInput types.ExpertAgentTestInput
+	if err := decodeAgentRunInput(run.Input, &expertInput); err != nil {
+		return nil, fmt.Errorf("decode waiting expert run: %w", err)
+	}
+	mergedAnswers := cloneAgentRunJSONMap(expertInput.Answers)
+	for key, value := range answerInput.Answers {
+		mergedAnswers[key] = value
+	}
+	expertInput.Answers = mergedAnswers
+	nextInput, err := agentRunJSONMap(expertInput)
+	if err != nil {
+		return nil, fmt.Errorf("encode expert answers: %w", err)
+	}
+	if err := s.repo.CreateInputRevision(ctx, &types.AgentRunInputRevision{
+		RunID:  run.ID,
+		Source: "user_answers",
+		Input:  cloneAgentRunJSONMap(nextInput),
+	}); err != nil {
+		return nil, fmt.Errorf("save expert answer revision: %w", err)
+	}
+	snapshot := &types.AgentRequirementSnapshot{
+		RunID: run.ID,
+		Values: types.JSONMap{
+			"prompt":  expertInput.Prompt,
+			"answers": cloneAgentRunJSONMap(mergedAnswers),
+		},
+		Assumptions: types.StringArray{},
+		Missing:     types.StringArray{},
+	}
+	if err := s.repo.CreateRequirementSnapshot(ctx, snapshot); err != nil {
+		return nil, fmt.Errorf("save expert requirement snapshot: %w", err)
+	}
+	now := time.Now().UTC()
+	resumed, err := s.repo.ResumeWaiting(
+		ctx,
+		tenantID,
+		userID,
+		run.ID,
+		nextInput,
+		snapshot.ID,
+		now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !resumed {
+		return nil, ErrAgentRunNotWaitingInput
+	}
+	run, err = s.repo.GetByID(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.enqueueRunTask(ctx, run); err != nil {
+		return nil, err
+	}
+	return s.GetAgentRun(ctx, tenantID, userID, run.ID)
+}
+
+func (s *agentRunService) RegenerateAgentRun(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+	regenerateInput types.AgentRunRegenerateInput,
+) (*types.AgentRun, error) {
+	run, err := s.GetAgentRun(ctx, tenantID, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	switch run.Status {
+	case types.AgentRunStatusSucceeded, types.AgentRunStatusFailed:
+	default:
+		return nil, ErrAgentRunCannotRegenerate
+	}
+	if run.RunType != types.AgentRunTypeExpertAgentTest {
+		return nil, fmt.Errorf("%w: only expert runs are supported", ErrAgentRunInvalidRequest)
+	}
+	var input types.ExpertAgentTestInput
+	if err := decodeAgentRunInput(run.Input, &input); err != nil {
+		return nil, fmt.Errorf("decode expert run for regeneration: %w", err)
+	}
+	input.Feedback = strings.TrimSpace(regenerateInput.Feedback)
+	if utf8.RuneCountInString(input.Feedback) > expertAgentTestMaxPromptRunes {
+		return nil, ErrAgentRunInvalidRequest
+	}
+	nextInput, err := agentRunJSONMap(input)
+	if err != nil {
+		return nil, fmt.Errorf("encode expert regeneration request: %w", err)
+	}
+	child := &types.AgentRun{
+		ParentRunID:  run.ID,
+		RunType:      run.RunType,
+		AgentRef:     run.AgentRef,
+		AgentVersion: run.AgentVersion,
+		ProfileID:    run.ProfileID,
+		TriggerType:  "regenerate",
+		TriggerID:    run.TriggerID,
+		Input:        nextInput,
+	}
+	return s.enqueue(ctx, tenantID, userID, child, fmt.Sprintf(
+		"regenerate:%s:%s",
+		run.ID,
+		uuid.NewString(),
+	))
 }
 
 func (s *agentRunService) CancelAgentRun(
@@ -226,6 +402,11 @@ func (s *agentRunService) ProcessAgentRun(ctx context.Context, task *asynq.Task)
 
 	result, compatibility, profileID, err := s.execute(ctx, run)
 	if err != nil {
+		var waiting agentRunWaitingInputError
+		if errors.As(err, &waiting) {
+			_, updateErr := s.repo.MarkWaitingInput(ctx, run.ID, waiting.interaction)
+			return updateErr
+		}
 		return s.recordExecutionFailure(ctx, run.ID, err)
 	}
 	return s.completeAgentRun(ctx, run.ID, profileID, result, compatibility)
@@ -377,6 +558,21 @@ func agentRunJSONMap(value any) (types.JSONMap, error) {
 	return result, nil
 }
 
+func cloneAgentRunJSONMap(value types.JSONMap) types.JSONMap {
+	if value == nil {
+		return types.JSONMap{}
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return types.JSONMap{}
+	}
+	var cloned types.JSONMap
+	if json.Unmarshal(raw, &cloned) != nil {
+		return types.JSONMap{}
+	}
+	return cloned
+}
+
 func agentRunIdempotencyKey(tenantID uint64, userID, runType string, input types.JSONMap) string {
 	raw, _ := json.Marshal(input)
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%d:%s:%s:%s", tenantID, userID, runType, raw)))
@@ -401,3 +597,9 @@ type permanentAgentRunError struct {
 func (e permanentAgentRunError) Error() string { return e.err.Error() }
 
 func (e permanentAgentRunError) Unwrap() error { return e.err }
+
+type agentRunWaitingInputError struct {
+	interaction types.JSONMap
+}
+
+func (e agentRunWaitingInputError) Error() string { return "agent run is waiting for user input" }

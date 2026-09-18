@@ -10,6 +10,7 @@ import (
 type ExpertPackageRepository interface {
 	Import(ctx context.Context, pkg *types.ExpertPackage, version *types.ExpertPackageVersion, definitions []*types.AgentDefinitionVersion) error
 	ListPackages(ctx context.Context, tenantID uint64) ([]*types.ExpertPackage, error)
+	ListPublishedExperts(ctx context.Context, tenantID uint64) ([]*types.PublishedExpert, error)
 	GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error)
 	GetVersion(ctx context.Context, tenantID uint64, packageID, versionID string) (*types.ExpertPackageVersion, error)
 	GetVersionByPackageKey(ctx context.Context, tenantID uint64, packageKey, version string) (*types.ExpertPackageVersion, error)
@@ -23,6 +24,7 @@ type ExpertPackageService interface {
 	ImportPackage(ctx context.Context, tenantID uint64, actorID string, input types.ExpertPackageImportInput) (*types.ExpertPackageVersion, error)
 	ImportPackageArchive(ctx context.Context, tenantID uint64, actorID string, file *multipart.FileHeader) (*types.ExpertPackageVersion, error)
 	ListPackages(ctx context.Context, tenantID uint64) ([]*types.ExpertPackage, error)
+	ListPublishedExperts(ctx context.Context, tenantID uint64) ([]*types.PublishedExpert, error)
 	GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error)
 	PublishVersion(ctx context.Context, tenantID uint64, actorID, packageID, versionID string) error
 	BindAgent(ctx context.Context, tenantID uint64, actorID, packageID string, input types.AgentBindingInput) (*types.AgentBinding, error)

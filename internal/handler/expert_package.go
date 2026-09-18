@@ -80,6 +80,19 @@ func (h *ExpertPackageHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": packages})
 }
 
+func (h *ExpertPackageHandler) ListPublished(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	experts, err := h.service.ListPublishedExperts(c.Request.Context(), tenantID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": experts})
+}
+
 func (h *ExpertPackageHandler) Get(c *gin.Context) {
 	tenantID, _, ok := serviceScope(c)
 	if !ok {
@@ -149,6 +162,27 @@ func (h *ExpertPackageHandler) TestRun(c *gin.Context) {
 	input.PackageID = c.Param("id")
 	input.DefinitionID = c.Param("definition_id")
 	run, err := h.agentRuns.EnqueueExpertTest(c.Request.Context(), tenantID, userID, input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ExpertPackageHandler) PublishedRun(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ExpertAgentTestInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid expert run request").WithDetails(err.Error()))
+		return
+	}
+	input.PackageID = c.Param("package_id")
+	input.DefinitionID = c.Param("definition_id")
+	input.ProfileID = ""
+	run, err := h.agentRuns.EnqueuePublishedExpertRun(c.Request.Context(), tenantID, userID, input)
 	if err != nil {
 		h.handleError(c, err)
 		return

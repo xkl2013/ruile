@@ -49,6 +49,24 @@ export interface AgentDefinitionVersion {
   updated_at?: string
 }
 
+export interface PublishedExpert {
+  package_id: string
+  package_version_id: string
+  package_key: string
+  package_display_name: string
+  package_description?: string
+  package_version: string
+  definition_id: string
+  agent_id: string
+  version: string
+  display_name: string
+  description?: string
+  domain?: string
+  output_contract?: string
+  skills?: string[]
+  capabilities?: Record<string, unknown>
+}
+
 export interface ExpertPackageVersion {
   id: string
   package_id: string
@@ -103,6 +121,7 @@ export interface ExpertAgentTestInput {
   prompt: string
   model_id?: string
   profile_id?: string
+  feedback?: string
 }
 
 function withQuery<T extends object>(path: string, params?: T) {
@@ -157,6 +176,21 @@ export function listExpertPackageBindings(params?: { profile_id?: string }) {
 export function bindExpertPackageAgent(packageId: string, data: AgentBindingInput) {
   return put<ExpertPackageResponse<AgentBinding>>(
     `/api/v1/admin/expert-packages/${encodeURIComponent(packageId)}/bindings`,
+    data,
+  )
+}
+
+export function listPublishedExperts() {
+  return get<ExpertPackageResponse<PublishedExpert[]>>('/api/v1/expert-packages/published')
+}
+
+export function runPublishedExpert(
+  packageId: string,
+  definitionId: string,
+  data: ExpertAgentTestInput,
+) {
+  return post<ExpertPackageResponse<ServiceAgentRun>>(
+    `/api/v1/expert-packages/published/${encodeURIComponent(packageId)}/definitions/${encodeURIComponent(definitionId)}/runs`,
     data,
   )
 }

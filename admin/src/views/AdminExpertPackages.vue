@@ -337,7 +337,7 @@
       :header="testDialogTitle"
       width="900px"
       :footer="false"
-      :close-on-overlay-click="!testingExpert"
+      :close-on-overlay-click="!testingExpert && !submittingExpertAnswers"
       destroy-on-close
     >
       <div class="expert-test">
@@ -392,6 +392,132 @@
           </div>
 
           <t-alert v-if="testError" theme="error" :message="testError" />
+
+          <section v-if="testInteraction" class="expert-test__intake">
+            <div>
+              <strong>专家需要补充信息</strong>
+              <p>补齐这些关键条件后，将从规划阶段继续执行。</p>
+            </div>
+            <t-form label-align="top" @submit.prevent>
+              <t-form-item
+                v-for="question in testInteraction.questions"
+                :key="question.id"
+                :label="question.required ? `${question.label}（必填）` : question.label"
+                :help="question.description"
+              >
+                <t-select
+                  v-if="question.type === 'single_choice'"
+                  :value="testAnswers[question.id] as string"
+                  :options="questionOptions(question)"
+                  :disabled="submittingExpertAnswers"
+                  clearable
+                  @change="setTestAnswer(question.id, $event)"
+                />
+                <t-select
+                  v-else-if="question.type === 'multi_choice'"
+                  :value="testAnswers[question.id] as string[]"
+                  :options="questionOptions(question)"
+                  :disabled="submittingExpertAnswers"
+                  multiple
+                  clearable
+                  @change="setTestAnswer(question.id, $event)"
+                />
+                <t-date-picker
+                  v-else-if="question.type === 'date'"
+                  :value="testAnswers[question.id] as string"
+                  :disabled="submittingExpertAnswers"
+                  clearable
+                  @change="setTestAnswer(question.id, $event)"
+                />
+                <t-input-number
+                  v-else-if="question.type === 'number'"
+                  :value="testAnswers[question.id] as number"
+                  :disabled="submittingExpertAnswers"
+                  theme="normal"
+                  @change="setTestAnswer(question.id, $event)"
+                />
+                <t-input
+                  v-else
+                  :value="testAnswers[question.id] as string"
+                  :disabled="submittingExpertAnswers"
+                  clearable
+                  @change="setTestAnswer(question.id, $event)"
+                />
+              </t-form-item>
+            </t-form>
+            <div class="expert-test__intake-actions">
+              <span>答案会保存为本次运行的新输入版本。</span>
+              <t-button
+                theme="primary"
+                :loading="submittingExpertAnswers"
+                :disabled="!canSubmitExpertAnswers"
+                @click="submitExpertAnswers"
+              >
+                继续执行
+              </t-button>
+            </div>
+          </section>
+
+          <section v-if="testSteps.length" class="expert-test__workflow">
+            <div class="expert-test__section-title">
+              <strong>执行步骤</strong>
+              <em>{{ testRun?.phase ? agentRunPhaseLabel(testRun.phase) : '准备中' }}</em>
+            </div>
+            <div class="expert-test__steps">
+              <article v-for="step in testSteps" :key="step.id">
+                <span class="expert-test__step-index">{{ step.sequence }}</span>
+                <span>
+                  <strong>{{ agentRunPhaseLabel(step.step_type) }}</strong>
+                  <em v-if="step.error">{{ step.error }}</em>
+                  <em v-else>{{ step.model_id || '平台步骤' }}</em>
+                </span>
+                <t-tag :theme="agentRunStepTheme(step.status)" variant="light">
+                  {{ agentRunStepLabel(step.status) }}
+                </t-tag>
+              </article>
+            </div>
+          </section>
+
+          <section v-if="testQuality" class="expert-test__quality">
+            <div class="expert-test__section-title">
+              <span>
+                <strong>质量门禁</strong>
+                <em>{{ testQuality.summary || '已完成独立审查' }}</em>
+              </span>
+              <span class="expert-test__quality-score">{{ testQuality.score ?? 0 }}</span>
+              <t-tag :theme="testQuality.passed ? 'success' : 'danger'" variant="light">
+                {{ testQuality.passed ? '通过' : '未通过' }}
+              </t-tag>
+            </div>
+            <div v-if="testRun?.status === 'succeeded' || testRun?.status === 'failed'" class="expert-test__quality-actions">
+              <t-button
+                variant="outline"
+                :loading="regeneratingExpert"
+                :disabled="regeneratingExpert || testingExpert || submittingExpertAnswers"
+                @click="regenerateExpertTest"
+              >
+                <template #icon><t-icon name="refresh" /></template>
+                按意见重新生成
+              </t-button>
+            </div>
+            <div v-if="qualityDimensions.length" class="expert-test__dimensions">
+              <span v-for="item in qualityDimensions" :key="item.label">
+                {{ item.label }} {{ item.score }}
+              </span>
+            </div>
+            <div v-if="testQuality.issues?.length" class="expert-test__issues">
+              <article v-for="issue in testQuality.issues" :key="`${issue.code}-${issue.section || ''}`">
+                <t-tag :theme="qualityIssueTheme(issue.severity)" variant="light" size="small">
+                  {{ qualityIssueLabel(issue.severity) }}
+                </t-tag>
+                <span>
+                  <strong>{{ issue.section || issue.code }}</strong>
+                  <p>{{ issue.message }}</p>
+                  <em>{{ issue.instruction }}</em>
+                </span>
+              </article>
+            </div>
+          </section>
 
           <template v-if="testRun?.result">
             <t-alert
@@ -464,8 +590,15 @@ import {
 } from '@/api/expert-package'
 import {
   getServiceAgentRun,
+  listServiceAgentRunSteps,
   listServiceWorkProfiles,
+  regenerateServiceAgentRun,
+  submitServiceAgentRunAnswers,
+  type ExpertIntakeInteraction,
+  type ExpertIntakeQuestion,
   type ServiceAgentRun,
+  type ServiceAgentRunQuality,
+  type ServiceAgentRunStep,
   type ServiceWorkProfile,
   type StructuredReportV1,
 } from '@/api/service'
@@ -509,7 +642,11 @@ const testDialogVisible = ref(false)
 const testingExpert = ref(false)
 const testDefinitionEntry = ref<DefinitionEntry | null>(null)
 const testRun = ref<ServiceAgentRun | null>(null)
+const testSteps = ref<ServiceAgentRunStep[]>([])
+const testAnswers = ref<Record<string, unknown>>({})
 const testError = ref('')
+const submittingExpertAnswers = ref(false)
+const regeneratingExpert = ref(false)
 const bindingForm = ref<BindingForm>({
   profileId: '',
   definitionId: '',
@@ -629,6 +766,35 @@ const testDialogTitle = computed(() => {
 
 const testValidationErrors = computed(() => (
   testRun.value?.result?.validation?.errors || []
+))
+
+const testInteraction = computed<ExpertIntakeInteraction | null>(() => {
+  if (testRun.value?.status !== 'waiting_input') return null
+  const interaction = testRun.value.interaction
+  if (!interaction || interaction.schema_version !== 'intake_request_v1' || !Array.isArray(interaction.questions)) {
+    return null
+  }
+  return interaction as ExpertIntakeInteraction
+})
+
+const canSubmitExpertAnswers = computed(() => (
+  Boolean(
+    testInteraction.value &&
+    !submittingExpertAnswers.value &&
+    testInteraction.value.questions.every((question) => (
+      !question.required || !expertAnswerIsBlank(testAnswers.value[question.id])
+    )),
+  )
+))
+
+const testQuality = computed<ServiceAgentRunQuality | null>(() => {
+  const quality = testRun.value?.quality
+  if (!quality || typeof quality.score !== 'number') return null
+  return quality
+})
+
+const qualityDimensions = computed(() => (
+  Object.entries(testQuality.value?.dimensions || {}).map(([label, score]) => ({ label, score }))
 ))
 
 const primaryTestReport = computed<StructuredReportV1 | null>(() => {
@@ -823,6 +989,8 @@ async function saveBinding() {
 function openTestDialog(entry: DefinitionEntry) {
   testDefinitionEntry.value = entry
   testRun.value = null
+  testSteps.value = []
+  testAnswers.value = {}
   testError.value = ''
   testForm.value.prompt = ''
   normalizeTestModel()
@@ -865,9 +1033,18 @@ async function runExpertTest() {
 async function pollExpertTestRun(id: string) {
   const deadline = Date.now() + 5 * 60 * 1000
   while (Date.now() < deadline) {
-    const response = await getServiceAgentRun(id)
+    const [response, stepsResponse] = await Promise.all([
+      getServiceAgentRun(id),
+      listServiceAgentRunSteps(id),
+    ])
     if (!response?.data) throw new Error(response?.message || '任务状态读取失败')
     testRun.value = response.data
+    testSteps.value = stepsResponse?.data || []
+    if (response.data.status === 'waiting_input') {
+      initializeTestAnswers()
+      MessagePlugin.info('专家需要补充关键信息')
+      return
+    }
     if (response.data.status === 'succeeded') {
       MessagePlugin.success('专家测试完成')
       return
@@ -878,6 +1055,73 @@ async function pollExpertTestRun(id: string) {
     await new Promise<void>((resolve) => window.setTimeout(resolve, 1200))
   }
   throw new Error('专家测试仍在执行，请稍后重新查看')
+}
+
+function initializeTestAnswers() {
+  const answers = { ...testAnswers.value }
+  for (const question of testInteraction.value?.questions || []) {
+    if (Object.prototype.hasOwnProperty.call(answers, question.id)) continue
+    answers[question.id] = question.type === 'multi_choice' ? [] : ''
+  }
+  testAnswers.value = answers
+}
+
+function setTestAnswer(id: string, value: unknown) {
+  testAnswers.value = {
+    ...testAnswers.value,
+    [id]: value,
+  }
+}
+
+function questionOptions(question: ExpertIntakeQuestion) {
+  return (question.options || []).map((option) => ({ label: option, value: option }))
+}
+
+async function submitExpertAnswers() {
+  const run = testRun.value
+  if (!run || !canSubmitExpertAnswers.value) return
+  submittingExpertAnswers.value = true
+  testError.value = ''
+  try {
+    const response = await submitServiceAgentRunAnswers(run.id, testAnswers.value)
+    if (!response?.data) throw new Error(response?.message || '补充信息提交失败')
+    testRun.value = response.data
+    await pollExpertTestRun(run.id)
+  } catch (error: any) {
+    console.warn('[AdminExpertPackages] Failed to submit expert answers:', error)
+    testError.value = error?.message || '补充信息提交失败'
+  } finally {
+    submittingExpertAnswers.value = false
+  }
+}
+
+async function regenerateExpertTest() {
+  const run = testRun.value
+  if (!run || (run.status !== 'succeeded' && run.status !== 'failed')) return
+  const feedback = window.prompt('请输入纠偏意见（可选）：', '')
+  if (feedback === null) return
+  regeneratingExpert.value = true
+  testError.value = ''
+  try {
+    const response = await regenerateServiceAgentRun(run.id, feedback)
+    if (!response?.data) throw new Error(response?.message || '重新生成任务创建失败')
+    testRun.value = response.data
+    testSteps.value = []
+    testAnswers.value = {}
+    await pollExpertTestRun(response.data.id)
+  } catch (error: any) {
+    console.warn('[AdminExpertPackages] Failed to regenerate expert test:', error)
+    testError.value = error?.message || '重新生成失败'
+  } finally {
+    regeneratingExpert.value = false
+  }
+}
+
+function expertAnswerIsBlank(value: unknown) {
+  if (value === null || value === undefined) return true
+  if (typeof value === 'string') return value.trim() === ''
+  if (Array.isArray(value)) return value.length === 0
+  return false
 }
 
 function normalizeBindingForm(forceDefinition = false) {
@@ -987,6 +1231,7 @@ function agentRunStatusLabel(status: string) {
   const labels: Record<string, string> = {
     queued: '排队中',
     running: '执行中',
+    waiting_input: '等待补充',
     succeeded: '已完成',
     failed: '失败',
     cancelled: '已取消',
@@ -998,6 +1243,48 @@ function agentRunStatusTheme(status: string) {
   if (status === 'succeeded') return 'success'
   if (status === 'failed' || status === 'cancelled') return 'danger'
   if (status === 'running') return 'primary'
+  return 'warning'
+}
+
+function agentRunPhaseLabel(phase: string) {
+  const labels: Record<string, string> = {
+    intake: '需求澄清',
+    planning: '执行规划',
+    drafting: '生成初稿',
+    reviewing: '质量审查',
+    revising: '定向修订',
+    packaging: '结果封装',
+    completed: '执行完成',
+  }
+  return labels[phase] || phase
+}
+
+function agentRunStepLabel(status: string) {
+  const labels: Record<string, string> = {
+    running: '执行中',
+    succeeded: '已完成',
+    failed: '失败',
+  }
+  return labels[status] || status
+}
+
+function agentRunStepTheme(status: string) {
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'danger'
+  return 'primary'
+}
+
+function qualityIssueLabel(severity: string) {
+  const labels: Record<string, string> = {
+    warning: '提醒',
+    error: '问题',
+    red_line: '红线',
+  }
+  return labels[severity] || severity
+}
+
+function qualityIssueTheme(severity: string) {
+  if (severity === 'red_line' || severity === 'error') return 'danger'
   return 'warning'
 }
 
@@ -1438,6 +1725,116 @@ onMounted(() => {
   border-top: 1px solid var(--admin-border);
 }
 
+.expert-test__intake,
+.expert-test__workflow,
+.expert-test__quality {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-surface-muted);
+}
+
+.expert-test__intake > div:first-child,
+.expert-test__section-title,
+.expert-test__section-title > span {
+  display: grid;
+  gap: 4px;
+}
+
+.expert-test__intake p,
+.expert-test__intake-actions span,
+.expert-test__section-title em,
+.expert-test__steps em,
+.expert-test__issues em {
+  margin: 0;
+  color: var(--admin-text-tertiary);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.6;
+}
+
+.expert-test__intake-actions,
+.expert-test__section-title,
+.expert-test__steps article,
+.expert-test__issues article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.expert-test__steps,
+.expert-test__issues {
+  display: grid;
+  gap: 8px;
+}
+
+.expert-test__steps article,
+.expert-test__issues article {
+  padding: 10px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-surface);
+}
+
+.expert-test__steps article > span:nth-child(2),
+.expert-test__issues article > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+}
+
+.expert-test__step-index {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.expert-test__quality-score {
+  margin-left: auto;
+  color: var(--admin-text);
+  font-size: 26px;
+  font-weight: 680;
+  line-height: 1;
+}
+
+.expert-test__dimensions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.expert-test__dimensions span {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--admin-text-secondary);
+  background: var(--admin-surface);
+  font-size: 12px;
+}
+
+.expert-test__issues article {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.expert-test__issues p {
+  margin: 0;
+  color: var(--admin-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .expert-test__status span {
   display: grid;
   gap: 3px;
@@ -1646,6 +2043,22 @@ onMounted(() => {
 
   .binding-form__row {
     grid-template-columns: 1fr;
+  }
+
+  .expert-test__intake-actions,
+  .expert-test__section-title,
+  .expert-test__steps article,
+  .expert-test__issues article {
+    align-items: stretch;
+  }
+
+  .expert-test__intake-actions,
+  .expert-test__section-title {
+    flex-direction: column;
+  }
+
+  .expert-test__quality-score {
+    margin-left: 0;
   }
 }
 </style>

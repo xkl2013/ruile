@@ -19,6 +19,7 @@ import { getCaretCoordinates } from '@/utils/caret';
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
 import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
+import type { PublishedExpert } from '@/api/expert-package';
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { useEditorResourcesStore } from '@/stores/editorResources';
 import { useI18n } from 'vue-i18n';
@@ -57,6 +58,7 @@ const {
   allModels,
   chatModels: availableModels,
   webSearchProviders,
+  publishedExperts,
 } = storeToRefs(chatResources);
 const { t, locale } = useI18n();
 
@@ -152,6 +154,7 @@ const selectedAgentId = computed({
   get: () => settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID,
   set: (val: string) => settingsStore.selectAgent(val)
 });
+const selectedPublishedExpert = ref<PublishedExpert | null>(null);
 const effectiveSelectedAgentId = computed(() =>
   props.embeddedMode && props.agentId ? props.agentId : selectedAgentId.value
 );
@@ -695,6 +698,10 @@ const inputPlaceholder = computed(() => {
     return explicitPlaceholder;
   }
 
+  if (selectedPublishedExpert.value) {
+    return `向 ${selectedPublishedExpert.value.display_name} 提问`;
+  }
+
   // 如果选择了自定义智能体
   if (isCustomAgent.value && selectedAgent.value) {
     // 有描述时显示描述，否则显示"向 [名称] 提问"
@@ -845,6 +852,14 @@ const loadAgents = async (force = false) => {
     ensureSelectedAgentNotDisabled();
   } catch (error) {
     console.error('Failed to load agents:', error);
+  }
+};
+
+const loadPublishedExperts = async (force = false) => {
+  try {
+    await chatResources.ensurePublishedExperts(force);
+  } catch (error) {
+    console.error('Failed to load published experts:', error);
   }
 };
 
@@ -1745,6 +1760,7 @@ onMounted(() => {
     loadWebSearchConfig(),
     loadChatModels(),
     loadAgents(),
+    loadPublishedExperts(),
     loadMCPServices(),
   ]);
   window.addEventListener(CHAT_FILE_DROP_EVENT, handleChatFileDrop as EventListener);
@@ -1837,6 +1853,7 @@ watch([selectedKbIds, selectedFileIds], ([kbIds, fileIds]) => {
 
 const emit = defineEmits<{
   (e: 'send-msg', query: string, modelId: string, mentionedItems: MentionRequestItem[], imageFiles: File[], attachmentFiles: AttachmentFile[]): void;
+  (e: 'send-published-expert', query: string, modelId: string, expert: PublishedExpert): void;
   (e: 'stop-generation'): void;
 }>();
 
@@ -1869,6 +1886,18 @@ const createSession = async (val: string) => {
     const textarea = getTextareaEl();
     if (textarea) textarea.blur();
     emit('send-msg', val, selectedModelId.value || '', [], [], []);
+    clearvalue();
+    return;
+  }
+
+  if (selectedPublishedExpert.value) {
+    if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0 || allSelectedItems.value.length > 0) {
+      MessagePlugin.info('已发布专家当前先支持文本问题，请先移除附件和上下文引用');
+      return;
+    }
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit('send-published-expert', val, selectedModelId.value, selectedPublishedExpert.value);
     clearvalue();
     return;
   }
@@ -2041,6 +2070,7 @@ const toggleAgentModeSelector = () => {
     // Opening the selector is an explicit refresh point so newly created or
     // newly shared agents appear immediately instead of waiting for cache TTL.
     void loadAgents(true);
+    void loadPublishedExperts(true);
     // 多次更新位置确保准确
     nextTick(() => {
       updateAgentModeDropdownPosition();
@@ -2055,6 +2085,7 @@ const toggleAgentModeSelector = () => {
 }
 
 const selectAgentMode = async (mode: 'quick-answer' | 'smart-reasoning') => {
+  selectedPublishedExpert.value = null;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2095,6 +2126,7 @@ const handleAgentNotReady = (
 };
 
 const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) => {
+  selectedPublishedExpert.value = null;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2148,6 +2180,12 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
     : t('input.messages.agentSelected', { name: agent.name });
   MessagePlugin.success(message);
 }
+
+const handleSelectPublishedExpert = (expert: PublishedExpert) => {
+  selectedPublishedExpert.value = expert;
+  showAgentModeSelector.value = false;
+  MessagePlugin.success(`已选择专家：${expert.display_name}`);
+};
 
 const clearvalue = () => {
   // Guard: only clear when the textarea DOM element is still mounted,
@@ -2423,12 +2461,13 @@ defineExpose({
         <div class="control-left" v-if="!embeddedMode">
           <!-- Agent 模式切换按钮 -->
           <div ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{
-            'is-normal': !isCustomAgent && !isAgentEnabled,
-            'is-agent': !isCustomAgent && isAgentEnabled,
-            'is-custom': isCustomAgent
+            'is-normal': !selectedPublishedExpert && !isCustomAgent && !isAgentEnabled,
+            'is-agent': !selectedPublishedExpert && !isCustomAgent && isAgentEnabled,
+            'is-custom': !selectedPublishedExpert && isCustomAgent,
+            'is-published-expert': !!selectedPublishedExpert
           }" @click.stop="toggleAgentModeSelector">
             <span class="agent-mode-text">
-              {{ selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
+              {{ selectedPublishedExpert?.display_name || selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
             </span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="dropdown-arrow"
               :class="{ 'rotate': showAgentModeSelector }">
@@ -2439,8 +2478,10 @@ defineExpose({
           <!-- Agent 选择器下拉菜单 -->
           <AgentSelector :visible="showAgentModeSelector" :anchorEl="agentModeButtonRef"
             :currentAgentId="selectedAgentId" :agents="enabledAgents" :all-models="allModels"
-            :current-chat-model-id="selectedModelId"
-            @close="closeAgentModeSelector" @select="handleSelectAgent" @not-ready="handleAgentNotReady" />
+            :current-chat-model-id="selectedModelId" :published-experts="publishedExperts"
+            :selected-published-expert-id="selectedPublishedExpert?.definition_id"
+            @close="closeAgentModeSelector" @select="handleSelectAgent"
+            @select-published-expert="handleSelectPublishedExpert" @not-ready="handleAgentNotReady" />
 
           <!-- WebSearch 开关按钮（智能体未启用时不显示） -->
           <t-tooltip v-if="showWebSearchButton" placement="top" theme="light"
@@ -2916,6 +2957,16 @@ const getImgSrc = (url: string) => {
   font-weight: 500;
   position: relative;
   border: .5px solid var(--td-component-border, #e7e7e7);
+}
+
+.agent-mode-btn.is-published-expert {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+
+  .agent-mode-text {
+    color: var(--td-brand-color);
+  }
 }
 
 .agent-icon {

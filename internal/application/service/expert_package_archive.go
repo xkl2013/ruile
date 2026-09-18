@@ -72,12 +72,18 @@ type workBuddyAuthor struct {
 }
 
 type workBuddyAgentFrontMatter struct {
-	Name        string              `yaml:"name"`
-	Description string              `yaml:"description"`
-	DisplayName expertLocalizedText `yaml:"displayName"`
-	Profession  expertLocalizedText `yaml:"profession"`
-	Skills      []string            `yaml:"skills"`
-	MaxTurns    int                 `yaml:"maxTurns"`
+	Name                string                `yaml:"name"`
+	Description         string                `yaml:"description"`
+	DisplayName         expertLocalizedText   `yaml:"displayName"`
+	Profession          expertLocalizedText   `yaml:"profession"`
+	Skills              []string              `yaml:"skills"`
+	MaxTurns            int                   `yaml:"maxTurns"`
+	RequiredInputs      []expertRequiredInput `yaml:"required_inputs"`
+	ExecutionPolicy     map[string]any        `yaml:"execution_policy"`
+	ClarificationPolicy map[string]any        `yaml:"clarification_policy"`
+	DeliverableSpec     map[string]any        `yaml:"deliverable_spec"`
+	QualityRubric       map[string]any        `yaml:"quality_rubric"`
+	LearningPolicy      map[string]any        `yaml:"learning_policy"`
 }
 
 type indexedExpertArchive struct {
@@ -450,6 +456,18 @@ func compileWorkBuddyAgents(
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		config["schema_version"] = "1.0"
+		config["required_inputs"] = frontMatter.RequiredInputs
+		config["execution_policy"] = cleanExpertMap(frontMatter.ExecutionPolicy)
+		config["clarification_policy"] = cleanExpertMap(frontMatter.ClarificationPolicy)
+		config["deliverable_spec"] = cleanExpertMap(frontMatter.DeliverableSpec)
+		config["quality_rubric"] = cleanExpertMap(frontMatter.QualityRubric)
+		config["learning_policy"] = cleanExpertMap(frontMatter.LearningPolicy)
+		snapshots, err := expertSkillSnapshotsFromArchive(files, skills)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		config["skill_snapshots"] = snapshots
 		capabilities, err := expertPackageJSONMap(map[string]any{
 			"required": []string{},
 			"optional": []string{},
@@ -481,6 +499,36 @@ func compileWorkBuddyAgents(
 		return compiled[i].AgentID < compiled[j].AgentID
 	})
 	return compiled, blocking, warnings, nil
+}
+
+func expertSkillSnapshotsFromArchive(
+	files map[string]*zip.File,
+	skills []string,
+) ([]map[string]any, error) {
+	snapshots := make([]map[string]any, 0, len(skills))
+	for _, skill := range skills {
+		skillPath := path.Join("skills", skill, "SKILL.md")
+		entry := files[skillPath]
+		if entry == nil {
+			continue
+		}
+		content, err := readExpertArchiveFile(entry, expertPackageMaxManifestContentBytes)
+		if err != nil {
+			return nil, fmt.Errorf("%w: cannot read %s: %v", ErrExpertPackageInvalidInput, skillPath, err)
+		}
+		runes := []rune(string(content))
+		if len(runes) > expertPackageMaxSkillSnapshotRunes {
+			runes = runes[:expertPackageMaxSkillSnapshotRunes]
+		}
+		text := string(runes)
+		snapshots = append(snapshots, map[string]any{
+			"name":    skill,
+			"path":    skillPath,
+			"content": text,
+			"sha256":  expertStringHash(text),
+		})
+	}
+	return snapshots, nil
 }
 
 func archiveRelativePath(root, fullPath string) (string, bool) {

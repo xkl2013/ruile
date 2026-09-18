@@ -111,6 +111,11 @@ output_contract: agent_result_v1
 	require.Len(t, version.Definitions, 1)
 	require.Equal(t, 20, int(version.Definitions[0].CompiledConfig["max_iterations"].(float64)))
 	require.Contains(t, version.Diagnostics["warnings"], "unsupported capability: script.python")
+	snapshots, err := loadExpertSkillSnapshots(version.Definitions[0])
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	require.Equal(t, "evidence-analysis", snapshots[0].Name)
+	require.Equal(t, "# 证据分析\n", snapshots[0].Content)
 
 	packages, err := svc.ListPackages(ctx, tenantID)
 	require.NoError(t, err)
@@ -126,6 +131,13 @@ output_contract: agent_result_v1
 	require.ErrorIs(t, err, ErrExpertPackageNotPublished)
 
 	require.NoError(t, svc.PublishVersion(ctx, tenantID, "admin-1", packages[0].ID, version.ID))
+	published, err := svc.ListPublishedExperts(ctx, tenantID)
+	require.NoError(t, err)
+	require.Len(t, published, 1)
+	require.Equal(t, version.Definitions[0].ID, published[0].DefinitionID)
+	require.Equal(t, "咨询顾问", published[0].DisplayName)
+	require.Empty(t, published[0].Capabilities["system_prompt"])
+
 	binding, err := svc.BindAgent(ctx, tenantID, "admin-1", packages[0].ID, types.AgentBindingInput{
 		ProfileID:                "profile-1",
 		AgentDefinitionVersionID: version.Definitions[0].ID,

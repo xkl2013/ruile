@@ -1260,6 +1260,11 @@ func RegisterExpertPackageRoutes(r *gin.RouterGroup, h *handler.ExpertPackageHan
 	if h == nil {
 		return
 	}
+	published := g.apiKeyGroup(r.Group("/expert-packages"), apiKeyChat(apiKeyFullAccess()))
+	{
+		published.GET("/published", g.Viewer(), h.ListPublished)
+		published.POST("/published/:package_id/definitions/:definition_id/runs", g.Viewer(), h.PublishedRun)
+	}
 	packages := g.apiKeyGroup(r.Group("/admin/expert-packages"), apiKeyManageAgents(apiKeyFullAccess()))
 	{
 		packages.POST("/import", g.Admin(), h.ImportArchive)
@@ -1344,6 +1349,10 @@ func RegisterServiceRoutes(r *gin.RouterGroup, h *handler.ServiceHandler, g *rba
 		svc.POST("/refresh", g.Viewer(), h.Refresh)
 		svc.POST("/memories/:memory_id/extract", g.Viewer(), h.ExtractMemory)
 		svc.GET("/agent-runs/:id", g.Viewer(), h.GetAgentRun)
+		svc.GET("/agent-runs/:id/quality", g.Viewer(), h.GetAgentRunQuality)
+		svc.GET("/agent-runs/:id/steps", g.Viewer(), h.ListAgentRunSteps)
+		svc.POST("/agent-runs/:id/answers", g.Viewer(), h.SubmitAgentRunAnswers)
+		svc.POST("/agent-runs/:id/regenerate", g.Viewer(), h.RegenerateAgentRun)
 		svc.POST("/agent-runs/:id/cancel", g.Viewer(), h.CancelAgentRun)
 		svc.GET("/agent-templates", g.Viewer(), h.ListAgentTemplates)
 		svc.GET("/daily-reports", g.Viewer(), h.ListDailyReports)
