@@ -120,7 +120,7 @@ func (b *graphBuilder) extractEntities(ctx context.Context, chunk *types.Chunk) 
 
 	// Call LLM to extract entities
 	log.Debug("Calling LLM to extract entities")
-	resp, err := b.chatModel.Chat(ctx, messages, &chat.ChatOptions{
+	resp, err := b.chatModel.Chat(types.WithBillingServiceCode(ctx, "knowledge.graph_extract"), messages, &chat.ChatOptions{
 		Temperature: DefaultLLMTemperature,
 		Thinking:    &thinking,
 	})
@@ -231,7 +231,7 @@ func (b *graphBuilder) extractRelationships(ctx context.Context,
 
 	// Call LLM to extract relationships
 	log.Debug("Calling LLM to extract relationships")
-	resp, err := b.chatModel.Chat(ctx, messages, &chat.ChatOptions{
+	resp, err := b.chatModel.Chat(types.WithBillingServiceCode(ctx, "knowledge.graph_extract"), messages, &chat.ChatOptions{
 		Temperature: DefaultLLMTemperature,
 		Thinking:    &thinking,
 	})

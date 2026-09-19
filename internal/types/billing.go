@@ -12,6 +12,9 @@ const (
 	BillingStatusActive   = "active"
 	BillingStatusTrialing = "trialing"
 	BillingStatusLegacy   = "legacy"
+	BillingStatusCanceled = "canceled"
+
+	BillingServiceCodeMCPToolCall = "mcp.tool_call"
 
 	PointMicrosPerPoint int64 = 1_000_000
 )
@@ -52,6 +55,166 @@ type BillingPrice struct {
 }
 
 func (BillingPrice) TableName() string { return "billing_prices" }
+
+type BillingPlanInput struct {
+	Code                 string    `json:"code"`
+	Name                 string    `json:"name"`
+	Description          string    `json:"description"`
+	Edition              string    `json:"edition"`
+	SpaceType            SpaceType `json:"space_type"`
+	Status               string    `json:"status"`
+	IsPublic             bool      `json:"is_public"`
+	IncludedStorageBytes int64     `json:"included_storage_bytes"`
+	IncludedPointMicros  int64     `json:"included_point_micros"`
+	BillingMultiplierPPM int64     `json:"billing_multiplier_ppm"`
+}
+
+type BillingPriceInput struct {
+	PlanID          string     `json:"plan_id"`
+	Code            string     `json:"code"`
+	Currency        string     `json:"currency"`
+	BillingInterval string     `json:"billing_interval"`
+	AmountMinor     int64      `json:"amount_minor"`
+	Status          string     `json:"status"`
+	IsDefault       bool       `json:"is_default"`
+	EffectiveAt     *time.Time `json:"effective_at,omitempty"`
+}
+
+const (
+	BillingPurchaseItemTypeTopup        = "topup"
+	BillingPurchaseItemTypeStorageAddon = "storage_addon"
+
+	BillingEditionScopeAll        = "all"
+	BillingEditionScopePersonal   = "personal"
+	BillingEditionScopeEnterprise = "enterprise"
+
+	BillingPurchaseItemStatusActive   = "active"
+	BillingPurchaseItemStatusDisabled = "disabled"
+
+	BillingOrderTypeSubscription   = "subscription"
+	BillingOrderTypeTopup          = "topup"
+	BillingOrderTypeStorageAddon   = "storage_addon"
+	BillingOrderTypeManualContract = "manual_contract"
+
+	BillingOrderStatusPending        = "pending"
+	BillingOrderStatusPaid           = "paid"
+	BillingOrderStatusFailed         = "failed"
+	BillingOrderStatusExpired        = "expired"
+	BillingOrderStatusClosed         = "closed"
+	BillingOrderStatusReconciliation = "reconciliation"
+)
+
+// BillingPurchaseItem is a one-time credit or storage package. It is
+// deployment-wide and intentionally separate from recurring plan prices.
+type BillingPurchaseItem struct {
+	ID                string    `gorm:"type:varchar(36);primaryKey" json:"id"`
+	Code              string    `gorm:"type:varchar(64);uniqueIndex;not null" json:"code"`
+	ItemType          string    `gorm:"type:varchar(32);not null" json:"item_type"`
+	EditionScope      string    `gorm:"type:varchar(32);not null;default:'all'" json:"edition_scope"`
+	Name              string    `gorm:"type:varchar(128);not null" json:"name"`
+	Description       string    `gorm:"type:varchar(512);not null;default:''" json:"description"`
+	Currency          string    `gorm:"type:varchar(16);not null;default:'CNY'" json:"currency"`
+	AmountCents       int64     `gorm:"not null;default:0" json:"amount_cents"`
+	CreditPointMicros int64     `gorm:"not null;default:0" json:"credit_point_micros"`
+	StorageQuotaBytes int64     `gorm:"not null;default:0" json:"storage_quota_bytes"`
+	DurationDays      int       `gorm:"not null;default:0" json:"duration_days"`
+	Status            string    `gorm:"type:varchar(32);not null;default:'active'" json:"status"`
+	SortOrder         int       `gorm:"not null;default:0" json:"sort_order"`
+	MetadataJSON      JSON      `gorm:"type:jsonb;not null" json:"metadata_json"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+func (BillingPurchaseItem) TableName() string { return "billing_purchase_items" }
+
+type BillingPurchaseItemInput struct {
+	Code              string `json:"code"`
+	ItemType          string `json:"item_type"`
+	EditionScope      string `json:"edition_scope"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	Currency          string `json:"currency"`
+	AmountCents       int64  `json:"amount_cents"`
+	CreditPointMicros int64  `json:"credit_point_micros"`
+	StorageQuotaBytes int64  `json:"storage_quota_bytes"`
+	DurationDays      int    `json:"duration_days"`
+	Status            string `json:"status"`
+	SortOrder         int    `json:"sort_order"`
+	MetadataJSON      JSON   `json:"metadata_json"`
+}
+
+// BillingPaymentOrder is the durable commercial record. The offline
+// operations path writes provider=manual and status=paid; online checkout is
+// deliberately not enabled until a payment provider is configured.
+type BillingPaymentOrder struct {
+	ID                  string     `gorm:"type:varchar(36);primaryKey" json:"id"`
+	OrderNo             string     `gorm:"type:varchar(64);uniqueIndex;not null" json:"order_no"`
+	OrderType           string     `gorm:"type:varchar(32);not null" json:"order_type"`
+	TenantID            uint64     `gorm:"not null;index" json:"tenant_id"`
+	ActorUserID         string     `gorm:"type:varchar(64);not null;default:''" json:"actor_user_id"`
+	PlanID              string     `gorm:"type:varchar(36);not null;default:''" json:"plan_id"`
+	PriceID             string     `gorm:"type:varchar(36);not null;default:''" json:"price_id"`
+	ItemID              string     `gorm:"type:varchar(36);not null;default:''" json:"item_id"`
+	Provider            string     `gorm:"type:varchar(32);not null;default:''" json:"provider"`
+	PaymentMethod       string     `gorm:"type:varchar(32);not null;default:''" json:"payment_method"`
+	Status              string     `gorm:"type:varchar(32);not null;default:'pending'" json:"status"`
+	Currency            string     `gorm:"type:varchar(16);not null;default:'CNY'" json:"currency"`
+	AmountCents         int64      `gorm:"not null;default:0" json:"amount_cents"`
+	CreditPointMicros   int64      `gorm:"not null;default:0" json:"credit_point_micros"`
+	StorageQuotaBytes   int64      `gorm:"not null;default:0" json:"storage_quota_bytes"`
+	BillingInterval     string     `gorm:"type:varchar(16);not null;default:''" json:"billing_interval"`
+	Cycles              int        `gorm:"not null;default:1" json:"cycles"`
+	ExternalPaymentRef  string     `gorm:"type:varchar(128);not null;default:''" json:"external_payment_ref"`
+	ExternalCheckoutRef string     `gorm:"type:varchar(128);not null;default:''" json:"external_checkout_ref"`
+	CheckoutURL         string     `gorm:"type:text;not null;default:''" json:"checkout_url"`
+	QRCodeURL           string     `gorm:"type:text;not null;default:''" json:"qr_code_url"`
+	NotifyURL           string     `gorm:"type:text;not null;default:''" json:"notify_url"`
+	ReturnURL           string     `gorm:"type:text;not null;default:''" json:"return_url"`
+	ProviderPayloadJSON JSON       `gorm:"type:jsonb;not null" json:"provider_payload_json"`
+	NotifySnapshotJSON  JSON       `gorm:"type:jsonb;not null" json:"notify_snapshot_json"`
+	PaidAt              *time.Time `json:"paid_at,omitempty"`
+	ExpiredAt           *time.Time `json:"expired_at,omitempty"`
+	SnapshotJSON        JSON       `gorm:"type:jsonb;not null" json:"snapshot_json"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+func (BillingPaymentOrder) TableName() string { return "billing_payment_orders" }
+
+// TenantStorageAddonGrant records a positive storage package issuance. The
+// quota column remains the enforcement source, while this table preserves the
+// order-level entitlement for audit and future expiry handling.
+type TenantStorageAddonGrant struct {
+	ID                string     `gorm:"type:varchar(36);primaryKey" json:"id"`
+	TenantID          uint64     `gorm:"not null;index" json:"tenant_id"`
+	OrderNo           string     `gorm:"type:varchar(64);uniqueIndex;not null" json:"order_no"`
+	ItemID            string     `gorm:"type:varchar(36);not null;default:''" json:"item_id"`
+	StorageQuotaBytes int64      `gorm:"not null" json:"storage_quota_bytes"`
+	Status            string     `gorm:"type:varchar(32);not null;default:'active'" json:"status"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	MetadataJSON      JSON       `gorm:"type:jsonb;not null" json:"metadata_json"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+func (TenantStorageAddonGrant) TableName() string { return "tenant_storage_addon_grants" }
+
+// BillingManualOrderInput is only accepted through the SystemAdmin
+// operations route. Topup and storage adjustments accept signed entitlement
+// values; contract orders select the target plan and billing period.
+type BillingManualOrderInput struct {
+	TenantID          uint64 `json:"tenant_id"`
+	OrderType         string `json:"order_type"`
+	ItemID            string `json:"item_id"`
+	PlanID            string `json:"plan_id"`
+	BillingInterval   string `json:"billing_interval"`
+	PeriodDays        int    `json:"period_days"`
+	CreditPointMicros int64  `json:"credit_point_micros"`
+	StorageQuotaBytes int64  `json:"storage_quota_bytes"`
+	AmountCents       int64  `json:"amount_cents"`
+	Description       string `json:"description"`
+	ActorUserID       string `json:"-"`
+}
 
 // TenantSubscription assigns exactly one current plan to a workspace during
 // the compatibility rollout. Historical versions can be added later.
@@ -103,6 +266,7 @@ type BillingRuntimePolicy struct {
 	EnforcementMode                      string `json:"enforcement_mode"`
 	PointMicrosPerUSD                    int64  `json:"point_micros_per_usd"`
 	DefaultModelMultiplierPPM            int64  `json:"default_model_multiplier_ppm"`
+	DefaultServiceMultiplierPPM          int64  `json:"default_service_multiplier_ppm"`
 	DefaultMemberMonthlyLimitPointMicros int64  `json:"default_member_monthly_limit_point_micros"`
 	DefaultMemberAllocationPointMicros   int64  `json:"default_member_allocation_point_micros"`
 }
@@ -144,10 +308,46 @@ type BillingModelPriceInput struct {
 	CacheWriteNanoUSDPerMTokens int64      `json:"cache_write_nanousd_per_m_tokens"`
 	CallNanoUSDPerCall          int64      `json:"call_nanousd_per_call"`
 	DurationNanoUSDPerSecond    int64      `json:"duration_nanousd_per_second"`
+	TieredPricingJSON           JSON       `json:"tiered_pricing_json"`
 	ModelMultiplierPPM          int64      `json:"model_multiplier_ppm"`
 	EffectiveAt                 *time.Time `json:"effective_at,omitempty"`
 	ExpiresAt                   *time.Time `json:"expires_at,omitempty"`
 	Status                      string     `json:"status"`
+}
+
+// BillingServicePrice versions MCP tool-call costs separately from model costs.
+// Other model-backed operations are billed exclusively by model token pricing.
+type BillingServicePrice struct {
+	ID                   string     `gorm:"type:varchar(36);primaryKey" json:"id"`
+	ServiceCode          string     `gorm:"type:varchar(64);not null;uniqueIndex:uq_billing_service_price_version" json:"service_code"`
+	ServiceName          string     `gorm:"type:varchar(128);not null;default:''" json:"service_name"`
+	PricingMode          string     `gorm:"type:varchar(32);not null;default:'call'" json:"pricing_mode"`
+	NanoUSDPerCall       int64      `gorm:"column:nanousd_per_call;not null;default:0" json:"nanousd_per_call"`
+	NanoUSDPerUnit       int64      `gorm:"column:nanousd_per_unit;not null;default:0" json:"nanousd_per_unit"`
+	UnitName             string     `gorm:"type:varchar(32);not null;default:''" json:"unit_name"`
+	ServiceMultiplierPPM int64      `gorm:"not null;default:1000000" json:"service_multiplier_ppm"`
+	Version              int        `gorm:"not null;default:1;uniqueIndex:uq_billing_service_price_version" json:"version"`
+	EffectiveAt          time.Time  `json:"effective_at"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
+	Status               string     `gorm:"type:varchar(32);not null;default:'active'" json:"status"`
+	SnapshotJSON         JSON       `gorm:"type:jsonb;not null" json:"snapshot_json"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+func (BillingServicePrice) TableName() string { return "billing_service_prices" }
+
+type BillingServicePriceInput struct {
+	ServiceCode          string     `json:"service_code" binding:"required"`
+	ServiceName          string     `json:"service_name"`
+	PricingMode          string     `json:"pricing_mode"`
+	NanoUSDPerCall       int64      `json:"nanousd_per_call"`
+	NanoUSDPerUnit       int64      `json:"nanousd_per_unit"`
+	UnitName             string     `json:"unit_name"`
+	ServiceMultiplierPPM int64      `json:"service_multiplier_ppm"`
+	EffectiveAt          *time.Time `json:"effective_at,omitempty"`
+	ExpiresAt            *time.Time `json:"expires_at,omitempty"`
+	Status               string     `json:"status"`
 }
 
 type TenantUsageReservation struct {
@@ -159,6 +359,7 @@ type TenantUsageReservation struct {
 	RefNo                      string     `gorm:"type:varchar(160);not null;uniqueIndex:uq_tenant_usage_reservation_ref" json:"ref_no"`
 	ModelKey                   string     `gorm:"type:varchar(128);not null;default:''" json:"model_key"`
 	PricingID                  string     `gorm:"type:varchar(36);not null;default:''" json:"pricing_id"`
+	ServicePricingID           string     `gorm:"type:varchar(36);not null;default:''" json:"service_pricing_id"`
 	EstimatedBaseCostNanoUSD   int64      `gorm:"column:estimated_base_cost_nanousd;not null;default:0" json:"estimated_base_cost_nanousd"`
 	EstimatedBilledPointMicros int64      `gorm:"not null;default:0" json:"estimated_billed_point_micros"`
 	ReservedPeriodPointMicros  int64      `gorm:"not null;default:0" json:"reserved_period_point_micros"`
@@ -194,6 +395,9 @@ type TenantUsageLedger struct {
 	Provider                  string    `gorm:"type:varchar(64);not null;default:''" json:"provider"`
 	PricingID                 string    `gorm:"type:varchar(36);not null;default:''" json:"pricing_id"`
 	PricingVersion            int       `gorm:"not null;default:0" json:"pricing_version"`
+	ServicePricingID          string    `gorm:"type:varchar(36);not null;default:''" json:"service_pricing_id"`
+	ServicePricingVersion     int       `gorm:"not null;default:0" json:"service_pricing_version"`
+	ServiceUnits              int64     `gorm:"not null;default:0" json:"service_units"`
 	InputTokens               int64     `gorm:"not null;default:0" json:"input_tokens"`
 	CachedTokens              int64     `gorm:"not null;default:0" json:"cached_tokens"`
 	OutputTokens              int64     `gorm:"not null;default:0" json:"output_tokens"`
@@ -229,6 +433,7 @@ type BillingModelUsage struct {
 	ReasoningTokens int64 `json:"reasoning_tokens"`
 	CallCount       int64 `json:"call_count"`
 	DurationMillis  int64 `json:"duration_millis"`
+	ServiceUnits    int64 `json:"service_units"`
 }
 
 type BillingUsageStartRequest struct {
@@ -253,6 +458,7 @@ type BillingUsageHandle struct {
 	MemberMonthlyLimitPointMicros int64
 	MemberOveragePolicy           string
 	Price                         *BillingModelPrice
+	ServicePrice                  *BillingServicePrice
 	Plan                          *BillingPlan
 	Subscription                  *TenantSubscription
 	Allocation                    *TenantMemberCreditAllocation
@@ -362,11 +568,24 @@ type BillingOverviewStorage struct {
 	UsagePercent   float64 `json:"usage_percent"`
 	Unlimited      bool    `json:"unlimited"`
 	Status         string  `json:"status"`
+	Visible        bool    `json:"visible"`
 }
 
 type BillingOverviewCredits struct {
-	BalancePointMicros int64 `json:"balance_point_micros"`
-	PeriodPointMicros  int64 `json:"period_point_micros"`
+	BalancePointMicros         int64 `json:"balance_point_micros"`
+	PeriodPointMicros          int64 `json:"period_point_micros"`
+	PeriodUsedPointMicros      int64 `json:"period_used_point_micros"`
+	PeriodRemainingPointMicros int64 `json:"period_remaining_point_micros"`
+	Visible                    bool  `json:"visible"`
+}
+
+type BillingOverviewMemberUsage struct {
+	MemberPolicyID              string `json:"member_policy_id"`
+	LimitMode                   string `json:"limit_mode"`
+	MonthlyLimitPointMicros     int64  `json:"monthly_limit_point_micros"`
+	MonthlyUsedPointMicros      int64  `json:"monthly_used_point_micros"`
+	MonthlyRemainingPointMicros int64  `json:"monthly_remaining_point_micros"`
+	OveragePolicy               string `json:"overage_policy"`
 }
 
 type BillingOverview struct {
@@ -378,6 +597,7 @@ type BillingOverview struct {
 	Subscription      BillingOverviewSubscription `json:"subscription"`
 	Storage           BillingOverviewStorage      `json:"storage"`
 	Credits           BillingOverviewCredits      `json:"credits"`
+	MemberUsage       *BillingOverviewMemberUsage `json:"member_usage,omitempty"`
 	CompatibilityMode bool                        `json:"compatibility_mode"`
 }
 
@@ -391,6 +611,93 @@ type BillingSubscriptionSummary struct {
 
 type BillingCreditAccountSummary struct {
 	TenantCreditAccount
+	TenantName     string `json:"tenant_name"`
+	SpaceType      string `json:"space_type"`
+	SubjectType    string `json:"subject_type"`
+	SubjectID      string `json:"subject_id"`
+	SubjectName    string `json:"subject_name"`
+	SubjectContact string `json:"subject_contact,omitempty"`
+	TenantCount    int    `json:"tenant_count"`
+}
+
+type BillingPaymentOrderSummary struct {
+	BillingPaymentOrder
 	TenantName string `json:"tenant_name"`
-	SpaceType  string `json:"space_type"`
+	PlanName   string `json:"plan_name"`
+	ItemName   string `json:"item_name"`
+}
+
+type BillingPaymentProvider struct {
+	Provider string   `json:"provider"`
+	Name     string   `json:"name"`
+	Methods  []string `json:"methods"`
+}
+
+type BillingPaymentConfig struct {
+	Enabled   bool                      `json:"enabled"`
+	Currency  string                    `json:"currency"`
+	Providers []*BillingPaymentProvider `json:"providers"`
+	Reason    string                    `json:"reason,omitempty"`
+}
+
+type BillingPublicCatalog struct {
+	Plans         []*BillingPlan         `json:"plans"`
+	Prices        []*BillingPrice        `json:"prices"`
+	PurchaseItems []*BillingPurchaseItem `json:"purchase_items"`
+	Payment       BillingPaymentConfig   `json:"payment"`
+}
+
+type BillingStorageTransactionSummary struct {
+	TenantStorageTransaction
+	TenantName string `json:"tenant_name"`
+}
+
+const (
+	StorageReservationStatusReserved  = "reserved"
+	StorageReservationStatusCommitted = "committed"
+	StorageReservationStatusReleased  = "released"
+	StorageReservationStatusExpired   = "expired"
+)
+
+// TenantStorageReservation protects the shared workspace quota while an
+// asynchronous operation is still producing its final storage footprint.
+type TenantStorageReservation struct {
+	ID             string     `gorm:"type:varchar(36);primaryKey" json:"id"`
+	TenantID       uint64     `gorm:"not null;uniqueIndex:uq_tenant_storage_reservation_ref;index" json:"tenant_id"`
+	ActorUserID    string     `gorm:"type:varchar(64);not null;default:''" json:"actor_user_id"`
+	RefNo          string     `gorm:"type:varchar(160);not null;uniqueIndex:uq_tenant_storage_reservation_ref" json:"ref_no"`
+	Operation      string     `gorm:"type:varchar(32);not null" json:"operation"`
+	RequestedBytes int64      `gorm:"not null;default:0" json:"requested_bytes"`
+	ActualBytes    int64      `gorm:"not null;default:0" json:"actual_bytes"`
+	Status         string     `gorm:"type:varchar(32);not null;default:'reserved';index" json:"status"`
+	ExpiresAt      time.Time  `gorm:"not null;index" json:"expires_at"`
+	CommittedAt    *time.Time `json:"committed_at,omitempty"`
+	ReleasedAt     *time.Time `json:"released_at,omitempty"`
+	FailureCode    string     `gorm:"type:varchar(64);not null;default:''" json:"failure_code"`
+	MetadataJSON   JSON       `gorm:"type:jsonb;not null" json:"metadata_json"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+func (TenantStorageReservation) TableName() string {
+	return "tenant_storage_reservations"
+}
+
+// TenantStorageTransaction is the append-only authority for storage usage
+// changes. Positive amounts consume quota and negative amounts release it.
+type TenantStorageTransaction struct {
+	ID                    string    `gorm:"type:varchar(36);primaryKey" json:"id"`
+	TenantID              uint64    `gorm:"not null;uniqueIndex:uq_tenant_storage_transaction_ref;index" json:"tenant_id"`
+	ActorUserID           string    `gorm:"type:varchar(64);not null;default:''" json:"actor_user_id"`
+	ReservationID         string    `gorm:"type:varchar(36);not null;default:''" json:"reservation_id"`
+	RefNo                 string    `gorm:"type:varchar(160);not null;uniqueIndex:uq_tenant_storage_transaction_ref" json:"ref_no"`
+	Operation             string    `gorm:"type:varchar(32);not null" json:"operation"`
+	AmountBytes           int64     `gorm:"not null" json:"amount_bytes"`
+	StorageUsedAfterBytes int64     `gorm:"not null" json:"storage_used_after_bytes"`
+	MetadataJSON          JSON      `gorm:"type:jsonb;not null" json:"metadata_json"`
+	CreatedAt             time.Time `json:"created_at"`
+}
+
+func (TenantStorageTransaction) TableName() string {
+	return "tenant_storage_transactions"
 }

@@ -94,7 +94,6 @@ type RouterParams struct {
 	RedisClient                  *redis.Client
 	DataSourceHandler            *handler.DataSourceHandler
 	DataSourceCredentialsHandler *handler.DataSourceCredentialsHandler
-	WeKnoraCloudHandler          *handler.WeKnoraCloudHandler
 	WikiPageHandler              *handler.WikiPageHandler
 }
 
@@ -276,7 +275,6 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
 		RegisterEmbedChannelRoutes(v1, params.EmbedChannelHandler, rbacGuards)
 		RegisterDataSourceRoutes(v1, params.DataSourceHandler, params.DataSourceCredentialsHandler, rbacGuards)
-		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler, rbacGuards)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler, rbacGuards)
 		RegisterChunkerDebugRoutes(v1, rbacGuards)
 
@@ -294,12 +292,17 @@ func NewRouter(params RouterParams) *gin.Engine {
 // tenant-scoped usage ledger.
 func RegisterBillingRoutes(r *gin.RouterGroup, billingHandler *handler.BillingHandler, g *rbacGuards) {
 	billingRoutes := r.Group("/billing", g.Viewer())
+	billingRoutes.GET("/catalog", billingHandler.ListPublicCatalog)
+	billingRoutes.GET("/payment-config", billingHandler.GetPaymentConfig)
 	billingRoutes.GET("/overview", billingHandler.GetOverview)
 	billingRoutes.GET("/usage", billingHandler.ListCurrentUsage)
-	billingRoutes.GET("/policy", billingHandler.GetCurrentTenantBillingPolicy)
+	billingRoutes.GET("/orders", billingHandler.ListCurrentPaymentOrders)
+	billingRoutes.GET("/orders/:order_no", billingHandler.GetCurrentPaymentOrder)
 	billingAdminRoutes := r.Group("/billing", g.Admin())
+	billingAdminRoutes.GET("/policy", billingHandler.GetCurrentTenantBillingPolicy)
 	billingAdminRoutes.PUT("/policy", billingHandler.UpdateCurrentTenantBillingPolicy)
 	billingAdminRoutes.GET("/member-policies", billingHandler.ListCurrentMemberAllocations)
+	billingAdminRoutes.PUT("/member-policies", billingHandler.UpdateCurrentMemberPolicies)
 	billingAdminRoutes.PUT("/member-policies/:user_id", billingHandler.UpdateCurrentMemberPolicy)
 	billingAdminRoutes.GET("/member-allocations", billingHandler.ListCurrentMemberAllocations)
 	billingAdminRoutes.PUT("/member-allocations/:user_id", billingHandler.UpdateCurrentMemberAllocation)
@@ -314,12 +317,23 @@ func RegisterSystemBillingAdminRoutes(
 ) {
 	adminRoutes := r.Group("/system/admin/billing", g.SystemAdmin())
 	adminRoutes.GET("/plans", billingHandler.ListPlans)
+	adminRoutes.POST("/plans", billingHandler.CreatePlan)
+	adminRoutes.PUT("/plans/:id", billingHandler.UpdatePlan)
 	adminRoutes.GET("/prices", billingHandler.ListPrices)
+	adminRoutes.POST("/prices", billingHandler.CreatePriceVersion)
 	adminRoutes.GET("/subscriptions", billingHandler.ListSubscriptions)
 	adminRoutes.GET("/credit-accounts", billingHandler.ListCreditAccounts)
 	adminRoutes.GET("/model-prices", billingHandler.ListModelPrices)
 	adminRoutes.POST("/model-prices", billingHandler.CreateModelPriceVersion)
+	adminRoutes.GET("/service-prices", billingHandler.ListServicePrices)
+	adminRoutes.POST("/service-prices", billingHandler.CreateServicePriceVersion)
+	adminRoutes.GET("/purchase-items", billingHandler.ListPurchaseItems)
+	adminRoutes.POST("/purchase-items", billingHandler.CreatePurchaseItem)
+	adminRoutes.PUT("/purchase-items/:id", billingHandler.UpdatePurchaseItem)
+	adminRoutes.GET("/payment-orders", billingHandler.ListPaymentOrders)
+	adminRoutes.POST("/manual-orders", billingHandler.CreateManualPaymentOrder)
 	adminRoutes.GET("/usage-ledgers", billingHandler.ListUsageLedgers)
+	adminRoutes.GET("/storage-transactions", billingHandler.ListStorageTransactions)
 	adminRoutes.GET("/member-allocations", billingHandler.ListMemberAllocations)
 }
 
@@ -2456,15 +2470,6 @@ func RegisterDataSourceRoutes(
 		ds.GET("/:id/logs", g.Viewer(), handler.GetSyncLogs)
 		ds.GET("/logs/:log_id", g.Viewer(), handler.GetSyncLog)
 	}
-}
-
-// RegisterWeKnoraCloudRoutes 注册 WeKnoraCloud 初始化路由
-// RegisterWeKnoraCloudRoutes registers the WeKnoraCloud credential
-// management endpoints. SaveCredentials persists external SaaS keys
-// for the tenant (Admin+), Status is a low-risk readiness probe (Viewer+).
-func RegisterWeKnoraCloudRoutes(r *gin.RouterGroup, handler *handler.WeKnoraCloudHandler, g *rbacGuards) {
-	g.apiKeyRoute(r, http.MethodPost, "/weknoracloud/credentials", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.SaveCredentials)
-	g.apiKeyRoute(r, http.MethodGet, "/models/weknoracloud/status", apiKeyManageModels(apiKeyFullAccess()), g.Viewer(), handler.Status)
 }
 
 // RegisterWikiPageRoutes registers wiki page related routes.

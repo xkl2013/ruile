@@ -188,6 +188,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewBillingPolicyService))
 	must(container.Provide(service.NewSubscriptionService))
 	must(container.Provide(service.NewUsageBillingService))
+	must(container.Provide(service.NewBillingOperationsService))
 	must(container.Provide(service.NewTenantServiceWithBilling))
 	must(container.Provide(service.NewTenantAPIKeyService))
 	must(container.Provide(service.NewTenantMemberService))
@@ -203,7 +204,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewChunkService))
 	must(container.Provide(service.NewKnowledgeTagService))
 	must(container.Provide(embedding.NewBatchEmbedder))
-	must(container.Provide(service.NewModelService))
+	must(container.Provide(service.NewModelServiceWithBilling))
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
@@ -211,7 +212,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewExpertPackageService))
 	must(container.Provide(service.NewKnowledgeBaseDefaultsService))
-	must(container.Provide(service.NewWeKnoraCloudService))
 
 	// Extract services - register individual extracters with names
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
@@ -400,7 +400,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Invoke(registerIMAdapterFactories))
 	must(container.Provide(handler.NewIMHandler))
 	must(container.Provide(handler.NewEmbedChannelHandler))
-	must(container.Provide(handler.NewWeKnoraCloudHandler))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 
 	// Wire the chat package's local image resolver so multimodal chat can read

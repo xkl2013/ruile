@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -165,8 +166,17 @@ func (s *knowledgeService) DeleteKnowledge(ctx context.Context, id string) error
 		}
 		deleteExtractedImages(ctx, kbFileSvc, imageURLs)
 		tenantInfo := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-		tenantInfo.StorageUsed -= knowledge.StorageSize
-		if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantInfo.ID, -knowledge.StorageSize); err != nil {
+		if err := s.recordKnowledgeStorageDelta(
+			ctx,
+			tenantInfo.ID,
+			"knowledge:delete:"+knowledge.ID,
+			"knowledge_delete",
+			-knowledge.StorageSize,
+			map[string]any{
+				"knowledge_id":      knowledge.ID,
+				"knowledge_base_id": knowledge.KnowledgeBaseID,
+			},
+		); err != nil {
 			logger.GetLogger(ctx).WithField("error", err).Errorf("DeleteKnowledge update tenant storage used failed")
 		}
 		return nil
@@ -559,7 +569,6 @@ func (s *knowledgeService) DeleteKnowledgeList(ctx context.Context, ids []string
 
 	// 5. Delete the physical file and extracted images if they exist
 	wg.Go(func() error {
-		storageAdjust := int64(0)
 		for _, knowledge := range knowledgeList {
 			if knowledge.FilePath != "" {
 				fSvc := kbFileServices[knowledge.KnowledgeBaseID]
@@ -567,7 +576,20 @@ func (s *knowledgeService) DeleteKnowledgeList(ctx context.Context, ids []string
 					logger.GetLogger(ctx).WithField("error", err).Errorf("DeleteKnowledge delete file failed")
 				}
 			}
-			storageAdjust -= knowledge.StorageSize
+			if err := s.recordKnowledgeStorageDelta(
+				ctx,
+				tenantInfo.ID,
+				"knowledge:delete:"+knowledge.ID,
+				"knowledge_delete",
+				-knowledge.StorageSize,
+				map[string]any{
+					"knowledge_id":      knowledge.ID,
+					"knowledge_base_id": knowledge.KnowledgeBaseID,
+				},
+			); err != nil {
+				logger.GetLogger(ctx).WithField("error", err).
+					Errorf("DeleteKnowledge update tenant storage used failed")
+			}
 		}
 		// Delete extracted images per KB
 		for kbID, urls := range kbImageURLs {
@@ -577,10 +599,6 @@ func (s *knowledgeService) DeleteKnowledgeList(ctx context.Context, ids []string
 				continue
 			}
 			deleteExtractedImages(ctx, fSvc, urls)
-		}
-		tenantInfo.StorageUsed += storageAdjust
-		if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantInfo.ID, storageAdjust); err != nil {
-			logger.GetLogger(ctx).WithField("error", err).Errorf("DeleteKnowledge update tenant storage used failed")
 		}
 		return nil
 	})
@@ -686,11 +704,22 @@ func (s *knowledgeService) cleanupKnowledgeResources(ctx context.Context, knowle
 	}
 
 	if knowledge.StorageSize > 0 {
-		tenantInfo.StorageUsed -= knowledge.StorageSize
-		if tenantInfo.StorageUsed < 0 {
-			tenantInfo.StorageUsed = 0
-		}
-		if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantInfo.ID, -knowledge.StorageSize); err != nil {
+		refNo := fmt.Sprintf(
+			"knowledge:cleanup:%s:%d",
+			knowledge.ID,
+			knowledge.UpdatedAt.UnixNano(),
+		)
+		if err := s.recordKnowledgeStorageDelta(
+			ctx,
+			tenantInfo.ID,
+			refNo,
+			"knowledge_cleanup",
+			-knowledge.StorageSize,
+			map[string]any{
+				"knowledge_id":      knowledge.ID,
+				"knowledge_base_id": knowledge.KnowledgeBaseID,
+			},
+		); err != nil {
 			logger.GetLogger(ctx).WithField("error", err).Error("Failed to adjust storage usage during manual cleanup")
 			cleanupErr = errors.Join(cleanupErr, err)
 		}

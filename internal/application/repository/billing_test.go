@@ -23,18 +23,28 @@ func newBillingTestRepository(t *testing.T) (*gorm.DB, *billingRepository) {
 			id INTEGER PRIMARY KEY,
 			name TEXT NOT NULL,
 			space_type TEXT,
+			storage_quota INTEGER NOT NULL DEFAULT 0,
+			storage_used INTEGER NOT NULL DEFAULT 0,
+			updated_at DATETIME,
 			deleted_at DATETIME
 		)
 	`).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.AutoMigrate(
+		&types.User{},
+		&types.TenantMember{},
 		&types.BillingPlan{},
 		&types.BillingPrice{},
 		&types.TenantSubscription{},
 		&types.TenantCreditAccount{},
 		&types.TenantCreditTransaction{},
 		&types.BillingModelPrice{},
+		&types.BillingServicePrice{},
+		&types.BillingPurchaseItem{},
+		&types.BillingPaymentOrder{},
+		&types.TenantStorageAddonGrant{},
+		&types.TenantStorageTransaction{},
 		&types.TenantBillingPolicy{},
 		&types.TenantMemberCreditAllocation{},
 		&types.TenantUsageReservation{},
@@ -51,6 +61,247 @@ func newBillingTestRepository(t *testing.T) (*gorm.DB, *billingRepository) {
 		t.Fatal(err)
 	}
 	return db, &billingRepository{db: db}
+}
+
+func TestManualOrdersApplyEntitlementsAndKeepOrderHistory(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	ctx := context.Background()
+	spaceType := types.SpaceTypeOrganization
+	tenant := &types.Tenant{
+		ID:           901,
+		Name:         "运营测试企业",
+		SpaceType:    &spaceType,
+		StorageQuota: 100,
+		StorageUsed:  20,
+	}
+	if err := db.Exec(
+		`INSERT INTO tenants(id, name, space_type, storage_quota, storage_used) VALUES (?, ?, ?, ?, ?)`,
+		tenant.ID,
+		tenant.Name,
+		spaceType,
+		tenant.StorageQuota,
+		tenant.StorageUsed,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.EnsureTenantBilling(ctx, tenant); err != nil {
+		t.Fatal(err)
+	}
+
+	creditItem, err := repo.CreatePurchaseItem(ctx, types.BillingPurchaseItemInput{
+		Code:              "test-credit-100",
+		ItemType:          types.BillingPurchaseItemTypeTopup,
+		EditionScope:      types.BillingEditionScopeEnterprise,
+		Name:              "测试 100 积分",
+		Currency:          "CNY",
+		AmountCents:       100,
+		CreditPointMicros: 100 * types.PointMicrosPerPoint,
+		Status:            types.BillingPurchaseItemStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creditOrder, err := repo.CreateManualPaymentOrder(ctx, types.BillingManualOrderInput{
+		TenantID:    tenant.ID,
+		OrderType:   types.BillingOrderTypeTopup,
+		ItemID:      creditItem.ID,
+		Description: "合同赠送积分",
+		ActorUserID: "system-admin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creditOrder.Status != types.BillingOrderStatusPaid ||
+		creditOrder.CreditPointMicros != 100*types.PointMicrosPerPoint ||
+		creditOrder.Provider != manualBillingProvider {
+		t.Fatalf("credit order=%+v", creditOrder)
+	}
+	account, err := repo.GetCreditAccount(ctx, tenant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account == nil || account.BalancePointMicros != 100*types.PointMicrosPerPoint {
+		t.Fatalf("account=%+v", account)
+	}
+
+	storageItem, err := repo.CreatePurchaseItem(ctx, types.BillingPurchaseItemInput{
+		Code:              "test-storage-80",
+		ItemType:          types.BillingPurchaseItemTypeStorageAddon,
+		EditionScope:      types.BillingEditionScopeEnterprise,
+		Name:              "测试 80 字节",
+		Currency:          "CNY",
+		AmountCents:       100,
+		StorageQuotaBytes: 80,
+		Status:            types.BillingPurchaseItemStatusActive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storageOrder, err := repo.CreateManualPaymentOrder(ctx, types.BillingManualOrderInput{
+		TenantID:    tenant.ID,
+		OrderType:   types.BillingOrderTypeStorageAddon,
+		ItemID:      storageItem.ID,
+		Description: "合同赠送存储",
+		ActorUserID: "system-admin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storageOrder.Status != types.BillingOrderStatusPaid || storageOrder.StorageQuotaBytes != 80 {
+		t.Fatalf("storage order=%+v", storageOrder)
+	}
+	var refreshed struct {
+		StorageQuota int64
+	}
+	if err := db.Table("tenants").Select("storage_quota").Where("id = ?", tenant.ID).Scan(&refreshed).Error; err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.StorageQuota != 180 {
+		t.Fatalf("storage quota=%d", refreshed.StorageQuota)
+	}
+	var grantCount int64
+	if err := db.Model(&types.TenantStorageAddonGrant{}).
+		Where("tenant_id = ? AND order_no = ?", tenant.ID, storageOrder.OrderNo).
+		Count(&grantCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if grantCount != 1 {
+		t.Fatalf("grant count=%d", grantCount)
+	}
+
+	contractOrder, err := repo.CreateManualPaymentOrder(ctx, types.BillingManualOrderInput{
+		TenantID:        tenant.ID,
+		OrderType:       types.BillingOrderTypeManualContract,
+		PlanID:          "plan-enterprise-team-v1",
+		BillingInterval: "year",
+		PeriodDays:      366,
+		Description:     "年度合同开通",
+		ActorUserID:     "system-admin",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contractOrder.Status != types.BillingOrderStatusPaid ||
+		contractOrder.OrderType != types.BillingOrderTypeManualContract {
+		t.Fatalf("contract order=%+v", contractOrder)
+	}
+	subscription, plan, err := repo.GetCurrentSubscription(ctx, tenant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription == nil || plan == nil ||
+		subscription.Source != "manual_contract" ||
+		subscription.BillingInterval != "year" ||
+		subscription.CurrentPeriodEnd == nil {
+		t.Fatalf("subscription=%+v plan=%+v", subscription, plan)
+	}
+
+	rows, err := repo.ListPaymentOrders(ctx, tenant.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("orders=%d", len(rows))
+	}
+
+	order, err := repo.GetPaymentOrder(ctx, tenant.ID, contractOrder.OrderNo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if order == nil || order.OrderNo != contractOrder.OrderNo || order.TenantID != tenant.ID {
+		t.Fatalf("order=%+v", order)
+	}
+	if _, err := repo.GetPaymentOrder(ctx, tenant.ID+1, contractOrder.OrderNo); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("cross-tenant order lookup err=%v", err)
+	}
+}
+
+func TestBillingPlanCatalogCRUDAndDefaultPriceVersion(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	ctx := context.Background()
+
+	plan, err := repo.CreatePlan(ctx, types.BillingPlanInput{
+		Code:                 "enterprise_plus",
+		Name:                 "企业增强版",
+		Description:          "面向中大型企业",
+		Edition:              "enterprise",
+		SpaceType:            types.SpaceTypeOrganization,
+		Status:               types.BillingStatusActive,
+		IsPublic:             true,
+		IncludedStorageBytes: 300 * 1024 * 1024 * 1024,
+		IncludedPointMicros:  2_000 * types.PointMicrosPerPoint,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.ID == "" || plan.BillingMultiplierPPM != 1_000_000 {
+		t.Fatalf("plan=%+v", plan)
+	}
+
+	plan, err = repo.UpdatePlan(ctx, plan.ID, types.BillingPlanInput{
+		Code:                 plan.Code,
+		Name:                 "企业增强版 2026",
+		Description:          "更新后的企业套餐",
+		Edition:              "enterprise",
+		SpaceType:            types.SpaceTypeOrganization,
+		Status:               types.BillingStatusActive,
+		IsPublic:             false,
+		IncludedStorageBytes: 500 * 1024 * 1024 * 1024,
+		IncludedPointMicros:  3_000 * types.PointMicrosPerPoint,
+		BillingMultiplierPPM: 1_200_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Name != "企业增强版 2026" || plan.IsPublic ||
+		plan.IncludedPointMicros != 3_000*types.PointMicrosPerPoint ||
+		plan.BillingMultiplierPPM != 1_200_000 {
+		t.Fatalf("updated plan=%+v", plan)
+	}
+
+	first, err := repo.CreatePriceVersion(ctx, types.BillingPriceInput{
+		PlanID:          plan.ID,
+		Code:            "enterprise_plus_cny_v1",
+		Currency:        "CNY",
+		BillingInterval: "month",
+		AmountMinor:     19900,
+		Status:          types.BillingStatusActive,
+		IsDefault:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.CreatePriceVersion(ctx, types.BillingPriceInput{
+		PlanID:          plan.ID,
+		Code:            "enterprise_plus_cny_v2",
+		Currency:        "CNY",
+		BillingInterval: "month",
+		AmountMinor:     29900,
+		Status:          types.BillingStatusActive,
+		IsDefault:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prices []types.BillingPrice
+	if err := db.Where("plan_id = ?", plan.ID).Order("code ASC").Find(&prices).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(prices) != 2 {
+		t.Fatalf("prices=%d", len(prices))
+	}
+	var firstDefault, secondDefault bool
+	for _, price := range prices {
+		switch price.ID {
+		case first.ID:
+			firstDefault = price.IsDefault
+		case second.ID:
+			secondDefault = price.IsDefault
+		}
+	}
+	if firstDefault || !secondDefault {
+		t.Fatalf("default prices: first=%v second=%v", firstDefault, secondDefault)
+	}
 }
 
 func TestBillingColumnNamesMatchMigrations(t *testing.T) {
@@ -115,6 +366,47 @@ func TestBillingColumnNamesMatchMigrations(t *testing.T) {
 				t.Fatalf("%T has GORM-derived wrong column %q", model, column)
 			}
 		}
+	}
+}
+
+func TestServicePricingOnlySupportsMCPToolCalls(t *testing.T) {
+	_, repo := newBillingTestRepository(t)
+	ctx := context.Background()
+
+	if _, err := repo.CreateServicePriceVersion(ctx, types.BillingServicePriceInput{
+		ServiceCode: "web_search.query",
+		ServiceName: "联网搜索",
+		PricingMode: "call",
+	}); err == nil {
+		t.Fatal("web search service pricing should be rejected")
+	}
+	if _, err := repo.CreateServicePriceVersion(ctx, types.BillingServicePriceInput{
+		ServiceCode: types.BillingServiceCodeMCPToolCall,
+		ServiceName: "MCP工具调用",
+		PricingMode: "unit",
+	}); err == nil {
+		t.Fatal("MCP service pricing should only support call mode")
+	}
+
+	created, err := repo.CreateServicePriceVersion(ctx, types.BillingServicePriceInput{
+		ServiceCode:    types.BillingServiceCodeMCPToolCall,
+		ServiceName:    "MCP工具调用",
+		PricingMode:    "call",
+		NanoUSDPerCall: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ServiceCode != types.BillingServiceCodeMCPToolCall || created.PricingMode != "call" {
+		t.Fatalf("created=%+v", created)
+	}
+
+	rows, err := repo.ListServicePrices(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ServiceCode != types.BillingServiceCodeMCPToolCall {
+		t.Fatalf("rows=%+v", rows)
 	}
 }
 
@@ -345,6 +637,92 @@ func TestEnsureTenantBillingClassifiesLegacyWorkspace(t *testing.T) {
 	}
 }
 
+func TestListCreditAccountsAggregatesByUserAndEnterprise(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	ctx := context.Background()
+	personal := types.SpaceTypePersonal
+	enterprise := types.SpaceTypeOrganization
+	tenants := []struct {
+		id        uint64
+		name      string
+		spaceType types.SpaceType
+	}{
+		{1001, "满乐乐's Workspace", personal},
+		{1002, "备用个人空间", personal},
+		{1003, "满乐乐的企业", enterprise},
+	}
+	for _, tenant := range tenants {
+		if err := db.Exec(
+			"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+			tenant.id,
+			tenant.name,
+			tenant.spaceType,
+		).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	user := &types.User{
+		ID:           "user-personal-owner",
+		Username:     "满乐乐",
+		Email:        "13258978299@example.com",
+		PasswordHash: "test-hash",
+		TenantID:     1001,
+		IsActive:     true,
+	}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tenantID := range []uint64{1001, 1002} {
+		if err := db.Create(&types.TenantMember{
+			UserID:   user.ID,
+			TenantID: tenantID,
+			Role:     types.TenantRoleOwner,
+			Status:   types.TenantMemberStatusActive,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	accounts := []*types.TenantCreditAccount{
+		{ID: "account-personal-1", TenantID: 1001, BalancePointMicros: 40 * types.PointMicrosPerPoint},
+		{ID: "account-personal-2", TenantID: 1002, BalancePointMicros: 60 * types.PointMicrosPerPoint},
+		{ID: "account-enterprise", TenantID: 1003, BalancePointMicros: 500 * types.PointMicrosPerPoint},
+	}
+	if err := db.Create(&accounts).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := repo.ListCreditAccounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows=%d, want two billing subjects", len(rows))
+	}
+	var personalRow, enterpriseRow *types.BillingCreditAccountSummary
+	for _, row := range rows {
+		switch row.SubjectType {
+		case "user":
+			personalRow = row
+		case "enterprise":
+			enterpriseRow = row
+		}
+	}
+	if personalRow == nil ||
+		personalRow.SubjectID != user.ID ||
+		personalRow.SubjectName != user.Username ||
+		personalRow.BalancePointMicros != 100*types.PointMicrosPerPoint ||
+		personalRow.TenantCount != 2 {
+		t.Fatalf("personal row=%+v", personalRow)
+	}
+	if enterpriseRow == nil ||
+		enterpriseRow.SubjectID != "1003" ||
+		enterpriseRow.SubjectName != "满乐乐的企业" ||
+		enterpriseRow.BalancePointMicros != 500*types.PointMicrosPerPoint ||
+		enterpriseRow.TenantCount != 1 {
+		t.Fatalf("enterprise row=%+v", enterpriseRow)
+	}
+}
+
 func TestEnterpriseMemberAllocationAndActorUsageSummary(t *testing.T) {
 	db, repo := newBillingTestRepository(t)
 	spaceType := types.SpaceTypeOrganization
@@ -460,6 +838,59 @@ func TestEnterpriseMemberAllocationAndActorUsageSummary(t *testing.T) {
 		allocations[0].UsedPointMicros != 15*types.PointMicrosPerPoint ||
 		allocations[0].LedgerCount != 1 {
 		t.Fatalf("allocations=%#v", allocations)
+	}
+}
+
+func TestGetPeriodUsedPointMicrosOnlyCountsSettledPeriodUsage(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	now := time.Now().UTC()
+	periodStart := now.Add(-time.Hour)
+	periodEnd := now.Add(time.Hour)
+	if err := db.Exec(
+		"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+		901,
+		"周期用量企业",
+		types.SpaceTypeOrganization,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	rows := []*types.TenantUsageLedger{
+		{
+			ID:                       "period-settled",
+			TenantID:                 901,
+			ActorUserID:              "user-901",
+			UsageScope:               types.BillingUsageScopeEnterprise,
+			RefNo:                    "period:settled",
+			BilledPointMicros:        20 * types.PointMicrosPerPoint,
+			PeriodCoveredPointMicros: 12 * types.PointMicrosPerPoint,
+			Status:                   "settled",
+			BillingAt:                now,
+			UsageDate:                now,
+			PricingSnapshotJSON:      types.JSON([]byte("{}")),
+		},
+		{
+			ID:                       "period-observed",
+			TenantID:                 901,
+			ActorUserID:              "user-901",
+			UsageScope:               types.BillingUsageScopeEnterprise,
+			RefNo:                    "period:observed",
+			BilledPointMicros:        30 * types.PointMicrosPerPoint,
+			PeriodCoveredPointMicros: 30 * types.PointMicrosPerPoint,
+			Status:                   "observed",
+			BillingAt:                now,
+			UsageDate:                now,
+			PricingSnapshotJSON:      types.JSON([]byte("{}")),
+		},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	used, err := repo.GetPeriodUsedPointMicros(context.Background(), 901, periodStart, periodEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64(12 * types.PointMicrosPerPoint); used != want {
+		t.Fatalf("used=%d want=%d", used, want)
 	}
 }
 

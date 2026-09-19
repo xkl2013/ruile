@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/agent"
 	"github.com/Tencent/WeKnora/internal/agent/approval"
@@ -103,6 +104,7 @@ type agentService struct {
 	tenantService         interfaces.TenantService
 	storageResolver       interfaces.StorageBackendResolver
 	toolApprovalGate      approval.MCPApproval
+	usageBilling          interfaces.UsageBillingService
 }
 
 // NewAgentService creates a new agent service
@@ -124,6 +126,7 @@ func NewAgentService(
 	tenantService interfaces.TenantService,
 	storageResolver interfaces.StorageBackendResolver,
 	toolApprovalGate approval.MCPApproval,
+	usageBilling interfaces.UsageBillingService,
 ) interfaces.AgentService {
 	return &agentService{
 		cfg:                   cfg,
@@ -143,6 +146,7 @@ func NewAgentService(
 		tenantService:         tenantService,
 		storageResolver:       storageResolver,
 		toolApprovalGate:      toolApprovalGate,
+		usageBilling:          usageBilling,
 	}
 }
 
@@ -302,6 +306,13 @@ func (s *agentService) registerMCPTools(
 		} else if registered == 0 {
 			logger.Warnf(ctx, "No MCP tools registered from %d enabled service(s)", len(enabledServices))
 		} else {
+			for _, toolName := range toolRegistry.ListTools() {
+				if strings.HasPrefix(toolName, "mcp_") {
+					toolRegistry.WrapTool(toolName, func(tool types.Tool) types.Tool {
+						return wrapBillingTool(tool, s.usageBilling, "mcp.tool_call")
+					})
+				}
+			}
 			logger.Infof(ctx, "Registered %d MCP tool(s) from %d enabled service(s)", registered, len(enabledServices))
 		}
 	}
@@ -662,6 +673,9 @@ func (s *agentService) registerTools(
 		if toolToRegister != nil {
 			if toolToRegister.Name() != toolName {
 				logger.Warnf(ctx, "Tool name mismatch: expected %s, got %s", toolName, toolToRegister.Name())
+			}
+			if toolName == tools.ToolWebSearch {
+				toolToRegister = wrapBillingTool(toolToRegister, s.usageBilling, "web_search.query")
 			}
 			registry.RegisterTool(toolToRegister)
 		}

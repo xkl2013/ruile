@@ -30,6 +30,7 @@ type modelService struct {
 	ollamaService *ollama.OllamaService
 	pooler        embedding.EmbedderPooler
 	tenantService interfaces.TenantService
+	usageBilling  interfaces.UsageBillingService
 }
 
 // NewModelService creates a new model service instance
@@ -407,7 +408,7 @@ func (s *modelService) GetEmbeddingModel(ctx context.Context, modelId string) (e
 	}
 
 	logger.Info(ctx, "Embedding model initialized successfully")
-	return embedder, nil
+	return wrapBillingEmbedder(embedder, s.usageBilling), nil
 }
 
 // GetEmbeddingModelForTenant retrieves and initializes an embedding model for a specific tenant
@@ -455,7 +456,7 @@ func (s *modelService) GetEmbeddingModelForTenant(ctx context.Context, modelId s
 	}
 
 	logger.Info(ctx, "Cross-tenant embedding model initialized successfully")
-	return embedder, nil
+	return wrapBillingEmbedder(embedder, s.usageBilling), nil
 }
 
 // GetRerankModel retrieves and initializes a reranking model instance
@@ -484,7 +485,7 @@ func (s *modelService) GetRerankModel(ctx context.Context, modelId string) (rera
 	}
 
 	logger.Info(ctx, "Rerank model initialized successfully")
-	return reranker, nil
+	return wrapBillingReranker(reranker, s.usageBilling), nil
 }
 
 // GetChatModel retrieves and initializes a chat model instance
@@ -526,7 +527,7 @@ func (s *modelService) GetChatModel(ctx context.Context, modelId string) (chat.C
 		return nil, err
 	}
 
-	return chatModel, nil
+	return wrapBillingChat(chatModel, s.usageBilling), nil
 }
 
 // GetVLMModel retrieves and initializes a vision language model instance.
@@ -563,7 +564,7 @@ func (s *modelService) GetVLMModel(ctx context.Context, modelId string) (vlm.VLM
 		return nil, err
 	}
 
-	return vlmModel, nil
+	return wrapBillingVLM(vlmModel, s.usageBilling, "chat.completion"), nil
 }
 
 // GetOCRModel retrieves and initializes an OCR model instance.
@@ -602,7 +603,7 @@ func (s *modelService) GetOCRModel(ctx context.Context, modelId string) (vlm.VLM
 		return nil, err
 	}
 
-	return ocrModel, nil
+	return wrapBillingVLM(ocrModel, s.usageBilling, "file.ocr"), nil
 }
 
 // Note: default model selection logic has been removed; models no longer
@@ -640,7 +641,7 @@ func (s *modelService) GetASRModel(ctx context.Context, modelId string) (asr.ASR
 		return nil, err
 	}
 
-	return sttModel, nil
+	return wrapBillingASR(sttModel, s.usageBilling), nil
 }
 
 func formatModelInUseMessage(kbCount, agentCount int64) string {

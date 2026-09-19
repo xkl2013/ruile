@@ -509,6 +509,8 @@ func withIMIdentity(ctx context.Context, tenantID uint64, channelID string, msg 
 		ctx = types.WithPrincipal(ctx, types.Principal{Type: types.PrincipalIMUser, ID: principalID})
 	}
 	ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleViewer)
+	ctx = types.WithBillingSource(ctx, "im")
+	ctx = types.WithBillingServiceCode(ctx, "im.chat")
 	// IM bots have no live client that can complete an in-conversation MCP OAuth
 	// prompt, so mark the context non-interactive: the agent emits a one-shot
 	// authorization notice (surfaced in the reply) instead of blocking until the

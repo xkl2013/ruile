@@ -69,7 +69,6 @@ const (
 func AllProviders() []ProviderName {
 	return []ProviderName{
 		ProviderGeneric,
-		ProviderWeKnoraCloud,
 		ProviderAliyun,
 		ProviderZhipu,
 		ProviderVolcengine,

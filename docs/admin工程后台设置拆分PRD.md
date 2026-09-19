@@ -58,7 +58,7 @@
 - 空间后台：`ChatHistorySettings` 等空间级配置继续由 admin 承载
 - 智能体：`AgentList`
 - 发布集成：IM、Embed、API 集成
-- 模型与运行时：`ModelSettings`、`OllamaSettings`、`WeKnoraCloudSettings`
+- 模型与运行时：`ModelSettings`、`OllamaSettings`
 - 数据与扩展：`VectorStoreSettings`、`ParserEngineSettings`、`StorageBackendSettings`、`WebSearchSettings`、`McpSettings`
 - 系统管理：`SystemSettings`、`RuntimeQueues`
 - 平台信息：`SystemInfo`
@@ -103,7 +103,6 @@ P1 是空间 Admin 常用配置，建议在 P0 shell 稳定后迁移。
 | --- | --- | --- | --- | --- | --- |
 | 模型管理 | `ModelSettings.vue`、`ModelEditorDialog.vue`、`ModelDebugDrawer.vue` | `/api/v1/models` | `/admin/models` | `viewer` 读，`admin` 写 | 凭据更新保持脱敏展示 |
 | Ollama 运行时 | `OllamaSettings.vue` | `/api/v1/initialization/ollama/*` | `/admin/runtime/ollama` | `viewer` 状态，`admin` 检查和下载 | 和模型管理同组 |
-| 睿乐大脑云配置 | `WeKnoraCloudSettings.vue` | `/api/v1/weknoracloud/*` | `/admin/runtime/weknora-cloud` | `viewer` 状态，`admin` 保存凭据 | 凭据字段必须只写不回显 |
 | 向量数据库 | `VectorStoreSettings.vue` | `/api/v1/vector-stores` | `/admin/data/vector-stores` | `viewer` 读，`admin` 写 | 含连接测试、默认选择 |
 | 解析引擎 | `ParserEngineSettings.vue` | `/api/v1/system/parser-engines`、`/api/v1/tenants/kv/parser-engine-config` | `/admin/data/parser-engines` | `viewer` 读，`admin` 写 | 注意系统状态和空间配置是两个层级 |
 | 存储后端 | `StorageBackendSettings.vue` | `/api/v1/storage-backends` | `/admin/data/storage-backends` | `viewer` 读，`admin` 写 | 当前 settings 使用该组件，旧 `StorageEngineSettings.vue` 需确认是否遗留 |
@@ -152,7 +151,7 @@ P1 是空间 Admin 常用配置，建议在 P0 shell 稳定后迁移。
 | 服务交付 | 员工分身、服务能力、发布测试、配置审计 | AI 工程师为用户开通服务提醒能力 |
 | 发布 | IM 渠道、嵌入渠道 | 外部触达和发布配置 |
 | 安全 | API Key、API Principal、密钥使用记录 | 凭证和接口访问 |
-| 模型与运行时 | 模型、知识库配置、Ollama、睿乐大脑云 | 模型供应商、知识库处理默认项和运行配置 |
+| 模型与运行时 | 模型、知识库配置、Ollama | 模型供应商、知识库处理默认项和运行配置 |
 | 数据与扩展 | 向量库、解析引擎、存储、网络搜索、MCP 服务 | 基础设施连接 |
 | 共享空间 | 组织列表、共享关系 | organization 管理 |
 | 系统管理 | 全局设置、系统管理员、运行队列、系统审计、用户管理 | `system_admin` 专属 |
@@ -165,7 +164,6 @@ P1 是空间 Admin 常用配置，建议在 P0 shell 稳定后迁移。
 | --- | --- |
 | `/platform/settings?section=models` | `/admin/models` |
 | `/platform/settings?section=ollama` | `/admin/runtime/ollama` |
-| `/platform/settings?section=weknoracloud` | `/admin/runtime/weknora-cloud` |
 | `/platform/settings?section=websearch` | `/admin/extensions/web-search` |
 | `/platform/settings?section=mcp` | `/admin/extensions/mcp-services` |
 | `/platform/settings?section=vectorstore` | `/admin/data/vector-stores` |
@@ -301,7 +299,6 @@ packages/
 - 支持模型列表、创建、编辑、删除、凭据更新、连接测试。
 - 支持模型 debug 抽屉或独立页面。
 - 支持 Ollama 状态、模型列表、检查、下载。
-- 支持睿乐大脑云状态和凭据保存。
 - 支持模型并发等系统级设置时，跳转到系统管理页面。
 
 ### 9.5 数据与扩展
@@ -447,7 +444,7 @@ packages/
 
 交付：
 
-- 模型、Ollama、睿乐大脑云。
+- 模型、Ollama。
 - 向量库、解析引擎、存储、网络搜索、MCP 服务。
 - 智能体配置。
 - 成员分身配置、AI 一键录入、发布测试和配置审计。

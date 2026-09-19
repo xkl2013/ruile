@@ -106,9 +106,9 @@ func (r *billingRepository) CreateModelPriceVersion(
 		mode = "token"
 	}
 	switch mode {
-	case "token", "call", "duration":
+	case "token", "call", "duration", "tiered":
 	default:
-		return nil, fmt.Errorf("billing: pricing_mode %q is not supported in step 2A", mode)
+		return nil, fmt.Errorf("billing: pricing_mode %q is not supported", mode)
 	}
 	status := strings.ToLower(strings.TrimSpace(input.Status))
 	if status == "" {
@@ -141,6 +141,16 @@ func (r *billingRepository) CreateModelPriceVersion(
 	if input.ExpiresAt != nil && !input.ExpiresAt.After(effectiveAt) {
 		return nil, errors.New("billing: expires_at must be after effective_at")
 	}
+	tieredPricing := input.TieredPricingJSON
+	if len(tieredPricing) == 0 {
+		tieredPricing = types.JSON([]byte("{}"))
+	}
+	if !json.Valid(tieredPricing) {
+		return nil, errors.New("billing: tiered_pricing_json must be valid JSON")
+	}
+	if mode == "tiered" && string(tieredPricing) == "{}" {
+		return nil, errors.New("billing: tiered pricing requires at least one tier")
+	}
 
 	var created *types.BillingModelPrice
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -161,6 +171,7 @@ func (r *billingRepository) CreateModelPriceVersion(
 			"cache_write_nanousd_per_m_tokens": input.CacheWriteNanoUSDPerMTokens,
 			"call_nanousd_per_call":            input.CallNanoUSDPerCall,
 			"duration_nanousd_per_second":      input.DurationNanoUSDPerSecond,
+			"tiered_pricing_json":              json.RawMessage(tieredPricing),
 			"model_multiplier_ppm":             multiplier,
 			"version":                          maxVersion + 1,
 			"effective_at":                     effectiveAt,
@@ -179,7 +190,7 @@ func (r *billingRepository) CreateModelPriceVersion(
 			CacheWriteNanoUSDPerMTokens: input.CacheWriteNanoUSDPerMTokens,
 			CallNanoUSDPerCall:          input.CallNanoUSDPerCall,
 			DurationNanoUSDPerSecond:    input.DurationNanoUSDPerSecond,
-			TieredPricingJSON:           types.JSON([]byte("{}")),
+			TieredPricingJSON:           tieredPricing,
 			ModelMultiplierPPM:          multiplier,
 			Version:                     maxVersion + 1,
 			EffectiveAt:                 effectiveAt,
@@ -547,6 +558,86 @@ func (r *billingRepository) SetCurrentMemberPolicy(
 	monthlyLimitPointMicros int64,
 	actorUserID string,
 ) (*types.TenantMemberCreditAllocation, error) {
+	var persisted *types.TenantMemberCreditAllocation
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		persisted, err = setCurrentMemberPolicyWithDB(
+			tx,
+			tenantID,
+			userID,
+			periodStart,
+			periodEnd,
+			limitMode,
+			monthlyLimitPointMicros,
+			actorUserID,
+		)
+		return err
+	})
+	return persisted, err
+}
+
+func (r *billingRepository) SetCurrentMemberPolicies(
+	ctx context.Context,
+	tenantID uint64,
+	userIDs []string,
+	periodStart time.Time,
+	periodEnd time.Time,
+	limitMode string,
+	monthlyLimitPointMicros int64,
+	actorUserID string,
+) ([]*types.TenantMemberCreditAllocation, error) {
+	if len(userIDs) == 0 {
+		return nil, errors.New("billing: at least one user_id is required")
+	}
+	if len(userIDs) > 100 {
+		return nil, errors.New("billing: at most 100 member policies can be updated at once")
+	}
+	seen := make(map[string]struct{}, len(userIDs))
+	normalizedUserIDs := make([]string, 0, len(userIDs))
+	for _, raw := range userIDs {
+		userID := strings.TrimSpace(raw)
+		if userID == "" {
+			return nil, errors.New("billing: user_id must not be empty")
+		}
+		if _, ok := seen[userID]; ok {
+			continue
+		}
+		seen[userID] = struct{}{}
+		normalizedUserIDs = append(normalizedUserIDs, userID)
+	}
+	rows := make([]*types.TenantMemberCreditAllocation, 0, len(normalizedUserIDs))
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, userID := range normalizedUserIDs {
+			row, err := setCurrentMemberPolicyWithDB(
+				tx,
+				tenantID,
+				userID,
+				periodStart,
+				periodEnd,
+				limitMode,
+				monthlyLimitPointMicros,
+				actorUserID,
+			)
+			if err != nil {
+				return err
+			}
+			rows = append(rows, row)
+		}
+		return nil
+	})
+	return rows, err
+}
+
+func setCurrentMemberPolicyWithDB(
+	db *gorm.DB,
+	tenantID uint64,
+	userID string,
+	periodStart time.Time,
+	periodEnd time.Time,
+	limitMode string,
+	monthlyLimitPointMicros int64,
+	actorUserID string,
+) (*types.TenantMemberCreditAllocation, error) {
 	userID = strings.TrimSpace(userID)
 	actorUserID = strings.TrimSpace(actorUserID)
 	if tenantID == 0 || userID == "" {
@@ -595,7 +686,7 @@ func (r *billingRepository) SetCurrentMemberPolicy(
 		UpdatedByUserID:             actorUserID,
 		SnapshotJSON:                types.JSON(snapshot),
 	}
-	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+	if err := db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "tenant_id"},
 			{Name: "user_id"},
@@ -617,7 +708,7 @@ func (r *billingRepository) SetCurrentMemberPolicy(
 		return nil, err
 	}
 	var persisted types.TenantMemberCreditAllocation
-	if err := r.db.WithContext(ctx).
+	if err := db.
 		Where(
 			"tenant_id = ? AND user_id = ? AND period_start_at = ? AND period_end_at = ?",
 			tenantID,
@@ -789,6 +880,9 @@ func (r *billingRepository) CreateUsageReservation(
 		}
 		if handle.Price != nil {
 			result.PricingID = handle.Price.ID
+		}
+		if handle.ServicePrice != nil {
+			result.ServicePricingID = handle.ServicePrice.ID
 		}
 		return tx.Create(result).Error
 	})
@@ -1032,6 +1126,24 @@ func (r *billingRepository) ListUsageLedgers(
 	tenantID uint64,
 	limit int,
 ) ([]*types.BillingUsageLedgerSummary, error) {
+	return r.listUsageLedgers(ctx, tenantID, "", limit)
+}
+
+func (r *billingRepository) ListUsageLedgersByActor(
+	ctx context.Context,
+	tenantID uint64,
+	actorUserID string,
+	limit int,
+) ([]*types.BillingUsageLedgerSummary, error) {
+	return r.listUsageLedgers(ctx, tenantID, strings.TrimSpace(actorUserID), limit)
+}
+
+func (r *billingRepository) listUsageLedgers(
+	ctx context.Context,
+	tenantID uint64,
+	actorUserID string,
+	limit int,
+) ([]*types.BillingUsageLedgerSummary, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1045,12 +1157,45 @@ func (r *billingRepository) ListUsageLedgers(
 	if tenantID > 0 {
 		query = query.Where("tenant_usage_ledgers.tenant_id = ?", tenantID)
 	}
+	if actorUserID != "" {
+		query = query.Where("tenant_usage_ledgers.actor_user_id = ?", actorUserID)
+	}
 	var rows []*types.BillingUsageLedgerSummary
 	err := query.
 		Order("tenant_usage_ledgers.created_at DESC").
 		Limit(limit).
 		Scan(&rows).Error
 	return rows, err
+}
+
+func (r *billingRepository) GetPeriodUsedPointMicros(
+	ctx context.Context,
+	tenantID uint64,
+	periodStart time.Time,
+	periodEnd time.Time,
+) (int64, error) {
+	if tenantID == 0 || periodEnd.IsZero() || !periodEnd.After(periodStart) {
+		return 0, nil
+	}
+	var used int64
+	err := r.db.WithContext(ctx).
+		Model(&types.TenantUsageLedger{}).
+		Where(
+			"tenant_id = ? AND status = ? AND billing_at >= ? AND billing_at < ?",
+			tenantID,
+			"settled",
+			periodStart.UTC(),
+			periodEnd.UTC(),
+		).
+		Select("COALESCE(SUM(period_covered_point_micros), 0)").
+		Scan(&used).Error
+	if err != nil {
+		return 0, err
+	}
+	if used < 0 {
+		return 0, nil
+	}
+	return used, nil
 }
 
 func (r *billingRepository) ListUsageSummaryByActor(

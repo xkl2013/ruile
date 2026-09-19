@@ -42,6 +42,7 @@ func TestEnterpriseUsageLinksCurrentMemberAllocation(t *testing.T) {
 		&types.TenantCreditAccount{},
 		&types.TenantCreditTransaction{},
 		&types.BillingModelPrice{},
+		&types.BillingServicePrice{},
 		&types.TenantBillingPolicy{},
 		&types.TenantMemberCreditAllocation{},
 		&types.TenantUsageReservation{},

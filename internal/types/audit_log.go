@@ -44,6 +44,16 @@ const (
 	// AuditActionEnterpriseBillingPolicyChanged fires when an enterprise
 	// Owner/Admin changes the default member limit or overage behavior.
 	AuditActionEnterpriseBillingPolicyChanged AuditAction = "billing.enterprise_policy_changed"
+	// AuditActionPurchaseItemCreated and AuditActionPurchaseItemUpdated record
+	// SystemAdmin catalog maintenance for credit and storage packages.
+	AuditActionPurchaseItemCreated AuditAction = "billing.purchase_item_created"
+	AuditActionPurchaseItemUpdated AuditAction = "billing.purchase_item_updated"
+	// AuditActionManualBillingOrderCreated records a paid offline operation
+	// that changes a workspace contract, credit balance, or storage quota.
+	AuditActionManualBillingOrderCreated AuditAction = "billing.manual_order_created"
+	AuditActionBillingPlanCreated        AuditAction = "billing.plan_created"
+	AuditActionBillingPlanUpdated        AuditAction = "billing.plan_updated"
+	AuditActionBillingPriceCreated       AuditAction = "billing.price_created"
 	// AuditActionAccessDenied fires when middleware/rbac.go's
 	// RequireRole or RequireOwnershipOrRole rejects a request under
 	// EnableRBAC=true. Subject to 1-minute sliding-window dedup so a

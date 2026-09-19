@@ -225,6 +225,12 @@ var registry = map[string]settingSpec{
 		Category:    "billing",
 		Description: "模型价格未设置有效倍率时使用的全局倍率。1000000 表示 1.0 倍，只影响之后发生的新调用。",
 	},
+	"billing.default_service_multiplier_ppm": {
+		Type:        "int",
+		Default:     int64(1_000_000),
+		Category:    "billing",
+		Description: "服务价格未设置有效倍率时使用的全局倍率。1000000 表示 1.0 倍；服务倍率与模型倍率分别计算。",
+	},
 	"billing.default_member_allocation_points": {
 		Type:        "int",
 		Default:     int64(100),

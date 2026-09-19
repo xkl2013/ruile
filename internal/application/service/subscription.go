@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -64,6 +65,15 @@ func (s *subscriptionService) GetOverview(ctx context.Context, tenantID uint64) 
 	}
 	if subscription == nil || plan == nil || account == nil {
 		return nil, errors.New("billing overview is incomplete after repair")
+	}
+	periodStart, periodEnd := billingOverviewPeriod(subscription, time.Now().UTC())
+	periodUsed, err := s.billing.GetPeriodUsedPointMicros(ctx, tenantID, periodStart, periodEnd)
+	if err != nil {
+		return nil, err
+	}
+	periodRemaining := plan.IncludedPointMicros - periodUsed
+	if periodRemaining < 0 {
+		periodRemaining = 0
 	}
 
 	spaceType := types.SpaceTypeLegacy
@@ -132,13 +142,28 @@ func (s *subscriptionService) GetOverview(ctx context.Context, tenantID uint64) 
 			UsagePercent:   percent,
 			Unlimited:      unlimited,
 			Status:         status,
+			Visible:        true,
 		},
 		Credits: types.BillingOverviewCredits{
-			BalancePointMicros: account.BalancePointMicros,
-			PeriodPointMicros:  plan.IncludedPointMicros,
+			BalancePointMicros:         account.BalancePointMicros,
+			PeriodPointMicros:          plan.IncludedPointMicros,
+			PeriodUsedPointMicros:      periodUsed,
+			PeriodRemainingPointMicros: periodRemaining,
+			Visible:                    true,
 		},
 		CompatibilityMode: compatibilityMode,
 	}, nil
+}
+
+func billingOverviewPeriod(subscription *types.TenantSubscription, now time.Time) (time.Time, time.Time) {
+	if subscription != nil &&
+		subscription.CurrentPeriodStart != nil &&
+		subscription.CurrentPeriodEnd != nil &&
+		subscription.CurrentPeriodEnd.After(*subscription.CurrentPeriodStart) {
+		return subscription.CurrentPeriodStart.UTC(), subscription.CurrentPeriodEnd.UTC()
+	}
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return start, start.AddDate(0, 1, 0)
 }
 
 func (s *subscriptionService) ListPlans(ctx context.Context) ([]*types.BillingPlan, error) {

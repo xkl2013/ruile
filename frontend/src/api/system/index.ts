@@ -498,9 +498,24 @@ export interface BillingPlanItem {
   code: string
   name: string
   description: string
-  edition: string
-  space_type: string
-  status: string
+  edition: 'personal' | 'enterprise' | 'legacy' | string
+  space_type: 'personal' | 'organization' | 'legacy' | string
+  status: 'active' | 'disabled' | string
+  is_public: boolean
+  included_storage_bytes: number
+  included_point_micros: number
+  billing_multiplier_ppm: number
+  created_at: string
+  updated_at: string
+}
+
+export interface BillingPlanInput {
+  code: string
+  name: string
+  description: string
+  edition: 'personal' | 'enterprise' | 'legacy'
+  space_type: 'personal' | 'organization' | 'legacy'
+  status: 'active' | 'disabled'
   is_public: boolean
   included_storage_bytes: number
   included_point_micros: number
@@ -512,10 +527,24 @@ export interface BillingPriceItem {
   plan_id: string
   code: string
   currency: string
-  billing_interval: string
+  billing_interval: 'none' | 'trial' | 'month' | 'year' | 'manual' | string
   amount_minor: number
-  status: string
+  status: 'active' | 'draft' | 'disabled' | string
   is_default: boolean
+  effective_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface BillingPriceInput {
+  plan_id: string
+  code: string
+  currency: 'CNY'
+  billing_interval: 'none' | 'trial' | 'month' | 'year' | 'manual'
+  amount_minor: number
+  status: 'active' | 'draft' | 'disabled'
+  is_default: boolean
+  effective_at?: string
 }
 
 export interface BillingSubscriptionItem {
@@ -536,6 +565,11 @@ export interface BillingCreditAccountItem {
   tenant_id: number
   tenant_name: string
   space_type: string
+  subject_type: 'user' | 'enterprise' | 'legacy' | string
+  subject_id: string
+  subject_name: string
+  subject_contact?: string
+  tenant_count: number
   balance_point_micros: number
   version: number
   created_at: string
@@ -545,8 +579,27 @@ export async function listBillingPlans(): Promise<BillingPlanItem[]> {
   return get('/api/v1/system/admin/billing/plans') as unknown as BillingPlanItem[]
 }
 
+export async function createBillingPlan(
+  input: BillingPlanInput,
+): Promise<BillingPlanItem> {
+  return post('/api/v1/system/admin/billing/plans', input) as unknown as BillingPlanItem
+}
+
+export async function updateBillingPlan(
+  id: string,
+  input: BillingPlanInput,
+): Promise<BillingPlanItem> {
+  return put(`/api/v1/system/admin/billing/plans/${id}`, input) as unknown as BillingPlanItem
+}
+
 export async function listBillingPrices(): Promise<BillingPriceItem[]> {
   return get('/api/v1/system/admin/billing/prices') as unknown as BillingPriceItem[]
+}
+
+export async function createBillingPriceVersion(
+  input: BillingPriceInput,
+): Promise<BillingPriceItem> {
+  return post('/api/v1/system/admin/billing/prices', input) as unknown as BillingPriceItem
 }
 
 export async function listBillingSubscriptions(): Promise<BillingSubscriptionItem[]> {
@@ -557,17 +610,115 @@ export async function listBillingCreditAccounts(): Promise<BillingCreditAccountI
   return get('/api/v1/system/admin/billing/credit-accounts') as unknown as BillingCreditAccountItem[]
 }
 
+export interface BillingPurchaseItem {
+  id: string
+  code: string
+  item_type: 'topup' | 'storage_addon'
+  edition_scope: 'all' | 'personal' | 'enterprise'
+  name: string
+  description: string
+  currency: 'CNY'
+  amount_cents: number
+  credit_point_micros: number
+  storage_quota_bytes: number
+  duration_days: number
+  status: 'active' | 'disabled'
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface BillingPurchaseItemInput {
+  code: string
+  item_type: 'topup' | 'storage_addon'
+  edition_scope: 'all' | 'personal' | 'enterprise'
+  name: string
+  description?: string
+  currency: 'CNY'
+  amount_cents: number
+  credit_point_micros: number
+  storage_quota_bytes: number
+  duration_days: number
+  status: 'active' | 'disabled'
+  sort_order: number
+}
+
+export async function listBillingPurchaseItems(): Promise<BillingPurchaseItem[]> {
+  return get('/api/v1/system/admin/billing/purchase-items') as unknown as BillingPurchaseItem[]
+}
+
+export async function createBillingPurchaseItem(
+  input: BillingPurchaseItemInput,
+): Promise<BillingPurchaseItem> {
+  return post('/api/v1/system/admin/billing/purchase-items', input) as unknown as BillingPurchaseItem
+}
+
+export async function updateBillingPurchaseItem(
+  id: string,
+  input: BillingPurchaseItemInput,
+): Promise<BillingPurchaseItem> {
+  return put(`/api/v1/system/admin/billing/purchase-items/${encodeURIComponent(id)}`, input) as unknown as BillingPurchaseItem
+}
+
+export interface BillingPaymentOrderItem {
+  id: string
+  order_no: string
+  order_type: 'subscription' | 'topup' | 'storage_addon' | 'manual_contract'
+  tenant_id: number
+  tenant_name: string
+  actor_user_id: string
+  plan_id: string
+  plan_name: string
+  item_id: string
+  item_name: string
+  provider: string
+  payment_method: string
+  status: string
+  currency: string
+  amount_cents: number
+  credit_point_micros: number
+  storage_quota_bytes: number
+  billing_interval: string
+  paid_at?: string
+  created_at: string
+}
+
+export interface CreateBillingManualOrderInput {
+  tenant_id: number
+  order_type: 'topup' | 'storage_addon' | 'manual_contract'
+  plan_id?: string
+  billing_interval?: 'trial' | 'month' | 'year' | 'manual' | 'none'
+  period_days?: number
+  credit_point_micros?: number
+  storage_quota_bytes?: number
+  amount_cents?: number
+  description: string
+}
+
+export async function listBillingPaymentOrders(
+  limit = 100,
+): Promise<BillingPaymentOrderItem[]> {
+  return get(`/api/v1/system/admin/billing/payment-orders?limit=${limit}`) as unknown as BillingPaymentOrderItem[]
+}
+
+export async function createBillingManualOrder(
+  input: CreateBillingManualOrderInput,
+): Promise<BillingPaymentOrderItem> {
+  return post('/api/v1/system/admin/billing/manual-orders', input) as unknown as BillingPaymentOrderItem
+}
+
 export interface BillingModelPriceItem {
   id: string
   model_key: string
   provider: string
-  pricing_mode: 'token' | 'call' | 'duration'
+  pricing_mode: 'token' | 'call' | 'duration' | 'tiered'
   input_nanousd_per_m_tokens: number
   output_nanousd_per_m_tokens: number
   cache_read_nanousd_per_m_tokens: number
   cache_write_nanousd_per_m_tokens: number
   call_nanousd_per_call: number
   duration_nanousd_per_second: number
+  tiered_pricing_json?: Record<string, unknown>
   model_multiplier_ppm: number
   version: number
   effective_at: string
@@ -586,6 +737,9 @@ export interface BillingUsageLedgerItem {
   model_key: string
   provider: string
   pricing_version: number
+  service_code: string
+  service_pricing_version: number
+  service_units: number
   input_tokens: number
   cached_tokens: number
   output_tokens: number
@@ -601,13 +755,14 @@ export interface BillingUsageLedgerItem {
 export interface CreateBillingModelPriceInput {
   model_key: string
   provider?: string
-  pricing_mode: 'token' | 'call' | 'duration'
+  pricing_mode: 'token' | 'call' | 'duration' | 'tiered'
   input_nanousd_per_m_tokens: number
   output_nanousd_per_m_tokens: number
   cache_read_nanousd_per_m_tokens: number
   cache_write_nanousd_per_m_tokens: number
   call_nanousd_per_call: number
   duration_nanousd_per_second: number
+  tiered_pricing_json?: Record<string, unknown>
   model_multiplier_ppm: number
   effective_at?: string
   status: string
@@ -625,6 +780,62 @@ export async function createBillingModelPriceVersion(
 
 export async function listBillingUsageLedgers(limit = 100): Promise<BillingUsageLedgerItem[]> {
   return get(`/api/v1/system/admin/billing/usage-ledgers?limit=${limit}`) as unknown as BillingUsageLedgerItem[]
+}
+
+export interface BillingServicePriceItem {
+  id: string
+  service_code: string
+  service_name: string
+  pricing_mode: 'call' | 'unit'
+  nanousd_per_call: number
+  nanousd_per_unit: number
+  unit_name: string
+  service_multiplier_ppm: number
+  version: number
+  effective_at: string
+  expires_at?: string
+  status: string
+  created_at: string
+}
+
+export interface CreateBillingServicePriceInput {
+  service_code: string
+  service_name: string
+  pricing_mode: 'call' | 'unit'
+  nanousd_per_call: number
+  nanousd_per_unit: number
+  unit_name: string
+  service_multiplier_ppm: number
+  effective_at?: string
+  status: string
+}
+
+export async function listBillingServicePrices(): Promise<BillingServicePriceItem[]> {
+  return get('/api/v1/system/admin/billing/service-prices') as unknown as BillingServicePriceItem[]
+}
+
+export async function createBillingServicePriceVersion(
+  input: CreateBillingServicePriceInput,
+): Promise<BillingServicePriceItem> {
+  return post('/api/v1/system/admin/billing/service-prices', input) as unknown as BillingServicePriceItem
+}
+
+export interface BillingStorageTransactionItem {
+  id: string
+  tenant_id: number
+  tenant_name: string
+  actor_user_id: string
+  ref_no: string
+  operation: string
+  amount_bytes: number
+  storage_used_after_bytes: number
+  created_at: string
+}
+
+export async function listBillingStorageTransactions(
+  limit = 100,
+): Promise<BillingStorageTransactionItem[]> {
+  return get(`/api/v1/system/admin/billing/storage-transactions?limit=${limit}`) as unknown as BillingStorageTransactionItem[]
 }
 
 // ---- System Settings (P1) ----

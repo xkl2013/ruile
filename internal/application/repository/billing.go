@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -254,16 +256,172 @@ func (r *billingRepository) ListCurrentSubscriptionsByTenantIDs(
 func (r *billingRepository) ListCreditAccounts(
 	ctx context.Context,
 ) ([]*types.BillingCreditAccountSummary, error) {
-	var rows []*types.BillingCreditAccountSummary
+	type subjectRow struct {
+		ID                 string    `gorm:"column:id"`
+		TenantID           uint64    `gorm:"column:tenant_id"`
+		BalancePointMicros int64     `gorm:"column:balance_point_micros"`
+		Version            int64     `gorm:"column:version"`
+		CreatedAt          time.Time `gorm:"column:created_at"`
+		UpdatedAt          time.Time `gorm:"column:updated_at"`
+		TenantName         string    `gorm:"column:tenant_name"`
+		SpaceType          string    `gorm:"column:space_type"`
+		SubjectType        string    `gorm:"column:subject_type"`
+		SubjectID          string    `gorm:"column:subject_id"`
+		SubjectName        string    `gorm:"column:subject_name"`
+		SubjectContact     string    `gorm:"column:subject_contact"`
+	}
+
+	var rawRows []subjectRow
 	err := r.db.WithContext(ctx).
 		Table("tenant_credit_accounts").
 		Select(`
 			tenant_credit_accounts.*,
 			tenants.name AS tenant_name,
-			COALESCE(tenants.space_type, 'legacy') AS space_type
+			COALESCE(tenants.space_type, 'legacy') AS space_type,
+			CASE
+				WHEN COALESCE(tenants.space_type, 'legacy') = 'personal' THEN 'user'
+				WHEN COALESCE(tenants.space_type, 'legacy') = 'organization' THEN 'enterprise'
+				ELSE 'legacy'
+			END AS subject_type,
+			CASE
+				WHEN COALESCE(tenants.space_type, 'legacy') = 'personal' THEN COALESCE(
+					(
+						SELECT tm.user_id
+						FROM tenant_members tm
+						WHERE tm.tenant_id = tenants.id
+						  AND tm.role = 'owner'
+						  AND tm.status = 'active'
+						  AND tm.deleted_at IS NULL
+						ORDER BY tm.created_at ASC, tm.id ASC
+						LIMIT 1
+					),
+					(
+						SELECT u.id
+						FROM users u
+						WHERE u.tenant_id = tenants.id
+						  AND u.deleted_at IS NULL
+						ORDER BY u.created_at ASC, u.id ASC
+						LIMIT 1
+					),
+					CAST(tenant_credit_accounts.tenant_id AS TEXT)
+				)
+				ELSE CAST(tenant_credit_accounts.tenant_id AS TEXT)
+			END AS subject_id,
+			CASE
+				WHEN COALESCE(tenants.space_type, 'legacy') = 'personal' THEN COALESCE(
+					(
+						SELECT COALESCE(NULLIF(u.username, ''), NULLIF(u.email, ''))
+						FROM users u
+						JOIN tenant_members tm ON tm.user_id = u.id
+						WHERE tm.tenant_id = tenants.id
+						  AND tm.role = 'owner'
+						  AND tm.status = 'active'
+						  AND tm.deleted_at IS NULL
+						  AND u.deleted_at IS NULL
+						ORDER BY tm.created_at ASC, tm.id ASC
+						LIMIT 1
+					),
+					(
+						SELECT COALESCE(NULLIF(u.username, ''), NULLIF(u.email, ''))
+						FROM users u
+						WHERE u.tenant_id = tenants.id
+						  AND u.deleted_at IS NULL
+						ORDER BY u.created_at ASC, u.id ASC
+						LIMIT 1
+					),
+					tenants.name
+				)
+				ELSE tenants.name
+			END AS subject_name,
+			CASE
+				WHEN COALESCE(tenants.space_type, 'legacy') = 'personal' THEN COALESCE(
+					(
+						SELECT NULLIF(u.email, '')
+						FROM users u
+						JOIN tenant_members tm ON tm.user_id = u.id
+						WHERE tm.tenant_id = tenants.id
+						  AND tm.role = 'owner'
+						  AND tm.status = 'active'
+						  AND tm.deleted_at IS NULL
+						  AND u.deleted_at IS NULL
+						ORDER BY tm.created_at ASC, tm.id ASC
+						LIMIT 1
+					),
+					(
+						SELECT NULLIF(u.email, '')
+						FROM users u
+						WHERE u.tenant_id = tenants.id
+						  AND u.deleted_at IS NULL
+						ORDER BY u.created_at ASC, u.id ASC
+						LIMIT 1
+					),
+					''
+				)
+				ELSE ''
+			END AS subject_contact
 		`).
 		Joins("JOIN tenants ON tenants.id = tenant_credit_accounts.tenant_id AND tenants.deleted_at IS NULL").
 		Order("tenant_credit_accounts.created_at DESC").
-		Scan(&rows).Error
-	return rows, err
+		Scan(&rawRows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	aggregated := make(map[string]*types.BillingCreditAccountSummary, len(rawRows))
+	for _, raw := range rawRows {
+		subjectID := strings.TrimSpace(raw.SubjectID)
+		if subjectID == "" {
+			subjectID = fmt.Sprintf("%d", raw.TenantID)
+		}
+		subjectType := strings.TrimSpace(raw.SubjectType)
+		if subjectType == "" {
+			subjectType = "legacy"
+		}
+		key := subjectType + ":" + subjectID
+		summary := aggregated[key]
+		if summary == nil {
+			summary = &types.BillingCreditAccountSummary{
+				TenantCreditAccount: types.TenantCreditAccount{
+					ID:                 raw.ID,
+					TenantID:           raw.TenantID,
+					BalancePointMicros: raw.BalancePointMicros,
+					Version:            raw.Version,
+					CreatedAt:          raw.CreatedAt,
+					UpdatedAt:          raw.UpdatedAt,
+				},
+				TenantName:     raw.TenantName,
+				SpaceType:      raw.SpaceType,
+				SubjectType:    subjectType,
+				SubjectID:      subjectID,
+				SubjectName:    raw.SubjectName,
+				SubjectContact: raw.SubjectContact,
+				TenantCount:    1,
+			}
+			aggregated[key] = summary
+			continue
+		}
+		summary.BalancePointMicros += raw.BalancePointMicros
+		if raw.Version > summary.Version {
+			summary.Version = raw.Version
+		}
+		if raw.CreatedAt.Before(summary.CreatedAt) {
+			summary.CreatedAt = raw.CreatedAt
+		}
+		if raw.UpdatedAt.After(summary.UpdatedAt) {
+			summary.UpdatedAt = raw.UpdatedAt
+		}
+		summary.TenantCount++
+	}
+
+	rows := make([]*types.BillingCreditAccountSummary, 0, len(aggregated))
+	for _, row := range aggregated {
+		rows = append(rows, row)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].CreatedAt.Equal(rows[j].CreatedAt) {
+			return rows[i].SubjectName < rows[j].SubjectName
+		}
+		return rows[i].CreatedAt.After(rows[j].CreatedAt)
+	})
+	return rows, nil
 }

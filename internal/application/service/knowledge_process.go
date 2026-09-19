@@ -58,6 +58,25 @@ func (s *knowledgeService) cloneKnowledge(
 		StorageSize:      src.StorageSize,
 		Metadata:         src.Metadata,
 	}
+	storageReservationRef := ""
+	storageReservationCommitted := false
+	if dst.StorageSize > 0 {
+		storageReservationRef = knowledgeStorageRef("clone", dst.ID, 0)
+		if err = s.reserveKnowledgeStorage(
+			ctx,
+			targetKB.TenantID,
+			storageReservationRef,
+			"knowledge_clone",
+			dst.StorageSize,
+			map[string]any{
+				"source_knowledge_id": src.ID,
+				"knowledge_id":        dst.ID,
+				"knowledge_base_id":   targetKB.ID,
+			},
+		); err != nil {
+			return err
+		}
+	}
 
 	// Deep-copy the source document file into an object owned by the destination
 	// knowledge. Without this the clone only shares the source's storage path, so
@@ -80,6 +99,9 @@ func (s *knowledgeService) cloneKnowledge(
 	}
 
 	defer func() {
+		if storageReservationRef != "" && !storageReservationCommitted {
+			s.releaseKnowledgeStorage(ctx, targetKB.TenantID, storageReservationRef, "knowledge_clone_failed")
+		}
 		if err != nil {
 			if len(copiedFilePaths) > 0 {
 				cleanupCopiedObjects(ctx, s.resolveFileService(ctx, targetKB), copiedFilePaths)
@@ -100,15 +122,28 @@ func (s *knowledgeService) cloneKnowledge(
 		logger.GetLogger(ctx).WithField("error", err).Errorf("MoveKnowledge create knowledge failed")
 		return
 	}
-	tenantInfo.StorageUsed += dst.StorageSize
-	if err = s.tenantRepo.AdjustStorageUsed(ctx, tenantInfo.ID, dst.StorageSize); err != nil {
-		logger.GetLogger(ctx).WithField("error", err).Errorf("MoveKnowledge update tenant storage used failed")
-		return
-	}
 	if err = s.CloneChunk(ctx, src, dst); err != nil {
 		logger.GetLogger(ctx).WithField("knowledge_id", dst.ID).
 			WithField("error", err).Errorf("MoveKnowledge move chunks failed")
 		return
+	}
+	if storageReservationRef != "" {
+		if err = s.commitKnowledgeStorage(
+			ctx,
+			targetKB.TenantID,
+			storageReservationRef,
+			dst.StorageSize,
+			map[string]any{
+				"source_knowledge_id": src.ID,
+				"knowledge_id":        dst.ID,
+				"knowledge_base_id":   targetKB.ID,
+			},
+		); err != nil {
+			logger.GetLogger(ctx).WithField("error", err).Errorf("MoveKnowledge commit storage failed")
+			return
+		}
+		storageReservationCommitted = true
+		tenantInfo.StorageUsed += dst.StorageSize
 	}
 	return
 }
@@ -270,6 +305,19 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 	kb *types.KnowledgeBase, knowledge *types.Knowledge, chunks []types.ParsedChunk,
 	opts ...ProcessChunksOptions,
 ) {
+	storageReservationRef := ""
+	storageReservationCommitted := false
+	defer func() {
+		if storageReservationRef != "" && !storageReservationCommitted {
+			s.releaseKnowledgeStorage(
+				ctx,
+				knowledge.TenantID,
+				storageReservationRef,
+				"knowledge_processing_not_committed",
+			)
+		}
+	}()
+
 	// Get options
 	var options ProcessChunksOptions
 	if len(opts) > 0 {
@@ -561,22 +609,28 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 
 		// Calculate storage size required for embeddings
 		totalStorageSize = retrieveEngine.EstimateStorageSize(ctx, embeddingModel, indexInfoList)
-		if tenantInfo.StorageQuota > 0 {
-			// Re-fetch tenant storage information
-			tenantInfo, err = s.tenantRepo.GetTenantByID(ctx, tenantInfo.ID)
-			if err != nil {
-				knowledge.ParseStatus = types.ParseStatusFailed
-				knowledge.ErrorMessage = err.Error()
-				knowledge.UpdatedAt = time.Now()
-				s.repo.UpdateKnowledge(ctx, knowledge)
-				return
-			}
-			// Check if there's enough storage quota available
-			if tenantInfo.StorageUsed+totalStorageSize > tenantInfo.StorageQuota {
+		if totalStorageSize > 0 {
+			storageReservationRef = knowledgeStorageRef(
+				"index",
+				knowledge.ID,
+				attemptFromCtx(ctx),
+			)
+			if err := s.reserveKnowledgeStorage(
+				ctx,
+				tenantInfo.ID,
+				storageReservationRef,
+				"knowledge_index",
+				totalStorageSize,
+				map[string]any{
+					"knowledge_id":      knowledge.ID,
+					"knowledge_base_id": knowledge.KnowledgeBaseID,
+					"attempt":           attemptFromCtx(ctx),
+				},
+			); err != nil {
 				knowledge.ParseStatus = types.ParseStatusFailed
 				knowledge.ErrorMessage = "存储空间不足"
 				knowledge.UpdatedAt = time.Now()
-				s.repo.UpdateKnowledge(ctx, knowledge)
+				_ = s.repo.UpdateKnowledge(ctx, knowledge)
 				return
 			}
 		}
@@ -644,6 +698,37 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 			}
 			return
 		}
+		if storageReservationRef != "" {
+			if err := s.commitKnowledgeStorage(
+				ctx,
+				tenantInfo.ID,
+				storageReservationRef,
+				totalStorageSize,
+				map[string]any{
+					"knowledge_id":      knowledge.ID,
+					"knowledge_base_id": knowledge.KnowledgeBaseID,
+					"attempt":           attemptFromCtx(ctx),
+				},
+			); err != nil {
+				knowledge.ParseStatus = types.ParseStatusFailed
+				knowledge.ErrorMessage = err.Error()
+				knowledge.UpdatedAt = time.Now()
+				_ = s.repo.UpdateKnowledge(ctx, knowledge)
+				if cleanupErr := s.chunkService.DeleteChunksByKnowledgeID(ctx, knowledge.ID); cleanupErr != nil {
+					logger.Warnf(ctx, "Failed to cleanup chunks after storage commit failure: %v", cleanupErr)
+				}
+				if cleanupErr := retrieveEngine.DeleteByKnowledgeIDList(
+					ctx,
+					[]string{knowledge.ID},
+					embeddingModel.GetDimensions(),
+					kb.Type,
+				); cleanupErr != nil {
+					logger.Warnf(ctx, "Failed to cleanup index after storage commit failure: %v", cleanupErr)
+				}
+				return
+			}
+			storageReservationCommitted = true
+		}
 	} else {
 		logger.Infof(ctx, "Vector/keyword indexing disabled for KB %s, skipping BatchIndex", kb.ID)
 		s.skipStage(ctx, knowledge.ID, types.StageEmbedding, "skipped")
@@ -704,11 +789,6 @@ func (s *knowledgeService) processChunks(ctx context.Context,
 		}
 	}
 
-	// Update tenant's storage usage
-	tenantInfo.StorageUsed += totalStorageSize
-	if err := s.tenantRepo.AdjustStorageUsed(ctx, tenantInfo.ID, totalStorageSize); err != nil {
-		logger.GetLogger(ctx).WithField("error", err).Errorf("processChunks update tenant storage used failed")
-	}
 	logger.GetLogger(ctx).Infof("processChunks successfully")
 }
 
@@ -796,7 +876,7 @@ func (s *knowledgeService) getSummary(ctx context.Context,
 		"language": types.LanguageNameFromContext(ctx),
 	})
 	thinking := false
-	summary, err := summaryModel.Chat(ctx, []chat.Message{
+	summary, err := summaryModel.Chat(types.WithBillingServiceCode(ctx, "knowledge.summary"), []chat.Message{
 		{
 			Role:    "system",
 			Content: summaryPrompt,
@@ -1895,7 +1975,7 @@ func (s *knowledgeService) generateQuestionsWithContext(ctx context.Context,
 	prompt = types.AppendCustomPromptInstructions(prompt, customInstructions, "question_generation")
 
 	thinking := false
-	response, err := chatModel.Chat(ctx, []chat.Message{
+	response, err := chatModel.Chat(types.WithBillingServiceCode(ctx, "knowledge.question_generation"), []chat.Message{
 		{
 			Role:    "user",
 			Content: prompt,
