@@ -11333,28 +11333,6 @@ paths:
       summary: 获取模型厂商列表
       tags:
       - 模型管理
-  /models/weknoracloud/status:
-    get:
-      description: 检查当前空间的睿乐大脑云凭证是否完好；needs_reinit=true 表示需要重新保存
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 凭证状态
-          schema:
-            additionalProperties: true
-            type: object
-        "500":
-          description: 服务器错误
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - Bearer: []
-      - ApiKeyAuth: []
-      summary: 检查睿乐大脑云凭证状态
-      tags:
-      - 睿乐大脑云
   /organizations:
     get:
       description: 获取当前空间所属的所有组织，并附带各空间内知识库/智能体数量
@@ -14793,38 +14771,6 @@ paths:
       summary: 轮询微信二维码状态
       tags:
       - IM 渠道
-  /weknoracloud/credentials:
-    post:
-      consumes:
-      - application/json
-      description: 保存 APPID/APPSECRET 到当前空间配置（不自动创建模型）
-      parameters:
-      - description: '{app_id, app_secret}'
-        in: body
-        name: request
-        required: true
-        schema:
-          additionalProperties: true
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 'success: true'
-          schema:
-            additionalProperties: true
-            type: object
-        "400":
-          description: 请求参数错误
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - Bearer: []
-      - ApiKeyAuth: []
-      summary: 保存睿乐大脑云凭证
-      tags:
-      - 睿乐大脑云
 securityDefinitions:
   ApiKeyAuth:
     description: 空间身份认证：输入 sk- 开头的 API Key

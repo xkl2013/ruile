@@ -209,7 +209,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewAliyunSMSService))
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewKnowledgeBaseDefaultsService))
-	must(container.Provide(service.NewWeKnoraCloudService))
 
 	// Extract services - register individual extracters with names
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
@@ -395,7 +394,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Invoke(registerIMAdapterFactories))
 	must(container.Provide(handler.NewIMHandler))
 	must(container.Provide(handler.NewEmbedChannelHandler))
-	must(container.Provide(handler.NewWeKnoraCloudHandler))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 
 	// Wire the chat package's local image resolver so multimodal chat can read

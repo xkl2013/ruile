@@ -232,17 +232,6 @@ const moduleRoutes: RouteRecordRaw[] = [
     },
   },
   {
-    path: 'runtime/weknora-cloud',
-    name: 'adminRuntimeWeKnoraCloud',
-    component: createModulePage(() => import('@/views/settings/WeKnoraCloudSettings.vue')),
-    meta: {
-      navKey: 'runtime-weknora-cloud',
-      title: '睿乐大脑云',
-      description: '配置云端凭据并导入云端模型。',
-      requiresSystemAdmin: true,
-    },
-  },
-  {
     path: 'data/vector-stores',
     name: 'adminDataVectorStores',
     component: createModulePage(() => import('@/views/settings/VectorStoreSettings.vue')),

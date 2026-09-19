@@ -8819,42 +8819,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/models/weknoracloud/status": {
-            "get": {
-                "security": [
-                    {
-                        "Bearer": []
-                    },
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "检查当前空间的睿乐大脑云凭证是否完好；needs_reinit=true 表示需要重新保存",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "睿乐大脑云"
-                ],
-                "summary": "检查睿乐大脑云凭证状态",
-                "responses": {
-                    "200": {
-                        "description": "凭证状态",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "服务器错误",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/models/{id}": {
             "get": {
                 "security": [
@@ -14301,57 +14265,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "服务器错误",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/weknoracloud/credentials": {
-            "post": {
-                "security": [
-                    {
-                        "Bearer": []
-                    },
-                    {
-                        "ApiKeyAuth": []
-                    }
-                ],
-                "description": "保存 APPID/APPSECRET 到当前空间配置（不自动创建模型）",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "睿乐大脑云"
-                ],
-                "summary": "保存睿乐大脑云凭证",
-                "parameters": [
-                    {
-                        "description": "{app_id, app_secret}",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "success: true",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

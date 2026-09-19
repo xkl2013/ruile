@@ -93,14 +93,6 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         minRole: 'viewer',
       },
       {
-        key: 'runtime-weknora-cloud',
-        label: '睿乐大脑云',
-        description: '云端模型凭据和模型导入',
-        icon: 'cloud',
-        path: '/runtime/weknora-cloud',
-        requiresSystemAdmin: true,
-      },
-      {
         key: 'data-vector-stores',
         label: '向量库',
         description: '向量数据库连接',

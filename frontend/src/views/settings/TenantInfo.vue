@@ -95,7 +95,7 @@
                 :percentage="card.periodCreditProgress"
                 :show-info="false"
                 size="small"
-                status="success"
+                :status="card.periodCreditProgress >= 100 ? 'success' : 'active'"
               />
             </div>
 
@@ -113,12 +113,6 @@
                 <span>{{ t('tenant.subscriptionUsage.creditAvailable') }}</span>
                 <span>{{ card.creditSource }}</span>
               </div>
-              <t-progress
-                :percentage="card.balanceCreditMicros > 0 ? 100 : 0"
-                :show-info="false"
-                size="small"
-                status="success"
-              />
             </div>
 
             <div v-else-if="card.memberUsage" class="resource-row resource-row--credits">
@@ -140,7 +134,7 @@
                 :percentage="card.memberUsage.progress"
                 :show-info="false"
                 size="small"
-                status="success"
+                :status="card.memberUsage.progress >= 100 ? 'success' : 'active'"
               />
               <div v-else class="unlimited-track">
                 <span />
@@ -435,7 +429,7 @@ import {
 import { fetchAllTenantMembers, type TenantMember } from '@/api/tenant/members'
 import { useAuthStore } from '@/stores/auth'
 
-type ProgressStatus = 'success' | 'warning' | 'error'
+type ProgressStatus = 'active' | 'success' | 'warning' | 'error'
 
 interface StorageDisplay {
   usedText: string
@@ -458,7 +452,6 @@ interface UsageCard {
   periodRemainingCreditText: string
   periodCreditProgress: number
   balanceCreditText: string
-  balanceCreditMicros: number
   creditSource: string
   showPoolDetails: boolean
   memberUsage?: {
@@ -636,7 +629,13 @@ const buildStorageDisplay = (raw: BillingOverview['storage']): StorageDisplay =>
       ? t('tenant.storage.usedOfUnlimited', { used: formatBytes(usedBytes) })
       : formatPercent(usagePercent),
     progress: Math.min(100, Math.round(usagePercent * 100) / 100),
-    progressStatus: status === 'exceeded' ? 'error' : status === 'warning' ? 'warning' : 'success',
+    progressStatus: status === 'exceeded'
+      ? 'error'
+      : status === 'warning'
+        ? 'warning'
+        : usagePercent >= 100
+          ? 'success'
+          : 'active',
     unlimited,
   }
 }
@@ -690,7 +689,6 @@ const usageCards = computed<UsageCard[]>(() => {
       ? Math.min(100, Math.round((periodUsedMicros / periodTotalMicros) * 10000) / 100)
       : 0,
     balanceCreditText: formatCredits(billing.credits.balance_point_micros),
-    balanceCreditMicros: billing.credits.balance_point_micros,
     creditSource: isEnterprise
       ? t('tenant.subscriptionUsage.enterpriseCreditSource')
       : t('tenant.subscriptionUsage.personalCreditSource'),

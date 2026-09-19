@@ -43,6 +43,7 @@ func TestListModelProvidersIncludesOCRProviders(t *testing.T) {
 			}
 			require.Equal(t, "https://api.openai.com/v1", providers["openai"].DefaultURLs["ocr"])
 			require.Empty(t, providers["aliyun"].DefaultURLs["ocr"])
+			require.NotContains(t, providers, "weknoracloud")
 		})
 	}
 }
