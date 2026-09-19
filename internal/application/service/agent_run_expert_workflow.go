@@ -213,6 +213,12 @@ func (s *agentRunService) executeExpertWorkflow(
 	if err := s.repo.SetQuality(ctx, run.ID, qualityMap); err != nil {
 		return types.AgentResultV1{}, nil, "", err
 	}
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeQualityUpdated, types.JSONMap{
+		"runId":  run.ID,
+		"phase":  types.AgentRunPhaseReviewing,
+		"status": types.AgentRunStatusRunning,
+		"quality": cloneAgentRunJSONMap(qualityMap),
+	})
 
 	result, err := s.runExpertPackaging(
 		ctx,
@@ -578,6 +584,24 @@ func (s *agentRunService) startExpertRunStep(
 	if err := s.repo.CreateStep(ctx, step); err != nil {
 		return nil, err
 	}
+	label := agentRunPhaseLabel(phase)
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeStepStarted, types.JSONMap{
+		"runId":    run.ID,
+		"stepId":   step.ID,
+		"stepType": stepType,
+		"phase":    phase,
+		"status":   types.AgentRunStatusRunning,
+		"message":  "开始" + label,
+		"label":    label,
+		"modelId":  modelID,
+	})
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeReasoningMessageContent, types.JSONMap{
+		"runId":     run.ID,
+		"messageId": "reasoning-" + run.ID,
+		"phase":     phase,
+		"status":    types.AgentRunStatusRunning,
+		"delta":     "开始" + label + "。\n",
+	})
 	return step, nil
 }
 
@@ -586,7 +610,25 @@ func (s *agentRunService) completeExpertRunStep(
 	step *types.AgentRunStep,
 	output types.JSONMap,
 ) error {
-	return s.repo.CompleteStep(ctx, step.ID, output, time.Now().UTC())
+	if err := s.repo.CompleteStep(ctx, step.ID, output, time.Now().UTC()); err != nil {
+		return err
+	}
+	s.emitRunEvent(ctx, step.RunID, types.AgentRunEventTypeStepFinished, types.JSONMap{
+		"runId":    step.RunID,
+		"stepId":   step.ID,
+		"stepType": step.StepType,
+		"phase":    agentRunPhaseForStep(step.StepType),
+		"status":   types.AgentRunStepStatusSucceeded,
+		"message":  "完成" + agentRunStepLabel(step.StepType),
+	})
+	s.emitRunEvent(ctx, step.RunID, types.AgentRunEventTypeReasoningMessageContent, types.JSONMap{
+		"runId":     step.RunID,
+		"messageId": "reasoning-" + step.RunID,
+		"phase":     agentRunPhaseForStep(step.StepType),
+		"status":    types.AgentRunStatusRunning,
+		"delta":     "完成" + agentRunStepLabel(step.StepType) + "。\n",
+	})
+	return nil
 }
 
 func (s *agentRunService) failExpertRunStep(
@@ -594,7 +636,63 @@ func (s *agentRunService) failExpertRunStep(
 	step *types.AgentRunStep,
 	err error,
 ) error {
-	return s.repo.FailStep(ctx, step.ID, truncateAgentRunError(err), time.Now().UTC())
+	message := truncateAgentRunError(err)
+	if updateErr := s.repo.FailStep(ctx, step.ID, message, time.Now().UTC()); updateErr != nil {
+		return updateErr
+	}
+	s.emitRunEvent(ctx, step.RunID, types.AgentRunEventTypeStepError, types.JSONMap{
+		"runId":    step.RunID,
+		"stepId":   step.ID,
+		"stepType": step.StepType,
+		"phase":    agentRunPhaseForStep(step.StepType),
+		"status":   types.AgentRunStepStatusFailed,
+		"message":  message,
+	})
+	return nil
+}
+
+func agentRunPhaseForStep(stepType string) string {
+	switch stepType {
+	case types.AgentRunStepTypeIntake:
+		return types.AgentRunPhaseIntake
+	case types.AgentRunStepTypePlanning:
+		return types.AgentRunPhasePlanning
+	case types.AgentRunStepTypeDrafting:
+		return types.AgentRunPhaseDrafting
+	case types.AgentRunStepTypeReviewing:
+		return types.AgentRunPhaseReviewing
+	case types.AgentRunStepTypeRevising:
+		return types.AgentRunPhaseRevising
+	case types.AgentRunStepTypePackaging:
+		return types.AgentRunPhasePackaging
+	default:
+		return ""
+	}
+}
+
+func agentRunPhaseLabel(phase string) string {
+	switch phase {
+	case types.AgentRunPhaseIntake:
+		return "需求澄清"
+	case types.AgentRunPhasePlanning:
+		return "执行规划"
+	case types.AgentRunPhaseDrafting:
+		return "报告撰写"
+	case types.AgentRunPhaseReviewing:
+		return "质量审查"
+	case types.AgentRunPhaseRevising:
+		return "报告修订"
+	case types.AgentRunPhasePackaging:
+		return "结果整理"
+	case types.AgentRunPhaseCompleted:
+		return "任务完成"
+	default:
+		return firstNonEmpty(strings.TrimSpace(phase), "Agent 执行")
+	}
+}
+
+func agentRunStepLabel(stepType string) string {
+	return agentRunPhaseLabel(stepType)
 }
 
 func expertChatJSON(

@@ -42,6 +42,35 @@ const (
 	AgentRunErrorExecutionFailed = "agent_run_execution_failed"
 	AgentRunErrorInvalidInput    = "agent_run_invalid_input"
 	AgentRunErrorInvalidOutput   = "agent_run_invalid_output"
+
+	// AgentRunEventType values are intentionally aligned with the event names
+	// consumed by the TDesign Chat/AG-UI adapter. Platform-specific lifecycle
+	// events use the same envelope and can be ignored by older clients.
+	AgentRunEventTypeRunQueued               = "RUN_QUEUED"
+	AgentRunEventTypeRunStarted              = "RUN_STARTED"
+	AgentRunEventTypeRunWaitingInput         = "RUN_WAITING_INPUT"
+	AgentRunEventTypeRunResumed              = "RUN_RESUMED"
+	AgentRunEventTypeRunFinished             = "RUN_FINISHED"
+	AgentRunEventTypeRunError                = "RUN_ERROR"
+	AgentRunEventTypeRunCancelled            = "RUN_CANCELLED"
+	AgentRunEventTypeReasoningStart          = "REASONING_START"
+	AgentRunEventTypeReasoningMessageStart   = "REASONING_MESSAGE_START"
+	AgentRunEventTypeReasoningMessageContent = "REASONING_MESSAGE_CONTENT"
+	AgentRunEventTypeReasoningMessageEnd     = "REASONING_MESSAGE_END"
+	AgentRunEventTypeReasoningEnd            = "REASONING_END"
+	AgentRunEventTypeStepStarted             = "AGENT_STEP_STARTED"
+	AgentRunEventTypeStepFinished            = "AGENT_STEP_FINISHED"
+	AgentRunEventTypeStepError               = "AGENT_STEP_ERROR"
+	AgentRunEventTypeToolCallStart           = "TOOL_CALL_START"
+	AgentRunEventTypeToolCallArgs            = "TOOL_CALL_ARGS"
+	AgentRunEventTypeToolCallEnd             = "TOOL_CALL_END"
+	AgentRunEventTypeToolCallResult          = "TOOL_CALL_RESULT"
+	AgentRunEventTypeTextMessageStart        = "TEXT_MESSAGE_START"
+	AgentRunEventTypeTextMessageDelta        = "TEXT_MESSAGE_CONTENT"
+	AgentRunEventTypeTextMessageEnd          = "TEXT_MESSAGE_END"
+	AgentRunEventTypeActivitySnapshot        = "ACTIVITY_SNAPSHOT"
+	AgentRunEventTypeActivityDelta           = "ACTIVITY_DELTA"
+	AgentRunEventTypeQualityUpdated          = "QUALITY_UPDATED"
 )
 
 // AgentRun is the durable execution record for an asynchronous agent task.
@@ -125,6 +154,43 @@ func IsValidAgentRunType(runType string) bool {
 		return false
 	}
 }
+
+// AgentRunEvent is the durable, ordered event log for one asynchronous run.
+// Payload deliberately stays extensible: the persistence layer records the
+// event once, while protocol adapters decide how to render it for a client.
+type AgentRunEvent struct {
+	ID        string    `json:"id" gorm:"type:varchar(36);primaryKey"`
+	RunID     string    `json:"run_id" gorm:"type:varchar(36);not null;index"`
+	Sequence  int64     `json:"sequence" gorm:"not null"`
+	EventType string    `json:"type" gorm:"column:event_type;type:varchar(64);not null;index"`
+	Payload   JSONMap   `json:"payload,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (AgentRunEvent) TableName() string { return "agent_run_events" }
+
+func (e *AgentRunEvent) BeforeCreate(_ *gorm.DB) error {
+	if e.ID == "" {
+		e.ID = uuid.NewString()
+	}
+	if e.Payload == nil {
+		e.Payload = JSONMap{}
+	}
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = time.Now().UTC()
+	}
+	return nil
+}
+
+// AgentRunEventSequence keeps the next event number for one run. It avoids
+// deriving sequence numbers from MAX(sequence), which can collide when more
+// than one worker emits events for the same run.
+type AgentRunEventSequence struct {
+	RunID        string `json:"run_id" gorm:"type:varchar(36);primaryKey"`
+	NextSequence int64  `json:"next_sequence" gorm:"not null;default:0"`
+}
+
+func (AgentRunEventSequence) TableName() string { return "agent_run_event_sequences" }
 
 // ExpertAgentTestInput is persisted with an administrator-triggered expert
 // test run. Test runs never create service cards or artifacts in business

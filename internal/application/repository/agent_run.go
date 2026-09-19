@@ -9,6 +9,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type agentRunRepository struct {
@@ -230,6 +231,58 @@ func (r *agentRunRepository) MarkFailedWithResult(
 			"finished_at":   finishedAt.UTC(),
 		})
 	return update.RowsAffected == 1, update.Error
+}
+
+func (r *agentRunRepository) CreateEvent(ctx context.Context, event *types.AgentRunEvent) error {
+	if event == nil {
+		return errors.New("agent run event is required")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		runID := strings.TrimSpace(event.RunID)
+		if runID == "" {
+			return errors.New("agent run event run_id is required")
+		}
+		sequence := &types.AgentRunEventSequence{RunID: runID}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "run_id"}},
+			DoNothing: true,
+		}).Create(sequence).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&types.AgentRunEventSequence{}).
+			Where("run_id = ?", runID).
+			UpdateColumn("next_sequence", gorm.Expr("next_sequence + ?", 1)).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("run_id = ?", runID).First(sequence).Error; err != nil {
+			return err
+		}
+		event.RunID = runID
+		event.Sequence = sequence.NextSequence
+		return tx.Create(event).Error
+	})
+}
+
+func (r *agentRunRepository) ListEvents(
+	ctx context.Context,
+	runID string,
+	afterSequence int64,
+	limit int,
+) ([]*types.AgentRunEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	var events []*types.AgentRunEvent
+	err := r.db.WithContext(ctx).
+		Where("run_id = ? AND sequence > ?", strings.TrimSpace(runID), afterSequence).
+		Order("sequence ASC").
+		Limit(limit).
+		Find(&events).Error
+	return events, err
 }
 
 func (r *agentRunRepository) CreateStep(ctx context.Context, step *types.AgentRunStep) error {

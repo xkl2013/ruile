@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
@@ -141,6 +142,13 @@ func (s *agentRunService) enqueue(
 		_, _ = s.repo.MarkFailed(ctx, run.ID, types.AgentRunErrorInvalidInput, "failed to persist initial input revision", time.Now())
 		return nil, fmt.Errorf("save initial agent run input: %w", err)
 	}
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunQueued, types.JSONMap{
+		"runId":    run.ID,
+		"threadId": run.ID,
+		"status":   run.Status,
+		"runType":  run.RunType,
+		"agentRef": run.AgentRef,
+	})
 
 	if err := s.enqueueRunTask(ctx, run); err != nil {
 		return nil, err
@@ -295,6 +303,13 @@ func (s *agentRunService) SubmitAgentRunAnswers(
 	if err != nil {
 		return nil, err
 	}
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunResumed, types.JSONMap{
+		"runId":    run.ID,
+		"threadId": run.ID,
+		"status":   types.AgentRunStatusQueued,
+		"phase":    types.AgentRunPhasePlanning,
+		"answers":  cloneAgentRunJSONMap(answerInput.Answers),
+	})
 	if err := s.enqueueRunTask(ctx, run); err != nil {
 		return nil, err
 	}
@@ -370,6 +385,11 @@ func (s *agentRunService) CancelAgentRun(
 	if !cancelled {
 		return nil, ErrAgentRunCannotCancel
 	}
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunCancelled, types.JSONMap{
+		"runId":    run.ID,
+		"threadId": run.ID,
+		"status":   types.AgentRunStatusCancelled,
+	})
 	return s.GetAgentRun(ctx, tenantID, userID, run.ID)
 }
 
@@ -399,12 +419,30 @@ func (s *agentRunService) ProcessAgentRun(ctx context.Context, task *asynq.Task)
 	if !claimed {
 		return nil
 	}
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunStarted, types.JSONMap{
+		"runId":    run.ID,
+		"threadId": run.ID,
+		"status":   types.AgentRunStatusRunning,
+		"phase":    run.Phase,
+		"attempt":  run.Attempt + 1,
+	})
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeReasoningStart, types.JSONMap{
+		"runId": run.ID,
+		"title": "Agent 执行过程",
+	})
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeReasoningMessageStart, types.JSONMap{
+		"runId":     run.ID,
+		"messageId": "reasoning-" + run.ID,
+	})
 
 	result, compatibility, profileID, err := s.execute(ctx, run)
 	if err != nil {
 		var waiting agentRunWaitingInputError
 		if errors.As(err, &waiting) {
 			_, updateErr := s.repo.MarkWaitingInput(ctx, run.ID, waiting.interaction)
+			if updateErr == nil {
+				s.emitWaitingInputEvents(ctx, run.ID, waiting.interaction)
+			}
 			return updateErr
 		}
 		return s.recordExecutionFailure(ctx, run.ID, err)
@@ -489,7 +527,7 @@ func (s *agentRunService) completeAgentRun(
 		if len(validation.Errors) > 0 {
 			message += ": " + strings.Join(validation.Errors, "; ")
 		}
-		_, err := s.repo.MarkFailedWithResult(
+		failed, err := s.repo.MarkFailedWithResult(
 			ctx,
 			runID,
 			resultMap,
@@ -497,9 +535,15 @@ func (s *agentRunService) completeAgentRun(
 			truncateAgentRunError(errors.New(message)),
 			time.Now(),
 		)
+		if err == nil && failed {
+			s.emitRunError(ctx, runID, types.AgentRunErrorInvalidOutput, message)
+		}
 		return err
 	}
-	_, err = s.repo.MarkSucceeded(ctx, runID, profileID, resultMap, time.Now())
+	succeeded, err := s.repo.MarkSucceeded(ctx, runID, profileID, resultMap, time.Now())
+	if err == nil && succeeded {
+		s.emitRunCompletionEvents(ctx, runID, profileID, result)
+	}
 	return err
 }
 
@@ -507,13 +551,20 @@ func (s *agentRunService) recordExecutionFailure(ctx context.Context, runID stri
 	message := truncateAgentRunError(err)
 	var invalidOutput invalidAgentRunOutputError
 	if errors.As(err, &invalidOutput) {
-		_, updateErr := s.repo.MarkFailed(ctx, runID, types.AgentRunErrorInvalidOutput, message, time.Now())
+		failed, updateErr := s.repo.MarkFailed(ctx, runID, types.AgentRunErrorInvalidOutput, message, time.Now())
+		if updateErr == nil && failed {
+			s.emitRunError(ctx, runID, types.AgentRunErrorInvalidOutput, message)
+		}
 		return updateErr
 	}
 	var permanent permanentAgentRunError
 	if errors.As(err, &permanent) || agentRunFinalAttempt(ctx) {
-		if _, updateErr := s.repo.MarkFailed(ctx, runID, types.AgentRunErrorExecutionFailed, message, time.Now()); updateErr != nil {
+		failed, updateErr := s.repo.MarkFailed(ctx, runID, types.AgentRunErrorExecutionFailed, message, time.Now())
+		if updateErr != nil {
 			return updateErr
+		}
+		if failed {
+			s.emitRunError(ctx, runID, types.AgentRunErrorExecutionFailed, message)
 		}
 		if errors.As(err, &permanent) {
 			return nil
@@ -526,7 +577,161 @@ func (s *agentRunService) recordExecutionFailure(ctx context.Context, runID stri
 	if updateErr := s.repo.MarkRetry(ctx, runID, types.AgentRunErrorExecutionFailed, message); updateErr != nil {
 		return updateErr
 	}
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeRunError, types.JSONMap{
+		"runId":     runID,
+		"status":    types.AgentRunStatusQueued,
+		"errorCode": types.AgentRunErrorExecutionFailed,
+		"message":   message,
+		"retrying":  true,
+	})
 	return err
+}
+
+func (s *agentRunService) ListAgentRunEvents(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+	afterSequence int64,
+	limit int,
+) ([]*types.AgentRunEvent, error) {
+	run, err := s.GetAgentRun(ctx, tenantID, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListEvents(ctx, run.ID, afterSequence, limit)
+}
+
+func (s *agentRunService) emitRunEvent(
+	ctx context.Context,
+	runID, eventType string,
+	payload types.JSONMap,
+) {
+	if strings.TrimSpace(runID) == "" || strings.TrimSpace(eventType) == "" {
+		return
+	}
+	if err := s.repo.CreateEvent(ctx, &types.AgentRunEvent{
+		RunID:     runID,
+		EventType: eventType,
+		Payload:   cloneAgentRunJSONMap(payload),
+	}); err != nil {
+		// Event persistence must not turn a completed agent result into a
+		// failed task. The run state remains authoritative and the error is
+		// visible in server logs for operational repair.
+		logger.Warnf(ctx, "failed to persist agent run event (run=%s type=%s): %v", runID, eventType, err)
+	}
+}
+
+func (s *agentRunService) emitRunError(ctx context.Context, runID, code, message string) {
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeRunError, types.JSONMap{
+		"runId":     runID,
+		"status":    types.AgentRunStatusFailed,
+		"errorCode": code,
+		"message":   message,
+	})
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeReasoningMessageEnd, types.JSONMap{
+		"runId":     runID,
+		"messageId": "reasoning-" + runID,
+	})
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeReasoningEnd, types.JSONMap{
+		"runId": runID,
+	})
+}
+
+func (s *agentRunService) emitWaitingInputEvents(
+	ctx context.Context,
+	runID string,
+	interaction types.JSONMap,
+) {
+	toolCallID := "ask_user_" + runID
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeToolCallStart, types.JSONMap{
+		"runId":           runID,
+		"toolCallId":      toolCallID,
+		"toolCallName":    "ask_user",
+		"parentMessageId": runID,
+	})
+	raw, err := json.Marshal(interaction)
+	if err == nil {
+		s.emitRunEvent(ctx, runID, types.AgentRunEventTypeToolCallArgs, types.JSONMap{
+			"runId":      runID,
+			"toolCallId": toolCallID,
+			"delta":      string(raw),
+		})
+	}
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeRunWaitingInput, types.JSONMap{
+		"runId":       runID,
+		"threadId":    runID,
+		"status":      types.AgentRunStatusWaitingInput,
+		"toolCallId":  toolCallID,
+		"interaction": cloneAgentRunJSONMap(interaction),
+	})
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeReasoningMessageEnd, types.JSONMap{
+		"runId":     runID,
+		"messageId": "reasoning-" + runID,
+	})
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeReasoningEnd, types.JSONMap{
+		"runId": runID,
+	})
+}
+
+func (s *agentRunService) emitRunCompletionEvents(
+	ctx context.Context,
+	runID, profileID string,
+	result types.AgentResultV1,
+) {
+	summary := strings.TrimSpace(result.Decision.Reason)
+	if result.Card != nil {
+		summary = firstNonEmpty(strings.TrimSpace(result.Card.Summary), summary)
+	}
+	if summary != "" {
+		s.emitRunEvent(ctx, runID, types.AgentRunEventTypeTextMessageStart, types.JSONMap{
+			"runId":     runID,
+			"messageId": runID,
+			"role":      "assistant",
+		})
+		s.emitRunEvent(ctx, runID, types.AgentRunEventTypeTextMessageDelta, types.JSONMap{
+			"runId":     runID,
+			"messageId": runID,
+			"delta":     summary,
+		})
+		s.emitRunEvent(ctx, runID, types.AgentRunEventTypeTextMessageEnd, types.JSONMap{
+			"runId":     runID,
+			"messageId": runID,
+		})
+	}
+	files := make([]map[string]any, 0, len(result.Artifacts))
+	for _, artifact := range result.Artifacts {
+		files = append(files, map[string]any{
+			"name":   artifact.Title,
+			"kind":   artifact.Kind,
+			"format": artifact.Format,
+		})
+	}
+	if len(files) > 0 {
+		s.emitRunEvent(ctx, runID, types.AgentRunEventTypeActivitySnapshot, types.JSONMap{
+			"runId":        runID,
+			"messageId":    runID,
+			"activityType": "artifacts",
+			"replace":      true,
+			"content": types.JSONMap{
+				"title": "本轮产物",
+				"files": files,
+			},
+		})
+	}
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeReasoningMessageEnd, types.JSONMap{
+		"runId":     runID,
+		"messageId": "reasoning-" + runID,
+	})
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeReasoningEnd, types.JSONMap{
+		"runId": runID,
+	})
+	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeRunFinished, types.JSONMap{
+		"runId":     runID,
+		"threadId":  runID,
+		"status":    types.AgentRunStatusSucceeded,
+		"profileId": profileID,
+		"phase":     types.AgentRunPhaseCompleted,
+	})
 }
 
 func agentRunFinalAttempt(ctx context.Context) bool {

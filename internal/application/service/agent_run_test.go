@@ -39,6 +39,8 @@ func newAgentRunTestService(
 	db := newServiceDailyReportTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&types.AgentRun{},
+		&types.AgentRunEvent{},
+		&types.AgentRunEventSequence{},
 		&types.AgentRunStep{},
 		&types.AgentRunInputRevision{},
 		&types.AgentRequirementSnapshot{},
@@ -139,6 +141,8 @@ func newExpertAgentRunTestService(
 	db := newServiceDailyReportTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&types.AgentRun{},
+		&types.AgentRunEvent{},
+		&types.AgentRunEventSequence{},
 		&types.AgentRunStep{},
 		&types.AgentRunInputRevision{},
 		&types.AgentRequirementSnapshot{},
@@ -164,6 +168,43 @@ func newExpertAgentRunTestService(
 		enqueuer,
 	)
 	return runService, runRepo, enqueuer, db, chatModel
+}
+
+func TestAgentRunEventsReplayFromSequence(t *testing.T) {
+	ctx := context.Background()
+	_, runRepo, _, _ := newAgentRunTestService(t)
+	run := &types.AgentRun{
+		TenantID: 9,
+		UserID:   "event-user",
+		RunType:  types.AgentRunTypeExpertAgentTest,
+		Input:    types.JSONMap{"prompt": "event replay"},
+	}
+	require.NoError(t, runRepo.Create(ctx, run))
+
+	for _, eventType := range []string{
+		types.AgentRunEventTypeRunQueued,
+		types.AgentRunEventTypeRunStarted,
+		types.AgentRunEventTypeRunFinished,
+	} {
+		require.NoError(t, runRepo.CreateEvent(ctx, &types.AgentRunEvent{
+			RunID:     run.ID,
+			EventType: eventType,
+			Payload:   types.JSONMap{"runId": run.ID},
+		}))
+	}
+
+	all, err := runRepo.ListEvents(ctx, run.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	require.Equal(t, int64(1), all[0].Sequence)
+	require.Equal(t, int64(2), all[1].Sequence)
+	require.Equal(t, int64(3), all[2].Sequence)
+
+	resumed, err := runRepo.ListEvents(ctx, run.ID, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, resumed, 2)
+	require.Equal(t, types.AgentRunEventTypeRunStarted, resumed[0].EventType)
+	require.Equal(t, types.AgentRunEventTypeRunFinished, resumed[1].EventType)
 }
 
 func createAgentRunProfile(t *testing.T, db *gorm.DB, tenantID uint64, userID string) *types.UserWorkProfile {

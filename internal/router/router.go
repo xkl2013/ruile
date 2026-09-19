@@ -1350,6 +1350,7 @@ func RegisterServiceRoutes(r *gin.RouterGroup, h *handler.ServiceHandler, g *rba
 		svc.POST("/memories/:memory_id/extract", g.Viewer(), h.ExtractMemory)
 		svc.GET("/agent-runs/:id", g.Viewer(), h.GetAgentRun)
 		svc.GET("/agent-runs/:id/quality", g.Viewer(), h.GetAgentRunQuality)
+		svc.GET("/agent-runs/:id/events", g.Viewer(), h.StreamAgentRunEvents)
 		svc.GET("/agent-runs/:id/steps", g.Viewer(), h.ListAgentRunSteps)
 		svc.POST("/agent-runs/:id/answers", g.Viewer(), h.SubmitAgentRunAnswers)
 		svc.POST("/agent-runs/:id/regenerate", g.Viewer(), h.RegenerateAgentRun)

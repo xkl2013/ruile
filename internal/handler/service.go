@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"encoding/json"
 	stderrors "errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	appsvc "github.com/Tencent/WeKnora/internal/application/service"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
@@ -179,6 +182,166 @@ func (h *ServiceHandler) GetAgentRunQuality(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": quality})
+}
+
+// StreamAgentRunEvents replays durable AgentRun events after the supplied
+// sequence and keeps polling until the run reaches a terminal state. The
+// response data is flattened into the AG-UI shape used by the TDesign Chat
+// renderer, while the database keeps the original payload envelope.
+func (h *ServiceHandler) StreamAgentRunEvents(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	afterSequence := int64(0)
+	if raw := strings.TrimSpace(c.Query("after")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			c.Error(apperrors.NewBadRequestError("after must be a non-negative integer"))
+			return
+		}
+		afterSequence = parsed
+	} else if raw := strings.TrimSpace(c.GetHeader("Last-Event-ID")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			c.Error(apperrors.NewBadRequestError("Last-Event-ID must be a non-negative integer"))
+			return
+		}
+		afterSequence = parsed
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			c.Error(apperrors.NewBadRequestError("limit must be a positive integer"))
+			return
+		}
+		if parsed > 500 {
+			parsed = 500
+		}
+		limit = parsed
+	}
+
+	runID := strings.TrimSpace(c.Param("id"))
+	run, err := h.agentRuns.GetAgentRun(ctx, tenantID, userID, runID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache, no-transform")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	pollTicker := time.NewTicker(300 * time.Millisecond)
+	defer pollTicker.Stop()
+	heartbeatTicker := time.NewTicker(15 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	for {
+		events, listErr := h.agentRuns.ListAgentRunEvents(
+			ctx,
+			tenantID,
+			userID,
+			runID,
+			afterSequence,
+			limit,
+		)
+		if listErr != nil {
+			_ = writeAgentRunSSE(c, map[string]any{
+				"type":      types.AgentRunEventTypeRunError,
+				"runId":     runID,
+				"errorCode": "agent_run_event_stream_failed",
+				"message":   listErr.Error(),
+			})
+			return
+		}
+		for _, event := range events {
+			if event == nil {
+				continue
+			}
+			if err := writeAgentRunEventSSE(c, event); err != nil {
+				return
+			}
+			afterSequence = event.Sequence
+		}
+
+		if len(events) == 0 && isTerminalAgentRunStatus(run.Status) {
+			return
+		}
+		if len(events) > 0 && isTerminalAgentRunStatus(run.Status) {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-pollTicker.C:
+			run, err = h.agentRuns.GetAgentRun(ctx, tenantID, userID, runID)
+			if err != nil {
+				return
+			}
+		case <-heartbeatTicker.C:
+			if err := writeAgentRunSSE(c, map[string]any{
+				"type":   "PING",
+				"runId":  runID,
+				"status": run.Status,
+			}); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func writeAgentRunEventSSE(c *gin.Context, event *types.AgentRunEvent) error {
+	data := map[string]any{
+		"type":     event.EventType,
+		"id":       event.ID,
+		"runId":    event.RunID,
+		"sequence": event.Sequence,
+	}
+	for key, value := range event.Payload {
+		data[key] = value
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "id: %d\n", event.Sequence); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", raw); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func writeAgentRunSSE(c *gin.Context, data map[string]any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", raw); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func isTerminalAgentRunStatus(status string) bool {
+	switch status {
+	case types.AgentRunStatusWaitingInput,
+		types.AgentRunStatusSucceeded,
+		types.AgentRunStatusFailed,
+		types.AgentRunStatusCancelled:
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *ServiceHandler) ListAgentRunSteps(c *gin.Context) {

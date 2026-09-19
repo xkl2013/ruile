@@ -27,6 +27,8 @@ type AgentRunRepository interface {
 	MarkFailed(ctx context.Context, id, code, message string, finishedAt time.Time) (bool, error)
 	MarkFailedWithResult(ctx context.Context, id string, result types.JSONMap, code, message string, finishedAt time.Time) (bool, error)
 	CancelQueued(ctx context.Context, tenantID uint64, userID, id string, finishedAt time.Time) (bool, error)
+	CreateEvent(ctx context.Context, event *types.AgentRunEvent) error
+	ListEvents(ctx context.Context, runID string, afterSequence int64, limit int) ([]*types.AgentRunEvent, error)
 	CreateStep(ctx context.Context, step *types.AgentRunStep) error
 	CompleteStep(ctx context.Context, id string, output types.JSONMap, finishedAt time.Time) error
 	FailStep(ctx context.Context, id, message string, finishedAt time.Time) error
@@ -42,6 +44,7 @@ type AgentRunService interface {
 	EnqueuePublishedExpertRun(ctx context.Context, tenantID uint64, userID string, input types.ExpertAgentTestInput) (*types.AgentRun, error)
 	GetAgentRun(ctx context.Context, tenantID uint64, userID, id string) (*types.AgentRun, error)
 	GetAgentRunQuality(ctx context.Context, tenantID uint64, userID, id string) (types.JSONMap, error)
+	ListAgentRunEvents(ctx context.Context, tenantID uint64, userID, id string, afterSequence int64, limit int) ([]*types.AgentRunEvent, error)
 	ListAgentRunSteps(ctx context.Context, tenantID uint64, userID, id string) ([]*types.AgentRunStep, error)
 	SubmitAgentRunAnswers(ctx context.Context, tenantID uint64, userID, id string, input types.AgentRunAnswersInput) (*types.AgentRun, error)
 	RegenerateAgentRun(ctx context.Context, tenantID uint64, userID, id string, input types.AgentRunRegenerateInput) (*types.AgentRun, error)

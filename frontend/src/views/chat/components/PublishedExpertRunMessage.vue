@@ -5,20 +5,40 @@
         <div class="published-expert-message__eyebrow">已发布专家</div>
         <div class="published-expert-message__name">{{ message.expert?.display_name || '专家运行' }}</div>
       </div>
-      <span class="published-expert-message__status" :class="`is-${message.run?.status || 'queued'}`">
+      <span
+        class="published-expert-message__status"
+        :class="message.submittedAnswers ? 'is-submitted' : `is-${message.run?.status || 'queued'}`"
+      >
         {{ statusLabel }}
       </span>
     </div>
 
+    <section v-if="progressEvents.length" class="published-expert-progress" aria-live="polite">
+      <div class="published-expert-progress__header">
+        <span class="published-expert-progress__title">执行进度</span>
+        <span class="published-expert-progress__phase">{{ phaseLabel }}</span>
+      </div>
+      <ol class="published-expert-progress__list">
+        <li v-for="event in progressEvents" :key="event.sequence || event.id">
+          <span class="published-expert-progress__dot" aria-hidden="true"></span>
+          <span>{{ eventLabel(event) }}</span>
+        </li>
+      </ol>
+    </section>
+
     <div v-if="message.run?.status === 'queued' || message.run?.status === 'running'" class="published-expert-message__loading">
       <span class="published-expert-spinner" aria-hidden="true"></span>
-      <span>正在生成结果</span>
+      <span>{{ phaseLabel }}</span>
     </div>
 
-    <div v-else-if="message.run?.status === 'waiting_input'" class="published-expert-message__waiting">
-      <strong>需要补充信息</strong>
-      <span>当前运行已暂停，补充问题交互将在下一阶段接入。</span>
-    </div>
+    <ExpertIntakePanel
+      v-else-if="message.run?.status === 'waiting_input'"
+      :interaction="message.run?.interaction"
+      :submitted-answers="message.submittedAnswers"
+      :submitted-summary="message.submittedAnswerSummary"
+      :submitting="Boolean(message.submittingAnswers)"
+      @submit="emit('submit-answers', $event)"
+    />
 
     <div v-else-if="message.run?.status === 'failed' || message.run?.status === 'cancelled'"
       class="published-expert-message__error">
@@ -61,6 +81,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import ExpertIntakePanel from './ExpertIntakePanel.vue';
 
 const props = defineProps({
   message: {
@@ -69,11 +90,53 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['open-artifact']);
+const emit = defineEmits(['open-artifact', 'submit-answers']);
 
 const artifacts = computed(() => props.message?.run?.result?.artifacts || []);
 
+const phaseLabels = {
+  intake: '需求澄清',
+  planning: '执行规划',
+  drafting: '报告撰写',
+  reviewing: '质量审查',
+  revising: '报告修订',
+  packaging: '结果整理',
+  completed: '任务完成',
+};
+
+const phaseLabel = computed(() =>
+  phaseLabels[props.message?.run?.phase] || (
+    props.message?.run?.status === 'queued' ? '排队中' : '准备执行'
+  ),
+);
+
+const progressEvents = computed(() => {
+  const events = Array.isArray(props.message?.events) ? props.message.events : [];
+  return events
+    .filter((event) => [
+      'AGENT_STEP_STARTED',
+      'AGENT_STEP_FINISHED',
+      'AGENT_STEP_ERROR',
+      'QUALITY_UPDATED',
+      'RUN_WAITING_INPUT',
+      'RUN_ERROR',
+    ].includes(event?.type))
+    .slice(-6);
+});
+
+const eventLabel = (event) => {
+  if (event?.message) return event.message;
+  if (event?.type === 'QUALITY_UPDATED') {
+    const score = event?.quality?.score;
+    return typeof score === 'number' ? `质量审查完成，评分 ${score}` : '质量审查完成';
+  }
+  if (event?.type === 'RUN_WAITING_INPUT') return '等待补充关键信息';
+  if (event?.type === 'RUN_ERROR') return event?.message || '执行失败';
+  return phaseLabels[event?.phase] || '执行阶段已更新';
+};
+
 const statusLabel = computed(() => {
+  if (props.message?.submittedAnswers) return '已提交';
   switch (props.message?.run?.status) {
     case 'queued': return '排队中';
     case 'running': return '生成中';
@@ -124,6 +187,10 @@ const statusLabel = computed(() => {
   color: var(--td-success-color);
 }
 
+.published-expert-message__status.is-submitted {
+  color: #4c785c;
+}
+
 .published-expert-message__status.is-failed,
 .published-expert-message__status.is-cancelled {
   color: var(--td-error-color);
@@ -139,6 +206,57 @@ const statusLabel = computed(() => {
   border: 1px solid var(--td-component-border);
   border-radius: 8px;
   color: var(--td-text-color-secondary);
+}
+
+.published-expert-progress {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--td-component-border);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.published-expert-progress__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.published-expert-progress__title {
+  font-weight: 600;
+}
+
+.published-expert-progress__phase {
+  color: var(--td-brand-color);
+  font-size: 12px;
+}
+
+.published-expert-progress__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  list-style: none;
+}
+
+.published-expert-progress__list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.45;
+}
+
+.published-expert-progress__dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
 }
 
 .published-expert-message__error {

@@ -1,4 +1,7 @@
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { get, post, put } from '@/utils/request'
+import { generateRandomString } from '@/utils/index'
+import { getApiBaseUrl } from '@/utils/api-base'
 import type { ServiceTask, ServiceTaskSource } from '@/views/service/serviceMemoryExtraction'
 
 export interface ServiceWorkProfile {
@@ -289,6 +292,16 @@ export interface ServiceAgentRun {
   updated_at?: string
 }
 
+export interface ServiceAgentRunEvent {
+  type: string
+  id?: string
+  runId?: string
+  sequence?: number
+  status?: ServiceAgentRunStatus
+  phase?: ServiceAgentRunPhase
+  [key: string]: unknown
+}
+
 export type ServiceDailyReportRange = 'day' | 'week' | 'month'
 
 export interface ServiceDailyReportDTO {
@@ -517,6 +530,49 @@ export function regenerateServiceAgentRun(id: string, feedback?: string) {
     `/api/v1/service/agent-runs/${encodeURIComponent(id)}/regenerate`,
     feedback?.trim() ? { feedback: feedback.trim() } : {},
   )
+}
+
+export async function streamServiceAgentRunEvents(
+  id: string,
+  options: {
+    afterSequence?: number
+    signal?: AbortSignal
+    onEvent: (event: ServiceAgentRunEvent) => void
+  },
+) {
+  const token = localStorage.getItem('weknora_token')
+  if (!token) throw new Error('登录状态已失效，请重新登录')
+
+  const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id')
+  const after = Math.max(0, Math.floor(options.afterSequence || 0))
+  const url = `${getApiBaseUrl()}/api/v1/service/agent-runs/${encodeURIComponent(id)}/events?after=${after}`
+
+  await fetchEventSource(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/event-stream',
+      'Accept-Language': localStorage.getItem('locale') || 'zh-CN',
+      'X-Request-ID': generateRandomString(12),
+      ...(selectedTenantId ? { 'X-Tenant-ID': selectedTenantId } : {}),
+    },
+    signal: options.signal,
+    openWhenHidden: true,
+    onopen: async (response) => {
+      if (!response.ok) {
+        throw new Error(`事件流连接失败（HTTP ${response.status}）`)
+      }
+    },
+    onmessage: (message) => {
+      if (!message.data) return
+      const event = JSON.parse(message.data) as ServiceAgentRunEvent
+      if (event.type !== 'PING') options.onEvent(event)
+    },
+    onclose: () => undefined,
+    onerror: (error) => {
+      throw error instanceof Error ? error : new Error('事件流连接失败')
+    },
+  })
 }
 
 export async function waitForServiceAgentRun(

@@ -91,7 +91,8 @@
                     </div>
                     <div v-if="session.role == 'assistant' && session.isPublishedExpertRun">
                         <PublishedExpertRunMessage :message="session"
-                            @open-artifact="openExpertArtifact" />
+                            @open-artifact="openExpertArtifact"
+                            @submit-answers="(answers) => submitPublishedExpertAnswers(session, answers)" />
                     </div>
                     <div v-else-if="session.role == 'assistant' && shouldRenderAssistantMessage(session)">
                         <botmsg :content="session.content" :session="session" :session-id="session_id"
@@ -171,7 +172,11 @@ import {
 } from '@/api/message-suggestion';
 import { provideChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
 import { provideChatAttachmentPreviewDrawer } from '@/composables/useChatAttachmentPreviewDrawer';
-import { getServiceAgentRun } from '@/api/service';
+import {
+    getServiceAgentRun,
+    streamServiceAgentRunEvents,
+    submitServiceAgentRunAnswers,
+} from '@/api/service';
 import { runPublishedExpert } from '@/api/expert-package';
 
 const referencesDrawer = provideChatReferencesDrawer();
@@ -201,7 +206,14 @@ const isAgentStreamSession = () => {
 
 const uiStore = useUIStore();
 const { t } = useI18n();
-const { firstQuery, firstMentionedItems, firstModelId, firstImageFiles, firstAttachmentFiles } = storeToRefs(usemenuStore);
+const {
+    firstQuery,
+    firstMentionedItems,
+    firstModelId,
+    firstImageFiles,
+    firstAttachmentFiles,
+    firstPublishedExpert,
+} = storeToRefs(usemenuStore);
 const { onChunk, error, startStream, stopStream, lastStreamRequest } = useStream();
 /** Snapshot of the in-flight HTTP request for attaching to the next assistant message. */
 const pendingStreamDebug = ref(null);
@@ -686,7 +698,94 @@ const openExpertArtifact = (artifact) => {
     activeExpertArtifact.value = artifact;
 };
 
+const summarizeExpertAnswers = (interaction, answers) => {
+    const questions = Array.isArray(interaction?.questions) ? interaction.questions : [];
+    return questions
+        .map((question) => {
+            const value = answers?.[question.id];
+            if (value === undefined || value === null || value === '') return '';
+            const text = Array.isArray(value) ? value.join('、') : String(value);
+            return `${question.label || question.id}：${text}`;
+        })
+        .filter(Boolean)
+        .join('；');
+};
+
+const submitPublishedExpertAnswers = async (message, answers) => {
+    const runId = message?.run?.id;
+    if (!runId || message.submittingAnswers) return;
+
+    const answerSummary = summarizeExpertAnswers(message.run?.interaction, answers);
+    const messageIndex = messagesList.indexOf(message);
+    const answerMessage = {
+        id: `published-expert-answer-${Date.now()}`,
+        content: answerSummary,
+        role: 'user',
+        channel: 'web',
+        isPublishedExpertAnswer: true,
+    };
+    const resumeMessage = reactive({
+        id: `published-expert-resume-${Date.now()}`,
+        role: 'assistant',
+        isPublishedExpertRun: true,
+        is_completed: false,
+        expert: message.expert,
+        run: {
+            status: 'queued',
+        },
+    });
+
+    message.submittedAnswers = answers;
+    message.submittedAnswerSummary = answerSummary;
+    messagesList.splice(messageIndex + 1, 0, answerMessage, resumeMessage);
+    emitMessageStateChange();
+    await nextTick();
+    scrollToBottom(true);
+    message.submittingAnswers = true;
+    try {
+        const response = await submitServiceAgentRunAnswers(runId, answers);
+        if (!response?.success || !response?.data) {
+            throw new Error(response?.message || '补充信息提交失败');
+        }
+        resumeMessage.run = response.data;
+        await waitForPublishedExpertRun(resumeMessage, runId);
+        resumeMessage.is_completed = true;
+    } catch (error) {
+        const currentIndex = messagesList.indexOf(answerMessage);
+        if (currentIndex >= 0) messagesList.splice(currentIndex, 2);
+        message.submittedAnswers = null;
+        message.submittedAnswerSummary = '';
+        MessagePlugin.error(error?.message || '补充信息提交失败');
+    } finally {
+        message.submittingAnswers = false;
+        await nextTick();
+        scrollToBottom(true);
+    }
+};
+
 const waitForPublishedExpertRun = async (message, runId) => {
+    const applyEvent = (event) => {
+        if (!event || event.runId !== runId) return;
+        message.run = {
+            ...(message.run || {}),
+            ...(event.status ? { status: event.status } : {}),
+            ...(event.phase ? { phase: event.phase } : {}),
+            ...(event.interaction ? { interaction: event.interaction } : {}),
+            last_event_sequence: event.sequence || message.run?.last_event_sequence || 0,
+        };
+    };
+
+    try {
+        await streamServiceAgentRunEvents(runId, {
+            afterSequence: Number(message.run?.last_event_sequence || 0),
+            onEvent: applyEvent,
+        });
+    } catch (error) {
+        // Keep the old polling path as a compatibility fallback while older
+        // deployments are still starting up without the event migration.
+        console.warn('[AgentRun] event stream unavailable, falling back to polling:', error);
+    }
+
     const deadline = Date.now() + 5 * 60 * 1000;
     while (Date.now() < deadline) {
         const response = await getServiceAgentRun(runId);
@@ -1086,8 +1185,13 @@ onMounted(async () => {
                 rerankModelId: '',
             });
         }
-        sendMsg(firstQuery.value, firstModelId.value || '', firstMentionedItems.value || [], firstImageFiles.value || [], firstAttachmentFiles.value || []);
+        if (firstPublishedExpert.value) {
+            handlePublishedExpertSend(firstQuery.value, firstModelId.value || '', firstPublishedExpert.value);
+        } else {
+            sendMsg(firstQuery.value, firstModelId.value || '', firstMentionedItems.value || [], firstImageFiles.value || [], firstAttachmentFiles.value || []);
+        }
         usemenuStore.changeFirstQuery('', [], '', [], []);
+        usemenuStore.changeFirstPublishedExpert(null);
     } else {
         scrollLock.value = false;
         hasMoreHistory.value = true;
