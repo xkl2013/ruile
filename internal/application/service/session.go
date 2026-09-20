@@ -38,6 +38,7 @@ type sessionService struct {
 	knowledgeBaseService  interfaces.KnowledgeBaseService        // Service for knowledge base operations
 	modelService          interfaces.ModelService                // Service for model operations
 	tenantService         interfaces.TenantService               // Service for tenant operations
+	systemSettingService  interfaces.SystemSettingService        // Platform-wide runtime policy
 	eventManager          *chatpipeline.EventManager             // Event manager for chat pipeline
 	agentService          interfaces.AgentService                // Service for agent operations
 	knowledgeService      interfaces.KnowledgeService            // Service for knowledge operations
@@ -57,6 +58,7 @@ func NewSessionService(cfg *config.Config,
 	chunkService interfaces.ChunkService,
 	modelService interfaces.ModelService,
 	tenantService interfaces.TenantService,
+	systemSettingService interfaces.SystemSettingService,
 	eventManager *chatpipeline.EventManager,
 	agentService interfaces.AgentService,
 	webSearchStateRepo interfaces.WebSearchStateService,
@@ -73,6 +75,7 @@ func NewSessionService(cfg *config.Config,
 		chunkService:          chunkService,
 		modelService:          modelService,
 		tenantService:         tenantService,
+		systemSettingService:  systemSettingService,
 		eventManager:          eventManager,
 		agentService:          agentService,
 		webSearchStateRepo:    webSearchStateRepo,

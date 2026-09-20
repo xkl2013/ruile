@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     chat_history_config TEXT,
     retrieval_config TEXT,
     knowledge_base_defaults_config TEXT,
+    response_tier_config TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at DATETIME

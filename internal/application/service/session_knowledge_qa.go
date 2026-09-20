@@ -77,6 +77,10 @@ func (s *sessionService) KnowledgeQA(
 
 	// Resolve retrieval tenant scope using shared helper
 	retrievalTenantID := s.resolveRetrievalTenantID(ctx, req)
+	responseTierProfile, _, err := s.resolveResponseTier(ctx, req, retrievalTenantID)
+	if err != nil {
+		return err
+	}
 
 	// Build unified search targets (computed once, used throughout pipeline)
 	searchTargets, err := s.buildSearchTargets(ctx, retrievalTenantID, knowledgeBaseIDs, knowledgeIDs, req.TagScopes)
@@ -160,6 +164,10 @@ func (s *sessionService) KnowledgeQA(
 	// Apply custom agent overrides (system prompt, temperature, retrieval params,
 	// rewrite, fallback, FAQ strategy, history turns)
 	s.applyAgentOverridesToChatManage(ctx, req.CustomAgent, chatManage)
+	if responseTierProfile.Thinking != nil {
+		chatManage.SummaryConfig.Thinking = responseTierProfile.Thinking
+		logger.Infof(ctx, "Using response tier thinking: %v", *responseTierProfile.Thinking)
+	}
 
 	// Determine pipeline based on the effective knowledge retrieval scope and
 	// web search setting. Only authorized SearchTargets count as retrieval scope.

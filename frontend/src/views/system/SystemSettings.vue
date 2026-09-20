@@ -1551,10 +1551,13 @@ function auditActionTheme(
       return 'success'
     case 'system.admin_revoked':
     case 'system.setting_changed':
+    case 'system.user_activated':
     case 'system.queue_task_retried':
     case 'system.queue_task_run_now':
       return 'warning'
     case 'system.user_password_reset':
+    case 'system.user_deactivated':
+    case 'system.user_deleted':
     case 'system.queue_task_deleted':
     case 'system.queue_task_cancelled':
       return 'danger'
@@ -1628,6 +1631,9 @@ function auditTargetKey(row: AuditLog): string {
     row.action === 'system.admin_promoted'
     || row.action === 'system.admin_revoked'
     || row.action === 'system.user_password_reset'
+    || row.action === 'system.user_activated'
+    || row.action === 'system.user_deactivated'
+    || row.action === 'system.user_deleted'
   ) {
     if (!details) return row.target_user_id ? row.target_user_id.slice(0, 8) : ''
     const name = typeof details.target_username === 'string' ? details.target_username : ''

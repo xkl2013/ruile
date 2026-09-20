@@ -51,6 +51,7 @@ type SystemHandler struct {
 	memberSvc        interfaces.TenantMemberService
 	userSvc          interfaces.UserService
 	systemSettingSvc interfaces.SystemSettingService
+	modelSvc         interfaces.ModelService
 	subscriptionSvc  interfaces.SubscriptionService
 	usageBillingSvc  interfaces.UsageBillingService
 	// auditSvc is optional — when nil, emitAdminAudit no-ops so unit
@@ -81,6 +82,7 @@ func NewSystemHandler(cfg *config.Config,
 	memberSvc interfaces.TenantMemberService,
 	userSvc interfaces.UserService,
 	systemSettingSvc interfaces.SystemSettingService,
+	modelSvc interfaces.ModelService,
 	subscriptionSvc interfaces.SubscriptionService,
 	usageBillingSvc interfaces.UsageBillingService,
 	auditSvc interfaces.AuditLogService,
@@ -96,6 +98,7 @@ func NewSystemHandler(cfg *config.Config,
 		memberSvc:          memberSvc,
 		userSvc:            userSvc,
 		systemSettingSvc:   systemSettingSvc,
+		modelSvc:           modelSvc,
 		subscriptionSvc:    subscriptionSvc,
 		usageBillingSvc:    usageBillingSvc,
 		auditSvc:           auditSvc,
@@ -2214,6 +2217,113 @@ func (h *SystemHandler) ResetUserPassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Password reset successfully"})
 }
 
+// SetSystemUserStatusRequest defines the account-status mutation payload.
+type SetSystemUserStatusRequest struct {
+	IsActive *bool `json:"is_active" binding:"required"`
+}
+
+// SetSystemUserStatus changes whether a user can log in. The route is mounted
+// under the SystemAdmin group; the service additionally revokes all existing
+// sessions when the account is disabled.
+// @Summary      Enable or disable a system user
+// @Description  Change a user's login status. Disabling revokes all existing sessions.
+// @Tags         System Admin
+// @Accept       json
+// @Produce      json
+// @Param        id path string true "User ID"
+// @Param        request body SetSystemUserStatusRequest true "Account status"
+// @Success      200 {object} types.UserInfo "Account status updated"
+// @Failure      400 {object} map[string]interface{} "Invalid status or protected account"
+// @Failure      403 {object} map[string]interface{} "Forbidden: not a system admin"
+// @Failure      404 {object} map[string]interface{} "User not found"
+// @Router       /system/admin/users/{id}/status [put]
+func (h *SystemHandler) SetSystemUserStatus(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	targetID := strings.TrimSpace(c.Param("id"))
+	if targetID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	var req SetSystemUserStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.IsActive == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "is_active is required"})
+		return
+	}
+
+	actorID, _ := types.UserIDFromContext(ctx)
+	user, err := h.userSvc.SetSystemUserActive(ctx, targetID, actorID, *req.IsActive)
+	switch {
+	case err == nil:
+		action := types.AuditActionSystemUserActivated
+		if !*req.IsActive {
+			action = types.AuditActionSystemUserDeactivated
+		}
+		h.emitAdminAudit(ctx, action, user, map[string]any{
+			"target_email":     user.Email,
+			"target_username":  user.Username,
+			"is_active":        *req.IsActive,
+			"sessions_revoked": !*req.IsActive,
+		})
+		c.JSON(http.StatusOK, user.ToUserInfo())
+	case errors.Is(err, repository.ErrCannotDisableSelf):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot disable your own user account"})
+	case errors.Is(err, repository.ErrLastActiveSystemAdmin):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot disable the last active system administrator"})
+	case errors.Is(err, repository.ErrUserNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	default:
+		logger.Errorf(ctx, "Failed to change status for user %s: %v", targetID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user status"})
+	}
+}
+
+// DeleteSystemUser permanently deletes a system user. The operation is
+// intentionally separate from account disabling so operators can first
+// suspend a user and only delete after confirming the target.
+// @Summary      Delete a system user
+// @Description  Permanently delete a user account and its account-scoped data while retaining business resources.
+// @Tags         System Admin
+// @Produce      json
+// @Param        id path string true "User ID"
+// @Success      200 {object} types.UserInfo "User deleted"
+// @Failure      400 {object} map[string]interface{} "Protected account"
+// @Failure      403 {object} map[string]interface{} "Forbidden: not a system admin"
+// @Failure      404 {object} map[string]interface{} "User not found"
+// @Router       /system/admin/users/{id} [delete]
+func (h *SystemHandler) DeleteSystemUser(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	targetID := strings.TrimSpace(c.Param("id"))
+	if targetID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	actorID, _ := types.UserIDFromContext(ctx)
+	user, err := h.userSvc.DeleteSystemUser(ctx, targetID, actorID)
+	switch {
+	case err == nil:
+		h.emitAdminAudit(ctx, types.AuditActionSystemUserDeleted, user, map[string]any{
+			"target_email":     user.Email,
+			"target_username":  user.Username,
+			"hard_deleted":     true,
+			"sessions_revoked": true,
+		})
+		c.JSON(http.StatusOK, user.ToUserInfo())
+	case errors.Is(err, repository.ErrCannotDeleteSelf):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot delete your own user account"})
+	case errors.Is(err, repository.ErrLastSystemAdmin):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot delete the last remaining system administrator"})
+	case errors.Is(err, repository.ErrUserHasEnterpriseAssets):
+		c.JSON(http.StatusConflict, gin.H{"error": "Transfer the user's enterprise knowledge bases and agents before deleting the account"})
+	case errors.Is(err, repository.ErrUserNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	default:
+		logger.Errorf(ctx, "Failed to delete system user %s: %v", targetID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
+	}
+}
+
 // ============================================================================
 // System Settings (P1)
 // ----------------------------------------------------------------------------
@@ -2651,6 +2761,86 @@ func (h *SystemHandler) purgeOrphanRuntimeTask(
 // @Router       /system/admin/runtime/queues/{queue}/tasks/{task_id}/actions/{action} [post]
 func (h *SystemHandler) MutateRuntimeTask(c *gin.Context) {
 	h.mutateRuntimeTask(c, types.RuntimeTaskAction(c.Param("action")))
+}
+
+// GetSystemResponseTierConfig returns the deployment-wide answer-tier policy.
+func (h *SystemHandler) GetSystemResponseTierConfig(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	cfg, err := service.LoadSystemResponseTierConfig(ctx, h.systemSettingSvc)
+	if err != nil {
+		logger.Errorf(ctx, "load system response tier configuration failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "回答档位配置加载失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": cfg})
+}
+
+// UpdateSystemResponseTierConfig updates the deployment-wide answer-tier
+// policy. Model bindings must point to active platform chat models.
+func (h *SystemHandler) UpdateSystemResponseTierConfig(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	var cfg types.ResponseTierConfig
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "回答档位配置格式错误: " + err.Error()})
+		return
+	}
+	if !cfg.DefaultTier.IsValid() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "默认档位必须是 fast、balanced 或 ultimate"})
+		return
+	}
+	cfg.Normalize()
+	if err := h.validateSystemResponseTierModels(ctx, cfg); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	saved, err := service.SaveSystemResponseTierConfig(ctx, h.systemSettingSvc, cfg)
+	if err != nil {
+		logger.Errorf(ctx, "save system response tier configuration failed: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": saved})
+}
+
+func (h *SystemHandler) validateSystemResponseTierModels(
+	ctx context.Context,
+	cfg types.ResponseTierConfig,
+) error {
+	if h.modelSvc == nil {
+		return fmt.Errorf("模型服务不可用")
+	}
+	profiles := []struct {
+		label   string
+		profile types.ResponseTierProfile
+	}{
+		{label: "快速", profile: cfg.Fast},
+		{label: "均衡", profile: cfg.Balanced},
+		{label: "极致", profile: cfg.Ultimate},
+	}
+	checked := make(map[string]struct{}, len(profiles))
+	for _, item := range profiles {
+		if item.profile.ModelID == "" {
+			if cfg.Enabled {
+				return fmt.Errorf("%s档位必须绑定聊天模型", item.label)
+			}
+			continue
+		}
+		if _, ok := checked[item.profile.ModelID]; ok {
+			continue
+		}
+		checked[item.profile.ModelID] = struct{}{}
+		model, err := h.modelSvc.GetModelByID(ctx, item.profile.ModelID)
+		if err != nil || model == nil {
+			return fmt.Errorf("%s档位绑定的聊天模型不可用", item.label)
+		}
+		if model.TenantID != types.SystemModelTenantID {
+			return fmt.Errorf("%s档位只能绑定系统后台统一配置的模型", item.label)
+		}
+		if model.Type != types.ModelTypeKnowledgeQA {
+			return fmt.Errorf("%s档位只能绑定对话模型", item.label)
+		}
+	}
+	return nil
 }
 
 func (h *SystemHandler) ListSystemSettings(c *gin.Context) {

@@ -317,6 +317,12 @@
               <template #joined_at="{ row }">{{ formatDate(row.joined_at) }}</template>
               <template #operation="{ row }">
                 <div class="member-actions-cell">
+                  <t-tooltip v-if="canManageMemberRow(row)" :content="$t('tenantMember.assetTransfer.button')" placement="top">
+                    <t-button theme="primary" shape="square" variant="text" size="small"
+                      @click.stop="openAssetTransferDialog(row)">
+                      <template #icon><t-icon name="swap" /></template>
+                    </t-button>
+                  </t-tooltip>
                   <t-popconfirm
                     v-if="canManageMemberRow(row) && row.status !== 'suspended'"
                     theme="warning"
@@ -524,6 +530,119 @@
       </div>
     </t-dialog>
 
+    <t-dialog
+      v-if="canManage"
+      v-model:visible="assetTransferDialogVisible"
+      :header="$t('tenantMember.assetTransfer.dialogTitle', { name: assetTransferSourceLabel })"
+      width="640px"
+      :confirm-btn="{
+        content: $t('tenantMember.assetTransfer.confirm'),
+        theme: 'primary',
+        loading: transferringAssets,
+        disabled: assetTransferLoading || !canSubmitAssetTransfer,
+      }"
+      :cancel-btn="{ content: $t('common.cancel'), disabled: transferringAssets }"
+      :close-on-overlay-click="!transferringAssets"
+      destroy-on-close
+      @confirm="submitAssetTransfer"
+      @cancel="assetTransferDialogVisible = false"
+      @close="assetTransferDialogVisible = false"
+    >
+      <div class="member-asset-transfer">
+        <div v-if="assetTransferLoading" class="loading-inline member-asset-transfer__loading">
+          <t-loading size="small" />
+          <span>{{ $t('tenantMember.assetTransfer.loading') }}</span>
+        </div>
+        <template v-else>
+          <t-alert
+            v-if="assetTransferAssets && assetTransferAssets.total > 0"
+            theme="info"
+            :message="$t('tenantMember.assetTransfer.description', {
+              knowledgeBases: assetTransferAssets.knowledge_bases.length,
+              agents: assetTransferAssets.agents.length,
+            })"
+          />
+          <t-empty
+            v-if="!assetTransferAssets || assetTransferAssets.total === 0"
+            :description="$t('tenantMember.assetTransfer.empty')"
+          />
+          <template v-else>
+            <t-form label-align="top">
+              <t-form-item :label="$t('tenantMember.assetTransfer.targetType')">
+                <t-radio-group v-model="assetTransferTargetType">
+                  <t-radio-button value="enterprise">
+                    {{ $t('tenantMember.assetTransfer.targetEnterprise') }}
+                  </t-radio-button>
+                  <t-radio-button value="member">
+                    {{ $t('tenantMember.assetTransfer.targetMember') }}
+                  </t-radio-button>
+                </t-radio-group>
+              </t-form-item>
+              <t-form-item
+                v-if="assetTransferTargetType === 'member'"
+                :label="$t('tenantMember.assetTransfer.targetMemberLabel')"
+              >
+                <t-select
+                  v-model="assetTransferTargetUserID"
+                  :options="assetTransferTargetOptions"
+                  :placeholder="$t('tenantMember.assetTransfer.targetMemberPlaceholder')"
+                  :popup-props="roleSelectPopupProps"
+                  filterable
+                />
+              </t-form-item>
+              <t-form-item :label="$t('tenantMember.assetTransfer.assetsLabel')">
+                <t-checkbox-group v-model="selectedAssetKeys" class="member-asset-transfer__selection">
+                  <div v-if="assetTransferAssets.knowledge_bases.length > 0" class="member-asset-transfer__group">
+                    <strong>
+                      {{ $t('tenantMember.assetTransfer.knowledgeBases', {
+                        count: assetTransferAssets.knowledge_bases.length,
+                      }) }}
+                    </strong>
+                    <div class="member-asset-transfer__checks">
+                      <t-checkbox
+                        v-for="asset in assetTransferAssets.knowledge_bases"
+                        :key="assetKey(asset)"
+                        :value="assetKey(asset)"
+                      >
+                        {{ asset.name || asset.id }}
+                      </t-checkbox>
+                    </div>
+                  </div>
+                  <div v-if="assetTransferAssets.agents.length > 0" class="member-asset-transfer__group">
+                    <strong>
+                      {{ $t('tenantMember.assetTransfer.agents', {
+                        count: assetTransferAssets.agents.length,
+                      }) }}
+                    </strong>
+                    <div class="member-asset-transfer__checks">
+                      <t-checkbox
+                        v-for="asset in assetTransferAssets.agents"
+                        :key="assetKey(asset)"
+                        :value="assetKey(asset)"
+                      >
+                        {{ asset.name || asset.id }}
+                      </t-checkbox>
+                    </div>
+                  </div>
+                </t-checkbox-group>
+              </t-form-item>
+              <t-form-item :label="$t('tenantMember.assetTransfer.reasonLabel')">
+                <t-textarea
+                  v-model="assetTransferReason"
+                  :maxlength="500"
+                  :autosize="{ minRows: 3, maxRows: 5 }"
+                  :placeholder="$t('tenantMember.assetTransfer.reasonPlaceholder')"
+                />
+              </t-form-item>
+            </t-form>
+            <p class="member-asset-transfer__hint">
+              {{ $t('tenantMember.assetTransfer.preserveHint') }}
+            </p>
+          </template>
+        </template>
+      </div>
+    </t-dialog>
+
     <!-- Audit log drawer. Only rendered for Admin+ because the backend
          route is g.Admin()-gated; rendering it for lower roles would
          just produce an unhelpful 403. Lazy-loaded on first open. -->
@@ -664,16 +783,22 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import {
   listMembers,
+  fetchAllTenantMembers,
   adminCreateMember,
   DEFAULT_WORK_PROFILE_DESCRIPTION,
   updateMemberRole,
   removeMember,
   suspendMember,
   reactivateMember,
+  listMemberTransferableAssets,
+  transferMemberAssets,
   type TenantMember,
   type TenantRole,
   type TenantMemberStatus,
   type TenantMemberSource,
+  type MemberAssetTransferTargetType,
+  type MemberTransferableAsset,
+  type MemberTransferableAssets,
 } from '@/api/tenant/members'
 import {
   createInvitation,
@@ -771,6 +896,16 @@ const allocationForm = reactive<{
   limitMode: 'inherit',
   monthlyLimitPoints: 0,
 })
+const assetTransferDialogVisible = ref(false)
+const assetTransferSource = ref<TenantMember | null>(null)
+const assetTransferAssets = ref<MemberTransferableAssets | null>(null)
+const assetTransferMembers = ref<TenantMember[]>([])
+const assetTransferLoading = ref(false)
+const transferringAssets = ref(false)
+const assetTransferTargetType = ref<MemberAssetTransferTargetType>('enterprise')
+const assetTransferTargetUserID = ref('')
+const selectedAssetKeys = ref<string[]>([])
+const assetTransferReason = ref('')
 
 /** 历次分页载荷里见过的成员展示字段，补齐审计表里不在当前页的 user id */
 const memberDisplayByUserId = reactive<Record<string, { username?: string; email?: string }>>({})
@@ -963,8 +1098,39 @@ const columns = computed(() => [
   { colKey: 'department', title: t('tenantMember.columns.department'), ellipsis: true, minWidth: 116 },
   { colKey: 'allocation', title: t('tenantMember.columns.allocation'), width: 180 },
   { colKey: 'joined_at', title: t('tenantMember.columns.joinedAt'), width: 154 },
-  { colKey: 'operation', title: t('tenantMember.columns.operations'), width: 128, align: 'left', cell: 'operation' },
+  { colKey: 'operation', title: t('tenantMember.columns.operations'), width: 164, align: 'left', cell: 'operation' },
 ])
+
+const assetTransferSourceLabel = computed(() => (
+  assetTransferSource.value ? memberPrimary(assetTransferSource.value) : ''
+))
+
+const assetTransferTargetOptions = computed(() =>
+  assetTransferMembers.value
+    .filter((member) => (
+      member.status === 'active'
+      && member.user_id !== assetTransferSource.value?.user_id
+    ))
+    .map((member) => ({
+      label: memberSecondary(member)
+        ? `${memberPrimary(member)} · ${memberSecondary(member)}`
+        : memberPrimary(member),
+      value: member.user_id,
+    })),
+)
+
+const allAssetKeys = computed(() => {
+  const assets = assetTransferAssets.value
+  if (!assets) return []
+  return [...assets.knowledge_bases, ...assets.agents].map(assetKey)
+})
+
+const canSubmitAssetTransfer = computed(() => {
+  if (!assetTransferAssets.value || assetTransferAssets.value.total === 0) return false
+  if (selectedAssetKeys.value.length === 0 || !assetTransferReason.value.trim()) return false
+  if (assetTransferTargetType.value === 'member' && !assetTransferTargetUserID.value) return false
+  return true
+})
 
 const allocationTargetLabel = computed(() => {
   const target = allocationTarget.value
@@ -991,6 +1157,10 @@ function memberSecondary(row: { username?: string; email?: string }) {
   const mail = row.email?.trim()
   if (name && mail) return mail
   return ''
+}
+
+function assetKey(asset: MemberTransferableAsset) {
+  return `${asset.type}:${asset.id}`
 }
 
 function allocationFor(userId: string) {
@@ -1437,6 +1607,7 @@ function auditActionTheme(
     case 'rbac.member_left':
     case 'rbac.member_role_changed':
     case 'rbac.member_suspended':
+    case 'rbac.member_assets_transferred':
     case 'billing.member_allocation_changed':
       return 'warning'
     default:
@@ -1500,6 +1671,13 @@ function auditTargetDiff(row: AuditLog): string {
   }
   if (row.action === 'rbac.member_suspended' || row.action === 'rbac.member_reactivated') {
     if (d.old_status && d.new_status) return `${d.old_status} → ${d.new_status}`
+  }
+  if (row.action === 'rbac.member_assets_transferred') {
+    const total = Number(d.knowledge_bases_transferred || 0) + Number(d.agents_transferred || 0)
+    const target = d.target_type === 'enterprise'
+      ? t('tenantMember.assetTransfer.targetEnterprise')
+      : actorDisplayName(String(d.target_user_id || ''))
+    return t('tenantMember.audit.assetTransferDiff', { count: total, target })
   }
   if (row.action === 'rbac.access_denied') {
     if (typeof d.required_role === 'string') {
@@ -1672,6 +1850,12 @@ watch(createMemberDialogVisible, (open) => {
   createMemberForm.phone = ''
   createMemberForm.workProfileDescription = DEFAULT_WORK_PROFILE_DESCRIPTION
   nextTick(() => createMemberFormRef.value?.clearValidate?.())
+})
+
+watch(assetTransferTargetType, (targetType) => {
+  if (targetType === 'enterprise') {
+    assetTransferTargetUserID.value = ''
+  }
 })
 
 const createMemberDefaultPassword = computed(() => {
@@ -1916,6 +2100,87 @@ async function onRoleChange(row: TenantMember, newRole: string) {
   }
 }
 
+async function openAssetTransferDialog(row: TenantMember) {
+  assetTransferSource.value = row
+  assetTransferAssets.value = null
+  assetTransferMembers.value = []
+  assetTransferTargetType.value = 'enterprise'
+  assetTransferTargetUserID.value = ''
+  selectedAssetKeys.value = []
+  assetTransferReason.value = ''
+  assetTransferDialogVisible.value = true
+  assetTransferLoading.value = true
+  try {
+    const [assetResponse, allMembers] = await Promise.all([
+      listMemberTransferableAssets(activeTenantId.value, row.user_id),
+      fetchAllTenantMembers(activeTenantId.value),
+    ])
+    if (!assetResponse.success || !assetResponse.data) {
+      MessagePlugin.error(assetResponse.message || t('tenantMember.assetTransfer.loadError'))
+      assetTransferDialogVisible.value = false
+      return
+    }
+    assetTransferAssets.value = assetResponse.data
+    assetTransferMembers.value = allMembers
+    selectedAssetKeys.value = [
+      ...assetResponse.data.knowledge_bases,
+      ...assetResponse.data.agents,
+    ].map(assetKey)
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenantMember.assetTransfer.loadError'))
+    assetTransferDialogVisible.value = false
+  } finally {
+    assetTransferLoading.value = false
+  }
+}
+
+async function submitAssetTransfer() {
+  const source = assetTransferSource.value
+  const assets = assetTransferAssets.value
+  if (!source || !assets || !canSubmitAssetTransfer.value || transferringAssets.value) return
+
+  const selected = new Set(selectedAssetKeys.value)
+  const allSelected = allAssetKeys.value.length > 0
+    && allAssetKeys.value.every((key) => selected.has(key))
+  const selectedKnowledgeBaseIDs = assets.knowledge_bases
+    .filter((asset) => selected.has(assetKey(asset)))
+    .map((asset) => asset.id)
+  const selectedAgentIDs = assets.agents
+    .filter((asset) => selected.has(assetKey(asset)))
+    .map((asset) => asset.id)
+
+  transferringAssets.value = true
+  try {
+    const response = await transferMemberAssets(activeTenantId.value, source.user_id, {
+      target_type: assetTransferTargetType.value,
+      target_user_id: assetTransferTargetType.value === 'member'
+        ? assetTransferTargetUserID.value
+        : undefined,
+      scope: allSelected ? 'all' : 'selected',
+      asset_types: [
+        ...(selectedKnowledgeBaseIDs.length > 0 ? ['knowledge_base' as const] : []),
+        ...(selectedAgentIDs.length > 0 ? ['agent' as const] : []),
+      ],
+      knowledge_base_ids: allSelected ? undefined : selectedKnowledgeBaseIDs,
+      agent_ids: allSelected ? undefined : selectedAgentIDs,
+      reason: assetTransferReason.value.trim(),
+    })
+    if (!response.success || !response.data) {
+      MessagePlugin.error(response.message || t('tenantMember.assetTransfer.saveError'))
+      return
+    }
+    assetTransferDialogVisible.value = false
+    if (auditLoadedOnce.value) reloadAuditLog()
+    MessagePlugin.success(t('tenantMember.assetTransfer.success', {
+      count: response.data.total_transferred,
+    }))
+  } catch (err: any) {
+    MessagePlugin.error(err?.message || t('tenantMember.assetTransfer.saveError'))
+  } finally {
+    transferringAssets.value = false
+  }
+}
+
 // 原地 popconfirm 替代 DialogPlugin 模态确认：与"共享资源删除"等其它列表内
 // 的删除入口风格统一，避免一个简单的二次确认打断用户管理表格的浏览节奏。
 // 错误分支保持与旧实现一致（409 last-owner / 404 not-found / 兜底）。
@@ -1931,7 +2196,13 @@ async function removeRow(row: TenantMember) {
   } catch (err: any) {
     const status = err?.status
     if (status === 409) {
-      MessagePlugin.error(t('tenantMember.errors.lastOwner'))
+      const message = String(err?.message || '').toLowerCase()
+      if (message.includes('transferable enterprise assets')) {
+        MessagePlugin.warning(t('tenantMember.assetTransfer.removeBlocked'))
+        await openAssetTransferDialog(row)
+      } else {
+        MessagePlugin.error(t('tenantMember.errors.lastOwner'))
+      }
     } else if (status === 404) {
       MessagePlugin.error(t('tenantMember.errors.notFound'))
     } else if (status === 403) {
@@ -2357,6 +2628,63 @@ watch(
   gap: 4px;
   min-width: 0;
   min-height: 32px;
+}
+
+.member-asset-transfer {
+  min-height: 180px;
+}
+
+.member-asset-transfer__loading {
+  min-height: 180px;
+  justify-content: center;
+}
+
+.member-asset-transfer__selection {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--td-component-border);
+  border-radius: 6px;
+}
+
+.member-asset-transfer__group {
+  padding: 14px 16px;
+
+  & + & {
+    border-top: 1px solid var(--td-component-stroke);
+  }
+
+  > strong {
+    display: block;
+    margin-bottom: 10px;
+    color: var(--td-text-color-primary);
+    font-size: 13px;
+  }
+}
+
+.member-asset-transfer__checks {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 16px;
+
+  :deep(.t-checkbox) {
+    min-width: 0;
+    margin-right: 0;
+  }
+
+  :deep(.t-checkbox__label) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.member-asset-transfer__hint {
+  margin: 2px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 /* Audit drawer's data-table-shell variant: only used inside the audit

@@ -135,5 +135,6 @@ type CustomAgentRepository interface {
 
 	// CountByModelID counts active agents in the tenant whose config references
 	// the given model ID (chat, rerank, VLM, ASR, query-understand, etc.).
+	// tenantID=0 counts references across all workspaces.
 	CountByModelID(ctx context.Context, tenantID uint64, modelID string) (int64, error)
 }

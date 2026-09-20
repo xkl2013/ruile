@@ -472,6 +472,24 @@ export async function listSystemUsers(
   return response as unknown as ListSystemUsersResponse
 }
 
+export async function setSystemUserActive(
+  userID: string,
+  isActive: boolean,
+): Promise<unknown> {
+  const response = await put(
+    `/api/v1/system/admin/users/${encodeURIComponent(userID)}/status`,
+    { is_active: isActive },
+  )
+  return response
+}
+
+export async function deleteSystemUser(userID: string): Promise<unknown> {
+  const response = await del(
+    `/api/v1/system/admin/users/${encodeURIComponent(userID)}`,
+  )
+  return response
+}
+
 export async function listSystemEnterprises(
   params?: { keyword?: string },
 ): Promise<ListSystemEnterprisesResponse> {

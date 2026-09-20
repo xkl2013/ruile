@@ -18,6 +18,14 @@ import (
 // semantic; just kept separate so the repo doesn't import service).
 var ErrLastOwner = errors.New("repository: last active owner")
 
+var (
+	ErrAssetTransferSourceNotMember = errors.New("repository: asset transfer source is not a tenant member")
+	ErrAssetTransferTargetNotActive = errors.New("repository: asset transfer target is not an active tenant member")
+	ErrAssetTransferSameMember      = errors.New("repository: asset transfer target must differ from source")
+	ErrAssetTransferSelection       = errors.New("repository: asset transfer selection contains unavailable assets")
+	ErrAssetTransferEmptySelection  = errors.New("repository: asset transfer selection is empty")
+)
+
 // forUpdateClause returns the gorm SELECT ... FOR UPDATE clause. Kept
 // in one place so we can swap it out for `clause.Locking{Strength: "UPDATE"}`
 // on databases that don't support row-level locking (none in our matrix,
@@ -352,6 +360,257 @@ func (r *tenantMemberRepository) RemoveOwnerAtomically(
 		}
 		return nil
 	})
+}
+
+// ListTransferableAssets returns the enterprise assets for which userID is the
+// current responsible member. Child resources are intentionally omitted:
+// documents, chunks, FAQ entries, wiki pages, files, and indexes follow their
+// parent knowledge base.
+func (r *tenantMemberRepository) ListTransferableAssets(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+) (*types.MemberTransferableAssets, error) {
+	result := &types.MemberTransferableAssets{
+		TenantID:       tenantID,
+		SourceUserID:   userID,
+		KnowledgeBases: []types.MemberTransferableAsset{},
+		Agents:         []types.MemberTransferableAsset{},
+	}
+
+	var knowledgeBases []types.KnowledgeBase
+	if err := r.db.WithContext(ctx).
+		Select("id", "name").
+		Where("tenant_id = ? AND creator_id = ? AND is_temporary = ?", tenantID, userID, false).
+		Order("created_at DESC, id ASC").
+		Find(&knowledgeBases).Error; err != nil {
+		return nil, err
+	}
+	for _, kb := range knowledgeBases {
+		result.KnowledgeBases = append(result.KnowledgeBases, types.MemberTransferableAsset{
+			ID:   kb.ID,
+			Name: kb.Name,
+			Type: types.MemberAssetTypeKnowledgeBase,
+		})
+	}
+
+	var agents []types.CustomAgent
+	if err := r.db.WithContext(ctx).
+		Select("id", "name").
+		Where("tenant_id = ? AND created_by = ? AND is_builtin = ?", tenantID, userID, false).
+		Order("created_at DESC, id ASC").
+		Find(&agents).Error; err != nil {
+		return nil, err
+	}
+	for _, agent := range agents {
+		result.Agents = append(result.Agents, types.MemberTransferableAsset{
+			ID:   agent.ID,
+			Name: agent.Name,
+			Type: types.MemberAssetTypeAgent,
+		})
+	}
+	result.Total = len(result.KnowledgeBases) + len(result.Agents)
+	return result, nil
+}
+
+func (r *tenantMemberRepository) CountTransferableAssets(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+) (int64, int64, error) {
+	var knowledgeBases int64
+	if err := r.db.WithContext(ctx).
+		Model(&types.KnowledgeBase{}).
+		Where("tenant_id = ? AND creator_id = ? AND is_temporary = ?", tenantID, userID, false).
+		Count(&knowledgeBases).Error; err != nil {
+		return 0, 0, err
+	}
+	var agents int64
+	if err := r.db.WithContext(ctx).
+		Model(&types.CustomAgent{}).
+		Where("tenant_id = ? AND created_by = ? AND is_builtin = ?", tenantID, userID, false).
+		Count(&agents).Error; err != nil {
+		return 0, 0, err
+	}
+	return knowledgeBases, agents, nil
+}
+
+func normalizedAssetIDs(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		id := strings.TrimSpace(value)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func requestedAssetTypes(values []types.MemberAssetType) map[types.MemberAssetType]bool {
+	out := map[types.MemberAssetType]bool{}
+	for _, value := range values {
+		switch value {
+		case types.MemberAssetTypeKnowledgeBase, types.MemberAssetTypeAgent:
+			out[value] = true
+		}
+	}
+	if len(out) == 0 {
+		out[types.MemberAssetTypeKnowledgeBase] = true
+		out[types.MemberAssetTypeAgent] = true
+	}
+	return out
+}
+
+// TransferMemberAssets commits the responsibility handoff atomically. The
+// tenant, storage backend, vector store, content rows, shares, and historical
+// usage are never rewritten.
+func (r *tenantMemberRepository) TransferMemberAssets(
+	ctx context.Context,
+	command types.MemberAssetTransferCommand,
+) (*types.MemberAssetTransferResult, error) {
+	result := &types.MemberAssetTransferResult{
+		TenantID:     command.TenantID,
+		SourceUserID: command.SourceUserID,
+		TargetType:   command.TargetType,
+		TargetUserID: command.TargetUserID,
+	}
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		locking := func(db *gorm.DB) *gorm.DB {
+			switch tx.Dialector.Name() {
+			case "postgres", "mysql":
+				return db.Clauses(clause.Locking{Strength: "UPDATE"})
+			default:
+				return db
+			}
+		}
+
+		var source types.TenantMember
+		if err := locking(tx).
+			Where("user_id = ? AND tenant_id = ?", command.SourceUserID, command.TenantID).
+			First(&source).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrAssetTransferSourceNotMember
+			}
+			return err
+		}
+
+		responsibleUserID := ""
+		switch command.TargetType {
+		case types.MemberAssetTransferTargetEnterprise:
+			result.TargetUserID = ""
+		case types.MemberAssetTransferTargetMember:
+			if command.TargetUserID == command.SourceUserID {
+				return ErrAssetTransferSameMember
+			}
+			var target types.TenantMember
+			if err := locking(tx).
+				Where(
+					"user_id = ? AND tenant_id = ? AND status = ?",
+					command.TargetUserID,
+					command.TenantID,
+					types.TenantMemberStatusActive,
+				).
+				First(&target).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return ErrAssetTransferTargetNotActive
+				}
+				return err
+			}
+			responsibleUserID = command.TargetUserID
+		default:
+			return ErrAssetTransferTargetNotActive
+		}
+
+		assetTypes := requestedAssetTypes(command.AssetTypes)
+		transferKnowledgeBases := func(ids []string) error {
+			query := tx.Model(&types.KnowledgeBase{}).
+				Where(
+					"tenant_id = ? AND creator_id = ? AND is_temporary = ?",
+					command.TenantID,
+					command.SourceUserID,
+					false,
+				)
+			if ids != nil {
+				query = query.Where("id IN ?", ids)
+			}
+			res := query.Update("creator_id", responsibleUserID)
+			if res.Error != nil {
+				return res.Error
+			}
+			if ids != nil && res.RowsAffected != int64(len(ids)) {
+				return ErrAssetTransferSelection
+			}
+			result.KnowledgeBasesTransferred = res.RowsAffected
+			return nil
+		}
+		transferAgents := func(ids []string) error {
+			query := tx.Model(&types.CustomAgent{}).
+				Where(
+					"tenant_id = ? AND created_by = ? AND is_builtin = ?",
+					command.TenantID,
+					command.SourceUserID,
+					false,
+				)
+			if ids != nil {
+				query = query.Where("id IN ?", ids)
+			}
+			res := query.Update("created_by", responsibleUserID)
+			if res.Error != nil {
+				return res.Error
+			}
+			if ids != nil && res.RowsAffected != int64(len(ids)) {
+				return ErrAssetTransferSelection
+			}
+			result.AgentsTransferred = res.RowsAffected
+			return nil
+		}
+
+		switch command.Scope {
+		case types.MemberAssetTransferScopeAll:
+			if assetTypes[types.MemberAssetTypeKnowledgeBase] {
+				if err := transferKnowledgeBases(nil); err != nil {
+					return err
+				}
+			}
+			if assetTypes[types.MemberAssetTypeAgent] {
+				if err := transferAgents(nil); err != nil {
+					return err
+				}
+			}
+		case types.MemberAssetTransferScopeSelected:
+			knowledgeBaseIDs := normalizedAssetIDs(command.KnowledgeBaseIDs)
+			agentIDs := normalizedAssetIDs(command.AgentIDs)
+			if len(knowledgeBaseIDs)+len(agentIDs) == 0 {
+				return ErrAssetTransferEmptySelection
+			}
+			if len(knowledgeBaseIDs) > 0 {
+				if err := transferKnowledgeBases(knowledgeBaseIDs); err != nil {
+					return err
+				}
+			}
+			if len(agentIDs) > 0 {
+				if err := transferAgents(agentIDs); err != nil {
+					return err
+				}
+			}
+		default:
+			return ErrAssetTransferEmptySelection
+		}
+
+		result.TotalTransferred = result.KnowledgeBasesTransferred + result.AgentsTransferred
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // HasAnyMembers reports whether the tenant has at least one active

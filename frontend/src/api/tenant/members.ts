@@ -41,6 +41,56 @@ export interface TenantMember {
   suspended_at?: string | null
 }
 
+export type MemberAssetType = 'knowledge_base' | 'agent'
+export type MemberAssetTransferTargetType = 'member' | 'enterprise'
+export type MemberAssetTransferScope = 'all' | 'selected'
+
+export interface MemberTransferableAsset {
+  id: string
+  name: string
+  type: MemberAssetType
+}
+
+export interface MemberTransferableAssets {
+  tenant_id: number
+  source_user_id: string
+  knowledge_bases: MemberTransferableAsset[]
+  agents: MemberTransferableAsset[]
+  total: number
+}
+
+export interface MemberAssetTransferRequest {
+  target_type: MemberAssetTransferTargetType
+  target_user_id?: string
+  scope: MemberAssetTransferScope
+  asset_types?: MemberAssetType[]
+  knowledge_base_ids?: string[]
+  agent_ids?: string[]
+  reason: string
+}
+
+export interface MemberAssetTransferResult {
+  tenant_id: number
+  source_user_id: string
+  target_type: MemberAssetTransferTargetType
+  target_user_id?: string
+  knowledge_bases_transferred: number
+  agents_transferred: number
+  total_transferred: number
+}
+
+export interface MemberTransferableAssetsResponse {
+  success: boolean
+  data?: MemberTransferableAssets
+  message?: string
+}
+
+export interface MemberAssetTransferResponse {
+  success: boolean
+  data?: MemberAssetTransferResult
+  message?: string
+}
+
 export interface ListMembersResponse {
   success: boolean
   data?: {
@@ -310,6 +360,36 @@ export async function generateMemberWorkProfile(
     body,
     tenantScopedConfig(tenantId),
   )) as unknown as GenerateMemberWorkProfileResponse
+}
+
+/**
+ * List enterprise assets assigned to one member.
+ * Backend: GET /api/v1/tenants/:id/members/:user_id/transferable-assets (Admin+).
+ */
+export async function listMemberTransferableAssets(
+  tenantId: number,
+  userId: string,
+): Promise<MemberTransferableAssetsResponse> {
+  return (await get(
+    `/api/v1/tenants/${tenantId}/members/${userId}/transferable-assets`,
+    tenantScopedConfig(tenantId),
+  )) as unknown as MemberTransferableAssetsResponse
+}
+
+/**
+ * Transfer enterprise knowledge bases and custom agents to another active
+ * member or to enterprise-level ownership.
+ */
+export async function transferMemberAssets(
+  tenantId: number,
+  userId: string,
+  body: MemberAssetTransferRequest,
+): Promise<MemberAssetTransferResponse> {
+  return (await post(
+    `/api/v1/tenants/${tenantId}/members/${userId}/asset-transfer`,
+    body,
+    tenantScopedConfig(tenantId),
+  )) as unknown as MemberAssetTransferResponse
 }
 
 /**

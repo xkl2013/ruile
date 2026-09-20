@@ -60,6 +60,47 @@ func (s *sessionService) resolveKnowledgeBases(
 	return kbIDs, knowledgeIDs, nil
 }
 
+// resolveResponseTier resolves the platform-wide model binding shared by all
+// workspaces and agent execution modes. A disabled policy preserves legacy
+// model resolution for backward compatibility.
+func (s *sessionService) resolveResponseTier(
+	ctx context.Context,
+	req *types.QARequest,
+	tenantID uint64,
+) (types.ResponseTierProfile, types.ResponseTier, error) {
+	if req == nil || tenantID == 0 || s.systemSettingService == nil {
+		return types.ResponseTierProfile{}, "", nil
+	}
+
+	cfg, err := LoadSystemResponseTierConfig(ctx, s.systemSettingService)
+	if err != nil {
+		return types.ResponseTierProfile{}, "", fmt.Errorf("failed to load response tier configuration: %w", err)
+	}
+	if !cfg.Enabled {
+		return types.ResponseTierProfile{}, "", nil
+	}
+
+	tier := req.ResponseTier
+	if !tier.IsValid() {
+		tier = cfg.DefaultTier
+	}
+	profile := cfg.Profile(tier)
+	if strings.TrimSpace(profile.ModelID) == "" {
+		return types.ResponseTierProfile{}, tier,
+			fmt.Errorf("response tier %s has no chat model configured", tier)
+	}
+
+	model, err := s.modelService.GetModelByID(ctx, profile.ModelID)
+	if err != nil || model == nil || model.Type != types.ModelTypeKnowledgeQA {
+		return types.ResponseTierProfile{}, tier,
+			fmt.Errorf("response tier %s chat model %s is unavailable", tier, profile.ModelID)
+	}
+
+	req.ResponseTier = tier
+	req.ResolvedModelID = profile.ModelID
+	return profile, tier, nil
+}
+
 func (s *sessionService) restrictTagScopesToAgentScope(
 	ctx context.Context,
 	agent *types.CustomAgent,
@@ -101,6 +142,15 @@ func (s *sessionService) resolveChatModelID(
 	knowledgeBaseIDs []string,
 	knowledgeIDs []string,
 ) (string, error) {
+	if resolvedModelID := strings.TrimSpace(req.ResolvedModelID); resolvedModelID != "" {
+		model, err := s.modelService.GetModelByID(ctx, resolvedModelID)
+		if err == nil && model != nil && model.Type == types.ModelTypeKnowledgeQA {
+			logger.Infof(ctx, "Using platform response tier model override: %s", resolvedModelID)
+			return resolvedModelID, nil
+		}
+		return "", fmt.Errorf("resolved response tier chat model %s is unavailable", resolvedModelID)
+	}
+
 	summaryModelID := req.SummaryModelID
 	customAgent := req.CustomAgent
 	session := req.Session

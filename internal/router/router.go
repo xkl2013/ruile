@@ -795,6 +795,8 @@ func RegisterTenantRoutes(
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/me/profile/generate", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.GenerateMyMemberProfile)
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.UpdateMemberRole)
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id/profile", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.UpdateMemberProfile)
+				g.apiKeyRoute(tenantByID, http.MethodGet, "/members/:user_id/transferable-assets", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.ListTransferableAssets)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/asset-transfer", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.TransferMemberAssets)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/suspend", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.SuspendMember)
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members/:user_id/reactivate", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.ReactivateMember)
 				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Admin(), memberHandler.RemoveMember)
@@ -834,9 +836,8 @@ func RegisterTenantRoutes(
 	}
 }
 
-// Models are tenant-wide infrastructure (LLM credentials, embeddings,
-// rerankers); Viewer+ for reads, Admin+ for any mutation. Credential
-// subresource writes are also Admin+ since secrets are tenant-scoped.
+// Models are platform infrastructure. Every workspace can read the shared
+// catalogue; only SystemAdmin can mutate models or credentials.
 func RegisterModelRoutes(
 	r *gin.RouterGroup,
 	handler *handler.ModelHandler,
@@ -848,21 +849,19 @@ func RegisterModelRoutes(
 	{
 		// 获取模型厂商列表 — Viewer+
 		models.GET("/providers", g.Viewer(), handler.ListModelProviders)
-		// 创建模型 — Admin+
-		models.POST("", g.Admin(), handler.CreateModel)
+		// 创建模型 — SystemAdmin
+		models.POST("", g.SystemAdmin(), handler.CreateModel)
 		// 获取模型列表 — Viewer+
 		models.GET("", g.Viewer(), handler.ListModels)
-		// 调试已保存模型会发起真实上游调用并产生费用 — Admin+
-		models.POST("/:id/debug", g.Admin(), handler.DebugModel)
+		// 调试已保存模型会发起真实上游调用并产生费用 — SystemAdmin
+		models.POST("/:id/debug", g.SystemAdmin(), handler.DebugModel)
 		// 获取单个模型 — Viewer+
 		models.GET("/:id", g.Viewer(), handler.GetModel)
-		// 更新模型 — Admin+；内置模型仍由服务层额外限定为 SystemAdmin。
-		models.PUT("/:id", g.AdminOrSystemAdmin(), handler.UpdateModel)
-		// 删除模型 — Admin+
-		models.DELETE("/:id", g.Admin(), handler.DeleteModel)
-		// Per-field credential subresource (see internal/handler/model_credentials.go) — Admin+
-		models.PUT("/:id/credentials", g.AdminOrSystemAdmin(), credHandler.Put)
-		models.DELETE("/:id/credentials/:field", g.AdminOrSystemAdmin(), credHandler.DeleteField)
+		// 更新、删除模型及凭据 — SystemAdmin
+		models.PUT("/:id", g.SystemAdmin(), handler.UpdateModel)
+		models.DELETE("/:id", g.SystemAdmin(), handler.DeleteModel)
+		models.PUT("/:id/credentials", g.SystemAdmin(), credHandler.Put)
+		models.DELETE("/:id/credentials/:field", g.SystemAdmin(), credHandler.DeleteField)
 	}
 }
 
@@ -1040,6 +1039,8 @@ func RegisterSystemAdminRoutes(
 		adminRoutes.GET("/users", handler.ListSystemUsers)
 		adminRoutes.GET("/users/search", handler.SearchSystemUsers)
 		adminRoutes.POST("/users/reset-password", handler.ResetUserPassword)
+		adminRoutes.PUT("/users/:id/status", handler.SetSystemUserStatus)
+		adminRoutes.DELETE("/users/:id", handler.DeleteSystemUser)
 		adminRoutes.GET("/enterprises", handler.ListSystemEnterprises)
 		adminRoutes.POST("/enterprise-workspaces", handler.ProvisionEnterpriseWorkspace)
 
@@ -1051,6 +1052,8 @@ func RegisterSystemAdminRoutes(
 		adminRoutes.GET("/settings/:key", handler.GetSystemSetting)
 		adminRoutes.PUT("/settings/:key", handler.UpdateSystemSetting)
 		adminRoutes.DELETE("/settings/:key", handler.ResetSystemSetting)
+		adminRoutes.GET("/response-tier-config", handler.GetSystemResponseTierConfig)
+		adminRoutes.PUT("/response-tier-config", handler.UpdateSystemResponseTierConfig)
 
 		// Runtime operations: live asynq queue depths, safe task projections,
 		// and state-checked task actions for the SystemAdmin dashboard. Lite
@@ -1254,8 +1257,9 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 		agentsRead.GET("", g.Viewer(), agentHandler.ListAgents)
 		// Get agent by ID — Viewer+
 		agentsRead.GET("/:id", g.Viewer(), agentHandler.GetAgent)
-		// Update agent — Admin+
-		agentsWrite.PUT("/:id", g.Admin(), agentHandler.UpdateAgent)
+		// Update custom agent — Admin+; update platform built-in — SystemAdmin.
+		// The handler distinguishes the resource type after route binding.
+		agentsWrite.PUT("/:id", g.AdminOrSystemAdmin(), agentHandler.UpdateAgent)
 		// Delete agent — Admin+
 		agentsWrite.DELETE("/:id", g.Admin(), agentHandler.DeleteAgent)
 		// Copy agent — Admin+

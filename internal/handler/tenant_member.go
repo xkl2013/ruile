@@ -101,6 +101,16 @@ type generateMyMemberProfileRequest struct {
 	Prompt string `json:"prompt" binding:"required"`
 }
 
+type transferMemberAssetsRequest struct {
+	TargetType       types.MemberAssetTransferTargetType `json:"target_type" binding:"required"`
+	TargetUserID     string                              `json:"target_user_id"`
+	Scope            types.MemberAssetTransferScope      `json:"scope" binding:"required"`
+	AssetTypes       []types.MemberAssetType             `json:"asset_types"`
+	KnowledgeBaseIDs []string                            `json:"knowledge_base_ids"`
+	AgentIDs         []string                            `json:"agent_ids"`
+	Reason           string                              `json:"reason" binding:"required"`
+}
+
 // callerCanManageOwnerRoles keeps delegated Admins useful for daily member
 // operations while reserving Owner role changes for true tenant owners,
 // platform system administrators, and cross-tenant superusers.
@@ -1044,6 +1054,81 @@ func buildMemberWorkProfilePromptFromUserInput(prompt string, existingDescriptio
 	return b.String()
 }
 
+// ListTransferableAssets returns knowledge bases and custom agents currently
+// assigned to one enterprise member.
+func (h *TenantMemberHandler) ListTransferableAssets(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+	userID := strings.TrimSpace(c.Param("user_id"))
+	if userID == "" {
+		c.Error(apperrors.NewValidationError("user_id is required"))
+		return
+	}
+
+	assets, err := h.memberService.ListTransferableAssets(ctx, userID, tenantID)
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": assets})
+	case errors.Is(err, service.ErrMembershipNotFound):
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+	case errors.Is(err, service.ErrAssetTransferOnlyEnterprise):
+		c.Error(apperrors.NewBadRequestError(err.Error()))
+	default:
+		logger.Errorf(ctx, "ListTransferableAssets failed: user=%s tenant=%d err=%v", userID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to load transferable assets").WithDetails(err.Error()))
+	}
+}
+
+// TransferMemberAssets reassigns supported enterprise assets without moving
+// tenant ownership, files, indexes, shares, or historical usage.
+func (h *TenantMemberHandler) TransferMemberAssets(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := parseTenantIDFromPath(c)
+	if !ok {
+		return
+	}
+	sourceUserID := strings.TrimSpace(c.Param("user_id"))
+	if sourceUserID == "" {
+		c.Error(apperrors.NewValidationError("user_id is required"))
+		return
+	}
+
+	var req transferMemberAssetsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewValidationError("invalid asset transfer request").WithDetails(err.Error()))
+		return
+	}
+	result, err := h.memberService.TransferMemberAssets(ctx, types.MemberAssetTransferCommand{
+		TenantID:         tenantID,
+		SourceUserID:     sourceUserID,
+		TargetType:       req.TargetType,
+		TargetUserID:     req.TargetUserID,
+		Scope:            req.Scope,
+		AssetTypes:       req.AssetTypes,
+		KnowledgeBaseIDs: req.KnowledgeBaseIDs,
+		AgentIDs:         req.AgentIDs,
+		Reason:           req.Reason,
+	})
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
+	case errors.Is(err, service.ErrMembershipNotFound):
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+	case errors.Is(err, service.ErrAssetTransferOnlyEnterprise),
+		errors.Is(err, service.ErrAssetTransferReasonRequired),
+		errors.Is(err, service.ErrAssetTransferReasonTooLong),
+		errors.Is(err, service.ErrAssetTransferInvalidTarget),
+		errors.Is(err, service.ErrAssetTransferInvalidScope):
+		c.Error(apperrors.NewBadRequestError(err.Error()))
+	default:
+		logger.Errorf(ctx, "TransferMemberAssets failed: user=%s tenant=%d err=%v", sourceUserID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to transfer member assets").WithDetails(err.Error()))
+	}
+}
+
 // RemoveMember godoc
 // @Summary      移除空间成员
 // @Description  Admin 将某位成员从当前空间中移除（软删除 tenant_members 行）；移除 Owner 需要 Owner 或系统管理员；不能移除最后一位 Owner
@@ -1088,6 +1173,12 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 			c.Error(apperrors.NewNotFoundError("membership not found"))
 		case errors.Is(err, service.ErrLastOwner):
 			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrMemberHasTransferableAssets):
+			appErr := apperrors.NewConflictError(err.Error())
+			if assets, loadErr := h.memberService.ListTransferableAssets(ctx, userID, tenantID); loadErr == nil {
+				appErr.WithDetails(assets)
+			}
+			c.Error(appErr)
 		default:
 			logger.Errorf(ctx, "RemoveMember failed: user=%s tenant=%d err=%v",
 				userID, tenantID, err)

@@ -55,6 +55,7 @@
 	              <th>账户用量</th>
 	              <th>账号状态</th>
 	              <th>注册时间</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -124,6 +125,45 @@
                 </div>
               </td>
               <td class="membership-page__muted">{{ formatDate(user.created_at) }}</td>
+              <td>
+                <div class="membership-page__actions">
+                  <t-button
+                    v-if="user.is_active"
+                    size="small"
+                    variant="outline"
+                    theme="warning"
+                    :loading="mutatingUserID === user.id"
+                    :disabled="mutatingUserID !== ''"
+                    @click="changeUserStatus(user, false)"
+                  >
+                    <template #icon><t-icon name="lock-off" /></template>
+                    禁用
+                  </t-button>
+                  <t-button
+                    v-else
+                    size="small"
+                    variant="outline"
+                    theme="primary"
+                    :loading="mutatingUserID === user.id"
+                    :disabled="mutatingUserID !== ''"
+                    @click="changeUserStatus(user, true)"
+                  >
+                    <template #icon><t-icon name="check-circle" /></template>
+                    启用
+                  </t-button>
+                  <t-button
+                    size="small"
+                    variant="outline"
+                    theme="danger"
+                    :loading="mutatingUserID === user.id"
+                    :disabled="mutatingUserID !== ''"
+                    @click="deleteUser(user)"
+                  >
+                    <template #icon><t-icon name="delete-1" /></template>
+                    删除
+                  </t-button>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -159,7 +199,13 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { listSystemUsers, type SystemUserSummary } from '@/api/system'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import {
+  deleteSystemUser,
+  listSystemUsers,
+  setSystemUserActive,
+  type SystemUserSummary,
+} from '@/api/system'
 
 const pageSize = 20
 const keyword = ref('')
@@ -168,6 +214,7 @@ const page = ref(1)
 const hasMore = ref(false)
 const loading = ref(false)
 const errorMessage = ref('')
+const mutatingUserID = ref('')
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error && typeof error === 'object' && 'message' in error) {
@@ -261,6 +308,61 @@ function refresh() {
 function goToPage(targetPage: number) {
   if (targetPage < 1 || loading.value) return
   void loadUsers(targetPage)
+}
+
+function displayUser(user: SystemUserSummary) {
+  return user.username || user.email || '该用户'
+}
+
+function changeUserStatus(user: SystemUserSummary, isActive: boolean) {
+  if (mutatingUserID.value) return
+  const action = isActive ? '启用' : '禁用'
+  const dialog = DialogPlugin.confirm({
+    header: `${action}用户`,
+    body: isActive
+      ? `确认启用「${displayUser(user)}」？启用后该用户可以重新登录。`
+      : `确认禁用「${displayUser(user)}」？禁用后该用户的现有登录会话会立即失效。`,
+    confirmBtn: { content: action, theme: isActive ? 'primary' : 'warning' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      dialog.destroy()
+      mutatingUserID.value = user.id
+      try {
+        await setSystemUserActive(user.id, isActive)
+        user.is_active = isActive
+        MessagePlugin.success(`用户已${action}`)
+      } catch (error) {
+        MessagePlugin.error(getErrorMessage(error, `用户${action}失败`))
+      } finally {
+        mutatingUserID.value = ''
+      }
+    },
+    onCancel: () => dialog.destroy(),
+  })
+}
+
+function deleteUser(user: SystemUserSummary) {
+  if (mutatingUserID.value) return
+  const dialog = DialogPlugin.confirm({
+    header: '删除用户',
+    body: `确认删除「${displayUser(user)}」？账号会被软删除并立即退出登录，已产生的知识库、文件和用量记录会保留。删除后不能直接使用相同账号标识重新注册。`,
+    confirmBtn: { content: '删除', theme: 'danger' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      dialog.destroy()
+      mutatingUserID.value = user.id
+      try {
+        await deleteSystemUser(user.id)
+        users.value = users.value.filter((item) => item.id !== user.id)
+        MessagePlugin.success('用户已删除')
+      } catch (error) {
+        MessagePlugin.error(getErrorMessage(error, '删除用户失败'))
+      } finally {
+        mutatingUserID.value = ''
+      }
+    },
+    onCancel: () => dialog.destroy(),
+  })
 }
 
 onMounted(() => {
@@ -446,6 +548,13 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.membership-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 190px;
 }
 
 .membership-page__state {

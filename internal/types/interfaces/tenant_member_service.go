@@ -62,8 +62,17 @@ type TenantMemberService interface {
 	// description used by service routing.
 	UpdateWorkProfileDescription(ctx context.Context, userID string, tenantID uint64, description string) error
 
+	// ListTransferableAssets returns enterprise knowledge bases and custom
+	// agents currently assigned to the selected member.
+	ListTransferableAssets(ctx context.Context, userID string, tenantID uint64) (*types.MemberTransferableAssets, error)
+
+	// TransferMemberAssets reassigns supported enterprise assets to another
+	// active member or to enterprise-level ownership.
+	TransferMemberAssets(ctx context.Context, command types.MemberAssetTransferCommand) (*types.MemberAssetTransferResult, error)
+
 	// RemoveMember soft-deletes the membership while enforcing the
-	// "cannot remove the last active Owner" invariant.
+	// "cannot remove the last active Owner" invariant and requiring supported
+	// enterprise assets to be transferred first.
 	RemoveMember(ctx context.Context, userID string, tenantID uint64) error
 
 	// SuspendMember disables a membership without deleting the row. It enforces

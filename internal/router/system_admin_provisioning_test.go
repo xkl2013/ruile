@@ -45,6 +45,15 @@ func TestSystemAdminEnterpriseProvisioningRoutesRequireSystemAdmin(t *testing.T)
 			path:   "/api/v1/system/admin/enterprise-workspaces",
 			body:   `{"user_id":"target","name":"Enterprise"}`,
 		},
+		{
+			method: http.MethodPut,
+			path:   "/api/v1/system/admin/users/target/status",
+			body:   `{"is_active":false}`,
+		},
+		{
+			method: http.MethodDelete,
+			path:   "/api/v1/system/admin/users/target",
+		},
 	} {
 		t.Run(route.method+" "+route.path, func(t *testing.T) {
 			request := httptest.NewRequest(route.method, route.path, nil)

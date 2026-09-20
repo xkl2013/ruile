@@ -100,7 +100,7 @@
                 <span class="detail-name">{{ activeDetail.agent.name }}</span>
               </div>
               <span v-if="isDetailCurrent" class="detail-current">{{ $t('agent.selector.current') }}</span>
-              <div v-else-if="activeDetailNotReadyLabels.length" class="detail-not-ready">
+              <div v-if="activeDetailNotReadyLabels.length" class="detail-not-ready">
                 <TIcon name="error-circle" size="13px" class="detail-not-ready-icon" />
                 <span class="detail-not-ready-label">{{ $t('agent.selector.notReadyStatus') }}</span>
                 <span v-for="item in activeDetailNotReadyLabels" :key="item" class="detail-not-ready-item">{{ item
@@ -202,6 +202,7 @@ const props = defineProps<{
   agents?: CustomAgent[];
   allModels?: ModelConfig[];
   currentChatModelId?: string;
+  responseTierEnabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -370,6 +371,7 @@ const getAgentNotReadyReasonKeysFor = (agent: CustomAgent, sourceTenantId?: stri
   return getAgentNotReadyReasonKeys(config, modelsList.value, {
     isAgentMode,
     isSharedAgent,
+    responseTierEnabled: props.responseTierEnabled,
   });
 };
 

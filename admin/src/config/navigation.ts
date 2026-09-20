@@ -57,10 +57,10 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         key: 'agents',
         label: '智能体',
-        description: '智能体配置和管理',
+        description: '统一维护平台内置智能体',
         icon: 'control-platform',
         path: '/agents',
-        minRole: 'viewer',
+        requiresSystemAdmin: true,
       },
       {
         key: 'service-config',
@@ -82,6 +82,14 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         description: '模型供应商、凭据、价格和调试',
         icon: 'server',
         path: '/models',
+        requiresSystemAdmin: true,
+      },
+      {
+        key: 'response-tier-settings',
+        label: '回答档位',
+        description: '全平台统一配置快速、均衡、极致模型',
+        icon: 'layers',
+        path: '/response-tiers',
         requiresSystemAdmin: true,
       },
       {

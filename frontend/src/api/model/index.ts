@@ -49,6 +49,26 @@ export interface ModelConfig {
   deleted_at?: string | null;
 }
 
+const modelTypeAliases: Record<string, ModelConfig['type']> = {
+  knowledgeqa: 'KnowledgeQA',
+  chat: 'KnowledgeQA',
+  llm: 'KnowledgeQA',
+  embedding: 'Embedding',
+  rerank: 'Rerank',
+  vllm: 'VLLM',
+  ocr: 'OCR',
+  asr: 'ASR',
+}
+
+/**
+ * Keep model type values stable for callers while accepting legacy/frontend
+ * aliases returned by older model endpoints.
+ */
+export function normalizeModelType(value: string | undefined): ModelConfig['type'] {
+  const normalized = (value || '').trim().toLowerCase()
+  return modelTypeAliases[normalized] || value as ModelConfig['type']
+}
+
 // 创建模型
 export function createModel(data: ModelConfig): Promise<ModelConfig> {
   return new Promise((resolve, reject) => {
@@ -74,10 +94,16 @@ export function listModels(type?: string): Promise<ModelConfig[]> {
     get(url)
       .then((response: any) => {
         if (response.success && response.data) {
+          const models = (Array.isArray(response.data) ? response.data : []).map((model: ModelConfig) => ({
+            ...model,
+            type: normalizeModelType(model.type),
+          }))
           if (type) {
-            response.data = response.data.filter((item: ModelConfig) => item.type === type);
+            const expectedType = normalizeModelType(type)
+            resolve(models.filter((item: ModelConfig) => normalizeModelType(item.type) === expectedType))
+            return
           }
-          resolve(response.data);
+          resolve(models);
         } else {
           resolve([]);
         }

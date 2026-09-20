@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     storage_used BIGINT NOT NULL DEFAULT 0, -- 已使用的存储空间(Bytes)
     agent_config JSONB DEFAULT NULL,
     knowledge_base_defaults_config JSONB DEFAULT NULL,
+    response_tier_config JSONB DEFAULT NULL,
     provisioning_key VARCHAR(128),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

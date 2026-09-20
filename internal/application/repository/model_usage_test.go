@@ -53,6 +53,16 @@ func TestCountByModelID_KnowledgeBase(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
 
+	kbOtherTenant := makeKB(nil)
+	kbOtherTenant.ID = uuid.New().String()
+	kbOtherTenant.TenantID = 2
+	kbOtherTenant.EmbeddingModelID = modelID
+	require.NoError(t, db.Create(kbOtherTenant).Error)
+
+	count, err = repo.CountByModelID(ctx, types.SystemModelTenantID, modelID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
 	kb2 := makeKB(nil)
 	kb2.ID = uuid.New().String()
 	kb2.VLMConfig = types.VLMConfig{Enabled: true, ModelID: modelID}
@@ -115,6 +125,20 @@ func TestCountByModelID_CustomAgent(t *testing.T) {
 	count, err = repo.CountByModelID(ctx, 2, modelID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), count)
+
+	agentOtherTenant := &types.CustomAgent{
+		ID:       uuid.New().String(),
+		Name:     "other-tenant-agent",
+		TenantID: 2,
+		Config: types.CustomAgentConfig{
+			ModelID: modelID,
+		},
+	}
+	require.NoError(t, repo.CreateAgent(ctx, agentOtherTenant))
+
+	count, err = repo.CountByModelID(ctx, types.SystemModelTenantID, modelID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), count)
 
 	require.NoError(t, repo.DeleteAgent(ctx, agent2.ID, 1))
 	count, err = repo.CountByModelID(ctx, 1, modelID)

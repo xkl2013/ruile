@@ -35,6 +35,9 @@ const (
 	// AuditActionMemberReactivated fires when an operator restores a
 	// suspended membership to active.
 	AuditActionMemberReactivated AuditAction = "rbac.member_reactivated"
+	// AuditActionMemberAssetsTransferred fires when an Owner/Admin reassigns
+	// enterprise knowledge bases or custom agents during member offboarding.
+	AuditActionMemberAssetsTransferred AuditAction = "rbac.member_assets_transferred"
 	// AuditActionMemberAllocationChanged fires when an enterprise Owner/Admin
 	// changes the current-period model-usage allocation for a member.
 	AuditActionMemberAllocationChanged AuditAction = "billing.member_allocation_changed"
@@ -156,6 +159,15 @@ const (
 	// another user's local password. Details identify the target and record
 	// session revocation, but never contain the old or new password.
 	AuditActionSystemUserPasswordReset AuditAction = "system.user_password_reset"
+	// AuditActionSystemUserActivated fires when a SystemAdmin re-enables a
+	// user account.
+	AuditActionSystemUserActivated AuditAction = "system.user_activated"
+	// AuditActionSystemUserDeactivated fires when a SystemAdmin disables a
+	// user account. The operation revokes the user's active sessions.
+	AuditActionSystemUserDeactivated AuditAction = "system.user_deactivated"
+	// AuditActionSystemUserDeleted fires when a SystemAdmin soft-deletes a
+	// user account. Business resources are retained for audit/data recovery.
+	AuditActionSystemUserDeleted AuditAction = "system.user_deleted"
 
 	// AuditActionTenantStorageQuotaUpdated fires when a SystemAdmin changes a
 	// single workspace's storage quota. TenantID=0 because the action is

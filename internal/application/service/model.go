@@ -203,7 +203,7 @@ func (s *modelService) GetModelByID(ctx context.Context, id string) (*types.Mode
 	return nil, errors.New("abnormal model status")
 }
 
-// ListModels returns all models belonging to the tenant
+// ListModels returns workspace models plus platform-managed models.
 func (s *modelService) ListModels(ctx context.Context) ([]*types.Model, error) {
 	logger.Info(ctx, "Start listing models")
 
@@ -349,14 +349,18 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	if existingModel == nil {
 		return ErrModelNotFound
 	}
-	kbCount, err := s.kbRepo.CountByModelID(ctx, tenantID, id)
+	usageTenantID := tenantID
+	if existingModel.TenantID == types.SystemModelTenantID {
+		usageTenantID = types.SystemModelTenantID
+	}
+	kbCount, err := s.kbRepo.CountByModelID(ctx, usageTenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id": id,
 		})
 		return err
 	}
-	agentCount, err := s.agentRepo.CountByModelID(ctx, tenantID, id)
+	agentCount, err := s.agentRepo.CountByModelID(ctx, usageTenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id": id,
@@ -369,7 +373,7 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 	}
 
 	// Delete model from repository
-	err = s.repo.Delete(ctx, tenantID, id)
+	err = s.repo.Delete(ctx, existingModel.TenantID, id)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id":  id,

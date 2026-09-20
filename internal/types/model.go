@@ -32,6 +32,10 @@ const (
 	ModelStatusDownloadFailed ModelStatus = "download_failed" // Model download failed
 )
 
+// SystemModelTenantID marks a platform-managed model shared by every workspace.
+// Workspace IDs start at 10000, so zero is reserved for system scope.
+const SystemModelTenantID uint64 = 0
+
 // ModelSource represents the source of the model
 type ModelSource string
 

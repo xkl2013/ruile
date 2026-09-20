@@ -291,6 +291,7 @@ type KnowledgeBaseRepository interface {
 
 	// CountByModelID counts active KBs in the tenant that reference the given
 	// model ID in any model-binding field (embedding, summary, VLM, ASR, etc.).
+	// tenantID=0 counts references across all workspaces.
 	CountByModelID(ctx context.Context, tenantID uint64, modelID string) (int64, error)
 	// SetUserKBPin inserts or removes a row in user_kb_pins for the given
 	// (tenant, user, kb) triple. Returns the resulting pinned_at (nil when

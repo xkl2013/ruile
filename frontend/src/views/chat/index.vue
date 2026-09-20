@@ -118,7 +118,7 @@
         </transition>
         <div class="input-container" :class="{ 'is-embedded': embeddedMode }">
             <InputField ref="inputFieldRef"
-                @send-msg="(query, modelId, mentionedItems, imageFiles, attachmentFiles) => sendMsg(query, modelId, mentionedItems, imageFiles, attachmentFiles)"
+                @send-msg="(query, modelId, mentionedItems, imageFiles, attachmentFiles, responseTier) => sendMsg(query, modelId, mentionedItems, imageFiles, attachmentFiles, responseTier)"
                 @stop-generation="handleStopGeneration" :isReplying="isReplying" :sessionId="session_id"
                 :assistantMessageId="currentAssistantMessageId" :agent-id="agentId"
                 :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"></InputField>
@@ -669,7 +669,7 @@ const handleStopGeneration = () => {
     // 保留 currentAssistantMessageId，Input-field 仍需用它调用 stop API
 };
 
-const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = [], attachmentFiles = []) => {
+const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = [], attachmentFiles = [], responseTier = useSettingsStoreInstance.settings.responseTier) => {
     stopStream();
     prepareForNewOutgoingMessage();
     isReplying.value = true;
@@ -836,6 +836,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
         agent_enabled: agentEnabled,
         agent_id: selectedAgentId,
         web_search_enabled: webSearchEnabled,
+        response_tier: props.embeddedMode ? undefined : responseTier,
         summary_model_id: modelOverride,
         mcp_service_ids: requestMcpServiceIds,
         skill_names: requestSkillNames,

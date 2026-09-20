@@ -12,12 +12,16 @@ import (
 )
 
 var (
-	ErrUserNotFound       = errors.New("user not found")
-	ErrUserAlreadyExists  = errors.New("user already exists")
-	ErrTokenNotFound      = errors.New("token not found")
-	ErrCannotRevokeSelf   = errors.New("cannot revoke your own system admin privileges")
-	ErrLastSystemAdmin    = errors.New("cannot revoke the last remaining system administrator")
-	ErrUserNotSystemAdmin = errors.New("user is not a system administrator")
+	ErrUserNotFound            = errors.New("user not found")
+	ErrUserAlreadyExists       = errors.New("user already exists")
+	ErrTokenNotFound           = errors.New("token not found")
+	ErrCannotRevokeSelf        = errors.New("cannot revoke your own system admin privileges")
+	ErrLastSystemAdmin         = errors.New("cannot revoke the last remaining system administrator")
+	ErrUserNotSystemAdmin      = errors.New("user is not a system administrator")
+	ErrCannotDisableSelf       = errors.New("cannot disable your own user account")
+	ErrCannotDeleteSelf        = errors.New("cannot delete your own user account")
+	ErrLastActiveSystemAdmin   = errors.New("cannot disable the last active system administrator")
+	ErrUserHasEnterpriseAssets = errors.New("user still owns enterprise assets; transfer them before deleting the account")
 )
 
 // userRepository implements user repository interface
@@ -132,6 +136,216 @@ func (r *userRepository) UpdateUser(ctx context.Context, user *types.User) error
 // DeleteUser deletes a user
 func (r *userRepository) DeleteUser(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&types.User{}).Error
+}
+
+// SetSystemUserActive changes the login status of a user from a system-admin
+// workflow. Disabling the caller or the last active system administrator is
+// rejected inside the transaction so concurrent admin actions cannot lock the
+// platform out.
+func (r *userRepository) SetSystemUserActive(
+	ctx context.Context,
+	userID, actorID string,
+	active bool,
+) (*types.User, error) {
+	if !active && userID == actorID {
+		return nil, ErrCannotDisableSelf
+	}
+
+	var target *types.User
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		locking := func(db *gorm.DB) *gorm.DB {
+			switch tx.Dialector.Name() {
+			case "postgres", "mysql":
+				return db.Clauses(clause.Locking{Strength: "UPDATE"})
+			default:
+				return db
+			}
+		}
+
+		var user types.User
+		if err := locking(tx).Where("id = ?", userID).First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrUserNotFound
+			}
+			return err
+		}
+		if !active && user.IsSystemAdmin && user.IsActive {
+			var activeAdmins int64
+			if err := locking(tx).
+				Model(&types.User{}).
+				Where("is_system_admin = ? AND is_active = ?", true, true).
+				Count(&activeAdmins).Error; err != nil {
+				return err
+			}
+			if activeAdmins <= 1 {
+				return ErrLastActiveSystemAdmin
+			}
+		}
+		if user.IsActive == active {
+			target = &user
+			return nil
+		}
+
+		user.IsActive = active
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+		target = &user
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return target, nil
+}
+
+// PurgeDeletedUserByIdentity removes legacy soft-deleted accounts that still
+// occupy the global identity keys. New system-admin deletions are hard deletes,
+// but this compatibility path cleans tombstones created by older releases.
+func (r *userRepository) PurgeDeletedUserByIdentity(
+	ctx context.Context,
+	email, username string,
+) error {
+	email = strings.TrimSpace(email)
+	username = strings.TrimSpace(username)
+	if email == "" && username == "" {
+		return nil
+	}
+
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var users []types.User
+		query := tx.Unscoped().Where("deleted_at IS NOT NULL")
+		switch {
+		case email != "" && username != "":
+			query = query.Where("email = ? OR username = ?", email, username)
+		case email != "":
+			query = query.Where("email = ?", email)
+		default:
+			query = query.Where("username = ?", username)
+		}
+		if err := query.Find(&users).Error; err != nil {
+			return err
+		}
+		for i := range users {
+			hasAssets, err := r.hasEnterpriseAssets(tx, users[i].ID)
+			if err != nil {
+				return err
+			}
+			if hasAssets {
+				return ErrUserHasEnterpriseAssets
+			}
+			if err := r.hardDeleteUser(tx, users[i].ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *userRepository) hasEnterpriseAssets(tx *gorm.DB, userID string) (bool, error) {
+	var knowledgeBaseCount int64
+	if err := tx.
+		Model(&types.KnowledgeBase{}).
+		Joins("JOIN tenants ON tenants.id = knowledge_bases.tenant_id").
+		Where(
+			"knowledge_bases.creator_id = ? AND knowledge_bases.is_temporary = ? AND (tenants.space_type IS NULL OR tenants.space_type <> ?)",
+			userID,
+			false,
+			types.SpaceTypePersonal,
+		).
+		Count(&knowledgeBaseCount).Error; err != nil {
+		return false, err
+	}
+
+	var agentCount int64
+	if err := tx.
+		Model(&types.CustomAgent{}).
+		Joins("JOIN tenants ON tenants.id = custom_agents.tenant_id").
+		Where(
+			"custom_agents.created_by = ? AND custom_agents.is_builtin = ? AND (tenants.space_type IS NULL OR tenants.space_type <> ?)",
+			userID,
+			false,
+			types.SpaceTypePersonal,
+		).
+		Count(&agentCount).Error; err != nil {
+		return false, err
+	}
+	return knowledgeBaseCount+agentCount > 0, nil
+}
+
+func (r *userRepository) hardDeleteUser(tx *gorm.DB, userID string) error {
+	// Delete account-scoped rows explicitly because SQLite does not rely on
+	// foreign keys for every relationship, while PostgreSQL may cascade
+	// auth_tokens through its FK.
+	if err := tx.Unscoped().Where("user_id = ?", userID).Delete(&types.AuthToken{}).Error; err != nil {
+		return err
+	}
+	if err := tx.Unscoped().Where("user_id = ?", userID).Delete(&types.TenantMember{}).Error; err != nil {
+		return err
+	}
+	return tx.Unscoped().Where("id = ?", userID).Delete(&types.User{}).Error
+}
+
+// DeleteSystemUser permanently deletes a user from a system-admin workflow.
+// Enterprise-owned assets must be transferred before deletion. Account-scoped
+// authentication and membership rows are removed in the same transaction so
+// the deleted phone/username can be registered again without leaving ghost
+// members or valid login tokens behind.
+func (r *userRepository) DeleteSystemUser(
+	ctx context.Context,
+	userID, actorID string,
+) (*types.User, error) {
+	if userID == actorID {
+		return nil, ErrCannotDeleteSelf
+	}
+
+	var deleted *types.User
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		locking := func(db *gorm.DB) *gorm.DB {
+			switch tx.Dialector.Name() {
+			case "postgres", "mysql":
+				return db.Clauses(clause.Locking{Strength: "UPDATE"})
+			default:
+				return db
+			}
+		}
+
+		var user types.User
+		if err := locking(tx).Where("id = ?", userID).First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrUserNotFound
+			}
+			return err
+		}
+		if user.IsSystemAdmin {
+			var adminCount int64
+			if err := locking(tx).
+				Model(&types.User{}).
+				Where("is_system_admin = ?", true).
+				Count(&adminCount).Error; err != nil {
+				return err
+			}
+			if adminCount <= 1 {
+				return ErrLastSystemAdmin
+			}
+		}
+		hasAssets, err := r.hasEnterpriseAssets(tx, userID)
+		if err != nil {
+			return err
+		}
+		if hasAssets {
+			return ErrUserHasEnterpriseAssets
+		}
+		if err := r.hardDeleteUser(tx, user.ID); err != nil {
+			return err
+		}
+		deleted = &user
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return deleted, nil
 }
 
 // ListUsers lists users with pagination

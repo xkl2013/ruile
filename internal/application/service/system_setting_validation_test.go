@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -81,5 +82,37 @@ func TestBillingDefaultsObserveUsageWithoutCharging(t *testing.T) {
 	}
 	if mode.Default != "observe" {
 		t.Fatalf("billing.enforcement_mode default = %v, want observe", mode.Default)
+	}
+}
+
+func TestSystemResponseTierSettingUsesHiddenJSONValue(t *testing.T) {
+	spec, ok := registry[types.SystemResponseTierSettingKey]
+	if !ok {
+		t.Fatal("system response tier setting is not registered")
+	}
+	if spec.Type != "json" {
+		t.Fatalf("response tier setting type = %q, want json", spec.Type)
+	}
+	if !spec.Hidden {
+		t.Fatal("response tier setting must stay out of the generic settings table")
+	}
+
+	cfg := types.ResponseTierConfig{
+		Enabled:     true,
+		DefaultTier: types.ResponseTierBalanced,
+		Fast:        types.ResponseTierProfile{ModelID: "fast-model"},
+		Balanced:    types.ResponseTierProfile{ModelID: "balanced-model"},
+		Ultimate:    types.ResponseTierProfile{ModelID: "ultimate-model"},
+	}
+	encoded, err := encodeForType(spec.Type, cfg)
+	if err != nil {
+		t.Fatalf("encode response tier config: %v", err)
+	}
+	var decoded types.ResponseTierConfig
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("decode response tier config: %v", err)
+	}
+	if decoded.Balanced.ModelID != "balanced-model" {
+		t.Fatalf("balanced model = %q, want balanced-model", decoded.Balanced.ModelID)
 	}
 }

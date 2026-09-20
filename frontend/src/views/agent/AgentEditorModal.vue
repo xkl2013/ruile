@@ -4255,9 +4255,10 @@ const handleSave = async () => {
       MessagePlugin.success(t('agent.messages.created'));
       emit('success', created);
     } else {
-      await updateAgent(formData.value.id, formData.value);
+      const result: any = await updateAgent(formData.value.id, formData.value);
+      const updated = result?.data as CustomAgent | undefined;
       MessagePlugin.success(t('agent.messages.updated'));
-      emit('success');
+      emit('success', updated);
     }
   } catch (e: any) {
     MessagePlugin.error(e?.message || t('agent.messages.saveFailed'));

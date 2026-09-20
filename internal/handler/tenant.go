@@ -1480,7 +1480,7 @@ func (h *TenantHandler) SearchTenants(c *gin.Context) {
 
 // GetTenantKV godoc
 // @Summary      获取空间KV配置
-// @Description  获取空间级别的KV配置（支持web-search-config、prompt-templates、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config、knowledge-base-config）
+// @Description  获取空间级别的KV配置（支持web-search-config、prompt-templates、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config、knowledge-base-config、response-tier-config）
 // @Tags         空间管理
 // @Accept       json
 // @Produce      json
@@ -1524,6 +1524,9 @@ func (h *TenantHandler) GetTenantKV(c *gin.Context) {
 	case "knowledge-base-config":
 		h.GetKnowledgeBaseDefaultsConfig(c)
 		return
+	case "response-tier-config":
+		h.GetResponseTierConfig(c)
+		return
 	default:
 		logger.Info(ctx, "KV key not supported", "key", key)
 		c.Error(errors.NewBadRequestError("unsupported key"))
@@ -1533,7 +1536,7 @@ func (h *TenantHandler) GetTenantKV(c *gin.Context) {
 
 // UpdateTenantKV godoc
 // @Summary      更新空间KV配置
-// @Description  更新空间级别的KV配置（支持web-search-config、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config、knowledge-base-config）
+// @Description  更新空间级别的KV配置（支持web-search-config、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config、knowledge-base-config、response-tier-config）
 // @Tags         空间管理
 // @Accept       json
 // @Produce      json
@@ -1574,6 +1577,9 @@ func (h *TenantHandler) UpdateTenantKV(c *gin.Context) {
 		return
 	case "knowledge-base-config":
 		h.updateKnowledgeBaseDefaultsConfig(c)
+		return
+	case "response-tier-config":
+		h.updateResponseTierConfig(c)
 		return
 	default:
 		logger.Info(ctx, "KV key not supported", "key", key)
@@ -1982,6 +1988,37 @@ func (h *TenantHandler) updateKnowledgeBaseDefaultsConfig(c *gin.Context) {
 		"requires_explicit_migration":        true,
 		"message":                            "工作区默认配置已保存，仅对后续新建知识库生效；已有知识库未修改",
 	})
+}
+
+// GetResponseTierConfig returns the platform-wide model tier policy. The
+// tenant-scoped route remains for frontend compatibility, but no longer reads
+// the active tenant's legacy response_tier_config column.
+func (h *TenantHandler) GetResponseTierConfig(c *gin.Context) {
+	ctx := c.Request.Context()
+	cfg, err := service.LoadSystemResponseTierConfig(ctx, h.systemSettingSvc)
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to load response tier configuration").WithDetails(err.Error()))
+		return
+	}
+	if !dto.CanViewIntegrationSecrets(ctx) {
+		// Ordinary users only need the availability/default state to render
+		// the tier picker. Never return model bindings or provider-facing
+		// thinking details to them.
+		cfg.Fast = types.ResponseTierProfile{}
+		cfg.Balanced = types.ResponseTierProfile{}
+		cfg.Ultimate = types.ResponseTierProfile{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    cfg,
+	})
+}
+
+// updateResponseTierConfig is retained only to give old clients an explicit
+// migration message. Platform policy is managed by SystemAdmin in admin.
+func (h *TenantHandler) updateResponseTierConfig(c *gin.Context) {
+	c.Error(errors.NewBadRequestError("回答档位已改为系统后台统一配置，请使用系统管理员后台"))
 }
 
 // updateTenantRetrievalConfigInternal updates the tenant's global retrieval configuration.

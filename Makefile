@@ -1,4 +1,4 @@
-.PHONY: help build run test clean docker-build-app docker-build-docreader docker-build-frontend docker-build-admin docker-build-all docker-run migrate-up migrate-down docker-restart docker-stop start-all stop-all start-ollama stop-ollama build-images build-images-app build-images-docreader build-images-frontend build-images-admin clean-images check-env list-containers pull-images show-platform dev-start dev-stop dev-restart dev-logs dev-status dev-app dev-frontend dev-admin docs install-swagger build-lite run-lite package-lite
+.PHONY: help build run test clean docker-build-app docker-build-docreader docker-build-frontend docker-build-admin docker-build-all docker-run migrate-up migrate-down docker-restart docker-stop start-all stop-all start-ollama stop-ollama build-images build-images-app build-images-docreader build-images-frontend build-images-admin clean-images check-env list-containers pull-images show-platform release-preflight dev-start dev-stop dev-restart dev-logs dev-status dev-app dev-frontend dev-admin docs install-swagger build-lite run-lite package-lite
 
 # Show help
 help:
@@ -49,6 +49,7 @@ help:
 	@echo "  list-containers   列出运行中的容器"
 	@echo "  pull-images       拉取最新镜像"
 	@echo "  show-platform     显示当前构建平台"
+	@echo "  release-preflight 发布前只读检查（不构建、不推送、不迁移）"
 	@echo ""
 	@echo "开发模式（推荐）:"
 	@echo "  dev-start         启动开发环境基础设施（仅启动依赖服务）"
@@ -320,6 +321,10 @@ pull-images:
 show-platform:
 	@echo "当前系统架构: $(shell uname -m)"
 	@echo "Docker构建平台: $(PLATFORM)"
+
+# Production release preflight checks
+release-preflight:
+	./scripts/release_preflight.sh $(RELEASE_PREFLIGHT_ARGS)
 
 # Development mode commands
 dev-start:

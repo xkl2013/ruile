@@ -152,6 +152,10 @@ type Tenant struct {
 	// KnowledgeBaseDefaultsConfig stores the advanced configuration shared by
 	// all non-temporary knowledge bases in this workspace.
 	KnowledgeBaseDefaultsConfig *KnowledgeBaseDefaultsConfig `yaml:"knowledge_base_defaults_config" json:"knowledge_base_defaults_config" gorm:"column:knowledge_base_defaults_config;type:jsonb"`
+	// ResponseTierConfig stores the three user-facing model tiers shared by
+	// every agent. It is exposed through the dedicated admin API, not ordinary
+	// tenant responses, because it contains model bindings.
+	ResponseTierConfig *ResponseTierConfig `yaml:"response_tier_config" json:"-" gorm:"column:response_tier_config;type:jsonb"`
 	// API principal config: controls how X-API-Key requests map to terminal principals.
 	APIPrincipalConfig *APIPrincipalConfig `yaml:"api_principal_config" json:"-" gorm:"type:jsonb"`
 	// Creation time

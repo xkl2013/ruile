@@ -378,9 +378,10 @@ func (r *knowledgeBaseRepository) CountByModelID(
 	ctx context.Context, tenantID uint64, modelID string,
 ) (int64, error) {
 	var count int64
-	query := r.db.WithContext(ctx).
-		Model(&types.KnowledgeBase{}).
-		Where("tenant_id = ?", tenantID)
+	query := r.db.WithContext(ctx).Model(&types.KnowledgeBase{})
+	if tenantID != types.SystemModelTenantID {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
 	query = scopeKnowledgeBasesByModelID(query, modelID)
 	err := query.Count(&count).Error
 	return count, err

@@ -246,117 +246,6 @@
         <div v-else class="billing-orders__empty">暂无订单记录。</div>
       </section>
 
-      <section v-if="isEnterprise && canManageEnterprisePolicy" class="enterprise-policy">
-        <div class="enterprise-policy__heading">
-          <div>
-            <h3>{{ t('tenant.subscriptionUsage.enterprisePolicyTitle') }}</h3>
-            <p>{{ t('tenant.subscriptionUsage.enterprisePolicyDescription') }}</p>
-          </div>
-          <t-button
-            v-if="canManageEnterprisePolicy"
-            theme="primary"
-            :loading="savingPolicy"
-            @click="saveEnterprisePolicy"
-          >
-            {{ t('tenant.subscriptionUsage.savePolicy') }}
-          </t-button>
-        </div>
-
-        <t-alert
-          v-if="policyError"
-          theme="error"
-          :message="policyError"
-          class="enterprise-policy__error"
-        />
-
-        <div v-else class="enterprise-policy__fields">
-          <div class="enterprise-policy__field">
-            <div>
-              <strong>{{ t('tenant.subscriptionUsage.defaultMemberMonthlyLimit') }}</strong>
-              <span>{{ t('tenant.subscriptionUsage.defaultMemberMonthlyLimitDescription') }}</span>
-            </div>
-            <div class="enterprise-policy__control enterprise-policy__limit">
-              <t-input-number
-                v-model="policyForm.defaultMemberMonthlyLimitPoints"
-                :min="0"
-                :max="1000000000"
-                :decimal-places="0"
-                :disabled="!canManageEnterprisePolicy"
-                theme="column"
-              />
-              <span>{{ t('tenant.subscriptionUsage.creditUnit') }}</span>
-            </div>
-          </div>
-
-          <div class="enterprise-policy__field">
-            <div>
-              <strong>{{ t('tenant.subscriptionUsage.overagePolicy') }}</strong>
-              <span>{{ t('tenant.subscriptionUsage.overagePolicyDescription') }}</span>
-            </div>
-            <t-radio-group
-              v-model="policyForm.memberOveragePolicy"
-              :disabled="!canManageEnterprisePolicy"
-            >
-              <t-radio-button value="block">
-                {{ t('tenant.subscriptionUsage.overageBlock') }}
-              </t-radio-button>
-              <t-radio-button value="use_enterprise_balance">
-                {{ t('tenant.subscriptionUsage.overageUseBalance') }}
-              </t-radio-button>
-            </t-radio-group>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="isEnterprise && canManageEnterprisePolicy" class="enterprise-member-usage">
-        <div class="enterprise-member-usage__heading">
-          <div>
-            <h3>{{ t('tenant.subscriptionUsage.memberUsageTitle') }}</h3>
-            <p>{{ t('tenant.subscriptionUsage.memberUsageDescription') }}</p>
-          </div>
-          <t-tag variant="light">{{ enterpriseMemberRows.length }}</t-tag>
-        </div>
-        <t-alert
-          v-if="memberUsageError"
-          theme="error"
-          :message="memberUsageError"
-          class="enterprise-member-usage__error"
-        />
-        <div v-else class="enterprise-member-usage__table-wrap">
-          <table class="enterprise-member-usage__table">
-            <thead>
-              <tr>
-                <th>{{ t('tenant.subscriptionUsage.member') }}</th>
-                <th>{{ t('tenant.subscriptionUsage.memberUsage') }}</th>
-                <th>{{ t('tenant.subscriptionUsage.memberStrategy') }}</th>
-                <th>{{ t('tenant.subscriptionUsage.memberOverage') }}</th>
-                <th>{{ t('tenant.subscriptionUsage.memberLastBilling') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="member in enterpriseMemberRows" :key="member.userId">
-                <td>
-                  <strong>{{ member.name }}</strong>
-                  <span>{{ member.role }}</span>
-                </td>
-                <td>
-                  <strong>{{ member.usedText }}</strong>
-                  <span>{{ member.limitText }}</span>
-                </td>
-                <td>{{ member.strategy }}</td>
-                <td>{{ member.overage }}</td>
-                <td>{{ member.lastBilling }}</td>
-              </tr>
-              <tr v-if="enterpriseMemberRows.length === 0">
-                <td colspan="5" class="enterprise-member-usage__empty">
-                  {{ t('tenant.subscriptionUsage.noMemberUsage') }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section class="recent-usage">
         <div class="recent-usage__heading">
           <div>
@@ -406,17 +295,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
 import {
   getBillingOverview,
   getBillingUsage,
   getBillingCatalog,
   getBillingOrders,
-  getMemberCreditAllocations,
-  getTenantBillingPolicy,
-  updateTenantBillingPolicy,
   type BillingOverview,
   type BillingCatalog,
   type BillingCatalogResponse,
@@ -424,9 +309,7 @@ import {
   type BillingOrdersResponse,
   type BillingUsageItem,
   type BillingUsageResponse,
-  type TenantBillingPolicy,
 } from '@/api/billing'
-import { fetchAllTenantMembers, type TenantMember } from '@/api/tenant/members'
 import { useAuthStore } from '@/stores/auth'
 
 type ProgressStatus = 'active' | 'success' | 'warning' | 'error'
@@ -463,18 +346,6 @@ interface UsageCard {
   }
 }
 
-interface EnterpriseMemberUsageRow {
-  userId: string
-  name: string
-  role: string
-  usedText: string
-  limitText: string
-  strategy: string
-  overage: string
-  lastBilling: string
-  usedMicros: number
-}
-
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
 
@@ -484,18 +355,6 @@ const overview = ref<BillingOverview | null>(null)
 const usageItems = ref<BillingUsageItem[]>([])
 const catalog = ref<BillingCatalog | null>(null)
 const orders = ref<BillingOrderItem[]>([])
-const enterprisePolicy = ref<TenantBillingPolicy | null>(null)
-const policyError = ref('')
-const enterpriseMemberRows = ref<EnterpriseMemberUsageRow[]>([])
-const memberUsageError = ref('')
-const savingPolicy = ref(false)
-const policyForm = reactive<{
-  defaultMemberMonthlyLimitPoints: number
-  memberOveragePolicy: 'block' | 'use_enterprise_balance'
-}>({
-  defaultMemberMonthlyLimitPoints: 100,
-  memberOveragePolicy: 'block',
-})
 let loadSequence = 0
 
 const activeTenantId = computed(() =>
@@ -507,11 +366,6 @@ const activeTenantId = computed(() =>
       || 0,
   ),
 )
-const isEnterprise = computed(() => overview.value?.space_type === 'organization')
-const canManageEnterprisePolicy = computed(() =>
-  authStore.hasRoleInTenant(activeTenantId.value, 'admin'),
-)
-
 const toFiniteNumber = (value: unknown, fallback = 0) => {
   const normalized = Number(value)
   return Number.isFinite(normalized) ? normalized : fallback
@@ -713,108 +567,6 @@ const usageCards = computed<UsageCard[]>(() => {
   }]
 })
 
-const memberName = (member: TenantMember) =>
-  member.username?.trim() || member.email?.trim() || member.user_id
-
-const memberStrategyLabel = (mode: string) => {
-  const key = mode === 'custom' || mode === 'unlimited' ? mode : 'inherit'
-  return t(`tenant.subscriptionUsage.strategy.${key}`)
-}
-
-const loadEnterpriseMemberUsage = async () => {
-  enterpriseMemberRows.value = []
-  memberUsageError.value = ''
-  if (!activeTenantId.value || !canManageEnterprisePolicy.value) return
-  try {
-    const [allocationResponse, members] = await Promise.all([
-      getMemberCreditAllocations(activeTenantId.value),
-      fetchAllTenantMembers(activeTenantId.value),
-    ])
-    if (!allocationResponse.success) {
-      throw new Error(
-        allocationResponse.message || t('tenant.subscriptionUsage.memberUsageLoadFailed'),
-      )
-    }
-    const allocationByUserID = new Map(
-      (allocationResponse.data || []).map((allocation) => [allocation.user_id, allocation]),
-    )
-    const defaultLimitMicros = Math.max(
-      0,
-      enterprisePolicy.value?.default_member_monthly_limit_point_micros || 0,
-    )
-    enterpriseMemberRows.value = members
-      .filter((member) => member.status === 'active')
-      .map((member) => {
-        const allocation = allocationByUserID.get(member.user_id)
-        const mode = allocation?.limit_mode || 'inherit'
-        const effectiveLimitMicros = mode === 'custom'
-          ? Math.max(0, allocation?.effective_monthly_limit_point_micros || allocation?.monthly_limit_point_micros || 0)
-          : mode === 'unlimited'
-            ? 0
-            : defaultLimitMicros
-        const usedMicros = Math.max(0, allocation?.used_point_micros || 0)
-        return {
-          userId: member.user_id,
-          name: memberName(member),
-          role: t(`tenantMember.role.${member.role}`),
-          usedText: t('tenant.subscriptionUsage.points', { count: formatCredits(usedMicros) }),
-          limitText: mode === 'unlimited'
-            ? t('tenant.subscriptionUsage.unlimited')
-            : t('tenant.subscriptionUsage.memberLimit', {
-              limit: formatCredits(effectiveLimitMicros),
-            }),
-          strategy: memberStrategyLabel(mode),
-          overage: allocation?.effective_overage_policy === 'use_enterprise_balance'
-            ? t('tenant.subscriptionUsage.overageUseBalance')
-            : t('tenant.subscriptionUsage.overageBlock'),
-          lastBilling: allocation?.last_billing_at
-            ? formatUsageTime(allocation.last_billing_at)
-            : '-',
-          usedMicros,
-        }
-      })
-      .sort((left, right) => right.usedMicros - left.usedMicros || left.name.localeCompare(right.name))
-  } catch (err: any) {
-    memberUsageError.value = err?.message || t('tenant.subscriptionUsage.memberUsageLoadFailed')
-  }
-}
-
-const applyEnterprisePolicy = (policy: TenantBillingPolicy) => {
-  enterprisePolicy.value = policy
-  policyForm.defaultMemberMonthlyLimitPoints = Math.max(
-    0,
-    Math.round(toFiniteNumber(policy.default_member_monthly_limit_point_micros, 0) / 1_000_000),
-  )
-  policyForm.memberOveragePolicy = policy.member_overage_policy === 'use_enterprise_balance'
-    ? 'use_enterprise_balance'
-    : 'block'
-}
-
-const saveEnterprisePolicy = async () => {
-  if (!activeTenantId.value || savingPolicy.value || !canManageEnterprisePolicy.value) return
-  savingPolicy.value = true
-  policyError.value = ''
-  try {
-    const response = await updateTenantBillingPolicy(activeTenantId.value, {
-      default_member_monthly_limit_points: Math.max(
-        0,
-        Math.trunc(toFiniteNumber(policyForm.defaultMemberMonthlyLimitPoints, 0)),
-      ),
-      member_overage_policy: policyForm.memberOveragePolicy,
-    })
-    if (!response.success || !response.data) {
-      throw new Error(response.message || t('tenant.subscriptionUsage.policySaveFailed'))
-    }
-    applyEnterprisePolicy(response.data)
-    await loadEnterpriseMemberUsage()
-    MessagePlugin.success(t('tenant.subscriptionUsage.policySaved'))
-  } catch (err: any) {
-    policyError.value = err?.message || t('tenant.subscriptionUsage.policySaveFailed')
-  } finally {
-    savingPolicy.value = false
-  }
-}
-
 const loadUsage = async () => {
   const sequence = ++loadSequence
 
@@ -824,10 +576,6 @@ const loadUsage = async () => {
   usageItems.value = []
   catalog.value = null
   orders.value = []
-  enterprisePolicy.value = null
-  policyError.value = ''
-  enterpriseMemberRows.value = []
-  memberUsageError.value = ''
 
   if (!activeTenantId.value) {
     error.value = t('tenant.subscriptionUsage.personalLoadFailed')
@@ -860,19 +608,6 @@ const loadUsage = async () => {
   usageItems.value = usageResponse.success && usageResponse.data ? usageResponse.data : []
   catalog.value = catalogResponse.success && catalogResponse.data ? catalogResponse.data : null
   orders.value = ordersResponse.success && ordersResponse.data ? ordersResponse.data : []
-  if (response.data.space_type === 'organization' && canManageEnterprisePolicy.value) {
-    try {
-      const policyResponse = await getTenantBillingPolicy(activeTenantId.value)
-      if (sequence !== loadSequence) return
-      if (!policyResponse.success || !policyResponse.data) {
-        throw new Error(policyResponse.message || t('tenant.subscriptionUsage.policyLoadFailed'))
-	      }
-      applyEnterprisePolicy(policyResponse.data)
-      await loadEnterpriseMemberUsage()
-    } catch (err: any) {
-      policyError.value = err?.message || t('tenant.subscriptionUsage.policyLoadFailed')
-    }
-  }
   loading.value = false
 }
 
@@ -934,181 +669,6 @@ watch(
   margin-top: 8px;
   border-top: 1px solid var(--td-component-stroke);
   padding-top: 24px;
-}
-
-.enterprise-policy {
-  padding: 24px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-  background: var(--td-bg-color-container);
-}
-
-.enterprise-policy__heading,
-.enterprise-policy__field {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.enterprise-policy__heading {
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--td-component-stroke);
-
-  h3,
-  p {
-    margin: 0;
-  }
-
-  h3 {
-    color: var(--td-text-color-primary);
-    font-size: 16px;
-  }
-
-  p {
-    margin-top: 5px;
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-  }
-}
-
-.enterprise-policy__error {
-  margin-top: 18px;
-}
-
-.enterprise-policy__fields {
-  display: flex;
-  flex-direction: column;
-}
-
-.enterprise-policy__field {
-  padding: 20px 0;
-
-  & + & {
-    border-top: 1px solid var(--td-component-stroke);
-  }
-
-  &:last-child {
-    padding-bottom: 0;
-  }
-
-  > div:first-child {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 0;
-  }
-
-  strong {
-    color: var(--td-text-color-primary);
-    font-size: 14px;
-  }
-
-  span {
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-    line-height: 1.5;
-  }
-}
-
-.enterprise-policy__control {
-  flex-shrink: 0;
-}
-
-.enterprise-policy__limit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  :deep(.t-input-number) {
-    width: 180px;
-  }
-}
-
-.enterprise-member-usage {
-  padding: 24px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-  background: var(--td-bg-color-container);
-}
-
-.enterprise-member-usage__heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-
-  h3,
-  p {
-    margin: 0;
-  }
-
-  h3 {
-    color: var(--td-text-color-primary);
-    font-size: 16px;
-  }
-
-  p {
-    margin-top: 5px;
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-  }
-}
-
-.enterprise-member-usage__error {
-  margin-top: 16px;
-}
-
-.enterprise-member-usage__table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-}
-
-.enterprise-member-usage__table {
-  width: 100%;
-  min-width: 760px;
-  border-collapse: collapse;
-
-  th,
-  td {
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--td-component-stroke);
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-    text-align: left;
-  }
-
-  th {
-    background: var(--td-bg-color-secondarycontainer);
-    color: var(--td-text-color-secondary);
-    font-weight: 500;
-  }
-
-  tbody tr:last-child td {
-    border-bottom: 0;
-  }
-
-  td strong,
-  td span {
-    display: block;
-  }
-
-  td strong {
-    color: var(--td-text-color-primary);
-  }
-
-  td span {
-    margin-top: 3px;
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
-}
-
-.enterprise-member-usage__empty {
-  height: 88px;
-  text-align: center !important;
 }
 
 .recent-usage__heading {
@@ -1445,9 +1005,6 @@ watch(
     padding: 20px;
   }
 
-  .enterprise-policy__heading,
-  .enterprise-policy__field,
-  .enterprise-member-usage__heading,
   .billing-catalog__heading,
   .billing-orders__heading {
     flex-direction: column;

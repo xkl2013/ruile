@@ -184,8 +184,8 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'agents',
       title: '智能体',
-      description: '配置空间智能体、工具、知识库和发布能力。',
-      minRole: 'viewer',
+      description: '统一维护平台内置智能体；各工作区自动继承配置。',
+      requiresSystemAdmin: true,
     },
   },
   {
@@ -228,6 +228,17 @@ const moduleRoutes: RouteRecordRaw[] = [
       navKey: 'models',
       title: '模型',
       description: '管理模型供应商、模型凭据、价格和调试。',
+      requiresSystemAdmin: true,
+    },
+  },
+  {
+    path: 'response-tiers',
+    name: 'adminResponseTierSettings',
+    component: () => import('@admin/views/AdminResponseTierSettings.vue'),
+    meta: {
+      navKey: 'response-tier-settings',
+      title: '回答档位',
+      description: '为全平台所有工作区统一配置模型和 Think 策略。',
       requiresSystemAdmin: true,
     },
   },

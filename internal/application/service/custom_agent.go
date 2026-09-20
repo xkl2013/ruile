@@ -17,10 +17,11 @@ import (
 
 // Custom agent related errors
 var (
-	ErrAgentNotFound       = errors.New("agent not found")
-	ErrCannotModifyBuiltin = errors.New("cannot modify built-in agent basic info")
-	ErrCannotDeleteBuiltin = errors.New("cannot delete built-in agent")
-	ErrAgentNameRequired   = errors.New("agent name is required")
+	ErrAgentNotFound                   = errors.New("agent not found")
+	ErrCannotModifyBuiltin             = errors.New("cannot modify built-in agent basic info")
+	ErrCannotDeleteBuiltin             = errors.New("cannot delete built-in agent")
+	ErrAgentNameRequired               = errors.New("agent name is required")
+	ErrBuiltinAgentRequiresSystemAdmin = errors.New("system administrator required to modify built-in agent")
 )
 
 // customAgentService implements the CustomAgentService interface
@@ -131,12 +132,13 @@ func (s *customAgentService) GetAgentByID(ctx context.Context, id string) (*type
 
 	// Check if it's a built-in agent using the registry
 	if types.IsBuiltinAgentID(id) {
-		// Try to get from database first (for customized config)
-		agent, err := s.repo.GetAgentByID(ctx, id, tenantID)
+		// Built-in overrides are platform-managed. Project the global record
+		// into the active workspace so runtime KB and permission scope remains
+		// workspace-local.
+		agent, err := s.repo.GetAgentByID(ctx, id, types.SystemAgentTenantID)
 		if err == nil {
-			// Found in database, return with customized config
 			agent.EnsureDefaults()
-			return agent, nil
+			return exposeBuiltinAgentToWorkspace(agent, tenantID), nil
 		}
 		// Not in database, return default built-in agent from registry (i18n-aware)
 		if builtinAgent := types.GetBuiltinAgentWithContext(ctx, id, tenantID); builtinAgent != nil {
@@ -198,6 +200,7 @@ func (s *customAgentService) ListAgents(ctx context.Context) ([]*types.CustomAge
 	for _, agent := range allAgents {
 		agent.EnsureDefaults()
 		if types.IsBuiltinAgentID(agent.ID) {
+			exposeBuiltinAgentToWorkspace(agent, tenantID)
 			builtinInDB[agent.ID] = true
 		}
 	}
@@ -299,6 +302,10 @@ func (s *customAgentService) UpdateAgent(ctx context.Context, agent *types.Custo
 
 // updateBuiltinAgent updates a built-in agent's configuration (but not basic info)
 func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *types.CustomAgent, tenantID uint64) (*types.CustomAgent, error) {
+	if !types.IsSystemAdminFromContext(ctx) {
+		return nil, ErrBuiltinAgentRequiresSystemAdmin
+	}
+
 	// Get the default built-in agent from registry (i18n-aware)
 	defaultAgent := types.GetBuiltinAgentWithContext(ctx, agent.ID, tenantID)
 	if defaultAgent == nil {
@@ -306,7 +313,7 @@ func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *type
 	}
 
 	// Try to get existing customized config from database
-	existingAgent, err := s.repo.GetAgentByID(ctx, agent.ID, tenantID)
+	existingAgent, err := s.repo.GetAgentByID(ctx, agent.ID, types.SystemAgentTenantID)
 	if err != nil && !errors.Is(err, repository.ErrCustomAgentNotFound) {
 		return nil, err
 	}
@@ -330,7 +337,7 @@ func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *type
 		}
 
 		logger.Infof(ctx, "Built-in agent config updated successfully, ID: %s", agent.ID)
-		return existingAgent, nil
+		return exposeBuiltinAgentToWorkspace(existingAgent, tenantID), nil
 	}
 
 	// Create new record for built-in agent with customized config
@@ -340,7 +347,7 @@ func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *type
 		Description: defaultAgent.Description,
 		Avatar:      defaultAgent.Avatar,
 		IsBuiltin:   true,
-		TenantID:    tenantID,
+		TenantID:    types.SystemAgentTenantID,
 		Config:      agent.Config,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -350,18 +357,25 @@ func (s *customAgentService) updateBuiltinAgent(ctx context.Context, agent *type
 		return nil, err
 	}
 
-	logger.Infof(ctx, "Creating built-in agent config record, ID: %s, tenant ID: %d", agent.ID, tenantID)
+	logger.Infof(ctx, "Creating platform built-in agent config record, ID: %s", agent.ID)
 
 	if err := s.repo.CreateAgent(ctx, newAgent); err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"agent_id":  agent.ID,
-			"tenant_id": tenantID,
+			"tenant_id": types.SystemAgentTenantID,
 		})
 		return nil, err
 	}
 
 	logger.Infof(ctx, "Built-in agent config record created successfully, ID: %s", agent.ID)
-	return newAgent, nil
+	return exposeBuiltinAgentToWorkspace(newAgent, tenantID), nil
+}
+
+func exposeBuiltinAgentToWorkspace(agent *types.CustomAgent, tenantID uint64) *types.CustomAgent {
+	if agent != nil {
+		agent.TenantID = tenantID
+	}
+	return agent
 }
 
 // DeleteAgent deletes an agent

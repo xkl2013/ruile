@@ -39,6 +39,12 @@ type UserService interface {
 	UpdateUser(ctx context.Context, user *types.User) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id string) error
+	// SetSystemUserActive changes a system user's login status. The actor
+	// and last-system-admin safeguards are enforced by the service/repository.
+	SetSystemUserActive(ctx context.Context, userID, actorID string, active bool) (*types.User, error)
+	// DeleteSystemUser permanently deletes a system user after applying the
+	// self-delete, last-system-admin, and enterprise-asset safeguards.
+	DeleteSystemUser(ctx context.Context, userID, actorID string) (*types.User, error)
 	// ChangePassword changes user password
 	ChangePassword(ctx context.Context, userID string, oldPassword, newPassword string) error
 	// AdminResetPassword replaces a user's password without requiring the old
@@ -107,12 +113,21 @@ type UserRepository interface {
 	GetUserByEmail(ctx context.Context, email string) (*types.User, error)
 	// GetUserByUsername gets a user by username
 	GetUserByUsername(ctx context.Context, username string) (*types.User, error)
+	// PurgeDeletedUserByIdentity removes legacy soft-deleted accounts that
+	// still occupy a phone/email or username unique key.
+	PurgeDeletedUserByIdentity(ctx context.Context, email, username string) error
 	// GetUserByTenantID gets the first user (owner) of a tenant
 	GetUserByTenantID(ctx context.Context, tenantID uint64) (*types.User, error)
 	// UpdateUser updates a user
 	UpdateUser(ctx context.Context, user *types.User) error
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, id string) error
+	// SetSystemUserActive changes a user's active flag with system-admin
+	// lifecycle safeguards.
+	SetSystemUserActive(ctx context.Context, userID, actorID string, active bool) (*types.User, error)
+	// DeleteSystemUser permanently deletes a user with system-admin lifecycle
+	// safeguards.
+	DeleteSystemUser(ctx context.Context, userID, actorID string) (*types.User, error)
 	// ListUsers lists users with pagination
 	ListUsers(ctx context.Context, offset, limit int) ([]*types.User, error)
 	// ListSystemAdmins lists users where is_system_admin = true.

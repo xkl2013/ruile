@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { onBeforeRouteUpdate } from 'vue-router';
 import { MessagePlugin } from "tdesign-vue-next";
 import { useSettingsStore } from '@/stores/settings';
+import type { ResponseTier } from '@/stores/settings';
 import { useUIStore } from '@/stores/ui';
 import { useMenuStore } from '@/stores/menu';
 import { useAuthStore } from '@/stores/auth';
@@ -18,6 +19,7 @@ import AgentSelector from './AgentSelector.vue';
 import { getCaretCoordinates } from '@/utils/caret';
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
+import { getResponseTierConfig } from '@/api/response-tier';
 import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { useEditorResourcesStore } from '@/stores/editorResources';
@@ -59,6 +61,7 @@ const {
   webSearchProviders,
 } = storeToRefs(chatResources);
 const { t, locale } = useI18n();
+const responseTierConfig = ref<{ enabled: boolean }>({ enabled: false });
 
 let query = ref("");
 const showKbSelector = ref(false);
@@ -679,6 +682,23 @@ const selectedModelId = computed({
   get: () => settingsStore.conversationModels.selectedChatModelId || '',
   set: (val: string) => settingsStore.updateConversationModels({ selectedChatModelId: val })
 });
+const responseTier = computed<ResponseTier>({
+  get: () => settingsStore.settings.responseTier || 'balanced',
+  set: (value) => settingsStore.setResponseTier(value),
+});
+const responseTierLabel = computed(() => {
+  const labels: Record<ResponseTier, string> = {
+    fast: '快速',
+    balanced: '均衡',
+    ultimate: '极致',
+  };
+  return labels[responseTier.value];
+});
+const responseTierOptions: Array<{ key: ResponseTier; label: string; description: string }> = [
+  { key: 'fast', label: '快速', description: '优先响应速度' },
+  { key: 'balanced', label: '均衡', description: '速度、成本和质量平衡' },
+  { key: 'ultimate', label: '极致', description: '优先复杂问题回答质量' },
+];
 const modelsLoading = ref(false);
 const showModelSelector = ref(false);
 const modelButtonRef = ref<HTMLElement>();
@@ -842,29 +862,25 @@ const loadWebSearchConfig = async (force = false) => {
 const loadAgents = async (force = false) => {
   try {
     await chatResources.ensureAgents(force);
-    ensureSelectedAgentNotDisabled();
+    ensureSelectedAgentAvailable();
   } catch (error) {
     console.error('Failed to load agents:', error);
   }
 };
 
-// 默认选中的 builtin（builtin-quick-answer）也可能被当前空间管理员停用。
-// 列表加载完后做一次纠偏：若当前选中的是本空间停用的 agent（仅限「我的/builtin」，
-// 共享智能体由源空间决定，本地停用列表不适用），按 智能推理 → 快速问答 →
-// 第一个可用 的顺序兜底切换。全部都被停用时保持原选择不动（极端场景，UI 仍会
-// 在 enabledAgents 过滤后显示空，由用户在智能体页恢复任意一个）。
-const ensureSelectedAgentNotDisabled = () => {
+// 列表加载完后纠正已下架或被当前空间停用的本地选择。共享智能体由源空间决定，
+// 不受本地列表约束。优先回到唯一的内置知识库问答智能体，再选择第一个可用的
+// 自定义智能体；全部不可用时保持原选择不动。
+const ensureSelectedAgentAvailable = () => {
   if (settingsStore.selectedAgentSourceTenantId) return
   const currentId = settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID
-  if (!disabledOwnAgentIds.value.includes(currentId)) return
 
   const isEnabled = (id: string) =>
     agents.value.some(a => a.id === id) && !disabledOwnAgentIds.value.includes(id)
+  if (isEnabled(currentId)) return
 
   let fallback: CustomAgent | undefined
-  if (isEnabled(BUILTIN_SMART_REASONING_ID)) {
-    fallback = agents.value.find(a => a.id === BUILTIN_SMART_REASONING_ID)
-  } else if (isEnabled(BUILTIN_QUICK_ANSWER_ID)) {
+  if (isEnabled(BUILTIN_QUICK_ANSWER_ID)) {
     fallback = agents.value.find(a => a.id === BUILTIN_QUICK_ANSWER_ID)
   } else {
     fallback = agents.value.find(a => !disabledOwnAgentIds.value.includes(a.id))
@@ -945,6 +961,17 @@ const loadChatModels = async (force = false) => {
     chatResources.invalidate('models');
   } finally {
     modelsLoading.value = false;
+  }
+};
+
+const loadResponseTierConfig = async () => {
+  try {
+    const config = await getResponseTierConfig();
+    responseTierConfig.value = { enabled: Boolean(config?.enabled) };
+  } catch (error) {
+    // The picker remains usable with the legacy fallback when the capability
+    // endpoint is unavailable.
+    responseTierConfig.value = { enabled: false };
   }
 };
 
@@ -1684,21 +1711,12 @@ const removeFile = (id: string) => {
 };
 
 const toggleModelSelector = () => {
-  // 如果智能体锁定了模型，不允许打开选择器
-  if (isModelLockedByAgent.value) {
-    MessagePlugin.warning(t('input.modelLockedByAgent'));
-    return;
-  }
-
   // 互斥：关闭其他
   showMention.value = false;
   showAgentModeSelector.value = false;
 
   showModelSelector.value = !showModelSelector.value;
   if (showModelSelector.value) {
-    if (!availableModels.value.length) {
-      loadChatModels();
-    }
     // 多次更新位置确保准确
     nextTick(() => {
       updateModelDropdownPosition();
@@ -1710,6 +1728,11 @@ const toggleModelSelector = () => {
       });
     });
   }
+};
+
+const selectResponseTier = (tier: ResponseTier) => {
+  responseTier.value = tier;
+  showModelSelector.value = false;
 };
 
 const closeModelSelector = () => {
@@ -1746,6 +1769,7 @@ onMounted(() => {
     loadChatModels(),
     loadAgents(),
     loadMCPServices(),
+    loadResponseTierConfig(),
   ]);
   window.addEventListener(CHAT_FILE_DROP_EVENT, handleChatFileDrop as EventListener);
 
@@ -1836,7 +1860,7 @@ watch([selectedKbIds, selectedFileIds], ([kbIds, fileIds]) => {
 }, { deep: true });
 
 const emit = defineEmits<{
-  (e: 'send-msg', query: string, modelId: string, mentionedItems: MentionRequestItem[], imageFiles: File[], attachmentFiles: AttachmentFile[]): void;
+  (e: 'send-msg', query: string, modelId: string, mentionedItems: MentionRequestItem[], imageFiles: File[], attachmentFiles: AttachmentFile[], responseTier: ResponseTier): void;
   (e: 'stop-generation'): void;
 }>();
 
@@ -1868,7 +1892,7 @@ const createSession = async (val: string) => {
   if (props.embeddedMode) {
     const textarea = getTextareaEl();
     if (textarea) textarea.blur();
-    emit('send-msg', val, selectedModelId.value || '', [], [], []);
+    emit('send-msg', val, selectedModelId.value || '', [], [], [], responseTier.value);
     clearvalue();
     return;
   }
@@ -1888,6 +1912,9 @@ const createSession = async (val: string) => {
 
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
+  }
+  if (!responseTierConfig.value.enabled) {
+    await loadResponseTierConfig()
   }
 
   // 发送前校验当前选中的智能体（含默认快速问答）是否已配置完成
@@ -1934,7 +1961,7 @@ const createSession = async (val: string) => {
   // detached DOM element (which causes getComputedStyle to throw).
   const textarea = getTextareaEl();
   if (textarea) textarea.blur();
-  emit('send-msg', val, selectedModelId.value, mentionedItems, imageFiles, attachmentFiles);
+  emit('send-msg', val, selectedModelId.value, mentionedItems, imageFiles, attachmentFiles, responseTier.value);
 
   // Clean up image previews
   uploadedImages.value.forEach(img => URL.revokeObjectURL(img.preview));
@@ -2274,6 +2301,7 @@ const collectAgentNotReadyReasons = (
   const keys = getAgentNotReadyReasonKeys(config, allModels.value, {
     isAgentMode,
     isSharedAgent,
+    responseTierEnabled: responseTierConfig.value.enabled,
   });
   return formatAgentNotReadyReasons(keys, agent.is_builtin);
 };
@@ -2439,7 +2467,7 @@ defineExpose({
           <!-- Agent 选择器下拉菜单 -->
           <AgentSelector :visible="showAgentModeSelector" :anchorEl="agentModeButtonRef"
             :currentAgentId="selectedAgentId" :agents="enabledAgents" :all-models="allModels"
-            :current-chat-model-id="selectedModelId"
+            :current-chat-model-id="selectedModelId" :response-tier-enabled="responseTierConfig.enabled"
             @close="closeAgentModeSelector" @select="handleSelectAgent" @not-ready="handleAgentNotReady" />
 
           <!-- WebSearch 开关按钮（智能体未启用时不显示） -->
@@ -2532,14 +2560,13 @@ defineExpose({
             </div>
           </t-tooltip>
 
-          <!-- 模型显示 -->
-          <t-tooltip :content="isModelLockedByAgent ? $t('input.modelLockedByAgent') : ''"
-            :disabled="!isModelLockedByAgent">
-            <div class="model-display" :class="{ 'agent-controlled': isModelLockedByAgent }">
-              <div ref="modelButtonRef" class="model-selector-trigger" @click.stop="toggleModelSelector">
-                <span class="model-selector-name">
-                  {{ selectedModelDisplayName }}
-                </span>
+          <!-- 回答档位选择 -->
+          <t-tooltip content="回答档位" placement="top">
+            <div class="model-display">
+              <div ref="modelButtonRef" class="model-selector-trigger response-tier-trigger"
+                @click.stop="toggleModelSelector">
+                <t-icon name="layers" size="14px" />
+                <span class="model-selector-name">{{ responseTierLabel }}</span>
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="model-dropdown-arrow"
                   :class="{ 'rotate': showModelSelector }">
                   <path d="M2.5 4.5L6 8L9.5 4.5H2.5Z" />
@@ -2553,23 +2580,20 @@ defineExpose({
           <div v-if="showModelSelector" class="model-selector-overlay" @click="closeModelSelector">
             <div class="model-selector-dropdown" :style="modelDropdownStyle" @click.stop>
               <div class="model-selector-header">
-                <span>{{ $t('conversationSettings.models.chatGroupLabel') }}</span>
+                <span>回答档位</span>
               </div>
               <div class="model-selector-content">
-                <div v-for="model in availableModels" :key="model.id" class="model-option"
-                  :class="{ selected: model.id === selectedModelId }" @click="handleModelChange(model.id || '')">
+                <div v-for="option in responseTierOptions" :key="option.key" class="model-option"
+                  :class="{ selected: option.key === responseTier }" @click="selectResponseTier(option.key)">
                   <div class="model-option-left">
                     <div class="model-option-icon">
-                      <t-icon name="chat" size="14px" />
+                      <t-icon name="layers" size="14px" />
                     </div>
                     <div class="model-option-name-wrap">
-                      <span class="model-option-name">{{ modelDisplayName(model) }}</span>
-                      <span v-if="model.display_name" class="model-option-raw-name">{{ model.name }}</span>
+                      <span class="model-option-name">{{ option.label }}</span>
+                      <span class="model-option-raw-name">{{ option.description }}</span>
                     </div>
                   </div>
-                </div>
-                <div v-if="availableModels.length === 0" class="model-option empty">
-                  {{ $t('input.noModel') }}
                 </div>
               </div>
             </div>

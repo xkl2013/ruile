@@ -191,7 +191,7 @@
                   <span class="card-title" :title="agent.name">{{ agent.name }}</span>
                 </div>
                 <t-popup
-                  v-if="agent.isMine && authStore.hasRole('admin')"
+                  v-if="agent.isMine && canOpenAgentMenu(agent)"
                   :visible="openMoreAgentId === agent.id" trigger="hover" overlayClassName="card-more-popup"
                   destroy-on-close placement="bottom-right" @visible-change="onVisibleChange"
                   @update:visible="(v: boolean) => { if (!v) openMoreAgentId = null }">
@@ -393,7 +393,7 @@
                   <AgentAvatar v-else :name="agent.name" size="small" />
                   <span class="card-title" :title="agent.name">{{ agent.name }}</span>
                 </div>
-                <t-popup v-if="authStore.hasRole('admin')"
+                <t-popup v-if="canOpenAgentMenu(agent)"
                   :visible="openMoreAgentId === agent.id" trigger="hover" overlayClassName="card-more-popup"
                   destroy-on-close placement="bottom-right" @visible-change="onVisibleChange"
                   @update:visible="(v: boolean) => { if (!v) openMoreAgentId = null }">
@@ -1292,11 +1292,15 @@ const handleEdit = (agent: AgentWithUI) => {
   editorVisible.value = true
 }
 
-// Agent configuration is a tenant-level management surface: only Admin+
-// can create, edit, copy, delete, share or disable agents. The server
-// enforces the same floor on the mutating routes; this gate only controls UI.
+// Platform built-ins are maintained centrally by SystemAdmin. Workspace
+// Admin+ can still manage custom agents in the active workspace.
 function canManageAgent(agent: AgentWithUI): boolean {
+  if (agent.is_builtin) return authStore.isSystemAdmin
   return authStore.hasRole('admin')
+}
+
+function canOpenAgentMenu(agent: AgentWithUI): boolean {
+  return canManageAgent(agent) || authStore.hasRole('admin')
 }
 
 // isMyAgent 仅用于卡片来源徽章在「我创建」与「同空间其他成员创建」之间切换。
@@ -1521,12 +1525,23 @@ const confirmDelete = () => {
   })
 }
 
-const handleEditorSuccess = (agent?: CustomAgent) => {
+const handleEditorSuccess = async (agent?: CustomAgent) => {
   if (agent) {
     editingAgent.value = agent
     editorMode.value = 'edit'
   }
-  fetchList(true)
+
+  // AgentList may be using a creator-filtered request that does not populate
+  // the shared chat resource cache. Refresh the canonical list explicitly so
+  // the conversation selector immediately sees built-in config changes.
+  chatResources.invalidate('agents')
+  try {
+    await chatResources.ensureAgents(true)
+    await fetchList(false)
+  } catch (error) {
+    console.error('Failed to refresh agents after save:', error)
+    await fetchList(true)
+  }
 }
 
 const formatDate = (dateStr: string) => {

@@ -28,6 +28,11 @@ const (
 	BuiltinWikiFixerID = "builtin-wiki-fixer"
 )
 
+// SystemAgentTenantID marks a platform-managed built-in agent configuration.
+// Services project it into the active workspace at read time so runtime
+// knowledge-base and permission scope remains workspace-local.
+const SystemAgentTenantID uint64 = 0
+
 // AgentMode constants for agent running mode
 const (
 	// AgentModeQuickAnswer is the RAG mode for quick Q&A
@@ -553,21 +558,13 @@ type SuggestedQuestion struct {
 // config/builtin_agents.yaml at startup via rebuildRegistryFromConfig.
 var BuiltinAgentRegistry = map[string]func(uint64) *CustomAgent{}
 
-// builtinAgentIDsOrdered defines the fixed display order of built-in agents
-// that are exposed in the user-facing agent list (ListAgents).
-//
-// NOTE: BuiltinWikiFixerID is intentionally excluded here. The wiki fixer is
-// an internal agent invoked programmatically from the Wiki editor
-// (see frontend WikiBrowser.vue) and should not clutter the tenant's agent
-// picker. It remains fully usable via GetAgentByID because the YAML entry
-// still registers it in BuiltinAgentRegistry.
+// builtinAgentIDsOrdered defines the built-in agents exposed in the general
+// user-facing agent list (ListAgents). Quick Answer is the sole built-in
+// knowledge-base Q&A entry. Smart Reasoning remains an execution mode for
+// custom agents, while legacy built-ins stay resolvable by ID so historical
+// sessions are not broken.
 var builtinAgentIDsOrdered = []string{
 	BuiltinQuickAnswerID,
-	BuiltinSmartReasoningID,
-	BuiltinSalesDirectorID,
-	BuiltinDeepResearcherID,
-	BuiltinKnowledgeGraphExpertID,
-	BuiltinDocumentAssistantID,
 }
 
 // GetBuiltinAgentIDs returns all built-in agent IDs in fixed order

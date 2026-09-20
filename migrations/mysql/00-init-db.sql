@@ -17,6 +17,7 @@ CREATE TABLE tenants (
     storage_used BIGINT NOT NULL DEFAULT 0,
     agent_config JSON DEFAULT NULL COMMENT 'Tenant-level agent configuration in JSON format',
     knowledge_base_defaults_config JSON DEFAULT NULL COMMENT 'Advanced knowledge-base configuration shared by all non-temporary knowledge bases in this workspace',
+    response_tier_config JSON DEFAULT NULL COMMENT 'Tenant-wide response tier bindings for all agents',
     provisioning_key VARCHAR(128) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -317,6 +317,10 @@ func (h *CustomAgentHandler) UpdateAgent(c *gin.Context) {
 		c.Error(errors.NewBadRequestError("Agent ID cannot be empty"))
 		return
 	}
+	if types.IsBuiltinAgentID(id) && !types.IsSystemAdminFromContext(ctx) {
+		c.Error(errors.NewForbiddenError("Only system administrators can modify built-in agents"))
+		return
+	}
 
 	// Parse request body
 	var req UpdateAgentRequest
@@ -356,7 +360,7 @@ func (h *CustomAgentHandler) UpdateAgent(c *gin.Context) {
 		switch err {
 		case service.ErrAgentNotFound:
 			c.Error(errors.NewNotFoundError("Agent not found"))
-		case service.ErrCannotModifyBuiltin:
+		case service.ErrCannotModifyBuiltin, service.ErrBuiltinAgentRequiresSystemAdmin:
 			c.Error(errors.NewForbiddenError("Cannot modify built-in agent"))
 		case service.ErrAgentNameRequired:
 			c.Error(errors.NewBadRequestError(err.Error()))

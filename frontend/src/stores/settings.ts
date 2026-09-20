@@ -23,6 +23,7 @@ interface Settings {
   ollamaConfig: OllamaConfig;  // Ollama配置
   webSearchEnabled: boolean;  // 网络搜索是否启用
   conversationModels: ConversationModels;
+  responseTier: ResponseTier;
   selectedAgentId: string;  // 当前选中的智能体ID
   selectedAgentSourceTenantId: string | null;  // 当使用共享智能体时，来源空间 ID（用于后端 model/KB/MCP 解析）
   autoCheckUpdate?: boolean; // 是否自动检查并下载更新
@@ -41,6 +42,8 @@ interface ConversationModels {
   rerankModelId: string;
   selectedChatModelId: string;  // 用户当前选择的对话模型ID
 }
+
+export type ResponseTier = 'fast' | 'balanced' | 'ultimate'
 
 // 单个模型项接口
 interface ModelItem {
@@ -103,6 +106,7 @@ const defaultSettings: Settings = {
     rerankModelId: "",
     selectedChatModelId: "",  // 用户当前选择的对话模型ID
   },
+  responseTier: "balanced",
   selectedAgentId: BUILTIN_QUICK_ANSWER_ID,  // 默认选中快速问答模式
   selectedAgentSourceTenantId: null as string | null,  // 共享智能体来源空间 ID
   autoCheckUpdate: true,
@@ -219,6 +223,11 @@ export const useSettingsStore = defineStore("settings", {
     updateConversationModels(models: Partial<ConversationModels>) {
       const current = this.settings.conversationModels || defaultSettings.conversationModels;
       this.settings.conversationModels = { ...current, ...models };
+      localStorage.setItem("WeKnora_settings", JSON.stringify(this.settings));
+    },
+
+    setResponseTier(tier: ResponseTier) {
+      this.settings.responseTier = tier;
       localStorage.setItem("WeKnora_settings", JSON.stringify(this.settings));
     },
     
@@ -518,6 +527,9 @@ export const useSettingsStore = defineStore("settings", {
           const current = this.settings.conversationModels || defaultSettings.conversationModels;
           this.settings.conversationModels = { ...current, selectedChatModelId: state.model_id || "" };
         }
+        if (state.response_tier === "fast" || state.response_tier === "balanced" || state.response_tier === "ultimate") {
+          this.settings.responseTier = state.response_tier;
+        }
         if (Array.isArray(state.knowledge_base_ids)) {
           this.settings.selectedKnowledgeBases = [...state.knowledge_base_ids];
         }
@@ -582,6 +594,7 @@ export interface SessionLastRequestStatePayload {
   agent_id?: string;
   agent_enabled?: boolean;
   model_id?: string;
+  response_tier?: ResponseTier;
   knowledge_base_ids?: string[];
   knowledge_ids?: string[];
   tag_ids?: string[];

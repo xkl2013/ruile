@@ -22,6 +22,7 @@ func TestAuditAction_DotNamespaceConvention(t *testing.T) {
 		AuditActionMemberLeft,
 		AuditActionMemberSuspended,
 		AuditActionMemberReactivated,
+		AuditActionMemberAssetsTransferred,
 		AuditActionMemberAllocationChanged,
 		AuditActionAccessDenied,
 		AuditActionInvitationSent,
@@ -43,6 +44,9 @@ func TestAuditAction_DotNamespaceConvention(t *testing.T) {
 		AuditActionSystemAdminRevoked,
 		AuditActionSystemEnterpriseWorkspaceProvisioned,
 		AuditActionSystemUserPasswordReset,
+		AuditActionSystemUserActivated,
+		AuditActionSystemUserDeactivated,
+		AuditActionSystemUserDeleted,
 		AuditActionSystemQueueTaskRetried,
 		AuditActionSystemQueueTaskDeleted,
 		AuditActionSystemQueueTaskRunNow,
@@ -116,6 +120,7 @@ func TestAuditAction_NoCollisionsAcrossNamespaces(t *testing.T) {
 	register("AuditActionMemberLeft", AuditActionMemberLeft)
 	register("AuditActionMemberSuspended", AuditActionMemberSuspended)
 	register("AuditActionMemberReactivated", AuditActionMemberReactivated)
+	register("AuditActionMemberAssetsTransferred", AuditActionMemberAssetsTransferred)
 	register("AuditActionMemberAllocationChanged", AuditActionMemberAllocationChanged)
 	register("AuditActionAccessDenied", AuditActionAccessDenied)
 	register("AuditActionInvitationSent", AuditActionInvitationSent)
@@ -134,6 +139,9 @@ func TestAuditAction_NoCollisionsAcrossNamespaces(t *testing.T) {
 	register("AuditActionSystemAdminRevoked", AuditActionSystemAdminRevoked)
 	register("AuditActionSystemEnterpriseWorkspaceProvisioned", AuditActionSystemEnterpriseWorkspaceProvisioned)
 	register("AuditActionSystemUserPasswordReset", AuditActionSystemUserPasswordReset)
+	register("AuditActionSystemUserActivated", AuditActionSystemUserActivated)
+	register("AuditActionSystemUserDeactivated", AuditActionSystemUserDeactivated)
+	register("AuditActionSystemUserDeleted", AuditActionSystemUserDeleted)
 	register("AuditActionSystemQueueTaskRetried", AuditActionSystemQueueTaskRetried)
 	register("AuditActionSystemQueueTaskDeleted", AuditActionSystemQueueTaskDeleted)
 	register("AuditActionSystemQueueTaskRunNow", AuditActionSystemQueueTaskRunNow)
@@ -153,6 +161,9 @@ func TestAuditAction_SystemNamespacePrefix(t *testing.T) {
 		AuditActionSystemAdminRevoked,
 		AuditActionSystemEnterpriseWorkspaceProvisioned,
 		AuditActionSystemUserPasswordReset,
+		AuditActionSystemUserActivated,
+		AuditActionSystemUserDeactivated,
+		AuditActionSystemUserDeleted,
 		AuditActionSystemQueueTaskRetried,
 		AuditActionSystemQueueTaskDeleted,
 		AuditActionSystemQueueTaskRunNow,
@@ -180,6 +191,9 @@ func TestAuditAction_SystemWireValues(t *testing.T) {
 		{AuditActionSystemAdminRevoked, "system.admin_revoked"},
 		{AuditActionSystemEnterpriseWorkspaceProvisioned, "system.enterprise_workspace_provisioned"},
 		{AuditActionSystemUserPasswordReset, "system.user_password_reset"},
+		{AuditActionSystemUserActivated, "system.user_activated"},
+		{AuditActionSystemUserDeactivated, "system.user_deactivated"},
+		{AuditActionSystemUserDeleted, "system.user_deleted"},
 		{AuditActionSystemQueueTaskRetried, "system.queue_task_retried"},
 		{AuditActionSystemQueueTaskDeleted, "system.queue_task_deleted"},
 		{AuditActionSystemQueueTaskRunNow, "system.queue_task_run_now"},

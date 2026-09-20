@@ -29,12 +29,15 @@ type fakeTenantMemberRepo struct {
 	nextID uint64
 	// failGet, failHasAny etc. let tests inject transient errors on the
 	// matching method to exercise error paths.
-	failGet         error
-	failHasAny      error
-	failCountOwners error
-	failUpdateRole  error
-	failSoftDelete  error
-	failCreate      error
+	failGet          error
+	failHasAny       error
+	failCountOwners  error
+	failUpdateRole   error
+	failSoftDelete   error
+	failCreate       error
+	assetInventory   *types.MemberTransferableAssets
+	assetTransfer    *types.MemberAssetTransferResult
+	assetTransferErr error
 }
 
 func newFakeRepo() *fakeTenantMemberRepo { return &fakeTenantMemberRepo{} }
@@ -313,12 +316,70 @@ func (r *fakeTenantMemberRepo) RemoveOwnerAtomically(
 	return nil
 }
 
+func (r *fakeTenantMemberRepo) ListTransferableAssets(
+	_ context.Context,
+	tenantID uint64,
+	userID string,
+) (*types.MemberTransferableAssets, error) {
+	if r.assetInventory != nil {
+		copy := *r.assetInventory
+		return &copy, nil
+	}
+	return &types.MemberTransferableAssets{
+		TenantID:       tenantID,
+		SourceUserID:   userID,
+		KnowledgeBases: []types.MemberTransferableAsset{},
+		Agents:         []types.MemberTransferableAsset{},
+	}, nil
+}
+
+func (r *fakeTenantMemberRepo) CountTransferableAssets(
+	_ context.Context,
+	_ uint64,
+	_ string,
+) (int64, int64, error) {
+	if r.assetInventory == nil {
+		return 0, 0, nil
+	}
+	return int64(len(r.assetInventory.KnowledgeBases)), int64(len(r.assetInventory.Agents)), nil
+}
+
+func (r *fakeTenantMemberRepo) TransferMemberAssets(
+	_ context.Context,
+	command types.MemberAssetTransferCommand,
+) (*types.MemberAssetTransferResult, error) {
+	if r.assetTransferErr != nil {
+		return nil, r.assetTransferErr
+	}
+	if r.assetTransfer != nil {
+		copy := *r.assetTransfer
+		return &copy, nil
+	}
+	return &types.MemberAssetTransferResult{
+		TenantID:     command.TenantID,
+		SourceUserID: command.SourceUserID,
+		TargetType:   command.TargetType,
+		TargetUserID: command.TargetUserID,
+	}, nil
+}
+
 // Compile-time guard so the test stays in sync with the interface.
 var _ interfaces.TenantMemberRepository = (*fakeTenantMemberRepo)(nil)
 
 type fakeTenantLookupService struct {
 	interfaces.TenantService
 	tenants map[uint64]*types.Tenant
+}
+
+type captureAuditLogService struct {
+	interfaces.AuditLogService
+	entries []*types.AuditLog
+}
+
+func (s *captureAuditLogService) Log(_ context.Context, entry *types.AuditLog) error {
+	copyEntry := *entry
+	s.entries = append(s.entries, &copyEntry)
+	return nil
 }
 
 func (s *fakeTenantLookupService) GetTenantByID(_ context.Context, id uint64) (*types.Tenant, error) {
@@ -655,10 +716,176 @@ func TestTenantMemberService_RemoveMember_AllowsContributorRemoval(t *testing.T)
 	}
 }
 
+func TestTenantMemberService_RemoveMember_BlocksTransferableAssets(t *testing.T) {
+	svc, repo := newServiceWithRepo()
+	ctx := context.Background()
+	repo.rows = []*types.TenantMember{{
+		UserID:   "contrib",
+		TenantID: 1,
+		Role:     types.TenantRoleContributor,
+		Status:   types.TenantMemberStatusActive,
+	}}
+	repo.assetInventory = &types.MemberTransferableAssets{
+		TenantID:     1,
+		SourceUserID: "contrib",
+		KnowledgeBases: []types.MemberTransferableAsset{{
+			ID:   "kb-1",
+			Name: "招生知识库",
+			Type: types.MemberAssetTypeKnowledgeBase,
+		}},
+		Total: 1,
+	}
+
+	err := svc.RemoveMember(ctx, "contrib", 1)
+	if !errors.Is(err, ErrMemberHasTransferableAssets) {
+		t.Fatalf("error = %v, want ErrMemberHasTransferableAssets", err)
+	}
+	member, getErr := svc.GetMembership(ctx, "contrib", 1)
+	if getErr != nil {
+		t.Fatalf("GetMembership: %v", getErr)
+	}
+	if member == nil {
+		t.Fatal("member must remain active until assets are transferred")
+	}
+}
+
 func TestTenantMemberService_RemoveMember_ReturnsNotFound(t *testing.T) {
 	svc, _ := newServiceWithRepo()
 	if err := svc.RemoveMember(context.Background(), "ghost", 1); !errors.Is(err, ErrMembershipNotFound) {
 		t.Fatalf("want ErrMembershipNotFound, got %v", err)
+	}
+}
+
+func TestTenantMemberService_TransferMemberAssets_ValidatesInput(t *testing.T) {
+	repo := newFakeRepo()
+	tenantLookup := &fakeTenantLookupService{tenants: map[uint64]*types.Tenant{
+		1: testTenantWithSpaceType(1, types.SpaceTypeOrganization),
+	}}
+	svc := NewTenantMemberService(repo, nil, nil, tenantLookup)
+	base := types.MemberAssetTransferCommand{
+		TenantID:     1,
+		SourceUserID: "source",
+		TargetType:   types.MemberAssetTransferTargetEnterprise,
+		Scope:        types.MemberAssetTransferScopeAll,
+		Reason:       "员工离职",
+	}
+
+	tests := []struct {
+		name    string
+		mutate  func(*types.MemberAssetTransferCommand)
+		wantErr error
+	}{
+		{
+			name: "reason required",
+			mutate: func(command *types.MemberAssetTransferCommand) {
+				command.Reason = " "
+			},
+			wantErr: ErrAssetTransferReasonRequired,
+		},
+		{
+			name: "member target required",
+			mutate: func(command *types.MemberAssetTransferCommand) {
+				command.TargetType = types.MemberAssetTransferTargetMember
+			},
+			wantErr: ErrAssetTransferInvalidTarget,
+		},
+		{
+			name: "target type must be known",
+			mutate: func(command *types.MemberAssetTransferCommand) {
+				command.TargetType = types.MemberAssetTransferTargetType("external")
+			},
+			wantErr: ErrAssetTransferInvalidTarget,
+		},
+		{
+			name: "scope must be known",
+			mutate: func(command *types.MemberAssetTransferCommand) {
+				command.Scope = types.MemberAssetTransferScope("unknown")
+			},
+			wantErr: ErrAssetTransferInvalidScope,
+		},
+		{
+			name: "asset type must be known",
+			mutate: func(command *types.MemberAssetTransferCommand) {
+				command.AssetTypes = []types.MemberAssetType{"file"}
+			},
+			wantErr: ErrAssetTransferInvalidScope,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			command := base
+			tt.mutate(&command)
+			_, err := svc.TransferMemberAssets(context.Background(), command)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestTenantMemberService_TransferMemberAssets_MapsErrorsAndAudits(t *testing.T) {
+	repo := newFakeRepo()
+	repo.assetTransferErr = apprepo.ErrAssetTransferTargetNotActive
+	tenantLookup := &fakeTenantLookupService{tenants: map[uint64]*types.Tenant{
+		1: testTenantWithSpaceType(1, types.SpaceTypeOrganization),
+	}}
+	audit := &captureAuditLogService{}
+	svc := NewTenantMemberService(repo, audit, nil, tenantLookup)
+	command := types.MemberAssetTransferCommand{
+		TenantID:     1,
+		SourceUserID: "source",
+		TargetType:   types.MemberAssetTransferTargetMember,
+		TargetUserID: "target",
+		Scope:        types.MemberAssetTransferScopeAll,
+		Reason:       "员工岗位调整",
+	}
+
+	if _, err := svc.TransferMemberAssets(context.Background(), command); !errors.Is(err, ErrAssetTransferInvalidTarget) {
+		t.Fatalf("error = %v, want ErrAssetTransferInvalidTarget", err)
+	}
+	if len(audit.entries) != 0 {
+		t.Fatalf("failed transfer must not emit success audit, got %d entries", len(audit.entries))
+	}
+
+	repo.assetTransferErr = nil
+	repo.assetTransfer = &types.MemberAssetTransferResult{
+		TenantID:                  1,
+		SourceUserID:              "source",
+		TargetType:                types.MemberAssetTransferTargetMember,
+		TargetUserID:              "target",
+		KnowledgeBasesTransferred: 2,
+		AgentsTransferred:         1,
+		TotalTransferred:          3,
+	}
+	ctx := context.WithValue(context.Background(), types.UserIDContextKey, "operator")
+	ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleAdmin)
+	result, err := svc.TransferMemberAssets(ctx, command)
+	if err != nil {
+		t.Fatalf("TransferMemberAssets: %v", err)
+	}
+	if result.TotalTransferred != 3 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(audit.entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1", len(audit.entries))
+	}
+	entry := audit.entries[0]
+	if entry.Action != types.AuditActionMemberAssetsTransferred ||
+		entry.ActorUserID != "operator" ||
+		entry.ActorRole != string(types.TenantRoleAdmin) ||
+		entry.TargetUserID != "source" {
+		t.Fatalf("unexpected audit entry: %+v", entry)
+	}
+	details := string(entry.Details)
+	for _, expected := range []string{
+		`"target_user_id":"target"`,
+		`"knowledge_bases_transferred":2`,
+		`"agents_transferred":1`,
+		`"reason":"员工岗位调整"`,
+	} {
+		if !strings.Contains(details, expected) {
+			t.Fatalf("audit details %s missing %s", details, expected)
+		}
 	}
 }
 

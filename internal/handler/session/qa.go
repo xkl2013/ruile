@@ -39,6 +39,7 @@ type qaRequestContext struct {
 	tagIDs                []string
 	mcpServiceIDs         []string
 	skillNames            []string
+	responseTier          types.ResponseTier
 	summaryModelID        string
 	webSearchEnabled      bool
 	mentionedItems        types.MentionedItems
@@ -66,6 +67,7 @@ func (rc *qaRequestContext) buildQARequest() *types.QARequest {
 		Session:            rc.session,
 		Query:              rc.query,
 		AssistantMessageID: rc.assistantMessage.ID,
+		ResponseTier:       rc.responseTier,
 		SummaryModelID:     rc.summaryModelID,
 		CustomAgent:        rc.customAgent,
 		KnowledgeBaseIDs:   rc.knowledgeBaseIDs,
@@ -337,6 +339,7 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		tagIDs:                secutils.SanitizeForLogArray(tagIDs),
 		mcpServiceIDs:         secutils.SanitizeForLogArray(mcpServiceIDs),
 		skillNames:            secutils.SanitizeForLogArray(skillNames),
+		responseTier:          types.ResponseTier(strings.TrimSpace(request.ResponseTier)),
 		summaryModelID:        secutils.SanitizeForLog(request.SummaryModelID),
 		webSearchEnabled:      request.WebSearchEnabled,
 		mentionedItems:        convertMentionedItems(request.MentionedItems),
@@ -1291,9 +1294,15 @@ func (h *Handler) persistLastRequestState(parentCtx context.Context, reqCtx *qaR
 	}
 
 	state := &types.SessionLastRequestState{
-		AgentID:          reqCtx.reqAgentID,
-		AgentEnabled:     agentEnabled,
-		ModelID:          reqCtx.summaryModelID,
+		AgentID:      reqCtx.reqAgentID,
+		AgentEnabled: agentEnabled,
+		ModelID: func() string {
+			if reqCtx.responseTier != "" {
+				return ""
+			}
+			return reqCtx.summaryModelID
+		}(),
+		ResponseTier:     reqCtx.responseTier,
 		KnowledgeBaseIDs: reqCtx.knowledgeBaseIDs,
 		KnowledgeIDs:     reqCtx.knowledgeIDs,
 		TagIDs:           reqCtx.tagIDs,

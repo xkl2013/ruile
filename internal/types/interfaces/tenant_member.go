@@ -79,4 +79,16 @@ type TenantMemberRepository interface {
 	// RemoveOwnerAtomically soft-deletes an Owner row under the same
 	// lock as DemoteOwnerAtomically.
 	RemoveOwnerAtomically(ctx context.Context, userID string, tenantID uint64) error
+
+	// ListTransferableAssets returns enterprise knowledge bases and custom
+	// agents whose responsible-member field points at userID.
+	ListTransferableAssets(ctx context.Context, tenantID uint64, userID string) (*types.MemberTransferableAssets, error)
+
+	// CountTransferableAssets returns the supported asset counts used by
+	// offboarding and account-deletion guards.
+	CountTransferableAssets(ctx context.Context, tenantID uint64, userID string) (knowledgeBases int64, agents int64, err error)
+
+	// TransferMemberAssets validates the source/target membership and updates
+	// knowledge-base and custom-agent responsibility in one transaction.
+	TransferMemberAssets(ctx context.Context, command types.MemberAssetTransferCommand) (*types.MemberAssetTransferResult, error)
 }

@@ -23,6 +23,10 @@ func (r *provisioningUserRepo) GetUserByUsername(context.Context, string) (*type
 	return nil, nil
 }
 
+func (r *provisioningUserRepo) PurgeDeletedUserByIdentity(context.Context, string, string) error {
+	return nil
+}
+
 func (r *provisioningUserRepo) CreateUser(_ context.Context, user *types.User) error {
 	copy := *user
 	r.created = &copy

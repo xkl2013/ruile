@@ -63,6 +63,9 @@ func (s *stubUserRepoForAuth) GetUserByEmail(context.Context, string) (*types.Us
 func (s *stubUserRepoForAuth) GetUserByUsername(context.Context, string) (*types.User, error) {
 	return nil, nil
 }
+func (s *stubUserRepoForAuth) PurgeDeletedUserByIdentity(context.Context, string, string) error {
+	return nil
+}
 func (s *stubUserRepoForAuth) GetUserByTenantID(context.Context, uint64) (*types.User, error) {
 	return nil, nil
 }
@@ -71,6 +74,12 @@ func (s *stubUserRepoForAuth) UpdateUser(context.Context, *types.User) error {
 	return nil
 }
 func (s *stubUserRepoForAuth) DeleteUser(context.Context, string) error { return nil }
+func (s *stubUserRepoForAuth) SetSystemUserActive(context.Context, string, string, bool) (*types.User, error) {
+	return nil, nil
+}
+func (s *stubUserRepoForAuth) DeleteSystemUser(context.Context, string, string) (*types.User, error) {
+	return nil, nil
+}
 func (s *stubUserRepoForAuth) ListUsers(context.Context, int, int) ([]*types.User, error) {
 	return nil, nil
 }

@@ -64,11 +64,11 @@ export function getAgentNotReadyReasonKeys(
     'model_id' | 'rerank_model_id' | 'kb_selection_mode' | 'allowed_tools' | 'agent_mode'
   > | undefined,
   models: Pick<ModelConfig, 'id' | 'type'>[],
-  options: { isAgentMode: boolean; isSharedAgent: boolean },
+  options: { isAgentMode: boolean; isSharedAgent: boolean; responseTierEnabled?: boolean },
 ): AgentNotReadyReasonKey[] {
   const reasons: AgentNotReadyReasonKey[] = []
 
-  if (!agentHasConfiguredChatModel(config, models, options.isSharedAgent)) {
+  if (!options.responseTierEnabled && !agentHasConfiguredChatModel(config, models, options.isSharedAgent)) {
     reasons.push('summary_model')
   }
 

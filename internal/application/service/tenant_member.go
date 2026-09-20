@@ -76,6 +76,17 @@ var (
 	// ErrWorkProfileDescriptionRequired is returned when an operator-managed
 	// member write omits the service-facing work avatar description.
 	ErrWorkProfileDescriptionRequired = errors.New("work profile description is required")
+
+	// ErrMemberHasTransferableAssets prevents removing a member while
+	// enterprise knowledge bases or custom agents still name them as the
+	// responsible creator.
+	ErrMemberHasTransferableAssets = errors.New("member still owns transferable enterprise assets")
+
+	ErrAssetTransferOnlyEnterprise = errors.New("asset transfer is only available for enterprise workspaces")
+	ErrAssetTransferReasonRequired = errors.New("asset transfer reason is required")
+	ErrAssetTransferReasonTooLong  = errors.New("asset transfer reason must not exceed 500 characters")
+	ErrAssetTransferInvalidTarget  = errors.New("asset transfer target must be the enterprise or another active member")
+	ErrAssetTransferInvalidScope   = errors.New("asset transfer selection is invalid")
 )
 
 const (
@@ -544,6 +555,121 @@ func (s *tenantMemberService) emitRoleChangeAudit(
 	})
 }
 
+func (s *tenantMemberService) ensureAssetTransferTenant(ctx context.Context, tenantID uint64) error {
+	if tenantID == 0 {
+		return ErrAssetTransferOnlyEnterprise
+	}
+	if s.tenantService == nil {
+		return nil
+	}
+	tenant, err := s.tenantService.GetTenantByID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if !isEnterpriseTenant(tenant) {
+		return ErrAssetTransferOnlyEnterprise
+	}
+	return nil
+}
+
+// ListTransferableAssets returns the supported enterprise assets assigned to a
+// member. Tenant ownership and physical storage bindings are unchanged.
+func (s *tenantMemberService) ListTransferableAssets(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.MemberTransferableAssets, error) {
+	if err := s.ensureAssetTransferTenant(ctx, tenantID); err != nil {
+		return nil, err
+	}
+	member, err := s.repo.Get(ctx, strings.TrimSpace(userID), tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if member == nil {
+		return nil, ErrMembershipNotFound
+	}
+	return s.repo.ListTransferableAssets(ctx, tenantID, member.UserID)
+}
+
+// TransferMemberAssets reassigns knowledge-base and custom-agent
+// responsibility inside one enterprise. Documents, files, chunks, indexes,
+// shares, usage, and personal data are deliberately left untouched.
+func (s *tenantMemberService) TransferMemberAssets(
+	ctx context.Context,
+	command types.MemberAssetTransferCommand,
+) (*types.MemberAssetTransferResult, error) {
+	command.SourceUserID = strings.TrimSpace(command.SourceUserID)
+	command.TargetUserID = strings.TrimSpace(command.TargetUserID)
+	command.Reason = strings.TrimSpace(command.Reason)
+	if err := s.ensureAssetTransferTenant(ctx, command.TenantID); err != nil {
+		return nil, err
+	}
+	if command.Reason == "" {
+		return nil, ErrAssetTransferReasonRequired
+	}
+	if utf8.RuneCountInString(command.Reason) > 500 {
+		return nil, ErrAssetTransferReasonTooLong
+	}
+	switch command.TargetType {
+	case types.MemberAssetTransferTargetEnterprise:
+		command.TargetUserID = ""
+	case types.MemberAssetTransferTargetMember:
+		if command.TargetUserID == "" {
+			return nil, ErrAssetTransferInvalidTarget
+		}
+	default:
+		return nil, ErrAssetTransferInvalidTarget
+	}
+	switch command.Scope {
+	case types.MemberAssetTransferScopeAll, types.MemberAssetTransferScopeSelected:
+	default:
+		return nil, ErrAssetTransferInvalidScope
+	}
+	for _, assetType := range command.AssetTypes {
+		switch assetType {
+		case types.MemberAssetTypeKnowledgeBase, types.MemberAssetTypeAgent:
+		default:
+			return nil, ErrAssetTransferInvalidScope
+		}
+	}
+
+	result, err := s.repo.TransferMemberAssets(ctx, command)
+	switch {
+	case errors.Is(err, apprepo.ErrAssetTransferSourceNotMember):
+		return nil, ErrMembershipNotFound
+	case errors.Is(err, apprepo.ErrAssetTransferTargetNotActive),
+		errors.Is(err, apprepo.ErrAssetTransferSameMember):
+		return nil, ErrAssetTransferInvalidTarget
+	case errors.Is(err, apprepo.ErrAssetTransferSelection),
+		errors.Is(err, apprepo.ErrAssetTransferEmptySelection):
+		return nil, ErrAssetTransferInvalidScope
+	case err != nil:
+		return nil, err
+	}
+
+	details, _ := json.Marshal(map[string]any{
+		"source_user_id":              command.SourceUserID,
+		"target_type":                 command.TargetType,
+		"target_user_id":              result.TargetUserID,
+		"scope":                       command.Scope,
+		"knowledge_bases_transferred": result.KnowledgeBasesTransferred,
+		"agents_transferred":          result.AgentsTransferred,
+		"reason":                      command.Reason,
+	})
+	s.emitAudit(ctx, &types.AuditLog{
+		TenantID:     command.TenantID,
+		ActorUserID:  auditActor(ctx),
+		ActorRole:    auditActorRole(ctx),
+		Action:       types.AuditActionMemberAssetsTransferred,
+		TargetType:   "tenant_member_assets",
+		TargetUserID: command.SourceUserID,
+		Outcome:      types.AuditOutcomeSuccess,
+		Details:      types.JSON(details),
+	})
+	return result, nil
+}
+
 // RemoveMember enforces the "cannot remove the last Owner" invariant
 // before soft-deleting the membership. For Owner removals it routes
 // through the repo's transactional helper so the count + delete commit
@@ -561,6 +687,13 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 	}
 	if current == nil {
 		return ErrMembershipNotFound
+	}
+	knowledgeBases, agents, err := s.repo.CountTransferableAssets(ctx, tenantID, userID)
+	if err != nil {
+		return err
+	}
+	if knowledgeBases+agents > 0 {
+		return ErrMemberHasTransferableAssets
 	}
 	if current.Role == types.TenantRoleOwner {
 		err := s.repo.RemoveOwnerAtomically(ctx, userID, tenantID)

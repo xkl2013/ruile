@@ -7,7 +7,9 @@ type QARequest struct {
 	Session            *Session           // The conversation session
 	Query              string             // User query text
 	AssistantMessageID string             // Pre-created assistant message ID
+	ResponseTier       ResponseTier       // User-facing model tier selected for this request
 	SummaryModelID     string             // Optional model override; empty = use agent/KB default
+	ResolvedModelID    string             // Internal model binding resolved from ResponseTierConfig
 	CustomAgent        *CustomAgent       // Optional custom agent for config override
 	KnowledgeBaseIDs   []string           // Knowledge base IDs to search (from request + @mentions)
 	KnowledgeIDs       []string           // Specific knowledge (file) IDs to search

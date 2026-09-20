@@ -39,11 +39,16 @@ func (r *customAgentRepository) GetAgentByID(ctx context.Context, id string, ten
 	return &agent, nil
 }
 
-// ListAgentsByTenantID lists all agents for a specific tenant
+// ListAgentsByTenantID lists workspace custom agents plus platform-managed
+// built-in agents. Legacy per-workspace built-in overrides are intentionally
+// ignored so every workspace sees the same built-in configuration.
 func (r *customAgentRepository) ListAgentsByTenantID(ctx context.Context, tenantID uint64) ([]*types.CustomAgent, error) {
 	var agents []*types.CustomAgent
 	if err := r.db.WithContext(ctx).
-		Where("tenant_id = ?", tenantID).
+		Where(
+			"(tenant_id = ? AND is_builtin = ?) OR (tenant_id = ? AND is_builtin = ?)",
+			tenantID, false, types.SystemAgentTenantID, true,
+		).
 		Order("created_at DESC").
 		Find(&agents).Error; err != nil {
 		return nil, err
@@ -66,9 +71,10 @@ func (r *customAgentRepository) CountByModelID(
 	ctx context.Context, tenantID uint64, modelID string,
 ) (int64, error) {
 	var count int64
-	query := r.db.WithContext(ctx).
-		Model(&types.CustomAgent{}).
-		Where("tenant_id = ?", tenantID)
+	query := r.db.WithContext(ctx).Model(&types.CustomAgent{})
+	if tenantID != types.SystemModelTenantID {
+		query = query.Where("tenant_id = ?", tenantID)
+	}
 	query = scopeCustomAgentsByModelID(query, modelID)
 	err := query.Count(&count).Error
 	return count, err

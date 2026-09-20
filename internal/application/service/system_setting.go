@@ -63,7 +63,7 @@ type changeMessage struct {
 // Update rejects any key not in this registry — so the UI cannot inject
 // arbitrary keys into the DB, even with an attacker-controlled body.
 type settingSpec struct {
-	// Type is one of "int" | "string" | "bool" | "string_list". Update
+	// Type is one of "int" | "string" | "bool" | "string_list" | "json". Update
 	// validates the payload's Go type against this; reads decode accordingly.
 	Type string
 	// EnvName is the legacy environment variable consulted when the DB
@@ -92,6 +92,9 @@ type settingSpec struct {
 	// (e.g. asynq worker pool size). The UI shows a restart badge; the
 	// service persists the flag on first write.
 	RequiresRestart bool
+	// Hidden keeps settings with a dedicated management screen out of the
+	// generic key/value settings table.
+	Hidden bool
 }
 
 // registry pins the set of legal keys. Expanding it is a deliberate,
@@ -314,6 +317,14 @@ var registry = map[string]settingSpec{
 			"每次调用实时读取，修改后立即生效、无需重启。0 或负数表示关闭默认限制" +
 			"（各模型仍会尊重自身在模型管理里配置的上限）。仅影响后台任务，不影响交互式对话。",
 	},
+	types.SystemResponseTierSettingKey: {
+		Type:     "json",
+		Default:  types.DefaultResponseTierConfig(),
+		Category: "agent",
+		Description: "全平台回答档位配置。统一绑定快速、均衡、极致所使用的聊天模型和 Think 策略，" +
+			"由系统管理员在回答档位专用页面维护。",
+		Hidden: true,
+	},
 }
 
 // systemSettingService wires the repository, audit log, and (P2)
@@ -472,6 +483,12 @@ func encodeDefault(spec settingSpec) (types.JSON, error) {
 		default:
 			return nil, fmt.Errorf("registry spec for string_list has wrong default type %T", spec.Default)
 		}
+	case "json":
+		b, err := json.Marshal(spec.Default)
+		if err != nil {
+			return nil, fmt.Errorf("registry spec for json cannot be encoded: %w", err)
+		}
+		return types.JSON(b), nil
 	default:
 		return nil, errors.New("unknown declared type: " + spec.Type)
 	}
@@ -768,6 +785,10 @@ func (s *systemSettingService) List(ctx context.Context) ([]*types.SystemSetting
 
 	for _, key := range keys {
 		spec := registry[key]
+		if spec.Hidden {
+			delete(byKey, key)
+			continue
+		}
 		if row := byKey[key]; row != nil {
 			row.Enum = spec.Enum
 			if isBootstrapDefaultRow(row, spec) {
@@ -1316,6 +1337,12 @@ func encodeForType(declared string, rawValue any) (types.JSON, error) {
 			return nil, fmt.Errorf("expected string array, got %T", rawValue)
 		}
 		b, _ := json.Marshal(entries)
+		return types.JSON(b), nil
+	case "json":
+		b, err := json.Marshal(rawValue)
+		if err != nil {
+			return nil, fmt.Errorf("expected JSON-compatible value: %w", err)
+		}
 		return types.JSON(b), nil
 	default:
 		return nil, errors.New("unknown declared type: " + declared)

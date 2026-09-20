@@ -124,6 +124,24 @@ func (f *fakeMemberService) ListByUser(ctx context.Context, userID string) ([]*t
 func (f *fakeMemberService) ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error) {
 	return nil, nil
 }
+func (f *fakeMemberService) CountActiveByTenantIDs(
+	_ context.Context,
+	tenantIDs []uint64,
+) (map[uint64]int64, error) {
+	counts := make(map[uint64]int64, len(tenantIDs))
+	for _, member := range f.members {
+		if member.Status != types.TenantMemberStatusActive {
+			continue
+		}
+		for _, tenantID := range tenantIDs {
+			if member.TenantID == tenantID {
+				counts[tenantID]++
+				break
+			}
+		}
+	}
+	return counts, nil
+}
 func (f *fakeMemberService) ListMembersPage(
 	ctx context.Context, tenantID uint64, filter types.TenantMemberListFilter, page, pageSize int,
 ) ([]*types.TenantMember, int64, error) {
@@ -147,6 +165,29 @@ func (f *fakeMemberService) UpdateRole(
 }
 func (f *fakeMemberService) UpdateWorkProfileDescription(ctx context.Context, userID string, tenantID uint64, description string) error {
 	return nil
+}
+func (f *fakeMemberService) ListTransferableAssets(
+	_ context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.MemberTransferableAssets, error) {
+	return &types.MemberTransferableAssets{
+		TenantID:       tenantID,
+		SourceUserID:   userID,
+		KnowledgeBases: []types.MemberTransferableAsset{},
+		Agents:         []types.MemberTransferableAsset{},
+	}, nil
+}
+func (f *fakeMemberService) TransferMemberAssets(
+	_ context.Context,
+	command types.MemberAssetTransferCommand,
+) (*types.MemberAssetTransferResult, error) {
+	return &types.MemberAssetTransferResult{
+		TenantID:     command.TenantID,
+		SourceUserID: command.SourceUserID,
+		TargetType:   command.TargetType,
+		TargetUserID: command.TargetUserID,
+	}, nil
 }
 func (f *fakeMemberService) RemoveMember(ctx context.Context, userID string, tenantID uint64) error {
 	return nil

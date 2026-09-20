@@ -35,6 +35,8 @@ type stubMemberService struct {
 	getMembership   func(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
 	updateRole      func(ctx context.Context, userID string, tenantID uint64, newRole types.TenantRole) error
 	updateProfile   func(ctx context.Context, userID string, tenantID uint64, description string) error
+	listAssets      func(ctx context.Context, userID string, tenantID uint64) (*types.MemberTransferableAssets, error)
+	transferAssets  func(ctx context.Context, command types.MemberAssetTransferCommand) (*types.MemberAssetTransferResult, error)
 	remove          func(ctx context.Context, userID string, tenantID uint64) error
 	suspend         func(ctx context.Context, userID string, tenantID uint64) error
 	reactivate      func(ctx context.Context, userID string, tenantID uint64) error
@@ -119,6 +121,37 @@ func (s *stubMemberService) UpdateWorkProfileDescription(ctx context.Context, us
 		return nil
 	}
 	return s.updateProfile(ctx, userID, tenantID, description)
+}
+
+func (s *stubMemberService) ListTransferableAssets(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.MemberTransferableAssets, error) {
+	if s.listAssets != nil {
+		return s.listAssets(ctx, userID, tenantID)
+	}
+	return &types.MemberTransferableAssets{
+		TenantID:       tenantID,
+		SourceUserID:   userID,
+		KnowledgeBases: []types.MemberTransferableAsset{},
+		Agents:         []types.MemberTransferableAsset{},
+	}, nil
+}
+
+func (s *stubMemberService) TransferMemberAssets(
+	ctx context.Context,
+	command types.MemberAssetTransferCommand,
+) (*types.MemberAssetTransferResult, error) {
+	if s.transferAssets != nil {
+		return s.transferAssets(ctx, command)
+	}
+	return &types.MemberAssetTransferResult{
+		TenantID:     command.TenantID,
+		SourceUserID: command.SourceUserID,
+		TargetType:   command.TargetType,
+		TargetUserID: command.TargetUserID,
+	}, nil
 }
 
 func (s *stubMemberService) RemoveMember(ctx context.Context, userID string, tenantID uint64) error {
@@ -283,6 +316,8 @@ func memberTestRouterWithCfg(h *TenantMemberHandler, cfg *config.Config) *gin.En
 	tenantByID.POST("/members/admin-create", h.AdminCreateMember)
 	tenantByID.GET("/members/me/profile", h.GetMyMemberProfile)
 	tenantByID.PUT("/members/me/profile", h.UpdateMyMemberProfile)
+	tenantByID.GET("/members/:user_id/transferable-assets", h.ListTransferableAssets)
+	tenantByID.POST("/members/:user_id/asset-transfer", h.TransferMemberAssets)
 	tenantByID.POST("/members/me/profile/generate", h.GenerateMyMemberProfile)
 	tenantByID.PUT("/members/:user_id", h.UpdateMemberRole)
 	tenantByID.PUT("/members/:user_id/profile", h.UpdateMemberProfile)
@@ -1078,6 +1113,102 @@ func TestTenantMember_GenerateMyMemberProfile_RequiresPrompt(t *testing.T) {
 	}
 }
 
+// ---------- Member asset transfer ----------
+
+func TestTenantMember_ListTransferableAssets_HappyPath(t *testing.T) {
+	ms := &stubMemberService{
+		listAssets: func(_ context.Context, userID string, tenantID uint64) (*types.MemberTransferableAssets, error) {
+			if userID != "u-bob" || tenantID != 1 {
+				t.Fatalf("unexpected args: user=%s tenant=%d", userID, tenantID)
+			}
+			return &types.MemberTransferableAssets{
+				TenantID:     tenantID,
+				SourceUserID: userID,
+				KnowledgeBases: []types.MemberTransferableAsset{{
+					ID:   "kb-1",
+					Name: "招生知识库",
+					Type: types.MemberAssetTypeKnowledgeBase,
+				}},
+				Total: 1,
+			}, nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	w := doJSON(t, memberTestRouter(h), http.MethodGet, "/tenants/1/members/u-bob/transferable-assets", nil, "u-owner")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"source_user_id":"u-bob"`) ||
+		!strings.Contains(w.Body.String(), `"id":"kb-1"`) {
+		t.Fatalf("unexpected response: %s", w.Body.String())
+	}
+}
+
+func TestTenantMember_TransferMemberAssets_HappyPath(t *testing.T) {
+	var captured types.MemberAssetTransferCommand
+	ms := &stubMemberService{
+		transferAssets: func(_ context.Context, command types.MemberAssetTransferCommand) (*types.MemberAssetTransferResult, error) {
+			captured = command
+			return &types.MemberAssetTransferResult{
+				TenantID:                  command.TenantID,
+				SourceUserID:              command.SourceUserID,
+				TargetType:                command.TargetType,
+				TargetUserID:              command.TargetUserID,
+				KnowledgeBasesTransferred: 1,
+				AgentsTransferred:         1,
+				TotalTransferred:          2,
+			}, nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+	body := map[string]any{
+		"target_type":        "member",
+		"target_user_id":     "u-alice",
+		"scope":              "selected",
+		"knowledge_base_ids": []string{"kb-1"},
+		"agent_ids":          []string{"agent-1"},
+		"reason":             "员工岗位调整",
+	}
+
+	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/u-bob/asset-transfer", body, "u-owner")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if captured.TenantID != 1 ||
+		captured.SourceUserID != "u-bob" ||
+		captured.TargetType != types.MemberAssetTransferTargetMember ||
+		captured.TargetUserID != "u-alice" ||
+		captured.Scope != types.MemberAssetTransferScopeSelected ||
+		len(captured.KnowledgeBaseIDs) != 1 ||
+		len(captured.AgentIDs) != 1 ||
+		captured.Reason != "员工岗位调整" {
+		t.Fatalf("unexpected command: %+v", captured)
+	}
+	if !strings.Contains(w.Body.String(), `"total_transferred":2`) {
+		t.Fatalf("unexpected response: %s", w.Body.String())
+	}
+}
+
+func TestTenantMember_TransferMemberAssets_ValidationMaps400(t *testing.T) {
+	ms := &stubMemberService{
+		transferAssets: func(context.Context, types.MemberAssetTransferCommand) (*types.MemberAssetTransferResult, error) {
+			return nil, service.ErrAssetTransferInvalidTarget
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+	body := map[string]any{
+		"target_type": "member",
+		"scope":       "all",
+		"reason":      "员工岗位调整",
+	}
+
+	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members/u-bob/asset-transfer", body, "u-owner")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid transfer must 400, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 // ---------- RemoveMember ----------
 
 func TestTenantMember_RemoveMember_HappyPath(t *testing.T) {
@@ -1111,6 +1242,37 @@ func TestTenantMember_RemoveMember_LastOwnerMaps409(t *testing.T) {
 	w := doJSON(t, memberTestRouter(h), http.MethodDelete, "/tenants/1/members/u-only-owner", nil, "u-only-owner")
 	if w.Code != http.StatusConflict {
 		t.Fatalf("last-owner remove must 409, got %d", w.Code)
+	}
+}
+
+func TestTenantMember_RemoveMember_TransferableAssetsMaps409(t *testing.T) {
+	listCalled := false
+	ms := &stubMemberService{
+		remove: func(_ context.Context, _ string, _ uint64) error {
+			return service.ErrMemberHasTransferableAssets
+		},
+		listAssets: func(_ context.Context, userID string, tenantID uint64) (*types.MemberTransferableAssets, error) {
+			listCalled = true
+			return &types.MemberTransferableAssets{
+				TenantID:     tenantID,
+				SourceUserID: userID,
+				Agents: []types.MemberTransferableAsset{{
+					ID:   "agent-1",
+					Name: "招生助手",
+					Type: types.MemberAssetTypeAgent,
+				}},
+				Total: 1,
+			}, nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	w := doJSON(t, memberTestRouter(h), http.MethodDelete, "/tenants/1/members/u-bob", nil, "u-owner")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("member with assets must 409, got %d body=%s", w.Code, w.Body.String())
+	}
+	if !listCalled {
+		t.Fatal("handler should load the blocking asset inventory for the conflict response")
 	}
 }
 

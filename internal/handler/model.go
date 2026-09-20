@@ -74,12 +74,7 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 		c.Error(errors.NewBadRequestError(err.Error()))
 		return
 	}
-	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-	if tenantID == 0 {
-		logger.Error(ctx, "Tenant ID is empty")
-		c.Error(errors.NewBadRequestError("Workspace ID cannot be empty"))
-		return
-	}
+	tenantID := types.SystemModelTenantID
 
 	logger.Infof(ctx, "Creating model, Tenant ID: %d, Model name: %s, Model type: %s",
 		tenantID, secutils.SanitizeForLog(req.Name), secutils.SanitizeForLog(string(req.Type)))
@@ -169,7 +164,7 @@ func (h *ModelHandler) GetModel(c *gin.Context) {
 
 // ListModels godoc
 // @Summary      获取模型列表
-// @Description  获取当前空间的所有模型
+// @Description  获取当前空间可使用的模型（包含系统后台统一配置的模型）
 // @Tags         模型管理
 // @Accept       json
 // @Produce      json

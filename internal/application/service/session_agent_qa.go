@@ -62,6 +62,11 @@ func (s *sessionService) AgentQA(
 		tenantInfo = &types.Tenant{ID: agentTenantID}
 	}
 
+	responseTierProfile, _, err := s.resolveResponseTier(ctx, req, agentTenantID)
+	if err != nil {
+		return err
+	}
+
 	// Ensure defaults are set
 	req.CustomAgent.EnsureDefaults()
 
@@ -69,6 +74,10 @@ func (s *sessionService) AgentQA(
 	agentConfig, err := s.buildAgentConfig(ctx, req, tenantInfo, agentTenantID)
 	if err != nil {
 		return err
+	}
+	if responseTierProfile.Thinking != nil {
+		agentConfig.Thinking = responseTierProfile.Thinking
+		logger.Infof(ctx, "Using response tier thinking: %v", *responseTierProfile.Thinking)
 	}
 
 	// Set VLM model ID for tool result image analysis (runtime-only field)

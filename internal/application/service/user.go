@@ -143,6 +143,10 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	if existingUser != nil {
 		return nil, errors.New("user with this username already exists")
 	}
+	if err := s.userRepo.PurgeDeletedUserByIdentity(ctx, req.Email, req.Username); err != nil {
+		logger.Errorf(ctx, "Failed to purge deleted account identity: %v", err)
+		return nil, errors.New("failed to release deleted account identity")
+	}
 
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -302,6 +306,10 @@ func (s *userService) AdminCreateUser(ctx context.Context, req *types.RegisterRe
 	existingUser, _ = s.userRepo.GetUserByUsername(ctx, username)
 	if existingUser != nil {
 		return nil, errors.New("user with this username already exists")
+	}
+	if err := s.userRepo.PurgeDeletedUserByIdentity(ctx, identity, username); err != nil {
+		logger.Errorf(ctx, "Failed to purge deleted admin-created account identity: %v", err)
+		return nil, errors.New("failed to release deleted account identity")
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -862,6 +870,34 @@ func (s *userService) UpdateUserPreferences(
 // DeleteUser deletes a user
 func (s *userService) DeleteUser(ctx context.Context, id string) error {
 	return s.userRepo.DeleteUser(ctx, id)
+}
+
+// SetSystemUserActive updates account availability and revokes all active
+// sessions when an account is disabled.
+func (s *userService) SetSystemUserActive(
+	ctx context.Context,
+	userID, actorID string,
+	active bool,
+) (*types.User, error) {
+	user, err := s.userRepo.SetSystemUserActive(ctx, userID, actorID, active)
+	if err != nil {
+		return nil, err
+	}
+	if !active {
+		if err := s.tokenRepo.RevokeTokensByUserID(ctx, userID); err != nil {
+			return nil, err
+		}
+	}
+	return user, nil
+}
+
+// DeleteSystemUser permanently deletes the account and its account-scoped
+// sessions/memberships. Enterprise-owned resources must be transferred first.
+func (s *userService) DeleteSystemUser(
+	ctx context.Context,
+	userID, actorID string,
+) (*types.User, error) {
+	return s.userRepo.DeleteSystemUser(ctx, userID, actorID)
 }
 
 // ChangePassword changes user password

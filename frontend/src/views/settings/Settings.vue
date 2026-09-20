@@ -62,7 +62,7 @@
             <!-- 右侧内容区域 -->
             <div class="settings-content">
               <div class="content-wrapper" :class="{
-                'content-wrapper--wide': currentSection === 'members',
+                'content-wrapper--wide': currentSection === 'members' || currentSection === 'enterpriseUsage',
                 'content-wrapper--team-space': currentSection === 'sharedSpace',
               }">
                 <!-- 角色不允许访问当前 section（deep-link 进来 / 跨空间切换后角色降级）—— 优先于具体 section 渲染。
@@ -103,6 +103,11 @@
                     <TenantMembers />
                   </div>
 
+                  <!-- 企业用量策略：仅企业管理员和企业主可见。 -->
+                  <div v-if="currentSection === 'enterpriseUsage'" class="section section--fill">
+                    <EnterpriseUsagePolicy />
+                  </div>
+
                   <!-- 企业版团队空间管理 -->
                   <div v-if="currentSection === 'sharedSpace'" class="section section--fill">
                     <OrganizationList />
@@ -127,6 +132,7 @@ import GeneralSettings from './GeneralSettings.vue'
 import TenantInfo from './TenantInfo.vue'
 import WorkProfile from './WorkProfile.vue'
 import TenantMembers from './TenantMembers.vue'
+import EnterpriseUsagePolicy from './EnterpriseUsagePolicy.vue'
 import OrganizationList from '@/views/organization/OrganizationList.vue'
 import { useAuthStore } from '@/stores/auth'
 import { navigateToAdmin, type AdminNavigationTarget } from '@/utils/adminNavigation'
@@ -147,9 +153,11 @@ const LOCAL_SETTING_SECTIONS = new Set([
   'workprofile',
   'tenant',
   'members',
+  'enterpriseUsage',
   'sharedSpace',
 ])
-const ENTERPRISE_SETTING_SECTIONS = new Set(['members', 'sharedSpace'])
+const ENTERPRISE_SETTING_SECTIONS = new Set(['members', 'enterpriseUsage', 'sharedSpace'])
+const ENTERPRISE_ADMIN_SETTING_SECTIONS = new Set(['enterpriseUsage'])
 
 function openAdminAgentsFromCurrentRoute(section?: string): AdminNavigationTarget {
   return {
@@ -239,11 +247,22 @@ const openAdminSection = (section: string, subSection?: string | null): boolean 
   return true
 }
 
+const canManageEnterpriseSettings = computed(() => {
+  const tenantId = Number(authStore.manageableEnterpriseTenantId || 0)
+  const role = String(
+    authStore.memberships.find((membership) =>
+      Number(membership.tenant_id) === tenantId
+      && membership.space_type === 'organization')?.role || '',
+  ).toLowerCase()
+  return role === 'admin' || role === 'owner'
+})
+
 const canSeeSection = (key: string): boolean =>
   LOCAL_SETTING_SECTIONS.has(key)
   // 企业设置是账号级入口：只要账号拥有企业空间，就允许从设置
   // 导航进入；不依赖当前正在查看的个人空间或企业空间。
   && (!ENTERPRISE_SETTING_SECTIONS.has(key) || authStore.hasEnterpriseMembership)
+  && (!ENTERPRISE_ADMIN_SETTING_SECTIONS.has(key) || canManageEnterpriseSettings.value)
 
 const navItems = computed(() => {
   const all: NavItem[] = [
@@ -259,6 +278,11 @@ const navItems = computed(() => {
         icon: 'usergroup',
         label: t('settings.teamSpace.memberManagement'),
       },
+      ...(canManageEnterpriseSettings.value ? [{
+        key: 'enterpriseUsage',
+        icon: 'wallet',
+        label: t('settings.teamSpace.enterpriseUsage'),
+      }] : []),
       {
         key: 'sharedSpace',
         icon: 'usergroup-add',
@@ -281,7 +305,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'team',
       label: t('settings.navGroups.team'),
-      items: pickItems(['members', 'sharedSpace']),
+      items: pickItems(['members', 'enterpriseUsage', 'sharedSpace']),
     },
   ].filter((group) => group.items.length > 0)
 })
