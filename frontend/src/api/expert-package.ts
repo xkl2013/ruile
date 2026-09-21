@@ -1,5 +1,5 @@
 import { get, post, postUpload, put } from '@/utils/request'
-import type { ServiceAgentRun } from '@/api/service'
+import type { AgentRun } from '@/api/agent-run-types'
 
 export interface ExpertPackageResponse<T> {
   success: boolean
@@ -228,21 +228,21 @@ export function runPublishedExpert(
   definitionId: string,
   data: ExpertAgentTestInput,
 ) {
-  return post<ExpertPackageResponse<ServiceAgentRun>>(
+  return post<ExpertPackageResponse<AgentRun>>(
     `/api/v1/expert-packages/published/${encodeURIComponent(packageId)}/definitions/${encodeURIComponent(definitionId)}/runs`,
     data,
   )
 }
 
 export function runPublishedExpertAuto(data: ExpertAgentTestInput) {
-  return post<ExpertPackageResponse<ServiceAgentRun>>(
+  return post<ExpertPackageResponse<AgentRun>>(
     '/api/v1/expert-packages/published/auto-runs',
     { ...data, route_mode: 'auto' },
   )
 }
 
 export function runPublishedExpertFollowUp(runId: string, data: ExpertFollowUpInput) {
-  return post<ExpertPackageResponse<ServiceAgentRun>>(
+  return post<ExpertPackageResponse<AgentRun>>(
     `/api/v1/expert-packages/published/runs/${encodeURIComponent(runId)}/follow-ups`,
     data,
   )
@@ -253,7 +253,7 @@ export function testExpertPackageAgent(
   definitionId: string,
   data: ExpertAgentTestInput,
 ) {
-  return post<ExpertPackageResponse<ServiceAgentRun>>(
+  return post<ExpertPackageResponse<AgentRun>>(
     `/api/v1/admin/expert-packages/${encodeURIComponent(packageId)}/definitions/${encodeURIComponent(definitionId)}/test-runs`,
     data,
   )

@@ -64,6 +64,25 @@
                         </template>
                     </div>
                 </template>
+                <template v-else-if="item.path === 'service'">
+                    <div class="menu_box">
+                        <template v-if="uiStore.sidebarCollapsed">
+                            <t-tooltip :content="item.title" placement="right">
+                                <div @click="handleMenuClick(item.path)" :data-guide="`nav-${item.path}`"
+                                    :class="['menu_item', isMenuItemActive(item.path) ? 'menu_item_active' : '']">
+                                    <div class="menu_item-box">
+                                        <div class="menu_icon">
+                                            <t-icon name="chat" class="icon menu-icon-symbol" />
+                                        </div>
+                                    </div>
+                                </div>
+                            </t-tooltip>
+                        </template>
+                        <template v-else>
+                            <ServiceHubMenu />
+                        </template>
+                    </div>
+                </template>
                 <div v-else class="menu_box" :class="{ 'menu_box--sticky': item.children && !uiStore.sidebarCollapsed }">
                     <t-tooltip :content="item.title" placement="right" :disabled="!uiStore.sidebarCollapsed">
                         <div @click="handleMenuClick(item.path)" @mouseenter="mouseenteMenu(item.path)"
@@ -71,8 +90,7 @@
                             :class="['menu_item', item.childrenPath && item.childrenPath == currentpath ? 'menu_item_c_active' : isMenuItemActive(item.path) ? 'menu_item_active' : '']">
                             <div class="menu_item-box">
                                 <div class="menu_icon">
-                                    <t-icon v-if="item.path === 'messages'" name="chat" class="icon menu-icon-symbol" />
-                                    <img v-else class="icon"
+                                    <img class="icon"
                                         :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
                                         :class="{ 'icon--avatar': item.path === 'creatChat' }" alt="">
                                 </div>
@@ -238,6 +256,7 @@ import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
 import UserMenu from '@/components/UserMenu.vue';
 import KnowledgeBaseMenu from '@/components/KnowledgeBaseMenu.vue';
 import OrganizeMenu from '@/components/OrganizeMenu.vue';
+import ServiceHubMenu from '@/components/ServiceHubMenu.vue';
 import { useI18n } from 'vue-i18n';
 import { getSystemInfo } from '@/api/system';
 import { navigateToAdmin } from '@/utils/adminNavigation';
@@ -364,7 +383,7 @@ const isInChatDetail = computed<boolean>(() => route.name === 'chat');
 // 是否在智能体列表页面
 const isInAgentList = computed<boolean>(() => route.name === 'agentList');
 
-// 服务模块有自己的提醒列表，侧栏不再同时展示历史会话列表。
+// 服务模块在应用侧栏中展示自己的服务与会话树。
 const isInServiceModule = computed<boolean>(() => typeof route.name === 'string' && route.name.startsWith('service'));
 
 // 统一的菜单项激活状态判断
@@ -380,7 +399,7 @@ const isMenuItemActive = (itemPath: string): boolean => {
             return currentRoute === 'agentList';
         case 'creatChat':
             return currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat';
-        case 'messages':
+        case 'service':
             return typeof currentRoute === 'string' && currentRoute.startsWith('service');
         case 'settings':
             return currentRoute === 'settings';
@@ -408,13 +427,13 @@ const getIconActiveState = (itemPath: string) => {
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) =>
-        item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'messages'
+        item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'service'
     );
 });
 
 const bottomMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => {
-        if (item.path === 'knowledge-bases' || item.path === 'creatChat') {
+        if (item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'service') {
             return false;
         }
         return true;

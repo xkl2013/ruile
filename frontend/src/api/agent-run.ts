@@ -3,14 +3,19 @@ import { get, getDown, post } from '@/utils/request'
 import { generateRandomString } from '@/utils/index'
 import { getApiBaseUrl } from '@/utils/api-base'
 import type {
-  ServiceAgentRun as AgentRun,
-  ServiceAgentRunEvent as AgentRunEvent,
-  ServiceAgentRunQuality as AgentRunQuality,
-  ServiceAgentRunStep as AgentRunStep,
-  ServiceResponse,
-} from '@/api/service'
+  AgentRun,
+  AgentRunEvent,
+  AgentRunQuality,
+  AgentRunStep,
+} from './agent-run-types'
 
-export type { AgentRun, AgentRunEvent, AgentRunQuality, AgentRunStep }
+export type { AgentRun, AgentRunEvent, AgentRunQuality, AgentRunStep } from './agent-run-types'
+
+interface AgentRunResponse<T> {
+  success: boolean
+  data: T
+  message?: string
+}
 
 export interface AgentRunDiff {
   changed: boolean
@@ -21,41 +26,41 @@ export interface AgentRunDiff {
 }
 
 export function getAgentRun(id: string) {
-  return get<ServiceResponse<AgentRun>>(`/api/v1/agent-runs/${encodeURIComponent(id)}`)
+  return get<AgentRunResponse<AgentRun>>(`/api/v1/agent-runs/${encodeURIComponent(id)}`)
 }
 
 export function listAgentThreadRuns(id: string) {
-  return get<ServiceResponse<AgentRun[]>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/thread`)
+  return get<AgentRunResponse<AgentRun[]>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/thread`)
 }
 
 export function getAgentRunDiff(id: string) {
-  return get<ServiceResponse<AgentRunDiff>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/diff`)
+  return get<AgentRunResponse<AgentRunDiff>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/diff`)
 }
 
 export function getAgentRunQuality(id: string) {
-  return get<ServiceResponse<AgentRunQuality>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/quality`)
+  return get<AgentRunResponse<AgentRunQuality>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/quality`)
 }
 
 export function listAgentRunSteps(id: string) {
-  return get<ServiceResponse<AgentRunStep[]>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/steps`)
+  return get<AgentRunResponse<AgentRunStep[]>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/steps`)
 }
 
 export function submitAgentRunAnswers(id: string, answers: Record<string, unknown>) {
-  return post<ServiceResponse<AgentRun>>(
+  return post<AgentRunResponse<AgentRun>>(
     `/api/v1/agent-runs/${encodeURIComponent(id)}/answers`,
     { answers },
   )
 }
 
 export function regenerateAgentRun(id: string, feedback?: string) {
-  return post<ServiceResponse<AgentRun>>(
+  return post<AgentRunResponse<AgentRun>>(
     `/api/v1/agent-runs/${encodeURIComponent(id)}/regenerate`,
     feedback?.trim() ? { feedback: feedback.trim() } : {},
   )
 }
 
 export function cancelAgentRun(id: string) {
-  return post<ServiceResponse<AgentRun>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/cancel`)
+  return post<AgentRunResponse<AgentRun>>(`/api/v1/agent-runs/${encodeURIComponent(id)}/cancel`)
 }
 
 export function getAgentArtifactPreview(runId: string, artifactId: string) {
