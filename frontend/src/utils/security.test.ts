@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { protectProviderImageSrcInHTML } from './security.ts'
+import {
+  buildProtectedFileRequestURLs,
+  protectProviderImageSrcInHTML,
+} from './security.ts'
 
 test('protectProviderImageSrcInHTML uses a placeholder src for provider images', () => {
   const html = '<p><img alt="preview" src="local://10000/exports/a.jpg"></p>'
@@ -34,5 +37,17 @@ test('protectProviderImageSrcInHTML uses a placeholder src for resource referenc
   assert.match(
     sanitized,
     /data-protected-src="resource:\/\/AbCdEfGhIjKlMnOpQrStUv"/,
+  )
+})
+
+test('buildProtectedFileRequestURLs prefers KB-scoped proxies before tenant files', () => {
+  const source = 'resource://AbCdEfGhIjKlMnOpQrStUv'
+  assert.deepEqual(
+    buildProtectedFileRequestURLs(source, undefined, ['kb-owner', 'kb-fallback']),
+    [
+      `/api/v1/knowledge-bases/kb-owner/files?file_path=${encodeURIComponent(source)}`,
+      `/api/v1/knowledge-bases/kb-fallback/files?file_path=${encodeURIComponent(source)}`,
+      `/files?file_path=${encodeURIComponent(source)}`,
+    ],
   )
 })

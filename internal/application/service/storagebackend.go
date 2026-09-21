@@ -254,10 +254,18 @@ func (s *StorageBackendService) ResolveBackend(ctx context.Context, tenant *type
 	if tenant == nil {
 		return nil, fmt.Errorf("workspace context missing")
 	}
+	lookupTenantID := tenant.ID
+	if effectiveTenantID, ok := types.TenantIDFromContext(ctx); ok && effectiveTenantID != 0 {
+		// Shared knowledge-base routes rewrite TenantIDContextKey to the
+		// owning workspace while retaining the caller's TenantInfo for
+		// authorization. Storage backends are tenant-scoped, so backend
+		// lookup must follow the effective workspace.
+		lookupTenantID = effectiveTenantID
+	}
 	backendID = strings.TrimSpace(backendID)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if backendID == "" && provider != "" {
-		backend, err := s.repo.FindLegacyAlias(ctx, tenant.ID, provider)
+		backend, err := s.repo.FindLegacyAlias(ctx, lookupTenantID, provider)
 		if err != nil || backend != nil {
 			return backend, err
 		}
@@ -266,7 +274,7 @@ func (s *StorageBackendService) ResolveBackend(ctx context.Context, tenant *type
 		backendID = strings.TrimSpace(*tenant.DefaultStorageBackendID)
 	}
 	if backendID != "" {
-		backend, err := s.repo.GetByID(ctx, tenant.ID, backendID)
+		backend, err := s.repo.GetByID(ctx, lookupTenantID, backendID)
 		if err != nil {
 			return nil, err
 		}

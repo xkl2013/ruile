@@ -895,31 +895,59 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, 
 	}
 
 	scopes := make([]types.KnowledgeSearchScope, 0)
+	scopeSet := make(map[string]struct{})
+	appendScope := func(scope types.KnowledgeSearchScope) {
+		if scope.TenantID == 0 || scope.KBID == "" {
+			return
+		}
+		key := fmt.Sprintf("%d:%s", scope.TenantID, scope.KBID)
+		if _, exists := scopeSet[key]; exists {
+			return
+		}
+		scopeSet[key] = struct{}{}
+		scopes = append(scopes, scope)
+	}
 
 	// Own tenant: document-type knowledge bases
 	ownKBs, err := s.kbService.ListKnowledgeBases(ctx)
 	if err == nil {
 		for _, kb := range ownKBs {
 			if kb != nil && kb.Type == types.KnowledgeBaseTypeDocument {
-				scopes = append(scopes, types.KnowledgeSearchScope{TenantID: tenantID, KBID: kb.ID})
+				appendScope(types.KnowledgeSearchScope{TenantID: tenantID, KBID: kb.ID})
 			}
+		}
+	}
+
+	// A normal account can open a knowledge base it created in an enterprise
+	// workspace while its active UI workspace is personal. Keep the historical
+	// current-tenant scopes above, then add the account-centred projection so
+	// the standalone search endpoint matches the chat retrieval visibility.
+	if userID, ok := types.UserIDFromContext(ctx); ok &&
+		userID != "" && !types.IsSyntheticUserID(userID) {
+		accountKBs, listErr := s.kbService.ListMyKnowledgeBases(ctx)
+		if listErr != nil {
+			logger.Warnf(ctx, "Failed to list account-readable knowledge bases for search: %v", listErr)
+		} else if accountKBs != nil {
+			appendAccountKnowledgeBaseSearchScopes(appendScope, accountKBs)
 		}
 	}
 
 	// Shared knowledge bases (document type only). Plan 3 of #1303 keys
 	// the share lookup on (tenantID, callerTenantRole); userID is no
 	// longer load-bearing for org-share access.
-	if userIDVal := ctx.Value(types.UserIDContextKey); userIDVal != nil {
-		if userID, ok := userIDVal.(string); ok && userID != "" {
-			callerTenantRole := types.TenantRoleFromContext(ctx)
-			sharedList, err := s.kbShareService.ListSharedKnowledgeBases(ctx, tenantID, callerTenantRole)
-			if err == nil {
-				for _, info := range sharedList {
-					if info != nil && info.KnowledgeBase != nil && info.KnowledgeBase.Type == types.KnowledgeBaseTypeDocument {
-						scopes = append(scopes, types.KnowledgeSearchScope{
-							TenantID: info.SourceTenantID,
-							KBID:     info.KnowledgeBase.ID,
-						})
+	if s.kbShareService != nil {
+		if userIDVal := ctx.Value(types.UserIDContextKey); userIDVal != nil {
+			if userID, ok := userIDVal.(string); ok && userID != "" {
+				callerTenantRole := types.TenantRoleFromContext(ctx)
+				sharedList, err := s.kbShareService.ListSharedKnowledgeBases(ctx, tenantID, callerTenantRole)
+				if err == nil {
+					for _, info := range sharedList {
+						if info != nil && info.KnowledgeBase != nil && info.KnowledgeBase.Type == types.KnowledgeBaseTypeDocument {
+							appendScope(types.KnowledgeSearchScope{
+								TenantID: info.SourceTenantID,
+								KBID:     info.KnowledgeBase.ID,
+							})
+						}
 					}
 				}
 			}
@@ -930,6 +958,36 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, 
 		return nil, false, 0, nil
 	}
 	return s.repo.SearchKnowledgeInScopes(ctx, scopes, keyword, offset, limit, fileTypes)
+}
+
+func appendAccountKnowledgeBaseSearchScopes(
+	appendScope func(types.KnowledgeSearchScope),
+	accountKBs *types.MyKnowledgeBaseList,
+) {
+	if appendScope == nil || accountKBs == nil {
+		return
+	}
+
+	appendItems := func(items []*types.MyKnowledgeBaseListItem) {
+		for _, item := range items {
+			if item == nil || item.KnowledgeBase == nil ||
+				item.KnowledgeBase.Type != types.KnowledgeBaseTypeDocument {
+				continue
+			}
+			tenantID := item.EffectiveTenantID
+			if tenantID == 0 {
+				tenantID = item.KnowledgeBase.TenantID
+			}
+			appendScope(types.KnowledgeSearchScope{
+				TenantID: tenantID,
+				KBID:     item.KnowledgeBase.ID,
+			})
+		}
+	}
+
+	appendItems(accountKBs.Created)
+	appendItems(accountKBs.Shared)
+	appendItems(accountKBs.Subscribed)
 }
 
 // SearchKnowledgeForScopes searches knowledge within the given scopes (e.g. for shared agent context).

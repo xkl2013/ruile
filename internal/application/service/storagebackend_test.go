@@ -40,3 +40,31 @@ func TestStorageBackendResolverScopesPathsAndTenant(t *testing.T) {
 	_, _, err = resolver.ResolveFileService(context.Background(), &types.Tenant{ID: 8}, backend.ID, "local", t.TempDir())
 	require.Error(t, err)
 }
+
+func TestStorageBackendResolverUsesEffectiveTenantFromContext(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.StorageBackend{}))
+
+	repo := repository.NewStorageBackendRepository(db)
+	backend := &types.StorageBackend{
+		TenantID: 10006,
+		Name:     "Enterprise OSS",
+		Provider: "local",
+		Config:   types.StorageBackendConfig{},
+	}
+	require.NoError(t, repo.Create(context.Background(), backend))
+
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10006))
+	resolver := service.NewStorageBackendService(repo, db)
+
+	_, provider, err := resolver.ResolveFileService(
+		ctx,
+		&types.Tenant{ID: 10000},
+		backend.ID,
+		"local",
+		t.TempDir(),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "local", provider)
+}

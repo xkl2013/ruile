@@ -62,6 +62,27 @@ func (s *sessionService) resolveReadableKnowledgeBaseTenant(
 	}
 
 	if kb.TenantID != retrievalTenantID {
+		// A caller may have a valid account-level grant to a KB in another
+		// enterprise workspace (for example, while the active workspace is
+		// personal). Reuse the canonical KB access resolver so QA follows the
+		// same visibility rules as the knowledge-base UI. Shared-agent runs
+		// stay restricted to the agent's published scope above.
+		if !isSharedAgentRuntime(ctx, retrievalTenantID) && s.knowledgeBaseService != nil {
+			access, err := s.knowledgeBaseService.ResolveKnowledgeBaseAccess(
+				ctx,
+				kbID,
+				types.KnowledgeBaseAccessOptions{RequiredPermission: types.OrgRoleViewer},
+			)
+			if err != nil {
+				logger.Warnf(ctx, "Failed to resolve account-level KB access for %s: %v", kbID, err)
+			} else if access != nil {
+				tenantID := access.EffectiveTenantID
+				if tenantID == 0 {
+					tenantID = kb.TenantID
+				}
+				return tenantID, true
+			}
+		}
 		logger.Warnf(ctx, "Dropping KB %s from search targets: no shared read permission", kbID)
 		return 0, false
 	}
@@ -82,8 +103,24 @@ func callerIsTenantAdmin(ctx context.Context) bool {
 
 func isSharedAgentRuntime(ctx context.Context, retrievalTenantID uint64) bool {
 	sessionTenantID, ok := types.SessionTenantIDFromContext(ctx)
+	if !ok {
+		sessionTenantID = 0
+	}
+	return isSharedAgentForTenants(ctx, sessionTenantID, retrievalTenantID)
+}
+
+// isSharedAgentForTenants distinguishes an explicitly shared agent from a
+// same-account agent whose tenant is simply not materialized yet. A zero
+// agent tenant is a global/builtin scope marker, not evidence of a
+// cross-tenant share; treating it as one would drop account-readable
+// enterprise KBs for users whose home workspace is personal.
+func isSharedAgentForTenants(
+	ctx context.Context,
+	sessionTenantID uint64,
+	agentTenantID uint64,
+) bool {
 	return types.IsSharedAgentFromContext(ctx) ||
-		(ok && sessionTenantID != 0 && retrievalTenantID != 0 && sessionTenantID != retrievalTenantID)
+		(sessionTenantID != 0 && agentTenantID != 0 && sessionTenantID != agentTenantID)
 }
 
 func callerTenantIDForSearchVisibility(ctx context.Context, retrievalTenantID uint64) uint64 {

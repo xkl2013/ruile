@@ -414,7 +414,9 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		k.POST("/:id/reparse", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.ReparseKnowledge)
 		k.POST("/:id/regenerate-summary", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.RegenerateKnowledgeSummary)
 		k.POST("/:id/cancel-parse", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.CancelKnowledgeParse)
-		kRead.GET("/:id/download", g.Admin(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.DownloadKnowledgeFile)
+		// 原文件下载属于 KB 读取能力：创建者、共享 viewer+ 和仍然有效的
+		// 订阅入口都由 KBAccessRead 统一校验，不再额外要求当前空间 Admin。
+		kRead.GET("/:id/download", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.DownloadKnowledgeFile)
 		kRead.GET("/:id/preview", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.PreviewKnowledgeFile)
 		k.PUT("/image/:id/:chunk_id", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.UpdateImageInfo)
 		kRead.GET("/search", g.Viewer(), handler.SearchKnowledge)
@@ -2075,6 +2077,7 @@ func newKBScopedFileServeHandlerWithResources(
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: workspace context missing"})
 			return
 		}
+		resourceBackendID := ""
 		if resourceCatalog != nil {
 			resolvedPath, resource, err := resourceCatalog.ResolvePath(ctx, filePath)
 			if err != nil {
@@ -2086,6 +2089,7 @@ func newKBScopedFileServeHandlerWithResources(
 					c.JSON(http.StatusForbidden, gin.H{"error": "forbidden: resource not accessible"})
 					return
 				}
+				resourceBackendID = strings.TrimSpace(resource.StorageBackendID)
 				filePath = resolvedPath
 			}
 		}
@@ -2106,9 +2110,26 @@ func newKBScopedFileServeHandlerWithResources(
 		}
 
 		backendID, innerPath, scoped := types.ParseStorageBackendPath(filePath)
+		if resourceBackendID != "" {
+			if scoped && backendID != resourceBackendID {
+				logger.Warnf(ctx,
+					"[Router] /knowledge-bases/:id/files replacing stale resource backend binding: owner_tenant_id=%d path_backend_id=%s resource_backend_id=%s",
+					ownerTenantID, backendID, resourceBackendID)
+				filePath = types.BuildStorageBackendPath(resourceBackendID, innerPath)
+			}
+			backendID = resourceBackendID
+		}
+		if backendID == "" {
+			if access, exists := middleware.KBAccessFromContext(c); exists &&
+				access != nil &&
+				access.KnowledgeBase != nil &&
+				access.KnowledgeBase.StorageBackendID != nil {
+				backendID = strings.TrimSpace(*access.KnowledgeBase.StorageBackendID)
+			}
+		}
 		providerPath := filePath
-		if scoped {
-			providerPath = innerPath
+		if _, currentInnerPath, currentScoped := types.ParseStorageBackendPath(filePath); currentScoped {
+			providerPath = currentInnerPath
 		}
 		provider := types.ParseProviderScheme(providerPath)
 

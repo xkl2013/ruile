@@ -104,6 +104,7 @@ import { refreshMarkdownEnhancements } from '@/utils/markdownEnhancements';
 import { useChatCitationPopover } from '@/composables/useChatCitationPopover';
 import { useTypewriter } from '@/composables/useTypewriter';
 import { vStableHtml } from '@/directives/stableHtml';
+import { resolveProtectedFileKnowledgeBaseIds } from '@/utils/referenceSources';
 
 ensureMermaidInitialized();
 
@@ -234,6 +235,9 @@ const hasActualContent = computed(() => {
     return text && text.trim().length > 0;
 });
 
+const protectedFileKnowledgeBaseScope = (sourceURL) =>
+    resolveProtectedFileKnowledgeBaseIds(sourceURL, props.session?.knowledge_references);
+
 // 获取实际内容
 const getActualContent = () => {
     return (props.content || props.session?.content || '').trim();
@@ -300,7 +304,7 @@ watch(renderedHTML, () => {
 // 渲染 Mermaid 图表的函数
 onUpdated(() => {
     nextTick(async () => {
-        await hydrateProtectedFileImages(parentMd.value);
+        await hydrateProtectedFileImages(parentMd.value, undefined, protectedFileKnowledgeBaseScope);
         refreshMarkdownEnhancements(parentMd.value);
         if (props.session?.is_completed) {
             await renderMermaidInContainer(parentMd.value);
@@ -315,7 +319,7 @@ onMounted(async () => {
             parentMd.value.addEventListener('click', handleMarkdownImageClick, true);
         }
         rebindCitations();
-        await hydrateProtectedFileImages(parentMd.value);
+        await hydrateProtectedFileImages(parentMd.value, undefined, protectedFileKnowledgeBaseScope);
         await enhanceMarkdownContainer(parentMd.value);
     });
 });

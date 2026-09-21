@@ -206,6 +206,7 @@ function providerSourceFromImageSrc(src: string): string | null {
     const url = new URL(decodedSrc, baseURL);
     const isFileProxy =
       url.pathname === '/files' ||
+      /^\/api\/v1\/knowledge-bases\/[^/]+\/files$/.test(url.pathname) ||
       /^\/api\/v1\/embed\/[^/]+\/files$/.test(url.pathname);
     if (!isFileProxy) {
       return null;
@@ -371,6 +372,11 @@ type ProtectedFileLoadResult =
   | { status: 'missing' }
   | { status: 'failed' };
 
+export type ProtectedFileKnowledgeBaseScope =
+  | string
+  | string[]
+  | ((sourceURL: string) => string | string[] | null | undefined);
+
 type ProtectedFileCacheState = {
   blobByRequest: Map<string, string>;
   blobBySource: Map<string, string>;
@@ -489,10 +495,38 @@ function applyHydratedProtectedImage(root: ParentNode, sourceURL: string, blobUR
   });
 }
 
+function resolveProtectedFileKnowledgeBaseIDs(
+  sourceURL: string,
+  scope?: ProtectedFileKnowledgeBaseScope,
+): string[] {
+  const raw = typeof scope === 'function' ? scope(sourceURL) : scope;
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return Array.from(
+    new Set(values.map((value) => String(value || '').trim()).filter(Boolean)),
+  );
+}
+
+export function buildProtectedFileRequestURLs(
+  sourceURL: string,
+  embed?: { channelId: string; token: string },
+  knowledgeBaseScope?: ProtectedFileKnowledgeBaseScope,
+): string[] {
+  if (!isProviderFileURL(sourceURL)) return [sourceURL];
+
+  const query = new URLSearchParams({ file_path: sourceURL }).toString();
+  if (embed) {
+    return [`/api/v1/embed/${encodeURIComponent(embed.channelId)}/files?${query}`];
+  }
+
+  const kbURLs = resolveProtectedFileKnowledgeBaseIDs(sourceURL, knowledgeBaseScope)
+    .map((kbId) => `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/files?${query}`);
+  return [...kbURLs, `/files?${query}`];
+}
+
 export async function hydrateProtectedFileImages(
   root: ParentNode | null | undefined,
   embed?: { channelId: string; token: string },
-  kbId?: string,
+  knowledgeBaseScope?: ProtectedFileKnowledgeBaseScope,
 ): Promise<void> {
   if (!root || typeof window === 'undefined') {
     return;
@@ -528,39 +562,26 @@ export async function hydrateProtectedFileImages(
     }
     img.dataset.authHydrated = '1';
 
-    const isProviderScheme = isProviderFileURL(sourceURL);
-    // When a KB context is known, route through the KB-scoped proxy. It is
-    // authorized via RequireKBAccess (own / org-shared / agent-visible) and
-    // serves objects owned by the KB's source tenant — so images in a shared
-    // KB (local://<owner-tenant>/...) load for the borrowing tenant, which the
-    // tenant-scoped /files route rejects as a cross-tenant path.
-    const fileProxyBase = embed
-      ? `/api/v1/embed/${embed.channelId}/files`
-      : kbId
-        ? `/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/files`
-        : '/files';
-    const requestURL = isProviderScheme
-      ? `${fileProxyBase}?${new URLSearchParams({ file_path: sourceURL }).toString()}`
-      : sourceURL;
-
-    const isProxyRequest =
-      requestURL.includes('file_path=') &&
-      (requestURL.startsWith('/files?') ||
-        /^\/api\/v1\/knowledge-bases\/[^/]+\/files\?/.test(requestURL) ||
-        /^\/api\/v1\/embed\/[^/]+\/files\?/.test(requestURL));
-    if (!isProxyRequest) {
+    const requestURLs = buildProtectedFileRequestURLs(sourceURL, embed, knowledgeBaseScope);
+    if (!requestURLs.some((requestURL) => requestURL.includes('file_path='))) {
       img.dataset.authHydrated = '0';
       return;
     }
 
-    const cachedBlobURL = protectedFileBlobCache.get(requestURL);
+    const cachedBlobURL = requestURLs
+      .map((requestURL) => protectedFileBlobCache.get(requestURL))
+      .find(Boolean);
     if (cachedBlobURL) {
       applyHydratedProtectedImage(root, sourceURL, cachedBlobURL);
       return;
     }
 
-    const lastFailure = protectedFileFailureCache.get(requestURL);
-    if (lastFailure !== undefined && Date.now() - lastFailure < PROTECTED_FILE_RETRY_COOLDOWN_MS) {
+    const now = Date.now();
+    const allRequestsCoolingDown = requestURLs.every((requestURL) => {
+      const lastFailure = protectedFileFailureCache.get(requestURL);
+      return lastFailure !== undefined && now - lastFailure < PROTECTED_FILE_RETRY_COOLDOWN_MS;
+    });
+    if (allRequestsCoolingDown) {
       img.dataset.authHydrated = '0';
       return;
     }
@@ -569,39 +590,53 @@ export async function hydrateProtectedFileImages(
     // The previous Set-based de-dupe made later components return immediately;
     // only the component that started the fetch was updated, leaving all other
     // occurrences stuck on the transparent placeholder forever.
-    let loadTask = protectedFileInflight.get(requestURL);
+    const requestKey = requestURLs.join('\n');
+    let loadTask = protectedFileInflight.get(requestKey);
     if (!loadTask) {
       loadTask = (async (): Promise<ProtectedFileLoadResult> => {
-        try {
-          const resp = await fetch(requestURL, {
-            method: 'GET',
-            headers,
-            credentials: 'include',
-          });
-          if (!resp.ok) {
-            if (resp.status === 404) {
-              protectedFileFailureCache.set(requestURL, Date.now());
-              return { status: 'missing' };
-            }
-            throw new Error(`HTTP ${resp.status}`);
+        let allMissing = true;
+        for (const requestURL of requestURLs) {
+          const lastFailure = protectedFileFailureCache.get(requestURL);
+          if (
+            lastFailure !== undefined &&
+            Date.now() - lastFailure < PROTECTED_FILE_RETRY_COOLDOWN_MS
+          ) {
+            allMissing = false;
+            continue;
           }
-          const blob = await resp.blob();
-          const blobURL = URL.createObjectURL(blob);
-          protectedFileBlobCache.set(requestURL, blobURL);
-          protectedFileFailureCache.delete(requestURL);
-          return { status: 'loaded', blobURL };
-        } catch (error) {
-          console.warn('[security] hydrateProtectedFileImages failed:', error);
-          protectedFileFailureCache.set(requestURL, Date.now());
-          return { status: 'failed' };
-        } finally {
-          protectedFileInflight.delete(requestURL);
+          try {
+            const resp = await fetch(requestURL, {
+              method: 'GET',
+              headers,
+              credentials: 'include',
+            });
+            if (!resp.ok) {
+              protectedFileFailureCache.set(requestURL, Date.now());
+              if (resp.status !== 404) allMissing = false;
+              continue;
+            }
+            const blob = await resp.blob();
+            const blobURL = URL.createObjectURL(blob);
+            protectedFileBlobCache.set(requestURL, blobURL);
+            protectedFileFailureCache.delete(requestURL);
+            return { status: 'loaded', blobURL };
+          } catch (error) {
+            console.warn('[security] hydrateProtectedFileImages failed:', error);
+            protectedFileFailureCache.set(requestURL, Date.now());
+            allMissing = false;
+          }
         }
+        return allMissing ? { status: 'missing' } : { status: 'failed' };
       })();
-      protectedFileInflight.set(requestURL, loadTask);
+      protectedFileInflight.set(requestKey, loadTask);
     }
 
-    const result = await loadTask;
+    let result: ProtectedFileLoadResult;
+    try {
+      result = await loadTask;
+    } finally {
+      protectedFileInflight.delete(requestKey);
+    }
     if (result.status === 'loaded') {
       protectedFileBlobBySource.set(sourceURL, result.blobURL);
       protectedFileMissingSources.delete(sourceURL);

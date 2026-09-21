@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -21,6 +22,10 @@ import (
 
 // ErrModelNotFound is returned when a model cannot be found in the repository
 var ErrModelNotFound = errors.New("model not found")
+
+// ErrModelAlreadyExists is returned when the platform already has a model
+// with the same logical identity.
+var ErrModelAlreadyExists = errors.New("model with the same name, type, and source already exists")
 
 // modelService implements the model service interface
 type modelService struct {
@@ -93,11 +98,38 @@ func (s *modelService) resolveWeKnoraCloudCredentials(ctx context.Context, param
 	return
 }
 
+func (s *modelService) ensureUniqueIdentity(ctx context.Context, model *types.Model) error {
+	existingModels, err := s.repo.List(ctx, types.SystemModelTenantID, model.Type, model.Source)
+	if err != nil {
+		return err
+	}
+
+	normalizedName := strings.ToLower(strings.TrimSpace(model.Name))
+	if normalizedName == "" {
+		return nil
+	}
+	for _, existing := range existingModels {
+		if existing == nil || existing.ID == model.ID || existing.DeletedAt.Valid {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(existing.Name)) == normalizedName {
+			return ErrModelAlreadyExists
+		}
+	}
+	return nil
+}
+
 // CreateModel creates a new model in the repository
 // For local models, it initiates an asynchronous download process
 // Remote models are immediately set to active status
 func (s *modelService) CreateModel(ctx context.Context, model *types.Model) error {
 	logger.Infof(ctx, "Creating model: %s, type: %s, source: %s", model.Name, model.Type, model.Source)
+
+	// Models are platform-scoped now. Prevent two records with the same
+	// user-facing identity from being created under different generated IDs.
+	if err := s.ensureUniqueIdentity(ctx, model); err != nil {
+		return err
+	}
 
 	// Handle remote models (e.g., OpenAI, Azure)
 	if model.Source == types.ModelSourceRemote {
@@ -242,6 +274,9 @@ func (s *modelService) UpdateModel(ctx context.Context, model *types.Model) erro
 	model.TenantID = existingModel.TenantID
 	model.IsBuiltin = false
 	model.ManagedBy = ""
+	if err := s.ensureUniqueIdentity(ctx, model); err != nil {
+		return err
+	}
 
 	// Update model in repository
 	err = s.repo.Update(ctx, model)

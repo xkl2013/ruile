@@ -486,7 +486,11 @@ import { getKnowledgeChunksSummaryHtml } from '@/utils/knowledgeChunksDisplay';
 import { getAttachmentParsingSummaryHtml } from '@/utils/attachmentParsingDisplay';
 import { useChatCitationPopover } from '@/composables/useChatCitationPopover';
 import { useChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
-import type { KnowledgeReferenceLike, ReferenceHighlightTarget } from '@/utils/referenceSources';
+import {
+  resolveProtectedFileKnowledgeBaseIds,
+  type KnowledgeReferenceLike,
+  type ReferenceHighlightTarget,
+} from '@/utils/referenceSources';
 import { resolveCitationChunkId } from '@/utils/citationMarkdown';
 import { getWikiPage, type WikiPage } from '@/api/wiki';
 import { MessagePlugin } from 'tdesign-vue-next';
@@ -700,7 +704,7 @@ const wikiDrawerContent = computed(() => {
 watch(wikiDrawerContent, async () => {
   await nextTick();
   if (wikiDrawerBodyRef.value) {
-    await hydrateProtectedFileImages(wikiDrawerBodyRef.value);
+    await hydrateProtectedFileImages(wikiDrawerBodyRef.value, undefined, currentWikiKbId.value);
   }
 });
 
@@ -830,6 +834,9 @@ const getReferencesForDrawer = (
     getToolReferenceItems(event),
   );
 };
+
+const protectedFileKnowledgeBaseScope = (sourceURL: string): string[] =>
+  resolveProtectedFileKnowledgeBaseIds(sourceURL, getReferencesForDrawer());
 
 const openReferencesDrawer = (
   highlight?: ReferenceHighlightTarget,
@@ -1111,7 +1118,7 @@ watch(eventStream, (stream) => {
   activeThinkingVersion.value++;
 
   nextTick(async () => {
-    await hydrateProtectedFileImages(rootElement.value);
+    await hydrateProtectedFileImages(rootElement.value, undefined, protectedFileKnowledgeBaseScope);
     await enhanceMarkdownContainer(rootElement.value);
     // Auto-scroll thinking detail content to bottom during streaming
     if (newActiveIds.size > 0 && rootElement.value) {
@@ -1288,7 +1295,7 @@ watch(answerFullyRendered, (ready) => {
   // suppressed by the missing-source cache.
   clearProtectedFileFailureCache();
   nextTick(async () => {
-    await hydrateProtectedFileImages(rootElement.value);
+    await hydrateProtectedFileImages(rootElement.value, undefined, protectedFileKnowledgeBaseScope);
   });
 }, { immediate: true });
 
@@ -1761,7 +1768,7 @@ const toggleIntermediateSteps = () => {
   showIntermediateSteps.value = !showIntermediateSteps.value;
   nextTick(async () => {
     if (rootElement.value) {
-      await hydrateProtectedFileImages(rootElement.value);
+      await hydrateProtectedFileImages(rootElement.value, undefined, protectedFileKnowledgeBaseScope);
     }
   });
 };
@@ -2076,7 +2083,7 @@ onMounted(() => {
     (root as any).__citationKeydown__ = keydownListener;
     root.addEventListener('keydown', keydownListener, true);
     rebindCitations();
-    await hydrateProtectedFileImages(rootElement.value);
+    await hydrateProtectedFileImages(rootElement.value, undefined, protectedFileKnowledgeBaseScope);
   });
 });
 
@@ -2100,7 +2107,7 @@ onUpdated(() => {
     // and idempotent: blob results are cached per URL, in-flight fetches are
     // de-duped, and failures back off for a cooldown — so a not-yet-ready file
     // simply retries later (and the answerFullyRendered pass is the backstop).
-    await hydrateProtectedFileImages(rootElement.value);
+    await hydrateProtectedFileImages(rootElement.value, undefined, protectedFileKnowledgeBaseScope);
   });
 });
 

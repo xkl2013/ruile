@@ -5,6 +5,7 @@ import {
   buildReferenceList,
   getDomainFromUrl,
   normalizeReferenceUrl,
+  resolveProtectedFileKnowledgeBaseIds,
   resolveReferenceHighlightKey,
 } from './referenceSources.ts'
 
@@ -177,4 +178,30 @@ test('formatReferenceSnippet strips markdown noise from preview text', async () 
 
 test('getDomainFromUrl strips www prefix', () => {
   assert.equal(getDomainFromUrl('https://www.example.com/x'), 'example.com')
+})
+
+test('resolveProtectedFileKnowledgeBaseIds prioritizes the reference containing the resource', () => {
+  const source = 'resource://AbCdEfGhIjKlMnOpQrStUv'
+  const ids = resolveProtectedFileKnowledgeBaseIds(source, [
+    {
+      knowledge_base_id: 'kb-other',
+      content: 'unrelated content',
+    },
+    {
+      knowledge_base_id: 'kb-owner',
+      image_info: JSON.stringify([{ url: source }]),
+    },
+  ])
+
+  assert.deepEqual(ids, ['kb-owner', 'kb-other'])
+})
+
+test('resolveProtectedFileKnowledgeBaseIds falls back to unique referenced knowledge bases', () => {
+  const ids = resolveProtectedFileKnowledgeBaseIds('resource://AbCdEfGhIjKlMnOpQrStUv', [
+    { knowledge_base_id: 'kb-a', content: 'first chunk' },
+    { knowledge_base_id: 'kb-a', content: 'second chunk' },
+    { knowledge_base_id: 'kb-b', content: 'third chunk' },
+  ])
+
+  assert.deepEqual(ids, ['kb-a', 'kb-b'])
 })

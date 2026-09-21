@@ -361,10 +361,30 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 			return tools.KBSatisfiesAgentRequirements(kb.Capabilities(), customAgent.Config.AgentMode, customAgent.Config.AllowedTools)
 		}
 
-		// Get own knowledge bases (uses ctx TenantID = agent's tenant)
+		// Get knowledge bases in the agent's tenant first. This keeps the
+		// historical workspace-local behavior and is also the source of truth
+		// for shared-agent execution.
 		allKBs, err := s.knowledgeBaseService.ListKnowledgeBases(ctx)
 		if err != nil {
 			logger.Warnf(ctx, "Failed to list all knowledge bases: %v", err)
+		}
+		// The main knowledge-base UI is account-centred: a user may be in a
+		// personal workspace while still having access to KBs in one or more
+		// enterprise workspaces. The previous "all" path only listed the
+		// current tenant, so those authorized KBs were invisible to QA.
+		//
+		// Shared agents intentionally keep the source-tenant boundary and do
+		// not inherit the caller's account-wide KB projection.
+		isSharedAgent := isSharedAgentForTenants(ctx, sessionTenantID, customAgent.TenantID)
+		if !isSharedAgent {
+			if userID, ok := types.UserIDFromContext(ctx); ok &&
+				userID != "" && !types.IsSyntheticUserID(userID) {
+				if accountKBs, listErr := s.knowledgeBaseService.ListMyKnowledgeBases(ctx); listErr != nil {
+					logger.Warnf(ctx, "Failed to list account-readable knowledge bases: %v", listErr)
+				} else if accountKBs != nil {
+					allKBs = appendAccountKnowledgeBaseCandidates(allKBs, accountKBs)
+				}
+			}
 		}
 		kbIDSet := make(map[string]bool)
 		kbIDs := make([]string, 0, len(allKBs))
@@ -374,8 +394,6 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 		if retrievalTenantID == 0 {
 			retrievalTenantID = types.MustTenantIDFromContext(ctx)
 		}
-		isSharedAgent := types.IsSharedAgentFromContext(ctx) ||
-			(sessionTenantID != 0 && sessionTenantID != retrievalTenantID)
 		for _, kb := range allKBs {
 			if !accept(kb) {
 				ownSkipped++
@@ -432,11 +450,10 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 				"KBSelectionMode=all: permission filter removed %d tenant KBs for agent %s",
 				ownPermissionSkipped, customAgent.ID)
 		}
-		logger.Infof(ctx, "KBSelectionMode=all: loaded %d caller-readable knowledge bases (own + published)", len(kbIDs))
+		logger.Infof(ctx, "KBSelectionMode=all: loaded %d caller-readable knowledge bases (workspace + account access)", len(kbIDs))
 		return kbIDs
 	case "selected":
-		if types.IsSharedAgentFromContext(ctx) ||
-			(sessionTenantID != 0 && sessionTenantID != customAgent.TenantID) {
+		if isSharedAgentForTenants(ctx, sessionTenantID, customAgent.TenantID) {
 			filtered := s.filterAgentKnowledgeBaseIDsForCaller(ctx, customAgent, customAgent.Config.KnowledgeBases)
 			logger.Infof(ctx, "KBSelectionMode=selected: caller-readable intersection contains %d of %d configured knowledge bases",
 				len(filtered), len(customAgent.Config.KnowledgeBases))
@@ -452,12 +469,45 @@ func (s *sessionService) resolveKnowledgeBasesFromAgent(
 		if len(customAgent.Config.KnowledgeBases) > 0 {
 			logger.Infof(ctx, "KBSelectionMode not set: using %d configured knowledge bases", len(customAgent.Config.KnowledgeBases))
 		}
-		if types.IsSharedAgentFromContext(ctx) ||
-			(sessionTenantID != 0 && sessionTenantID != customAgent.TenantID) {
+		if isSharedAgentForTenants(ctx, sessionTenantID, customAgent.TenantID) {
 			return s.filterAgentKnowledgeBaseIDsForCaller(ctx, customAgent, customAgent.Config.KnowledgeBases)
 		}
 		return customAgent.Config.KnowledgeBases
 	}
+}
+
+func appendAccountKnowledgeBaseCandidates(
+	allKBs []*types.KnowledgeBase,
+	accountKBs *types.MyKnowledgeBaseList,
+) []*types.KnowledgeBase {
+	if accountKBs == nil {
+		return allKBs
+	}
+
+	seen := make(map[string]struct{}, len(allKBs))
+	for _, kb := range allKBs {
+		if kb != nil && kb.ID != "" {
+			seen[kb.ID] = struct{}{}
+		}
+	}
+
+	appendItems := func(items []*types.MyKnowledgeBaseListItem) {
+		for _, item := range items {
+			if item == nil || item.KnowledgeBase == nil || item.KnowledgeBase.ID == "" {
+				continue
+			}
+			if _, exists := seen[item.KnowledgeBase.ID]; exists {
+				continue
+			}
+			allKBs = append(allKBs, item.KnowledgeBase)
+			seen[item.KnowledgeBase.ID] = struct{}{}
+		}
+	}
+
+	appendItems(accountKBs.Created)
+	appendItems(accountKBs.Shared)
+	appendItems(accountKBs.Subscribed)
+	return allKBs
 }
 
 // filterAgentKnowledgeBaseIDsForCaller applies the explicit team-space

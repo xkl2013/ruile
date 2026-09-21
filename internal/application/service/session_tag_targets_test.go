@@ -14,7 +14,9 @@ import (
 
 type tagTargetKnowledgeBaseService struct {
 	interfaces.KnowledgeBaseService
-	kbs map[string]*types.KnowledgeBase
+	kbs    map[string]*types.KnowledgeBase
+	myList *types.MyKnowledgeBaseList
+	access map[string]*types.KnowledgeBaseAccess
 }
 
 func (s *tagTargetKnowledgeBaseService) GetKnowledgeBasesByIDsOnly(
@@ -39,6 +41,24 @@ func (s *tagTargetKnowledgeBaseService) ListKnowledgeBases(ctx context.Context) 
 		}
 	}
 	return out, nil
+}
+
+func (s *tagTargetKnowledgeBaseService) ListMyKnowledgeBases(context.Context) (*types.MyKnowledgeBaseList, error) {
+	if s.myList == nil {
+		return &types.MyKnowledgeBaseList{}, nil
+	}
+	return s.myList, nil
+}
+
+func (s *tagTargetKnowledgeBaseService) ResolveKnowledgeBaseAccess(
+	_ context.Context,
+	kbID string,
+	_ types.KnowledgeBaseAccessOptions,
+) (*types.KnowledgeBaseAccess, error) {
+	if access := s.access[kbID]; access != nil {
+		return access, nil
+	}
+	return nil, types.ErrKnowledgeBaseAccessForbidden
 }
 
 type tagTargetKBShareService struct {
@@ -324,6 +344,161 @@ func TestResolveKnowledgeBasesFromAgentAllFiltersToCallerReadableKBs(t *testing.
 
 	assert.ElementsMatch(t, []string{"own-kb", "same-tenant-shared-kb", "cross-tenant-shared-kb"}, kbIDs)
 	assert.NotContains(t, kbIDs, "other-kb")
+}
+
+func TestResolveKnowledgeBasesFromAgentAllUsesTransferredCreator(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+	kbService := svc.knowledgeBaseService.(*tagTargetKnowledgeBaseService)
+	// Simulate the member-asset transfer update:
+	// knowledge_bases.creator_id changes from user-2 to user-1 while the
+	// tenant and all document rows remain unchanged.
+	kbService.kbs["other-kb"].CreatorID = "user-1"
+	agent := &types.CustomAgent{
+		ID:       "agent-1",
+		TenantID: 100,
+		Config: types.CustomAgentConfig{
+			AgentMode:       types.AgentModeQuickAnswer,
+			KBSelectionMode: "all",
+		},
+	}
+
+	targetIDs := svc.resolveKnowledgeBasesFromAgent(
+		tagTargetUserContext("user-1", types.TenantRoleContributor),
+		agent,
+		100,
+	)
+	assert.Contains(t, targetIDs, "other-kb")
+
+	previousOwnerIDs := svc.resolveKnowledgeBasesFromAgent(
+		tagTargetUserContext("user-2", types.TenantRoleContributor),
+		agent,
+		100,
+	)
+	assert.NotContains(t, previousOwnerIDs, "other-kb")
+}
+
+func TestResolveKnowledgeBasesFromAgentAllIncludesAccountReadableKBFromOtherTenant(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+	kbService := svc.knowledgeBaseService.(*tagTargetKnowledgeBaseService)
+	kbService.kbs["account-kb"] = &types.KnowledgeBase{
+		ID:        "account-kb",
+		TenantID:  200,
+		CreatorID: "user-1",
+		Type:      types.KnowledgeBaseTypeDocument,
+		IndexingStrategy: types.IndexingStrategy{
+			VectorEnabled: true,
+		},
+	}
+	kbService.myList = &types.MyKnowledgeBaseList{
+		Created: []*types.MyKnowledgeBaseListItem{{
+			KnowledgeBase:     kbService.kbs["account-kb"],
+			EffectiveTenantID: 200,
+			AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+		}},
+	}
+	kbService.access = map[string]*types.KnowledgeBaseAccess{
+		"account-kb": {
+			KnowledgeBase:     kbService.kbs["account-kb"],
+			EffectiveTenantID: 200,
+			Permission:        types.OrgRoleAdmin,
+			AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+		},
+	}
+	agent := &types.CustomAgent{
+		ID:       "agent-1",
+		TenantID: 100,
+		Config: types.CustomAgentConfig{
+			AgentMode:       types.AgentModeQuickAnswer,
+			KBSelectionMode: "all",
+		},
+	}
+
+	kbIDs := svc.resolveKnowledgeBasesFromAgent(
+		tagTargetUserContext("user-1", types.TenantRoleContributor),
+		agent,
+		100,
+	)
+
+	assert.Contains(t, kbIDs, "account-kb")
+}
+
+func TestResolveKnowledgeBasesFromAgentAllDoesNotTreatGlobalAgentAsShared(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+	kbService := svc.knowledgeBaseService.(*tagTargetKnowledgeBaseService)
+	kbService.kbs["account-kb"] = &types.KnowledgeBase{
+		ID:        "account-kb",
+		TenantID:  200,
+		CreatorID: "user-1",
+		Type:      types.KnowledgeBaseTypeDocument,
+		IndexingStrategy: types.IndexingStrategy{
+			VectorEnabled: true,
+		},
+	}
+	kbService.myList = &types.MyKnowledgeBaseList{
+		Created: []*types.MyKnowledgeBaseListItem{{
+			KnowledgeBase:     kbService.kbs["account-kb"],
+			EffectiveTenantID: 200,
+			AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+		}},
+	}
+	kbService.access = map[string]*types.KnowledgeBaseAccess{
+		"account-kb": {
+			KnowledgeBase:     kbService.kbs["account-kb"],
+			EffectiveTenantID: 200,
+			Permission:        types.OrgRoleAdmin,
+			AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+		},
+	}
+	globalAgent := &types.CustomAgent{
+		ID:       types.BuiltinQuickAnswerID,
+		TenantID: 0,
+		Config: types.CustomAgentConfig{
+			AgentMode:       types.AgentModeQuickAnswer,
+			KBSelectionMode: "all",
+		},
+	}
+
+	kbIDs := svc.resolveKnowledgeBasesFromAgent(
+		tagTargetUserContext("user-1", types.TenantRoleContributor),
+		globalAgent,
+		100,
+	)
+
+	assert.Contains(t, kbIDs, "account-kb")
+}
+
+func TestBuildSearchTargets_AllowsAccountReadableKBFromOtherTenant(t *testing.T) {
+	svc := newSearchVisibilitySessionService()
+	kbService := svc.knowledgeBaseService.(*tagTargetKnowledgeBaseService)
+	kbService.kbs["account-kb"] = &types.KnowledgeBase{
+		ID:        "account-kb",
+		TenantID:  200,
+		CreatorID: "user-1",
+		Type:      types.KnowledgeBaseTypeDocument,
+		IndexingStrategy: types.IndexingStrategy{
+			VectorEnabled: true,
+		},
+	}
+	kbService.access = map[string]*types.KnowledgeBaseAccess{
+		"account-kb": {
+			KnowledgeBase:     kbService.kbs["account-kb"],
+			EffectiveTenantID: 200,
+			Permission:        types.OrgRoleAdmin,
+			AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+		},
+	}
+
+	targets, err := svc.buildSearchTargets(
+		tagTargetUserContext("user-1", types.TenantRoleContributor),
+		100,
+		[]string{"account-kb"},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, uint64(200), targets.GetTenantIDForKB("account-kb"))
 }
 
 func TestResolveKnowledgeBasesFromSharedAgentUsesPublishedIntersection(t *testing.T) {

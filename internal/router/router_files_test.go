@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Tencent/WeKnora/internal/middleware"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -21,6 +22,35 @@ var _ interfaces.FileService = (*stubFileService)(nil)
 
 type stubFileService struct {
 	getFile func(ctx context.Context, filePath string) (io.ReadCloser, error)
+}
+
+type stubStorageBackendResolver struct {
+	resolveFileService func(
+		ctx context.Context,
+		tenant *types.Tenant,
+		backendID string,
+		provider string,
+		localBaseDir string,
+	) (interfaces.FileService, string, error)
+}
+
+func (s *stubStorageBackendResolver) ResolveFileService(
+	ctx context.Context,
+	tenant *types.Tenant,
+	backendID string,
+	provider string,
+	localBaseDir string,
+) (interfaces.FileService, string, error) {
+	return s.resolveFileService(ctx, tenant, backendID, provider, localBaseDir)
+}
+
+func (s *stubStorageBackendResolver) ResolveBackend(
+	context.Context,
+	*types.Tenant,
+	string,
+	string,
+) (*types.StorageBackend, error) {
+	panic("unexpected ResolveBackend")
 }
 
 type stubResourceCatalog struct {
@@ -310,14 +340,35 @@ func newKBScopedFilesTestEngine(
 	tenantSvc interfaces.TenantService,
 	global interfaces.FileService,
 ) *gin.Engine {
+	return newKBScopedFilesWithResourcesTestEngine(
+		effectiveTenantID,
+		tenantSvc,
+		global,
+		nil,
+		nil,
+		nil,
+	)
+}
+
+func newKBScopedFilesWithResourcesTestEngine(
+	effectiveTenantID uint64,
+	tenantSvc interfaces.TenantService,
+	global interfaces.FileService,
+	storageResolver interfaces.StorageBackendResolver,
+	resourceCatalog interfaces.ResourceCatalog,
+	access *types.KnowledgeBaseAccess,
+) *gin.Engine {
 	engine := gin.New()
 	engine.GET("/knowledge-bases/:id/files",
 		func(c *gin.Context) {
 			ctx := context.WithValue(c.Request.Context(), types.TenantIDContextKey, effectiveTenantID)
 			c.Request = c.Request.WithContext(ctx)
+			if access != nil {
+				c.Set(middleware.KBAccessContextKey, access)
+			}
 			c.Next()
 		},
-		newKBScopedFileServeHandler(tenantSvc, global),
+		newKBScopedFileServeHandlerWithResources(tenantSvc, global, storageResolver, resourceCatalog),
 	)
 	return engine
 }
@@ -355,6 +406,127 @@ func TestKBScopedFilesServesOwnerTenantPath(t *testing.T) {
 	}
 	if body := recorder.Body.String(); body != "shared-body" {
 		t.Fatalf("body = %q, want %q", body, "shared-body")
+	}
+}
+
+func TestKBScopedFilesUsesResourceStorageBackendForUnscopedMigratedPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const ownerTenantID = uint64(10008)
+	resourceRef := types.BuildResourcePath("abcdefghijklmnopqrstuv")
+	physicalPath := "oss://bucket/exports/10008/image.jpg"
+	var resolvedBackendID string
+	var requestedPath string
+
+	fileService := &stubFileService{getFile: func(_ context.Context, filePath string) (io.ReadCloser, error) {
+		requestedPath = filePath
+		return io.NopCloser(strings.NewReader("migrated-resource")), nil
+	}}
+	resolver := &stubStorageBackendResolver{resolveFileService: func(
+		_ context.Context,
+		tenant *types.Tenant,
+		backendID string,
+		provider string,
+		_ string,
+	) (interfaces.FileService, string, error) {
+		if tenant == nil || tenant.ID != ownerTenantID {
+			t.Fatalf("tenant = %#v, want owner tenant %d", tenant, ownerTenantID)
+		}
+		if provider != "oss" {
+			t.Fatalf("provider = %q, want oss", provider)
+		}
+		resolvedBackendID = backendID
+		return fileService, provider, nil
+	}}
+	engine := newKBScopedFilesWithResourcesTestEngine(
+		ownerTenantID,
+		&stubTenantService{get: func(_ context.Context, id uint64) (*types.Tenant, error) {
+			return &types.Tenant{ID: id}, nil
+		}},
+		nil,
+		resolver,
+		&stubResourceCatalog{resource: &types.StoredResource{
+			TenantID:         ownerTenantID,
+			StorageBackendID: "backend-migrated",
+			PhysicalPath:     physicalPath,
+		}},
+		nil,
+	)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/knowledge-bases/kb-1/files?file_path="+url.QueryEscape(resourceRef),
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d body=%s", got, want, recorder.Body.String())
+	}
+	if got, want := resolvedBackendID, "backend-migrated"; got != want {
+		t.Fatalf("resolved backend = %q, want %q", got, want)
+	}
+	if got, want := requestedPath, physicalPath; got != want {
+		t.Fatalf("requested path = %q, want %q", got, want)
+	}
+}
+
+func TestKBScopedFilesReplacesStalePhysicalBackendWithResourceBinding(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const ownerTenantID = uint64(10008)
+	resourceRef := types.BuildResourcePath("abcdefghijklmnopqrstuv")
+	innerPath := "oss://bucket/exports/10008/image.jpg"
+	stalePath := types.BuildStorageBackendPath("backend-old", innerPath)
+	var resolvedBackendID string
+	var requestedPath string
+
+	fileService := &stubFileService{getFile: func(_ context.Context, filePath string) (io.ReadCloser, error) {
+		requestedPath = filePath
+		return io.NopCloser(strings.NewReader("migrated-resource")), nil
+	}}
+	resolver := &stubStorageBackendResolver{resolveFileService: func(
+		_ context.Context,
+		_ *types.Tenant,
+		backendID string,
+		provider string,
+		_ string,
+	) (interfaces.FileService, string, error) {
+		resolvedBackendID = backendID
+		return fileService, provider, nil
+	}}
+	engine := newKBScopedFilesWithResourcesTestEngine(
+		ownerTenantID,
+		&stubTenantService{get: func(_ context.Context, id uint64) (*types.Tenant, error) {
+			return &types.Tenant{ID: id}, nil
+		}},
+		nil,
+		resolver,
+		&stubResourceCatalog{resource: &types.StoredResource{
+			TenantID:         ownerTenantID,
+			StorageBackendID: "backend-new",
+			PhysicalPath:     stalePath,
+		}},
+		nil,
+	)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/knowledge-bases/kb-1/files?file_path="+url.QueryEscape(resourceRef),
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d body=%s", got, want, recorder.Body.String())
+	}
+	if got, want := resolvedBackendID, "backend-new"; got != want {
+		t.Fatalf("resolved backend = %q, want %q", got, want)
+	}
+	if got, want := requestedPath, types.BuildStorageBackendPath("backend-new", innerPath); got != want {
+		t.Fatalf("requested path = %q, want %q", got, want)
 	}
 }
 

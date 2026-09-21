@@ -62,3 +62,37 @@ func TestCustomAgentRepositoryListsGlobalBuiltinForEveryWorkspace(t *testing.T) 
 	require.Equal(t, uint64(10003), byID["workspace-agent"].TenantID)
 	require.NotContains(t, byID, "other-agent")
 }
+
+func TestCustomAgentRepositoryUpdatesGlobalBuiltinWithZeroTenantID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(
+		fmt.Sprintf("file:agent-global-update-%d?mode=memory&cache=shared", time.Now().UnixNano()),
+	), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.Exec(customAgentsTestDDL).Error)
+
+	repo := NewCustomAgentRepository(db)
+	ctx := context.Background()
+	agent := &types.CustomAgent{
+		ID:        types.BuiltinQuickAnswerID,
+		Name:      "Global Quick Answer",
+		IsBuiltin: true,
+		TenantID:  types.SystemAgentTenantID,
+		Config: types.CustomAgentConfig{
+			WebSearchEnabled: true,
+		},
+	}
+	require.NoError(t, repo.CreateAgent(ctx, agent))
+
+	agent.Config.WebSearchEnabled = false
+	require.NoError(t, repo.UpdateAgent(ctx, agent))
+
+	updated, err := repo.GetAgentByID(ctx, types.BuiltinQuickAnswerID, types.SystemAgentTenantID)
+	require.NoError(t, err)
+	require.False(t, updated.Config.WebSearchEnabled)
+
+	var count int64
+	require.NoError(t, db.Model(&types.CustomAgent{}).
+		Where("id = ? AND tenant_id = ?", types.BuiltinQuickAnswerID, types.SystemAgentTenantID).
+		Count(&count).Error)
+	require.Equal(t, int64(1), count)
+}

@@ -100,6 +100,10 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 
 	if err := h.service.CreateModel(ctx, model); err != nil {
 		logger.ErrorWithFields(ctx, err, nil)
+		if err == service.ErrModelAlreadyExists {
+			c.Error(errors.NewConflictError("同名称、类型和来源的模型已经存在，请直接编辑已有模型"))
+			return
+		}
 		c.Error(errors.NewInternalServerError(err.Error()))
 		return
 	}
@@ -643,6 +647,10 @@ func (h *ModelHandler) UpdateModel(c *gin.Context) {
 
 	logger.Infof(ctx, "Updating model, ID: %s, Name: %s", id, model.Name)
 	if err := h.service.UpdateModel(ctx, model); err != nil {
+		if err == service.ErrModelAlreadyExists {
+			c.Error(errors.NewConflictError("同名称、类型和来源的模型已经存在，请直接编辑已有模型"))
+			return
+		}
 		if appErr, ok := errors.IsAppError(err); ok {
 			c.Error(appErr)
 			return

@@ -58,7 +58,22 @@ func (r *customAgentRepository) ListAgentsByTenantID(ctx context.Context, tenant
 
 // UpdateAgent updates an agent
 func (r *customAgentRepository) UpdateAgent(ctx context.Context, agent *types.CustomAgent) error {
-	return r.db.WithContext(ctx).Save(agent).Error
+	// Do not use Save here. GORM treats the zero-valued tenant_id of a
+	// platform-scoped built-in agent as an unset composite primary-key field
+	// and may fall back to INSERT, causing a duplicate custom_agents_pkey.
+	return r.db.WithContext(ctx).
+		Model(&types.CustomAgent{}).
+		Where("id = ? AND tenant_id = ?", agent.ID, agent.TenantID).
+		Select(
+			"name",
+			"description",
+			"avatar",
+			"is_builtin",
+			"created_by",
+			"config",
+			"updated_at",
+		).
+		Updates(agent).Error
 }
 
 // DeleteAgent deletes an agent (soft delete)

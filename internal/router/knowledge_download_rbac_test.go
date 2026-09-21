@@ -42,14 +42,18 @@ func (s *stubKnowledgeDownloadService) GetKnowledgeFile(context.Context, string)
 	return io.NopCloser(strings.NewReader("file-body")), "example.txt", nil
 }
 
-func newKnowledgeDownloadRBACEngine(role types.TenantRole) *gin.Engine {
+func newKnowledgeDownloadRBACEngine(
+	role types.TenantRole,
+	creatorID string,
+	kbShareService interfaces.KBShareService,
+) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 
 	enabled := true
 	cfg := &config.Config{Tenant: &config.TenantConfig{EnableRBAC: &enabled}}
 	kbLookup := &stubWikiKBLookup{
 		kbs: map[string]*types.KnowledgeBase{
-			"kb-1": {ID: "kb-1", TenantID: 1, CreatorID: "creator"},
+			"kb-1": {ID: "kb-1", TenantID: 1, CreatorID: creatorID},
 		},
 	}
 	knowledge := &types.Knowledge{ID: "knowledge-1", TenantID: 1, KnowledgeBaseID: "kb-1"}
@@ -58,6 +62,7 @@ func newKnowledgeDownloadRBACEngine(role types.TenantRole) *gin.Engine {
 		cfg:              cfg,
 		kbService:        kbLookup,
 		knowledgeService: kgService,
+		kbShareService:   kbShareService,
 	}
 	knowledgeHandler := handler.NewKnowledgeHandler(cfg, kgService, nil, nil, nil, nil, nil)
 
@@ -77,11 +82,11 @@ func newKnowledgeDownloadRBACEngine(role types.TenantRole) *gin.Engine {
 	return r
 }
 
-func TestKnowledgeDownloadRequiresAdminRole(t *testing.T) {
+func TestKnowledgeDownloadRejectsMemberWithoutKnowledgeBaseReadAccess(t *testing.T) {
 	for _, role := range []types.TenantRole{types.TenantRoleViewer, types.TenantRoleContributor} {
 		t.Run(string(role), func(t *testing.T) {
-			engine := newKnowledgeDownloadRBACEngine(role)
-			rec := httptest.NewRecorder()
+			engine := newKnowledgeDownloadRBACEngine(role, "creator", nil)
+			rec := &downloadCloseNotifyRecorder{ResponseRecorder: httptest.NewRecorder()}
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/knowledge-1/download", nil)
 
 			engine.ServeHTTP(rec, req)
@@ -93,8 +98,9 @@ func TestKnowledgeDownloadRequiresAdminRole(t *testing.T) {
 	}
 }
 
-func TestKnowledgeDownloadAllowsAdminRole(t *testing.T) {
-	engine := newKnowledgeDownloadRBACEngine(types.TenantRoleAdmin)
+func TestKnowledgeDownloadAllowsKnowledgeBaseCreatorWithViewerRole(t *testing.T) {
+	engine := newKnowledgeDownloadRBACEngine(types.TenantRoleViewer, "caller", nil)
+
 	rec := &downloadCloseNotifyRecorder{ResponseRecorder: httptest.NewRecorder()}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/knowledge-1/download", nil)
 
@@ -105,5 +111,38 @@ func TestKnowledgeDownloadAllowsAdminRole(t *testing.T) {
 	}
 	if got, want := rec.Body.String(), "file-body"; got != want {
 		t.Fatalf("body = %q, want %q", got, want)
+	}
+}
+
+func TestKnowledgeDownloadAllowsSharedViewer(t *testing.T) {
+	engine := newKnowledgeDownloadRBACEngine(
+		types.TenantRoleViewer,
+		"creator",
+		&sharedWriteKBShareServiceStub{sourceTenantID: 1},
+	)
+
+	rec := &downloadCloseNotifyRecorder{ResponseRecorder: httptest.NewRecorder()}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/knowledge-1/download", nil)
+
+	engine.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d; body=%s", got, want, rec.Body.String())
+	}
+	if got, want := rec.Body.String(), "file-body"; got != want {
+		t.Fatalf("body = %q, want %q", got, want)
+	}
+}
+
+func TestKnowledgeDownloadAllowsTenantAdmin(t *testing.T) {
+	engine := newKnowledgeDownloadRBACEngine(types.TenantRoleAdmin, "creator", nil)
+
+	rec := &downloadCloseNotifyRecorder{ResponseRecorder: httptest.NewRecorder()}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/knowledge-1/download", nil)
+
+	engine.ServeHTTP(rec, req)
+
+	if got, want := rec.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d; body=%s", got, want, rec.Body.String())
 	}
 }

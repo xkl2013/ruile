@@ -7,6 +7,7 @@ export type KnowledgeReferenceLike = {
   knowledge_title?: string
   knowledge_filename?: string
   knowledge_base_id?: string
+  image_info?: string
   chunk_index?: number
   chunk_type?: string
   content?: string
@@ -74,6 +75,43 @@ export function getFaviconUrl(urlOrDomain: string): string {
     : urlOrDomain.replace(/^www\./i, '')
   if (!domain) return ''
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
+}
+
+export function resolveProtectedFileKnowledgeBaseIds(
+  sourceURL: string,
+  references: KnowledgeReferenceLike[] | null | undefined,
+): string[] {
+  const source = String(sourceURL || '').trim()
+  if (!source || !Array.isArray(references) || references.length === 0) return []
+
+  const exact: string[] = []
+  const fallback: string[] = []
+  const exactSet = new Set<string>()
+  const fallbackSet = new Set<string>()
+
+  for (const reference of references) {
+    const kbId = String(reference?.knowledge_base_id || '').trim()
+    if (!kbId) continue
+    if (!fallbackSet.has(kbId)) {
+      fallbackSet.add(kbId)
+      fallback.push(kbId)
+    }
+
+    const searchableValues = [
+      reference.content,
+      reference.image_info,
+      ...Object.values(reference.metadata || {}),
+    ]
+    if (
+      searchableValues.some((value) => String(value || '').includes(source)) &&
+      !exactSet.has(kbId)
+    ) {
+      exactSet.add(kbId)
+      exact.push(kbId)
+    }
+  }
+
+  return [...exact, ...fallback.filter((kbId) => !exactSet.has(kbId))]
 }
 
 function truncateText(text: string, maxLen: number): string {
