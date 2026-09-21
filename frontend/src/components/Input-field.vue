@@ -1962,6 +1962,35 @@ const createSession = async (val: string) => {
     return;
   }
 
+  if (selectedPublishedExpert.value || selectedPublishedExpertAuto.value) {
+    if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0 || allSelectedItems.value.length > 0) {
+      MessagePlugin.info('已发布专家当前先支持文本问题，请先移除附件和上下文引用');
+      return;
+    }
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit(
+      'send-published-expert',
+      val,
+      selectedModelId.value,
+      selectedPublishedExpert.value,
+      selectedPublishedExpertAuto.value ? 'auto' : 'manual',
+    );
+    clearvalue();
+    return;
+  }
+
+  // Published experts are routed by the system by default. Manual expert
+  // selection above remains an explicit override; attachments, context
+  // references, custom agents, and agent mode continue through normal chat.
+  if (shouldAutoRoutePublishedExpert.value) {
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit('send-published-expert', val, selectedModelId.value, null, 'auto');
+    clearvalue();
+    return;
+  }
+
   // Images and non-embedded attachments both travel to the backend as
   // `attachment_ids`, which enforces a combined cap (MaxTemporaryAttachmentsPerMessage).
   // The per-picker limits (5 images / 5 attachments) are independent, so guard the
