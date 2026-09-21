@@ -743,8 +743,8 @@ func TestRetrieveFromStores_PerGroupTimeout(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // fakeKBShareForAuth implements just enough of KBShareService for the
-// authorizeKBAccess test matrix. Only HasTenantKBPermission is exercised;
-// the embedded interface keeps the type assignable.
+// legacy tenant-share fallback in the authorizeKBAccess test matrix. The
+// embedded interface keeps the type assignable.
 type fakeKBShareForAuth struct {
 	// allowed maps kbID → tenantID → allowed. Mirrors the Plan 3 (#1303)
 	// per-tenant permission model.
@@ -795,6 +795,112 @@ func TestAuthorizeKBAccess_ForeignTenantWithShare_OK(t *testing.T) {
 	}
 	err := s.authorizeKBAccess(ctxWithTenantForAuth(7), kbs, 7)
 	require.NoError(t, err)
+}
+
+func TestAuthorizeKBAccess_AccountVisibleCrossTenant_OK(t *testing.T) {
+	personal := types.SpaceTypePersonal
+	enterprise := types.SpaceTypeOrganization
+	repo := newFakeKBRepo()
+	repo.rows["kb-enterprise-created"] = &types.KnowledgeBase{
+		ID:        "kb-enterprise-created",
+		TenantID:  200,
+		CreatorID: "user-1",
+	}
+	s := newPR3KBService(repo, &fakeRegistry{}, &fakeOwnership{})
+	s.tenantRepo = &accessTenantRepo{
+		tenants: map[uint64]*types.Tenant{
+			200: {ID: 200, SpaceType: &enterprise},
+		},
+	}
+	s.memberService = &accessTenantMemberService{
+		members: map[string]map[uint64]*types.TenantMember{
+			"user-1": {
+				200: {
+					UserID:   "user-1",
+					TenantID: 200,
+					Role:     types.TenantRoleContributor,
+					Status:   types.TenantMemberStatusActive,
+				},
+			},
+		},
+	}
+
+	err := s.authorizeKBAccess(
+		accessCtx(100, types.TenantRoleOwner, "user-1", &personal),
+		[]*types.KnowledgeBase{repo.rows["kb-enterprise-created"]},
+		100,
+	)
+
+	require.NoError(t, err)
+}
+
+func TestHasSearchReadAccess_AccountVisibleCrossTenant_OK(t *testing.T) {
+	personal := types.SpaceTypePersonal
+	enterprise := types.SpaceTypeOrganization
+	repo := newFakeKBRepo()
+	repo.rows["kb-enterprise-created"] = &types.KnowledgeBase{
+		ID:        "kb-enterprise-created",
+		TenantID:  200,
+		CreatorID: "user-1",
+	}
+	s := newPR3KBService(repo, &fakeRegistry{}, &fakeOwnership{})
+	s.tenantRepo = &accessTenantRepo{
+		tenants: map[uint64]*types.Tenant{
+			200: {ID: 200, SpaceType: &enterprise},
+		},
+	}
+	s.memberService = &accessTenantMemberService{
+		members: map[string]map[uint64]*types.TenantMember{
+			"user-1": {
+				200: {
+					UserID:   "user-1",
+					TenantID: 200,
+					Role:     types.TenantRoleContributor,
+					Status:   types.TenantMemberStatusActive,
+				},
+			},
+		},
+	}
+
+	allowed, err := s.hasSearchReadAccess(
+		accessCtx(100, types.TenantRoleOwner, "user-1", &personal),
+		"kb-enterprise-created",
+		100,
+		types.TenantRoleOwner,
+	)
+
+	require.NoError(t, err)
+	require.True(t, allowed)
+}
+
+func TestContextForKnowledgeBaseTenant_UsesSourceTenantEngines(t *testing.T) {
+	enterprise := types.SpaceTypeOrganization
+	sourceTenant := &types.Tenant{
+		ID:        200,
+		SpaceType: &enterprise,
+		RetrieverEngines: types.RetrieverEngines{
+			Engines: []types.RetrieverEngineParams{{
+				RetrieverType:       types.VectorRetrieverType,
+				RetrieverEngineType: types.PostgresRetrieverEngineType,
+			}},
+		},
+	}
+	s := &knowledgeBaseService{
+		tenantRepo: &accessTenantRepo{
+			tenants: map[uint64]*types.Tenant{200: sourceTenant},
+		},
+	}
+
+	ctx := accessCtx(100, types.TenantRoleViewer, "user-1", nil)
+	sourceCtx := s.contextForKnowledgeBaseTenant(ctx, 200)
+
+	gotTenantID, ok := types.TenantIDFromContext(sourceCtx)
+	require.True(t, ok)
+	require.Equal(t, uint64(200), gotTenantID)
+	gotTenant, ok := types.TenantInfoFromContext(sourceCtx)
+	require.True(t, ok)
+	require.Same(t, sourceTenant, gotTenant)
+	require.Equal(t, sourceTenant.GetEffectiveEngines(), gotTenant.GetEffectiveEngines())
 }
 
 func TestAuthorizeKBAccess_ForeignTenantNoShare_NotFound(t *testing.T) {

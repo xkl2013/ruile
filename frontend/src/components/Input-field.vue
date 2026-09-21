@@ -522,8 +522,9 @@ const selectedTags = computed(() => settingsStore.settings.selectedTags || []);
 const selectedMCPServiceIds = computed(() => settingsStore.settings.selectedMCPServices || []);
 const selectedSkillNames = computed(() => settingsStore.settings.selectedSkills || []);
 
-// 已就绪的知识库（来自空间级缓存）
-const knowledgeBases = computed(() => chatResources.validKnowledgeBases);
+// 已就绪的账号可见知识库。不要使用 rawKnowledgeBases：它只代表当前
+// 工作区，会漏掉个人空间用户在企业空间创建、共享或订阅的知识库。
+const knowledgeBases = computed(() => chatResources.validAccountKnowledgeBases);
 const fileList = ref<Array<{ id: string; name: string }>>([]);
 
 // 选中的知识库：包含自己的 + 组织共享的 + 共享智能体下的（用于展示已选列表与 org 角标）
@@ -744,8 +745,21 @@ const inputPlaceholder = computed(() => {
 
 // 加载知识库列表（自己的 + 共享的，用于 @ 提及等）
 const loadKnowledgeBases = async (force = false) => {
+  let accountScopeLoaded = false
   try {
-    await chatResources.ensureKnowledgeBases(force);
+    await chatResources.fetchMyKnowledgeBases(force);
+    accountScopeLoaded = true
+  } catch (error) {
+    console.warn('[Input] Failed to load account-visible knowledge bases:', error)
+  }
+  try {
+    // Keep the legacy current-workspace cache available for unrelated screens
+    // and for the account-scope bootstrap fallback.
+    await chatResources.ensureKnowledgeBases(force)
+  } catch (error) {
+    console.warn('[Input] Failed to load workspace knowledge bases:', error)
+  }
+  try {
     const validKbs = knowledgeBases.value;
 
     const validKbIds = new Set(validKbs.map((kb: any) => kb.id));
@@ -772,7 +786,7 @@ const loadKnowledgeBases = async (force = false) => {
       settingsStore.selectKnowledgeBases(validSelectedIds);
     }
   } catch (error) {
-    console.error('Failed to load knowledge bases:', error);
+    console.error(`[Input] Failed to reconcile knowledge bases${accountScopeLoaded ? '' : ' (account scope unavailable)'}`, error);
   }
 };
 

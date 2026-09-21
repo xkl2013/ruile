@@ -104,8 +104,9 @@ func (s *knowledgeBaseService) resolveStoreGroups(
 			sid := key.storeID
 			storeIDPtr = &sid
 		}
+		engineCtx := s.contextForKnowledgeBaseTenant(ctx, key.tenantID)
 		engine, err := retriever.CreateRetrieveEngineForKB(
-			ctx, s.retrieveEngine, s.ownership, key.tenantID, storeIDPtr)
+			engineCtx, s.retrieveEngine, s.ownership, key.tenantID, storeIDPtr)
 		if err != nil {
 			return nil, classifyFactoryError(ctx, err, key.tenantID, key.storeID)
 		}
@@ -128,6 +129,31 @@ func (s *knowledgeBaseService) resolveStoreGroups(
 		})
 	}
 	return groups, nil
+}
+
+// contextForKnowledgeBaseTenant gives the retriever factory the source
+// tenant's effective engine configuration for unbound knowledge bases. Bound
+// vector stores already carry their owner tenant explicitly, but the unbound
+// factory reads TenantInfo from context; keeping the caller's active workspace
+// there would query the wrong default index for an account-visible KB opened
+// from another workspace.
+func (s *knowledgeBaseService) contextForKnowledgeBaseTenant(
+	ctx context.Context,
+	tenantID uint64,
+) context.Context {
+	currentTenantID, ok := types.TenantIDFromContext(ctx)
+	if ok && currentTenantID == tenantID {
+		return ctx
+	}
+	if s.tenantRepo == nil {
+		return ctx
+	}
+	tenant := s.tenantForAccountAccess(ctx, tenantID)
+	if tenant == nil {
+		logger.Warnf(ctx, "failed to load source tenant %d for unbound knowledge-base retrieval", tenantID)
+		return ctx
+	}
+	return withKnowledgeBaseTenantContext(ctx, tenant, types.TenantRoleFromContext(ctx))
 }
 
 // classifyFactoryError translates retriever sentinels into typed AppErrors
@@ -157,12 +183,11 @@ func classifyFactoryError(
 	}
 }
 
-// authorizeKBAccess rejects multi-KB searches whose scope includes a KB
-// that the caller is not entitled to read. Same-tenant KBs always pass.
-// Foreign-tenant KBs (Organization-shared) must pass an explicit
-// tenant-scoped permission check via kbShareService.HasTenantKBPermission,
-// applying the 3-D cap (share role + caller's tenant-org role + tenant
-// Viewer cap) introduced in Plan 3 of #1303.
+// authorizeKBAccess rejects searches whose scope includes a KB that the
+// caller is not entitled to read. The access resolver is the same
+// account-centered rule used by the chat target resolver and KB UI, so a
+// visible KB is not rejected again merely because the active workspace differs
+// from the KB owner workspace.
 //
 // Returning NotFound rather than Forbidden avoids leaking the existence
 // of unauthorized KB IDs that the caller could not otherwise observe.
@@ -184,6 +209,21 @@ func (s *knowledgeBaseService) authorizeKBAccess(
 		if kb.TenantID == requestTenantID {
 			continue
 		}
+
+		if s.repo != nil {
+			access, accessErr := s.ResolveKnowledgeBaseAccess(
+				ctx,
+				kb.ID,
+				types.KnowledgeBaseAccessOptions{RequiredPermission: types.OrgRoleViewer},
+			)
+			if accessErr == nil && access != nil {
+				continue
+			}
+			if accessErr != nil {
+				logger.Warnf(ctx, "account-level KB access resolution failed for %s: %v", kb.ID, accessErr)
+			}
+		}
+
 		hasPermission, permErr := s.kbShareService.HasTenantKBPermission(
 			ctx, kb.ID, requestTenantID, callerTenantRole, types.OrgRoleViewer)
 		if permErr != nil {

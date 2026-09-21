@@ -80,6 +80,71 @@ func TestEmitKnowledgeReferencesEventIgnoresCitationOutputSetting(t *testing.T) 
 	require.Len(t, emitted, 2)
 }
 
+func TestQuickAnswerEmptyKnowledgeMessage(t *testing.T) {
+	quickAnswer := &types.CustomAgent{
+		ID: types.BuiltinQuickAnswerID,
+		Config: types.CustomAgentConfig{
+			AgentMode: types.AgentModeQuickAnswer,
+		},
+	}
+
+	t.Run("no account-visible knowledge base", func(t *testing.T) {
+		message := quickAnswerEmptyKnowledgeMessage(
+			&types.QARequest{CustomAgent: quickAnswer},
+			nil,
+		)
+		assert.Contains(t, message, "当前账号没有可用于问答的知识库")
+	})
+
+	t.Run("explicit inaccessible scope", func(t *testing.T) {
+		message := quickAnswerEmptyKnowledgeMessage(
+			&types.QARequest{
+				CustomAgent:      quickAnswer,
+				KnowledgeBaseIDs: []string{"kb-inaccessible"},
+			},
+			nil,
+		)
+		assert.Contains(t, message, "所选知识库当前不可访问")
+	})
+
+	t.Run("authorized search target", func(t *testing.T) {
+		message := quickAnswerEmptyKnowledgeMessage(
+			&types.QARequest{CustomAgent: quickAnswer},
+			types.SearchTargets{&types.SearchTarget{KnowledgeBaseID: "kb-visible", TenantID: 100}},
+		)
+		assert.Empty(t, message)
+	})
+
+	t.Run("attachment provides context", func(t *testing.T) {
+		message := quickAnswerEmptyKnowledgeMessage(
+			&types.QARequest{
+				CustomAgent: quickAnswer,
+				Attachments: types.MessageAttachments{{
+					FileName: "context.txt",
+					Content:  "answer context",
+				}},
+			},
+			nil,
+		)
+		assert.Empty(t, message)
+	})
+
+	t.Run("smart reasoning remains available", func(t *testing.T) {
+		message := quickAnswerEmptyKnowledgeMessage(
+			&types.QARequest{
+				CustomAgent: &types.CustomAgent{
+					ID: "reasoning-agent",
+					Config: types.CustomAgentConfig{
+						AgentMode: types.AgentModeSmartReasoning,
+					},
+				},
+			},
+			nil,
+		)
+		assert.Empty(t, message)
+	})
+}
+
 func (s *stubModelService) CreateModel(context.Context, *types.Model) error {
 	return nil
 }

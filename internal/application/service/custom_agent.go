@@ -596,6 +596,20 @@ func (s *customAgentService) getSuggestedQuestions(
 				// Return what we have so far (agent_config suggestions)
 				return finalizeStarterSuggestions(curated, nil, starterMode, limit), nil
 			}
+			// Keep suggestion scope aligned with the account-centred knowledge
+			// base page and chat retrieval. A user can be signed into a
+			// personal workspace while their created/shared KBs live in an
+			// enterprise workspace, so the current-tenant list alone is not
+			// sufficient for "all".
+			if userID, ok := types.UserIDFromContext(ctx); ok &&
+				userID != "" && !types.IsSyntheticUserID(userID) {
+				accountKBs, listErr := s.kbService.ListMyKnowledgeBases(ctx)
+				if listErr != nil {
+					logger.Warnf(ctx, "Failed to list account-readable knowledge bases for suggestions: %v", listErr)
+				} else {
+					kbs = appendAccountKnowledgeBaseCandidates(kbs, accountKBs)
+				}
+			}
 			// Honor the agent's implicit/explicit capability requirements so
 			// e.g. a quick-answer (RAG-only) agent doesn't surface wiki-only
 			// KBs whose wiki pages it could never answer from. Same filter
