@@ -300,6 +300,14 @@ var registry = map[string]settingSpec{
 			"Wiki 生成以合成大模型调用为主，独立并发预算可避免上传高峰期被解析任务饿死，" +
 			"同时不会因 Wiki 洪峰拖慢用户面解析。修改后需重启服务进程方可生效。",
 	},
+	"asynq.agent_concurrency": {
+		Type:            "int",
+		EnvName:         "WEKNORA_ASYNQ_AGENT_CONCURRENCY",
+		Default:         int64(types.DefaultAgentWorkerConcurrency),
+		Category:        "worker",
+		RequiresRestart: true,
+		Description:     "服务 Agent 任务专用 worker 并发。日报、记忆提炼等异步执行与文档解析和 Wiki 任务隔离；修改后需重启服务进程方可生效。",
+	},
 	// model.max_concurrency is the DEFAULT per-model cap on concurrent
 	// background (ingestion/enrichment) LLM/embedding/VLM calls, keyed by
 	// model ID and shared across replicas. Read at every gated call via the
@@ -1364,7 +1372,7 @@ func validateRegistryEntry(key string, rawValue any) error {
 	switch key {
 	case "asynq.core_concurrency", "asynq.postprocess_concurrency",
 		"asynq.enrichment_concurrency", "asynq.maintenance_concurrency",
-		"asynq.shared_concurrency", "asynq.wiki_concurrency":
+		"asynq.shared_concurrency", "asynq.wiki_concurrency", "asynq.agent_concurrency":
 		n, err := coerceToPositiveInt64(rawValue)
 		if err != nil {
 			return err

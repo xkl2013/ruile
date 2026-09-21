@@ -511,6 +511,7 @@ import {
   extractServiceMemory,
   listServiceReminders,
   mapServiceReminderToTask,
+  waitForServiceAgentRun,
 } from '@/api/service'
 import {
   DISCOVER_CATEGORY_OPTIONS,
@@ -1119,19 +1120,18 @@ const extractCurrentMemoryToService = async () => {
   noteServiceExtracting.value = true
   try {
     const response = await extractServiceMemory(memoryID)
-    const data = response?.data
-    if (!response.success || !data) {
-      throw new Error(response.message || '提取服务失败')
+    if (!response?.success || !response.data?.id) {
+      throw new Error(response?.message || '提取服务任务创建失败')
     }
-    if (!data.generated) {
-      MessagePlugin.warning(serviceExtractionReasonMessage(data.reason))
+    MessagePlugin.info('服务提醒已加入生成队列')
+    const run = await waitForServiceAgentRun(response.data.id)
+    const generated = run.result?.generated === true
+    const reason = typeof run.result?.reason === 'string' ? run.result.reason : ''
+    if (!generated) {
+      MessagePlugin.warning(serviceExtractionReasonMessage(reason))
       return
     }
-    if (data.reminder) {
-      linkedServiceReminderTask.value = mapServiceReminderToTask(data.reminder)
-    } else {
-      await loadLinkedServiceReminder(memoryID, { silent: true })
-    }
+    await loadLinkedServiceReminder(memoryID, { silent: true })
     noteActiveTab.value = 'service'
     MessagePlugin.success(hadLinkedReminder ? '服务提醒已重新生成' : '服务提醒已生成')
   } catch (error: any) {

@@ -297,6 +297,7 @@ class JieliRecordingCardSdkBridge(
     private val recordStateCallback = OnRecordStateCallback { device, recordState ->
         if (recordState == null) return@OnRecordStateCallback
         val recordParam = recordState.recordParam
+        val voiceBlock = recordState.voiceDataBlock
         emit(
             "recordState",
             mapOf(
@@ -304,7 +305,8 @@ class JieliRecordingCardSdkBridge(
                 "source" to "jieli_android",
                 "state" to recordState.state,
                 "reason" to recordState.reason,
-                "voice_block_bytes" to (recordState.voiceDataBlock?.size ?: 0),
+                "bytes" to (voiceBlock ?: ByteArray(0)),
+                "voice_block_bytes" to (voiceBlock?.size ?: 0),
                 "voice_total_bytes" to (recordState.voiceData?.size ?: 0),
                 "voice_type" to (recordParam?.voiceType ?: -1),
                 "sample_rate" to (recordParam?.sampleRate ?: -1),

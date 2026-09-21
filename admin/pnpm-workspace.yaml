@@ -1,0 +1,5 @@
+allowBuilds:
+  '@vue-office/pptx': false
+  core-js: false
+  esbuild: true
+  vue-demi: false

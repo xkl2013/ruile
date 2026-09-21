@@ -644,12 +644,14 @@ import {
   createServiceActionDraft,
   generateServiceDailyReport,
   getServiceBootstrap,
+  getServiceDailyReport,
   listServiceDailyReports,
   mapServiceReminderToTask,
   refreshServiceModule,
   type ServiceDailyReportDTO,
   type ServiceWorkProfile as ServiceWorkProfileDTO,
   updateServiceReminderStatus,
+  waitForServiceAgentRun,
 } from '@/api/service'
 
 type ReviewRange = 'day' | 'week' | 'month'
@@ -1622,7 +1624,20 @@ const generateReviewReportWithTrigger = async (
       timezone: serviceReportTimezone(),
       trigger,
     })
-    const report = mapServiceDailyReportToReviewReport(response.data)
+    if (!response?.success || !response.data?.id) {
+      throw new Error(response?.message || '日报任务创建失败')
+    }
+    MessagePlugin.info('日报已加入生成队列')
+    const run = await waitForServiceAgentRun(response.data.id)
+    const dailyReportID = typeof run.result?.daily_report_id === 'string' ? run.result.daily_report_id : ''
+    if (!dailyReportID) {
+      throw new Error('日报任务未返回产物引用')
+    }
+    const reportResponse = await getServiceDailyReport(dailyReportID)
+    if (!reportResponse?.success || !reportResponse.data) {
+      throw new Error(reportResponse?.message || '日报产物读取失败')
+    }
+    const report = mapServiceDailyReportToReviewReport(reportResponse.data)
     backendReviewReports.value = [
       report,
       ...backendReviewReports.value.filter((item) => item.id !== report.id),

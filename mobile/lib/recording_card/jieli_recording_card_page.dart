@@ -67,6 +67,15 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
 
   StreamSubscription<JieliRecordingCardSdkEvent>? _eventSubscription;
   Timer? _recordingTickTimer;
+  RandomAccessFile? _recordingAudioWriter;
+  Future<void> _recordingAudioWriteQueue = Future<void>.value();
+  Future<RecordingCardFileEntry?>? _recordingAudioFinalizeFuture;
+  String? _recordingAudioFileNameNoExt;
+  String? _recordingAudioDeviceId;
+  String? _recordingAudioPath;
+  DateTime? _recordingAudioStartedAt;
+  int _recordingAudioCaptureGeneration = 0;
+  String? _recordingAudioWriteError;
   JieliRecordingCardSdkAvailability? _availability;
   bool _initializing = false;
   bool _scanning = false;
@@ -177,6 +186,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _recordingTickTimer?.cancel();
+    unawaited(_recordingAudioWriter?.close());
     final deleteCompleter = _activeDeleteCompleter;
     if (deleteCompleter != null && !deleteCompleter.isCompleted) {
       deleteCompleter.complete(false);
@@ -1927,6 +1937,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             (Platform.isAndroid ? 'jieli_android' : 'jieli_ios');
     final recording = _isJieliRecordingState(state, source: normalizedSource);
     final stopped = _isJieliRecordStoppedState(state, source: normalizedSource);
+    final captureStartedAt = recording && !wasRecording ? DateTime.now() : null;
     setState(() {
       _recordStateCode = state;
       _recordStateSource = normalizedSource;
@@ -1944,8 +1955,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             ..._fileEntries.keys,
             ..._deviceAudioFiles.keys,
           };
-          _recordingSessionStartedAt = DateTime.now();
+          _recordingSessionStartedAt = captureStartedAt;
           _recordingDurationSeconds = 0;
+          _audioBytes = 0;
           _suppressAutoOpenForCurrentRecording = false;
         }
         _error = null;
@@ -1964,17 +1976,234 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       }
       if (message != null) _message = message;
     });
+    if (captureStartedAt != null) {
+      _beginRecordingAudioCapture(startedAt: captureStartedAt);
+    }
     _syncRecordingTick();
     _publishRecordingViewData();
     if (recording && !wasRecording) _maybeAutoOpenRecordingPage();
   }
 
-  void _appendAudioBytes(int bytesCount) {
-    if (!mounted || bytesCount <= 0) return;
+  void _appendAudioBytes(int bytesCount, {Uint8List? bytes}) {
+    if (!mounted) return;
+    final audioBytes = bytes;
+    var count = bytesCount;
+    if (audioBytes != null && audioBytes.isNotEmpty) {
+      _queueRecordingAudioBytes(audioBytes);
+      count = audioBytes.length;
+    }
+    if (count <= 0) return;
     setState(() {
-      _audioBytes += bytesCount;
+      _audioBytes += count;
     });
     _publishRecordingViewData();
+  }
+
+  void _beginRecordingAudioCapture({required DateTime startedAt}) {
+    _recordingAudioCaptureGeneration += 1;
+    final writer = _recordingAudioWriter;
+    _recordingAudioWriter = null;
+    if (writer != null) {
+      unawaited(writer.close());
+    }
+    _recordingAudioWriteQueue = Future<void>.value();
+    _recordingAudioFinalizeFuture = null;
+    _recordingAudioFileNameNoExt = null;
+    _recordingAudioDeviceId = _connectedAddress;
+    _recordingAudioPath = null;
+    _recordingAudioStartedAt = startedAt;
+    _recordingAudioWriteError = null;
+  }
+
+  void _queueRecordingAudioBytes(Uint8List bytes) {
+    if (bytes.isEmpty) return;
+    final generation = _recordingAudioCaptureGeneration;
+    final chunk = Uint8List.fromList(bytes);
+    _recordingAudioWriteQueue = _recordingAudioWriteQueue
+        .then((_) => _writeRecordingAudioBytes(generation, chunk))
+        .catchError((Object error, StackTrace stackTrace) {
+      _recordingAudioWriteError = '保存录音数据失败：$error';
+    });
+  }
+
+  Future<void> _writeRecordingAudioBytes(
+    int generation,
+    Uint8List bytes,
+  ) async {
+    if (generation != _recordingAudioCaptureGeneration ||
+        _recordingAudioWriteError != null) {
+      return;
+    }
+    final writer = await _ensureRecordingAudioWriter(generation);
+    if (writer == null || generation != _recordingAudioCaptureGeneration) {
+      return;
+    }
+    await writer.writeFrom(bytes);
+  }
+
+  Future<RandomAccessFile?> _ensureRecordingAudioWriter(int generation) async {
+    final existing = _recordingAudioWriter;
+    if (existing != null) return existing;
+
+    final deviceId = (_recordingAudioDeviceId ?? _connectedAddress)?.trim();
+    if (deviceId == null || deviceId.isEmpty) return null;
+    _recordingAudioDeviceId = deviceId;
+
+    final startedAt = _recordingAudioStartedAt ??
+        _recordingSessionStartedAt ??
+        DateTime.now();
+    _recordingAudioStartedAt = startedAt;
+    final fileNameNoExt = _recordingAudioFileNameNoExt ??
+        _newJieliRecordingFileNameNoExt(startedAt);
+    _recordingAudioFileNameNoExt = fileNameNoExt;
+
+    final path = await _localStore.sourceAudioFilePath(
+      deviceId,
+      '$fileNameNoExt.opus',
+    );
+    if (generation != _recordingAudioCaptureGeneration) return null;
+
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    final writer = await file.open(mode: FileMode.writeOnly);
+    await writer.truncate(0);
+    await writer.setPosition(0);
+    _recordingAudioWriter = writer;
+    _recordingAudioPath = path;
+    return writer;
+  }
+
+  Future<RecordingCardFileEntry?> _finalizeRecordingAudioCapture() {
+    final pending = _recordingAudioFinalizeFuture;
+    if (pending != null) return pending;
+
+    late final Future<RecordingCardFileEntry?> future;
+    future = _doFinalizeRecordingAudioCapture().whenComplete(() {
+      if (identical(_recordingAudioFinalizeFuture, future)) {
+        _recordingAudioFinalizeFuture = null;
+      }
+    });
+    _recordingAudioFinalizeFuture = future;
+    return future;
+  }
+
+  Future<RecordingCardFileEntry?> _doFinalizeRecordingAudioCapture() async {
+    try {
+      await _recordingAudioWriteQueue;
+    } catch (error) {
+      _recordingAudioWriteError ??= '保存录音数据失败：$error';
+    }
+
+    final writer = _recordingAudioWriter;
+    _recordingAudioWriter = null;
+    if (writer != null) {
+      try {
+        await writer.flush();
+        await writer.close();
+      } catch (error) {
+        _recordingAudioWriteError ??= '保存录音数据失败：$error';
+      }
+    }
+
+    final path = _recordingAudioPath?.trim();
+    final fileNameNoExt = _recordingAudioFileNameNoExt?.trim();
+    final deviceId = (_recordingAudioDeviceId ?? _connectedAddress)?.trim();
+    if (path == null ||
+        path.isEmpty ||
+        fileNameNoExt == null ||
+        fileNameNoExt.isEmpty ||
+        deviceId == null ||
+        deviceId.isEmpty) {
+      return null;
+    }
+
+    final file = File(path);
+    if (!await file.exists()) return null;
+    final length = await file.length();
+    if (length <= 0) return null;
+
+    final now = DateTime.now();
+    final recordedAt =
+        _recordingAudioStartedAt ?? _recordingSessionStartedAt ?? now;
+    final durationSeconds = _recordingDurationSeconds > 0
+        ? _recordingDurationSeconds
+        : now.difference(recordedAt).inSeconds;
+    final existing = _fileEntries[fileNameNoExt];
+    final entry = (existing ??
+            RecordingCardFileEntry(
+              deviceId: deviceId,
+              fileNameNoExt: fileNameNoExt,
+              fileSizeBytes: length,
+              deviceMac: deviceId,
+              deviceName: _targetDevice.displayName,
+              createdAt: recordedAt,
+              updatedAt: now,
+              transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+            ))
+        .copyWith(
+      deviceId: deviceId,
+      deviceMac: existing?.deviceMac.isNotEmpty == true
+          ? existing!.deviceMac
+          : deviceId,
+      deviceName: _targetDevice.displayName,
+      fileSizeBytes: length,
+      localSbcPath: path,
+      localPlayablePath: path,
+      durationSeconds: durationSeconds > 0 ? durationSeconds : null,
+      createdAtFromDevice: recordedAt,
+      syncedBytes: length,
+      checksumFailureCount: 0,
+      transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+      cloudMemoryId: existing?.cloudMemoryId ?? '',
+      lastError: '',
+      createdAt: existing?.createdAt ?? recordedAt,
+    );
+    return _upsertAutoSyncEntry(entry);
+  }
+
+  Future<RecordingCardFileEntry?> _saveCompletedJieliRecordingSession() async {
+    final savedEntry = await _finalizeRecordingAudioCapture();
+    if (savedEntry != null) {
+      _recordingSessionNeedsSync = false;
+      _recordingSessionBaselineFileNames.clear();
+      _recordingSessionStartedAt = null;
+      if (mounted) {
+        setState(() {
+          _autoSyncRunning = true;
+          _autoSyncMessage = '录音已保存，正在后台生成记忆';
+          _autoSyncError = null;
+          _lastAutoSyncAt = DateTime.now();
+        });
+      }
+      unawaited(_advanceAutoSyncQueue());
+      return savedEntry;
+    }
+
+    final writeError = _recordingAudioWriteError?.trim();
+    if (writeError != null && writeError.isNotEmpty) {
+      _setJieliCompletionStatus('保存录音失败', error: writeError);
+      return null;
+    }
+
+    if (mounted && _connectedAddress != null && _rcspReady) {
+      _recordingSessionNeedsSync = false;
+      _recordingSessionBaselineFileNames.clear();
+      _recordingSessionStartedAt = null;
+      setState(() {
+        _autoSyncRunning = true;
+        _autoSyncMessage = '录音已结束，正在后台读取设备文件';
+        _autoSyncError = null;
+        _lastAutoSyncAt = DateTime.now();
+      });
+      unawaited(_startAutoSync());
+      return null;
+    }
+
+    if (mounted) {
+      _recordingAudioWriteError = '未收到录音数据，请保持设备连接后重试。';
+      _setJieliCompletionStatus('保存录音失败', error: _recordingAudioWriteError);
+    }
+    return null;
   }
 
   Future<void> _openRecordingPage({bool automatic = false}) async {
@@ -1999,6 +2228,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       _recordingRouteOpen = false;
       if (automatic && _recording) {
         _suppressAutoOpenForCurrentRecording = true;
+      }
+      if (!_recording && _recordingSessionNeedsSync) {
+        unawaited(_saveCompletedJieliRecordingSession());
       }
     }
   }
@@ -2053,121 +2285,15 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (!mounted) return false;
     _recordCommandBusyNotifier.value = true;
     try {
-      final generated = await _syncCompletedJieliRecording(
-        requireCurrentRecording: requiresCurrentRecording,
-      );
-      if (generated) {
-        _recordingSessionNeedsSync = false;
-        _recordingSessionBaselineFileNames.clear();
-        _recordingSessionStartedAt = null;
-      }
-      return generated;
+      final savedEntry = await _saveCompletedJieliRecordingSession();
+      if (savedEntry != null) return true;
+      final writeError = _recordingAudioWriteError?.trim();
+      return writeError == null || writeError.isEmpty;
     } finally {
       if (mounted) {
         _recordCommandBusyNotifier.value = false;
       }
     }
-  }
-
-  bool get _jieliAutoSyncIdle {
-    return !_autoBrowseInProgress &&
-        !_fileBrowseLoading &&
-        !_fileReadLoading &&
-        !_fileDeleteLoading &&
-        !_cloudSyncInProgress &&
-        !_autoOpeningRecordingFolder &&
-        !_autoLoadingMoreRecordingFiles &&
-        _activeReadFileRef == null &&
-        _activeDeleteFileRef == null;
-  }
-
-  bool get _hasJieliUploadWork {
-    return _nextJieliDownloadCandidate() != null ||
-        _nextJieliCloudCandidate() != null;
-  }
-
-  bool _hasGeneratedJieliMemory({
-    required bool requireCurrentRecording,
-    required Set<String> baselineFileNames,
-    required DateTime? recordingStartedAt,
-  }) {
-    for (final entry in _fileEntries.values) {
-      final generated = entry.cloudMemoryId.trim().isNotEmpty &&
-          (entry.transferStatus == RecordingCardFileTransferStatus.synced ||
-              entry.transferStatus ==
-                  RecordingCardFileTransferStatus.deletedOnDevice);
-      if (!generated) continue;
-      if (!requireCurrentRecording) return true;
-      if (!baselineFileNames.contains(entry.fileNameNoExt)) return true;
-
-      final recordedAt = entry.createdAtFromDevice;
-      if (recordedAt != null && recordingStartedAt != null) {
-        final earliestExpected =
-            recordingStartedAt.subtract(const Duration(minutes: 2));
-        if (!recordedAt.isBefore(earliestExpected)) return true;
-      }
-    }
-    return false;
-  }
-
-  Future<bool> _syncCompletedJieliRecording({
-    required bool requireCurrentRecording,
-  }) async {
-    if (_connectedAddress == null || !_rcspReady) {
-      _setJieliCompletionStatus('无法同步录音', error: '请保持记忆卡连接并等待 RCSP 就绪。');
-      return false;
-    }
-
-    final baselineFileNames =
-        Set<String>.from(_recordingSessionBaselineFileNames);
-    final recordingStartedAt = _recordingSessionStartedAt;
-    final deadline = DateTime.now().add(const Duration(seconds: 120));
-    const maxRefreshAttempts = 8;
-    var refreshAttempts = 0;
-    var nextRefreshAt = DateTime.now();
-
-    _setJieliCompletionStatus('正在上传并生成记忆卡片');
-    while (mounted &&
-        DateTime.now().isBefore(deadline) &&
-        _connectedAddress != null &&
-        _rcspReady) {
-      if (!requireCurrentRecording &&
-          _jieliAutoSyncIdle &&
-          !_hasJieliUploadWork) {
-        _setJieliCompletionStatus('录音同步完成');
-        return true;
-      }
-
-      if (_hasGeneratedJieliMemory(
-        requireCurrentRecording: requireCurrentRecording,
-        baselineFileNames: baselineFileNames,
-        recordingStartedAt: recordingStartedAt,
-      )) {
-        _setJieliCompletionStatus('记忆卡片已生成');
-        return true;
-      }
-
-      final canRefresh =
-          _jieliAutoSyncIdle && refreshAttempts < maxRefreshAttempts;
-      if (canRefresh && !DateTime.now().isBefore(nextRefreshAt)) {
-        refreshAttempts += 1;
-        _setJieliCompletionStatus(
-          '正在读取录音文件（$refreshAttempts/$maxRefreshAttempts）',
-        );
-        await _startAutoSync();
-        nextRefreshAt = DateTime.now().add(const Duration(seconds: 1));
-        continue;
-      }
-
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-    }
-
-    if (mounted) {
-      final message =
-          requireCurrentRecording ? '未发现刚完成的录音文件，请保持设备连接后重试。' : '录音同步超时，请稍后重试。';
-      _setJieliCompletionStatus('上传并生成记忆卡片失败', error: message);
-    }
-    return false;
   }
 
   void _setJieliCompletionStatus(String message, {String? error}) {
@@ -2396,18 +2522,26 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       case 'recordState':
         final state = _readInt(payload, 'state', fallback: -1);
         if (state < 0) return;
+        final audioBytes = _readJieliAudioBytes(payload['bytes']);
         _applyRecordingState(
           state: state,
           source: payload['source']?.toString().trim(),
           voiceType: _readOptionalInt(payload, 'voice_type'),
           sampleRate: _readOptionalInt(payload, 'sample_rate'),
           vadWay: _readOptionalInt(payload, 'vad_way'),
-          voiceBlockBytes: _readInt(payload, 'voice_block_bytes'),
+          voiceBlockBytes:
+              audioBytes?.length ?? _readInt(payload, 'voice_block_bytes'),
           voiceTotalBytes: _readInt(payload, 'voice_total_bytes'),
         );
+        if (audioBytes != null && audioBytes.isNotEmpty) {
+          _queueRecordingAudioBytes(audioBytes);
+        }
         break;
       case 'audioData':
-        _appendAudioBytes(_readInt(payload, 'bytes_count'));
+        _appendAudioBytes(
+          _readInt(payload, 'bytes_count'),
+          bytes: _readJieliAudioBytes(payload['bytes']),
+        );
         break;
       case 'storageList':
         _applyStorageList(payload['storages']);
@@ -4626,6 +4760,36 @@ int _readInt(
   if (value is num) return value.toInt();
   if (value is String) return int.tryParse(value) ?? fallback;
   return fallback;
+}
+
+Uint8List? _readJieliAudioBytes(Object? value) {
+  if (value is Uint8List) return value;
+  if (value is ByteData) {
+    return value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes);
+  }
+  if (value is List<int>) return Uint8List.fromList(value);
+  if (value is List) {
+    final bytes = <int>[];
+    for (final item in value) {
+      if (item is! num) return null;
+      bytes.add(item.toInt() & 0xff);
+    }
+    return Uint8List.fromList(bytes);
+  }
+  return null;
+}
+
+String _newJieliRecordingFileNameNoExt(DateTime time) {
+  final local = time.toLocal();
+  String twoDigits(int value) => value.toString().padLeft(2, '0');
+  String threeDigits(int value) => value.toString().padLeft(3, '0');
+  return 'REC${local.year}'
+      '${twoDigits(local.month)}'
+      '${twoDigits(local.day)}_'
+      '${twoDigits(local.hour)}'
+      '${twoDigits(local.minute)}'
+      '${twoDigits(local.second)}_'
+      '${threeDigits(local.millisecond)}';
 }
 
 bool _readBool(Map<String, Object?> map, String key) {

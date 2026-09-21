@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"encoding/json"
 	stderrors "errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	appsvc "github.com/Tencent/WeKnora/internal/application/service"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
@@ -16,11 +19,17 @@ import (
 )
 
 type ServiceHandler struct {
-	service interfaces.ServiceService
+	service     interfaces.ServiceService
+	agentRuns   interfaces.AgentRunService
+	fileService interfaces.FileService
 }
 
-func NewServiceHandler(svc interfaces.ServiceService) *ServiceHandler {
-	return &ServiceHandler{service: svc}
+func NewServiceHandler(
+	svc interfaces.ServiceService,
+	agentRuns interfaces.AgentRunService,
+	fileService interfaces.FileService,
+) *ServiceHandler {
+	return &ServiceHandler{service: svc, agentRuns: agentRuns, fileService: fileService}
 }
 
 func serviceScope(c *gin.Context) (uint64, string, bool) {
@@ -71,12 +80,12 @@ func (h *ServiceHandler) ExtractMemory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	data, err := h.service.ExtractMemory(ctx, tenantID, userID, c.Param("memory_id"))
+	data, err := h.agentRuns.EnqueueMemoryExtraction(ctx, tenantID, userID, c.Param("memory_id"))
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": data})
 }
 
 func (h *ServiceHandler) ListDailyReports(c *gin.Context) {
@@ -107,6 +116,20 @@ func (h *ServiceHandler) GetDailyReport(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": report})
 }
 
+func (h *ServiceHandler) RenderDailyReportHTML(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	rendered, err := h.service.RenderDailyReportHTML(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(rendered))
+}
+
 func (h *ServiceHandler) GenerateDailyReport(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := serviceScope(c)
@@ -130,12 +153,332 @@ func (h *ServiceHandler) GenerateDailyReport(c *gin.Context) {
 	if req.Trigger == "" {
 		req.Trigger = strings.TrimSpace(c.Query("trigger"))
 	}
-	report, err := h.service.GenerateDailyReport(ctx, tenantID, userID, req)
+	run, err := h.agentRuns.EnqueueDailyReport(ctx, tenantID, userID, req)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": report})
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ServiceHandler) GetAgentRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	run, err := h.agentRuns.GetAgentRun(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": run})
+}
+
+func (h *ServiceHandler) PreviewAgentRunArtifact(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	if h.fileService == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	run, err := h.agentRuns.GetAgentRun(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	rawArtifacts, ok := run.Result["artifacts"]
+	if !ok {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	raw, err := json.Marshal(rawArtifacts)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	var artifacts []types.AgentArtifactResultV1
+	if err := json.Unmarshal(raw, &artifacts); err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	artifactID := strings.TrimSpace(c.Param("artifact_id"))
+	var artifact *types.AgentArtifactResultV1
+	for index := range artifacts {
+		if artifacts[index].ID == artifactID {
+			artifact = &artifacts[index]
+			break
+		}
+	}
+	if artifact == nil || strings.TrimSpace(artifact.ResourceRef) == "" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	reader, err := h.fileService.GetFile(ctx, artifact.ResourceRef)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer reader.Close()
+
+	contentType := artifact.MimeType
+	if contentType == "" {
+		contentType = "text/html; charset=utf-8"
+	}
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", "inline")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "private, max-age=300")
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, reader); err != nil {
+		logger.Warnf(ctx, "failed to stream agent artifact preview: run_id=%s artifact_id=%s err=%v",
+			run.ID, artifact.ID, err)
+	}
+}
+
+func (h *ServiceHandler) GetAgentRunQuality(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	quality, err := h.agentRuns.GetAgentRunQuality(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": quality})
+}
+
+// StreamAgentRunEvents replays durable AgentRun events after the supplied
+// sequence and keeps polling until the run reaches a terminal state. The
+// response data is flattened into the AG-UI shape used by the TDesign Chat
+// renderer, while the database keeps the original payload envelope.
+func (h *ServiceHandler) StreamAgentRunEvents(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	afterSequence := int64(0)
+	if raw := strings.TrimSpace(c.Query("after")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			c.Error(apperrors.NewBadRequestError("after must be a non-negative integer"))
+			return
+		}
+		afterSequence = parsed
+	} else if raw := strings.TrimSpace(c.GetHeader("Last-Event-ID")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			c.Error(apperrors.NewBadRequestError("Last-Event-ID must be a non-negative integer"))
+			return
+		}
+		afterSequence = parsed
+	}
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			c.Error(apperrors.NewBadRequestError("limit must be a positive integer"))
+			return
+		}
+		if parsed > 500 {
+			parsed = 500
+		}
+		limit = parsed
+	}
+
+	runID := strings.TrimSpace(c.Param("id"))
+	run, err := h.agentRuns.GetAgentRun(ctx, tenantID, userID, runID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream; charset=utf-8")
+	c.Header("Cache-Control", "no-cache, no-transform")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	pollTicker := time.NewTicker(300 * time.Millisecond)
+	defer pollTicker.Stop()
+	heartbeatTicker := time.NewTicker(15 * time.Second)
+	defer heartbeatTicker.Stop()
+
+	for {
+		events, listErr := h.agentRuns.ListAgentRunEvents(
+			ctx,
+			tenantID,
+			userID,
+			runID,
+			afterSequence,
+			limit,
+		)
+		if listErr != nil {
+			_ = writeAgentRunSSE(c, map[string]any{
+				"type":      types.AgentRunEventTypeRunError,
+				"runId":     runID,
+				"errorCode": "agent_run_event_stream_failed",
+				"message":   listErr.Error(),
+			})
+			return
+		}
+		for _, event := range events {
+			if event == nil {
+				continue
+			}
+			if err := writeAgentRunEventSSE(c, event); err != nil {
+				return
+			}
+			afterSequence = event.Sequence
+		}
+
+		if len(events) == 0 && isTerminalAgentRunStatus(run.Status) {
+			return
+		}
+		if len(events) > 0 && isTerminalAgentRunStatus(run.Status) {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-pollTicker.C:
+			run, err = h.agentRuns.GetAgentRun(ctx, tenantID, userID, runID)
+			if err != nil {
+				return
+			}
+		case <-heartbeatTicker.C:
+			if err := writeAgentRunSSE(c, map[string]any{
+				"type":   "PING",
+				"runId":  runID,
+				"status": run.Status,
+			}); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func writeAgentRunEventSSE(c *gin.Context, event *types.AgentRunEvent) error {
+	data := map[string]any{
+		"type":      event.EventType,
+		"id":        event.ID,
+		"runId":     event.RunID,
+		"sequence":  event.Sequence,
+		"createdAt": event.CreatedAt,
+	}
+	for key, value := range event.Payload {
+		data[key] = value
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "id: %d\n", event.Sequence); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", raw); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func writeAgentRunSSE(c *gin.Context, data map[string]any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", raw); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func isTerminalAgentRunStatus(status string) bool {
+	switch status {
+	case types.AgentRunStatusWaitingInput,
+		types.AgentRunStatusSucceeded,
+		types.AgentRunStatusFailed,
+		types.AgentRunStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *ServiceHandler) ListAgentRunSteps(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	steps, err := h.agentRuns.ListAgentRunSteps(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": steps})
+}
+
+func (h *ServiceHandler) SubmitAgentRunAnswers(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.AgentRunAnswersInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid agent run answers").WithDetails(err.Error()))
+		return
+	}
+	run, err := h.agentRuns.SubmitAgentRunAnswers(ctx, tenantID, userID, c.Param("id"), input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ServiceHandler) RegenerateAgentRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.AgentRunRegenerateInput
+	if err := c.ShouldBindJSON(&input); err != nil && !stderrors.Is(err, io.EOF) {
+		c.Error(apperrors.NewBadRequestError("invalid agent run regeneration request").WithDetails(err.Error()))
+		return
+	}
+	run, err := h.agentRuns.RegenerateAgentRun(ctx, tenantID, userID, c.Param("id"), input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ServiceHandler) CancelAgentRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	run, err := h.agentRuns.CancelAgentRun(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": run})
 }
 
 func (h *ServiceHandler) ListCustomerSpaces(c *gin.Context) {
@@ -464,8 +807,14 @@ func (h *ServiceHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, appsvc.ErrServiceInvalidReportRange),
 		stderrors.Is(err, appsvc.ErrServiceInvalidReportDate),
 		stderrors.Is(err, appsvc.ErrServiceInvalidStatus),
-		stderrors.Is(err, appsvc.ErrServiceProfileNotConfigured):
+		stderrors.Is(err, appsvc.ErrServiceProfileNotConfigured),
+		stderrors.Is(err, appsvc.ErrAgentRunInvalidRequest),
+		stderrors.Is(err, appsvc.ErrAgentRunCannotCancel),
+		stderrors.Is(err, appsvc.ErrAgentRunNotWaitingInput),
+		stderrors.Is(err, appsvc.ErrAgentRunCannotRegenerate):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
+	case stderrors.Is(err, appsvc.ErrAgentRunNotFound):
+		c.Error(apperrors.NewNotFoundError(err.Error()))
 	default:
 		logger.ErrorWithFields(c.Request.Context(), err, nil)
 		c.Error(apperrors.NewInternalServerError(err.Error()))

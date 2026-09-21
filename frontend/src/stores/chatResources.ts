@@ -9,12 +9,13 @@ import {
 import { listAgents, type CustomAgent } from '@/api/agent'
 import { listModels, type ModelConfig } from '@/api/model'
 import { listWebSearchProviders, type WebSearchProviderEntity } from '@/api/web-search-provider'
+import { listPublishedExperts, type PublishedExpert } from '@/api/expert-package'
 import { useOrganizationStore } from '@/stores/organization'
 
 /** 空间级资源缓存 TTL */
 const CACHE_TTL_MS = 60_000
 
-type ResourceKey = 'knowledgeBases' | 'myKnowledgeBases' | 'agents' | 'models' | 'webSearchProviders'
+type ResourceKey = 'knowledgeBases' | 'myKnowledgeBases' | 'agents' | 'models' | 'webSearchProviders' | 'publishedExperts'
 
 export type ListCreatorFilter = 'all' | 'mine' | 'others'
 
@@ -33,6 +34,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
   const disabledOwnAgentIds = ref<string[]>([])
   const allModels = ref<ModelConfig[]>([])
   const webSearchProviders = ref<WebSearchProviderEntity[]>([])
+  const publishedExperts = ref<PublishedExpert[]>([])
 
   const loadedAt = ref<Partial<Record<ResourceKey, number>>>({})
   const inflight = new Map<ResourceKey, Promise<void>>()
@@ -210,6 +212,14 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     })
   }
 
+  async function ensurePublishedExperts(force = false): Promise<void> {
+    return runOnce('publishedExperts', force, async () => {
+      const response = await listPublishedExperts()
+      publishedExperts.value = Array.isArray(response?.data) ? response.data : []
+      loadedAt.value.publishedExperts = Date.now()
+    })
+  }
+
   /** 并行预取对话输入栏及列表页常用的空间级资源 */
   async function prefetchChatInput(force = false): Promise<void> {
     const orgStore = useOrganizationStore()
@@ -218,6 +228,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       ensureAgents(force),
       ensureModels(force),
       ensureWebSearchProviders(force),
+      ensurePublishedExperts(force),
       orgStore.fetchOrganizations({ force }),
     ])
   }
@@ -291,6 +302,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
       disabledOwnAgentIds.value = []
       allModels.value = []
       webSearchProviders.value = []
+      publishedExperts.value = []
       agentKbCache.clear()
       // 同时丢弃所有 inflight 句柄，否则失效后仍在飞行的请求会把旧数据写回缓存。
       inflight.clear()
@@ -331,6 +343,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     allModels,
     chatModels,
     webSearchProviders,
+    publishedExperts,
     isFresh,
     fetchKnowledgeBasesForList,
     fetchMyKnowledgeBases,
@@ -340,6 +353,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     ensureModels,
     ensureChatModels,
     ensureWebSearchProviders,
+    ensurePublishedExperts,
     ensureAgentKnowledgeBases,
     prefetchChatInput,
     fetchKnowledgeBaseById,

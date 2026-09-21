@@ -281,7 +281,7 @@ func (s *knowledgeBaseService) resolveSharedKnowledgeBaseAccess(
 		if srcErr == nil {
 			srcErr = fmt.Errorf("shared knowledge base %s has no source tenant", kbID)
 		}
-		return nil, true, srcErr
+		return nil, true, fmt.Errorf("%w: %v", types.ErrKnowledgeBaseAccessForbidden, srcErr)
 	}
 	return &types.KnowledgeBaseAccess{
 		KnowledgeBase:     kb,

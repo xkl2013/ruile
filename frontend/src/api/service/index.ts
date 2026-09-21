@@ -1,4 +1,7 @@
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { get, post, put } from '@/utils/request'
+import { generateRandomString } from '@/utils/index'
+import { getApiBaseUrl } from '@/utils/api-base'
 import type { ServiceTask, ServiceTaskSource } from '@/views/service/serviceMemoryExtraction'
 
 export interface ServiceWorkProfile {
@@ -146,6 +149,171 @@ export interface ServiceMemoryExtraction {
   reminder?: ServiceReminderDTO
 }
 
+export type ServiceAgentRunStatus = 'queued' | 'running' | 'waiting_input' | 'succeeded' | 'failed' | 'cancelled'
+
+export type ServiceAgentRunPhase = 'intake' | 'planning' | 'drafting' | 'reviewing' | 'revising' | 'packaging' | 'completed'
+
+export interface ExpertIntakeQuestion {
+  id: string
+  label: string
+  type: 'text' | 'single_choice' | 'multi_choice' | 'date' | 'number'
+  required: boolean
+  options?: string[]
+  description?: string
+}
+
+export interface ExpertIntakeInteraction {
+  schema_version: 'intake_request_v1'
+  questions: ExpertIntakeQuestion[]
+}
+
+export interface ServiceAgentRunQualityIssue {
+  code: string
+  severity: 'warning' | 'error' | 'red_line'
+  section?: string
+  message: string
+  instruction: string
+}
+
+export interface ServiceAgentRunQuality {
+  score?: number
+  passed?: boolean
+  summary?: string
+  red_lines?: string[]
+  dimensions?: Record<string, number>
+  issues?: ServiceAgentRunQualityIssue[]
+}
+
+export interface ServiceAgentRunStep {
+  id: string
+  run_id: string
+  sequence: number
+  step_type: ServiceAgentRunPhase
+  status: 'running' | 'succeeded' | 'failed'
+  model_id?: string
+  input?: Record<string, unknown>
+  output?: Record<string, unknown>
+  error?: string
+  started_at?: string
+  finished_at?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ServiceCardV1 {
+  schema_version: 'service_card_v1'
+  title: string
+  summary: string
+  next_action: string
+}
+
+export interface StructuredReportSectionV1 {
+  type: 'facts' | 'analysis' | 'risks' | 'missing_information' | 'recommended_actions' | 'talk_track' | 'evidence'
+  title: string
+  content?: string
+  items?: string[]
+}
+
+export interface StructuredReportV1 {
+  format: 'structured_report_v1'
+  title: string
+  executive_summary: string
+  sections: StructuredReportSectionV1[]
+  evidence_refs: string[]
+}
+
+export interface ServiceAgentArtifactResultV1 {
+  id?: string
+  kind: 'text' | 'report' | 'html' | 'image' | 'pdf' | 'document' | 'spreadsheet' | 'presentation' | 'audio' | 'video' | 'data'
+  role: 'primary' | 'supporting'
+  title: string
+  format?: string
+  mime_type?: string
+  original_name?: string
+  size_bytes?: number
+  resource_ref?: string
+  content?: StructuredReportV1 | Record<string, unknown>
+}
+
+export interface ServiceAgentEvidenceRefV1 {
+  source_type: string
+  source_id: string
+  relation: string
+  excerpt?: string
+}
+
+export interface ServiceAgentResultValidation {
+  contract: 'agent_result_v1'
+  valid: boolean
+  errors: string[]
+}
+
+export interface ServiceAgentRunResult extends Record<string, unknown> {
+  schema_version?: 'agent_result_v1'
+  decision?: {
+    should_create_card: boolean
+    confidence: number
+    reason: string
+  }
+  card?: ServiceCardV1
+  artifacts?: ServiceAgentArtifactResultV1[]
+  evidence?: ServiceAgentEvidenceRefV1[]
+  validation?: ServiceAgentResultValidation
+  artifact_type?: string
+  daily_report_id?: string
+  memory_id?: string
+  generated?: boolean
+  reason?: string
+  service_reminder_id?: string
+}
+
+export interface ServiceAgentRun {
+  id: string
+  tenant_id: number
+  user_id: string
+  thread_id?: string
+  profile_id?: string
+  parent_run_id?: string
+  requirement_snapshot_id?: string
+  run_type: 'service_daily_report' | 'service_memory_extract' | 'expert_agent_test' | 'expert_follow_up'
+  agent_ref?: string
+  agent_version?: string
+  trigger_type?: string
+  trigger_id?: string
+  status: ServiceAgentRunStatus
+  phase?: ServiceAgentRunPhase
+  input?: Record<string, unknown>
+  interaction?: ExpertIntakeInteraction | Record<string, unknown>
+  quality?: ServiceAgentRunQuality
+  result?: ServiceAgentRunResult
+  error_code?: string
+  error_message?: string
+  task_id?: string
+  attempt?: number
+  queued_at?: string
+  resumed_at?: string
+  started_at?: string
+  finished_at?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ServiceAgentRunEvent {
+  type: string
+  id?: string
+  runId?: string
+  sequence?: number
+  status?: ServiceAgentRunStatus
+  phase?: ServiceAgentRunPhase
+  createdAt?: string
+  startedAt?: string
+  finishedAt?: string
+  durationMs?: number
+  totalDurationMs?: number
+  queueDurationMs?: number
+  [key: string]: unknown
+}
+
 export type ServiceDailyReportRange = 'day' | 'week' | 'month'
 
 export interface ServiceDailyReportDTO {
@@ -153,6 +321,7 @@ export interface ServiceDailyReportDTO {
   title: string
   summary?: string
   content: string
+  structured_report?: StructuredReportV1
   range: ServiceDailyReportRange
   stage: string
   stage_key?: string
@@ -340,9 +509,114 @@ export function refreshServiceModule() {
 }
 
 export function extractServiceMemory(memoryId: string) {
-  return post<ServiceResponse<ServiceMemoryExtraction>>(
+  return post<ServiceResponse<ServiceAgentRun>>(
     `/api/v1/service/memories/${encodeURIComponent(memoryId)}/extract`,
   )
+}
+
+export function getServiceAgentRun(id: string) {
+  return get<ServiceResponse<ServiceAgentRun>>(`/api/v1/service/agent-runs/${encodeURIComponent(id)}`)
+}
+
+export function getServiceAgentArtifactPreview(runId: string, artifactId: string) {
+  return get<string>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/preview`,
+    { responseType: 'text' },
+  )
+}
+
+export function listServiceAgentRunSteps(id: string) {
+  return get<ServiceResponse<ServiceAgentRunStep[]>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/steps`,
+  )
+}
+
+export function getServiceAgentRunQuality(id: string) {
+  return get<ServiceResponse<ServiceAgentRunQuality>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/quality`,
+  )
+}
+
+export function submitServiceAgentRunAnswers(id: string, answers: Record<string, unknown>) {
+  return post<ServiceResponse<ServiceAgentRun>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/answers`,
+    { answers },
+  )
+}
+
+export function regenerateServiceAgentRun(id: string, feedback?: string) {
+  return post<ServiceResponse<ServiceAgentRun>>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(id)}/regenerate`,
+    feedback?.trim() ? { feedback: feedback.trim() } : {},
+  )
+}
+
+export async function streamServiceAgentRunEvents(
+  id: string,
+  options: {
+    afterSequence?: number
+    signal?: AbortSignal
+    onEvent: (event: ServiceAgentRunEvent) => void
+  },
+) {
+  const token = localStorage.getItem('weknora_token')
+  if (!token) throw new Error('登录状态已失效，请重新登录')
+
+  const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id')
+  const after = Math.max(0, Math.floor(options.afterSequence || 0))
+  const url = `${getApiBaseUrl()}/api/v1/service/agent-runs/${encodeURIComponent(id)}/events?after=${after}`
+
+  await fetchEventSource(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/event-stream',
+      'Accept-Language': localStorage.getItem('locale') || 'zh-CN',
+      'X-Request-ID': generateRandomString(12),
+      ...(selectedTenantId ? { 'X-Tenant-ID': selectedTenantId } : {}),
+    },
+    signal: options.signal,
+    openWhenHidden: true,
+    onopen: async (response) => {
+      if (!response.ok) {
+        throw new Error(`事件流连接失败（HTTP ${response.status}）`)
+      }
+    },
+    onmessage: (message) => {
+      if (!message.data) return
+      const event = JSON.parse(message.data) as ServiceAgentRunEvent
+      if (event.type !== 'PING') options.onEvent(event)
+    },
+    onclose: () => undefined,
+    onerror: (error) => {
+      throw error instanceof Error ? error : new Error('事件流连接失败')
+    },
+  })
+}
+
+export async function waitForServiceAgentRun(
+  id: string,
+  options?: { intervalMs?: number; timeoutMs?: number },
+) {
+  const intervalMs = options?.intervalMs ?? 1200
+  const timeoutMs = options?.timeoutMs ?? 5 * 60 * 1000
+  const deadline = Date.now() + timeoutMs
+
+  while (true) {
+    const response = await getServiceAgentRun(id)
+    const run = response?.data
+    if (!response?.success || !run) {
+      throw new Error(response?.message || '任务状态读取失败')
+    }
+    if (run.status === 'succeeded' || run.status === 'waiting_input') return run
+    if (run.status === 'failed' || run.status === 'cancelled') {
+      throw new Error(run.error_message || '任务未完成')
+    }
+    if (Date.now() >= deadline) {
+      throw new Error('任务仍在执行，请稍后在服务空间查看结果')
+    }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, intervalMs))
+  }
 }
 
 export function listServiceDailyReports(params?: {
@@ -355,13 +629,17 @@ export function listServiceDailyReports(params?: {
   return get<ServiceResponse<ServiceListData<ServiceDailyReportDTO>>>(withQuery('/api/v1/service/daily-reports', params))
 }
 
+export function getServiceDailyReport(id: string) {
+  return get<ServiceResponse<ServiceDailyReportDTO>>(`/api/v1/service/daily-reports/${encodeURIComponent(id)}`)
+}
+
 export function generateServiceDailyReport(data?: {
   range?: ServiceDailyReportRange
   date?: string
   timezone?: string
   trigger?: string
 }) {
-  return post<ServiceResponse<ServiceDailyReportDTO>>('/api/v1/service/daily-reports', data || {})
+  return post<ServiceResponse<ServiceAgentRun>>('/api/v1/service/daily-reports', data || {})
 }
 
 export function listServiceCustomerSpaces(params?: {

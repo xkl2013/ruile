@@ -22,6 +22,8 @@ func TestValidateWorkerConcurrencyMinimums(t *testing.T) {
 		{name: "shared minimum", key: "asynq.shared_concurrency", value: 1},
 		{name: "wiki zero", key: "asynq.wiki_concurrency", value: 0, wantErr: true},
 		{name: "wiki minimum", key: "asynq.wiki_concurrency", value: 1},
+		{name: "agent zero", key: "asynq.agent_concurrency", value: 0, wantErr: true},
+		{name: "agent minimum", key: "asynq.agent_concurrency", value: 1},
 	}
 
 	for _, tt := range tests {

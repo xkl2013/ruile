@@ -70,7 +70,33 @@
             </div>
           </div>
 
-          <div v-if="builtinAgents.length === 0 && customAgents.length === 0 && sharedAgentsList.length === 0"
+          <!-- 已发布专家：只展示管理员已发布版本，不要求工作画像绑定 -->
+          <div v-if="publishedExpertsList.length > 0" class="agent-group">
+            <div class="agent-group-title">已发布专家</div>
+            <div class="agent-option" :class="{ selected: isPublishedExpertSelected('__auto__') }"
+              @click="emit('select-published-expert-auto')">
+              <div class="builtin-icon normal">
+                <TIcon name="control-platform" size="13px" />
+              </div>
+              <div class="agent-option-copy">
+                <span class="agent-option-name">自动匹配专家</span>
+                <span class="agent-option-description">根据当前问题选择最合适的已发布专家</span>
+              </div>
+              <span class="published-expert-tag">路由</span>
+            </div>
+            <div v-for="expert in publishedExpertsList" :key="expert.definition_id" class="agent-option"
+              :class="{ selected: isPublishedExpertSelected(expert) }"
+              @click="emit('select-published-expert', expert)">
+              <AgentAvatar :name="expert.display_name" size="small" />
+              <div class="agent-option-copy">
+                <span class="agent-option-name">{{ expert.display_name }}</span>
+                <span class="agent-option-description">{{ expert.description || expert.package_display_name }}</span>
+              </div>
+              <span class="published-expert-tag">专家</span>
+            </div>
+          </div>
+
+          <div v-if="builtinAgents.length === 0 && customAgents.length === 0 && sharedAgentsList.length === 0 && publishedExpertsList.length === 0"
             class="agent-option empty">
             {{ $t('agent.noAgents') }}
           </div>
@@ -100,7 +126,7 @@
                 <span class="detail-name">{{ activeDetail.agent.name }}</span>
               </div>
               <span v-if="isDetailCurrent" class="detail-current">{{ $t('agent.selector.current') }}</span>
-              <div v-if="activeDetailNotReadyLabels.length" class="detail-not-ready">
+              <div v-else-if="activeDetailNotReadyLabels.length" class="detail-not-ready">
                 <TIcon name="error-circle" size="13px" class="detail-not-ready-icon" />
                 <span class="detail-not-ready-label">{{ $t('agent.selector.notReadyStatus') }}</span>
                 <span v-for="item in activeDetailNotReadyLabels" :key="item" class="detail-not-ready-item">{{ item
@@ -190,6 +216,7 @@ import {
   isAgentWebSearchEnabled,
   isAgentWebSearchReady,
 } from '@/utils/agentWebSearch';
+import type { PublishedExpert } from '@/api/expert-package';
 
 const { t, locale } = useI18n();
 const orgStore = useOrganizationStore();
@@ -203,11 +230,15 @@ const props = defineProps<{
   allModels?: ModelConfig[];
   currentChatModelId?: string;
   responseTierEnabled?: boolean;
+  publishedExperts?: PublishedExpert[];
+  selectedPublishedExpertId?: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'select', agent: CustomAgent, sourceTenantId?: string): void;
+  (e: 'select-published-expert', expert: PublishedExpert): void;
+  (e: 'select-published-expert-auto'): void;
   (e: 'not-ready', agent: CustomAgent, labels: string[], keys: AgentNotReadyReasonKey[], sourceTenantId?: string): void;
 }>();
 
@@ -233,6 +264,7 @@ const DETAIL_PANEL_GAP = 8;
 const DETAIL_HIDE_DELAY_MS = 400;
 
 const agentsList = computed(() => props.agents ?? []);
+const publishedExpertsList = computed(() => props.publishedExperts ?? []);
 const webSearchProviders = computed(() => chatResources.webSearchProviders);
 
 const builtinAgents = computed(() => {
@@ -269,6 +301,9 @@ const isSharedAgentSelected = (shared: SharedAgentSelection) =>
 
 const isMyAgentSelected = (agent: CustomAgent) =>
   props.currentAgentId === agent.id && !currentAgentSourceTenantId.value;
+
+const isPublishedExpertSelected = (expert: PublishedExpert | string) =>
+  props.selectedPublishedExpertId === (typeof expert === 'string' ? expert : expert.definition_id);
 
 const isDetailCurrent = computed(() => {
   const detail = activeDetail.value;
@@ -689,6 +724,30 @@ watch(activeDetail, (detail) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 22px;
+}
+
+.agent-option-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-option-description {
+  overflow: hidden;
+  color: var(--td-text-color-placeholder);
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.published-expert-tag {
+  flex-shrink: 0;
+  color: var(--td-brand-color);
+  font-size: 10px;
   line-height: 22px;
 }
 

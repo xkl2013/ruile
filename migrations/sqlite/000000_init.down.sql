@@ -1,10 +1,15 @@
 DROP TABLE IF EXISTS tenant_invitations;
 DROP TABLE IF EXISTS tenant_api_keys;
+DROP TABLE IF EXISTS agent_bindings;
+DROP TABLE IF EXISTS agent_definition_versions;
+DROP TABLE IF EXISTS expert_package_versions;
+DROP TABLE IF EXISTS expert_packages;
 DROP TABLE IF EXISTS organize_sprout_memories;
 DROP TABLE IF EXISTS organize_sprout_reports;
 DROP TABLE IF EXISTS organize_output_memories;
 DROP TABLE IF EXISTS organize_outputs;
 DROP TABLE IF EXISTS organize_memories;
+DROP TABLE IF EXISTS agent_runs;
 DROP TABLE IF EXISTS agent_action_logs;
 DROP TABLE IF EXISTS agent_action_drafts;
 DROP TABLE IF EXISTS service_reminders;

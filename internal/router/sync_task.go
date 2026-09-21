@@ -19,11 +19,13 @@ import (
 type SyncTaskExecutor struct {
 	mu       sync.RWMutex
 	handlers map[string]func(context.Context, *asynq.Task) error
+	cancels  map[string]context.CancelFunc
 }
 
 func NewSyncTaskExecutor() *SyncTaskExecutor {
 	return &SyncTaskExecutor{
 		handlers: make(map[string]func(context.Context, *asynq.Task) error),
+		cancels:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -49,6 +51,8 @@ func (e *SyncTaskExecutor) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asy
 	var delay time.Duration
 	maxRetry := 25 // asynq default
 	maxRetrySet := false
+	taskID := uuid.New().String()
+	queue := "sync"
 	for _, opt := range opts {
 		switch opt.Type() {
 		case asynq.ProcessInOpt:
@@ -60,6 +64,14 @@ func (e *SyncTaskExecutor) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asy
 				maxRetry = n
 				maxRetrySet = true
 			}
+		case asynq.TaskIDOpt:
+			if id, ok := opt.Value().(string); ok && id != "" {
+				taskID = id
+			}
+		case asynq.QueueOpt:
+			if name, ok := opt.Value().(string); ok && name != "" {
+				queue = name
+			}
 		}
 	}
 	// Callers that explicitly pass MaxRetry(0) want no retries.
@@ -68,22 +80,37 @@ func (e *SyncTaskExecutor) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asy
 		maxRetry = 0
 	}
 
-	taskID := uuid.New().String()
 	info := &asynq.TaskInfo{
 		ID:    taskID,
-		Queue: "sync",
+		Queue: queue,
 		Type:  task.Type(),
 	}
 
+	ctx, cancel := context.WithCancel(types.WithBackgroundTask(context.Background()))
+	e.mu.Lock()
+	e.cancels[taskID] = cancel
+	e.mu.Unlock()
+
 	go func() {
+		defer func() {
+			cancel()
+			e.mu.Lock()
+			delete(e.cancels, taskID)
+			e.mu.Unlock()
+		}()
 		if delay > 0 {
-			time.Sleep(delay)
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 		}
 
 		// Tag as a background worker execution so the per-model concurrency
 		// governor throttles Lite-mode ingestion/enrichment LLM calls, mirroring
 		// the asynq backgroundTaskMiddleware in the Redis path.
-		ctx := types.WithBackgroundTask(context.Background())
 		start := time.Now()
 		logger.Infof(ctx, "[SyncTask] Executing task type=%s id=%s", task.Type(), taskID)
 
@@ -96,7 +123,13 @@ func (e *SyncTaskExecutor) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asy
 				}
 				logger.Infof(ctx, "[SyncTask] Retrying task type=%s id=%s attempt=%d/%d backoff=%s",
 					task.Type(), taskID, attempt, maxRetry, backoff)
-				time.Sleep(backoff)
+				timer := time.NewTimer(backoff)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
 			}
 
 			lastErr = handler(ctx, task)
@@ -114,6 +147,21 @@ func (e *SyncTaskExecutor) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asy
 	return info, nil
 }
 
+func (e *SyncTaskExecutor) CancelTask(
+	_ context.Context,
+	_ string,
+	taskID string,
+) (bool, error) {
+	e.mu.RLock()
+	cancel := e.cancels[taskID]
+	e.mu.RUnlock()
+	if cancel == nil {
+		return false, nil
+	}
+	cancel()
+	return true, nil
+}
+
 type SyncTaskParams struct {
 	dig.In
 
@@ -129,6 +177,7 @@ type SyncTaskParams struct {
 	WikiIngest           interfaces.TaskHandler `name:"wikiIngest"`
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	OrganizeService      interfaces.OrganizeService
+	AgentRunService      interfaces.AgentRunService
 }
 
 // RegisterSyncHandlers registers all task handlers on the SyncTaskExecutor.
@@ -154,5 +203,6 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeDataSourceSync, params.DataSourceService.ProcessSync)
 	params.Executor.RegisterHandler(types.TypeWikiIngest, params.WikiIngest.Handle)
 	params.Executor.RegisterHandler(types.TypeWikiFinalize, params.WikiIngest.Handle)
+	params.Executor.RegisterHandler(types.TypeAgentRunExecute, params.AgentRunService.ProcessAgentRun)
 	logger.Infof(context.Background(), "[SyncTask] All task handlers registered (Lite mode, no Redis)")
 }

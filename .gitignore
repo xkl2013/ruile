@@ -32,6 +32,8 @@ tmp/
 temp/
 logs/
 *.pid
+/backups/
+/data/local-test/
 
 WeKnora
 WeKnora-lite

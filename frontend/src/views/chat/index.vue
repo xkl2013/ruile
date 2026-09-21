@@ -3,6 +3,7 @@
         'is-embedded': embeddedMode,
         'is-sidebar-collapsed': uiStore.sidebarCollapsed,
         'has-references-panel': referencesDrawerVisible,
+        'has-expert-artifact-panel': activeExpertArtifact,
     }">
         <ChatHeader v-if="!embeddedMode" :session="currentSession" :has-references-panel="referencesDrawerVisible" />
         <div ref="scrollContainer" class="chat_scroll_box" @scroll="handleScroll">
@@ -88,7 +89,25 @@
                             :session-id="session_id">
                         </usermsg>
                     </div>
-                    <div v-if="session.role == 'assistant' && shouldRenderAssistantMessage(session)">
+                    <div v-if="session.role == 'assistant' && session.isPublishedExpertRun">
+                        <PublishedExpertRunMessage :message="session"
+                            @open-artifact="openExpertArtifact"
+                            @submit-answers="(answers) => submitPublishedExpertAnswers(session, answers)"
+                            @regenerate="(action) => regeneratePublishedExpertRun(session, action)"
+                            @ask-follow-up="(action) => askPublishedExpertFollowUp(session, action)"
+                            @cancel="cancelPublishedExpertRun(session)"
+                            @open-diff="openExpertRunDiff(session)" />
+                    </div>
+                    <div v-else-if="session.role == 'assistant' && session.isPublishedExpertFollowUp">
+                        <PublishedExpertFollowUpMessage :message="session" />
+                    </div>
+                    <div v-else-if="session.role == 'assistant' && session.isPublishedExpertRouteChoice">
+                        <PublishedExpertRouteChoiceMessage
+                            :message="session"
+                            @select="(candidate) => confirmPublishedExpertRoute(session, candidate)"
+                            @cancel="cancelPublishedExpertRoute(session)" />
+                    </div>
+                    <div v-else-if="session.role == 'assistant' && shouldRenderAssistantMessage(session)">
                         <botmsg :content="session.content" :session="session" :session-id="session_id"
                             :user-query="getUserQuery(index)" @scroll-bottom="scrollToBottom"
                             :isFirstEnter="isFirstEnter" :embeddedMode="embeddedMode"
@@ -119,6 +138,7 @@
         <div class="input-container" :class="{ 'is-embedded': embeddedMode }">
             <InputField ref="inputFieldRef"
                 @send-msg="(query, modelId, mentionedItems, imageFiles, attachmentFiles, responseTier) => sendMsg(query, modelId, mentionedItems, imageFiles, attachmentFiles, responseTier)"
+                @send-published-expert="handlePublishedExpertSend"
                 @stop-generation="handleStopGeneration" :isReplying="isReplying" :sessionId="session_id"
                 :assistantMessageId="currentAssistantMessageId" :agent-id="agentId"
                 :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"></InputField>
@@ -126,6 +146,10 @@
     </div>
     <ChatReferencesDrawer />
     <ChatAttachmentPreviewDrawer />
+    <ExpertArtifactPanel v-if="activeExpertArtifact" :artifact="activeExpertArtifact" :run-id="activeExpertArtifactRunId"
+        @close="activeExpertArtifact = null" />
+    <ExpertRunDiffPanel v-if="activeExpertRunDiff" :diff="activeExpertRunDiff" :loading="expertRunDiffLoading"
+        @close="activeExpertRunDiff = null" />
 </template>
 <script setup>
 import { storeToRefs } from 'pinia';
@@ -134,6 +158,11 @@ import { useRoute, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import InputField from '../../components/Input-field.vue';
 import botmsg from './components/botmsg.vue';
 import usermsg from './components/usermsg.vue';
+import PublishedExpertRunMessage from './components/PublishedExpertRunMessage.vue';
+import PublishedExpertFollowUpMessage from './components/PublishedExpertFollowUpMessage.vue';
+import PublishedExpertRouteChoiceMessage from './components/PublishedExpertRouteChoiceMessage.vue';
+import ExpertArtifactPanel from './components/ExpertArtifactPanel.vue';
+import ExpertRunDiffPanel from './components/ExpertRunDiffPanel.vue';
 import { getMessageList, getSession } from "@/api/chat/index";
 import { getSuggestedQuestions } from "@/api/agent/index";
 import { deleteTemporaryAttachment, uploadTemporaryAttachment } from '@/api/chat/temporary-attachments';
@@ -161,6 +190,21 @@ import {
 } from '@/api/message-suggestion';
 import { provideChatReferencesDrawer } from '@/composables/useChatReferencesDrawer';
 import { provideChatAttachmentPreviewDrawer } from '@/composables/useChatAttachmentPreviewDrawer';
+import {
+    cancelAgentRun,
+    getAgentRun,
+    getAgentRunDiff,
+    listAgentRunSteps,
+    regenerateAgentRun,
+    streamAgentRunEvents,
+    submitAgentRunAnswers,
+} from '@/api/agent-run';
+import {
+    routePublishedExpert,
+    runPublishedExpert,
+    runPublishedExpertAuto,
+    runPublishedExpertFollowUp,
+} from '@/api/expert-package';
 
 const referencesDrawer = provideChatReferencesDrawer();
 provideChatAttachmentPreviewDrawer();
@@ -189,7 +233,15 @@ const isAgentStreamSession = () => {
 
 const uiStore = useUIStore();
 const { t } = useI18n();
-const { firstQuery, firstMentionedItems, firstModelId, firstImageFiles, firstAttachmentFiles } = storeToRefs(usemenuStore);
+const {
+    firstQuery,
+    firstMentionedItems,
+    firstModelId,
+    firstImageFiles,
+    firstAttachmentFiles,
+    firstPublishedExpert,
+    firstPublishedExpertRouteMode,
+} = storeToRefs(usemenuStore);
 const { onChunk, error, startStream, stopStream, lastStreamRequest } = useStream();
 /** Snapshot of the in-flight HTTP request for attaching to the next assistant message. */
 const pendingStreamDebug = ref(null);
@@ -219,12 +271,14 @@ const attachStreamDebugToMessage = (message) => {
 const route = useRoute();
 const session_id = ref(props.session_id || route.params.chatid);
 const currentSession = ref(null);
+const isPublishedExpertSessionId = (sessionId = session_id.value) =>
+    /^expert-\d+-[a-z0-9]+$/i.test(String(sessionId || '').trim());
 
 // 拉 session 详情，并按其 last_request_state 把输入栏状态恢复到当时的发起态。
 // 嵌入式（embeddedMode）由宿主页面注入 agent/KB，所以跳过整套恢复逻辑，
 // 避免污染宿主的 settings store。
 const loadSessionAndHydrate = async (sid) => {
-    if (!sid || props.embeddedMode) return;
+    if (!sid || props.embeddedMode || isPublishedExpertSessionId(sid)) return;
     try {
         const sessionRes = await getSession(sid);
         if (sessionRes?.data && sid === session_id.value) {
@@ -254,6 +308,10 @@ const emitMessageStateChange = () => {
 };
 const isReplying = ref(false);
 const currentAssistantMessageId = ref(''); // 当前正在生成的 assistant message ID
+const activeExpertArtifact = ref(null);
+const activeExpertArtifactRunId = ref('');
+const activeExpertRunDiff = ref(null);
+const expertRunDiffLoading = ref(false);
 // True only while attaching to an in-flight *IM-originated* reply via continue-stream.
 // Such replies are generated on the IM side and never stream through this server, so
 // continue-stream always fails even though the answer is coming — recover by polling
@@ -472,7 +530,8 @@ watch([() => route.params], async (newvalue) => {
             created_at: '',
             limit: limit.value
         }
-        getmsgList(data);
+        await getmsgList(data);
+        await restorePublishedExpertRuns();
     }
 });
 const scrollToBottom = (force = false) => {
@@ -614,11 +673,18 @@ const showGlobalTypingIndicator = computed(() =>
 );
 
 const getmsgList = (data, isScrollType = false, scrollHeight) => {
+    if (isPublishedExpertSessionId(data?.session_id)) {
+        historyLoading.value = false;
+        historyLoadingMore.value = false;
+        hasMoreHistory.value = false;
+        emitMessageStateChange();
+        return Promise.resolve();
+    }
     if (isScrollType) {
         if (historyLoadingMore.value || !hasMoreHistory.value) return;
         historyLoadingMore.value = true;
     }
-    fetchMessageList(data).then(async (res) => {
+    return fetchMessageList(data).then(async (res) => {
         const batch = res?.data;
         if (!batch?.length) {
             if (isScrollType) {
@@ -667,6 +733,722 @@ const handleStopGeneration = () => {
     // 标记当前 assistant 为已结束，避免下一条 query 复用该消息行
     markInFlightAssistantStopped(currentAssistantMessageId.value);
     // 保留 currentAssistantMessageId，Input-field 仍需用它调用 stop API
+};
+
+const openExpertArtifact = (artifact, runId = '') => {
+    activeExpertArtifact.value = artifact;
+    activeExpertArtifactRunId.value = runId;
+};
+
+const publishedExpertStorageKey = () => {
+    const currentSessionId = String(session_id.value || '').trim();
+    return currentSessionId ? `ruile:published-expert-runs:${currentSessionId}` : '';
+};
+
+const readStoredPublishedExpertRuns = () => {
+    const key = publishedExpertStorageKey();
+    if (!key) return [];
+    try {
+        const raw = localStorage.getItem(key);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        console.warn('[AgentRun] failed to read persisted expert runs:', error);
+        return [];
+    }
+};
+
+const storedPublishedExpertEvent = (event) => {
+    if (!event || typeof event !== 'object') return null;
+    const safe = {
+        type: event.type,
+        id: event.id,
+        runId: event.runId,
+        sequence: event.sequence,
+        status: event.status,
+        phase: event.phase,
+        message: event.message,
+        delta: event.delta,
+        stepId: event.stepId,
+        stepType: event.stepType,
+        label: event.label,
+        createdAt: event.createdAt,
+        startedAt: event.startedAt,
+        finishedAt: event.finishedAt,
+        durationMs: event.durationMs,
+        totalDurationMs: event.totalDurationMs,
+        queueDurationMs: event.queueDurationMs,
+        title: event.title,
+        messageId: event.messageId,
+        parentMessageId: event.parentMessageId,
+        toolCallId: event.toolCallId,
+        toolCallName: event.toolCallName,
+        activityType: event.activityType,
+        content: event.content,
+        output: event.output,
+        result: event.result,
+        error: event.error,
+        errorCode: event.errorCode,
+        answers: event.answers,
+        interaction: event.interaction,
+        quality: event.quality,
+        modelId: event.modelId,
+        attempt: event.attempt,
+        queuedAt: event.queuedAt,
+        role: event.role,
+        replace: event.replace,
+        retrying: event.retrying,
+    };
+    return Object.fromEntries(Object.entries(safe).filter(([, value]) => value !== undefined));
+};
+
+const persistPublishedExpertRun = (message, prompt = '') => {
+    const key = publishedExpertStorageKey();
+    const runId = message?.run?.id;
+    if (!key || !runId) return;
+    const stored = readStoredPublishedExpertRuns().filter((item) => item?.runId !== runId);
+    const run = message.run || {};
+    const runSnapshot = {
+        id: run.id,
+        status: run.status,
+        phase: run.phase,
+        interaction: run.interaction,
+        error_code: run.error_code,
+        error_message: run.error_message,
+        last_event_sequence: message.last_event_sequence || run.last_event_sequence || 0,
+    };
+    stored.push({
+        runId,
+        prompt: prompt || message.prompt || '',
+        message_kind: message.isPublishedExpertFollowUp ? 'follow_up' : 'run',
+        expert: message.expert,
+        run: runSnapshot,
+        events: (message.events || []).slice(-200).map(storedPublishedExpertEvent).filter(Boolean),
+        submittedAnswers: message.submittedAnswers || null,
+        submittedAnswerSummary: message.submittedAnswerSummary || '',
+        updatedAt: Date.now(),
+    });
+    try {
+        localStorage.setItem(key, JSON.stringify(stored.slice(-20)));
+    } catch (error) {
+        console.warn('[AgentRun] failed to persist expert run:', error);
+    }
+};
+
+const restorePublishedExpertRuns = async () => {
+    const storedRuns = readStoredPublishedExpertRuns();
+    if (!storedRuns.length) return;
+    for (const stored of storedRuns) {
+        if (!stored?.runId || messagesList.some((message) => message?.run?.id === stored.runId)) {
+            continue;
+        }
+        const userMessage = {
+            id: `${stored.runId}-restored-user`,
+            content: stored.prompt || '继续查看专家运行结果',
+            role: 'user',
+            channel: 'web',
+            expert_name: stored.expert?.display_name,
+            isRestoredPublishedExpertMessage: true,
+        };
+        const assistantMessage = reactive({
+            id: `${stored.runId}-restored-assistant`,
+            role: 'assistant',
+            isPublishedExpertRun: stored.message_kind !== 'follow_up',
+            isPublishedExpertFollowUp: stored.message_kind === 'follow_up',
+            is_completed: false,
+            expert: stored.expert || {},
+            prompt: stored.prompt || '',
+            events: Array.isArray(stored.events) ? stored.events : [],
+            steps: [],
+            submittedAnswers: stored.submittedAnswers || null,
+            submittedAnswerSummary: stored.submittedAnswerSummary || '',
+            last_event_sequence: 0,
+            run: stored.run || { id: stored.runId, status: 'queued' },
+        });
+        messagesList.push(userMessage, assistantMessage);
+        try {
+            const response = await getAgentRun(stored.runId);
+            if (!response?.success || !response?.data) {
+                throw new Error(response?.message || '专家运行状态读取失败');
+            }
+            assistantMessage.run = response.data;
+            await waitForPublishedExpertRun(assistantMessage, stored.runId);
+            assistantMessage.is_completed = true;
+        } catch (error) {
+            assistantMessage.run = {
+                ...(assistantMessage.run || {}),
+                status: 'failed',
+                error_message: error?.message || '专家运行恢复失败',
+            };
+            assistantMessage.is_completed = true;
+        }
+        persistPublishedExpertRun(assistantMessage, stored.prompt || '');
+    }
+    emitMessageStateChange();
+    await nextTick();
+    scrollToBottom(true);
+};
+
+const summarizeExpertAnswers = (interaction, answers) => {
+    const questions = Array.isArray(interaction?.questions) ? interaction.questions : [];
+    return questions
+        .map((question) => {
+            const value = answers?.[question.id];
+            if (value === undefined || value === null || value === '') return '';
+            const text = Array.isArray(value) ? value.join('、') : String(value);
+            return `${question.label || question.id}：${text}`;
+        })
+        .filter(Boolean)
+        .join('；');
+};
+
+const submitPublishedExpertAnswers = async (message, answers) => {
+    const runId = message?.run?.id;
+    if (!runId || message.submittingAnswers) return;
+
+    const answerSummary = summarizeExpertAnswers(message.run?.interaction, answers);
+    const messageIndex = messagesList.indexOf(message);
+    const answerMessage = {
+        id: `published-expert-answer-${Date.now()}`,
+        content: answerSummary,
+        role: 'user',
+        channel: 'web',
+        isPublishedExpertAnswer: true,
+    };
+    const resumeMessage = reactive({
+        id: `published-expert-resume-${Date.now()}`,
+        role: 'assistant',
+        isPublishedExpertRun: true,
+        is_completed: false,
+        expert: message.expert,
+        run: {
+            status: 'queued',
+        },
+    });
+
+    message.submittedAnswers = answers;
+    message.submittedAnswerSummary = answerSummary;
+    persistPublishedExpertRun(message, message.prompt || '');
+    messagesList.splice(messageIndex + 1, 0, answerMessage, resumeMessage);
+    emitMessageStateChange();
+    await nextTick();
+    scrollToBottom(true);
+    message.submittingAnswers = true;
+    try {
+        const response = await submitAgentRunAnswers(runId, answers);
+        if (!response?.success || !response?.data) {
+            throw new Error(response?.message || '补充信息提交失败');
+        }
+        resumeMessage.run = response.data;
+        resumeMessage.prompt = message.prompt || '';
+        resumeMessage.events = message.events || [];
+        resumeMessage.steps = message.steps || [];
+        resumeMessage.last_event_sequence = message.last_event_sequence || 0;
+        await waitForPublishedExpertRun(resumeMessage, runId);
+        resumeMessage.is_completed = true;
+        persistPublishedExpertRun(resumeMessage, message.prompt || '');
+    } catch (error) {
+        const currentIndex = messagesList.indexOf(answerMessage);
+        if (currentIndex >= 0) messagesList.splice(currentIndex, 2);
+        message.submittedAnswers = null;
+        message.submittedAnswerSummary = '';
+        persistPublishedExpertRun(message, message.prompt || '');
+        MessagePlugin.error(error?.message || '补充信息提交失败');
+    } finally {
+        message.submittingAnswers = false;
+        await nextTick();
+        scrollToBottom(true);
+    }
+};
+
+const regeneratePublishedExpertRun = async (message, action) => {
+    const parentRunId = String(message?.run?.id || '').trim();
+    const feedback = String(action?.feedback || '').trim();
+    const label = String(action?.label || '继续完善').trim();
+    const actionKey = String(action?.key || 'regenerate').trim();
+    if (!parentRunId || !feedback || message.regeneratingAction) return;
+
+    message.regeneratingAction = actionKey;
+    const actionMessage = {
+        id: `published-expert-follow-up-${Date.now()}`,
+        content: label,
+        role: 'user',
+        channel: 'web',
+        expert_name: message.expert?.display_name,
+        isPublishedExpertFollowUp: true,
+    };
+    const childMessage = reactive({
+        id: `published-expert-child-${Date.now()}`,
+        role: 'assistant',
+        isPublishedExpertRun: true,
+        is_completed: false,
+        expert: message.expert || {},
+        prompt: label,
+        feedback,
+        parentRunId,
+        events: [],
+        last_event_sequence: 0,
+        run: {
+            status: 'queued',
+            parent_run_id: parentRunId,
+        },
+    });
+
+    messagesList.push(actionMessage, childMessage);
+    emitMessageStateChange();
+    await nextTick();
+    scrollToBottom(true);
+
+    try {
+        const response = await regenerateAgentRun(parentRunId, feedback);
+        if (!response?.success || !response?.data?.id) {
+            throw new Error(response?.message || '新版本任务创建失败');
+        }
+        childMessage.run = response.data;
+        persistPublishedExpertRun(childMessage, label);
+        await waitForPublishedExpertRun(childMessage, response.data.id);
+        childMessage.is_completed = true;
+        persistPublishedExpertRun(childMessage, label);
+    } catch (error) {
+        childMessage.run = {
+            ...(childMessage.run || {}),
+            status: 'failed',
+            error_message: error?.message || '新版本生成失败',
+        };
+        childMessage.is_completed = true;
+        persistPublishedExpertRun(childMessage, label);
+        MessagePlugin.error(childMessage.run.error_message);
+    } finally {
+        message.regeneratingAction = '';
+        emitMessageStateChange();
+        await nextTick();
+        scrollToBottom(true);
+    }
+};
+
+const askPublishedExpertFollowUp = async (message, action) => {
+    const parentRunId = String(message?.run?.id || '').trim();
+    const prompt = String(action?.prompt || '').trim();
+    const label = String(action?.label || '解释上一版结果').trim();
+    const displayText = String(action?.displayText || label).trim();
+    const actionKey = String(action?.key || 'explanation').trim();
+    if (!parentRunId || !prompt || message.followingUpAction) return;
+
+    message.followingUpAction = actionKey;
+    const actionMessage = {
+        id: `published-expert-explanation-${Date.now()}`,
+        content: displayText,
+        role: 'user',
+        channel: 'web',
+        expert_name: message.expert?.display_name,
+        isPublishedExpertFollowUp: true,
+    };
+    const answerMessage = reactive({
+        id: `published-expert-explanation-answer-${Date.now()}`,
+        role: 'assistant',
+        isPublishedExpertFollowUp: true,
+        is_completed: false,
+        expert: message.expert || {},
+        prompt: label,
+        parentRunId,
+        events: [],
+        last_event_sequence: 0,
+        run: {
+            status: 'queued',
+            parent_run_id: parentRunId,
+        },
+    });
+
+    messagesList.push(actionMessage, answerMessage);
+    emitMessageStateChange();
+    await nextTick();
+    scrollToBottom(true);
+
+    try {
+        const response = await runPublishedExpertFollowUp(parentRunId, {
+            prompt,
+            mode: 'explanation',
+        });
+        if (!response?.success || !response?.data?.id) {
+            throw new Error(response?.message || '专家追问创建失败');
+        }
+        answerMessage.run = response.data;
+        persistPublishedExpertRun(answerMessage, label);
+        await waitForPublishedExpertRun(answerMessage, response.data.id);
+        answerMessage.is_completed = true;
+        persistPublishedExpertRun(answerMessage, label);
+    } catch (error) {
+        answerMessage.run = {
+            ...(answerMessage.run || {}),
+            status: 'failed',
+            error_message: error?.message || '专家追问失败',
+        };
+        answerMessage.is_completed = true;
+        persistPublishedExpertRun(answerMessage, label);
+        MessagePlugin.error(answerMessage.run.error_message);
+    } finally {
+        message.followingUpAction = '';
+        emitMessageStateChange();
+        await nextTick();
+        scrollToBottom(true);
+    }
+};
+
+const cancelPublishedExpertRun = async (message) => {
+    const runId = String(message?.run?.id || '').trim();
+    if (!runId || message.cancelling) return;
+    message.cancelling = true;
+    try {
+        const response = await cancelAgentRun(runId);
+        if (!response?.success || !response?.data) {
+            throw new Error(response?.message || '取消任务失败');
+        }
+        message.run = response.data;
+        message.is_completed = true;
+        persistPublishedExpertRun(message, message.prompt || '');
+    } catch (error) {
+        MessagePlugin.error(error?.message || '取消任务失败');
+    } finally {
+        message.cancelling = false;
+        emitMessageStateChange();
+    }
+};
+
+const openExpertRunDiff = async (message) => {
+    const runId = String(message?.run?.id || '').trim();
+    if (!runId) return;
+    activeExpertRunDiff.value = { before: '', after: '', changed: false };
+    expertRunDiffLoading.value = true;
+    try {
+        const response = await getAgentRunDiff(runId);
+        if (!response?.success || !response?.data) {
+            throw new Error(response?.message || '版本差异读取失败');
+        }
+        activeExpertRunDiff.value = response.data;
+    } catch (error) {
+        activeExpertRunDiff.value = null;
+        MessagePlugin.error(error?.message || '版本差异读取失败');
+    } finally {
+        expertRunDiffLoading.value = false;
+    }
+};
+
+const publishedExpertStepRequests = new Map();
+const hydratePublishedExpertSteps = async (message, runId) => {
+    const id = String(runId || '').trim();
+    if (!id || !message) return;
+    if (publishedExpertStepRequests.has(id)) {
+        await publishedExpertStepRequests.get(id);
+        return;
+    }
+    const request = listAgentRunSteps(id)
+        .then((response) => {
+            if (response?.success && Array.isArray(response.data)) {
+                message.steps = response.data;
+            }
+        })
+        .catch((error) => {
+            console.warn('[AgentRun] failed to load step input/output:', error);
+        })
+        .finally(() => {
+            publishedExpertStepRequests.delete(id);
+        });
+    publishedExpertStepRequests.set(id, request);
+    await request;
+};
+
+const waitForPublishedExpertRun = async (message, runId) => {
+    const applyEvent = (event) => {
+        if (!event || event.runId !== runId) return;
+        const sequence = Number(event.sequence || 0);
+        const events = Array.isArray(message.events) ? message.events : [];
+        const existingIndex = sequence > 0
+            ? events.findIndex((item) => Number(item?.sequence || 0) === sequence)
+            : events.findIndex((item) => item?.id && item.id === event.id);
+        if (existingIndex >= 0) {
+            const nextEvents = [...events];
+            nextEvents[existingIndex] = { ...nextEvents[existingIndex], ...event };
+            message.events = nextEvents;
+        } else {
+            message.events = [...events, event]
+                .sort((left, right) => Number(left?.sequence || 0) - Number(right?.sequence || 0))
+                .slice(-200);
+        }
+        message.run = {
+            ...(message.run || {}),
+            ...(event.status ? { status: event.status } : {}),
+            ...(event.phase ? { phase: event.phase } : {}),
+            ...(event.interaction ? { interaction: event.interaction } : {}),
+            ...(event.type === 'RUN_STARTED' && event.startedAt ? { started_at: event.startedAt } : {}),
+            ...(['RUN_FINISHED', 'RUN_ERROR', 'RUN_CANCELLED'].includes(event.type) && event.createdAt
+                ? { finished_at: event.createdAt }
+                : {}),
+            last_event_sequence: Math.max(
+                Number(message.run?.last_event_sequence || 0),
+                Number(message.last_event_sequence || 0),
+                sequence,
+            ),
+        };
+        message.last_event_sequence = message.run.last_event_sequence;
+        if (event.type === 'TEXT_MESSAGE_CONTENT' && event.delta) {
+            message.liveSummary = `${message.liveSummary || ''}${event.delta}`;
+        }
+        if (event.type === 'AGENT_STEP_FINISHED' || event.type === 'AGENT_STEP_ERROR') {
+            void hydratePublishedExpertSteps(message, runId);
+        }
+        persistPublishedExpertRun(message, message.prompt || '');
+    };
+
+    try {
+        await streamAgentRunEvents(runId, {
+            afterSequence: Number(message.run?.last_event_sequence || 0),
+            onEvent: applyEvent,
+        });
+    } catch (error) {
+        // Keep the old polling path as a compatibility fallback while older
+        // deployments are still starting up without the event migration.
+        console.warn('[AgentRun] event stream unavailable, falling back to polling:', error);
+    }
+
+    const deadline = Date.now() + 5 * 60 * 1000;
+    while (Date.now() < deadline) {
+        const response = await getAgentRun(runId);
+        const run = response?.data;
+        if (!response?.success || !run) {
+            throw new Error(response?.message || '专家运行状态读取失败');
+        }
+        message.run = run;
+        message.last_event_sequence = Math.max(
+            Number(message.last_event_sequence || 0),
+            Number(message.run?.last_event_sequence || 0),
+        );
+        persistPublishedExpertRun(message, message.prompt || '');
+        if (run.status === 'succeeded' || run.status === 'waiting_input'
+            || run.status === 'failed' || run.status === 'cancelled') {
+            await hydratePublishedExpertSteps(message, runId);
+            return run;
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    }
+    throw new Error('专家运行超时，请稍后重试');
+};
+
+const routedExpertFromRun = (run, fallbackExpert) => {
+    const decision = run?.input?.routing_decision;
+    const candidate = Array.isArray(decision?.candidates) ? decision.candidates[0] : null;
+    if (!candidate) return fallbackExpert;
+    return {
+        package_id: candidate.package_id,
+        package_version_id: candidate.package_version_id,
+        package_display_name: candidate.package_display_name,
+        definition_id: candidate.definition_id,
+        agent_id: candidate.agent_id,
+        version: candidate.version,
+        display_name: candidate.display_name,
+        description: candidate.description,
+        domain: candidate.domain,
+        route_mode: 'auto',
+    };
+};
+
+const isAutoRouteFallbackError = (error) => {
+    const message = String(error?.message || '').toLowerCase();
+    return error?.status === 400
+        && message.includes('no published expert matched');
+};
+
+const appendPublishedExpertRun = async (value, routeMode, displayExpert, runData, appendUserMessage = true) => {
+    const localMessageId = `published-expert-${Date.now()}`;
+    if (appendUserMessage) {
+        messagesList.push({
+            id: `${localMessageId}-user`,
+            content: value,
+            role: 'user',
+            channel: 'web',
+            expert_name: displayExpert.display_name,
+        });
+    }
+    const assistantMessage = reactive({
+        id: `${localMessageId}-assistant`,
+        role: 'assistant',
+        isPublishedExpertRun: true,
+        is_completed: false,
+        expert: routedExpertFromRun(runData, displayExpert),
+        routeMode,
+        prompt: value,
+        events: [],
+        last_event_sequence: 0,
+        run: runData,
+    });
+    messagesList.push(assistantMessage);
+    emitMessageStateChange();
+    scrollToBottom(true);
+
+    try {
+        persistPublishedExpertRun(assistantMessage, value);
+        const run = await waitForPublishedExpertRun(assistantMessage, runData.id);
+        assistantMessage.run = run;
+        assistantMessage.expert = routedExpertFromRun(run, assistantMessage.expert);
+        assistantMessage.is_completed = true;
+        persistPublishedExpertRun(assistantMessage, value);
+    } catch (error) {
+        assistantMessage.run = {
+            ...(assistantMessage.run || {}),
+            status: 'failed',
+            error_message: error?.message || '专家运行失败',
+        };
+        assistantMessage.is_completed = true;
+        persistPublishedExpertRun(assistantMessage, value);
+        MessagePlugin.error(assistantMessage.run.error_message);
+    } finally {
+        isReplying.value = false;
+        loading.value = false;
+        currentAssistantMessageId.value = '';
+        await nextTick();
+        scrollToBottom(true);
+    }
+};
+
+const appendPublishedExpertRouteChoice = (value, modelId, decision) => {
+    const localMessageId = `published-expert-route-${Date.now()}`;
+    const selectedCandidate = Array.isArray(decision?.candidates)
+        ? decision.candidates.find((candidate) => candidate.definition_id === decision.selected_expert_id)
+        : null;
+    messagesList.push({
+        id: `${localMessageId}-user`,
+        content: value,
+        role: 'user',
+        channel: 'web',
+        expert_name: '自动匹配专家',
+    });
+    messagesList.push(reactive({
+        id: `${localMessageId}-assistant`,
+        role: 'assistant',
+        isPublishedExpertRouteChoice: true,
+        is_completed: true,
+        prompt: value,
+        modelId: modelId || '',
+        routeDecision: decision,
+        selectedCandidate,
+        confirming: false,
+        confirmed: false,
+        cancelled: false,
+    }));
+    emitMessageStateChange();
+    isReplying.value = false;
+    loading.value = false;
+    currentAssistantMessageId.value = '';
+    nextTick(() => scrollToBottom(true));
+};
+
+const confirmPublishedExpertRoute = async (message, candidate) => {
+    if (!message || !candidate || message.confirming || message.confirmed || message.cancelled) return;
+    message.confirming = true;
+    isReplying.value = true;
+    loading.value = true;
+    const originalDecision = message.routeDecision || {};
+    const candidates = Array.isArray(originalDecision.candidates)
+        ? [candidate, ...originalDecision.candidates.filter((item) => item.definition_id !== candidate.definition_id)]
+        : [candidate];
+    const routingDecision = {
+        ...originalDecision,
+        route_mode: 'auto',
+        selected_expert_id: candidate.definition_id,
+        selected_version: candidate.version,
+        candidates: candidates.slice(0, 3),
+        requires_confirmation: false,
+    };
+    try {
+        const response = await runPublishedExpertAuto({
+            prompt: message.prompt,
+            model_id: message.modelId || undefined,
+            routing_decision: routingDecision,
+            user_confirmed: true,
+        });
+        if (!response?.success || !response?.data?.id) {
+            throw new Error(response?.message || '专家运行创建失败');
+        }
+        message.confirming = false;
+        message.confirmed = true;
+        message.selectedCandidate = candidate;
+        await appendPublishedExpertRun(
+            message.prompt,
+            'auto',
+            { ...candidate, route_mode: 'auto' },
+            response.data,
+            false,
+        );
+    } catch (error) {
+        message.confirming = false;
+        isReplying.value = false;
+        loading.value = false;
+        MessagePlugin.error(error?.message || '专家路由确认失败');
+    }
+};
+
+const cancelPublishedExpertRoute = (message) => {
+    if (!message || message.confirming || message.confirmed) return;
+    message.cancelled = true;
+    message.is_completed = true;
+    isReplying.value = false;
+    loading.value = false;
+    currentAssistantMessageId.value = '';
+    emitMessageStateChange();
+};
+
+const handlePublishedExpertSend = async (value, modelId, expert, routeMode = 'manual') => {
+    stopStream();
+    prepareForNewOutgoingMessage();
+    isReplying.value = true;
+    loading.value = true;
+
+    const displayExpert = expert || { display_name: '自动匹配专家', route_mode: 'auto' };
+    try {
+        if (routeMode === 'auto') {
+            const routeResponse = await routePublishedExpert(value, modelId || undefined);
+            if (!routeResponse?.success || !routeResponse?.data) {
+                throw new Error(routeResponse?.message || '专家路由失败');
+            }
+            const decision = routeResponse.data;
+            if (decision.requires_confirmation || Number(decision.confidence || 0) < 0.85) {
+                appendPublishedExpertRouteChoice(value, modelId, decision);
+                return;
+            }
+            const response = await runPublishedExpertAuto({
+                prompt: value,
+                model_id: modelId || undefined,
+                routing_decision: decision,
+                user_confirmed: true,
+            });
+            if (!response?.success || !response?.data?.id) {
+                throw new Error(response?.message || '专家运行创建失败');
+            }
+            await appendPublishedExpertRun(value, routeMode, displayExpert, response.data);
+            return;
+        }
+        const response = await runPublishedExpert(expert.package_id, expert.definition_id, {
+                prompt: value,
+                model_id: modelId || undefined,
+                route_mode: 'manual',
+            });
+        if (!response?.success || !response?.data?.id) {
+            throw new Error(response?.message || '专家运行创建失败');
+        }
+        await appendPublishedExpertRun(value, routeMode, displayExpert, response.data);
+    } catch (error) {
+        isReplying.value = false;
+        loading.value = false;
+        if (routeMode === 'auto' && isAutoRouteFallbackError(error)) {
+            // No relevant published expert: transparently continue with the
+            // existing model chat instead of surfacing a routing error.
+            sendMsg(value, modelId);
+            return;
+        }
+        MessagePlugin.error(error?.message || '专家运行创建失败');
+        isReplying.value = false;
+        loading.value = false;
+        currentAssistantMessageId.value = '';
+    }
 };
 
 const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = [], attachmentFiles = [], responseTier = useSettingsStoreInstance.settings.responseTier) => {
@@ -954,6 +1736,8 @@ const handleSessionMutation = (event) => {
         created_at.value = '';
         hasMoreHistory.value = true;
         historyLoadingMore.value = false;
+        const key = publishedExpertStorageKey();
+        if (key) localStorage.removeItem(key);
         fetchSuggestedQuestionsIfNeeded();
     }
 };
@@ -996,8 +1780,19 @@ onMounted(async () => {
                 rerankModelId: '',
             });
         }
-        sendMsg(firstQuery.value, firstModelId.value || '', firstMentionedItems.value || [], firstImageFiles.value || [], firstAttachmentFiles.value || []);
+        if (firstPublishedExpert.value || firstPublishedExpertRouteMode.value === 'auto') {
+            handlePublishedExpertSend(
+                firstQuery.value,
+                firstModelId.value || '',
+                firstPublishedExpert.value,
+                firstPublishedExpertRouteMode.value,
+            );
+        } else {
+            sendMsg(firstQuery.value, firstModelId.value || '', firstMentionedItems.value || [], firstImageFiles.value || [], firstAttachmentFiles.value || []);
+        }
         usemenuStore.changeFirstQuery('', [], '', [], []);
+        usemenuStore.changeFirstPublishedExpert(null);
+        usemenuStore.changeFirstPublishedExpertRouteMode('manual');
     } else {
         scrollLock.value = false;
         hasMoreHistory.value = true;
@@ -1007,7 +1802,8 @@ onMounted(async () => {
             created_at: '',
             limit: limit.value
         }
-        getmsgList(data)
+        await getmsgList(data)
+        await restorePublishedExpertRuns()
     }
 })
 const clearData = () => {
@@ -1086,6 +1882,13 @@ defineExpose({
             .chat_scroll_box {
                 padding-top: 0;
             }
+        }
+    }
+
+    &.has-expert-artifact-panel:not(.is-embedded) {
+        @media (min-width: 960px) {
+            padding-right: min(42vw, 640px);
+            box-sizing: border-box;
         }
     }
 
