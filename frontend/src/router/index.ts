@@ -9,20 +9,12 @@ import {
   ORGANIZE_ROUTE_NAMES,
   resolveOrganizeRoutePath,
 } from '@/views/organize/organizeRoutes'
-import {
-  SERVICE_MENU_ROUTES,
-  SERVICE_MESSAGES_ROUTE_PATH,
-  SERVICE_REVIEW_ROUTE_PATH,
-  resolveServiceRoutePath,
-} from '@/views/service/serviceRoutes'
 
 /** Lite /桌面 WebView 硬刷新时可能只打开 `/`，用 session 记住上次页面以便恢复 */
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
 const AUTO_SETUP_FAILED_KEY = 'weknora_auto_setup_failed'
 const organizeWorkspaceComponent = () => import("../views/organize/OrganizeWorkspace.vue")
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
-const serviceWorkspaceComponent = () => import("../views/service/ServiceWorkspace.vue")
-const serviceCustomerSpaceComponent = () => import("../views/service/CustomerSpace.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
 const toPlatformChildPath = (path: string) => path.replace(/^\/platform\//, '')
@@ -154,10 +146,8 @@ const router = createRouter({
         ...ORGANIZE_MENU_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
           name: item.routeName,
-          component: item.key === 'daily' ? serviceWorkspaceComponent : organizeWorkspaceComponent,
-          meta: item.key === 'daily'
-            ? { ...organizeRouteMeta, organizeTab: item.key, serviceTab: 'review' }
-            : { ...organizeRouteMeta, organizeTab: item.key },
+          component: organizeWorkspaceComponent,
+          meta: { ...organizeRouteMeta, organizeTab: item.key },
         })),
         ...ORGANIZE_MEMORY_ASSET_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
@@ -173,36 +163,35 @@ const router = createRouter({
         },
         {
           path: "service",
-          redirect: (to) => resolveServiceRoutePath(to.query.tab),
+          name: "serviceHub",
+          component: () => import("../views/service/ServiceHub.vue"),
           meta: serviceRouteMeta,
         },
         {
           path: "service/work",
-          redirect: SERVICE_MESSAGES_ROUTE_PATH,
+          redirect: "/platform/service",
           meta: serviceRouteMeta,
         },
         {
           path: "service/customers/:subjectId",
-          name: 'serviceCustomerDetail',
-          component: serviceCustomerSpaceComponent,
-          meta: { ...serviceRouteMeta, serviceTab: 'customers' },
+          redirect: "/platform/service",
+          meta: serviceRouteMeta,
         },
         {
           path: "service/messages",
-          redirect: SERVICE_MESSAGES_ROUTE_PATH,
+          redirect: "/platform/service",
           meta: serviceRouteMeta,
         },
         {
           path: "service/review",
-          redirect: SERVICE_REVIEW_ROUTE_PATH,
+          redirect: "/platform/service",
           meta: serviceRouteMeta,
         },
-        ...SERVICE_MENU_ROUTES.map((item) => ({
-          path: toPlatformChildPath(item.path),
-          name: item.routeName,
-          component: item.key === 'customers' ? serviceCustomerSpaceComponent : serviceWorkspaceComponent,
-          meta: { ...serviceRouteMeta, serviceTab: item.key },
-        })),
+        {
+          path: "messages",
+          redirect: "/platform/service",
+          meta: serviceRouteMeta,
+        },
         {
           path: "knowledge-search",
           // 旧路径保留为重定向，打开全局命令面板（⌘K），带上可选的 q 参数
@@ -243,6 +232,11 @@ const router = createRouter({
           path: "knowledge-bases/:kbId/creatChat",
           name: "kbCreatChat",
           component: () => import("../views/creatChat/creatChat.vue"),
+          meta: { requiresInit: true, requiresAuth: true }
+        },
+        {
+          path: "chat",
+          redirect: "/platform/creatChat",
           meta: { requiresInit: true, requiresAuth: true }
         },
         {

@@ -46,6 +46,7 @@ type ServiceService interface {
 	ExtractMemory(ctx context.Context, tenantID uint64, userID, memoryID string) (*types.ServiceMemoryExtraction, error)
 	GenerateDailyReport(ctx context.Context, tenantID uint64, userID string, input types.ServiceDailyReportInput) (*types.ServiceDailyReport, error)
 	GetDailyReport(ctx context.Context, tenantID uint64, userID, id string) (*types.ServiceDailyReport, error)
+	RenderDailyReportHTML(ctx context.Context, tenantID uint64, userID, id string) (string, error)
 	ListDailyReports(ctx context.Context, query types.ServiceDailyReportListQuery) ([]*types.ServiceDailyReport, int64, error)
 	ListCustomerSpaces(ctx context.Context, query types.ServiceCustomerSpaceListQuery) ([]*types.ServiceCustomerSpace, int64, error)
 	GetCustomerSpace(ctx context.Context, tenantID uint64, userID, id, profileID string) (*types.ServiceCustomerSpaceDetail, error)

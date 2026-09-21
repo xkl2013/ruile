@@ -101,6 +101,16 @@ func TestServiceGenerateDailyReportFromUserTrigger(t *testing.T) {
 	require.True(t, report.CanSupplement)
 	require.Equal(t, "user_requested", report.Metadata["trigger"])
 	require.ElementsMatch(t, []string{memory.ID}, []string(report.SourceMemoryIDs))
+	require.NotNil(t, report.StructuredReport)
+	require.Equal(t, types.StructuredReportFormatV1, report.StructuredReport.Format)
+	require.NotEmpty(t, report.StructuredReport.Sections)
+
+	persistedReport, err := svc.GetDailyReport(ctx, tenantID, userID, report.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persistedReport.StructuredReport)
+	renderedHTML, err := svc.RenderDailyReportHTML(ctx, tenantID, userID, report.ID)
+	require.NoError(t, err)
+	require.Contains(t, renderedHTML, report.Title)
 
 	customerSpaces, customerTotal, err := svc.ListCustomerSpaces(ctx, types.ServiceCustomerSpaceListQuery{
 		TenantID: tenantID,
@@ -178,6 +188,12 @@ func TestServiceGenerateWeeklyReportUsesDailySources(t *testing.T) {
 				Enabled:          true,
 				DisplayName:      "客户服务",
 				WorkDocDirectory: "客户/",
+			},
+			{
+				AgentDomain:      types.ServiceAgentDomainScheduling,
+				Enabled:          true,
+				DisplayName:      "排课协调",
+				WorkDocDirectory: "排课/",
 			},
 		},
 	})

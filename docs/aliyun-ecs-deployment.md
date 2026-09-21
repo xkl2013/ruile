@@ -435,8 +435,22 @@ mkdir -p backups
 备份 PostgreSQL：
 
 ```bash
-docker exec -t WeKnora-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
-  | gzip > "backups/postgres-$(date +%F).sql.gz"
+./scripts/backup_postgres.sh
+```
+
+脚本默认读取项目根目录的 `.env`，备份文件写入 `backups/`，并在压缩校验成功后生成
+`postgres-YYYY-MM-DD_HH-MM-SS.sql.gz`。如需自动清理旧备份，可设置保留天数：
+
+```bash
+BACKUP_RETENTION_DAYS=14 ./scripts/backup_postgres.sh
+# 或
+make backup-db
+```
+
+如果数据库使用外部 PostgreSQL/RDS，而不是 `WeKnora-postgres` 容器：
+
+```bash
+BACKUP_MODE=host ./scripts/backup_postgres.sh
 ```
 
 备份本地文件 volume：
@@ -453,7 +467,7 @@ docker run --rm \
 
 ```bash
 docker compose stop app frontend docreader
-gunzip -c backups/postgres-YYYY-MM-DD.sql.gz \
+gunzip -c backups/postgres-YYYY-MM-DD_HH-MM-SS.sql.gz \
   | docker exec -i WeKnora-postgres sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'
 docker compose up -d
 ```
@@ -467,8 +481,7 @@ docker compose up -d
 ```bash
 cd /opt/WeKnora
 cp .env "backups/env-$(date +%F)"
-docker exec -t WeKnora-postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
-  | gzip > "backups/postgres-before-upgrade-$(date +%F).sql.gz"
+./scripts/backup_postgres.sh
 ```
 
 切换版本并拉取镜像：

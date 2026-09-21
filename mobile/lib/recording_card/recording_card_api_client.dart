@@ -318,6 +318,8 @@ class RecordingCardApiClient {
         return 'audio/flac';
       case 'ogg':
         return 'audio/ogg';
+      case 'opus':
+        return 'audio/opus';
       case 'aac':
         return 'audio/aac';
       case 'sbc':

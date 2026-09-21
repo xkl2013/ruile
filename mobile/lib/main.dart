@@ -2431,6 +2431,7 @@ class _MainSideDrawer extends StatelessWidget {
                 },
               ),
               onTap: () => _closeAndRun(context, onOpenRecordingCard),
+              onLongPress: () => _closeAndRun(context, onOpenRecordingCard),
             ),
             _DrawerMenuItem(
               icon: Icons.inbox_outlined,
@@ -2510,6 +2511,7 @@ class _DrawerMenuItem extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.onTap,
+    this.onLongPress,
     this.trailingText,
     this.trailing,
     this.showDot = false,
@@ -2518,6 +2520,7 @@ class _DrawerMenuItem extends StatelessWidget {
   final IconData icon;
   final String title;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final String? trailingText;
   final Widget? trailing;
   final bool showDot;
@@ -2527,6 +2530,7 @@ class _DrawerMenuItem extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
+      onLongPress: onLongPress,
       child: SizedBox(
         height: 52,
         child: Row(
@@ -5179,6 +5183,7 @@ class _NotesPageState extends State<NotesPage> {
                     _RecordingCardPendingSyncCard(
                       summary: _recordingCardPendingSummary,
                       onTap: widget.onOpenRecordingCard,
+                      onLongPress: widget.onOpenRecordingCard,
                     ),
                   ],
                   const SizedBox(height: 26),
@@ -5310,10 +5315,12 @@ class _RecordingCardPendingSyncCard extends StatelessWidget {
   const _RecordingCardPendingSyncCard({
     required this.summary,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final _RecordingCardPendingSummary summary;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -5346,6 +5353,7 @@ class _RecordingCardPendingSyncCard extends StatelessWidget {
             child: InkWell(
               borderRadius: BorderRadius.circular(AppRadii.card),
               onTap: onTap,
+              onLongPress: onLongPress,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 15, 12, 14),
                 child: Row(

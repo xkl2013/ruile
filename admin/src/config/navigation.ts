@@ -63,6 +63,22 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         requiresSystemAdmin: true,
       },
       {
+        key: 'expert-packages',
+        label: '专家',
+        description: '专家包导入、发布和服务绑定',
+        icon: 'usergroup',
+        path: '/experts',
+        minRole: 'admin',
+      },
+      {
+        key: 'expert-packages',
+        label: '专家',
+        description: '专家包导入、发布和服务绑定',
+        icon: 'usergroup',
+        path: '/experts',
+        minRole: 'admin',
+      },
+      {
         key: 'service-config',
         label: '服务配置',
         description: '员工分身与服务能力',

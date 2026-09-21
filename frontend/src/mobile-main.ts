@@ -8,35 +8,34 @@ import { installTDesignIconOfflineGuard } from '@/utils/tdesign-icon-offline'
 import { initTheme } from '@/composables/useTheme'
 import { initFont } from '@/composables/useFont'
 import i18n from './i18n'
-import CustomerSpace from '@/views/service/CustomerSpace.vue'
+import ServiceHub from '@/views/service/ServiceHub.vue'
 
 installTDesignIconOfflineGuard()
 initTheme()
 initFont()
 
-const mobileRouteMeta = { requiresInit: true, requiresAuth: true, mobileEntry: true, serviceTab: 'customers' }
+const mobileRouteMeta = { requiresInit: true, requiresAuth: true, mobileEntry: true }
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
-      redirect: '/mobile/service/customers',
+      redirect: '/mobile/service',
     },
     {
       path: '/mobile',
-      redirect: '/mobile/service/customers',
+      redirect: '/mobile/service',
     },
     {
-      path: '/mobile/service/customers',
-      name: 'mobileServiceCustomers',
-      component: CustomerSpace,
+      path: '/mobile/service',
+      name: 'mobileServiceHub',
+      component: ServiceHub,
       meta: mobileRouteMeta,
     },
     {
-      path: '/mobile/service/customers/:subjectId',
-      name: 'mobileServiceCustomerDetail',
-      component: CustomerSpace,
+      path: '/mobile/service/:pathMatch(.*)*',
+      redirect: '/mobile/service',
       meta: mobileRouteMeta,
     },
   ],

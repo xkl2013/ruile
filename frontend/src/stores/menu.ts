@@ -26,7 +26,7 @@ export const useMenuStore = defineStore('menuStore', () => {
       childrenPath: 'chat',
       children: createMenuChildren()
     },
-    { title: '', titleKey: 'menu.messages', icon: 'chat', path: 'messages' },
+    { title: '', titleKey: 'menu.messages', icon: 'chat', path: 'service' },
     { title: '', titleKey: 'menu.knowledgeBase', icon: 'zhishiku', path: 'knowledge-bases' },
     { title: '', titleKey: 'menu.settings', icon: 'setting', path: 'settings' },
     { title: '', titleKey: 'menu.logout', icon: 'logout', path: 'logout' }
@@ -38,6 +38,8 @@ export const useMenuStore = defineStore('menuStore', () => {
   const firstModelId = ref('')
   const firstImageFiles = ref<any[]>([])
   const firstAttachmentFiles = ref<any[]>([])
+  const firstPublishedExpert = ref<any | null>(null)
+  const firstPublishedExpertRouteMode = ref<'auto' | 'manual'>('manual')
   const prefillQuery = ref('')
 
   const applyMenuTranslations = () => {
@@ -122,6 +124,14 @@ export const useMenuStore = defineStore('menuStore', () => {
     firstAttachmentFiles.value = attachmentFiles
   }
 
+  const changeFirstPublishedExpert = (payload: any | null) => {
+    firstPublishedExpert.value = payload
+  }
+
+  const changeFirstPublishedExpertRouteMode = (payload: 'auto' | 'manual') => {
+    firstPublishedExpertRouteMode.value = payload
+  }
+
   const setPrefillQuery = (q: string) => {
     prefillQuery.value = q
   }
@@ -141,6 +151,8 @@ export const useMenuStore = defineStore('menuStore', () => {
     firstModelId,
     firstImageFiles,
     firstAttachmentFiles,
+    firstPublishedExpert,
+    firstPublishedExpertRouteMode,
     prefillQuery,
     clearMenuArr,
     updatemenuArr,
@@ -148,6 +160,8 @@ export const useMenuStore = defineStore('menuStore', () => {
     updatasessionTitle,
     changeIsFirstSession,
     changeFirstQuery,
+    changeFirstPublishedExpert,
+    changeFirstPublishedExpertRouteMode,
     setPrefillQuery,
     consumePrefillQuery
   }

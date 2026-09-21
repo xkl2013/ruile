@@ -69,6 +69,10 @@ const (
 // resolvable by ID but intentionally not listed in the general user agent picker.
 const BuiltinServiceAssistantID = "builtin-service-assistant"
 
+// BuiltinServiceAssistantVersion is locked into AgentRun records so generated
+// cards and reports remain traceable while the built-in service logic evolves.
+const BuiltinServiceAssistantVersion = "1.0.0"
+
 func IsValidServiceWorkProfileState(state string) bool {
 	switch state {
 	case ServiceWorkProfileStateDraft, ServiceWorkProfileStateTesting, ServiceWorkProfileStateEnabled,
@@ -556,33 +560,34 @@ type ServiceDailyReportInput struct {
 }
 
 type ServiceDailyReport struct {
-	ID                   string      `json:"id"`
-	Title                string      `json:"title"`
-	Summary              string      `json:"summary,omitempty"`
-	Content              string      `json:"content"`
-	Range                string      `json:"range"`
-	Stage                string      `json:"stage"`
-	StageKey             string      `json:"stage_key"`
-	Updated              string      `json:"updated"`
-	ActionCount          int         `json:"action_count"`
-	CustomerCount        int         `json:"customer_count"`
-	SubjectCount         int         `json:"subject_count"`
-	OpenActionCount      int         `json:"open_action_count"`
-	ClosedActionCount    int         `json:"closed_action_count"`
-	HighRiskCount        int         `json:"high_risk_count"`
-	KnowledgeGapCount    int         `json:"knowledge_gap_count"`
-	SourceMemoryCount    int         `json:"source_memory_count"`
-	DailySourceCount     int         `json:"daily_source_count"`
-	EvidenceCompleteRate int         `json:"evidence_complete_rate"`
-	ProfileID            string      `json:"profile_id,omitempty"`
-	ProfileName          string      `json:"profile_name,omitempty"`
-	MemoryScope          string      `json:"memory_scope,omitempty"`
-	CanSupplement        bool        `json:"can_supplement"`
-	Chips                StringArray `json:"chips,omitempty"`
-	SourceMemoryIDs      StringArray `json:"source_memory_ids,omitempty"`
-	Metadata             JSONMap     `json:"metadata,omitempty"`
-	CreatedAt            time.Time   `json:"created_at"`
-	UpdatedAt            time.Time   `json:"updated_at"`
+	ID                   string              `json:"id"`
+	Title                string              `json:"title"`
+	Summary              string              `json:"summary,omitempty"`
+	Content              string              `json:"content"`
+	StructuredReport     *StructuredReportV1 `json:"structured_report,omitempty"`
+	Range                string              `json:"range"`
+	Stage                string              `json:"stage"`
+	StageKey             string              `json:"stage_key"`
+	Updated              string              `json:"updated"`
+	ActionCount          int                 `json:"action_count"`
+	CustomerCount        int                 `json:"customer_count"`
+	SubjectCount         int                 `json:"subject_count"`
+	OpenActionCount      int                 `json:"open_action_count"`
+	ClosedActionCount    int                 `json:"closed_action_count"`
+	HighRiskCount        int                 `json:"high_risk_count"`
+	KnowledgeGapCount    int                 `json:"knowledge_gap_count"`
+	SourceMemoryCount    int                 `json:"source_memory_count"`
+	DailySourceCount     int                 `json:"daily_source_count"`
+	EvidenceCompleteRate int                 `json:"evidence_complete_rate"`
+	ProfileID            string              `json:"profile_id,omitempty"`
+	ProfileName          string              `json:"profile_name,omitempty"`
+	MemoryScope          string              `json:"memory_scope,omitempty"`
+	CanSupplement        bool                `json:"can_supplement"`
+	Chips                StringArray         `json:"chips,omitempty"`
+	SourceMemoryIDs      StringArray         `json:"source_memory_ids,omitempty"`
+	Metadata             JSONMap             `json:"metadata,omitempty"`
+	CreatedAt            time.Time           `json:"created_at"`
+	UpdatedAt            time.Time           `json:"updated_at"`
 }
 
 type ServiceCustomerSpace struct {

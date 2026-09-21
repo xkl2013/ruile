@@ -21,6 +21,7 @@ import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
 import { getResponseTierConfig } from '@/api/response-tier';
 import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
+import type { PublishedExpert } from '@/api/expert-package';
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { useEditorResourcesStore } from '@/stores/editorResources';
 import { useI18n } from 'vue-i18n';
@@ -59,6 +60,7 @@ const {
   allModels,
   chatModels: availableModels,
   webSearchProviders,
+  publishedExperts,
 } = storeToRefs(chatResources);
 const { t, locale } = useI18n();
 const responseTierConfig = ref<{ enabled: boolean }>({ enabled: false });
@@ -155,6 +157,9 @@ const selectedAgentId = computed({
   get: () => settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID,
   set: (val: string) => settingsStore.selectAgent(val)
 });
+const selectedPublishedExpert = ref<PublishedExpert | null>(null);
+const selectedPublishedExpertAuto = ref(false);
+const AUTO_EXPERT_SELECTION_ID = '__auto__';
 const effectiveSelectedAgentId = computed(() =>
   props.embeddedMode && props.agentId ? props.agentId : selectedAgentId.value
 );
@@ -179,6 +184,18 @@ const selectedAgent = computed(() => {
     config: { agent_mode: 'quick-answer' as const }
   } as CustomAgent;
 });
+
+const shouldAutoRoutePublishedExpert = computed(() => (
+  !props.embeddedMode
+  && publishedExperts.value.length > 0
+  && !selectedPublishedExpert.value
+  && !selectedPublishedExpertAuto.value
+  && !isCustomAgent.value
+  && !isAgentEnabled.value
+  && uploadedImages.value.length === 0
+  && uploadedAttachments.value.length === 0
+  && allSelectedItems.value.length === 0
+));
 
 // 判断是否为自定义智能体（非内置）
 const isCustomAgent = computed(() => {
@@ -687,19 +704,14 @@ const responseTier = computed<ResponseTier>({
   get: () => settingsStore.settings.responseTier || 'balanced',
   set: (value) => settingsStore.setResponseTier(value),
 });
-const responseTierLabel = computed(() => {
-  const labels: Record<ResponseTier, string> = {
-    fast: '快速',
-    balanced: '均衡',
-    ultimate: '极致',
-  };
-  return labels[responseTier.value];
-});
 const responseTierOptions: Array<{ key: ResponseTier; label: string; description: string }> = [
   { key: 'fast', label: '快速', description: '优先响应速度' },
   { key: 'balanced', label: '均衡', description: '速度、成本和质量平衡' },
   { key: 'ultimate', label: '极致', description: '优先复杂问题回答质量' },
 ];
+const responseTierLabel = computed(() => (
+  responseTierOptions.find(option => option.key === responseTier.value)?.label || '均衡'
+));
 const modelsLoading = ref(false);
 const showModelSelector = ref(false);
 const modelButtonRef = ref<HTMLElement>();
@@ -714,6 +726,14 @@ const inputPlaceholder = computed(() => {
   const explicitPlaceholder = props.placeholder.trim();
   if (explicitPlaceholder) {
     return explicitPlaceholder;
+  }
+
+  if (selectedPublishedExpertAuto.value) {
+    return '自动匹配专家';
+  }
+
+  if (selectedPublishedExpert.value) {
+    return `向 ${selectedPublishedExpert.value.display_name} 提问`;
   }
 
   // 如果选择了自定义智能体
@@ -876,25 +896,37 @@ const loadWebSearchConfig = async (force = false) => {
 const loadAgents = async (force = false) => {
   try {
     await chatResources.ensureAgents(force);
-    ensureSelectedAgentAvailable();
+    ensureSelectedAgentNotDisabled();
   } catch (error) {
     console.error('Failed to load agents:', error);
   }
 };
 
-// 列表加载完后纠正已下架或被当前空间停用的本地选择。共享智能体由源空间决定，
-// 不受本地列表约束。优先回到唯一的内置知识库问答智能体，再选择第一个可用的
-// 自定义智能体；全部不可用时保持原选择不动。
-const ensureSelectedAgentAvailable = () => {
+const loadPublishedExperts = async (force = false) => {
+  try {
+    await chatResources.ensurePublishedExperts(force);
+  } catch (error) {
+    console.error('Failed to load published experts:', error);
+  }
+};
+
+// 默认选中的 builtin（builtin-quick-answer）也可能被当前空间管理员停用。
+// 列表加载完后做一次纠偏：若当前选中的是本空间停用的 agent（仅限「我的/builtin」，
+// 共享智能体由源空间决定，本地停用列表不适用），按 智能推理 → 快速问答 →
+// 第一个可用 的顺序兜底切换。全部都被停用时保持原选择不动（极端场景，UI 仍会
+// 在 enabledAgents 过滤后显示空，由用户在智能体页恢复任意一个）。
+const ensureSelectedAgentNotDisabled = () => {
   if (settingsStore.selectedAgentSourceTenantId) return
   const currentId = settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID
+  if (!disabledOwnAgentIds.value.includes(currentId)) return
 
   const isEnabled = (id: string) =>
     agents.value.some(a => a.id === id) && !disabledOwnAgentIds.value.includes(id)
-  if (isEnabled(currentId)) return
 
   let fallback: CustomAgent | undefined
-  if (isEnabled(BUILTIN_QUICK_ANSWER_ID)) {
+  if (isEnabled(BUILTIN_SMART_REASONING_ID)) {
+    fallback = agents.value.find(a => a.id === BUILTIN_SMART_REASONING_ID)
+  } else if (isEnabled(BUILTIN_QUICK_ANSWER_ID)) {
     fallback = agents.value.find(a => a.id === BUILTIN_QUICK_ANSWER_ID)
   } else {
     fallback = agents.value.find(a => !disabledOwnAgentIds.value.includes(a.id))
@@ -983,8 +1015,6 @@ const loadResponseTierConfig = async () => {
     const config = await getResponseTierConfig();
     responseTierConfig.value = { enabled: Boolean(config?.enabled) };
   } catch (error) {
-    // The picker remains usable with the legacy fallback when the capability
-    // endpoint is unavailable.
     responseTierConfig.value = { enabled: false };
   }
 };
@@ -1725,12 +1755,21 @@ const removeFile = (id: string) => {
 };
 
 const toggleModelSelector = () => {
+  // 如果智能体锁定了模型，不允许打开选择器
+  if (isModelLockedByAgent.value) {
+    MessagePlugin.warning(t('input.modelLockedByAgent'));
+    return;
+  }
+
   // 互斥：关闭其他
   showMention.value = false;
   showAgentModeSelector.value = false;
 
   showModelSelector.value = !showModelSelector.value;
   if (showModelSelector.value) {
+    if (!availableModels.value.length) {
+      loadChatModels();
+    }
     // 多次更新位置确保准确
     nextTick(() => {
       updateModelDropdownPosition();
@@ -1742,11 +1781,6 @@ const toggleModelSelector = () => {
       });
     });
   }
-};
-
-const selectResponseTier = (tier: ResponseTier) => {
-  responseTier.value = tier;
-  showModelSelector.value = false;
 };
 
 const closeModelSelector = () => {
@@ -1782,6 +1816,7 @@ onMounted(() => {
     loadWebSearchConfig(),
     loadChatModels(),
     loadAgents(),
+    loadPublishedExperts(),
     loadMCPServices(),
     loadResponseTierConfig(),
   ]);
@@ -1875,6 +1910,7 @@ watch([selectedKbIds, selectedFileIds], ([kbIds, fileIds]) => {
 
 const emit = defineEmits<{
   (e: 'send-msg', query: string, modelId: string, mentionedItems: MentionRequestItem[], imageFiles: File[], attachmentFiles: AttachmentFile[], responseTier: ResponseTier): void;
+  (e: 'send-published-expert', query: string, modelId: string, expert: PublishedExpert | null, routeMode: 'auto' | 'manual'): void;
   (e: 'stop-generation'): void;
 }>();
 
@@ -1911,6 +1947,64 @@ const createSession = async (val: string) => {
     return;
   }
 
+  if (selectedPublishedExpert.value || selectedPublishedExpertAuto.value) {
+    if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0 || allSelectedItems.value.length > 0) {
+      MessagePlugin.info('已发布专家当前先支持文本问题，请先移除附件和上下文引用');
+      return;
+    }
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit(
+      'send-published-expert',
+      val,
+      selectedModelId.value,
+      selectedPublishedExpert.value,
+      selectedPublishedExpertAuto.value ? 'auto' : 'manual',
+    );
+    clearvalue();
+    return;
+  }
+
+  // Published experts are routed by the system by default. Manual expert
+  // selection above remains an explicit override; attachments, context
+  // references, custom agents, and agent mode continue through normal chat.
+  if (shouldAutoRoutePublishedExpert.value) {
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit('send-published-expert', val, selectedModelId.value, null, 'auto');
+    clearvalue();
+    return;
+  }
+
+  if (selectedPublishedExpert.value || selectedPublishedExpertAuto.value) {
+    if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0 || allSelectedItems.value.length > 0) {
+      MessagePlugin.info('已发布专家当前先支持文本问题，请先移除附件和上下文引用');
+      return;
+    }
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit(
+      'send-published-expert',
+      val,
+      selectedModelId.value,
+      selectedPublishedExpert.value,
+      selectedPublishedExpertAuto.value ? 'auto' : 'manual',
+    );
+    clearvalue();
+    return;
+  }
+
+  // Published experts are routed by the system by default. Manual expert
+  // selection above remains an explicit override; attachments, context
+  // references, custom agents, and agent mode continue through normal chat.
+  if (shouldAutoRoutePublishedExpert.value) {
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit('send-published-expert', val, selectedModelId.value, null, 'auto');
+    clearvalue();
+    return;
+  }
+
   // Images and non-embedded attachments both travel to the backend as
   // `attachment_ids`, which enforces a combined cap (MaxTemporaryAttachmentsPerMessage).
   // The per-picker limits (5 images / 5 attachments) are independent, so guard the
@@ -1926,9 +2020,6 @@ const createSession = async (val: string) => {
 
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
-  }
-  if (!responseTierConfig.value.enabled) {
-    await loadResponseTierConfig()
   }
 
   // 发送前校验当前选中的智能体（含默认快速问答）是否已配置完成
@@ -2082,6 +2173,7 @@ const toggleAgentModeSelector = () => {
     // Opening the selector is an explicit refresh point so newly created or
     // newly shared agents appear immediately instead of waiting for cache TTL.
     void loadAgents(true);
+    void loadPublishedExperts(true);
     // 多次更新位置确保准确
     nextTick(() => {
       updateAgentModeDropdownPosition();
@@ -2096,6 +2188,8 @@ const toggleAgentModeSelector = () => {
 }
 
 const selectAgentMode = async (mode: 'quick-answer' | 'smart-reasoning') => {
+  selectedPublishedExpert.value = null;
+  selectedPublishedExpertAuto.value = false;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2136,6 +2230,8 @@ const handleAgentNotReady = (
 };
 
 const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) => {
+  selectedPublishedExpert.value = null;
+  selectedPublishedExpertAuto.value = false;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2189,6 +2285,20 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
     : t('input.messages.agentSelected', { name: agent.name });
   MessagePlugin.success(message);
 }
+
+const handleSelectPublishedExpert = (expert: PublishedExpert) => {
+  selectedPublishedExpertAuto.value = false;
+  selectedPublishedExpert.value = expert;
+  showAgentModeSelector.value = false;
+  MessagePlugin.success(`已选择专家：${expert.display_name}`);
+};
+
+const handleSelectPublishedExpertAuto = () => {
+  selectedPublishedExpert.value = null;
+  selectedPublishedExpertAuto.value = true;
+  showAgentModeSelector.value = false;
+  MessagePlugin.success('已切换为自动匹配专家');
+};
 
 const clearvalue = () => {
   // Guard: only clear when the textarea DOM element is still mounted,
@@ -2465,12 +2575,13 @@ defineExpose({
         <div class="control-left" v-if="!embeddedMode">
           <!-- Agent 模式切换按钮 -->
           <div ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{
-            'is-normal': !isCustomAgent && !isAgentEnabled,
-            'is-agent': !isCustomAgent && isAgentEnabled,
-            'is-custom': isCustomAgent
+            'is-normal': !selectedPublishedExpert && !selectedPublishedExpertAuto && !isCustomAgent && !isAgentEnabled,
+            'is-agent': !selectedPublishedExpert && !selectedPublishedExpertAuto && !isCustomAgent && isAgentEnabled,
+            'is-custom': !selectedPublishedExpert && !selectedPublishedExpertAuto && isCustomAgent,
+            'is-published-expert': !!selectedPublishedExpert || selectedPublishedExpertAuto
           }" @click.stop="toggleAgentModeSelector">
             <span class="agent-mode-text">
-              {{ selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
+              {{ selectedPublishedExpert?.display_name || (selectedPublishedExpertAuto ? '自动匹配专家' : '') || selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
             </span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="dropdown-arrow"
               :class="{ 'rotate': showAgentModeSelector }">
@@ -2482,7 +2593,12 @@ defineExpose({
           <AgentSelector :visible="showAgentModeSelector" :anchorEl="agentModeButtonRef"
             :currentAgentId="selectedAgentId" :agents="enabledAgents" :all-models="allModels"
             :current-chat-model-id="selectedModelId" :response-tier-enabled="responseTierConfig.enabled"
-            @close="closeAgentModeSelector" @select="handleSelectAgent" @not-ready="handleAgentNotReady" />
+            :published-experts="publishedExperts"
+            :selected-published-expert-id="selectedPublishedExpertAuto ? AUTO_EXPERT_SELECTION_ID : selectedPublishedExpert?.definition_id"
+            @close="closeAgentModeSelector" @select="handleSelectAgent"
+            @select-published-expert="handleSelectPublishedExpert"
+            @select-published-expert-auto="handleSelectPublishedExpertAuto"
+            @not-ready="handleAgentNotReady" />
 
           <!-- WebSearch 开关按钮（智能体未启用时不显示） -->
           <t-tooltip v-if="showWebSearchButton" placement="top" theme="light"
@@ -2574,18 +2690,30 @@ defineExpose({
             </div>
           </t-tooltip>
 
-          <!-- 回答档位选择 -->
-          <t-tooltip content="回答档位" placement="top">
-            <div class="model-display">
-              <div ref="modelButtonRef" class="model-selector-trigger response-tier-trigger"
-                @click.stop="toggleModelSelector">
-                <t-icon name="layers" size="14px" />
-                <span class="model-selector-name">{{ responseTierLabel }}</span>
+          <!-- 模型显示 -->
+          <t-tooltip :content="isModelLockedByAgent ? $t('input.modelLockedByAgent') : ''"
+            :disabled="!isModelLockedByAgent">
+            <div class="model-display" :class="{ 'agent-controlled': isModelLockedByAgent }">
+              <div ref="modelButtonRef" class="model-selector-trigger" @click.stop="toggleModelSelector">
+                <span class="model-selector-name">
+                  {{ selectedModelDisplayName }}
+                </span>
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="model-dropdown-arrow"
                   :class="{ 'rotate': showModelSelector }">
                   <path d="M2.5 4.5L6 8L9.5 4.5H2.5Z" />
                 </svg>
               </div>
+            </div>
+          </t-tooltip>
+
+          <t-tooltip v-if="responseTierConfig.enabled" content="回答档位" placement="top">
+            <div class="response-tier-display">
+              <span class="response-tier-label">{{ responseTierLabel }}</span>
+              <select v-model="responseTier" class="response-tier-select" aria-label="回答档位">
+                <option v-for="option in responseTierOptions" :key="option.key" :value="option.key">
+                  {{ option.label }}
+                </option>
+              </select>
             </div>
           </t-tooltip>
         </div>
@@ -2594,20 +2722,23 @@ defineExpose({
           <div v-if="showModelSelector" class="model-selector-overlay" @click="closeModelSelector">
             <div class="model-selector-dropdown" :style="modelDropdownStyle" @click.stop>
               <div class="model-selector-header">
-                <span>回答档位</span>
+                <span>{{ $t('conversationSettings.models.chatGroupLabel') }}</span>
               </div>
               <div class="model-selector-content">
-                <div v-for="option in responseTierOptions" :key="option.key" class="model-option"
-                  :class="{ selected: option.key === responseTier }" @click="selectResponseTier(option.key)">
+                <div v-for="model in availableModels" :key="model.id" class="model-option"
+                  :class="{ selected: model.id === selectedModelId }" @click="handleModelChange(model.id || '')">
                   <div class="model-option-left">
                     <div class="model-option-icon">
-                      <t-icon name="layers" size="14px" />
+                      <t-icon name="chat" size="14px" />
                     </div>
                     <div class="model-option-name-wrap">
-                      <span class="model-option-name">{{ option.label }}</span>
-                      <span class="model-option-raw-name">{{ option.description }}</span>
+                      <span class="model-option-name">{{ modelDisplayName(model) }}</span>
+                      <span v-if="model.display_name" class="model-option-raw-name">{{ model.name }}</span>
                     </div>
                   </div>
+                </div>
+                <div v-if="availableModels.length === 0" class="model-option empty">
+                  {{ $t('input.noModel') }}
                 </div>
               </div>
             </div>
@@ -2954,6 +3085,16 @@ const getImgSrc = (url: string) => {
   font-weight: 500;
   position: relative;
   border: .5px solid var(--td-component-border, #e7e7e7);
+}
+
+.agent-mode-btn.is-published-expert {
+  color: var(--td-brand-color);
+  border-color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+
+  .agent-mode-text {
+    color: var(--td-brand-color);
+  }
 }
 
 .agent-icon {
@@ -3350,6 +3491,49 @@ const getImgSrc = (url: string) => {
       opacity: 0.5;
     }
   }
+}
+
+.response-tier-display {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 22px;
+  margin-left: 6px;
+  padding: 0 22px 0 8px;
+  border: .5px solid var(--td-component-border, #e7e7e7);
+  border-radius: 6px;
+  color: var(--td-text-color-secondary, #666);
+  background: var(--td-bg-color-container, #fff);
+  flex-shrink: 0;
+  overflow: hidden;
+
+  &::after {
+    content: '';
+    position: absolute;
+    right: 8px;
+    width: 0;
+    height: 0;
+    border-left: 3px solid transparent;
+    border-right: 3px solid transparent;
+    border-top: 4px solid currentColor;
+    pointer-events: none;
+  }
+}
+
+.response-tier-label {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.response-tier-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .model-selector-trigger {

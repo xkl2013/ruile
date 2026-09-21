@@ -814,6 +814,7 @@ const SETTINGS_SECTION_KEYS: Record<Exclude<SettingsSection, 'other'>, readonly 
     'asynq.maintenance_concurrency',
     'asynq.shared_concurrency',
     'asynq.wiki_concurrency',
+    'asynq.agent_concurrency',
     'model.max_concurrency',
   ],
   security: ['ssrf.whitelist'],

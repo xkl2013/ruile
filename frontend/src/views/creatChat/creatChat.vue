@@ -43,7 +43,8 @@
                     </div>
                 </transition>
             </div>
-            <InputField ref="inputFieldRef" @send-msg="sendMsg"></InputField>
+            <InputField ref="inputFieldRef" @send-msg="sendMsg"
+                @send-published-expert="sendPublishedExpert"></InputField>
         </div>
     </div>
 
@@ -180,7 +181,36 @@ const sendMsg = (value: string, modelId: string, mentionedItems: any[], imageFil
     createNewSession(value, modelId, mentionedItems, imageFiles, attachmentFiles);
 }
 
-async function createNewSession(value: string, modelId: string, mentionedItems: any[] = [], imageFiles: any[] = [], attachmentFiles: any[] = []) {
+const sendPublishedExpert = (value: string, modelId: string, expert: any, routeMode: 'auto' | 'manual') => {
+    createNewSession(value, modelId, [], [], [], expert, routeMode);
+}
+
+async function createNewSession(
+    value: string,
+    modelId: string,
+    mentionedItems: any[] = [],
+    imageFiles: any[] = [],
+    attachmentFiles: any[] = [],
+    publishedExpert: any | null = null,
+    publishedExpertRouteMode: 'auto' | 'manual' = 'manual',
+) {
+    // Published expert runs are tracked by AgentRun and rendered locally in
+    // this first slice, so they do not depend on normal session creation.
+    if (publishedExpert || publishedExpertRouteMode === 'auto') {
+        const temporarySessionId = `expert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await navigateToSession(
+            temporarySessionId,
+            value,
+            modelId,
+            mentionedItems,
+            imageFiles,
+            attachmentFiles,
+            publishedExpert,
+            publishedExpertRouteMode,
+        );
+        return;
+    }
+
     const selectedKbs = settingsStore.settings.selectedKnowledgeBases || [];
     const selectedFiles = settingsStore.settings.selectedFiles || [];
 
@@ -211,7 +241,16 @@ async function createNewSession(value: string, modelId: string, mentionedItems: 
     }
 }
 
-const navigateToSession = async (sessionId: string, value: string, modelId: string, mentionedItems: any[], imageFiles: any[] = [], attachmentFiles: any[] = []) => {
+const navigateToSession = async (
+    sessionId: string,
+    value: string,
+    modelId: string,
+    mentionedItems: any[],
+    imageFiles: any[] = [],
+    attachmentFiles: any[] = [],
+    publishedExpert: any | null = null,
+    publishedExpertRouteMode: 'auto' | 'manual' = 'manual',
+) => {
     const now = new Date().toISOString();
     let obj = {
         title: t('createChat.newSessionTitle'),
@@ -225,6 +264,8 @@ const navigateToSession = async (sessionId: string, value: string, modelId: stri
     usemenuStore.updataMenuChildren(obj);
     usemenuStore.changeIsFirstSession(true);
     usemenuStore.changeFirstQuery(value, mentionedItems, modelId, imageFiles, attachmentFiles);
+    usemenuStore.changeFirstPublishedExpert(publishedExpert);
+    usemenuStore.changeFirstPublishedExpertRouteMode(publishedExpertRouteMode);
     router.push(`/platform/chat/${sessionId}`);
 }
 

@@ -29,6 +29,76 @@ CREATE TABLE IF NOT EXISTS tenants (
 
 CREATE INDEX IF NOT EXISTS idx_tenants_status ON tenants(status);
 
+CREATE TABLE IF NOT EXISTS expert_packages (
+    id TEXT PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    package_key TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source_format TEXT NOT NULL,
+    source_uri TEXT NOT NULL DEFAULT '',
+    license TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expert_packages_tenant_key ON expert_packages(tenant_id, package_key);
+
+CREATE TABLE IF NOT EXISTS expert_package_versions (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL REFERENCES expert_packages(id),
+    version TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'testing',
+    manifest TEXT NOT NULL DEFAULT '{}',
+    package_hash TEXT NOT NULL,
+    diagnostics TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT NOT NULL DEFAULT '',
+    published_by TEXT NOT NULL DEFAULT '',
+    published_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    CHECK (state IN ('testing', 'published', 'deprecated', 'archived'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expert_package_versions_immutable ON expert_package_versions(package_id, version);
+
+CREATE TABLE IF NOT EXISTS agent_definition_versions (
+    id TEXT PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    package_id TEXT NOT NULL REFERENCES expert_packages(id),
+    package_version_id TEXT NOT NULL REFERENCES expert_package_versions(id),
+    agent_id TEXT NOT NULL,
+    version TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    domain TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL,
+    compiled_config TEXT NOT NULL DEFAULT '{}',
+    skills TEXT NOT NULL DEFAULT '[]',
+    capabilities TEXT NOT NULL DEFAULT '{}',
+    output_contract TEXT NOT NULL DEFAULT 'agent_result_v1',
+    definition_hash TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_definition_versions_immutable ON agent_definition_versions(package_version_id, agent_id);
+
+CREATE TABLE IF NOT EXISTS agent_bindings (
+    id TEXT PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id),
+    profile_id TEXT NOT NULL DEFAULT '',
+    agent_definition_version_id TEXT NOT NULL REFERENCES agent_definition_versions(id),
+    agent_domain TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_bindings_unique ON agent_bindings(tenant_id, profile_id, agent_definition_version_id);
+
 CREATE TABLE IF NOT EXISTS models (
     id VARCHAR(64) PRIMARY KEY,
     tenant_id INTEGER NOT NULL,
@@ -1213,6 +1283,54 @@ CREATE INDEX IF NOT EXISTS idx_service_reminders_status
     ON service_reminders(tenant_id, user_id, status);
 CREATE INDEX IF NOT EXISTS idx_service_reminders_due
     ON service_reminders(tenant_id, user_id, priority, due_at);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    profile_id VARCHAR(36) NOT NULL DEFAULT '',
+    parent_run_id VARCHAR(36) NOT NULL DEFAULT '',
+    requirement_snapshot_id VARCHAR(36) NOT NULL DEFAULT '',
+    run_type VARCHAR(64) NOT NULL,
+    agent_ref VARCHAR(128) NOT NULL DEFAULT '',
+    agent_version VARCHAR(64) NOT NULL DEFAULT '',
+    trigger_type VARCHAR(64) NOT NULL DEFAULT '',
+    trigger_id VARCHAR(128) NOT NULL DEFAULT '',
+    status VARCHAR(32) NOT NULL DEFAULT 'queued',
+    phase VARCHAR(32) NOT NULL DEFAULT '',
+    input TEXT NOT NULL DEFAULT '{}',
+    interaction TEXT NOT NULL DEFAULT '{}',
+    quality TEXT NOT NULL DEFAULT '{}',
+    result TEXT NOT NULL DEFAULT '{}',
+    error_code VARCHAR(64) NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
+    idempotency_key VARCHAR(128) NOT NULL DEFAULT '',
+    task_id VARCHAR(160) NOT NULL DEFAULT '',
+    attempt INTEGER NOT NULL DEFAULT 0,
+    queued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resumed_at DATETIME,
+    started_at DATETIME,
+    finished_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    CHECK (status IN ('queued', 'running', 'waiting_input', 'succeeded', 'failed', 'cancelled')),
+    CHECK (run_type IN ('service_daily_report', 'service_memory_extract', 'expert_agent_test', 'expert_follow_up'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_scope_created
+    ON agent_runs(tenant_id, user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_status
+    ON agent_runs(status, queued_at);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_trigger
+    ON agent_runs(tenant_id, trigger_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_parent
+    ON agent_runs(parent_run_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_phase
+    ON agent_runs(status, phase, queued_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_idempotency_active
+    ON agent_runs(tenant_id, user_id, run_type, idempotency_key, created_at DESC)
+    WHERE status IN ('queued', 'running', 'waiting_input');
 
 CREATE TABLE IF NOT EXISTS agent_action_drafts (
     id VARCHAR(36) PRIMARY KEY,

@@ -42,6 +42,43 @@ func NewAsynqTaskInspector(inspector *asynq.Inspector, redisClient *redis.Client
 	return &asynqTaskInspector{inspector: inspector, redis: redisClient}
 }
 
+type asynqTaskCanceller struct {
+	inspector *asynq.Inspector
+}
+
+func NewAsynqTaskCanceller(inspector *asynq.Inspector) interfaces.TaskCanceller {
+	return &asynqTaskCanceller{inspector: inspector}
+}
+
+func (c *asynqTaskCanceller) CancelTask(
+	_ context.Context,
+	queue, taskID string,
+) (bool, error) {
+	if c == nil || c.inspector == nil || taskID == "" {
+		return false, nil
+	}
+	task, err := c.inspector.GetTaskInfo(queue, taskID)
+	if errors.Is(err, asynq.ErrTaskNotFound) || errors.Is(err, asynq.ErrQueueNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if task.State == asynq.TaskStateActive {
+		if err := c.inspector.CancelProcessing(taskID); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if err := c.inspector.DeleteTask(queue, taskID); err != nil {
+		if errors.Is(err, asynq.ErrTaskNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // knowledgeIDProbe is the minimal payload shape we need to filter
 // tasks. All pipeline payload types embed a json:"knowledge_id" field,
 // so a single struct covers Document / ImageMultimodal / PostProcess /

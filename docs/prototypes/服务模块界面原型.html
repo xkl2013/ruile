@@ -1,0 +1,2318 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="H3OfEGFWB5abu7do4XM2GK">
+<head data-page-node-id="DPxnxq6JVBTtDxdq7fLYjP">
+<meta charset="UTF-8" data-page-node-id="7DRKW0nX4YAYmcEncYG4bV" />
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="TBeHp68AS8RhVnIk2k0bdi" />
+<title>服务模块界面原型 · 睿乐大脑</title>
+<style>
+  :root{
+    --brand:#07c05f; --brand-hover:#06b04d; --brand-dark:#038626; --brand-light:#e9f8ec;
+    --text-1:rgba(0,0,0,.9); --text-2:rgba(0,0,0,.6); --text-3:rgba(0,0,0,.4);
+    --page-bg:#f5f5f5; --card:#fff; --sidebar:#f9f9f9;
+    --border:#e7e7e7; --border-strong:#dcdcdc; --border-hover:#c5c5c5;
+    --warn-bg:#fef3e6; --warn-text:#ba431b; --danger:#e34d59;
+    --r:6px; --r-lg:12px;
+    /* 侧栏栅格：直接取自 frontend/src/components/menu.vue 的 --sidebar-inset-x（14px）
+       与 TDesign 的 --td-bg-color-container-hover（light 下 = #f3f3f3，
+       注意它与 --td-bg-color-secondarycontainer 同值——这就是知识库的「当前项」
+       不能靠底色区分、必须靠右侧圆点的原因）。 */
+    --inset-x:14px; --nav-hover:#f3f3f3;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--page-bg); color:var(--text-1); font-size:14px;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  button,input,select,textarea{font-family:inherit;}
+
+  .app{display:flex; min-height:100vh;}
+
+  /* 侧栏容器与顶部 logo 行：对齐 frontend menu.vue 的 .aside_box / .logo_row（宽 260、logo 行高 50） */
+  /* 侧栏自身滚动（D21）：会话挂到侧栏之后，一个服务展开、再点「还有 N 个」可能列出几十行；
+     不独立滚动就会把整页撑长、侧栏跟着页面一起滚走。真实产品里侧栏是固定的——这里对齐它。 */
+  .sidebar{width:260px; flex:none; background:var(--sidebar); border-right:1px solid var(--border); padding:8px 6px 6px;
+    position:sticky; top:0; height:100vh; overflow-y:auto;}
+  .brand{display:flex; align-items:center; gap:8px; height:50px; flex-shrink:0; padding:0 10px 0 var(--inset-x);}
+  .brand-logo{width:24px;height:24px;border-radius:6px;background:var(--brand);color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:500;}
+  .brand-name{font-size:14px;font-weight:500;}
+  .nav{display:flex;flex-direction:column;gap:2px;}
+  /* ── 一级项「服务」：规格照抄 frontend/src/components/KnowledgeBaseMenu.vue 的 .kb-menu-header
+        （28px 高 / 13px / 字重 500 / 次要色 / 8px 圆角 / hover 灰底）。
+        注意它**没有「激活底色」**：知识库标题本身不表示「当前在哪个知识库」，
+        当前项由下面二级列表里的圆点表示。 */
+  .nav-item{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:28px;
+    padding:0 8px 0 var(--inset-x);border-radius:8px;cursor:pointer;border:none;background:none;
+    text-align:left;width:100%;transition:background-color .18s ease;}
+  .nav-item:hover{background:var(--nav-hover);}
+  .nav-title{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+    color:var(--text-2);font-size:13px;font-weight:500;line-height:18px;}
+  /* 右侧操作组：计数常态可见；折叠箭头照 .kb-menu-actions 的规矩——hover 才出现 */
+  .nav-actions{display:flex;align-items:center;gap:4px;flex-shrink:0;}
+  .nav-count{font-size:12px;line-height:18px;color:var(--text-3);}
+  .nav-toggle{width:24px;height:24px;border-radius:6px;padding:0;display:inline-flex;align-items:center;
+    justify-content:center;background:transparent;color:var(--text-2);cursor:pointer;flex-shrink:0;
+    opacity:0;pointer-events:none;transition:opacity .18s ease,background-color .18s ease,color .18s ease;}
+  .nav-item:hover .nav-toggle,.nav-item:focus-within .nav-toggle{opacity:1;pointer-events:auto;}
+  .nav-toggle:hover{background:var(--nav-hover);color:var(--text-1);}
+  .nav-toggle svg{width:16px;height:16px;transition:transform .18s ease;}
+  .nav-toggle.collapsed svg{transform:rotate(-90deg);}
+  /* 侧栏二级菜单（D20）：服务列表直接挂在「服务」下面——
+     少一次「先进列表、再点一次」的中转，但列表页本身仍在，由一级项进入。
+     **整组规格以 KnowledgeBaseMenu.vue 为唯一基准**（一级 .kb-menu-header / 二级 .kb-menu-item），
+     所以也照它带一个折叠控件（上一版写的「不做折叠控件，折叠没有信息量」作废：
+     知识库就是这么做的，两处形态必须一致，否则同一根侧栏里会出现两种折叠范式）。 */
+  /* ── 二级项：规格照抄 .kb-menu-item，**只少一样东西：左侧的 20px 模板图形**。
+        一级项「服务」本身就不带图标，二级再带一个反而让"服务列表"看起来像另一套菜单；
+        去掉之后整根侧栏彻底无图标，层级改由**等距缩进**表达（每级 20px）：
+        一级文字 14px → 二级文字 34px → 三级文字 54px。
+        （v1.15：v1.13 照抄知识库的 20px 模板图形已按老师意见删除，见界面说明 §2.3.1 的有意偏离。）
+        「当前项」不是绿字，而是「与 hover 同色的底 + 右侧 12px 绿点」
+        （light 下 hover 与 active 底色同值，靠底色区分不出来，所以必须有点）。 */
+  .nav-sub{display:flex;flex-direction:column;gap:2px;padding:1px 0 4px;}
+  .nav-sub[hidden]{display:none;}
+  .nav-sub-item{display:flex;align-items:center;gap:8px;width:100%;min-height:28px;
+    padding:0 8px 0 calc(var(--inset-x) + 20px);border:none;border-radius:8px;background:transparent;
+    text-align:left;cursor:pointer;transition:background-color .18s ease;}
+  .nav-sub-item:hover{background:var(--nav-hover);}
+  .nav-sub-item.on{background:var(--nav-hover);}
+  .nav-sub-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--text-1);font-size:12px;font-weight:500;line-height:18px;}
+  .nav-sub-trail{display:inline-flex;align-items:center;gap:4px;justify-content:flex-end;flex-shrink:0;}
+  .nav-sub-dot{width:12px;height:12px;border-radius:50%;background:var(--brand);}
+  /* 每个服务右侧的折叠箭头（D21）：照一级项的规矩 hover 才现。
+     占位固定 20px、只切 opacity——否则鼠标一划过来箭头挤进来，文字会横向抖一下。 */
+  .nav-sub-caret{width:20px;height:20px;border-radius:6px;flex:none;display:inline-flex;
+    align-items:center;justify-content:center;color:var(--text-2);cursor:pointer;
+    opacity:0;pointer-events:none;transition:opacity .18s ease,background-color .18s ease;}
+  .nav-sub-item:hover .nav-sub-caret,.nav-sub-item:focus-within .nav-sub-caret{opacity:1;pointer-events:auto;}
+  .nav-sub-caret:hover{background:#e8e8e8;color:var(--text-1);}
+  .nav-sub-caret svg{width:14px;height:14px;transition:transform .18s ease;}
+  .nav-sub-caret.collapsed svg{transform:rotate(-90deg);}
+
+  /* ── 三级：某个服务下的会话（D21）。
+        上位变化：会话原先只活在服务空间内部的会话栏里，现在挂到侧栏的服务名下方——
+        **侧栏取代了那条会话栏**，服务空间由三块（会话栏 / 对话区 / 右侧面板）变成两块。
+        规格：**比二级文字再缩进一级**——二级文字 34px、三级文字 54px，步长与一级→二级同为 20px。
+        v1.14 曾让三级与二级文字**左对齐**（同为 54px），那是在**二级带图标**的前提下的结论
+        （当时二级文字被 20px 图标推到 54px，三级写 46px 反而"比二级更靠左"）。
+        v1.15 图标删掉、二级文字回到 34px 之后**那个前提就不存在了**，
+        三级与二级改为等距缩进；层级由「缩进 + 颜色（次要色） + 所在分组」三者共同表达。
+        字号仍取 12px（再小一档在这个字号体系里已经读不清），颜色降到次要色。
+        「当前会话」不给右侧圆点：那个位置要留给 hover 才现的 ⋯，
+        改用「同色底 + 主色文字 + 字重 500」三件一起表达（底与 hover 同值时靠后两者区分）。 */
+  .nav-sess{display:flex;flex-direction:column;gap:2px;padding:1px 0 3px;}
+  .nav-sess[hidden]{display:none;}
+  .nav-sess-item{display:flex;align-items:center;gap:8px;width:100%;min-height:26px;
+    padding:0 8px 0 54px;border:none;border-radius:8px;background:transparent;text-align:left;
+    cursor:pointer;transition:background-color .18s ease;}
+  .nav-sess-item:hover{background:var(--nav-hover);}
+  .nav-sess-item.on{background:var(--nav-hover);}
+  .nav-sess-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    color:var(--text-2);font-size:12px;line-height:18px;}
+  .nav-sess-item.on .nav-sess-name{color:var(--text-1);font-weight:500;}
+  /* 置顶标记：**放右侧且永远占位**——放标题左边会让置顶行与非置顶行的文字起点差出 17px，
+     一列会话看下来文字会左右跳；固定占位也让 hover 时冒出来的 ⋯ 不会把有置顶的行推来推去。 */
+  .nav-sess-pin{flex:none;width:10px;text-align:center;font-size:8px;line-height:1;color:var(--brand);}
+  .nav-sess-more{width:18px;height:18px;flex:none;padding:0;border:none;background:none;border-radius:5px;
+    color:var(--text-3);font-size:13px;line-height:1;cursor:pointer;
+    opacity:0;pointer-events:none;transition:opacity .18s ease,background-color .18s ease;}
+  .nav-sess-item:hover .nav-sess-more,.nav-sess-item:focus-within .nav-sess-more{opacity:1;pointer-events:auto;}
+  .nav-sess-more:hover{background:#e8e8e8;color:var(--text-1);}
+  .nav-sess-rename{flex:1;min-width:0;font-size:12px;font-family:inherit;color:var(--text-1);
+    border:1px solid var(--brand);border-radius:6px;padding:1px 5px;outline:none;}
+  /* 会话多于上限时的一行「还有 N 个」——是入口，不是说明文字 */
+  .nav-sess-all{width:100%;border:none;background:none;text-align:left;cursor:pointer;font-family:inherit;
+    padding:4px 8px 4px 54px;border-radius:8px;font-size:12px;line-height:18px;color:var(--text-3);}
+  .nav-sess-all:hover{background:var(--nav-hover);color:var(--text-1);}
+  .nav-sess-empty{width:100%;border:none;background:none;text-align:left;cursor:pointer;font-family:inherit;
+    padding:4px 8px 5px 54px;border-radius:8px;font-size:12px;line-height:18px;color:var(--text-3);}
+  .nav-sess-empty:hover{background:var(--nav-hover);color:var(--text-1);}
+  .nav-sub-empty{margin:0;padding:8px 14px 6px var(--inset-x);font-size:12px;line-height:18px;color:var(--text-3);}
+  /* 侧栏会话行的 ⋯ 菜单（重命名 / 置顶 / 删除）：视口定位——
+     侧栏是滚动容器，相对定位的菜单会被 overflow 裁掉 */
+  .nav-menu{position:fixed;background:#fff;border:1px solid var(--border);border-radius:var(--r);
+    box-shadow:0 4px 16px rgba(0,0,0,.1);padding:4px;min-width:132px;z-index:60;}
+
+  .main{flex:1;min-width:0;padding:28px 32px 60px;}
+
+  .page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px;}
+  .page-title{margin:0;font-size:20px;font-weight:500;letter-spacing:.2px;}
+  .page-sub{margin:4px 0 0;font-size:13px;color:var(--text-2);}
+  .head-art{flex:none;}
+
+  .btn{padding:7px 14px;border-radius:var(--r);border:1px solid var(--border-strong);background:#fff;font-size:13px;cursor:pointer;color:var(--text-1);transition:border-color .15s,background .15s;}
+  .btn:hover{border-color:var(--border-hover);}
+  .btn-primary{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500;display:inline-flex;align-items:center;gap:6px;}
+  .btn-primary:hover{background:var(--brand-hover);border-color:var(--brand-hover);}
+  .btn-primary:disabled{background:#8ce0af;border-color:#8ce0af;cursor:not-allowed;}
+  .btn-text{background:none;border:none;color:var(--brand);cursor:pointer;font-size:13px;padding:0;}
+  .btn-text:hover{color:var(--brand-dark);text-decoration:underline;}
+
+  .create-row{margin-bottom:24px;}
+
+  .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;}
+  .section-title{font-size:14px;font-weight:500;}
+  .section-tools{display:flex;align-items:center;gap:8px;}
+  .search{display:flex;align-items:center;gap:6px;border:1px solid var(--border-strong);border-radius:var(--r);padding:5px 10px;width:170px;background:#fff;}
+  .search input{border:none;outline:none;font-size:13px;width:100%;background:none;color:var(--text-1);}
+  .search input::placeholder{color:var(--text-3);}
+  .sort-select{border:1px solid var(--border-strong);border-radius:var(--r);padding:5px 8px;font-size:13px;background:#fff;color:var(--text-2);outline:none;cursor:pointer;}
+
+  .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+  @media(max-width:1180px){.grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+  @media(max-width:880px){.grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
+
+  .card{position:relative;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:10px 11px;cursor:pointer;transition:border-color .15s,box-shadow .2s;}
+  .card:hover{border-color:var(--border-hover);}
+  .card.draft{border-style:dashed;}
+  .card.flash{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-light);}
+  .card-row1{display:flex;align-items:center;gap:7px;}
+  .card-icon{width:24px;height:24px;border-radius:7px;background:var(--brand-light);display:flex;align-items:center;justify-content:center;flex:none;color:var(--brand-dark);}
+  /* 同一模板用同一图形（界面说明 §3.4）：图形取自模板，不是每个服务随机一个 */
+  .card-icon svg{width:14px;height:14px;}
+  .card-name{font-size:13px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .card-more{border:none;background:none;color:var(--text-3);cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px;}
+  .card-more:hover{color:var(--text-1);background:#f0f0f0;}
+  .card-row2{display:flex;align-items:center;gap:5px;margin-top:8px;}
+  .tag{font-size:11px;background:var(--brand-light);color:var(--brand-dark);padding:1px 5px;border-radius:3px;white-space:nowrap;}
+  .tag-custom{background:#f3f3f3;color:var(--text-3);}
+  .tag-role{font-size:11px;background:#f3f3f3;color:var(--text-2);padding:1px 5px;border-radius:3px;white-space:nowrap;}
+  .card-meta{font-size:11px;color:var(--text-3);margin-top:7px;}
+  /* 服务描述（D18）：把"这个服务管什么"摊在卡片上，省得靠名字猜。
+     最多两行——描述是给人快速判断的，不是给人读的。 */
+  .card-desc{font-size:12px;color:var(--text-2);line-height:1.6;margin-top:7px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .card-meta .draft-mark{color:var(--warn-text);}
+
+  .menu{position:absolute;top:34px;right:6px;background:#fff;border:1px solid var(--border);border-radius:var(--r);box-shadow:0 4px 16px rgba(0,0,0,.1);padding:4px;min-width:152px;z-index:30;}
+  .menu-item{display:block;width:100%;text-align:left;padding:7px 10px;border:none;background:none;font-size:13px;cursor:pointer;border-radius:4px;color:var(--text-1);}
+  .menu-item:hover{background:#f3f3f3;}
+  .menu-item.danger{color:var(--danger);}
+  .menu-item:disabled{color:var(--text-3);cursor:default;}
+  .menu-item:disabled:hover{background:none;}
+  .menu-sep{height:1px;background:var(--border);margin:4px 6px;}
+
+  .tpl-card{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:10px 11px;cursor:pointer;transition:border-color .15s;}
+  .tpl-card:hover{border-color:var(--brand);}
+  /* 空态是唯一有空间展示完整模板价值的时刻：卡片放大、内边距加到 12px（界面说明 §4.1） */
+  .tpl-card.big{padding:12px 13px;}
+  .tpl-card.big .tpl-icon{width:24px;height:24px;border-radius:7px;}
+  .tpl-card.big .tpl-icon svg{width:14px;height:14px;}
+  .tpl-card.big .tpl-name{font-size:13px;}
+  .tpl-card.big .tpl-desc{font-size:12px;}
+  .tpl-row1{display:flex;align-items:center;gap:7px;}
+  .tpl-icon{width:20px;height:20px;border-radius:6px;background:var(--brand-light);flex:none;display:flex;align-items:center;justify-content:center;color:var(--brand-dark);}
+  .tpl-icon svg{width:12px;height:12px;}
+  .tpl-name{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tpl-desc{font-size:11px;color:var(--text-3);margin:6px 0 0;line-height:1.5;}
+  .tpl-prev{font-size:11px;color:var(--text-3);margin:4px 0 0;}
+
+  .empty-card{border:1px dashed var(--border-hover);border-radius:var(--r-lg);padding:20px 22px;margin-bottom:22px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;background:#fcfcfc;}
+  .empty-title{font-size:14px;font-weight:500;margin:0;}
+  .empty-text{font-size:13px;color:var(--text-2);margin:6px 0 0;line-height:1.7;}
+
+  .no-result{padding:32px 0;text-align:center;font-size:13px;color:var(--text-2);}
+
+  /* 创建表单（D11：单页表单，无步骤条） */
+  .create{max-width:1000px;}
+  @media(max-width:880px){
+    .create{max-width:none;}
+    .expert-card{flex-wrap:wrap;}
+  }
+
+  .panel{background:#fff;border:1px solid var(--border);border-radius:var(--r-lg);padding:20px 22px;margin-bottom:16px;}
+  .field{margin-bottom:16px;}
+  .field:last-child{margin-bottom:0;}
+  .field-label{display:flex;align-items:center;font-size:13px;color:var(--text-2);margin-bottom:6px;}
+  .field-label .req{color:var(--danger);margin-left:2px;}
+  .input,select.input,textarea.input{width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:var(--r);font-size:13px;background:#fff;color:var(--text-1);outline:none;transition:border-color .15s,box-shadow .15s;}
+  .input:focus{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-light);}
+  textarea.input{resize:vertical;line-height:1.6;}
+  .input.err{border-color:var(--danger);}
+  .err-msg{font-size:12px;color:var(--danger);margin-top:6px;}
+  .field-hint{font-size:12px;color:var(--text-3);margin-top:6px;}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;background:var(--brand-light);color:var(--brand-dark);padding:3px 8px;border-radius:4px;}
+  .chip-x{border:none;background:none;color:var(--brand-dark);cursor:pointer;font-size:13px;line-height:1;padding:0;opacity:.7;}
+  .chip-x:hover{opacity:1;}
+  /* 专家 / 知识库 / 技能三处共用的选择浮层（D23）。
+     类名由 .tpl-picker / .tpl-opt 改来——创建表单里的模板入口已删除（模板入口只剩列表页
+     「从模板创建」），这个浮层不再服务模板，继续叫 tpl-* 会让评审以为模板还在表单里。 */
+  .pick-panel{border:1px solid var(--border-strong);border-radius:var(--r);padding:10px 12px;margin-bottom:16px;background:#fff;}
+  .pick-panel-head{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:500;margin-bottom:8px;}
+  .pick-opt{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left;border:none;background:none;padding:8px 10px;border-radius:var(--r);font-size:13px;cursor:pointer;color:var(--text-1);}
+  .pick-opt:hover{background:#f3f3f3;}
+  .pick-opt.on{background:var(--brand-light);color:var(--brand-dark);font-weight:500;}
+  .pick-opt-main{display:flex;align-items:center;gap:8px;min-width:0;}
+  .pick-opt span{font-size:12px;color:var(--text-3);}
+  .pick-opt.on span{color:var(--brand-dark);opacity:.8;}
+  /* 浮层底部的口径说明：为什么没有「全选」、留空代表什么（D23——两处"空"都是"不启用"） */
+  .pick-note{font-size:11px;color:var(--text-3);line-height:1.6;margin:8px 0 0;padding-top:8px;border-top:1px solid var(--border);}
+
+  .notice{display:flex;align-items:flex-start;gap:8px;background:var(--warn-bg);border-radius:var(--r);padding:9px 11px;}
+  .notice-text{font-size:12px;color:var(--warn-text);line-height:1.6;}
+  .notice-line{font-size:12px;color:var(--text-3);margin-top:8px;}
+
+  .form-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:20px;}
+  .form-hint{font-size:12px;color:var(--text-3);}
+  .form-actions{display:flex;align-items:center;gap:8px;}
+
+  /* 字数计数（界面说明 §5.3：指令框右下角实时显示 0 / 4000） */
+  .count{font-size:11px;color:var(--text-3);text-align:right;margin-top:5px;}
+  .count.over{color:var(--danger);}
+
+  .banner{display:flex;align-items:center;gap:10px;background:var(--brand-light);border:1px solid #c9edd6;border-radius:var(--r);padding:10px 12px;margin-bottom:18px;font-size:13px;color:var(--brand-dark);}
+  .banner-x{margin-left:auto;border:none;background:none;cursor:pointer;color:var(--brand-dark);font-size:15px;line-height:1;padding:0 2px;opacity:.6;}
+  .banner-x:hover{opacity:1;}
+
+  .demo-bar{position:fixed;right:18px;bottom:18px;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border-strong);border-radius:999px;padding:8px 14px;box-shadow:0 4px 16px rgba(0,0,0,.09);font-size:12px;color:var(--text-2);z-index:100;}
+  .demo-bar strong{color:var(--text-1);font-weight:500;}
+  .toggle{display:flex;border:1px solid var(--border-strong);border-radius:999px;overflow:hidden;}
+  .toggle button{border:none;background:none;padding:4px 11px;font-size:12px;cursor:pointer;color:var(--text-2);}
+  .toggle button.on{background:var(--brand);color:#fff;font-weight:500;}
+  .toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;font-size:13px;padding:9px 18px;border-radius:var(--r);opacity:0;transition:opacity .25s;pointer-events:none;z-index:200;}
+  .toast.on{opacity:1;}
+  [hidden]{display:none !important;}
+  /* 专家卡片与折叠区（创建表单，D11） */
+  .expert-list{display:flex;flex-direction:column;gap:8px;}
+  .expert-card{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;background:#fff;}
+  .expert-ic{width:26px;height:26px;flex:none;border-radius:7px;background:var(--brand-light);color:var(--brand-dark);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;}
+  .expert-main{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;}
+  .expert-name{font-size:13px;color:var(--text-1);}
+  .expert-meta{font-size:11px;color:var(--text-3);}
+
+  /* ---------- 服务空间（D15：会话工作台 / D21：会话栏上移到应用级侧栏） ---------- */
+  /* 形态取自 WorkBuddy「项目」：**会话列表挂在侧栏的服务名下方**（D21），
+     中间是当前会话的对话区，产物卡片出现在对话里，点开在右侧面板预览。
+     会话不是列表页里的一行，而是**可进入的对话**——产物与其他信息都从对话中产出并更新。 */
+  .space-head{display:flex;align-items:center;gap:10px;padding-bottom:12px;}
+  .back-btn{border:none;background:none;font-size:13px;color:var(--text-2);cursor:pointer;padding:4px 6px;border-radius:var(--r);}
+  .back-btn:hover{background:#f0f0f0;color:var(--text-1);}
+  .space-name{font-size:16px;font-weight:600;color:var(--text-1);}
+  .space-tpl{font-size:11px;padding:2px 8px;border-radius:999px;background:#f2f2f2;color:var(--text-2);}
+  .space-head-r{margin-left:auto;display:flex;align-items:center;gap:8px;}
+
+  /* D18：服务空间内部**不再有服务级导航栏**（D16 的图标栏、再早的横向 tab 条都已删）。
+     导航栏的存在本身就在问用户"你要去哪个页面"，可进了服务之后用户只有一个意图——继续干活。
+     页面级入口按"离工作有多近"分层：
+       ① 服务头右侧「产物 / 事项」—— 天天要点，带计数、放在手边（点击在右侧面板查看）；
+       ② 服务头 ⋯ 菜单 —— 服务本身的设置（改名 / 改描述 / 分享），配一次就忘。
+     概览、服务对象、运行记录、服务设置收进 ⋯ 的「更多 ›」，不再各占一个位置。
+     ⇒ D21 之后服务空间只剩**两块**：对话区 / 右侧面板。
+       原来那条 236px 的会话栏由**应用级侧栏**取代（会话挂到服务名下方，见 D21），
+       它底部的「产物 / 事项」入口随之提到服务头右侧，与「新建会话 ⊕」并排。 */
+
+  /* 服务头右侧的两个圆钮（对齐 WorkBuddy 项目头）：⋯ 更多操作、⊕ 新建会话 */
+  .icon-btn{flex:none;width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:#fff;
+    color:var(--text-2);font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;
+    justify-content:center;font-family:inherit;padding:0;}
+  .icon-btn:hover{border-color:var(--brand);color:var(--brand-dark);background:var(--brand-light);}
+  .icon-btn.add{border-color:var(--brand);color:var(--brand-dark);font-size:15px;font-weight:500;}
+
+  /* 右侧面板内的通用排版（面板容器样式见下 .art-panel） */
+  .pane-sub{font-size:12px;color:var(--text-3);margin:0 0 16px;line-height:1.7;}
+  .pane-empty{font-size:13px;color:var(--text-3);line-height:1.9;}
+  .set-row{display:flex;align-items:flex-start;gap:12px;padding:11px 12px;border:1px solid var(--border);
+    border-radius:var(--r);margin-bottom:8px;cursor:pointer;}
+  .set-row:hover{border-color:var(--brand);background:var(--brand-light);}
+  .set-name{flex:none;width:76px;font-size:13px;font-weight:500;color:var(--text-1);}
+  .set-desc{flex:1;min-width:0;font-size:12px;color:var(--text-3);line-height:1.6;}
+
+  /* 两块工作台（D21：会话栏撤掉，只剩对话区 + 浮层面板；产物面板不参与 flex 挤压）
+     高度按视口算，并给底部演示条留出余量，避免整页出现无意义滚动 */
+  .workbench{position:relative;display:flex;gap:14px;align-items:stretch;height:calc(100vh - 200px);min-height:400px;}
+
+  /* 服务头右侧的常驻入口（D21）：产物 / 事项带计数。
+     它们原先长在会话栏底部；会话栏上移到应用级侧栏之后，这里是它们的新家——
+     服务头本来就是"服务级"信息行，与 ⋯ 的分工也最清楚（⋯ 管服务本身，这两个管服务里攒下的东西）。
+     带计数是必要的：这两个入口没有页面标题承载"有多少"，数字只能挂在入口上。 */
+  .head-tools{display:flex;align-items:center;gap:6px;}
+  .head-tool{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;
+    border:1px solid var(--border);border-radius:999px;background:#fff;color:var(--text-2);
+    font-size:12px;font-family:inherit;cursor:pointer;
+    transition:border-color .18s ease,background-color .18s ease,color .18s ease;}
+  .head-tool:hover{border-color:var(--brand);background:var(--brand-light);color:var(--brand-dark);}
+  .head-tool.on{border-color:var(--brand);background:var(--brand-light);color:var(--brand-dark);font-weight:500;}
+  .head-tool svg{width:14px;height:14px;flex:none;}
+  .head-tool .tool-count{font-size:11px;color:var(--text-3);}
+  .head-tool.on .tool-count{color:var(--brand-dark);}
+
+  /* 中：对话区 —— 「从会话中更新产物以及其他的信息」 */
+  .chat-col{flex:1;min-width:0;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--r-lg);background:#fff;overflow:hidden;}
+  .chat-head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);}
+  .chat-title{font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .chat-meta{flex:none;font-size:11px;color:var(--text-3);}
+  /* 对话滚动区（右侧面板的定位基准）。
+     面板必须贴着"消息区"而不是整个对话列——贴着整列会把输入框右端的
+     专家选择器与发送按钮一起盖住，面板一开就没法发消息了（真浏览器才测得出）。 */
+  .chat-body{position:relative;flex:1;min-height:0;display:flex;}
+  .chat-scroll{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:16px;}
+  .msg-user{align-self:flex-end;max-width:78%;background:var(--brand-light);color:var(--text-1);border-radius:var(--r-lg);padding:9px 13px;font-size:13px;line-height:1.65;}
+  .msg-bot{display:flex;flex-direction:column;gap:9px;}
+  .msg-bot-head{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);}
+  .bot-avatar{width:20px;height:20px;flex:none;border-radius:6px;background:var(--brand-light);color:var(--brand-dark);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;}
+  .bot-name{font-size:12px;color:var(--text-1);font-weight:500;}
+  .bot-state{font-size:11px;padding:1px 7px;border-radius:999px;background:#f2f2f2;color:var(--text-2);}
+  .bot-state.ok{background:var(--brand-light);color:var(--brand-dark);}
+  .bot-state.doing{background:var(--warn-bg);color:var(--warn-text);}
+
+  /* 执行过程：默认折叠，不把技术日志摊在用户脸上（Web端PRD §6.2） */
+  .steps{border:1px solid var(--border);border-radius:var(--r);background:#fafafa;}
+  .steps-head{display:flex;align-items:center;gap:6px;width:100%;text-align:left;border:none;background:none;padding:8px 11px;font-size:12px;color:var(--text-2);cursor:pointer;font-family:inherit;}
+  .steps-arrow{transition:transform .15s;font-size:13px;color:var(--text-3);display:inline-block;}
+  .steps.open .steps-arrow{transform:rotate(90deg);}
+  .steps-body{display:none;padding:0 11px 9px;flex-direction:column;gap:4px;}
+  .steps.open .steps-body{display:flex;}
+  .step{font-size:12px;color:var(--text-2);line-height:1.6;}
+
+  /* 服务卡片：只说结论与下一步，详细内容走产物（Web端PRD §12.1） */
+  .svc-card{border:1px solid #c9edd6;background:#fbfffc;border-radius:var(--r);padding:10px 12px;}
+  .svc-card h5{margin:0 0 4px;font-size:13px;font-weight:500;}
+  .svc-card p{margin:0;font-size:12px;color:var(--text-2);line-height:1.65;}
+  .svc-next{margin:6px 0 0;font-size:12px;color:var(--brand-dark);}
+
+  /* 产物卡片：点开在右侧面板预览 */
+  .art-cards{display:flex;flex-wrap:wrap;gap:8px;}
+  .art-card{display:flex;align-items:center;gap:9px;border:1px solid var(--border);border-radius:var(--r);padding:8px 11px;background:#fff;cursor:pointer;min-width:196px;}
+  .art-card:hover{border-color:var(--brand);}
+  .art-card.on{border-color:var(--brand);background:var(--brand-light);}
+  .art-ic{width:26px;height:26px;flex:none;border-radius:6px;background:var(--brand-light);color:var(--brand-dark);font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;}
+  .art-name{font-size:12px;color:var(--text-1);}
+  .art-sub{font-size:11px;color:var(--text-3);}
+  .msg-actions{display:flex;gap:14px;}
+
+  /* 右：统一侧面板（点产物卡、或服务头右侧的产物 / 事项入口打开）。
+     浮层：不挤压对话区、开关时消息不横向跳动；定位基准是 .chat-body（消息区），
+     所以它**不会盖住下方的输入框**——盖住了面板一开就没法发消息。 */
+  .art-panel{position:absolute;top:0;right:0;bottom:0;width:320px;z-index:40;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--r-lg);background:#fff;overflow:hidden;box-shadow:-10px 0 26px rgba(0,0,0,.10);}
+  .art-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);}
+  .art-head-title{font-size:13px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .art-head-x{margin-left:auto;border:none;background:none;font-size:15px;color:var(--text-3);cursor:pointer;line-height:1;padding:0 2px;}
+  .art-body{flex:1;overflow-y:auto;padding:12px;}
+  .art-meta{font-size:11px;color:var(--text-3);line-height:1.8;margin-bottom:10px;}
+  .art-preview{border:1px solid var(--border);border-radius:var(--r);background:#fafafa;padding:12px;font-size:12px;color:var(--text-2);line-height:1.8;}
+  .art-preview h6{margin:0 0 6px;font-size:12px;color:var(--text-1);}
+  .art-preview table{width:100%;border-collapse:collapse;font-size:11px;}
+  .art-preview th,.art-preview td{border:1px solid var(--border);padding:3px 5px;text-align:left;}
+  .art-preview th{background:#f0f0f0;color:var(--text-1);}
+  .art-foot{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border);}
+  .art-foot .btn{flex:1;text-align:center;}
+
+  /* ⋯ 菜单的二级「更多 ›」（对齐 WorkBuddy 项目菜单）：一级只留最常用的三项，
+     其余收进二级——一级菜单超过 5 项就开始"什么都没突出"。
+     二级往**左**展开，不是往右：⋯ 本来就在窗口右上角，往右会直接跑到屏幕外。 */
+  .space-sub{position:absolute;right:100%;top:-4px;margin-right:2px;background:#fff;border:1px solid var(--border);
+    border-radius:var(--r);box-shadow:0 6px 20px rgba(0,0,0,.12);padding:4px;min-width:136px;display:none;}
+  .space-more-menu.sub-open .space-sub{display:block;}
+  .menu-item.has-sub{display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative;}
+  .sub-arrow{color:var(--text-3);font-size:11px;}
+
+  /* 轻量模态：⋯ 菜单里的「修改名称 / 修改描述 / 分享设置」共用（D18）。
+     原型不做真弹窗组件，但要让人看清"这三项点下去是什么样子"。 */
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:90;display:flex;align-items:center;justify-content:center;}
+  .modal{width:420px;max-width:calc(100vw - 40px);background:#fff;border-radius:var(--r-lg);
+    box-shadow:0 16px 48px rgba(0,0,0,.24);overflow:hidden;}
+  .modal-head{padding:14px 18px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;color:var(--text-1);}
+  .modal-body{padding:16px 18px;display:flex;flex-direction:column;gap:10px;}
+  .modal-label{font-size:12px;color:var(--text-2);}
+  .modal-input,.modal-textarea{width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:var(--r);
+    padding:8px 11px;font-size:13px;color:var(--text-1);outline:none;font-family:inherit;}
+  .modal-input:focus,.modal-textarea:focus{border-color:var(--brand);}
+  .modal-textarea{min-height:76px;resize:vertical;line-height:1.7;}
+  .modal-hint{font-size:11px;color:var(--text-3);line-height:1.7;}
+  .modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--border);}
+  /* 分享设置：三档可见范围，选了就说明白"谁能看到" */
+  .share-opt{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--border);border-radius:var(--r);
+    padding:10px 12px;cursor:pointer;}
+  .share-opt:hover{border-color:var(--brand);}
+  .share-opt.on{border-color:var(--brand);background:var(--brand-light);}
+  .share-dot{flex:none;width:14px;height:14px;margin-top:2px;border-radius:50%;border:1px solid var(--text-3);}
+  .share-opt.on .share-dot{border:4px solid var(--brand);}
+  .share-name{font-size:13px;color:var(--text-1);font-weight:500;}
+  .share-desc{font-size:11px;color:var(--text-3);line-height:1.6;margin-top:2px;}
+
+  /* 右侧面板里的「事项」列表 */
+  .rem-row{border:1px solid var(--border);border-radius:var(--r);padding:9px 11px;margin-bottom:8px;cursor:pointer;}
+  .rem-row:hover{border-color:var(--brand);}
+  .rem-top{display:flex;align-items:flex-start;gap:8px;}
+  .rem-title{flex:1;min-width:0;font-size:12px;color:var(--text-1);line-height:1.5;}
+  .rem-state{flex:none;font-size:10px;padding:1px 7px;border-radius:999px;background:#f2f2f2;color:var(--text-2);}
+  .rem-state.ok{background:var(--brand-light);color:var(--brand-dark);}
+  .rem-sub{font-size:11px;color:var(--text-3);margin-top:4px;}
+  .rem-from{font-size:11px;color:var(--text-3);margin-top:2px;}
+
+  /* 右侧面板里的「产物」列表：整宽卡片，与对话内的产物卡共用一套视觉语言 */
+  .art-card.wide{width:100%;min-width:0;box-sizing:border-box;margin-bottom:8px;}
+
+  /* 右侧面板里的「概览」统计 */
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .stat-card{border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;gap:2px;}
+  .stat-n{font-size:20px;font-weight:600;color:var(--brand-dark);line-height:1.2;}
+  .stat-l{font-size:11px;color:var(--text-3);}
+
+  /* 对话区底部输入框：常驻，是「工作现场」的视觉锚点 */
+  .composer{border-top:1px solid var(--border);background:#fff;padding:11px 13px;display:flex;flex-direction:column;gap:9px;}
+  .composer-row{display:flex;align-items:center;gap:9px;}
+  .composer-input{flex:1;min-width:0;border:1px solid var(--border-strong);border-radius:var(--r);padding:8px 10px;outline:none;font-size:13px;color:var(--text-1);background:#fff;}
+  .composer-input:focus{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-light);}
+  .composer-input::placeholder{color:var(--text-3);}
+  .expert-pick{flex:none;border:1px solid var(--border);background:#fafafa;border-radius:999px;padding:5px 11px;font-size:12px;color:var(--text-2);cursor:pointer;font-family:inherit;}
+  .expert-pick:hover{border-color:var(--brand);color:var(--brand-dark);}
+  /* 只读 / 已归档：输入框置灰并说明原因，不隐藏 */
+  .composer.locked{background:#fafafa;}
+  .composer.locked .composer-input{color:var(--text-3);cursor:not-allowed;background:#f5f5f5;}
+  .composer.locked .expert-pick,.composer.locked .btn-primary{opacity:.55;pointer-events:none;}
+  .composer-lock{font-size:12px;color:var(--text-3);}
+
+  /* 空态：不是空白，是引导 */
+  .chat-empty{margin:auto;text-align:center;max-width:430px;}
+  .chat-empty h4{margin:0 0 6px;font-size:14px;font-weight:500;}
+  .chat-empty p{margin:0 0 14px;font-size:12px;color:var(--text-2);line-height:1.7;}
+  .chat-examples{display:flex;flex-direction:column;gap:7px;}
+  .chat-example{border:1px solid var(--border);background:#fff;border-radius:var(--r);padding:8px 11px;font-size:12px;color:var(--text-2);cursor:pointer;text-align:left;font-family:inherit;}
+  .chat-example:hover{border-color:var(--brand);color:var(--brand-dark);}
+</style>
+</head>
+<body data-page-node-id="qBAOwaJHie9Zr8wBHj9MH8">
+
+<div class="app" data-page-node-id="f1mRYqTKisblPQjJ1pLpjj">
+  <aside class="sidebar" data-page-node-id="cpNb65tl1u0YeNv2nF0Iz5">
+    <div class="brand" data-page-node-id="nrekacnABaV6JySpZ6AOK6">
+      <div class="brand-logo" data-page-node-id="SLO2mvxKhYBYTqdsOlG6TA">睿</div>
+      <span class="brand-name" data-page-node-id="Pde0r7MN19FNLtHXBdIqjD">睿乐大脑</span>
+    </div>
+    <nav class="nav" data-page-node-id="kNjIlTToxPKKBBbLf527NG">
+      <button class="nav-item" onclick="navMyServices()" data-page-node-id="S2kxjFCFmC34CkeYRBO1eS">
+        <span class="nav-title" data-page-node-id="fVRPXmHe9a6RzUHq73tUw3">服务</span>
+        <span class="nav-actions">
+          <span class="nav-count" id="nav-count" data-page-node-id="s0f8coIQjSYd2AK0d9vuKG">8</span>
+          <span class="nav-toggle" id="nav-toggle" role="button" aria-label="收起或展开服务列表" title="收起 / 展开服务列表" onclick="toggleNav(event)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+        </span>
+      </button>
+      <div class="nav-sub" id="nav-sub"></div>
+    </nav>
+  </aside>
+
+  <main class="main" data-page-node-id="A2ufz7p3noxTEnzakRnOat">
+    <!-- ============ 列表视图 ============ -->
+    <section id="view-list" data-page-node-id="Lub0efwATyOx3UwwoNYFCP">
+      <div class="page-head" data-page-node-id="Di3fvP7EfypefOlsM5kzX1">
+        <div data-page-node-id="T5X4SrVibJweFJ9bKDUCvL">
+          <h1 class="page-title" data-page-node-id="WYssToIsxC1M0CPIXJBsEM">服务</h1>
+          <p class="page-sub" data-page-node-id="uAQ4sOoMhYzGXEZrpWCvxw">每个服务一个空间，专家在里面干活</p>
+        </div>
+        <svg class="head-art" width="120" height="54" viewBox="0 0 120 54" aria-hidden="true" data-page-node-id="bhxNFYS5mEvzEkvY9bj84P">
+          <rect x="4" y="11" width="42" height="32" rx="6" fill="none" stroke="#dcdcdc" data-page-node-id="yLOmsx5WH73yNC6f8mv5Do"/>
+          <circle cx="15" cy="21" r="3" fill="none" stroke="#dcdcdc" data-page-node-id="mfmm1sdcqC6zVb9u9x55ql"/>
+          <line x1="23" y1="21" x2="39" y2="21" stroke="#dcdcdc" data-page-node-id="fiCnRMGJBYBvcC5nzNZxvi"/>
+          <line x1="11" y1="30" x2="39" y2="30" stroke="#dcdcdc" data-page-node-id="KRFCfUqPBSEdJ4QIcv6QoE"/>
+          <line x1="11" y1="37" x2="30" y2="37" stroke="#dcdcdc" data-page-node-id="Tn3hyGa8BxeCDPvftJTvO1"/>
+          <line x1="46" y1="27" x2="60" y2="27" stroke="#dcdcdc" data-page-node-id="7Bx6114n9Ls1Mtle9GDwS0"/>
+          <rect x="60" y="14" width="40" height="26" rx="5" fill="none" stroke="#07c05f" data-page-node-id="Rotg0M78V8SDvUmBI52j9g"/>
+          <circle cx="72" cy="27" r="2" fill="#07c05f" data-page-node-id="3ugNbn6lkGVzQKIGBHnoY1"/>
+          <circle cx="80" cy="27" r="2" fill="#07c05f" data-page-node-id="YlLhE8Oy0OUk5jThtT9pA1"/>
+          <line x1="88" y1="27" x2="95" y2="27" stroke="#07c05f" data-page-node-id="GTNUlEDhRtgk1aa6TgE2uB"/>
+          <circle cx="104" cy="27" r="9" fill="none" stroke="#dcdcdc" data-page-node-id="dfk2lmXvt2bFuJBAbZnQIy"/>
+        </svg>
+      </div>
+
+      <div class="create-row" data-page-node-id="oFjDDdH5TtnQ75BgCkpRJc">
+        <button class="btn-primary" onclick="openCreate(null)" data-page-node-id="c25DPtNUTcSJJB2DTJslB7">
+          <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true" data-page-node-id="aGuxZCiYCGORZIFb2XEi7D"><path d="M6 1.5V10.5M1.5 6H10.5" stroke="#fff" stroke-width="1.6" stroke-linecap="round" data-page-node-id="J84FW98wIIff2RgVcZHYUP"/></svg>
+          新建服务
+        </button>
+      </div>
+
+      <div id="banner-slot" data-page-node-id="aqzwfV0h6uQtLkkTLTEBdb"></div>
+
+      <!-- 有数据 -->
+      <div id="list-content" data-page-node-id="r1EBhhteRgPHq43vBAescX">
+        <div class="section-head" data-page-node-id="AQO5cLlGn6Zj9uRT2zhnEZ">
+          <span class="section-title" data-page-node-id="7WOBVAXr6irLUEUOMaLLFz">我的服务</span>
+          <div class="section-tools" data-page-node-id="DBgPxvLIKNFa0vno2ndgnl">
+            <select class="sort-select" id="sort" onchange="render()" data-page-node-id="PR0UwwFFkpmJKrK6jWgUO9">
+              <option value="recent" data-page-node-id="gTcEOEOgd9ohmUiDmjrEOf">按最近活动</option>
+              <option value="created" data-page-node-id="n9HJ2biH1tcDwvPzvf8HGL">按创建时间</option>
+              <option value="name" data-page-node-id="iMFXBcxH9cq6vhUqEydGjy">按名称</option>
+            </select>
+            <div class="search" data-page-node-id="su4fV7DFuCk2bMOW90sICF">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" data-page-node-id="SPkfVRCXeZ4vJWnukqcWux"><circle cx="5" cy="5" r="3.6" fill="none" stroke="rgba(0,0,0,.4)" data-page-node-id="EXSDEcZECXwghnZM8O0xpr"/><line x1="7.8" y1="7.8" x2="10.6" y2="10.6" stroke="rgba(0,0,0,.4)" stroke-linecap="round" data-page-node-id="rYvaJ8BOAoeVUAnCI09fvE"/></svg>
+              <input id="q" placeholder="搜索服务" oninput="render()" data-page-node-id="VgS5Z5o473NJ7EBo8Udx1W" />
+            </div>
+          </div>
+        </div>
+        <div id="svc-grid-wrap" data-page-node-id="olvGJTKKTMpzNyE3pXgb0f"></div>
+
+        <div class="section-head" style="margin-top:26px" data-page-node-id="eqKCZ3GCHWuH6ScX1ZmGhB">
+          <span class="section-title" data-page-node-id="EDeV9sZ1GCfBKxFWFQhHRQ">从模板创建</span>
+          <div class="section-tools" data-page-node-id="xewp2D2cJDzej1h6SrcoVP">
+            <div class="search" data-page-node-id="OVzu7EW1kqXsAQFZKMYYZs">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" data-page-node-id="LCYpJ2EgGMFSbDebjECrpR"><circle cx="5" cy="5" r="3.6" fill="none" stroke="rgba(0,0,0,.4)" data-page-node-id="PefKfZmqdERuzDN9IMBHNK"/><line x1="7.8" y1="7.8" x2="10.6" y2="10.6" stroke="rgba(0,0,0,.4)" stroke-linecap="round" data-page-node-id="jW2d5wODBW2hwRFU4juv6w"/></svg>
+              <input id="qt" placeholder="搜索模板" oninput="render()" data-page-node-id="Zm8spff36agGxPiFSR0E91" />
+            </div>
+          </div>
+        </div>
+        <div class="grid" id="tpl-grid" data-page-node-id="HklKFWZy6gbSlKYSbPY09Q"></div>
+      </div>
+
+      <!-- 空态 -->
+      <div id="empty-content" hidden data-page-node-id="ES4HiVFCHHmq1gqIw2ckb8">
+        <div class="empty-card" data-page-node-id="uFKA5lPGNu5AyjhU9xB7NG">
+          <div data-page-node-id="aeY4WTnAxgKtnBR20ypgJB">
+            <p class="empty-title" id="empty-title" data-page-node-id="qZKBrnr2iTvm8cH5zlIN8B">还没有服务</p>
+            <p class="empty-text" id="empty-text" data-page-node-id="bvu8d71jlwhCdM8byKXMO9">选一个模板开始，配置都预置好了，创建后随时能改。<br  data-page-node-id="ImFZcOxOTGkFvbqIB0n5Ak"/>也可以从空白服务自己配全套。</p>
+          </div>
+          <button class="btn" id="empty-action" onclick="openCreate(null)" style="flex:none" data-page-node-id="Tud6TJsdmg6DPPIhHmENNL">从空白创建</button>
+        </div>
+        <div class="section-head" data-page-node-id="SARtB12EvAceMvUpylubEx">
+          <span class="section-title" data-page-node-id="n8hsNLSC7eHlHUXqiZGH6k">从模板创建</span>
+          <div class="section-tools" data-page-node-id="4sNt9vdfLZz2ciBg0PZelA">
+            <div class="search" data-page-node-id="9UwiTCEJsAPUmagy373MxL">
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" data-page-node-id="cPdkY8FCrAvWOa6mNYE5ED"><circle cx="5" cy="5" r="3.6" fill="none" stroke="rgba(0,0,0,.4)" data-page-node-id="Md9x6K3WBDKON0ZwtmZYn7"/><line x1="7.8" y1="7.8" x2="10.6" y2="10.6" stroke="rgba(0,0,0,.4)" stroke-linecap="round" data-page-node-id="2HLWmjAjaOaEgJE2JspJxF"/></svg>
+              <input id="qt2" placeholder="搜索模板" oninput="render()" data-page-node-id="OADQu3JrxDlrBZ51EDZj0i" />
+            </div>
+          </div>
+        </div>
+        <div class="grid" id="tpl-grid-empty" style="grid-template-columns:repeat(3,minmax(0,1fr))" data-page-node-id="G949yNQb3827RGaNFYZeEI"></div>
+      </div>
+    </section>
+
+    <!-- ============ 创建表单视图（D11：单页表单，无步骤条） ============ -->
+    <section id="view-create" hidden class="create" data-page-node-id="tMyj9GCOiofi8ZYzPTHjwf">
+      <div class="page-head" style="margin-bottom:22px" data-page-node-id="QOjCjOP41wDIJKMT0lPjVx">
+        <div data-page-node-id="q8muaTNQ6QDPEBB8BGENm0">
+          <h1 class="page-title" data-page-node-id="IzFNZReG7bH90xaj2Ln5Wp">新建服务</h1>
+          <p class="page-sub" data-page-node-id="SIm8dkSUPiynNGXLg3hTyG">写清指令，选好专家、知识库与技能，创建后即可开始在服务空间里工作</p>
+        </div>
+      </div>
+
+      <div id="panel-slot" data-page-node-id="BTHhofvCqwEDgOV73BChez"></div>
+
+      <div class="form-footer" data-page-node-id="OqSBk5hqItaI4KTDespHcD">
+        <div class="form-hint" data-page-node-id="JAPzowg3JSFLzcr5dmN1U1">
+          <button class="btn-text" onclick="saveDraft()">保存为草稿</button>
+          <span id="form-hint" style="margin-left:6px">可稍后继续</span>
+        </div>
+        <div class="form-actions" data-page-node-id="lkEHCntZlrQUSq2nPryqqo">
+          <button class="btn" onclick="cancelCreate()" data-page-node-id="eaPzPIOycBHacWnZppFm81">取消</button>
+          <button class="btn-primary" id="btn-create" onclick="finish()" data-page-node-id="LIStxHnOy1tbYccIBHDXSN">创建服务</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 服务空间视图（D15：会话工作台） ============ -->
+    <!-- 形态对标 WorkBuddy 项目：左边一列会话，右边是当前会话的对话区，
+         产物卡片出现在对话里，点开在右侧浮层面板预览。 -->
+    <section id="view-space" hidden>
+      <div class="space-head">
+        <button class="back-btn" onclick="backToList()">← 返回服务列表</button>
+        <span class="space-name" id="space-name"></span>
+        <span class="space-tpl" id="space-tpl"></span>
+        <div class="space-head-r">
+          <!-- 产物 / 事项：带计数常驻（D21——原在会话栏底部，会话栏上移后落到这里） -->
+          <div class="head-tools" id="head-tools"></div>
+          <span class="tag" id="space-state"></span>
+          <!-- ⊕ 新建会话：语义是"再加一段工作"，与服务头 ⋯ 并排——两个圆钮，对齐 WorkBuddy 项目头 -->
+          <button class="icon-btn add" title="新建会话" onclick="newSession()">＋</button>
+          <button class="icon-btn" title="更多操作" onclick="toggleSpaceMenu(event)">&#8943;</button>
+        </div>
+      </div>
+
+      <div class="workbench">
+        <!-- D18：这里原本是服务级导航栏（先横向 tab 条、后图标栏），现已撤掉。
+             D21：原先留在服务空间里的会话栏也撤掉了——会话挂到应用级侧栏的服务名下方，
+             服务空间只剩「对话区 / 右侧面板」两块，见上方样式区注释。 -->
+
+        <!-- 中：当前会话的对话区 -->
+        <div class="chat-col">
+          <div class="chat-head">
+            <span class="chat-title" id="chat-title"></span>
+            <span class="chat-meta" id="chat-meta"></span>
+          </div>
+          <!-- 消息区与右侧面板共用一块定位区（.chat-body）：面板浮在消息上，
+               但**不越过输入框**——否则面板一开，专家选择器与发送按钮就被盖住 -->
+          <div class="chat-body">
+            <div class="chat-scroll" id="chat-scroll"></div>
+            <aside class="art-panel" id="art-panel" hidden>
+              <div class="art-head">
+                <span class="art-head-title" id="art-title"></span>
+                <button class="art-head-x" onclick="closePanel()" aria-label="关闭">&#215;</button>
+              </div>
+              <div class="art-body" id="art-body"></div>
+              <div class="art-foot" id="panel-foot" hidden></div>
+            </aside>
+          </div>
+          <div class="composer" id="composer">
+            <div class="notice" id="sess-warn" hidden><span class="notice-text" id="sess-warn-text"></span></div>
+            <div class="composer-row">
+              <input class="composer-input" id="sess-input" placeholder="说点什么…（回车发送）" oninput="onSessInput()" onkeydown="if(event.key==='Enter')sendMessage()" />
+              <button class="expert-pick" id="expert-pick" onclick="cycleExpert()"></button>
+              <!-- 双态按钮（界面说明 §8.6）：闲时「发送」，运行中变「停止」 -->
+              <button class="btn-primary" id="btn-send" onclick="onSendClick()">发送</button>
+            </div>
+            <div class="composer-lock" id="composer-lock" hidden></div>
+          </div>
+        </div>
+
+        <!-- 右：统一侧面板已移入 .chat-body 内（见上）——浮层不得越过输入框 -->
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="demo-bar" data-page-node-id="7FHEe3q4Cs812PcSjBXkYf">
+  <span data-page-node-id="SFgYzIbTIvGJhHBFsm3ibr">演示状态</span>
+  <div class="toggle" data-page-node-id="lfqAFcjAcfxKa6WPlOxsrY">
+    <button id="tg-data" class="on" onclick="setMode('data')" data-page-node-id="QtALWu5LPmYVXcblKodlDS">有数据</button>
+    <button id="tg-empty" onclick="setMode('empty')" data-page-node-id="L34vownsriBvs3om5OKn6e">空态</button>
+    <button id="tg-arch" onclick="setMode('archived')" data-page-node-id="tGA9xVQm2wpLdRb7nKcJ3S">全部归档</button>
+  </div>
+  <span style="color:var(--text-3)" data-page-node-id="demo-note-sep">·</span>
+  <span data-page-node-id="demo-note-1">一个服务 = 一个工作空间：会话挂在侧栏的服务名下面（点一下直接进某条会话），产物与事项在服务头右侧，点开在右边看；服务本身（名称 / 描述 / 分享）在右上角 ⋯ 里</span>
+</div>
+<div class="toast" id="toast" data-page-node-id="uDOwxRdMyJxiuHloLuNGtX"></div>
+
+<script>
+const ROLE = { owner:'拥有者', admin:'管理员', editor:'编辑者', viewer:'只读' };
+/* 同一用户的草稿上限（界面说明 §5.5；上限值本身待定，见界面说明 UI-Q4） */
+const DRAFT_LIMIT = 5;
+const D = 86400000, H = 3600000;
+
+/* 服务描述（D18）：可在服务头 ⋯ 菜单里改，出现在服务列表卡片上——
+   帮成员（也帮专家）快速判断"这个服务管什么"。 */
+let services = [
+  { id:'s1', name:'秋季招生咨询', desc:'从线索进入、跟进到转化，覆盖 2026 秋季招生全流程。', tpl:'招生咨询全流程', role:'admin',  members:5, ts:Date.now()-2*H,   label:'2 小时前', state:'active' },
+  { id:'s2', name:'家长续费跟进', desc:'到期前后与家长沟通续费，记录顾虑与结果。',           tpl:'家长续费跟进',   role:'editor', members:3, ts:Date.now()-26*H,  label:'昨天',     state:'active' },
+  { id:'s3', name:'晨检异常分析', desc:'汇总每日晨检异常并跟踪随访，形成周报。',             tpl:'一日流程巡查',   role:'viewer', members:2, ts:Date.now()-3*D,   label:'3 天前',   state:'active' },
+  { id:'s4', name:'新教师带教',   desc:'新入职教师的第一周带教计划、观察与反馈。',           tpl:'新教师带教',     role:'owner',  members:4, ts:Date.now()-7*D,   label:'上周',     state:'active', is_default:true },
+  { id:'s5', name:'期末活动筹备', desc:'期末汇演的场地、物资、节目与家长通知。',             tpl:'活动筹备',       role:'editor', members:6, ts:Date.now()-30*D,  label:'1 个月前', state:'active' },
+  { id:'s6', name:'课堂观察记录', desc:'日常听课观察记录与教研素材沉淀。',                   tpl:'教学教研沉淀',   role:'admin',  members:3, ts:Date.now()-8*D,   label:'上周',     state:'active' },
+  /* s7 是「从空白创建」的自有服务：无模板 → 无预置专家，用来演示「未添加专家」黄条与空态 */
+  { id:'s7', name:'家长满意度回访', desc:'',                                              tpl:'',               role:'owner',  members:2, ts:Date.now()-14*D,  label:'2 周前',   state:'active' },
+  { id:'s8', name:'教研资料沉淀', desc:'把教研会上的结论与案例整理成可复用的资料。',         tpl:'教学教研沉淀',   role:'admin',  members:4, ts:Date.now()-20*H,  label:'昨天',     state:'active' }
+];
+
+/* 模板图标（界面说明 §3.4 / §3.7）：**同一模板用同一图形**，图形随模板走——
+   服务卡与模板卡都取这一份，不用颜色区分服务。自定义服务用 ICON_CUSTOM。 */
+const ICON_CUSTOM = '<rect x="2.6" y="2.6" width="10.8" height="10.8" rx="2.6"/>';
+const templates = [
+  { id:'t1', name:'招生咨询全流程', desc:'从线索进入、跟进到转化，含提醒与话术', experts:2, statuses:5,
+    icon:'<circle cx="6.4" cy="5.8" r="2.4"/><path d="M2.4 13.4c0-2.2 1.8-3.6 4-3.6 .9 0 1.8.3 2.5.8"/><path d="M12.2 9.6v4.2M10.1 11.7h4.2"/>',
+    instruction:'跟进 2026 秋季招生线索，语气亲切不催促，重点记录家长顾虑与到访意向；涉及课程与价格时先查知识库再回答。',
+    defaultExperts:['e1','e2'] },
+  { id:'t2', name:'家长续费跟进',   desc:'续费窗口提醒、沟通话术与结果归档',     experts:1, statuses:4,
+    icon:'<path d="M3.4 8.2a4.6 4.6 0 0 1 7.6-3.4"/><path d="M11.4 2.4v2.8H8.6"/><path d="M12.6 7.8a4.6 4.6 0 0 1-7.6 3.4"/><path d="M4.6 13.6v-2.8h2.8"/>',
+    instruction:'在续费窗口期跟进家长，说明续费政策与优惠，记录家长反馈与决策结果。',
+    defaultExperts:['e2'] },
+  { id:'t3', name:'一日流程巡查',   desc:'巡班记录、异常上报与每日汇总',         experts:2, statuses:6,
+    icon:'<path d="M1.8 8s2.4-4.2 6.2-4.2S14.2 8 14.2 8s-2.4 4.2-6.2 4.2S1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.9"/>',
+    instruction:'按一日流程巡查各班，记录异常并当日汇总上报。',
+    defaultExperts:['e3','e4'] },
+  { id:'t4', name:'新教师带教',     desc:'带教计划、阶段评估与反馈沉淀',         experts:2, statuses:4,
+    icon:'<circle cx="8" cy="5.9" r="2.5"/><path d="M3.6 13.4c0-2.3 2-3.9 4.4-3.9s4.4 1.6 4.4 3.9"/>',
+    instruction:'为新教师制定带教计划，按阶段评估并沉淀反馈。',
+    defaultExperts:['e2','e3'] },
+  { id:'t5', name:'活动筹备',       desc:'排期、通知与活动后复盘',               experts:1, statuses:5,
+    icon:'<rect x="2.4" y="3.6" width="11.2" height="9.8" rx="1.8"/><path d="M2.4 6.9h11.2M5.4 2.3v2.6M10.6 2.3v2.6"/>',
+    instruction:'筹备活动：排期、通知、物资准备与活动后复盘。',
+    defaultExperts:['e5'] },
+  { id:'t6', name:'教学教研沉淀',   desc:'观察记录、教研资料与经验沉淀',         experts:1, statuses:4,
+    icon:'<path d="M2.6 3.4h4.1c.9 0 1.3.4 1.3 1.2v8.6c0-.8-.4-1.2-1.3-1.2H2.6z"/><path d="M13.4 3.4H9.3c-.9 0-1.3.4-1.3 1.2v8.6c0-.8.4-1.2 1.3-1.2h4.1z"/>',
+    instruction:'整理课堂观察记录与教研资料，形成可复用的经验条目。',
+    defaultExperts:['e3'] }
+];
+
+/* 服务卡片的图标：按服务所用模板名取图形；无模板（自定义服务）用 ICON_CUSTOM */
+function tplIconPath(tplName){
+  const t = tplName ? templates.find(x => x.name === tplName) : null;
+  return (t && t.icon) ? t.icon : ICON_CUSTOM;
+}
+
+/* 专家 = 按教培岗位封装的 AI 协作角色；一个服务可配多个（D13 / PRD §3.5.5）
+   置顶不变量：界面只出现岗位名，不出现「线索跟进专家」这类能力名或 lead_intake 这类技术标识 */
+const EXPERTS = [
+  { id:'e1', name:'招生顾问', domain:'招生', source:'内置', desc:'线索跟进、家长沟通与转化建议' },
+  { id:'e2', name:'教务主管', domain:'教务', source:'内置', desc:'排课协调、续费窗口与教务合规' },
+  { id:'e3', name:'带班老师', domain:'教学', source:'内置', desc:'一日流程巡查、异常上报与日报' },
+  { id:'e4', name:'保育员',   domain:'保育', source:'内置', desc:'生活照料记录与卫生保健' },
+  { id:'e5', name:'后勤主任', domain:'后勤', source:'内置', desc:'安全巡查、物资与场地安排' }
+];
+
+/* 知识库与技能：创建表单上与「专家」并列的两个**服务级**选择区（D23）。
+   原先这两项挂在每个专家绑定上——加 3 个专家要选 3 遍同一批库；
+   上移到服务级后配一次全员共享（"这个服务能查什么、能用什么"本就是服务级的授权边界）。
+   示例数据必须是真实教培场景（界面说明 §7.1 示例数据要求），不得用"测试库 A"。 */
+const KBS = [
+  { id:'kb1', name:'招生话术与政策库', meta:'32 份 · 更新于 9-18' },
+  { id:'kb2', name:'家长沟通记录库',   meta:'128 条 · 更新于今天' },
+  { id:'kb3', name:'课程与价格资料',   meta:'18 份 · 更新于 9-12' },
+  { id:'kb4', name:'一日流程与安全制度', meta:'24 份 · 更新于 8-30' },
+  { id:'kb5', name:'教研资料库',       meta:'56 份 · 更新于 9-20' }
+];
+
+/* 技能取自平台内置技能库（ListPreloadedSkills，<repo>/skills/preloaded/）。
+   ⚠️ 只收**中文可读名**的项：内置库里的 openmaic-classroom 的 name 是英文技术名，
+      直接渲染即违反界面说明 §7.1 反面清单第 3 类（内部概念与英文技术词不进界面），
+      故此处**剔除**并在界面说明 UI-Q12 里挂出（要么改它的 name、要么加显示名字段）。
+      内置库共 5 项，下面 4 项即当前全部可用技能——不是随便举例。 */
+const SKILLS = [
+  { id:'sk1', name:'引用生成器', desc:'给知识库检索结果标注出处' },
+  { id:'sk2', name:'数据处理器', desc:'统计分析、格式转换、生成报告' },
+  { id:'sk3', name:'文档协作',   desc:'按结构化流程一起写文档' },
+  { id:'sk4', name:'文档分析器', desc:'拆解文档结构、提取关键信息' }
+];
+
+/* 会话（D15）：服务空间内的工作单元 = 一段连续的工作对话。
+   一个服务下有很多会话；一个会话可含多次运行（会话 ≠ 运行记录）。
+   置顶不变量：界面只出现岗位名、相对时间与产物标题，
+   不出现 session_id / thread_id / expert_ref / run_id（界面说明 §8.4 第 2 条） */
+let sessions = [
+  /* c1 演示「从会话中更新产物」：第二轮把同一份表格更新到 v2，而不是再堆一个新文件 */
+  { id:'c1', serviceId:'s1', title:'秋季招生线索跟进', expert:'e1', pinned:true, ts:Date.now()-3*H, msgs:[
+    { who:'user', text:'把 9 月秋季招生线索按到访意向排个序，列成表。' },
+    { who:'bot', expert:'e1', state:'已完成',
+      steps:['正在读取相关资料','正在合并线索台账与到访记录','正在按意向等级排序','正在生成表格'],
+      card:{ title:'秋季招生线索跟进表（9 月）',
+             summary:'共 12 条线索：到访意向明确 5 条、待跟进 7 条。东苑分园的线索尚未并入。',
+             next:'把东苑分园线索并入后重新排序，再出最终版。' },
+      arts:['a1'], actions:true },
+    { who:'user', text:'把东苑分园那 4 条也并进来，按意向重新排。' },
+    { who:'bot', expert:'e1', state:'已完成',
+      steps:['正在读取东苑分园线索','正在合并并去重','正在重新排序','正在更新表格产物'],
+      card:{ title:'已更新：秋季招生线索跟进表',
+             summary:'并入东苑分园 4 条，去重后共 16 条：到访意向明确 7 条、待跟进 9 条。',
+             next:'明天上午先联系意向明确的 7 条。' },
+      arts:['a2'], actions:true },
+    { who:'sys', text:'已在「事项」中创建提醒：明天跟进 16 条线索' }
+  ] },
+  { id:'c2', serviceId:'s1', title:'家长顾虑类型归纳', expert:'e1', pinned:false, ts:Date.now()-1*D, msgs:[
+    { who:'user', text:'这周家长问得最多的顾虑是什么？' },
+    { who:'bot', expert:'e1', state:'已完成',
+      steps:['正在读取本周沟通记录','正在归类家长顾虑','正在归纳结论'],
+      card:{ title:'本周家长顾虑归纳',
+             summary:'23 条沟通记录中，顾虑集中在「上课时间冲突」9 条、「价格与优惠」7 条、「接送距离」4 条。',
+             next:'针对时间冲突，建议在开放日给出两个备选班次。' },
+      arts:['a3'], actions:true }
+  ] },
+  { id:'c3', serviceId:'s1', title:'开放日到访名单整理', expert:'e2', pinned:false, ts:Date.now()-3*D, msgs:[
+    { who:'user', text:'把开放日预约的家长名单整理成一张表，标出已确认到访的。' },
+    { who:'bot', expert:'e2', state:'已完成',
+      steps:['正在读取预约记录','正在核对确认状态','正在生成表格'],
+      card:{ title:'开放日到访名单',
+             summary:'预约 28 组，已确认到访 19 组、待确认 9 组；小班时段已满。',
+             next:'给待确认的 9 组各发一条提醒。' },
+      arts:[], actions:true }
+  ] },
+
+  { id:'c4', serviceId:'s2', title:'本月到期未续费清单', expert:'e2', pinned:false, ts:Date.now()-5*H, msgs:[
+    { who:'user', text:'本月到期的孩子里，哪些家长还没续费？' },
+    { who:'bot', expert:'e2', state:'已完成',
+      steps:['正在核对到期名单','正在比对缴费记录','正在生成清单'],
+      card:{ title:'本月到期未续费家长清单',
+             summary:'到期 17 人，未续费 9 人，其中已联系 3 人、未联系 6 人。',
+             next:'本周内先联系尚未触达的 6 位家长。' },
+      arts:['a4'], actions:true }
+  ] },
+
+  { id:'c5', serviceId:'s3', title:'本周晨检异常汇总', expert:'e3', pinned:false, ts:Date.now()-2*D, msgs:[
+    { who:'user', text:'把本周的晨检异常汇总一下，要能直接给保健室看。' },
+    { who:'bot', expert:'e3', state:'已完成',
+      steps:['正在读取晨检记录','正在归并同类异常','正在生成汇总'],
+      card:{ title:'本周晨检异常汇总',
+             summary:'共 6 例异常：发热 3 例、皮疹 2 例、口腔异常 1 例，均已通知家长并记录随访。',
+             next:'把皮疹 2 例并入月末卫生保健简报。' },
+      arts:['a5'], actions:true }
+  ] },
+
+  { id:'c6', serviceId:'s4', title:'新教师第一周带教计划', expert:'e3', pinned:false, ts:Date.now()-6*D, msgs:[
+    { who:'user', text:'给这学期新来的 3 位老师排一份第一周带教计划。' },
+    { who:'bot', expert:'e3', state:'已完成',
+      steps:['正在读取带教模板','正在按岗位拆分任务','正在排期'],
+      card:{ title:'新教师第一周带教计划',
+             summary:'3 位新教师按班级分组，第一周覆盖一日流程观摩、家长沟通跟岗、班级常规建立三块。',
+             next:'带教结束后用同一份计划做阶段评估。' },
+      arts:[], actions:true }
+  ] },
+
+  { id:'c7', serviceId:'s5', title:'元旦汇演节目排期', expert:'e5', pinned:false, ts:Date.now()-9*D, msgs:[
+    { who:'user', text:'元旦汇演各班节目怎么排？场地只有一天。' },
+    { who:'bot', expert:'e5', state:'已完成',
+      steps:['正在读取各班报名','正在核对场地时段','正在排期'],
+      card:{ title:'元旦汇演节目排期',
+             summary:'共 11 个节目，按大班→中班→小班三段排；上午彩排、下午正式演出。',
+             next:'确认各班的伴奏文件与服装到位时间。' },
+      arts:[], actions:true }
+  ] },
+
+  { id:'c8', serviceId:'s8', title:'11 月课堂观察记录归档', expert:'e3', pinned:false, ts:Date.now()-20*H, msgs:[
+    { who:'user', text:'把 11 月的课堂观察记录整理归档，顺带看看有没有值得沉淀的经验。' },
+    { who:'bot', expert:'e3', state:'已完成',
+      steps:['正在读取观察记录','正在按主题归类','正在抽取可复用经验'],
+      card:{ title:'11 月课堂观察记录归档',
+             summary:'共 24 份记录，归为 4 类：师幼互动 9、区域活动 7、户外运动 5、过渡环节 3。',
+             next:'把「过渡环节」的 3 条经验整理成教研条目。' },
+      arts:[], actions:true }
+  ] }
+];
+
+/* 产物（Web端PRD §12.2）：会话中 Agent 产出的文件。
+   「更新产物」= 同一份产物出新版本（a1 → a2），而不是再堆一个新文件。 */
+const ARTIFACTS = {
+  a1:{ id:'a1', title:'秋季招生线索跟进表.xlsx', fmt:'XLSX', ver:'v1',
+       meta:'表格 · v1 · 12 条 · 18 KB',
+       body:'<h6>秋季招生线索跟进表（v1）</h6><table><tr><th>孩子</th><th>意向</th><th>状态</th></tr><tr><td>乐乐</td><td>明确</td><td>待跟进</td></tr><tr><td>朵朵</td><td>待观察</td><td>已沟通</td></tr><tr><td>小宝</td><td>明确</td><td>待跟进</td></tr></table><p style="margin:8px 0 0">共 12 条线索</p>' },
+  a2:{ id:'a2', title:'秋季招生线索跟进表.xlsx', fmt:'XLSX', ver:'v2',
+       meta:'表格 · v2（已更新）· 16 条 · 22 KB',
+       body:'<h6>秋季招生线索跟进表（v2）</h6><table><tr><th>孩子</th><th>意向</th><th>状态</th></tr><tr><td>乐乐</td><td>明确</td><td>待跟进</td></tr><tr><td>朵朵</td><td>待观察</td><td>已沟通</td></tr><tr><td>小宝</td><td>明确</td><td>待跟进</td></tr><tr><td>东苑 · 果果</td><td>明确</td><td>待跟进</td></tr><tr><td>东苑 · 米米</td><td>待观察</td><td>待跟进</td></tr></table><p style="margin:8px 0 0">共 16 条线索（新增东苑分园 4 条）</p>' },
+  a3:{ id:'a3', title:'家长顾虑归纳.md', fmt:'MD', ver:'v1',
+       meta:'文档 · v1 · 3 KB',
+       body:'<h6>本周家长顾虑归纳</h6><p>1. 上课时间冲突 —— 9 条<br />2. 价格与优惠 —— 7 条<br />3. 接送距离 —— 4 条<br />4. 其他 —— 3 条</p>' },
+  a4:{ id:'a4', title:'到期未续费家长清单.xlsx', fmt:'XLSX', ver:'v1',
+       meta:'表格 · v1 · 9 条 · 14 KB',
+       body:'<h6>本月到期未续费家长清单</h6><table><tr><th>孩子</th><th>到期日</th><th>已联系</th></tr><tr><td>阳阳</td><td>9/18</td><td>是</td></tr><tr><td>糖糖</td><td>9/20</td><td>否</td></tr><tr><td>豆豆</td><td>9/25</td><td>否</td></tr></table><p style="margin:8px 0 0">共 9 条，其中 3 条已联系</p>' },
+  a5:{ id:'a5', title:'本周晨检异常汇总.md', fmt:'MD', ver:'v1',
+       meta:'文档 · v1 · 4 KB',
+       body:'<h6>本周晨检异常汇总</h6><p>共 6 例异常：发热 3 例、皮疹 2 例、口腔异常 1 例。<br />均已通知家长并记录随访结果。</p>' }
+};
+
+/* 事项（D17：原「服务提醒」并入事项，`service_reminders` 是唯一待办模型）。
+   和产物一样，事项大多是会话跑出来的——所以 from 记"来自哪个会话"，
+   让人能顺着它回到当时那轮对话，而不是面对一个孤立的待办。 */
+let REMINDERS = [
+  { id:'r1', serviceId:'s1', title:'跟进意向明确的 7 条线索',   owner:'我',       state:'待处理', ts:Date.now()-2*H, from:'秋季招生线索跟进' },
+  { id:'r2', serviceId:'s1', title:'整理开放日备选班次（2 个）', owner:'教务主管', state:'进行中', ts:Date.now()-5*H, from:'家长顾虑类型归纳' },
+  { id:'r3', serviceId:'s1', title:'确认东苑分园线索去重结果',   owner:'我',       state:'已完成', ts:Date.now()-1*D, from:'秋季招生线索跟进' },
+  { id:'r4', serviceId:'s3', title:'本周晨检异常随访结果补录',   owner:'带班老师', state:'待处理', ts:Date.now()-6*H, from:'本周晨检异常汇总' },
+  { id:'r5', serviceId:'s2', title:'到期未续费家长首轮联系',     owner:'教务主管', state:'进行中', ts:Date.now()-8*H, from:'到期未续费家长清单' }
+];
+
+/* 服务头右侧的两个入口（D21）——这里是**唯一**常驻的服务级入口，其余都在服务头 ⋯ 菜单里。
+   为什么是这两个：产物与事项都是会话跑出来的沉淀物，跟会话同源；
+   D21 之后会话挂在侧栏，沉淀物的入口就在手边的服务头上，不跳页、不藏起来。
+   path 存内联 SVG（原型零依赖），label 是界面上真实出现的文字。 */
+const HEAD_TOOLS = [
+  { k:'artifacts', label:'产物', path:'<path d="M9.3 2.5H4.6A1.6 1.6 0 0 0 3 4.1v7.8a1.6 1.6 0 0 0 1.6 1.6h6.8a1.6 1.6 0 0 0 1.6-1.6V6z"/><path d="M9.3 2.5V6h3.7"/>' },
+  { k:'reminders', label:'事项', path:'<path d="M2.6 4.4l1.5 1.5 2.6-2.6M2.6 11l1.5 1.5L6.7 9.9M9.2 4.4h4.2M9.2 11h4.2"/>' }
+];
+
+/* 内联 SVG 图标：统一 stroke 风格，颜色走 currentColor（激活时自动变品牌绿） */
+function icon(path){
+  return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+}
+
+/* 右侧面板「服务设置」的内容——原先各占一个导航位的项，现在都收在这一处（D18）。
+   与 ⋯ 菜单的分工要分清：**⋯ 菜单管"服务本身"**（叫什么名、怎么写描述、谁能看到），
+   **这里管"服务里的东西"**（成员、专家、事项配置、运行记录）。两者不重叠。 */
+const SETTINGS_SECTIONS = [
+  { label:'成员',       desc:'协作者与四档角色，含「已离开」视图' },
+  { label:'专家',       desc:'绑定岗位专家（招生顾问 / 教务主管…），并配各自的岗位级收窄' },
+  { label:'事项配置',   desc:'事项状态与流转规则、字段选项（优先级 / 标签 / 职能）' },
+  { label:'运行记录',   desc:'追溯每次执行调了什么——按运行创建时间排序，与会话列表不是一回事' },
+  { label:'知识库范围', desc:'本服务可检索的知识库——服务级；创建时选的那份在这里改（D23）' },
+  { label:'技能',       desc:'本服务允许专家调用的内置技能——服务级；不勾 = 一项都不启用（D23）' }
+];
+
+/* 服务空间状态：activeSessionId = 对话区当前显示哪个会话；
+   expertId = 本会话由哪个岗位专家在跟；menuId / menuPos = 会话行的 ⋯ 菜单与算好的视口坐标；
+   renaming = 行内重命名；
+   panelKind + artifactId = 右侧面板在显示什么（D18）：panelKind 是
+     'artifacts'（产物列表）/ 'reminders'（事项列表）/ 'settings'（服务设置）/ 'overview'（概览），
+     artifactId 非空时表示正在预览某一份具体产物（优先级最高）；
+   stepsOpen = 各条运行消息的执行过程是否展开；_sessRendered = 上一次渲染的会话（用于判断是否要跳到底部）；
+   running = 当前正在跑的那一轮（含终止用的 timer）：非空时发送按钮显示「停止」 */
+const space = { serviceId:null, activeSessionId:null, expertId:null, menuId:null, menuPos:null, renaming:null,
+                panelKind:null, artifactId:null, stepsOpen:{}, _sessRendered:null, modal:null, shareScope:'members',
+                running:null };
+
+const mode = { name:'data', q:'', qt:'', sort:'recent', demo:'data' };
+let form = null;
+let openMenuId = null;
+/* 从创建表单经侧栏离开时，目的地跟着「离开确认」模态一起走（D20 / D21）：
+   undefined = 回服务列表，{serviceId} = 进那个服务，{serviceId, sessionId} = 进那个服务并打开这条会话。
+   这样"点侧栏"和"点取消"共用同一套确认。 */
+let leaveAfter;
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('on'), 1800);
+}
+
+/* ---------- 列表渲染 ---------- */
+/* 卡片菜单按角色收窄（界面说明 §3.5）：不能出现"点开才报 403"。
+   「设为默认服务」全局唯一——已是默认时该项显示为「默认服务」并置灰（§3.5 末条）。 */
+function menuItems(s){
+  const isOwner = s.role === 'owner';
+  const isAdmin = s.role === 'owner' || s.role === 'admin';
+  const out = [{ k:'open', label:'打开服务' }];
+  if (isAdmin) out.push({ k:'default', label: s.is_default ? '默认服务' : '设为默认服务', disabled: !!s.is_default },
+                        { k:'rename', label:'重命名' });
+  out.push({ k:'info', label:'服务信息' });
+  if (isAdmin) out.push({ k:'members', label:'成员管理' }, { k:'settings', label:'服务设置' });
+  out.push({ sep:true });
+  if (isOwner) out.push({ k:'archive', label:'归档服务', danger:true });
+  else out.push({ k:'leave', label:'退出服务', danger:true });
+  return out;
+}
+
+function cardHtml(s){
+  const menu = menuItems(s).map(it => {
+    if (it.sep) return '<div class="menu-sep"></div>';
+    return '<button class="menu-item' + (it.danger ? ' danger' : '') + '"' + (it.disabled ? ' disabled' : '') +
+      ' onclick="menuAct(event,\'' + it.k + '\',\'' + s.id + '\')">' + it.label + '</button>';
+  }).join('');
+  const meta = s.state === 'draft'
+    ? '<span class="draft-mark">草稿 · 未启用</span>'
+    : esc(s.label) + ' · ' + s.members + ' 人';
+  return '<div class="card' + (s.state === 'draft' ? ' draft' : '') + '" id="card-' + s.id + '" onclick="openService(\'' + s.id + '\')">' +
+      '<div class="card-row1">' +
+        '<div class="card-icon">' + icon(tplIconPath(s.tpl)) + '</div>' +
+        '<span class="card-name">' + esc(s.name) + '</span>' +
+        '<button class="card-more" onclick="toggleMenu(event,\'' + s.id + '\')" aria-label="更多操作">&#8943;</button>' +
+      '</div>' +
+      '<div class="card-row2">' + (s.tpl ? '<span class="tag">' + esc(s.tpl) + '</span>' : '<span class="tag tag-custom">自定义</span>') + '<span class="tag-role">' + ROLE[s.role] + '</span></div>' +
+      (s.desc ? '<div class="card-desc">' + esc(s.desc) + '</div>' : '') +
+      '<div class="card-meta">' + meta + '</div>' +
+      (openMenuId === s.id ? '<div class="menu" onclick="event.stopPropagation()">' + menu + '</div>' : '') +
+    '</div>';
+}
+
+function visibleServices(){
+  let list = services.filter(s => s.state !== 'archived');
+  /* 搜索匹配**名称与描述**（界面说明 §3.6）——不搜服务对象与产物内容（那是服务空间内搜索的职责） */
+  if (mode.q.trim()) {
+    const q = mode.q.trim().toLowerCase();
+    list = list.filter(s => s.name.toLowerCase().includes(q) || (s.desc || '').toLowerCase().includes(q));
+  }
+  if (mode.sort === 'recent') list.sort((a,b) => b.ts - a.ts);
+  if (mode.sort === 'created') list.sort((a,b) => (b.created || b.ts) - (a.created || a.ts));
+  if (mode.sort === 'name') list.sort((a,b) => a.name.localeCompare(b.name, 'zh'));
+  return list;
+}
+
+/* ---------- 侧栏二级菜单（D19 / D20） ----------
+   二级列的是「能进去干活的服务」。与列表页的口径只差一处：**草稿不进二级**——
+   草稿不是一个能进去的工作现场（点它只会回到创建表单），它留在列表页里更合适。
+   搜索框是列表页的局部筛选，不联动侧栏：侧栏是全局导航，不该跟着页面筛选跳。 */
+function navServices(){
+  if (mode.demo === 'empty') return [];
+  return services
+    .filter(s => s.state !== 'archived' && s.state !== 'draft')
+    .slice()
+    .sort((a, b) => b.ts - a.ts);
+}
+
+let navOpen = true;         /* 一级「服务」列表的折叠状态。真实产品存在 localStorage，原型刷新重置即可 */
+let navExpanded = null;     /* 手风琴：当前展开会话列表的那个服务；null = 全部折叠（D21） */
+let navSessAll = {};        /* 哪些服务的会话已经「全部展开」——只在超出上限时才用得上 */
+const NAV_SESS_LIMIT = 8;   /* 每个服务在侧栏最多列几条会话：侧栏是导航，不是全量列表（PRD Q39） */
+
+function toggleNav(e){
+  /* 别把点击冒泡给一级项——那是「进服务列表」，两个动作不能连在一起触发 */
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  navOpen = !navOpen;
+  renderNav();
+}
+
+/* 某个服务右侧的折叠箭头（D21）：手风琴——同一时刻只展开一个服务的会话列表。
+   全展开会把侧栏撑成一面墙，"我要去的那个服务"反而找不到了；
+   点开一个就收掉上一个，正好也把"我手上正干着哪个服务"讲清楚。 */
+function toggleNavSess(e, sid){
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  navExpanded = (navExpanded === sid) ? null : sid;
+  renderNav();
+}
+
+function expandNavSess(e, sid){
+  if (e) e.stopPropagation();
+  navSessAll[sid] = true;
+  renderNav();
+}
+
+/* 一级项、二级项、三级会话都在这里一次出完：侧栏是一棵树，
+   分几次渲染就会出现"一半新一半旧"的中间态。 */
+function renderNav(){
+  const list = navServices();
+  const cnt = document.getElementById('nav-count');
+  if (cnt) cnt.textContent = list.length;
+  const host = document.getElementById('nav-sub');
+  const tg = document.getElementById('nav-toggle');
+  if (tg) tg.classList.toggle('collapsed', !navOpen);
+  if (!host) return;
+  host.hidden = !navOpen;
+  if (!list.length) {
+    host.innerHTML = '<p class="nav-sub-empty">' + (mode.demo === 'empty' ? '还没有服务' : '服务都已归档') + '</p>';
+    return;
+  }
+  /* 「当前」只在服务空间里算：创建表单与列表页都不归属任何服务，别在侧栏留一个亮着的项 */
+  const inSpace = !document.getElementById('view-space').hidden && document.getElementById('view-create').hidden;
+  host.innerHTML = list.map(s => navGroupHtml(s, inSpace)).join('');
+  /* 行内重命名的输入框在侧栏里（会话栏撤掉之后这里是唯一的位置） */
+  const ri = document.getElementById('rename-in');
+  if (ri) { ri.focus(); ri.select(); }
+}
+
+/* 一个服务 + 它下面的会话（D20 的二级项 + D21 的三级列表）。
+   会话行只在**当前所在的那个服务**上出现 ⋯ 菜单：别的服务是"入口"，进来才是"在里面"——
+   写操作（重命名 / 置顶 / 删除）都发生在自己脚下，
+   不会出现「在服务列表页顺手删掉某个陌生服务里的会话」这种事故。 */
+function navGroupHtml(s, inSpace){
+  const on = inSpace && space.serviceId === s.id;
+  const open = navExpanded === s.id;
+  const head =
+    '<button class="nav-sub-item' + (on ? ' on' : '') + '" title="' + esc(s.name) + '" onclick="navService(\'' + s.id + '\')">' +
+      /* 这里原本有一个 20px 的模板图形（tplIconPath + icon），v1.15 按老师意见删除：
+         一级项「服务」本就不带图标，二级再带一个会让"服务列表"看起来像另一套菜单。
+         模板信息在**列表页卡片**上仍有（.card-icon，同一对函数继续服务那一处），侧栏不再表达模板。 */
+      '<span class="nav-sub-name">' + esc(s.name) + '</span>' +
+      '<span class="nav-sub-trail">' +
+        (on ? '<span class="nav-sub-dot"></span>' : '') +
+        '<span class="nav-sub-caret' + (open ? '' : ' collapsed') + '" role="button" ' +
+          'aria-expanded="' + (open ? 'true' : 'false') + '" ' +
+          'aria-label="展开或收起该服务的会话" title="展开 / 收起会话" ' +
+          'onclick="toggleNavSess(event,\'' + s.id + '\')">' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>' +
+        '</span>' +
+      '</span>' +
+    '</button>';
+  /* 折叠着就整段不渲染：几个服务 × 每个几十条会话，塞进 DOM 就是几百个看不见的节点 */
+  return '<div class="nav-grp">' + head + (open ? navSessHtml(s, on) : '') + '</div>';
+}
+
+function navSessHtml(s, on){
+  const all = sessionsOf(s.id);
+  if (!all.length) {
+    /* 空态不是空白（§8.4 第 3 条）：这一行是入口，不是一句"暂无会话" */
+    return '<div class="nav-sess">' +
+      '<button class="nav-sess-empty" onclick="navNewSession(\'' + s.id + '\')">还没有会话，去开一段 ›</button>' +
+    '</div>';
+  }
+  const cut = navSessAll[s.id] ? all.length : Math.min(all.length, NAV_SESS_LIMIT);
+  const rows = all.slice(0, cut).map(c => navSessRow(c, on)).join('');
+  const more = (all.length > cut)
+    ? '<button class="nav-sess-all" onclick="expandNavSess(event,\'' + s.id + '\')">还有 ' + (all.length - cut) + ' 个 ›</button>'
+    : '';
+  return '<div class="nav-sess">' + rows + more + '</div>';
+}
+
+/* 三级行：标题 + 置顶标记 + hover 才现的 ⋯。
+   专家名与相对时间**不在这里出现**——一行只有 260px 宽，塞三样东西的结果是每样都被截断；
+   它们留在对话区头部（§8.3）与服务头，侧栏只负责回答"点哪一条"。 */
+function navSessRow(c, on){
+  if (on && space.renaming === c.id) {
+    return '<div class="nav-sess-item on">' +
+      '<input class="nav-sess-rename" id="rename-in" value="' + esc(c.title) + '"' +
+        ' onkeydown="renameKey(event,\'' + c.id + '\')" />' +
+    '</div>';
+  }
+  /* button 里不能嵌 button，所以 ⋯ 用 span + role —— 与一级项右侧的折叠箭头同一套做法 */
+  const more = on
+    ? '<span class="nav-sess-more" role="button" title="重命名 / 置顶 / 删除" ' +
+        'onclick="event.stopPropagation();sessMenu(\'' + c.id + '\')">&#8943;</span>'
+    : '';
+  return '<button class="nav-sess-item' + (on && c.id === space.activeSessionId ? ' on' : '') + '"' +
+      ' id="nsrow-' + c.id + '" title="' + esc(c.title) + '"' +
+      ' onclick="navSession(\'' + c.serviceId + '\',\'' + c.id + '\')">' +
+    '<span class="nav-sess-name">' + esc(c.title) + '</span>' +
+    '<span class="nav-sess-pin" title="' + (c.pinned ? '已置顶' : '') + '">' + (c.pinned ? '●' : '') + '</span>' + more +
+  '</button>' + sessRowMenu(c);   /* 菜单得挂在行外面——button 里放不下一个浮层 */
+}
+
+/* 侧栏随时可点。在创建表单里点侧栏 = 「离开表单」，走与「取消」同一套二次确认（§5.5） */
+function navMyServices(){
+  if (!document.getElementById('view-create').hidden) { cancelCreate(null); return; }
+  if (document.getElementById('view-space').hidden && !document.getElementById('view-list').hidden) { toast('已在服务列表'); return; }
+  applyNav(null);
+}
+function navService(id){
+  if (!document.getElementById('view-create').hidden) { cancelCreate({ serviceId:id }); return; }
+  applyNav(id);
+}
+/* 点三级会话（D21）：进那个服务、并**直接打开这一条**；
+   已经在这个服务里就只切会话——不重建界面，会话选中态与右侧面板都还在（D20 同一条道理） */
+function navSession(sid, cid){
+  if (!document.getElementById('view-create').hidden) { cancelCreate({ serviceId:sid, sessionId:cid }); return; }
+  if (!document.getElementById('view-space').hidden && space.serviceId === sid) { openSession(cid); return; }
+  enterSpace(sid, cid);
+}
+/* 某个服务下还没有会话时，那一行是入口：点了就进这个服务，光标落在输入框里 */
+function navNewSession(sid){
+  if (!document.getElementById('view-create').hidden) { cancelCreate({ serviceId:sid }); return; }
+  if (!document.getElementById('view-space').hidden && space.serviceId === sid) { newSession(); return; }
+  enterSpace(sid);
+}
+function applyNav(id){
+  if (!id) { if (!document.getElementById('view-space').hidden) backToList(); return; }
+  const inSpace = !document.getElementById('view-space').hidden;
+  if (inSpace && space.serviceId === id) { navExpanded = id; renderNav(); return; }  /* 已经在这个服务里：别重建界面 */
+  enterSpace(id);
+}
+
+function tplHtml(t, big){
+  return '<div class="tpl-card' + (big ? ' big' : '') + '" onclick="openCreate(\'' + t.id + '\')">' +
+    '<div class="tpl-row1"><div class="tpl-icon">' + icon(t.icon) + '</div>' +
+    '<span class="tpl-name">' + esc(t.name) + '</span></div>' +
+    '<p class="tpl-desc">' + esc(t.desc) + '</p>' +
+    '<p class="tpl-prev">预置 ' + t.experts + ' 个专家 · ' + t.statuses + ' 个事项状态</p>' +
+  '</div>';
+}
+
+function renderTemplates(){
+  let list = templates;
+  if (mode.qt.trim()) {
+    const q = mode.qt.trim().toLowerCase();
+    list = list.filter(t => t.name.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q));
+  }
+  const html = list.length ? list.map(t => tplHtml(t)).join('')
+    : '<div class="no-result" style="grid-column:1/-1">没有匹配的模板</div>';
+  const a = document.getElementById('tpl-grid');
+  const b = document.getElementById('tpl-grid-empty');
+  if (a) a.innerHTML = html;
+  if (b) b.innerHTML = list.length ? list.map(t => tplHtml(t, true)).join('') : '<div class="no-result" style="grid-column:1/-1">没有匹配的模板</div>';
+}
+
+function render(){
+  /* 演示模式「空态」= 真的一个服务都没有；「全部归档」也落在空态分支，但文案不同（§4.2） */
+  const visible = mode.demo === 'empty' ? [] : services.filter(s => s.state !== 'archived');
+  const isEmpty = visible.length === 0;
+  document.getElementById('list-content').hidden = isEmpty;
+  document.getElementById('empty-content').hidden = !isEmpty;
+  renderNav();
+
+  if (isEmpty) {
+    renderEmptyCard(mode.demo === 'archived');
+  } else {
+    const wrap = document.getElementById('svc-grid-wrap');
+    const list = visibleServices();
+    if (!list.length && mode.q.trim()) {
+      wrap.innerHTML = '<div class="no-result">没有匹配「' + esc(mode.q) + '」的服务　<button class="btn-text" onclick="clearQuery()">清除筛选</button></div>';
+    } else {
+      wrap.innerHTML = '<div class="grid">' + list.map(cardHtml).join('') + '</div>';
+    }
+  }
+  renderTemplates();
+}
+
+/* 两种空态共用同一张引导卡（界面说明 §4.2 / §7）：
+   真·没有服务 → 「还没有服务」+「从空白创建」；
+   服务都归档了 → 「服务都已归档」+「查看归档服务」。
+   文案不分，用户会以为数据丢了。 */
+function renderEmptyCard(allArchived){
+  const t = document.getElementById('empty-title');
+  const x = document.getElementById('empty-text');
+  const act = document.getElementById('empty-action');
+  if (!t || !x || !act) return;
+  if (allArchived) {
+    t.textContent = '服务都已归档';
+    x.innerHTML = '归档的服务不再列在这里，需要时可以恢复。<br />模板还在，随时能再建一个。';
+    act.setAttribute('class', 'btn-text');
+    act.setAttribute('onclick', "toast('查看归档服务（原型略）')");
+    act.textContent = '查看归档服务';
+  } else {
+    t.textContent = '还没有服务';
+    x.innerHTML = '选一个模板开始，配置都预置好了，创建后随时能改。<br />也可以从空白服务自己配全套。';
+    act.setAttribute('class', 'btn');
+    act.setAttribute('onclick', 'openCreate(null)');
+    act.textContent = '从空白创建';
+  }
+}
+
+function clearQuery(){
+  mode.q = '';
+  document.getElementById('q').value = '';
+  render();
+}
+
+function toggleMenu(e, id){
+  e.stopPropagation();
+  openMenuId = (openMenuId === id) ? null : id;
+  render();
+}
+
+document.addEventListener('click', () => {
+  let dirty = false;
+  if (openMenuId) { openMenuId = null; dirty = true; }
+  /* 会话行的 ⋯ 菜单也在这里收（两套菜单都挂在文档上，统一由冒泡关闭） */
+  if (space.menuId) { space.menuId = null; dirty = true; }
+  if (!dirty) return;
+  render();
+  if (space.serviceId && !document.getElementById('view-space').hidden) renderSpace();
+});
+
+function menuAct(e, k, id){
+  e.stopPropagation();
+  openMenuId = null;
+  const s = services.find(x => x.id === id);
+  /* 默认服务全局唯一（同用户下至多一个）：设新的，旧的自动取消 */
+  if (k === 'default' && s) {
+    services.forEach(x => { x.is_default = false; });
+    s.is_default = true;
+  }
+  render();
+  const map = {
+    open:'打开服务（原型略）',
+    default:'已设为默认服务（原型略）',
+    rename:'重命名（原型略）',
+    info:'服务信息（原型略）',
+    members:'成员管理（原型略）',
+    settings:'服务设置（原型略）',
+    archive:'归档服务需二次确认并输入服务名（原型略）',
+    leave:'退出服务需二次确认（原型略）'
+  };
+  toast(map[k] + (s ? '：' + s.name : ''));
+}
+
+function openService(id){
+  if (openMenuId) { openMenuId = null; render(); return; }
+  const s = services.find(x => x.id === id);
+  if (!s) return;
+  if (s.state === 'draft') { openCreate(null, s); return; }
+  enterSpace(id);
+}
+
+/* ---------- 服务空间（D15：会话工作台） ---------- */
+
+function enterSpace(id, pickSessionId){
+  const s = services.find(x => x.id === id);
+  space.serviceId = id;
+  dropRunning();
+  space.menuId = null;
+  space.renaming = null;
+  space.panelKind = null;
+  space.artifactId = null;
+  space.stepsOpen = {};
+  space._sessRendered = null;
+  space.modal = null;
+  const tpl = (s && s.tpl) ? templates.find(t => t.name === s.tpl) : null;
+  space.expertId = tpl ? tpl.defaultExperts[0] : 'e1';
+  /* 落地即落在最近更新的会话上（D15）：进来就是工作现场，不必先点一次。
+     pickSessionId 来自「点侧栏三级」，比"最近"更明确，优先于它 */
+  const first = sessionsOf(id)[0];
+  space.activeSessionId = pickSessionId || (first ? first.id : null);
+  /* 进哪个服务就在侧栏展开哪个服务的会话（D21）——否则会出现"进了服务却看不到会话列表"：
+     会话栏已经不在了，侧栏是会话列表唯一的落点 */
+  navExpanded = id;
+  document.getElementById('view-list').hidden = true;
+  document.getElementById('view-create').hidden = true;
+  document.getElementById('view-space').hidden = false;
+  document.getElementById('sess-input').value = '';
+  onSessInput();
+  renderNav();          /* 侧栏：当前服务高亮（D20）+ 它下面的会话（D21） */
+  renderSpace();
+  /* 空服务：光标直接落进输入框，别让人再点一次 */
+  if (!space.activeSessionId) document.getElementById('sess-input').focus();
+}
+
+function backToList(){
+  dropRunning();
+  space.menuId = null;      /* 会话行的菜单 / 行内重命名都留在服务空间里，别把浮层带回列表页 */
+  space.renaming = null;
+  document.getElementById('view-space').hidden = true;
+  document.getElementById('view-list').hidden = false;
+  render();
+}
+
+/* 相对时间：口径与列表页服务卡片完全一致（界面说明 §8.3） */
+function relTime(ts){
+  const d = Date.now() - ts;
+  if (d < H)          return Math.max(1, Math.round(d / 60000)) + ' 分钟前';
+  if (d < 24 * H)     return Math.round(d / H) + ' 小时前';
+  if (d < 48 * H)     return '昨天';
+  if (d < 7 * D)      return Math.round(d / D) + ' 天前';
+  if (d < 14 * D)     return '上周';
+  if (d < 30 * D)     return Math.max(2, Math.floor(d / (7 * D))) + ' 周前';
+  return Math.max(1, Math.floor(d / (30 * D))) + ' 个月前';
+}
+
+function expertName(id){ const e = EXPERTS.find(x => x.id === id); return e ? e.name : '未指定专家'; }
+
+/* 本服务的会话（D21）：置顶优先 → 最近更新。
+   侧栏三级、进服务时"落在哪一条"、概览统计，三处共用这一处口径，免得跑偏。 */
+function sessionsOf(sid){
+  return sessions.filter(c => c.serviceId === sid)
+    .slice()
+    .sort((a, b) => (b.pinned - a.pinned) || (b.ts - a.ts));
+}
+
+/* 会话行的 ⋯ 菜单（D21：会话列表搬到侧栏三级之后，菜单还长在同一行旁边）：
+   重命名（行内）/ 置顶 / 删除，与列表页卡片菜单同构（界面说明 §8.3）。
+   视口定位——侧栏是滚动容器，相对定位会被 overflow 裁掉，靠底部的行还会上下翻转 */
+function sessRowMenu(c){
+  if (space.menuId !== c.id) return '';
+  const p = space.menuPos || { top:0, left:0 };
+  return '<div class="nav-menu" style="top:' + p.top + 'px;left:' + p.left + 'px" onclick="event.stopPropagation()">' +
+      '<button class="menu-item" onclick="startRename(\'' + c.id + '\')">重命名</button>' +
+      '<button class="menu-item" onclick="togglePin(\'' + c.id + '\')">' + (c.pinned ? '取消置顶' : '置顶') + '</button>' +
+      '<div class="menu-sep"></div>' +
+      '<button class="menu-item danger" onclick="removeSession(\'' + c.id + '\')">删除</button>' +
+    '</div>';
+}
+
+/* ---------- 渲染：对话区 ---------- */
+
+function sessionById(id){ return sessions.find(c => c.id === id); }
+
+function artCardHtml(id){
+  const a = ARTIFACTS[id];
+  if (!a) return '';
+  return '<button class="art-card' + (space.artifactId === id ? ' on' : '') + '" onclick="openArtifact(\'' + id + '\')">' +
+    '<span class="art-ic">' + esc(a.fmt) + '</span>' +
+    '<span><span class="art-name">' + esc(a.title) + '</span>' +
+      '<span class="art-sub" style="display:block">' + esc(a.meta) + '</span></span>' +
+  '</button>';
+}
+
+/* 专家运行消息（Web端PRD §7.1）：专家名 + 状态 + 执行过程（折叠）+ 服务卡片 + 产物卡 + 追问入口 */
+function botMsgHtml(m, key){
+  const open = !!space.stepsOpen[key];
+  const steps = (m.steps && m.steps.length)
+    ? '<div class="steps' + (open ? ' open' : '') + '">' +
+        '<button class="steps-head" onclick="toggleSteps(\'' + key + '\')">' +
+          '<span class="steps-arrow">&#8250;</span>执行过程 · ' + m.steps.length + ' 步</button>' +
+        '<div class="steps-body">' +
+          m.steps.map(t => '<div class="step">· ' + esc(t) + '</div>').join('') +
+        '</div></div>'
+    : '';
+  const card = m.card
+    ? '<div class="svc-card"><h5>' + esc(m.card.title) + '</h5>' +
+      '<p>' + esc(m.card.summary) + '</p>' +
+      (m.card.next ? '<p class="svc-next">下一步：' + esc(m.card.next) + '</p>' : '') + '</div>'
+    : '';
+  const arts = (m.arts && m.arts.length)
+    ? '<div class="art-cards">' + m.arts.map(artCardHtml).join('') + '</div>'
+    : '';
+  const acts = m.actions
+    ? '<div class="msg-actions">' +
+        '<button class="btn-text" onclick="toast(\'继续追问（原型略）\')">继续追问</button>' +
+        '<button class="btn-text" onclick="toast(\'重新生成（原型略）\')">重新生成</button>' +
+      '</div>'
+    : '';
+  const stateCls = m.state === '已完成' ? 'ok' : (m.state === '运行中' ? 'doing' : '');
+  return '<div class="msg-bot">' +
+      '<div class="msg-bot-head"><span class="bot-avatar">' + esc(expertName(m.expert).slice(0,1)) + '</span>' +
+        '<span class="bot-name">' + esc(expertName(m.expert)) + '</span>' +
+        '<span class="bot-state ' + stateCls + '">' + esc(m.state) + '</span></div>' +
+      steps + card + arts + acts +
+    '</div>';
+}
+
+function chatHtml(c){
+  if (!c) {
+    /* 空态不是空白：输入框保持可用 + 行业化示例引导（§8.4 第 3 条），不写「暂无数据」 */
+    return '<div class="chat-empty">' +
+      '<h4>这个服务还没有会话</h4>' +
+      '<p>在下面输入框里问一句就开始——一个问题就是一个会话，可以一直往下聊。<br />专家跑完一轮，产物会挂在这条消息下面。</p>' +
+      '<div class="chat-examples">' +
+        '<button class="chat-example" onclick="pickExample(this)">本月哪些孩子该做视力复查？</button>' +
+        '<button class="chat-example" onclick="pickExample(this)">把本周的晨检异常汇总一下</button>' +
+      '</div></div>';
+  }
+  return c.msgs.map((m, i) => {
+    if (m.who === 'user') return '<div class="msg-user">' + esc(m.text) + '</div>';
+    if (m.who === 'sys')  return '<div class="chat-meta" style="font-size:12px">· ' + esc(m.text) + '</div>';
+    return botMsgHtml(m, c.id + ':' + i);
+  }).join('');
+}
+
+/* 点开一份产物：右侧面板切到预览（面板是浮层，不挤压对话区） */
+function openArtifact(id){ space.artifactId = id; space.panelKind = 'artifact'; renderSpace(); }
+function toggleSteps(key){ space.stepsOpen[key] = !space.stepsOpen[key]; renderSpace(); }
+function pickExample(btn){
+  const el = document.getElementById('sess-input');
+  el.value = btn.textContent;
+  onSessInput();
+  el.focus();
+}
+
+function renderSpace(){
+  const s = services.find(x => x.id === space.serviceId);
+  if (!s) { backToList(); return; }
+
+  document.getElementById('space-name').textContent = s.name;
+  document.getElementById('space-tpl').textContent = s.tpl || '自定义';
+  const st = document.getElementById('space-state');
+  st.textContent = s.state === 'active' ? '进行中' : (s.state === 'paused' ? '已暂停' : '已归档');
+  st.style.cssText = s.state === 'active'
+    ? 'background:var(--brand-light);color:var(--brand-dark);'
+    : 'background:#f2f2f2;color:var(--text-2);';
+
+  /* D18 / D21：服务空间没有"别的页面"，也没有服务级导航栏——会话列表在**应用级侧栏**里，
+     这里只剩对话区与浮层右侧面板，所以不再需要"切页时隐藏左中两栏"。 */
+
+  /* 中：对话区（显示侧栏三级里选中的那个会话） */
+  const cur = sessionById(space.activeSessionId);
+  const curId = cur ? cur.id : null;
+  document.getElementById('chat-title').textContent = cur ? cur.title : '新会话';
+  document.getElementById('chat-meta').textContent = cur
+    ? expertName(cur.expert) + ' · ' + relTime(cur.ts)
+    : '发送后创建';
+  /* 滚动位置：换会话才跳到底；同一会话内的重渲染（展开执行过程、开关产物面板、置顶…）
+     必须保持原位置，否则用户点个产物就被甩到对话末尾（Web端PRD §6.5「回到原聊天位置」） */
+  const sc = document.getElementById('chat-scroll');
+  const keep = space._sessRendered === curId;
+  const prevTop = keep ? sc.scrollTop : null;
+  sc.innerHTML = chatHtml(cur);
+  sc.scrollTop = (prevTop === null) ? sc.scrollHeight : prevTop;
+  space._sessRendered = curId;
+
+  /* 服务头右侧：产物 / 事项 两个带计数入口（D21）——常驻，不随面板开关变化 */
+  renderHeadTools();
+
+  /* 右：统一侧面板（浮层；关闭即隐藏，不影响对话位置） */
+  renderPanel();
+
+  /* 侧栏：会话列表与当前会话的高亮（D21）。
+     会话是挂在侧栏上的，所以对话区每次重渲染都要把它带上——
+     否则置顶 / 重命名 / 新会话之后，侧栏会停在旧状态（"我明明置顶了，侧栏没动"） */
+  renderNav();
+
+  document.getElementById('expert-pick').textContent = expertName(space.expertId) + ' ▾';
+
+  /* 发送 / 停止 双态（界面说明 §8.6）：运行中这个按钮变成「停止」并保持可点 */
+  const sendBtn = document.getElementById('btn-send');
+  sendBtn.textContent = space.running ? '停止' : '发送';
+  sendBtn.disabled = space.running ? false : !(document.getElementById('sess-input').value || '').trim();
+
+  /* 输入框降级：只读 / 已归档置灰并说明原因（不隐藏），暂停态保持可读、发送时才拦（§8.7） */
+  const locked = s.state === 'archived' || s.role === 'viewer';
+  document.getElementById('composer').classList.toggle('locked', locked);
+  document.getElementById('sess-input').disabled = locked;
+  const lock = document.getElementById('composer-lock');
+  lock.hidden = !locked;
+  lock.textContent = s.state === 'archived' ? '服务已归档，恢复后可继续' : '你在此服务为只读';
+
+  /* 黄条：未添加专家时贴输入框上方（与创建表单 §5.4 同一条规则）；只读时此提示无意义，不显示 */
+  const tpl = s.tpl ? templates.find(t => t.name === s.tpl) : null;
+  const hasExpert = !!(tpl && tpl.defaultExperts && tpl.defaultExperts.length);
+  const warn = document.getElementById('sess-warn');
+  warn.hidden = locked || hasExpert;
+  if (!warn.hidden) {
+    document.getElementById('sess-warn-text').textContent =
+      '该服务未添加专家，将以默认助手响应；可在「专家」里添加岗位专家。';
+  }
+}
+
+/* ⋯ 菜单：置顶（切换排序）+ 重命名（行内）+ 删除（二次确认）
+   菜单定位在打开时算一次（视口坐标），靠近窗口底部时向上翻转，避免被裁掉 */
+function sessMenu(id){
+  if (space.menuId === id) { space.menuId = null; renderSpace(); return; }
+  const row = document.getElementById('nsrow-' + id);
+  if (row) {
+    const b = row.getBoundingClientRect();
+    const MH = 118, MW = 132;
+    let top = b.top + 26;
+    if (top + MH > window.innerHeight - 8) top = Math.max(8, b.bottom - MH);
+    space.menuPos = { top:Math.round(top), left:Math.round(b.right - MW - 8) };
+  }
+  space.menuId = id;
+  space.renaming = null;
+  renderSpace();
+}
+function togglePin(id){
+  const c = sessionById(id);
+  if (!c) return;
+  c.pinned = !c.pinned;
+  space.menuId = null;
+  renderSpace();
+  toast(c.pinned ? '已置顶：' + c.title : '已取消置顶：' + c.title);
+}
+function startRename(id){
+  space.menuId = null;
+  space.renaming = id;
+  renderSpace();
+}
+function renameKey(e, id){
+  if (e.key === 'Enter') { e.preventDefault(); commitRename(id); }
+  else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+}
+function commitRename(id){
+  const c = sessionById(id);
+  const el = document.getElementById('rename-in');
+  const v = el ? el.value.trim() : '';
+  space.renaming = null;
+  /* 不改 c.ts：重命名是元数据操作，不是「最近干活」——改了会把这条顶到列表最前面（排序键=会话更新时间） */
+  if (c && v) c.title = v;
+  renderSpace();
+  if (c && v) toast('已重命名');
+}
+function cancelRename(){ space.renaming = null; renderSpace(); }
+function removeSession(id){
+  const c = sessionById(id);
+  if (!c) return;
+  if (space.running && space.running.sessionId === id) dropRunning();
+  space.menuId = null;
+  space.artifactId = null;
+  sessions = sessions.filter(x => x.id !== id);
+  /* 删掉当前正在看的会话时，落到下一条（不留在空对话区上） */
+  if (space.activeSessionId === id) {
+    const next = sessionsOf(space.serviceId)[0];
+    space.activeSessionId = next ? next.id : null;
+  }
+  renderSpace();
+  toast('已删除会话「' + c.title + '」（运行记录保留，处置见 PRD Q32）');
+}
+
+function openSession(id){
+  space.activeSessionId = id;
+  dropRunning();
+  space.artifactId = null;
+  space.stepsOpen = {};
+  space.menuId = null;
+  const c = sessionById(id);
+  if (c) space.expertId = c.expert;
+  renderSpace();
+}
+
+/* 本服务已有的产物 id：从各会话的运行里反查（原型不另存索引，
+   真实实现走产物表的 service_id —— 见 PRD §5.2 产物表） */
+function artifactsOf(sid){
+  const out = [];
+  sessions.filter(c => c.serviceId === sid).forEach(c =>
+    (c.msgs || []).forEach(m => (m.arts || []).forEach(id => { if (out.indexOf(id) < 0) out.push(id); })));
+  return out;
+}
+
+/* 服务头右侧入口（D21）：产物 / 事项 —— 点击在右侧面板查看，不跳页。
+   它们原先坐在会话栏底部，会话栏上移到应用级侧栏之后落到这里（服务头本来就是服务级信息行）。
+   带计数是必要的：这两个入口没有页面标题承载"有多少"，数字直接给在入口上；
+   计数也让人一眼看出"这个服务攒下东西了没有"。 */
+function renderHeadTools(){
+  const host = document.getElementById('head-tools');
+  if (!host) return;
+  const sid = space.serviceId;
+  const counts = {
+    artifacts: artifactsOf(sid).length,
+    reminders: REMINDERS.filter(r => r.serviceId === sid).length
+  };
+  host.innerHTML = HEAD_TOOLS.map(t => {
+    const on = (space.panelKind === t.k);
+    return '<button class="head-tool' + (on ? ' on' : '') + '" ' +
+      'title="' + esc(t.label) + '：点击在右侧面板查看" onclick="openPanel(\'' + t.k + '\')">' +
+      icon(t.path) + '<span>' + esc(t.label) + '</span>' +
+      '<span class="tool-count">' + counts[t.k] + '</span></button>';
+  }).join('');
+}
+
+/* 右侧统一面板（D18）：产物预览 / 产物列表 / 事项列表 / 服务设置 / 概览
+   共用一个位置——用户不需要记住"哪个东西在哪个页面"，只需记住"点它，右边看"。 */
+function renderPanel(){
+  const el = document.getElementById('art-panel');
+  const kind = space.artifactId ? 'artifact' : space.panelKind;
+  if (!kind) { el.hidden = true; return; }
+  el.hidden = false;
+
+  const title = document.getElementById('art-title');
+  const body = document.getElementById('art-body');
+  const foot = document.getElementById('panel-foot');
+  foot.hidden = true;
+  foot.innerHTML = '';
+
+  if (kind === 'artifact') {
+    const a = ARTIFACTS[space.artifactId];
+    if (!a) { el.hidden = true; return; }
+    title.textContent = a.title;
+    body.innerHTML = '<div class="art-meta">' + esc(a.meta) + '<br />来自本会话的一次运行</div>' +
+      '<div class="art-preview">' + a.body + '</div>';
+    foot.hidden = false;
+    foot.innerHTML =
+      '<button class="btn" onclick="toast(\'下载产物（原型略）\')">下载</button>' +
+      '<button class="btn" onclick="toast(\'新窗口打开（原型略）\')">新窗口打开</button>';
+    return;
+  }
+
+  const views = {
+    artifacts: { t:'产物',    render:panelArtifactsHtml },
+    reminders: { t:'事项',    render:panelRemindersHtml },
+    settings:  { t:'服务设置', render:panelSettingsHtml },
+    overview:  { t:'服务概览', render:panelOverviewHtml }
+  };
+  const v = views[kind];
+  title.textContent = v ? v.t : '';
+  body.innerHTML = v ? v.render() : '';
+}
+
+function panelArtifactsHtml(){
+  const ids = artifactsOf(space.serviceId);
+  if (!ids.length) {
+    return '<p class="pane-empty">这个服务还没有产物。<br />在会话里让专家跑一轮——产物会先出现在对话中，也会汇总到这里。</p>';
+  }
+  return '<p class="pane-sub">本服务的全部产物。点开任意一份来看内容。</p>' +
+    ids.map(id => {
+      const a = ARTIFACTS[id];
+      if (!a) return '';
+      return '<div class="art-card wide" onclick="openArtifact(\'' + id + '\')">' +
+        '<span class="art-ic">' + esc(a.fmt) + '</span>' +
+        '<span><span class="art-name">' + esc(a.title) + '</span>' +
+        '<span class="art-sub" style="display:block">' + esc(a.meta) + '</span></span></div>';
+    }).join('');
+}
+
+function panelRemindersHtml(){
+  const list = REMINDERS.filter(r => r.serviceId === space.serviceId);
+  if (!list.length) {
+    return '<p class="pane-empty">这个服务还没有事项。<br />会话里说一句"记得……"，专家就会替你建一条。</p>';
+  }
+  return '<p class="pane-sub">多数事项是会话跑出来的。右下角标着它来自哪一段对话。</p>' +
+    list.map(r =>
+      '<div class="rem-row" onclick="toast(\'打开事项（原型略）：' + r.title + '\')">' +
+        '<div class="rem-top"><span class="rem-title">' + esc(r.title) + '</span>' +
+          '<span class="rem-state' + (r.state === '已完成' ? ' ok' : '') + '">' + esc(r.state) + '</span></div>' +
+        '<div class="rem-sub">' + esc(r.owner) + ' · ' + relTime(r.ts) + '</div>' +
+        '<div class="rem-from">来自会话「' + esc(r.from) + '」</div>' +
+      '</div>').join('');
+}
+
+function panelSettingsHtml(){
+  return '<p class="pane-sub">服务里的东西都在这儿配。' +
+    '至于服务本身（叫什么、怎么写描述、谁能看），在右上角的 ⋯ 里。</p>' +
+    SETTINGS_SECTIONS.map(x =>
+      '<div class="set-row" onclick="toast(\'' + x.label + '：原型未展开，见界面设计说明\')">' +
+        '<span class="set-name">' + x.label + '</span>' +
+        '<span class="set-desc">' + x.desc + '</span></div>').join('');
+}
+
+function panelOverviewHtml(){
+  const sid = space.serviceId;
+  const rem = REMINDERS.filter(r => r.serviceId === sid);
+  const stats = [
+    { n:sessionsOf(sid).length,          label:'会话' },
+    { n:artifactsOf(sid).length,         label:'产物' },
+    { n:rem.length,                      label:'事项' },
+    { n:rem.filter(r => r.state !== '已完成').length, label:'待推进' }
+  ];
+  return '<p class="pane-sub">这个服务的累积情况，只统计本服务。</p>' +
+    '<div class="stat-grid">' + stats.map(s =>
+      '<div class="stat-card"><span class="stat-n">' + s.n + '</span>' +
+      '<span class="stat-l">' + s.label + '</span></div>').join('') + '</div>';
+}
+
+/* 左栏入口的开关语义：点同一个入口第二次 = 收起面板（省掉一次"找关闭按钮"） */
+function openPanel(kind){
+  if (space.panelKind === kind && !space.artifactId) { closePanel(); return; }
+  space.panelKind = kind;
+  space.artifactId = null;
+  renderSpace();
+}
+function closePanel(){
+  space.panelKind = null;
+  space.artifactId = null;
+  renderSpace();
+}
+
+/* 服务头 ⋯ 菜单（D18，形态对齐 WorkBuddy 项目菜单）：
+   一级只放**服务本身**的三件事——改名、改描述、分享；其余收进「更多 ›」。
+   为什么一级只留三项：菜单一长就"什么都没突出"。改名 / 改描述 / 分享是服务级的日常动作，
+   概览、服务对象、运行记录、服务设置是"偶尔才去"的，进二级不损失效率。
+   分工要记牢：**⋯ = 服务本身**；**「设置」= 服务里的东西**（成员 / 专家 / 事项配置 / 运行记录）。 */
+function toggleSpaceMenu(e){
+  e.stopPropagation();
+  const already = !!document.querySelector('.space-more-menu');
+  closeSpaceMenu();
+  if (already) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  const m = document.createElement('div');
+  m.className = 'nav-menu space-more-menu';
+  m.style.top = (r.bottom + 6) + 'px';
+  m.style.left = Math.max(8, r.right - 156) + 'px';
+  const isOwner = ['owner', 'admin'].includes((services.find(s => s.id === space.serviceId) || {}).role);
+  m.innerHTML =
+    '<button class="menu-item" onclick="closeSpaceMenu();openDialog(\'name\')">修改服务名称</button>' +
+    '<button class="menu-item" onclick="closeSpaceMenu();openDialog(\'desc\')">修改服务描述</button>' +
+    '<button class="menu-item" onclick="closeSpaceMenu();openDialog(\'share\')">分享设置</button>' +
+    '<div class="menu-sep"></div>' +
+    '<div class="menu-item has-sub" onclick="toggleSub(event)"><span>更多</span><span class="sub-arrow">›</span>' +
+      '<div class="space-sub" onclick="event.stopPropagation()">' +
+        '<button class="menu-item" onclick="closeSpaceMenu();openPanel(\'overview\')">服务概览</button>' +
+        '<button class="menu-item" onclick="closeSpaceMenu();toast(\'服务对象（原型略）\')">服务对象</button>' +
+        '<button class="menu-item" onclick="closeSpaceMenu();toast(\'运行记录（原型略）\')">运行记录</button>' +
+        '<button class="menu-item" onclick="closeSpaceMenu();openPanel(\'settings\')">服务设置</button>' +
+        '<div class="menu-sep"></div>' +
+        (isOwner
+          ? '<button class="menu-item danger" onclick="closeSpaceMenu();toast(\'归档服务需二次确认（原型略）\')">归档服务</button>' +
+            '<button class="menu-item danger" onclick="closeSpaceMenu();toast(\'删除服务需二次确认（原型略）\')">删除服务</button>'
+          : '<button class="menu-item danger" onclick="closeSpaceMenu();toast(\'退出服务需二次确认（原型略）\')">退出服务</button>') +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(m);
+  /* 用 setTimeout 注册一次性外部点击关闭，否则本次点击会立刻把菜单关掉 */
+  setTimeout(function(){ document.addEventListener('click', closeSpaceMenu, { once:true }); }, 0);
+}
+/* 「更多 ›」：子菜单默认收起，点一次展开。
+   不做 hover 展开——鼠标划过就弹层太容易误触，而且移动端没有 hover。 */
+function toggleSub(e){
+  e.stopPropagation();
+  const m = document.querySelector('.space-more-menu');
+  if (m) m.classList.toggle('sub-open');
+}
+function closeSpaceMenu(){
+  const m = document.querySelector('.space-more-menu');
+  if (m) m.remove();
+}
+
+function newSession(){
+  space.activeSessionId = null;
+  dropRunning();
+  space.artifactId = null;
+  space.stepsOpen = {};
+  space.menuId = null;
+  renderSpace();
+  document.getElementById('sess-input').focus();
+  toast('已切到「新会话」，发送后创建');
+}
+
+/* 切换专家：写入会话的 expert_ref；不回溯已有运行（PRD FR-213） */
+function cycleExpert(){
+  const i = EXPERTS.findIndex(e => e.id === space.expertId);
+  space.expertId = EXPERTS[(i + 1) % EXPERTS.length].id;
+  const c = sessionById(space.activeSessionId);
+  if (c) c.expert = space.expertId;
+  renderSpace();
+  toast('本会话专家：' + expertName(space.expertId));
+}
+
+/* 发送按钮随输入启停：空输入不可点，避免一次无意义的请求。
+   运行中例外——那时它是「停止」，与输入内容无关（界面说明 §8.6） */
+function onSessInput(){
+  const el = document.getElementById('sess-input');
+  const btn = document.getElementById('btn-send');
+  if (!btn) return;
+  if (space.running) { btn.disabled = false; return; }
+  btn.disabled = !(el.value || '').trim();
+}
+
+/* 首次发送即建会话（PRD FR-210）；已有会话则续写一轮（会话 ⊇ 多次运行）。
+   原型不真跑 Agent：先用「运行中」落位，1.2 秒后由 finishRun 改成「已完成」并挂上服务卡片，
+   对应真实实现里的运行事件流（Web端Agent实时执行与产物交互PRD §9）。
+   运行中按钮变「停止」（界面说明 §8.6）——用户必须能中断一次跑偏的运行。 */
+function sendMessage(){
+  if (space.running) { toast('专家正在执行，可点「停止」中断'); return; }
+  const s = services.find(x => x.id === space.serviceId);
+  if (s && s.state === 'paused') { toast('服务已暂停，恢复后可继续'); return; }
+  const el = document.getElementById('sess-input');
+  const text = (el.value || '').trim();
+  if (!text) { toast('先写点什么'); return; }
+
+  const run = { who:'bot', expert:space.expertId, state:'运行中',
+                steps:['正在理解你的要求','正在检索服务内的相关资料'],
+                card:null, arts:[], actions:false };
+  let c = sessionById(space.activeSessionId);
+  if (c) {
+    c.ts = Date.now();
+    c.msgs.push({ who:'user', text:text }, run);
+  } else {
+    const title = text.length > 14 ? text.slice(0, 14) + '…' : text;
+    c = { id:'c' + Date.now(), serviceId:space.serviceId, title:title,
+          expert:space.expertId, pinned:false, ts:Date.now(),
+          msgs:[{ who:'user', text:text }, run] };
+    sessions.push(c);
+    space.activeSessionId = c.id;
+  }
+  space.running = { msg:run, sessionId:c.id, timer:setTimeout(() => finishRun(c.id, run), 1200) };
+  space._sessRendered = null;   /* 有新消息 —— 这次允许跳到对话末尾 */
+  renderSpace();
+  el.value = '';
+  onSessInput();
+}
+
+/* 一轮运行收尾：挂上服务卡片与追问入口，并解除「停止」态 */
+function finishRun(sid, run){
+  if (!run || run.state !== '运行中') return;
+  const c = sessionById(sid);
+  run.state = '已完成';
+  run.steps = ['正在理解你的要求','正在检索服务内的相关资料','正在整理结果'];
+  run.card = { title:'已受理：' + (c ? c.title : ''),
+               summary:'原型演示回复。真实实现里这里是一条专家运行消息，含执行摘要、服务卡片与产物卡片。',
+               next:'确认无误后，把结果归档到本服务。' };
+  run.actions = true;
+  if (space.running && space.running.msg === run) space.running = null;
+  if (!document.getElementById('view-space').hidden) {
+    space._sessRendered = null;
+    renderSpace();
+  }
+}
+
+/* 收掉还没结束的那次运行。不假装成功——状态落到「已停止」，也不产出产物。
+   离开会话 / 空间、删掉正在跑的会话时都要调它，否则消息会永远停在「运行中」。 */
+function dropRunning(){
+  if (!space.running) return;
+  clearTimeout(space.running.timer);
+  const run = space.running.msg;
+  if (run && run.state === '运行中') { run.state = '已停止'; run.actions = true; }
+  space.running = null;
+}
+
+function stopRun(){
+  if (!space.running) return;
+  dropRunning();
+  space._sessRendered = null;
+  renderSpace();
+  toast('已停止本次执行');
+}
+
+/* 输入框右侧那一个按钮，两种身份（界面说明 §8.6） */
+function onSendClick(){ if (space.running) stopRun(); else sendMessage(); }
+
+/* 演示模式：有数据 / 空态 / 全部归档。
+   「空态」不销毁数据（只让列表看起来没有服务），「全部归档」把状态真的改成 archived——
+   这样才能顺带演示「已归档服务的空间里输入框置灰」（§8.9）。 */
+function setMode(m){
+  mode.demo = m;
+  if (m === 'archived') {
+    services.forEach(s => { if (!s._bak) s._bak = s.state; s.state = 'archived'; });
+  } else {
+    services.forEach(s => { if (s._bak) { s.state = s._bak; s._bak = null; } });
+  }
+  document.getElementById('tg-data').classList.toggle('on', m === 'data');
+  document.getElementById('tg-empty').classList.toggle('on', m === 'empty');
+  document.getElementById('tg-arch').classList.toggle('on', m === 'archived');
+  render();
+  const inSpace = !document.getElementById('view-space').hidden;
+  if (inSpace && m === 'empty') backToList();
+  else if (inSpace) renderSpace();
+}
+
+/* ---------- 创建表单 ---------- */
+function openCreate(tplId, existingDraft){
+  /* 模板入口只剩列表页的「从模板创建」分组（D23）——从那里进来时 tplId 有值：
+     指令与专家组合已预填，**知识库与技能仍为空**（模板是跨租户的全局表，
+     它预置的知识库 ID 在别的租户下并不存在，PRD §5.2.9 展开规则第 5 条）。
+     本表单里**没有**"选择模板"入口，也没有"服务范围 / 服务描述"两个折叠区。 */
+  const tpl = tplId ? templates.find(t => t.id === tplId) : null;
+  form = {
+    tpl: tpl,
+    picker: null,
+    draftId: existingDraft ? existingDraft.id : null,
+    name: existingDraft ? existingDraft.name : (tpl ? tpl.name : ''),
+    instruction: existingDraft ? (existingDraft.instruction || '') : (tpl ? tpl.instruction : ''),
+    experts: tpl ? tpl.defaultExperts.slice() : [],
+    kbs:    existingDraft && existingDraft.kbs    ? existingDraft.kbs.slice()    : [],
+    skills: existingDraft && existingDraft.skills ? existingDraft.skills.slice() : [],
+    err: ''
+  };
+  document.getElementById('view-list').hidden = true;
+  document.getElementById('view-create').hidden = false;
+  window.scrollTo(0,0);
+  renderForm();
+}
+
+/* 目的地随「离开确认」一起走（D20 / D21）：取消 → 回列表；
+   点侧栏二级 → 进那个服务；点侧栏三级 → 进那个服务、并直接打开这条会话 */
+function cancelCreate(to){
+  leaveAfter = to;
+  if (formDirty()) { openLeaveModal(); return; }
+  leaveForm();
+}
+
+function leaveForm(){
+  form = null;
+  document.getElementById('view-create').hidden = true;
+  document.getElementById('view-list').hidden = false;
+  const to = leaveAfter;
+  leaveAfter = undefined;
+  render();
+  /* to 为空 = 回列表：render() 已经落在列表页 */
+  if (to) enterSpace(to.serviceId, to.sessionId);
+}
+
+/* 有未保存修改时离开：二次确认三选项（界面说明 §6 / §7）。
+   直接把用户填的内容丢掉是不礼貌的——尤其指令框可能写了很长一段。 */
+function formDirty(){
+  if (!form) return false;
+  readFields();
+  return !!(form.name || (form.instruction || '').trim() ||
+            form.experts.length || form.kbs.length || form.skills.length);
+}
+
+function openLeaveModal(){
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.id = 'leave-mask';
+  mask.onclick = function(ev){ if (ev.target === mask) closeLeaveModal(); };
+  mask.innerHTML =
+    '<div class="modal">' +
+      '<div class="modal-head">有未保存的内容</div>' +
+      '<div class="modal-body">' +
+        '<p class="modal-hint" style="font-size:12px;color:var(--text-2);line-height:1.7;margin:0">' +
+          '保存为草稿吗？草稿会出现在服务列表里，之后可以接着填。<br />放弃则这次填的内容不再保留。</p>' +
+      '</div>' +
+      '<div class="modal-foot">' +
+        '<button class="btn" onclick="closeLeaveModal()">继续编辑</button>' +
+        '<button class="btn" onclick="discardForm()">放弃</button>' +
+        '<button class="btn-primary" onclick="draftAndLeave()">保存草稿</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(mask);
+}
+function closeLeaveModal(){ hideLeaveModal(); leaveAfter = undefined; }   /* 点「继续编辑」= 放弃这次跳转意图 */
+function hideLeaveModal(){ const m = document.getElementById('leave-mask'); if (m) m.remove(); }
+function discardForm(){ hideLeaveModal(); leaveForm(); }
+function draftAndLeave(){ hideLeaveModal(); saveDraft(); }
+
+/* 从表单读回输入值（渲染会重建 DOM，必须先把用户输入存进状态）。
+   D23 之后表单只有两个自由输入框（名称 / 指令）——专家、知识库、技能是选出来的，
+   直接存在 form.experts / form.kbs / form.skills 里，不经过这里。 */
+function readFields(){
+  const n = document.getElementById('f-name');
+  const ins = document.getElementById('f-instruction');
+  if (n) form.name = n.value.trim();
+  if (ins) form.instruction = ins.value;
+}
+
+function validate(){
+  readFields();
+  if (!form.name) return '请填写服务名称';
+  if (form.name.length > 255) return '服务名称不能超过 255 个字符';
+  if (form.instruction.length > 4000) return '服务指令不能超过 4000 个字符';
+  return '';
+}
+
+/* 保存草稿：字段完整度不校验（界面说明 §5.5），但草稿数量有上限——
+   同一个人攒一堆没名没内容的草稿，等于把列表页变成垃圾场。 */
+function saveDraft(){
+  readFields();
+  const drafts = services.filter(s => s.state === 'draft' && s.id !== form.draftId).length;
+  if (!form.draftId && drafts >= DRAFT_LIMIT) {
+    toast('草稿过多，请先完成或删除');
+    leaveAfter = undefined;   /* 没走成，跳转意图作废 */
+    return;
+  }
+  upsertService('draft');
+}
+
+function finish(){
+  const err = validate();
+  if (err) { form.err = err; renderForm(); return; }
+  upsertService('active');
+}
+
+function upsertService(state){
+  /* 草稿不校验字段完整度（界面说明 §5.5）：没填名字时给一个占位名，
+     否则列表里会出现一张没有标题的卡片。 */
+  if (state === 'draft' && !form.name) form.name = '未命名服务';
+  const tplName = form.tpl ? form.tpl.name : '';
+  const usedTpl = form.tpl;
+  const expertCount = form.experts.length;
+  const kbCount = form.kbs.length;      /* 服务级资源边界（D23）：与专家并列的三项选择之二 */
+  const skillCount = form.skills.length;
+  const madeDraft = state === 'draft';
+  let newId;
+  if (form.draftId) {
+    const s = services.find(x => x.id === form.draftId);
+    if (s) {
+      s.name = form.name; s.tpl = tplName; s.state = state; s.role = 'owner';
+      s.ts = Date.now(); s.members = s.members || 1;
+      s.label = madeDraft ? '草稿 · 未启用' : '刚刚';
+      s.instruction = form.instruction;
+      s.kbs = form.kbs.slice(); s.skills = form.skills.slice();
+    }
+    newId = form.draftId;
+  } else {
+    newId = 'new' + Date.now();
+    services.unshift({
+      id: newId, name: form.name, tpl: tplName,
+      role:'owner', members:1, ts:Date.now(), created:Date.now(),
+      label: madeDraft ? '草稿 · 未启用' : '刚刚', state: state,
+      instruction: form.instruction,
+      kbs: form.kbs.slice(), skills: form.skills.slice()
+    });
+  }
+  form = null;
+  document.getElementById('view-create').hidden = true;
+  document.getElementById('view-list').hidden = false;
+  mode.q = ''; document.getElementById('q').value = '';
+  render();
+  const el = document.getElementById('card-' + newId);
+  if (el) {
+    el.classList.add('flash');
+    el.scrollIntoView({ block:'nearest', behavior:'smooth' });
+    setTimeout(() => el.classList.remove('flash'), 2200);
+  }
+  const created = services.find(s => s.id === newId);
+  document.getElementById('banner-slot').innerHTML =
+    '<div class="banner">' + (madeDraft ? '已保存为草稿。' : '服务已创建。') +
+    '事项状态与字段选项已按' + (usedTpl ? '模板' : '默认') + '配好。' +
+    (expertCount ? '' : '添加专家后才能发起 Agent 工作。') +
+    (kbCount ? (kbCount + ' 个知识库、' + skillCount + ' 项技能已就位。') : '未选知识库与技能，专家将只依据指令与对话回答。') +
+    '<button class="btn-text" onclick="toast(\'去配置事项状态（原型略）\')">去调整事项状态</button>' +
+    '<button class="banner-x" onclick="this.parentNode.remove()" aria-label="关闭">&#215;</button></div>';
+  toast(madeDraft ? '已保存为草稿' : '服务「' + created.name + '」已创建');
+  const to = leaveAfter; leaveAfter = undefined;
+  if (to) enterSpace(to);   /* 若这次保存是"从表单经侧栏离开"触发的，保存完继续去点的那一项 */
+}
+
+function renderForm(){
+  const noExpert = form.experts.length === 0;
+  const insLen = (form.instruction || '').length;
+  /* 阻断性校验：错误落在字段正下方（界面说明 §5.4），不是笼统挂在表单顶部 */
+  const nameErr  = form.err && form.err.indexOf('名称') >= 0;
+  const insErr   = form.err && form.err.indexOf('指令') >= 0;
+  const otherErr = form.err && !nameErr && !insErr;
+  const err = otherErr ? '<div class="err-msg" style="margin:0 0 14px">' + esc(form.err) + '</div>' : '';
+
+  /* 专家卡：岗位名 + 所属职能 · 来源（界面说明 §5.3）。只出现岗位名，不出现 expert_ref 等技术标识（FR-309） */
+  const expertCards = form.experts.map(id => {
+    const e = EXPERTS.find(x => x.id === id);
+    if (!e) return '';
+    return '<div class="expert-card" title="' + esc(e.desc) + '">' +
+      '<span class="expert-ic">' + esc(e.name.slice(0,1)) + '</span>' +
+      '<span class="expert-main"><span class="expert-name">' + esc(e.name) + '</span>' +
+      '<span class="expert-meta">' + esc(e.domain) + ' · ' + esc(e.source) + '</span></span>' +
+      '<button class="btn-text" onclick="removeExpert(\'' + id + '\')">移除</button></div>';
+  }).join('');
+
+  /* 知识库 / 技能的选择浮层（D23）。两者都是"从清单里挑"，不是自由输入——与专家选择共用同一套浮层。
+     知识库取"当前用户可访问的库"；技能取平台内置技能库（ListPreloadedSkills）。
+     ⚠️ 技能名一律中文可读名：内置库里有一个 openmaic-classroom 是英文技术名，
+        直接渲染会违反界面说明 §7.1 反面清单第 3 类，已在 SKILLS 常量里剔除（见界面说明 UI-Q12）。 */
+  const kbPicker = form.picker === 'kb'
+    ? '<div class="pick-panel"><div class="pick-panel-head"><span>选择知识库（本服务的检索范围）</span>' +
+      '<button class="btn-text" onclick="closePicker()">收起</button></div>' +
+      KBS.map(k => '<button class="pick-opt' + (form.kbs.indexOf(k.id) >= 0 ? ' on' : '') + '" onclick="toggleKb(\'' + k.id + '\')">' +
+        '<span class="pick-opt-main">' + esc(k.name) + '</span>' +
+        '<span>' + esc(k.meta) + '</span></button>').join('') +
+      '<p class="pick-note">不选 = 这个服务不检索任何知识库。没有「全选」——默认从严，避免家长与学员资料被默认纳入检索。</p></div>'
+    : '';
+
+  const skillPicker = form.picker === 'skill'
+    ? '<div class="pick-panel"><div class="pick-panel-head"><span>选择技能（本服务允许专家调用的能力）</span>' +
+      '<button class="btn-text" onclick="closePicker()">收起</button></div>' +
+      SKILLS.map(s => '<button class="pick-opt' + (form.skills.indexOf(s.id) >= 0 ? ' on' : '') + '" onclick="toggleSkill(\'' + s.id + '\')">' +
+        '<span class="pick-opt-main">' + esc(s.name) + '</span>' +
+        '<span>' + esc(s.desc) + '</span></button>').join('') +
+      '<p class="pick-note">不选 = 这个服务不启用任何内置技能。含联网检索这类会把内容送出园的能力，须显式勾选才启用。</p></div>'
+    : '';
+
+  const avail = EXPERTS.filter(e => form.experts.indexOf(e.id) < 0);
+  const expertPicker = form.picker === 'expert'
+    ? '<div class="pick-panel"><div class="pick-panel-head"><span>添加专家</span>' +
+      '<button class="btn-text" onclick="closePicker()">收起</button></div>' +
+      (avail.length
+        ? avail.map(e => '<button class="pick-opt" onclick="addExpert(\'' + e.id + '\')">' + esc(e.name) +
+            '<span>' + esc(e.domain) + ' · ' + esc(e.desc) + '</span></button>').join('')
+        : '<button class="pick-opt" onclick="closePicker()">专家已全部添加</button>') +
+      '</div>'
+    : '';
+
+  const body = '<div class="panel">' + err +
+    /* 不再重复页头的「新建服务」标题——标题在页头已有，面板里再写一遍是冗余 */
+    '<div class="field"><label class="field-label" for="f-name">服务名称<span class="req">*</span></label>' +
+      '<input class="input' + (nameErr ? ' err' : '') + '" id="f-name" value="' + esc(form.name) + '" placeholder="如：秋季招生咨询" oninput="onNameInput()" />' +
+      (nameErr ? '<div class="err-msg">' + esc(form.err) + '</div>' : '') + '</div>' +
+
+    '<div class="field">' +
+      /* 指令框右上角原本有一个"选择模板 / 模板：XX · 更换"按钮，D23 已删除——
+         模板的唯一入口是列表页的「从模板创建」分组；从那里进来时这里已预填好。 */
+      '<div class="field-label"><label for="f-instruction" style="cursor:pointer">服务指令</label></div>' +
+      /* 不设 maxlength：超出上限走阻断校验（§5.4），否则那条规则永远走不到 */
+      '<textarea class="input' + (insErr ? ' err' : '') + '" id="f-instruction" rows="5" oninput="onInstrInput()" placeholder="例如：跟进 2026 秋季招生线索，语气亲切不催促，重点记录家长顾虑与到访意向；涉及课程与价格时先查知识库再回答。">' + esc(form.instruction) + '</textarea>' +
+      '<div class="count' + (insLen > 4000 ? ' over' : '') + '" id="instr-count">' + insLen + ' / 4000</div>' +
+      (insErr ? '<div class="err-msg">' + esc(form.err) + '</div>' : '') +
+      '<div class="field-hint">用自然语言说清这个服务要做什么、按什么方式做。留空也可以。</div>' +
+    '</div>' +
+
+    '<div class="field"><div class="field-label"><span>专家</span>' +
+        '<button class="btn-text" style="margin-left:auto" onclick="openPicker(\'expert\')">＋ 添加专家</button></div>' +
+      (noExpert
+        ? '<div class="notice"><span class="notice-text">未添加专家，创建后可随时添加；未添加前无法发起 Agent 工作</span></div>' +
+          '<p class="notice-line">这是提示不是错误——只做事项协作的服务也可以直接创建。</p>'
+        : '<div class="expert-list">' + expertCards + '</div>') +
+      expertPicker +
+    '</div>' +
+
+    /* 知识库与技能：**服务级**，配一次全员共享（D23）。两者与专家并列为三个选择区。
+       未选时给的是**灰色轻提示**、不是专家区那种黄条——能力缺失才配黄条，
+       范围缺失（查不到资料 / 少几项能力）只影响回答质量，不影响能不能用。 */
+    '<div class="field"><div class="field-label"><span>知识库</span>' +
+        '<button class="btn-text" style="margin-left:auto" onclick="openPicker(\'kb\')">＋ 选择知识库</button></div>' +
+      (form.kbs.length
+        ? chipRow('kbs', kbsOf(form.kbs))
+        : '<div class="field-hint">未选知识库，专家将只依据指令与对话回答。</div>') +
+      kbPicker +
+    '</div>' +
+
+    '<div class="field"><div class="field-label"><span>技能</span>' +
+        '<button class="btn-text" style="margin-left:auto" onclick="openPicker(\'skill\')">＋ 选择技能</button></div>' +
+      (form.skills.length
+        ? chipRow('skills', skillsOf(form.skills))
+        : '<div class="field-hint">未启用内置技能。</div>') +
+      skillPicker +
+    '</div>' +
+  '</div>';
+
+  document.getElementById('panel-slot').innerHTML = body;
+  /* 名称为空时主按钮不可点（界面说明 §5.4 阻断项），随输入实时切换 */
+  document.getElementById('btn-create').disabled = !form.name;
+}
+
+/* 输入即时反馈：只改局部，不整块重渲染（否则光标会跳） */
+function onNameInput(){
+  const n = document.getElementById('f-name');
+  const b = document.getElementById('btn-create');
+  if (!n || !form) return;
+  form.name = n.value.trim();
+  n.classList.remove('err');
+  if (b) b.disabled = !form.name;
+}
+function onInstrInput(){
+  const el = document.getElementById('f-instruction');
+  const c  = document.getElementById('instr-count');
+  if (!el || !form) return;
+  form.instruction = el.value;
+  el.classList.remove('err');
+  if (c) {
+    c.textContent = el.value.length + ' / 4000';
+    c.classList.toggle('over', el.value.length > 4000);
+  }
+}
+
+function openPicker(k){ readFields(); form.picker = (form.picker === k ? null : k); renderForm(); }
+function closePicker(){ readFields(); form.picker = null; renderForm(); }
+function addExpert(id){
+  readFields();
+  if (form.experts.indexOf(id) < 0) form.experts.push(id);
+  form.err = '';
+  renderForm();
+}
+function removeExpert(id){
+  readFields();
+  form.experts = form.experts.filter(x => x !== id);
+  renderForm();
+}
+
+/* 知识库 / 技能的勾选：点一项即切换选中态（浮层不关，可以连着勾几个） */
+function toggleKb(id){
+  readFields();
+  const i = form.kbs.indexOf(id);
+  if (i >= 0) form.kbs.splice(i, 1); else form.kbs.push(id);
+  form.err = '';
+  renderForm();
+}
+function toggleSkill(id){
+  readFields();
+  const i = form.skills.indexOf(id);
+  if (i >= 0) form.skills.splice(i, 1); else form.skills.push(id);
+  form.err = '';
+  renderForm();
+}
+/* 已选项的标签展示（知识库 / 技能共用）。逐个可移除——**没有「全选」「清空」**（D23） */
+function chipRow(key, items){
+  return '<div class="chips">' + items.map(it =>
+    '<span class="chip">' + esc(it.name) +
+      '<button class="chip-x" onclick="dropChip(\'' + key + '\',\'' + it.id + '\')" aria-label="移除">&#215;</button>' +
+    '</span>').join('') + '</div>';
+}
+function kbsOf(ids){ return ids.map(id => KBS.find(k => k.id === id)).filter(Boolean); }
+function skillsOf(ids){ return ids.map(id => SKILLS.find(s => s.id === id)).filter(Boolean); }
+function dropChip(key, val){
+  readFields();
+  form[key] = form[key].filter(x => x !== val);
+  renderForm();
+}
+
+/* ---------- 轻量模态：⋯ 菜单里的三项（D18）----------
+   改名 / 改描述 / 分享设置共用一个外壳，差别只在"标题 + 内容 + 保存动作"。
+   为什么这三项独立成模态、不并进「服务设置」：
+   它们改的是**服务本身**（叫什么、怎么描述、谁能看到），
+   而「服务设置」配的是**服务里的东西**（成员、专家、事项配置、运行记录）。 */
+function openDialog(kind){
+  const s = services.find(x => x.id === space.serviceId);
+  if (!s) return;
+  space.modal = kind;
+
+  let title = '', body = '', okText = '保存';
+  if (kind === 'name') {
+    title = '修改服务名称';
+    body = '<label class="modal-label">服务名称</label>' +
+      '<input class="modal-input" id="dlg-name" value="' + esc(s.name) + '" maxlength="40" />' +
+      '<div class="modal-hint">名称只在成员之间出现，不对外。换成一眼能认出"这是哪件事"的名字，好过每次都要点进去看。</div>';
+  } else if (kind === 'desc') {
+    title = '修改服务描述';
+    body = '<label class="modal-label">服务描述</label>' +
+      '<textarea class="modal-textarea" id="dlg-desc" placeholder="一句话说清这个服务在做什么…">' + esc(s.desc || '') + '</textarea>' +
+      '<div class="modal-hint">描述会出现在服务列表的卡片上，帮成员快速判断这个服务管什么。' +
+      '它是说明，不是工作指令——工作指令在服务里的「设置」。</div>';
+  } else {
+    title = '分享设置';
+    okText = '完成';
+    const scopes = [
+      { k:'private', name:'仅我可见',     desc:'其他人看不到这个服务，也不会出现在任何列表里' },
+      { k:'members', name:'服务成员可见', desc:'被加入成员的同事可以看到并协作' },
+      { k:'link',    name:'持有链接可见', desc:'任何拿到链接的同事都能查看内容，但不能修改' }
+    ];
+    body = '<div class="modal-label">谁能看到这个服务</div>' +
+      scopes.map(x =>
+        '<div class="share-opt' + (space.shareScope === x.k ? ' on' : '') + '" onclick="setShare(\'' + x.k + '\')">' +
+          '<span class="share-dot"></span>' +
+          '<span><span class="share-name">' + x.name + '</span>' +
+          '<span class="share-desc" style="display:block">' + x.desc + '</span></span>' +
+        '</div>').join('') +
+      '<div class="modal-hint">这里管的是服务本身的可见范围。' +
+      '服务里单个会话能不能共享给其他成员，是另一件事（PRD Q31，尚未定）。</div>';
+  }
+
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.id = 'modal-mask';
+  /* 点遮罩关闭：弹出层最常见的期望行为，不给用户造成"必须找到取消"的困扰 */
+  mask.onclick = function(ev){ if (ev.target === mask) closeDialog(); };
+  mask.innerHTML =
+    '<div class="modal">' +
+      '<div class="modal-head">' + title + '</div>' +
+      '<div class="modal-body">' + body + '</div>' +
+      '<div class="modal-foot">' +
+        '<button class="btn" onclick="closeDialog()">取消</button>' +
+        '<button class="btn-primary" onclick="saveDialog()">' + okText + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(mask);
+  const inp = document.getElementById('dlg-name') || document.getElementById('dlg-desc');
+  if (inp) { inp.focus(); if (inp.select) inp.select(); }
+}
+
+/* 分享范围：点一下就换选中并重绘，不做"选中后才生效"——用户期待即时反馈 */
+function setShare(k){
+  space.shareScope = k;
+  const kind = space.modal;
+  closeDialog();
+  openDialog(kind);
+}
+
+function saveDialog(){
+  const s = services.find(x => x.id === space.serviceId);
+  const kind = space.modal;
+  if (s && kind === 'name') {
+    const el = document.getElementById('dlg-name');
+    const v = el ? el.value.trim() : '';
+    if (!v) { toast('服务名称不能为空'); return; }
+    s.name = v;
+    toast('已保存服务名称');
+  } else if (s && kind === 'desc') {
+    const el = document.getElementById('dlg-desc');
+    s.desc = el ? el.value.trim() : '';
+    toast('已保存服务描述');
+  } else {
+    const map = { private:'仅我可见', members:'服务成员可见', link:'持有链接可见' };
+    toast('分享范围已设为：' + map[space.shareScope]);
+  }
+  closeDialog();
+  if (kind !== 'share') renderSpace();
+}
+
+function closeDialog(){
+  const m = document.getElementById('modal-mask');
+  if (m) m.remove();
+  space.modal = null;
+}
+
+render();
+</script>
+</body>
+</html>
