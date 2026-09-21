@@ -73,6 +73,17 @@
           <!-- 已发布专家：只展示管理员已发布版本，不要求工作画像绑定 -->
           <div v-if="publishedExpertsList.length > 0" class="agent-group">
             <div class="agent-group-title">已发布专家</div>
+            <div class="agent-option" :class="{ selected: isPublishedExpertSelected('__auto__') }"
+              @click="emit('select-published-expert-auto')">
+              <div class="builtin-icon normal">
+                <TIcon name="control-platform" size="13px" />
+              </div>
+              <div class="agent-option-copy">
+                <span class="agent-option-name">自动匹配专家</span>
+                <span class="agent-option-description">根据当前问题选择最合适的已发布专家</span>
+              </div>
+              <span class="published-expert-tag">路由</span>
+            </div>
             <div v-for="expert in publishedExpertsList" :key="expert.definition_id" class="agent-option"
               :class="{ selected: isPublishedExpertSelected(expert) }"
               @click="emit('select-published-expert', expert)">
@@ -226,6 +237,7 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'select', agent: CustomAgent, sourceTenantId?: string): void;
   (e: 'select-published-expert', expert: PublishedExpert): void;
+  (e: 'select-published-expert-auto'): void;
   (e: 'not-ready', agent: CustomAgent, labels: string[], keys: AgentNotReadyReasonKey[], sourceTenantId?: string): void;
 }>();
 
@@ -289,8 +301,8 @@ const isSharedAgentSelected = (shared: SharedAgentSelection) =>
 const isMyAgentSelected = (agent: CustomAgent) =>
   props.currentAgentId === agent.id && !currentAgentSourceTenantId.value;
 
-const isPublishedExpertSelected = (expert: PublishedExpert) =>
-  props.selectedPublishedExpertId === expert.definition_id;
+const isPublishedExpertSelected = (expert: PublishedExpert | string) =>
+  props.selectedPublishedExpertId === (typeof expert === 'string' ? expert : expert.definition_id);
 
 const isDetailCurrent = computed(() => {
   const detail = activeDetail.value;

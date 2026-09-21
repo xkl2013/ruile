@@ -44,6 +44,24 @@ func (r *agentRunRepository) GetByIDForUser(ctx context.Context, tenantID uint64
 	return &run, err
 }
 
+func (r *agentRunRepository) ListByThreadForUser(
+	ctx context.Context,
+	tenantID uint64,
+	userID, threadID string,
+) ([]*types.AgentRun, error) {
+	var runs []*types.AgentRun
+	err := r.db.WithContext(ctx).
+		Where(
+			"tenant_id = ? AND user_id = ? AND thread_id = ?",
+			tenantID,
+			strings.TrimSpace(userID),
+			strings.TrimSpace(threadID),
+		).
+		Order("created_at ASC").
+		Find(&runs).Error
+	return runs, err
+}
+
 func (r *agentRunRepository) FindActiveByIdempotency(
 	ctx context.Context,
 	tenantID uint64,
@@ -163,6 +181,28 @@ func (r *agentRunRepository) MarkRetry(ctx context.Context, id, code, message st
 			"error_code":    strings.TrimSpace(code),
 			"error_message": strings.TrimSpace(message),
 		}).Error
+}
+
+func (r *agentRunRepository) MarkTimedOut(
+	ctx context.Context,
+	id string,
+	startedBefore, finishedAt time.Time,
+) (bool, error) {
+	update := r.db.WithContext(ctx).Model(&types.AgentRun{}).
+		Where(
+			"id = ? AND status = ? AND started_at IS NOT NULL AND started_at <= ?",
+			strings.TrimSpace(id),
+			types.AgentRunStatusRunning,
+			startedBefore.UTC(),
+		).
+		Updates(map[string]any{
+			"status":        types.AgentRunStatusFailed,
+			"interaction":   types.JSONMap{},
+			"error_code":    types.AgentRunErrorTimedOut,
+			"error_message": "Agent 运行超过服务端执行时限，已自动终止。",
+			"finished_at":   finishedAt.UTC(),
+		})
+	return update.RowsAffected == 1, update.Error
 }
 
 func (r *agentRunRepository) MarkSucceeded(
@@ -372,7 +412,7 @@ func (r *agentRunRepository) CreateRequirementSnapshot(
 	})
 }
 
-func (r *agentRunRepository) CancelQueued(
+func (r *agentRunRepository) CancelActive(
 	ctx context.Context,
 	tenantID uint64,
 	userID, id string,
@@ -380,14 +420,19 @@ func (r *agentRunRepository) CancelQueued(
 ) (bool, error) {
 	update := r.db.WithContext(ctx).Model(&types.AgentRun{}).
 		Where(
-			"tenant_id = ? AND user_id = ? AND id = ? AND status = ?",
+			"tenant_id = ? AND user_id = ? AND id = ? AND status IN ?",
 			tenantID,
 			strings.TrimSpace(userID),
 			strings.TrimSpace(id),
-			types.AgentRunStatusQueued,
+			[]string{
+				types.AgentRunStatusQueued,
+				types.AgentRunStatusRunning,
+				types.AgentRunStatusWaitingInput,
+			},
 		).
 		Updates(map[string]any{
 			"status":      types.AgentRunStatusCancelled,
+			"interaction": types.JSONMap{},
 			"finished_at": finishedAt.UTC(),
 		})
 	return update.RowsAffected == 1, update.Error

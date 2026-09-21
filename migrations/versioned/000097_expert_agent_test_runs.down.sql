@@ -1,4 +1,4 @@
--- Migration: 000094_expert_agent_test_runs (rollback)
+-- Expert AgentRun types rollback.
 
 DELETE FROM agent_runs WHERE run_type = 'expert_agent_test';
 

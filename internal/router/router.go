@@ -85,6 +85,7 @@ type RouterParams struct {
 	ExpertPackageHandler         *handler.ExpertPackageHandler
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
 	OrganizeHandler              *handler.OrganizeHandler
+	AgentRunHandler              *handler.AgentRunHandler
 	ServiceHandler               *handler.ServiceHandler
 	SkillHandler                 *handler.SkillHandler
 	OrganizationHandler          *handler.OrganizationHandler
@@ -269,6 +270,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterExpertPackageRoutes(v1, params.ExpertPackageHandler, rbacGuards)
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterOrganizeRoutes(v1, params.OrganizeHandler, rbacGuards)
+		RegisterAgentRunRoutes(v1, params.AgentRunHandler, rbacGuards)
 		RegisterServiceRoutes(v1, params.ServiceHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
@@ -1277,6 +1279,9 @@ func RegisterExpertPackageRoutes(r *gin.RouterGroup, h *handler.ExpertPackageHan
 	published := g.apiKeyGroup(r.Group("/expert-packages"), apiKeyChat(apiKeyFullAccess()))
 	{
 		published.GET("/published", g.Viewer(), h.ListPublished)
+		published.POST("/published/route", g.Viewer(), h.RoutePublished)
+		published.POST("/published/auto-runs", g.Viewer(), h.PublishedAutoRun)
+		published.POST("/published/runs/:run_id/follow-ups", g.Viewer(), h.PublishedFollowUp)
 		published.POST("/published/:package_id/definitions/:definition_id/runs", g.Viewer(), h.PublishedRun)
 	}
 	packages := g.apiKeyGroup(r.Group("/admin/expert-packages"), apiKeyManageAgents(apiKeyFullAccess()))
@@ -1289,6 +1294,26 @@ func RegisterExpertPackageRoutes(r *gin.RouterGroup, h *handler.ExpertPackageHan
 		packages.POST("/:id/versions/:version_id/publish", g.Admin(), h.Publish)
 		packages.POST("/:id/definitions/:definition_id/test-runs", g.Admin(), h.TestRun)
 		packages.PUT("/:id/bindings", g.Admin(), h.Bind)
+	}
+}
+
+func RegisterAgentRunRoutes(r *gin.RouterGroup, h *handler.AgentRunHandler, g *rbacGuards) {
+	if h == nil {
+		return
+	}
+	runs := g.apiKeyGroup(r.Group("/agent-runs"), apiKeyChat(apiKeyFullAccess()))
+	{
+		runs.GET("/:id", g.Viewer(), h.Get)
+		runs.GET("/:id/thread", g.Viewer(), h.ListThread)
+		runs.GET("/:id/diff", g.Viewer(), h.Diff)
+		runs.GET("/:id/quality", g.Viewer(), h.Quality)
+		runs.GET("/:id/events", g.Viewer(), h.StreamEvents)
+		runs.GET("/:id/steps", g.Viewer(), h.Steps)
+		runs.POST("/:id/answers", g.Viewer(), h.Answers)
+		runs.POST("/:id/regenerate", g.Viewer(), h.Regenerate)
+		runs.POST("/:id/cancel", g.Viewer(), h.Cancel)
+		runs.GET("/:id/artifacts/:artifact_id/preview", g.Viewer(), h.PreviewArtifact)
+		runs.GET("/:id/artifacts/:artifact_id/download", g.Viewer(), h.DownloadArtifact)
 	}
 }
 
@@ -1363,6 +1388,7 @@ func RegisterServiceRoutes(r *gin.RouterGroup, h *handler.ServiceHandler, g *rba
 		svc.POST("/refresh", g.Viewer(), h.Refresh)
 		svc.POST("/memories/:memory_id/extract", g.Viewer(), h.ExtractMemory)
 		svc.GET("/agent-runs/:id", g.Viewer(), h.GetAgentRun)
+		svc.GET("/agent-runs/:id/artifacts/:artifact_id/preview", g.Viewer(), h.PreviewAgentRunArtifact)
 		svc.GET("/agent-runs/:id/quality", g.Viewer(), h.GetAgentRunQuality)
 		svc.GET("/agent-runs/:id/events", g.Viewer(), h.StreamAgentRunEvents)
 		svc.GET("/agent-runs/:id/steps", g.Viewer(), h.ListAgentRunSteps)

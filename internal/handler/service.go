@@ -19,12 +19,17 @@ import (
 )
 
 type ServiceHandler struct {
-	service   interfaces.ServiceService
-	agentRuns interfaces.AgentRunService
+	service     interfaces.ServiceService
+	agentRuns   interfaces.AgentRunService
+	fileService interfaces.FileService
 }
 
-func NewServiceHandler(svc interfaces.ServiceService, agentRuns interfaces.AgentRunService) *ServiceHandler {
-	return &ServiceHandler{service: svc, agentRuns: agentRuns}
+func NewServiceHandler(
+	svc interfaces.ServiceService,
+	agentRuns interfaces.AgentRunService,
+	fileService interfaces.FileService,
+) *ServiceHandler {
+	return &ServiceHandler{service: svc, agentRuns: agentRuns, fileService: fileService}
 }
 
 func serviceScope(c *gin.Context) (uint64, string, bool) {
@@ -170,6 +175,71 @@ func (h *ServiceHandler) GetAgentRun(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": run})
 }
 
+func (h *ServiceHandler) PreviewAgentRunArtifact(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	if h.fileService == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	run, err := h.agentRuns.GetAgentRun(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	rawArtifacts, ok := run.Result["artifacts"]
+	if !ok {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	raw, err := json.Marshal(rawArtifacts)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	var artifacts []types.AgentArtifactResultV1
+	if err := json.Unmarshal(raw, &artifacts); err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	artifactID := strings.TrimSpace(c.Param("artifact_id"))
+	var artifact *types.AgentArtifactResultV1
+	for index := range artifacts {
+		if artifacts[index].ID == artifactID {
+			artifact = &artifacts[index]
+			break
+		}
+	}
+	if artifact == nil || strings.TrimSpace(artifact.ResourceRef) == "" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	reader, err := h.fileService.GetFile(ctx, artifact.ResourceRef)
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	defer reader.Close()
+
+	contentType := artifact.MimeType
+	if contentType == "" {
+		contentType = "text/html; charset=utf-8"
+	}
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", "inline")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "private, max-age=300")
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, reader); err != nil {
+		logger.Warnf(ctx, "failed to stream agent artifact preview: run_id=%s artifact_id=%s err=%v",
+			run.ID, artifact.ID, err)
+	}
+}
+
 func (h *ServiceHandler) GetAgentRunQuality(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := serviceScope(c)
@@ -298,10 +368,11 @@ func (h *ServiceHandler) StreamAgentRunEvents(c *gin.Context) {
 
 func writeAgentRunEventSSE(c *gin.Context, event *types.AgentRunEvent) error {
 	data := map[string]any{
-		"type":     event.EventType,
-		"id":       event.ID,
-		"runId":    event.RunID,
-		"sequence": event.Sequence,
+		"type":      event.EventType,
+		"id":        event.ID,
+		"runId":     event.RunID,
+		"sequence":  event.Sequence,
+		"createdAt": event.CreatedAt,
 	}
 	for key, value := range event.Payload {
 		data[key] = value

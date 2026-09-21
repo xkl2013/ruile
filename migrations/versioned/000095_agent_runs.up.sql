@@ -1,4 +1,4 @@
--- Migration: 000092_agent_runs
+-- Durable asynchronous AgentRun records.
 -- Durable async execution records for service-agent jobs.
 
 CREATE TABLE IF NOT EXISTS agent_runs (
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     CONSTRAINT chk_agent_runs_status
         CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
     CONSTRAINT chk_agent_runs_type
-        CHECK (run_type IN ('service_daily_report', 'service_memory_extract', 'expert_agent_test'))
+        CHECK (run_type IN ('service_daily_report', 'service_memory_extract', 'expert_agent_test', 'expert_follow_up'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_scope_created

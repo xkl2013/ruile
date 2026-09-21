@@ -155,6 +155,8 @@ const selectedAgentId = computed({
   set: (val: string) => settingsStore.selectAgent(val)
 });
 const selectedPublishedExpert = ref<PublishedExpert | null>(null);
+const selectedPublishedExpertAuto = ref(false);
+const AUTO_EXPERT_SELECTION_ID = '__auto__';
 const effectiveSelectedAgentId = computed(() =>
   props.embeddedMode && props.agentId ? props.agentId : selectedAgentId.value
 );
@@ -179,6 +181,18 @@ const selectedAgent = computed(() => {
     config: { agent_mode: 'quick-answer' as const }
   } as CustomAgent;
 });
+
+const shouldAutoRoutePublishedExpert = computed(() => (
+  !props.embeddedMode
+  && publishedExperts.value.length > 0
+  && !selectedPublishedExpert.value
+  && !selectedPublishedExpertAuto.value
+  && !isCustomAgent.value
+  && !isAgentEnabled.value
+  && uploadedImages.value.length === 0
+  && uploadedAttachments.value.length === 0
+  && allSelectedItems.value.length === 0
+));
 
 // 判断是否为自定义智能体（非内置）
 const isCustomAgent = computed(() => {
@@ -696,6 +710,10 @@ const inputPlaceholder = computed(() => {
   const explicitPlaceholder = props.placeholder.trim();
   if (explicitPlaceholder) {
     return explicitPlaceholder;
+  }
+
+  if (selectedPublishedExpertAuto.value) {
+    return '自动匹配专家';
   }
 
   if (selectedPublishedExpert.value) {
@@ -1853,7 +1871,7 @@ watch([selectedKbIds, selectedFileIds], ([kbIds, fileIds]) => {
 
 const emit = defineEmits<{
   (e: 'send-msg', query: string, modelId: string, mentionedItems: MentionRequestItem[], imageFiles: File[], attachmentFiles: AttachmentFile[]): void;
-  (e: 'send-published-expert', query: string, modelId: string, expert: PublishedExpert): void;
+  (e: 'send-published-expert', query: string, modelId: string, expert: PublishedExpert | null, routeMode: 'auto' | 'manual'): void;
   (e: 'stop-generation'): void;
 }>();
 
@@ -1890,14 +1908,31 @@ const createSession = async (val: string) => {
     return;
   }
 
-  if (selectedPublishedExpert.value) {
+  if (selectedPublishedExpert.value || selectedPublishedExpertAuto.value) {
     if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0 || allSelectedItems.value.length > 0) {
       MessagePlugin.info('已发布专家当前先支持文本问题，请先移除附件和上下文引用');
       return;
     }
     const textarea = getTextareaEl();
     if (textarea) textarea.blur();
-    emit('send-published-expert', val, selectedModelId.value, selectedPublishedExpert.value);
+    emit(
+      'send-published-expert',
+      val,
+      selectedModelId.value,
+      selectedPublishedExpert.value,
+      selectedPublishedExpertAuto.value ? 'auto' : 'manual',
+    );
+    clearvalue();
+    return;
+  }
+
+  // Published experts are routed by the system by default. Manual expert
+  // selection above remains an explicit override; attachments, context
+  // references, custom agents, and agent mode continue through normal chat.
+  if (shouldAutoRoutePublishedExpert.value) {
+    const textarea = getTextareaEl();
+    if (textarea) textarea.blur();
+    emit('send-published-expert', val, selectedModelId.value, null, 'auto');
     clearvalue();
     return;
   }
@@ -2086,6 +2121,7 @@ const toggleAgentModeSelector = () => {
 
 const selectAgentMode = async (mode: 'quick-answer' | 'smart-reasoning') => {
   selectedPublishedExpert.value = null;
+  selectedPublishedExpertAuto.value = false;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2127,6 +2163,7 @@ const handleAgentNotReady = (
 
 const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) => {
   selectedPublishedExpert.value = null;
+  selectedPublishedExpertAuto.value = false;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2182,9 +2219,17 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
 }
 
 const handleSelectPublishedExpert = (expert: PublishedExpert) => {
+  selectedPublishedExpertAuto.value = false;
   selectedPublishedExpert.value = expert;
   showAgentModeSelector.value = false;
   MessagePlugin.success(`已选择专家：${expert.display_name}`);
+};
+
+const handleSelectPublishedExpertAuto = () => {
+  selectedPublishedExpert.value = null;
+  selectedPublishedExpertAuto.value = true;
+  showAgentModeSelector.value = false;
+  MessagePlugin.success('已切换为自动匹配专家');
 };
 
 const clearvalue = () => {
@@ -2461,13 +2506,13 @@ defineExpose({
         <div class="control-left" v-if="!embeddedMode">
           <!-- Agent 模式切换按钮 -->
           <div ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{
-            'is-normal': !selectedPublishedExpert && !isCustomAgent && !isAgentEnabled,
-            'is-agent': !selectedPublishedExpert && !isCustomAgent && isAgentEnabled,
-            'is-custom': !selectedPublishedExpert && isCustomAgent,
-            'is-published-expert': !!selectedPublishedExpert
+            'is-normal': !selectedPublishedExpert && !selectedPublishedExpertAuto && !isCustomAgent && !isAgentEnabled,
+            'is-agent': !selectedPublishedExpert && !selectedPublishedExpertAuto && !isCustomAgent && isAgentEnabled,
+            'is-custom': !selectedPublishedExpert && !selectedPublishedExpertAuto && isCustomAgent,
+            'is-published-expert': !!selectedPublishedExpert || selectedPublishedExpertAuto
           }" @click.stop="toggleAgentModeSelector">
             <span class="agent-mode-text">
-              {{ selectedPublishedExpert?.display_name || selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
+              {{ selectedPublishedExpert?.display_name || (selectedPublishedExpertAuto ? '自动匹配专家' : '') || selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
             </span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="dropdown-arrow"
               :class="{ 'rotate': showAgentModeSelector }">
@@ -2479,9 +2524,11 @@ defineExpose({
           <AgentSelector :visible="showAgentModeSelector" :anchorEl="agentModeButtonRef"
             :currentAgentId="selectedAgentId" :agents="enabledAgents" :all-models="allModels"
             :current-chat-model-id="selectedModelId" :published-experts="publishedExperts"
-            :selected-published-expert-id="selectedPublishedExpert?.definition_id"
+            :selected-published-expert-id="selectedPublishedExpertAuto ? AUTO_EXPERT_SELECTION_ID : selectedPublishedExpert?.definition_id"
             @close="closeAgentModeSelector" @select="handleSelectAgent"
-            @select-published-expert="handleSelectPublishedExpert" @not-ready="handleAgentNotReady" />
+            @select-published-expert="handleSelectPublishedExpert"
+            @select-published-expert-auto="handleSelectPublishedExpertAuto"
+            @not-ready="handleAgentNotReady" />
 
           <!-- WebSearch 开关按钮（智能体未启用时不显示） -->
           <t-tooltip v-if="showWebSearchButton" placement="top" theme="light"

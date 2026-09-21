@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -17,9 +20,12 @@ import (
 )
 
 const (
-	expertWorkflowDefaultQualityScore = 85
-	expertWorkflowDefaultRevisions    = 2
-	expertWorkflowMinReportRunes      = 1200
+	expertWorkflowDefaultQualityScore  = 85
+	expertWorkflowDefaultRevisions     = 2
+	expertWorkflowMinReportRunes       = 1200
+	expertWorkflowClarificationRounds  = 1
+	expertWorkflowClarificationItems   = 4
+	expertWorkflowMaxParentReportRunes = 40000
 )
 
 var expertIntakeSchema = json.RawMessage(`{
@@ -46,6 +52,11 @@ var expertIntakeSchema = json.RawMessage(`{
     "assumptions": {"type": "array", "items": {"type": "string"}}
   }
 }`)
+
+var (
+	expertDatePattern   = regexp.MustCompile(`(20\d{2})\s*(?:年|[-/.])\s*(\d{1,2})\s*(?:月|[-/.])\s*(\d{1,2})\s*日?`)
+	expertAmountPattern = regexp.MustCompile(`-?\d[\d,]*(?:\.\d+)?`)
+)
 
 var expertPlanSchema = json.RawMessage(`{
   "type": "object",
@@ -139,8 +150,25 @@ func (s *agentRunService) executeExpertWorkflow(
 		return types.AgentResultV1{}, nil, "", permanentAgentRunError{err: err}
 	}
 	skillContext := renderExpertSkillContext(skills)
+	parentReport, err := s.loadExpertParentReport(ctx, run)
+	if err != nil {
+		return types.AgentResultV1{}, nil, "", permanentAgentRunError{err: err}
+	}
+	threadContext, err := s.renderExpertThreadContext(ctx, run)
+	if err != nil {
+		return types.AgentResultV1{}, nil, "", permanentAgentRunError{err: err}
+	}
 
-	intake, err := s.runExpertIntake(ctx, run, input, definition, modelID, chatModel, skillContext)
+	intake, err := s.runExpertIntake(
+		ctx,
+		run,
+		input,
+		definition,
+		modelID,
+		chatModel,
+		skillContext,
+		parentReport,
+	)
 	if err != nil {
 		return types.AgentResultV1{}, nil, "", err
 	}
@@ -159,7 +187,17 @@ func (s *agentRunService) executeExpertWorkflow(
 	if err != nil {
 		return types.AgentResultV1{}, nil, "", err
 	}
-	plan, err := s.runExpertPlanning(ctx, run, input, definition, modelID, chatModel, skillContext)
+	plan, err := s.runExpertPlanning(
+		ctx,
+		run,
+		input,
+		definition,
+		modelID,
+		chatModel,
+		skillContext,
+		parentReport,
+		threadContext,
+	)
 	if err != nil {
 		return types.AgentResultV1{}, nil, "", err
 	}
@@ -174,6 +212,8 @@ func (s *agentRunService) executeExpertWorkflow(
 		chatModel,
 		skillContext,
 		plan,
+		parentReport,
+		threadContext,
 		"",
 	)
 	if err != nil {
@@ -196,6 +236,8 @@ func (s *agentRunService) executeExpertWorkflow(
 			chatModel,
 			skillContext,
 			plan,
+			parentReport,
+			threadContext,
 			expertRevisionInstructions(quality),
 		)
 		if err != nil {
@@ -214,9 +256,9 @@ func (s *agentRunService) executeExpertWorkflow(
 		return types.AgentResultV1{}, nil, "", err
 	}
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeQualityUpdated, types.JSONMap{
-		"runId":  run.ID,
-		"phase":  types.AgentRunPhaseReviewing,
-		"status": types.AgentRunStatusRunning,
+		"runId":   run.ID,
+		"phase":   types.AgentRunPhaseReviewing,
+		"status":  types.AgentRunStatusRunning,
 		"quality": cloneAgentRunJSONMap(qualityMap),
 	})
 
@@ -226,7 +268,6 @@ func (s *agentRunService) executeExpertWorkflow(
 		input,
 		definition,
 		modelID,
-		chatModel,
 		report,
 		quality,
 	)
@@ -255,10 +296,20 @@ func (s *agentRunService) runExpertIntake(
 	modelID string,
 	chatModel chat.Chat,
 	skillContext string,
+	parentReport string,
 ) (expertIntakeResult, error) {
-	step, err := s.startExpertRunStep(ctx, run, types.AgentRunStepTypeIntake, types.AgentRunPhaseIntake, modelID, types.JSONMap{
-		"prompt": input.Prompt,
-	})
+	stepInput := types.JSONMap{"prompt": input.Prompt}
+	if run.ParentRunID != "" {
+		stepInput["parent_run_id"] = run.ParentRunID
+	}
+	step, err := s.startExpertRunStep(
+		ctx,
+		run,
+		types.AgentRunStepTypeIntake,
+		types.AgentRunPhaseIntake,
+		modelID,
+		stepInput,
+	)
 	if err != nil {
 		return expertIntakeResult{}, err
 	}
@@ -275,14 +326,64 @@ func (s *agentRunService) runExpertIntake(
 		}
 		return intake, nil
 	}
-	system := strings.TrimSpace(definition.SystemPrompt) + skillContext + `
+	if strings.TrimSpace(parentReport) != "" {
+		intake := expertIntakeResult{
+			Ready: true,
+			Assumptions: []string{
+				"本次沿用上一版已确认的需求与合理假设，仅按用户纠偏生成新版本，不重复发起需求澄清。",
+			},
+		}
+		output, _ := agentRunJSONMap(intake)
+		if err := s.completeExpertRunStep(ctx, step, output); err != nil {
+			return expertIntakeResult{}, err
+		}
+		return intake, nil
+	}
+
+	previousSteps, err := s.repo.ListSteps(ctx, run.ID)
+	if err != nil {
+		_ = s.failExpertRunStep(ctx, step, err)
+		return expertIntakeResult{}, fmt.Errorf("list prior expert intake steps: %w", err)
+	}
+	completedIntakeRounds := 0
+	for _, previousStep := range previousSteps {
+		if previousStep.ID == step.ID {
+			continue
+		}
+		if previousStep.StepType == types.AgentRunStepTypeIntake &&
+			previousStep.Status == types.AgentRunStepStatusSucceeded {
+			completedIntakeRounds++
+		}
+	}
+	maxClarificationRounds := expertClarificationMaxRounds(definition.CompiledConfig)
+	if completedIntakeRounds >= maxClarificationRounds {
+		intake := expertIntakeResult{
+			Ready: true,
+			Assumptions: []string{
+				"未提供的微观执行参数按行业常规给出建议值，并在报告中标记为待确认项，不阻断首版方案生成。",
+			},
+		}
+		output, _ := agentRunJSONMap(intake)
+		if err := s.completeExpertRunStep(ctx, step, output); err != nil {
+			return expertIntakeResult{}, err
+		}
+		return intake, nil
+	}
+
+	maxQuestions := expertClarificationMaxQuestions(definition.CompiledConfig)
+	system := strings.TrimSpace(definition.SystemPrompt) + skillContext + fmt.Sprintf(`
 
 # 睿乐需求澄清
 你现在只判断信息是否足以开始正式交付，不生成方案。
-结合专家工作方法识别会改变方案结构、预算、时间安排或安全结论的关键变量。
-用户已经明确提供的信息不要重复询问。每轮最多 5 个问题，优先提供单选项。
-日期、参与规模、场地、活动形式、预算或目标受众等关键条件缺失时，应返回 ready=false。
-如果信息足够，返回 ready=true 和空 questions。`
+以下平台交互策略优先于专家正文中的询问习惯。
+目标是尽快形成一版宏观可用交付，而不是在生成前收集全部执行细节。
+只识别会改变交付类型、核心目标、目标对象、总体范围或硬性边界的关键变量。
+用户已经明确提供的信息不要重复询问，优先提供单选项。
+本次最多提出 %d 个问题，且平台默认只允许一轮需求澄清。
+人员姓名、品牌型号、精确时间和数量、可选偏好、实现参数、辅助材料和其他微观细节不得阻断首版交付。
+这些细节缺失时，应使用行业常规建议、留空位或列入“假设与待确认项”。
+只有缺失信息导致交付类型、核心目标或基本对象都无法判断，或存在无法用保守假设规避的安全与合规红线时，才返回 ready=false。
+如果信息足够，返回 ready=true 和空 questions。`, maxQuestions)
 	var intake expertIntakeResult
 	err = expertChatJSON(ctx, chatModel, system, "用户请求：\n"+input.Prompt+
 		"\n\n用户已补充答案：\n"+expertConfigJSON(input.Answers)+
@@ -294,7 +395,7 @@ func (s *agentRunService) runExpertIntake(
 		_ = s.failExpertRunStep(ctx, step, err)
 		return expertIntakeResult{}, fmt.Errorf("expert intake: %w", err)
 	}
-	intake.Questions = normalizeExpertIntakeQuestions(intake.Questions)
+	intake.Questions = normalizeExpertIntakeQuestionsLimit(intake.Questions, maxQuestions)
 	if len(intake.Questions) == 0 {
 		intake.Ready = true
 	}
@@ -313,12 +414,19 @@ func (s *agentRunService) ensureExpertRequirementSnapshot(
 	if strings.TrimSpace(run.RequirementSnapshotID) != "" {
 		return run.RequirementSnapshotID, nil
 	}
+	values := types.JSONMap{
+		"prompt":  input.Prompt,
+		"answers": cloneAgentRunJSONMap(input.Answers),
+	}
+	if run.ParentRunID != "" {
+		values["parent_run_id"] = run.ParentRunID
+	}
+	if feedback := strings.TrimSpace(input.Feedback); feedback != "" {
+		values["feedback"] = feedback
+	}
 	snapshot := &types.AgentRequirementSnapshot{
-		RunID: run.ID,
-		Values: types.JSONMap{
-			"prompt":  input.Prompt,
-			"answers": cloneAgentRunJSONMap(input.Answers),
-		},
+		RunID:       run.ID,
+		Values:      values,
 		Assumptions: types.StringArray{},
 		Missing:     types.StringArray{},
 	}
@@ -340,11 +448,27 @@ func (s *agentRunService) runExpertPlanning(
 	modelID string,
 	chatModel chat.Chat,
 	skillContext string,
+	parentReport string,
+	threadContext string,
 ) (expertExecutionPlan, error) {
-	step, err := s.startExpertRunStep(ctx, run, types.AgentRunStepTypePlanning, types.AgentRunPhasePlanning, modelID, types.JSONMap{
+	stepInput := types.JSONMap{
 		"prompt":  input.Prompt,
 		"answers": cloneAgentRunJSONMap(input.Answers),
-	})
+	}
+	if feedback := strings.TrimSpace(input.Feedback); feedback != "" {
+		stepInput["feedback"] = feedback
+	}
+	if run.ParentRunID != "" {
+		stepInput["parent_run_id"] = run.ParentRunID
+	}
+	step, err := s.startExpertRunStep(
+		ctx,
+		run,
+		types.AgentRunStepTypePlanning,
+		types.AgentRunPhasePlanning,
+		modelID,
+		stepInput,
+	)
 	if err != nil {
 		return expertExecutionPlan{}, err
 	}
@@ -357,6 +481,15 @@ func (s *agentRunService) runExpertPlanning(
 	var plan expertExecutionPlan
 	user := "原始请求：\n" + input.Prompt + "\n\n用户补充答案：\n" + expertConfigJSON(input.Answers) +
 		"\n\n交付规格：\n" + expertConfigJSON(definition.CompiledConfig["deliverable_spec"])
+	if strings.TrimSpace(parentReport) != "" {
+		user += "\n\n上一版报告：\n" + parentReport
+	}
+	if strings.TrimSpace(threadContext) != "" {
+		user += "\n\n同一专家线程的近期交互：\n" + threadContext
+	}
+	if feedback := strings.TrimSpace(input.Feedback); feedback != "" {
+		user += "\n\n本次用户纠偏意见：\n" + feedback
+	}
 	err = expertChatJSON(ctx, chatModel, system, user, expertPlanSchema, &plan,
 		expertDefinitionFloat(definition.CompiledConfig, "temperature", 0.2),
 		expertDefinitionBool(definition.CompiledConfig, "thinking", false),
@@ -385,6 +518,8 @@ func (s *agentRunService) runExpertWriter(
 	chatModel chat.Chat,
 	skillContext string,
 	plan expertExecutionPlan,
+	parentReport string,
+	threadContext string,
 	revisionInstructions string,
 ) (string, error) {
 	stepInput := types.JSONMap{
@@ -415,6 +550,12 @@ func (s *agentRunService) runExpertWriter(
 	query := "原始请求：\n" + input.Prompt +
 		"\n\n用户确认信息：\n" + expertConfigJSON(input.Answers) +
 		"\n\n执行计划：\n" + expertConfigJSON(plan)
+	if strings.TrimSpace(parentReport) != "" {
+		query += "\n\n上一版报告（作为修订基线）：\n" + parentReport
+	}
+	if strings.TrimSpace(threadContext) != "" {
+		query += "\n\n同一专家线程的近期交互：\n" + threadContext
+	}
 	if strings.TrimSpace(input.Feedback) != "" {
 		query += "\n\n用户纠偏意见：\n" + input.Feedback
 	}
@@ -468,6 +609,43 @@ func (s *agentRunService) runExpertWriter(
 	return report, nil
 }
 
+func (s *agentRunService) loadExpertParentReport(
+	ctx context.Context,
+	run *types.AgentRun,
+) (string, error) {
+	if run == nil {
+		return "", nil
+	}
+	parentID := strings.TrimSpace(run.ParentRunID)
+	for depth := 0; parentID != "" && depth < 12; depth++ {
+		parent, err := s.repo.GetByID(ctx, parentID)
+		if err != nil {
+			return "", fmt.Errorf("load parent expert run: %w", err)
+		}
+		if parent == nil {
+			return "", errors.New("parent expert run does not exist")
+		}
+		if parent.TenantID != run.TenantID ||
+			parent.UserID != run.UserID ||
+			(parent.RunType != types.AgentRunTypeExpertAgentTest && parent.RunType != types.AgentRunTypeExpertFollowUp) {
+			return "", errors.New("parent expert run scope mismatch")
+		}
+		report, _ := parent.Result["report_markdown"].(string)
+		if report == "" {
+			if parent.Result != nil {
+				if artifactMessage, ok := parent.Result["message"].(string); ok {
+					report = artifactMessage
+				}
+			}
+		}
+		if report = strings.TrimSpace(report); report != "" {
+			return trimExpertRunes(report, expertWorkflowMaxParentReportRunes), nil
+		}
+		parentID = strings.TrimSpace(parent.ParentRunID)
+	}
+	return "", nil
+}
+
 func (s *agentRunService) runExpertQualityReview(
 	ctx context.Context,
 	run *types.AgentRun,
@@ -519,7 +697,6 @@ func (s *agentRunService) runExpertPackaging(
 	input types.ExpertAgentTestInput,
 	definition *types.AgentDefinitionVersion,
 	modelID string,
-	chatModel chat.Chat,
 	report string,
 	quality expertQualityAssessment,
 ) (types.AgentResultV1, error) {
@@ -530,25 +707,7 @@ func (s *agentRunService) runExpertPackaging(
 	if err != nil {
 		return types.AgentResultV1{}, err
 	}
-	system := `你是睿乐 Result Packager，只负责把已经完成的 Markdown 报告转换为 agent_result_v1。
-不得删除报告中的关键执行细节。服务卡片只能包含 title、summary、next_action。
-详细内容放入唯一的 primary structured_report_v1 报告。
-可以将原报告各章节转换成多个 sections；无法归类的正文使用 analysis。
-不要编造证据；没有平台证据时 evidence 与 evidence_refs 返回空数组。`
-	if !quality.Passed {
-		system += "\n质量门禁未通过：decision.should_create_card 必须为 false，省略 card，但仍保留报告供管理员检查。"
-	}
-	user := "原始请求：\n" + input.Prompt +
-		"\n\n质量结论：\n" + expertConfigJSON(quality) +
-		"\n\n最终 Markdown 报告：\n" + report
-	var result types.AgentResultV1
-	err = expertChatJSON(ctx, chatModel, system, user, expertAgentResultSchema, &result,
-		0.1,
-		false,
-		expertAgentTestMaxTokens)
-	if err != nil {
-		result = fallbackExpertAgentResult(definition, report, quality)
-	}
+	result := deterministicExpertAgentResult(definition, input, report, quality)
 	if !quality.Passed {
 		result.Decision.ShouldCreateCard = false
 		result.Decision.Confidence = minFloat(result.Decision.Confidence, 0.49)
@@ -586,14 +745,15 @@ func (s *agentRunService) startExpertRunStep(
 	}
 	label := agentRunPhaseLabel(phase)
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeStepStarted, types.JSONMap{
-		"runId":    run.ID,
-		"stepId":   step.ID,
-		"stepType": stepType,
-		"phase":    phase,
-		"status":   types.AgentRunStatusRunning,
-		"message":  "开始" + label,
-		"label":    label,
-		"modelId":  modelID,
+		"runId":     run.ID,
+		"stepId":    step.ID,
+		"stepType":  stepType,
+		"phase":     phase,
+		"status":    types.AgentRunStatusRunning,
+		"message":   "开始" + label,
+		"label":     label,
+		"modelId":   modelID,
+		"startedAt": step.StartedAt,
 	})
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeReasoningMessageContent, types.JSONMap{
 		"runId":     run.ID,
@@ -610,16 +770,23 @@ func (s *agentRunService) completeExpertRunStep(
 	step *types.AgentRunStep,
 	output types.JSONMap,
 ) error {
-	if err := s.repo.CompleteStep(ctx, step.ID, output, time.Now().UTC()); err != nil {
+	finishedAt := time.Now().UTC()
+	durationMs := elapsedMilliseconds(step.StartedAt, finishedAt)
+	output = cloneAgentRunJSONMap(output)
+	output["duration_ms"] = durationMs
+	if err := s.repo.CompleteStep(ctx, step.ID, output, finishedAt); err != nil {
 		return err
 	}
 	s.emitRunEvent(ctx, step.RunID, types.AgentRunEventTypeStepFinished, types.JSONMap{
-		"runId":    step.RunID,
-		"stepId":   step.ID,
-		"stepType": step.StepType,
-		"phase":    agentRunPhaseForStep(step.StepType),
-		"status":   types.AgentRunStepStatusSucceeded,
-		"message":  "完成" + agentRunStepLabel(step.StepType),
+		"runId":      step.RunID,
+		"stepId":     step.ID,
+		"stepType":   step.StepType,
+		"phase":      agentRunPhaseForStep(step.StepType),
+		"status":     types.AgentRunStepStatusSucceeded,
+		"message":    "完成" + agentRunStepLabel(step.StepType),
+		"startedAt":  step.StartedAt,
+		"finishedAt": finishedAt,
+		"durationMs": durationMs,
 	})
 	s.emitRunEvent(ctx, step.RunID, types.AgentRunEventTypeReasoningMessageContent, types.JSONMap{
 		"runId":     step.RunID,
@@ -637,16 +804,21 @@ func (s *agentRunService) failExpertRunStep(
 	err error,
 ) error {
 	message := truncateAgentRunError(err)
-	if updateErr := s.repo.FailStep(ctx, step.ID, message, time.Now().UTC()); updateErr != nil {
+	finishedAt := time.Now().UTC()
+	durationMs := elapsedMilliseconds(step.StartedAt, finishedAt)
+	if updateErr := s.repo.FailStep(ctx, step.ID, message, finishedAt); updateErr != nil {
 		return updateErr
 	}
 	s.emitRunEvent(ctx, step.RunID, types.AgentRunEventTypeStepError, types.JSONMap{
-		"runId":    step.RunID,
-		"stepId":   step.ID,
-		"stepType": step.StepType,
-		"phase":    agentRunPhaseForStep(step.StepType),
-		"status":   types.AgentRunStepStatusFailed,
-		"message":  message,
+		"runId":      step.RunID,
+		"stepId":     step.ID,
+		"stepType":   step.StepType,
+		"phase":      agentRunPhaseForStep(step.StepType),
+		"status":     types.AgentRunStepStatusFailed,
+		"message":    message,
+		"startedAt":  step.StartedAt,
+		"finishedAt": finishedAt,
+		"durationMs": durationMs,
 	})
 	return nil
 }
@@ -817,10 +989,21 @@ func expertSkillTrace(skills []expertSkillSnapshot) []map[string]any {
 }
 
 func normalizeExpertIntakeQuestions(questions []types.ExpertIntakeQuestion) []types.ExpertIntakeQuestion {
-	result := make([]types.ExpertIntakeQuestion, 0, minInt(len(questions), 5))
+	return normalizeExpertIntakeQuestionsLimit(questions, 5)
+}
+
+func normalizeExpertIntakeQuestionsLimit(
+	questions []types.ExpertIntakeQuestion,
+	limit int,
+) []types.ExpertIntakeQuestion {
+	if limit <= 0 {
+		return []types.ExpertIntakeQuestion{}
+	}
+	limit = minInt(limit, 5)
+	result := make([]types.ExpertIntakeQuestion, 0, minInt(len(questions), limit))
 	seen := map[string]bool{}
 	for index, question := range questions {
-		if len(result) >= 5 {
+		if len(result) >= limit {
 			break
 		}
 		question.Label = strings.TrimSpace(question.Label)
@@ -1096,6 +1279,141 @@ func applyExpertDeterministicQuality(
 			Instruction: "增加“假设与待确认项”章节，逐条标注假设及其对方案的影响。",
 		})
 	}
+	if invalidDates := expertInvalidReportDates(report); len(invalidDates) > 0 {
+		quality.Score = minInt(quality.Score, 70)
+		appendExpertQualityIssue(quality, expertQualityIssue{
+			Code:        "invalid_date",
+			Severity:    "error",
+			Section:     "时间安排",
+			Message:     "报告包含无效日期：" + strings.Join(invalidDates, "、") + "。",
+			Instruction: "修正日期并重新检查时间轴、提前量和执行节点。",
+		})
+	}
+	if mismatch, detail := expertBudgetTotalMismatch(report); mismatch {
+		quality.Score = minInt(quality.Score, 70)
+		appendExpertQualityIssue(quality, expertQualityIssue{
+			Code:        "budget_total_mismatch",
+			Severity:    "error",
+			Section:     "预算",
+			Message:     detail,
+			Instruction: "重新计算预算表各项金额与合计，确保数量、单价、小计和总计一致。",
+		})
+	}
+	rubric := expertDefinitionMap(config, "quality_rubric")
+	if (expertAnyBool(rubric["require_citations"]) || expertAnyBool(deliverable["require_evidence"])) &&
+		!expertReportContainsSection(report, "evidence") {
+		quality.Score = minInt(quality.Score, 70)
+		appendExpertQualityIssue(quality, expertQualityIssue{
+			Code:        "evidence_missing",
+			Severity:    "error",
+			Section:     "依据与引用",
+			Message:     "交付规格要求提供依据或引用，但报告未包含对应章节。",
+			Instruction: "增加“依据与引用”章节，区分用户输入、知识库内容、外部来源和合理假设。",
+		})
+	}
+}
+
+func expertInvalidReportDates(report string) []string {
+	matches := expertDatePattern.FindAllStringSubmatch(report, -1)
+	invalid := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, match := range matches {
+		if len(match) != 4 {
+			continue
+		}
+		year, _ := strconv.Atoi(match[1])
+		month, _ := strconv.Atoi(match[2])
+		day, _ := strconv.Atoi(match[3])
+		value := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+		if value.Year() == year && int(value.Month()) == month && value.Day() == day {
+			continue
+		}
+		label := strings.TrimSpace(match[0])
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		invalid = append(invalid, label)
+	}
+	return invalid
+}
+
+func expertBudgetTotalMismatch(report string) (bool, string) {
+	lines := strings.Split(strings.ReplaceAll(report, "\r\n", "\n"), "\n")
+	inBudgetSection := false
+	itemTotal := 0.0
+	declaredTotal := 0.0
+	itemCount := 0
+	hasDeclaredTotal := false
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if strings.HasPrefix(line, "#") {
+			heading := strings.TrimSpace(strings.TrimLeft(line, "#"))
+			inBudgetSection = strings.Contains(heading, "预算") ||
+				strings.Contains(heading, "费用") ||
+				strings.Contains(heading, "报价")
+			continue
+		}
+		if !inBudgetSection || !strings.Contains(line, "|") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		for index := range cells {
+			cells[index] = strings.TrimSpace(cells[index])
+		}
+		if len(cells) < 2 || expertMarkdownSeparatorRow(cells) {
+			continue
+		}
+		label := strings.Join(cells[:len(cells)-1], "")
+		amount, ok := expertLastAmount(cells)
+		if !ok {
+			continue
+		}
+		if strings.Contains(label, "合计") || strings.Contains(label, "总计") ||
+			strings.Contains(label, "预算总额") {
+			declaredTotal = amount
+			hasDeclaredTotal = true
+			continue
+		}
+		if strings.Contains(label, "金额") || strings.Contains(label, "小计") ||
+			strings.Contains(label, "单价") || strings.Contains(label, "数量") {
+			continue
+		}
+		itemTotal += amount
+		itemCount++
+	}
+	if !hasDeclaredTotal || itemCount == 0 {
+		return false, ""
+	}
+	tolerance := math.Max(1, math.Abs(declaredTotal)*0.001)
+	if math.Abs(itemTotal-declaredTotal) <= tolerance {
+		return false, ""
+	}
+	return true, fmt.Sprintf("预算分项合计为 %.2f，但报告总计为 %.2f。", itemTotal, declaredTotal)
+}
+
+func expertMarkdownSeparatorRow(cells []string) bool {
+	for _, cell := range cells {
+		value := strings.Trim(cell, " :-")
+		if value != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func expertLastAmount(cells []string) (float64, bool) {
+	for index := len(cells) - 1; index >= 0; index-- {
+		match := expertAmountPattern.FindString(cells[index])
+		if match == "" {
+			continue
+		}
+		value, err := strconv.ParseFloat(strings.ReplaceAll(match, ",", ""), 64)
+		if err == nil {
+			return value, true
+		}
+	}
+	return 0, false
 }
 
 func expertQualityHasBlockingIssue(issues []expertQualityIssue) bool {
@@ -1191,6 +1509,28 @@ func expertMaxRevisionRounds(config types.JSONMap) int {
 	return minInt(rounds, 2)
 }
 
+func expertClarificationMaxRounds(config types.JSONMap) int {
+	policy := expertDefinitionMap(config, "clarification_policy")
+	value, configured := policy["max_rounds"]
+	if !configured {
+		return expertWorkflowClarificationRounds
+	}
+	rounds := expertAnyInt(value)
+	if rounds <= 0 {
+		return 0
+	}
+	return minInt(rounds, 3)
+}
+
+func expertClarificationMaxQuestions(config types.JSONMap) int {
+	policy := expertDefinitionMap(config, "clarification_policy")
+	questions := expertAnyInt(policy["max_questions"])
+	if questions <= 0 {
+		return expertWorkflowClarificationItems
+	}
+	return minInt(questions, 5)
+}
+
 func expertDefinitionMap(config types.JSONMap, key string) map[string]any {
 	raw := config[key]
 	data, err := json.Marshal(raw)
@@ -1239,12 +1579,20 @@ func expertRevisionInstructions(quality expertQualityAssessment) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func fallbackExpertAgentResult(
+func deterministicExpertAgentResult(
 	definition *types.AgentDefinitionVersion,
+	input types.ExpertAgentTestInput,
 	report string,
 	quality expertQualityAssessment,
 ) types.AgentResultV1 {
-	title := strings.TrimSpace(definition.DisplayName) + "执行报告"
+	structured := expertStructuredReportFromMarkdown(definition, report, quality)
+	content, _ := structured.ToJSONMap()
+	title := structured.Title
+	summary := trimExpertRunes(expertCardPlainText(firstNonEmpty(
+		expertReportLead(report),
+		strings.TrimSpace(quality.Summary),
+		"专家工作流已生成详细报告。",
+	)), 320)
 	result := types.AgentResultV1{
 		SchemaVersion: types.AgentResultSchemaV1,
 		Decision: types.AgentResultDecisionV1{
@@ -1254,24 +1602,11 @@ func fallbackExpertAgentResult(
 		},
 		Artifacts: []types.AgentArtifactResultV1{
 			{
-				Kind:   types.AgentArtifactKindReport,
-				Role:   types.AgentArtifactRolePrimary,
-				Title:  title,
-				Format: types.StructuredReportFormatV1,
-				Content: types.JSONMap{
-					"format":            types.StructuredReportFormatV1,
-					"title":             title,
-					"executive_summary": firstNonEmpty(strings.TrimSpace(quality.Summary), "专家工作流已生成详细报告。"),
-					"sections": []map[string]any{
-						{
-							"type":    "analysis",
-							"title":   "完整报告",
-							"content": report,
-							"items":   []string{},
-						},
-					},
-					"evidence_refs": []string{},
-				},
+				Kind:    types.AgentArtifactKindReport,
+				Role:    types.AgentArtifactRolePrimary,
+				Title:   title,
+				Format:  types.StructuredReportFormatV1,
+				Content: content,
 			},
 		},
 		Evidence: []types.AgentEvidenceRefV1{},
@@ -1280,11 +1615,189 @@ func fallbackExpertAgentResult(
 		result.Card = &types.ServiceCardV1{
 			SchemaVersion: types.ServiceCardSchemaV1,
 			Title:         trimExpertRunes(title, 80),
-			Summary:       trimExpertRunes(firstNonEmpty(strings.TrimSpace(quality.Summary), "专家报告已生成并通过质量检查。"), 320),
-			NextAction:    "查看详细报告并确认执行参数。",
+			Summary:       summary,
+			NextAction:    trimExpertRunes(expertCardPlainText(expertReportNextAction(report, input)), 320),
 		}
 	}
 	return result
+}
+
+func expertStructuredReportFromMarkdown(
+	definition *types.AgentDefinitionVersion,
+	report string,
+	quality expertQualityAssessment,
+) types.StructuredReportV1 {
+	title := firstNonEmpty(expertReportTitle(report), strings.TrimSpace(definition.DisplayName)+"执行报告")
+	lines := strings.Split(strings.ReplaceAll(report, "\r\n", "\n"), "\n")
+	sections := make([]types.StructuredReportSection, 0, 8)
+	currentTitle := "完整报告"
+	currentType := "analysis"
+	currentLines := make([]string, 0, 24)
+	flush := func() {
+		content := strings.TrimSpace(strings.Join(currentLines, "\n"))
+		if content == "" {
+			currentLines = currentLines[:0]
+			return
+		}
+		sections = append(sections, types.StructuredReportSection{
+			Type:    currentType,
+			Title:   trimExpertRunes(currentTitle, 80),
+			Content: trimExpertRunes(content, 8000),
+			Items:   types.StringArray{},
+		})
+		currentLines = currentLines[:0]
+	}
+	for _, line := range lines {
+		match := reportHeadingPattern.FindStringSubmatch(line)
+		if match == nil {
+			currentLines = append(currentLines, line)
+			continue
+		}
+		heading := strings.TrimSpace(match[2])
+		if heading == "" || heading == title {
+			continue
+		}
+		flush()
+		currentTitle = heading
+		currentType = expertReportSectionType(heading)
+	}
+	flush()
+	if len(sections) == 0 {
+		sections = append(sections, types.StructuredReportSection{
+			Type:    "analysis",
+			Title:   "完整报告",
+			Content: trimExpertRunes(report, 8000),
+			Items:   types.StringArray{},
+		})
+	}
+	return types.StructuredReportV1{
+		Format:           types.StructuredReportFormatV1,
+		Title:            trimExpertRunes(title, 160),
+		ExecutiveSummary: trimExpertRunes(firstNonEmpty(expertReportLead(report), strings.TrimSpace(quality.Summary), "专家报告已生成。"), 2000),
+		Sections:         sections,
+		EvidenceRefs:     types.StringArray{},
+	}
+}
+
+func expertReportTitle(report string) string {
+	for _, line := range strings.Split(strings.ReplaceAll(report, "\r\n", "\n"), "\n") {
+		match := reportHeadingPattern.FindStringSubmatch(line)
+		if match != nil && strings.TrimSpace(match[2]) != "" {
+			return strings.TrimSpace(match[2])
+		}
+	}
+	return ""
+}
+
+func expertReportLead(report string) string {
+	lines := strings.Split(strings.ReplaceAll(report, "\r\n", "\n"), "\n")
+	paragraph := make([]string, 0, 4)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if len(paragraph) > 0 {
+				break
+			}
+			continue
+		}
+		if reportHeadingPattern.MatchString(trimmed) ||
+			reportCodeFence.MatchString(trimmed) ||
+			isMarkdownTableSeparator(trimmed) {
+			continue
+		}
+		if match := reportUnorderedList.FindStringSubmatch(trimmed); match != nil {
+			if len(paragraph) == 0 {
+				return strings.TrimSpace(match[1])
+			}
+			break
+		}
+		if match := reportOrderedList.FindStringSubmatch(trimmed); match != nil {
+			if len(paragraph) == 0 {
+				return strings.TrimSpace(match[1])
+			}
+			break
+		}
+		if isMarkdownTableRow(trimmed) {
+			continue
+		}
+		paragraph = append(paragraph, trimmed)
+	}
+	if len(paragraph) > 0 {
+		return strings.Join(paragraph, " ")
+	}
+	return ""
+}
+
+func expertCardPlainText(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\r\n", "\n"))
+	if value == "" {
+		return ""
+	}
+	value = reportMarkdownLink.ReplaceAllString(value, "$1")
+	value = reportInlineCode.ReplaceAllString(value, "$1")
+	value = strings.NewReplacer(
+		"**", "",
+		"__", "",
+		"~~", "",
+		"`", "",
+		"|", " ",
+	).Replace(value)
+	lines := strings.Split(value, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		line = strings.TrimLeft(line, "#>-*+ ")
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+	return strings.Join(strings.Fields(strings.Join(cleaned, " ")), " ")
+}
+
+func expertReportSectionType(title string) string {
+	switch {
+	case strings.Contains(title, "事实"), strings.Contains(title, "背景"), strings.Contains(title, "概览"):
+		return "facts"
+	case strings.Contains(title, "风险"), strings.Contains(title, "安全"), strings.Contains(title, "合规"):
+		return "risks"
+	case strings.Contains(title, "待确认"), strings.Contains(title, "待补充"), strings.Contains(title, "假设"):
+		return "missing_information"
+	case strings.Contains(title, "行动"), strings.Contains(title, "执行"), strings.Contains(title, "建议"), strings.Contains(title, "下一步"):
+		return "recommended_actions"
+	case strings.Contains(title, "话术"), strings.Contains(title, "沟通"):
+		return "talk_track"
+	case strings.Contains(title, "依据"), strings.Contains(title, "证据"), strings.Contains(title, "来源"):
+		return "evidence"
+	default:
+		return "analysis"
+	}
+}
+
+func expertReportNextAction(report string, input types.ExpertAgentTestInput) string {
+	lines := strings.Split(strings.ReplaceAll(report, "\r\n", "\n"), "\n")
+	inActionSection := false
+	for _, line := range lines {
+		if match := reportHeadingPattern.FindStringSubmatch(line); match != nil {
+			inActionSection = expertReportSectionType(strings.TrimSpace(match[2])) == "recommended_actions"
+			continue
+		}
+		if !inActionSection {
+			continue
+		}
+		if match := reportUnorderedList.FindStringSubmatch(line); match != nil {
+			return strings.TrimSpace(match[1])
+		}
+		if match := reportOrderedList.FindStringSubmatch(line); match != nil {
+			return strings.TrimSpace(match[1])
+		}
+		if text := strings.TrimSpace(line); text != "" {
+			return text
+		}
+	}
+	if strings.TrimSpace(input.Feedback) != "" {
+		return "查看新版本报告，确认本次纠偏是否符合预期。"
+	}
+	return "查看详细报告，确认关键时间、人员、预算和执行边界。"
 }
 
 func expertConfigJSON(value any) string {

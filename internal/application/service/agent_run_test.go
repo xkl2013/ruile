@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
+	fileservice "github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -55,7 +56,7 @@ func newAgentRunTestService(
 	runRepo := repository.NewAgentRunRepository(db)
 	expertRepo := repository.NewExpertPackageRepository(db)
 	enqueuer := &agentRunTaskEnqueuer{}
-	return NewAgentRunService(runRepo, baseService, expertRepo, nil, enqueuer), runRepo, enqueuer, db
+	return NewAgentRunService(runRepo, baseService, expertRepo, nil, enqueuer, nil, nil, nil), runRepo, enqueuer, db
 }
 
 type expertTestChatModel struct {
@@ -166,6 +167,9 @@ func newExpertAgentRunTestService(
 		expertRepo,
 		modelService,
 		enqueuer,
+		nil,
+		fileservice.NewLocalFileService(t.TempDir(), ""),
+		nil,
 	)
 	return runService, runRepo, enqueuer, db, chatModel
 }
@@ -285,6 +289,49 @@ func TestAgentRunCancellationStopsQueuedTask(t *testing.T) {
 	persisted, err := runRepo.GetByID(ctx, run.ID)
 	require.NoError(t, err)
 	require.Equal(t, types.AgentRunStatusCancelled, persisted.Status)
+}
+
+func TestAgentRunCancellationStopsRunningAndWaitingTasks(t *testing.T) {
+	ctx := context.Background()
+	const tenantID uint64 = 9
+	const userID = "user-a"
+
+	runService, runRepo, enqueuer, _ := newAgentRunTestService(t)
+	running, err := runService.EnqueueMemoryExtraction(ctx, tenantID, userID, "memory-running")
+	require.NoError(t, err)
+	claimed, err := runRepo.Claim(ctx, running.ID, time.Now())
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	cancelled, err := runService.CancelAgentRun(ctx, tenantID, userID, running.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunStatusCancelled, cancelled.Status)
+
+	waiting, err := runService.EnqueueMemoryExtraction(ctx, tenantID, userID, "memory-waiting")
+	require.NoError(t, err)
+	require.Len(t, enqueuer.tasks, 2)
+	waitingInteraction := types.JSONMap{
+		"schema_version": "intake_request_v1",
+		"questions": []any{
+			map[string]any{
+				"id":       "goal",
+				"label":    "目标",
+				"type":     "single_choice",
+				"required": true,
+				"options":  []string{"A", "B"},
+			},
+		},
+	}
+	claimed, err = runRepo.Claim(ctx, waiting.ID, time.Now())
+	require.NoError(t, err)
+	require.True(t, claimed)
+	markedWaiting, err := runRepo.MarkWaitingInput(ctx, waiting.ID, waitingInteraction)
+	require.NoError(t, err)
+	require.True(t, markedWaiting)
+
+	cancelled, err = runService.CancelAgentRun(ctx, tenantID, userID, waiting.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunStatusCancelled, cancelled.Status)
 }
 
 func TestAgentRunRecordsTerminalFailureWithoutWorkerRetryContext(t *testing.T) {
@@ -450,12 +497,29 @@ func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *tes
 	result := decodeAgentRunResult(t, run.Result)
 	require.True(t, result.Decision.ShouldCreateCard)
 	require.NotNil(t, result.Card)
-	require.Equal(t, "中班中秋亲子活动筹备", result.Card.Title)
-	require.Len(t, result.Artifacts, 1)
+	require.Equal(t, "幼儿园亲子活动执行方案", result.Card.Title)
+	require.NotContains(t, result.Card.Summary, "**")
+	require.NotContains(t, result.Card.NextAction, "**")
+	require.Len(t, result.Artifacts, 2)
+	require.NotEmpty(t, result.Artifacts[0].ID)
+	require.Equal(t, "text/html", result.Artifacts[0].MimeType)
+	require.NotEmpty(t, result.Artifacts[0].OriginalName)
+	require.True(t, strings.HasSuffix(result.Artifacts[0].OriginalName, ".html"))
+	require.Equal(t, types.AgentArtifactKindReport, result.Artifacts[0].Kind)
+	require.Positive(t, result.Artifacts[0].SizeBytes)
+	require.NotEmpty(t, result.Artifacts[0].ResourceRef)
+	require.NotEmpty(t, result.Artifacts[1].ID)
+	require.Equal(t, types.AgentArtifactKindText, result.Artifacts[1].Kind)
+	require.Equal(t, types.AgentArtifactRoleSupporting, result.Artifacts[1].Role)
+	require.Equal(t, "markdown", result.Artifacts[1].Format)
+	require.Equal(t, "text/markdown; charset=utf-8", result.Artifacts[1].MimeType)
+	require.True(t, strings.HasSuffix(result.Artifacts[1].OriginalName, ".md"))
+	require.Positive(t, result.Artifacts[1].SizeBytes)
+	require.NotEmpty(t, result.Artifacts[1].ResourceRef)
 	require.True(t, decodeAgentRunValidation(t, run.Result).Valid)
 	require.Equal(t, types.AgentRunPhaseCompleted, run.Phase)
 	require.EqualValues(t, 92, run.Quality["score"])
-	require.Len(t, chatModel.chatCalls, 4)
+	require.Len(t, chatModel.chatCalls, 3)
 	require.Len(t, chatModel.streamCalls, 1)
 	require.Contains(t, chatModel.chatCalls[0][0].Content, "幼儿园活动策划专家")
 	require.Contains(t, chatModel.chatCalls[0][0].Content, "睿乐需求澄清")
@@ -466,7 +530,34 @@ func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *tes
 	require.Equal(t, types.AgentRunStepTypePackaging, steps[4].StepType)
 	for _, step := range steps {
 		require.Equal(t, types.AgentRunStepStatusSucceeded, step.Status)
+		require.Contains(t, step.Output, "duration_ms")
 	}
+	events, err := runService.ListAgentRunEvents(ctx, tenantID, userID, run.ID, 0, 200)
+	require.NoError(t, err)
+	require.NotEmpty(t, events)
+	eventTypes := make(map[string]bool, len(events))
+	var previousSequence int64
+	var finishedStepDuration int
+	var totalDuration int
+	for _, event := range events {
+		eventTypes[event.EventType] = true
+		require.Greater(t, event.Sequence, previousSequence)
+		previousSequence = event.Sequence
+		if event.EventType == types.AgentRunEventTypeStepFinished {
+			finishedStepDuration = expertAnyInt(event.Payload["durationMs"])
+		}
+		if event.EventType == types.AgentRunEventTypeRunFinished {
+			totalDuration = expertAnyInt(event.Payload["totalDurationMs"])
+		}
+	}
+	require.True(t, eventTypes[types.AgentRunEventTypeRunQueued])
+	require.True(t, eventTypes[types.AgentRunEventTypeRunStarted])
+	require.True(t, eventTypes[types.AgentRunEventTypeStepStarted])
+	require.True(t, eventTypes[types.AgentRunEventTypeQualityUpdated])
+	require.True(t, eventTypes[types.AgentRunEventTypeActivitySnapshot])
+	require.True(t, eventTypes[types.AgentRunEventTypeRunFinished])
+	require.GreaterOrEqual(t, finishedStepDuration, 0)
+	require.GreaterOrEqual(t, totalDuration, 0)
 }
 
 func TestAgentRunExpertTestWaitsForAnswersAndResumesSameRun(t *testing.T) {
@@ -501,7 +592,6 @@ func TestAgentRunExpertTestWaitsForAnswersAndResumesSameRun(t *testing.T) {
 		t,
 		[]string{
 			`{"ready":false,"questions":[{"id":"family_count","label":"参与家庭数量","type":"number","required":true},{"id":"event_date","label":"活动日期","type":"date","required":true}],"assumptions":[]}`,
-			expertTestIntakeReadyJSON(),
 			expertTestPlanJSON(),
 			expertTestQualityPassedJSON(),
 			finalResult,
@@ -548,13 +638,32 @@ func TestAgentRunExpertTestWaitsForAnswersAndResumesSameRun(t *testing.T) {
 	require.Equal(t, 2, completed.Attempt)
 	require.NotNil(t, completed.ResumedAt)
 	result := decodeAgentRunResult(t, completed.Result)
-	require.Equal(t, "国庆亲子运动会筹备", result.Card.Title)
+	require.Equal(t, "幼儿园亲子活动执行方案", result.Card.Title)
 	steps, err := runService.ListAgentRunSteps(ctx, tenantID, userID, completed.ID)
 	require.NoError(t, err)
 	require.Len(t, steps, 6)
 	require.Equal(t, types.AgentRunStepTypeIntake, steps[0].StepType)
 	require.Equal(t, types.AgentRunStepTypeIntake, steps[1].StepType)
+	require.Equal(t, true, steps[1].Output["ready"])
+	require.Empty(t, steps[1].Output["questions"])
 	require.Equal(t, types.AgentRunStepTypePlanning, steps[2].StepType)
+	events, err := runService.ListAgentRunEvents(ctx, tenantID, userID, completed.ID, 0, 200)
+	require.NoError(t, err)
+	require.NotEmpty(t, events)
+	var waitingSequence, resumedSequence int64
+	for _, event := range events {
+		switch event.EventType {
+		case types.AgentRunEventTypeRunWaitingInput:
+			waitingSequence = event.Sequence
+		case types.AgentRunEventTypeRunResumed:
+			resumedSequence = event.Sequence
+		case types.AgentRunEventTypeToolCallEnd:
+			require.NotEqual(t, "ask_user", event.Payload["toolCallName"])
+		}
+	}
+	require.NotZero(t, waitingSequence)
+	require.NotZero(t, resumedSequence)
+	require.Less(t, waitingSequence, resumedSequence)
 }
 
 func TestAgentRunExpertTestRejectsUnpublishedDefinition(t *testing.T) {
@@ -667,6 +776,8 @@ func createPublishedExpertTestDefinition(
 		AgentID:          "kindergarten-activity-planner",
 		Version:          "1.0.0",
 		DisplayName:      "童创",
+		Description:      "幼儿园亲子活动策划专家，负责活动方案、流程和安全预案",
+		Domain:           "kindergarten_activity_planner",
 		SystemPrompt:     "你是幼儿园活动策划专家。",
 		OutputContract:   types.AgentResultSchemaV1,
 		DefinitionHash:   "definition-hash",
@@ -716,6 +827,15 @@ func expertTestLongReport() string {
 	return "# 幼儿园亲子活动执行方案\n\n" + strings.Repeat(section+"\n\n", 24)
 }
 
+func TestExpertCardPlainTextRemovesMarkdown(t *testing.T) {
+	value := "### 活动概述\n- **活动名称**：秋日童行\n- 下一步：确认场地"
+	cleaned := expertCardPlainText(value)
+	require.NotContains(t, cleaned, "**")
+	require.NotContains(t, cleaned, "###")
+	require.NotContains(t, cleaned, "|")
+	require.Contains(t, cleaned, "活动名称")
+}
+
 func TestDeterministicExpertIntakeQuestions(t *testing.T) {
 	config := types.JSONMap{
 		"required_inputs": []map[string]any{
@@ -758,6 +878,32 @@ func TestDeterministicExpertIntakeQuestions(t *testing.T) {
 		"audience":   "园长",
 	})
 	require.Empty(t, questions)
+}
+
+func TestExpertClarificationDefaultsToOneMacroRound(t *testing.T) {
+	require.Equal(t, 1, expertClarificationMaxRounds(types.JSONMap{}))
+	require.Equal(t, 4, expertClarificationMaxQuestions(types.JSONMap{}))
+	require.Equal(t, 0, expertClarificationMaxRounds(types.JSONMap{
+		"clarification_policy": types.JSONMap{"max_rounds": 0},
+	}))
+	require.Equal(t, 3, expertClarificationMaxRounds(types.JSONMap{
+		"clarification_policy": types.JSONMap{"max_rounds": 9},
+	}))
+	require.Equal(t, 5, expertClarificationMaxQuestions(types.JSONMap{
+		"clarification_policy": types.JSONMap{"max_questions": 9},
+	}))
+}
+
+func TestNormalizeExpertIntakeQuestionsUsesConfiguredLimit(t *testing.T) {
+	questions := []types.ExpertIntakeQuestion{
+		{ID: "one", Label: "问题一", Type: "text", Required: true},
+		{ID: "two", Label: "问题二", Type: "text", Required: true},
+		{ID: "three", Label: "问题三", Type: "text", Required: true},
+	}
+	normalized := normalizeExpertIntakeQuestionsLimit(questions, 2)
+	require.Len(t, normalized, 2)
+	require.Equal(t, "one", normalized[0].ID)
+	require.Equal(t, "two", normalized[1].ID)
 }
 
 func TestValidateExpertIntakeAnswersTypes(t *testing.T) {
@@ -815,6 +961,77 @@ func TestNormalizeExpertQualityAppliesDeterministicRules(t *testing.T) {
 	require.True(t, hasExpertQualityIssue(quality.Issues, "assumptions_not_labeled"))
 }
 
+func TestNormalizeExpertQualityRejectsInvalidDatesBudgetAndMissingEvidence(t *testing.T) {
+	quality := expertQualityAssessment{
+		Score:      96,
+		Passed:     true,
+		Summary:    "模型认为报告质量较高。",
+		RedLines:   []string{},
+		Dimensions: map[string]int{},
+		Issues:     []expertQualityIssue{},
+	}
+	config := types.JSONMap{
+		"quality_rubric": types.JSONMap{
+			"minimum_score":     85,
+			"require_citations": true,
+		},
+	}
+	report := strings.Repeat("这是用于满足报告长度要求的执行说明。", 100) + `
+
+## 时间安排
+
+活动日期为 2026-02-30。
+
+## 预算明细
+
+| 项目 | 金额 |
+| --- | ---: |
+| 场地 | 100 |
+| 物料 | 200 |
+| 合计 | 250 |
+`
+	normalizeExpertQuality(&quality, config, expertExecutionPlan{}, report)
+
+	require.False(t, quality.Passed)
+	require.True(t, hasExpertQualityIssue(quality.Issues, "invalid_date"))
+	require.True(t, hasExpertQualityIssue(quality.Issues, "budget_total_mismatch"))
+	require.True(t, hasExpertQualityIssue(quality.Issues, "evidence_missing"))
+}
+
+func TestGetAgentRunRecoversTimedOutRunningRun(t *testing.T) {
+	ctx := context.Background()
+	runService, runRepo, _, _ := newAgentRunTestService(t)
+	run := &types.AgentRun{
+		TenantID:     9,
+		UserID:       "user-a",
+		RunType:      types.AgentRunTypeExpertAgentTest,
+		AgentRef:     "expert-a",
+		AgentVersion: "1.0.0",
+		Status:       types.AgentRunStatusQueued,
+	}
+	require.NoError(t, runRepo.Create(ctx, run))
+	require.NoError(t, runRepo.CreateInputRevision(ctx, &types.AgentRunInputRevision{
+		RunID:  run.ID,
+		Source: "request",
+		Input:  types.JSONMap{"prompt": "测试超时恢复"},
+	}))
+	claimed, err := runRepo.Claim(ctx, run.ID, time.Now().UTC().Add(-agentRunTimeout-time.Minute))
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	recovered, err := runService.GetAgentRun(ctx, run.TenantID, run.UserID, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunStatusFailed, recovered.Status)
+	require.Equal(t, types.AgentRunErrorTimedOut, recovered.ErrorCode)
+	require.NotNil(t, recovered.FinishedAt)
+
+	events, err := runRepo.ListEvents(ctx, run.ID, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, types.AgentRunEventTypeRunError, events[0].EventType)
+	require.Equal(t, types.AgentRunErrorTimedOut, events[0].Payload["errorCode"])
+}
+
 func hasExpertQualityIssue(issues []expertQualityIssue, code string) bool {
 	for _, issue := range issues {
 		if issue.Code == code {
@@ -845,7 +1062,162 @@ func TestRegenerateAgentRunCreatesChildRunWithFeedback(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, parent.ID, child.ParentRunID)
+	require.Equal(t, parent.ThreadID, child.ThreadID)
 	require.Equal(t, "regenerate", child.TriggerType)
 	require.Equal(t, types.AgentRunStatusQueued, child.Status)
 	require.Equal(t, "重点补充安全预案", child.Input["feedback"])
+	threadRuns, err := runService.ListAgentThreadRuns(ctx, tenantID, userID, child.ID)
+	require.NoError(t, err)
+	require.Len(t, threadRuns, 2)
+	require.Equal(t, parent.ID, threadRuns[0].ID)
+	require.Equal(t, child.ID, threadRuns[1].ID)
+}
+
+func TestExpertRegenerationUsesParentReportAndSkipsClarification(t *testing.T) {
+	ctx := context.Background()
+	const tenantID uint64 = 12
+	const userID = "member-user"
+	finalResult := `{
+		"schema_version":"agent_result_v1",
+		"decision":{"should_create_card":true,"confidence":0.92,"reason":"已按纠偏意见生成行动清单。"},
+		"card":{
+			"schema_version":"service_card_v1",
+			"title":"亲子活动行动清单",
+			"summary":"在上一版活动方案基础上补充负责人、时间节点和完成标准。",
+			"next_action":"确认各环节负责人并按清单推进。"
+		},
+		"artifacts":[{
+			"kind":"report",
+			"role":"primary",
+			"title":"亲子活动行动清单",
+			"format":"structured_report_v1",
+			"content":{
+				"format":"structured_report_v1",
+				"title":"亲子活动行动清单",
+				"executive_summary":"已将原方案整理为可执行清单。",
+				"sections":[{"type":"recommended_actions","title":"行动清单","content":"完整行动清单见报告正文。"}],
+				"evidence_refs":[]
+			}
+		}],
+		"evidence":[]
+	}`
+	runService, runRepo, enqueuer, db, chatModel := newExpertAgentRunTestService(
+		t,
+		[]string{
+			expertTestPlanJSON(),
+			expertTestQualityPassedJSON(),
+			finalResult,
+		},
+		[]string{expertTestLongReport()},
+	)
+	pkg, definition := createPublishedExpertTestDefinition(t, db, tenantID)
+
+	parent, err := runService.EnqueueExpertTest(ctx, tenantID, userID, types.ExpertAgentTestInput{
+		PackageID:    pkg.ID,
+		DefinitionID: definition.ID,
+		Prompt:       "制定亲子活动方案",
+		ModelID:      "chat-1",
+		Answers: types.JSONMap{
+			"scale": "30组家庭",
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, enqueuer.tasks, 1)
+	claimed, err := runRepo.Claim(ctx, parent.ID, time.Now())
+	require.NoError(t, err)
+	require.True(t, claimed)
+	parentReport := "# 上一版方案\n\n已确认30组家庭参加，方案包含流程、分工、预算和安全安排。"
+	succeeded, err := runRepo.MarkSucceeded(ctx, parent.ID, "", types.JSONMap{
+		"report_markdown": parentReport,
+	}, time.Now())
+	require.NoError(t, err)
+	require.True(t, succeeded)
+
+	child, err := runService.RegenerateAgentRun(ctx, tenantID, userID, parent.ID, types.AgentRunRegenerateInput{
+		Feedback: "整理成行动清单，补充负责人、时间节点和完成标准。",
+	})
+	require.NoError(t, err)
+	require.Len(t, enqueuer.tasks, 2)
+	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[1]))
+
+	completed, err := runRepo.GetByID(ctx, child.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunStatusSucceeded, completed.Status, completed.ErrorMessage)
+	require.Equal(t, parent.ID, completed.ParentRunID)
+	persistedParent, err := runRepo.GetByID(ctx, parent.ID)
+	require.NoError(t, err)
+	require.Equal(t, parentReport, persistedParent.Result["report_markdown"])
+	require.Len(t, chatModel.chatCalls, 2)
+	require.Len(t, chatModel.streamCalls, 1)
+	require.Contains(t, chatModel.chatCalls[0][1].Content, "上一版报告")
+	require.Contains(t, chatModel.chatCalls[0][1].Content, parentReport)
+	require.Contains(t, chatModel.chatCalls[0][1].Content, "整理成行动清单")
+	require.Contains(t, chatModel.streamCalls[0][1].Content, "作为修订基线")
+	require.Contains(t, chatModel.streamCalls[0][1].Content, parentReport)
+
+	steps, err := runService.ListAgentRunSteps(ctx, tenantID, userID, child.ID)
+	require.NoError(t, err)
+	require.Len(t, steps, 5)
+	require.Equal(t, types.AgentRunStepTypeIntake, steps[0].StepType)
+	require.Equal(t, true, steps[0].Output["ready"])
+	require.Empty(t, steps[0].Output["questions"])
+
+	var snapshot types.AgentRequirementSnapshot
+	require.NoError(t, db.First(&snapshot, "id = ?", completed.RequirementSnapshotID).Error)
+	require.Equal(t, parent.ID, snapshot.Values["parent_run_id"])
+	require.Equal(t, "整理成行动清单，补充负责人、时间节点和完成标准。", snapshot.Values["feedback"])
+}
+
+func TestPublishedExpertFollowUpReturnsChatAnswerWithoutArtifact(t *testing.T) {
+	ctx := context.Background()
+	const tenantID uint64 = 13
+	const userID = "member-user"
+	runService, runRepo, enqueuer, db, chatModel := newExpertAgentRunTestService(
+		t,
+		[]string{"上一版方案优先安排签到和分组，是因为这两个环节决定后续流程能否稳定启动。"},
+		nil,
+	)
+	pkg, definition := createPublishedExpertTestDefinition(t, db, tenantID)
+
+	parent, err := runService.EnqueuePublishedExpertRun(ctx, tenantID, userID, types.ExpertAgentTestInput{
+		PackageID:    pkg.ID,
+		DefinitionID: definition.ID,
+		Prompt:       "制定亲子活动方案",
+		ModelID:      "chat-1",
+	})
+	require.NoError(t, err)
+	claimed, err := runRepo.Claim(ctx, parent.ID, time.Now())
+	require.NoError(t, err)
+	require.True(t, claimed)
+	parentReport := "# 亲子活动方案\n\n先签到，再按年龄分组，随后进入分区活动。"
+	succeeded, err := runRepo.MarkSucceeded(ctx, parent.ID, "", types.JSONMap{
+		"report_markdown": parentReport,
+	}, time.Now())
+	require.NoError(t, err)
+	require.True(t, succeeded)
+
+	followUp, err := runService.EnqueuePublishedExpertFollowUp(ctx, tenantID, userID, types.ExpertFollowUpInput{
+		ParentRunID: parent.ID,
+		Prompt:      "为什么这样安排？",
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunTypeExpertFollowUp, followUp.RunType)
+	require.Equal(t, parent.ID, followUp.ParentRunID)
+	require.Len(t, enqueuer.tasks, 2)
+	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[1]))
+
+	completed, err := runRepo.GetByID(ctx, followUp.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.AgentRunStatusSucceeded, completed.Status, completed.ErrorMessage)
+	require.Equal(t, parent.ID, completed.Result["parent_run_id"])
+	require.Equal(t, "explanation", completed.Result["follow_up_mode"])
+	require.Contains(t, completed.Result["message"], "签到和分组")
+	result := decodeAgentRunResult(t, completed.Result)
+	require.False(t, result.Decision.ShouldCreateCard)
+	require.Empty(t, result.Artifacts)
+	require.Empty(t, result.Evidence)
+	require.True(t, decodeAgentRunValidation(t, completed.Result).Valid)
+	require.Len(t, chatModel.chatCalls, 1)
+	require.Contains(t, chatModel.chatCalls[0][1].Content, parentReport)
+	require.Contains(t, chatModel.chatCalls[0][1].Content, "为什么这样安排")
 }

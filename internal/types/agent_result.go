@@ -53,11 +53,16 @@ type ServiceCardV1 struct {
 }
 
 type AgentArtifactResultV1 struct {
-	Kind    string  `json:"kind"`
-	Role    string  `json:"role"`
-	Title   string  `json:"title"`
-	Format  string  `json:"format,omitempty"`
-	Content JSONMap `json:"content,omitempty"`
+	ID           string  `json:"id,omitempty"`
+	Kind         string  `json:"kind"`
+	Role         string  `json:"role"`
+	Title        string  `json:"title"`
+	Format       string  `json:"format,omitempty"`
+	MimeType     string  `json:"mime_type,omitempty"`
+	OriginalName string  `json:"original_name,omitempty"`
+	SizeBytes    int64   `json:"size_bytes,omitempty"`
+	ResourceRef  string  `json:"resource_ref,omitempty"`
+	Content      JSONMap `json:"content,omitempty"`
 }
 
 type AgentEvidenceRefV1 struct {

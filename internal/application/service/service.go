@@ -421,7 +421,7 @@ func (s *serviceService) GenerateDailyReport(
 	if err != nil {
 		return nil, fmt.Errorf("encode structured daily report: %w", err)
 	}
-	sourceMemoryIDs := sourceMemoryIDsFromReminders(reportReminders)
+	sourceMemoryIDs := sourceMemoryIDsFromDailyReportSources(reportReminders, dailySources)
 	now := time.Now().UTC()
 	doc := &types.AgentWorkDoc{
 		TenantID:        tenantID,
@@ -3792,6 +3792,21 @@ func sourceMemoryIDsFromReminders(reminders []*types.ServiceReminder) types.Stri
 			seen[id] = true
 			ids = append(ids, id)
 		}
+	}
+	return cleanStringArray(ids, 100, 64)
+}
+
+func sourceMemoryIDsFromDailyReportSources(
+	reminders []*types.ServiceReminder,
+	dailySources []*types.AgentWorkDoc,
+) types.StringArray {
+	ids := make([]string, 0)
+	ids = append(ids, sourceMemoryIDsFromReminders(reminders)...)
+	for _, doc := range dailySources {
+		if doc == nil {
+			continue
+		}
+		ids = append(ids, doc.SourceMemoryIDs...)
 	}
 	return cleanStringArray(ids, 100, 64)
 }

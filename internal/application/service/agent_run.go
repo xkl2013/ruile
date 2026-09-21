@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -21,10 +22,13 @@ import (
 
 var (
 	ErrAgentRunNotFound         = errors.New("agent run not found")
-	ErrAgentRunCannotCancel     = errors.New("agent run can only be cancelled while queued")
+	ErrAgentRunCannotCancel     = errors.New("agent run is already finished and cannot be cancelled")
 	ErrAgentRunNotWaitingInput  = errors.New("agent run is not waiting for input")
 	ErrAgentRunCannotRegenerate = errors.New("agent run can only be regenerated after it reaches a terminal state")
 	ErrAgentRunInvalidRequest   = errors.New("invalid agent run request")
+	ErrAgentRunNoExpertMatch    = errors.New("no published expert matched the request")
+	ErrAgentRunRouteConfirm     = errors.New("expert route requires confirmation")
+	ErrAgentRunRouteModel       = errors.New("expert route model failed")
 )
 
 const (
@@ -33,11 +37,15 @@ const (
 )
 
 type agentRunService struct {
-	repo           interfaces.AgentRunRepository
-	service        interfaces.ServiceService
-	expertPackages interfaces.ExpertPackageRepository
-	modelService   interfaces.ModelService
-	taskClient     interfaces.TaskEnqueuer
+	repo            interfaces.AgentRunRepository
+	service         interfaces.ServiceService
+	expertPackages  interfaces.ExpertPackageRepository
+	modelService    interfaces.ModelService
+	taskClient      interfaces.TaskEnqueuer
+	taskCanceller   interfaces.TaskCanceller
+	fileService     interfaces.FileService
+	resourceCatalog interfaces.ResourceCatalog
+	threadIDCache   sync.Map
 }
 
 func NewAgentRunService(
@@ -46,13 +54,19 @@ func NewAgentRunService(
 	expertPackages interfaces.ExpertPackageRepository,
 	modelService interfaces.ModelService,
 	taskClient interfaces.TaskEnqueuer,
+	taskCanceller interfaces.TaskCanceller,
+	fileService interfaces.FileService,
+	resourceCatalog interfaces.ResourceCatalog,
 ) interfaces.AgentRunService {
 	return &agentRunService{
-		repo:           repo,
-		service:        service,
-		expertPackages: expertPackages,
-		modelService:   modelService,
-		taskClient:     taskClient,
+		repo:            repo,
+		service:         service,
+		expertPackages:  expertPackages,
+		modelService:    modelService,
+		taskClient:      taskClient,
+		taskCanceller:   taskCanceller,
+		fileService:     fileService,
+		resourceCatalog: resourceCatalog,
 	}
 }
 
@@ -130,6 +144,7 @@ func (s *agentRunService) enqueue(
 		}
 		return nil, err
 	}
+	s.cacheAgentRunThread(run)
 	source := "request"
 	if run.TriggerType == "regenerate" {
 		source = "regenerate"
@@ -144,11 +159,17 @@ func (s *agentRunService) enqueue(
 	}
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunQueued, types.JSONMap{
 		"runId":    run.ID,
-		"threadId": run.ID,
+		"threadId": firstNonEmpty(run.ThreadID, run.ID),
 		"status":   run.Status,
 		"runType":  run.RunType,
 		"agentRef": run.AgentRef,
 	})
+	if route, ok := run.Input["routing_decision"].(map[string]any); ok && len(route) > 0 {
+		payload := cloneAgentRunJSONMap(route)
+		payload["runId"] = run.ID
+		payload["threadId"] = firstNonEmpty(run.ThreadID, run.ID)
+		s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeExpertRouting, payload)
+	}
 
 	if err := s.enqueueRunTask(ctx, run); err != nil {
 		return nil, err
@@ -200,7 +221,54 @@ func (s *agentRunService) GetAgentRun(
 	if run == nil {
 		return nil, ErrAgentRunNotFound
 	}
+	run, err = s.recoverTimedOutAgentRun(ctx, run)
+	if err != nil {
+		return nil, err
+	}
 	return run, nil
+}
+
+func (s *agentRunService) recoverTimedOutAgentRun(
+	ctx context.Context,
+	run *types.AgentRun,
+) (*types.AgentRun, error) {
+	if run == nil || run.Status != types.AgentRunStatusRunning || run.StartedAt == nil {
+		return run, nil
+	}
+	now := time.Now().UTC()
+	if run.StartedAt.After(now.Add(-agentRunTimeout)) {
+		return run, nil
+	}
+	timedOut, err := s.repo.MarkTimedOut(ctx, run.ID, now.Add(-agentRunTimeout), now)
+	if err != nil {
+		return nil, err
+	}
+	if !timedOut {
+		return s.repo.GetByID(ctx, run.ID)
+	}
+	message := "Agent 运行超过服务端执行时限，已自动终止。"
+	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunError, types.JSONMap{
+		"runId":     run.ID,
+		"threadId":  firstNonEmpty(run.ThreadID, run.ID),
+		"status":    types.AgentRunStatusFailed,
+		"errorCode": types.AgentRunErrorTimedOut,
+		"message":   message,
+	})
+	s.forgetAgentRunThread(run.ID)
+	return s.repo.GetByID(ctx, run.ID)
+}
+
+func (s *agentRunService) ListAgentThreadRuns(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+) ([]*types.AgentRun, error) {
+	run, err := s.GetAgentRun(ctx, tenantID, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	threadID := firstNonEmpty(strings.TrimSpace(run.ThreadID), run.ID)
+	return s.repo.ListByThreadForUser(ctx, tenantID, userID, threadID)
 }
 
 func (s *agentRunService) GetAgentRunQuality(
@@ -304,11 +372,10 @@ func (s *agentRunService) SubmitAgentRunAnswers(
 		return nil, err
 	}
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunResumed, types.JSONMap{
-		"runId":    run.ID,
-		"threadId": run.ID,
-		"status":   types.AgentRunStatusQueued,
-		"phase":    types.AgentRunPhasePlanning,
-		"answers":  cloneAgentRunJSONMap(answerInput.Answers),
+		"runId":   run.ID,
+		"status":  types.AgentRunStatusQueued,
+		"phase":   types.AgentRunPhasePlanning,
+		"answers": cloneAgentRunJSONMap(answerInput.Answers),
 	})
 	if err := s.enqueueRunTask(ctx, run); err != nil {
 		return nil, err
@@ -347,6 +414,7 @@ func (s *agentRunService) RegenerateAgentRun(
 		return nil, fmt.Errorf("encode expert regeneration request: %w", err)
 	}
 	child := &types.AgentRun{
+		ThreadID:     firstNonEmpty(run.ThreadID, run.ID),
 		ParentRunID:  run.ID,
 		RunType:      run.RunType,
 		AgentRef:     run.AgentRef,
@@ -375,21 +443,30 @@ func (s *agentRunService) CancelAgentRun(
 	if run.Status == types.AgentRunStatusCancelled {
 		return run, nil
 	}
-	if run.Status != types.AgentRunStatusQueued {
+	if run.Status != types.AgentRunStatusQueued &&
+		run.Status != types.AgentRunStatusRunning &&
+		run.Status != types.AgentRunStatusWaitingInput {
 		return nil, ErrAgentRunCannotCancel
 	}
-	cancelled, err := s.repo.CancelQueued(ctx, tenantID, userID, run.ID, time.Now())
+	cancelled, err := s.repo.CancelActive(ctx, tenantID, userID, run.ID, time.Now())
 	if err != nil {
 		return nil, err
 	}
 	if !cancelled {
 		return nil, ErrAgentRunCannotCancel
 	}
+	if s.taskCanceller != nil && strings.TrimSpace(run.TaskID) != "" {
+		queue, _ := types.QueueForTaskType(types.TypeAgentRunExecute)
+		if _, cancelErr := s.taskCanceller.CancelTask(ctx, queue, run.TaskID); cancelErr != nil {
+			logger.Warnf(ctx, "failed to cancel agent task (run=%s task=%s): %v", run.ID, run.TaskID, cancelErr)
+		}
+	}
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunCancelled, types.JSONMap{
 		"runId":    run.ID,
-		"threadId": run.ID,
+		"threadId": firstNonEmpty(run.ThreadID, run.ID),
 		"status":   types.AgentRunStatusCancelled,
 	})
+	s.forgetAgentRunThread(run.ID)
 	return s.GetAgentRun(ctx, tenantID, userID, run.ID)
 }
 
@@ -412,19 +489,27 @@ func (s *agentRunService) ProcessAgentRun(ctx context.Context, task *asynq.Task)
 		_, _ = s.repo.MarkFailed(ctx, run.ID, types.AgentRunErrorInvalidInput, "agent run tenant mismatch", time.Now())
 		return nil
 	}
-	claimed, err := s.repo.Claim(ctx, run.ID, time.Now())
+	startedAt := time.Now().UTC()
+	claimed, err := s.repo.Claim(ctx, run.ID, startedAt)
 	if err != nil {
 		return err
 	}
 	if !claimed {
 		return nil
 	}
+	run.Status = types.AgentRunStatusRunning
+	run.StartedAt = &startedAt
+	run.Attempt++
+	s.cacheAgentRunThread(run)
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeRunStarted, types.JSONMap{
-		"runId":    run.ID,
-		"threadId": run.ID,
-		"status":   types.AgentRunStatusRunning,
-		"phase":    run.Phase,
-		"attempt":  run.Attempt + 1,
+		"runId":           run.ID,
+		"threadId":        firstNonEmpty(run.ThreadID, run.ID),
+		"status":          types.AgentRunStatusRunning,
+		"phase":           run.Phase,
+		"attempt":         run.Attempt,
+		"queuedAt":        run.QueuedAt,
+		"startedAt":       startedAt,
+		"queueDurationMs": elapsedMilliseconds(run.QueuedAt, startedAt),
 	})
 	s.emitRunEvent(ctx, run.ID, types.AgentRunEventTypeReasoningStart, types.JSONMap{
 		"runId": run.ID,
@@ -447,7 +532,7 @@ func (s *agentRunService) ProcessAgentRun(ctx context.Context, task *asynq.Task)
 		}
 		return s.recordExecutionFailure(ctx, run.ID, err)
 	}
-	return s.completeAgentRun(ctx, run.ID, profileID, result, compatibility)
+	return s.completeAgentRun(ctx, run, profileID, result, compatibility)
 }
 
 func (s *agentRunService) execute(
@@ -498,6 +583,8 @@ func (s *agentRunService) execute(
 		return result, compatibility, profileID, nil
 	case types.AgentRunTypeExpertAgentTest:
 		return s.executeExpertAgentTest(ctx, run)
+	case types.AgentRunTypeExpertFollowUp:
+		return s.executeExpertFollowUp(ctx, run)
 	default:
 		return types.AgentResultV1{}, nil, "", permanentAgentRunError{err: fmt.Errorf("unsupported agent run type %q", run.RunType)}
 	}
@@ -505,10 +592,15 @@ func (s *agentRunService) execute(
 
 func (s *agentRunService) completeAgentRun(
 	ctx context.Context,
-	runID, profileID string,
+	run *types.AgentRun,
+	profileID string,
 	result types.AgentResultV1,
 	compatibility types.JSONMap,
 ) error {
+	if run == nil || strings.TrimSpace(run.ID) == "" {
+		return errors.New("agent run is required to complete")
+	}
+	runID := run.ID
 	validation := types.ValidateAgentResultV1(result)
 	resultMap, err := result.ToJSONMap()
 	if err != nil {
@@ -540,11 +632,143 @@ func (s *agentRunService) completeAgentRun(
 		}
 		return err
 	}
-	succeeded, err := s.repo.MarkSucceeded(ctx, runID, profileID, resultMap, time.Now())
+	if run.RunType == types.AgentRunTypeExpertAgentTest {
+		if err := s.persistExpertReportArtifacts(ctx, run, &result); err != nil {
+			return s.recordExecutionFailure(ctx, runID, permanentAgentRunError{err: err})
+		}
+		resultMap, err = result.ToJSONMap()
+		if err != nil {
+			return s.recordExecutionFailure(ctx, runID, permanentAgentRunError{err: fmt.Errorf("encode persisted agent result: %w", err)})
+		}
+		resultMap["validation"] = validationMap
+		for key, value := range compatibility {
+			resultMap[key] = value
+		}
+	}
+	finishedAt := time.Now().UTC()
+	succeeded, err := s.repo.MarkSucceeded(ctx, runID, profileID, resultMap, finishedAt)
 	if err == nil && succeeded {
-		s.emitRunCompletionEvents(ctx, runID, profileID, result)
+		totalDurationMs := int64(0)
+		if run.StartedAt != nil {
+			totalDurationMs = elapsedMilliseconds(*run.StartedAt, finishedAt)
+		}
+		s.emitRunCompletionEvents(ctx, runID, profileID, result, totalDurationMs)
+		s.forgetAgentRunThread(runID)
 	}
 	return err
+}
+
+// persistExpertReportArtifacts turns the platform report contract into a
+// durable HTML object. The FileService may point to local disk, OSS, COS, S3,
+// or another configured provider, so the execution workflow stays storage
+// agnostic.
+func (s *agentRunService) persistExpertReportArtifacts(
+	ctx context.Context,
+	run *types.AgentRun,
+	result *types.AgentResultV1,
+) error {
+	if s.fileService == nil || result == nil {
+		return nil
+	}
+	supportingArtifacts := make([]types.AgentArtifactResultV1, 0, len(result.Artifacts))
+	artifactCount := len(result.Artifacts)
+	for index := 0; index < artifactCount; index++ {
+		artifact := &result.Artifacts[index]
+		if artifact.Kind != types.AgentArtifactKindReport ||
+			artifact.Format != types.StructuredReportFormatV1 ||
+			len(artifact.Content) == 0 {
+			continue
+		}
+		report, err := types.DecodeStructuredReportV1(artifact.Content)
+		if err != nil {
+			return fmt.Errorf("decode expert report artifact %d: %w", index, err)
+		}
+		rendered, err := renderStructuredReportHTML(*report)
+		if err != nil {
+			return fmt.Errorf("render expert report artifact %d: %w", index, err)
+		}
+		markdown, err := renderStructuredReportMarkdown(*report)
+		if err != nil {
+			return fmt.Errorf("render expert report markdown artifact %d: %w", index, err)
+		}
+		artifactID := uuid.NewString()
+		fileBase := expertArtifactFileBase(firstNonEmpty(artifact.Title, report.Title, "专家报告"))
+		fileName := fileBase + ".html"
+		resourceRef, err := s.fileService.SaveBytes(
+			ctx,
+			[]byte(rendered),
+			run.TenantID,
+			fileName,
+			false,
+		)
+		if err != nil {
+			return fmt.Errorf("persist expert report artifact %d: %w", index, err)
+		}
+		if s.resourceCatalog != nil {
+			if _, isStableResource := types.ParseResourcePath(resourceRef); isStableResource {
+				if err := s.resourceCatalog.Bind(ctx, resourceRef, "agent_run", run.ID, "artifact"); err != nil {
+					_ = s.fileService.DeleteFile(ctx, resourceRef)
+					return fmt.Errorf("bind expert report artifact %d: %w", index, err)
+				}
+			}
+		}
+		artifact.ID = artifactID
+		artifact.MimeType = "text/html"
+		artifact.OriginalName = fileName
+		artifact.SizeBytes = int64(len([]byte(rendered)))
+		artifact.ResourceRef = resourceRef
+
+		markdownID := uuid.NewString()
+		markdownName := fileBase + ".md"
+		markdownRef, err := s.fileService.SaveBytes(
+			ctx,
+			[]byte(markdown),
+			run.TenantID,
+			markdownName,
+			false,
+		)
+		if err != nil {
+			_ = s.fileService.DeleteFile(ctx, resourceRef)
+			return fmt.Errorf("persist expert report markdown artifact %d: %w", index, err)
+		}
+		if s.resourceCatalog != nil {
+			if _, isStableResource := types.ParseResourcePath(markdownRef); isStableResource {
+				if err := s.resourceCatalog.Bind(ctx, markdownRef, "agent_run", run.ID, "artifact"); err != nil {
+					_ = s.fileService.DeleteFile(ctx, markdownRef)
+					_ = s.fileService.DeleteFile(ctx, resourceRef)
+					return fmt.Errorf("bind expert report markdown artifact %d: %w", index, err)
+				}
+			}
+		}
+		supportingArtifacts = append(supportingArtifacts, types.AgentArtifactResultV1{
+			ID:           markdownID,
+			Kind:         types.AgentArtifactKindText,
+			Role:         types.AgentArtifactRoleSupporting,
+			Title:        firstNonEmpty(artifact.Title, report.Title, "专家报告") + "（Markdown 原稿）",
+			Format:       "markdown",
+			MimeType:     "text/markdown; charset=utf-8",
+			OriginalName: markdownName,
+			SizeBytes:    int64(len([]byte(markdown))),
+			ResourceRef:  markdownRef,
+		})
+	}
+	result.Artifacts = append(result.Artifacts, supportingArtifacts...)
+	return nil
+}
+
+func expertArtifactFileBase(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Map(func(r rune) rune {
+		if r < 32 || strings.ContainsRune(`/\:*?"<>|`, r) {
+			return -1
+		}
+		return r
+	}, value)
+	value = strings.Trim(value, ". ")
+	if value == "" {
+		value = "专家报告"
+	}
+	return trimExpertRunes(value, 80)
 }
 
 func (s *agentRunService) recordExecutionFailure(ctx context.Context, runID string, err error) error {
@@ -612,13 +836,48 @@ func (s *agentRunService) emitRunEvent(
 	if err := s.repo.CreateEvent(ctx, &types.AgentRunEvent{
 		RunID:     runID,
 		EventType: eventType,
-		Payload:   cloneAgentRunJSONMap(payload),
+		Payload:   s.withRunThreadID(ctx, runID, payload),
 	}); err != nil {
 		// Event persistence must not turn a completed agent result into a
 		// failed task. The run state remains authoritative and the error is
 		// visible in server logs for operational repair.
 		logger.Warnf(ctx, "failed to persist agent run event (run=%s type=%s): %v", runID, eventType, err)
 	}
+}
+
+func (s *agentRunService) withRunThreadID(
+	ctx context.Context,
+	runID string,
+	payload types.JSONMap,
+) types.JSONMap {
+	enriched := cloneAgentRunJSONMap(payload)
+	if strings.TrimSpace(asString(enriched["threadId"])) != "" {
+		return enriched
+	}
+	if cached, ok := s.threadIDCache.Load(runID); ok {
+		if threadID := strings.TrimSpace(asString(cached)); threadID != "" {
+			enriched["threadId"] = threadID
+			return enriched
+		}
+	}
+	run, err := s.repo.GetByID(ctx, runID)
+	if err == nil && run != nil {
+		threadID := firstNonEmpty(strings.TrimSpace(run.ThreadID), run.ID)
+		s.threadIDCache.Store(runID, threadID)
+		enriched["threadId"] = threadID
+	}
+	return enriched
+}
+
+func (s *agentRunService) cacheAgentRunThread(run *types.AgentRun) {
+	if run == nil || strings.TrimSpace(run.ID) == "" {
+		return
+	}
+	s.threadIDCache.Store(run.ID, firstNonEmpty(strings.TrimSpace(run.ThreadID), run.ID))
+}
+
+func (s *agentRunService) forgetAgentRunThread(runID string) {
+	s.threadIDCache.Delete(strings.TrimSpace(runID))
 }
 
 func (s *agentRunService) emitRunError(ctx context.Context, runID, code, message string) {
@@ -635,6 +894,7 @@ func (s *agentRunService) emitRunError(ctx context.Context, runID, code, message
 	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeReasoningEnd, types.JSONMap{
 		"runId": runID,
 	})
+	s.forgetAgentRunThread(runID)
 }
 
 func (s *agentRunService) emitWaitingInputEvents(
@@ -659,7 +919,6 @@ func (s *agentRunService) emitWaitingInputEvents(
 	}
 	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeRunWaitingInput, types.JSONMap{
 		"runId":       runID,
-		"threadId":    runID,
 		"status":      types.AgentRunStatusWaitingInput,
 		"toolCallId":  toolCallID,
 		"interaction": cloneAgentRunJSONMap(interaction),
@@ -677,6 +936,7 @@ func (s *agentRunService) emitRunCompletionEvents(
 	ctx context.Context,
 	runID, profileID string,
 	result types.AgentResultV1,
+	totalDurationMs int64,
 ) {
 	summary := strings.TrimSpace(result.Decision.Reason)
 	if result.Card != nil {
@@ -701,9 +961,13 @@ func (s *agentRunService) emitRunCompletionEvents(
 	files := make([]map[string]any, 0, len(result.Artifacts))
 	for _, artifact := range result.Artifacts {
 		files = append(files, map[string]any{
-			"name":   artifact.Title,
-			"kind":   artifact.Kind,
-			"format": artifact.Format,
+			"id":           artifact.ID,
+			"name":         artifact.Title,
+			"kind":         artifact.Kind,
+			"format":       artifact.Format,
+			"mimeType":     artifact.MimeType,
+			"originalName": artifact.OriginalName,
+			"resourceRef":  artifact.ResourceRef,
 		})
 	}
 	if len(files) > 0 {
@@ -726,12 +990,19 @@ func (s *agentRunService) emitRunCompletionEvents(
 		"runId": runID,
 	})
 	s.emitRunEvent(ctx, runID, types.AgentRunEventTypeRunFinished, types.JSONMap{
-		"runId":     runID,
-		"threadId":  runID,
-		"status":    types.AgentRunStatusSucceeded,
-		"profileId": profileID,
-		"phase":     types.AgentRunPhaseCompleted,
+		"runId":           runID,
+		"status":          types.AgentRunStatusSucceeded,
+		"profileId":       profileID,
+		"phase":           types.AgentRunPhaseCompleted,
+		"totalDurationMs": totalDurationMs,
 	})
+}
+
+func elapsedMilliseconds(start, end time.Time) int64 {
+	if start.IsZero() || end.IsZero() || end.Before(start) {
+		return 0
+	}
+	return end.Sub(start).Milliseconds()
 }
 
 func agentRunFinalAttempt(ctx context.Context) bool {

@@ -93,6 +93,29 @@ func (h *ExpertPackageHandler) ListPublished(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": experts})
 }
 
+func (h *ExpertPackageHandler) RoutePublished(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ExpertAgentTestInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid expert route request").WithDetails(err.Error()))
+		return
+	}
+	decision, err := h.agentRuns.RoutePublishedExpert(
+		c.Request.Context(),
+		tenantID,
+		input.Prompt,
+		input.ModelID,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": decision})
+}
+
 func (h *ExpertPackageHandler) Get(c *gin.Context) {
 	tenantID, _, ok := serviceScope(c)
 	if !ok {
@@ -182,7 +205,50 @@ func (h *ExpertPackageHandler) PublishedRun(c *gin.Context) {
 	input.PackageID = c.Param("package_id")
 	input.DefinitionID = c.Param("definition_id")
 	input.ProfileID = ""
+	input.RouteMode = types.AgentRouteModeManual
 	run, err := h.agentRuns.EnqueuePublishedExpertRun(c.Request.Context(), tenantID, userID, input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ExpertPackageHandler) PublishedAutoRun(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ExpertAgentTestInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid expert auto-route request").WithDetails(err.Error()))
+		return
+	}
+	input.PackageID = ""
+	input.DefinitionID = ""
+	input.ProfileID = ""
+	input.RouteMode = types.AgentRouteModeAuto
+	run, err := h.agentRuns.EnqueuePublishedExpertAutoRun(c.Request.Context(), tenantID, userID, input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": run})
+}
+
+func (h *ExpertPackageHandler) PublishedFollowUp(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ExpertFollowUpInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid expert follow-up request").WithDetails(err.Error()))
+		return
+	}
+	input.ParentRunID = c.Param("run_id")
+	input.Mode = "explanation"
+	run, err := h.agentRuns.EnqueuePublishedExpertFollowUp(c.Request.Context(), tenantID, userID, input)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -197,7 +263,9 @@ func (h *ExpertPackageHandler) handleError(c *gin.Context, err error) {
 	case errors.Is(err, appsvc.ErrExpertPackageInvalidInput) ||
 		errors.Is(err, appsvc.ErrExpertPackageVersionExists) ||
 		errors.Is(err, appsvc.ErrExpertPackageNotPublished) ||
-		errors.Is(err, appsvc.ErrAgentRunInvalidRequest):
+		errors.Is(err, appsvc.ErrAgentRunInvalidRequest) ||
+		errors.Is(err, appsvc.ErrAgentRunNoExpertMatch) ||
+		errors.Is(err, appsvc.ErrAgentRunRouteConfirm):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	default:
 		c.Error(apperrors.NewInternalServerError(err.Error()))

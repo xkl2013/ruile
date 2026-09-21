@@ -223,10 +223,15 @@ export interface StructuredReportV1 {
 }
 
 export interface ServiceAgentArtifactResultV1 {
+  id?: string
   kind: 'text' | 'report' | 'html' | 'image' | 'pdf' | 'document' | 'spreadsheet' | 'presentation' | 'audio' | 'video' | 'data'
   role: 'primary' | 'supporting'
   title: string
   format?: string
+  mime_type?: string
+  original_name?: string
+  size_bytes?: number
+  resource_ref?: string
   content?: StructuredReportV1 | Record<string, unknown>
 }
 
@@ -266,10 +271,11 @@ export interface ServiceAgentRun {
   id: string
   tenant_id: number
   user_id: string
+  thread_id?: string
   profile_id?: string
   parent_run_id?: string
   requirement_snapshot_id?: string
-  run_type: 'service_daily_report' | 'service_memory_extract' | 'expert_agent_test'
+  run_type: 'service_daily_report' | 'service_memory_extract' | 'expert_agent_test' | 'expert_follow_up'
   agent_ref?: string
   agent_version?: string
   trigger_type?: string
@@ -299,6 +305,12 @@ export interface ServiceAgentRunEvent {
   sequence?: number
   status?: ServiceAgentRunStatus
   phase?: ServiceAgentRunPhase
+  createdAt?: string
+  startedAt?: string
+  finishedAt?: string
+  durationMs?: number
+  totalDurationMs?: number
+  queueDurationMs?: number
   [key: string]: unknown
 }
 
@@ -504,6 +516,13 @@ export function extractServiceMemory(memoryId: string) {
 
 export function getServiceAgentRun(id: string) {
   return get<ServiceResponse<ServiceAgentRun>>(`/api/v1/service/agent-runs/${encodeURIComponent(id)}`)
+}
+
+export function getServiceAgentArtifactPreview(runId: string, artifactId: string) {
+  return get<string>(
+    `/api/v1/service/agent-runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/preview`,
+    { responseType: 'text' },
+  )
 }
 
 export function listServiceAgentRunSteps(id: string) {

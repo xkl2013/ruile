@@ -181,8 +181,8 @@ const sendMsg = (value: string, modelId: string, mentionedItems: any[], imageFil
     createNewSession(value, modelId, mentionedItems, imageFiles, attachmentFiles);
 }
 
-const sendPublishedExpert = (value: string, modelId: string, expert: any) => {
-    createNewSession(value, modelId, [], [], [], expert);
+const sendPublishedExpert = (value: string, modelId: string, expert: any, routeMode: 'auto' | 'manual') => {
+    createNewSession(value, modelId, [], [], [], expert, routeMode);
 }
 
 async function createNewSession(
@@ -192,10 +192,11 @@ async function createNewSession(
     imageFiles: any[] = [],
     attachmentFiles: any[] = [],
     publishedExpert: any | null = null,
+    publishedExpertRouteMode: 'auto' | 'manual' = 'manual',
 ) {
     // Published expert runs are tracked by AgentRun and rendered locally in
     // this first slice, so they do not depend on normal session creation.
-    if (publishedExpert) {
+    if (publishedExpert || publishedExpertRouteMode === 'auto') {
         const temporarySessionId = `expert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         await navigateToSession(
             temporarySessionId,
@@ -205,6 +206,7 @@ async function createNewSession(
             imageFiles,
             attachmentFiles,
             publishedExpert,
+            publishedExpertRouteMode,
         );
         return;
     }
@@ -247,6 +249,7 @@ const navigateToSession = async (
     imageFiles: any[] = [],
     attachmentFiles: any[] = [],
     publishedExpert: any | null = null,
+    publishedExpertRouteMode: 'auto' | 'manual' = 'manual',
 ) => {
     const now = new Date().toISOString();
     let obj = {
@@ -262,6 +265,7 @@ const navigateToSession = async (
     usemenuStore.changeIsFirstSession(true);
     usemenuStore.changeFirstQuery(value, mentionedItems, modelId, imageFiles, attachmentFiles);
     usemenuStore.changeFirstPublishedExpert(publishedExpert);
+    usemenuStore.changeFirstPublishedExpertRouteMode(publishedExpertRouteMode);
     router.push(`/platform/chat/${sessionId}`);
 }
 

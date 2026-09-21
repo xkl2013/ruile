@@ -189,6 +189,12 @@ func TestServiceGenerateWeeklyReportUsesDailySources(t *testing.T) {
 				DisplayName:      "客户服务",
 				WorkDocDirectory: "客户/",
 			},
+			{
+				AgentDomain:      types.ServiceAgentDomainScheduling,
+				Enabled:          true,
+				DisplayName:      "排课协调",
+				WorkDocDirectory: "排课/",
+			},
 		},
 	})
 	require.NoError(t, err)

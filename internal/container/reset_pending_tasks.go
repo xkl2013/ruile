@@ -12,6 +12,7 @@ import (
 )
 
 const resetPendingStaleWindow = 30 * time.Minute
+const resetPendingAgentRunStaleWindow = 11 * time.Minute
 
 const restartInterruptedMessage = "Task interrupted due to application restart"
 
@@ -133,6 +134,39 @@ func resetPendingTasks(db *gorm.DB) {
 		logger.Infof(context.Background(),
 			"Reset %d stuck data source sync tasks to failed state (distributed=%v)",
 			resultSync.RowsAffected, distributed)
+	}
+
+	// 4. Lite AgentRun tasks are process-local and cannot survive a restart.
+	// Distributed workers persist queued tasks in Asynq, so only executions
+	// older than the worker timeout plus a small grace period are terminalized.
+	if db.Migrator().HasTable(&types.AgentRun{}) {
+		agentQuery := db.Model(&types.AgentRun{})
+		agentCode := types.AgentRunErrorExecutionFailed
+		agentMessage := restartInterruptedMessage
+		if distributed {
+			agentQuery = agentQuery.
+				Where("status = ? AND started_at < ?", types.AgentRunStatusRunning, time.Now().Add(-resetPendingAgentRunStaleWindow))
+			agentCode = types.AgentRunErrorTimedOut
+			agentMessage = "Agent run exceeded the server execution timeout"
+		} else {
+			agentQuery = agentQuery.Where("status IN ?", []string{
+				types.AgentRunStatusQueued,
+				types.AgentRunStatusRunning,
+			})
+		}
+		finishedAt := time.Now().UTC()
+		resultAgentRuns := agentQuery.Updates(map[string]interface{}{
+			"status":        types.AgentRunStatusFailed,
+			"interaction":   types.JSONMap{},
+			"error_code":    agentCode,
+			"error_message": agentMessage,
+			"finished_at":   finishedAt,
+		})
+		if resultAgentRuns.Error != nil {
+			logger.Warnf(ctx, "resetPendingTasks: reset agent runs failed: %v", resultAgentRuns.Error)
+		} else if resultAgentRuns.RowsAffected > 0 {
+			logger.Infof(ctx, "Reset %d interrupted agent runs (distributed=%v)", resultAgentRuns.RowsAffected, distributed)
+		}
 	}
 }
 

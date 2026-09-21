@@ -39,6 +39,7 @@ export const useMenuStore = defineStore('menuStore', () => {
   const firstImageFiles = ref<any[]>([])
   const firstAttachmentFiles = ref<any[]>([])
   const firstPublishedExpert = ref<any | null>(null)
+  const firstPublishedExpertRouteMode = ref<'auto' | 'manual'>('manual')
   const prefillQuery = ref('')
 
   const applyMenuTranslations = () => {
@@ -127,6 +128,10 @@ export const useMenuStore = defineStore('menuStore', () => {
     firstPublishedExpert.value = payload
   }
 
+  const changeFirstPublishedExpertRouteMode = (payload: 'auto' | 'manual') => {
+    firstPublishedExpertRouteMode.value = payload
+  }
+
   const setPrefillQuery = (q: string) => {
     prefillQuery.value = q
   }
@@ -147,6 +152,7 @@ export const useMenuStore = defineStore('menuStore', () => {
     firstImageFiles,
     firstAttachmentFiles,
     firstPublishedExpert,
+    firstPublishedExpertRouteMode,
     prefillQuery,
     clearMenuArr,
     updatemenuArr,
@@ -155,6 +161,7 @@ export const useMenuStore = defineStore('menuStore', () => {
     changeIsFirstSession,
     changeFirstQuery,
     changeFirstPublishedExpert,
+    changeFirstPublishedExpertRouteMode,
     setPrefillQuery,
     consumePrefillQuery
   }

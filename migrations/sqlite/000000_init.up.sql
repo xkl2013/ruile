@@ -1288,13 +1288,18 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     tenant_id INTEGER NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     profile_id VARCHAR(36) NOT NULL DEFAULT '',
+    parent_run_id VARCHAR(36) NOT NULL DEFAULT '',
+    requirement_snapshot_id VARCHAR(36) NOT NULL DEFAULT '',
     run_type VARCHAR(64) NOT NULL,
     agent_ref VARCHAR(128) NOT NULL DEFAULT '',
     agent_version VARCHAR(64) NOT NULL DEFAULT '',
     trigger_type VARCHAR(64) NOT NULL DEFAULT '',
     trigger_id VARCHAR(128) NOT NULL DEFAULT '',
     status VARCHAR(32) NOT NULL DEFAULT 'queued',
+    phase VARCHAR(32) NOT NULL DEFAULT '',
     input TEXT NOT NULL DEFAULT '{}',
+    interaction TEXT NOT NULL DEFAULT '{}',
+    quality TEXT NOT NULL DEFAULT '{}',
     result TEXT NOT NULL DEFAULT '{}',
     error_code VARCHAR(64) NOT NULL DEFAULT '',
     error_message TEXT NOT NULL DEFAULT '',
@@ -1302,13 +1307,14 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     task_id VARCHAR(160) NOT NULL DEFAULT '',
     attempt INTEGER NOT NULL DEFAULT 0,
     queued_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resumed_at DATETIME,
     started_at DATETIME,
     finished_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     deleted_at DATETIME,
-    CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
-    CHECK (run_type IN ('service_daily_report', 'service_memory_extract', 'expert_agent_test'))
+    CHECK (status IN ('queued', 'running', 'waiting_input', 'succeeded', 'failed', 'cancelled')),
+    CHECK (run_type IN ('service_daily_report', 'service_memory_extract', 'expert_agent_test', 'expert_follow_up'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_runs_scope_created
@@ -1317,8 +1323,13 @@ CREATE INDEX IF NOT EXISTS idx_agent_runs_status
     ON agent_runs(status, queued_at);
 CREATE INDEX IF NOT EXISTS idx_agent_runs_trigger
     ON agent_runs(tenant_id, trigger_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_parent
+    ON agent_runs(parent_run_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_phase
+    ON agent_runs(status, phase, queued_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_runs_idempotency_active
-    ON agent_runs(tenant_id, user_id, run_type, idempotency_key, created_at DESC);
+    ON agent_runs(tenant_id, user_id, run_type, idempotency_key, created_at DESC)
+    WHERE status IN ('queued', 'running', 'waiting_input');
 
 CREATE TABLE IF NOT EXISTS agent_action_drafts (
     id VARCHAR(36) PRIMARY KEY,

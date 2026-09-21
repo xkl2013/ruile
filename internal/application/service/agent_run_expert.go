@@ -132,8 +132,13 @@ func (s *agentRunService) enqueuePublishedExpertRun(
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	input.ModelID = strings.TrimSpace(input.ModelID)
 	input.ProfileID = strings.TrimSpace(input.ProfileID)
+	input.RouteMode = strings.TrimSpace(input.RouteMode)
+	if input.RouteMode == "" {
+		input.RouteMode = types.AgentRouteModeManual
+	}
 	if input.PackageID == "" || input.DefinitionID == "" || input.Prompt == "" ||
-		utf8.RuneCountInString(input.Prompt) > expertAgentTestMaxPromptRunes {
+		utf8.RuneCountInString(input.Prompt) > expertAgentTestMaxPromptRunes ||
+		(input.RouteMode != types.AgentRouteModeManual && input.RouteMode != types.AgentRouteModeAuto) {
 		return nil, ErrAgentRunInvalidRequest
 	}
 	if s.expertPackages == nil {

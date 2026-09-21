@@ -67,6 +67,30 @@ export interface PublishedExpert {
   capabilities?: Record<string, unknown>
 }
 
+export interface PublishedExpertRouteCandidate {
+  package_id: string
+  package_version_id: string
+  package_display_name: string
+  definition_id: string
+  agent_id: string
+  version: string
+  display_name: string
+  description?: string
+  domain?: string
+  score: number
+  confidence: number
+}
+
+export interface PublishedExpertRouteDecision {
+  route_mode: 'auto' | 'manual'
+  selected_expert_id: string
+  selected_version: string
+  confidence: number
+  candidates: PublishedExpertRouteCandidate[]
+  routing_reason: string
+  requires_confirmation: boolean
+}
+
 export interface ExpertPackageVersion {
   id: string
   package_id: string
@@ -122,6 +146,14 @@ export interface ExpertAgentTestInput {
   model_id?: string
   profile_id?: string
   feedback?: string
+  route_mode?: 'auto' | 'manual'
+  routing_decision?: Record<string, unknown>
+  user_confirmed?: boolean
+}
+
+export interface ExpertFollowUpInput {
+  prompt: string
+  mode?: 'explanation'
 }
 
 function withQuery<T extends object>(path: string, params?: T) {
@@ -184,6 +216,13 @@ export function listPublishedExperts() {
   return get<ExpertPackageResponse<PublishedExpert[]>>('/api/v1/expert-packages/published')
 }
 
+export function routePublishedExpert(prompt: string, modelId?: string) {
+  return post<ExpertPackageResponse<PublishedExpertRouteDecision>>(
+    '/api/v1/expert-packages/published/route',
+    { prompt, model_id: modelId || undefined },
+  )
+}
+
 export function runPublishedExpert(
   packageId: string,
   definitionId: string,
@@ -191,6 +230,20 @@ export function runPublishedExpert(
 ) {
   return post<ExpertPackageResponse<ServiceAgentRun>>(
     `/api/v1/expert-packages/published/${encodeURIComponent(packageId)}/definitions/${encodeURIComponent(definitionId)}/runs`,
+    data,
+  )
+}
+
+export function runPublishedExpertAuto(data: ExpertAgentTestInput) {
+  return post<ExpertPackageResponse<ServiceAgentRun>>(
+    '/api/v1/expert-packages/published/auto-runs',
+    { ...data, route_mode: 'auto' },
+  )
+}
+
+export function runPublishedExpertFollowUp(runId: string, data: ExpertFollowUpInput) {
+  return post<ExpertPackageResponse<ServiceAgentRun>>(
+    `/api/v1/expert-packages/published/runs/${encodeURIComponent(runId)}/follow-ups`,
     data,
   )
 }

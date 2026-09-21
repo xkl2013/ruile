@@ -86,6 +86,7 @@ func setupResetPendingDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.Exec(resetPendingSyncLogDDL).Error)
 	require.NoError(t, db.Exec(resetPendingSpansDDL).Error)
 	require.NoError(t, db.Exec(resetPendingOpsDDL).Error)
+	require.NoError(t, db.AutoMigrate(&types.AgentRun{}))
 	return db
 }
 
@@ -262,6 +263,61 @@ func TestResetPendingTasks_SyncLogLiteMode(t *testing.T) {
 		`SELECT status FROM sync_logs WHERE id = ?`, "sync-lite",
 	).Row().Scan(&status))
 	assert.Equal(t, types.SyncLogStatusFailed, status)
+}
+
+func TestResetPendingTasks_AgentRunLiteModeFailsQueuedAndRunning(t *testing.T) {
+	db := setupResetPendingDB(t)
+	t.Setenv("REDIS_ADDR", "")
+	runs := []*types.AgentRun{
+		{TenantID: 7, UserID: "user-a", RunType: types.AgentRunTypeExpertAgentTest, Status: types.AgentRunStatusQueued},
+		{TenantID: 7, UserID: "user-a", RunType: types.AgentRunTypeExpertAgentTest, Status: types.AgentRunStatusRunning},
+	}
+	for _, run := range runs {
+		require.NoError(t, db.Create(run).Error)
+	}
+
+	resetPendingTasks(db)
+
+	for _, run := range runs {
+		var stored types.AgentRun
+		require.NoError(t, db.First(&stored, "id = ?", run.ID).Error)
+		assert.Equal(t, types.AgentRunStatusFailed, stored.Status)
+		assert.Equal(t, types.AgentRunErrorExecutionFailed, stored.ErrorCode)
+		require.NotNil(t, stored.FinishedAt)
+	}
+}
+
+func TestResetPendingTasks_AgentRunDistributedOnlyFailsStaleRunning(t *testing.T) {
+	db := setupResetPendingDB(t)
+	t.Setenv("REDIS_ADDR", "redis:6379")
+	staleStart := time.Now().Add(-resetPendingAgentRunStaleWindow - time.Minute)
+	freshStart := time.Now()
+	stale := &types.AgentRun{
+		TenantID: 7, UserID: "user-a", RunType: types.AgentRunTypeExpertAgentTest,
+		Status: types.AgentRunStatusRunning, StartedAt: &staleStart,
+	}
+	fresh := &types.AgentRun{
+		TenantID: 7, UserID: "user-a", RunType: types.AgentRunTypeExpertAgentTest,
+		Status: types.AgentRunStatusRunning, StartedAt: &freshStart,
+	}
+	queued := &types.AgentRun{
+		TenantID: 7, UserID: "user-a", RunType: types.AgentRunTypeExpertAgentTest,
+		Status: types.AgentRunStatusQueued,
+	}
+	require.NoError(t, db.Create(stale).Error)
+	require.NoError(t, db.Create(fresh).Error)
+	require.NoError(t, db.Create(queued).Error)
+
+	resetPendingTasks(db)
+
+	var storedStale, storedFresh, storedQueued types.AgentRun
+	require.NoError(t, db.First(&storedStale, "id = ?", stale.ID).Error)
+	require.NoError(t, db.First(&storedFresh, "id = ?", fresh.ID).Error)
+	require.NoError(t, db.First(&storedQueued, "id = ?", queued.ID).Error)
+	assert.Equal(t, types.AgentRunStatusFailed, storedStale.Status)
+	assert.Equal(t, types.AgentRunErrorTimedOut, storedStale.ErrorCode)
+	assert.Equal(t, types.AgentRunStatusRunning, storedFresh.Status)
+	assert.Equal(t, types.AgentRunStatusQueued, storedQueued.Status)
 }
 
 func TestStuckKnowledgeParseQuery_ReuseAfterFindDoesNotBreakUpdate(t *testing.T) {

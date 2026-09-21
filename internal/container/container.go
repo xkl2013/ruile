@@ -298,6 +298,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		// dequeue of pending/scheduled/retry tasks + active-task cancel).
 		must(container.Provide(router.NewAsynqInspector))
 		must(container.Provide(router.NewAsynqTaskInspector))
+		must(container.Provide(router.NewAsynqTaskCanceller))
 		// Install the distributed per-model chat concurrency governor. Only
 		// available with Redis (the shared semaphore backend); Lite mode is
 		// single-process and low-volume, so it runs ungated.
@@ -305,6 +306,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	} else {
 		syncExec := router.NewSyncTaskExecutor()
 		must(container.Provide(func() interfaces.TaskEnqueuer { return syncExec }))
+		must(container.Provide(func() interfaces.TaskCanceller { return syncExec }))
 		must(container.Provide(func() *router.SyncTaskExecutor { return syncExec }))
 		// Lite mode: no Redis means no asynq inspector. SyncTaskExecutor
 		// dispatches inline goroutines that the checkpoint-based abort
@@ -384,6 +386,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewCustomAgentHandler))
 	must(container.Provide(handler.NewUserResourceFavoriteHandler))
 	must(container.Provide(handler.NewOrganizeHandler))
+	must(container.Provide(handler.NewAgentRunHandler))
 	must(container.Provide(handler.NewServiceHandler))
 	must(container.Provide(handler.NewExpertPackageHandler))
 	must(container.Provide(service.NewSkillService))

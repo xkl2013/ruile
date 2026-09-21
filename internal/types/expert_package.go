@@ -139,8 +139,32 @@ type PublishedExpert struct {
 	Description        string      `json:"description"`
 	Domain             string      `json:"domain"`
 	OutputContract     string      `json:"output_contract"`
-	Skills             StringArray `json:"skills"`
-	Capabilities       JSONMap     `json:"capabilities"`
+	Skills             StringArray `json:"skills" gorm:"column:skills;type:jsonb"`
+	Capabilities       JSONMap     `json:"capabilities" gorm:"column:capabilities;type:jsonb"`
+}
+
+type PublishedExpertRouteCandidate struct {
+	PackageID          string  `json:"package_id"`
+	PackageVersionID   string  `json:"package_version_id"`
+	PackageDisplayName string  `json:"package_display_name"`
+	DefinitionID       string  `json:"definition_id"`
+	AgentID            string  `json:"agent_id"`
+	Version            string  `json:"version"`
+	DisplayName        string  `json:"display_name"`
+	Description        string  `json:"description"`
+	Domain             string  `json:"domain"`
+	Score              float64 `json:"score"`
+	Confidence         float64 `json:"confidence"`
+}
+
+type PublishedExpertRouteDecision struct {
+	RouteMode            string                          `json:"route_mode"`
+	SelectedExpertID     string                          `json:"selected_expert_id"`
+	SelectedVersion      string                          `json:"selected_version"`
+	Confidence           float64                         `json:"confidence"`
+	Candidates           []PublishedExpertRouteCandidate `json:"candidates"`
+	RoutingReason        string                          `json:"routing_reason"`
+	RequiresConfirmation bool                            `json:"requires_confirmation"`
 }
 
 type AgentBinding struct {
