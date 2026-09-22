@@ -16,6 +16,7 @@ export interface ServiceRecord {
   id: string
   name: string
   description: string
+  instruction?: string
   templateId: string
   expertIds?: string[]
   knowledgeBaseIds?: string[]
@@ -113,21 +114,6 @@ export const serviceExperts = [
   { id: 'e3', name: '带班老师', description: '一日流程巡查、记录整理与异常上报' },
   { id: 'e4', name: '保育员', description: '生活照料记录与卫生保健' },
   { id: 'e5', name: '后勤主任', description: '安全巡查、物资与场地安排' },
-]
-
-export const serviceKnowledgeBases = [
-  { id: 'kb1', name: '招生话术与政策库', meta: '32 份 · 更新于 9-18' },
-  { id: 'kb2', name: '家长沟通记录库', meta: '128 条 · 更新于今天' },
-  { id: 'kb3', name: '课程与价格资料', meta: '18 份 · 更新于 9-12' },
-  { id: 'kb4', name: '一日流程与安全制度', meta: '24 份 · 更新于 8-30' },
-  { id: 'kb5', name: '教研资料库', meta: '56 份 · 更新于 9-20' },
-]
-
-export const serviceSkills = [
-  { id: 'sk1', name: '引用生成器', description: '给知识库检索结果标注出处' },
-  { id: 'sk2', name: '数据处理器', description: '统计分析、格式转换、生成报告' },
-  { id: 'sk3', name: '文档协作', description: '按结构化流程一起写文档' },
-  { id: 'sk4', name: '文档分析器', description: '拆解文档结构、提取关键信息' },
 ]
 
 const now = Date.now()
@@ -485,6 +471,7 @@ export const getFirstServiceSession = (serviceId: string) => getServiceSessions(
 export const createServiceRecord = (payload: {
   name: string
   description: string
+  instruction: string
   templateId: string
   expertIds: string[]
   knowledgeBaseIds: string[]
@@ -496,6 +483,7 @@ export const createServiceRecord = (payload: {
     id,
     name: payload.name.trim(),
     description: payload.description.trim(),
+    instruction: payload.instruction.trim(),
     templateId: payload.templateId,
     expertIds: [...payload.expertIds],
     knowledgeBaseIds: [...payload.knowledgeBaseIds],

@@ -2691,7 +2691,8 @@ defineExpose({
           </t-tooltip>
 
           <!-- 模型显示 -->
-          <t-tooltip :content="isModelLockedByAgent ? $t('input.modelLockedByAgent') : ''"
+          <t-tooltip v-if="!responseTierConfig.enabled"
+            :content="isModelLockedByAgent ? $t('input.modelLockedByAgent') : ''"
             :disabled="!isModelLockedByAgent">
             <div class="model-display" :class="{ 'agent-controlled': isModelLockedByAgent }">
               <div ref="modelButtonRef" class="model-selector-trigger" @click.stop="toggleModelSelector">
@@ -2709,6 +2710,9 @@ defineExpose({
           <t-tooltip v-if="responseTierConfig.enabled" content="回答档位" placement="top">
             <div class="response-tier-display">
               <span class="response-tier-label">{{ responseTierLabel }}</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="dropdown-arrow">
+                <path d="M2.5 4.5L6 8L9.5 4.5H2.5Z" />
+              </svg>
               <select v-model="responseTier" class="response-tier-select" aria-label="回答档位">
                 <option v-for="option in responseTierOptions" :key="option.key" :value="option.key">
                   {{ option.label }}
@@ -3497,31 +3501,27 @@ const getImgSrc = (url: string) => {
   position: relative;
   display: flex;
   align-items: center;
-  height: 22px;
-  margin-left: 6px;
-  padding: 0 22px 0 8px;
+  gap: 4px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0 10px;
   border: .5px solid var(--td-component-border, #e7e7e7);
   border-radius: 6px;
   color: var(--td-text-color-secondary, #666);
   background: var(--td-bg-color-container, #fff);
+  cursor: pointer;
   flex-shrink: 0;
   overflow: hidden;
 
-  &::after {
-    content: '';
-    position: absolute;
-    right: 8px;
-    width: 0;
-    height: 0;
-    border-left: 3px solid transparent;
-    border-right: 3px solid transparent;
-    border-top: 4px solid currentColor;
-    pointer-events: none;
+  &:hover {
+    background: var(--td-bg-color-secondarycontainer-hover, #e6e6e6);
   }
 }
 
 .response-tier-label {
-  font-size: 12px;
+  margin: 0 4px;
+  color: var(--td-text-color-secondary, #666);
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   pointer-events: none;

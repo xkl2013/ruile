@@ -1,5 +1,11 @@
 <template>
   <div class="service-hub-page">
+    <ServiceCreateDialog
+      v-model:visible="createDialogVisible"
+      :source="createSource"
+      @submit="submitForm"
+    />
+
     <section v-if="view === 'list'" class="service-hub-list-view">
       <header class="service-hub-page-header">
         <div>
@@ -114,131 +120,6 @@
       </div>
     </section>
 
-    <section v-else-if="view === 'create'" class="service-hub-create-view">
-      <header class="service-hub-page-header service-hub-create-header">
-        <div>
-          <h1>{{ editingService ? '复制服务配置' : '新建服务' }}</h1>
-          <p>写清指令，选好专家、知识库与技能，创建后即可开始在服务空间里工作</p>
-        </div>
-      </header>
-
-      <div class="service-hub-form">
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field">
-            <label for="service-name">服务名称 <em>*</em></label>
-            <t-input id="service-name" v-model="form.name" placeholder="例如：秋季招生咨询" :status="formError ? 'error' : undefined" />
-            <small v-if="formError" class="service-hub-error">{{ formError }}</small>
-          </div>
-          <div class="service-hub-field">
-            <label for="service-description">服务描述</label>
-            <t-textarea id="service-description" v-model="form.description" placeholder="说明这个服务负责什么，帮助成员和专家快速判断边界" :autosize="{ minRows: 3, maxRows: 5 }" />
-          </div>
-          <div class="service-hub-field">
-            <label for="service-instruction">工作指令</label>
-            <t-textarea id="service-instruction" v-model="form.instruction" placeholder="告诉专家要完成什么、优先参考什么资料、输出什么结果" :autosize="{ minRows: 5, maxRows: 8 }" />
-            <div class="service-hub-count">{{ form.instruction.length }} / 4000</div>
-          </div>
-        </section>
-
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field-head">
-            <div>
-              <h2>专家</h2>
-              <p>专家在服务空间里协作完成工作，可以配置多个。</p>
-            </div>
-            <t-button variant="text" theme="primary" size="small" @click="expertPickerOpen = !expertPickerOpen">
-              <template #icon><t-icon name="add" /></template>
-              添加专家
-            </t-button>
-          </div>
-          <div v-if="expertPickerOpen" class="service-hub-picker">
-            <button
-              v-for="expert in serviceExperts"
-              :key="expert.id"
-              type="button"
-              class="service-hub-picker-option"
-              :class="{ selected: form.expertIds.includes(expert.id) }"
-              @click="toggleExpert(expert.id)"
-            >
-              <span>
-                <strong>{{ expert.name }}</strong>
-                <small>{{ expert.description }}</small>
-              </span>
-              <t-icon :name="form.expertIds.includes(expert.id) ? 'check' : 'add'" />
-            </button>
-          </div>
-          <div class="service-hub-expert-list">
-            <div v-for="expertId in form.expertIds" :key="expertId" class="service-hub-expert-row">
-              <div class="service-hub-expert-avatar">{{ expertFor(expertId)?.name.slice(0, 1) }}</div>
-              <div>
-                <strong>{{ expertFor(expertId)?.name }}</strong>
-                <small>{{ expertFor(expertId)?.description }}</small>
-              </div>
-              <button type="button" aria-label="移除专家" @click="toggleExpert(expertId)">
-                <t-icon name="close" />
-              </button>
-            </div>
-            <div v-if="form.expertIds.length === 0" class="service-hub-form-empty">还没有添加专家，服务创建后仍可以继续配置。</div>
-          </div>
-        </section>
-
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field-head">
-            <div>
-              <h2>知识库</h2>
-              <p>服务内的专家共享这些知识库，配置一次即可。</p>
-            </div>
-          </div>
-          <div class="service-hub-choice-list">
-            <button
-              v-for="knowledgeBase in serviceKnowledgeBases"
-              :key="knowledgeBase.id"
-              type="button"
-              class="service-hub-choice-row"
-              :class="{ selected: form.knowledgeBaseIds.includes(knowledgeBase.id) }"
-              @click="toggleChoice('knowledgeBaseIds', knowledgeBase.id)"
-            >
-              <span class="service-hub-choice-check"><t-icon name="check" /></span>
-              <span><strong>{{ knowledgeBase.name }}</strong><small>{{ knowledgeBase.meta }}</small></span>
-            </button>
-          </div>
-        </section>
-
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field-head">
-            <div>
-              <h2>技能</h2>
-              <p>为服务补充数据处理、文档协作和引用生成能力。</p>
-            </div>
-          </div>
-          <div class="service-hub-choice-list">
-            <button
-              v-for="skill in serviceSkills"
-              :key="skill.id"
-              type="button"
-              class="service-hub-choice-row"
-              :class="{ selected: form.skillIds.includes(skill.id) }"
-              @click="toggleChoice('skillIds', skill.id)"
-            >
-              <span class="service-hub-choice-check"><t-icon name="check" /></span>
-              <span><strong>{{ skill.name }}</strong><small>{{ skill.description }}</small></span>
-            </button>
-          </div>
-        </section>
-      </div>
-
-      <footer class="service-hub-form-footer">
-        <div>
-          <t-button variant="text" theme="primary" @click="saveDraft">保存为草稿</t-button>
-          <span>可稍后继续</span>
-        </div>
-        <div>
-          <t-button variant="outline" @click="backToList">取消</t-button>
-          <t-button theme="primary" class="service-hub-primary-button" @click="submitForm">创建服务</t-button>
-        </div>
-      </footer>
-    </section>
-
     <section v-else class="service-hub-workspace-view">
       <header class="service-hub-space-head">
         <button type="button" class="service-hub-back-button" @click="backToList">
@@ -351,12 +232,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import ChatView from '@/views/chat/index.vue'
 import { BUILTIN_QUICK_ANSWER_ID } from '@/api/agent'
 import { createSessions } from '@/api/chat'
+import ServiceCreateDialog from './ServiceCreateDialog.vue'
 import {
   createServiceRecord,
   createSession,
@@ -366,16 +248,13 @@ import {
   getSession,
   getServiceSessions,
   serviceArtifacts,
-  serviceExperts,
   serviceHubState,
-  serviceKnowledgeBases,
-  serviceSkills,
   serviceTemplates,
   type ServiceRecord,
   type ServiceTemplate,
 } from './serviceHubState'
 
-type HubView = 'list' | 'create' | 'workspace'
+type HubView = 'list' | 'workspace'
 type HubPanel = '' | 'artifacts'
 type SortMode = 'recent' | 'created' | 'name'
 
@@ -392,23 +271,13 @@ const serviceQuery = ref('')
 const templateQuery = ref('')
 const sortMode = ref<SortMode>('recent')
 const showNoExpertBanner = ref(true)
-const editingService = ref<ServiceRecord | null>(null)
+const createDialogVisible = ref(false)
+const createSource = ref<ServiceTemplate | ServiceRecord | null>(null)
 const selectedArtifact = ref<(typeof serviceArtifacts)[string] | null>(null)
 const panel = ref<HubPanel>('')
 const serviceChatViewRef = ref<ServiceChatViewExpose | null>(null)
 const activeChatSessionLoadingId = ref('')
 const activeChatSessionError = ref('')
-const expertPickerOpen = ref(false)
-const formError = ref('')
-const form = reactive({
-  name: '',
-  description: '',
-  instruction: '',
-  templateId: '',
-  expertIds: [] as string[],
-  knowledgeBaseIds: [] as string[],
-  skillIds: [] as string[],
-})
 
 const sortOptions = [
   { label: '按最近活动', value: 'recent' },
@@ -427,7 +296,9 @@ const activeServiceChatContext = computed(() => {
   return [
     `服务：${activeService.value.name}`,
     activeService.value.description ? `服务描述：${activeService.value.description}` : '',
-    template?.instruction ? `工作指令：${template.instruction}` : '',
+    activeService.value.instruction || template?.instruction
+      ? `工作指令：${activeService.value.instruction || template?.instruction}`
+      : '',
     activeSession.value?.expert ? `当前专家：${activeSession.value.expert}` : '',
   ].filter(Boolean).join('\n')
 })
@@ -456,44 +327,13 @@ const activeArtifacts = computed(() => {
   return [...new Set(ids)].map((id) => serviceArtifacts[id as string]).filter(Boolean)
 })
 const templateFor = (service: ServiceRecord | undefined) => getServiceTemplate(service)
-const expertFor = (expertId: string) => serviceExperts.find((expert) => expert.id === expertId)
-const getTemplateById = (templateId: string) => serviceTemplates.find((template) => template.id === templateId)
 const headTools = computed(() => [
   { key: 'artifacts' as const, label: '产物', icon: 'file', count: activeArtifacts.value.length },
 ])
 
-const isServiceRecord = (
-  source: ServiceTemplate | ServiceRecord | null | undefined,
-): source is ServiceRecord => Boolean(source && 'templateId' in source)
-
-const isServiceTemplate = (
-  source: ServiceTemplate | ServiceRecord | null | undefined,
-): source is ServiceTemplate => Boolean(source && !('templateId' in source))
-
-const resetForm = (source?: ServiceTemplate | ServiceRecord | null) => {
-  const service = isServiceRecord(source) ? source : null
-  const template = service
-    ? getTemplateById(service.templateId)
-    : isServiceTemplate(source)
-      ? source
-      : undefined
-  form.name = service ? `${service.name}（副本）` : template?.name || ''
-  form.description = service?.description || ''
-  form.instruction = template?.instruction || ''
-  form.expertIds = template?.experts
-    .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
-    .filter((id): id is string => Boolean(id)) || []
-  form.knowledgeBaseIds = []
-  form.skillIds = []
-  form.templateId = template?.id || service?.templateId || ''
-  formError.value = ''
-  expertPickerOpen.value = false
-}
-
 const openCreate = (source?: ServiceTemplate | ServiceRecord | null) => {
-  editingService.value = isServiceRecord(source) ? source : null
-  resetForm(source)
-  view.value = 'create'
+  createSource.value = source || null
+  createDialogVisible.value = true
 }
 
 const openWorkspace = async (serviceId: string, sessionId?: string) => {
@@ -539,20 +379,24 @@ const syncFromRoute = () => {
   view.value = 'list'
 }
 
-const submitForm = () => {
-  const name = form.name.trim()
-  if (!name) {
-    formError.value = '请输入服务名称'
-    return
-  }
+const submitForm = (payload: {
+  name: string
+  description: string
+  instruction: string
+  templateId: string
+  expertIds: string[]
+  knowledgeBaseIds: string[]
+}) => {
   const result = createServiceRecord({
-    name,
-    description: form.description,
-    templateId: form.templateId,
-    expertIds: form.expertIds,
-    knowledgeBaseIds: form.knowledgeBaseIds,
-    skillIds: form.skillIds,
+    name: payload.name,
+    description: payload.description,
+    instruction: payload.instruction,
+    templateId: payload.templateId,
+    expertIds: payload.expertIds,
+    knowledgeBaseIds: payload.knowledgeBaseIds,
+    skillIds: [],
   })
+  createDialogVisible.value = false
   serviceHubState.activeServiceId = result.service.id
   serviceHubState.activeSessionId = result.sessionId
   view.value = 'workspace'
@@ -561,20 +405,6 @@ const submitForm = () => {
     query: { service: result.service.id, session: result.sessionId },
   })
   MessagePlugin.success('服务已创建')
-}
-
-const saveDraft = () => {
-  MessagePlugin.success('已保存为草稿')
-}
-
-const toggleExpert = (expertId: string) => {
-  form.expertIds = form.expertIds.includes(expertId)
-    ? form.expertIds.filter((id) => id !== expertId)
-    : [...form.expertIds, expertId]
-}
-
-const toggleChoice = (key: 'knowledgeBaseIds' | 'skillIds', id: string) => {
-  form[key] = form[key].includes(id) ? form[key].filter((item) => item !== id) : [...form[key], id]
 }
 
 const archiveService = (service: ServiceRecord | undefined) => {
