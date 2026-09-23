@@ -30,14 +30,15 @@ func newExpertPackageTestServiceWithFileService(t *testing.T, fileService interf
 		&types.ExpertPackage{},
 		&types.ExpertPackageVersion{},
 		&types.AgentDefinitionVersion{},
-		&types.AgentBinding{},
 	))
 	return NewExpertPackageService(repository.NewExpertPackageRepository(db), fileService)
 }
 
 type expertPackageFileServiceStub struct {
-	saved     bool
-	saveCount int
+	saved          bool
+	savedBytes     bool
+	saveCount      int
+	saveBytesCount int
 }
 
 func (s *expertPackageFileServiceStub) CheckConnectivity(context.Context) error { return nil }
@@ -49,7 +50,9 @@ func (s *expertPackageFileServiceStub) SaveFile(context.Context, *multipart.File
 }
 
 func (s *expertPackageFileServiceStub) SaveBytes(context.Context, []byte, uint64, string, bool) (string, error) {
-	return "", nil
+	s.savedBytes = true
+	s.saveBytesCount++
+	return "resource://expert-packages/kindergarten-activity-planner-avatar", nil
 }
 
 func (s *expertPackageFileServiceStub) GetFile(context.Context, string) (io.ReadCloser, error) {
@@ -66,7 +69,7 @@ func (s *expertPackageFileServiceStub) CopyFile(context.Context, string, uint64,
 	return "", nil
 }
 
-func TestExpertPackageImportPublishAndBind(t *testing.T) {
+func TestExpertPackageImportAndPublish(t *testing.T) {
 	ctx := context.Background()
 	svc := newExpertPackageTestService(t)
 	const tenantID uint64 = 11
@@ -123,13 +126,6 @@ output_contract: agent_result_v1
 	require.Len(t, packages[0].Versions, 1)
 	require.Len(t, packages[0].Versions[0].Definitions, 1)
 
-	_, err = svc.BindAgent(ctx, tenantID, "admin-1", packages[0].ID, types.AgentBindingInput{
-		ProfileID:                "profile-1",
-		AgentDefinitionVersionID: version.Definitions[0].ID,
-		Enabled:                  true,
-	})
-	require.ErrorIs(t, err, ErrExpertPackageNotPublished)
-
 	require.NoError(t, svc.PublishVersion(ctx, tenantID, "admin-1", packages[0].ID, version.ID))
 	published, err := svc.ListPublishedExperts(ctx, tenantID)
 	require.NoError(t, err)
@@ -138,17 +134,6 @@ output_contract: agent_result_v1
 	require.Equal(t, "咨询顾问", published[0].DisplayName)
 	require.Empty(t, published[0].Capabilities["system_prompt"])
 
-	binding, err := svc.BindAgent(ctx, tenantID, "admin-1", packages[0].ID, types.AgentBindingInput{
-		ProfileID:                "profile-1",
-		AgentDefinitionVersionID: version.Definitions[0].ID,
-		Enabled:                  true,
-	})
-	require.NoError(t, err)
-	require.Equal(t, "customer_service", binding.AgentDomain)
-
-	bindings, err := svc.ListBindings(ctx, tenantID, "profile-1")
-	require.NoError(t, err)
-	require.Len(t, bindings, 1)
 }
 
 func TestExpertPackageImportRejectsUnsafePath(t *testing.T) {
@@ -198,12 +183,15 @@ func TestExpertPackageImportWorkBuddyArchive(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.True(t, fileService.saved)
+	require.True(t, fileService.savedBytes)
 	require.Len(t, version.Definitions, 1)
 	require.Equal(t, "1.0.0", version.Version)
 	require.Equal(t, "kindergarten-activity-planner", version.Definitions[0].AgentID)
 	require.Equal(t, "童创", version.Definitions[0].DisplayName)
+	require.Equal(t, "Kindergarten activity planning expert.", version.Definitions[0].Description)
 	require.Equal(t, "kindergarten_activity_planner", version.Definitions[0].Domain)
 	require.Equal(t, "resource://expert-packages/kindergarten-activity-planner.zip", version.Manifest["source_uri"])
+	require.Equal(t, "resource://expert-packages/kindergarten-activity-planner-avatar", version.Manifest["avatar_ref"])
 	require.Contains(t, version.Diagnostics["warnings"], "agent kindergarten-activity-planner maxTurns reduced from 50 to 20")
 
 	config := version.Definitions[0].CompiledConfig
@@ -214,6 +202,15 @@ func TestExpertPackageImportWorkBuddyArchive(t *testing.T) {
 	require.Len(t, packages, 1)
 	require.Equal(t, "kindergarten-activity-planner", packages[0].PackageKey)
 	require.Equal(t, "童创", packages[0].DisplayName)
+	require.Equal(t, "10年幼儿园活动策划经验，输出可直接落地的执行方案。", packages[0].Description)
+	require.Equal(t, "resource://expert-packages/kindergarten-activity-planner-avatar", packages[0].Avatar)
+
+	require.NoError(t, svc.PublishVersion(ctx, 11, "admin-1", packages[0].ID, version.ID))
+	published, err := svc.ListPublishedExperts(ctx, 11)
+	require.NoError(t, err)
+	require.Len(t, published, 1)
+	require.Equal(t, packages[0].Avatar, published[0].Avatar)
+	require.Equal(t, "Kindergarten activity planning expert.", published[0].Description)
 }
 
 func TestExpertPackageImportWorkBuddyArchiveIsIdempotentForSameContent(t *testing.T) {
@@ -247,6 +244,7 @@ func TestExpertPackageImportWorkBuddyArchiveIsIdempotentForSameContent(t *testin
 	require.Equal(t, first.PackageHash, second.PackageHash)
 	require.Len(t, second.Definitions, 1)
 	require.Equal(t, 1, fileService.saveCount)
+	require.Equal(t, 1, fileService.saveBytesCount)
 
 	packages, err := svc.ListPackages(ctx, 11)
 	require.NoError(t, err)

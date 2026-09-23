@@ -3,7 +3,7 @@
     <div class="expert-admin__header">
       <div>
         <h2>专家维护</h2>
-        <p>后台维护专家包、版本发布和服务分身绑定。</p>
+        <p>后台维护专家包、版本发布和运行测试。</p>
       </div>
       <div class="expert-admin__actions">
         <t-button variant="outline" :loading="loading" @click="loadExpertPage">
@@ -42,12 +42,12 @@
       <article>
         <span>专家定义</span>
         <strong>{{ definitionCount }}</strong>
-        <em>{{ publishedDefinitionCount }} 个可绑定</em>
+        <em>{{ publishedDefinitionCount }} 个已发布</em>
       </article>
       <article>
-        <span>服务绑定</span>
-        <strong>{{ bindings.length }}</strong>
-        <em>{{ enabledBindingCount }} 个启用</em>
+        <span>使用范围</span>
+        <strong>服务空间</strong>
+        <em>发布后可在服务空间使用</em>
       </article>
     </div>
 
@@ -78,9 +78,12 @@
             @click="selectPackage(pkg.id)"
           >
             <div class="package-card__head">
-              <span class="package-card__icon">
-                <t-icon name="usergroup" />
-              </span>
+              <AgentAvatar
+                class="package-card__icon"
+                :name="pkg.display_name"
+                :avatar="pkg.avatar"
+                size="medium"
+              />
               <span class="package-card__title">
                 <strong>{{ pkg.display_name }}</strong>
                 <em>{{ pkg.package_key }}</em>
@@ -138,10 +141,17 @@
 
         <template v-else>
           <div class="expert-panel__title">
-            <span>
-              <strong>{{ selectedPackage.display_name }}</strong>
-              <em>{{ selectedPackage.package_key }}</em>
-            </span>
+            <div class="expert-panel__identity">
+              <AgentAvatar
+                :name="selectedPackage.display_name"
+                :avatar="selectedPackage.avatar"
+                size="medium"
+              />
+              <span>
+                <strong>{{ selectedPackage.display_name }}</strong>
+                <em>{{ selectedPackage.package_key }}</em>
+              </span>
+            </div>
             <t-tag theme="primary" variant="light">{{ sourceLabel(selectedPackage.source_format) }}</t-tag>
           </div>
 
@@ -163,7 +173,7 @@
           <section class="definition-section">
             <div class="definition-section__title">
               <strong>专家定义</strong>
-              <em>只有已发布版本可以绑定到服务分身。</em>
+              <em>只有已发布版本可以测试并在服务空间使用。</em>
             </div>
 
             <div v-if="selectedDefinitions.length === 0" class="expert-empty expert-empty--compact">
@@ -195,7 +205,7 @@
                     </t-button>
                   </div>
                 </div>
-                <p>{{ entry.definition.description || '未填写描述' }}</p>
+                <p>{{ entry.definition.description || entry.package.description || '未填写描述' }}</p>
                 <div class="definition-row__meta">
                   <span>领域 {{ entry.definition.domain || '未配置' }}</span>
                   <span>产物 {{ entry.definition.output_contract || '未配置' }}</span>
@@ -215,77 +225,6 @@
             </div>
           </section>
 
-          <section class="binding-section">
-            <div class="definition-section__title">
-              <strong>绑定分身</strong>
-              <em>绑定后服务队列可按分身匹配专家能力。</em>
-            </div>
-
-            <t-alert
-              v-if="profileLoadFailed"
-              theme="warning"
-              message="员工分身读取失败，请确认当前账号有管理权限。"
-              class="binding-alert"
-            />
-
-            <t-form :data="bindingForm" label-align="top" class="binding-form" @submit.prevent>
-              <t-form-item label="员工分身">
-                <t-select
-                  v-model="bindingForm.profileId"
-                  :options="profileOptions"
-                  :loading="profileLoading"
-                  :disabled="savingBinding || profileOptions.length === 0"
-                  placeholder="选择员工分身"
-                />
-              </t-form-item>
-              <t-form-item label="专家版本">
-                <t-select
-                  v-model="bindingForm.definitionId"
-                  :options="definitionOptions"
-                  :disabled="savingBinding || definitionOptions.length === 0"
-                  placeholder="选择已发布专家"
-                />
-              </t-form-item>
-              <div class="binding-form__row">
-                <t-form-item label="服务领域">
-                  <t-input
-                    v-model="bindingForm.domain"
-                    :disabled="savingBinding"
-                    :maxlength="80"
-                    clearable
-                    placeholder="agent_domain"
-                  />
-                </t-form-item>
-                <t-form-item label="启用">
-                  <t-switch v-model="bindingForm.enabled" :disabled="savingBinding" />
-                </t-form-item>
-              </div>
-              <t-button
-                theme="primary"
-                :loading="savingBinding"
-                :disabled="!canSaveBinding"
-                @click="saveBinding"
-              >
-                保存绑定
-              </t-button>
-            </t-form>
-
-            <div class="binding-list">
-              <div class="binding-list__title">当前包绑定</div>
-              <div v-if="bindingsForSelected.length === 0" class="expert-empty expert-empty--compact">
-                <span>暂无绑定</span>
-              </div>
-              <div v-else class="binding-row" v-for="binding in bindingsForSelected" :key="binding.id">
-                <span>
-                  <strong>{{ definitionName(binding.agent_definition_version_id) }}</strong>
-                  <em>{{ profileName(binding.profile_id) }} · {{ binding.agent_domain }}</em>
-                </span>
-                <t-tag :theme="binding.enabled ? 'success' : 'default'" variant="light">
-                  {{ binding.enabled ? '启用' : '停用' }}
-                </t-tag>
-              </div>
-            </div>
-          </section>
         </template>
       </aside>
     </section>
@@ -573,47 +512,38 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
+import AgentAvatar from '@/components/AgentAvatar.vue'
 import { listModels, type ModelConfig } from '@/api/model'
 import {
-  bindExpertPackageAgent,
   importExpertPackageArchive,
-  listExpertPackageBindings,
   listExpertPackages,
   publishExpertPackageVersion,
   testExpertPackageAgent,
-  type AgentBinding,
   type AgentDefinitionVersion,
   type ExpertPackage,
   type ExpertPackageVersion,
 } from '@/api/expert-package'
 import {
-  getServiceAgentRun,
-  listServiceAgentRunSteps,
-  listServiceWorkProfiles,
-  regenerateServiceAgentRun,
-  submitServiceAgentRunAnswers,
-  type ExpertIntakeInteraction,
-  type ExpertIntakeQuestion,
-  type ServiceAgentRun,
-  type ServiceAgentRunQuality,
-  type ServiceAgentRunStep,
-  type ServiceWorkProfile,
-  type StructuredReportV1,
-} from '@/api/service'
+  getAgentRun,
+  listAgentRunSteps,
+  regenerateAgentRun,
+  submitAgentRunAnswers,
+  type AgentRun,
+  type AgentRunQuality,
+  type AgentRunStep,
+} from '@/api/agent-run'
+import type {
+  ExpertIntakeInteraction,
+  ExpertIntakeQuestion,
+  StructuredReportV1,
+} from '@/api/agent-run-types'
 
 interface DefinitionEntry {
   package: ExpertPackage
   version: ExpertPackageVersion
   definition: AgentDefinitionVersion
-}
-
-interface BindingForm {
-  profileId: string
-  definitionId: string
-  domain: string
-  enabled: boolean
 }
 
 interface ExpertTestForm {
@@ -622,37 +552,26 @@ interface ExpertTestForm {
 }
 
 const packages = ref<ExpertPackage[]>([])
-const bindings = ref<AgentBinding[]>([])
-const workProfiles = ref<ServiceWorkProfile[]>([])
 const chatModels = ref<ModelConfig[]>([])
 const selectedPackageId = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
-const profileLoading = ref(false)
-const profileLoadFailed = ref(false)
 const importing = ref(false)
 const importDialogVisible = ref(false)
 const archiveInputRef = ref<HTMLInputElement | null>(null)
 const selectedImportFile = ref<File | null>(null)
 const uploadProgress = ref(0)
 const publishingVersionId = ref('')
-const savingBinding = ref(false)
 const modelLoading = ref(false)
 const testDialogVisible = ref(false)
 const testingExpert = ref(false)
 const testDefinitionEntry = ref<DefinitionEntry | null>(null)
-const testRun = ref<ServiceAgentRun | null>(null)
-const testSteps = ref<ServiceAgentRunStep[]>([])
+const testRun = ref<AgentRun | null>(null)
+const testSteps = ref<AgentRunStep[]>([])
 const testAnswers = ref<Record<string, unknown>>({})
 const testError = ref('')
 const submittingExpertAnswers = ref(false)
 const regeneratingExpert = ref(false)
-const bindingForm = ref<BindingForm>({
-  profileId: '',
-  definitionId: '',
-  domain: '',
-  enabled: true,
-})
 const testForm = ref<ExpertTestForm>({
   modelId: '',
   prompt: '',
@@ -676,30 +595,6 @@ const selectedDefinitions = computed<DefinitionEntry[]>(() => {
   ))
 })
 
-const bindableDefinitions = computed<DefinitionEntry[]>(() => (
-  selectedDefinitions.value.filter((entry) => entry.version.state === 'published')
-))
-
-const definitionsById = computed(() => {
-  const map = new Map<string, DefinitionEntry>()
-  allDefinitionEntries.value.forEach((entry) => map.set(entry.definition.id, entry))
-  return map
-})
-
-const workProfilesById = computed(() => {
-  const map = new Map<string, ServiceWorkProfile>()
-  workProfiles.value.forEach((profile) => map.set(profile.id, profile))
-  return map
-})
-
-const selectedDefinitionIdSet = computed(() => new Set(
-  selectedDefinitions.value.map((entry) => entry.definition.id),
-))
-
-const bindingsForSelected = computed(() => (
-  bindings.value.filter((binding) => selectedDefinitionIdSet.value.has(binding.agent_definition_version_id))
-))
-
 const versionCount = computed(() => (
   packages.value.reduce((total, pkg) => total + (pkg.versions?.length || 0), 0)
 ))
@@ -714,30 +609,6 @@ const definitionCount = computed(() => allDefinitionEntries.value.length)
 
 const publishedDefinitionCount = computed(() => (
   allDefinitionEntries.value.filter((entry) => entry.version.state === 'published').length
-))
-
-const enabledBindingCount = computed(() => bindings.value.filter((binding) => binding.enabled).length)
-
-const profileOptions = computed(() => (
-  workProfiles.value.map((profile) => ({
-    label: [
-      profile.name || '未命名分身',
-      profile.default_profile ? '默认' : '',
-      profile.enabled === false ? '未启用' : '',
-    ].filter(Boolean).join(' · '),
-    value: profile.id,
-  }))
-))
-
-const definitionOptions = computed(() => (
-  bindableDefinitions.value.map((entry) => ({
-    label: `${entry.definition.display_name} · v${entry.version.version}`,
-    value: entry.definition.id,
-  }))
-))
-
-const canSaveBinding = computed(() => (
-  Boolean(selectedPackage.value && bindingForm.value.profileId && bindingForm.value.definitionId && bindingForm.value.domain.trim())
 ))
 
 const modelOptions = computed(() => (
@@ -787,7 +658,7 @@ const canSubmitExpertAnswers = computed(() => (
   )
 ))
 
-const testQuality = computed<ServiceAgentRunQuality | null>(() => {
+const testQuality = computed<AgentRunQuality | null>(() => {
   const quality = testRun.value?.quality
   if (!quality || typeof quality.score !== 'number') return null
   return quality
@@ -811,8 +682,7 @@ async function loadExpertPage() {
   loading.value = true
   errorMessage.value = ''
   await Promise.all([
-    loadPackagesAndBindings(),
-    loadWorkProfiles(),
+    loadPackages(),
     loadChatModels(),
   ]).finally(() => {
     loading.value = false
@@ -834,46 +704,22 @@ async function loadChatModels() {
   }
 }
 
-async function loadPackagesAndBindings() {
+async function loadPackages() {
   try {
-    const [packageResponse, bindingResponse] = await Promise.all([
-      listExpertPackages(),
-      listExpertPackageBindings(),
-    ])
+    const packageResponse = await listExpertPackages()
     packages.value = packageResponse?.data || []
-    bindings.value = bindingResponse?.data || []
     if (!selectedPackageId.value || !packages.value.some((pkg) => pkg.id === selectedPackageId.value)) {
       selectedPackageId.value = packages.value[0]?.id || ''
     }
-    normalizeBindingForm()
   } catch (error: any) {
     console.warn('[AdminExpertPackages] Failed to load expert packages:', error)
     errorMessage.value = error?.message || '专家包读取失败'
     packages.value = []
-    bindings.value = []
-  }
-}
-
-async function loadWorkProfiles() {
-  if (profileLoading.value) return
-  profileLoading.value = true
-  profileLoadFailed.value = false
-  try {
-    const response = await listServiceWorkProfiles()
-    workProfiles.value = response?.data || []
-    normalizeBindingForm()
-  } catch (error) {
-    console.warn('[AdminExpertPackages] Failed to load work profiles:', error)
-    workProfiles.value = []
-    profileLoadFailed.value = true
-  } finally {
-    profileLoading.value = false
   }
 }
 
 function selectPackage(id: string) {
   selectedPackageId.value = id
-  normalizeBindingForm(true)
 }
 
 function openImportDialog() {
@@ -931,7 +777,7 @@ async function submitImport() {
     selectedImportFile.value = null
     if (archiveInputRef.value) archiveInputRef.value.value = ''
     selectedPackageId.value = response?.data?.package_id || selectedPackageId.value
-    await loadPackagesAndBindings()
+    await loadPackages()
   } catch (error: any) {
     console.warn('[AdminExpertPackages] Failed to import expert package:', error)
     MessagePlugin.error(error?.message || '专家包导入失败')
@@ -949,40 +795,12 @@ async function publishVersion(packageId: string, version: ExpertPackageVersion) 
   try {
     await publishExpertPackageVersion(packageId, version.id)
     MessagePlugin.success('专家版本已发布')
-    await loadPackagesAndBindings()
+    await loadPackages()
   } catch (error: any) {
     console.warn('[AdminExpertPackages] Failed to publish expert package:', error)
     MessagePlugin.error(error?.message || '专家版本发布失败')
   } finally {
     publishingVersionId.value = ''
-  }
-}
-
-async function saveBinding() {
-  const pkg = selectedPackage.value
-  if (!pkg || !canSaveBinding.value) return
-
-  savingBinding.value = true
-  try {
-    const response = await bindExpertPackageAgent(pkg.id, {
-      profile_id: bindingForm.value.profileId,
-      agent_definition_version_id: bindingForm.value.definitionId,
-      agent_domain: bindingForm.value.domain.trim(),
-      enabled: bindingForm.value.enabled,
-    })
-    const saved = response?.data
-    if (saved) {
-      bindings.value = bindings.value
-        .filter((binding) => binding.id !== saved.id)
-        .concat(saved)
-    }
-    MessagePlugin.success('专家绑定已保存')
-    await loadPackagesAndBindings()
-  } catch (error: any) {
-    console.warn('[AdminExpertPackages] Failed to bind expert package agent:', error)
-    MessagePlugin.error(error?.message || '专家绑定保存失败')
-  } finally {
-    savingBinding.value = false
   }
 }
 
@@ -1034,8 +852,8 @@ async function pollExpertTestRun(id: string) {
   const deadline = Date.now() + 5 * 60 * 1000
   while (Date.now() < deadline) {
     const [response, stepsResponse] = await Promise.all([
-      getServiceAgentRun(id),
-      listServiceAgentRunSteps(id),
+      getAgentRun(id),
+      listAgentRunSteps(id),
     ])
     if (!response?.data) throw new Error(response?.message || '任务状态读取失败')
     testRun.value = response.data
@@ -1083,7 +901,7 @@ async function submitExpertAnswers() {
   submittingExpertAnswers.value = true
   testError.value = ''
   try {
-    const response = await submitServiceAgentRunAnswers(run.id, testAnswers.value)
+    const response = await submitAgentRunAnswers(run.id, testAnswers.value)
     if (!response?.data) throw new Error(response?.message || '补充信息提交失败')
     testRun.value = response.data
     await pollExpertTestRun(run.id)
@@ -1103,7 +921,7 @@ async function regenerateExpertTest() {
   regeneratingExpert.value = true
   testError.value = ''
   try {
-    const response = await regenerateServiceAgentRun(run.id, feedback)
+    const response = await regenerateAgentRun(run.id, feedback)
     if (!response?.data) throw new Error(response?.message || '重新生成任务创建失败')
     testRun.value = response.data
     testSteps.value = []
@@ -1122,38 +940,6 @@ function expertAnswerIsBlank(value: unknown) {
   if (typeof value === 'string') return value.trim() === ''
   if (Array.isArray(value)) return value.length === 0
   return false
-}
-
-function normalizeBindingForm(forceDefinition = false) {
-  if (!bindingForm.value.profileId || !workProfiles.value.some((profile) => profile.id === bindingForm.value.profileId)) {
-    bindingForm.value.profileId = preferredProfileId()
-  }
-
-  const hasDefinition = bindableDefinitions.value.some((entry) => entry.definition.id === bindingForm.value.definitionId)
-  if (forceDefinition || !hasDefinition) {
-    const first = bindableDefinitions.value[0]
-    bindingForm.value.definitionId = first?.definition.id || ''
-    bindingForm.value.domain = first?.definition.domain || ''
-    return
-  }
-
-  syncBindingDomain()
-}
-
-function syncBindingDomain() {
-  const current = bindableDefinitions.value.find((entry) => entry.definition.id === bindingForm.value.definitionId)
-  if (current && !bindingForm.value.domain.trim()) {
-    bindingForm.value.domain = current.definition.domain || ''
-  }
-}
-
-function preferredProfileId() {
-  return (
-    workProfiles.value.find((profile) => profile.default_profile && profile.enabled !== false)?.id ||
-    workProfiles.value.find((profile) => profile.enabled !== false)?.id ||
-    workProfiles.value[0]?.id ||
-    ''
-  )
 }
 
 function sortedVersions(pkg: ExpertPackage) {
@@ -1184,17 +970,6 @@ function allowedTools(definition: AgentDefinitionVersion) {
 function maxIterations(definition: AgentDefinitionVersion) {
   const value = definition.compiled_config?.max_iterations
   return typeof value === 'number' ? value : '未配置'
-}
-
-function definitionName(id: string) {
-  const entry = definitionsById.value.get(id)
-  if (!entry) return compactId(id)
-  return `${entry.definition.display_name} · v${entry.version.version}`
-}
-
-function profileName(id: string) {
-  const profile = workProfilesById.value.get(id)
-  return profile?.name || compactId(id)
 }
 
 function compactId(id: string) {
@@ -1301,15 +1076,6 @@ function formatFileSize(size: number) {
   return `${size} B`
 }
 
-watch(() => bindingForm.value.definitionId, () => {
-  bindingForm.value.domain = ''
-  syncBindingDomain()
-})
-
-watch(bindableDefinitions, () => {
-  normalizeBindingForm()
-})
-
 onMounted(() => {
   void loadExpertPage()
 })
@@ -1384,8 +1150,7 @@ onMounted(() => {
 .package-card__title em,
 .expert-panel__title em,
 .definition-section__title em,
-.definition-row__head em,
-.binding-row em {
+.definition-row__head em {
   color: var(--admin-text-secondary);
 }
 
@@ -1421,8 +1186,7 @@ onMounted(() => {
 
 .expert-panel__title,
 .package-card__head,
-.definition-row__head,
-.binding-row {
+.definition-row__head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -1435,10 +1199,20 @@ onMounted(() => {
 
 .expert-panel__title span,
 .definition-section__title,
-.binding-row span,
 .definition-row__head span {
   display: grid;
   gap: 4px;
+}
+
+.expert-panel__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.expert-panel__identity > span {
+  min-width: 0;
 }
 
 .expert-panel__title strong,
@@ -1448,8 +1222,7 @@ onMounted(() => {
 }
 
 .package-list,
-.definition-list,
-.binding-list {
+.definition-list {
   display: grid;
   gap: 12px;
 }
@@ -1480,15 +1253,11 @@ onMounted(() => {
 }
 
 .package-card__icon {
-  display: inline-flex;
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
   border-radius: 8px;
-  color: var(--td-brand-color);
-  background: var(--td-brand-color-light);
+  box-shadow: none;
 }
 
 .package-card__title {
@@ -1499,8 +1268,7 @@ onMounted(() => {
 }
 
 .package-card__title strong,
-.definition-row__head strong,
-.binding-row strong {
+ .definition-row__head strong {
   overflow: hidden;
   color: var(--admin-text);
   text-overflow: ellipsis;
@@ -1508,8 +1276,7 @@ onMounted(() => {
 }
 
 .package-card__title em,
-.definition-row__head em,
-.binding-row em {
+ .definition-row__head em {
   overflow: hidden;
   font-size: 12px;
   font-style: normal;
@@ -1620,16 +1387,11 @@ onMounted(() => {
   font-size: 13px;
 }
 
-.definition-section,
-.binding-section {
+.definition-section {
   display: grid;
   gap: 12px;
   padding-top: 16px;
   border-top: 1px solid var(--admin-border);
-}
-
-.binding-section {
-  margin-top: 18px;
 }
 
 .definition-row {
@@ -1652,40 +1414,6 @@ onMounted(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-}
-
-.binding-form {
-  display: grid;
-  gap: 4px;
-}
-
-.binding-form__row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
-  gap: 12px;
-  align-items: start;
-}
-
-.binding-alert {
-  border-radius: 8px;
-}
-
-.binding-list {
-  padding-top: 12px;
-}
-
-.binding-list__title {
-  color: var(--admin-text-tertiary);
-  font-size: 12px;
-}
-
-.binding-row {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--admin-border);
-}
-
-.binding-row:last-child {
-  border-bottom: 0;
 }
 
 .import-dialog {
@@ -2031,17 +1759,12 @@ onMounted(() => {
   .expert-panel__title,
   .package-card__head,
   .definition-row__head,
-  .binding-row,
   .archive-upload {
     flex-direction: column;
     align-items: stretch;
   }
 
   .expert-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .binding-form__row {
     grid-template-columns: 1fr;
   }
 

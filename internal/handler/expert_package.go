@@ -3,7 +3,6 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	appsvc "github.com/Tencent/WeKnora/internal/application/service"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
@@ -139,37 +138,6 @@ func (h *ExpertPackageHandler) Publish(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
-}
-
-func (h *ExpertPackageHandler) Bind(c *gin.Context) {
-	tenantID, userID, ok := serviceScope(c)
-	if !ok {
-		return
-	}
-	var input types.AgentBindingInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.Error(apperrors.NewBadRequestError("invalid agent binding request").WithDetails(err.Error()))
-		return
-	}
-	binding, err := h.service.BindAgent(c.Request.Context(), tenantID, userID, c.Param("id"), input)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": binding})
-}
-
-func (h *ExpertPackageHandler) ListBindings(c *gin.Context) {
-	tenantID, _, ok := serviceScope(c)
-	if !ok {
-		return
-	}
-	bindings, err := h.service.ListBindings(c.Request.Context(), tenantID, strings.TrimSpace(c.Query("profile_id")))
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "data": bindings})
 }
 
 func (h *ExpertPackageHandler) TestRun(c *gin.Context) {

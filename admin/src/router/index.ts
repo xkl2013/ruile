@@ -206,7 +206,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'expert-packages',
       title: '专家',
-      description: '维护专家包、版本发布和服务绑定。',
+      description: '维护专家包、版本发布和运行测试。',
       minRole: 'admin',
     },
   },

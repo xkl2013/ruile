@@ -1,4 +1,4 @@
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import {
   createServiceSession as createServiceSessionRequest,
   listServiceExperts,
@@ -8,6 +8,7 @@ import {
   type ServiceSpace,
   type ServiceSession as ApiServiceSession,
 } from '@/api/service'
+import { listPublishedExperts, type PublishedExpert } from '@/api/expert-package'
 
 export type ServiceHubMode = 'data' | 'empty' | 'archived'
 export type ServiceRole = '拥有者' | '管理员' | '编辑者' | '只读'
@@ -19,6 +20,17 @@ export interface ServiceTemplate {
   instruction: string
   experts: string[]
   icon: string
+}
+
+export interface ServiceExpertOption {
+  id: string
+  name: string
+  description: string
+  avatar?: string
+  domain?: string
+  packageName?: string
+  packageDescription?: string
+  skills: string[]
 }
 
 export interface ServiceRecord {
@@ -117,13 +129,49 @@ export const serviceTemplates: ServiceTemplate[] = [
   },
 ]
 
-export const serviceExperts = [
-  { id: 'e1', name: '招生顾问', description: '线索跟进、家长沟通与转化建议' },
-  { id: 'e2', name: '教务主管', description: '排课协调、续费窗口与教务合规' },
-  { id: 'e3', name: '带班老师', description: '一日流程巡查、记录整理与异常上报' },
-  { id: 'e4', name: '保育员', description: '生活照料记录与卫生保健' },
-  { id: 'e5', name: '后勤主任', description: '安全巡查、物资与场地安排' },
-]
+export const serviceExperts = reactive<ServiceExpertOption[]>([])
+export const serviceExpertsLoading = ref(false)
+export const serviceExpertsError = ref('')
+
+let serviceExpertsLoadPromise: Promise<ServiceExpertOption[]> | null = null
+
+const mapPublishedExpert = (expert: PublishedExpert): ServiceExpertOption => ({
+  id: expert.definition_id,
+  name: expert.display_name,
+  description: expert.description || expert.package_description || '暂无专家描述',
+  avatar: expert.avatar,
+  domain: expert.domain,
+  packageName: expert.package_display_name,
+  packageDescription: expert.package_description,
+  skills: Array.isArray(expert.skills) ? expert.skills.filter(Boolean) : [],
+})
+
+export const loadServiceExperts = async (force = false) => {
+  if (serviceExperts.length && !force) return serviceExperts
+  if (serviceExpertsLoadPromise && !force) return serviceExpertsLoadPromise
+  serviceExpertsLoading.value = true
+  serviceExpertsError.value = ''
+  serviceExpertsLoadPromise = listPublishedExperts()
+    .then((response) => {
+      const experts = Array.isArray(response?.data)
+        ? response.data.map(mapPublishedExpert)
+        : []
+      serviceExperts.splice(0, serviceExperts.length, ...experts)
+      return serviceExperts
+    })
+    .catch((error) => {
+      serviceExpertsError.value = error?.message || '系统专家列表加载失败'
+      throw error
+    })
+    .finally(() => {
+      serviceExpertsLoading.value = false
+      serviceExpertsLoadPromise = null
+    })
+  return serviceExpertsLoadPromise
+}
+
+export const getServiceExpert = (id: string) =>
+  serviceExperts.find((expert) => expert.id === id)
 
 const now = Date.now()
 
@@ -525,6 +573,9 @@ export const loadServiceHub = async (force = false) => {
   if (loadPromise && !force) return loadPromise
   loadPromise = (async () => {
     try {
+      await loadServiceExperts().catch((error) => {
+        console.warn('[ServiceHub] failed to load published experts', error)
+      })
       const response = await listServiceSpaces()
       const services = Array.isArray(response?.data) ? response.data : []
       const mappedServices = await Promise.all(
@@ -603,7 +654,6 @@ export const createServiceRecord = (payload: {
   skillIds: string[]
 }) => {
   const id = `s${Date.now()}`
-  const template = serviceTemplates.find((item) => item.id === payload.templateId)
   const service: ServiceRecord = {
     id,
     name: payload.name.trim(),
@@ -627,7 +677,7 @@ export const createServiceRecord = (payload: {
     id: sessionId,
     serviceId: id,
     title: '开始一段新的工作',
-    expert: template?.experts[0] || serviceExperts.find((expert) => payload.expertIds.includes(expert.id))?.name || '服务助理',
+    expert: payload.expertIds.map(getServiceExpert).find(Boolean)?.name || '服务助理',
     pinned: false,
     updatedLabel: '刚刚',
     messages: [],
@@ -641,7 +691,7 @@ export const createSession = (serviceId: string) => {
     id,
     serviceId,
     title: '开始一段新的工作',
-    expert: getServiceTemplate(getService(serviceId))?.experts[0] || '服务助理',
+    expert: getServiceExpert(getService(serviceId)?.expertIds?.[0] || '')?.name || '服务助理',
     pinned: false,
     updatedLabel: '刚刚',
     messages: [],

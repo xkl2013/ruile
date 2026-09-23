@@ -420,6 +420,7 @@ func publishedExpertRouteCandidate(
 		PackageID:          expert.PackageID,
 		PackageVersionID:   expert.PackageVersionID,
 		PackageDisplayName: expert.PackageDisplayName,
+		Avatar:             expert.Avatar,
 		DefinitionID:       expert.DefinitionID,
 		AgentID:            expert.AgentID,
 		Version:            expert.Version,

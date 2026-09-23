@@ -61,6 +61,7 @@ func (s *expertPackageService) ImportPackage(
 		"source_format": input.SourceFormat,
 		"package_key":   input.PackageKey,
 		"version":       input.Version,
+		"avatar":        input.Avatar,
 		"files":         input.Files,
 	})
 	if err != nil {
@@ -98,7 +99,7 @@ func (s *expertPackageService) importCompiledPackage(
 	}
 	pkg := &types.ExpertPackage{
 		TenantID: tenantID, PackageKey: input.PackageKey, DisplayName: input.DisplayName,
-		Description: input.Description, SourceFormat: input.SourceFormat, SourceURI: input.SourceURI,
+		Description: input.Description, Avatar: input.Avatar, SourceFormat: input.SourceFormat, SourceURI: input.SourceURI,
 		License: input.License, CreatedBy: actorID,
 	}
 	version := &types.ExpertPackageVersion{
@@ -152,14 +153,32 @@ func (s *expertPackageService) ListPackages(ctx context.Context, tenantID uint64
 	if tenantID == 0 {
 		return nil, ErrExpertPackageInvalidInput
 	}
-	return s.repo.ListPackages(ctx, tenantID)
+	packages, err := s.repo.ListPackages(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, pkg := range packages {
+		if pkg != nil {
+			pkg.Avatar = s.resolveAvatarURL(ctx, pkg.Avatar)
+		}
+	}
+	return packages, nil
 }
 
 func (s *expertPackageService) ListPublishedExperts(ctx context.Context, tenantID uint64) ([]*types.PublishedExpert, error) {
 	if tenantID == 0 {
 		return nil, ErrExpertPackageInvalidInput
 	}
-	return s.repo.ListPublishedExperts(ctx, tenantID)
+	experts, err := s.repo.ListPublishedExperts(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, expert := range experts {
+		if expert != nil {
+			expert.Avatar = s.resolveAvatarURL(ctx, expert.Avatar)
+		}
+	}
+	return experts, nil
 }
 
 func (s *expertPackageService) GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error) {
@@ -170,7 +189,45 @@ func (s *expertPackageService) GetPackage(ctx context.Context, tenantID uint64, 
 	if pkg == nil {
 		return nil, ErrExpertPackageNotFound
 	}
+	pkg.Avatar = s.resolveAvatarURL(ctx, pkg.Avatar)
 	return pkg, nil
+}
+
+func (s *expertPackageService) resolveAvatarURL(ctx context.Context, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	lowerValue := strings.ToLower(value)
+	if strings.HasPrefix(lowerValue, "http://") || strings.HasPrefix(lowerValue, "https://") {
+		return value
+	}
+	protected := false
+	for _, prefix := range []string{
+		"resource://", "storage://", "local://", "minio://", "cos://", "tos://",
+		"s3://", "oss://", "ks3://", "obs://",
+	} {
+		if strings.HasPrefix(lowerValue, prefix) {
+			protected = true
+			break
+		}
+	}
+	if !protected {
+		return ""
+	}
+	if s.fileService == nil {
+		return value
+	}
+	resolved, err := s.fileService.GetFileURL(ctx, value)
+	if err != nil {
+		return value
+	}
+	resolved = strings.TrimSpace(resolved)
+	if strings.HasPrefix(strings.ToLower(resolved), "http://") ||
+		strings.HasPrefix(strings.ToLower(resolved), "https://") {
+		return resolved
+	}
+	return value
 }
 
 func (s *expertPackageService) PublishVersion(
@@ -192,47 +249,6 @@ func (s *expertPackageService) PublishVersion(
 		return ErrExpertPackageInvalidInput
 	}
 	return s.repo.PublishVersion(ctx, tenantID, packageID, versionID, actorID)
-}
-
-func (s *expertPackageService) BindAgent(
-	ctx context.Context,
-	tenantID uint64,
-	actorID, packageID string,
-	input types.AgentBindingInput,
-) (*types.AgentBinding, error) {
-	if strings.TrimSpace(input.ProfileID) == "" || strings.TrimSpace(input.AgentDefinitionVersionID) == "" {
-		return nil, ErrExpertPackageInvalidInput
-	}
-	pkg, err := s.GetPackage(ctx, tenantID, packageID)
-	if err != nil {
-		return nil, err
-	}
-	var definition *types.AgentDefinitionVersion
-	var state string
-	for _, version := range pkg.Versions {
-		for _, item := range version.Definitions {
-			if item.ID == input.AgentDefinitionVersionID {
-				definition, state = item, version.State
-				break
-			}
-		}
-	}
-	if definition == nil || state != types.ExpertPackageVersionPublished {
-		return nil, ErrExpertPackageNotPublished
-	}
-	binding := &types.AgentBinding{
-		TenantID: tenantID, ProfileID: strings.TrimSpace(input.ProfileID),
-		AgentDefinitionVersionID: definition.ID, AgentDomain: firstNonEmpty(strings.TrimSpace(input.AgentDomain), definition.Domain),
-		Enabled: input.Enabled, CreatedBy: actorID,
-	}
-	if err := s.repo.UpsertBinding(ctx, binding); err != nil {
-		return nil, err
-	}
-	return binding, nil
-}
-
-func (s *expertPackageService) ListBindings(ctx context.Context, tenantID uint64, profileID string) ([]*types.AgentBinding, error) {
-	return s.repo.ListBindings(ctx, tenantID, profileID)
 }
 
 type expertAgentFrontMatter struct {
@@ -413,6 +429,7 @@ func normalizeExpertPackageInput(input types.ExpertPackageImportInput) types.Exp
 	input.Version = strings.TrimSpace(input.Version)
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	input.Description = strings.TrimSpace(input.Description)
+	input.Avatar = strings.TrimSpace(input.Avatar)
 	input.SourceURI = strings.TrimSpace(input.SourceURI)
 	input.License = strings.TrimSpace(input.License)
 	return input

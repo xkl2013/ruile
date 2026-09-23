@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"os"
 	"path"
@@ -24,6 +25,7 @@ const (
 	expertPackageMaxUncompressedBytes          = 200 * 1024 * 1024
 	expertPackageMaxArchiveFiles               = 2000
 	expertPackageMaxManifestContentBytes int64 = 1024 * 1024
+	expertPackageMaxAvatarBytes          int64 = 4 * 1024 * 1024
 )
 
 type expertArchiveImport struct {
@@ -32,6 +34,8 @@ type expertArchiveImport struct {
 	manifest    types.JSONMap
 	diagnostics map[string]any
 	packageHash string
+	avatarPath  string
+	avatarData  []byte
 }
 
 type expertArchiveFile struct {
@@ -133,6 +137,26 @@ func (s *expertPackageService) ImportPackageArchive(
 	}
 	parsed.input.SourceURI = sourceURI
 	parsed.manifest["source_uri"] = sourceURI
+	avatarRef := ""
+	if len(parsed.avatarData) > 0 {
+		avatarExtension := strings.ToLower(path.Ext(parsed.avatarPath))
+		if avatarExtension == "" {
+			avatarExtension = ".bin"
+		}
+		avatarRef, err = s.fileService.SaveBytes(
+			ctx,
+			parsed.avatarData,
+			tenantID,
+			"expert-avatar-"+parsed.packageHash[:12]+avatarExtension,
+			false,
+		)
+		if err != nil {
+			_ = s.fileService.DeleteFile(ctx, sourceURI)
+			return nil, fmt.Errorf("save expert package avatar: %w", err)
+		}
+		parsed.input.Avatar = avatarRef
+		parsed.manifest["avatar_ref"] = avatarRef
+	}
 
 	version, err := s.importCompiledPackage(
 		ctx,
@@ -146,6 +170,9 @@ func (s *expertPackageService) ImportPackageArchive(
 	)
 	if err != nil {
 		_ = s.fileService.DeleteFile(ctx, sourceURI)
+		if avatarRef != "" {
+			_ = s.fileService.DeleteFile(ctx, avatarRef)
+		}
 		return nil, err
 	}
 	return version, nil
@@ -218,6 +245,24 @@ func parseWorkBuddyExpertArchive(fileHeader *multipart.FileHeader) (*expertArchi
 		))
 	}
 
+	avatarPath := cleanArchiveReference(plugin.Avatar)
+	var avatarData []byte
+	if avatarPath != "" {
+		avatarEntry := indexed.files[avatarPath]
+		switch {
+		case avatarEntry == nil:
+			warnings = append(warnings, fmt.Sprintf("avatar file %q was not found", avatarPath))
+		case !strings.HasPrefix(mime.TypeByExtension(strings.ToLower(path.Ext(avatarPath))), "image/"):
+			warnings = append(warnings, fmt.Sprintf("avatar file %q is not a supported image", avatarPath))
+		default:
+			avatarData, err = readExpertArchiveFile(avatarEntry, expertPackageMaxAvatarBytes)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("avatar file %q was ignored: %v", avatarPath, err))
+				avatarData = nil
+			}
+		}
+	}
+
 	license := workBuddyLicense(plugin.License)
 	manifest, err := expertPackageJSONMap(map[string]any{
 		"source_format":       types.ExpertPackageSourceWorkBuddy,
@@ -279,6 +324,8 @@ func parseWorkBuddyExpertArchive(fileHeader *multipart.FileHeader) (*expertArchi
 			},
 		},
 		packageHash: expertArchiveHash(indexed.inventory),
+		avatarPath:  avatarPath,
+		avatarData:  avatarData,
 	}, nil
 }
 
@@ -485,7 +532,12 @@ func compileWorkBuddyAgents(
 				strings.TrimSpace(plugin.DisplayName.EN),
 				frontMatter.Name,
 			),
-			Description:    strings.TrimSpace(frontMatter.Description),
+			Description: firstNonEmpty(
+				strings.TrimSpace(frontMatter.Description),
+				strings.TrimSpace(plugin.DisplayDescription.ZH),
+				strings.TrimSpace(plugin.DisplayDescription.EN),
+				strings.TrimSpace(plugin.Description),
+			),
 			Domain:         expertDomainFromPackageKey(plugin.Name),
 			SystemPrompt:   body,
 			OutputContract: types.AgentResultSchemaV1,

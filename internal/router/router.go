@@ -1280,7 +1280,7 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 }
 
 // RegisterExpertPackageRoutes exposes the administrator-only expert-package
-// registry. Normal users can never import, publish, or bind agent packages.
+// registry. Normal users can never import or publish agent packages.
 func RegisterExpertPackageRoutes(r *gin.RouterGroup, h *handler.ExpertPackageHandler, g *rbacGuards) {
 	if h == nil {
 		return
@@ -1298,11 +1298,9 @@ func RegisterExpertPackageRoutes(r *gin.RouterGroup, h *handler.ExpertPackageHan
 		packages.POST("/import", g.Admin(), h.ImportArchive)
 		packages.POST("/import-json", g.Admin(), h.Import)
 		packages.GET("", g.Admin(), h.List)
-		packages.GET("/bindings", g.Admin(), h.ListBindings)
 		packages.GET("/:id", g.Admin(), h.Get)
 		packages.POST("/:id/versions/:version_id/publish", g.Admin(), h.Publish)
 		packages.POST("/:id/definitions/:definition_id/test-runs", g.Admin(), h.TestRun)
-		packages.PUT("/:id/bindings", g.Admin(), h.Bind)
 	}
 }
 

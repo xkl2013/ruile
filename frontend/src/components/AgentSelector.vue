@@ -87,7 +87,7 @@
             <div v-for="expert in publishedExpertsList" :key="expert.definition_id" class="agent-option"
               :class="{ selected: isPublishedExpertSelected(expert) }"
               @click="emit('select-published-expert', expert)">
-              <AgentAvatar :name="expert.display_name" size="small" />
+              <AgentAvatar :name="expert.display_name" :avatar="expert.avatar" size="small" />
               <div class="agent-option-copy">
                 <span class="agent-option-name">{{ expert.display_name }}</span>
                 <span class="agent-option-description">{{ expert.description || expert.package_display_name }}</span>

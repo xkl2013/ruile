@@ -1,28 +1,77 @@
 <template>
-  <div 
-    class="agent-avatar" 
+  <div
+    ref="avatarRootRef"
+    class="agent-avatar"
     :style="avatarStyle"
     :class="{ 'agent-avatar-small': size === 'small', 'agent-avatar-large': size === 'large' }"
   >
+    <img
+      v-if="avatar && !imageFailed"
+      :key="avatar"
+      class="agent-avatar-image"
+      :class="{ 'is-loaded': imageLoaded }"
+      :src="avatar"
+      :alt="name"
+      :data-img-loading="isProtectedAvatar(avatar) ? '1' : undefined"
+      @load="handleImageLoad"
+      @error="handleImageError"
+    >
     <!-- 星星装饰 - 融入背景 -->
-    <svg class="agent-sparkles" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg v-if="!imageLoaded" class="agent-sparkles" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
       <!-- 右上角小星星 -->
       <path d="M24 5L24.4 6.6C24.45 6.85 24.65 7.05 24.9 7.1L26.5 7.5L24.9 7.9C24.65 7.95 24.45 8.15 24.4 8.4L24 10L23.6 8.4C23.55 8.15 23.35 7.95 23.1 7.9L21.5 7.5L23.1 7.1C23.35 7.05 23.55 6.85 23.6 6.6L24 5Z" fill="rgba(255,255,255,0.6)"/>
       <!-- 左下角小星星 -->
       <path d="M7 22L7.4 23.6C7.45 23.85 7.65 24.05 7.9 24.1L9.5 24.5L7.9 24.9C7.65 24.95 7.45 25.15 7.4 25.4L7 27L6.6 25.4C6.55 25.15 6.35 24.95 6.1 24.9L4.5 24.5L6.1 24.1C6.35 24.05 6.55 23.85 6.6 23.6L7 22Z" fill="rgba(255,255,255,0.5)"/>
     </svg>
-    <span class="agent-avatar-letter" :style="letterStyle">{{ letter }}</span>
+    <span v-if="!imageLoaded" class="agent-avatar-letter" :style="letterStyle">{{ letter }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { hydrateProtectedFileImages } from '@/utils/security';
 
 const props = withDefaults(defineProps<{
   name: string;
+  avatar?: string;
   size?: 'small' | 'medium' | 'large';
 }>(), {
+  avatar: '',
   size: 'medium'
+});
+
+const avatarRootRef = ref<HTMLElement | null>(null);
+const imageLoaded = ref(false);
+const imageFailed = ref(false);
+
+const isProtectedAvatar = (value: string) => /^(resource|storage|local|minio|cos|tos|s3|oss|ks3|obs):\/\//i.test(value.trim());
+
+const hydrateAvatar = async () => {
+  imageLoaded.value = false;
+  imageFailed.value = false;
+  if (!props.avatar) return;
+  await nextTick();
+  await hydrateProtectedFileImages(avatarRootRef.value);
+};
+
+const handleImageError = () => {
+  if (!isProtectedAvatar(props.avatar)) {
+    imageFailed.value = true;
+  }
+};
+
+const handleImageLoad = (event: Event) => {
+  const image = event.currentTarget as HTMLImageElement | null;
+  if (image?.dataset.imgLoading === '1') return;
+  imageLoaded.value = true;
+};
+
+watch(() => props.avatar, () => {
+  void hydrateAvatar();
+});
+
+onMounted(() => {
+  void hydrateAvatar();
 });
 
 // 预定义的渐变色方案 - 现代、柔和、专业
@@ -136,6 +185,20 @@ const letterStyle = computed(() => {
     .agent-sparkles {
       opacity: 0.9;
     }
+  }
+}
+
+.agent-avatar-image {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+
+  &.is-loaded {
+    opacity: 1;
   }
 }
 

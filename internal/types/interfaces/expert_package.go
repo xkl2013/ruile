@@ -16,8 +16,6 @@ type ExpertPackageRepository interface {
 	GetVersionByPackageKey(ctx context.Context, tenantID uint64, packageKey, version string) (*types.ExpertPackageVersion, error)
 	GetPublishedDefinition(ctx context.Context, tenantID uint64, packageID, definitionID string) (*types.AgentDefinitionVersion, error)
 	PublishVersion(ctx context.Context, tenantID uint64, packageID, versionID, actorID string) error
-	UpsertBinding(ctx context.Context, binding *types.AgentBinding) error
-	ListBindings(ctx context.Context, tenantID uint64, profileID string) ([]*types.AgentBinding, error)
 }
 
 type ExpertPackageService interface {
@@ -27,6 +25,4 @@ type ExpertPackageService interface {
 	ListPublishedExperts(ctx context.Context, tenantID uint64) ([]*types.PublishedExpert, error)
 	GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error)
 	PublishVersion(ctx context.Context, tenantID uint64, actorID, packageID, versionID string) error
-	BindAgent(ctx context.Context, tenantID uint64, actorID, packageID string, input types.AgentBindingInput) (*types.AgentBinding, error)
-	ListBindings(ctx context.Context, tenantID uint64, profileID string) ([]*types.AgentBinding, error)
 }

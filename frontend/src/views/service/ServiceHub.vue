@@ -252,10 +252,10 @@ import {
   createServiceSession,
   getFirstServiceSession,
   getService,
+  getServiceExpert,
   getServiceTemplate,
   getSession,
   loadServiceHub,
-  serviceExperts,
   serviceArtifacts,
   serviceHubState,
   serviceTemplates,
@@ -423,10 +423,11 @@ const persistService = async (payload: {
       selected_skills: [],
       activate: true,
       experts: payload.expertIds.map((expertId, index) => {
-        const expert = serviceExperts.find((item) => item.id === expertId)
+        const expert = getServiceExpert(expertId)
         return {
           expert_ref: expertId,
           expert_name: expert?.name || expertId,
+          expert_domain: expert?.domain,
           display_order: index,
           enabled: true,
         }

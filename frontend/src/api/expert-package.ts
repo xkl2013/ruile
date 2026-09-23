@@ -1,4 +1,4 @@
-import { get, post, postUpload, put } from '@/utils/request'
+import { get, post, postUpload } from '@/utils/request'
 import type { AgentRun } from '@/api/agent-run-types'
 
 export interface ExpertPackageResponse<T> {
@@ -18,6 +18,7 @@ export interface ExpertPackageImportInput {
   version: string
   display_name: string
   description?: string
+  avatar?: string
   source_uri?: string
   license?: string
   files: ExpertPackageFileInput[]
@@ -55,6 +56,7 @@ export interface PublishedExpert {
   package_key: string
   package_display_name: string
   package_description?: string
+  avatar?: string
   package_version: string
   definition_id: string
   agent_id: string
@@ -71,6 +73,7 @@ export interface PublishedExpertRouteCandidate {
   package_id: string
   package_version_id: string
   package_display_name: string
+  avatar?: string
   definition_id: string
   agent_id: string
   version: string
@@ -113,6 +116,7 @@ export interface ExpertPackage {
   package_key: string
   display_name: string
   description?: string
+  avatar?: string
   source_format: string
   source_uri?: string
   license?: string
@@ -120,25 +124,6 @@ export interface ExpertPackage {
   created_at?: string
   updated_at?: string
   versions?: ExpertPackageVersion[]
-}
-
-export interface AgentBinding {
-  id: string
-  tenant_id: number
-  profile_id: string
-  agent_definition_version_id: string
-  agent_domain: string
-  enabled: boolean
-  created_by?: string
-  created_at?: string
-  updated_at?: string
-}
-
-export interface AgentBindingInput {
-  profile_id: string
-  agent_definition_version_id: string
-  agent_domain?: string
-  enabled: boolean
 }
 
 export interface ExpertAgentTestInput {
@@ -154,17 +139,6 @@ export interface ExpertAgentTestInput {
 export interface ExpertFollowUpInput {
   prompt: string
   mode?: 'explanation'
-}
-
-function withQuery<T extends object>(path: string, params?: T) {
-  const query = new URLSearchParams()
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') {
-      query.set(key, String(value))
-    }
-  })
-  const suffix = query.toString()
-  return suffix ? `${path}?${suffix}` : path
 }
 
 export function listExpertPackages() {
@@ -196,19 +170,6 @@ export function importExpertPackageArchive(
 export function publishExpertPackageVersion(packageId: string, versionId: string) {
   return post<void>(
     `/api/v1/admin/expert-packages/${encodeURIComponent(packageId)}/versions/${encodeURIComponent(versionId)}/publish`,
-  )
-}
-
-export function listExpertPackageBindings(params?: { profile_id?: string }) {
-  return get<ExpertPackageResponse<AgentBinding[]>>(
-    withQuery('/api/v1/admin/expert-packages/bindings', params),
-  )
-}
-
-export function bindExpertPackageAgent(packageId: string, data: AgentBindingInput) {
-  return put<ExpertPackageResponse<AgentBinding>>(
-    `/api/v1/admin/expert-packages/${encodeURIComponent(packageId)}/bindings`,
-    data,
   )
 }
 

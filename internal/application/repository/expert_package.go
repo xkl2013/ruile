@@ -37,6 +37,7 @@ func (r *expertPackageRepository) Import(
 			if err := tx.Model(&types.ExpertPackage{}).Where("id = ?", existing.ID).Updates(map[string]any{
 				"display_name":  pkg.DisplayName,
 				"description":   pkg.Description,
+				"avatar":        pkg.Avatar,
 				"source_format": pkg.SourceFormat,
 				"source_uri":    pkg.SourceURI,
 				"license":       pkg.License,
@@ -83,12 +84,13 @@ func (r *expertPackageRepository) ListPublishedExperts(ctx context.Context, tena
 			p.package_key,
 			p.display_name AS package_display_name,
 			p.description AS package_description,
+			p.avatar,
 			v.version AS package_version,
 			d.id AS definition_id,
 			d.agent_id,
 			d.version,
 			d.display_name,
-			d.description,
+			COALESCE(NULLIF(d.description, ''), p.description) AS description,
 			d.domain,
 			d.output_contract,
 			d.skills,
@@ -225,40 +227,6 @@ func (r *expertPackageRepository) PublishVersion(
 			"updated_at":   now,
 		}).Error
 	})
-}
-
-func (r *expertPackageRepository) UpsertBinding(ctx context.Context, binding *types.AgentBinding) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var existing types.AgentBinding
-		err := tx.Where(
-			"tenant_id = ? AND profile_id = ? AND agent_definition_version_id = ?",
-			binding.TenantID,
-			binding.ProfileID,
-			binding.AgentDefinitionVersionID,
-		).First(&existing).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return tx.Create(binding).Error
-		}
-		if err != nil {
-			return err
-		}
-		binding.ID = existing.ID
-		return tx.Model(&types.AgentBinding{}).Where("id = ?", existing.ID).Updates(map[string]any{
-			"agent_domain": binding.AgentDomain,
-			"enabled":      binding.Enabled,
-			"updated_at":   time.Now().UTC(),
-		}).Error
-	})
-}
-
-func (r *expertPackageRepository) ListBindings(ctx context.Context, tenantID uint64, profileID string) ([]*types.AgentBinding, error) {
-	query := r.db.WithContext(ctx).Where("tenant_id = ?", tenantID)
-	if strings.TrimSpace(profileID) != "" {
-		query = query.Where("profile_id = ?", strings.TrimSpace(profileID))
-	}
-	var bindings []*types.AgentBinding
-	err := query.Order("updated_at DESC").Find(&bindings).Error
-	return bindings, err
 }
 
 func (r *expertPackageRepository) loadPackageRelations(ctx context.Context, pkg *types.ExpertPackage) error {

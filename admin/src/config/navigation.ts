@@ -65,15 +65,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         key: 'expert-packages',
         label: '专家',
-        description: '专家包导入、发布和服务绑定',
-        icon: 'usergroup',
-        path: '/experts',
-        minRole: 'admin',
-      },
-      {
-        key: 'expert-packages',
-        label: '专家',
-        description: '专家包导入、发布和服务绑定',
+        description: '专家包导入、发布和运行测试',
         icon: 'usergroup',
         path: '/experts',
         minRole: 'admin',

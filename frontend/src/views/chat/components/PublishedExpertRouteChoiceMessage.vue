@@ -24,9 +24,12 @@
         :disabled="message.confirming"
         @click="emit('select', candidate)"
       >
-        <span class="published-expert-route-choice__avatar" aria-hidden="true">
-          {{ (candidate.display_name || '专').slice(0, 1) }}
-        </span>
+        <AgentAvatar
+          class="published-expert-route-choice__avatar"
+          :name="candidate.display_name || '专家'"
+          :avatar="candidate.avatar"
+          size="medium"
+        />
         <span class="published-expert-route-choice__copy">
           <strong>{{ candidate.display_name || '未命名专家' }}</strong>
           <small>{{ candidate.description || candidate.domain || '已发布专家' }}</small>
@@ -49,6 +52,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import AgentAvatar from '@/components/AgentAvatar.vue';
 
 const props = defineProps({
   message: {
@@ -141,16 +145,11 @@ const confidenceLabel = computed(() => {
 }
 
 .published-expert-route-choice__avatar {
-  display: grid;
   flex: 0 0 28px;
   width: 28px;
   height: 28px;
-  place-items: center;
-  border-radius: 50%;
-  background: #e8f7ee;
-  color: #129455;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 7px;
+  box-shadow: none;
 }
 
 .published-expert-route-choice__copy {

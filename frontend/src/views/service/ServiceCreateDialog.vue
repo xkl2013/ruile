@@ -27,7 +27,7 @@
               <t-input
                 id="service-create-name"
                 v-model="form.name"
-                size="large"
+                size="medium"
                 placeholder="请输入服务名称"
                 :status="formError ? 'error' : undefined"
                 @input="formError = ''"
@@ -41,7 +41,7 @@
                 <t-select
                   v-model="form.templateId"
                   class="service-create-template-select"
-                  size="large"
+                  size="medium"
                   clearable
                   placeholder="选择模板"
                   :options="templateOptions"
@@ -54,7 +54,7 @@
                 class="service-create-instruction"
                 placeholder="提供当前服务的背景信息和规范，让服务内的专家回复更精准、更符合要求。例如：服务目标、团队习惯、风格偏好、输出约束等"
                 :maxlength="4000"
-                :autosize="{ minRows: 7, maxRows: 12 }"
+                :autosize="{ minRows: 4, maxRows: 8 }"
               />
             </div>
 
@@ -62,9 +62,9 @@
               <button
                 type="button"
                 class="service-create-option-row"
-                :class="{ expanded: expertPickerOpen }"
-                :aria-expanded="expertPickerOpen"
-                @click="expertPickerOpen = !expertPickerOpen"
+                :class="{ expanded: selectedExperts.length > 0 }"
+                :aria-expanded="selectedExperts.length > 0"
+                @click="expertPickerVisible = true"
               >
                 <span class="service-create-option-title">
                   <strong>专家</strong>
@@ -74,36 +74,30 @@
                   </span>
                 </span>
                 <span class="service-create-option-action">
-                  {{ expertPickerOpen ? '收起' : '+ 添加' }}
+                  {{ form.expertIds.length ? '调整' : '+ 添加' }}
                 </span>
               </button>
 
-              <div v-if="expertPickerOpen" class="service-create-picker">
+              <div v-if="selectedExperts.length" class="service-create-expert-list">
                 <button
-                  v-for="expert in serviceExperts"
+                  v-for="expert in selectedExperts"
                   :key="expert.id"
                   type="button"
-                  class="service-create-picker-option"
-                  :class="{ selected: form.expertIds.includes(expert.id) }"
+                  class="service-create-expert-row"
                   @click="toggleExpert(expert.id)"
                 >
+                  <AgentAvatar :name="expert.name" :avatar="expert.avatar" size="small" />
                   <span class="service-create-picker-copy">
                     <strong>{{ expert.name }}</strong>
                     <small>{{ expert.description }}</small>
                   </span>
-                  <span class="service-create-picker-check">
-                    <t-icon :name="form.expertIds.includes(expert.id) ? 'check' : 'add'" />
+                  <span class="service-create-expert-remove" :aria-label="`移除${expert.name}`">
+                    <t-icon name="close" />
                   </span>
                 </button>
               </div>
-
-              <div v-if="selectedExperts.length" class="service-create-selected-list">
-                <span v-for="expert in selectedExperts" :key="expert.id" class="service-create-selected-item">
-                  {{ expert.name }}
-                  <button type="button" :aria-label="`移除${expert.name}`" @click="toggleExpert(expert.id)">
-                    <t-icon name="close" />
-                  </button>
-                </span>
+              <div v-else class="service-create-option-empty">
+                从系统专家列表中选择要加入这个服务空间的专家
               </div>
             </section>
 
@@ -195,13 +189,23 @@
             </section>
           </div>
 
+          <ServiceExpertPickerDialog
+            v-model:visible="expertPickerVisible"
+            :experts="serviceExperts"
+            :selected-ids="form.expertIds"
+            :loading="serviceExpertsLoading"
+            :error="serviceExpertsError"
+            @confirm="setSelectedExperts"
+            @retry="loadExperts"
+          />
+
           <footer class="service-create-dialog-footer">
             <span>创建后可继续调整服务配置</span>
             <div class="service-create-dialog-actions">
-              <t-button variant="outline" size="large" @click="close">取消</t-button>
+              <t-button variant="outline" size="medium" @click="close">取消</t-button>
               <t-button
                 theme="primary"
-                size="large"
+                size="medium"
                 class="service-create-confirm"
                 :disabled="!form.name.trim()"
                 @click="submit"
@@ -219,9 +223,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
+import AgentAvatar from '@/components/AgentAvatar.vue'
 import { useChatResourcesStore } from '@/stores/chatResources'
+import ServiceExpertPickerDialog from './ServiceExpertPickerDialog.vue'
 import {
+  loadServiceExperts,
   serviceExperts,
+  serviceExpertsError,
+  serviceExpertsLoading,
   serviceTemplates,
   type ServiceRecord,
   type ServiceTemplate,
@@ -263,7 +272,7 @@ const knowledgeBases = computed<KnowledgeBaseOption[]>(() => chatResources.valid
 const knowledgeBasesLoading = ref(false)
 const knowledgeBasesError = ref('')
 const knowledgeBaseQuery = ref('')
-const expertPickerOpen = ref(false)
+const expertPickerVisible = ref(false)
 const knowledgeBasePickerOpen = ref(false)
 const formError = ref('')
 const form = reactive({
@@ -298,6 +307,10 @@ const sourceTemplate = (source: ServiceCreateSource) => {
   return source
 }
 
+const expertIdsForTemplate = (template?: ServiceTemplate) => template?.experts
+  .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
+  .filter((id): id is string => Boolean(id)) || []
+
 const resetForm = () => {
   const source = props.source
   const template = sourceTemplate(source)
@@ -308,14 +321,32 @@ const resetForm = () => {
   form.templateId = template?.id || ''
   form.expertIds = service?.expertIds?.length
     ? [...service.expertIds]
-    : template?.experts
-      .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
-      .filter((id): id is string => Boolean(id)) || []
+    : expertIdsForTemplate(template)
   form.knowledgeBaseIds = service?.knowledgeBaseIds ? [...service.knowledgeBaseIds] : []
   formError.value = ''
   knowledgeBaseQuery.value = ''
-  expertPickerOpen.value = false
+  expertPickerVisible.value = false
   knowledgeBasePickerOpen.value = false
+}
+
+const loadExperts = async () => {
+  try {
+    await loadServiceExperts()
+  } catch (error) {
+    console.error('[ServiceCreateDialog] Failed to load published experts:', error)
+  }
+}
+
+const setSelectedExperts = (expertIds: string[]) => {
+  form.expertIds = [...expertIds]
+}
+
+const syncTemplateExperts = () => {
+  const source = props.source
+  const service = source && 'templateId' in source ? source : null
+  if (service?.expertIds?.length || form.expertIds.length) return
+  const ids = expertIdsForTemplate(sourceTemplate(source))
+  if (ids.length) form.expertIds = ids
 }
 
 const loadKnowledgeBases = async () => {
@@ -335,9 +366,7 @@ const applyTemplate = (templateId: string) => {
   const template = serviceTemplates.find((item) => item.id === templateId)
   if (!template) return
   form.instruction = template.instruction
-  form.expertIds = template.experts
-    .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
-    .filter((id): id is string => Boolean(id))
+  form.expertIds = expertIdsForTemplate(template)
 }
 
 const toggleExpert = (expertId: string) => {
@@ -391,6 +420,9 @@ watch(
     if (!visible) return
     resetForm()
     void loadKnowledgeBases()
+    void loadExperts().then(() => {
+      if (props.visible) syncTemplateExperts()
+    })
   },
 )
 
@@ -410,20 +442,20 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
-  background: rgba(0, 0, 0, 0.56);
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.42);
 }
 
 .service-create-dialog {
   display: flex;
-  width: min(1280px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  width: min(840px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 48px));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 28px;
+  border-radius: 16px;
   background: var(--td-bg-color-container);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16);
   color: var(--td-text-color-primary);
 }
 
@@ -432,29 +464,29 @@ watch(
   align-items: center;
   justify-content: space-between;
   flex: none;
-  padding: 32px 48px 20px;
+  padding: 20px 28px 14px;
 }
 
 .service-create-dialog-header h2 {
   margin: 0;
-  font-size: 28px;
-  font-weight: 650;
-  line-height: 38px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
 }
 
 .service-create-dialog-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
   color: var(--td-text-color-primary);
   cursor: pointer;
-  font-size: 28px;
+  font-size: 20px;
 }
 
 .service-create-dialog-close:hover {
@@ -464,44 +496,44 @@ watch(
 .service-create-dialog-body {
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 48px 32px;
+  padding: 4px 28px 22px;
 }
 
 .service-create-field {
-  margin-bottom: 30px;
+  margin-bottom: 20px;
 }
 
 .service-create-field > label,
 .service-create-field-head > label {
   display: block;
-  margin-bottom: 12px;
-  font-size: 22px;
+  margin-bottom: 8px;
+  font-size: 14px;
   font-weight: 600;
-  line-height: 30px;
+  line-height: 20px;
 }
 
 .service-create-field :deep(.t-input),
 .service-create-field :deep(.t-textarea__inner) {
-  border-radius: 16px;
-  font-size: 18px;
+  border-radius: 9px;
+  font-size: 14px;
 }
 
 .service-create-field :deep(.t-input) {
-  min-height: 58px;
+  min-height: 44px;
 }
 
 .service-create-field :deep(.t-textarea__inner) {
-  min-height: 220px;
-  padding: 18px 22px;
-  line-height: 1.65;
+  min-height: 132px;
+  padding: 12px 14px;
+  line-height: 1.55;
 }
 
 .service-create-field-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .service-create-field-head > label {
@@ -509,16 +541,16 @@ watch(
 }
 
 .service-create-template-select {
-  width: 184px;
+  width: 160px;
   flex: none;
 }
 
 .service-create-template-select :deep(.t-input) {
-  min-height: 48px;
+  min-height: 38px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 8px;
   background: var(--td-bg-color-secondarycontainer);
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .service-create-error {
@@ -529,9 +561,9 @@ watch(
 }
 
 .service-create-option-section {
-  margin-top: 18px;
+  margin-top: 12px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 16px;
+  border-radius: 10px;
   background: var(--td-bg-color-container);
 }
 
@@ -540,10 +572,10 @@ watch(
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 76px;
-  padding: 0 24px;
+  min-height: 56px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 16px;
+  border-radius: 10px;
   background: transparent;
   color: var(--td-text-color-primary);
   cursor: pointer;
@@ -560,39 +592,94 @@ watch(
   display: inline-flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .service-create-option-title strong {
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 30px;
+  line-height: 22px;
 }
 
 .service-create-option-title em {
   color: var(--td-text-color-secondary);
-  font-size: 18px;
+  font-size: 13px;
   font-style: normal;
   font-weight: 400;
 }
 
 .service-create-selected-count {
   color: var(--td-brand-color-7);
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .service-create-option-action {
   color: var(--td-text-color-secondary);
-  font-size: 18px;
+  font-size: 13px;
   font-weight: 500;
 }
 
 .service-create-picker {
-  margin: 0 24px 20px;
-  padding: 10px;
+  margin: 0 16px 14px;
+  padding: 8px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 12px;
+  border-radius: 9px;
   background: var(--td-bg-color-secondarycontainer);
+}
+
+.service-create-expert-list {
+  display: grid;
+  gap: 1px;
+  margin: 0 16px 14px;
+  overflow: hidden;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 9px;
+  background: var(--td-component-stroke);
+}
+
+.service-create-expert-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.service-create-expert-row:hover {
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.service-create-expert-row .service-create-picker-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.service-create-expert-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--td-text-color-placeholder);
+}
+
+.service-create-expert-row:hover .service-create-expert-remove {
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-primary);
+}
+
+.service-create-option-empty {
+  padding: 0 16px 14px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
 }
 
 .service-create-picker-option {
@@ -670,7 +757,7 @@ watch(
 }
 
 .service-create-kb-list {
-  max-height: 230px;
+  max-height: 180px;
   overflow-y: auto;
 }
 
@@ -725,7 +812,7 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 0 24px 20px;
+  padding: 0 16px 14px;
 }
 
 .service-create-selected-item {
@@ -775,26 +862,26 @@ watch(
   justify-content: space-between;
   gap: 20px;
   flex: none;
-  padding: 20px 48px 26px;
+  padding: 14px 28px 18px;
   border-top: 1px solid var(--td-component-stroke);
 }
 
 .service-create-dialog-footer > span {
   color: var(--td-text-color-secondary);
-  font-size: 16px;
+  font-size: 12px;
 }
 
 .service-create-dialog-actions {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
 }
 
 .service-create-dialog-actions :deep(.t-button) {
-  min-width: 128px;
-  border-radius: 14px;
-  font-size: 17px;
-  font-weight: 600;
+  min-width: 84px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .service-create-confirm {
@@ -829,36 +916,36 @@ watch(
 
   .service-create-dialog {
     width: 100%;
-    max-height: 94vh;
-    border-radius: 22px 22px 0 0;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
   }
 
   .service-create-dialog-header {
-    padding: 22px 20px 12px;
+    padding: 18px 16px 10px;
   }
 
   .service-create-dialog-header h2 {
-    font-size: 24px;
-    line-height: 32px;
+    font-size: 18px;
+    line-height: 26px;
   }
 
   .service-create-dialog-body {
-    padding: 4px 20px 24px;
+    padding: 4px 16px 18px;
   }
 
   .service-create-field > label,
-  .service-create-field-head > label,
-  .service-create-option-title strong {
-    font-size: 19px;
+  .service-create-field-head > label {
+    font-size: 14px;
+    line-height: 20px;
   }
 
   .service-create-field :deep(.t-input),
   .service-create-field :deep(.t-textarea__inner) {
-    font-size: 16px;
+    font-size: 14px;
   }
 
   .service-create-field :deep(.t-textarea__inner) {
-    min-height: 170px;
+    min-height: 140px;
   }
 
   .service-create-field-head {
@@ -871,18 +958,32 @@ watch(
   }
 
   .service-create-option-row {
-    min-height: 64px;
-    padding: 0 16px;
+    min-height: 54px;
+    padding: 0 14px;
+  }
+
+  .service-create-option-title strong {
+    font-size: 15px;
   }
 
   .service-create-option-title em,
   .service-create-option-action {
-    font-size: 15px;
+    font-size: 13px;
   }
 
   .service-create-picker {
     margin-right: 16px;
     margin-left: 16px;
+  }
+
+  .service-create-expert-list {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .service-create-option-empty {
+    padding-right: 16px;
+    padding-left: 16px;
   }
 
   .service-create-selected-list {
@@ -892,12 +993,12 @@ watch(
 
   .service-create-dialog-footer {
     align-items: stretch;
-    padding: 16px 20px 20px;
+    padding: 12px 16px 16px;
     flex-direction: column;
   }
 
   .service-create-dialog-footer > span {
-    font-size: 13px;
+    font-size: 12px;
   }
 
   .service-create-dialog-actions {
@@ -905,7 +1006,7 @@ watch(
   }
 
   .service-create-dialog-actions :deep(.t-button) {
-    min-width: 104px;
+    min-width: 88px;
   }
 }
 </style>
