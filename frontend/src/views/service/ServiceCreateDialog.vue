@@ -41,7 +41,7 @@
                 <t-select
                   v-model="form.templateId"
                   class="service-create-template-select"
-                  size="medium"
+                  size="small"
                   clearable
                   placeholder="选择模板"
                   :options="templateOptions"

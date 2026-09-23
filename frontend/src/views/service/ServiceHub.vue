@@ -30,14 +30,6 @@
         </t-button>
       </div>
 
-      <div v-if="showNoExpertBanner" class="service-hub-banner">
-        <t-icon name="info-circle" />
-        <span>有 1 个服务还没有添加专家，进入服务后可以继续配置。</span>
-        <button type="button" aria-label="关闭提示" @click="showNoExpertBanner = false">
-          <t-icon name="close" />
-        </button>
-      </div>
-
       <div v-if="services.length > 0" class="service-hub-list-main">
         <div class="service-hub-section-head">
           <span class="service-hub-section-title">我的服务</span>
@@ -277,7 +269,6 @@ const view = ref<HubView>('list')
 const serviceQuery = ref('')
 const templateQuery = ref('')
 const sortMode = ref<SortMode>('recent')
-const showNoExpertBanner = ref(true)
 const createDialogVisible = ref(false)
 const createSource = ref<ServiceTemplate | ServiceRecord | null>(null)
 const selectedArtifact = ref<(typeof serviceArtifacts)[string] | null>(null)
@@ -414,6 +405,23 @@ const persistService = async (payload: {
     return
   }
   try {
+    const experts = payload.expertIds.length
+      ? payload.expertIds.map((expertId, index) => {
+          const expert = getServiceExpert(expertId)
+          return {
+            expert_ref: expertId,
+            expert_name: expert?.name || expertId,
+            expert_domain: expert?.domain,
+            display_order: index,
+            enabled: true,
+          }
+        })
+      : [{
+          expert_ref: BUILTIN_SMART_REASONING_ID,
+          expert_name: '服务助理',
+          display_order: 0,
+          enabled: true,
+        }]
     const response = await createServiceSpace({
       name,
       description: payload.description.trim(),
@@ -422,16 +430,7 @@ const persistService = async (payload: {
       knowledge_base_ids: payload.knowledgeBaseIds,
       selected_skills: [],
       activate: true,
-      experts: payload.expertIds.map((expertId, index) => {
-        const expert = getServiceExpert(expertId)
-        return {
-          expert_ref: expertId,
-          expert_name: expert?.name || expertId,
-          expert_domain: expert?.domain,
-          display_order: index,
-          enabled: true,
-        }
-      }),
+      experts,
     })
     const serviceId = response?.data?.id
     if (!serviceId) throw new Error('missing service id')
@@ -440,17 +439,20 @@ const persistService = async (payload: {
     serviceHubState.activeServiceId = serviceId
     serviceHubState.activeSessionId = session.id
     createDialogVisible.value = false
-    if (session) {
-      view.value = 'workspace'
-      await router.replace({
-        path: serviceBasePath.value,
-        query: { service: serviceId, session: session.id },
-      })
-    }
+    view.value = 'workspace'
+    await router.replace({
+      path: serviceBasePath.value,
+      query: { service: serviceId, session: session.id },
+    })
     MessagePlugin.success('服务已创建')
   } catch (error) {
     console.error('[ServiceHub] Failed to create service:', error)
-    MessagePlugin.error('服务创建失败，请稍后重试')
+    const message = error && typeof error === 'object' && 'message' in error
+      ? String((error as { message?: unknown }).message || '')
+      : error instanceof Error
+        ? error.message
+        : ''
+    MessagePlugin.error(message ? `服务创建失败：${message}` : '服务创建失败，请稍后重试')
   }
 }
 
@@ -740,34 +742,6 @@ watch(
 
 .service-hub-primary-button:hover {
   background: var(--td-brand-color-hover);
-}
-
-.service-hub-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 18px;
-  padding: 10px 12px;
-  border: 1px solid #c9edd6;
-  border-radius: 6px;
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color-7);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.service-hub-banner button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-left: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
 }
 
 .service-hub-list-main {

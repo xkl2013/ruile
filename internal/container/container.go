@@ -318,6 +318,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}
 	must(container.Provide(service.NewTemporaryDocumentService))
 	must(container.Invoke(startTemporaryDocumentCleanup))
+	must(container.Invoke(startOrganizeScheduler))
 
 	// Chat pipeline components for processing chat requests
 	logger.Debugf(ctx, "[Container] Registering chat pipeline plugins...")
@@ -1742,6 +1743,36 @@ func startTemporaryDocumentCleanup(svc interfaces.TemporaryDocumentService, clea
 		}
 	}()
 	cleaner.RegisterWithName("TemporaryDocumentCleanup", func() error {
+		close(stop)
+		return nil
+	})
+}
+
+// startOrganizeScheduler dispatches due user organize configurations through
+// the same durable job pipeline used by manual runs.
+func startOrganizeScheduler(svc interfaces.OrganizeService, cleaner interfaces.ResourceCleaner) {
+	stop := make(chan struct{})
+	run := func() {
+		if err := svc.RunDueConfigs(context.Background(), time.Now()); err != nil {
+			logger.Warnf(context.Background(), "[OrganizeScheduler] due-config sweep failed: %v", err)
+		}
+	}
+	run()
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case now := <-ticker.C:
+				if err := svc.RunDueConfigs(context.Background(), now); err != nil {
+					logger.Warnf(context.Background(), "[OrganizeScheduler] due-config sweep failed: %v", err)
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	cleaner.RegisterWithName("OrganizeScheduler", func() error {
 		close(stop)
 		return nil
 	})

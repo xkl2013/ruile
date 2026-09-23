@@ -28,3 +28,11 @@ test('service experts come from published system experts and use a searchable pi
   assert.match(hubState, /listPublishedExperts/)
   assert.match(hubState, /loadServiceExperts/)
 })
+
+test('service creation uses the built-in assistant when experts are optional and empty', () => {
+  assert.match(hub, /payload\.expertIds\.length/)
+  assert.match(hub, /expert_ref: BUILTIN_SMART_REASONING_ID/)
+  assert.match(hub, /expert_name: '服务助理'/)
+  assert.match(hub, /activate: true/)
+  assert.match(hub, /const session = await ensureServiceSession\(serviceId\)/)
+})

@@ -21,6 +21,10 @@ func newOrganizeTestDB(t *testing.T) *gorm.DB {
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeSproutReport{},
 		&types.OrganizeSproutMemory{},
+		&types.OrganizeTemplate{},
+		&types.OrganizeTemplateVersion{},
+		&types.OrganizeConfig{},
+		&types.OrganizeJob{},
 	))
 	return db
 }
@@ -113,4 +117,61 @@ func TestOrganizeRepositoryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), gotOutput.MemoryCount)
 	require.ElementsMatch(t, []string{audio.ID}, gotOutput.MemoryIDs)
+}
+
+func TestOrganizeRepositoryWorkbenchRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	db := newOrganizeTestDB(t)
+	repo := NewOrganizeRepository(db)
+
+	template := &types.OrganizeTemplate{
+		Scope:              types.OrganizeTemplateScopePlatform,
+		Key:                "weekly_review",
+		Name:               "每周复盘",
+		Scene:              "个人沉淀",
+		OutputLabel:        "复盘",
+		DefaultInstruction: "按事实、判断和待办整理",
+		Status:             types.OrganizeTemplateStatusEnabled,
+		PublishedVersion:   "v1",
+	}
+	require.NoError(t, db.Create(template).Error)
+
+	config := &types.OrganizeConfig{
+		TenantID:    12,
+		UserID:      "user-a",
+		Name:        "我的每周复盘",
+		TemplateKey: template.Key,
+		Schedule:    types.OrganizeScheduleWeekly,
+	}
+	require.NoError(t, repo.CreateConfig(ctx, config))
+
+	job := &types.OrganizeJob{
+		TenantID:        config.TenantID,
+		UserID:          config.UserID,
+		ConfigID:        config.ID,
+		TemplateKey:     template.Key,
+		TemplateVersion: template.PublishedVersion,
+		Status:          types.OrganizeJobStatusQueued,
+		MemoryIDs:       types.StringArray{"memory-1"},
+	}
+	require.NoError(t, repo.CreateJob(ctx, job))
+
+	gotConfig, err := repo.GetConfig(ctx, config.TenantID, config.UserID, config.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotConfig.Template)
+	require.Equal(t, template.Name, gotConfig.Template.Name)
+	require.NotNil(t, gotConfig.LatestJob)
+	require.Equal(t, job.ID, gotConfig.LatestJob.ID)
+	require.Equal(t, int64(1), gotConfig.JobCount)
+
+	jobs, total, err := repo.ListJobs(ctx, types.OrganizeJobQuery{
+		TenantID: config.TenantID,
+		UserID:   config.UserID,
+		ConfigID: config.ID,
+		Page:     1,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Equal(t, job.ID, jobs[0].ID)
 }

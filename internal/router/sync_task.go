@@ -188,6 +188,7 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeDocumentProcess, params.KnowledgeService.ProcessDocument)
 	params.Executor.RegisterHandler(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
 	params.Executor.RegisterHandler(types.TypeOrganizeMemoryTranscribe, params.OrganizeService.ProcessMemoryTranscribe)
+	params.Executor.RegisterHandler(types.TypeOrganizeJobRun, params.OrganizeService.ProcessOrganizeJob)
 	params.Executor.RegisterHandler(types.TypeManualProcess, params.KnowledgeService.ProcessManualUpdate)
 	params.Executor.RegisterHandler(types.TypeFAQImport, params.KnowledgeService.ProcessFAQImport)
 	params.Executor.RegisterHandler(types.TypeQuestionGeneration, params.KnowledgeService.ProcessQuestionGeneration)

@@ -15,28 +15,31 @@
       </div>
     </div>
 
-    <div v-show="isExpanded" :id="organizeMenuListId" class="organize-menu-list">
-      <button v-for="item in organizeItems" :key="item.key" type="button" class="organize-menu-item"
-        :class="{ active: isOrganizeRoute && activeTab === item.key }" :title="item.label"
-        :aria-current="isOrganizeRoute && activeTab === item.key ? 'page' : undefined" @click="openRoute(item.path)">
-        <OrganizeSproutIcon v-if="item.key === 'sprout'" class="organize-menu-item-icon" />
-        <t-icon v-else :name="item.icon" class="organize-menu-item-icon" />
-        <span class="organize-menu-item-name">{{ item.label }}</span>
+    <div v-show="isExpanded" :id="organizeMenuListId" class="organize-menu-list organize-menu-list--nested">
+      <button v-for="config in configuredOrganizeItems" :key="config.id" type="button"
+        class="organize-menu-item" :class="{ active: isConfigActive(config) }"
+        :title="config.name" :aria-current="isConfigActive(config) ? 'page' : undefined"
+        @click="openConfig(config.id)">
+        <t-icon :name="configIcon(config)" class="organize-menu-item-icon" />
+        <span class="organize-menu-item-name">{{ config.name }}</span>
       </button>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { listOrganizeConfigs } from '@/api/organize'
 import {
-  ORGANIZE_MENU_ROUTES,
-  isOrganizeTab,
-  type OrganizeTab,
+  ORGANIZE_ROUTE_BASE_PATH,
+  ORGANIZE_ROUTE_NAMES,
 } from '@/views/organize/organizeRoutes'
-import OrganizeSproutIcon from '@/views/organize/components/OrganizeSproutIcon.vue'
+import {
+  toOrganizeConfig,
+  type OrganizeConfig,
+} from '@/views/organize/organizeWorkbenchState'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -44,7 +47,9 @@ const router = useRouter()
 
 const organizeMenuListId = 'organize-menu-list'
 const ORGANIZE_MENU_EXPANDED_STORAGE_KEY = 'sidebar-organize-menu-expanded'
-const organizeItems = ORGANIZE_MENU_ROUTES
+const organizeWorkbenchPath = `${ORGANIZE_ROUTE_BASE_PATH}/hub`
+const configuredOrganizeItems = ref<OrganizeConfig[]>([])
+let refreshTimer: number | undefined
 
 const loadExpandedState = () => {
   if (typeof window === 'undefined') return true
@@ -56,13 +61,26 @@ const loadExpandedState = () => {
 }
 
 const isExpanded = ref(loadExpandedState())
-const isOrganizeRoute = computed(() => typeof route.name === 'string' && route.name.startsWith('organize'))
 
-const activeTab = computed<OrganizeTab>(() => {
-  if (!isOrganizeRoute.value) return 'memory'
-  const tab = route.meta.organizeTab
-  return isOrganizeTab(tab) ? tab : 'memory'
-})
+const isConfigActive = (config: OrganizeConfig) => {
+  if (route.name === ORGANIZE_ROUTE_NAMES.configDetail) {
+    return String(route.params.configId || '') === config.id
+  }
+  return route.name === ORGANIZE_ROUTE_NAMES.outputDetail &&
+    String(route.query.configId || '') === config.id
+}
+
+const configIcon = (config: OrganizeConfig) =>
+  config.template?.icon || 'dashboard'
+
+const loadConfiguredItems = async () => {
+  try {
+    const response = await listOrganizeConfigs({ page: 1, page_size: 100, status: 'active' })
+    configuredOrganizeItems.value = (response.data?.items || []).map(toOrganizeConfig)
+  } catch {
+    configuredOrganizeItems.value = []
+  }
+}
 
 const toggleExpanded = () => {
   isExpanded.value = !isExpanded.value
@@ -80,8 +98,26 @@ const openRoute = async (path: string) => {
 }
 
 const openDefaultRoute = async () => {
-  await openRoute(organizeItems[0].path)
+  await openRoute(organizeWorkbenchPath)
 }
+
+const openConfig = async (configId: string) => {
+  await openRoute(`${ORGANIZE_ROUTE_BASE_PATH}/configs/${encodeURIComponent(configId)}`)
+}
+
+onMounted(() => {
+  void loadConfiguredItems()
+  refreshTimer = window.setInterval(loadConfiguredItems, 30000)
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) window.clearInterval(refreshTimer)
+})
+
+watch(
+  () => route.fullPath,
+  () => void loadConfiguredItems(),
+)
 </script>
 
 <style scoped lang="less">

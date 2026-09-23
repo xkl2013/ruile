@@ -86,7 +86,9 @@ var queueDefinitions = []QueueDefinition{
 		TypeKnowledgeListDelete, TypeKnowledgeListReparse, TypeKnowledgeMove,
 	}},
 	{Name: QueueWiki, Pool: WorkerPoolWiki, Weight: 1, TaskTypes: []string{TypeWikiIngest, TypeWikiFinalize}},
-	{Name: QueueAgent, Pool: WorkerPoolAgent, Weight: 1, TaskTypes: []string{TypeAgentRunExecute}},
+	{Name: QueueAgent, Pool: WorkerPoolAgent, Weight: 1, TaskTypes: []string{
+		TypeAgentRunExecute, TypeOrganizeJobRun,
+	}},
 }
 
 // QueueDefinitions returns a copy so callers cannot mutate global topology.
@@ -257,6 +259,7 @@ const (
 	TypeWikiFinalize             = "wiki:finalize"              // Wiki KB 级收尾任务（防抖：索引重建/死链清理/交叉链接）
 	TypeTemporaryDocumentProcess = "temporary_document:process" // 会话临时文档解析任务
 	TypeOrganizeMemoryTranscribe = "organize_memory:transcribe" // 录音记忆异步转写任务
+	TypeOrganizeJobRun           = "organize_job:run"           // 整理工作台任务
 	TypeAgentRunExecute          = "agent_run:execute"          // Agent 执行队列任务
 )
 

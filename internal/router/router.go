@@ -1357,6 +1357,26 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 		org.GET("/overview", g.Viewer(), h.GetOverview)
 		org.GET("/discover", g.Viewer(), h.GetDiscover)
 
+		org.GET("/templates", g.Viewer(), h.ListTemplates)
+		org.GET("/templates/scenes", g.Viewer(), h.ListTemplateScenes)
+		org.GET("/templates/:key", g.Viewer(), h.GetTemplate)
+		org.GET("/experts", g.Viewer(), h.ListExperts)
+
+		org.GET("/configs", g.Viewer(), h.ListConfigs)
+		org.POST("/configs", g.Viewer(), h.CreateConfig)
+		org.GET("/configs/:id", g.Viewer(), h.GetConfig)
+		org.PUT("/configs/:id", g.Viewer(), h.UpdateConfig)
+		org.DELETE("/configs/:id", g.Viewer(), h.DeleteConfig)
+		org.POST("/configs/:id/run", g.Viewer(), h.RunConfig)
+		org.GET("/configs/:id/jobs", g.Viewer(), h.ListConfigJobs)
+
+		org.GET("/jobs", g.Viewer(), h.ListJobs)
+		org.POST("/jobs", g.Viewer(), h.CreateJob)
+		org.GET("/jobs/:id", g.Viewer(), h.GetJob)
+		org.GET("/jobs/:id/events", g.Viewer(), h.StreamJobEvents)
+		org.POST("/jobs/:id/retry", g.Viewer(), h.RetryJob)
+		org.POST("/jobs/:id/cancel", g.Viewer(), h.CancelJob)
+
 		org.GET("/memories", g.Viewer(), h.ListMemories)
 		org.POST("/memories", g.Viewer(), h.CreateMemory)
 		org.POST("/memories/upload", g.Viewer(), h.UploadMemory)

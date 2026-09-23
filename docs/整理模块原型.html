@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>整理模块原型 · 可配置整理模板</title>
+<style>
+:root{
+  --bg:#F7F7F5; --panel:#FFFFFF; --panel2:#FBFBF9;
+  --line:#E8E6E1; --line2:#D8D5CE;
+  --tx:#2C2C2A; --tx2:#6B6B66; --tx3:#9A9A93;
+  --ac:#534AB7; --ac50:#EEEDFE; --ac100:#CECBF6; --ac800:#26215C;
+  --ok:#0F6E56; --ok50:#E1F5EE; --ok100:#9FE1CB;
+  --warn:#854F0B; --warn50:#FAEEDA;
+  --danger:#A32D2D; --danger50:#FCEBEB;
+  --r:12px; --r-lg:16px;
+  --shadow:0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  background:var(--bg); color:var(--tx); font-size:14px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;color:inherit;border:none;background:none;cursor:pointer}
+.app{display:flex;min-height:100vh}
+
+/* ---------- 左侧导航 ---------- */
+.rail{width:196px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:20px 12px;display:flex;flex-direction:column;gap:4px}
+.rail .brand{font-size:13px;font-weight:500;color:var(--tx3);padding:0 10px 14px;letter-spacing:.04em}
+.rail a{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:8px;color:var(--tx2);text-decoration:none;font-size:13.5px}
+.rail a:hover{background:var(--panel2);color:var(--tx)}
+.rail a.on{background:var(--ac50);color:var(--ac800);font-weight:500}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--line2);flex:none}
+.rail a.on .dot{background:var(--ac)}
+
+/* ---------- 主区 ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;gap:16px;padding:18px 28px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+.top h1{font-size:16px;font-weight:500}
+.tabs{display:flex;gap:2px;margin-left:8px}
+.tabs button{padding:7px 13px;border-radius:8px;font-size:13.5px;color:var(--tx2)}
+.tabs button:hover{background:var(--panel2)}
+.tabs button.on{background:var(--bg);color:var(--tx);font-weight:500;box-shadow:inset 0 0 0 1px var(--line)}
+.spacer{flex:1}
+.btn{padding:8px 15px;border-radius:9px;font-size:13.5px;border:1px solid var(--line2);background:var(--panel);color:var(--tx)}
+.btn:hover{border-color:var(--tx3)}
+.btn.pri{background:var(--ac);color:#fff;border-color:var(--ac);font-weight:500}
+.btn.pri:hover{background:#463DA6}
+.btn.pri[disabled]{background:var(--line2);border-color:var(--line2);cursor:not-allowed}
+.btn.sm{padding:5px 11px;font-size:12.5px;border-radius:8px}
+.body{padding:22px 28px 60px;max-width:1080px}
+
+/* ---------- 通用 ---------- */
+.hint{font-size:12.5px;color:var(--tx3)}
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12.5px;border:1px solid var(--line2);background:var(--panel);color:var(--tx2)}
+.chip:hover{border-color:var(--ac)}
+.chip.on{background:var(--ac50);border-color:var(--ac);color:var(--ac800);font-weight:500}
+.chip .x{color:var(--tx3);font-size:14px;line-height:1}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.5px;background:var(--bg);border:1px solid var(--line);color:var(--tx2);white-space:nowrap}
+.tag.p{background:var(--ac50);border-color:var(--ac100);color:var(--ac800)}
+.tag.g{background:var(--ok50);border-color:var(--ok100);color:var(--ok)}
+.tag.w{background:var(--warn50);border-color:#FAC775;color:var(--warn)}
+.tag.d{background:var(--danger50);border-color:#F7C1C1;color:var(--danger)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+
+/* ---------- 记忆列表 ---------- */
+.mem{display:flex;gap:13px;padding:14px 16px;border-bottom:1px solid var(--line);align-items:flex-start}
+.mem:last-child{border-bottom:none}
+.mem:hover{background:var(--panel2)}
+.mem .ck{width:17px;height:17px;flex:none;margin-top:3px;border:1.5px solid var(--line2);border-radius:5px;display:flex;align-items:center;justify-content:center;background:#fff;cursor:pointer}
+.mem.sel{background:var(--ac50)}
+.mem.sel .ck{background:var(--ac);border-color:var(--ac)}
+.mem .ck i{width:8px;height:4.5px;border-left:1.5px solid #fff;border-bottom:1.5px solid #fff;transform:rotate(-45deg) translateY(-1px);display:none}
+.mem.sel .ck i{display:block}
+.mem .mid{flex:1;min-width:0}
+.mem .t{font-size:13.5px;font-weight:500;margin-bottom:3px}
+.mem .d{font-size:12.5px;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:6px}
+.mem .meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--tx3)}
+.selbar{margin-bottom:14px;padding:10px 14px;border-radius:var(--r);background:var(--ac50);border:1px solid var(--ac100);display:flex;align-items:center;gap:12px;font-size:13px;color:var(--ac800)}
+
+/* ---------- 抽屉 ---------- */
+.mask{position:fixed;inset:0;background:rgba(44,44,42,.36);display:none;align-items:center;justify-content:center;padding:28px;z-index:50}
+.mask.on{display:flex}
+.dlg{background:var(--panel);border-radius:var(--r-lg);box-shadow:var(--shadow);width:100%;max-width:720px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+.dlg.wide{max-width:860px}
+.dlg .hd{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+.dlg .hd h2{font-size:15px;font-weight:500}
+.dlg .bd{padding:20px 22px;overflow:auto}
+.dlg .ft{padding:15px 22px;border-top:1px solid var(--line);display:flex;align-items:center;gap:12px;background:var(--panel2)}
+
+/* ---------- 方案卡片 ---------- */
+.scene{margin-bottom:18px}
+.scene .sh{font-size:12.5px;color:var(--tx3);margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.scene .sh .mk{width:6px;height:6px;border-radius:2px;background:var(--ac100);border:1px solid var(--ac)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tpl{border:1px solid var(--line);border-radius:var(--r);padding:12px 13px;background:var(--panel);text-align:left;position:relative;transition:.12s}
+.tpl:hover{border-color:var(--ac);background:var(--ac50)}
+.tpl.on{border-color:var(--ac);background:var(--ac50);box-shadow:inset 0 0 0 1px var(--ac)}
+.tpl .n{font-size:13.5px;font-weight:500;margin-bottom:3px}
+.tpl .s{font-size:12px;color:var(--tx2);margin-bottom:7px;min-height:36px}
+.tpl .rec2{float:right;font-size:10.5px;font-weight:400;padding:1px 7px;border-radius:6px;background:var(--ok50);border:1px solid var(--ok100);color:var(--ok);margin-top:1px}
+.tpl[disabled]{opacity:.42;cursor:not-allowed}
+.tpl[disabled]:hover{border-color:var(--line);background:var(--panel)}
+.range{display:flex;gap:10px;align-items:center;padding:13px 15px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel2);flex-wrap:wrap}
+select,input[type=text]{font-family:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--tx)}
+select:focus,input:focus{outline:none;border-color:var(--ac)}
+.echo{margin-top:14px;padding:12px 14px;border-radius:var(--r);background:var(--ac50);border:1px solid var(--ac100);font-size:13px;color:var(--ac800);line-height:1.65}
+.echo b{font-weight:500}
+
+/* ---------- 阶段进度 ---------- */
+.stages{margin:4px 0 18px}
+.stage{display:flex;gap:12px;align-items:flex-start;padding:9px 0;color:var(--tx3)}
+.stage .idx{width:24px;height:24px;flex:none;border-radius:50%;border:1.5px solid var(--line2);display:flex;align-items:center;justify-content:center;font-size:12px;background:#fff}
+.stage .st{font-size:13.5px;color:var(--tx3)}
+.stage .sd{font-size:12px;color:var(--tx3);margin-top:1px}
+.stage.run{color:var(--ac)}
+.stage.run .idx{border-color:var(--ac);background:var(--ac50);color:var(--ac800);font-weight:500}
+.stage.run .st{color:var(--tx);font-weight:500}
+.stage.run .sd{color:var(--ac)}
+.stage.done{color:var(--ok)}
+.stage.done .idx{border-color:var(--ok);background:var(--ok50);color:var(--ok)}
+.stage.done .st{color:var(--tx)}
+.stage.done .sd{color:var(--tx3)}
+.snap{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;background:var(--panel2)}
+.snap .sh{font-size:12.5px;color:var(--tx3);margin-bottom:10px}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:7px 12px;font-size:12.5px}
+.kv dt{color:var(--tx3)}
+.kv dd{color:var(--tx)}
+.bar-line{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin:16px 0 0}
+.bar-line i{display:block;height:100%;background:var(--ac);width:0;transition:width .5s ease}
+
+/* ---------- 产物查看 ---------- */
+.outs{display:flex;flex-direction:column;gap:10px}
+.out{padding:14px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);cursor:pointer;transition:.12s}
+.out:hover{border-color:var(--ac);box-shadow:var(--shadow)}
+.out .r1{display:flex;align-items:center;gap:9px;margin-bottom:5px}
+.out .tt{font-size:14px;font-weight:500}
+.out .subj{font-size:13px;color:var(--tx2);margin-bottom:8px}
+.out .r3{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--tx3)}
+.sep{width:1px;height:11px;background:var(--line2)}
+.empty{padding:52px;text-align:center;color:var(--tx3);font-size:13px}
+
+/* ---------- 详情 ---------- */
+.fields{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:20px}
+.f{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 12px}
+.f .k{font-size:11.5px;color:var(--tx3);margin-bottom:2px}
+.f .v{font-size:13px;font-weight:500}
+.doc{font-size:13.5px;line-height:1.85}
+.doc h3{font-size:13.5px;font-weight:500;margin:18px 0 7px;padding-left:9px;border-left:3px solid var(--ac100)}
+.doc h3:first-child{margin-top:0}
+.doc p{margin-bottom:9px;color:var(--tx)}
+.doc ul{margin:0 0 9px 18px;color:var(--tx)}
+.doc li{margin-bottom:4px}
+.cite{display:inline-block;padding:0 5px;margin:0 1px;border-radius:5px;background:var(--ac50);border:1px solid var(--ac100);color:var(--ac800);font-size:11.5px;cursor:pointer;vertical-align:1px}
+.cite:hover{background:var(--ac100)}
+.cite.dead{background:var(--bg);border-color:var(--line);color:var(--tx3);cursor:not-allowed;text-decoration:line-through}
+.cite.dead:hover{background:var(--bg)}
+
+/* ---------- 引用弹窗 ---------- */
+.pop{background:var(--panel);border-radius:var(--r);border:1px solid var(--line2);box-shadow:var(--shadow);padding:14px 16px;max-width:420px}
+.pop .ph{font-size:11.5px;color:var(--tx3);margin-bottom:6px}
+.pop .pt{font-size:13.5px;font-weight:500;margin-bottom:6px}
+.pop .pb{font-size:12.5px;color:var(--tx2);line-height:1.7}
+
+.note{margin-top:22px;padding:13px 16px;border-radius:var(--r);border:1px solid var(--line);background:var(--panel2);font-size:12.5px;color:var(--tx2);line-height:1.7}
+.note b{font-weight:500;color:var(--tx)}
+.toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%) translateY(8px);background:var(--tx);color:#fff;padding:9px 18px;border-radius:10px;font-size:13px;opacity:0;transition:.22s;pointer-events:none;z-index:99}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ---------- 工作台（对齐服务页 ServiceHub 的信息架构） ---------- */
+.hubhead{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;min-height:60px;margin-bottom:16px}
+.hubhead h2{font-size:22px;font-weight:600;line-height:30px}
+.hubhead p{margin:4px 0 0;color:var(--tx2);font-size:13px;line-height:20px}
+.hubart{position:relative;flex:none;width:124px;height:54px;opacity:.72}
+.ha-w,.ha-c{position:absolute;display:flex;align-items:center;gap:4px;border:1px solid var(--line2);border-radius:6px}
+.ha-w{top:10px;left:2px;width:44px;height:32px;padding:0 8px;flex-wrap:wrap}
+.ha-w span{width:4px;height:4px;border:1px solid var(--line2);border-radius:50%}
+.ha-w span:nth-child(3){width:21px;height:1px;border:0;border-radius:0;background:var(--line2)}
+.ha-c{top:13px;left:58px;width:42px;height:26px;padding:0 8px;border-color:var(--ac)}
+.ha-c span{display:block;width:4px;height:4px;border-radius:50%;background:var(--ac)}
+.ha-c span:last-child{width:12px;height:1px;border-radius:0}
+.ha-d{position:absolute;top:18px;right:3px;width:17px;height:17px;border:1px solid var(--line2);border-radius:50%}
+.hubrow{margin-bottom:20px}
+.banner{display:flex;align-items:center;gap:9px;margin-bottom:18px;padding:10px 13px;border-radius:var(--r);border:1px solid var(--ac100);background:var(--ac50);font-size:12.5px;color:var(--ac800)}
+.banner .bn-ic{flex:none;font-size:13px;line-height:1}
+.sect{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.sect .t{font-size:14px;font-weight:500;line-height:20px}
+.sect .tools{display:flex;align-items:center;gap:8px}
+.sect .tools select,.sect .tools input[type=text]{padding:5px 9px;font-size:12.5px}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+
+/* 我的整理 —— 卡片 */
+.hcard{display:flex;flex-direction:column;min-width:0;min-height:136px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease}
+.hcard:hover{border-color:var(--ac);box-shadow:var(--shadow)}
+.hcard .r1{display:flex;align-items:center;gap:7px;min-width:0;margin-bottom:8px}
+.hcard .ic{display:flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:7px;background:var(--ac50);color:var(--ac);font-size:13px}
+.hcard .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;line-height:20px}
+.hcard .more{flex:none;margin-left:auto;width:22px;height:22px;border-radius:5px;color:var(--tx3);font-size:14px;line-height:1}
+.hcard .more:hover{background:var(--bg);color:var(--tx)}
+.hcard .tg{display:flex;align-items:center;gap:5px;margin-bottom:7px;flex-wrap:wrap}
+.hcard .sj{font-size:12px;color:var(--tx2);line-height:17px;min-height:34px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.hcard .mt{display:flex;justify-content:space-between;gap:8px;margin-top:auto;padding-top:8px;font-size:11px;color:var(--tx3);line-height:16px}
+.pl{height:3px;border-radius:99px;background:var(--line);overflow:hidden}
+.pl i{display:block;height:100%;background:var(--ac);transition:width .45s ease}
+.hcard .pl{margin-top:9px}
+.hcard.run{border-color:var(--ac100);background:var(--panel2)}
+
+/* 整理模板 —— 卡片 */
+.tcard{display:flex;flex-direction:column;min-width:0;min-height:116px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);text-align:left;transition:border-color .16s ease,background .16s ease}
+.tcard:hover{border-color:var(--ac);background:var(--ac50)}
+.tcard .nm{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+.tcard .ic{display:flex;align-items:center;justify-content:center;flex:none;width:22px;height:22px;border-radius:6px;background:var(--ac50);color:var(--ac);font-size:12px}
+.tcard .nm b{font-size:13px;font-weight:500;line-height:19px}
+.tcard .ds{font-size:12px;color:var(--tx2);line-height:17px;min-height:34px}
+.tcard .fo{display:flex;align-items:center;gap:6px;margin-top:auto;padding-top:8px}
+.hub-empty{padding:34px 20px;text-align:center;border:1px dashed var(--line2);border-radius:var(--r);color:var(--tx3);font-size:12.5px;line-height:1.9}
+.hub-empty b{display:block;margin-bottom:4px;color:var(--tx);font-size:14px;font-weight:500}
+
+/* ---------- 整理详情（二级页：每次发起的任务与产出） ---------- */
+.jobhead{display:flex;align-items:center;gap:11px;margin-bottom:18px;flex-wrap:wrap}
+.jh-ic{display:flex;align-items:center;justify-content:center;width:30px;height:30px;flex:none;border-radius:8px;background:var(--ac50);color:var(--ac);font-size:15px}
+.jh-name{font-size:16px;font-weight:600}
+/* ---------- 任务时间线 ---------- */
+.tl-item{display:flex;gap:14px}
+.tl-when{width:104px;flex:none;text-align:right;padding-top:13px}
+.tl-when b{display:block;font-size:12.5px;font-weight:500;color:var(--tx);line-height:1.4}
+.tl-when small{color:var(--tx3);font-size:11px}
+.tl-node{width:16px;flex:none;position:relative;display:flex;justify-content:center}
+.tl-node::before{content:'';position:absolute;top:0;bottom:0;left:50%;width:2px;margin-left:-1px;background:var(--line)}
+.tl-item:first-child .tl-node::before{top:20px}
+.tl-item:last-child .tl-node::before{bottom:auto;height:20px}
+.tl-dot{position:relative;z-index:1;width:11px;height:11px;border-radius:50%;margin-top:14px;background:var(--ac);box-shadow:0 0 0 3px var(--ac50)}
+.tl-item.run .tl-dot{animation:pulse 1.6s ease-in-out infinite}
+.tl-item.sup .tl-dot{background:var(--line2);box-shadow:none}
+.tl-item.fresh .tl-dot{background:var(--ok);box-shadow:0 0 0 3px var(--ok50)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--ac50)}50%{box-shadow:0 0 0 8px var(--ac50)}}
+.tl-card{flex:1;min-width:0;margin-bottom:14px}
+.jrow{padding:13px 16px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
+.tl-item:last-child .tl-card{margin-bottom:0}
+.jrow .r1{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.jrow .tt{font-size:13.5px;font-weight:500}
+.jrow .sm{font-size:12.5px;color:var(--tx2);margin:3px 0 7px}
+.jrow .mt{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--tx3)}
+.jrow .go{margin-left:auto}
+/* ---------- 整理配置弹窗（字段对齐服务创建弹窗 ServiceCreateDialog） ---------- */
+.cfg-field{margin-bottom:16px}
+.cfg-label{display:block;font-size:13px;font-weight:500;margin-bottom:6px}
+.cfg-input,.cfg-ta{width:100%;font-family:inherit;font-size:13px;padding:8px 11px;border:1px solid var(--line2);border-radius:8px;background:#fff;color:var(--tx)}
+.cfg-input:focus,.cfg-ta:focus{outline:none;border-color:var(--ac)}
+.cfg-ta{min-height:92px;resize:vertical;line-height:1.65}
+.cfg-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.cfg-head label{font-size:13px;font-weight:500}
+.cfg-head .hint{flex:1;text-align:right}
+.cfg-row{display:flex;align-items:center;gap:10px;width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);text-align:left}
+.cfg-row:hover{border-color:var(--ac)}
+.cfg-row .t{font-size:13.5px}
+.cfg-row .t em{font-style:normal;color:var(--tx3);font-size:12px;margin-left:3px}
+.cfg-row .cnt{color:var(--ac800);font-size:12px;margin-left:6px}
+.cfg-row .act{margin-left:auto;color:var(--ac);font-size:12.5px}
+.cfg-picker{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.cfg-opt{display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel);text-align:left}
+.cfg-opt.on{border-color:var(--ac);background:var(--ac50)}
+.cfg-opt b{font-size:13px;font-weight:500;display:block}
+.cfg-opt small{color:var(--tx2);font-size:11.5px;line-height:1.5}
+.cfg-opt .ck{margin-left:auto;flex:none;color:var(--ac);font-size:13px;line-height:1.4}
+.cfg-chip{display:inline-flex;align-items:center;gap:5px;margin-top:8px;margin-right:6px;padding:3px 9px;border-radius:999px;background:var(--ac50);border:1px solid var(--ac100);color:var(--ac800);font-size:12px}
+.cfg-chip button{color:var(--ac800);font-size:13px;line-height:1}
+.jrow.sup{opacity:.62}
+/* 路由指示条（演示用：把当前页面地址显式画出来） */
+.rchip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+  background:var(--panel2);border:1px solid var(--line);color:var(--tx3);
+  font-size:11.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:0}
+.rchip b{font-weight:500;color:var(--ac800);background:var(--ac50);border-radius:5px;padding:0 5px}
+.tl-card.hl{border-color:var(--ac);box-shadow:0 0 0 3px var(--ac50)}
+.tl-card .now{display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:1px 7px;border-radius:6px;
+  background:var(--ac50);border:1px solid var(--ac100);color:var(--ac800);font-size:11px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">睿乐大脑</div>
+    <a href="#" class="on"><span class="dot"></span>整理</a>
+    <a href="#"><span class="dot"></span>智能体</a>
+    <a href="#"><span class="dot"></span>知识库</a>
+    <a href="#"><span class="dot"></span>我的</a>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <h1>整理</h1>
+      <div class="tabs">
+        <button id="tabHub" class="on" onclick="goHub()">工作台</button>
+        <button id="tabMem" onclick="goMemory()">记忆</button>
+        <button id="tabOut" onclick="goMine()">我的整理</button>
+        <button onclick="goDiscover()">发现</button>
+      </div>
+      <div class="spacer"></div>
+      <span class="rchip" id="rchip"></span>
+      <button class="btn" onclick="toast('演示原型：此处进入记忆的高级筛选')">筛选</button>
+      <button class="btn pri" id="btnOrganize" onclick="openPicker()" disabled>用整理方案整理</button>
+    </div>
+
+    <div class="body">
+      <!-- ============ 工作台（首页） ============ -->
+      <div id="viewHub">
+        <div class="hubhead">
+          <div>
+            <h2>把记忆整理成便于查看的数据</h2>
+            <p>大模型按你的要求整理；每条整理都有可筛选的字段，结论可跳回原始记忆</p>
+          </div>
+          <div class="hubart" aria-hidden="true">
+            <div class="ha-w"><span></span><span></span><span></span></div>
+            <div class="ha-c"><span></span><span></span></div>
+            <div class="ha-d"></div>
+          </div>
+        </div>
+
+        <div class="hubrow">
+          <button class="btn pri" onclick="newOrganize()">＋ 新建整理</button>
+        </div>
+
+        <div class="banner" id="hubBanner" style="display:none">
+          <span class="bn-ic">◔</span>
+          <span id="hubBannerText"></span>
+        </div>
+
+        <div class="sect">
+          <span class="t">我的整理</span>
+          <div class="tools">
+            <select id="hubSort" onchange="renderHub()">
+              <option value="time">按时间</option>
+              <option value="todo">按待办数</option>
+            </select>
+            <input type="text" id="hubQ" placeholder="搜索整理" oninput="renderHub()" style="width:168px">
+          </div>
+        </div>
+        <div class="grid4" id="hubList"></div>
+
+        <div class="sect" style="margin-top:26px">
+          <span class="t">整理模板</span>
+          <div class="tools">
+            <input type="text" id="hubTQ" placeholder="搜索模板" oninput="renderHub()" style="width:168px">
+          </div>
+        </div>
+        <div class="grid4" id="hubTpls"></div>
+
+        <div class="note" style="margin-top:18px">
+          <b>上面是配置好的整理，下面是可用的整理模板。</b>「新建整理」有四项：名称、指令（可从模板预填）、专家、执行周期 —— 选了周期就按新产生的记忆自动执行，手动就点卡片发起。<br>
+          点整理卡片进入它的任务列表：每次执行记为一条任务，产出挂在任务下；卡片上的说明行就是这条整理的指令摘要。
+        </div>
+      </div>
+
+      <!-- ============ 记忆页签 ============ -->
+      <div id="viewMem" style="display:none">
+        <div class="selbar" id="selbar" style="display:none">
+          <span id="selText">已选 0 条记忆</span>
+          <div class="spacer" style="flex:1"></div>
+          <span class="hint" id="selHint"></span>
+        </div>
+        <div class="bar">
+          <span class="hint">最近 30 天 · 共 5 条</span>
+          <div style="flex:1"></div>
+          <button class="btn sm" onclick="selectAll()">全选</button>
+          <button class="btn sm" onclick="clearAll()">清空</button>
+        </div>
+        <div class="card" id="memList"></div>
+        <div class="note">
+          <b>先勾记忆，再表达要求。</b>「用整理方案整理」按钮只在勾选后可用 —— 整理的对象是「用户自己的记忆记录」，不是全园数据。
+        </div>
+      </div>
+
+      <!-- ============ 产物查看 ============ -->
+      <div id="viewOut" style="display:none">
+        <div class="bar">
+          <input type="text" id="q" placeholder="搜索整理结果" oninput="renderOuts()" style="width:200px">
+          <span class="hint" style="margin-left:4px">标签</span>
+          <div id="tagFilters" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+          <div style="flex:1"></div>
+          <span class="hint">排序</span>
+          <select id="sort" onchange="renderOuts()">
+            <option value="time">按时间</option>
+            <option value="risk">按待办数</option>
+          </select>
+        </div>
+        <div id="outList" class="outs"></div>
+        <div class="note">
+          <b>这就是「便于自己查看的数据」。</b>列表上不铺正文：主字段 + 计数型字段让人一眼判断"是不是我要找的"；点开才看正文，正文里的编号可跳回原始记忆。<br>
+          最后一条是<b>本次重构之前生成的历史内容</b>（没有字段），它不参与字段筛选，但可按时间排序、可全文搜索。
+        </div>
+      </div>
+
+      <!-- ============ 发现页签（占位） ============ -->
+      <div id="viewDisc" style="display:none">
+        <div class="empty">发现页签：本原型不覆盖。PRD 中此项改造仅为「分类常量改为接口下发」。</div>
+      </div>
+
+      <!-- ============ 整理详情（二级页） ============ -->
+      <div id="viewJob" style="display:none">
+        <div class="jobhead">
+          <button class="btn sm" onclick="backHub()">← 返回工作台</button>
+          <span class="jh-ic" id="jhIc">◆</span>
+          <span class="jh-name" id="jhName"></span>
+          <span class="tag p" id="jhTpl"></span>
+          <div style="flex:1"></div>
+          <button class="btn sm" onclick="editCfg(curGroup)">设置</button>
+          <button class="btn pri sm" onclick="rerunGroup()">＋ 再次整理</button>
+        </div>
+
+        <div class="sect">
+          <span class="t">整理任务</span>
+          <span class="hint" id="jhCount"></span>
+        </div>
+        <div id="jobRows"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 表达要求弹层 ============ -->
+<div class="mask" id="picker">
+  <div class="dlg">
+    <div class="hd">
+      <h2>你想整理成什么？</h2>
+      <div class="spacer" style="flex:1"></div>
+      <span class="hint" id="pickerSel"></span>
+    </div>
+    <div class="bd" id="pickerBody"></div>
+    <div class="ft">
+      <div class="hint" style="flex:1" id="pickerWarn"></div>
+      <button class="btn" onclick="closeMask('picker')">取消</button>
+      <button class="btn pri" id="btnStart" onclick="startJob()" disabled>开始整理</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 用整理模板整理：选记忆 ============ -->
+<div class="mask" id="tplPick">
+  <div class="dlg">
+    <div class="hd">
+      <h2 id="tpTitle">用整理模板整理</h2>
+      <div class="spacer" style="flex:1"></div>
+      <span class="hint" id="tpCount"></span>
+    </div>
+    <div class="bd">
+      <div class="echo" id="tpEcho" style="margin-top:0"></div>
+      <div class="hint" style="margin:16px 0 8px">要整理哪些记忆？（已按模板命中的标签预选）</div>
+      <div class="card" id="tpList"></div>
+    </div>
+    <div class="ft">
+      <div class="hint" style="flex:1" id="tpWarn"></div>
+      <button class="btn" onclick="closeMask('tplPick')">取消</button>
+      <button class="btn pri" id="tpGo" onclick="tplGo()">开始整理</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 新建整理配置（字段对齐服务创建弹窗） ============ -->
+<div class="mask" id="cfgDlg">
+  <div class="dlg">
+    <div class="hd">
+      <h2 id="cfgTitle">新建整理</h2>
+      <div class="spacer" style="flex:1"></div>
+      <span class="hint">整理会按这里的配置执行</span>
+    </div>
+    <div class="bd">
+      <div class="cfg-field">
+        <label class="cfg-label" for="cfgName">名称</label>
+        <input class="cfg-input" id="cfgName" type="text" placeholder="请输入整理名称，如：教研周整理">
+      </div>
+
+      <div class="cfg-field">
+        <div class="cfg-head">
+          <label for="cfgTa">指令</label>
+          <span class="hint">可从整理模板预填</span>
+          <select id="cfgTplSel" style="padding:4px 9px;font-size:12.5px" onchange="cfgApplyTpl()">
+            <option value="">选择模板</option>
+          </select>
+        </div>
+        <textarea class="cfg-ta" id="cfgTa" maxlength="4000"
+          placeholder="告诉大模型把记忆整理成什么：先怎么归纳、再给什么、最后列什么。例如：把教研记录整理成提炼清单，先归纳儿童的真实问题，再给可复用的做法，最后列待办。"></textarea>
+        <div class="hint" style="margin-top:5px">产出结构（可筛选字段、引用锚点）由模板决定，指令负责「按什么口径整理」</div>
+      </div>
+
+      <div class="cfg-field">
+        <button type="button" class="cfg-row" onclick="cfgTogglePicker()">
+          <span class="t"><strong>专家</strong><em>（可选）</em><span class="cnt" id="cfgExpCnt"></span></span>
+          <span class="act" id="cfgExpAct">+ 添加</span>
+        </button>
+        <div id="cfgExpPicker" style="display:none">
+          <div class="cfg-picker" id="cfgExpList"></div>
+        </div>
+        <div id="cfgExpSel"></div>
+      </div>
+
+      <div class="cfg-field">
+        <label class="cfg-label" for="cfgSched">执行周期</label>
+        <select id="cfgSched" style="width:100%">
+          <option value="manual">手动触发</option>
+          <option value="daily">每天 08:00</option>
+          <option value="weekly">每周一 09:00</option>
+          <option value="monthly">每月 1 日 09:00</option>
+        </select>
+        <div class="hint" style="margin-top:5px">选了周期后，系统按新产生的记忆自动执行整理，任务记录进入这条整理的列表</div>
+      </div>
+    </div>
+    <div class="ft">
+      <div class="hint" style="flex:1" id="cfgWarn"></div>
+      <button class="btn" onclick="cancelCfg()">取消</button>
+      <button class="btn pri" onclick="saveCfg()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 执行中 ============ -->
+<div class="mask" id="prog">
+  <div class="dlg wide">
+    <div class="hd"><h2>正在整理</h2><div class="spacer" style="flex:1"></div><span class="hint" id="progHint">请勿关闭页面</span></div>
+    <div class="bd" style="display:grid;grid-template-columns:1fr 300px;gap:26px">
+      <div>
+        <div class="stages" id="stages"></div>
+        <div class="bar-line"><i id="progBar"></i></div>
+      </div>
+      <div>
+        <div class="snap">
+          <div class="sh">落定后的要求快照（随任务冻结，不可变）</div>
+          <dl class="kv" id="snapKv"></dl>
+        </div>
+        <div class="hint" style="margin-top:10px;line-height:1.7">
+          要求先被落定成快照，才交给大模型执行。之后模板再怎么改，这条任务的行为都不会变。
+        </div>
+      </div>
+    </div>
+    <div class="ft"><div class="hint" style="flex:1">大模型是执行者，不是口径的决策者 —— 口径在这一步之前就已确定。</div></div>
+  </div>
+</div>
+
+<!-- ============ 产物详情 ============ -->
+<div class="mask" id="detail">
+  <div class="dlg wide">
+    <div class="hd">
+      <h2 id="detTitle"></h2>
+      <div class="spacer" style="flex:1"></div>
+      <span class="hint" id="detSrc"></span>
+      <button class="btn sm" onclick="closeDetail()">关闭</button>
+    </div>
+    <div class="bd">
+      <div class="fields" id="detFields"></div>
+      <div class="doc" id="detDoc"></div>
+    </div>
+    <div class="ft">
+      <div class="hint" style="flex:1">点正文里的编号可跳回原始记忆（灰掉的表示那条记忆已被删除）</div>
+      <button class="btn sm" onclick="toast('演示原型：记录一次「有帮助」反馈')">有帮助</button>
+      <button class="btn sm" onclick="toast('演示原型：另存为成果')">另存为成果</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 引用弹窗 ============ -->
+<div class="mask" id="cite" style="align-items:flex-start;padding-top:14vh">
+  <div class="pop">
+    <div class="ph" id="citePh"></div>
+    <div class="pt" id="citeTitle"></div>
+    <div class="pb" id="citeBody"></div>
+    <div style="margin-top:12px;text-align:right"><button class="btn sm" onclick="closeMask('cite')">知道了</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= 数据 ================= */
+var MEMORIES = [
+  {id:'M1',title:'中班磨课记录：影子的追问',kind:'笔记',tags:['教研','磨课'],time:'2026-09-18 14:30',text:'今天中班磨课，孩子对"影子"的追问超出预期。原本设计的是认识影子形状，但孩子反复问"影子为什么跟着我""影子会不会累"，把活动推向了对因果关系的追问。'},
+  {id:'M2',title:'家长沟通：小宇妈妈反馈午睡',kind:'录音',tags:['家长服务'],time:'2026-09-19 09:10',text:'小宇妈妈反馈孩子最近午睡入睡慢，担心是不是不适应。沟通后确认是周末作息后移导致，约定本周同步调整家庭作息。'},
+  {id:'M3',title:'周末试听：3 组家庭',kind:'笔记',tags:['招生'],time:'2026-09-20 16:40',text:'周末试听 3 组家庭，2 组关注延时服务是否包含晚餐，1 组对师资稳定性反复确认。整体转化意向偏高，需在 48 小时内回访。'},
+  {id:'M4',title:'大班户外自主游戏观察',kind:'笔记',tags:['教研','游戏'],time:'2026-09-16 10:20',text:'大班户外自主游戏，两个小组因器械使用产生冲突，最后孩子自己提出了轮流规则并写在板子上。规则由孩子协商生成，比教师制定更能被遵守。'},
+  {id:'M5',title:'环创讨论：走廊光影区',kind:'笔记',tags:['环创'],time:'2026-09-15 15:00',text:'走廊光影区材料投放讨论。现有材料只能产生固定形状的影子，建议增加可移动光源与半透明材料，让儿童能自己改变影子的形态。'}
+];
+
+var SCENES = [
+  {name:'教师成长 / 教研', key:'teacher_research', tpls:[
+    {key:'teacher_research', name:'教研提炼', desc:'把教研记录整理成可复用的提炼清单', out:'提炼清单', tags:['教研','磨课','游戏']},
+    {key:'lesson_review',     name:'磨课复盘', desc:'把一次磨课整理成复盘记录',       out:'复盘记录', tags:['磨课']},
+    {key:'case_observation',  name:'个案观察', desc:'把连续观察整理成个案跟踪记录',   out:'观察记录', tags:['观察']}
+  ]},
+  {name:'招生增长', key:'admissions_growth', tpls:[
+    {key:'lead_followup', name:'线索跟进清单', desc:'把试听与咨询整理成待跟进清单', out:'跟进清单', tags:['招生']},
+    {key:'channel_report',name:'渠道效果周报', desc:'把各渠道记录整理成效果对比',   out:'效果周报', tags:['招生','渠道']}
+  ]},
+  {name:'家长服务', key:'parent_service', tpls:[
+    {key:'parent_review', name:'沟通复盘', desc:'把家长沟通整理成问题与跟进清单', out:'沟通复盘', tags:['家长服务']}
+  ]},
+  {name:'空间设计 / 环创', key:'space_environment', tpls:[
+    {key:'env_proposal', name:'环创提案', desc:'把环创讨论整理成可执行的材料提案', out:'环创提案', tags:['环创']}
+  ]}
+];
+
+var OUTPUTS = [
+  {id:'O1',title:'中班"影子"磨课提炼',subject:'儿童视角的意外发现',tags:['教研','磨课'],time:'2026-09-18',
+   concl:4,todo:3,src:5,tpl:'教研提炼',ver:'v3',
+   fields:[['主题','儿童视角的意外发现'],['标签','教研 / 磨课'],['涉及时间','2026-09-18 ~ 2026-09-18'],['待办数','3 项']],
+   doc:'<h3>01. 儿童视角的意外发现</h3><p>本次磨课最有价值的部分不是"认识影子形状"，而是孩子把活动推向了因果关系。原设计的活动目标与儿童真实的追问方向不一致。<span class="cite" onclick="showCite(\'M1\')">M1</span></p><ul><li>孩子反复追问"影子为什么跟着我""影子会不会累"，说明关注点在因果而非形态。</li><li>教师在同一时刻做了两件事：接住追问，同时放弃了原定的形态环节。</li></ul><h3>02. 可以怎么用</h3><p>把"儿童的真实问题"作为下一轮活动的线索，而不是继续补形态的环节。<span class="cite" onclick="showCite(\'M1\')">M1</span> <span class="cite dead" title="该记忆已被删除">M6</span></p><h3>03. 待办</h3><ul><li>整理本轮孩子的全部追问，作为下一轮活动的起点（本周）</li><li>与配班教师对齐"接追问"与"走流程"的取舍原则（本周）</li><li>把影子的材料从固定形状换成可移动光源（下周）</li></ul>'},
+  {id:'O2',title:'大班户外自主游戏观察复盘',subject:'规则生成与冲突解决',tags:['教研','游戏'],time:'2026-09-16',
+   concl:3,todo:1,src:4,tpl:'教研提炼',ver:'v3',
+   fields:[['主题','规则生成与冲突解决'],['标签','教研 / 游戏'],['涉及时间','2026-09-16 ~ 2026-09-16'],['待办数','1 项']],
+   doc:'<h3>01. 冲突到规则的路径</h3><p>两个小组因器械使用产生冲突，最终由孩子自己提出轮流规则并写在板子上。<span class="cite" onclick="showCite(\'M4\')">M4</span></p><h3>02. 提炼</h3><ul><li>孩子协商生成的规则，遵守度高于教师制定的规则。</li><li>书面化（写在板子上）是关键动作，它让规则从口头约定变成共同约定。</li></ul><h3>03. 待办</h3><ul><li>在户外区固定一块"我们的约定"板（下周）</li></ul>'},
+  {id:'O3',title:'走廊光影区环创提案',subject:'材料投放与儿童动线',tags:['环创'],time:'2026-09-15',
+   concl:2,todo:2,src:3,tpl:'环创提案',ver:'v1',
+   fields:[['主题','材料投放与儿童动线'],['标签','环创'],['涉及时间','2026-09-15 ~ 2026-09-15'],['待办数','2 项']],
+   doc:'<h3>01. 现状</h3><p>现有材料只能产生固定形状的影子，儿童是"观众"而不是"操作者"。<span class="cite" onclick="showCite(\'M5\')">M5</span></p><h3>02. 提案</h3><ul><li>增加可移动光源，让儿童能自己改变影子的位置与长度。</li><li>增加半透明材料，让影子出现层次。</li></ul><h3>03. 待办</h3><ul><li>采购可移动光源与半透明材料（本周）</li><li>预留儿童动线，避免光影区堵住走廊通行（本周）</li></ul>'},
+  {id:'O4',title:'发芽报告（历史内容）',subject:'本条为重构前生成，无结构化字段',tags:[],time:'2026-08-30',
+   legacy:true,src:1,tpl:'—',ver:'—',
+   fields:null,
+   doc:'<h3>01. 那句被记住的话</h3><p>孩子说："老师，影子是不是也知道我在想什么。"</p><h3>02. 种子</h3><p>把儿童的假设当作可验证的对象，而不是可爱的表达。</p><h3>03. Aha 瞬间</h3><p>当教师开始记录儿童的"为什么"，教研才真正开始。</p>'}
+];
+
+/* ================= 整理配置：专家 / 模板默认指令 / 执行周期 ================= */
+var EXPERTS = [
+  {id:'E1', name:'教研专家',   desc:'擅长把观察与磨课记录提炼成教研结论'},
+  {id:'E2', name:'招生顾问',   desc:'擅长线索分层、流失风险与跟进话术'},
+  {id:'E3', name:'家长服务顾问', desc:'擅长沟通复盘与家园关系处理'},
+  {id:'E4', name:'环创顾问',   desc:'擅长材料投放、成本与空间动线'}
+];
+var INSTR = {
+  teacher_research:'把选中的教研与磨课记录整理成提炼清单：先归纳儿童的真实问题，再给可复用的做法，最后列待办。每条结论标注来源记忆。',
+  lesson_review:'把一次磨课记录整理成复盘：环节回顾 → 儿童反应 → 改进点 → 下次尝试。只依据记录原文，不补充没有的内容。',
+  case_observation:'把对同一名儿童的多次观察整理成个案跟踪记录：按时间轴呈现变化，标注每个阶段的支持策略。',
+  lead_followup:'把试听与咨询记录整理成跟进清单：按线索状态分组，标注流失风险与下一步动作，48 小时内的回访置顶。',
+  channel_report:'把各渠道的到访记录整理成效果周报：渠道 → 到访数 → 转化数 → 单位成本，并给下一周的投放建议。',
+  parent_review:'把家长沟通记录整理成复盘：问题类型 → 处理方式 → 当前状态 → 跟进时间，需要园所回应的排最前。',
+  env_proposal:'把环创讨论整理成提案：现状 → 材料清单 → 预估成本 → 实施步骤，附儿童使用动线的考虑。'
+};
+var SCHEDS = {manual:'手动触发', daily:'每天 08:00', weekly:'每周一 09:00', monthly:'每月 1 日 09:00'};
+
+/* ================= 工作台数据：整理（卡片）→ 任务（每次发起） ================= */
+var JOBGROUPS = [
+  {id:'G1', title:'周末试听回访整理', tpl:'线索跟进清单', sched:'daily', experts:['招生顾问'],
+   instr:INSTR.lead_followup, jobs:[
+    {jid:'T101', time:'今天 11:04', range:'3 条记忆', ver:'v2', state:'running', stage:'④ 调用模型', pct:68,
+     summary:'按线索状态与流失风险归拢', src:3}
+  ]},
+  {id:'G2', title:'中班"影子"磨课提炼', tpl:'教研提炼', sched:'weekly', experts:['教研专家'],
+   instr:INSTR.teacher_research, jobs:[
+    {jid:'T201', time:'2026-09-18 10:20', range:'5 条记忆', ver:'v3', state:'done', out:'O1',
+     summary:'主题：儿童视角的意外发现', concl:4, todo:3},
+    {jid:'T202', time:'2026-09-15 16:00', range:'2 条记忆', ver:'v2', state:'superseded', out:null,
+     summary:'初版提炼，已被 09-18 的重新整理取代', concl:3, todo:2}
+  ]},
+  {id:'G3', title:'大班户外自主游戏观察复盘', tpl:'教研提炼', sched:'manual', experts:['教研专家'],
+   instr:INSTR.lesson_review, jobs:[
+    {jid:'T301', time:'2026-09-16 09:40', range:'4 条记忆', ver:'v3', state:'done', out:'O2',
+     summary:'主题：规则生成与冲突解决', concl:3, todo:1}
+  ]},
+  {id:'G4', title:'走廊光影区环创提案', tpl:'环创提案', sched:'manual', experts:['环创顾问'],
+   instr:INSTR.env_proposal, jobs:[
+    {jid:'T401', time:'2026-09-15 17:10', range:'3 条记忆', ver:'v1', state:'done', out:'O3',
+     summary:'主题：材料投放与儿童动线', concl:2, todo:2}
+  ]},
+  {id:'G5', title:'发芽报告（历史内容）', tpl:'—', legacy:true, sched:'manual', experts:[],
+   instr:'', jobs:[
+    {jid:'T501', time:'2026-08-30 15:00', range:'1 条记忆', ver:'—', state:'done', out:'O4',
+     summary:'重构前生成，没有结构化字段', src:1}
+  ]}
+];
+
+var cfgExperts = {};       // 已选专家
+var cfgExpOpen = false;    // 专家选择区展开态
+
+/* ================= 状态 ================= */
+var sel = {};
+var chosen = null;
+var filterTags = [];
+var tsel = {};              // 模板弹层里的勾选
+var tplKey = null;          // 当前模板
+var JOBCTX = null;          // 本次执行的任务上下文
+
+/* ================= 工具 ================= */
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function openMask(id){ $(id).classList.add('on'); }
+function closeMask(id){ $(id).classList.remove('on'); }
+var tTimer;
+function toast(msg){
+  var t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(tTimer); tTimer = setTimeout(function(){ t.classList.remove('on'); }, 1900);
+}
+
+/* ================= 路由（hash 路由，对齐 PRD §10.6） =================
+   页签： #/organize/hub | #/organize/memory | #/organize/mine | #/organize/discover
+   二级： #/organize/configs/:configId  |  #/organize/outputs/:outputId
+   深链： ?config=new&template=key | ?job=jid | ?select=M1,M2 | ?from=config&configId=id
+   ==================================================================== */
+var ROUTES = {
+  hub:      { path:'/organize/hub',            tab:'hub'  },
+  memory:   { path:'/organize/memory',         tab:'mem'  },
+  mine:     { path:'/organize/mine',           tab:'out'  },
+  discover: { path:'/organize/discover',       tab:'disc' },
+  config:   { path:'/organize/configs/:configId', tab:'job' },
+  output:   { path:'/organize/outputs/:outputId', tab:'out' }
+};
+var DEFAULT_HASH = '#/organize/hub';
+var appliedHash = null;      // 已应用的 hash，避免 hashchange 重复渲染
+var detailFrom = '#/organize/mine';
+
+function buildHash(name, params, query){
+  var path = ROUTES[name] ? ROUTES[name].path : ROUTES.hub.path;
+  if(params) Object.keys(params).forEach(function(k){
+    path = path.replace(':' + k, encodeURIComponent(params[k]));
+  });
+  var qs = [];
+  if(query) Object.keys(query).forEach(function(k){
+    if(query[k] === '' || query[k] == null) return;
+    qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(query[k]));
+  });
+  return '#' + path + (qs.length ? '?' + qs.join('&') : '');
+}
+
+function parseHash(h){
+  h = (h == null ? (location.hash || DEFAULT_HASH) : h);
+  var s = h.replace(/^#/, '');
+  var q = {};
+  var qi = s.indexOf('?');
+  if(qi >= 0){
+    s.slice(qi + 1).split('&').forEach(function(kv){
+      if(!kv) return;
+      var p = kv.split('=');
+      q[decodeURIComponent(p[0])] = decodeURIComponent(p.slice(1).join('=') || '');
+    });
+    s = s.slice(0, qi);
+  }
+  var seg = s.split('/').filter(function(x){ return x !== ''; });   // ['organize', ...]
+  var tail = seg.slice(1);
+  if(tail[0] === 'configs') return { name:'config',   params:{configId: tail[1] || ''}, query:q };
+  if(tail[0] === 'outputs') return { name:'output',   params:{outputId: tail[1] || ''}, query:q };
+  if(tail[0] && ROUTES[tail[0]]) return { name: tail[0], params:{}, query:q };
+  return { name:'hub', params:{}, query:q };
+}
+
+/* go：写地址 + 立即渲染（同步，保证点击即时响应，不等 hashchange） */
+function go(name, params, query, replace){
+  var h = buildHash(name, params, query);
+  if(replace) history.replaceState(null, '', location.pathname + location.search + h);
+  else if(location.hash !== h) location.hash = h;
+  applyRoute(h);
+}
+
+function routeToRchip(h){
+  $('rchip').innerHTML = '<b>整理</b>' + esc((h || DEFAULT_HASH).replace(/^#/, ''));
+}
+
+function applyRoute(h){
+  h = h || location.hash || DEFAULT_HASH;
+  var r = parseHash(h);
+  appliedHash = h;
+
+  // 路由切换时清掉瞬态弹层 —— 弹层不占路由（PRD §10.6.6）
+  ['detail','cfgDlg','tplPick','picker'].forEach(function(m){ closeMask(m); });
+
+  if(r.name === 'config'){
+    var g = findGroup(r.params.configId);
+    if(!g){ toast('这条整理不存在或已删除'); return go('hub'); }
+    showJobView(g.id, r.query.job);
+  } else if(r.name === 'output'){
+    var o = findOutput(r.params.outputId);
+    if(!o){ toast('这条产物不存在或已删除'); return go('mine'); }
+    switchTab(ROUTES.output.tab);          // 底页保持「我的整理」
+    openDetail(o.id, true);                // true = 不再写路由，避免递归
+  } else {
+    switchTab(ROUTES[r.name].tab);
+    if(r.name === 'hub' && r.query.config === 'new') openCfg(r.query.template || '', true);
+    if(r.name === 'memory' && r.query.select) applySelectQuery(r.query.select);
+  }
+  routeToRchip(h);
+}
+
+function onHashChange(){
+  var h = location.hash || DEFAULT_HASH;
+  if(h === appliedHash) return;            // 已由 go() 同步渲染过
+  applyRoute(h);
+}
+
+/* 页签入口 */
+function goHub(){ go('hub'); }
+function goMemory(){ go('memory'); }
+function goMine(){ go('mine'); }
+function goDiscover(){ go('discover'); }
+
+function applySelectQuery(csv){
+  sel = {};
+  String(csv).split(',').forEach(function(id){
+    id = id.trim();
+    MEMORIES.forEach(function(m){ if(m.id === id) sel[m.id] = 1; });
+  });
+  renderMems();
+}
+
+/* ================= 工作台（首页） ================= */
+function allTpls(){
+  var r = [];
+  SCENES.forEach(function(sc){ sc.tpls.forEach(function(t){ r.push({sc:sc.name, t:t}); }); });
+  return r;
+}
+function runningCount(){
+  var n = 0;
+  JOBGROUPS.forEach(function(g){ g.jobs.forEach(function(j){ if(j.state === 'running') n++; }); });
+  return n;
+}
+
+function renderHub(){
+  var run = runningCount();
+  $('hubBanner').style.display = run ? 'flex' : 'none';
+  if(run) $('hubBannerText').textContent = '有 ' + run + ' 条整理正在生成，完成后会出现在下面。';
+
+  var q = ($('hubQ').value || '').trim();
+  var sort = $('hubSort').value;
+  var list = JOBGROUPS.filter(function(g){
+    if(!q) return true;
+    var j = g.jobs[0];
+    return (g.title + g.tpl + (j ? j.summary : '')).indexOf(q) >= 0;
+  });
+  if(sort === 'todo') list = list.slice().sort(function(a, b){
+    return ((b.jobs[0] && b.jobs[0].todo) || 0) - ((a.jobs[0] && a.jobs[0].todo) || 0);
+  });
+
+  $('hubList').innerHTML = list.length
+    ? list.map(hubCard).join('')
+    : '<div class="hub-empty" style="grid-column:1/-1"><b>还没有整理</b>从下面的整理模板开始，或先去「记忆」里勾选记录。<br>整理一次，这里就会留下一条。</div>';
+
+  var tq = ($('hubTQ').value || '').trim();
+  var tpls = allTpls().filter(function(x){
+    if(!tq) return true;
+    return (x.t.name + x.t.desc + x.sc).indexOf(tq) >= 0;
+  });
+  $('hubTpls').innerHTML = tpls.map(tplCard).join('');
+}
+
+function hubCard(g){
+  var j = g.jobs[0];
+  var run = j && j.state === 'running';
+  var state = run      ? '<span class="tag p">' + esc(j.stage) + '</span>'
+            : g.legacy ? '<span class="tag">历史内容</span>'
+            : j        ? '<span class="tag g">已完成</span>'
+            :            '<span class="tag">待首次执行</span>';
+  var tg = '<span class="tag p">' + esc(g.tpl || '自定义指令') + '</span>'
+    + '<span class="tag">' + (SCHEDS[g.sched || 'manual'] || '手动触发') + '</span>' + state;
+  var sub = run      ? '正在按配置生成，完成后自动出现在任务列表'
+          : g.instr  ? g.instr
+          : j        ? j.summary
+          :            '尚未执行过，可手动发起或等待周期触发';
+  var mt = '<span>' + (g.experts && g.experts.length ? esc(g.experts.join(' / ')) : '未指定专家') + '</span>'
+         + '<span>' + g.jobs.length + ' 次整理</span>';
+  var pl = run ? '<div class="pl"><i style="width:' + j.pct + '%"></i></div>' : '';
+  return '<div class="hcard' + (run ? ' run' : '') + '" onclick="openJobGroup(\'' + g.id + '\')">'
+    + '<div class="r1"><span class="ic">' + (g.legacy ? '○' : '◆') + '</span>'
+    +   '<span class="nm">' + esc(g.title) + '</span>'
+    +   '<span class="more" onclick="event.stopPropagation();editCfg(\'' + g.id + '\')">⋯</span></div>'
+    + '<div class="tg">' + tg + '</div>'
+    + '<div class="sj">' + esc(sub) + '</div>'
+    + '<div class="mt">' + mt + '</div>' + pl + '</div>';
+}
+
+/* ---------- 整理详情（二级页）：每次发起的任务与产出 ---------- */
+var curGroup = null;
+
+function openJobGroup(id){
+  go('config', { configId: id });
+}
+
+function findGroup(id){
+  var g = null;
+  JOBGROUPS.forEach(function(x){ if(x.id === id) g = x; });
+  return g;
+}
+
+/* 渲染任务详情（时间线）—— 由 applyRoute 调用；hlJob 用于高亮某条任务 */
+function showJobView(id, hlJob){
+  curGroup = id;
+  ['tabHub','tabMem','tabOut'].forEach(function(t){ $(t).className = ''; });
+  $('viewHub').style.display = 'none';
+  $('viewMem').style.display = 'none';
+  $('viewOut').style.display = 'none';
+  $('viewDisc').style.display = 'none';
+  $('btnOrganize').style.display = 'none';
+  $('viewJob').style.display = '';
+  renderJobGroup(hlJob);
+  window.scrollTo(0, 0);
+}
+
+function backHub(){ go('hub'); }
+
+function splitJobTime(t){
+  var p = String(t).split(' ');
+  return p.length === 2 ? {d:p[0], tm:p[1]} : {d:t, tm:''};
+}
+
+function renderJobGroup(hlJob){
+  var g = findGroup(curGroup);
+  if(!g) return;
+  $('jhIc').textContent = g.legacy ? '○' : '◆';
+  $('jhName').textContent = g.title;
+  $('jhTpl').textContent = g.legacy ? '历史内容' : (g.tpl + ' · ' + (SCHEDS[g.sched || 'manual'] || '手动触发'));
+  $('jhCount').textContent = '共 ' + g.jobs.length + ' 次发起';
+  $('jobRows').innerHTML = g.jobs.map(function(j){
+    var sup   = j.state === 'superseded';
+    var run   = j.state === 'running';
+    var fresh = !!j.fresh && !sup;
+    var hl    = !!hlJob && j.jid === hlJob;       // 深链 ?job= 高亮
+    var st = run ? '<span class="tag p">' + esc(j.stage) + '</span>'
+           : sup ? '<span class="tag w">已取代</span>'
+           : fresh ? '<span class="tag g">刚生成</span>'
+           :         '<span class="tag g">已完成</span>';
+    var counts = (j.concl != null)
+      ? '<span>' + j.concl + ' 结论 · ' + j.todo + ' 待办</span><span class="sep"></span>' : '';
+    var right = run
+      ? ''
+      : j.out ? '<button class="btn sm go" onclick="openDetail(\'' + j.out + '\')">查看产出</button>'
+              : '<span class="hint go">产物已随旧流程归档</span>';
+    var runline = run
+      ? '<div class="pl" style="margin-top:9px"><i style="width:' + j.pct + '%"></i></div>'
+      : '';
+    var tm = splitJobTime(j.time);
+    return '<div class="tl-item' + (run ? ' run' : '') + (sup ? ' sup' : '') + (fresh ? ' fresh' : '') + '">'
+      + '<div class="tl-when"><b>' + esc(tm.d) + '</b><small>' + esc(tm.tm) + '</small></div>'
+      + '<div class="tl-node"><span class="tl-dot"></span></div>'
+      + '<div class="jrow tl-card' + (hl ? ' hl' : '') + '">'
+      +   '<div class="r1">' + st + (hl ? '<span class="now">深链定位 · ' + esc(j.jid) + '</span>' : '') + '</div>'
+      +   '<div class="sm">' + esc(j.summary) + '</div>'
+      +   '<div class="mt"><span>' + esc(j.range) + '</span><span class="sep"></span>'
+      +     '<span>模板版本 ' + esc(j.ver) + '</span><span class="sep"></span>' + counts + right + '</div>'
+      +   runline + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function tplCard(x){
+  return '<button class="tcard" onclick="newFromTpl(\'' + x.t.key + '\')">'
+    + '<div class="nm"><span class="ic">◆</span><b>' + esc(x.t.name) + '</b></div>'
+    + '<div class="ds">' + esc(x.t.desc) + '</div>'
+    + '<div class="fo"><span class="tag p">产出 ' + esc(x.t.out) + '</span>'
+    +   '<span class="hint" style="margin-left:auto">' + esc(x.sc.split(' / ')[0]) + '</span></div>'
+    + '</button>';
+}
+
+/* ---------- 新建 / 编辑整理配置（字段对齐服务创建弹窗） ---------- */
+function newOrganize(){ go('hub', null, { config:'new' }); }
+
+/* 从模板新建 → 走深链（可分享：#/organize/hub?config=new&template=key） */
+function newFromTpl(key){ go('hub', null, { config:'new', template:key }); }
+
+function openCfg(tplKey, keepRoute){
+  cfgTplKey = tplKey || '';
+  cfgExperts = {};
+  cfgExpOpen = false;
+  // 模板下拉
+  var opts = '<option value="">选择模板</option>';
+  allTpls().forEach(function(x){
+    opts += '<option value="' + x.t.key + '"' + (x.t.key === cfgTplKey ? ' selected' : '') + '>'
+         + esc(x.t.name) + '（' + esc(x.sc.split(' / ')[0]) + '）</option>';
+  });
+  $('cfgTplSel').innerHTML = opts;
+  $('cfgName').value = cfgTplKey ? findTpl(cfgTplKey).name + '整理' : '';
+  $('cfgTa').value   = cfgTplKey ? (INSTR[cfgTplKey] || '') : '';
+  $('cfgSched').value = 'manual';
+  $('cfgTitle').textContent = cfgTplKey ? '从模板新建整理' : '新建整理';
+  renderCfg();
+  openMask('cfgDlg');
+  setTimeout(function(){ $('cfgName').focus(); }, 60);
+}
+
+function cfgApplyTpl(){
+  cfgTplKey = $('cfgTplSel').value;
+  if(cfgTplKey){
+    $('cfgTa').value = INSTR[cfgTplKey] || '';
+    if(!$('cfgName').value.trim()) $('cfgName').value = findTpl(cfgTplKey).name + '整理';
+  }
+}
+
+function cfgTogglePicker(){
+  cfgExpOpen = !cfgExpOpen;
+  renderCfg();
+}
+
+function cfgToggleExpert(id){
+  if(cfgExperts[id]) delete cfgExperts[id]; else cfgExperts[id] = 1;
+  renderCfg();
+}
+
+function renderCfg(){
+  $('cfgExpAct').textContent = cfgExpOpen ? '收起' : '+ 添加';
+  $('cfgExpPicker').style.display = cfgExpOpen ? '' : 'none';
+  $('cfgExpList').innerHTML = EXPERTS.map(function(e){
+    var on = !!cfgExperts[e.id];
+    return '<button class="cfg-opt' + (on ? ' on' : '') + '" onclick="cfgToggleExpert(\'' + e.id + '\')">'
+      + '<span><b>' + esc(e.name) + '</b><small>' + esc(e.desc) + '</small></span>'
+      + '<span class="ck">' + (on ? '✓' : '+') + '</span></button>';
+  }).join('');
+  var picked = EXPERTS.filter(function(e){ return cfgExperts[e.id]; });
+  $('cfgExpCnt').textContent = picked.length ? picked.length + ' 个' : '';
+  $('cfgExpSel').innerHTML = picked.map(function(e){
+    return '<span class="cfg-chip">' + esc(e.name)
+      + '<button onclick="cfgToggleExpert(\'' + e.id + '\')">×</button></span>';
+  }).join('');
+  var n = $('cfgName').value.trim();
+  $('cfgWarn').textContent = n ? '' : '名称必填；其余项都可以之后再改';
+}
+
+function saveCfg(){
+  var name = $('cfgName').value.trim();
+  if(!name){ $('cfgWarn').textContent = '请先填写名称'; $('cfgName').focus(); return; }
+  var sched = $('cfgSched').value;
+  var t = cfgTplKey ? findTpl(cfgTplKey) : null;
+  var experts = EXPERTS.filter(function(e){ return cfgExperts[e.id]; }).map(function(e){ return e.name; });
+  var g = {
+    id: 'G' + (JOBGROUPS.length + 1) + '_' + Date.now(),
+    title: name,
+    tpl: t ? t.name : '自定义指令',
+    sched: sched, experts: experts, instr: $('cfgTa').value.trim(),
+    jobs: []
+  };
+  JOBGROUPS.unshift(g);
+  closeMask('cfgDlg');
+  go('hub', null, null, true);      // 保存后地址回到工作台，不留 ?config=new（AC-22）
+  toast(sched === 'manual'
+    ? '整理「' + name + '」已创建，点卡片可手动发起'
+    : '整理「' + name + '」已创建，将' + SCHEDS[sched] + '自动执行');
+}
+
+/* 取消：关弹层，并把深链 query 清掉，避免刷新又弹出来（AC-22） */
+function cancelCfg(){
+  closeMask('cfgDlg');
+  var r = parseHash();
+  if(r.name === 'hub' && r.query.config) go('hub', null, null, true);
+}
+
+var cfgTplKey = '';
+function editCfg(id){
+  var g = null;
+  JOBGROUPS.forEach(function(x){ if(x.id === id) g = x; });
+  if(!g || g.legacy){ toast('演示原型：历史内容不可编辑'); return; }
+  cfgTplKey = '';
+  cfgExperts = {};
+  EXPERTS.forEach(function(e){ if((g.experts || []).indexOf(e.name) >= 0) cfgExperts[e.id] = 1; });
+  cfgExpOpen = false;
+  var opts = '<option value="">选择模板</option>';
+  allTpls().forEach(function(x){
+    var sel1 = g.tpl === x.t.name ? ' selected' : '';
+    if(sel1) cfgTplKey = x.t.key;
+    opts += '<option value="' + x.t.key + '"' + sel1 + '>' + esc(x.t.name) + '（' + esc(x.sc.split(' / ')[0]) + '）</option>';
+  });
+  $('cfgTplSel').innerHTML = opts;
+  $('cfgName').value = g.title;
+  $('cfgTa').value = g.instr || '';
+  $('cfgSched').value = g.sched || 'manual';
+  $('cfgTitle').textContent = '编辑整理';
+  renderCfg();
+  openMask('cfgDlg');
+}
+
+/* ---------- 从模板发起：选记忆 → 落定 ---------- */
+function keyOfTplName(name){
+  var found = '';
+  allTpls().forEach(function(x){ if(x.t.name === name) found = x.t.key; });
+  return found;
+}
+
+/* 详情页「＋ 再次整理」：按该配置的模板回到选记忆流程，重新发起一次（新增任务，不改写历史） */
+function rerunGroup(){
+  var g = findGroup(curGroup);
+  if(!g || g.legacy){ toast('历史内容不可重新整理'); return; }
+  var key = keyOfTplName(g.tpl);
+  if(!key){ toast('这条整理用的是自定义指令，演示原型不覆盖该路径'); return; }
+  openTplPick(key);
+}
+
+function openTplPick(key){
+  tplKey = key;
+  var t = findTpl(key);
+  var hits = t.tags || [];
+  tsel = {};
+  MEMORIES.forEach(function(m){
+    if(m.tags.some(function(g){ return hits.indexOf(g) >= 0; })) tsel[m.id] = 1;
+  });
+  $('tpTitle').textContent = '用「' + t.name + '」整理';
+  $('tpEcho').innerHTML = '这个模板会把选中的记忆整理成 <b>「' + esc(t.out) + '」</b>：'
+    + '含主题、标签、涉及时间、待办数四个可筛选信息项；每条结论标注来源记忆。';
+  renderTpList();
+  openMask('tplPick');
+}
+
+function renderTpList(){
+  var t = findTpl(tplKey);
+  var hits = t.tags || [];
+  $('tpList').innerHTML = MEMORIES.map(function(m){
+    var hit = m.tags.some(function(g){ return hits.indexOf(g) >= 0; });
+    return '<div class="mem' + (tsel[m.id] ? ' sel' : '') + '" onclick="toggleTsel(\'' + m.id + '\')">'
+      + '<div class="ck"><i></i></div>'
+      + '<div class="mid"><div class="t">' + esc(m.title)
+      +   (hit ? ' <span class="tag g" style="font-weight:400">模板命中</span>' : '') + '</div>'
+      + '<div class="d">' + esc(m.text) + '</div>'
+      + '<div class="meta"><span class="tag">' + esc(m.kind) + '</span>'
+      + m.tags.map(function(g){ return '<span class="tag p">' + esc(g) + '</span>'; }).join('')
+      + '<span>' + esc(m.time) + '</span></div></div></div>';
+  }).join('');
+  var n = Object.keys(tsel).length;
+  $('tpCount').textContent = '已选 ' + n + ' 条记忆';
+  $('tpGo').disabled = n < 1;
+  $('tpWarn').textContent = n ? '' : '至少选 1 条记忆';
+}
+
+function toggleTsel(id){ if(tsel[id]) delete tsel[id]; else tsel[id] = 1; renderTpList(); }
+
+function tplGo(){
+  var ids = Object.keys(tsel);
+  if(!ids.length) return;
+  var key = tplKey;
+  closeMask('tplPick');
+  startJob(ids, key);
+}
+
+/* ================= 记忆列表 ================= */
+function renderMems(){
+  $('memList').innerHTML = MEMORIES.map(function(m){
+    return '<div class="mem'+(sel[m.id]?' sel':'')+'" onclick="toggleMem(\''+m.id+'\')">'
+      + '<div class="ck"><i></i></div>'
+      + '<div class="mid">'
+      +   '<div class="t">'+esc(m.title)+'</div>'
+      +   '<div class="d">'+esc(m.text)+'</div>'
+      +   '<div class="meta">'
+      +     '<span class="tag">'+esc(m.kind)+'</span>'
+      +     m.tags.map(function(t){ return '<span class="tag p">'+esc(t)+'</span>'; }).join('')
+      +     '<span>'+esc(m.time)+'</span>'
+      +   '</div>'
+      + '</div></div>';
+  }).join('');
+  var n = Object.keys(sel).length;
+  $('selbar').style.display = n ? 'flex' : 'none';
+  $('selText').textContent = '已选 ' + n + ' 条记忆';
+  var hits = selectedTags();
+  $('selHint').textContent = hits.length ? ('命中标签：' + hits.join(' / ') + '，相关方案已置顶') : '可按标签选择整理方案';
+  $('btnOrganize').disabled = n === 0;
+}
+function toggleMem(id){ if(sel[id]) delete sel[id]; else sel[id] = 1; renderMems(); }
+function selectAll(){ MEMORIES.forEach(function(m){ sel[m.id]=1; }); renderMems(); }
+function clearAll(){ sel = {}; renderMems(); }
+function selectedTags(){
+  var s = {};
+  MEMORIES.forEach(function(m){ if(sel[m.id]) m.tags.forEach(function(t){ s[t]=1; }); });
+  return Object.keys(s);
+}
+function selectedCount(){ return Object.keys(sel).length; }
+
+/* ================= 表达要求的弹层 ================= */
+function openPicker(){
+  chosen = null;
+  renderPicker();
+  openMask('picker');
+}
+function renderPicker(){
+  var hits = selectedTags();
+  var html = '';
+  SCENES.forEach(function(sc){
+    var tpls = sc.tpls.slice().sort(function(a,b){
+      return score(b,hits) - score(a,hits);
+    });
+    var hitScene = tpls.some(function(t){ return score(t,hits) > 0; });
+    html += '<div class="scene"><div class="sh"><span class="mk"></span>' + esc(sc.name)
+         + (hitScene ? '　<span class="tag g">命中所选记忆的标签</span>' : '') + '</div><div class="grid">';
+    tpls.forEach(function(t){
+      var dis = selectedCount() < 1;
+      var rec = score(t,hits) > 0 ? '<span class="rec2">推荐</span>' : '';
+      html += '<button class="tpl'+(chosen===t.key?' on':'')+'" '+(dis?'disabled':'')
+           +  ' onclick="choose(\''+t.key+'\')">'
+           +  '<div class="n">'+esc(t.name)+rec+'</div>'
+           +  '<div class="s">'+esc(t.desc)+'</div>'
+           +  '<span class="tag">产出 '+esc(t.out)+'</span>'
+           +  '</button>';
+    });
+    html += '</div></div>';
+  });
+  $('pickerBody').innerHTML = html + rangeHtml() + echoHtml();
+  $('pickerSel').textContent = '已选 ' + selectedCount() + ' 条记忆';
+  $('btnStart').disabled = !chosen;
+  $('pickerWarn').textContent = chosen ? '' : '请先选一个整理方案';
+}
+function score(t,hits){
+  var n = 0; hits.forEach(function(h){ if(t.tags.indexOf(h)>=0) n++; }); return n;
+}
+function rangeHtml(){
+  return '<div class="scene"><div class="sh"><span class="mk"></span>范围（只能收窄，不能放宽）</div>'
+    + '<div class="range">'
+    + '<span class="hint">时间</span><select><option>近 7 天</option><option>近 30 天</option><option>不限</option></select>'
+    + '<span class="hint">最多</span><select><option>20 条</option><option>30 条</option><option>50 条</option></select>'
+    + '<div style="flex:1"></div>'
+    + '<span class="hint">上限由方案决定</span>'
+    + '</div></div>';
+}
+function echoHtml(){
+  if(!chosen) return '';
+  var t = findTpl(chosen);
+  var lines = {
+    teacher_research:'产出「提炼清单」，含主题、标签、涉及时间、待办数四个可筛选信息项；每条结论标注来源记忆。',
+    lesson_review:'产出「复盘记录」，含主题、环节、改进点三个可筛选信息项；每条结论标注来源记忆。',
+    case_observation:'产出「观察记录」，含儿童、观察维度、时间轴三个可筛选信息项。',
+    lead_followup:'产出「跟进清单」，含家长称呼、当前状态、流失风险、下一步动作四个可筛选信息项。',
+    channel_report:'产出「效果周报」，含渠道、到访数、转化数、单位成本四个可筛选信息项。',
+    parent_review:'产出「沟通复盘」，含问题类型、当前状态、跟进时间三个可筛选信息项。',
+    env_proposal:'产出「环创提案」，含区域、材料、实施成本三个可筛选信息项。'
+  };
+  return '<div class="echo">系统将按 <b>「'+esc(t.name)+'」</b> 整理这 <b>'+selectedCount()+'</b> 条记忆：'
+       + esc(lines[t.key] || '产出结构化整理结果。') + '</div>';
+}
+function findTpl(key){
+  var r = null;
+  SCENES.forEach(function(sc){ sc.tpls.forEach(function(t){ if(t.key===key) r = t; }); });
+  return r;
+}
+function choose(key){
+  chosen = key;
+  renderPicker();
+  var e = document.querySelector('.echo');
+  if(e) e.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ================= 执行 ================= */
+var STAGES = [
+  ['① 落定要求','校验记忆权限 → 冻结要求快照'],
+  ['② 装配输入','取出 5 条记忆 → 裁剪至预算内'],
+  ['③ 渲染指令','注入变量 → 计算 prompt_hash'],
+  ['④ 调用模型','按方案指定的模型参数生成'],
+  ['⑤ 契约校验','章节 / 字段 / 锚点逐条校验'],
+  ['⑥ 落库','写入正文 + 字段 + 引用锚点']
+];
+function startJob(memIds, key){
+  closeMask('picker');
+  if(!memIds || !memIds.length) memIds = Object.keys(sel);
+  if(!key) key = chosen;
+  JOBCTX = { ids: memIds, key: key };
+  var t = findTpl(key);
+  var stagesHtml = STAGES.map(function(s,i){
+    return '<div class="stage" id="st'+i+'"><div class="idx">'+(i+1)+'</div><div><div class="st">'+
+      esc(s[0].replace(/^[①②③④⑤⑥]\s/,''))+'</div><div class="sd">'+esc(s[1])+'</div></div></div>';
+  }).join('');
+  $('stages').innerHTML = stagesHtml;
+  $('progBar').style.width = '0%';
+  $('snapKv').innerHTML =
+      '<dt>目标产物</dt><dd>'+esc(t.out)+'</dd>'
+    + '<dt>口径结构</dt><dd>'+esc(t.name)+'</dd>'
+    + '<dt>作用范围</dt><dd>'+memIds.join(' / ')+'（'+memIds.length+' 条）</dd>'
+    + '<dt>可筛字段</dt><dd>主题 / 标签 / 涉及时间 / 待办数</dd>'
+    + '<dt>红线</dt><dd>不得编造 · 不得越权 · 每条结论须可回溯</dd>'
+    + '<dt>提供方</dt><dd>平台预置方案（'+esc(t.key)+'）</dd>';
+  openMask('prog');
+  var i = 0;
+  (function next(){
+    if(i > 0) $('st'+(i-1)).className = 'stage done';
+    if(i >= STAGES.length){
+      $('progBar').style.width = '100%';
+      setTimeout(finishJob, 420);
+      return;
+    }
+    $('st'+i).className = 'stage run';
+    $('progBar').style.width = Math.round((i+1)/STAGES.length*100) + '%';
+    i++;
+    setTimeout(next, i===1?620:520);
+  })();
+}
+function finishJob(){
+  closeMask('prog');
+  var t = findTpl(JOBCTX.key);
+  var ids = JOBCTX.ids;
+  var tg = (t.tags || []).slice(0, 2);
+  OUTPUTS.unshift({
+    id:'ON', title:t.name + ' · ' + ids.length + ' 条记忆', subject:'刚生成的整理结果', tags:tg,
+    time:'2026-09-22', concl:3, todo:2, src:ids.length, tpl:t.name, ver:'v3', isNew:true,
+    fields:[['主题','刚生成的整理结果'],['标签',tg.join(' / ')||'—'],['涉及时间','2026-09-16 ~ 2026-09-20'],['待办数','2 项']],
+    doc:'<h3>01. 共同主题</h3><p>这批记忆共同指向一件事：<b>儿童或家长的真实反馈，比预定的活动流程更有信息量</b>。<span class="cite" onclick="showCite(\''+ids[0]+'\')">M1</span></p><h3>02. 归纳</h3><ul><li>孩子的追问方向与原定目标不一致时，接住追问比走完流程更有价值。</li><li>家长反馈需要区分"情绪信号"与"事实问题"，前者先共情、后者给方案。</li></ul><h3>03. 待办</h3><ul><li>整理本轮儿童全部追问，作为下一轮活动起点（本周）</li><li>对回访名单做一次优先级排序（48 小时内）</li></ul>'
+  });
+  var g = {
+    id:'G' + (JOBGROUPS.length + 1) + '_' + Date.now(),
+    title:t.name + ' · ' + ids.length + ' 条记忆', tpl:t.name,
+    sched:'manual', experts:[], instr:INSTR[JOBCTX.key] || '',
+    jobs:[{jid:'T' + Date.now(), time:'2026-09-22 11:26', range:ids.length + ' 条记忆', ver:'v3', state:'done', out:'ON',
+           summary:'主题：刚生成的整理结果', concl:3, todo:2, fresh:true}]
+  };
+  JOBGROUPS.unshift(g);
+  sel = {}; tsel = {};
+  renderMems();
+  openJobGroup(g.id);
+  toast('整理完成，产出已挂到这次任务下');
+}
+
+/* ================= 产物查看 ================= */
+function switchTab(name){
+  $('tabHub').className = name==='hub' ? 'on' : '';
+  $('tabMem').className = name==='mem' ? 'on' : '';
+  $('tabOut').className = name==='out' ? 'on' : '';
+  $('viewHub').style.display  = name==='hub' ? '' : 'none';
+  $('viewMem').style.display  = name==='mem' ? '' : 'none';
+  $('viewOut').style.display  = name==='out' ? '' : 'none';
+  $('viewDisc').style.display = name==='disc' ? '' : 'none';
+  $('viewJob').style.display  = 'none';
+  $('btnOrganize').style.display = name==='mem' ? '' : 'none';
+  if(name==='hub') renderHub();
+  if(name==='out') renderOuts();
+}
+function allTags(){
+  var s = {}; OUTPUTS.forEach(function(o){ (o.tags||[]).forEach(function(t){ s[t]=1; }); });
+  return Object.keys(s);
+}
+function renderTagFilters(){
+  $('tagFilters').innerHTML = allTags().map(function(t){
+    return '<button class="chip'+(filterTags.indexOf(t)>=0?' on':'')+'" onclick="toggleTag(\''+t+'\')">'+esc(t)
+      + (filterTags.indexOf(t)>=0 ? '<span class="x">×</span>' : '') + '</button>';
+  }).join('');
+}
+function toggleTag(t){
+  var i = filterTags.indexOf(t);
+  if(i>=0) filterTags.splice(i,1); else filterTags.push(t);
+  renderOuts();
+}
+function renderOuts(){
+  renderTagFilters();
+  var q = ($('q').value||'').trim();
+  var sort = $('sort').value;
+  var list = OUTPUTS.filter(function(o){
+    if(o.legacy && filterTags.length) return false;
+    if(filterTags.length && !filterTags.every(function(t){ return (o.tags||[]).indexOf(t)>=0; })) return false;
+    if(q && (o.title+o.subject).indexOf(q)<0) return false;
+    return true;
+  });
+  if(sort==='risk') list = list.slice().sort(function(a,b){ return (b.todo||0)-(a.todo||0); });
+  if(!list.length){ $('outList').innerHTML = '<div class="empty">没有匹配的整理结果。换个标签或用设置重新整理一次。</div>'; return; }
+  $('outList').innerHTML = list.map(function(o){
+    if(o.legacy){
+      return '<div class="out" onclick="openDetail(\''+o.id+'\')">'
+        + '<div class="r1"><span class="tt">'+esc(o.title)+'</span><span class="tag">历史内容</span></div>'
+        + '<div class="subj">'+esc(o.subject)+'</div>'
+        + '<div class="r3"><span>'+esc(o.time)+'</span><span class="sep"></span><span>来源 '+o.src+' 条记忆</span>'
+        + '<span class="sep"></span><span>无结构化字段 · 仅可按时间排序</span></div></div>';
+    }
+    return '<div class="out" onclick="openDetail(\''+o.id+'\')">'
+      + '<div class="r1"><span class="tt">'+esc(o.title)+'</span>'
+      +   (o.isNew?'<span class="tag g">刚生成</span>':'')
+      +   '<span class="sep"></span><span class="hint">'+esc(o.tpl)+' · '+esc(o.ver)+'</span></div>'
+      + '<div class="subj">主题：'+esc(o.subject)+'</div>'
+      + '<div class="r3">'
+      +   '<span>'+esc(o.time)+'</span><span class="sep"></span>'
+      +   '<span>结论 '+o.concl+' 条</span><span class="sep"></span>'
+      +   '<span>待办 '+o.todo+' 项</span><span class="sep"></span>'
+      +   '<span>来源 '+o.src+' 条记忆</span><span class="sep"></span>'
+      +   (o.tags||[]).map(function(t){ return '<span class="tag p">'+esc(t)+'</span>'; }).join('')
+      + '</div></div>';
+  }).join('');
+}
+function openDetail(id, keepRoute){
+  var o = findOutput(id);
+  if(!o) return;
+  $('detTitle').textContent = o.title;
+  $('detSrc').textContent = o.legacy ? '历史内容（无字段）' : (o.tpl + ' · ' + o.ver);
+  $('detFields').innerHTML = o.fields
+    ? o.fields.map(function(f){ return '<div class="f"><div class="k">'+esc(f[0])+'</div><div class="v">'+esc(f[1])+'</div></div>'; }).join('')
+    : '<div class="f" style="grid-column:1/-1;background:var(--panel2)"><div class="k">字段</div><div class="v" style="color:var(--tx3);font-weight:400">本次重构前生成的内容没有结构化字段，因此不参与筛选，只做展示。</div></div>';
+  $('detDoc').innerHTML = o.doc;
+  openMask('detail');
+  if(!keepRoute){
+    // 记住来源页，关闭后能回到正确的位置（时间线 or 列表）
+    if(!/\/organize\/outputs\//.test(location.hash || '')) detailFrom = location.hash || DEFAULT_HASH;
+    go('output', { outputId: id });        // 走路由：地址栏反映产物，可分享可刷新
+  }
+}
+
+function findOutput(id){
+  var o = null;
+  OUTPUTS.forEach(function(x){ if(x.id === id) o = x; });
+  return o;
+}
+
+/* 关闭产物 → 回到来源页（默认 #/organize/mine） */
+function closeDetail(){
+  closeMask('detail');
+  var r = parseHash();
+  if(r.name === 'output'){
+    var back = parseHash(detailFrom);
+    go(back.name, back.params, back.query, true);   // replace：不留一条多余历史
+  }
+}
+
+/* ================= 引用跳转 ================= */
+function showCite(mid){
+  var m = null;
+  MEMORIES.forEach(function(x){ if(x.id===mid) m = x; });
+  if(!m){ return; }
+  $('citePh').textContent = '跳回原始记忆 · ' + m.id;
+  $('citeTitle').textContent = m.title;
+  $('citeBody').innerHTML = '<div style="margin-bottom:8px">'+esc(m.text)+'</div>'
+    + '<div class="hint">'+esc(m.kind)+' · '+(m.tags||[]).join(' / ')+' · '+esc(m.time)+'</div>';
+  openMask('cite');
+}
+
+/* ================= 初始化 ================= */
+window.addEventListener('hashchange', onHashChange);
+renderMems();                 // 预热列表
+renderOuts();
+if(!location.hash) history.replaceState(null, '', location.pathname + location.search + DEFAULT_HASH);
+applyRoute();                 // 按当前地址落地（深链直接可用）
+</script>
+</body>
+</html>

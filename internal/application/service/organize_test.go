@@ -17,6 +17,12 @@ import (
 
 func newOrganizeServiceForTest(t *testing.T) *organizeService {
 	t.Helper()
+	svc, _ := newOrganizeServiceWithDBForTest(t)
+	return svc
+}
+
+func newOrganizeServiceWithDBForTest(t *testing.T) (*organizeService, *gorm.DB) {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared&_foreign_keys=on"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
@@ -25,8 +31,12 @@ func newOrganizeServiceForTest(t *testing.T) *organizeService {
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeSproutReport{},
 		&types.OrganizeSproutMemory{},
+		&types.OrganizeTemplate{},
+		&types.OrganizeTemplateVersion{},
+		&types.OrganizeConfig{},
+		&types.OrganizeJob{},
 	))
-	return &organizeService{repo: repository.NewOrganizeRepository(db)}
+	return &organizeService{repo: repository.NewOrganizeRepository(db)}, db
 }
 
 func TestOrganizeServiceValidationAndOverview(t *testing.T) {
@@ -118,6 +128,70 @@ func TestOrganizeServiceValidationAndOverview(t *testing.T) {
 	require.Equal(t, int64(1), overview.Tabs[0].Count)
 	require.Equal(t, int64(1), overview.Tabs[1].Count)
 	require.Equal(t, int64(1), overview.Tabs[2].Count)
+}
+
+func TestOrganizeWorkbenchCreatesDurableFallbackOutput(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newOrganizeServiceWithDBForTest(t)
+	template := &types.OrganizeTemplate{
+		Scope:              types.OrganizeTemplateScopePlatform,
+		Key:                "teacher_research",
+		Name:               "教研提炼",
+		Scene:              "教师成长",
+		OutputLabel:        "提炼清单",
+		Icon:               "chart-bar",
+		DefaultInstruction: "按关键发现、可复用做法和待办整理",
+		Spec: types.JSONMap{
+			"tags":     []string{"教研", "磨课"},
+			"sections": []string{"关键发现", "可复用做法", "待办"},
+		},
+		Status:           types.OrganizeTemplateStatusEnabled,
+		PublishedVersion: "v1",
+	}
+	require.NoError(t, db.Create(template).Error)
+
+	memory, err := svc.CreateMemory(ctx, 9, "user-a", types.OrganizeMemoryInput{
+		Kind:    types.OrganizeMemoryKindNote,
+		Title:   "影子磨课记录",
+		Content: "孩子反复追问影子为什么会跟着自己，教师决定下一轮调整活动重点。",
+	})
+	require.NoError(t, err)
+
+	config, err := svc.CreateConfig(ctx, 9, "user-a", types.OrganizeConfigInput{
+		Name:        "影子磨课提炼",
+		TemplateKey: template.Key,
+		Schedule:    types.OrganizeScheduleManual,
+	})
+	require.NoError(t, err)
+	require.Equal(t, template.DefaultInstruction, config.Instruction)
+
+	job, err := svc.RunConfig(ctx, 9, "user-a", config.ID, types.OrganizeJobInput{
+		MemoryIDs: types.StringArray{memory.ID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.OrganizeJobStatusFallback, job.Status)
+	require.NotEmpty(t, job.OutputID)
+
+	output, err := svc.GetOutput(ctx, 9, "user-a", job.OutputID)
+	require.NoError(t, err)
+	require.Equal(t, config.ID, output.ConfigID)
+	require.Equal(t, job.ID, output.JobID)
+	require.Equal(t, template.Key, output.TemplateKey)
+	require.Equal(t, template.PublishedVersion, output.TemplateVersion)
+	require.Equal(t, int64(1), output.MemoryCount)
+	require.Equal(t, 2, metadataInt(output.Metadata, "todo_count"))
+	require.NotEmpty(t, output.Fields)
+	require.NotEmpty(t, output.Citations)
+
+	configs, total, err := svc.ListConfigs(ctx, types.OrganizeConfigQuery{
+		TenantID: 9,
+		UserID:   "user-a",
+		Page:     1,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Equal(t, job.ID, configs[0].LatestJob.ID)
 }
 
 func TestOrganizeServiceDiscover(t *testing.T) {

@@ -161,7 +161,22 @@ func (r *organizeRepository) UpdateOutput(ctx context.Context, output *types.Org
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&types.OrganizeOutput{}).
 			Where("tenant_id = ? AND user_id = ? AND id = ?", output.TenantID, output.UserID, output.ID).
-			Select("title", "output_type", "content", "source_summary", "status", "icon", "metadata", "updated_at").
+			Select(
+				"config_id",
+				"job_id",
+				"template_key",
+				"template_version",
+				"title",
+				"output_type",
+				"content",
+				"source_summary",
+				"status",
+				"icon",
+				"fields",
+				"citations",
+				"metadata",
+				"updated_at",
+			).
 			Updates(output).Error; err != nil {
 			return err
 		}
@@ -258,7 +273,18 @@ func (r *organizeRepository) UpdateSproutReport(ctx context.Context, report *typ
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&types.OrganizeSproutReport{}).
 			Where("tenant_id = ? AND user_id = ? AND id = ?", report.TenantID, report.UserID, report.ID).
-			Select("title", "summary", "stage", "output_hint", "chips", "metadata", "updated_at").
+			Select(
+				"template_key",
+				"template_version",
+				"title",
+				"summary",
+				"stage",
+				"output_hint",
+				"chips",
+				"fields",
+				"metadata",
+				"updated_at",
+			).
 			Updates(report).Error; err != nil {
 			return err
 		}

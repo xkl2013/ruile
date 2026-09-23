@@ -278,6 +278,7 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	mux.HandleFunc(types.TypeDocumentProcess, params.KnowledgeService.ProcessDocument)
 	mux.HandleFunc(types.TypeTemporaryDocumentProcess, params.TemporaryDocument.Process)
 	mux.HandleFunc(types.TypeOrganizeMemoryTranscribe, params.OrganizeService.ProcessMemoryTranscribe)
+	mux.HandleFunc(types.TypeOrganizeJobRun, params.OrganizeService.ProcessOrganizeJob)
 
 	// Register manual knowledge processing handler (cleanup + re-indexing)
 	mux.HandleFunc(types.TypeManualProcess, params.KnowledgeService.ProcessManualUpdate)

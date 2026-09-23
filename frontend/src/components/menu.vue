@@ -60,7 +60,6 @@
                         </template>
                         <template v-else>
                             <KnowledgeBaseMenu />
-                            <OrganizeMenu />
                         </template>
                     </div>
                 </template>
@@ -83,23 +82,51 @@
                         </template>
                     </div>
                 </template>
-                <div v-else class="menu_box" :class="{ 'menu_box--sticky': item.children && !uiStore.sidebarCollapsed }">
-                    <t-tooltip :content="item.title" placement="right" :disabled="!uiStore.sidebarCollapsed">
-                        <div @click="handleMenuClick(item.path)" @mouseenter="mouseenteMenu(item.path)"
-                            @mouseleave="mouseleaveMenu(item.path)" :data-guide="`nav-${item.path}`"
-                            :class="['menu_item', item.childrenPath && item.childrenPath == currentpath ? 'menu_item_c_active' : isMenuItemActive(item.path) ? 'menu_item_active' : '']">
-                            <div class="menu_item-box">
-                                <div class="menu_icon">
-                                    <img class="icon"
-                                        :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
-                                        :class="{ 'icon--avatar': item.path === 'creatChat' }" alt="">
+                <template v-else-if="item.path === 'organize'">
+                    <div class="menu_box">
+                        <template v-if="uiStore.sidebarCollapsed">
+                            <t-tooltip :content="item.title" placement="right">
+                                <div @click="handleMenuClick(item.path)" :data-guide="`nav-${item.path}`"
+                                    :class="['menu_item', isMenuItemActive(item.path) ? 'menu_item_active' : '']">
+                                    <div class="menu_item-box">
+                                        <div class="menu_icon">
+                                            <t-icon name="dashboard" class="icon menu-icon-symbol" />
+                                        </div>
+                                    </div>
                                 </div>
-                                <span v-if="!uiStore.sidebarCollapsed" class="menu_title" :title="item.title">{{
-                                    item.title }}</span>
+                            </t-tooltip>
+                        </template>
+                        <template v-else>
+                            <OrganizeMenu />
+                        </template>
+                    </div>
+                </template>
+                <template v-else-if="item.path === 'creatChat'">
+                    <div class="menu_box" :class="{ 'menu_box--sticky': item.children && !uiStore.sidebarCollapsed }">
+                        <t-tooltip :content="item.title" placement="right" :disabled="!uiStore.sidebarCollapsed">
+                            <div @click="handleMenuClick(item.path)" @mouseenter="mouseenteMenu(item.path)"
+                                @mouseleave="mouseleaveMenu(item.path)" :data-guide="`nav-${item.path}`"
+                                :class="[
+                                    'menu_item',
+                                    !uiStore.sidebarCollapsed && item.path === 'creatChat' ? 'menu_item--organize-style' : '',
+                                    item.childrenPath && item.childrenPath == currentpath ? 'menu_item_c_active' : isMenuItemActive(item.path) ? 'menu_item_active' : ''
+                                ]">
+                                <div class="menu_item-box">
+                                    <div class="menu_icon">
+                                        <img class="icon"
+                                            :src="getImgSrc(item.icon == 'zhishiku' ? knowledgeIcon : item.icon == 'agent' ? agentIcon : item.icon == 'logout' ? logoutIcon : item.icon == 'setting' ? settingIcon : prefixIcon)"
+                                            :class="{ 'icon--avatar': item.path === 'creatChat' }" alt="">
+                                    </div>
+                                    <span v-if="!uiStore.sidebarCollapsed" class="menu_title" :title="item.title">{{
+                                        item.title }}</span>
+                                </div>
                             </div>
-                        </div>
-                    </t-tooltip>
-                </div>
+                        </t-tooltip>
+                    </div>
+                    <div class="menu_box">
+                        <MemoryDiscoverMenu :collapsed="uiStore.sidebarCollapsed" />
+                    </div>
+                </template>
             </template>
 
             <!-- 历史会话：按来源筛选后统一按日期分组展示 -->
@@ -256,6 +283,7 @@ import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
 import UserMenu from '@/components/UserMenu.vue';
 import KnowledgeBaseMenu from '@/components/KnowledgeBaseMenu.vue';
 import OrganizeMenu from '@/components/OrganizeMenu.vue';
+import MemoryDiscoverMenu from '@/components/MemoryDiscoverMenu.vue';
 import ServiceHubMenu from '@/components/ServiceHubMenu.vue';
 import { useI18n } from 'vue-i18n';
 import { getSystemInfo } from '@/api/system';
@@ -401,6 +429,8 @@ const isMenuItemActive = (itemPath: string): boolean => {
             return currentRoute === 'kbCreatChat' || currentRoute === 'globalCreatChat';
         case 'service':
             return typeof currentRoute === 'string' && currentRoute.startsWith('service');
+        case 'organize':
+            return typeof currentRoute === 'string' && currentRoute.startsWith('organize');
         case 'settings':
             return currentRoute === 'settings';
         default:
@@ -427,13 +457,13 @@ const getIconActiveState = (itemPath: string) => {
 // 分离上下两部分菜单（使用 visibleMenuArr 以便 lite 模式过滤 logout）
 const topMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) =>
-        item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'service'
+        item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'organize' || item.path === 'service'
     );
 });
 
 const bottomMenuItems = computed<MenuItem[]>(() => {
     return (visibleMenuArr.value as unknown as MenuItem[]).filter((item: MenuItem) => {
-        if (item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'service') {
+        if (item.path === 'knowledge-bases' || item.path === 'creatChat' || item.path === 'organize' || item.path === 'service') {
             return false;
         }
         return true;
@@ -1039,6 +1069,8 @@ const handleMenuClick = async (path: string) => {
         }
     } else if (path === 'agents') {
         navigateToAdmin('/agents')
+    } else if (path === 'organize') {
+        router.push('/platform/organize/hub')
     } else if (path === 'settings') {
         // 设置菜单项：打开设置弹窗并跳转路由
         uiStore.openSettings()
@@ -1190,7 +1222,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        height: 50px;
+        height: 44px;
         flex-shrink: 0;
         padding: 0 10px 0 var(--sidebar-inset-x);
     }
@@ -1236,7 +1268,7 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
         overflow: hidden;
 
         .logo {
-            width: 128px;
+            width: 108px;
             height: auto;
         }
 
@@ -1407,6 +1439,38 @@ const onDragHandleMouseDown = (e: MouseEvent) => {
             .menu_title {
                 color: var(--td-text-color-primary);
             }
+        }
+    }
+
+    .menu_item--organize-style {
+        height: auto;
+        min-height: 30px;
+        padding: 0 12px 0 calc(var(--sidebar-inset-x) + 12px);
+        margin-bottom: 0;
+        border-radius: 8px;
+        justify-content: flex-start;
+
+        .menu_item-box {
+            width: 100%;
+        }
+
+        .menu_icon {
+            flex: 0 0 16px;
+            width: 16px;
+            margin-right: 8px;
+
+            .icon,
+            .icon--avatar {
+                width: 16px;
+                height: 16px;
+            }
+        }
+
+        .menu_title {
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 18px;
+            max-width: none;
         }
     }
 

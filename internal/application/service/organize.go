@@ -39,6 +39,7 @@ type organizeService struct {
 	storageResolver interfaces.StorageBackendResolver
 	tenantRepo      interfaces.TenantRepository
 	resourceCatalog interfaces.ResourceCatalog
+	expertPackages  interfaces.ExpertPackageService
 	taskEnqueuer    interfaces.TaskEnqueuer
 	documentReader  interfaces.DocumentReader
 	audioTranscoder func(context.Context, []byte, string) ([]byte, string, error)
@@ -53,6 +54,7 @@ func NewOrganizeService(
 	storageResolver interfaces.StorageBackendResolver,
 	tenantRepo interfaces.TenantRepository,
 	resourceCatalog interfaces.ResourceCatalog,
+	expertPackages interfaces.ExpertPackageService,
 ) interfaces.OrganizeService {
 	return &organizeService{
 		repo:            repo,
@@ -61,6 +63,7 @@ func NewOrganizeService(
 		storageResolver: storageResolver,
 		tenantRepo:      tenantRepo,
 		resourceCatalog: resourceCatalog,
+		expertPackages:  expertPackages,
 		taskEnqueuer:    taskEnqueuer,
 		documentReader:  documentReader,
 		audioTranscoder: transcodeOrganizeAudioToMP3,
@@ -209,12 +212,31 @@ func (s *organizeService) GetOutput(ctx context.Context, tenantID uint64, userID
 func (s *organizeService) UpdateOutput(
 	ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeOutputInput,
 ) (*types.OrganizeOutput, error) {
-	if _, err := s.GetOutput(ctx, tenantID, userID, id); err != nil {
+	current, err := s.GetOutput(ctx, tenantID, userID, id)
+	if err != nil {
 		return nil, err
 	}
 	output, memoryIDs, err := s.buildOutput(ctx, tenantID, userID, strings.TrimSpace(id), input)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(input.ConfigID) == "" {
+		output.ConfigID = current.ConfigID
+	}
+	if strings.TrimSpace(input.JobID) == "" {
+		output.JobID = current.JobID
+	}
+	if strings.TrimSpace(input.TemplateKey) == "" {
+		output.TemplateKey = current.TemplateKey
+	}
+	if strings.TrimSpace(input.TemplateVersion) == "" {
+		output.TemplateVersion = current.TemplateVersion
+	}
+	if input.Fields == nil {
+		output.Fields = current.Fields
+	}
+	if input.Citations == nil {
+		output.Citations = current.Citations
 	}
 	output.UpdatedAt = time.Now().UTC()
 	if err := s.repo.UpdateOutput(ctx, output, memoryIDs); err != nil {
@@ -291,12 +313,22 @@ func (s *organizeService) GetSproutReport(
 func (s *organizeService) UpdateSproutReport(
 	ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeSproutReportInput,
 ) (*types.OrganizeSproutReport, error) {
-	if _, err := s.GetSproutReport(ctx, tenantID, userID, id); err != nil {
+	current, err := s.GetSproutReport(ctx, tenantID, userID, id)
+	if err != nil {
 		return nil, err
 	}
 	report, memoryIDs, err := s.buildSproutReport(ctx, tenantID, userID, strings.TrimSpace(id), input)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(input.TemplateKey) == "" {
+		report.TemplateKey = current.TemplateKey
+	}
+	if strings.TrimSpace(input.TemplateVersion) == "" {
+		report.TemplateVersion = current.TemplateVersion
+	}
+	if input.Fields == nil {
+		report.Fields = current.Fields
 	}
 	report.UpdatedAt = time.Now().UTC()
 	if err := s.repo.UpdateSproutReport(ctx, report, memoryIDs); err != nil {
@@ -385,16 +417,22 @@ func (s *organizeService) buildOutput(
 		return nil, nil, err
 	}
 	return &types.OrganizeOutput{
-		ID:            id,
-		TenantID:      tenantID,
-		UserID:        userID,
-		Title:         title,
-		OutputType:    trimMax(input.OutputType, 64),
-		Content:       trimMax(input.Content, 0),
-		SourceSummary: trimMax(input.SourceSummary, organizeMaxShortText),
-		Status:        status,
-		Icon:          trimMax(input.Icon, 64),
-		Metadata:      metadata,
+		ID:              id,
+		TenantID:        tenantID,
+		UserID:          userID,
+		ConfigID:        trimMax(input.ConfigID, 36),
+		JobID:           trimMax(input.JobID, 36),
+		TemplateKey:     trimMax(input.TemplateKey, 64),
+		TemplateVersion: trimMax(input.TemplateVersion, 32),
+		Title:           title,
+		OutputType:      trimMax(input.OutputType, 64),
+		Content:         trimMax(input.Content, 0),
+		SourceSummary:   trimMax(input.SourceSummary, organizeMaxShortText),
+		Status:          status,
+		Icon:            trimMax(input.Icon, 64),
+		Fields:          normalizeJSONMap(input.Fields),
+		Citations:       normalizeJSONMap(input.Citations),
+		Metadata:        metadata,
 	}, memoryIDs, nil
 }
 
@@ -417,15 +455,18 @@ func (s *organizeService) buildSproutReport(
 		return nil, nil, err
 	}
 	return &types.OrganizeSproutReport{
-		ID:         id,
-		TenantID:   tenantID,
-		UserID:     userID,
-		Title:      title,
-		Summary:    strings.TrimSpace(input.Summary),
-		Stage:      stage,
-		OutputHint: trimMax(input.OutputHint, organizeMaxShortText),
-		Chips:      cleanStringArray(input.Chips, 20, 64),
-		Metadata:   normalizeJSONMap(input.Metadata),
+		ID:              id,
+		TenantID:        tenantID,
+		UserID:          userID,
+		TemplateKey:     trimMax(input.TemplateKey, 64),
+		TemplateVersion: trimMax(input.TemplateVersion, 32),
+		Title:           title,
+		Summary:         strings.TrimSpace(input.Summary),
+		Stage:           stage,
+		OutputHint:      trimMax(input.OutputHint, organizeMaxShortText),
+		Chips:           cleanStringArray(input.Chips, 20, 64),
+		Fields:          normalizeJSONMap(input.Fields),
+		Metadata:        normalizeJSONMap(input.Metadata),
 	}, memoryIDs, nil
 }
 
