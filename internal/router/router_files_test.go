@@ -472,6 +472,65 @@ func TestKBScopedFilesUsesResourceStorageBackendForUnscopedMigratedPath(t *testi
 	}
 }
 
+func TestKBScopedFilesFallsBackToKnowledgeBaseStorageBackend(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const ownerTenantID = uint64(10008)
+	resourceRef := types.BuildResourcePath("abcdefghijklmnopqrstuv")
+	physicalPath := "oss://bucket/exports/10008/image.jpg"
+	kbBackendID := "backend-from-kb"
+	var resolvedBackendID string
+
+	fileService := &stubFileService{getFile: func(_ context.Context, filePath string) (io.ReadCloser, error) {
+		if filePath != physicalPath {
+			t.Fatalf("requested path = %q, want %q", filePath, physicalPath)
+		}
+		return io.NopCloser(strings.NewReader("kb-bound-resource")), nil
+	}}
+	resolver := &stubStorageBackendResolver{resolveFileService: func(
+		_ context.Context,
+		_ *types.Tenant,
+		backendID string,
+		provider string,
+		_ string,
+	) (interfaces.FileService, string, error) {
+		resolvedBackendID = backendID
+		return fileService, provider, nil
+	}}
+	engine := newKBScopedFilesWithResourcesTestEngine(
+		ownerTenantID,
+		&stubTenantService{get: func(_ context.Context, id uint64) (*types.Tenant, error) {
+			return &types.Tenant{ID: id}, nil
+		}},
+		nil,
+		resolver,
+		&stubResourceCatalog{resource: &types.StoredResource{
+			TenantID:     ownerTenantID,
+			PhysicalPath: physicalPath,
+		}},
+		&types.KnowledgeBaseAccess{KnowledgeBase: &types.KnowledgeBase{
+			ID:               "kb-1",
+			TenantID:         ownerTenantID,
+			StorageBackendID: &kbBackendID,
+		}},
+	)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/knowledge-bases/kb-1/files?file_path="+url.QueryEscape(resourceRef),
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d body=%s", got, want, recorder.Body.String())
+	}
+	if got, want := resolvedBackendID, kbBackendID; got != want {
+		t.Fatalf("resolved backend = %q, want %q", got, want)
+	}
+}
+
 func TestKBScopedFilesReplacesStalePhysicalBackendWithResourceBinding(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -1,5 +1,11 @@
 <template>
   <div class="service-hub-page">
+    <ServiceCreateDialog
+      v-model:visible="createDialogVisible"
+      :source="createSource"
+      @submit="submitForm"
+    />
+
     <section v-if="view === 'list'" class="service-hub-list-view">
       <header class="service-hub-page-header">
         <div>
@@ -114,146 +120,83 @@
       </div>
     </section>
 
-    <section v-else-if="view === 'create'" class="service-hub-create-view">
-      <header class="service-hub-page-header service-hub-create-header">
-        <div>
-          <h1>{{ editingService ? '复制服务配置' : '新建服务' }}</h1>
-          <p>写清指令，选好专家、知识库与技能，创建后即可开始在服务空间里工作</p>
+    <section v-else class="service-hub-workspace-view">
+      <header class="service-hub-space-head">
+        <button type="button" class="service-hub-back-button" @click="backToList">
+          <t-icon name="chevron-left" />
+          返回服务列表
+        </button>
+        <span class="service-hub-space-identity">
+          <span class="service-hub-space-icon" aria-hidden="true">
+            <t-icon :name="templateFor(activeService)?.icon || 'folder'" />
+          </span>
+          <span class="service-hub-space-name">{{ activeService?.name }}</span>
+        </span>
+        <span class="service-hub-space-template">{{ templateFor(activeService)?.name || '自定义服务' }}</span>
+        <div class="service-hub-space-actions">
+          <button
+            v-for="tool in headTools"
+            :key="tool.key"
+            type="button"
+            class="service-hub-head-tool"
+            :class="{ active: panel === tool.key }"
+            @click="panel = panel === tool.key ? '' : tool.key"
+          >
+            <t-icon :name="tool.icon" />
+            <span>{{ tool.label }}</span>
+            <small>{{ tool.count }}</small>
+          </button>
+          <span class="service-hub-active-state">进行中</span>
+          <button type="button" class="service-hub-circle-button" title="新建会话" aria-label="新建会话" @click="startNewSession">＋</button>
+          <t-dropdown trigger="click" placement="bottom-right">
+            <button type="button" class="service-hub-circle-button" title="更多操作" aria-label="更多操作">
+              <t-icon name="more" />
+            </button>
+            <template #dropdown>
+              <t-dropdown-menu>
+                <t-dropdown-item @click="openCreate(activeService)">复制配置创建</t-dropdown-item>
+                <t-dropdown-item @click="archiveService(activeService)">归档服务</t-dropdown-item>
+              </t-dropdown-menu>
+            </template>
+          </t-dropdown>
         </div>
       </header>
 
-      <div class="service-hub-form">
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field">
-            <label for="service-name">服务名称 <em>*</em></label>
-            <t-input id="service-name" v-model="form.name" placeholder="例如：秋季招生咨询" :status="formError ? 'error' : undefined" />
-            <small v-if="formError" class="service-hub-error">{{ formError }}</small>
-          </div>
-          <div class="service-hub-field">
-            <label for="service-description">服务描述</label>
-            <t-textarea id="service-description" v-model="form.description" placeholder="说明这个服务负责什么，帮助成员和专家快速判断边界" :autosize="{ minRows: 3, maxRows: 5 }" />
-          </div>
-          <div class="service-hub-field">
-            <label for="service-instruction">工作指令</label>
-            <t-textarea id="service-instruction" v-model="form.instruction" placeholder="告诉专家要完成什么、优先参考什么资料、输出什么结果" :autosize="{ minRows: 5, maxRows: 8 }" />
-            <div class="service-hub-count">{{ form.instruction.length }} / 4000</div>
-          </div>
-        </section>
-
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field-head">
-            <div>
-              <h2>专家</h2>
-              <p>专家在服务空间里协作完成工作，可以配置多个。</p>
-            </div>
-            <t-button variant="text" theme="primary" size="small" @click="expertPickerOpen = !expertPickerOpen">
-              <template #icon><t-icon name="add" /></template>
-              添加专家
-            </t-button>
-          </div>
-          <div v-if="expertPickerOpen" class="service-hub-picker">
-            <button
-              v-for="expert in serviceExperts"
-              :key="expert.id"
-              type="button"
-              class="service-hub-picker-option"
-              :class="{ selected: form.expertIds.includes(expert.id) }"
-              @click="toggleExpert(expert.id)"
-            >
-              <span>
-                <strong>{{ expert.name }}</strong>
-                <small>{{ expert.description }}</small>
-              </span>
-              <t-icon :name="form.expertIds.includes(expert.id) ? 'check' : 'add'" />
-            </button>
-          </div>
-          <div class="service-hub-expert-list">
-            <div v-for="expertId in form.expertIds" :key="expertId" class="service-hub-expert-row">
-              <div class="service-hub-expert-avatar">{{ expertFor(expertId)?.name.slice(0, 1) }}</div>
-              <div>
-                <strong>{{ expertFor(expertId)?.name }}</strong>
-                <small>{{ expertFor(expertId)?.description }}</small>
-              </div>
-              <button type="button" aria-label="移除专家" @click="toggleExpert(expertId)">
-                <t-icon name="close" />
-              </button>
-            </div>
-            <div v-if="form.expertIds.length === 0" class="service-hub-form-empty">还没有添加专家，服务创建后仍可以继续配置。</div>
-          </div>
-        </section>
-
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field-head">
-            <div>
-              <h2>知识库</h2>
-              <p>服务内的专家共享这些知识库，配置一次即可。</p>
-            </div>
-          </div>
-          <div class="service-hub-choice-list">
-            <button
-              v-for="knowledgeBase in serviceKnowledgeBases"
-              :key="knowledgeBase.id"
-              type="button"
-              class="service-hub-choice-row"
-              :class="{ selected: form.knowledgeBaseIds.includes(knowledgeBase.id) }"
-              @click="toggleChoice('knowledgeBaseIds', knowledgeBase.id)"
-            >
-              <span class="service-hub-choice-check"><t-icon name="check" /></span>
-              <span><strong>{{ knowledgeBase.name }}</strong><small>{{ knowledgeBase.meta }}</small></span>
-            </button>
-          </div>
-        </section>
-
-        <section class="service-hub-form-panel">
-          <div class="service-hub-field-head">
-            <div>
-              <h2>技能</h2>
-              <p>为服务补充数据处理、文档协作和引用生成能力。</p>
-            </div>
-          </div>
-          <div class="service-hub-choice-list">
-            <button
-              v-for="skill in serviceSkills"
-              :key="skill.id"
-              type="button"
-              class="service-hub-choice-row"
-              :class="{ selected: form.skillIds.includes(skill.id) }"
-              @click="toggleChoice('skillIds', skill.id)"
-            >
-              <span class="service-hub-choice-check"><t-icon name="check" /></span>
-              <span><strong>{{ skill.name }}</strong><small>{{ skill.description }}</small></span>
-            </button>
-          </div>
-        </section>
-      </div>
-
-      <footer class="service-hub-form-footer">
-        <div>
-          <t-button variant="text" theme="primary" @click="saveDraft">保存为草稿</t-button>
-          <span>可稍后继续</span>
-        </div>
-        <div>
-          <t-button variant="outline" @click="backToList">取消</t-button>
-          <t-button theme="primary" class="service-hub-primary-button" @click="submitForm">创建服务</t-button>
-        </div>
-      </footer>
-    </section>
-
-    <section v-else class="service-hub-workspace-view">
       <div class="service-hub-workbench">
         <article class="service-hub-chat">
+          <header class="service-hub-chat-head">
+            <strong>{{ activeSession?.title || '开始一段新的工作' }}</strong>
+            <span>{{ activeSession?.expert || '服务助理' }}</span>
+          </header>
           <div class="service-hub-chat-body">
             <ChatView
               v-if="activeChatSessionId"
               :key="`${activeSession?.id}:${activeChatSessionId}`"
+              ref="serviceChatViewRef"
               :session_id="activeChatSessionId"
               :service-id="activeService?.id || ''"
               :agent-id="serviceChatAgentId"
               :kb-ids="activeServiceKnowledgeBaseIds"
               :quoted-context="activeServiceChatContext"
               embedded-input-placeholder="围绕当前服务整理摘要、话术和下一步"
+              embedded-mode
               hosted-mode
-            />
+            >
+              <template #empty-suggestions>
+                <div class="service-hub-chat-prompts">
+                  <strong>从一段工作开始</strong>
+                  <p>把要整理、分析或推进的事情告诉专家，工作过程与产物会持续沉淀在服务空间。</p>
+                  <button
+                    v-for="prompt in serviceChatPrompts"
+                    :key="prompt"
+                    type="button"
+                    @click="sendServiceChatPrompt(prompt)"
+                  >
+                    {{ prompt }}
+                  </button>
+                </div>
+              </template>
+            </ChatView>
             <div v-else class="service-hub-chat-state">
               <t-icon :name="activeChatSessionLoading ? 'loading' : 'chat'" :class="{ 'is-loading': activeChatSessionLoading }" />
               <span>{{ activeChatSessionLoading ? '正在准备会话' : activeChatSessionError || '会话暂不可用' }}</span>
@@ -261,6 +204,28 @@
                 重试
               </t-button>
             </div>
+
+            <aside v-if="panel" class="service-hub-side-panel">
+              <header>
+                <strong>产物</strong>
+                <button type="button" aria-label="关闭面板" @click="panel = ''"><t-icon name="close" /></button>
+              </header>
+              <div class="service-hub-side-panel-body">
+                <button
+                  v-for="artifact in activeArtifacts"
+                  :key="artifact.id"
+                  type="button"
+                  class="service-hub-side-artifact"
+                  :class="{ active: selectedArtifact?.id === artifact.id }"
+                  @click="selectedArtifact = artifact"
+                >
+                  <span class="service-hub-artifact-icon">{{ artifact.format }}</span>
+                  <span><strong>{{ artifact.title }}</strong><small>{{ artifact.meta }}</small></span>
+                </button>
+                <div v-if="!activeArtifacts.length" class="service-hub-panel-empty">当前会话还没有产物。</div>
+                <pre v-if="selectedArtifact" class="service-hub-artifact-preview">{{ selectedArtifact.preview }}</pre>
+              </div>
+            </aside>
           </div>
         </article>
       </div>
@@ -269,11 +234,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import ChatView from '@/views/chat/index.vue'
 import { BUILTIN_SMART_REASONING_ID } from '@/api/agent'
+import ServiceCreateDialog from './ServiceCreateDialog.vue'
 import {
   createServiceSpace,
   setServiceSpaceState,
@@ -290,16 +256,16 @@ import {
   getSession,
   loadServiceHub,
   serviceExperts,
+  serviceArtifacts,
   serviceHubState,
-  serviceKnowledgeBases,
-  serviceSkills,
   serviceTemplates,
   type ServiceRecord,
   type ServiceSession,
   type ServiceTemplate,
 } from './serviceHubState'
 
-type HubView = 'list' | 'create' | 'workspace'
+type HubView = 'list' | 'workspace'
+type HubPanel = '' | 'artifacts'
 type SortMode = 'recent' | 'created' | 'name'
 
 const route = useRoute()
@@ -312,20 +278,16 @@ const serviceQuery = ref('')
 const templateQuery = ref('')
 const sortMode = ref<SortMode>('recent')
 const showNoExpertBanner = ref(true)
-const editingService = ref<ServiceRecord | null>(null)
+const createDialogVisible = ref(false)
+const createSource = ref<ServiceTemplate | ServiceRecord | null>(null)
+const selectedArtifact = ref<(typeof serviceArtifacts)[string] | null>(null)
+const panel = ref<HubPanel>('')
+type ServiceChatViewExpose = {
+  triggerSend?: (question: string) => void
+}
+const serviceChatViewRef = ref<ServiceChatViewExpose | null>(null)
 const activeChatSessionLoadingId = ref('')
 const activeChatSessionError = ref('')
-const expertPickerOpen = ref(false)
-const formError = ref('')
-const form = reactive({
-  name: '',
-  description: '',
-  instruction: '',
-  templateId: '',
-  expertIds: [] as string[],
-  knowledgeBaseIds: [] as string[],
-  skillIds: [] as string[],
-})
 
 const sortOptions = [
   { label: '按最近活动', value: 'recent' },
@@ -368,44 +330,21 @@ const filteredTemplates = computed(() => {
   const query = templateQuery.value.trim().toLowerCase()
   return serviceTemplates.filter((template) => `${template.name} ${template.description}`.toLowerCase().includes(query))
 })
+const serviceChatPrompts = [
+  '帮我整理本周需要优先推进的重点工作',
+  '把相关资料归纳成一份可执行的清单',
+]
+const activeArtifacts = computed(() => {
+  const ids = activeSession.value?.messages.map((message) => message.artifactId).filter(Boolean) || []
+  return [...new Set(ids)].map((id) => serviceArtifacts[id as string]).filter(Boolean)
+})
 const templateFor = (service: ServiceRecord | undefined) => getServiceTemplate(service)
-const expertFor = (expertId: string) => serviceExperts.find((expert) => expert.id === expertId)
-const getTemplateById = (templateId: string) => serviceTemplates.find((template) => template.id === templateId)
-
-const isServiceRecord = (
-  source: ServiceTemplate | ServiceRecord | null | undefined,
-): source is ServiceRecord => Boolean(source && 'templateId' in source)
-
-const isServiceTemplate = (
-  source: ServiceTemplate | ServiceRecord | null | undefined,
-): source is ServiceTemplate => Boolean(source && !('templateId' in source))
-
-const resetForm = (source?: ServiceTemplate | ServiceRecord | null) => {
-  const service = isServiceRecord(source) ? source : null
-  const template = service
-    ? getTemplateById(service.templateId)
-    : isServiceTemplate(source)
-      ? source
-      : undefined
-  form.name = service ? `${service.name}（副本）` : template?.name || ''
-  form.description = service?.description || ''
-  form.instruction = service?.instruction || template?.instruction || ''
-  form.expertIds = service?.expertIds?.length
-    ? [...service.expertIds]
-    : template?.experts
-      .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
-      .filter((id): id is string => Boolean(id)) || []
-  form.knowledgeBaseIds = service?.knowledgeBaseIds ? [...service.knowledgeBaseIds] : []
-  form.skillIds = service?.skillIds ? [...service.skillIds] : []
-  form.templateId = template?.id || service?.templateId || ''
-  formError.value = ''
-  expertPickerOpen.value = false
-}
-
+const headTools = computed(() => [
+  { key: 'artifacts' as const, label: '产物', icon: 'file', count: activeArtifacts.value.length },
+])
 const openCreate = (source?: ServiceTemplate | ServiceRecord | null) => {
-  editingService.value = isServiceRecord(source) ? source : null
-  resetForm(source)
-  view.value = 'create'
+  createSource.value = source || null
+  createDialogVisible.value = true
 }
 
 const openWorkspace = async (serviceId: string, sessionId?: string) => {
@@ -428,6 +367,8 @@ const openWorkspace = async (serviceId: string, sessionId?: string) => {
 
 const backToList = async () => {
   view.value = 'list'
+  panel.value = ''
+  selectedArtifact.value = null
   await router.replace(serviceBasePath.value)
 }
 
@@ -440,9 +381,7 @@ const syncFromRoute = async () => {
     serviceHubState.activeServiceId = queryService
     const service = getService(queryService)
     if (queryAction === 'copy' && service) {
-      editingService.value = service
-      resetForm(service)
-      view.value = 'create'
+      openCreate(service)
       return
     }
     if (queryAction === 'archive' && service) {
@@ -461,23 +400,30 @@ const syncFromRoute = async () => {
   view.value = 'list'
 }
 
-const persistService = async (activate: boolean) => {
-  const name = form.name.trim()
+const persistService = async (payload: {
+  name: string
+  description: string
+  instruction: string
+  templateId: string
+  expertIds: string[]
+  knowledgeBaseIds: string[]
+}) => {
+  const name = payload.name.trim()
   if (!name) {
-    formError.value = '请输入服务名称'
+    MessagePlugin.error('请输入服务名称')
     return
   }
   try {
     const response = await createServiceSpace({
       name,
-      description: form.description.trim(),
-      instruction: form.instruction.trim(),
-      template_key: form.templateId,
-      knowledge_base_ids: form.knowledgeBaseIds,
-      selected_skills: form.skillIds,
-      activate,
-      experts: form.expertIds.map((expertId, index) => {
-        const expert = expertFor(expertId)
+      description: payload.description.trim(),
+      instruction: payload.instruction.trim(),
+      template_key: payload.templateId || undefined,
+      knowledge_base_ids: payload.knowledgeBaseIds,
+      selected_skills: [],
+      activate: true,
+      experts: payload.expertIds.map((expertId, index) => {
+        const expert = serviceExperts.find((item) => item.id === expertId)
         return {
           expert_ref: expertId,
           expert_name: expert?.name || expertId,
@@ -489,31 +435,33 @@ const persistService = async (activate: boolean) => {
     const serviceId = response?.data?.id
     if (!serviceId) throw new Error('missing service id')
     await loadServiceHub(true)
-    const session = activate ? await ensureServiceSession(serviceId) : undefined
+    const session = await ensureServiceSession(serviceId)
     serviceHubState.activeServiceId = serviceId
-    serviceHubState.activeSessionId = session?.id || ''
-    if (activate && session) {
+    serviceHubState.activeSessionId = session.id
+    createDialogVisible.value = false
+    if (session) {
       view.value = 'workspace'
       await router.replace({
         path: serviceBasePath.value,
         query: { service: serviceId, session: session.id },
       })
-    } else {
-      await backToList()
     }
-    MessagePlugin.success(activate ? '服务已创建' : '服务草稿已保存')
+    MessagePlugin.success('服务已创建')
   } catch (error) {
     console.error('[ServiceHub] Failed to create service:', error)
-    formError.value = '服务保存失败，请稍后重试'
+    MessagePlugin.error('服务创建失败，请稍后重试')
   }
 }
 
-const submitForm = async () => {
-  await persistService(true)
-}
-
-const saveDraft = async () => {
-  await persistService(false)
+const submitForm = async (payload: {
+  name: string
+  description: string
+  instruction: string
+  templateId: string
+  expertIds: string[]
+  knowledgeBaseIds: string[]
+}) => {
+  await persistService(payload)
 }
 
 const serviceSessionRequests = new Map<string, Promise<ServiceSession>>()
@@ -532,14 +480,23 @@ const ensureServiceSession = async (serviceId: string) => {
   return request
 }
 
-const toggleExpert = (expertId: string) => {
-  form.expertIds = form.expertIds.includes(expertId)
-    ? form.expertIds.filter((id) => id !== expertId)
-    : [...form.expertIds, expertId]
-}
-
-const toggleChoice = (key: 'knowledgeBaseIds' | 'skillIds', id: string) => {
-  form[key] = form[key].includes(id) ? form[key].filter((item) => item !== id) : [...form[key], id]
+const startNewSession = async () => {
+  if (!activeService.value) return
+  try {
+    const session = await createServiceSession(activeService.value.id, {
+      title: '开始一段新的工作',
+    })
+    serviceHubState.activeSessionId = session.id
+    panel.value = ''
+    selectedArtifact.value = null
+    await router.replace({
+      path: serviceBasePath.value,
+      query: { service: activeService.value.id, session: session.id },
+    })
+  } catch (error) {
+    console.error('[ServiceHub] Failed to create service session:', error)
+    MessagePlugin.error('新会话创建失败，请稍后重试')
+  }
 }
 
 const archiveService = async (service: ServiceRecord | undefined, navigate = view.value === 'workspace') => {
@@ -591,6 +548,10 @@ const ensureChatSession = async (session = activeSession.value) => {
 const retryActiveChatSession = () => {
   activeChatSessionError.value = ''
   void ensureChatSession()
+}
+
+const sendServiceChatPrompt = (prompt: string) => {
+  serviceChatViewRef.value?.triggerSend?.(prompt)
 }
 
 const handleServiceSessionMutation = (event: Event) => {

@@ -114,6 +114,18 @@ func main() {
 				  AND rb.tenant_id = resources.tenant_id
 				  AND rb.owner_type = ?
 			)
+			OR EXISTS (
+				SELECT 1
+				FROM chunks c
+				JOIN knowledges k ON k.id = c.knowledge_id
+				WHERE c.tenant_id = resources.tenant_id
+				  AND k.tenant_id = resources.tenant_id
+				  AND c.image_info <> ''
+				  AND (
+					POSITION(('resource://' || resources.handle) IN c.image_info) > 0
+					OR POSITION(resources.physical_path IN c.image_info) > 0
+				  )
+			)
 		`, "knowledge")
 	}
 	if opts.limit > 0 {

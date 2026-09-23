@@ -57,6 +57,29 @@ func (s *customAgentService) resolveSuggestionReadableKnowledgeBaseTenant(
 		}
 	}
 
+	if kb.TenantID != callerTenantID && s.kbService != nil {
+		// Account-level access can cross the active workspace boundary. This
+		// covers KBs created in an enterprise workspace while the user's
+		// current context is their personal workspace, as well as canonical
+		// shared/subscribed access. Reuse the same resolver as the KB page and
+		// document/file routes instead of treating the tenant mismatch as a
+		// denial.
+		access, err := s.kbService.ResolveKnowledgeBaseAccess(
+			ctx,
+			kb.ID,
+			types.KnowledgeBaseAccessOptions{RequiredPermission: types.OrgRoleViewer},
+		)
+		if err != nil {
+			logger.Warnf(ctx, "Failed to resolve account-level KB permission for suggestions, kb_id=%s: %v", kb.ID, err)
+		} else if access != nil {
+			tenantID := access.EffectiveTenantID
+			if tenantID == 0 {
+				tenantID = kb.TenantID
+			}
+			return tenantID, true
+		}
+	}
+
 	logger.Warnf(ctx, "Dropping KB %s from suggestions: caller cannot view it", kb.ID)
 	return 0, false
 }

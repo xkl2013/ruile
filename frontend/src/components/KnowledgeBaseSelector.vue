@@ -56,10 +56,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useSettingsStore } from '@/stores/settings'
-import { listKnowledgeBases } from '@/api/knowledge-base'
 import { useI18n } from 'vue-i18n'
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom'
 import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
+import { useChatResourcesStore } from '@/stores/chatResources'
 
 interface KnowledgeBase {
   id: string
@@ -85,11 +85,11 @@ const props = defineProps<{
 const emit = defineEmits(['close', 'update:visible'])
 
 const settingsStore = useSettingsStore()
+const chatResources = useChatResourcesStore()
 
 // 本地状态
 const searchQuery = ref('')
 const highlightedIndex = ref(0)
-const knowledgeBases = ref<KnowledgeBase[]>([])
 const searchInput = ref<HTMLInputElement | null>(null)
 const kbList = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
@@ -98,11 +98,12 @@ const dropdownStyle = ref<Record<string, string>>({})
 const dropdownWidth = props.dropdownWidth ?? 300
 const offsetY = props.offsetY ?? 8
 
-// 过滤：只显示已初始化（有 embedding & summary）的
+const knowledgeBases = computed<KnowledgeBase[]>(() => chatResources.validAccountKnowledgeBases as KnowledgeBase[])
+
+// 账号可见范围不按当前工作区或模型初始化状态裁剪；兼容性过滤由
+// Input-field 的智能体能力规则和后端检索授权负责。
 const filteredKnowledgeBases = computed(() => {
-  const valid = knowledgeBases.value.filter(
-    k => k.embedding_model_id && k.summary_model_id
-  )
+  const valid = knowledgeBases.value
   if (!searchQuery.value) return valid
   const q = searchQuery.value.toLowerCase()
   return valid.filter(k => k.name.toLowerCase().includes(q))
@@ -158,10 +159,16 @@ const close = () => {
 
 const loadKnowledgeBases = async () => {
   try {
-    const res: any = await listKnowledgeBases()
-    if (res?.data && Array.isArray(res.data)) knowledgeBases.value = res.data
+    await chatResources.fetchMyKnowledgeBases()
   } catch (e) {
-    console.error(t('knowledgeBase.loadingFailed'), e)
+    console.warn('[KnowledgeBaseSelector] Failed to load account-visible knowledge bases:', e)
+  }
+  try {
+    // Keep the legacy cache warm for unrelated screens. The selector itself
+    // reads only the account-visible computed list above.
+    await chatResources.ensureKnowledgeBases()
+  } catch (e) {
+    console.warn('[KnowledgeBaseSelector] Failed to load workspace fallback:', e)
   }
 }
 

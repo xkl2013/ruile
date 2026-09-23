@@ -66,10 +66,16 @@ func (r *suggestionAgentRepo) GetAgentByID(_ context.Context, id string, tenantI
 
 type suggestionKBService struct {
 	interfaces.KnowledgeBaseService
-	kbs map[string]*types.KnowledgeBase
+	kbs          map[string]*types.KnowledgeBase
+	workspaceKBs []*types.KnowledgeBase
+	accountKBs   *types.MyKnowledgeBaseList
+	access       map[string]*types.KnowledgeBaseAccess
 }
 
 func (s *suggestionKBService) ListKnowledgeBases(_ context.Context) ([]*types.KnowledgeBase, error) {
+	if s.workspaceKBs != nil {
+		return append([]*types.KnowledgeBase(nil), s.workspaceKBs...), nil
+	}
 	result := make([]*types.KnowledgeBase, 0, len(s.kbs))
 	for _, kb := range s.kbs {
 		if kb != nil {
@@ -77,6 +83,21 @@ func (s *suggestionKBService) ListKnowledgeBases(_ context.Context) ([]*types.Kn
 		}
 	}
 	return result, nil
+}
+
+func (s *suggestionKBService) ListMyKnowledgeBases(_ context.Context) (*types.MyKnowledgeBaseList, error) {
+	return s.accountKBs, nil
+}
+
+func (s *suggestionKBService) ResolveKnowledgeBaseAccess(
+	_ context.Context,
+	kbID string,
+	_ types.KnowledgeBaseAccessOptions,
+) (*types.KnowledgeBaseAccess, error) {
+	if access := s.access[kbID]; access != nil {
+		return access, nil
+	}
+	return nil, types.ErrKnowledgeBaseAccessForbidden
 }
 
 func (s *suggestionKBService) GetKnowledgeBasesByIDsOnly(
@@ -340,6 +361,89 @@ func TestGetSuggestedQuestionsBuiltinQuickAnswerFiltersUnreadableKBs(t *testing.
 	assert.NotContains(t, chunkRepo.docCalls[0].kbIDs, "other-kb")
 	require.Len(t, got, 2)
 	assert.ElementsMatch(t, []string{"own question", "shared question"}, []string{got[0].Question, got[1].Question})
+}
+
+func TestGetSuggestedQuestionsIncludesAccountCreatedEnterpriseKB(t *testing.T) {
+	withQuickAnswerBuiltin(t)
+
+	const (
+		callerTenant = uint64(10005)
+		sourceTenant = uint64(10006)
+		kbID         = "enterprise-kb"
+	)
+	kb := &types.KnowledgeBase{
+		ID:               kbID,
+		TenantID:         sourceTenant,
+		CreatorID:        "user-a",
+		Type:             types.KnowledgeBaseTypeDocument,
+		IndexingStrategy: types.DefaultIndexingStrategy(),
+	}
+	chunk := &types.Chunk{
+		ID:              "chunk-enterprise",
+		TenantID:        sourceTenant,
+		KnowledgeID:     "doc-enterprise",
+		KnowledgeBaseID: kbID,
+	}
+	require.NoError(t, chunk.SetDocumentMetadata(&types.DocumentChunkMetadata{
+		GeneratedQuestions: []types.GeneratedQuestion{{
+			ID:       "q-enterprise",
+			Question: "enterprise question",
+		}},
+	}))
+
+	chunkRepo := &suggestionChunkRepo{docChunks: []*types.Chunk{chunk}}
+	kbService := &suggestionKBService{
+		kbs:          map[string]*types.KnowledgeBase{kbID: kb},
+		workspaceKBs: []*types.KnowledgeBase{},
+		accountKBs: &types.MyKnowledgeBaseList{
+			Created: []*types.MyKnowledgeBaseListItem{{
+				KnowledgeBase:     kb,
+				EffectiveTenantID: sourceTenant,
+				AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+			}},
+		},
+		access: map[string]*types.KnowledgeBaseAccess{
+			kbID: {
+				KnowledgeBase:     kb,
+				EffectiveTenantID: sourceTenant,
+				Permission:        types.OrgRoleAdmin,
+				AccessSource:      types.KnowledgeBaseAccessSourceCreated,
+			},
+		},
+	}
+	svc := &customAgentService{
+		repo: &suggestionAgentRepo{agent: &types.CustomAgent{
+			ID:        types.BuiltinQuickAnswerID,
+			TenantID:  types.SystemAgentTenantID,
+			IsBuiltin: true,
+			Config: types.CustomAgentConfig{
+				AgentMode:       types.AgentModeQuickAnswer,
+				KBSelectionMode: "all",
+				QuestionSuggestions: &types.QuestionSuggestionConfig{
+					Starters: types.StarterSuggestionConfig{
+						Enabled: true,
+						Mode:    types.SuggestionModeKnowledge,
+						Count:   6,
+					},
+				},
+			},
+		}},
+		kbService:      kbService,
+		kbShareService: &suggestionKBShareService{},
+		chunkRepo:      chunkRepo,
+	}
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, callerTenant)
+	ctx = context.WithValue(ctx, types.UserIDContextKey, "user-a")
+	ctx = context.WithValue(ctx, types.TenantRoleContextKey, types.TenantRoleOwner)
+
+	got, err := svc.GetSuggestedQuestions(ctx, types.BuiltinQuickAnswerID, nil, nil, nil, 6)
+
+	require.NoError(t, err)
+	require.Len(t, chunkRepo.docCalls, 1)
+	assert.Equal(t, sourceTenant, chunkRepo.docCalls[0].tenantID)
+	assert.Equal(t, []string{kbID}, chunkRepo.docCalls[0].kbIDs)
+	require.Len(t, got, 1)
+	assert.Equal(t, "enterprise question", got[0].Question)
 }
 
 func TestMergeHybridStarterSuggestions_ReservesKnowledgeSlots(t *testing.T) {

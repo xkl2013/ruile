@@ -27,6 +27,30 @@ function isKbModelReady(kb: any): boolean {
   return true
 }
 
+function flattenMyKnowledgeBaseRow(row: any): any | null {
+  const knowledgeBase = row?.knowledge_base || row
+  if (!knowledgeBase?.id) return null
+  return {
+    ...knowledgeBase,
+    // Access metadata belongs to the account-centred row rather than the
+    // source KB object. Preserve it so chat/@ can display organization scope
+    // and keep the same visible-resource identity as the KB page.
+    effective_tenant_id: row?.effective_tenant_id ?? knowledgeBase.effective_tenant_id,
+    access_source: row?.access_source ?? knowledgeBase.access_source,
+    my_permission: row?.my_permission ?? row?.permission ?? knowledgeBase.my_permission,
+    permission: row?.permission ?? row?.my_permission ?? knowledgeBase.permission,
+    owner_type: row?.owner_type ?? knowledgeBase.owner_type,
+    organization_id: row?.organization_id ?? knowledgeBase.organization_id,
+    org_name: row?.org_name ?? knowledgeBase.org_name,
+    sharing_scope: row?.sharing_scope ?? knowledgeBase.sharing_scope,
+    share_id: row?.share_id ?? knowledgeBase.share_id,
+    shared_at: row?.shared_at ?? knowledgeBase.shared_at,
+    is_subscribed: row?.is_subscribed ?? knowledgeBase.is_subscribed,
+    subscription_id: row?.subscription_id ?? knowledgeBase.subscription_id,
+    subscribed_at: row?.subscribed_at ?? knowledgeBase.subscribed_at,
+  }
+}
+
 export const useChatResourcesStore = defineStore('chatResources', () => {
   const rawKnowledgeBases = ref<any[]>([])
   const myKnowledgeBases = ref<MyKnowledgeBaseList>({ created: [], shared: [], subscribed: [] })
@@ -54,6 +78,34 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
   const kbDetailInflight = new Map<string, Promise<any | null>>()
 
   const validKnowledgeBases = computed(() => rawKnowledgeBases.value.filter(isKbModelReady))
+  const accountKnowledgeBases = computed(() => {
+    const byID = new Map<string, any>()
+    const append = (rows: any[]) => {
+      for (const row of rows) {
+        const kb = flattenMyKnowledgeBaseRow(row)
+        if (kb && !byID.has(String(kb.id))) {
+          byID.set(String(kb.id), kb)
+        }
+      }
+    }
+
+    append(myKnowledgeBases.value.created || [])
+    append(myKnowledgeBases.value.shared || [])
+    append(myKnowledgeBases.value.subscribed || [])
+
+    // During initial bootstrap, keep the legacy workspace list as a
+    // temporary fallback. Once /knowledge-bases/my has completed, an empty
+    // account result is authoritative and must not be replaced by workspace
+    // data.
+    if (byID.size > 0 || isFresh('myKnowledgeBases')) {
+      return [...byID.values()]
+    }
+    return rawKnowledgeBases.value
+  })
+  // Account visibility is independent from model readiness. Chat and @ need
+  // to show every KB the account can read; retrieval capability is enforced
+  // later by the agent filter and backend search-target authorization.
+  const validAccountKnowledgeBases = computed(() => accountKnowledgeBases.value)
   const chatModels = computed(() => allModels.value.filter((m) => m.type === 'KnowledgeQA'))
 
   function isFresh(key: ResourceKey): boolean {
@@ -225,6 +277,7 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     const orgStore = useOrganizationStore()
     await Promise.all([
       ensureKnowledgeBases(force),
+      fetchMyKnowledgeBases(force),
       ensureAgents(force),
       ensureModels(force),
       ensureWebSearchProviders(force),
@@ -338,6 +391,8 @@ export const useChatResourcesStore = defineStore('chatResources', () => {
     rawKnowledgeBases,
     myKnowledgeBases,
     validKnowledgeBases,
+    accountKnowledgeBases,
+    validAccountKnowledgeBases,
     agents,
     disabledOwnAgentIds,
     allModels,

@@ -92,6 +92,27 @@ func (s *sessionService) KnowledgeQA(
 	knowledgeBaseIDs = filterKnowledgeBaseIDsBySearchTargets(knowledgeBaseIDs, searchTargets)
 	knowledgeIDs = filterKnowledgeIDsBySearchTargets(knowledgeIDs, searchTargets)
 
+	if message := quickAnswerEmptyKnowledgeMessage(req, searchTargets); message != "" {
+		logger.Warnf(ctx,
+			"Quick-answer request has no authorized knowledge scope; returning deterministic response without calling the chat model")
+		setupSpan.Finish(map[string]interface{}{
+			"stages":             0,
+			"knowledge_base_ids": knowledgeBaseIDs,
+			"search_targets":     0,
+			"reason":             "no_authorized_knowledge_scope",
+		}, nil, nil)
+		return eventBus.Emit(ctx, event.Event{
+			ID:        generateEventID("no-knowledge-scope"),
+			Type:      event.EventAgentFinalAnswer,
+			SessionID: req.Session.ID,
+			Data: event.AgentFinalAnswerData{
+				Content:    message,
+				Done:       true,
+				IsFallback: true,
+			},
+		})
+	}
+
 	// Resolve chat model ID using the authorized retrieval scope.
 	chatModelID, err := s.resolveChatModelID(ctx, req, modelKnowledgeBaseIDs, modelKnowledgeIDs)
 	if err != nil {
@@ -236,6 +257,39 @@ func (s *sessionService) KnowledgeQA(
 
 	logger.Info(ctx, "Knowledge base question answering initiated")
 	return nil
+}
+
+func quickAnswerEmptyKnowledgeMessage(
+	req *types.QARequest,
+	searchTargets types.SearchTargets,
+) string {
+	if req == nil || req.CustomAgent == nil || len(searchTargets) > 0 {
+		return ""
+	}
+
+	isQuickAnswer := req.CustomAgent.ID == types.BuiltinQuickAnswerID ||
+		req.CustomAgent.Config.AgentMode == types.AgentModeQuickAnswer
+	if !isQuickAnswer || req.CustomAgent.IsAgentMode() {
+		return ""
+	}
+
+	// These inputs provide their own answer context and do not require a
+	// persistent knowledge-base target.
+	if req.WebSearchEnabled ||
+		len(req.Attachments) > 0 ||
+		len(req.ImageURLs) > 0 ||
+		strings.TrimSpace(req.ImageDescription) != "" ||
+		strings.TrimSpace(req.QuotedContext) != "" {
+		return ""
+	}
+
+	hasExplicitScope := len(req.KnowledgeBaseIDs) > 0 ||
+		len(req.KnowledgeIDs) > 0 ||
+		len(req.TagScopes) > 0
+	if hasExplicitScope {
+		return "所选知识库当前不可访问或没有可检索内容，请重新选择您有权限的知识库。"
+	}
+	return "当前账号没有可用于问答的知识库。请先创建知识库、获取知识库分享权限，或订阅可访问的知识库后再提问。"
 }
 
 // selectChatModelID selects the appropriate chat model ID with priority for Remote models
