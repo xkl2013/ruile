@@ -251,37 +251,54 @@ watch(
 <style scoped lang="less">
 .organize-product-page {
   display: flex;
+  width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   background: var(--td-bg-color-container);
 }
 
 .organize-detail-scroll {
+  box-sizing: border-box;
   flex: 1;
+  width: 100%;
+  align-self: stretch;
   min-height: 0;
   overflow-y: auto;
-  padding: 28px 42px 48px;
+  padding: 24px 28px 48px;
 }
 
-.organize-detail-head,
+.organize-detail-head {
+  width: 100%;
+  max-width: none;
+  margin-right: auto;
+  margin-left: auto;
+}
+
 .organize-detail-section {
+  width: min(100%, 1040px);
   max-width: 1040px;
   margin-right: auto;
   margin-left: auto;
 }
 
 .organize-detail-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 18px;
-  padding-bottom: 26px;
+  gap: 20px;
+  min-height: 64px;
+  padding-bottom: 20px;
   border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.organize-detail-head > .organize-back-button {
+  flex: none;
 }
 
 .organize-detail-actions {
   display: flex;
+  flex: none;
   justify-content: flex-end;
 }
 
@@ -289,8 +306,10 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0;
+  min-height: 32px;
+  padding: 0 4px;
   border: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--td-text-color-secondary);
   cursor: pointer;
@@ -300,6 +319,7 @@ watch(
 }
 
 .organize-back-button:hover {
+  background: var(--td-bg-color-container-hover);
   color: var(--td-text-color-primary);
 }
 
@@ -307,6 +327,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
   min-width: 0;
 }
 
@@ -326,8 +347,9 @@ watch(
 .organize-detail-identity h2 {
   margin: 0;
   overflow: hidden;
-  font-size: 20px;
-  line-height: 28px;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 29px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -340,7 +362,7 @@ watch(
 }
 
 .organize-detail-section {
-  padding-top: 22px;
+  padding-top: 24px;
 }
 
 .organize-timeline {
@@ -540,13 +562,23 @@ watch(
 
 @media (max-width: 760px) {
   .organize-detail-scroll {
-    padding: 24px 20px 36px;
+    padding: 20px 16px 36px;
   }
 
   .organize-detail-head {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
-    gap: 14px;
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    min-height: 0;
+    padding-bottom: 16px;
+  }
+
+  .organize-detail-head > .organize-back-button {
+    width: 100%;
+  }
+
+  .organize-detail-identity {
+    flex: 1 1 calc(100% - 126px);
   }
 
   .organize-timeline-item {

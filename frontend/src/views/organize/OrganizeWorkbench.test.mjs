@@ -45,6 +45,28 @@ test('workbench exposes persisted config cards, templates, and config dialog', (
   assert.ok(workbenchSource.includes('deleteOrganizeConfig'))
 })
 
+test('organize config detail header keeps identity and action aligned responsively', () => {
+  assert.ok(configDetailSource.includes('display: flex;'))
+  assert.ok(configDetailSource.includes('flex: 1;'))
+  assert.ok(configDetailSource.includes('width: 100%;'))
+  assert.ok(configDetailSource.includes('max-width: none;'))
+  assert.ok(configDetailSource.includes('width: min(100%, 1040px);'))
+  assert.ok(configDetailSource.includes('flex-wrap: wrap;'))
+  assert.ok(!configDetailSource.includes('grid-template-columns: auto minmax(0, 1fr) auto'))
+})
+
+test('organize config validation points missing template errors at the template selector', () => {
+  const dialogSource = readFileSync(
+    new URL('./components/OrganizeConfigDialog.vue', import.meta.url),
+    'utf8',
+  )
+  assert.ok(dialogSource.includes('const templateError = ref(\'\')'))
+  assert.ok(dialogSource.includes(':class="{ \'is-error\': templateError }"'))
+  assert.ok(dialogSource.includes('templateError.value = \'请选择整理模板\''))
+  assert.ok(dialogSource.includes('organize-config-template-select.is-error'))
+  assert.ok(!dialogSource.includes(':status="error ? \'error\' : undefined"'))
+})
+
 test('saved organize configs and jobs are served by organize APIs', () => {
   assert.ok(organizeMenuSource.includes('listOrganizeConfigs'))
   assert.ok(organizeMenuSource.includes('v-for="config in configuredOrganizeItems"'))

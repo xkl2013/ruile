@@ -31,10 +31,10 @@
                 v-model="form.name"
                 size="medium"
                 placeholder="请输入整理名称，如：教研周整理"
-                :status="error ? 'error' : undefined"
-                @input="error = ''"
+                :status="nameError ? 'error' : undefined"
+                @input="nameError = ''"
               />
-              <small v-if="error" class="organize-config-error">{{ error }}</small>
+              <small v-if="nameError" class="organize-config-error">{{ nameError }}</small>
             </label>
 
             <div class="organize-config-field">
@@ -42,7 +42,13 @@
                 <span>指令</span>
                 <label>
                   <span class="sr-only">选择整理模板</span>
-                  <select v-model="form.templateKey" @change="applyTemplate">
+                  <select
+                    v-model="form.templateKey"
+                    class="organize-config-template-select"
+                    :class="{ 'is-error': templateError }"
+                    :aria-invalid="templateError ? 'true' : undefined"
+                    @change="handleTemplateChange"
+                  >
                     <option value="">选择模板</option>
                     <option v-for="template in templates" :key="template.key" :value="template.key">
                       {{ template.name }}（{{ template.scene }}）
@@ -57,6 +63,7 @@
                 :autosize="{ minRows: 5, maxRows: 9 }"
               />
               <small>产出结构由模板决定，指令负责按什么口径整理</small>
+              <small v-if="templateError" class="organize-config-error">{{ templateError }}</small>
             </div>
 
             <section class="organize-config-option">
@@ -162,7 +169,8 @@ const form = reactive({
   expertIds: [] as string[],
   schedule: 'manual' as OrganizeScheduleKey,
 })
-const error = ref('')
+const nameError = ref('')
+const templateError = ref('')
 const expertPickerOpen = ref(false)
 const saving = ref(false)
 const templates = ref<OrganizeTemplate[]>([])
@@ -186,7 +194,8 @@ const resetForm = () => {
   form.instruction = source?.instruction || template?.defaultInstruction || ''
   form.expertIds = source ? [...source.expertIds] : [...(template?.expertIds || [])]
   form.schedule = source?.schedule || 'manual'
-  error.value = ''
+  nameError.value = ''
+  templateError.value = ''
   expertPickerOpen.value = false
 }
 
@@ -203,9 +212,15 @@ watch(
 const applyTemplate = () => {
   const template = templates.value.find((item) => item.key === form.templateKey)
   if (!template) return
+  templateError.value = ''
   form.instruction = template.defaultInstruction
   form.expertIds = [...template.expertIds]
   if (!form.name.trim()) form.name = `${template.name}整理`
+}
+
+const handleTemplateChange = () => {
+  templateError.value = ''
+  applyTemplate()
 }
 
 const toggleExpert = (expertId: string) => {
@@ -233,11 +248,11 @@ const loadOptions = async () => {
 const submit = async () => {
   const name = form.name.trim()
   if (!name) {
-    error.value = '请先填写整理名称'
+    nameError.value = '请先填写整理名称'
     return
   }
   if (!form.templateKey) {
-    error.value = '请选择整理模板'
+    templateError.value = '请选择整理模板'
     return
   }
 
@@ -379,6 +394,11 @@ const submit = async () => {
   color: var(--td-text-color-primary);
   font: inherit;
   font-size: 13px;
+}
+
+.organize-config-template-select.is-error {
+  border-color: var(--td-error-color);
+  box-shadow: 0 0 0 1px var(--td-error-color);
 }
 
 .organize-config-schedule {
