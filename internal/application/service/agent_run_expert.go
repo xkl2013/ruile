@@ -124,14 +124,15 @@ func (s *agentRunService) enqueuePublishedExpertRun(
 	input types.ExpertAgentTestInput,
 	triggerType string,
 ) (*types.AgentRun, error) {
-	if err := validateServiceScope(tenantID, userID); err != nil {
+	if err := validateAgentRunScope(tenantID, userID); err != nil {
 		return nil, err
 	}
 	input.PackageID = strings.TrimSpace(input.PackageID)
 	input.DefinitionID = strings.TrimSpace(input.DefinitionID)
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	input.ModelID = strings.TrimSpace(input.ModelID)
-	input.ProfileID = strings.TrimSpace(input.ProfileID)
+	input.ServiceID = strings.TrimSpace(input.ServiceID)
+	input.SessionID = strings.TrimSpace(input.SessionID)
 	input.RouteMode = strings.TrimSpace(input.RouteMode)
 	if input.RouteMode == "" {
 		input.RouteMode = types.AgentRouteModeManual
@@ -140,6 +141,27 @@ func (s *agentRunService) enqueuePublishedExpertRun(
 		utf8.RuneCountInString(input.Prompt) > expertAgentTestMaxPromptRunes ||
 		(input.RouteMode != types.AgentRouteModeManual && input.RouteMode != types.AgentRouteModeAuto) {
 		return nil, ErrAgentRunInvalidRequest
+	}
+	if (input.ServiceID == "") != (input.SessionID == "") {
+		return nil, ErrAgentRunInvalidRequest
+	}
+	if input.ServiceID != "" {
+		if s.serviceSpace == nil {
+			return nil, errors.New("service workspace runtime is not configured")
+		}
+		if _, err := s.serviceSpace.Authorize(
+			ctx,
+			tenantID,
+			userID,
+			input.ServiceID,
+			types.ServiceMemberRoleEditor,
+			true,
+		); err != nil {
+			return nil, err
+		}
+		if _, err := s.serviceSpace.GetSession(ctx, tenantID, userID, input.ServiceID, input.SessionID); err != nil {
+			return nil, err
+		}
 	}
 	if s.expertPackages == nil {
 		return nil, errors.New("expert package repository is not configured")
@@ -159,15 +181,32 @@ func (s *agentRunService) enqueuePublishedExpertRun(
 	if definition.OutputContract != types.AgentResultSchemaV1 {
 		return nil, fmt.Errorf("%w: unsupported output contract %q", ErrAgentRunInvalidRequest, definition.OutputContract)
 	}
+	if input.ServiceID != "" {
+		experts, listErr := s.serviceSpace.ListExperts(ctx, tenantID, userID, input.ServiceID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		bound := false
+		for _, expert := range experts {
+			if expert != nil && expert.Enabled && strings.TrimSpace(expert.ExpertRef) == strings.TrimSpace(definition.AgentID) {
+				bound = true
+				break
+			}
+		}
+		if !bound {
+			return nil, fmt.Errorf("%w: published expert is not bound to service", ErrAgentRunInvalidRequest)
+		}
+	}
 	runInput, err := agentRunJSONMap(input)
 	if err != nil {
 		return nil, fmt.Errorf("encode expert test request: %w", err)
 	}
 	return s.enqueue(ctx, tenantID, userID, &types.AgentRun{
+		ServiceID:    input.ServiceID,
+		ThreadID:     input.SessionID,
 		RunType:      types.AgentRunTypeExpertAgentTest,
 		AgentRef:     definition.AgentID,
 		AgentVersion: definition.Version,
-		ProfileID:    input.ProfileID,
 		TriggerType:  triggerType,
 		TriggerID:    definition.ID,
 		Input:        runInput,

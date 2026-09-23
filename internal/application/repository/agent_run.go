@@ -44,6 +44,21 @@ func (r *agentRunRepository) GetByIDForUser(ctx context.Context, tenantID uint64
 	return &run, err
 }
 
+func (r *agentRunRepository) GetByIDForService(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, id string,
+) (*types.AgentRun, error) {
+	var run types.AgentRun
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, strings.TrimSpace(serviceID), strings.TrimSpace(id)).
+		First(&run).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &run, err
+}
+
 func (r *agentRunRepository) ListByThreadForUser(
 	ctx context.Context,
 	tenantID uint64,
@@ -208,7 +223,6 @@ func (r *agentRunRepository) MarkTimedOut(
 func (r *agentRunRepository) MarkSucceeded(
 	ctx context.Context,
 	id string,
-	profileID string,
 	result types.JSONMap,
 	finishedAt time.Time,
 ) (bool, error) {
@@ -220,9 +234,6 @@ func (r *agentRunRepository) MarkSucceeded(
 		"error_code":    "",
 		"error_message": "",
 		"finished_at":   finishedAt.UTC(),
-	}
-	if strings.TrimSpace(profileID) != "" {
-		updates["profile_id"] = strings.TrimSpace(profileID)
 	}
 	update := r.db.WithContext(ctx).Model(&types.AgentRun{}).
 		Where("id = ? AND status = ?", strings.TrimSpace(id), types.AgentRunStatusRunning).

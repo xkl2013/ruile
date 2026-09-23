@@ -140,6 +140,7 @@ type MenuMode = 'menu' | 'clear' | 'delete'
 const props = defineProps<{
   session: ChatHeaderSession | null
   hasReferencesPanel?: boolean
+  serviceId?: string
 }>()
 
 const { t } = useI18n()
@@ -241,7 +242,7 @@ async function submitTitleEdit(): Promise<void> {
 
   busyAction.value = 'rename'
   try {
-    await renameSession(session.id, title, session.description || '')
+    await renameSession(session.id, title, session.description || '', props.serviceId || '')
     MessagePlugin.success(t('menu.renameSessionSuccess'))
   } catch {
     MessagePlugin.error(t('menu.renameSessionFailed'))
@@ -255,7 +256,7 @@ async function togglePin(pinned: boolean): Promise<void> {
   if (!session || busyAction.value) return
   busyAction.value = 'pin'
   try {
-    await setSessionPinned(session.id, pinned)
+    await setSessionPinned(session.id, pinned, props.serviceId || '')
     MessagePlugin.success(t(pinned ? 'chatHeader.pinSuccess' : 'chatHeader.unpinSuccess'))
   } catch {
     MessagePlugin.error(t(pinned ? 'menu.pinFailed' : 'menu.unpinFailed'))
@@ -289,10 +290,11 @@ async function copyMarkdown(): Promise<void> {
   busyAction.value = 'markdown'
   try {
     const messages = await collectAllSessionMessages(async (beforeTime, limit) => {
-      const response: any = await getMessageList({
+        const response: any = await getMessageList({
         session_id: session.id,
         created_at: beforeTime,
         limit,
+        service_id: props.serviceId || undefined,
       })
       if (!response?.success || !Array.isArray(response.data)) {
         throw new Error(response?.message || 'failed to load session messages')
@@ -326,7 +328,7 @@ async function submitClearMessages(): Promise<void> {
   if (!session || busyAction.value) return
   busyAction.value = 'clear'
   try {
-    await clearSession(session.id)
+    await clearSession(session.id, props.serviceId || '')
     menuVisible.value = false
     menuMode.value = 'menu'
     MessagePlugin.success(t('menu.clearMessagesSuccess'))
@@ -342,7 +344,7 @@ async function submitDeleteSession(): Promise<void> {
   if (!session || busyAction.value) return
   busyAction.value = 'delete'
   try {
-    await removeSession(session.id)
+    await removeSession(session.id, props.serviceId || '')
     menuVisible.value = false
     menuMode.value = 'menu'
     MessagePlugin.success(t('chatHeader.deleteSuccess'))

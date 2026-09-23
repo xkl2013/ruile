@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
@@ -28,6 +29,73 @@ func NewAgentRunHandler(
 	fileService interfaces.FileService,
 ) *AgentRunHandler {
 	return &AgentRunHandler{agentRuns: agentRuns, fileService: fileService}
+}
+
+func serviceScope(c *gin.Context) (uint64, string, bool) {
+	tenantID := c.GetUint64(types.TenantIDContextKey.String())
+	if tenantID == 0 {
+		c.Error(apperrors.NewUnauthorizedError("workspace ID not found"))
+		return 0, "", false
+	}
+	userID := strings.TrimSpace(c.GetString(types.UserIDContextKey.String()))
+	if userID == "" {
+		c.Error(apperrors.NewUnauthorizedError("user ID not found"))
+		return 0, "", false
+	}
+	return tenantID, userID, true
+}
+
+// ServiceSessionScopeMiddleware authorizes service-scoped chat requests before
+// the legacy session/message handlers run. The header is deliberately opt-in:
+// global chats keep their existing per-user scope, while service chats can be
+// shared with active members of the owning service space.
+func ServiceSessionScopeMiddleware(service interfaces.ServiceSpaceService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		serviceID := strings.TrimSpace(c.GetHeader("X-Service-ID"))
+		if service == nil || serviceID == "" {
+			c.Next()
+			return
+		}
+
+		sessionID := strings.TrimSpace(c.Param("session_id"))
+		if sessionID == "" {
+			sessionID = strings.TrimSpace(c.Param("id"))
+		}
+		if sessionID == "" {
+			c.Next()
+			return
+		}
+
+		tenantID, userID, ok := serviceScope(c)
+		if !ok {
+			return
+		}
+		write := c.Request.Method != http.MethodGet
+		minimumRole := types.ServiceMemberRoleViewer
+		if write {
+			minimumRole = types.ServiceMemberRoleEditor
+		}
+		if _, err := service.Authorize(c.Request.Context(), tenantID, userID, serviceID, minimumRole, write); err != nil {
+			switch {
+			case stderrors.Is(err, appsvc.ErrServiceSpaceForbidden):
+				c.Error(apperrors.NewForbiddenError(err.Error()))
+			case stderrors.Is(err, appsvc.ErrServiceSpaceArchived),
+				stderrors.Is(err, appsvc.ErrServiceSpaceNotActive):
+				c.Error(apperrors.NewBadRequestError(err.Error()))
+			default:
+				c.Error(apperrors.NewNotFoundError(err.Error()))
+			}
+			return
+		}
+		if _, err := service.GetSession(c.Request.Context(), tenantID, userID, serviceID, sessionID); err != nil {
+			c.Error(apperrors.NewNotFoundError(err.Error()))
+			return
+		}
+
+		ctx := context.WithValue(c.Request.Context(), types.ServiceSessionIDContextKey, serviceID)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
 }
 
 func (h *AgentRunHandler) Get(c *gin.Context) {
@@ -303,6 +371,55 @@ func (h *AgentRunHandler) Diff(c *gin.Context) {
 	}})
 }
 
+func writeAgentRunEventSSE(c *gin.Context, event *types.AgentRunEvent) error {
+	data := map[string]any{
+		"type":      event.EventType,
+		"id":        event.ID,
+		"runId":     event.RunID,
+		"sequence":  event.Sequence,
+		"createdAt": event.CreatedAt,
+	}
+	for key, value := range event.Payload {
+		data[key] = value
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "id: %d\n", event.Sequence); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", raw); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func writeAgentRunSSE(c *gin.Context, data map[string]any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", raw); err != nil {
+		return err
+	}
+	c.Writer.Flush()
+	return nil
+}
+
+func isTerminalAgentRunStatus(status string) bool {
+	switch status {
+	case types.AgentRunStatusWaitingInput,
+		types.AgentRunStatusSucceeded,
+		types.AgentRunStatusFailed,
+		types.AgentRunStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 func findAgentRunArtifact(run *types.AgentRun, artifactID string) *types.AgentArtifactResultV1 {
 	if run == nil {
 		return nil
@@ -386,6 +503,8 @@ func firstNonEmptyHandler(values ...string) string {
 
 func (h *AgentRunHandler) handleError(c *gin.Context, err error) {
 	switch {
+	case stderrors.Is(err, appsvc.ErrAgentRunInvalidScope):
+		c.Error(apperrors.NewUnauthorizedError(err.Error()))
 	case stderrors.Is(err, appsvc.ErrAgentRunNotFound):
 		c.Error(apperrors.NewNotFoundError(err.Error()))
 	case stderrors.Is(err, appsvc.ErrAgentRunInvalidRequest),

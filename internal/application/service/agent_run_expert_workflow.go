@@ -285,7 +285,7 @@ func (s *agentRunService) executeExpertWorkflow(
 		"loaded_skills":           expertSkillTrace(skills),
 		"quality":                 qualityMap,
 		"report_markdown":         report,
-	}, input.ProfileID, nil
+	}, "", nil
 }
 
 func (s *agentRunService) runExpertIntake(

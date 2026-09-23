@@ -73,6 +73,9 @@ export interface StructuredReportV1 {
 
 export interface AgentRunArtifactResultV1 {
   id?: string
+  version_id?: string
+  version?: number
+  run_id?: string
   kind: 'text' | 'report' | 'html' | 'image' | 'pdf' | 'document' | 'spreadsheet' | 'presentation' | 'audio' | 'video' | 'data'
   role: 'primary' | 'supporting'
   title: string
@@ -81,6 +84,12 @@ export interface AgentRunArtifactResultV1 {
   original_name?: string
   size_bytes?: number
   resource_ref?: string
+  lifecycle?: 'temporary' | 'saved' | 'shared' | 'archived'
+  previewable?: boolean
+  downloadable?: boolean
+  shareable?: boolean
+  created_at?: string
+  metadata?: Record<string, unknown>
   content?: StructuredReportV1 | Record<string, unknown>
 }
 
@@ -115,6 +124,7 @@ export interface AgentRun {
   id: string
   tenant_id: number
   user_id: string
+  service_id?: string
   thread_id?: string
   profile_id?: string
   parent_run_id?: string

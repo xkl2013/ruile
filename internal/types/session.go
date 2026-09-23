@@ -84,6 +84,13 @@ type Session struct {
 	// UserID is the owner scope for this session. WeKnora user UUIDs, API
 	// external-user principals, and embed visitor principals all use this column.
 	UserID string `json:"user_id,omitempty" gorm:"type:varchar(512);index"`
+	// ServiceID is empty for global chats and identifies the owning service
+	// workspace for service-scoped conversations.
+	ServiceID string `json:"service_id,omitempty" gorm:"type:varchar(36);index"`
+	// ExpertRef/ExpertName are the current conversation-level expert selection.
+	// Individual AgentRun rows keep their own immutable agent_ref truth.
+	ExpertRef  string `json:"expert_ref,omitempty" gorm:"type:varchar(128);not null;default:''"`
+	ExpertName string `json:"expert_name,omitempty" gorm:"type:varchar(128);not null;default:''"`
 	// IsPinned indicates whether the session is pinned in the list.
 	IsPinned bool `json:"is_pinned" gorm:"default:false"`
 	// PinnedAt records when the session was pinned; nil when not pinned.
@@ -134,13 +141,15 @@ func (s *Session) BeforeCreate(tx *gorm.DB) (err error) {
 // or an IM platform name (e.g. "feishu", "wechat").
 // AgentID currently only filters sessions that have an IM channel mapping.
 type SessionListQuery struct {
-	TenantID uint64
-	UserID   string
-	Keyword  string
-	Source   string
-	AgentID  string
-	Page     int
-	PageSize int
+	TenantID   uint64
+	UserID     string
+	ServiceID  string
+	GlobalOnly bool
+	Keyword    string
+	Source     string
+	AgentID    string
+	Page       int
+	PageSize   int
 }
 
 // SessionListItem is a session row enriched with its IM origin (when any).

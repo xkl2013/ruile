@@ -34,10 +34,8 @@ const (
 	AgentRunStepTypeRevising  = "revising"
 	AgentRunStepTypePackaging = "packaging"
 
-	AgentRunTypeServiceDailyReport   = "service_daily_report"
-	AgentRunTypeServiceMemoryExtract = "service_memory_extract"
-	AgentRunTypeExpertAgentTest      = "expert_agent_test"
-	AgentRunTypeExpertFollowUp       = "expert_follow_up"
+	AgentRunTypeExpertAgentTest = "expert_agent_test"
+	AgentRunTypeExpertFollowUp  = "expert_follow_up"
 
 	AgentRouteModeAuto   = "auto"
 	AgentRouteModeManual = "manual"
@@ -75,6 +73,7 @@ const (
 	AgentRunEventTypeTextMessageEnd          = "TEXT_MESSAGE_END"
 	AgentRunEventTypeActivitySnapshot        = "ACTIVITY_SNAPSHOT"
 	AgentRunEventTypeActivityDelta           = "ACTIVITY_DELTA"
+	AgentRunEventTypeArtifactVersionCreated  = "ARTIFACT_VERSION_CREATED"
 	AgentRunEventTypeQualityUpdated          = "QUALITY_UPDATED"
 	AgentRunEventTypeExpertRouting           = "EXPERT_ROUTING"
 )
@@ -87,7 +86,7 @@ type AgentRun struct {
 	ID                    string         `json:"id" gorm:"type:varchar(36);primaryKey"`
 	TenantID              uint64         `json:"tenant_id" gorm:"not null;index"`
 	UserID                string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	ProfileID             string         `json:"profile_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	ServiceID             string         `json:"service_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
 	ThreadID              string         `json:"thread_id" gorm:"type:varchar(36);not null;default:'';index"`
 	ParentRunID           string         `json:"parent_run_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
 	RequirementSnapshotID string         `json:"requirement_snapshot_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
@@ -158,8 +157,7 @@ func IsValidAgentRunStatus(status string) bool {
 
 func IsValidAgentRunType(runType string) bool {
 	switch runType {
-	case AgentRunTypeServiceDailyReport, AgentRunTypeServiceMemoryExtract, AgentRunTypeExpertAgentTest,
-		AgentRunTypeExpertFollowUp:
+	case AgentRunTypeExpertAgentTest, AgentRunTypeExpertFollowUp:
 		return true
 	default:
 		return false
@@ -211,7 +209,8 @@ type ExpertAgentTestInput struct {
 	DefinitionID    string  `json:"definition_id"`
 	Prompt          string  `json:"prompt"`
 	ModelID         string  `json:"model_id,omitempty"`
-	ProfileID       string  `json:"profile_id,omitempty"`
+	ServiceID       string  `json:"service_id,omitempty"`
+	SessionID       string  `json:"session_id,omitempty"`
 	Answers         JSONMap `json:"answers,omitempty"`
 	Feedback        string  `json:"feedback,omitempty"`
 	RouteMode       string  `json:"route_mode,omitempty"`
@@ -234,6 +233,8 @@ type ExpertFollowUpInput struct {
 	ModelID      string `json:"model_id,omitempty"`
 	PackageID    string `json:"package_id,omitempty"`
 	DefinitionID string `json:"definition_id,omitempty"`
+	ServiceID    string `json:"service_id,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
 }
 
 type ExpertIntakeQuestion struct {

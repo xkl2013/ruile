@@ -1,11 +1,17 @@
 <template>
     <div class="chat" :class="{
         'is-embedded': embeddedMode,
+        'is-hosted': hostedMode,
         'is-sidebar-collapsed': uiStore.sidebarCollapsed,
         'has-references-panel': referencesDrawerVisible,
         'has-expert-artifact-panel': activeExpertArtifact,
     }">
-        <ChatHeader v-if="!embeddedMode" :session="currentSession" :has-references-panel="referencesDrawerVisible" />
+        <ChatHeader
+            v-if="!embeddedMode"
+            :session="currentSession"
+            :service-id="props.serviceId || ''"
+            :has-references-panel="referencesDrawerVisible"
+        />
         <div ref="scrollContainer" class="chat_scroll_box" @scroll="handleScroll">
             <div class="msg_list" :class="{ 'is-embedded': embeddedMode }">
                 <!-- 消息列表骨架屏 -->
@@ -141,7 +147,8 @@
                 @send-published-expert="handlePublishedExpertSend"
                 @stop-generation="handleStopGeneration" :isReplying="isReplying" :sessionId="session_id"
                 :assistantMessageId="currentAssistantMessageId" :agent-id="agentId"
-                :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"></InputField>
+                :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"
+                :hostedMode="hostedMode"></InputField>
         </div>
     </div>
     <ChatReferencesDrawer />
@@ -212,11 +219,13 @@ const { visible: referencesDrawerVisible } = referencesDrawer;
 
 const props = defineProps({
     session_id: { type: String, default: '' },
+    serviceId: { type: String, default: '' },
     agentId: { type: String, default: '' },
     kbIds: { type: Array, default: () => [] },
     quotedContext: { type: String, default: '' },
     embeddedInputPlaceholder: { type: String, default: '' },
     embeddedMode: { type: Boolean, default: false },
+    hostedMode: { type: Boolean, default: false },
 });
 const emit = defineEmits(['message-state-change', 'user-message-send']);
 
@@ -225,7 +234,7 @@ const useSettingsStoreInstance = useSettingsStore();
 
 // Whether the active chat session is using the Agent pipeline (not quick-answer).
 const isAgentStreamSession = () => {
-    if (props.embeddedMode) {
+    if (props.embeddedMode || props.hostedMode) {
         return !!(props.agentId && props.agentId !== 'builtin-quick-answer');
     }
     return useSettingsStoreInstance.isAgentStreamMode;
@@ -280,7 +289,7 @@ const isPublishedExpertSessionId = (sessionId = session_id.value) =>
 const loadSessionAndHydrate = async (sid) => {
     if (!sid || props.embeddedMode || isPublishedExpertSessionId(sid)) return;
     try {
-        const sessionRes = await getSession(sid);
+        const sessionRes = await getSession(sid, props.serviceId || undefined);
         if (sessionRes?.data && sid === session_id.value) {
             currentSession.value = sessionRes.data;
             const lastState = sessionRes.data.last_request_state;
@@ -593,7 +602,10 @@ const handleScroll = () => {
     debouncedScrollTop();
 };
 
-const fetchMessageList = (data) => getMessageList(data);
+const fetchMessageList = (data) => getMessageList({
+    ...data,
+    service_id: props.serviceId || undefined,
+});
 
 const {
     findLastMessage,
@@ -640,6 +652,7 @@ const {
                 query: lastMessage.id,
                 method: 'GET',
                 url: '/api/v1/sessions/continue-stream',
+                headers: props.serviceId ? { 'X-Service-ID': props.serviceId } : undefined,
             });
             // On success the stream resumed normally; on failure the error watcher
             // already took over (quiet recovery for IM), so only clear the flag here.
@@ -1456,7 +1469,9 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
     prepareForNewOutgoingMessage();
     isReplying.value = true;
     loading.value = true;
-    const selectedAgentId = props.embeddedMode ? props.agentId : (useSettingsStoreInstance.selectedAgentId || '');
+    const selectedAgentId = (props.embeddedMode || props.hostedMode)
+        ? props.agentId
+        : (useSettingsStoreInstance.selectedAgentId || '');
 
     // Images are unified with the attachment pipeline: on the authenticated web
     // client they upload as temporary documents (understood in the background by
@@ -1572,7 +1587,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
     scrollToBottom(true);
 
     // Get agent mode status from settings store (prefer selectedAgentId for builtins)
-    const agentEnabled = props.embeddedMode
+    const agentEnabled = props.embeddedMode || props.hostedMode
         ? (props.agentId && props.agentId !== 'builtin-quick-answer')
         : useSettingsStoreInstance.isAgentStreamMode;
 
@@ -1581,7 +1596,12 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
 
     // Get knowledge_base_ids from settings store (selected by user via KnowledgeBaseSelector)
     // Merge @mentioned KB/file IDs so retrieval uses the same targets user @mentioned (including shared KBs)
-    const sidebarKbIds = props.embeddedMode ? props.kbIds : (useSettingsStoreInstance.settings.selectedKnowledgeBases || []);
+    const selectedKnowledgeBaseIds = useSettingsStoreInstance.settings.selectedKnowledgeBases || [];
+    const sidebarKbIds = props.embeddedMode
+        ? props.kbIds
+        : props.hostedMode
+            ? [...props.kbIds, ...selectedKnowledgeBaseIds]
+            : selectedKnowledgeBaseIds;
     const sidebarFileIds = props.embeddedMode ? [] : (useSettingsStoreInstance.settings.selectedFiles || []);
     const kbIdSet = new Set(sidebarKbIds);
     const fileIdSet = new Set(sidebarFileIds);
@@ -1632,6 +1652,7 @@ const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = []
         quoted_context: props.quotedContext || undefined,
         method: 'POST',
         url: endpoint,
+        headers: props.serviceId ? { 'X-Service-ID': props.serviceId } : undefined,
     });
 }
 
@@ -1654,7 +1675,12 @@ const recoverIncompleteMessage = () => {
         if (session_id.value !== targetSession) { isReplying.value = false; isImRecovering.value = false; return; } // navigated away
         attempts++;
         try {
-            const res = await getMessageList({ session_id: targetSession, limit: limit.value, created_at: '' });
+            const res = await getMessageList({
+                session_id: targetSession,
+                limit: limit.value,
+                created_at: '',
+                service_id: props.serviceId || undefined,
+            });
             const target = (res?.data || []).find((m) => m.id === targetMessageId);
             if (target && target.is_completed) {
                 created_at.value = '';
@@ -1745,6 +1771,10 @@ const handleSessionMutation = (event) => {
 onBeforeMount(async () => {
     // 若从智能体列表点击共享智能体进入，URL 带 agent_id 与 source_tenant_id，同步到 store
     if (!props.embeddedMode) {
+        // 宿主页可以注入会话初始上下文，但离开宿主页后必须还原用户原本的全局设置。
+        if (props.hostedMode) {
+            useSettingsStoreInstance.snapshotAsDefaultsIfNeeded();
+        }
         const agentIdFromQuery = props.agentId || (route.query.agent_id && String(route.query.agent_id));
         const sourceTenantIdFromQuery = route.query.source_tenant_id && String(route.query.source_tenant_id);
         if (agentIdFromQuery && sourceTenantIdFromQuery) {
@@ -1818,6 +1848,9 @@ const clearData = () => {
 onUnmounted(() => {
     window.removeEventListener(SESSION_MUTATION_EVENT, handleSessionMutation);
     if (recoverPollTimer) { clearTimeout(recoverPollTimer); recoverPollTimer = null; }
+    if (props.hostedMode) {
+        useSettingsStoreInstance.restoreDefaultsIfSnapshotted();
+    }
 });
 onBeforeRouteLeave((to, from, next) => {
     clearData()
@@ -1864,6 +1897,13 @@ defineExpose({
     &.is-embedded {
         max-width: 100%;
         min-width: 100%;
+        padding: 0;
+        overflow-x: hidden;
+    }
+
+    &.is-hosted {
+        max-width: 100%;
+        min-width: 0;
         padding: 0;
         overflow-x: hidden;
     }

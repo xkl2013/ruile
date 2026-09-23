@@ -1,4 +1,4 @@
--- Durable asynchronous AgentRun records.
+-- Migration 000099: Durable asynchronous AgentRun records.
 -- Durable async execution records for service-agent jobs.
 
 CREATE TABLE IF NOT EXISTS agent_runs (

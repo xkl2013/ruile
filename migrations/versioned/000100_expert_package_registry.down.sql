@@ -1,4 +1,4 @@
--- Expert package registry rollback.
+-- Migration 000100 rollback: Expert package registry.
 
 DROP TABLE IF EXISTS agent_bindings;
 DROP TABLE IF EXISTS agent_definition_versions;

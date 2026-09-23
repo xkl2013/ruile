@@ -41,6 +41,38 @@
           </span>
           <span class="service-hub-service-name">{{ service.name }}</span>
           <span class="service-hub-service-trailing">
+            <span class="service-hub-service-actions" @click.stop>
+              <t-tooltip content="新建会话" placement="top">
+                <button
+                  type="button"
+                  class="service-hub-service-action"
+                  aria-label="新建会话"
+                  @click.stop="startServiceSession(service.id)"
+                >
+                  <t-icon name="add" size="14px" />
+                </button>
+              </t-tooltip>
+              <t-dropdown trigger="click" placement="bottom-right" attach="body">
+                <button
+                  type="button"
+                  class="service-hub-service-action"
+                  aria-label="服务设置"
+                  title="服务设置"
+                >
+                  <t-icon name="setting" size="14px" />
+                </button>
+                <template #dropdown>
+                  <t-dropdown-menu>
+                    <t-dropdown-item @click="requestServiceAction(service.id, 'copy')">
+                      复制配置创建
+                    </t-dropdown-item>
+                    <t-dropdown-item @click="requestServiceAction(service.id, 'archive')">
+                      {{ service.state === 'archived' ? '恢复服务' : '归档服务' }}
+                    </t-dropdown-item>
+                  </t-dropdown-menu>
+                </template>
+              </t-dropdown>
+            </span>
             <button
               type="button"
               class="service-hub-service-caret"
@@ -95,12 +127,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  createServiceSession,
   getServiceSessions,
   getServiceTemplate,
+  loadServiceHub,
   serviceHubState,
 } from '@/views/service/serviceHubState'
 
@@ -117,6 +151,7 @@ const visibleServices = computed(() => {
 })
 const activeServiceId = computed(() => String(route.query.service || serviceHubState.activeServiceId || ''))
 const activeSessionId = computed(() => String(route.query.session || serviceHubState.activeSessionId || ''))
+const serviceBasePath = computed(() => route.meta.mobileEntry ? '/mobile/service' : '/platform/service')
 
 const isServiceExpanded = (serviceId: string) => serviceHubState.expandedServices[serviceId] !== false
 
@@ -129,14 +164,14 @@ const toggleService = (serviceId: string) => {
 }
 
 const openServiceList = async () => {
-  await router.push('/platform/service')
+  await router.push(serviceBasePath.value)
 }
 
 const openService = async (serviceId: string) => {
   serviceHubState.activeServiceId = serviceId
   serviceHubState.activeSessionId = getServiceSessions(serviceId)[0]?.id || ''
   await router.push({
-    path: '/platform/service',
+    path: serviceBasePath.value,
     query: {
       service: serviceId,
       ...(serviceHubState.activeSessionId ? { session: serviceHubState.activeSessionId } : {}),
@@ -144,14 +179,40 @@ const openService = async (serviceId: string) => {
   })
 }
 
+const startServiceSession = async (serviceId: string) => {
+  try {
+    const session = await createServiceSession(serviceId, { title: '开始一段新的工作' })
+    serviceHubState.activeServiceId = serviceId
+    serviceHubState.activeSessionId = session.id
+    serviceHubState.expandedServices[serviceId] = true
+    await router.push({
+      path: serviceBasePath.value,
+      query: { service: serviceId, session: session.id },
+    })
+  } catch (error) {
+    console.error('[ServiceHubMenu] Failed to create service session:', error)
+  }
+}
+
+const requestServiceAction = async (serviceId: string, action: 'copy' | 'archive') => {
+  await router.push({
+    path: serviceBasePath.value,
+    query: { service: serviceId, action },
+  })
+}
+
 const openSession = async (serviceId: string, sessionId: string) => {
   serviceHubState.activeServiceId = serviceId
   serviceHubState.activeSessionId = sessionId
   await router.push({
-    path: '/platform/service',
+    path: serviceBasePath.value,
     query: { service: serviceId, session: sessionId },
   })
 }
+
+onMounted(() => {
+  void loadServiceHub()
+})
 </script>
 
 <style scoped lang="less">
@@ -259,6 +320,7 @@ const openSession = async (serviceId: string, sessionId: string) => {
   display: flex;
   align-items: center;
   gap: 8px;
+  box-sizing: border-box;
   width: 100%;
   min-height: 28px;
   padding: 0 8px 0 calc(var(--sidebar-inset-x) + 20px);
@@ -301,6 +363,41 @@ const openSession = async (serviceId: string, sessionId: string) => {
   gap: 4px;
   flex-shrink: 0;
   min-width: 36px;
+}
+
+.service-hub-service-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.service-hub-service-item:hover .service-hub-service-actions,
+.service-hub-service-item:focus-within .service-hub-service-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.service-hub-service-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.service-hub-service-action:hover {
+  background: var(--td-bg-color-container-hover);
+  color: var(--td-text-color-primary);
 }
 
 .service-hub-service-caret {

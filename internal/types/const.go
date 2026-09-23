@@ -27,6 +27,10 @@ const (
 	// SessionTenantIDContextKey is the context key for session owner's tenant ID.
 	// When set (e.g. in pipeline with shared agent), session/message lookups use this instead of TenantIDContextKey.
 	SessionTenantIDContextKey ContextKey = "SessionTenantID"
+	// ServiceSessionIDContextKey marks a chat request that has already passed
+	// service-space membership authorization. Session repository lookups use it
+	// to allow all active service members to read/write that conversation.
+	ServiceSessionIDContextKey ContextKey = "ServiceSessionID"
 	// SharedAgentContextKey marks a request that resolved an Agent through an
 	// explicit team-space share. It is separate from tenant identity because
 	// an internal team-space share can keep the caller and Agent in the same

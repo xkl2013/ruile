@@ -37,15 +37,20 @@ export async function renameSession(
   sessionId: string,
   title: string,
   description = '',
+  serviceId = '',
 ): Promise<any> {
-  const response = ensureSuccess(await updateSession(sessionId, { title, description }))
+  const response = ensureSuccess(await updateSession(sessionId, { title, description }, serviceId || undefined))
   const nextTitle = response.data?.title || title
   notifySessionMutation({ sessionId, patch: { title: nextTitle } })
   return response.data
 }
 
-export async function setSessionPinned(sessionId: string, pinned: boolean): Promise<void> {
-  const response = ensureSuccess(pinned ? await pinSession(sessionId) : await unpinSession(sessionId))
+export async function setSessionPinned(sessionId: string, pinned: boolean, serviceId = ''): Promise<void> {
+  const response = ensureSuccess(
+    pinned
+      ? await pinSession(sessionId, serviceId || undefined)
+      : await unpinSession(sessionId, serviceId || undefined),
+  )
   notifySessionMutation({
     sessionId,
     patch: {
@@ -55,12 +60,12 @@ export async function setSessionPinned(sessionId: string, pinned: boolean): Prom
   })
 }
 
-export async function clearSession(sessionId: string): Promise<void> {
-  ensureSuccess(await clearSessionMessages(sessionId))
+export async function clearSession(sessionId: string, serviceId = ''): Promise<void> {
+  ensureSuccess(await clearSessionMessages(sessionId, serviceId || undefined))
   notifySessionMutation({ sessionId, messagesCleared: true })
 }
 
-export async function removeSession(sessionId: string): Promise<void> {
-  ensureSuccess(await delSession(sessionId))
+export async function removeSession(sessionId: string, serviceId = ''): Promise<void> {
+  ensureSuccess(await delSession(sessionId, serviceId || undefined))
   notifySessionMutation({ sessionId, removed: true })
 }

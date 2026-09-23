@@ -1,4 +1,4 @@
--- Expert workflow V2: resumable intake, phase tracking, step trace, and quality state.
+-- Migration 000102: Expert workflow V2 with resumable intake, phase tracking, step trace, and quality state.
 
 ALTER TABLE agent_runs
     ADD COLUMN IF NOT EXISTS parent_run_id VARCHAR(36) NOT NULL DEFAULT '',

@@ -1,4 +1,4 @@
--- Expert package registry.
+-- Migration 000100: Expert package registry.
 
 CREATE TABLE IF NOT EXISTS expert_packages (
     id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4()::text,

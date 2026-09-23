@@ -4,26 +4,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 const (
-	AgentResultSchemaV1           = "agent_result_v1"
-	ServiceCardSchemaV1           = "service_card_v1"
-	StructuredReportFormatV1      = "structured_report_v1"
-	AgentArtifactRolePrimary      = "primary"
-	AgentArtifactRoleSupporting   = "supporting"
-	AgentArtifactKindText         = "text"
-	AgentArtifactKindReport       = "report"
-	AgentArtifactKindHTML         = "html"
-	AgentArtifactKindImage        = "image"
-	AgentArtifactKindPDF          = "pdf"
-	AgentArtifactKindDocument     = "document"
-	AgentArtifactKindSpreadsheet  = "spreadsheet"
-	AgentArtifactKindPresentation = "presentation"
-	AgentArtifactKindAudio        = "audio"
-	AgentArtifactKindVideo        = "video"
-	AgentArtifactKindData         = "data"
+	AgentResultSchemaV1             = "agent_result_v1"
+	ServiceCardSchemaV1             = "service_card_v1"
+	StructuredReportFormatV1        = "structured_report_v1"
+	AgentArtifactLifecycleTemporary = "temporary"
+	AgentArtifactLifecycleSaved     = "saved"
+	AgentArtifactLifecycleShared    = "shared"
+	AgentArtifactLifecycleArchived  = "archived"
+	AgentArtifactRolePrimary        = "primary"
+	AgentArtifactRoleSupporting     = "supporting"
+	AgentArtifactKindText           = "text"
+	AgentArtifactKindReport         = "report"
+	AgentArtifactKindHTML           = "html"
+	AgentArtifactKindImage          = "image"
+	AgentArtifactKindPDF            = "pdf"
+	AgentArtifactKindDocument       = "document"
+	AgentArtifactKindSpreadsheet    = "spreadsheet"
+	AgentArtifactKindPresentation   = "presentation"
+	AgentArtifactKindAudio          = "audio"
+	AgentArtifactKindVideo          = "video"
+	AgentArtifactKindData           = "data"
 )
 
 // AgentResultV1 is the platform-owned final output contract for all service
@@ -53,16 +60,27 @@ type ServiceCardV1 struct {
 }
 
 type AgentArtifactResultV1 struct {
-	ID           string  `json:"id,omitempty"`
-	Kind         string  `json:"kind"`
-	Role         string  `json:"role"`
-	Title        string  `json:"title"`
-	Format       string  `json:"format,omitempty"`
-	MimeType     string  `json:"mime_type,omitempty"`
-	OriginalName string  `json:"original_name,omitempty"`
-	SizeBytes    int64   `json:"size_bytes,omitempty"`
-	ResourceRef  string  `json:"resource_ref,omitempty"`
-	Content      JSONMap `json:"content,omitempty"`
+	// ID identifies the logical artifact. VersionID identifies the immutable
+	// content version represented by this result.
+	ID           string     `json:"id,omitempty"`
+	VersionID    string     `json:"version_id,omitempty"`
+	Version      int        `json:"version,omitempty"`
+	RunID        string     `json:"run_id,omitempty"`
+	Kind         string     `json:"kind"`
+	Role         string     `json:"role"`
+	Title        string     `json:"title"`
+	Format       string     `json:"format,omitempty"`
+	MimeType     string     `json:"mime_type,omitempty"`
+	OriginalName string     `json:"original_name,omitempty"`
+	SizeBytes    int64      `json:"size_bytes,omitempty"`
+	ResourceRef  string     `json:"resource_ref,omitempty"`
+	Lifecycle    string     `json:"lifecycle,omitempty"`
+	Previewable  bool       `json:"previewable,omitempty"`
+	Downloadable bool       `json:"downloadable,omitempty"`
+	Shareable    bool       `json:"shareable,omitempty"`
+	CreatedAt    *time.Time `json:"created_at,omitempty"`
+	Metadata     JSONMap    `json:"metadata,omitempty"`
+	Content      JSONMap    `json:"content,omitempty"`
 }
 
 type AgentEvidenceRefV1 struct {
@@ -97,6 +115,51 @@ type AgentResultValidation struct {
 
 func (r AgentResultV1) ToJSONMap() (JSONMap, error) {
 	return toJSONMap(r)
+}
+
+// NormalizeAgentResultV1 enriches an output produced by an Agent with the
+// platform-owned identity and delivery metadata. It deliberately keeps
+// business content unchanged so older agents can continue to emit the same
+// agent_result_v1 payload.
+func NormalizeAgentResultV1(result AgentResultV1, runID string, now time.Time) AgentResultV1 {
+	if result.Artifacts == nil {
+		result.Artifacts = []AgentArtifactResultV1{}
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	for index := range result.Artifacts {
+		artifact := &result.Artifacts[index]
+		if artifact.ID == "" {
+			artifact.ID = uuid.NewString()
+		}
+		if artifact.VersionID == "" {
+			artifact.VersionID = uuid.NewString()
+		}
+		if artifact.Version <= 0 {
+			artifact.Version = 1
+		}
+		if artifact.RunID == "" {
+			artifact.RunID = strings.TrimSpace(runID)
+		}
+		if artifact.Lifecycle == "" {
+			artifact.Lifecycle = AgentArtifactLifecycleTemporary
+		}
+		if artifact.CreatedAt == nil {
+			createdAt := now
+			artifact.CreatedAt = &createdAt
+		}
+		if artifact.Metadata == nil {
+			artifact.Metadata = JSONMap{}
+		}
+		if !artifact.Previewable {
+			artifact.Previewable = isAgentArtifactPreviewable(*artifact)
+		}
+		if !artifact.Downloadable {
+			artifact.Downloadable = strings.TrimSpace(artifact.ResourceRef) != ""
+		}
+	}
+	return result
 }
 
 func (r StructuredReportV1) ToJSONMap() (JSONMap, error) {
@@ -188,6 +251,15 @@ func validateAgentArtifactResultV1(artifact AgentArtifactResultV1) []string {
 		errors = append(errors, "role must be primary or supporting")
 	}
 	errors = append(errors, validateRequiredText("title", artifact.Title, 160)...)
+	if artifact.Version < 0 {
+		errors = append(errors, "version must be greater than or equal to 0")
+	}
+	if artifact.VersionID != "" && artifact.ID == "" {
+		errors = append(errors, "id is required when version_id is provided")
+	}
+	if artifact.Lifecycle != "" && !isSupportedAgentArtifactLifecycle(artifact.Lifecycle) {
+		errors = append(errors, "lifecycle is not supported")
+	}
 	if artifact.Kind != AgentArtifactKindReport {
 		return errors
 	}
@@ -208,6 +280,28 @@ func validateAgentArtifactResultV1(artifact AgentArtifactResultV1) []string {
 		errors = append(errors, "content."+validationError)
 	}
 	return errors
+}
+
+func isSupportedAgentArtifactLifecycle(lifecycle string) bool {
+	switch lifecycle {
+	case AgentArtifactLifecycleTemporary, AgentArtifactLifecycleSaved,
+		AgentArtifactLifecycleShared, AgentArtifactLifecycleArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+func isAgentArtifactPreviewable(artifact AgentArtifactResultV1) bool {
+	if artifact.Kind == AgentArtifactKindReport || artifact.Kind == AgentArtifactKindText {
+		return true
+	}
+	mimeType := strings.ToLower(strings.TrimSpace(artifact.MimeType))
+	return strings.HasPrefix(mimeType, "text/") ||
+		strings.HasPrefix(mimeType, "image/") ||
+		strings.HasPrefix(mimeType, "audio/") ||
+		strings.HasPrefix(mimeType, "video/") ||
+		mimeType == "application/pdf"
 }
 
 func validateStructuredReportV1(report StructuredReportV1) []string {

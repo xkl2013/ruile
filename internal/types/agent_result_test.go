@@ -2,9 +2,67 @@ package types
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestNormalizeAgentResultV1AddsArtifactIdentityAndDeliveryMetadata(t *testing.T) {
+	now := time.Date(2026, 9, 22, 3, 4, 5, 0, time.UTC)
+	result := NormalizeAgentResultV1(AgentResultV1{
+		SchemaVersion: AgentResultSchemaV1,
+		Decision: AgentResultDecisionV1{
+			Confidence: 0.8,
+			Reason:     "需要输出一份结构化报告。",
+		},
+		Artifacts: []AgentArtifactResultV1{
+			{
+				Kind:   AgentArtifactKindReport,
+				Role:   AgentArtifactRolePrimary,
+				Title:  "执行报告",
+				Format: StructuredReportFormatV1,
+			},
+		},
+	}, "run-1", now)
+
+	require.Len(t, result.Artifacts, 1)
+	artifact := result.Artifacts[0]
+	require.NotEmpty(t, artifact.ID)
+	require.NotEmpty(t, artifact.VersionID)
+	require.Equal(t, 1, artifact.Version)
+	require.Equal(t, "run-1", artifact.RunID)
+	require.Equal(t, AgentArtifactLifecycleTemporary, artifact.Lifecycle)
+	require.True(t, artifact.Previewable)
+	require.False(t, artifact.Downloadable)
+	require.Equal(t, now, *artifact.CreatedAt)
+	require.NotNil(t, artifact.Metadata)
+}
+
+func TestValidateAgentResultV1RejectsInvalidArtifactVersionMetadata(t *testing.T) {
+	validation := ValidateAgentResultV1(AgentResultV1{
+		SchemaVersion: AgentResultSchemaV1,
+		Decision: AgentResultDecisionV1{
+			Confidence: 0.8,
+			Reason:     "输出有效。",
+		},
+		Artifacts: []AgentArtifactResultV1{
+			{
+				ID:        "",
+				VersionID: "version-1",
+				Version:   -1,
+				Kind:      AgentArtifactKindText,
+				Role:      AgentArtifactRolePrimary,
+				Title:     "文本产物",
+				Lifecycle: "invalid",
+			},
+		},
+	})
+
+	require.False(t, validation.Valid)
+	require.Contains(t, validation.Errors, "artifacts[0].version must be greater than or equal to 0")
+	require.Contains(t, validation.Errors, "artifacts[0].id is required when version_id is provided")
+	require.Contains(t, validation.Errors, "artifacts[0].lifecycle is not supported")
+}
 
 func TestValidateAgentResultV1AcceptsServiceCardAndStructuredReport(t *testing.T) {
 	report := StructuredReportV1{

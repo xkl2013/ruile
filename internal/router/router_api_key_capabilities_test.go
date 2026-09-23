@@ -505,24 +505,24 @@ func TestOrganizeRoutesRequireFullAccessAPIKey(t *testing.T) {
 	}
 }
 
-func TestServiceRoutesRequireFullAccessAPIKey(t *testing.T) {
+func TestServiceSpaceRoutesRequireFullAccessAPIKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	g := &rbacGuards{}
 	v1 := gin.New().Group("/api/v1")
 
-	RegisterServiceRoutes(v1, &handler.ServiceHandler{}, g)
+	RegisterServiceSpaceRoutes(v1, &handler.ServiceSpaceHandler{}, g)
 
 	cases := []struct {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/v1/service/bootstrap"},
-		{http.MethodPost, "/api/v1/service/refresh"},
-		{http.MethodGet, "/api/v1/service/daily-reports"},
-		{http.MethodPost, "/api/v1/service/daily-reports"},
-		{http.MethodGet, "/api/v1/service/daily-reports/:id"},
-		{http.MethodGet, "/api/v1/service/reminders"},
-		{http.MethodPost, "/api/v1/service/reminders/:id/action-drafts"},
+		{http.MethodGet, "/api/v1/services"},
+		{http.MethodPost, "/api/v1/services"},
+		{http.MethodGet, "/api/v1/services/:service_id"},
+		{http.MethodPut, "/api/v1/services/:service_id"},
+		{http.MethodGet, "/api/v1/services/:service_id/sessions"},
+		{http.MethodPost, "/api/v1/services/:service_id/sessions"},
+		{http.MethodGet, "/api/v1/services/:service_id/artifacts"},
 	}
 
 	for _, tc := range cases {

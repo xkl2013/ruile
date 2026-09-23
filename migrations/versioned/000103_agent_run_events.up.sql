@@ -1,4 +1,4 @@
--- Durable, ordered events for WorkBuddy-style AgentRun playback.
+-- Migration 000103: Durable, ordered events for WorkBuddy-style AgentRun playback.
 
 CREATE TABLE IF NOT EXISTS agent_run_event_sequences (
     run_id VARCHAR(36) PRIMARY KEY REFERENCES agent_runs(id) ON DELETE CASCADE,

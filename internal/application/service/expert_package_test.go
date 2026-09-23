@@ -144,7 +144,7 @@ output_contract: agent_result_v1
 		Enabled:                  true,
 	})
 	require.NoError(t, err)
-	require.Equal(t, types.ServiceAgentDomainCustomerService, binding.AgentDomain)
+	require.Equal(t, "customer_service", binding.AgentDomain)
 
 	bindings, err := svc.ListBindings(ctx, tenantID, "profile-1")
 	require.NoError(t, err)

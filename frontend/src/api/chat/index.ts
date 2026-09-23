@@ -14,20 +14,30 @@ export async function getSessionsList(page: number, page_size: number, source?: 
   return get(`/api/v1/sessions?${params.toString()}`);
 }
 
-export async function pinSession(session_id: string) {
-  return post(`/api/v1/sessions/${session_id}/pin`, {});
+export async function pinSession(session_id: string, service_id?: string) {
+  return post(`/api/v1/sessions/${session_id}/pin`, {}, service_id
+    ? { headers: { 'X-Service-ID': service_id } }
+    : undefined);
 }
 
-export async function unpinSession(session_id: string) {
-  return del(`/api/v1/sessions/${session_id}/pin`);
+export async function unpinSession(session_id: string, service_id?: string) {
+  return del(`/api/v1/sessions/${session_id}/pin`, undefined, service_id
+    ? { headers: { 'X-Service-ID': service_id } }
+    : undefined);
 }
 
 export async function generateSessionsTitle(session_id: string, data: any) {
   return post(`/api/v1/sessions/${session_id}/generate_title`, data);
 }
 
-export async function updateSession(session_id: string, data: { title: string; description?: string }) {
-  return put(`/api/v1/sessions/${session_id}`, data);
+export async function updateSession(
+  session_id: string,
+  data: { title: string; description?: string },
+  service_id?: string,
+) {
+  return put(`/api/v1/sessions/${session_id}`, data, service_id
+    ? { headers: { 'X-Service-ID': service_id } }
+    : undefined);
 }
 
 export async function knowledgeChat(data: { session_id: string; query: string; }) {
@@ -49,16 +59,29 @@ export async function agentChat(data: {
   });
 }
 
-export async function getMessageList(data: { session_id: string; limit: number, created_at: string }) {
+export async function getMessageList(data: {
+  session_id: string;
+  limit: number;
+  created_at: string;
+  service_id?: string;
+}) {
+  const config = data.service_id
+    ? { headers: { 'X-Service-ID': data.service_id } }
+    : undefined;
   if (data.created_at) {
-    return get(`/api/v1/messages/${data.session_id}/load?before_time=${encodeURIComponent(data.created_at)}&limit=${data.limit}`);
+    return get(
+      `/api/v1/messages/${data.session_id}/load?before_time=${encodeURIComponent(data.created_at)}&limit=${data.limit}`,
+      config,
+    );
   } else {
-    return get(`/api/v1/messages/${data.session_id}/load?limit=${data.limit}`);
+    return get(`/api/v1/messages/${data.session_id}/load?limit=${data.limit}`, config);
   }
 }
 
-export async function delSession(session_id: string) {
-  return del(`/api/v1/sessions/${session_id}`);
+export async function delSession(session_id: string, service_id?: string) {
+  return del(`/api/v1/sessions/${session_id}`, undefined, service_id
+    ? { headers: { 'X-Service-ID': service_id } }
+    : undefined);
 }
 
 export async function batchDelSessions(ids: string[]) {
@@ -69,14 +92,18 @@ export async function deleteAllSessions() {
   return del(`/api/v1/sessions/batch`, { delete_all: true });
 }
 
-export async function getSession(session_id: string) {
-  return get(`/api/v1/sessions/${session_id}`);
+export async function getSession(session_id: string, service_id?: string) {
+  return get(`/api/v1/sessions/${session_id}`, service_id
+    ? { headers: { 'X-Service-ID': service_id } }
+    : undefined);
 }
 
 export async function stopSession(session_id: string, message_id: string) {
   return post(`/api/v1/sessions/${session_id}/stop`, { message_id });
 }
 
-export async function clearSessionMessages(session_id: string) {
-  return del(`/api/v1/sessions/${session_id}/messages`);
+export async function clearSessionMessages(session_id: string, service_id?: string) {
+  return del(`/api/v1/sessions/${session_id}/messages`, undefined, service_id
+    ? { headers: { 'X-Service-ID': service_id } }
+    : undefined);
 }

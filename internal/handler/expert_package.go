@@ -204,7 +204,6 @@ func (h *ExpertPackageHandler) PublishedRun(c *gin.Context) {
 	}
 	input.PackageID = c.Param("package_id")
 	input.DefinitionID = c.Param("definition_id")
-	input.ProfileID = ""
 	input.RouteMode = types.AgentRouteModeManual
 	run, err := h.agentRuns.EnqueuePublishedExpertRun(c.Request.Context(), tenantID, userID, input)
 	if err != nil {
@@ -226,7 +225,6 @@ func (h *ExpertPackageHandler) PublishedAutoRun(c *gin.Context) {
 	}
 	input.PackageID = ""
 	input.DefinitionID = ""
-	input.ProfileID = ""
 	input.RouteMode = types.AgentRouteModeAuto
 	run, err := h.agentRuns.EnqueuePublishedExpertAutoRun(c.Request.Context(), tenantID, userID, input)
 	if err != nil {

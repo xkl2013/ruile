@@ -14,6 +14,7 @@ type AgentRunRepository interface {
 	Create(ctx context.Context, run *types.AgentRun) error
 	GetByID(ctx context.Context, id string) (*types.AgentRun, error)
 	GetByIDForUser(ctx context.Context, tenantID uint64, userID, id string) (*types.AgentRun, error)
+	GetByIDForService(ctx context.Context, tenantID uint64, serviceID, id string) (*types.AgentRun, error)
 	ListByThreadForUser(ctx context.Context, tenantID uint64, userID, threadID string) ([]*types.AgentRun, error)
 	FindActiveByIdempotency(ctx context.Context, tenantID uint64, userID, runType, key string) (*types.AgentRun, error)
 	SetTaskID(ctx context.Context, id, taskID string) error
@@ -25,7 +26,7 @@ type AgentRunRepository interface {
 	SetQuality(ctx context.Context, id string, quality types.JSONMap) error
 	MarkRetry(ctx context.Context, id, code, message string) error
 	MarkTimedOut(ctx context.Context, id string, startedBefore, finishedAt time.Time) (bool, error)
-	MarkSucceeded(ctx context.Context, id, profileID string, result types.JSONMap, finishedAt time.Time) (bool, error)
+	MarkSucceeded(ctx context.Context, id string, result types.JSONMap, finishedAt time.Time) (bool, error)
 	MarkFailed(ctx context.Context, id, code, message string, finishedAt time.Time) (bool, error)
 	MarkFailedWithResult(ctx context.Context, id string, result types.JSONMap, code, message string, finishedAt time.Time) (bool, error)
 	CancelActive(ctx context.Context, tenantID uint64, userID, id string, finishedAt time.Time) (bool, error)
@@ -40,18 +41,19 @@ type AgentRunRepository interface {
 }
 
 type AgentRunService interface {
-	EnqueueMemoryExtraction(ctx context.Context, tenantID uint64, userID, memoryID string) (*types.AgentRun, error)
-	EnqueueDailyReport(ctx context.Context, tenantID uint64, userID string, input types.ServiceDailyReportInput) (*types.AgentRun, error)
 	EnqueueExpertTest(ctx context.Context, tenantID uint64, userID string, input types.ExpertAgentTestInput) (*types.AgentRun, error)
 	EnqueuePublishedExpertRun(ctx context.Context, tenantID uint64, userID string, input types.ExpertAgentTestInput) (*types.AgentRun, error)
 	EnqueuePublishedExpertAutoRun(ctx context.Context, tenantID uint64, userID string, input types.ExpertAgentTestInput) (*types.AgentRun, error)
 	RoutePublishedExpert(ctx context.Context, tenantID uint64, prompt, modelID string) (*types.PublishedExpertRouteDecision, error)
 	EnqueuePublishedExpertFollowUp(ctx context.Context, tenantID uint64, userID string, input types.ExpertFollowUpInput) (*types.AgentRun, error)
 	GetAgentRun(ctx context.Context, tenantID uint64, userID, id string) (*types.AgentRun, error)
+	GetAgentRunForService(ctx context.Context, tenantID uint64, userID, serviceID, id string) (*types.AgentRun, error)
 	ListAgentThreadRuns(ctx context.Context, tenantID uint64, userID, id string) ([]*types.AgentRun, error)
 	GetAgentRunQuality(ctx context.Context, tenantID uint64, userID, id string) (types.JSONMap, error)
 	ListAgentRunEvents(ctx context.Context, tenantID uint64, userID, id string, afterSequence int64, limit int) ([]*types.AgentRunEvent, error)
+	ListAgentRunEventsForService(ctx context.Context, tenantID uint64, userID, serviceID, id string, afterSequence int64, limit int) ([]*types.AgentRunEvent, error)
 	ListAgentRunSteps(ctx context.Context, tenantID uint64, userID, id string) ([]*types.AgentRunStep, error)
+	ListAgentRunStepsForService(ctx context.Context, tenantID uint64, userID, serviceID, id string) ([]*types.AgentRunStep, error)
 	SubmitAgentRunAnswers(ctx context.Context, tenantID uint64, userID, id string, input types.AgentRunAnswersInput) (*types.AgentRun, error)
 	RegenerateAgentRun(ctx context.Context, tenantID uint64, userID, id string, input types.AgentRunRegenerateInput) (*types.AgentRun, error)
 	CancelAgentRun(ctx context.Context, tenantID uint64, userID, id string) (*types.AgentRun, error)

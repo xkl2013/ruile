@@ -1,4 +1,4 @@
--- Generic AgentRun thread identity for multi-turn expert execution.
+-- Migration 000104: Generic AgentRun thread identity for multi-turn expert execution.
 
 ALTER TABLE agent_runs
     ADD COLUMN IF NOT EXISTS thread_id VARCHAR(36) NOT NULL DEFAULT '';

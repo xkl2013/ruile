@@ -145,6 +145,37 @@ const removeImage = (index: number) => {
   if (removed.length > 0) URL.revokeObjectURL(removed[0].preview);
 };
 
+const props = defineProps({
+  isReplying: {
+    type: Boolean,
+    required: false
+  },
+  sessionId: {
+    type: String,
+    required: false
+  },
+  assistantMessageId: {
+    type: String,
+    required: false
+  },
+  agentId: {
+    type: String,
+    default: ''
+  },
+  placeholder: {
+    type: String,
+    default: ''
+  },
+  embeddedMode: {
+    type: Boolean,
+    default: false
+  },
+  hostedMode: {
+    type: Boolean,
+    default: false
+  }
+});
+
 const triggerImageUpload = () => {
   imageInputRef.value?.click();
 };
@@ -154,14 +185,16 @@ const agentModeButtonRef = ref<HTMLElement>();
 const agentModeDropdownStyle = ref<Record<string, string>>({});
 
 const selectedAgentId = computed({
-  get: () => settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID,
+  get: () => (props.hostedMode && props.agentId)
+    ? props.agentId
+    : (settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID),
   set: (val: string) => settingsStore.selectAgent(val)
 });
 const selectedPublishedExpert = ref<PublishedExpert | null>(null);
 const selectedPublishedExpertAuto = ref(false);
 const AUTO_EXPERT_SELECTION_ID = '__auto__';
 const effectiveSelectedAgentId = computed(() =>
-  props.embeddedMode && props.agentId ? props.agentId : selectedAgentId.value
+  selectedAgentId.value
 );
 const selectedAgent = computed(() => {
   // When a shared-agent source tenant is set, resolve from sharedAgents FIRST.
@@ -177,11 +210,12 @@ const selectedAgent = computed(() => {
   }
   const mine = agents.value.find(a => a.id === selectedAgentId.value);
   if (mine) return mine;
+  const isSmartReasoning = selectedAgentId.value === BUILTIN_SMART_REASONING_ID;
   return {
-    id: BUILTIN_QUICK_ANSWER_ID,
-    name: t('input.normalMode'),
-    is_builtin: true,
-    config: { agent_mode: 'quick-answer' as const }
+    id: selectedAgentId.value,
+    name: isSmartReasoning ? t('input.agentMode') : t('input.normalMode'),
+    is_builtin: selectedAgentId.value === BUILTIN_QUICK_ANSWER_ID || isSmartReasoning,
+    config: { agent_mode: isSmartReasoning ? 'smart-reasoning' : 'quick-answer' as const }
   } as CustomAgent;
 });
 
@@ -504,34 +538,11 @@ const sharedAgentOrgName = computed(() => {
   return shared?.org_name || shared?.shared_by_username || '';
 });
 
-const props = defineProps({
-  isReplying: {
-    type: Boolean,
-    required: false
-  },
-  sessionId: {
-    type: String,
-    required: false
-  },
-  assistantMessageId: {
-    type: String,
-    required: false
-  },
-  agentId: {
-    type: String,
-    default: ''
-  },
-  placeholder: {
-    type: String,
-    default: ''
-  },
-  embeddedMode: {
-    type: Boolean,
-    default: false
-  }
-});
-
-const isAgentEnabled = computed(() => settingsStore.isAgentEnabled);
+const isAgentEnabled = computed(() =>
+  props.hostedMode && props.agentId
+    ? props.agentId !== BUILTIN_QUICK_ANSWER_ID
+    : settingsStore.isAgentEnabled
+);
 const isWebSearchEnabled = computed(() => settingsStore.isWebSearchEnabled);
 const selectedKbIds = computed(() => settingsStore.settings.selectedKnowledgeBases || []);
 const selectedFileIds = computed(() => settingsStore.settings.selectedFiles || []);
@@ -1929,35 +1940,6 @@ const createSession = async (val: string) => {
     const textarea = getTextareaEl();
     if (textarea) textarea.blur();
     emit('send-msg', val, selectedModelId.value || '', [], [], [], responseTier.value);
-    clearvalue();
-    return;
-  }
-
-  if (selectedPublishedExpert.value || selectedPublishedExpertAuto.value) {
-    if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0 || allSelectedItems.value.length > 0) {
-      MessagePlugin.info('已发布专家当前先支持文本问题，请先移除附件和上下文引用');
-      return;
-    }
-    const textarea = getTextareaEl();
-    if (textarea) textarea.blur();
-    emit(
-      'send-published-expert',
-      val,
-      selectedModelId.value,
-      selectedPublishedExpert.value,
-      selectedPublishedExpertAuto.value ? 'auto' : 'manual',
-    );
-    clearvalue();
-    return;
-  }
-
-  // Published experts are routed by the system by default. Manual expert
-  // selection above remains an explicit override; attachments, context
-  // references, custom agents, and agent mode continue through normal chat.
-  if (shouldAutoRoutePublishedExpert.value) {
-    const textarea = getTextareaEl();
-    if (textarea) textarea.blur();
-    emit('send-published-expert', val, selectedModelId.value, null, 'auto');
     clearvalue();
     return;
   }

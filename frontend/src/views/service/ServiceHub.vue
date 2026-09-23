@@ -240,80 +240,20 @@
     </section>
 
     <section v-else class="service-hub-workspace-view">
-      <header class="service-hub-space-head">
-        <button type="button" class="service-hub-back-button" @click="backToList">
-          <t-icon name="chevron-left" />
-          返回服务列表
-        </button>
-        <span class="service-hub-space-identity">
-          <span class="service-hub-space-icon" aria-hidden="true">
-            <t-icon :name="templateFor(activeService)?.icon || 'folder'" />
-          </span>
-          <span class="service-hub-space-name">{{ activeService?.name }}</span>
-        </span>
-        <span class="service-hub-space-template">{{ templateFor(activeService)?.name || '自定义服务' }}</span>
-        <div class="service-hub-space-actions">
-          <button
-            v-for="tool in headTools"
-            :key="tool.key"
-            type="button"
-            class="service-hub-head-tool"
-            :class="{ active: panel === tool.key }"
-            @click="panel = panel === tool.key ? '' : tool.key"
-          >
-            <t-icon :name="tool.icon" />
-            <span>{{ tool.label }}</span>
-            <small>{{ tool.count }}</small>
-          </button>
-          <span class="service-hub-active-state">进行中</span>
-          <button type="button" class="service-hub-circle-button" title="新建会话" aria-label="新建会话" @click="startNewSession">＋</button>
-          <t-dropdown trigger="click" placement="bottom-right">
-            <button type="button" class="service-hub-circle-button" title="更多操作" aria-label="更多操作">
-              <t-icon name="more" />
-            </button>
-            <template #dropdown>
-              <t-dropdown-menu>
-                <t-dropdown-item @click="openCreate(activeService)">复制配置创建</t-dropdown-item>
-                <t-dropdown-item @click="archiveService(activeService)">归档服务</t-dropdown-item>
-              </t-dropdown-menu>
-            </template>
-          </t-dropdown>
-        </div>
-      </header>
-
       <div class="service-hub-workbench">
         <article class="service-hub-chat">
-          <header class="service-hub-chat-head">
-            <strong>{{ activeSession?.title || '开始一段新的工作' }}</strong>
-            <span>{{ activeSession?.expert || '服务助理' }}</span>
-          </header>
           <div class="service-hub-chat-body">
             <ChatView
               v-if="activeChatSessionId"
               :key="`${activeSession?.id}:${activeChatSessionId}`"
-              ref="serviceChatViewRef"
               :session_id="activeChatSessionId"
+              :service-id="activeService?.id || ''"
               :agent-id="serviceChatAgentId"
               :kb-ids="activeServiceKnowledgeBaseIds"
               :quoted-context="activeServiceChatContext"
               embedded-input-placeholder="围绕当前服务整理摘要、话术和下一步"
-              embedded-mode
-            >
-              <template #empty-suggestions>
-                <div class="service-hub-chat-prompts">
-                  <strong>从一段工作开始</strong>
-                  <p>把要整理、分析或推进的事情告诉专家，工作过程与产物会持续沉淀在服务空间。</p>
-                  <button
-                    v-for="prompt in serviceChatPrompts"
-                    :key="prompt"
-                    type="button"
-                    @click="sendServiceChatPrompt(prompt)"
-                  >
-                    {{ prompt }}
-                  </button>
-                </div>
-              </template>
-            </ChatView>
+              hosted-mode
+            />
             <div v-else class="service-hub-chat-state">
               <t-icon :name="activeChatSessionLoading ? 'loading' : 'chat'" :class="{ 'is-loading': activeChatSessionLoading }" />
               <span>{{ activeChatSessionLoading ? '正在准备会话' : activeChatSessionError || '会话暂不可用' }}</span>
@@ -321,28 +261,6 @@
                 重试
               </t-button>
             </div>
-
-            <aside v-if="panel" class="service-hub-side-panel">
-              <header>
-                <strong>产物</strong>
-                <button type="button" aria-label="关闭面板" @click="panel = ''"><t-icon name="close" /></button>
-              </header>
-              <div class="service-hub-side-panel-body">
-                <button
-                  v-for="artifact in activeArtifacts"
-                  :key="artifact.id"
-                  type="button"
-                  class="service-hub-side-artifact"
-                  :class="{ active: selectedArtifact?.id === artifact.id }"
-                  @click="selectedArtifact = artifact"
-                >
-                  <span class="service-hub-artifact-icon">{{ artifact.format }}</span>
-                  <span><strong>{{ artifact.title }}</strong><small>{{ artifact.meta }}</small></span>
-                </button>
-                <div v-if="!activeArtifacts.length" class="service-hub-panel-empty">当前会话还没有产物。</div>
-                <pre v-if="selectedArtifact" class="service-hub-artifact-preview">{{ selectedArtifact.preview }}</pre>
-              </div>
-            </aside>
           </div>
         </article>
       </div>
@@ -351,41 +269,43 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import ChatView from '@/views/chat/index.vue'
-import { BUILTIN_QUICK_ANSWER_ID } from '@/api/agent'
-import { createSessions } from '@/api/chat'
+import { BUILTIN_SMART_REASONING_ID } from '@/api/agent'
 import {
-  createServiceRecord,
-  createSession,
+  createServiceSpace,
+  setServiceSpaceState,
+} from '@/api/service'
+import {
+  SESSION_MUTATION_EVENT,
+  type SessionMutationDetail,
+} from '@/components/sessionMutations'
+import {
+  createServiceSession,
   getFirstServiceSession,
   getService,
   getServiceTemplate,
   getSession,
-  getServiceSessions,
-  serviceArtifacts,
+  loadServiceHub,
   serviceExperts,
   serviceHubState,
   serviceKnowledgeBases,
   serviceSkills,
   serviceTemplates,
   type ServiceRecord,
+  type ServiceSession,
   type ServiceTemplate,
 } from './serviceHubState'
 
 type HubView = 'list' | 'create' | 'workspace'
-type HubPanel = '' | 'artifacts'
 type SortMode = 'recent' | 'created' | 'name'
 
 const route = useRoute()
 const router = useRouter()
 const serviceBasePath = computed(() => route.meta.mobileEntry ? '/mobile/service' : '/platform/service')
-const serviceChatAgentId = BUILTIN_QUICK_ANSWER_ID
-type ServiceChatViewExpose = {
-  triggerSend?: (question: string) => void
-}
+const serviceChatAgentId = BUILTIN_SMART_REASONING_ID
 
 const view = ref<HubView>('list')
 const serviceQuery = ref('')
@@ -393,9 +313,6 @@ const templateQuery = ref('')
 const sortMode = ref<SortMode>('recent')
 const showNoExpertBanner = ref(true)
 const editingService = ref<ServiceRecord | null>(null)
-const selectedArtifact = ref<(typeof serviceArtifacts)[string] | null>(null)
-const panel = ref<HubPanel>('')
-const serviceChatViewRef = ref<ServiceChatViewExpose | null>(null)
 const activeChatSessionLoadingId = ref('')
 const activeChatSessionError = ref('')
 const expertPickerOpen = ref(false)
@@ -427,14 +344,14 @@ const activeServiceChatContext = computed(() => {
   return [
     `服务：${activeService.value.name}`,
     activeService.value.description ? `服务描述：${activeService.value.description}` : '',
-    template?.instruction ? `工作指令：${template.instruction}` : '',
+    activeService.value.instruction
+      ? `工作指令：${activeService.value.instruction}`
+      : template?.instruction
+        ? `工作指令：${template.instruction}`
+        : '',
     activeSession.value?.expert ? `当前专家：${activeSession.value.expert}` : '',
   ].filter(Boolean).join('\n')
 })
-const serviceChatPrompts = [
-  '帮我整理本周需要优先推进的重点工作',
-  '把相关资料归纳成一份可执行的清单',
-]
 const services = computed(() => {
   if (serviceHubState.mode === 'archived') return serviceHubState.services.filter((service) => service.state === 'archived')
   return serviceHubState.services.filter((service) => service.state !== 'archived')
@@ -451,16 +368,9 @@ const filteredTemplates = computed(() => {
   const query = templateQuery.value.trim().toLowerCase()
   return serviceTemplates.filter((template) => `${template.name} ${template.description}`.toLowerCase().includes(query))
 })
-const activeArtifacts = computed(() => {
-  const ids = activeSession.value?.messages.map((message) => message.artifactId).filter(Boolean) || []
-  return [...new Set(ids)].map((id) => serviceArtifacts[id as string]).filter(Boolean)
-})
 const templateFor = (service: ServiceRecord | undefined) => getServiceTemplate(service)
 const expertFor = (expertId: string) => serviceExperts.find((expert) => expert.id === expertId)
 const getTemplateById = (templateId: string) => serviceTemplates.find((template) => template.id === templateId)
-const headTools = computed(() => [
-  { key: 'artifacts' as const, label: '产物', icon: 'file', count: activeArtifacts.value.length },
-])
 
 const isServiceRecord = (
   source: ServiceTemplate | ServiceRecord | null | undefined,
@@ -479,12 +389,14 @@ const resetForm = (source?: ServiceTemplate | ServiceRecord | null) => {
       : undefined
   form.name = service ? `${service.name}（副本）` : template?.name || ''
   form.description = service?.description || ''
-  form.instruction = template?.instruction || ''
-  form.expertIds = template?.experts
-    .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
-    .filter((id): id is string => Boolean(id)) || []
-  form.knowledgeBaseIds = []
-  form.skillIds = []
+  form.instruction = service?.instruction || template?.instruction || ''
+  form.expertIds = service?.expertIds?.length
+    ? [...service.expertIds]
+    : template?.experts
+      .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
+      .filter((id): id is string => Boolean(id)) || []
+  form.knowledgeBaseIds = service?.knowledgeBaseIds ? [...service.knowledgeBaseIds] : []
+  form.skillIds = service?.skillIds ? [...service.skillIds] : []
   form.templateId = template?.id || service?.templateId || ''
   formError.value = ''
   expertPickerOpen.value = false
@@ -497,10 +409,16 @@ const openCreate = (source?: ServiceTemplate | ServiceRecord | null) => {
 }
 
 const openWorkspace = async (serviceId: string, sessionId?: string) => {
+  await loadServiceHub()
   const service = getService(serviceId)
   if (!service) return
   serviceHubState.activeServiceId = serviceId
-  serviceHubState.activeSessionId = sessionId || getFirstServiceSession(serviceId)?.id || createSession(serviceId).id
+  const session = sessionId
+    ? getSession(sessionId)
+    : getFirstServiceSession(serviceId)
+  const active = session || await ensureServiceSession(serviceId)
+  if (!active) return
+  serviceHubState.activeSessionId = active.id
   view.value = 'workspace'
   await router.replace({
     path: serviceBasePath.value,
@@ -510,61 +428,108 @@ const openWorkspace = async (serviceId: string, sessionId?: string) => {
 
 const backToList = async () => {
   view.value = 'list'
-  panel.value = ''
   await router.replace(serviceBasePath.value)
 }
 
-const startNewSession = async () => {
-  if (!activeService.value) return
-  const session = createSession(activeService.value.id)
-  serviceHubState.activeSessionId = session.id
-  panel.value = ''
-  await router.replace({
-    path: serviceBasePath.value,
-    query: { service: activeService.value.id, session: session.id },
-  })
-}
-
-const syncFromRoute = () => {
+const syncFromRoute = async () => {
+  await loadServiceHub()
   const queryService = typeof route.query.service === 'string' ? route.query.service : ''
   const querySession = typeof route.query.session === 'string' ? route.query.session : ''
+  const queryAction = typeof route.query.action === 'string' ? route.query.action : ''
   if (queryService && getService(queryService)) {
     serviceHubState.activeServiceId = queryService
-    serviceHubState.activeSessionId = querySession && getSession(querySession)?.serviceId === queryService
-      ? querySession
-      : getFirstServiceSession(queryService)?.id || createSession(queryService).id
+    const service = getService(queryService)
+    if (queryAction === 'copy' && service) {
+      editingService.value = service
+      resetForm(service)
+      view.value = 'create'
+      return
+    }
+    if (queryAction === 'archive' && service) {
+      await archiveService(service, true)
+      return
+    }
+    const routeSession = querySession ? getSession(querySession) : undefined
+    const session = routeSession?.serviceId === queryService
+      ? routeSession
+      : getFirstServiceSession(queryService) || await ensureServiceSession(queryService)
+    if (!session) return
+    serviceHubState.activeSessionId = session.id
     view.value = 'workspace'
     return
   }
   view.value = 'list'
 }
 
-const submitForm = () => {
+const persistService = async (activate: boolean) => {
   const name = form.name.trim()
   if (!name) {
     formError.value = '请输入服务名称'
     return
   }
-  const result = createServiceRecord({
-    name,
-    description: form.description,
-    templateId: form.templateId,
-    expertIds: form.expertIds,
-    knowledgeBaseIds: form.knowledgeBaseIds,
-    skillIds: form.skillIds,
-  })
-  serviceHubState.activeServiceId = result.service.id
-  serviceHubState.activeSessionId = result.sessionId
-  view.value = 'workspace'
-  void router.replace({
-    path: serviceBasePath.value,
-    query: { service: result.service.id, session: result.sessionId },
-  })
-  MessagePlugin.success('服务已创建')
+  try {
+    const response = await createServiceSpace({
+      name,
+      description: form.description.trim(),
+      instruction: form.instruction.trim(),
+      template_key: form.templateId,
+      knowledge_base_ids: form.knowledgeBaseIds,
+      selected_skills: form.skillIds,
+      activate,
+      experts: form.expertIds.map((expertId, index) => {
+        const expert = expertFor(expertId)
+        return {
+          expert_ref: expertId,
+          expert_name: expert?.name || expertId,
+          display_order: index,
+          enabled: true,
+        }
+      }),
+    })
+    const serviceId = response?.data?.id
+    if (!serviceId) throw new Error('missing service id')
+    await loadServiceHub(true)
+    const session = activate ? await ensureServiceSession(serviceId) : undefined
+    serviceHubState.activeServiceId = serviceId
+    serviceHubState.activeSessionId = session?.id || ''
+    if (activate && session) {
+      view.value = 'workspace'
+      await router.replace({
+        path: serviceBasePath.value,
+        query: { service: serviceId, session: session.id },
+      })
+    } else {
+      await backToList()
+    }
+    MessagePlugin.success(activate ? '服务已创建' : '服务草稿已保存')
+  } catch (error) {
+    console.error('[ServiceHub] Failed to create service:', error)
+    formError.value = '服务保存失败，请稍后重试'
+  }
 }
 
-const saveDraft = () => {
-  MessagePlugin.success('已保存为草稿')
+const submitForm = async () => {
+  await persistService(true)
+}
+
+const saveDraft = async () => {
+  await persistService(false)
+}
+
+const serviceSessionRequests = new Map<string, Promise<ServiceSession>>()
+
+const ensureServiceSession = async (serviceId: string) => {
+  const existing = getFirstServiceSession(serviceId)
+  if (existing) return existing
+  const pending = serviceSessionRequests.get(serviceId)
+  if (pending) return pending
+  const request = createServiceSession(serviceId, {
+    title: '开始一段新的工作',
+  }).finally(() => {
+    serviceSessionRequests.delete(serviceId)
+  })
+  serviceSessionRequests.set(serviceId, request)
+  return request
 }
 
 const toggleExpert = (expertId: string) => {
@@ -577,18 +542,20 @@ const toggleChoice = (key: 'knowledgeBaseIds' | 'skillIds', id: string) => {
   form[key] = form[key].includes(id) ? form[key].filter((item) => item !== id) : [...form[key], id]
 }
 
-const archiveService = (service: ServiceRecord | undefined) => {
+const archiveService = async (service: ServiceRecord | undefined, navigate = view.value === 'workspace') => {
   if (!service) return
-  service.state = service.state === 'archived' ? 'active' : 'archived'
-  MessagePlugin.success(service.state === 'archived' ? '服务已归档' : '服务已恢复')
-  if (view.value === 'workspace' && service.state === 'archived') {
-    void backToList()
+  const nextState = service.state === 'archived' ? 'active' : 'archived'
+  try {
+    await setServiceSpaceState(service.id, nextState)
+    service.state = nextState
+    MessagePlugin.success(nextState === 'archived' ? '服务已归档' : '服务已恢复')
+    if (navigate || (view.value === 'workspace' && nextState === 'archived')) {
+      await backToList()
+    }
+  } catch (error) {
+    console.error('[ServiceHub] Failed to change service state:', error)
+    MessagePlugin.error('服务状态更新失败')
   }
-}
-
-const openArtifact = (artifactId: string) => {
-  selectedArtifact.value = serviceArtifacts[artifactId] || null
-  panel.value = 'artifacts'
 }
 
 const chatSessionRequests = new Map<string, Promise<string>>()
@@ -596,10 +563,6 @@ const chatSessionRequests = new Map<string, Promise<string>>()
 const ensureChatSession = async (session = activeSession.value) => {
   if (!session) return ''
   if (session.chatSessionId) return session.chatSessionId
-  if (/^c[1-8]$/.test(session.id)) {
-    session.chatSessionId = session.id
-    return session.chatSessionId
-  }
   const pending = chatSessionRequests.get(session.id)
   if (pending) return pending
 
@@ -607,13 +570,8 @@ const ensureChatSession = async (session = activeSession.value) => {
   activeChatSessionError.value = ''
   const request = (async () => {
     try {
-      const response = await createSessions({
-        title: session.title,
-        description: `service:${session.serviceId};service-session:${session.id};expert:${session.expert}`,
-      })
-      const chatSessionId = response?.data?.id
-      if (!chatSessionId) throw new Error('missing session id')
-      session.chatSessionId = String(chatSessionId)
+      const chatSessionId = session.chatSessionId || session.id
+      session.chatSessionId = chatSessionId
       return session.chatSessionId
     } catch (error) {
       console.error('[ServiceHub] Failed to create chat session:', error)
@@ -635,12 +593,35 @@ const retryActiveChatSession = () => {
   void ensureChatSession()
 }
 
-const sendServiceChatPrompt = (prompt: string) => {
-  serviceChatViewRef.value?.triggerSend?.(prompt)
+const handleServiceSessionMutation = (event: Event) => {
+  const detail = (event as CustomEvent<SessionMutationDetail>).detail
+  if (!detail?.sessionId) return
+  const session = serviceHubState.sessions.find((item) => item.chatSessionId === detail.sessionId)
+  if (!session) return
+
+  if (detail.patch?.title) {
+    session.title = detail.patch.title
+  }
+  if (typeof detail.patch?.is_pinned === 'boolean') {
+    session.pinned = detail.patch.is_pinned
+  }
+  if (detail.removed) {
+    session.chatSessionId = undefined
+    if (session.id === serviceHubState.activeSessionId) {
+      void ensureChatSession(session)
+    }
+  }
 }
 
+onMounted(async () => {
+  window.addEventListener(SESSION_MUTATION_EVENT, handleServiceSessionMutation)
+  await loadServiceHub()
+  await syncFromRoute()
+})
+onUnmounted(() => window.removeEventListener(SESSION_MUTATION_EVENT, handleServiceSessionMutation))
+
 watch(
-  () => [route.query.service, route.query.session],
+  () => [route.query.service, route.query.session, route.query.action],
   () => syncFromRoute(),
   { immediate: true },
 )
@@ -1023,8 +1004,7 @@ watch(
   line-height: 16px;
 }
 
-.service-hub-no-result,
-.service-hub-panel-empty {
+.service-hub-no-result {
   padding: 32px 0;
   color: var(--td-text-color-secondary);
   font-size: 13px;
@@ -1306,127 +1286,8 @@ watch(
 }
 
 .service-hub-workspace-view {
-  padding: 18px 24px 18px 28px;
+  padding: 0 24px 18px 28px;
   overflow: hidden;
-}
-
-.service-hub-space-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding-bottom: 12px;
-}
-
-.service-hub-back-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  font-family: var(--app-font-family);
-  font-size: 13px;
-}
-
-.service-hub-back-button:hover {
-  background: var(--td-bg-color-container-hover);
-  color: var(--td-text-color-primary);
-}
-
-.service-hub-space-name {
-  color: var(--td-text-color-primary);
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.service-hub-space-identity {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  gap: 7px;
-}
-
-.service-hub-space-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color-7);
-}
-
-.service-hub-space-template,
-.service-hub-active-state {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--td-bg-color-secondarycontainer);
-  color: var(--td-text-color-secondary);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.service-hub-space-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.service-hub-head-tool {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 999px;
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  font-family: var(--app-font-family);
-  font-size: 12px;
-}
-
-.service-hub-head-tool:hover,
-.service-hub-head-tool.active {
-  border-color: var(--td-brand-color);
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color-7);
-}
-
-.service-hub-head-tool small {
-  color: var(--td-text-color-placeholder);
-  font-size: 11px;
-}
-
-.service-hub-circle-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 50%;
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-}
-
-.service-hub-circle-button:hover {
-  border-color: var(--td-brand-color);
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color-7);
 }
 
 .service-hub-workbench {
@@ -1443,31 +1304,6 @@ watch(
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 12px;
-  background: var(--td-bg-color-container);
-}
-
-.service-hub-chat-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--td-component-stroke);
-}
-
-.service-hub-chat-head strong {
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-hub-chat-head span {
-  flex: none;
-  color: var(--td-text-color-placeholder);
-  font-size: 11px;
 }
 
 .service-hub-chat-body {
@@ -1495,10 +1331,6 @@ watch(
   max-width: 960px;
 }
 
-.service-hub-chat-body :deep(.input-container.is-embedded) {
-  padding: 12px 18px 16px;
-}
-
 .service-hub-chat-state {
   display: flex;
   flex: 1;
@@ -1524,167 +1356,6 @@ watch(
   }
 }
 
-.service-hub-chat-prompts {
-  display: flex;
-  width: min(520px, 100%);
-  margin: auto;
-  padding: 24px 0;
-  flex-direction: column;
-  gap: 8px;
-  text-align: center;
-}
-
-.service-hub-chat-prompts strong {
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.service-hub-chat-prompts p {
-  margin: 0 0 8px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  line-height: 20px;
-}
-
-.service-hub-chat-prompts button {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 6px;
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  font-family: var(--app-font-family);
-  font-size: 12px;
-  line-height: 18px;
-  text-align: left;
-}
-
-.service-hub-chat-prompts button:hover {
-  border-color: var(--td-brand-color);
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color-7);
-}
-
-.service-hub-side-artifact {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 6px;
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-primary);
-  cursor: pointer;
-  text-align: left;
-}
-
-.service-hub-side-artifact:hover,
-.service-hub-side-artifact.active {
-  border-color: var(--td-brand-color);
-  background: var(--td-brand-color-1);
-}
-
-.service-hub-artifact-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  border-radius: 6px;
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color-7);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.service-hub-side-artifact > span:last-child {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.service-hub-side-artifact strong {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-hub-side-artifact small {
-  color: var(--td-text-color-placeholder);
-  font-size: 11px;
-}
-
-.service-hub-side-panel {
-  display: flex;
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(320px, 42%);
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 12px;
-  background: var(--td-bg-color-container);
-  box-shadow: -10px 0 26px rgba(0, 0, 0, 0.1);
-}
-
-.service-hub-side-panel > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 11px 12px;
-  border-bottom: 1px solid var(--td-component-stroke);
-}
-
-.service-hub-side-panel > header strong {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.service-hub-side-panel > header button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--td-text-color-placeholder);
-  cursor: pointer;
-}
-
-.service-hub-side-panel-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px;
-}
-
-.service-hub-side-artifact {
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 8px 10px;
-}
-
-.service-hub-artifact-preview {
-  margin: 4px 0 0;
-  padding: 12px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 6px;
-  background: var(--td-bg-color-secondarycontainer);
-  color: var(--td-text-color-secondary);
-  font-family: var(--app-font-family);
-  font-size: 12px;
-  line-height: 21px;
-  white-space: pre-wrap;
-}
-
 @media (max-width: 1180px) {
   .service-hub-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1698,15 +1369,6 @@ watch(
 
   .service-hub-header-art {
     display: none;
-  }
-
-  .service-hub-space-head {
-    flex-wrap: wrap;
-  }
-
-  .service-hub-space-actions {
-    width: 100%;
-    margin-left: 0;
   }
 }
 
@@ -1735,18 +1397,6 @@ watch(
 
   .service-hub-form-footer > div {
     justify-content: flex-end;
-  }
-
-  .service-hub-space-actions {
-    overflow-x: auto;
-  }
-
-  .service-hub-active-state {
-    display: none;
-  }
-
-  .service-hub-side-panel {
-    width: 78%;
   }
 }
 </style>

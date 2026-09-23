@@ -17,7 +17,10 @@ type sessionRepository struct {
 	db *gorm.DB
 }
 
-func applySessionUserScope(db *gorm.DB, userID string) *gorm.DB {
+func applySessionUserScope(db *gorm.DB, ctx context.Context, userID string) *gorm.DB {
+	if serviceID, ok := ctx.Value(types.ServiceSessionIDContextKey).(string); ok && strings.TrimSpace(serviceID) != "" {
+		return db.Where("service_id = ?", strings.TrimSpace(serviceID))
+	}
 	if userID == "" {
 		return db
 	}
@@ -46,6 +49,7 @@ func (r *sessionRepository) Get(ctx context.Context, tenantID uint64, userID str
 	var session types.Session
 	err := applySessionUserScope(
 		r.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id),
+		ctx,
 		userID,
 	).First(&session).Error
 	if err != nil {
@@ -77,6 +81,7 @@ func (r *sessionRepository) GetByTenantID(ctx context.Context, tenantID uint64, 
 	var sessions []*types.Session
 	err := applySessionUserScope(
 		r.db.WithContext(ctx).Where("tenant_id = ?", tenantID),
+		ctx,
 		userID,
 	).Order("updated_at DESC").Find(&sessions).Error
 	if err != nil {
@@ -95,6 +100,7 @@ func (r *sessionRepository) GetPagedByTenantID(
 	// First query the total count
 	baseQ := applySessionUserScope(
 		r.db.WithContext(ctx).Model(&types.Session{}).Where("tenant_id = ?", tenantID),
+		ctx,
 		userID,
 	)
 	err := baseQ.Count(&total).Error
@@ -105,6 +111,7 @@ func (r *sessionRepository) GetPagedByTenantID(
 	// Then query the paginated data
 	err = applySessionUserScope(
 		r.db.WithContext(ctx).Where("tenant_id = ?", tenantID),
+		ctx,
 		userID,
 	).
 		Order("updated_at DESC").
@@ -141,6 +148,11 @@ func (r *sessionRepository) QueryPaged(
 	// Base filter shared by count and list queries.
 	applyBase := func(db *gorm.DB) *gorm.DB {
 		db = db.Where("s.tenant_id = ? AND s.deleted_at IS NULL", q.TenantID)
+		if serviceID := strings.TrimSpace(q.ServiceID); serviceID != "" {
+			db = db.Where("s.service_id = ?", serviceID)
+		} else if q.GlobalOnly {
+			db = db.Where("(s.service_id IS NULL OR s.service_id = '')")
+		}
 		if q.UserID != "" {
 			db = db.Where("(s.user_id = ? OR s.user_id IS NULL OR s.user_id = '')", q.UserID)
 		}
@@ -257,7 +269,9 @@ func (r *sessionRepository) SetPinned(
 	q := r.db.WithContext(ctx).
 		Model(&types.Session{}).
 		Where("tenant_id = ? AND id = ?", tenantID, id)
-	if userID != "" {
+	if serviceID, ok := ctx.Value(types.ServiceSessionIDContextKey).(string); ok && strings.TrimSpace(serviceID) != "" {
+		q = q.Where("service_id = ?", strings.TrimSpace(serviceID))
+	} else if userID != "" {
 		q = q.Where("(user_id = ? OR user_id IS NULL OR user_id = '')", userID)
 	}
 	res := q.Updates(updates)
@@ -269,7 +283,7 @@ func (r *sessionRepository) Update(ctx context.Context, session *types.Session, 
 	session.UpdatedAt = time.Now()
 	res := applySessionUserScope(r.db.WithContext(ctx).
 		Model(&types.Session{}).
-		Where("tenant_id = ? AND id = ?", session.TenantID, session.ID), userID).
+		Where("tenant_id = ? AND id = ?", session.TenantID, session.ID), ctx, userID).
 		Updates(map[string]interface{}{
 			"title":       session.Title,
 			"description": session.Description,
@@ -309,7 +323,7 @@ func (r *sessionRepository) UpdateLastRequestState(
 	}
 	res := applySessionUserScope(r.db.WithContext(ctx).
 		Model(&types.Session{}).
-		Where("tenant_id = ? AND id = ?", tenantID, sessionID), userID).
+		Where("tenant_id = ? AND id = ?", tenantID, sessionID), ctx, userID).
 		Updates(map[string]interface{}{
 			"agent_config": stateValue,
 			"updated_at":   now,
@@ -321,6 +335,7 @@ func (r *sessionRepository) UpdateLastRequestState(
 func (r *sessionRepository) Delete(ctx context.Context, tenantID uint64, userID string, id string) (int64, error) {
 	res := applySessionUserScope(
 		r.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id),
+		ctx,
 		userID,
 	).Delete(&types.Session{})
 	return res.RowsAffected, res.Error
@@ -333,6 +348,7 @@ func (r *sessionRepository) BatchDelete(ctx context.Context, tenantID uint64, us
 	}
 	res := applySessionUserScope(
 		r.db.WithContext(ctx).Where("tenant_id = ? AND id IN ?", tenantID, ids),
+		ctx,
 		userID,
 	).Delete(&types.Session{})
 	return res.RowsAffected, res.Error
@@ -342,6 +358,7 @@ func (r *sessionRepository) BatchDelete(ctx context.Context, tenantID uint64, us
 func (r *sessionRepository) DeleteAllByTenantID(ctx context.Context, tenantID uint64, userID string) (int64, error) {
 	res := applySessionUserScope(
 		r.db.WithContext(ctx).Where("tenant_id = ?", tenantID),
+		ctx,
 		userID,
 	).Delete(&types.Session{})
 	return res.RowsAffected, res.Error

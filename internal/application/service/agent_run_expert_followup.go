@@ -19,13 +19,15 @@ func (s *agentRunService) EnqueuePublishedExpertFollowUp(
 	userID string,
 	input types.ExpertFollowUpInput,
 ) (*types.AgentRun, error) {
-	if err := validateServiceScope(tenantID, userID); err != nil {
+	if err := validateAgentRunScope(tenantID, userID); err != nil {
 		return nil, err
 	}
 	input.ParentRunID = strings.TrimSpace(input.ParentRunID)
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	input.Mode = strings.TrimSpace(input.Mode)
 	input.ModelID = strings.TrimSpace(input.ModelID)
+	input.ServiceID = strings.TrimSpace(input.ServiceID)
+	input.SessionID = strings.TrimSpace(input.SessionID)
 	if input.Mode == "" {
 		input.Mode = expertFollowUpDefaultMode
 	}
@@ -34,11 +36,35 @@ func (s *agentRunService) EnqueuePublishedExpertFollowUp(
 		input.Mode != expertFollowUpDefaultMode {
 		return nil, ErrAgentRunInvalidRequest
 	}
-	parent, err := s.repo.GetByIDForUser(ctx, tenantID, userID, input.ParentRunID)
+	if (input.ServiceID == "") != (input.SessionID == "") {
+		return nil, ErrAgentRunInvalidRequest
+	}
+	var parent *types.AgentRun
+	var err error
+	if input.ServiceID != "" {
+		if s.serviceSpace == nil {
+			return nil, errors.New("service workspace runtime is not configured")
+		}
+		if _, err := s.serviceSpace.Authorize(ctx, tenantID, userID, input.ServiceID, types.ServiceMemberRoleEditor, true); err != nil {
+			return nil, err
+		}
+		if _, err := s.serviceSpace.GetSession(ctx, tenantID, userID, input.ServiceID, input.SessionID); err != nil {
+			return nil, err
+		}
+		parent, err = s.repo.GetByIDForService(ctx, tenantID, input.ServiceID, input.ParentRunID)
+	} else {
+		parent, err = s.repo.GetByIDForUser(ctx, tenantID, userID, input.ParentRunID)
+	}
 	if err != nil {
 		return nil, err
 	}
 	if parent == nil {
+		return nil, ErrAgentRunNotFound
+	}
+	if input.ServiceID == "" && strings.TrimSpace(parent.ServiceID) != "" {
+		return nil, ErrAgentRunNotFound
+	}
+	if input.ServiceID != "" && parent.ServiceID != input.ServiceID {
 		return nil, ErrAgentRunNotFound
 	}
 	if parent.Status != types.AgentRunStatusSucceeded ||
@@ -76,7 +102,8 @@ func (s *agentRunService) EnqueuePublishedExpertFollowUp(
 		return nil, fmt.Errorf("encode expert follow-up request: %w", err)
 	}
 	return s.enqueue(ctx, tenantID, userID, &types.AgentRun{
-		ThreadID:     firstNonEmpty(parent.ThreadID, parent.ID),
+		ServiceID:    input.ServiceID,
+		ThreadID:     firstNonEmpty(input.SessionID, parent.ThreadID, parent.ID),
 		ParentRunID:  parent.ID,
 		RunType:      types.AgentRunTypeExpertFollowUp,
 		AgentRef:     definition.AgentID,

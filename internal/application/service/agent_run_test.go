@@ -15,8 +15,10 @@ import (
 	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -37,8 +39,27 @@ func newAgentRunTestService(
 	t *testing.T,
 ) (interfaces.AgentRunService, interfaces.AgentRunRepository, *agentRunTaskEnqueuer, *gorm.DB) {
 	t.Helper()
-	db := newServiceDailyReportTestDB(t)
+	db := newAgentRunTestDB(t)
+	runRepo := repository.NewAgentRunRepository(db)
+	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil)
+	expertRepo := repository.NewExpertPackageRepository(db)
+	enqueuer := &agentRunTaskEnqueuer{}
+	return NewAgentRunService(runRepo, serviceSpaces, expertRepo, nil, enqueuer, nil, nil, nil), runRepo, enqueuer, db
+}
+
+func newAgentRunTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(
+		sqlite.Open("file:agent-run-"+uuid.NewString()+"?mode=memory&cache=shared&_foreign_keys=on"),
+		&gorm.Config{},
+	)
+	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
+		&types.Session{},
+		&types.ServiceSpace{},
+		&types.ServiceSpaceMember{},
+		&types.ServiceExpertBinding{},
+		&types.ServiceArtifact{},
 		&types.AgentRun{},
 		&types.AgentRunEvent{},
 		&types.AgentRunEventSequence{},
@@ -49,14 +70,7 @@ func newAgentRunTestService(
 		&types.ExpertPackageVersion{},
 		&types.AgentDefinitionVersion{},
 	))
-
-	serviceRepo := repository.NewServiceRepository(db)
-	organizeRepo := repository.NewOrganizeRepository(db)
-	baseService := NewServiceService(serviceRepo, organizeRepo)
-	runRepo := repository.NewAgentRunRepository(db)
-	expertRepo := repository.NewExpertPackageRepository(db)
-	enqueuer := &agentRunTaskEnqueuer{}
-	return NewAgentRunService(runRepo, baseService, expertRepo, nil, enqueuer, nil, nil, nil), runRepo, enqueuer, db
+	return db
 }
 
 type expertTestChatModel struct {
@@ -139,21 +153,9 @@ func newExpertAgentRunTestService(
 	streamResponses []string,
 ) (interfaces.AgentRunService, interfaces.AgentRunRepository, *agentRunTaskEnqueuer, *gorm.DB, *expertTestChatModel) {
 	t.Helper()
-	db := newServiceDailyReportTestDB(t)
-	require.NoError(t, db.AutoMigrate(
-		&types.AgentRun{},
-		&types.AgentRunEvent{},
-		&types.AgentRunEventSequence{},
-		&types.AgentRunStep{},
-		&types.AgentRunInputRevision{},
-		&types.AgentRequirementSnapshot{},
-		&types.ExpertPackage{},
-		&types.ExpertPackageVersion{},
-		&types.AgentDefinitionVersion{},
-	))
-	serviceRepo := repository.NewServiceRepository(db)
-	organizeRepo := repository.NewOrganizeRepository(db)
+	db := newAgentRunTestDB(t)
 	runRepo := repository.NewAgentRunRepository(db)
+	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil)
 	expertRepo := repository.NewExpertPackageRepository(db)
 	enqueuer := &agentRunTaskEnqueuer{}
 	chatModel := &expertTestChatModel{
@@ -163,7 +165,7 @@ func newExpertAgentRunTestService(
 	modelService := &expertTestModelService{chatModel: chatModel}
 	runService := NewAgentRunService(
 		runRepo,
-		NewServiceService(serviceRepo, organizeRepo),
+		serviceSpaces,
 		expertRepo,
 		modelService,
 		enqueuer,
@@ -209,228 +211,6 @@ func TestAgentRunEventsReplayFromSequence(t *testing.T) {
 	require.Len(t, resumed, 2)
 	require.Equal(t, types.AgentRunEventTypeRunStarted, resumed[0].EventType)
 	require.Equal(t, types.AgentRunEventTypeRunFinished, resumed[1].EventType)
-}
-
-func createAgentRunProfile(t *testing.T, db *gorm.DB, tenantID uint64, userID string) *types.UserWorkProfile {
-	t.Helper()
-	profile := &types.UserWorkProfile{
-		TenantID:       tenantID,
-		UserID:         userID,
-		Name:           "服务执行测试",
-		DefaultProfile: true,
-		Enabled:        true,
-		State:          types.ServiceWorkProfileStateEnabled,
-	}
-	require.NoError(t, db.Create(profile).Error)
-	return profile
-}
-
-func TestAgentRunEnqueuesDailyReportOnceAndPersistsArtifactReference(t *testing.T) {
-	ctx := context.Background()
-	const tenantID uint64 = 9
-	const userID = "user-a"
-
-	runService, runRepo, enqueuer, db := newAgentRunTestService(t)
-	profile := createAgentRunProfile(t, db, tenantID, userID)
-
-	input := types.ServiceDailyReportInput{
-		Range:    types.ServiceDailyReportRangeDay,
-		Date:     "2026-09-17",
-		Timezone: "Asia/Shanghai",
-		Trigger:  "user_requested",
-	}
-	first, err := runService.EnqueueDailyReport(ctx, tenantID, userID, input)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusQueued, first.Status)
-	require.Len(t, enqueuer.tasks, 1)
-	require.Equal(t, types.TypeAgentRunExecute, enqueuer.tasks[0].Type())
-
-	duplicate, err := runService.EnqueueDailyReport(ctx, tenantID, userID, input)
-	require.NoError(t, err)
-	require.Equal(t, first.ID, duplicate.ID)
-	require.Len(t, enqueuer.tasks, 1)
-
-	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[0]))
-	run, err := runRepo.GetByID(ctx, first.ID)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusSucceeded, run.Status, run.ErrorMessage)
-	require.Equal(t, types.BuiltinServiceAssistantVersion, run.AgentVersion)
-	require.Equal(t, profile.ID, run.ProfileID)
-	require.Equal(t, types.AgentResultSchemaV1, run.Result["schema_version"])
-	require.Equal(t, "service_daily_report", run.Result["artifact_type"])
-	require.NotEmpty(t, run.Result["daily_report_id"])
-	require.Equal(t, 1, run.Attempt)
-
-	result := decodeAgentRunResult(t, run.Result)
-	require.False(t, result.Decision.ShouldCreateCard)
-	require.Len(t, result.Artifacts, 1)
-	require.Equal(t, types.AgentArtifactKindReport, result.Artifacts[0].Kind)
-	require.Equal(t, types.StructuredReportFormatV1, result.Artifacts[0].Format)
-	require.Empty(t, result.Evidence)
-	validation := decodeAgentRunValidation(t, run.Result)
-	require.True(t, validation.Valid)
-}
-
-func TestAgentRunCancellationStopsQueuedTask(t *testing.T) {
-	ctx := context.Background()
-	const tenantID uint64 = 9
-	const userID = "user-a"
-
-	runService, runRepo, enqueuer, _ := newAgentRunTestService(t)
-	run, err := runService.EnqueueMemoryExtraction(ctx, tenantID, userID, "memory-a")
-	require.NoError(t, err)
-	require.Len(t, enqueuer.tasks, 1)
-
-	cancelled, err := runService.CancelAgentRun(ctx, tenantID, userID, run.ID)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusCancelled, cancelled.Status)
-
-	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[0]))
-	persisted, err := runRepo.GetByID(ctx, run.ID)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusCancelled, persisted.Status)
-}
-
-func TestAgentRunCancellationStopsRunningAndWaitingTasks(t *testing.T) {
-	ctx := context.Background()
-	const tenantID uint64 = 9
-	const userID = "user-a"
-
-	runService, runRepo, enqueuer, _ := newAgentRunTestService(t)
-	running, err := runService.EnqueueMemoryExtraction(ctx, tenantID, userID, "memory-running")
-	require.NoError(t, err)
-	claimed, err := runRepo.Claim(ctx, running.ID, time.Now())
-	require.NoError(t, err)
-	require.True(t, claimed)
-
-	cancelled, err := runService.CancelAgentRun(ctx, tenantID, userID, running.ID)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusCancelled, cancelled.Status)
-
-	waiting, err := runService.EnqueueMemoryExtraction(ctx, tenantID, userID, "memory-waiting")
-	require.NoError(t, err)
-	require.Len(t, enqueuer.tasks, 2)
-	waitingInteraction := types.JSONMap{
-		"schema_version": "intake_request_v1",
-		"questions": []any{
-			map[string]any{
-				"id":       "goal",
-				"label":    "目标",
-				"type":     "single_choice",
-				"required": true,
-				"options":  []string{"A", "B"},
-			},
-		},
-	}
-	claimed, err = runRepo.Claim(ctx, waiting.ID, time.Now())
-	require.NoError(t, err)
-	require.True(t, claimed)
-	markedWaiting, err := runRepo.MarkWaitingInput(ctx, waiting.ID, waitingInteraction)
-	require.NoError(t, err)
-	require.True(t, markedWaiting)
-
-	cancelled, err = runService.CancelAgentRun(ctx, tenantID, userID, waiting.ID)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusCancelled, cancelled.Status)
-}
-
-func TestAgentRunRecordsTerminalFailureWithoutWorkerRetryContext(t *testing.T) {
-	ctx := context.Background()
-	const tenantID uint64 = 9
-	const userID = "user-a"
-
-	runService, runRepo, enqueuer, _ := newAgentRunTestService(t)
-	run, err := runService.EnqueueDailyReport(ctx, tenantID, userID, types.ServiceDailyReportInput{
-		Range: types.ServiceDailyReportRangeDay,
-		Date:  "2026-09-17",
-	})
-	require.NoError(t, err)
-	require.Len(t, enqueuer.tasks, 1)
-
-	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[0]))
-	persisted, err := runRepo.GetByID(ctx, run.ID)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusFailed, persisted.Status)
-	require.Equal(t, types.AgentRunErrorExecutionFailed, persisted.ErrorCode)
-	require.Contains(t, persisted.ErrorMessage, ErrServiceProfileNotConfigured.Error())
-}
-
-func TestAgentRunMarksEnqueueFailure(t *testing.T) {
-	ctx := context.Background()
-	const tenantID uint64 = 9
-	const userID = "user-a"
-
-	runService, _, enqueuer, db := newAgentRunTestService(t)
-	enqueuer.err = errors.New("queue unavailable")
-
-	run, err := runService.EnqueueMemoryExtraction(ctx, tenantID, userID, "memory-a")
-	require.Error(t, err)
-	require.Nil(t, run)
-
-	var persisted types.AgentRun
-	require.NoError(t, db.Where("tenant_id = ? AND user_id = ?", tenantID, userID).
-		Order("created_at DESC").
-		First(&persisted).Error)
-	require.Equal(t, types.AgentRunStatusFailed, persisted.Status)
-	require.Equal(t, types.AgentRunErrorEnqueueFailed, persisted.ErrorCode)
-}
-
-func TestAgentRunMemoryExtractionPersistsThreeFieldCardAndEvidence(t *testing.T) {
-	ctx := context.Background()
-	const tenantID uint64 = 9
-	const userID = "user-a"
-
-	runService, runRepo, enqueuer, db := newAgentRunTestService(t)
-	profile := createAgentRunProfile(t, db, tenantID, userID)
-	require.NoError(t, db.Create(&types.WorkProfileAgentSetting{
-		TenantID:         tenantID,
-		ProfileID:        profile.ID,
-		AgentID:          types.BuiltinServiceAssistantID,
-		AgentDomain:      types.ServiceAgentDomainSalesConsulting,
-		Enabled:          true,
-		DisplayName:      "招生咨询",
-		DisplayOrder:     1,
-		WorkDocDirectory: "线索/",
-	}).Error)
-	memory := &types.OrganizeMemory{
-		TenantID: tenantID,
-		UserID:   userID,
-		Kind:     types.OrganizeMemoryKindNote,
-		Title:    "试听课安排",
-		Content:  "小明妈妈已经确认本周三参加试听课，需要在试听后主动回访并确认下一步安排。",
-		Source:   "手动输入",
-		Metadata: types.JSONMap{"tags": []string{}},
-	}
-	require.NoError(t, db.Create(memory).Error)
-
-	queued, err := runService.EnqueueMemoryExtraction(ctx, tenantID, userID, memory.ID)
-	require.NoError(t, err)
-	require.Len(t, enqueuer.tasks, 1)
-	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[0]))
-
-	run, err := runRepo.GetByID(ctx, queued.ID)
-	require.NoError(t, err)
-	require.Equal(t, types.AgentRunStatusSucceeded, run.Status)
-	require.Equal(t, profile.ID, run.ProfileID)
-	require.Equal(t, types.BuiltinServiceAssistantVersion, run.AgentVersion)
-	require.Equal(t, memory.ID, run.Result["memory_id"])
-	require.Equal(t, true, run.Result["generated"])
-	require.NotEmpty(t, run.Result["service_reminder_id"])
-
-	result := decodeAgentRunResult(t, run.Result)
-	require.True(t, result.Decision.ShouldCreateCard)
-	require.NotNil(t, result.Card)
-	require.Equal(t, types.ServiceCardSchemaV1, result.Card.SchemaVersion)
-	require.NotEmpty(t, result.Card.Title)
-	require.NotEmpty(t, result.Card.Summary)
-	require.NotEmpty(t, result.Card.NextAction)
-	require.Len(t, result.Artifacts, 1)
-	require.Equal(t, types.AgentArtifactKindReport, result.Artifacts[0].Kind)
-	require.Equal(t, types.StructuredReportFormatV1, result.Artifacts[0].Format)
-	require.NotEmpty(t, result.Evidence)
-	require.Equal(t, memory.ID, result.Evidence[0].SourceID)
-	require.Equal(t, "trigger", result.Evidence[0].Relation)
-	require.True(t, decodeAgentRunValidation(t, run.Result).Valid)
 }
 
 func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *testing.T) {
@@ -502,6 +282,12 @@ func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *tes
 	require.NotContains(t, result.Card.NextAction, "**")
 	require.Len(t, result.Artifacts, 2)
 	require.NotEmpty(t, result.Artifacts[0].ID)
+	require.NotEmpty(t, result.Artifacts[0].VersionID)
+	require.Equal(t, 1, result.Artifacts[0].Version)
+	require.Equal(t, run.ID, result.Artifacts[0].RunID)
+	require.Equal(t, types.AgentArtifactLifecycleTemporary, result.Artifacts[0].Lifecycle)
+	require.True(t, result.Artifacts[0].Previewable)
+	require.True(t, result.Artifacts[0].Downloadable)
 	require.Equal(t, "text/html", result.Artifacts[0].MimeType)
 	require.NotEmpty(t, result.Artifacts[0].OriginalName)
 	require.True(t, strings.HasSuffix(result.Artifacts[0].OriginalName, ".html"))
@@ -509,6 +295,9 @@ func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *tes
 	require.Positive(t, result.Artifacts[0].SizeBytes)
 	require.NotEmpty(t, result.Artifacts[0].ResourceRef)
 	require.NotEmpty(t, result.Artifacts[1].ID)
+	require.NotEmpty(t, result.Artifacts[1].VersionID)
+	require.Equal(t, 1, result.Artifacts[1].Version)
+	require.Equal(t, run.ID, result.Artifacts[1].RunID)
 	require.Equal(t, types.AgentArtifactKindText, result.Artifacts[1].Kind)
 	require.Equal(t, types.AgentArtifactRoleSupporting, result.Artifacts[1].Role)
 	require.Equal(t, "markdown", result.Artifacts[1].Format)
@@ -554,10 +343,86 @@ func TestAgentRunExpertTestExecutesPublishedDefinitionAndKeepsResultOnRun(t *tes
 	require.True(t, eventTypes[types.AgentRunEventTypeRunStarted])
 	require.True(t, eventTypes[types.AgentRunEventTypeStepStarted])
 	require.True(t, eventTypes[types.AgentRunEventTypeQualityUpdated])
+	require.True(t, eventTypes[types.AgentRunEventTypeArtifactVersionCreated])
 	require.True(t, eventTypes[types.AgentRunEventTypeActivitySnapshot])
 	require.True(t, eventTypes[types.AgentRunEventTypeRunFinished])
 	require.GreaterOrEqual(t, finishedStepDuration, 0)
 	require.GreaterOrEqual(t, totalDuration, 0)
+}
+
+func TestServiceAgentRunKeepsSessionBoundaryAndIndexesArtifacts(t *testing.T) {
+	ctx := context.Background()
+	const tenantID uint64 = 15
+	const userID = "service-owner"
+	runService, _, enqueuer, db, _ := newExpertAgentRunTestService(
+		t,
+		[]string{
+			expertTestIntakeReadyJSON(),
+			expertTestPlanJSON(),
+			expertTestQualityPassedJSON(),
+			`{
+				"schema_version":"agent_result_v1",
+				"decision":{"should_create_card":true,"confidence":0.9,"reason":"已生成服务产出物。"},
+				"card":{"schema_version":"service_card_v1","title":"招生跟进清单","summary":"已整理重点跟进家长。","next_action":"逐一确认到访时间。"},
+				"artifacts":[{
+					"kind":"report",
+					"role":"primary",
+					"title":"招生跟进清单",
+					"format":"structured_report_v1",
+					"content":{
+						"format":"structured_report_v1",
+						"title":"招生跟进清单",
+						"executive_summary":"本次会话形成招生跟进清单。",
+						"sections":[{"type":"recommended_actions","title":"下一步","items":["确认到访时间","补齐联系方式"]}],
+						"evidence_refs":[]
+					}
+				}],
+				"evidence":[]
+			}`,
+		},
+		[]string{expertTestLongReport()},
+	)
+	pkg, definition := createPublishedExpertTestDefinition(t, db, tenantID)
+	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil)
+	space, err := serviceSpaces.Create(ctx, tenantID, userID, types.ServiceSpaceCreateInput{
+		Name: "秋季招生咨询",
+		Experts: []types.ServiceExpertBindingInput{
+			{ExpertRef: definition.AgentID, ExpertName: definition.DisplayName},
+		},
+		Activate: true,
+	})
+	require.NoError(t, err)
+	session, err := serviceSpaces.CreateSession(ctx, tenantID, userID, space.ID, types.ServiceSessionCreateInput{})
+	require.NoError(t, err)
+
+	run, err := runService.EnqueuePublishedExpertRun(ctx, tenantID, userID, types.ExpertAgentTestInput{
+		PackageID:    pkg.ID,
+		DefinitionID: definition.ID,
+		Prompt:       "整理今天开放日需要重点跟进的家长。",
+		ModelID:      "chat-1",
+		ServiceID:    space.ID,
+		SessionID:    session.ID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, space.ID, run.ServiceID)
+	require.Equal(t, session.ID, run.ThreadID)
+	require.Len(t, enqueuer.tasks, 1)
+
+	_, err = runService.GetAgentRun(ctx, tenantID, userID, run.ID)
+	require.ErrorIs(t, err, ErrAgentRunNotFound)
+	serviceRun, err := runService.GetAgentRunForService(ctx, tenantID, userID, space.ID, run.ID)
+	require.NoError(t, err)
+	require.Equal(t, run.ID, serviceRun.ID)
+
+	require.NoError(t, runService.ProcessAgentRun(ctx, enqueuer.tasks[0]))
+	artifacts, total, err := serviceSpaces.ListArtifacts(ctx, tenantID, userID, space.ID, "", 1, 20)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, total)
+	require.Len(t, artifacts, 2)
+	for _, artifact := range artifacts {
+		require.Equal(t, space.ID, artifact.ServiceID)
+		require.Equal(t, run.ID, artifact.RunID)
+	}
 }
 
 func TestAgentRunExpertTestWaitsForAnswersAndResumesSameRun(t *testing.T) {
@@ -1027,9 +892,18 @@ func TestGetAgentRunRecoversTimedOutRunningRun(t *testing.T) {
 
 	events, err := runRepo.ListEvents(ctx, run.ID, 0, 10)
 	require.NoError(t, err)
-	require.Len(t, events, 1)
-	require.Equal(t, types.AgentRunEventTypeRunError, events[0].EventType)
-	require.Equal(t, types.AgentRunErrorTimedOut, events[0].Payload["errorCode"])
+	var failureEvent *types.AgentRunEvent
+	for _, event := range events {
+		if event.EventType == types.AgentRunEventTypeRunError {
+			failureEvent = event
+			break
+		}
+	}
+	require.NotNil(t, failureEvent)
+	require.Equal(t, types.AgentRunErrorTimedOut, failureEvent.Payload["errorCode"])
+	require.Equal(t, true, failureEvent.Payload["retryable"])
+	require.Equal(t, false, failureEvent.Payload["automaticRetry"])
+	require.Equal(t, true, failureEvent.Payload["terminal"])
 }
 
 func hasExpertQualityIssue(issues []expertQualityIssue, code string) bool {
@@ -1127,8 +1001,18 @@ func TestExpertRegenerationUsesParentReportAndSkipsClarification(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, claimed)
 	parentReport := "# 上一版方案\n\n已确认30组家庭参加，方案包含流程、分工、预算和安全安排。"
-	succeeded, err := runRepo.MarkSucceeded(ctx, parent.ID, "", types.JSONMap{
+	succeeded, err := runRepo.MarkSucceeded(ctx, parent.ID, types.JSONMap{
 		"report_markdown": parentReport,
+		"artifacts": []types.AgentArtifactResultV1{
+			{
+				ID:        "artifact-parent",
+				VersionID: "artifact-parent-v1",
+				Version:   1,
+				Kind:      types.AgentArtifactKindReport,
+				Role:      types.AgentArtifactRolePrimary,
+				Title:     "上一版方案",
+			},
+		},
 	}, time.Now())
 	require.NoError(t, err)
 	require.True(t, succeeded)
@@ -1154,6 +1038,13 @@ func TestExpertRegenerationUsesParentReportAndSkipsClarification(t *testing.T) {
 	require.Contains(t, chatModel.chatCalls[0][1].Content, "整理成行动清单")
 	require.Contains(t, chatModel.streamCalls[0][1].Content, "作为修订基线")
 	require.Contains(t, chatModel.streamCalls[0][1].Content, parentReport)
+	childResult := decodeAgentRunResult(t, completed.Result)
+	require.NotEmpty(t, childResult.Artifacts)
+	require.Equal(t, "artifact-parent", childResult.Artifacts[0].ID)
+	require.NotEqual(t, "artifact-parent-v1", childResult.Artifacts[0].VersionID)
+	require.Equal(t, 2, childResult.Artifacts[0].Version)
+	require.Equal(t, parent.ID, childResult.Artifacts[0].Metadata["parent_run_id"])
+	require.Equal(t, "artifact-parent-v1", childResult.Artifacts[0].Metadata["parent_version_id"])
 
 	steps, err := runService.ListAgentRunSteps(ctx, tenantID, userID, child.ID)
 	require.NoError(t, err)
@@ -1190,7 +1081,7 @@ func TestPublishedExpertFollowUpReturnsChatAnswerWithoutArtifact(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, claimed)
 	parentReport := "# 亲子活动方案\n\n先签到，再按年龄分组，随后进入分区活动。"
-	succeeded, err := runRepo.MarkSucceeded(ctx, parent.ID, "", types.JSONMap{
+	succeeded, err := runRepo.MarkSucceeded(ctx, parent.ID, types.JSONMap{
 		"report_markdown": parentReport,
 	}, time.Now())
 	require.NoError(t, err)

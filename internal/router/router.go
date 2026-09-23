@@ -86,7 +86,7 @@ type RouterParams struct {
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
 	OrganizeHandler              *handler.OrganizeHandler
 	AgentRunHandler              *handler.AgentRunHandler
-	ServiceHandler               *handler.ServiceHandler
+	ServiceSpaceHandler          *handler.ServiceSpaceHandler
 	SkillHandler                 *handler.SkillHandler
 	OrganizationHandler          *handler.OrganizationHandler
 	IMHandler                    *handler.IMHandler
@@ -230,6 +230,9 @@ func NewRouter(params RouterParams) *gin.Engine {
 		// apiKeyGroup helpers. Must be attached BEFORE the Register* calls
 		// so that sub-groups inherit it.
 		v1.Use(rbacGuards.apiKeyAuthorizer.Middleware())
+		if params.ServiceSpaceHandler != nil {
+			v1.Use(params.ServiceSpaceHandler.SessionScopeMiddleware())
+		}
 
 		RegisterAuthRoutes(v1, params.AuthHandler, rbacGuards)
 		RegisterSMSAuthRoutes(v1, params.SMSAuthHandler)
@@ -271,7 +274,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterOrganizeRoutes(v1, params.OrganizeHandler, rbacGuards)
 		RegisterAgentRunRoutes(v1, params.AgentRunHandler, rbacGuards)
-		RegisterServiceRoutes(v1, params.ServiceHandler, rbacGuards)
+		RegisterServiceSpaceRoutes(v1, params.ServiceSpaceHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
 		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
@@ -1379,50 +1382,43 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 	}
 }
 
-// RegisterServiceRoutes wires the service-reminder module.
-//
-// User-facing routes are scoped to the authenticated user and stay Viewer+.
-// Work-profile and agent-setting routes are the AI engineer configuration
-// surface, so they require Admin+ and are not shown to ordinary users.
-func RegisterServiceRoutes(r *gin.RouterGroup, h *handler.ServiceHandler, g *rbacGuards) {
+// RegisterServiceSpaceRoutes wires the service workspace API.
+func RegisterServiceSpaceRoutes(r *gin.RouterGroup, h *handler.ServiceSpaceHandler, g *rbacGuards) {
 	if h == nil {
 		return
 	}
-	svc := g.apiKeyGroup(r.Group("/service"), apiKeyFullAccess())
+	svc := g.apiKeyGroup(r.Group("/services"), apiKeyFullAccess())
 	{
-		svc.GET("/bootstrap", g.Viewer(), h.GetBootstrap)
-		svc.POST("/refresh", g.Viewer(), h.Refresh)
-		svc.POST("/memories/:memory_id/extract", g.Viewer(), h.ExtractMemory)
-		svc.GET("/agent-runs/:id", g.Viewer(), h.GetAgentRun)
-		svc.GET("/agent-runs/:id/artifacts/:artifact_id/preview", g.Viewer(), h.PreviewAgentRunArtifact)
-		svc.GET("/agent-runs/:id/quality", g.Viewer(), h.GetAgentRunQuality)
-		svc.GET("/agent-runs/:id/events", g.Viewer(), h.StreamAgentRunEvents)
-		svc.GET("/agent-runs/:id/steps", g.Viewer(), h.ListAgentRunSteps)
-		svc.POST("/agent-runs/:id/answers", g.Viewer(), h.SubmitAgentRunAnswers)
-		svc.POST("/agent-runs/:id/regenerate", g.Viewer(), h.RegenerateAgentRun)
-		svc.POST("/agent-runs/:id/cancel", g.Viewer(), h.CancelAgentRun)
-		svc.GET("/agent-templates", g.Viewer(), h.ListAgentTemplates)
-		svc.GET("/daily-reports", g.Viewer(), h.ListDailyReports)
-		svc.POST("/daily-reports", g.Viewer(), h.GenerateDailyReport)
-		svc.GET("/daily-reports/:id/rendered", g.Viewer(), h.RenderDailyReportHTML)
-		svc.GET("/daily-reports/:id", g.Viewer(), h.GetDailyReport)
+		svc.GET("", g.Viewer(), h.List)
+		svc.POST("", g.Viewer(), h.Create)
+		svc.GET("/:service_id", g.Viewer(), h.Get)
+		svc.PUT("/:service_id", g.Viewer(), h.Update)
+		svc.DELETE("/:service_id", g.Viewer(), h.Delete)
+		svc.GET("/:service_id/overview", g.Viewer(), h.Overview)
+		svc.POST("/:service_id/default", g.Viewer(), h.SetDefault)
+		svc.POST("/:service_id/state/:state", g.Viewer(), h.SetState)
+		svc.POST("/:service_id/agent-runs", g.Viewer(), h.CreateAgentRun)
+		svc.GET("/:service_id/agent-runs/:run_id", g.Viewer(), h.GetAgentRun)
+		svc.GET("/:service_id/agent-runs/:run_id/steps", g.Viewer(), h.ListAgentRunSteps)
+		svc.GET("/:service_id/agent-runs/:run_id/events", g.Viewer(), h.ListAgentRunEvents)
 
-		svc.GET("/customer-spaces", g.Viewer(), h.ListCustomerSpaces)
-		svc.GET("/customer-spaces/:id", g.Viewer(), h.GetCustomerSpace)
+		svc.GET("/:service_id/sessions", g.Viewer(), h.ListSessions)
+		svc.POST("/:service_id/sessions", g.Viewer(), h.CreateSession)
+		svc.GET("/:service_id/sessions/:session_id", g.Viewer(), h.GetSession)
+		svc.PUT("/:service_id/sessions/:session_id", g.Viewer(), h.UpdateSession)
+		svc.PUT("/:service_id/sessions/:session_id/pinned", g.Viewer(), h.SetSessionPinned)
+		svc.DELETE("/:service_id/sessions/:session_id", g.Viewer(), h.DeleteSession)
 
-		svc.GET("/reminders", g.Viewer(), h.ListReminders)
-		svc.GET("/reminders/:id", g.Viewer(), h.GetReminder)
-		svc.PUT("/reminders/:id/status", g.Viewer(), h.UpdateReminderStatus)
-		svc.POST("/reminders/:id/action-drafts", g.Viewer(), h.CreateActionDraft)
+		svc.GET("/:service_id/members", g.Viewer(), h.ListMembers)
+		svc.POST("/:service_id/members", g.Viewer(), h.AddMember)
+		svc.PUT("/:service_id/members/:member_user_id", g.Viewer(), h.UpdateMemberRole)
+		svc.DELETE("/:service_id/members/:member_user_id", g.Viewer(), h.RemoveMember)
 
-		svc.GET("/action-drafts", g.Viewer(), h.ListActionDrafts)
-		svc.PUT("/action-drafts/:id/status", g.Viewer(), h.UpdateActionDraftStatus)
+		svc.GET("/:service_id/experts", g.Viewer(), h.ListExperts)
+		svc.PUT("/:service_id/experts", g.Viewer(), h.ReplaceExperts)
 
-		svc.GET("/work-profiles", g.Admin(), h.ListWorkProfiles)
-		svc.POST("/work-profiles", g.Admin(), h.CreateWorkProfile)
-		svc.PUT("/work-profiles/:id", g.Admin(), h.UpdateWorkProfile)
-		svc.GET("/work-profiles/:id/agent-settings", g.Admin(), h.ListAgentSettings)
-		svc.PUT("/work-profiles/:id/agent-settings", g.Admin(), h.ReplaceAgentSettings)
+		svc.GET("/:service_id/artifacts", g.Viewer(), h.ListArtifacts)
+		svc.GET("/:service_id/artifacts/:artifact_id/:mode", g.Viewer(), h.StreamArtifact)
 	}
 }
 

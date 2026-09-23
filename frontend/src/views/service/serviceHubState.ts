@@ -1,4 +1,13 @@
 import { computed, reactive } from 'vue'
+import {
+  createServiceSession as createServiceSessionRequest,
+  listServiceExperts,
+  listServiceSessions,
+  listServiceSpaces,
+  type ServiceExpertBinding,
+  type ServiceSpace,
+  type ServiceSession as ApiServiceSession,
+} from '@/api/service'
 
 export type ServiceHubMode = 'data' | 'empty' | 'archived'
 export type ServiceRole = '拥有者' | '管理员' | '编辑者' | '只读'
@@ -16,6 +25,7 @@ export interface ServiceRecord {
   id: string
   name: string
   description: string
+  instruction?: string
   templateId: string
   expertIds?: string[]
   knowledgeBaseIds?: string[]
@@ -24,7 +34,7 @@ export interface ServiceRecord {
   members: number
   updatedLabel: string
   updatedAt: number
-  state: 'active' | 'archived' | 'draft'
+  state: 'active' | 'archived' | 'draft' | 'paused'
 }
 
 export interface ServiceSessionMessage {
@@ -452,8 +462,8 @@ export const serviceArtifacts: Record<string, ServiceArtifact> = {
 
 export const serviceHubState = reactive({
   mode: 'data' as ServiceHubMode,
-  services: initialServices,
-  sessions: initialSessions,
+  services: [] as ServiceRecord[],
+  sessions: [] as ServiceSession[],
   activeServiceId: '',
   activeSessionId: '',
   expandedServices: {
@@ -467,6 +477,122 @@ export const serviceHubState = reactive({
     s8: false,
   } as Record<string, boolean>,
 })
+
+let loadPromise: Promise<void> | null = null
+let loaded = false
+
+const serviceRoleLabel = (role?: string): ServiceRole => {
+  switch (role) {
+    case 'owner':
+      return '拥有者'
+    case 'admin':
+      return '管理员'
+    case 'editor':
+      return '编辑者'
+    default:
+      return '只读'
+  }
+}
+
+const formatUpdatedLabel = (value?: string) => {
+  if (!value) return '刚刚'
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return '刚刚'
+  const diffMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000))
+  if (diffMinutes < 1) return '刚刚'
+  if (diffMinutes < 60) return `${diffMinutes} 分钟前`
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) return `${diffHours} 小时前`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 7) return `${diffDays} 天前`
+  return new Date(timestamp).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+}
+
+const mapService = (service: ServiceSpace, experts: ServiceExpertBinding[]): ServiceRecord => ({
+  id: service.id,
+  name: service.name,
+  description: service.description || '',
+  instruction: service.instruction || '',
+  templateId: service.template_key || '',
+  expertIds: experts.map((expert) => expert.expert_ref),
+  knowledgeBaseIds: service.knowledge_base_ids || [],
+  skillIds: service.selected_skills || [],
+  role: serviceRoleLabel(service.role),
+  members: service.member_count || 0,
+  updatedLabel: formatUpdatedLabel(service.updated_at),
+  updatedAt: service.updated_at ? Date.parse(service.updated_at) || Date.now() : Date.now(),
+  state: service.state,
+})
+
+const mapSession = (session: ApiServiceSession): ServiceSession => ({
+  id: session.id,
+  chatSessionId: session.id,
+  serviceId: session.service_id,
+  title: session.title || '开始一段新的工作',
+  expert: session.expert_name || session.expert_ref || '服务助理',
+  pinned: Boolean(session.is_pinned),
+  updatedLabel: formatUpdatedLabel(session.updated_at),
+  messages: [],
+})
+
+export const loadServiceHub = async (force = false) => {
+  if (loaded && !force) return
+  if (loadPromise && !force) return loadPromise
+  loadPromise = (async () => {
+    try {
+      const response = await listServiceSpaces()
+      const services = Array.isArray(response?.data) ? response.data : []
+      const mappedServices = await Promise.all(
+        services.map(async (service) => {
+          try {
+            const expertsResponse = await listServiceExperts(service.id)
+            return mapService(service, Array.isArray(expertsResponse?.data) ? expertsResponse.data : [])
+          } catch (error) {
+            console.warn(`[ServiceHub] failed to load experts for ${service.id}`, error)
+            return mapService(service, [])
+          }
+        }),
+      )
+      const sessionGroups = await Promise.all(
+        services.map(async (service) => {
+          try {
+            const sessionsResponse = await listServiceSessions(service.id, { page: 1, page_size: 100 })
+            return sessionsResponse?.data?.items || []
+          } catch (error) {
+            console.warn(`[ServiceHub] failed to load sessions for ${service.id}`, error)
+            return []
+          }
+        }),
+      )
+      serviceHubState.services = mappedServices
+      serviceHubState.sessions = sessionGroups.flat().map(mapSession)
+      mappedServices.forEach((service) => {
+        if (!(service.id in serviceHubState.expandedServices)) {
+          serviceHubState.expandedServices[service.id] = false
+        }
+      })
+      loaded = true
+    } finally {
+      loadPromise = null
+    }
+  })()
+  return loadPromise
+}
+
+export const createServiceSession = async (
+  serviceId: string,
+  input?: { title?: string; description?: string; expert_ref?: string; expert_name?: string },
+) => {
+  const response = await createServiceSessionRequest(serviceId, input)
+  if (!response?.data) throw new Error('missing service session')
+  const session = mapSession(response.data)
+  serviceHubState.sessions = [
+    session,
+    ...serviceHubState.sessions.filter((item) => item.id !== session.id),
+  ]
+  serviceHubState.expandedServices[serviceId] = true
+  return session
+}
 
 export const serviceCount = computed(() => serviceHubState.services.length)
 

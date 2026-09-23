@@ -217,6 +217,9 @@ func (s *sessionService) ListSessions(
 	if uid := types.SessionOwnerIDFromContext(ctx); uid != "" {
 		query.UserID = uid
 	}
+	if strings.TrimSpace(query.ServiceID) == "" {
+		query.GlobalOnly = true
+	}
 
 	items, total, err := s.sessionRepo.QueryPaged(ctx, query)
 	if err != nil {
