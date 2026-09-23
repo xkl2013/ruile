@@ -14,6 +14,10 @@ import {
 const LITE_LAST_PATH_KEY = 'weknora_lite_last_path'
 const AUTO_SETUP_FAILED_KEY = 'weknora_auto_setup_failed'
 const organizeWorkspaceComponent = () => import("../views/organize/OrganizeWorkspace.vue")
+const organizeWorkbenchComponent = () => import("../views/organize/OrganizeWorkbench.vue")
+const organizeMineComponent = () => import("../views/organize/OrganizeOutputList.vue")
+const organizeConfigDetailComponent = () => import("../views/organize/OrganizeConfigDetail.vue")
+const organizeOutputDetailComponent = () => import("../views/organize/OrganizeOutputDetail.vue")
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
@@ -146,15 +150,41 @@ const router = createRouter({
         ...ORGANIZE_MENU_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
           name: item.routeName,
-          component: organizeWorkspaceComponent,
+          component: item.key === 'hub'
+            ? organizeWorkbenchComponent
+            : item.key === 'mine'
+              ? organizeMineComponent
+              : organizeWorkspaceComponent,
           meta: { ...organizeRouteMeta, organizeTab: item.key },
         })),
+        {
+          path: "organize/output",
+          redirect: "/platform/organize/discover",
+          meta: organizeRouteMeta,
+        },
+        {
+          path: "organize/sprout",
+          redirect: "/platform/organize/mine",
+          meta: organizeRouteMeta,
+        },
         ...ORGANIZE_MEMORY_ASSET_ROUTES.map((item) => ({
           path: toPlatformChildPath(item.path),
           name: item.routeName,
           component: organizeWorkspaceComponent,
           meta: { ...organizeRouteMeta, organizeTab: 'memory', memoryAsset: item.key },
         })),
+        {
+          path: "organize/configs/:configId",
+          name: ORGANIZE_ROUTE_NAMES.configDetail,
+          component: organizeConfigDetailComponent,
+          meta: { ...organizeRouteMeta, organizeTab: "hub" },
+        },
+        {
+          path: "organize/outputs/:outputId",
+          name: ORGANIZE_ROUTE_NAMES.outputDetail,
+          component: organizeOutputDetailComponent,
+          meta: { ...organizeRouteMeta, organizeTab: "mine" },
+        },
         {
           path: "organize/editor/:documentType/:id",
           name: ORGANIZE_ROUTE_NAMES.editor,

@@ -1,4 +1,5 @@
-export type OrganizeTab = 'memory' | 'output' | 'sprout'
+export type OrganizeTab = 'hub' | 'mine' | 'memory' | 'discover'
+export type LegacyOrganizeTab = 'memory' | 'output' | 'sprout' | 'discover'
 export type MemoryAssetKey = 'note' | 'audio' | 'audio-card'
 
 export interface OrganizeMenuRouteItem {
@@ -24,9 +25,12 @@ export interface OrganizeMemoryAssetRouteItem {
 export const ORGANIZE_ROUTE_BASE_PATH = '/platform/organize'
 
 export const ORGANIZE_ROUTE_NAMES = {
+  hub: 'organizeHub',
   memory: 'organizeMemory',
-  output: 'organizeOutput',
-  sprout: 'organizeSprout',
+  mine: 'organizeMine',
+  discover: 'organizeDiscover',
+  configDetail: 'organizeConfigDetail',
+  outputDetail: 'organizeOutputDetail',
   editor: 'organizeEditor',
   memoryNotes: 'organizeMemoryNotes',
   memoryAudio: 'organizeMemoryAudio',
@@ -35,28 +39,36 @@ export const ORGANIZE_ROUTE_NAMES = {
 
 export const ORGANIZE_MENU_ROUTES: readonly OrganizeMenuRouteItem[] = [
   {
+    key: 'hub',
+    label: '工作台',
+    icon: 'dashboard',
+    count: 0,
+    routeName: ORGANIZE_ROUTE_NAMES.hub,
+    path: `${ORGANIZE_ROUTE_BASE_PATH}/hub`,
+  },
+  {
+    key: 'mine',
+    label: '我的整理',
+    icon: 'task',
+    count: 0,
+    routeName: ORGANIZE_ROUTE_NAMES.mine,
+    path: `${ORGANIZE_ROUTE_BASE_PATH}/mine`,
+  },
+  {
     key: 'memory',
     label: '记忆',
     icon: 'folder',
-    count: 31,
+    count: 0,
     routeName: ORGANIZE_ROUTE_NAMES.memory,
     path: `${ORGANIZE_ROUTE_BASE_PATH}/memory`,
   },
   {
-    key: 'output',
+    key: 'discover',
     label: '发现',
-    icon: 'star',
-    count: 12,
-    routeName: ORGANIZE_ROUTE_NAMES.output,
-    path: `${ORGANIZE_ROUTE_BASE_PATH}/output`,
-  },
-  {
-    key: 'sprout',
-    label: '发芽',
-    icon: 'tree-list',
-    count: 6,
-    routeName: ORGANIZE_ROUTE_NAMES.sprout,
-    path: `${ORGANIZE_ROUTE_BASE_PATH}/sprout`,
+    icon: 'browse',
+    count: 0,
+    routeName: ORGANIZE_ROUTE_NAMES.discover,
+    path: `${ORGANIZE_ROUTE_BASE_PATH}/discover`,
   },
 ]
 
@@ -94,7 +106,7 @@ export const ORGANIZE_MEMORY_ASSET_ROUTES: readonly OrganizeMemoryAssetRouteItem
 ]
 
 export const isOrganizeTab = (value: unknown): value is OrganizeTab => {
-  return value === 'memory' || value === 'output' || value === 'sprout'
+  return value === 'hub' || value === 'mine'
 }
 
 export const isMemoryAssetKey = (value: unknown): value is MemoryAssetKey => {
@@ -117,9 +129,12 @@ export const resolveOrganizeRoutePath = (tab: unknown, asset?: unknown) => {
     return `${ORGANIZE_ROUTE_BASE_PATH}/memory`
   }
 
+  if (tab === 'output') return `${ORGANIZE_ROUTE_BASE_PATH}/discover`
+  if (tab === 'sprout') return `${ORGANIZE_ROUTE_BASE_PATH}/mine`
+
   if (isOrganizeTab(tab)) {
-    return findOrganizeMenuRoute(tab)?.path || `${ORGANIZE_ROUTE_BASE_PATH}/memory`
+    return findOrganizeMenuRoute(tab)?.path || `${ORGANIZE_ROUTE_BASE_PATH}/hub`
   }
 
-  return `${ORGANIZE_ROUTE_BASE_PATH}/memory`
+  return `${ORGANIZE_ROUTE_BASE_PATH}/hub`
 }

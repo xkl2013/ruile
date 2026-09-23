@@ -27,7 +27,7 @@
               <t-input
                 id="service-create-name"
                 v-model="form.name"
-                size="large"
+                size="medium"
                 placeholder="请输入服务名称"
                 :status="formError ? 'error' : undefined"
                 @input="formError = ''"
@@ -41,7 +41,7 @@
                 <t-select
                   v-model="form.templateId"
                   class="service-create-template-select"
-                  size="large"
+                  size="small"
                   clearable
                   placeholder="选择模板"
                   :options="templateOptions"
@@ -54,7 +54,7 @@
                 class="service-create-instruction"
                 placeholder="提供当前服务的背景信息和规范，让服务内的专家回复更精准、更符合要求。例如：服务目标、团队习惯、风格偏好、输出约束等"
                 :maxlength="4000"
-                :autosize="{ minRows: 7, maxRows: 12 }"
+                :autosize="{ minRows: 4, maxRows: 8 }"
               />
             </div>
 
@@ -198,10 +198,10 @@
           <footer class="service-create-dialog-footer">
             <span>创建后可继续调整服务配置</span>
             <div class="service-create-dialog-actions">
-              <t-button variant="outline" size="large" @click="close">取消</t-button>
+              <t-button variant="outline" size="medium" @click="close">取消</t-button>
               <t-button
                 theme="primary"
-                size="large"
+                size="medium"
                 class="service-create-confirm"
                 :disabled="!form.name.trim()"
                 @click="submit"
@@ -416,12 +416,12 @@ watch(
 
 .service-create-dialog {
   display: flex;
-  width: min(1280px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
+  width: min(820px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 48px));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 28px;
+  border-radius: 18px;
   background: var(--td-bg-color-container);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
   color: var(--td-text-color-primary);
@@ -432,29 +432,29 @@ watch(
   align-items: center;
   justify-content: space-between;
   flex: none;
-  padding: 32px 48px 20px;
+  padding: 22px 28px 12px;
 }
 
 .service-create-dialog-header h2 {
   margin: 0;
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 650;
-  line-height: 38px;
+  line-height: 30px;
 }
 
 .service-create-dialog-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
   color: var(--td-text-color-primary);
   cursor: pointer;
-  font-size: 28px;
+  font-size: 22px;
 }
 
 .service-create-dialog-close:hover {
@@ -464,36 +464,36 @@ watch(
 .service-create-dialog-body {
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 48px 32px;
+  padding: 4px 28px 20px;
 }
 
 .service-create-field {
-  margin-bottom: 30px;
+  margin-bottom: 18px;
 }
 
 .service-create-field > label,
 .service-create-field-head > label {
   display: block;
-  margin-bottom: 12px;
-  font-size: 22px;
+  margin-bottom: 8px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 30px;
+  line-height: 22px;
 }
 
 .service-create-field :deep(.t-input),
 .service-create-field :deep(.t-textarea__inner) {
-  border-radius: 16px;
-  font-size: 18px;
+  border-radius: 10px;
+  font-size: 14px;
 }
 
 .service-create-field :deep(.t-input) {
-  min-height: 58px;
+  min-height: 42px;
 }
 
 .service-create-field :deep(.t-textarea__inner) {
-  min-height: 220px;
-  padding: 18px 22px;
-  line-height: 1.65;
+  min-height: 148px;
+  padding: 12px 14px;
+  line-height: 1.55;
 }
 
 .service-create-field-head {
@@ -501,7 +501,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .service-create-field-head > label {
@@ -509,16 +509,16 @@ watch(
 }
 
 .service-create-template-select {
-  width: 184px;
+  width: 160px;
   flex: none;
 }
 
 .service-create-template-select :deep(.t-input) {
-  min-height: 48px;
+  min-height: 34px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 9px;
   background: var(--td-bg-color-secondarycontainer);
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .service-create-error {
@@ -529,9 +529,9 @@ watch(
 }
 
 .service-create-option-section {
-  margin-top: 18px;
+  margin-top: 12px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 16px;
+  border-radius: 12px;
   background: var(--td-bg-color-container);
 }
 
@@ -540,10 +540,10 @@ watch(
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  min-height: 76px;
-  padding: 0 24px;
+  min-height: 56px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 16px;
+  border-radius: 12px;
   background: transparent;
   color: var(--td-text-color-primary);
   cursor: pointer;
@@ -564,14 +564,14 @@ watch(
 }
 
 .service-create-option-title strong {
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 600;
-  line-height: 30px;
+  line-height: 22px;
 }
 
 .service-create-option-title em {
   color: var(--td-text-color-secondary);
-  font-size: 18px;
+  font-size: 13px;
   font-style: normal;
   font-weight: 400;
 }
@@ -583,13 +583,13 @@ watch(
 
 .service-create-option-action {
   color: var(--td-text-color-secondary);
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 500;
 }
 
 .service-create-picker {
-  margin: 0 24px 20px;
-  padding: 10px;
+  margin: 0 16px 14px;
+  padding: 8px;
   border: 1px solid var(--td-component-stroke);
   border-radius: 12px;
   background: var(--td-bg-color-secondarycontainer);
@@ -725,7 +725,7 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 0 24px 20px;
+  padding: 0 16px 14px;
 }
 
 .service-create-selected-item {
@@ -775,25 +775,25 @@ watch(
   justify-content: space-between;
   gap: 20px;
   flex: none;
-  padding: 20px 48px 26px;
+  padding: 14px 28px 18px;
   border-top: 1px solid var(--td-component-stroke);
 }
 
 .service-create-dialog-footer > span {
   color: var(--td-text-color-secondary);
-  font-size: 16px;
+  font-size: 13px;
 }
 
 .service-create-dialog-actions {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .service-create-dialog-actions :deep(.t-button) {
-  min-width: 128px;
-  border-radius: 14px;
-  font-size: 17px;
+  min-width: 92px;
+  border-radius: 9px;
+  font-size: 14px;
   font-weight: 600;
 }
 

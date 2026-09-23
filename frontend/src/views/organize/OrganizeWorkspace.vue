@@ -652,11 +652,9 @@ import { useAuthStore } from '@/stores/auth'
 import {
   ORGANIZE_MEMORY_ASSET_ROUTES,
   findMemoryAssetRoute,
-  findOrganizeMenuRoute,
   isMemoryAssetKey,
-  isOrganizeTab,
+  type LegacyOrganizeTab,
   type MemoryAssetKey,
-  type OrganizeTab,
 } from './organizeRoutes'
 import { saveOrganizeEditorDraft, type OrganizeEditorDraft } from './editorDraftStorage'
 import {
@@ -870,9 +868,11 @@ const sproutRangeTabs: Array<{ label: string; value: SproutRange; days: number }
   { label: '近一月', value: '1m', days: 30 },
 ]
 
-const activeTab = computed<OrganizeTab>(() => {
+const activeTab = computed<LegacyOrganizeTab>(() => {
   const tab = route.meta.organizeTab
-  return isOrganizeTab(tab) ? tab : 'memory'
+  if (tab === 'discover') return 'output'
+  if (tab === 'sprout') return 'sprout'
+  return 'memory'
 })
 
 const activeMemoryAsset = computed<MemoryAssetKey | ''>(() => {
@@ -969,8 +969,8 @@ const openMemoryAssetList = async (asset: MemoryAssetKey) => {
 }
 
 const openMemoryOverview = async () => {
-  const memoryRoute = findOrganizeMenuRoute('memory')
-  if (memoryRoute && route.path !== memoryRoute.path) await router.push(memoryRoute.path)
+  const memoryPath = '/platform/organize/memory'
+  if (route.path !== memoryPath) await router.push(memoryPath)
 }
 
 const activeMeta = computed(() => {
