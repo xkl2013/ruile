@@ -164,6 +164,7 @@ func (s *agentRunService) executeExpertFollowUp(
 	if err != nil {
 		return types.AgentResultV1{}, nil, "", permanentAgentRunError{err: err}
 	}
+	serviceMarkdown := s.serviceMarkdownPrompt(ctx, run)
 
 	step, err := s.startExpertRunStep(ctx, run, types.AgentRunStepTypeDrafting, types.AgentRunPhaseDrafting, modelID, types.JSONMap{
 		"mode":          input.Mode,
@@ -184,6 +185,7 @@ func (s *agentRunService) executeExpertFollowUp(
 	user := "上一版专家报告：\n" + firstNonEmpty(parentReport, "上一版报告正文不可用，请基于已确认的上下文回答。") +
 		"\n\n同一专家线程的近期交互：\n" + firstNonEmpty(threadContext, "暂无更早的追问记录。") +
 		"\n\n专家定义：\n" + definition.SystemPrompt +
+		serviceMarkdown +
 		"\n\n用户追问：\n" + input.Prompt
 	thinking := false
 	response, err := chatModel.Chat(ctx, []chat.Message{

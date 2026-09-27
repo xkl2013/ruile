@@ -30,10 +30,10 @@
         </t-button>
       </div>
 
-      <div v-if="services.length > 0" class="service-hub-list-main">
+      <div class="service-hub-list-main">
         <div class="service-hub-section-head">
           <span class="service-hub-section-title">我的服务</span>
-          <div class="service-hub-section-tools">
+          <div v-if="services.length > 0" class="service-hub-section-tools">
             <t-select v-model="sortMode" class="service-hub-sort" size="small" :options="sortOptions" />
             <t-input v-model="serviceQuery" class="service-hub-search" size="small" placeholder="搜索服务">
               <template #prefix-icon><t-icon name="search" /></template>
@@ -41,44 +41,53 @@
           </div>
         </div>
 
-        <div v-if="filteredServices.length" class="service-hub-grid">
-          <article
-            v-for="service in filteredServices"
-            :key="service.id"
-            class="service-hub-card"
-            @click="openWorkspace(service.id)"
-          >
-            <div class="service-hub-card-top">
-              <div class="service-hub-card-icon">
-                <t-icon :name="templateFor(service)?.icon || 'folder'" />
+        <template v-if="services.length > 0">
+          <div v-if="filteredServices.length" class="service-hub-grid">
+            <article
+              v-for="service in filteredServices"
+              :key="service.id"
+              class="service-hub-card"
+              @click="openWorkspace(service.id)"
+            >
+              <div class="service-hub-card-top">
+                <div class="service-hub-card-icon">
+                  <t-icon :name="templateFor(service)?.icon || 'folder'" />
+                </div>
+                <strong>{{ service.name }}</strong>
+                <t-dropdown trigger="click" placement="bottom-right" @click.stop>
+                  <button type="button" class="service-hub-more" aria-label="更多操作" @click.stop>
+                    <t-icon name="more" />
+                  </button>
+                  <template #dropdown>
+                    <t-dropdown-menu>
+                      <t-dropdown-item @click="openCreate(service)">复制配置创建</t-dropdown-item>
+                      <t-dropdown-item @click="archiveService(service)">
+                        {{ service.state === 'archived' ? '恢复服务' : '归档服务' }}
+                      </t-dropdown-item>
+                    </t-dropdown-menu>
+                  </template>
+                </t-dropdown>
               </div>
-              <strong>{{ service.name }}</strong>
-              <t-dropdown trigger="click" placement="bottom-right" @click.stop>
-                <button type="button" class="service-hub-more" aria-label="更多操作" @click.stop>
-                  <t-icon name="more" />
-                </button>
-                <template #dropdown>
-                  <t-dropdown-menu>
-                    <t-dropdown-item @click="openCreate(service)">复制配置创建</t-dropdown-item>
-                    <t-dropdown-item @click="archiveService(service)">
-                      {{ service.state === 'archived' ? '恢复服务' : '归档服务' }}
-                    </t-dropdown-item>
-                  </t-dropdown-menu>
-                </template>
-              </t-dropdown>
-            </div>
-            <div class="service-hub-card-tags">
-              <span class="service-hub-tag">{{ templateFor(service)?.name || '自定义服务' }}</span>
-              <span class="service-hub-role">{{ service.role }}</span>
-            </div>
-            <p class="service-hub-card-description">{{ service.description || '还没有填写服务描述' }}</p>
-            <div class="service-hub-card-meta">
-              <span>{{ service.updatedLabel }}</span>
-              <span>{{ service.members }} 位成员</span>
-            </div>
-          </article>
+              <div class="service-hub-card-tags">
+                <span class="service-hub-tag">{{ templateFor(service)?.name || '自定义服务' }}</span>
+                <span class="service-hub-role">{{ service.role }}</span>
+              </div>
+              <p class="service-hub-card-description">{{ service.description || '还没有填写服务描述' }}</p>
+              <div class="service-hub-card-meta">
+                <span>{{ service.updatedLabel }}</span>
+                <span>{{ service.members }} 位成员</span>
+              </div>
+            </article>
+          </div>
+          <div v-else class="service-hub-no-result">没有找到匹配的服务</div>
+        </template>
+        <div v-else class="service-hub-empty-state">
+          <div>
+            <h2>还没有服务</h2>
+            <p>从下方模板开始，配置会自动带入；也可以新建空白服务。</p>
+          </div>
+          <t-button variant="outline" @click="openCreate()">从空白创建</t-button>
         </div>
-        <div v-else class="service-hub-no-result">没有找到匹配的服务</div>
 
         <div class="service-hub-section-head service-hub-template-head">
           <span class="service-hub-section-title">从模板创建</span>
@@ -86,29 +95,27 @@
             <template #prefix-icon><t-icon name="search" /></template>
           </t-input>
         </div>
-        <div class="service-hub-grid">
-          <article
-            v-for="template in filteredTemplates"
-            :key="template.id"
-            class="service-hub-template-card"
-            @click="openCreate(template)"
-          >
-            <div class="service-hub-template-top">
-              <div class="service-hub-template-icon"><t-icon :name="template.icon" /></div>
-              <strong>{{ template.name }}</strong>
+        <div class="service-hub-template-groups">
+          <section v-for="group in filteredTemplateGroups" :key="group.type" class="service-hub-template-group">
+            <div class="service-hub-template-group-label">{{ group.type }}</div>
+            <div class="service-hub-grid">
+              <button
+                v-for="template in group.items"
+                :key="template.id"
+                type="button"
+                class="service-hub-template-card"
+                @click="openCreate(template)"
+              >
+                <div class="service-hub-template-top">
+                  <div class="service-hub-template-icon"><t-icon :name="template.icon" /></div>
+                  <strong>{{ template.name }}</strong>
+                </div>
+                <p>{{ template.description }}</p>
+                <span>{{ template.subjectLabel || '服务主体' }} · 创建后可调整</span>
+              </button>
             </div>
-            <p>{{ template.description }}</p>
-            <span>{{ template.experts.length }} 位专家 · 创建后可调整</span>
-          </article>
+          </section>
         </div>
-      </div>
-
-      <div v-else class="service-hub-empty-state">
-        <div>
-          <h2>还没有服务</h2>
-          <p>选一个模板开始，配置都预置好了，创建后随时能改。<br />也可以从空白服务自己配全套。</p>
-        </div>
-        <t-button variant="outline" @click="openCreate()">从空白创建</t-button>
       </div>
     </section>
 
@@ -317,9 +324,20 @@ const filteredServices = computed(() => {
     return b.updatedAt - a.updatedAt
   })
 })
-const filteredTemplates = computed(() => {
+const filteredTemplateGroups = computed(() => {
   const query = templateQuery.value.trim().toLowerCase()
-  return serviceTemplates.filter((template) => `${template.name} ${template.description}`.toLowerCase().includes(query))
+  const groups = new Map<string, ServiceTemplate[]>()
+  serviceTemplates
+    .filter((template) => `${template.name} ${template.description} ${template.spaceTypeLabel || ''} ${template.subjectLabel || ''}`
+      .toLowerCase()
+      .includes(query))
+    .forEach((template) => {
+      const type = template.spaceTypeLabel || '其他'
+      const items = groups.get(type) || []
+      items.push(template)
+      groups.set(type, items)
+    })
+  return Array.from(groups, ([type, items]) => ({ type, items }))
 })
 const serviceChatPrompts = [
   '帮我整理本周需要优先推进的重点工作',
@@ -780,6 +798,19 @@ watch(
   margin-top: 26px;
 }
 
+.service-hub-template-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.service-hub-template-group-label {
+  margin-bottom: 6px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .service-hub-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -921,8 +952,13 @@ watch(
 }
 
 .service-hub-template-card {
+  display: flex;
+  width: 100%;
   min-height: 108px;
   padding: 11px 12px;
+  flex-direction: column;
+  font: inherit;
+  text-align: left;
 }
 
 .service-hub-template-card p {

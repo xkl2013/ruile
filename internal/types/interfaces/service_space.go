@@ -64,5 +64,6 @@ type ServiceSpaceService interface {
 
 	ListArtifacts(ctx context.Context, tenantID uint64, userID, serviceID, lifecycle string, page, pageSize int) ([]*types.ServiceArtifact, int64, error)
 	GetArtifact(ctx context.Context, tenantID uint64, userID, serviceID, artifactID string, version int) (*types.ServiceArtifact, error)
+	ReadMarkdownContext(ctx context.Context, tenantID uint64, userID, serviceID string) (string, error)
 	IndexRunArtifacts(ctx context.Context, run *types.AgentRun, artifacts []types.AgentArtifactResultV1) error
 }

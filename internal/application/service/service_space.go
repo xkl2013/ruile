@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -16,6 +19,7 @@ var (
 	ErrServiceSpaceNotFound           = errors.New("service not found")
 	ErrServiceSpaceForbidden          = errors.New("service access forbidden")
 	ErrServiceSpaceNameRequired       = errors.New("service name is required")
+	ErrServiceSpaceInvalidType        = errors.New("invalid service space type")
 	ErrServiceSpaceInvalidState       = errors.New("invalid service state")
 	ErrServiceSpaceNotActive          = errors.New("service is not active")
 	ErrServiceSpaceArchived           = errors.New("service is archived")
@@ -29,22 +33,32 @@ var (
 )
 
 const (
-	serviceSpaceMaxNameRunes = 255
-	serviceSpaceDefaultPage  = 1
-	serviceSpaceDefaultSize  = 20
-	serviceSpaceMaxPageSize  = 100
+	serviceSpaceMaxNameRunes         = 255
+	serviceSpaceDefaultPage          = 1
+	serviceSpaceDefaultSize          = 20
+	serviceSpaceMaxPageSize          = 100
+	serviceSpaceMarkdownPageSize     = 100
+	serviceSpaceMarkdownMaxFiles     = 100
+	serviceSpaceMarkdownMaxBytes     = 512 * 1024
+	serviceSpaceMarkdownMaxFileBytes = 128 * 1024
 )
 
 type serviceSpaceService struct {
 	repo            interfaces.ServiceSpaceRepository
 	resourceCatalog interfaces.ResourceCatalog
+	fileService     interfaces.FileService
 }
 
 func NewServiceSpaceService(
 	repo interfaces.ServiceSpaceRepository,
 	resourceCatalog interfaces.ResourceCatalog,
+	fileService interfaces.FileService,
 ) interfaces.ServiceSpaceService {
-	return &serviceSpaceService{repo: repo, resourceCatalog: resourceCatalog}
+	return &serviceSpaceService{
+		repo:            repo,
+		resourceCatalog: resourceCatalog,
+		fileService:     fileService,
+	}
 }
 
 func (s *serviceSpaceService) Create(
@@ -64,6 +78,13 @@ func (s *serviceSpaceService) Create(
 	if utf8.RuneCountInString(instruction) > types.MaxCustomPromptInstructionsLength {
 		return nil, fmt.Errorf("service instruction exceeds %d characters", types.MaxCustomPromptInstructionsLength)
 	}
+	spaceType := types.ServiceSpaceType(strings.TrimSpace(input.SpaceType))
+	if spaceType == "" {
+		spaceType = types.ServiceSpaceTypeCustomerService
+	}
+	if !spaceType.IsValid() {
+		return nil, ErrServiceSpaceInvalidType
+	}
 	experts, err := buildServiceExperts(tenantID, userID, "", input.Experts)
 	if err != nil {
 		return nil, err
@@ -79,6 +100,7 @@ func (s *serviceSpaceService) Create(
 		TenantID:         tenantID,
 		OwnerUserID:      strings.TrimSpace(userID),
 		Name:             name,
+		SpaceType:        spaceType,
 		Description:      strings.TrimSpace(input.Description),
 		Instruction:      instruction,
 		KnowledgeBaseIDs: normalizeServiceStrings(input.KnowledgeBaseIDs),
@@ -625,6 +647,144 @@ func (s *serviceSpaceService) GetArtifact(
 		return nil, ErrServiceSpaceArtifactNotFound
 	}
 	return artifact, nil
+}
+
+// ReadMarkdownContext returns the current Markdown artifacts belonging to one
+// service space. The caller must already be a service member; authorization is
+// repeated here so internal Agent callers cannot accidentally bypass the
+// service boundary.
+func (s *serviceSpaceService) ReadMarkdownContext(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) (string, error) {
+	if s.fileService == nil {
+		return "", nil
+	}
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return "", err
+	}
+
+	var builder strings.Builder
+	var total int64
+	var page = serviceSpaceDefaultPage
+	var loaded int
+	var truncated bool
+
+	for {
+		artifacts, totalArtifacts, err := s.repo.ListArtifacts(
+			ctx,
+			tenantID,
+			serviceID,
+			"",
+			page,
+			serviceSpaceMarkdownPageSize,
+		)
+		if err != nil {
+			return "", err
+		}
+		if len(artifacts) == 0 {
+			break
+		}
+
+		for _, artifact := range artifacts {
+			if !isMarkdownServiceArtifact(artifact) {
+				continue
+			}
+			if loaded >= serviceSpaceMarkdownMaxFiles {
+				truncated = true
+				break
+			}
+			if strings.TrimSpace(artifact.ResourceRef) == "" {
+				continue
+			}
+			if s.resourceCatalog != nil {
+				resource, resolveErr := s.resourceCatalog.Resolve(ctx, artifact.ResourceRef)
+				if resolveErr != nil {
+					logger.Warnf(ctx, "skip unreadable service markdown artifact: service_id=%s artifact_id=%s err=%v", serviceID, artifact.ArtifactID, resolveErr)
+					continue
+				}
+				if resource == nil || resource.TenantID != tenantID {
+					logger.Warnf(ctx, "skip cross-tenant service markdown artifact: service_id=%s artifact_id=%s", serviceID, artifact.ArtifactID)
+					continue
+				}
+			}
+
+			remaining := int64(serviceSpaceMarkdownMaxBytes) - total
+			if remaining <= 0 {
+				truncated = true
+				break
+			}
+			readLimit := int64(serviceSpaceMarkdownMaxFileBytes)
+			if readLimit > remaining {
+				readLimit = remaining
+			}
+			reader, readErr := s.fileService.GetFile(ctx, artifact.ResourceRef)
+			if readErr != nil {
+				logger.Warnf(ctx, "skip missing service markdown artifact: service_id=%s artifact_id=%s err=%v", serviceID, artifact.ArtifactID, readErr)
+				continue
+			}
+			content, readErr := io.ReadAll(io.LimitReader(reader, readLimit+1))
+			_ = reader.Close()
+			if readErr != nil {
+				logger.Warnf(ctx, "skip service markdown artifact read failure: service_id=%s artifact_id=%s err=%v", serviceID, artifact.ArtifactID, readErr)
+				continue
+			}
+			if int64(len(content)) > readLimit {
+				content = content[:readLimit]
+				truncated = true
+			}
+			contentText := strings.TrimSpace(string(content))
+			if contentText == "" {
+				continue
+			}
+
+			name := strings.TrimSpace(artifact.OriginalName)
+			if name == "" {
+				name = strings.TrimSpace(artifact.Title)
+			}
+			if name == "" {
+				name = artifact.ArtifactID
+			}
+			if builder.Len() == 0 {
+				builder.WriteString("[服务空间 Markdown 资料]\n")
+			}
+			builder.WriteString("\n## ")
+			builder.WriteString(name)
+			builder.WriteString("\n")
+			builder.WriteString(contentText)
+			builder.WriteString("\n")
+			total += int64(len(content))
+			loaded++
+		}
+		if truncated || int64(page*serviceSpaceMarkdownPageSize) >= totalArtifacts {
+			break
+		}
+		page++
+	}
+
+	if builder.Len() == 0 {
+		return "", nil
+	}
+	if truncated {
+		builder.WriteString("\n[服务空间 Markdown 资料已达到读取上限，以上为已读取内容。]\n")
+	}
+	return builder.String(), nil
+}
+
+func isMarkdownServiceArtifact(artifact *types.ServiceArtifact) bool {
+	if artifact == nil {
+		return false
+	}
+	format := strings.ToLower(strings.TrimSpace(artifact.Format))
+	if format == "md" || format == "markdown" {
+		return true
+	}
+	name := strings.ToLower(strings.TrimSpace(artifact.OriginalName))
+	if ext := strings.ToLower(filepath.Ext(name)); ext == ".md" || ext == ".markdown" {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(artifact.MimeType)), "text/markdown")
 }
 
 func (s *serviceSpaceService) IndexRunArtifacts(
