@@ -67,6 +67,10 @@ const (
 	EventMCPOAuthRequired EventType = "mcp_oauth_required"
 	EventMCPOAuthResolved EventType = "mcp_oauth_resolved"
 
+	// EventContextCompacted is emitted when older conversation history is
+	// replaced by a structured summary.
+	EventContextCompacted EventType = "context_compacted"
+
 	// Error events
 	EventError EventType = "error" // 错误事件
 

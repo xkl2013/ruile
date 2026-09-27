@@ -47,6 +47,44 @@ type ExecuteSkillScriptInput struct {
 	Input      string   `json:"input,omitempty" jsonschema:"Optional input data to pass to the script via stdin. Use this when you have data in memory (e.g. JSON string) that the script should process. This is equivalent to piping data: echo 'data' | python script.py"`
 }
 
+// UnmarshalJSON accepts both the declared array form and the encoded-array
+// form sometimes emitted by models, e.g. "[\"/tmp/demo.pdf\"]".
+func (input *ExecuteSkillScriptInput) UnmarshalJSON(data []byte) error {
+	type wireInput struct {
+		SkillName  string          `json:"skill_name"`
+		ScriptPath string          `json:"script_path"`
+		Args       json.RawMessage `json:"args"`
+		Input      string          `json:"input"`
+	}
+
+	var wire wireInput
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	input.SkillName = wire.SkillName
+	input.ScriptPath = wire.ScriptPath
+	input.Input = wire.Input
+	input.Args = nil
+
+	if len(wire.Args) == 0 || string(wire.Args) == "null" {
+		return nil
+	}
+
+	if err := json.Unmarshal(wire.Args, &input.Args); err == nil {
+		return nil
+	}
+
+	var encodedArgs string
+	if err := json.Unmarshal(wire.Args, &encodedArgs); err != nil {
+		return fmt.Errorf("args must be an array of strings or a JSON-encoded array: %w", err)
+	}
+	if err := json.Unmarshal([]byte(encodedArgs), &input.Args); err != nil {
+		return fmt.Errorf("args must be an array of strings or a JSON-encoded array: %w", err)
+	}
+	return nil
+}
+
 // ExecuteSkillScriptTool allows the agent to execute skill scripts in a sandbox
 type ExecuteSkillScriptTool struct {
 	BaseTool

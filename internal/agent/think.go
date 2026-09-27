@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/agent/compaction"
 	agenttools "github.com/Tencent/WeKnora/internal/agent/tools"
 	"github.com/Tencent/WeKnora/internal/common"
 	"github.com/Tencent/WeKnora/internal/event"
@@ -146,15 +147,18 @@ func (e *AgentEngine) streamThinkingToEventBus(
 	iteration int,
 	sessionID string,
 ) (*types.ChatResponse, error) {
-	logger.Debugf(ctx, "[Agent][Thinking] Iteration-%d: temp=%.2f, tools=%d, thinking=%v",
-		iteration+1, e.config.Temperature, len(tools), e.config.Thinking)
+	budget := e.clampCompletionBudgetToContext(e.tokenEstimator.EstimateMessages(messages))
+	logger.Debugf(ctx, "[Agent][Thinking] Iteration-%d: temp=%.2f, tools=%d, thinking=%v, max_tokens=%d",
+		iteration+1, e.config.Temperature, len(tools), e.config.Thinking, budget)
 
 	parallelToolCalls := true
 	opts := &chat.ChatOptions{
-		Temperature:       e.config.Temperature,
-		Tools:             tools,
-		Thinking:          e.config.Thinking,
-		ParallelToolCalls: &parallelToolCalls,
+		Temperature:         e.config.Temperature,
+		MaxTokens:           budget,
+		MaxCompletionTokens: budget,
+		Tools:               tools,
+		Thinking:            e.config.Thinking,
+		ParallelToolCalls:   &parallelToolCalls,
 	}
 
 	pendingToolCalls := make(map[string]bool)
@@ -357,10 +361,11 @@ func (e *AgentEngine) streamThinkingToEventBus(
 // Returns nil response (with state.IsComplete=true) when graceful degradation succeeds.
 // Returns a non-nil error only when the call fails irrecoverably.
 func (e *AgentEngine) callLLMWithRetry(
-	ctx context.Context, messages []chat.Message, tools []chat.Tool,
+	ctx context.Context, messagesPtr *[]chat.Message, tools []chat.Tool,
 	state *types.AgentState, query string, iteration int, sessionID string,
 ) (*types.ChatResponse, error) {
 	round := iteration + 1
+	messages := *messagesPtr
 
 	// Log message summary; only detail the tail messages to avoid repeating what prior rounds already logged
 	const maxDetailMsgs = 4
@@ -403,6 +408,15 @@ func (e *AgentEngine) callLLMWithRetry(
 	messages = agenttools.SanitizeMessages(messages)
 
 	response, err := e.streamThinkingToEventBus(ctx, messages, tools, iteration, sessionID)
+	if err != nil && !e.overflowRecovered && compaction.IsOverflowError(err) {
+		e.overflowRecovered = true
+		logger.Warnf(ctx, "[Agent][Round-%d] Provider rejected the request as too large; compacting and retrying once", round)
+		compacted := e.forceCompaction(ctx, messages, round)
+		*messagesPtr = compacted
+		messages = agenttools.SanitizeMessages(compacted)
+		e.lastSentMsgCount = len(compacted)
+		response, err = e.streamThinkingToEventBus(ctx, messages, tools, iteration, sessionID)
+	}
 	if err != nil && isTransientError(err) {
 		// Retry transient errors (timeout, rate limit, server errors) up to maxLLMRetries times
 		for retry := 1; retry <= maxLLMRetries; retry++ {

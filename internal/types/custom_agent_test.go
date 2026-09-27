@@ -54,3 +54,12 @@ func TestEnsureDefaults_CitationsDefaultEnabledAndPreserveFalse(t *testing.T) {
 		t.Fatal("EnsureDefaults must preserve explicit citation_enabled=false")
 	}
 }
+
+func TestEnsureDefaults_PreservesUnsetMaxCompletionTokens(t *testing.T) {
+	agent := &CustomAgent{Config: CustomAgentConfig{}}
+	agent.EnsureDefaults()
+	if agent.Config.MaxCompletionTokens != 0 {
+		t.Fatalf("unset max_completion_tokens must remain unset, got %d",
+			agent.Config.MaxCompletionTokens)
+	}
+}

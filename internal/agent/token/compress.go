@@ -8,12 +8,11 @@ import (
 // When message tokens exceed MaxContextTokens * threshold, old messages are trimmed.
 const DefaultContextThresholdRatio = 0.8
 
-// CompressContext trims older history messages to bring total token count below
-// the threshold.  It preserves:
-//   - The system prompt (first message)
-//   - The current turn: user query (last user message) and all subsequent
-//     assistant/tool messages
-//   - tool_call / tool_result message pairs (never splits them)
+// CompressContext trims the oldest logical message groups to bring total token
+// count below the threshold. It preserves the system prompt and the current
+// user query. When the current turn itself is the only large part of the
+// context, older assistant/tool groups from that turn may also be removed, but
+// tool_call/tool_result groups are never split.
 //
 // currentTokens is the caller's best estimate of the current context size.
 func CompressContext(
@@ -34,34 +33,31 @@ func CompressContext(
 	systemMsg := messages[0]
 
 	// Find the current user query — the last message with role "user".
-	lastUserIdx := len(messages) - 1
+	lastUserIdx := -1
 	for i := len(messages) - 1; i >= 1; i-- {
 		if messages[i].Role == "user" {
 			lastUserIdx = i
 			break
 		}
 	}
+	if lastUserIdx < 0 {
+		return messages
+	}
 
 	history := messages[1:lastUserIdx]
 	tail := messages[lastUserIdx:]
 
-	if len(history) == 0 {
-		return messages
-	}
-
-	groups := groupToolMessages(history)
-
 	tokensToFree := currentTokens - threshold
 	freed := 0
-	removeUpTo := 0
-
-	for i, group := range groups {
+	removeHistoryUpTo := 0
+	historyGroups := groupToolMessages(history)
+	for i, group := range historyGroups {
 		groupTokens := 0
 		for _, msg := range group {
 			groupTokens += estimator.EstimateMessage(&msg)
 		}
 		freed += groupTokens
-		removeUpTo = i + 1
+		removeHistoryUpTo = i + 1
 		if freed >= tokensToFree {
 			break
 		}
@@ -69,8 +65,33 @@ func CompressContext(
 
 	remaining := make([]chat.Message, 0, len(messages))
 	remaining = append(remaining, systemMsg)
-	for i := removeUpTo; i < len(groups); i++ {
-		remaining = append(remaining, groups[i]...)
+	for i := removeHistoryUpTo; i < len(historyGroups); i++ {
+		remaining = append(remaining, historyGroups[i]...)
+	}
+
+	// A long ReAct turn can contain many assistant/tool rounds after the
+	// current user message. If history did not free enough space, trim the
+	// oldest complete tool groups inside the current turn while keeping the
+	// user query itself and the newest tool context.
+	if freed < tokensToFree && len(tail) > 1 {
+		tailGroups := groupToolMessages(tail[1:])
+		removeTailUpTo := 0
+		for i, group := range tailGroups {
+			groupTokens := 0
+			for _, msg := range group {
+				groupTokens += estimator.EstimateMessage(&msg)
+			}
+			freed += groupTokens
+			removeTailUpTo = i + 1
+			if freed >= tokensToFree {
+				break
+			}
+		}
+		remaining = append(remaining, tail[0])
+		for i := removeTailUpTo; i < len(tailGroups); i++ {
+			remaining = append(remaining, tailGroups[i]...)
+		}
+		return remaining
 	}
 	remaining = append(remaining, tail...)
 

@@ -53,7 +53,7 @@
           <label>{{ $t('font.uiFont') }}</label>
           <p class="desc">{{ $t('font.uiFontDescription') }}</p>
         </div>
-        <div class="setting-control setting-control--stacked">
+        <div class="setting-control">
           <t-select
             v-model="localSansFont"
             style="width: 280px;"
@@ -69,9 +69,6 @@
               <span :style="{ fontFamily: opt.preview }">{{ opt.label }}</span>
             </t-option>
           </t-select>
-          <div class="font-preview" :style="{ fontFamily: currentSansStack }">
-            {{ $t('font.sansPreview') }}
-          </div>
         </div>
       </div>
 
@@ -81,7 +78,7 @@
           <label>{{ $t('font.monoFont') }}</label>
           <p class="desc">{{ $t('font.monoFontDescription') }}</p>
         </div>
-        <div class="setting-control setting-control--stacked">
+        <div class="setting-control">
           <t-select
             v-model="localMonoFont"
             style="width: 280px;"
@@ -97,9 +94,6 @@
               <span :style="{ fontFamily: opt.preview }">{{ opt.label }}</span>
             </t-option>
           </t-select>
-          <div class="font-preview font-preview--mono" :style="{ fontFamily: currentMonoStack }">
-            {{ $t('font.monoPreview') }}
-          </div>
         </div>
       </div>
 
@@ -196,12 +190,6 @@ const monoFontOptions = computed<{ value: MonoFontKey; label: string; preview: s
     preview: MONO_STACKS[key],
   })),
 )
-
-// Live preview stacks, driven by the local form refs so the preview row
-// updates immediately on selection — even before handleSansFontChange
-// commits the choice to the global store and writes the CSS variable.
-const currentSansStack = computed(() => SANS_STACKS[localSansFont.value] ?? SANS_STACKS.system)
-const currentMonoStack = computed(() => MONO_STACKS[localMonoFont.value] ?? MONO_STACKS.system)
 
 // 自动检查更新状态
 const isAutoCheckUpdateEnabled = computed({
@@ -344,32 +332,4 @@ const handleFontSizeChange = (val: FontSizeKey) => {
   align-items: center;
 }
 
-// When a font picker is rendered, stack the select on top of a live
-// preview line so the user can verify their choice without hunting for
-// an API Info page or a code block.
-.setting-control--stacked {
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.font-preview {
-  width: 280px;
-  padding: 8px 12px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--td-radius-medium);
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-primary);
-  font-size: 14px;
-  line-height: 1.4;
-  text-align: left;
-  box-sizing: border-box;
-
-  &--mono {
-    // Harden the preview against wrap-around for long monospace samples.
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-}
 </style>

@@ -517,9 +517,9 @@ func (a *CustomAgent) EnsureDefaults() {
 	if a.Config.FallbackStrategy == "" {
 		a.Config.FallbackStrategy = "model"
 	}
-	if a.Config.MaxCompletionTokens == 0 {
-		a.Config.MaxCompletionTokens = 2048
-	}
+	// MaxCompletionTokens == 0 means the runtime selects the Agent-mode
+	// default. Keeping it unset preserves the distinction between an implicit
+	// default and an explicitly configured cap.
 	// Agent mode should always enable multi-turn conversation
 	if a.Config.AgentMode == AgentModeSmartReasoning {
 		a.Config.MultiTurnEnabled = true

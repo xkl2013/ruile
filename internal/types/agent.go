@@ -71,6 +71,12 @@ type AgentConfig struct {
 	// preserving tool_call/tool_result pairs.
 	MaxContextTokens int `json:"max_context_tokens,omitempty"`
 
+	// Maximum completion tokens for each ReAct LLM round.
+	MaxCompletionTokens int `json:"max_completion_tokens,omitempty"`
+
+	// How much recent conversation compaction keeps verbatim.
+	CompactionKeepRecentTokens int `json:"compaction_keep_recent_tokens,omitempty"`
+
 	// Whether to execute independent tool calls in parallel (default: false).
 	// When enabled and the LLM returns multiple tool calls, they run concurrently via errgroup.
 	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
@@ -242,6 +248,7 @@ type AgentState struct {
 	IsComplete    bool            `json:"is_complete"`    // Whether agent has finished
 	FinalAnswer   string          `json:"final_answer"`   // The final answer to the query
 	KnowledgeRefs []*SearchResult `json:"knowledge_refs"` // Collected knowledge references
+	TurnUsage     TokenUsage      `json:"turn_usage"`     // LLM usage accumulated across this turn
 }
 
 // FunctionDefinition represents a function definition for LLM function calling

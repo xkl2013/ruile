@@ -170,6 +170,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewServiceSpaceRepository))
 	must(container.Provide(repository.NewAgentRunRepository))
 	must(container.Provide(repository.NewExpertPackageRepository))
+	must(container.Provide(repository.NewTenantSkillRepository))
 	must(container.Provide(service.NewWebSearchStateService))
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
@@ -212,6 +213,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewExpertPackageService))
 	must(container.Provide(service.NewKnowledgeBaseDefaultsService))
+	must(container.Provide(service.NewTenantSkillService))
 
 	// Extract services - register individual extracters with names
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))

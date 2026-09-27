@@ -221,6 +221,7 @@ const buildAdminSectionTarget = (
   if (LOCAL_SETTING_SECTIONS.has(section)) return null
   if (section === 'chathistory') return '/workspaces/current/chat-history'
   if (section === 'agents') return openAdminAgentsFromCurrentRoute(subSection || undefined)
+  if (section === 'skills') return '/skills'
   if (section === 'models') {
     const modelType = normalizeModelSubSection(
       subSection || (typeof route.query.tab === 'string' ? route.query.tab : ''),

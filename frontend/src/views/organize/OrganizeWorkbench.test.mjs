@@ -55,6 +55,13 @@ test('organize config detail header keeps identity and action aligned responsive
   assert.ok(!configDetailSource.includes('grid-template-columns: auto minmax(0, 1fr) auto'))
 })
 
+test('organize config detail header only shows the organize name and action', () => {
+  assert.ok(configDetailSource.includes('<h2>{{ config.name }}</h2>'))
+  assert.ok(!configDetailSource.includes('返回工作台'))
+  assert.ok(!configDetailSource.includes('organize-detail-icon'))
+  assert.ok(!configDetailSource.includes('scheduleLabel'))
+})
+
 test('organize config validation points missing template errors at the template selector', () => {
   const dialogSource = readFileSync(
     new URL('./components/OrganizeConfigDialog.vue', import.meta.url),

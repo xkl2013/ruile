@@ -2,18 +2,8 @@
   <div class="organize-product-page">
     <main v-if="config" class="organize-detail-scroll">
       <header class="organize-detail-head">
-        <button type="button" class="organize-back-button" @click="backToHub">
-          <t-icon name="chevron-left" />
-          返回工作台
-        </button>
         <div class="organize-detail-identity">
-          <span class="organize-detail-icon">
-            <t-icon :name="template?.icon || 'dashboard'" />
-          </span>
-          <div>
-            <h2>{{ config.name }}</h2>
-            <span>{{ template?.name || config.templateKey }} · {{ scheduleLabel }}</span>
-          </div>
+          <h2>{{ config.name }}</h2>
         </div>
         <div class="organize-detail-actions">
           <t-button theme="primary" :loading="running" @click="runNow">
@@ -106,7 +96,6 @@
       <div class="organize-detail-empty">
         <t-icon name="error-circle" />
         <strong>整理不存在</strong>
-        <t-button variant="outline" size="small" @click="backToHub">返回工作台</t-button>
       </div>
     </main>
   </div>
@@ -124,7 +113,6 @@ import {
   runOrganizeConfig,
 } from '@/api/organize'
 import {
-  organizeScheduleLabels,
   toOrganizeConfig,
   toOrganizeJob,
   type OrganizeConfig,
@@ -137,9 +125,6 @@ const config = ref<OrganizeConfig | null>(null)
 const loading = ref(true)
 const running = ref(false)
 let refreshTimer: number | undefined
-
-const template = computed(() => config.value?.template)
-const scheduleLabel = computed(() => (config.value ? organizeScheduleLabels[config.value.schedule] : ''))
 
 const isActive = (job: OrganizeJob) =>
   ['queued', 'running', 'repairing'].includes(job.state)
@@ -219,10 +204,6 @@ const cancel = async (jobId: string) => {
   }
 }
 
-const backToHub = async () => {
-  await router.push('/platform/organize/hub')
-}
-
 const openOutput = async (outputId: string) => {
   if (!config.value) return
   await router.push({
@@ -286,14 +267,10 @@ watch(
 .organize-detail-head {
   display: flex;
   align-items: center;
-  gap: 20px;
-  min-height: 64px;
+  gap: 24px;
+  min-height: 48px;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--td-component-stroke);
-}
-
-.organize-detail-head > .organize-back-button {
-  flex: none;
 }
 
 .organize-detail-actions {
@@ -302,46 +279,11 @@ watch(
   justify-content: flex-end;
 }
 
-.organize-back-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 32px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.organize-back-button:hover {
-  background: var(--td-bg-color-container-hover);
-  color: var(--td-text-color-primary);
-}
-
 .organize-detail-identity {
   display: flex;
   align-items: center;
-  gap: 12px;
   flex: 1;
   min-width: 0;
-}
-
-.organize-detail-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  border-radius: 10px;
-  background: var(--td-brand-color-light);
-  color: var(--td-brand-color);
-  font-size: 19px;
 }
 
 .organize-detail-identity h2 {
@@ -352,13 +294,6 @@ watch(
   line-height: 29px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.organize-detail-identity span {
-  display: block;
-  margin-top: 3px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
 }
 
 .organize-detail-section {
@@ -571,10 +506,6 @@ watch(
     gap: 10px 14px;
     min-height: 0;
     padding-bottom: 16px;
-  }
-
-  .organize-detail-head > .organize-back-button {
-    width: 100%;
   }
 
   .organize-detail-identity {

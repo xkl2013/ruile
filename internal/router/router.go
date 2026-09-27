@@ -276,6 +276,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterAgentRunRoutes(v1, params.AgentRunHandler, rbacGuards)
 		RegisterServiceSpaceRoutes(v1, params.ServiceSpaceHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
+		RegisterGlobalSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
 		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
 		RegisterEmbedChannelRoutes(v1, params.EmbedChannelHandler, rbacGuards)
@@ -1442,14 +1443,34 @@ func RegisterServiceSpaceRoutes(r *gin.RouterGroup, h *handler.ServiceSpaceHandl
 
 // RegisterSkillRoutes registers skill routes.
 //
-// PR 2 currently only exposes a read-only `ListSkills`; gated to
-// Viewer+. Future skill upload / enable endpoints must use Admin+ since
-// skills run sandboxed code on tenant resources.
+// Preloaded skills are readable by Viewer+. Tenant-owned skill bundles can be
+// inspected by Viewer+, while mutations require Admin+ because skills can run
+// code in the configured sandbox.
 func RegisterSkillRoutes(r *gin.RouterGroup, skillHandler *handler.SkillHandler, g *rbacGuards) {
 	skills := r.Group("/skills")
 	{
-		// List all preloaded skills — Viewer+
 		skills.GET("", g.Viewer(), skillHandler.ListSkills)
+		skills.GET("/catalog", g.Viewer(), skillHandler.ListTenantSkills)
+		skills.POST("/catalog", g.Admin(), skillHandler.UploadTenantSkill)
+		skills.PATCH("/catalog/:id", g.Admin(), skillHandler.SetTenantSkillEnabled)
+		skills.DELETE("/catalog/:id", g.Admin(), skillHandler.DeleteTenantSkill)
+		skills.GET("/catalog/:id/files", g.Viewer(), skillHandler.ListTenantSkillFiles)
+		skills.GET("/catalog/:id/file", g.Viewer(), skillHandler.ReadTenantSkillFile)
+	}
+}
+
+// RegisterGlobalSkillRoutes exposes the platform-wide Skill catalog.
+// SystemAdmin controls the catalog; enabled Skills are available in every
+// workspace at runtime.
+func RegisterGlobalSkillRoutes(r *gin.RouterGroup, skillHandler *handler.SkillHandler, g *rbacGuards) {
+	skills := r.Group("/system/admin/skills", g.SystemAdmin())
+	{
+		skills.GET("/catalog", skillHandler.ListGlobalSkills)
+		skills.POST("/catalog", skillHandler.UploadGlobalSkill)
+		skills.PATCH("/catalog/:id", skillHandler.SetGlobalSkillEnabled)
+		skills.DELETE("/catalog/:id", skillHandler.DeleteGlobalSkill)
+		skills.GET("/catalog/:id/files", skillHandler.ListGlobalSkillFiles)
+		skills.GET("/catalog/:id/file", skillHandler.ReadGlobalSkillFile)
 	}
 }
 
