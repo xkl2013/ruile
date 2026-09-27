@@ -45,8 +45,8 @@ func (s *resourceCatalog) Register(
 	meta interfaces.ResourceRegistration,
 ) (string, error) {
 	physicalPath = strings.TrimSpace(physicalPath)
-	if tenantID == 0 || physicalPath == "" {
-		return "", fmt.Errorf("resource registration requires tenant and physical path")
+	if physicalPath == "" {
+		return "", fmt.Errorf("resource registration requires physical path")
 	}
 	if _, ok := types.ParseResourcePath(physicalPath); ok {
 		return physicalPath, nil

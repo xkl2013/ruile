@@ -42,6 +42,27 @@ func TestResourceCatalogRegisterResolveAndDeduplicate(t *testing.T) {
 	require.Equal(t, "local", resource.Provider)
 }
 
+func TestResourceCatalogAllowsSystemScopedResource(t *testing.T) {
+	catalog, _ := newResourceCatalogForTest(t)
+
+	ref, err := catalog.Register(
+		context.Background(),
+		0,
+		"local://0/exports/global-skill.zip",
+		interfaces.ResourceRegistration{
+			Kind:         "file",
+			OriginalName: "global-skill.zip",
+		},
+	)
+	require.NoError(t, err)
+	require.Regexp(t, `^resource://[0-9A-Za-z_-]{22}$`, ref)
+
+	resource, err := catalog.Resolve(context.Background(), ref)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), resource.TenantID)
+	require.Equal(t, "local://0/exports/global-skill.zip", resource.PhysicalPath)
+}
+
 func TestResourceCatalogBindingAndAccessGrant(t *testing.T) {
 	catalog, db := newResourceCatalogForTest(t)
 	ctx := context.Background()

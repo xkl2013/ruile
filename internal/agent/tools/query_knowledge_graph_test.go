@@ -72,6 +72,13 @@ func (s *stubKnowledgeBaseService) ListKnowledgeBasesByTenantID(context.Context,
 	return nil, nil
 }
 
+func (s *stubKnowledgeBaseService) ReorderKnowledgeBases(
+	context.Context,
+	[]string,
+) ([]*types.KnowledgeBase, error) {
+	return nil, nil
+}
+
 func (s *stubKnowledgeBaseService) UpdateKnowledgeBase(
 	context.Context,
 	string,

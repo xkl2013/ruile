@@ -105,6 +105,7 @@ type agentService struct {
 	storageResolver       interfaces.StorageBackendResolver
 	toolApprovalGate      approval.MCPApproval
 	usageBilling          interfaces.UsageBillingService
+	tenantSkillService    interfaces.TenantSkillService
 }
 
 // NewAgentService creates a new agent service
@@ -127,6 +128,7 @@ func NewAgentService(
 	storageResolver interfaces.StorageBackendResolver,
 	toolApprovalGate approval.MCPApproval,
 	usageBilling interfaces.UsageBillingService,
+	tenantSkillService interfaces.TenantSkillService,
 ) interfaces.AgentService {
 	return &agentService{
 		cfg:                   cfg,
@@ -147,6 +149,7 @@ func NewAgentService(
 		storageResolver:       storageResolver,
 		toolApprovalGate:      toolApprovalGate,
 		usageBilling:          usageBilling,
+		tenantSkillService:    tenantSkillService,
 	}
 }
 
@@ -201,7 +204,7 @@ func (s *agentService) CreateAgentEngine(
 	s.attachPinnedMCPToolNames(toolRegistry, pinnedMCP)
 	engine.SetPinnedMentions(
 		pinnedMCP,
-		s.resolvePinnedSkillInfos(config),
+		s.resolvePinnedSkillInfos(ctx, config),
 	)
 
 	// Set VLM image describer for MCP tool result image analysis.
@@ -220,7 +223,7 @@ func (s *agentService) CreateAgentEngine(
 	}
 
 	// Initialize skills manager if skills are enabled
-	if config.SkillsEnabled && len(config.SkillDirs) > 0 {
+	if config.SkillsEnabled {
 		skillsManager, err := s.initializeSkillsManager(ctx, config, toolRegistry)
 		if err != nil {
 			logger.Warnf(ctx, "Failed to initialize skills manager: %v", err)
@@ -394,9 +397,21 @@ func (s *agentService) initializeSkillsManager(
 	}
 	logger.Infof(ctx, "Sandbox configured: mode=%s, timeout=%ds, image=%s", sandboxMode, sandboxTimeout, dockerImage)
 
+	skillDirs := append([]string(nil), config.SkillDirs...)
+	if s.tenantSkillService != nil {
+		if tenantID, ok := types.TenantIDFromContext(ctx); ok {
+			tenantDirs, materializeErr := s.tenantSkillService.MaterializeTenantSkillDirs(ctx, tenantID)
+			if materializeErr != nil {
+				logger.Warnf(ctx, "Failed to materialize tenant skills: %v", materializeErr)
+			} else {
+				skillDirs = append(skillDirs, tenantDirs...)
+			}
+		}
+	}
+
 	// Create skills manager
 	skillsConfig := &skills.ManagerConfig{
-		SkillDirs:     config.SkillDirs,
+		SkillDirs:     skillDirs,
 		AllowedSkills: config.AllowedSkills,
 		Enabled:       config.SkillsEnabled,
 	}
@@ -413,7 +428,11 @@ func (s *agentService) initializeSkillsManager(
 	toolRegistry.RegisterTool(readSkillTool)
 	logger.Infof(ctx, "Registered read_skill tool")
 
-	if sandboxMode != "disabled" {
+	// Register script execution only when the manager actually has an active
+	// backend. Docker initialization can fail and fall back to the disabled
+	// manager, so checking the requested environment mode would advertise a
+	// tool that can only return "sandbox is disabled".
+	if sandboxMgr.GetType() != sandbox.SandboxTypeDisabled {
 		executeSkillTool := tools.NewExecuteSkillScriptTool(skillsManager)
 		toolRegistry.RegisterTool(executeSkillTool)
 		logger.Infof(ctx, "Registered execute_skill_script tool")
@@ -960,7 +979,7 @@ func fallbackPinnedMCPInfos(ids []string) []*agent.PinnedMCPServiceInfo {
 	return result
 }
 
-func (s *agentService) resolvePinnedSkillInfos(config *types.AgentConfig) []*agent.PinnedSkillInfo {
+func (s *agentService) resolvePinnedSkillInfos(ctx context.Context, config *types.AgentConfig) []*agent.PinnedSkillInfo {
 	if len(config.PinnedSkillNames) == 0 {
 		return nil
 	}
@@ -972,6 +991,24 @@ func (s *agentService) resolvePinnedSkillInfos(config *types.AgentConfig) []*age
 			for _, meta := range metadata {
 				if meta != nil {
 					descByName[meta.Name] = meta.Description
+				}
+			}
+		}
+	}
+	if s.tenantSkillService != nil {
+		if tenantID, ok := types.TenantIDFromContext(ctx); ok {
+			skillLists := make([][]*types.TenantSkill, 0, 2)
+			if tenantSkills, err := s.tenantSkillService.ListTenantSkills(ctx, tenantID); err == nil {
+				skillLists = append(skillLists, tenantSkills)
+			}
+			if globalSkills, err := s.tenantSkillService.ListGlobalSkills(ctx); err == nil {
+				skillLists = append(skillLists, globalSkills)
+			}
+			for _, skills := range skillLists {
+				for _, skill := range skills {
+					if skill != nil && skill.Enabled && skill.Status == types.TenantSkillStatusReady {
+						descByName[skill.Name] = skill.Description
+					}
 				}
 			}
 		}

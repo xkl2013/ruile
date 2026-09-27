@@ -2241,7 +2241,9 @@ const navItems = computed(() => {
     items.push({ key: 'tools', icon: 'tools', label: t('agent.editor.toolsConfig') });
     items.push({ key: 'mcp', icon: 'server', label: t('agentEditor.mcp.label') });
   }
-  if (isAgentMode.value && skillsAvailable.value) {
+  // Agent 模式始终保留 Skills 配置入口。skills_available 只表示当前
+  // 运行环境是否具备执行条件，不应阻止用户查看或配置该项。
+  if (isAgentMode.value) {
     items.push({ key: 'skills', icon: 'lightbulb', label: t('agent.editor.skillsConfig') });
   }
   // 发布（仅编辑模式）
@@ -3308,12 +3310,19 @@ const applyPromptTemplateDefaults = (cfg: PromptTemplatesConfig | null) => {
 // 加载依赖数据（复用空间级缓存，避免重复请求）
 const loadDependencies = async () => {
   try {
-    await Promise.all([
+    const results = await Promise.allSettled([
       chatResources.ensureModels(),
       chatResources.ensureKnowledgeBases(),
       chatResources.ensureWebSearchProviders(),
       editorResources.prefetchAgentEditorDeps(),
     ]);
+
+    const failedDependencies = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (failedDependencies.length > 0) {
+      console.warn('Some agent editor dependencies failed to load', failedDependencies);
+    }
 
     if (chatResources.allModels.length > 0) {
       allModels.value = chatResources.allModels;

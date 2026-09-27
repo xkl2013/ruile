@@ -27,8 +27,10 @@ import (
 )
 
 const (
-	perMessageOverhead  = 3
-	perConversationTail = 3
+	perMessageOverhead   = 3
+	perConversationTail  = 3
+	perToolCallOverhead  = 4
+	estimatedImageTokens = 1200
 )
 
 // Estimator counts tokens for messages and strings using BPE tokenization.
@@ -76,11 +78,24 @@ func (e *Estimator) EstimateMessage(msg *chat.Message) int {
 	tokens += e.EstimateString(msg.Role)
 	tokens += e.EstimateString(msg.Content)
 	tokens += e.EstimateString(msg.Name)
+	tokens += e.EstimateString(msg.ToolCallID)
+	tokens += e.EstimateString(msg.ReasoningContent)
+	if len(msg.MultiContent) == 0 {
+		tokens += len(msg.Images) * estimatedImageTokens
+	} else {
+		for _, part := range msg.MultiContent {
+			if part.ImageURL != nil || part.Type == "image_url" {
+				tokens += estimatedImageTokens
+			} else {
+				tokens += e.EstimateString(part.Text)
+			}
+		}
+	}
 
 	for _, tc := range msg.ToolCalls {
 		tokens += e.EstimateString(tc.Function.Name)
 		tokens += e.EstimateString(tc.Function.Arguments)
-		tokens += 4
+		tokens += perToolCallOverhead
 	}
 
 	return tokens

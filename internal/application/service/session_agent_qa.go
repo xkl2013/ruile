@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/Tencent/WeKnora/internal/agent/tools"
 	"github.com/Tencent/WeKnora/internal/event"
@@ -223,6 +222,7 @@ func (s *sessionService) buildAgentConfig(
 	customAgent := req.CustomAgent
 	agentConfig := &types.AgentConfig{
 		MaxIterations:               customAgent.Config.MaxIterations,
+		MaxCompletionTokens:         customAgent.Config.MaxCompletionTokens,
 		Temperature:                 customAgent.Config.Temperature,
 		WebSearchEnabled:            customAgent.Config.WebSearchEnabled && req.WebSearchEnabled,
 		WebSearchMaxResults:         customAgent.Config.WebSearchMaxResults,
@@ -262,9 +262,9 @@ func (s *sessionService) buildAgentConfig(
 	} else {
 		agentConfig.AllowedTools = tools.DefaultAllowedTools()
 	}
-	// Apply per-turn @Skill / @MCP scope. Each helper narrows the agent's
-	// whitelist to the mentioned items and records the pinned set used for the
-	// <must_use> hint, keeping all scope logic in one place per resource type.
+	// Apply per-turn @Skill / @MCP scope. Skill mentions only pin skills for
+	// this turn; they do not revoke skills already allowed by the agent.
+	// MCP mentions retain their existing narrowing semantics.
 	sessionTenantID := uint64(0)
 	if req.Session != nil {
 		sessionTenantID = req.Session.TenantID
@@ -365,8 +365,11 @@ func mergeResolvedTagKnowledgeIDs(
 	return uniqueNonEmptyStrings(merged)
 }
 
-// applyPerRequestSkillScope narrows the agent's skill whitelist to the @Skill
-// mentions for this turn and records the pinned set for the <must_use> hint.
+// applyPerRequestSkillScope records the @Skill mentions for this turn as the
+// pinned set that drives the <must_use> hint. It deliberately does not narrow
+// the allow-gate: an agent whose prompt requires a configured skill must still
+// be able to read and execute it when another skill is mentioned.
+//
 // It is a no-op when no skills were mentioned or skills are disabled.
 func applyPerRequestSkillScope(
 	ctx context.Context,
@@ -384,18 +387,7 @@ func applyPerRequestSkillScope(
 	if !agentConfig.SkillsEnabled {
 		return
 	}
-	switch skillsMode {
-	case "selected":
-		agentConfig.AllowedSkills = intersectPreservingRequestOrder(requested, agentConfig.AllowedSkills)
-		if len(agentConfig.AllowedSkills) == 0 {
-			agentConfig.SkillsEnabled = false
-		}
-	case "all":
-		agentConfig.AllowedSkills = dedupPreservingOrder(requested)
-	}
-	if agentConfig.SkillsEnabled && len(agentConfig.AllowedSkills) > 0 {
-		agentConfig.PinnedSkillNames = intersectPreservingRequestOrder(requested, agentConfig.AllowedSkills)
-	}
+	agentConfig.PinnedSkillNames = pinPreservingRequestOrder(requested, agentConfig.AllowedSkills)
 	logger.Infof(ctx, "Applied per-request @skill scope: requested=%v effective=%v pinned=%v",
 		requested, agentConfig.AllowedSkills, agentConfig.PinnedSkillNames)
 }
@@ -483,6 +475,32 @@ func intersectPreservingRequestOrder(requested []string, allowed []string) []str
 	return result
 }
 
+// pinPreservingRequestOrder treats an empty allow-list as "all skills
+// allowed", matching skills.Manager.isSkillAllowed.
+func pinPreservingRequestOrder(requested []string, allowed []string) []string {
+	allowedAll := len(allowed) == 0
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, value := range allowed {
+		if value != "" {
+			allowedSet[value] = true
+		}
+	}
+
+	result := make([]string, 0, len(requested))
+	seen := make(map[string]bool, len(requested))
+	for _, value := range requested {
+		if value == "" || seen[value] {
+			continue
+		}
+		if !allowedAll && !allowedSet[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+	}
+	return result
+}
+
 func dedupPreservingOrder(values []string) []string {
 	result := make([]string, 0, len(values))
 	seen := make(map[string]bool, len(values))
@@ -509,23 +527,17 @@ func (s *sessionService) configureSkillsFromAgent(
 	if customAgent == nil {
 		return
 	}
-	// When sandbox is disabled, skills cannot be enabled (no script execution environment)
-	sandboxMode := os.Getenv("WEKNORA_SANDBOX_MODE")
-	if sandboxMode == "" || sandboxMode == "disabled" {
-		agentConfig.SkillsEnabled = false
-		agentConfig.SkillDirs = nil
-		agentConfig.AllowedSkills = nil
-		logger.Infof(ctx, "Sandbox is disabled: skills are not available")
-		return
-	}
+	// Skill instructions are read-only and remain available without a script
+	// sandbox. Script execution is gated separately by initializeSkillsManager,
+	// so a disabled sandbox does not hide valid global/tenant Skill metadata.
 	dir := getPreloadedSkillsDir()
 	switch customAgent.Config.SkillsSelectionMode {
 	case "all":
-		// Enable all preloaded skills
+		// Enable all preloaded and materialized tenant skills.
 		agentConfig.SkillsEnabled = true
 		agentConfig.SkillDirs = []string{dir}
 		agentConfig.AllowedSkills = nil // Empty means all skills allowed
-		logger.Infof(ctx, "SkillsSelectionMode=all: enabled all preloaded skills")
+		logger.Infof(ctx, "SkillsSelectionMode=all: enabled preloaded and tenant skills")
 	case "selected":
 		// Enable only selected skills
 		if len(customAgent.Config.SelectedSkills) > 0 {
@@ -547,5 +559,4 @@ func (s *sessionService) configureSkillsFromAgent(
 		agentConfig.SkillsEnabled = false
 		logger.Warnf(ctx, "Unknown SkillsSelectionMode=%s: skills disabled", customAgent.Config.SkillsSelectionMode)
 	}
-
 }

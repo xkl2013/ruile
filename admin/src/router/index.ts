@@ -200,6 +200,18 @@ const moduleRoutes: RouteRecordRaw[] = [
     }),
   },
   {
+    path: 'skills',
+    name: 'adminSkillCatalog',
+    component: () => import('@admin/views/AdminSkillCatalog.vue'),
+    meta: {
+      navKey: 'skill-catalog',
+      title: '全局 Skill',
+      description: '管理所有工作空间和用户可使用的自定义 Skill。',
+      requiresSystemAdmin: true,
+      requiresTenant: false,
+    },
+  },
+  {
     path: 'experts',
     name: 'adminExpertPackages',
     component: () => import('@admin/views/AdminExpertPackages.vue'),

@@ -237,18 +237,27 @@ func TestCompressContext(t *testing.T) {
 		assert.True(t, found)
 	})
 
-	t.Run("round2+: no history between system and user query returns unchanged", func(t *testing.T) {
+	t.Run("long current turn trims old tool groups but preserves latest group", func(t *testing.T) {
 		messages := []chat.Message{
 			{Role: "system", Content: "sys"},
 			{Role: "user", Content: "hello"},
-			{Role: "assistant", Content: "thinking", ToolCalls: []chat.ToolCall{
-				{ID: "c1", Function: chat.FunctionCall{Name: "t1"}},
+			{Role: "assistant", Content: strings.Repeat("old thinking ", 250), ToolCalls: []chat.ToolCall{
+				{ID: "c1", Function: chat.FunctionCall{Name: "old_tool"}},
 			}},
-			{Role: "tool", Content: "done", ToolCallID: "c1", Name: "t1"},
+			{Role: "tool", Content: strings.Repeat("old result ", 250), ToolCallID: "c1", Name: "old_tool"},
+			{Role: "assistant", Content: "latest thinking", ToolCalls: []chat.ToolCall{
+				{ID: "c2", Function: chat.FunctionCall{Name: "latest_tool"}},
+			}},
+			{Role: "tool", Content: "latest result", ToolCallID: "c2", Name: "latest_tool"},
 		}
 		tokens := e.EstimateMessages(messages)
-		result := CompressContext(messages, e, 10, tokens)
-		assert.Equal(t, messages, result, "no history to trim → unchanged")
+		result := CompressContext(messages, e, 200, tokens)
+
+		require.Len(t, result, 4)
+		assert.Equal(t, "system", result[0].Role)
+		assert.Equal(t, "hello", result[1].Content)
+		assert.Equal(t, "latest thinking", result[2].Content)
+		assert.Equal(t, "latest result", result[3].Content)
 	})
 
 	t.Run("no user message at all returns unchanged", func(t *testing.T) {

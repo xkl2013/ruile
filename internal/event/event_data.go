@@ -189,6 +189,19 @@ type AgentFinalAnswerData struct {
 	IsFallback bool   `json:"is_fallback,omitempty"` // True when response is a fallback (no knowledge base match)
 }
 
+// ContextCompactedData reports that older conversation history was summarized.
+type ContextCompactedData struct {
+	Reason         string `json:"reason"`
+	Round          int    `json:"round"`
+	TokensBefore   int    `json:"tokens_before"`
+	TokensAfter    int    `json:"tokens_after"`
+	MessagesBefore int    `json:"messages_before"`
+	MessagesAfter  int    `json:"messages_after"`
+	Summary        string `json:"summary"`
+	Degraded       bool   `json:"degraded,omitempty"`
+	SplitTurn      bool   `json:"split_turn,omitempty"`
+}
+
 // AgentReflectionData represents agent reflection data
 type AgentReflectionData struct {
 	ToolCallID string `json:"tool_call_id"` // Tool call ID for tracking

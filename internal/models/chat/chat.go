@@ -53,6 +53,14 @@ type ImageURL struct {
 	Detail string `json:"detail,omitempty"` // "auto", "low", "high"
 }
 
+// MessageKind marks messages synthesized by the agent engine rather than
+// received from the user or the model.
+type MessageKind string
+
+// MessageKindCompactionSummary marks the internal summary that replaces older
+// conversation history. It is excluded from provider JSON.
+const MessageKindCompactionSummary MessageKind = "compaction_summary"
+
 // Message 表示聊天消息
 type Message struct {
 	Role         string               `json:"role"`                    // 角色：system, user, assistant, tool
@@ -66,7 +74,8 @@ type Message struct {
 	// 上一轮输出的思考内容。部分供应商（MiMo、DeepSeek V3.2/V4 thinking 模式）要求多轮对话中
 	// 把 assistant 的 reasoning_content 原样回传，否则会以 400 拒绝请求；其他不要求的供应商
 	// 会忽略未知字段，无副作用。
-	ReasoningContent string `json:"reasoning_content,omitempty"`
+	ReasoningContent string      `json:"reasoning_content,omitempty"`
+	Kind             MessageKind `json:"-"`
 }
 
 // ToolCall represents a tool call in a message

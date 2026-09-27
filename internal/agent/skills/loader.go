@@ -30,6 +30,7 @@ func NewLoader(skillDirs []string) *Loader {
 // that only reads the frontmatter of each skill file.
 func (l *Loader) DiscoverSkills() ([]*SkillMetadata, error) {
 	var allMetadata []*SkillMetadata
+	metadataIndex := make(map[string]int)
 
 	for _, dir := range l.skillDirs {
 		metadata, err := l.discoverInDirectory(dir)
@@ -37,7 +38,20 @@ func (l *Loader) DiscoverSkills() ([]*SkillMetadata, error) {
 			// Log warning but continue with other directories
 			continue
 		}
-		allMetadata = append(allMetadata, metadata...)
+		for _, meta := range metadata {
+			if meta == nil {
+				continue
+			}
+			if index, ok := metadataIndex[meta.Name]; ok {
+				// Later directories have higher precedence. The service appends
+				// materialized tenant/global skills after preloaded skills, so
+				// the metadata and loader cache agree on the executable source.
+				allMetadata[index] = meta
+				continue
+			}
+			metadataIndex[meta.Name] = len(allMetadata)
+			allMetadata = append(allMetadata, meta)
+		}
 	}
 
 	return allMetadata, nil

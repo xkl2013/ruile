@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	agentmemory "github.com/Tencent/WeKnora/internal/agent/memory"
+	"github.com/Tencent/WeKnora/internal/agent/compaction"
 	"github.com/Tencent/WeKnora/internal/agent/skills"
 	agenttoken "github.com/Tencent/WeKnora/internal/agent/token"
 	agenttools "github.com/Tencent/WeKnora/internal/agent/tools"
@@ -34,25 +34,27 @@ const langfuseQueryPreview = 2000
 // engine therefore does not maintain its own cache, system-prompt store, or
 // cross-turn buffer.
 type AgentEngine struct {
-	config               *types.AgentConfig
-	toolRegistry         *agenttools.ToolRegistry
-	chatModel            chat.Chat
-	eventBus             *event.EventBus
-	knowledgeBasesInfo   []*KnowledgeBaseInfo      // Detailed knowledge base information for prompt
-	selectedDocs         []*SelectedDocumentInfo   // User-selected documents (via @ mention)
-	pinnedMCPServices    []*PinnedMCPServiceInfo   // User @mentioned MCP services for this turn
-	pinnedSkills         []*PinnedSkillInfo        // User @mentioned skills for this turn
-	sessionID            string                    // Session ID for logging and event emission
-	systemPromptTemplate string                    // System prompt template (optional, uses default if empty)
-	skillsManager        *skills.Manager           // Skills manager for Progressive Disclosure (optional)
-	appConfig            *appconfig.Config         // Application config for prompt template resolution (optional)
-	imageDescriber       ImageDescriberFunc        // VLM function for describing images in tool results (optional)
-	tokenEstimator       *agenttoken.Estimator     // Token estimator for context window management
-	memoryConsolidator   *agentmemory.Consolidator // Memory consolidator for LLM-powered summarization (optional)
-	lastUsage            types.TokenUsage          // Token usage from the most recent LLM call
-	lastSentMsgCount     int                       // Number of messages sent in the most recent LLM call
-	resourceRefs         *llmresource.Registry     // request-local aliases for durable resource references
-	sourceRefs           *llmreference.Registry    // request-local chunk/document/web aliases and citations
+	config                *types.AgentConfig
+	toolRegistry          *agenttools.ToolRegistry
+	chatModel             chat.Chat
+	eventBus              *event.EventBus
+	knowledgeBasesInfo    []*KnowledgeBaseInfo    // Detailed knowledge base information for prompt
+	selectedDocs          []*SelectedDocumentInfo // User-selected documents (via @ mention)
+	pinnedMCPServices     []*PinnedMCPServiceInfo // User @mentioned MCP services for this turn
+	pinnedSkills          []*PinnedSkillInfo      // User @mentioned skills for this turn
+	sessionID             string                  // Session ID for logging and event emission
+	systemPromptTemplate  string                  // System prompt template (optional, uses default if empty)
+	skillsManager         *skills.Manager         // Skills manager for Progressive Disclosure (optional)
+	appConfig             *appconfig.Config       // Application config for prompt template resolution (optional)
+	imageDescriber        ImageDescriberFunc      // VLM function for describing images in tool results (optional)
+	tokenEstimator        *agenttoken.Estimator   // Token estimator for context window management
+	compactor             *compaction.Compactor   // Structured context compactor (optional)
+	lastUsage             types.TokenUsage        // Token usage from the most recent LLM call
+	lastSentMsgCount      int                     // Number of messages sent in the most recent LLM call
+	overflowRecovered     bool                    // Whether this turn already recovered one overflow
+	compactionExhaustedAt int                     // Message count where compaction last made no progress
+	resourceRefs          *llmresource.Registry   // request-local aliases for durable resource references
+	sourceRefs            *llmreference.Registry  // request-local chunk/document/web aliases and citations
 }
 
 // ImageDescriberFunc generates a text description of an image.
@@ -91,11 +93,15 @@ func NewAgentEngine(
 		sourceRefs:           llmreference.NewRegistry(config.CitationsEnabled()),
 	}
 
-	// Initialize memory consolidator if context window management is configured
+	// Initialize structured context compaction if a context window is configured.
 	if config.MaxContextTokens > 0 {
-		engine.memoryConsolidator = agentmemory.NewConsolidator(
-			chatModel, tokenEst, config.MaxContextTokens, 0,
-		)
+		engine.compactor = compaction.New(chatModel, tokenEst, compaction.Settings{
+			Enabled:          true,
+			MaxContextTokens: config.MaxContextTokens,
+			ReserveTokens:    engine.contextReserveTokens(),
+			KeepRecentTokens: config.CompactionKeepRecentTokens,
+			MaxSummaryTokens: engine.getCompletionTokenBudget(),
+		})
 	}
 
 	return engine
@@ -183,8 +189,12 @@ func (e *AgentEngine) GetSkillsManager() *skills.Manager {
 // baseline and only BPE-estimates the delta (newly appended messages). Otherwise it
 // falls back to a full BPE estimation of all messages.
 func (e *AgentEngine) estimateCurrentTokens(messages []chat.Message) int {
-	if e.lastUsage.TotalTokens > 0 && e.lastSentMsgCount > 0 && e.lastSentMsgCount < len(messages) {
-		delta := e.tokenEstimator.EstimateMessages(messages[e.lastSentMsgCount:])
+	if e.lastUsage.TotalTokens > 0 && e.lastSentMsgCount > 0 && e.lastSentMsgCount <= len(messages) {
+		start := e.lastSentMsgCount
+		if start < len(messages) && messages[start].Role == "assistant" {
+			start++
+		}
+		delta := e.tokenEstimator.EstimateMessages(messages[start:])
 		return e.lastUsage.TotalTokens + delta
 	}
 	return e.tokenEstimator.EstimateMessages(messages)
@@ -520,8 +530,9 @@ func (e *AgentEngine) runReActIteration(
 	// for newly appended messages (assistant reply + tool results).
 	currentTokens := e.estimateCurrentTokens(*messagesPtr)
 	beforeLen := len(*messagesPtr)
-	*messagesPtr = e.manageContextWindow(ctx, *messagesPtr, round, currentTokens)
-	if len(*messagesPtr) < beforeLen {
+	managed, changed := e.manageContextWindow(ctx, *messagesPtr, round, currentTokens)
+	*messagesPtr = managed
+	if changed || len(*messagesPtr) < beforeLen {
 		currentTokens = e.tokenEstimator.EstimateMessages(*messagesPtr)
 	}
 
@@ -537,7 +548,7 @@ func (e *AgentEngine) runReActIteration(
 
 	// 1. Think: Call LLM with function calling (includes retry + graceful degradation)
 	e.lastSentMsgCount = len(*messagesPtr)
-	resp, err := e.callLLMWithRetry(ctx, *messagesPtr, tools, state, query, state.CurrentRound, sessionID)
+	resp, err := e.callLLMWithRetry(ctx, messagesPtr, tools, state, query, state.CurrentRound, sessionID)
 	if err != nil {
 		retErr = err
 		return iterOutcomeNext, err
@@ -545,9 +556,24 @@ func (e *AgentEngine) runReActIteration(
 	if resp == nil {
 		return iterOutcomeBreak, nil
 	}
+	if !e.overflowRecovered && e.responseHitContextLimit(resp) {
+		e.overflowRecovered = true
+		logger.Warnf(ctx, "[Agent][Round-%d] Response hit the context limit; compacting and retrying once", round)
+		*messagesPtr = e.forceCompaction(ctx, *messagesPtr, round)
+		e.lastSentMsgCount = len(*messagesPtr)
+		resp, err = e.callLLMWithRetry(ctx, messagesPtr, tools, state, query, state.CurrentRound, sessionID)
+		if err != nil {
+			retErr = err
+			return iterOutcomeNext, err
+		}
+		if resp == nil {
+			return iterOutcomeBreak, nil
+		}
+	}
 	response = resp
 	if response.Usage.TotalTokens > 0 {
 		e.lastUsage = response.Usage
+		state.TurnUsage.Accumulate(response.Usage)
 		logger.Debugf(ctx, "[Agent][Round-%d] Usage: prompt=%d, completion=%d, total=%d",
 			round, response.Usage.PromptTokens,
 			response.Usage.CompletionTokens, response.Usage.TotalTokens)

@@ -32,6 +32,17 @@ type TokenUsage struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
+// Accumulate adds one model call's usage to the current turn total.
+func (u *TokenUsage) Accumulate(other TokenUsage) {
+	if u == nil {
+		return
+	}
+	u.PromptTokens += other.PromptTokens
+	u.CompletionTokens += other.CompletionTokens
+	u.TotalTokens += other.TotalTokens
+	u.CachedTokens += other.CachedTokens
+}
+
 // LLMToolCall represents a function/tool call from the LLM
 type LLMToolCall struct {
 	ID               string           `json:"id"`

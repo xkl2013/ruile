@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Tencent/WeKnora/internal/agent/compaction"
 )
 
 const (
@@ -40,6 +42,10 @@ const (
 	// the loop is forcibly terminated. This catches stuck loops caused by
 	// unhandled finish reasons (e.g., content_filter not caught elsewhere).
 	maxRepeatedResponseRounds = 2
+
+	// contextSafetyTokens leaves room for provider-side formatting overhead and
+	// small estimation drift before the next completion.
+	contextSafetyTokens = 4096
 )
 
 // transientErrorMarkers are substrings that indicate a transient (retryable) error.
@@ -70,6 +76,33 @@ func (e *AgentEngine) getLLMCallTimeout() time.Duration {
 		return time.Duration(e.config.LLMCallTimeout) * time.Second
 	}
 	return defaultLLMCallTimeout
+}
+
+func (e *AgentEngine) getCompletionTokenBudget() int {
+	if e != nil && e.config != nil && e.config.MaxCompletionTokens > 0 {
+		return e.config.MaxCompletionTokens
+	}
+	return 4096
+}
+
+func (e *AgentEngine) contextReserveTokens() int {
+	reserve := e.getCompletionTokenBudget() + contextSafetyTokens
+	if reserve < compaction.DefaultReserveTokens {
+		return compaction.DefaultReserveTokens
+	}
+	return reserve
+}
+
+func (e *AgentEngine) clampCompletionBudgetToContext(currentTokens int) int {
+	budget := e.getCompletionTokenBudget()
+	if e == nil || e.config == nil || e.config.MaxContextTokens <= 0 {
+		return budget
+	}
+	available := e.config.MaxContextTokens - currentTokens - contextSafetyTokens
+	if available > 0 && available < budget {
+		return available
+	}
+	return budget
 }
 
 // generateEventID generates a unique event ID with type suffix for better traceability

@@ -78,19 +78,26 @@ func TestApplyPerRequestMCPScope_NoneIgnoresMentionAndDoesNotPin(t *testing.T) {
 	assert.Empty(t, cfg.PinnedMCPServiceIDs)
 }
 
-func TestApplyPerRequestSkillScope_SelectedEmptyIntersectionDisables(t *testing.T) {
+func TestApplyPerRequestSkillScope_SelectedPinsWithoutNarrowing(t *testing.T) {
 	cfg := &types.AgentConfig{SkillsEnabled: true, AllowedSkills: []string{"a", "b"}}
 	applyPerRequestSkillScope(context.Background(), cfg, "selected", []string{"c"})
-	assert.False(t, cfg.SkillsEnabled)
+	assert.True(t, cfg.SkillsEnabled)
+	assert.Equal(t, []string{"a", "b"}, cfg.AllowedSkills)
 	assert.Empty(t, cfg.PinnedSkillNames)
 }
 
-func TestApplyPerRequestSkillScope_AllPinsMentioned(t *testing.T) {
-	cfg := &types.AgentConfig{SkillsEnabled: true}
+func TestApplyPerRequestSkillScope_AllPinsMentionedWithoutNarrowing(t *testing.T) {
+	cfg := &types.AgentConfig{SkillsEnabled: true, AllowedSkills: []string{"analysis", "formatting"}}
 	applyPerRequestSkillScope(context.Background(), cfg, "all", []string{"analysis", "analysis"})
 	assert.True(t, cfg.SkillsEnabled)
-	assert.Equal(t, []string{"analysis"}, cfg.AllowedSkills)
+	assert.Equal(t, []string{"analysis", "formatting"}, cfg.AllowedSkills)
 	assert.Equal(t, []string{"analysis"}, cfg.PinnedSkillNames)
+}
+
+func TestApplyPerRequestSkillScope_AllPinsAnyMentionWhenAllowListIsEmpty(t *testing.T) {
+	cfg := &types.AgentConfig{SkillsEnabled: true}
+	applyPerRequestSkillScope(context.Background(), cfg, "all", []string{"analysis", "formatting", "analysis"})
+	assert.Equal(t, []string{"analysis", "formatting"}, cfg.PinnedSkillNames)
 }
 
 func TestApplyPerRequestSkillScope_NoneIgnores(t *testing.T) {

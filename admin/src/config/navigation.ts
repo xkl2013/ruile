@@ -63,6 +63,14 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         requiresSystemAdmin: true,
       },
       {
+        key: 'skill-catalog',
+        label: '全局 Skill',
+        description: '管理所有工作空间可用的 Skill',
+        icon: 'code',
+        path: '/skills',
+        requiresSystemAdmin: true,
+      },
+      {
         key: 'expert-packages',
         label: '专家',
         description: '专家包导入、发布和运行测试',

@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/agent/compaction"
 	agenttoken "github.com/Tencent/WeKnora/internal/agent/token"
 	agenttools "github.com/Tencent/WeKnora/internal/agent/tools"
 	"github.com/Tencent/WeKnora/internal/common"
@@ -17,37 +19,254 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
-// manageContextWindow consolidates or compresses messages if approaching the token limit.
-// currentTokens is the caller's best estimate of the current context size (using
-// API-reported Usage when available, falling back to BPE estimation).
-func (e *AgentEngine) manageContextWindow(ctx context.Context, messages []chat.Message, round, currentTokens int) []chat.Message {
-	if e.config.MaxContextTokens <= 0 {
+const (
+	minToolResultTokens     = 8 * 1024
+	maxToolResultTokens     = 32 * 1024
+	toolResultTokenFraction = 5 // 20%
+
+	// A compaction that frees less than 5% of the pre-compaction context does
+	// not justify another summarization round at the same message count.
+	minFreedFraction = 20
+)
+
+// manageContextWindow summarizes older conversation away when the context has
+// grown past the configured threshold. The bool reports whether messages
+// changed, allowing the caller to refresh its token estimate.
+func (e *AgentEngine) manageContextWindow(
+	ctx context.Context, messages []chat.Message, round, currentTokens int,
+) ([]chat.Message, bool) {
+	if e.compactor == nil {
+		return messages, false
+	}
+
+	settings := e.compactor.Settings()
+	if !settings.ShouldCompact(currentTokens) {
+		return messages, false
+	}
+
+	logger.Infof(ctx, "[Agent][Round-%d] Context at %d tokens, over the %d threshold "+
+		"(window=%d, reserved=%d, keep_recent=%d); compacting",
+		round, currentTokens, settings.Threshold(), settings.MaxContextTokens,
+		settings.ReserveTokens, settings.KeepRecentTokens)
+
+	changed := false
+	if compacted, ok := e.runCompaction(ctx, messages, round, compaction.ReasonThreshold); ok {
+		changed = true
+		currentTokens = e.tokenEstimator.EstimateMessages(compacted)
+		if !settings.ShouldCompact(currentTokens) {
+			return compacted, true
+		}
+		messages = compacted
+	}
+
+	// If the oversized content is inside the retained tail, compaction cannot
+	// reach it. Tool-result trimming is intentionally the last-resort fallback.
+	trimmed, ok := e.trimToolResults(ctx, messages, round, settings)
+	return trimmed, changed || ok
+}
+
+// runCompaction performs one compaction and reports whether the context
+// actually became smaller.
+func (e *AgentEngine) runCompaction(
+	ctx context.Context, messages []chat.Message, round int, reason compaction.Reason,
+) ([]chat.Message, bool) {
+	if e.compactor == nil {
+		return messages, false
+	}
+	if e.compactionExhaustedAt > 0 && len(messages) <= e.compactionExhaustedAt {
+		return messages, false
+	}
+
+	result, err := e.compactor.Compact(ctx, messages, reason)
+	if err != nil {
+		if errors.Is(err, compaction.ErrNothingToCompact) {
+			logger.Infof(ctx, "[Agent][Round-%d] Nothing outside the keep-recent budget; skipping compaction", round)
+		} else {
+			logger.Warnf(ctx, "[Agent][Round-%d] Compaction failed: %v", round, err)
+		}
+		e.compactionExhaustedAt = len(messages)
+		return messages, false
+	}
+	if result.Freed() < result.TokensBefore/minFreedFraction {
+		logger.Warnf(ctx, "[Agent][Round-%d] Compaction freed too little (%d -> %d tokens)",
+			round, result.TokensBefore, result.TokensAfter)
+		e.compactionExhaustedAt = len(messages)
+		return messages, false
+	}
+
+	logger.Infof(ctx, "[Agent][Round-%d] Compacted (%s): %d -> %d tokens, %d -> %d messages",
+		round, result.Reason, result.TokensBefore, result.TokensAfter,
+		result.MessagesBefore, result.MessagesAfter)
+	common.PipelineInfo(ctx, "Agent", "context_compacted", map[string]interface{}{
+		"round":           round,
+		"reason":          string(result.Reason),
+		"tokens_before":   result.TokensBefore,
+		"tokens_after":    result.TokensAfter,
+		"messages_before": result.MessagesBefore,
+		"messages_after":  result.MessagesAfter,
+		"degraded":        result.Degraded,
+	})
+	e.emitContextCompacted(ctx, result, round)
+
+	// The usage baseline refers to the pre-compaction history.
+	e.lastUsage = types.TokenUsage{}
+	e.lastSentMsgCount = 0
+	e.compactionExhaustedAt = 0
+	return result.Messages, true
+}
+
+func (e *AgentEngine) emitContextCompacted(ctx context.Context, result *compaction.Result, round int) {
+	_ = e.eventBus.Emit(ctx, event.Event{
+		ID:        generateEventID("compaction"),
+		Type:      event.EventContextCompacted,
+		SessionID: e.sessionID,
+		Data: event.ContextCompactedData{
+			Reason:         string(result.Reason),
+			Round:          round,
+			TokensBefore:   result.TokensBefore,
+			TokensAfter:    result.TokensAfter,
+			MessagesBefore: result.MessagesBefore,
+			MessagesAfter:  result.MessagesAfter,
+			Summary:        result.Summary,
+			Degraded:       result.Degraded,
+			SplitTurn:      result.SplitTurn,
+		},
+	})
+}
+
+func (e *AgentEngine) responseHitContextLimit(response *types.ChatResponse) bool {
+	window := 0
+	if e.config != nil {
+		window = e.config.MaxContextTokens
+	}
+	return compaction.ResponseHitContextLimit(response, window, e.getCompletionTokenBudget())
+}
+
+func (e *AgentEngine) forceCompaction(
+	ctx context.Context, messages []chat.Message, round int,
+) []chat.Message {
+	if e.compactor == nil {
 		return messages
 	}
+	if compacted, ok := e.runCompaction(ctx, messages, round, compaction.ReasonOverflow); ok {
+		return compacted
+	}
+	trimmed, _ := e.trimToolResults(ctx, messages, round, e.compactor.Settings())
+	return trimmed
+}
 
-	beforeLen := len(messages)
+func (e *AgentEngine) trimToolResults(
+	ctx context.Context, messages []chat.Message, round int, settings compaction.Settings,
+) ([]chat.Message, bool) {
+	trimmed, ok := trimToolResultsToBudget(
+		messages, e.tokenEstimator, toolResultBudget(settings.MaxContextTokens),
+	)
+	if !ok {
+		return messages, false
+	}
+	logger.Infof(ctx, "[Agent][Round-%d] Trimmed tool results to the token budget", round)
+	return trimmed, true
+}
 
-	if e.memoryConsolidator != nil && e.memoryConsolidator.ShouldConsolidate(currentTokens) {
-		logger.Infof(ctx, "[Agent][Round-%d] Token threshold exceeded (est=%d), consolidating memory",
-			round, currentTokens)
-		consolidated, consolidateErr := e.memoryConsolidator.Consolidate(ctx, messages)
-		if consolidateErr != nil {
-			logger.Warnf(ctx, "[Agent][Round-%d] Memory consolidation failed: %v, "+
-				"falling back to simple compression", round, consolidateErr)
-		} else {
-			messages = consolidated
-			currentTokens = e.tokenEstimator.EstimateMessages(messages)
+func toolResultBudget(maxContextTokens int) int {
+	if maxContextTokens <= 0 {
+		return maxToolResultTokens
+	}
+	budget := maxContextTokens / toolResultTokenFraction
+	if budget < minToolResultTokens {
+		return minToolResultTokens
+	}
+	if budget > maxToolResultTokens {
+		return maxToolResultTokens
+	}
+	return budget
+}
+
+func trimToolResultsToBudget(
+	messages []chat.Message,
+	estimator *agenttoken.Estimator,
+	budget int,
+) ([]chat.Message, bool) {
+	if estimator == nil || budget <= 0 || len(messages) == 0 {
+		return messages, false
+	}
+
+	var toolIndexes []int
+	total := 0
+	for i := range messages {
+		if messages[i].Role == "tool" {
+			toolIndexes = append(toolIndexes, i)
+			total += estimator.EstimateMessage(&messages[i])
 		}
 	}
-
-	messages = agenttoken.CompressContext(messages, e.tokenEstimator, e.config.MaxContextTokens, currentTokens)
-
-	if len(messages) < beforeLen {
-		logger.Infof(ctx, "[Agent][Round-%d] Context managed: %d → %d messages (max_tokens=%d)",
-			round, beforeLen, len(messages), e.config.MaxContextTokens)
+	if total <= budget || len(toolIndexes) == 0 {
+		return messages, false
 	}
 
-	return messages
+	out := append([]chat.Message(nil), messages...)
+	baseCosts := make(map[int]int, len(toolIndexes))
+	remaining := budget
+	for _, idx := range toolIndexes {
+		out[idx].Content = compactedToolResultMarker(messages[idx].Content)
+		cost := estimator.EstimateMessage(&out[idx])
+		baseCosts[idx] = cost
+		remaining -= cost
+	}
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	for i := len(toolIndexes) - 1; i >= 0; i-- {
+		idx := toolIndexes[i]
+		fullCost := estimator.EstimateMessage(&messages[idx])
+		extra := fullCost - baseCosts[idx]
+		if extra <= remaining {
+			out[idx] = messages[idx]
+			remaining -= extra
+			continue
+		}
+		out[idx] = compactToolMessage(messages[idx], baseCosts[idx]+remaining, estimator)
+		remaining = 0
+	}
+	return out, true
+}
+
+func compactedToolResultMarker(content string) string {
+	return fmt.Sprintf(
+		"[Tool result compacted: original_bytes=%d. Re-run the tool with narrower filters or a smaller range if more detail is needed.]",
+		len(content),
+	)
+}
+
+func compactToolMessage(msg chat.Message, maxTokens int, estimator *agenttoken.Estimator) chat.Message {
+	runes := []rune(msg.Content)
+	base := msg
+	base.Content = compactedToolResultMarker(msg.Content)
+	if len(runes) == 0 || estimator.EstimateMessage(&base) >= maxTokens {
+		return base
+	}
+
+	best := base
+	low, high := 1, len(runes)
+	for low <= high {
+		keep := low + (high-low)/2
+		head := keep / 4
+		tail := keep - head
+		candidate := base
+		candidate.Content = fmt.Sprintf(
+			"%s\n\n%s\n...[tool result preview omitted]...\n%s",
+			base.Content,
+			string(runes[:head]),
+			string(runes[len(runes)-tail:]),
+		)
+		if estimator.EstimateMessage(&candidate) <= maxTokens {
+			best = candidate
+			low = keep + 1
+		} else {
+			high = keep - 1
+		}
+	}
+	return best
 }
 
 // responseVerdict captures the result of analyzing an LLM response to determine

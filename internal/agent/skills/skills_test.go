@@ -61,6 +61,12 @@ func TestSkillValidation(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "valid underscore skill",
+			skillName:   "document_parser_v2",
+			description: "A valid skill",
+			wantErr:     false,
+		},
+		{
 			name:        "empty name",
 			skillName:   "",
 			description: "A skill",
@@ -72,7 +78,7 @@ func TestSkillValidation(t *testing.T) {
 			skillName:   "My Skill",
 			description: "A skill",
 			wantErr:     true,
-			errContains: "lowercase letters",
+			errContains: "letters, numbers",
 		},
 		{
 			name:        "reserved word in name",
@@ -93,7 +99,7 @@ func TestSkillValidation(t *testing.T) {
 			skillName:   "this-is-a-very-long-skill-name-that-exceeds-the-maximum-allowed-length-of-64-characters",
 			description: "A skill",
 			wantErr:     true,
-			errContains: "exceeds maximum length",
+			errContains: "maximum is 64",
 		},
 	}
 
