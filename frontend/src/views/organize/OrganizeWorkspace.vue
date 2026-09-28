@@ -153,7 +153,28 @@
         </section>
 
         <section v-else-if="activeTab === 'output'" class="organize-section organize-section--output">
-          <div class="discover-board">
+          <div class="discover-mode-switch" role="tablist" aria-label="发现内容类型">
+            <button
+              type="button"
+              :class="{ active: discoverMode === 'content' }"
+              role="tab"
+              :aria-selected="discoverMode === 'content'"
+              @click="discoverMode = 'content'"
+            >
+              内容
+            </button>
+            <button
+              type="button"
+              :class="{ active: discoverMode === 'knowledge-base' }"
+              role="tab"
+              :aria-selected="discoverMode === 'knowledge-base'"
+              @click="discoverMode = 'knowledge-base'"
+            >
+              知识库
+            </button>
+          </div>
+          <PublicKnowledgeBaseDiscover v-if="discoverMode === 'knowledge-base'" />
+          <div v-else class="discover-board">
             <section class="discover-featured-section">
               <div class="discover-section-head">
                 <h3>精选</h3>
@@ -221,6 +242,9 @@
                       </div>
                     </div>
                     <h2>{{ item.title }}</h2>
+                    <div class="output-card-category output-card-category--content">
+                      {{ item.contentTypeLabel }}<span v-if="item.seriesLabel"> · {{ item.seriesLabel }}</span>
+                    </div>
                     <div v-if="item.categoryLabel" class="output-card-category">{{ item.categoryLabel }}</div>
                     <p class="output-summary">{{ item.summary }}</p>
                     <div class="output-card-footer">
@@ -308,6 +332,9 @@
                       </div>
                     </div>
                     <h2>{{ item.title }}</h2>
+                    <div class="output-card-category output-card-category--content">
+                      {{ item.contentTypeLabel }}<span v-if="item.seriesLabel"> · {{ item.seriesLabel }}</span>
+                    </div>
                     <div v-if="item.categoryLabel" class="output-card-category">{{ item.categoryLabel }}</div>
                     <p class="output-summary">{{ item.summary }}</p>
                     <div class="output-card-footer">
@@ -588,6 +615,9 @@
             <div v-if="activeOutputPreview.categoryLabel" class="output-preview-category">
               栏目：{{ activeOutputPreview.categoryLabel }}
             </div>
+            <div class="output-preview-category">
+              {{ activeOutputPreview.contentTypeLabel }}<span v-if="activeOutputPreview.seriesLabel">：{{ activeOutputPreview.seriesLabel }}</span>
+            </div>
             <div v-if="activeOutputPreview.tags.length" class="output-preview-tags">
               <t-tag v-for="tag in activeOutputPreview.tags" :key="`preview-${activeOutputPreview.id}-${tag}`" size="small" variant="light-outline">
                 {{ tag }}
@@ -669,6 +699,7 @@ import {
 } from './discoverCategories'
 import OrganizeOutputUploadDrawer from './components/OrganizeOutputUploadDrawer.vue'
 import OrganizeSproutIcon from './components/OrganizeSproutIcon.vue'
+import PublicKnowledgeBaseDiscover from './components/PublicKnowledgeBaseDiscover.vue'
 
 type MemoryType = 'note' | 'record' | 'audio' | 'audio-card'
 type OutputKind = 'all' | 'article' | 'video' | 'audio'
@@ -718,6 +749,8 @@ interface OutputItem {
   type: string
   kind: Exclude<OutputKind, 'all'>
   kindLabel: string
+  contentTypeLabel: string
+  seriesLabel: string
   categoryLabel: string
   source: string
   summary: string
@@ -781,6 +814,7 @@ const outputPreviewVisible = ref(false)
 const activeOutputPreview = ref<OutputItem | null>(null)
 const outputStatusSaving = ref(false)
 const discoverTab = ref('recommended')
+const discoverMode = ref<'content' | 'knowledge-base'>('content')
 const discoverTabs = ref<OrganizeDiscoverTab[]>([
   { label: '推荐', value: 'recommended' },
   ...DISCOVER_CATEGORIES.map((category) => ({ label: category.label, value: category.key })),
@@ -1577,6 +1611,10 @@ const mapOutput = (item: OrganizeOutput): OutputItem => ({
   type: item.output_type || '图文类',
   kind: outputKindFromValue(item.metadata?.content_kind || item.output_type || item.icon),
   kindLabel: outputKindDisplayLabel(outputKindFromValue(item.metadata?.content_kind || item.output_type || item.icon)),
+  contentTypeLabel: item.public_content_type === 'course' ? '学习课程' : '图文内容',
+  seriesLabel: item.series_title
+    ? `${item.series_title}${item.series_order ? ` · 第 ${item.series_order} 节` : ''}`
+    : '',
   categoryLabel: discoverCategoryLabel(item.metadata?.discover_category || item.metadata?.discover_category_label),
   source: item.memory_count ? `来自 ${item.memory_count} 条记忆` : '手动创建',
   summary: item.source_summary || asTrimmedString(item.metadata?.summary) || contentExcerpt(item.content, '暂无摘要'),
@@ -2786,6 +2824,33 @@ button.asset-card {
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.discover-mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  width: fit-content;
+  padding: 3px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.discover-mode-switch button {
+  min-width: 72px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+}
+
+.discover-mode-switch button.active {
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .discover-featured-section,

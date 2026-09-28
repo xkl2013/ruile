@@ -234,7 +234,8 @@
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
-                <!-- 卡片菜单仅保留用户侧收藏/置顶类操作，后台配置入口已迁到 admin。 -->
+                <!-- 删除权限由后端的「创建者或企业 Admin/Owner」矩阵决定；
+                     这里仅控制入口展示，API 仍会再次校验。 -->
                 <t-popup overlayClassName="card-more-popup" trigger="click" destroy-on-close
                   placement="bottom-right">
                   <div class="more-wrap" @click.stop>
@@ -245,6 +246,11 @@
                       <div class="popup-menu-item" @click.stop="handleTogglePinById(kb.id)">
                         <t-icon class="menu-icon" :name="kb.is_pinned ? 'pin-filled' : 'pin'" />
                         <span>{{ kb.is_pinned ? $t('knowledgeList.pin.unpin') : $t('knowledgeList.pin.pin') }}</span>
+                      </div>
+                      <div v-if="canDeleteKnowledgeBase(kb)" class="popup-menu-item delete"
+                        @click.stop="confirmDeleteKnowledgeBase(kb)">
+                        <t-icon class="menu-icon" name="delete" />
+                        <span>{{ $t('common.delete') }}</span>
                       </div>
                     </div>
                   </template>
@@ -484,7 +490,7 @@
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
-	                <!-- Match the "all" tab block: only the per-user pin action remains. -->
+	                <!-- 与「全部」视图保持一致：保留置顶和有权限时的删除。 -->
                 <t-popup v-model="kb.showMore" overlayClassName="card-more-popup"
                   :on-visible-change="onVisibleChange" trigger="click" destroy-on-close placement="bottom-right">
                   <div variant="outline" class="more-wrap" @click.stop="openMore(index)"
@@ -496,6 +502,11 @@
                       <div class="popup-menu-item" @click.stop="handleTogglePin(kb)">
                         <t-icon class="menu-icon" :name="kb.is_pinned ? 'pin-filled' : 'pin'" />
                         <span>{{ kb.is_pinned ? $t('knowledgeList.pin.unpin') : $t('knowledgeList.pin.pin') }}</span>
+                      </div>
+                      <div v-if="canDeleteKnowledgeBase(kb)" class="popup-menu-item delete"
+                        @click.stop="confirmDeleteKnowledgeBase(kb)">
+                        <t-icon class="menu-icon" name="delete" />
+                        <span>{{ $t('common.delete') }}</span>
                       </div>
                     </div>
                   </template>
@@ -806,8 +817,9 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, computed, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
 import {
+  deleteKnowledgeBase,
   subscribeKnowledgeBase,
   togglePinKnowledgeBase,
   unsubscribeKnowledgeBase,
@@ -918,6 +930,7 @@ const loading = ref(false)
 const currentMoreIndex = ref<number>(-1)
 const highlightedKbId = ref<string | null>(null)
 const highlightedCardRef = ref<HTMLElement | null>(null)
+const deletingKbIds = ref<Set<string>>(new Set())
 const uploadTasks = ref<UploadTaskState[]>([])
 const subscriptionBusyIds = ref<Set<string>>(new Set())
 const uploadCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -1289,6 +1302,67 @@ const applyMyKbListData = (data: MyKnowledgeBaseList) => {
 function isAccountOwnedKb(kb: { access_source?: string; creator_id?: string }): boolean {
   if (kb.access_source === 'shared_space' || kb.access_source === 'shared_agent') return false
   return isMyKb(kb)
+}
+
+// The delete endpoint allows the original creator or an Admin/Owner in the
+// owning enterprise workspace. The list's `created` projection already
+// contains only KBs created by this account, so creator ownership is the
+// normal path here; the tenant-role fallback also covers legacy/admin views.
+function canDeleteKnowledgeBase(kb: KB): boolean {
+  if (!kb?.id || deletingKbIds.value.has(kb.id)) return false
+  if (kb.access_source === 'shared_space' || kb.access_source === 'shared_agent'
+    || kb.access_source === 'subscription' || kb.access_source === 'public_subscription') {
+    return false
+  }
+  if (isMyKb(kb)) return true
+  if (authStore.isSystemAdmin) return true
+  const targetTenantId = Number(
+    kb.effective_tenant_id ||
+    (kb as KB & { tenant_id?: number }).tenant_id ||
+    authStore.effectiveTenantId ||
+    0,
+  )
+  const activeTenantId = Number(authStore.effectiveTenantId || 0)
+  const isEnterpriseKb =
+    kb.owner_type === 'organization' ||
+    (targetTenantId > 0 &&
+      targetTenantId === activeTenantId &&
+      authStore.currentTenantSpaceType === 'organization')
+  if (!isEnterpriseKb) return false
+  return authStore.hasRole('admin') || authStore.hasRoleInTenant(targetTenantId, 'admin')
+}
+
+function setDeletingKb(id: string, deleting: boolean) {
+  const next = new Set(deletingKbIds.value)
+  if (deleting) next.add(id)
+  else next.delete(id)
+  deletingKbIds.value = next
+}
+
+function confirmDeleteKnowledgeBase(kb: KB) {
+  if (!canDeleteKnowledgeBase(kb)) return
+  const dialog = DialogPlugin.confirm({
+    header: t('knowledgeList.delete.confirmTitle'),
+    body: t('knowledgeList.delete.confirmMessage', { name: kb.name }),
+    confirmBtn: { content: t('knowledgeList.delete.confirmButton'), theme: 'danger' },
+    cancelBtn: t('common.cancel'),
+    onConfirm: async () => {
+      dialog.destroy()
+      setDeletingKb(kb.id, true)
+      try {
+        await deleteKnowledgeBase(kb.id)
+        MessagePlugin.success(t('knowledgeBase.deleted'))
+        chatResources.invalidate('myKnowledgeBases')
+        await fetchList(true)
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || t('knowledgeBase.deleteFailedKb'))
+      } finally {
+        setDeletingKb(kb.id, false)
+      }
+    },
+    onCancel: () => dialog.destroy(),
+    onClose: () => dialog.destroy(),
+  })
 }
 
 function mapMyKbRowForCard(kb: KB, isMine: boolean, listCategory?: MyKbCategoryKey) {

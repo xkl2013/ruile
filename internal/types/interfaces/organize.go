@@ -41,6 +41,9 @@ type OrganizeRepository interface {
 	UpdateOutput(ctx context.Context, output *types.OrganizeOutput, memoryIDs []string) error
 	DeleteOutput(ctx context.Context, tenantID uint64, userID, id string) error
 	ListOutputs(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeOutput, int64, error)
+	GetOutputByID(ctx context.Context, id string) (*types.OrganizeOutput, error)
+	ListPublicContents(ctx context.Context, query types.OrganizePublicContentQuery) ([]*types.OrganizeOutput, int64, error)
+	UpdatePublicContent(ctx context.Context, output *types.OrganizeOutput) error
 	CountOutputsByStatus(ctx context.Context, tenantID uint64, userID string) (map[string]int64, error)
 
 	CreateSproutReport(ctx context.Context, report *types.OrganizeSproutReport, memoryIDs []string) error
@@ -87,6 +90,10 @@ type OrganizeService interface {
 	ListOutputs(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeOutput, int64, error)
 	ListPendingAssignments(ctx context.Context, tenantID uint64, userID string, query types.OrganizeListQuery) ([]*types.OrganizeOutput, int64, error)
 	AssignOutputToService(ctx context.Context, tenantID uint64, userID, outputID, serviceID string) (*types.OrganizeOutput, error)
+	ListAdminPublicContents(ctx context.Context, query types.OrganizePublicContentQuery) ([]*types.OrganizeOutput, int64, error)
+	GetAdminPublicContent(ctx context.Context, id string) (*types.OrganizeOutput, error)
+	UpdateAdminPublicContent(ctx context.Context, id string, input types.OrganizeOutputInput) (*types.OrganizeOutput, error)
+	ModeratePublicContent(ctx context.Context, id, status, reviewNote string) (*types.OrganizeOutput, error)
 
 	CreateSproutReport(ctx context.Context, tenantID uint64, userID string, input types.OrganizeSproutReportInput) (*types.OrganizeSproutReport, error)
 	CreateSproutReportFromMemory(ctx context.Context, tenantID uint64, userID string, input types.OrganizeSproutFromMemoryInput) (*types.OrganizeSproutReport, error)

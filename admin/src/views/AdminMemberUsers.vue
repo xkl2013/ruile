@@ -122,11 +122,25 @@
                   <t-tag v-if="user.is_system_admin" theme="primary" variant="light">
                     系统管理员
                   </t-tag>
+                  <t-tag v-if="user.is_creator" theme="success" variant="light">
+                    创作者
+                  </t-tag>
                 </div>
               </td>
               <td class="membership-page__muted">{{ formatDate(user.created_at) }}</td>
               <td>
                 <div class="membership-page__actions">
+                  <t-button
+                    size="small"
+                    variant="outline"
+                    :theme="user.is_creator ? 'warning' : 'success'"
+                    :loading="mutatingUserID === user.id"
+                    :disabled="mutatingUserID !== ''"
+                    @click="changeCreatorStatus(user, !user.is_creator)"
+                  >
+                    <template #icon><t-icon :name="user.is_creator ? 'close' : 'user-add'" /></template>
+                    {{ user.is_creator ? '取消创作者' : '设为创作者' }}
+                  </t-button>
                   <t-button
                     v-if="user.is_active"
                     size="small"
@@ -204,6 +218,7 @@ import {
   deleteSystemUser,
   listSystemUsers,
   setSystemUserActive,
+  setSystemUserCreator,
   type SystemUserSummary,
 } from '@/api/system'
 
@@ -333,6 +348,33 @@ function changeUserStatus(user: SystemUserSummary, isActive: boolean) {
         MessagePlugin.success(`用户已${action}`)
       } catch (error) {
         MessagePlugin.error(getErrorMessage(error, `用户${action}失败`))
+      } finally {
+        mutatingUserID.value = ''
+      }
+    },
+    onCancel: () => dialog.destroy(),
+  })
+}
+
+function changeCreatorStatus(user: SystemUserSummary, isCreator: boolean) {
+  if (mutatingUserID.value) return
+  const action = isCreator ? '设为创作者' : '取消创作者身份'
+  const dialog = DialogPlugin.confirm({
+    header: action,
+    body: isCreator
+      ? `确认将「${displayUser(user)}」设置为创作者？设置后该用户创建的知识库和公开内容会进入创作者审核目录。`
+      : `确认取消「${displayUser(user)}」的创作者身份？取消后该用户不会再出现在创作者管理目录中，已发布内容不会自动下架。`,
+    confirmBtn: { content: action, theme: isCreator ? 'primary' : 'warning' },
+    cancelBtn: { content: '取消' },
+    onConfirm: async () => {
+      dialog.destroy()
+      mutatingUserID.value = user.id
+      try {
+        const updated = await setSystemUserCreator(user.id, isCreator)
+        user.is_creator = updated.is_creator
+        MessagePlugin.success(isCreator ? '已设置为创作者' : '已取消创作者身份')
+      } catch (error) {
+        MessagePlugin.error(getErrorMessage(error, `${action}失败`))
       } finally {
         mutatingUserID.value = ''
       }

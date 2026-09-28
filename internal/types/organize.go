@@ -24,6 +24,14 @@ const (
 
 	OrganizeAssignmentStatusPending  = "pending"
 	OrganizeAssignmentStatusAssigned = "assigned"
+	OrganizePublicContentTypePost    = "post"
+	OrganizePublicContentTypeCourse  = "course"
+
+	OrganizePublicContentStatusDraft         = "draft"
+	OrganizePublicContentStatusPendingReview = "pending_review"
+	OrganizePublicContentStatusPublished     = "published"
+	OrganizePublicContentStatusOffline       = "offline"
+	OrganizePublicContentStatusRejected      = "rejected"
 
 	OrganizeSproutStageOrganizing = "organizing"
 	OrganizeSproutStageExpandable = "expandable"
@@ -42,6 +50,28 @@ func IsValidOrganizeMemoryKind(kind string) bool {
 func IsValidOrganizeOutputStatus(status string) bool {
 	switch status {
 	case OrganizeOutputStatusDraft, OrganizeOutputStatusReview, OrganizeOutputStatusReady, OrganizeOutputStatusArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsValidOrganizePublicContentType(contentType string) bool {
+	switch contentType {
+	case OrganizePublicContentTypePost, OrganizePublicContentTypeCourse:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsValidOrganizePublicContentStatus(status string) bool {
+	switch status {
+	case OrganizePublicContentStatusDraft,
+		OrganizePublicContentStatusPendingReview,
+		OrganizePublicContentStatusPublished,
+		OrganizePublicContentStatusOffline,
+		OrganizePublicContentStatusRejected:
 		return true
 	default:
 		return false
@@ -114,6 +144,14 @@ type OrganizeOutput struct {
 	Content           string         `json:"content,omitempty" gorm:"type:text;not null;default:''"`
 	SourceSummary     string         `json:"source_summary,omitempty" gorm:"type:varchar(255);not null;default:''"`
 	Status            string         `json:"status" gorm:"type:varchar(32);not null;default:'draft';index"`
+	PublicContentType string         `json:"public_content_type" gorm:"type:varchar(32);not null;default:'post';index"`
+	PublicStatus      string         `json:"public_status" gorm:"type:varchar(32);not null;default:'';index"`
+	SeriesID          string         `json:"series_id,omitempty" gorm:"type:varchar(128);not null;default:'';index"`
+	SeriesTitle       string         `json:"series_title,omitempty" gorm:"type:varchar(255);not null;default:''"`
+	SeriesOrder       int            `json:"series_order,omitempty" gorm:"not null;default:0"`
+	ReviewNote        string         `json:"review_note,omitempty" gorm:"type:text;not null;default:''"`
+	PublishedAt       *time.Time     `json:"published_at,omitempty"`
+	PublishedBy       string         `json:"published_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
 	Icon              string         `json:"icon,omitempty" gorm:"type:varchar(64);not null;default:''"`
 	Fields            JSONMap        `json:"fields,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
 	Citations         JSONMap        `json:"citations,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
@@ -133,6 +171,9 @@ func (o *OrganizeOutput) BeforeCreate(_ *gorm.DB) error {
 	}
 	if o.Status == "" {
 		o.Status = OrganizeOutputStatusDraft
+	}
+	if o.PublicContentType == "" {
+		o.PublicContentType = OrganizePublicContentTypePost
 	}
 	if o.Metadata == nil {
 		o.Metadata = JSONMap{}
@@ -227,6 +268,15 @@ type OrganizeListQuery struct {
 	PageSize         int
 }
 
+type OrganizePublicContentQuery struct {
+	Keyword           string
+	UserID            string
+	PublicStatus      string
+	PublicContentType string
+	Page              int
+	PageSize          int
+}
+
 type OrganizeDiscoverQuery struct {
 	TenantID       uint64
 	UserID         string
@@ -293,20 +343,26 @@ type OrganizeMemoryInput struct {
 }
 
 type OrganizeOutputInput struct {
-	Title           string   `json:"title"`
-	ConfigID        string   `json:"config_id,omitempty"`
-	JobID           string   `json:"job_id,omitempty"`
-	TemplateKey     string   `json:"template_key,omitempty"`
-	TemplateVersion string   `json:"template_version,omitempty"`
-	OutputType      string   `json:"output_type,omitempty"`
-	Content         string   `json:"content,omitempty"`
-	SourceSummary   string   `json:"source_summary,omitempty"`
-	Status          string   `json:"status,omitempty"`
-	Icon            string   `json:"icon,omitempty"`
-	MemoryIDs       []string `json:"memory_ids,omitempty"`
-	Fields          JSONMap  `json:"fields,omitempty"`
-	Citations       JSONMap  `json:"citations,omitempty"`
-	Metadata        JSONMap  `json:"metadata,omitempty"`
+	Title             string   `json:"title"`
+	ConfigID          string   `json:"config_id,omitempty"`
+	JobID             string   `json:"job_id,omitempty"`
+	TemplateKey       string   `json:"template_key,omitempty"`
+	TemplateVersion   string   `json:"template_version,omitempty"`
+	OutputType        string   `json:"output_type,omitempty"`
+	Content           string   `json:"content,omitempty"`
+	SourceSummary     string   `json:"source_summary,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	PublicContentType string   `json:"public_content_type,omitempty"`
+	PublicStatus      string   `json:"public_status,omitempty"`
+	SeriesID          string   `json:"series_id,omitempty"`
+	SeriesTitle       string   `json:"series_title,omitempty"`
+	SeriesOrder       int      `json:"series_order,omitempty"`
+	ReviewNote        string   `json:"review_note,omitempty"`
+	Icon              string   `json:"icon,omitempty"`
+	MemoryIDs         []string `json:"memory_ids,omitempty"`
+	Fields            JSONMap  `json:"fields,omitempty"`
+	Citations         JSONMap  `json:"citations,omitempty"`
+	Metadata          JSONMap  `json:"metadata,omitempty"`
 }
 
 type OrganizeSproutReportInput struct {

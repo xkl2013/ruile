@@ -60,6 +60,65 @@ test('knowledge base visible only through a shared agent is always read-only', (
   }), false)
 })
 
+test('public subscription knowledge bases are always read-only', () => {
+  assert.equal(canWriteKnowledgeBase({
+    kbInfo: {
+      access_source: 'public_subscription',
+      my_permission: 'viewer',
+    },
+    isOwner: true,
+    isTenantAdmin: true,
+    isSystemAdmin: true,
+  }), false)
+})
+
+test('legacy subscription knowledge bases are also read-only', () => {
+  assert.equal(canWriteKnowledgeBase({
+    kbInfo: {
+      access_source: 'subscription',
+      my_permission: 'viewer',
+    },
+    isOwner: true,
+    isTenantAdmin: true,
+    isSystemAdmin: true,
+  }), false)
+})
+
+test('an explicit viewer projection remains read-only', () => {
+  assert.equal(canWriteKnowledgeBase({
+    kbInfo: {
+      access_source: 'created',
+      my_permission: 'viewer',
+    },
+    isOwner: true,
+    isTenantAdmin: true,
+  }), false)
+})
+
+test('explicit access permission takes precedence over the active tenant role', () => {
+  assert.equal(canWriteKnowledgeBase({
+    kbInfo: {
+      access_source: 'tenant_admin',
+      my_permission: 'viewer',
+    },
+    isTenantAdmin: true,
+  }), false)
+  assert.equal(canWriteKnowledgeBase({
+    kbInfo: {
+      access_source: 'shared_space',
+      my_permission: 'editor',
+    },
+    isTenantAdmin: false,
+  }), true)
+})
+
+test('missing access metadata does not expose edit controls to tenant admins', () => {
+  assert.equal(canWriteKnowledgeBase({
+    kbInfo: {},
+    isTenantAdmin: true,
+  }), false)
+})
+
 test('owned and home-tenant admin knowledge bases remain editable', () => {
   const loadedKb = { access_source: 'created' }
   assert.equal(canWriteKnowledgeBase({ kbInfo: loadedKb, isOwner: true }), true)

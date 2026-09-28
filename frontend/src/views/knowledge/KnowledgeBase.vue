@@ -1477,6 +1477,7 @@ const tagEditDialogVisible = ref(false);
 const tagEditTarget = ref<KnowledgeCard | null>(null);
 
 function openTagEditDialog(item: KnowledgeCard) {
+  if (!canEdit.value) return;
   tagEditTarget.value = item;
   tagEditDialogVisible.value = true;
 }
@@ -2015,6 +2016,7 @@ const closeCardMoreMenu = (index: number) => {
 };
 
 const confirmDeleteKnowledge = (index: number, item: KnowledgeCard) => {
+  if (!canMutateKnowledge.value) return;
   closeCardMoreMenu(index);
   const deletedId = item?.id;
   delKnowledge(index, item, async () => {
@@ -2039,6 +2041,7 @@ const onReparseMenuClick = (index: number, item: KnowledgeCard) => {
 };
 
 const handleMoveKnowledge = async (item: KnowledgeCard) => {
+  if (!canMutateKnowledge.value) return;
   moveKnowledgeId.value = item.id;
   moveMenuMode.value = 'targets';
   moveTargetsLoading.value = true;
@@ -2144,6 +2147,10 @@ const manualEditorSuccess = ({ kbId: savedKbId }: { kbId: string; knowledgeId: s
 };
 
 const ensureDocumentKbReady = () => {
+  if (!canEdit.value) {
+    MessagePlugin.warning(t('knowledgeBase.accessInfo.permissionViewer'));
+    return false;
+  }
   if (isFAQ.value) {
     MessagePlugin.warning(t('knowledgeBase.operationNotSupportedForType'));
     return false;
@@ -2405,7 +2412,7 @@ const handleManualCreate = () => {
 };
 
 const handleManualEdit = (index: number, item: KnowledgeCard) => {
-  if (isFAQ.value) return;
+  if (isFAQ.value || !canEdit.value) return;
   if (cardList.value[index]) {
     cardList.value[index].isMore = false;
   }
@@ -3195,7 +3202,10 @@ async function createNewSession(value: string): Promise<void> {
                 </template>
                 <template v-else-if="!docListLoading">
                   <div class="doc-empty-state">
-                    <EmptyKnowledge v-if="!cardList.length && activeDirectoryPath === DIRECTORY_ROOT_PATH" />
+                    <EmptyKnowledge
+                      v-if="!cardList.length && activeDirectoryPath === DIRECTORY_ROOT_PATH"
+                      :read-only="!canEdit"
+                    />
                     <div v-else class="directory-empty-state">
                       <t-icon name="folder-open" />
                       <strong>{{ activeDirectoryName }}</strong>

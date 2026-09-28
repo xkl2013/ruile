@@ -3,6 +3,8 @@ import { del, get, post, postUpload, put } from '@/utils/request'
 export type OrganizeMemoryKind = 'note' | 'record' | 'audio' | 'audio_card'
 export type OrganizeOutputStatus = 'draft' | 'review' | 'ready' | 'archived'
 export type OrganizeAssignmentStatus = 'pending' | 'assigned'
+export type OrganizePublicContentType = 'post' | 'course'
+export type OrganizePublicContentStatus = 'draft' | 'pending_review' | 'published' | 'offline' | 'rejected'
 export type OrganizeSproutStage = 'organizing' | 'expandable' | 'formed'
 export type OrganizeScheduleKey = 'manual' | 'daily' | 'weekly' | 'monthly'
 export type OrganizeJobStatus =
@@ -116,6 +118,14 @@ export interface OrganizeOutput {
   content: string
   source_summary?: string
   status: OrganizeOutputStatus
+  public_content_type?: OrganizePublicContentType
+  public_status?: OrganizePublicContentStatus
+  series_id?: string
+  series_title?: string
+  series_order?: number
+  review_note?: string
+  published_at?: string
+  published_by?: string
   icon?: string
   creator_name?: string
   creator_avatar?: string
@@ -205,6 +215,12 @@ export interface OrganizeOutputInput {
   content?: string
   source_summary?: string
   status?: OrganizeOutputStatus
+  public_content_type?: OrganizePublicContentType
+  public_status?: OrganizePublicContentStatus
+  series_id?: string
+  series_title?: string
+  series_order?: number
+  review_note?: string
   icon?: string
   memory_ids?: string[]
   fields?: Record<string, unknown>

@@ -367,13 +367,14 @@ func TestOrganizeWorkbenchAutoAssignmentFailureLeavesTraceablePendingOutput(t *t
 }
 
 func TestOrganizeServiceDiscover(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), types.SystemAdminContextKey, true)
 	svc := newOrganizeServiceForTest(t)
 
 	_, err := svc.CreateOutput(ctx, 7, "user-a", types.OrganizeOutputInput{
-		Title:      "电力行业相关企业分析及功率半导体产业链解读",
-		OutputType: "图文类",
-		Status:     types.OrganizeOutputStatusReady,
+		Title:        "电力行业相关企业分析及功率半导体产业链解读",
+		OutputType:   "图文类",
+		Status:       types.OrganizeOutputStatusReady,
+		PublicStatus: types.OrganizePublicContentStatusPublished,
 		Metadata: types.JSONMap{
 			"tags":              []string{"产业链", "功率半导体"},
 			"discover_category": types.OrganizeDiscoverCategoryAdmissionsGrowth,
@@ -408,16 +409,16 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 	require.Equal(t, 30, discover.PageSize)
 	require.Len(t, discover.Tabs, 9)
 	require.Equal(t, "recommended", discover.Tabs[0].Value)
-	require.Equal(t, int64(3), discover.Tabs[0].Count)
+	require.Equal(t, int64(1), discover.Tabs[0].Count)
 	require.Equal(t, types.OrganizeDiscoverCategoryAdmissionsGrowth, discover.Tabs[1].Value)
 	require.Equal(t, int64(1), discover.Tabs[1].Count)
 
-	require.Len(t, discover.FeaturedOutputs, 3)
+	require.Len(t, discover.FeaturedOutputs, 1)
 	require.Equal(t, "电力行业相关企业分析及功率半导体产业链解读", discover.FeaturedOutputs[0].Title)
 
 	recommendedDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Tab: "recommended"})
 	require.NoError(t, err)
-	require.Len(t, recommendedDiscover.Items, 3)
+	require.Len(t, recommendedDiscover.Items, 1)
 
 	categoryDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{
 		Tab: types.OrganizeDiscoverCategoryAdmissionsGrowth,
@@ -437,15 +438,63 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 
 	pagedDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Page: 2, PageSize: 2})
 	require.NoError(t, err)
-	require.Equal(t, 2, pagedDiscover.Page)
+	require.Equal(t, 1, pagedDiscover.Page)
 	require.Equal(t, 2, pagedDiscover.PageSize)
 	require.Len(t, pagedDiscover.Items, 1)
-	require.Equal(t, discover.Items[2].ID, pagedDiscover.Items[0].ID)
+	require.Equal(t, discover.Items[0].ID, pagedDiscover.Items[0].ID)
 
 	rotated, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{FeaturedOffset: 1})
 	require.NoError(t, err)
-	require.Len(t, rotated.FeaturedOutputs, 3)
-	require.NotEqual(t, discover.FeaturedOutputs[0].ID, rotated.FeaturedOutputs[0].ID)
+	require.Len(t, rotated.FeaturedOutputs, 1)
+	require.Equal(t, discover.FeaturedOutputs[0].ID, rotated.FeaturedOutputs[0].ID)
+}
+
+func TestOrganizeServicePublicContentModeration(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.UserIDContextKey, "system-admin")
+	svc := newOrganizeServiceForTest(t)
+
+	privateOutput, err := svc.CreateOutput(ctx, 7, "creator-a", types.OrganizeOutputInput{
+		Title:  "内部整理稿",
+		Status: types.OrganizeOutputStatusReady,
+	})
+	require.NoError(t, err)
+
+	pendingOutput, err := svc.CreateOutput(ctx, 7, "creator-a", types.OrganizeOutputInput{
+		Title:             "招生课程第一节",
+		Status:            types.OrganizeOutputStatusReview,
+		PublicStatus:      types.OrganizePublicContentStatusPendingReview,
+		PublicContentType: types.OrganizePublicContentTypeCourse,
+		SeriesID:          "招生课程",
+		SeriesTitle:       "招生课程",
+		SeriesOrder:       1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.OrganizePublicContentStatusPendingReview, pendingOutput.PublicStatus)
+
+	items, total, err := svc.ListAdminPublicContents(ctx, types.OrganizePublicContentQuery{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, items, 1)
+	require.Equal(t, pendingOutput.ID, items[0].ID)
+
+	published, err := svc.ModeratePublicContent(
+		ctx,
+		pendingOutput.ID,
+		types.OrganizePublicContentStatusPublished,
+		"",
+	)
+	require.NoError(t, err)
+	require.Equal(t, types.OrganizePublicContentStatusPublished, published.PublicStatus)
+	require.Equal(t, types.OrganizeOutputStatusReady, published.Status)
+	require.NotNil(t, published.PublishedAt)
+
+	discover, err := svc.GetDiscover(ctx, 7, "viewer", types.OrganizeDiscoverQuery{})
+	require.NoError(t, err)
+	require.Len(t, discover.Items, 1)
+	require.Equal(t, pendingOutput.ID, discover.Items[0].ID)
+
+	_, err = svc.GetOutput(ctx, 7, "creator-a", privateOutput.ID)
+	require.NoError(t, err)
 }
 
 func TestOrganizeServiceDeleteMemoryDeletesUploadedFile(t *testing.T) {

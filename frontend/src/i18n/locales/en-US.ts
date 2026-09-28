@@ -4272,6 +4272,7 @@ export default {
           'system.user_activated': 'User activated',
           'system.user_deactivated': 'User deactivated',
           'system.user_deleted': 'User deleted',
+          'system.user_creator_status_changed': 'Creator approval changed',
           'system.queue_task_retried': 'Failed task run again',
           'system.queue_task_deleted': 'Failed task record cleared',
           'system.queue_task_run_now': 'Queue task run now',

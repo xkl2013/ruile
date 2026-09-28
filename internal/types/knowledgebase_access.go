@@ -3,19 +3,18 @@ package types
 import "errors"
 
 // KnowledgeBaseAccessSource explains why the current caller can see or operate
-// on a knowledge base. V1 populates the existing ownership/RBAC/share paths;
-// subscription remains metadata-only until the V2 list and subscription APIs
-// are implemented.
+// on a knowledge base.
 type KnowledgeBaseAccessSource string
 
 const (
-	KnowledgeBaseAccessSourceCreated      KnowledgeBaseAccessSource = "created"
-	KnowledgeBaseAccessSourceTenantAdmin  KnowledgeBaseAccessSource = "tenant_admin"
-	KnowledgeBaseAccessSourceSystemAdmin  KnowledgeBaseAccessSource = "system_admin"
-	KnowledgeBaseAccessSourceAPIKey       KnowledgeBaseAccessSource = "api_key"
-	KnowledgeBaseAccessSourceSharedSpace  KnowledgeBaseAccessSource = "shared_space"
-	KnowledgeBaseAccessSourceSharedAgent  KnowledgeBaseAccessSource = "shared_agent"
-	KnowledgeBaseAccessSourceSubscription KnowledgeBaseAccessSource = "subscription"
+	KnowledgeBaseAccessSourceCreated            KnowledgeBaseAccessSource = "created"
+	KnowledgeBaseAccessSourceTenantAdmin        KnowledgeBaseAccessSource = "tenant_admin"
+	KnowledgeBaseAccessSourceSystemAdmin        KnowledgeBaseAccessSource = "system_admin"
+	KnowledgeBaseAccessSourceAPIKey             KnowledgeBaseAccessSource = "api_key"
+	KnowledgeBaseAccessSourceSharedSpace        KnowledgeBaseAccessSource = "shared_space"
+	KnowledgeBaseAccessSourceSharedAgent        KnowledgeBaseAccessSource = "shared_agent"
+	KnowledgeBaseAccessSourceSubscription       KnowledgeBaseAccessSource = "subscription"
+	KnowledgeBaseAccessSourcePublicSubscription KnowledgeBaseAccessSource = "public_subscription"
 )
 
 // KnowledgeBaseAccessOptions controls an access-resolution request.

@@ -1,13 +1,22 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+withDefaults(defineProps<{
+  readOnly?: boolean
+}>(), {
+  readOnly: false,
+})
 const { t } = useI18n()
 </script>
 <template>
     <div class="empty">
         <img class="empty-img" src="@/assets/img/upload.svg" alt="">
-        <span class="empty-txt">{{ $t('knowledgeBase.emptyKnowledgeDragDrop') }}</span>
-        <span class="empty-type-txt">{{ $t('knowledgeBase.pdfDocFormat') }}</span>
-        <span class="empty-type-txt">{{ $t('knowledgeBase.textMarkdownFormat') }}</span>
+        <span class="empty-txt">
+            {{ readOnly ? $t('knowledgeBase.accessInfo.permissionViewer') : $t('knowledgeBase.emptyKnowledgeDragDrop') }}
+        </span>
+        <template v-if="!readOnly">
+            <span class="empty-type-txt">{{ $t('knowledgeBase.pdfDocFormat') }}</span>
+            <span class="empty-type-txt">{{ $t('knowledgeBase.textMarkdownFormat') }}</span>
+        </template>
     </div>
 </template>
 <style scoped lang="less">

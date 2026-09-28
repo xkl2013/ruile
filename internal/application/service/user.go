@@ -812,6 +812,28 @@ func (s *userService) UpdateUser(ctx context.Context, user *types.User) error {
 	return s.userRepo.UpdateUser(ctx, user)
 }
 
+// SetSystemUserCreator updates the explicit creator approval flag for a user.
+// The HTTP route is SystemAdmin-only; keeping the mutation here ensures all
+// callers persist the same user projection and return the updated record.
+func (s *userService) SetSystemUserCreator(
+	ctx context.Context,
+	userID string,
+	isCreator bool,
+) (*types.User, error) {
+	user, err := s.userRepo.GetUserByID(ctx, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, err
+	}
+	if user.IsCreator == isCreator {
+		return user, nil
+	}
+	user.IsCreator = isCreator
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
 // ListSystemAdmins lists users with IsSystemAdmin=true. Thin pass-through
 // to the repository; the handler enforces SystemAdmin gating, so the
 // service does not duplicate the role check here.

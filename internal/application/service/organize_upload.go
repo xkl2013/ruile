@@ -109,15 +109,17 @@ func (s *organizeService) CreateOutputFromUpload(
 	}
 
 	output := &types.OrganizeOutput{
-		TenantID:      tenantID,
-		UserID:        userID,
-		Title:         trimMax(aiResult.Title, organizeMaxTitleLength),
-		OutputType:    outputType,
-		Content:       trimMax(content, 0),
-		SourceSummary: trimMax(aiResult.Summary, organizeMaxShortText),
-		Status:        types.OrganizeOutputStatusReview,
-		Icon:          icon,
-		Metadata:      normalizeJSONMap(metadata),
+		TenantID:          tenantID,
+		UserID:            userID,
+		Title:             trimMax(aiResult.Title, organizeMaxTitleLength),
+		OutputType:        outputType,
+		Content:           trimMax(content, 0),
+		SourceSummary:     trimMax(aiResult.Summary, organizeMaxShortText),
+		Status:            types.OrganizeOutputStatusReview,
+		PublicContentType: types.OrganizePublicContentTypePost,
+		PublicStatus:      types.OrganizePublicContentStatusPendingReview,
+		Icon:              icon,
+		Metadata:          normalizeJSONMap(metadata),
 	}
 	if err := s.repo.CreateOutput(ctx, output, nil); err != nil {
 		_ = fileService.DeleteFile(ctx, storagePath)

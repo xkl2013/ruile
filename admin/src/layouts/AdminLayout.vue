@@ -12,18 +12,39 @@
       <nav class="admin-nav" aria-label="Admin">
         <section v-for="group in visibleGroups" :key="group.key" class="admin-nav__group">
           <h2>{{ group.label }}</h2>
-          <RouterLink
-            v-for="item in group.items"
-            :key="item.key"
-            class="admin-nav__item"
-            :class="{ 'is-active': activeNavKey === item.key }"
-            :to="item.path"
-          >
-            <t-icon :name="item.icon" />
-            <span>
-              <strong>{{ item.label }}</strong>
-            </span>
-          </RouterLink>
+          <template v-for="item in group.items" :key="item.key">
+            <template v-if="item.children?.length">
+              <RouterLink class="admin-nav__item admin-nav__item--parent" :to="item.path">
+                <t-icon :name="item.icon" />
+                <span>
+                  <strong>{{ item.label }}</strong>
+                </span>
+              </RouterLink>
+              <RouterLink
+                v-for="child in item.children"
+                :key="child.key"
+                class="admin-nav__item admin-nav__item--child"
+                :class="{ 'is-active': activeNavKey === child.key }"
+                :to="child.path"
+              >
+                <t-icon :name="child.icon" />
+                <span>
+                  <strong>{{ child.label }}</strong>
+                </span>
+              </RouterLink>
+            </template>
+            <RouterLink
+              v-else
+              class="admin-nav__item"
+              :class="{ 'is-active': activeNavKey === item.key }"
+              :to="item.path"
+            >
+              <t-icon :name="item.icon" />
+              <span>
+                <strong>{{ item.label }}</strong>
+              </span>
+            </RouterLink>
+          </template>
         </section>
       </nav>
     </aside>
@@ -95,7 +116,13 @@ const visibleGroups = computed(() => (
   ADMIN_NAV_GROUPS
     .map((group) => ({
       ...group,
-      items: group.items.filter(canSeeItem),
+      items: group.items
+        .filter(canSeeItem)
+        .map((item) => ({
+          ...item,
+          children: item.children?.filter(canSeeItem),
+        }))
+        .filter((item) => !item.children || item.children.length > 0),
     }))
     .filter((group) => group.items.length > 0)
 ))

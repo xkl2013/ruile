@@ -369,6 +369,7 @@ export interface SystemUserSummary {
   tenant_id: number
   is_active: boolean
   is_system_admin: boolean
+  is_creator: boolean
   enterprise_memberships?: Array<{
     tenant_id: number
     tenant_name: string
@@ -481,6 +482,17 @@ export async function setSystemUserActive(
     { is_active: isActive },
   )
   return response
+}
+
+export async function setSystemUserCreator(
+  userID: string,
+  isCreator: boolean,
+): Promise<SystemUserSummary> {
+  const response = await put(
+    `/api/v1/system/admin/users/${encodeURIComponent(userID)}/creator-status`,
+    { is_creator: isCreator },
+  )
+  return response as unknown as SystemUserSummary
 }
 
 export async function deleteSystemUser(userID: string): Promise<unknown> {

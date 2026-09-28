@@ -82,7 +82,7 @@
                       <t-icon class="menu-icon" name="logout" />
                       <span>{{ $t('organization.leave') }}</span>
                     </div>
-                    <div v-if="org.is_owner && canManageOrg" class="popup-menu-item delete"
+                    <div v-if="canDeleteOrganization(org)" class="popup-menu-item delete"
                       @click.stop="handleDelete(org)">
                       <t-icon class="menu-icon" name="delete" />
                       <span>{{ $t('common.delete') }}</span>
@@ -220,13 +220,29 @@ const orgStore = useOrganizationStore()
 const authStore = useAuthStore()
 
 const teamSpaceTenantId = computed(() => Number(authStore.enterpriseSettingsTenantId || 0) || null)
-const modalTenantId = computed(() => teamSpaceTenantId.value)
+const modalTenantId = computed(() => {
+  const selectedOrg = settingsOrgId.value
+    ? orgStore.myOrganizations.find(org => org.id === settingsOrgId.value)
+    : null
+  return Number(selectedOrg?.owner_tenant_id || teamSpaceTenantId.value || 0) || null
+})
 // 后端 /api/v1/organizations 下的写操作（创建、管理员添加参与空间、改设置等）
 // 在路由层都要求目标企业空间角色 ≥ admin。前端只用于 UI 渲染，安全边界仍在服务端。
 const canUseTeamSpaces = computed(() => Boolean(teamSpaceTenantId.value))
 const canManageOrg = computed(() =>
   Boolean(teamSpaceTenantId.value && authStore.hasRoleInTenant(teamSpaceTenantId.value, 'admin'))
 )
+const organizationTenantId = (org: Pick<Organization, 'owner_tenant_id'>): number =>
+  Number(org.owner_tenant_id || teamSpaceTenantId.value || 0)
+const canDeleteOrganization = (org: OrgWithUI): boolean => {
+  if (!org.is_owner) return false
+  if (authStore.isSystemAdmin) return true
+
+  const tenantId = organizationTenantId(org)
+  if (!tenantId) return false
+  return authStore.hasRoleInTenant(tenantId, 'admin') ||
+    (tenantId === Number(authStore.effectiveTenantId || 0) && authStore.hasRole('admin'))
+}
 const noPermissionTip = computed(() =>
   canUseTeamSpaces.value ? t('organization.rbac.needTenantAdminTip') : t('organization.rbac.enterpriseOnly')
 )
@@ -338,6 +354,10 @@ async function confirmLeave() {
 }
 
 function handleDelete(org: OrgWithUI) {
+  if (!canDeleteOrganization(org)) {
+    MessagePlugin.warning(t('organization.rbac.cannotManage'))
+    return
+  }
   org.showMore = false
   deletingOrg.value = org
   deleteVisible.value = true
@@ -345,11 +365,13 @@ function handleDelete(org: OrgWithUI) {
 
 async function confirmDelete() {
   if (!deletingOrg.value) return
-  if (!canManageOrg.value) {
+  if (!canDeleteOrganization(deletingOrg.value)) {
     MessagePlugin.warning(t('organization.rbac.cannotManage'))
     return
   }
-  const success = await orgStore.remove(deletingOrg.value.id, { tenantId: teamSpaceTenantId.value })
+  const success = await orgStore.remove(deletingOrg.value.id, {
+    tenantId: organizationTenantId(deletingOrg.value),
+  })
   if (success) {
     MessagePlugin.success(t('organization.deleteSuccess'))
     deleteVisible.value = false
@@ -568,8 +590,8 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
 
 .org-card-wrap {
   display: grid;
-  gap: 12px;
-  grid-template-columns: 1fr;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   animation: contentFadeIn 0.32s ease-out;
 }
 
@@ -639,8 +661,8 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   cursor: default;
   display: flex;
   flex-direction: column;
-  height: 136px;
-  min-height: 136px;
+  height: 160px;
+  min-height: 160px;
 }
 
 /* 与知识库 / 智能体列表统一：紧凑 + 1px 描边 */
@@ -654,11 +676,11 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   position: relative;
   cursor: pointer;
   transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.2s ease;
-  padding: 12px 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  height: 136px;
-  min-height: 136px;
+  height: 160px;
+  min-height: 160px;
 
   &::before {
     content: '';
@@ -695,24 +717,24 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   .card-header {
     position: relative;
     z-index: 2;
-    margin-bottom: 6px;
+    margin-bottom: 10px;
   }
 
   .card-title {
-    font-size: 15px;
-    line-height: 22px;
+    font-size: 16px;
+    line-height: 24px;
   }
 
   .card-content {
     position: relative;
     z-index: 1;
-    margin-bottom: 6px;
+    margin-bottom: 10px;
   }
 
   .card-bottom {
     position: relative;
     z-index: 1;
-    padding-top: 6px;
+    padding-top: 10px;
   }
 
   .card-description {
@@ -766,6 +788,7 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   gap: 8px;
   flex: 1;
   min-width: 0;
+  padding-right: 40px;
 }
 
 // 空间头像容器（SpaceAvatar 自带样式）
@@ -806,11 +829,7 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   cursor: pointer;
   flex-shrink: 0;
   transition: all 0.2s ease;
-  opacity: 0;
-
-  .org-card:hover & {
-    opacity: 0.6;
-  }
+  opacity: 0.72;
 
   &:hover {
     background: var(--td-bg-color-container-hover);
@@ -857,8 +876,9 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-top: auto;
-  padding-top: 8px;
+  padding-top: 10px;
   border-top: .5px solid var(--td-component-stroke);
 }
 
@@ -882,8 +902,8 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  height: 20px;
-  padding: 0 5px;
+  height: 22px;
+  padding: 0 6px;
   border-radius: 5px;
   font-size: 11px;
   font-weight: 500;
@@ -954,8 +974,8 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 22px;
-  padding: 0 6px;
+  height: 24px;
+  padding: 0 8px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -1042,37 +1062,6 @@ watch(teamSpaceTenantId, (tenantId, oldTenantId) => {
     align-items: center;
     gap: 12px;
     margin-top: 20px;
-  }
-}
-
-// 响应式布局
-@media (min-width: 900px) {
-  .org-card-wrap {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (min-width: 1250px) {
-  .org-card-wrap {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (min-width: 1600px) {
-  .org-card-wrap {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-@media (min-width: 1900px) {
-  .org-card-wrap {
-    grid-template-columns: repeat(5, 1fr);
-  }
-}
-
-@media (min-width: 2200px) {
-  .org-card-wrap {
-    grid-template-columns: repeat(6, 1fr);
   }
 }
 
