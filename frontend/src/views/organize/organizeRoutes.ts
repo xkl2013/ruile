@@ -105,12 +105,50 @@ export const ORGANIZE_MEMORY_ASSET_ROUTES: readonly OrganizeMemoryAssetRouteItem
   },
 ]
 
+export type MemoryStatusKey = 'unorganized' | 'processing' | 'organized'
+
+export interface OrganizeMemoryStatusRouteItem {
+  key: MemoryStatusKey
+  label: string
+  description: string
+  icon: string
+  unit: string
+}
+
+export const ORGANIZE_MEMORY_STATUS_ROUTES: readonly OrganizeMemoryStatusRouteItem[] = [
+  {
+    key: 'unorganized',
+    label: '待整理',
+    description: '尚未进入整理流程',
+    icon: 'edit-1',
+    unit: '条',
+  },
+  {
+    key: 'processing',
+    label: '整理中',
+    description: 'AI 正在生成整理结果',
+    icon: 'loading',
+    unit: '条',
+  },
+  {
+    key: 'organized',
+    label: '已整理',
+    description: '已生成产物或经营复盘',
+    icon: 'check-circle',
+    unit: '条',
+  },
+]
+
 export const isOrganizeTab = (value: unknown): value is OrganizeTab => {
   return value === 'hub' || value === 'mine'
 }
 
 export const isMemoryAssetKey = (value: unknown): value is MemoryAssetKey => {
   return value === 'note' || value === 'audio' || value === 'audio-card'
+}
+
+export const isMemoryStatusKey = (value: unknown): value is MemoryStatusKey => {
+  return value === 'unorganized' || value === 'processing' || value === 'organized'
 }
 
 export const findOrganizeMenuRoute = (tab: OrganizeTab) => {
