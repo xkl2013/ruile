@@ -158,6 +158,9 @@ func (s *agentRunService) executeExpertWorkflow(
 	if err != nil {
 		return types.AgentResultV1{}, nil, "", permanentAgentRunError{err: err}
 	}
+	if serviceMarkdown := s.serviceMarkdownPrompt(ctx, run); serviceMarkdown != "" {
+		input.Prompt += serviceMarkdown
+	}
 
 	intake, err := s.runExpertIntake(
 		ctx,

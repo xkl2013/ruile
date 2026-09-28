@@ -26,11 +26,13 @@ export interface ServiceResponse<T> {
 }
 
 export type ServiceSpaceState = 'draft' | 'active' | 'paused' | 'archived'
+export type ServiceSpaceType = 'customer_service' | 'operations' | 'research'
 
 export interface ServiceSpace {
   id: string
   tenant_id: number
   owner_user_id: string
+  space_type: ServiceSpaceType
   name: string
   description: string
   instruction: string
@@ -120,6 +122,7 @@ export function listServiceSpaces(params?: { include_archived?: boolean }) {
 
 export function createServiceSpace(input: {
   name: string
+  space_type?: ServiceSpaceType
   description?: string
   instruction?: string
   knowledge_base_ids?: string[]

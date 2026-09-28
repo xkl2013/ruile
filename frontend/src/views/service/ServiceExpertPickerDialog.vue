@@ -20,7 +20,7 @@
               <t-input
                 v-model="query"
                 class="service-expert-picker-search"
-                size="large"
+                size="medium"
                 clearable
                 placeholder="搜索专家职称或描述"
               >
@@ -118,10 +118,10 @@
           <footer class="service-expert-picker-footer">
             <span>{{ draftSelectedIds.length ? `已选择 ${draftSelectedIds.length} 位专家` : '请选择要加入服务空间的专家' }}</span>
             <div class="service-expert-picker-actions">
-              <t-button variant="outline" size="large" @click="close">取消</t-button>
+              <t-button variant="outline" size="medium" @click="close">取消</t-button>
               <t-button
                 theme="primary"
-                size="large"
+                size="medium"
                 :disabled="draftSelectedIds.length === 0"
                 @click="confirm"
               >
@@ -253,52 +253,53 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px;
   background: rgba(0, 0, 0, 0.42);
 }
 
 .service-expert-picker-dialog {
   display: flex;
-  width: min(1040px, calc(100vw - 40px));
-  max-height: min(820px, calc(100vh - 40px));
+  width: min(900px, calc(100vw - 32px));
+  max-height: min(700px, calc(100vh - 32px));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.18);
 }
 
 .service-expert-picker-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 24px 28px 16px;
+  gap: 12px;
+  padding: 18px 24px 12px;
   border-bottom: 1px solid var(--td-component-stroke);
 }
 
 .service-expert-picker-header h2 {
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-  line-height: 30px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 26px;
 }
 
 .service-expert-picker-header-tools {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 
 .service-expert-picker-search {
-  width: min(320px, 38vw);
+  width: min(280px, 34vw);
 }
 
 .service-expert-picker-search :deep(.t-input) {
-  border-radius: 9px;
+  border-radius: 8px;
+  font-size: 13px;
   background: var(--td-bg-color-secondarycontainer);
 }
 
@@ -306,8 +307,8 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   flex: none;
   padding: 0;
   border: 0;
@@ -315,7 +316,7 @@ watch(
   background: transparent;
   color: var(--td-text-color-secondary);
   cursor: pointer;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .service-expert-picker-close:hover {
@@ -327,27 +328,27 @@ watch(
 .service-expert-picker-categories {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
-  padding: 12px 28px 0;
+  padding: 10px 24px 0;
 }
 
 .service-expert-picker-categories {
-  padding-top: 8px;
-  padding-bottom: 4px;
+  padding-top: 6px;
+  padding-bottom: 2px;
 }
 
 .service-expert-picker-tab,
 .service-expert-picker-category {
   flex: none;
-  padding: 7px 14px;
+  padding: 6px 12px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   color: var(--td-text-color-secondary);
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -368,24 +369,24 @@ watch(
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 16px 28px 24px;
+  padding: 12px 24px 18px;
 }
 
 .service-expert-picker-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .service-expert-card {
   display: flex;
   min-width: 0;
-  min-height: 214px;
+  min-height: 180px;
   flex-direction: column;
   align-items: flex-start;
-  padding: 16px;
+  padding: 12px;
   border: 1px solid var(--td-component-stroke);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--td-bg-color-container);
   color: var(--td-text-color-primary);
   cursor: pointer;
@@ -410,21 +411,21 @@ watch(
   width: 100%;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .service-expert-card-check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   flex: none;
   border: 1px solid var(--td-component-stroke);
   border-radius: 50%;
   color: var(--td-text-color-placeholder);
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .service-expert-card.selected .service-expert-card-check {
@@ -436,9 +437,9 @@ watch(
 .service-expert-card > strong {
   max-width: 100%;
   overflow: hidden;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 650;
-  line-height: 22px;
+  line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -456,12 +457,12 @@ watch(
 
 .service-expert-card > p {
   display: -webkit-box;
-  min-height: 40px;
-  margin: 10px 0 12px;
+  min-height: 36px;
+  margin: 8px 0 10px;
   overflow: hidden;
   color: var(--td-text-color-secondary);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -469,32 +470,32 @@ watch(
 .service-expert-card-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
   margin-top: auto;
 }
 
 .service-expert-card-tags em {
   max-width: 100%;
   overflow: hidden;
-  padding: 3px 7px;
+  padding: 2px 6px;
   border-radius: 4px;
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
-  font-size: 11px;
+  font-size: 10px;
   font-style: normal;
-  line-height: 16px;
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .service-expert-picker-state {
   display: flex;
-  min-height: 240px;
+  min-height: 180px;
   align-items: center;
   justify-content: center;
   gap: 8px;
   color: var(--td-text-color-secondary);
-  font-size: 14px;
+  font-size: 13px;
   text-align: center;
 }
 
@@ -525,25 +526,26 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 16px 28px 20px;
+  gap: 12px;
+  padding: 12px 24px 14px;
   border-top: 1px solid var(--td-component-stroke);
 }
 
 .service-expert-picker-footer > span {
   color: var(--td-text-color-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .service-expert-picker-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .service-expert-picker-actions :deep(.t-button) {
-  min-width: 86px;
+  min-width: 76px;
   border-radius: 8px;
+  font-size: 13px;
 }
 
 .service-expert-picker-enter-active,
@@ -580,14 +582,14 @@ watch(
 
   .service-expert-picker-dialog {
     width: 100%;
-    max-height: 92vh;
-    border-radius: 18px 18px 0 0;
+    max-height: 90vh;
+    border-radius: 14px 14px 0 0;
   }
 
   .service-expert-picker-header {
     align-items: flex-start;
     flex-direction: column;
-    padding: 20px 18px 12px;
+    padding: 16px 16px 10px;
   }
 
   .service-expert-picker-header-tools {
@@ -602,8 +604,8 @@ watch(
   .service-expert-picker-tabs,
   .service-expert-picker-categories,
   .service-expert-picker-body {
-    padding-right: 18px;
-    padding-left: 18px;
+    padding-right: 16px;
+    padding-left: 16px;
   }
 
   .service-expert-picker-grid {
@@ -613,7 +615,7 @@ watch(
   .service-expert-picker-footer {
     align-items: stretch;
     flex-direction: column;
-    padding: 14px 18px 18px;
+    padding: 12px 16px 14px;
   }
 
   .service-expert-picker-actions {

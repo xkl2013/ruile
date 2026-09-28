@@ -47,6 +47,7 @@ type sessionService struct {
 	webSearchProviderRepo interfaces.WebSearchProviderRepository // Repository for web search provider entities
 	kbShareService        interfaces.KBShareService              // Service for KB sharing operations
 	suggestionRepo        interfaces.MessageSuggestionRepository
+	serviceSpace          interfaces.ServiceSpaceService // Service workspace context and artifact access
 }
 
 // NewSessionService creates a new session service instance with all required dependencies
@@ -65,6 +66,7 @@ func NewSessionService(cfg *config.Config,
 	webSearchProviderRepo interfaces.WebSearchProviderRepository,
 	kbShareService interfaces.KBShareService,
 	suggestionRepo interfaces.MessageSuggestionRepository,
+	serviceSpace interfaces.ServiceSpaceService,
 ) interfaces.SessionService {
 	return &sessionService{
 		cfg:                   cfg,
@@ -82,6 +84,7 @@ func NewSessionService(cfg *config.Config,
 		webSearchProviderRepo: webSearchProviderRepo,
 		kbShareService:        kbShareService,
 		suggestionRepo:        suggestionRepo,
+		serviceSpace:          serviceSpace,
 	}
 }
 

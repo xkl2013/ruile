@@ -30,32 +30,52 @@ const (
 	ServiceArtifactLifecycleArchived  = "archived"
 )
 
+type ServiceSpaceType string
+
+const (
+	ServiceSpaceTypeCustomerService ServiceSpaceType = "customer_service"
+	ServiceSpaceTypeOperations      ServiceSpaceType = "operations"
+	ServiceSpaceTypeResearch        ServiceSpaceType = "research"
+)
+
+func (t ServiceSpaceType) IsValid() bool {
+	switch t {
+	case ServiceSpaceTypeCustomerService, ServiceSpaceTypeOperations, ServiceSpaceTypeResearch:
+		return true
+	default:
+		return false
+	}
+}
+
 // ServiceSpace is the durable service workspace boundary. The table name stays
 // "services" while the Go name avoids colliding with application services.
 type ServiceSpace struct {
-	ID                    string         `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID              uint64         `json:"tenant_id" gorm:"not null;index"`
-	OwnerUserID           string         `json:"owner_user_id" gorm:"type:varchar(36);not null;index"`
-	Name                  string         `json:"name" gorm:"type:varchar(255);not null"`
-	Description           string         `json:"description" gorm:"type:text;not null;default:''"`
-	Instruction           string         `json:"instruction" gorm:"type:text;not null;default:''"`
-	KnowledgeBaseIDs      StringArray    `json:"knowledge_base_ids" gorm:"type:jsonb;not null;default:'[]'"`
-	SelectedSkills        StringArray    `json:"selected_skills" gorm:"type:jsonb;not null;default:'[]'"`
-	CampusScope           StringArray    `json:"campus_scope" gorm:"type:jsonb;not null;default:'[]'"`
-	CourseScope           StringArray    `json:"course_scope" gorm:"type:jsonb;not null;default:'[]'"`
-	TemplateKey           string         `json:"template_key" gorm:"type:varchar(64);not null;default:'';index"`
-	State                 string         `json:"state" gorm:"type:varchar(32);not null;default:'draft';index"`
-	IsDefault             bool           `json:"is_default" gorm:"not null;default:false;index"`
-	Visibility            string         `json:"visibility" gorm:"type:varchar(32);not null;default:'private'"`
-	MemberLimit           int            `json:"member_limit" gorm:"not null;default:20"`
-	Settings              JSONMap        `json:"settings" gorm:"type:jsonb;not null;default:'{}'"`
-	Metadata              JSONMap        `json:"metadata" gorm:"type:jsonb;not null;default:'{}'"`
-	MigratedFromProfileID string         `json:"migrated_from_profile_id,omitempty" gorm:"type:varchar(36);index"`
-	CreatedBy             string         `json:"created_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
-	UpdatedBy             string         `json:"updated_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
-	CreatedAt             time.Time      `json:"created_at"`
-	UpdatedAt             time.Time      `json:"updated_at"`
-	DeletedAt             gorm.DeletedAt `json:"-" gorm:"index"`
+	ID                    string           `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID              uint64           `json:"tenant_id" gorm:"not null;index"`
+	OwnerUserID           string           `json:"owner_user_id" gorm:"type:varchar(36);not null;index"`
+	Name                  string           `json:"name" gorm:"type:varchar(255);not null"`
+	SpaceType             ServiceSpaceType `json:"space_type" gorm:"type:varchar(32);not null;default:'customer_service';index"`
+	Description           string           `json:"description" gorm:"type:text;not null;default:''"`
+	Instruction           string           `json:"instruction" gorm:"type:text;not null;default:''"`
+	KnowledgeBaseIDs      StringArray      `json:"knowledge_base_ids" gorm:"type:jsonb;not null;default:'[]'"`
+	SelectedSkills        StringArray      `json:"selected_skills" gorm:"type:jsonb;not null;default:'[]'"`
+	CampusScope           StringArray      `json:"campus_scope" gorm:"type:jsonb;not null;default:'[]'"`
+	CourseScope           StringArray      `json:"course_scope" gorm:"type:jsonb;not null;default:'[]'"`
+	TemplateKey           string           `json:"template_key" gorm:"type:varchar(64);not null;default:'';index"`
+	State                 string           `json:"state" gorm:"type:varchar(32);not null;default:'draft';index"`
+	StateChangedAt        *time.Time       `json:"state_changed_at,omitempty"`
+	StateChangeReason     string           `json:"state_change_reason" gorm:"type:text;not null;default:''"`
+	IsDefault             bool             `json:"is_default" gorm:"not null;default:false;index"`
+	Visibility            string           `json:"visibility" gorm:"type:varchar(32);not null;default:'private'"`
+	MemberLimit           int              `json:"member_limit" gorm:"not null;default:20"`
+	Settings              JSONMap          `json:"settings" gorm:"type:jsonb;not null;default:'{}'"`
+	Metadata              JSONMap          `json:"metadata" gorm:"type:jsonb;not null;default:'{}'"`
+	MigratedFromProfileID string           `json:"migrated_from_profile_id,omitempty" gorm:"type:varchar(36);index"`
+	CreatedBy             string           `json:"created_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	UpdatedBy             string           `json:"updated_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	CreatedAt             time.Time        `json:"created_at"`
+	UpdatedAt             time.Time        `json:"updated_at"`
+	DeletedAt             gorm.DeletedAt   `json:"-" gorm:"index"`
 }
 
 func (ServiceSpace) TableName() string { return "services" }
@@ -66,6 +86,13 @@ func (s *ServiceSpace) BeforeCreate(_ *gorm.DB) error {
 	}
 	if s.State == "" {
 		s.State = ServiceSpaceStateDraft
+	}
+	if s.SpaceType == "" {
+		s.SpaceType = ServiceSpaceTypeCustomerService
+	}
+	if s.StateChangedAt == nil {
+		now := time.Now().UTC()
+		s.StateChangedAt = &now
 	}
 	if s.Visibility == "" {
 		s.Visibility = ServiceSpaceVisibilityPrivate
@@ -243,6 +270,7 @@ type ServiceExpertBindingInput struct {
 
 type ServiceSpaceCreateInput struct {
 	Name             string                      `json:"name"`
+	SpaceType        string                      `json:"space_type,omitempty"`
 	Description      string                      `json:"description,omitempty"`
 	Instruction      string                      `json:"instruction,omitempty"`
 	KnowledgeBaseIDs StringArray                 `json:"knowledge_base_ids,omitempty"`
