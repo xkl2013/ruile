@@ -910,6 +910,11 @@ func (h *OrganizeHandler) listQuery(c *gin.Context) (types.OrganizeListQuery, bo
 }
 
 func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
+	var quotaErr *types.StorageQuotaExceededError
+	if stderrors.As(err, &quotaErr) {
+		c.Error(apperrors.NewBadRequestError("存储空间不足，无法上传文件"))
+		return
+	}
 	switch {
 	case stderrors.Is(err, service.ErrOrganizeInvalidScope):
 		c.Error(apperrors.NewUnauthorizedError(err.Error()))

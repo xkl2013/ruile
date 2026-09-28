@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/common"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -155,6 +156,13 @@ func (s *organizeService) DeleteMemory(ctx context.Context, tenantID uint64, use
 	if err != nil {
 		return err
 	}
+	storagePath := organizeStoredFilePath(
+		memory.Metadata,
+		"audio_file_path",
+		"file_path",
+		"storage_path",
+	)
+	storageSize := organizeMemoryStorageSize(ctx, s.resourceCatalog, memory.Metadata, storagePath)
 	if err := s.deleteOrganizeStoredFile(
 		ctx,
 		tenantID,
@@ -166,6 +174,18 @@ func (s *organizeService) DeleteMemory(ctx context.Context, tenantID uint64, use
 		"storage_path",
 	); err != nil {
 		return err
+	}
+	if storageSize > 0 {
+		if err := s.recordOrganizeMemoryStorageRelease(
+			ctx,
+			tenantID,
+			organizeMemoryStorageReleaseRef(memory.ID, memory.UpdatedAt, storageSize),
+			memory.ID,
+			stringValue(memory.Metadata, "file_name"),
+			storageSize,
+		); err != nil {
+			logger.GetLogger(ctx).WithField("error", err).Error("Failed to release memory storage usage")
+		}
 	}
 	return s.repo.DeleteMemory(ctx, tenantID, userID, strings.TrimSpace(id))
 }

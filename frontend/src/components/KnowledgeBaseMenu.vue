@@ -21,7 +21,7 @@
         :class="{ active: kb.id === activeKbId }" :title="kb.name" :aria-current="kb.id === activeKbId ? 'page' : undefined"
         @click="openKnowledgeBase(kb.id)" @keydown.enter.prevent="openKnowledgeBase(kb.id)"
         @keydown.space.prevent="openKnowledgeBase(kb.id)">
-        <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" size="medium" class="kb-menu-item-icon" />
+        <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" size="small" class="kb-menu-item-icon" />
         <span class="kb-menu-item-name">{{ kb.name }}</span>
         <span class="kb-menu-item-trailing" @click.stop>
           <span v-if="kb.id === activeKbId" class="kb-menu-item-dot" />
@@ -372,6 +372,17 @@ watch(
 
 .kb-menu-item-icon {
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  filter: grayscale(1);
+  opacity: 0.55;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.kb-menu-item:hover .kb-menu-item-icon,
+.kb-menu-item.active .kb-menu-item-icon {
+  filter: none;
+  opacity: 1;
 }
 
 .kb-menu-item-name {

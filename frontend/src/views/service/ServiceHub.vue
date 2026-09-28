@@ -1981,9 +1981,12 @@ watch(
 
   h1 {
     margin: 0;
-    font-size: 24px;
-    font-weight: 600;
-    line-height: 32px;
+    color: var(--td-text-color-primary);
+    font-family: var(--app-font-family);
+    font-size: 21px;
+    font-weight: 500;
+    line-height: 30px;
+    letter-spacing: 0;
   }
 
   p {

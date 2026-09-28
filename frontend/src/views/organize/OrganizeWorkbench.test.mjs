@@ -67,6 +67,14 @@ test('workbench exposes persisted config cards, templates, and config dialog', (
   assert.ok(workbenchSource.includes('deleteOrganizeConfig'))
 })
 
+test('organize workbench title matches the discover module heading', () => {
+  assert.ok(workbenchSource.includes('.organize-page-header h1'))
+  assert.ok(workbenchSource.includes('font-size: 21px;'))
+  assert.ok(workbenchSource.includes('font-weight: 500;'))
+  assert.ok(workbenchSource.includes('line-height: 30px;'))
+  assert.ok(workbenchSource.includes('letter-spacing: 0;'))
+})
+
 test('organize config detail header keeps identity and action aligned responsively', () => {
   assert.ok(configDetailSource.includes('display: flex;'))
   assert.ok(configDetailSource.includes('flex: 1;'))

@@ -107,6 +107,25 @@ func (s *organizeService) CreateMemoryFromUpload(
 		}
 	}
 
+	memoryID := uuid.NewString()
+	storageRef := fmt.Sprintf("organize:memory_upload:%s", memoryID)
+	if err := s.reserveOrganizeMemoryStorage(
+		ctx,
+		tenantID,
+		storageRef,
+		memoryID,
+		storedName,
+		int64(len(storedBytes)),
+	); err != nil {
+		return nil, err
+	}
+	storageCommitted := false
+	defer func() {
+		if !storageCommitted {
+			s.releaseOrganizeMemoryStorage(ctx, tenantID, storageRef, "memory_upload_failed")
+		}
+	}()
+
 	storageName := fmt.Sprintf("organize_memory_%s%s", uuid.NewString()[:12], filepath.Ext(storedName))
 	fileService, resolveErr := s.resolveOrganizeFileService(ctx, tenantID, "")
 	if resolveErr != nil {
@@ -128,6 +147,7 @@ func (s *organizeService) CreateMemoryFromUpload(
 	if metadata == nil {
 		metadata = types.JSONMap{}
 	}
+	metadata["storage_size_bytes"] = len(storedBytes)
 	metadata["file_name"] = trimMax(storedName, 0)
 	metadata["file_path"] = trimMax(storagePath, 0)
 	metadata["file_url"] = audioURL
@@ -146,6 +166,7 @@ func (s *organizeService) CreateMemoryFromUpload(
 	}
 
 	memory := &types.OrganizeMemory{
+		ID:              memoryID,
 		TenantID:        tenantID,
 		UserID:          userID,
 		Kind:            kind,
@@ -160,6 +181,30 @@ func (s *organizeService) CreateMemoryFromUpload(
 		_ = fileService.DeleteFile(ctx, storagePath)
 		return nil, err
 	}
+
+	if s.resourceCatalog != nil {
+		if _, ok := types.ParseResourcePath(storagePath); ok {
+			if err := s.resourceCatalog.Bind(ctx, storagePath, "memory", memory.ID, "source_file"); err != nil {
+				_ = fileService.DeleteFile(ctx, storagePath)
+				_ = s.repo.DeleteMemory(ctx, tenantID, userID, memory.ID)
+				return nil, fmt.Errorf("bind memory resource: %w", err)
+			}
+		}
+	}
+
+	if err := s.commitOrganizeMemoryStorage(
+		ctx,
+		tenantID,
+		storageRef,
+		int64(len(storedBytes)),
+		memory.ID,
+		storedName,
+	); err != nil {
+		_ = fileService.DeleteFile(ctx, storagePath)
+		_ = s.repo.DeleteMemory(ctx, tenantID, userID, memory.ID)
+		return nil, err
+	}
+	storageCommitted = true
 
 	if err := s.scheduleMemoryTranscription(ctx, tenantID, memory.ID); err != nil {
 		logger.Warnf(ctx, "[Organize] schedule memory transcription failed: %v", err)
