@@ -230,7 +230,6 @@
                       <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" />
                     </span>
                   </t-tooltip>
-                  <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -333,7 +332,6 @@
                       <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" />
                     </span>
                   </t-tooltip>
-                  <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -486,7 +484,6 @@
                       <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(kb)" />
                     </span>
                   </t-tooltip>
-                  <KnowledgeBaseIcon :icon="kb.icon" :icon-url="kb.icon_url" :type="kb.type" size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(kb)" />
                   <span class="card-title-text">{{ kb.name }}</span>
                 </span>
@@ -640,8 +637,6 @@
                       <KnowledgeBaseScopeIcon :scope="knowledgeBaseScope(shared.knowledge_base, 'enterprise')" />
                     </span>
                   </t-tooltip>
-                  <KnowledgeBaseIcon :icon="shared.knowledge_base.icon" :icon-url="shared.knowledge_base.icon_url" :type="shared.knowledge_base.type"
-                    size="small" class="kb-card-icon" />
                   <KbWikiBadge v-if="isWikiKb(shared.knowledge_base)" />
                   <span class="card-title-text">{{ shared.knowledge_base.name }}</span>
                 </span>
@@ -831,7 +826,6 @@ import { formatStringDate } from '@/utils/index'
 import { useAuthStore } from '@/stores/auth'
 import { useOrganizationStore } from '@/stores/organization'
 import { listOrganizationSharedKnowledgeBases, type SharedKnowledgeBase, type OrganizationSharedKnowledgeBaseItem, type SourceFromAgentInfo } from '@/api/organization'
-import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import KnowledgeBaseScopeIcon from '@/components/KnowledgeBaseScopeIcon.vue'
 import KbWikiBadge from './components/KbWikiBadge.vue'
 import ResourceOriginBadge from '@/components/ResourceOriginBadge.vue'
@@ -2636,10 +2630,6 @@ const handleUploadFinishedEvent = (event: Event) => {
     align-items: center;
     gap: 6px;
     min-width: 0;
-  }
-
-  .kb-card-icon {
-    flex-shrink: 0;
   }
 
   .kb-scope-icon {

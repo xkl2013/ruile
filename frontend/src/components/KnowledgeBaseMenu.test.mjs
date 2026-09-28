@@ -13,6 +13,8 @@ test('knowledge base menu keeps admin-only configuration out of the main app', (
   assert.ok(source.includes('fetchSharedKnowledgeBases'))
   assert.ok(source.includes('KnowledgeBaseScopeIcon'))
   assert.ok(source.includes('knowledgeBaseScope'))
+  assert.ok(source.includes('size="small"'))
+  assert.ok(source.includes('filter: grayscale(1)'))
 
   assert.ok(!source.includes('reorderKnowledgeBases'))
   assert.ok(!source.includes('moveKnowledgeBaseUp'))

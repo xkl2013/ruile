@@ -7,10 +7,15 @@ import (
 	"io"
 	"testing"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
+	filesvc "github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestOrganizeServiceCreateMemoryFromUpload_EnqueuesTranscription(t *testing.T) {
@@ -257,6 +262,114 @@ func TestOrganizeServiceProcessMemoryTranscribe_GeneratesFormattedNoteMetadata(t
 	assert.Equal(t, "chat-1", updated.Metadata["ai_model_id"])
 	assert.Equal(t, "asr-1", updated.Metadata["asr_model_id"])
 	assert.ElementsMatch(t, []string{"试听课", "家长沟通", "跟进动作", "音频转写", "录音笔记", "语音记录"}, readOrganizeOutputTags(t, updated.Metadata))
+}
+
+func TestOrganizeServiceCreateMemoryFromUploadAccountsStorageAndBindsResource(t *testing.T) {
+	ctx := context.Background()
+	svc, db, tenant := newOrganizeStorageUploadServiceForTest(t, 100, 0)
+	data := []byte("audio-bytes")
+
+	item, err := svc.CreateMemoryFromUpload(
+		ctx,
+		tenant.ID,
+		"user-a",
+		"recording.mp3",
+		"audio/mpeg",
+		data,
+		types.OrganizeMemoryInput{Title: "录音记忆"},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, item)
+
+	var refreshed types.Tenant
+	require.NoError(t, db.First(&refreshed, tenant.ID).Error)
+	assert.Equal(t, int64(len(data)), refreshed.StorageUsed)
+	assert.Equal(t, int64(len(data)), metadataInt64(item.Metadata, "storage_size_bytes"))
+
+	var binding types.ResourceBinding
+	require.NoError(t, db.Where("owner_type = ? AND owner_id = ?", "memory", item.ID).First(&binding).Error)
+	assert.Equal(t, tenant.ID, binding.TenantID)
+	assert.Equal(t, "source_file", binding.Relation)
+
+	require.NoError(t, svc.DeleteMemory(ctx, tenant.ID, "user-a", item.ID))
+	require.NoError(t, db.First(&refreshed, tenant.ID).Error)
+	assert.Equal(t, int64(0), refreshed.StorageUsed)
+
+	var activeResources int64
+	require.NoError(t, db.Model(&types.StoredResource{}).
+		Where("tenant_id = ? AND state = ?", tenant.ID, types.ResourceStateActive).
+		Count(&activeResources).Error)
+	assert.Equal(t, int64(0), activeResources)
+}
+
+func TestOrganizeServiceCreateMemoryFromUploadRejectsWhenStorageQuotaIsInsufficient(t *testing.T) {
+	ctx := context.Background()
+	svc, db, tenant := newOrganizeStorageUploadServiceForTest(t, 10, 5)
+	data := []byte("0123456789")
+
+	_, err := svc.CreateMemoryFromUpload(
+		ctx,
+		tenant.ID,
+		"user-a",
+		"recording.mp3",
+		"audio/mpeg",
+		data,
+		types.OrganizeMemoryInput{Title: "空间不足"},
+	)
+	var quotaErr *types.StorageQuotaExceededError
+	require.ErrorAs(t, err, &quotaErr)
+
+	var refreshed types.Tenant
+	require.NoError(t, db.First(&refreshed, tenant.ID).Error)
+	assert.Equal(t, int64(5), refreshed.StorageUsed)
+
+	var resourceCount int64
+	require.NoError(t, db.Model(&types.StoredResource{}).Count(&resourceCount).Error)
+	assert.Equal(t, int64(0), resourceCount)
+}
+
+func newOrganizeStorageUploadServiceForTest(
+	t *testing.T,
+	quotaBytes, usedBytes int64,
+) (*organizeService, *gorm.DB, *types.Tenant) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file:"+uuid.NewString()+"?mode=memory&cache=shared&_foreign_keys=on"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&types.Tenant{},
+		&types.TenantStorageReservation{},
+		&types.TenantStorageTransaction{},
+		&types.OrganizeMemory{},
+		&types.OrganizeOutput{},
+		&types.OrganizeOutputMemory{},
+		&types.OrganizeSproutReport{},
+		&types.OrganizeSproutMemory{},
+		&types.StoredResource{},
+		&types.ResourceBinding{},
+		&types.ResourceAccessGrant{},
+	))
+
+	tenant := &types.Tenant{
+		Name:         "organize-storage-test",
+		Status:       "active",
+		StorageQuota: quotaBytes,
+		StorageUsed:  usedBytes,
+	}
+	require.NoError(t, db.Create(tenant).Error)
+
+	catalog := NewResourceCatalog(repository.NewResourceRepository(db))
+	inner := filesvc.NewLocalFileService(t.TempDir(), "")
+	fileService := filesvc.NewResourceCatalogFileService(inner, catalog)
+	svc := &organizeService{
+		repo:            repository.NewOrganizeRepository(db),
+		fileService:     fileService,
+		tenantRepo:      repository.NewTenantRepository(db),
+		resourceCatalog: catalog,
+		audioTranscoder: func(_ context.Context, audioBytes []byte, fileName string) ([]byte, string, error) {
+			return audioBytes, replaceOrganizeAudioExtension(fileName, ".mp3"), nil
+		},
+	}
+	return svc, db, tenant
 }
 
 type recordingTaskEnqueuer struct {
