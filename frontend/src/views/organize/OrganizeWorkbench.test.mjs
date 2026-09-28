@@ -27,6 +27,24 @@ test('organize navigation exposes workbench, my organize, memory, and discover',
   assert.ok(routerSource.includes('component: organizeWorkspaceComponent'))
 })
 
+test('memory asset cards are grouped by organize status', () => {
+  assert.ok(routesSource.includes("export type MemoryStatusKey = 'unorganized' | 'processing' | 'organized'"))
+  assert.ok(routesSource.includes("label: '待整理'"))
+  assert.ok(routesSource.includes("label: '整理中'"))
+  assert.ok(routesSource.includes("label: '已整理'"))
+  assert.ok(sourceIncludesStatusCards())
+})
+
+function sourceIncludesStatusCards() {
+  const workspaceSource = readFileSync(new URL('./OrganizeWorkspace.vue', import.meta.url), 'utf8')
+  return (
+    workspaceSource.includes('memoryStatusCards') &&
+    workspaceSource.includes('memoryOrganizationStatus(item.id)') &&
+    workspaceSource.includes('listOrganizeJobs') &&
+    workspaceSource.includes('listOrganizeOutputs')
+  )
+}
+
 test('legacy sprout path redirects to my organize and templates load from the backend', () => {
   assert.ok(routerSource.includes('path: "organize/sprout"'))
   assert.ok(routerSource.includes('redirect: "/platform/organize/mine"'))

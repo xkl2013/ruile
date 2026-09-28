@@ -18,35 +18,36 @@
 
       <div class="organize-scroll">
         <section v-if="activeTab === 'memory'" class="organize-section organize-section--memory">
-          <div class="asset-summary" aria-label="记忆资产">
+          <div class="asset-summary" aria-label="记忆状态">
             <div class="section-heading">
               <t-icon name="folder" />
-              <span>记忆资产（{{ allMemoryItems.length }} 条）</span>
+              <span>记忆状态（{{ allMemoryItems.length }} 条）</span>
               <t-icon name="info-circle" class="section-heading-info" />
             </div>
             <div class="asset-grid">
               <button
-                v-for="asset in memoryAssets"
-                :key="asset.key"
+                v-for="status in memoryStatusCards"
+                :key="status.key"
                 type="button"
                 class="asset-card"
-                @click="openMemoryAssetList(asset.key)"
+                @click="openMemoryStatusList(status.key)"
               >
-                <span class="asset-card-label">{{ asset.label }}</span>
-                <span class="asset-card-value">{{ asset.count }} {{ asset.unit }}</span>
+                <span class="asset-card-label">{{ status.label }}</span>
+                <span class="asset-card-description">{{ status.description }}</span>
+                <span class="asset-card-value">{{ status.count }} {{ status.unit }}</span>
               </button>
             </div>
           </div>
 
-          <template v-if="activeMemoryAsset">
+          <template v-if="activeMemoryAsset || activeMemoryStatus">
             <div class="memory-list-toolbar">
               <button type="button" class="memory-list-back" @click="openMemoryOverview">
                 <t-icon name="chevron-left" />
-                <span>记忆资产</span>
+                <span>记忆状态</span>
               </button>
               <div class="section-heading">
-                <t-icon :name="activeMemoryAssetMeta.icon" />
-                <span>{{ activeMemoryAssetMeta.label }}列表</span>
+                <t-icon :name="activeMemoryFilterMeta.icon" />
+                <span>{{ activeMemoryFilterMeta.label }}列表</span>
               </div>
             </div>
           </template>
@@ -665,9 +666,13 @@ import {
   deleteOrganizeMemory,
   deleteOrganizeOutput,
   getOrganizeDiscover,
+  listOrganizeJobs,
   listOrganizeMemories,
+  listOrganizeOutputs,
   listOrganizeSproutReports,
   type OrganizeDiscoverTab,
+  type OrganizeJob,
+  type OrganizeJobStatus,
   type OrganizeMemory,
   type OrganizeMemoryReference,
   type OrganizeMemoryKind,
@@ -681,10 +686,13 @@ import {
 import { useAuthStore } from '@/stores/auth'
 import {
   ORGANIZE_MEMORY_ASSET_ROUTES,
+  ORGANIZE_MEMORY_STATUS_ROUTES,
   findMemoryAssetRoute,
   isMemoryAssetKey,
+  isMemoryStatusKey,
   type LegacyOrganizeTab,
   type MemoryAssetKey,
+  type MemoryStatusKey,
 } from './organizeRoutes'
 import { saveOrganizeEditorDraft, type OrganizeEditorDraft } from './editorDraftStorage'
 import {
@@ -702,6 +710,7 @@ import OrganizeSproutIcon from './components/OrganizeSproutIcon.vue'
 import PublicKnowledgeBaseDiscover from './components/PublicKnowledgeBaseDiscover.vue'
 
 type MemoryType = 'note' | 'record' | 'audio' | 'audio-card'
+type MemoryOrganizationStatus = MemoryStatusKey
 type OutputKind = 'all' | 'article' | 'video' | 'audio'
 type OutputCreateKind = Exclude<OutputKind, 'all'>
 type OutputStatusFilter = 'all' | OrganizeOutputStatus
@@ -803,6 +812,8 @@ const keyword = ref('')
 const memoryLoading = ref(true)
 const memoryImporting = ref(false)
 const memoryImportInputRef = ref<HTMLInputElement | null>(null)
+const memoryOrganizationJobs = ref<OrganizeJob[]>([])
+const memoryOrganizationOutputs = ref<OrganizeOutput[]>([])
 const discoverFeaturedLoading = ref(true)
 const discoverFeedLoading = ref(true)
 const sproutLoading = ref(true)
@@ -915,6 +926,12 @@ const activeMemoryAsset = computed<MemoryAssetKey | ''>(() => {
   return isMemoryAssetKey(asset) ? asset : ''
 })
 
+const activeMemoryStatus = computed<MemoryStatusKey | ''>(() => {
+  if (activeTab.value !== 'memory') return ''
+  const status = route.query.status
+  return isMemoryStatusKey(status) ? status : ''
+})
+
 const escapeHtml = (value: string) => {
   const node = document.createElement('div')
   node.textContent = value
@@ -980,22 +997,55 @@ const allMemoryItems = computed<MemoryListItem[]>(() => {
   return memoryGroups.value.flatMap((group) => group.items.map((item) => ({ ...item, date: group.date })))
 })
 
-const memoryAssets = computed(() => {
+const processingJobStatuses = new Set<OrganizeJobStatus>(['queued', 'running', 'repairing'])
+const organizedJobStatuses = new Set<OrganizeJobStatus>(['completed', 'fallback'])
+
+const memoryOrganizationStatus = (memoryID: string): MemoryOrganizationStatus => {
+  const jobs = memoryOrganizationJobs.value.filter((job) => (job.memory_ids || []).includes(memoryID))
+  const hasProcessingJob = jobs.some((job) => processingJobStatuses.has(job.status))
+  const hasOrganizedJob = jobs.some((job) => organizedJobStatuses.has(job.status))
+  const hasProcessingReport = sproutReports.value.some(
+    (report) => report.memoryIds.includes(memoryID) && report.stageKey === 'organizing',
+  )
+  const hasOrganizedReport = sproutReports.value.some(
+    (report) => report.memoryIds.includes(memoryID) && (report.stageKey === 'expandable' || report.stageKey === 'formed'),
+  )
+  const hasOutput = memoryOrganizationOutputs.value.some((output) => (output.memory_ids || []).includes(memoryID))
+
+  if (sproutingMemoryIds.value.has(memoryID) || hasProcessingJob || hasProcessingReport) return 'processing'
+  if (hasOrganizedJob || hasOrganizedReport || hasOutput) return 'organized'
+  return 'unorganized'
+}
+
+const memoryStatusCards = computed(() => {
   const items = allMemoryItems.value
-  return ORGANIZE_MEMORY_ASSET_ROUTES.map((asset) => ({
-    ...asset,
-    count:
-      asset.key === 'note'
-        ? items.filter((item) => item.type === 'note' || item.type === 'record').length
-        : asset.key === 'audio'
-          ? items.filter((item) => item.type === 'audio').length
-          : items.filter((item) => item.type === 'audio-card').length,
+  return ORGANIZE_MEMORY_STATUS_ROUTES.map((status) => ({
+    ...status,
+    count: items.filter((item) => memoryOrganizationStatus(item.id) === status.key).length,
   }))
 })
 
-const activeMemoryAssetMeta = computed(() => {
-  return memoryAssets.value.find((asset) => asset.key === activeMemoryAsset.value) || memoryAssets.value[0]
+const activeMemoryStatusMeta = computed(() => {
+  return (
+    memoryStatusCards.value.find((status) => status.key === activeMemoryStatus.value) ||
+    ORGANIZE_MEMORY_STATUS_ROUTES[0]
+  )
 })
+
+const activeMemoryAssetMeta = computed(() => {
+  return ORGANIZE_MEMORY_ASSET_ROUTES.find((asset) => asset.key === activeMemoryAsset.value) || ORGANIZE_MEMORY_ASSET_ROUTES[0]
+})
+
+const activeMemoryFilterMeta = computed(() => {
+  return activeMemoryStatus.value ? activeMemoryStatusMeta.value : activeMemoryAssetMeta.value
+})
+
+const openMemoryStatusList = async (status: MemoryStatusKey) => {
+  await router.push({
+    path: '/platform/organize/memory',
+    query: { status },
+  })
+}
 
 const openMemoryAssetList = async (asset: MemoryAssetKey) => {
   const nextRoute = findMemoryAssetRoute(asset)
@@ -1004,7 +1054,7 @@ const openMemoryAssetList = async (asset: MemoryAssetKey) => {
 
 const openMemoryOverview = async () => {
   const memoryPath = '/platform/organize/memory'
-  if (route.path !== memoryPath) await router.push(memoryPath)
+  if (route.path !== memoryPath || route.query.status) await router.push(memoryPath)
 }
 
 const activeMeta = computed(() => {
@@ -1014,10 +1064,10 @@ const activeMeta = computed(() => {
   if (activeTab.value === 'sprout') {
     return { title: '经营复盘', actionIcon: 'add', actionLabel: '新建复盘' }
   }
-  if (activeMemoryAsset.value) {
-    return { title: `${activeMemoryAssetMeta.value.label}列表`, actionIcon: 'add', actionLabel: '添加笔记' }
+  if (activeMemoryAsset.value || activeMemoryStatus.value) {
+    return { title: `${activeMemoryFilterMeta.value.label}列表`, actionIcon: 'add', actionLabel: '添加记忆' }
   }
-  return { title: '记忆', actionIcon: 'add', actionLabel: '添加笔记' }
+  return { title: '记忆', actionIcon: 'add', actionLabel: '添加记忆' }
 })
 
 const currentUserId = computed(() => authStore.currentUserId || authStore.user?.id || '')
@@ -1054,7 +1104,29 @@ const filteredMemoryAssetItems = computed(() => {
   })
 })
 
+const filteredMemoryStatusItems = computed(() => {
+  const status = activeMemoryStatus.value
+  const q = keyword.value.trim().toLowerCase()
+  return allMemoryItems.value.filter((item) => {
+    return (
+      status &&
+      memoryOrganizationStatus(item.id) === status &&
+      (!q || memorySearchText(item).includes(q))
+    )
+  })
+})
+
 const visibleMemoryListGroups = computed<MemoryDisplayGroup[]>(() => {
+  if (activeMemoryStatus.value) {
+    return [
+      {
+        date: activeMemoryStatus.value,
+        showDate: false,
+        items: filteredMemoryStatusItems.value,
+      },
+    ]
+  }
+
   if (activeMemoryAsset.value) {
     return [
       {
@@ -1075,6 +1147,7 @@ const visibleMemoryListGroups = computed<MemoryDisplayGroup[]>(() => {
 const visibleMemoryListEmpty = computed(() => visibleMemoryListGroups.value.every((group) => group.items.length === 0))
 
 const memoryListEmptyText = computed(() => {
+  if (activeMemoryStatus.value) return `暂无${activeMemoryStatusMeta.value.label}记忆`
   return activeMemoryAsset.value ? `暂无${activeMemoryAssetMeta.value.label}` : '暂无记忆'
 })
 
@@ -1695,6 +1768,21 @@ const loadMemoryData = async () => {
   }
 }
 
+const loadMemoryOrganizationState = async () => {
+  const [jobsResponse, outputsResponse] = await Promise.all([
+    listOrganizeJobs({ page_size: 100 }),
+    listOrganizeOutputs({ page_size: 100 }),
+  ])
+  if (!jobsResponse.success || !jobsResponse.data) {
+    throw new Error(jobsResponse.message || '整理任务加载失败')
+  }
+  if (!outputsResponse.success || !outputsResponse.data) {
+    throw new Error(outputsResponse.message || '整理产物加载失败')
+  }
+  memoryOrganizationJobs.value = jobsResponse.data.items
+  memoryOrganizationOutputs.value = outputsResponse.data.items
+}
+
 const loadSproutReportsData = async (options?: { silent?: boolean }) => {
   if (!options?.silent) {
     sproutLoading.value = true
@@ -1810,18 +1898,22 @@ const groupMemoryItems = (items: MemoryListItem[]) => {
 const loadOrganizeData = async () => {
   const results = await Promise.allSettled([
     loadMemoryData(),
+    loadMemoryOrganizationState(),
     loadDiscoverFeaturedData(),
     loadDiscoverFeedData({ tab: discoverTab.value, page: 1, resetPage: true }),
     loadSproutReportsData(),
   ])
 
-  const [memoryResult, featuredResult, feedResult, sproutResult] = results
+  const [memoryResult, memoryStateResult, featuredResult, feedResult, sproutResult] = results
   if (featuredResult.status === 'rejected' || feedResult.status === 'rejected') {
     MessagePlugin.warning('发现数据加载失败')
   }
 
   if (memoryResult.status === 'rejected' || sproutResult.status === 'rejected') {
     MessagePlugin.warning('部分文档数据加载失败')
+  }
+  if (memoryStateResult.status === 'rejected') {
+    MessagePlugin.warning('记忆整理状态加载失败')
   }
 }
 
@@ -2350,7 +2442,7 @@ onMounted(loadOrganizeData)
 
 .asset-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 160px));
+  grid-template-columns: repeat(3, minmax(0, 190px));
   gap: 10px;
 }
 
@@ -2359,8 +2451,8 @@ onMounted(loadOrganizeData)
   flex-direction: column;
   justify-content: space-between;
   width: 100%;
-  max-width: 160px;
-  min-height: 58px;
+  max-width: 190px;
+  min-height: 82px;
   padding: 8px 12px;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
@@ -2385,6 +2477,15 @@ button.asset-card {
   font-weight: 400;
 }
 
+.asset-card-description {
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .asset-card-value {
   display: inline-flex;
   align-items: baseline;
@@ -2393,6 +2494,16 @@ button.asset-card {
   font-size: 12px;
   font-weight: 400;
   line-height: 18px;
+}
+
+@media (max-width: 720px) {
+  .asset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .asset-card {
+    max-width: none;
+  }
 }
 
 .content-toolbar {
