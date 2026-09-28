@@ -6,6 +6,7 @@ export interface AdminNavItem {
   description: string
   icon: string
   path: string
+  children?: AdminNavItem[]
   minRole?: AdminRole
   requiresSystemAdmin?: boolean
   requiresTenant?: boolean
@@ -69,6 +70,40 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: 'code',
         path: '/skills',
         requiresSystemAdmin: true,
+      },
+      {
+        key: 'content-management',
+        label: '内容管理',
+        description: '管理用户可订阅的知识库和发布内容',
+        icon: 'book-open',
+        path: '/public-knowledge-bases',
+        requiresSystemAdmin: true,
+        children: [
+          {
+            key: 'public-knowledge-bases',
+            label: '发布知识库',
+            description: '创建、上传并发布用户可订阅的知识库',
+            icon: 'book-open',
+            path: '/public-knowledge-bases',
+            requiresSystemAdmin: true,
+          },
+          {
+            key: 'public-contents',
+            label: '发布内容',
+            description: '维护已发布知识库中的资料和内容',
+            icon: 'file-setting',
+            path: '/public-contents',
+            requiresSystemAdmin: true,
+          },
+          {
+            key: 'public-creators',
+            label: '创作者管理',
+            description: '查看创作者创建的知识库和内容并统一发布',
+            icon: 'usergroup',
+            path: '/public-creators',
+            requiresSystemAdmin: true,
+          },
+        ],
       },
       {
         key: 'expert-packages',
@@ -226,4 +261,8 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   },
 ]
 
-export const ADMIN_NAV_ITEMS = ADMIN_NAV_GROUPS.flatMap((group) => group.items)
+function flattenNavItems(items: AdminNavItem[]): AdminNavItem[] {
+  return items.flatMap((item) => item.children?.length ? flattenNavItems(item.children) : [item])
+}
+
+export const ADMIN_NAV_ITEMS = ADMIN_NAV_GROUPS.flatMap((group) => flattenNavItems(group.items))

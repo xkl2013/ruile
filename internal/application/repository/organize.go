@@ -157,6 +157,23 @@ func (r *organizeRepository) GetOutput(ctx context.Context, tenantID uint64, use
 	return &output, nil
 }
 
+func (r *organizeRepository) GetOutputByID(ctx context.Context, id string) (*types.OrganizeOutput, error) {
+	var output types.OrganizeOutput
+	err := r.db.WithContext(ctx).
+		Where("id = ?", id).
+		First(&output).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := r.fillOutputLinks(ctx, output.TenantID, output.UserID, []*types.OrganizeOutput{&output}); err != nil {
+		return nil, err
+	}
+	return &output, nil
+}
+
 func (r *organizeRepository) UpdateOutput(ctx context.Context, output *types.OrganizeOutput, memoryIDs []string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&types.OrganizeOutput{}).
@@ -171,6 +188,14 @@ func (r *organizeRepository) UpdateOutput(ctx context.Context, output *types.Org
 				"content",
 				"source_summary",
 				"status",
+				"public_content_type",
+				"public_status",
+				"series_id",
+				"series_title",
+				"series_order",
+				"review_note",
+				"published_at",
+				"published_by",
 				"icon",
 				"fields",
 				"citations",
@@ -182,6 +207,30 @@ func (r *organizeRepository) UpdateOutput(ctx context.Context, output *types.Org
 		}
 		return replaceOutputMemoryLinks(tx, output.TenantID, output.UserID, output.ID, memoryIDs)
 	})
+}
+
+func (r *organizeRepository) UpdatePublicContent(ctx context.Context, output *types.OrganizeOutput) error {
+	return r.db.WithContext(ctx).
+		Model(&types.OrganizeOutput{}).
+		Where("id = ?", output.ID).
+		Select(
+			"title",
+			"content",
+			"source_summary",
+			"status",
+			"public_content_type",
+			"public_status",
+			"series_id",
+			"series_title",
+			"series_order",
+			"review_note",
+			"published_at",
+			"published_by",
+			"icon",
+			"metadata",
+			"updated_at",
+		).
+		Updates(output).Error
 }
 
 func (r *organizeRepository) DeleteOutput(ctx context.Context, tenantID uint64, userID, id string) error {
@@ -219,6 +268,47 @@ func (r *organizeRepository) ListOutputs(ctx context.Context, query types.Organi
 	}
 	if err := r.fillOutputLinks(ctx, query.TenantID, query.UserID, outputs); err != nil {
 		return nil, 0, err
+	}
+	return outputs, total, nil
+}
+
+func (r *organizeRepository) ListPublicContents(
+	ctx context.Context,
+	query types.OrganizePublicContentQuery,
+) ([]*types.OrganizeOutput, int64, error) {
+	dbq := r.db.WithContext(ctx).Model(&types.OrganizeOutput{})
+	dbq = dbq.Where("public_status <> ?", "")
+	if query.UserID != "" {
+		dbq = dbq.Where("user_id = ?", query.UserID)
+	}
+	if query.PublicStatus != "" {
+		dbq = dbq.Where("public_status = ?", query.PublicStatus)
+	}
+	if query.PublicContentType != "" {
+		dbq = dbq.Where("public_content_type = ?", query.PublicContentType)
+	}
+	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "content", "output_type", "source_summary", "series_title")
+
+	var total int64
+	if err := dbq.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var outputs []*types.OrganizeOutput
+	if err := dbq.
+		Order("updated_at DESC").
+		Order("created_at DESC").
+		Limit(query.PageSize).
+		Offset((query.Page - 1) * query.PageSize).
+		Find(&outputs).Error; err != nil {
+		return nil, 0, err
+	}
+	for _, output := range outputs {
+		if output == nil {
+			continue
+		}
+		if err := r.fillOutputLinks(ctx, output.TenantID, output.UserID, []*types.OrganizeOutput{output}); err != nil {
+			return nil, 0, err
+		}
 	}
 	return outputs, total, nil
 }

@@ -245,9 +245,18 @@
                               </span>
                             </div>
                           </div>
-                          <div class="shared-permissions">
-                            <t-tooltip :content="$t('organization.settings.sharePermissionLabel')" placement="top">
-                              <t-tag size="small" :theme="getPermissionTheme(share.permission)" variant="outline"
+                          <div class="shared-permissions" @click.stop>
+                            <t-select v-if="isAdmin" :value="share.permission" size="small"
+                              class="share-permission-select"
+                              :disabled="updatingSharePermissionId === share.id"
+                              @change="(value: string) => handleSharePermissionChange(share, value)">
+                              <t-option value="viewer" :label="$t('organization.share.permissionReadonly')" />
+                              <t-option value="editor" :label="$t('organization.share.permissionEditable')" />
+                              <t-option value="admin" :label="$t('organization.role.admin')" />
+                            </t-select>
+                            <t-tooltip v-else :content="$t('organization.settings.sharePermissionLabel')"
+                              placement="top">
+                            <t-tag size="small" :theme="getPermissionTheme(share.permission)" variant="outline"
                                 class="perm-tag">
                                 {{ $t('organization.settings.sharePermissionLabel') }}: {{ (share.permission ===
                                   'editor' ||
@@ -381,6 +390,18 @@
 
               <!-- 底部操作按钮 -->
               <div class="settings-footer">
+                <t-popconfirm v-if="canDeleteOrganization"
+                  :content="$t('organization.deleteConfirmMessage', { name: orgInfo?.name || '' })"
+                  :confirm-btn="{ content: $t('common.delete'), theme: 'danger' }"
+                  :cancel-btn="{ content: $t('common.cancel') }"
+                  placement="top-left"
+                  @confirm="handleDeleteOrganization">
+                  <t-button variant="text" theme="danger" class="delete-space-btn" :loading="submitting"
+                    @click.stop>
+                    <template #icon><t-icon name="delete" /></template>
+                    {{ $t('common.delete') }}
+                  </t-button>
+                </t-popconfirm>
                 <t-button variant="outline" @click="handleClose">{{ $t('common.cancel') }}</t-button>
                 <t-button v-if="isAdmin" theme="primary" :loading="submitting" @click="handleSave">
                   {{ isCreateMode ? $t('common.create') : $t('common.save') }}
@@ -567,6 +588,7 @@ import {
   shareAgent,
   updateOrganization,
   updateMemberRole,
+  updateSharePermission,
   removeMember,
   listOrgShares,
   listOrgAgentShares,
@@ -634,6 +656,7 @@ const agentSearchQuery = ref('')
 const membersLoading = ref(false)
 const memberSearchQuery = ref('')
 const submitting = ref(false)
+const updatingSharePermissionId = ref<string | null>(null)
 
 // 添加参与成员从成员管理数据选择；后端按 user_id 建立共享空间关系，tenant_id 只作为隐藏来源上下文。
 const showAddMemberDialog = ref(false)
@@ -714,6 +737,11 @@ const isAdmin = computed(() => {
   if (isCreateMode.value) return hasTenantAdmin.value
   const orgAdmin = orgInfo.value?.my_role === 'admin' || orgInfo.value?.is_owner
   return !!orgAdmin && hasTenantAdmin.value
+})
+
+const canDeleteOrganization = computed(() => {
+  if (!props.orgId || !orgInfo.value?.is_owner) return false
+  return authStore.isSystemAdmin || hasTenantAdmin.value
 })
 
 // 当用户在组织内是 admin/owner 但当前空间角色不足时，展示只读提示
@@ -866,6 +894,29 @@ const isOwnerMember = (member: OrganizationMember): boolean => {
 // Methods
 const handleClose = () => {
   emit('update:visible', false)
+}
+
+const handleDeleteOrganization = async () => {
+  if (!props.orgId || !canDeleteOrganization.value) {
+    MessagePlugin.warning(t('organization.rbac.cannotManage'))
+    return
+  }
+
+  submitting.value = true
+  try {
+    const success = await orgStore.remove(props.orgId, requestOptions.value)
+    if (success) {
+      MessagePlugin.success(t('organization.deleteSuccess'))
+      emit('saved')
+      handleClose()
+    } else {
+      MessagePlugin.error(orgStore.error || t('organization.deleteFailed'))
+    }
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('organization.deleteFailed'))
+  } finally {
+    submitting.value = false
+  }
 }
 
 const fetchOrgDetail = async () => {
@@ -1299,6 +1350,30 @@ const resetAddMemberDialog = () => {
 const handleShareClick = (share: KnowledgeBaseShare) => {
   handleClose()
   router.push(`/platform/knowledge-bases/${share.knowledge_base_id}`)
+}
+
+const handleSharePermissionChange = async (share: KnowledgeBaseShare, newPermission: string) => {
+  if (!props.orgId || share.permission === newPermission) return
+
+  updatingSharePermissionId.value = share.id
+  try {
+    const res = await updateSharePermission(
+      share.knowledge_base_id,
+      share.id,
+      { permission: newPermission as 'admin' | 'editor' | 'viewer' },
+      requestOptions.value,
+    )
+    if (res.success) {
+      MessagePlugin.success(t('organization.roleUpdated'))
+      await fetchSharedKBs()
+    } else {
+      MessagePlugin.error(res.message || t('organization.roleUpdateFailed'))
+    }
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('organization.roleUpdateFailed'))
+  } finally {
+    updatingSharePermissionId.value = null
+  }
 }
 
 const handleRemoveShare = async (share: KnowledgeBaseShare) => {
@@ -2409,6 +2484,10 @@ watch(() => props.visible, (newVal) => {
       flex-shrink: 0;
       margin-left: auto;
 
+      .share-permission-select {
+        width: 126px;
+      }
+
       .perm-tag {
         white-space: nowrap;
       }
@@ -2429,6 +2508,10 @@ watch(() => props.visible, (newVal) => {
   gap: 12px;
   flex-shrink: 0;
   background: var(--td-bg-color-container);
+}
+
+.delete-space-btn {
+  margin-right: auto;
 }
 
 // Transitions

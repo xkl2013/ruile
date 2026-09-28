@@ -212,6 +212,39 @@ const moduleRoutes: RouteRecordRaw[] = [
     },
   },
   {
+    path: 'public-knowledge-bases',
+    name: 'adminPublicKnowledgeBases',
+    component: () => import('@admin/views/AdminPublicKnowledgeBases.vue'),
+    meta: {
+      navKey: 'public-knowledge-bases',
+      title: '发布知识库',
+      description: '管理用户可以在发现模块订阅的知识库内容。',
+      requiresSystemAdmin: true,
+    },
+  },
+  {
+    path: 'public-contents',
+    name: 'adminPublicContents',
+    component: () => import('@admin/views/AdminPublicContents.vue'),
+    meta: {
+      navKey: 'public-contents',
+      title: '内容管理',
+      description: '维护图文内容和学习课程，审核后发布到发现模块。',
+      requiresSystemAdmin: true,
+    },
+  },
+  {
+    path: 'public-creators',
+    name: 'adminPublicCreators',
+    component: () => import('@admin/views/AdminPublicCreators.vue'),
+    meta: {
+      navKey: 'public-creators',
+      title: '创作者管理',
+      description: '仅管理已被管理员标记的创作者及其待发布知识库和内容。',
+      requiresSystemAdmin: true,
+    },
+  },
+  {
     path: 'experts',
     name: 'adminExpertPackages',
     component: () => import('@admin/views/AdminExpertPackages.vue'),

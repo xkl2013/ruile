@@ -51,7 +51,8 @@ export type KnowledgeBaseAccessSource =
   | 'api_key'
   | 'shared_space'
   | 'shared_agent'
-  | 'subscription';
+  | 'subscription'
+  | 'public_subscription';
 export type KnowledgeBaseOwnerType = 'personal' | 'organization';
 export type KnowledgeBaseSharingScope = 'legacy_cross_space' | 'tenant_internal';
 

@@ -134,6 +134,7 @@ type SystemUserSummary struct {
 	TenantID                uint64                        `json:"tenant_id"`
 	IsActive                bool                          `json:"is_active"`
 	IsSystemAdmin           bool                          `json:"is_system_admin"`
+	IsCreator               bool                          `json:"is_creator"`
 	EnterpriseMemberships   []*SystemEnterpriseMembership `json:"enterprise_memberships,omitempty"`
 	PersonalSubscription    *SystemUserSubscription       `json:"personal_subscription,omitempty"`
 	EnterpriseSubscriptions []*SystemUserSubscription     `json:"enterprise_subscriptions,omitempty"`
@@ -185,6 +186,7 @@ func newSystemUserSummary(user *types.User) *SystemUserSummary {
 		TenantID:      user.TenantID,
 		IsActive:      user.IsActive,
 		IsSystemAdmin: user.IsSystemAdmin,
+		IsCreator:     user.IsCreator,
 		CreatedAt:     user.CreatedAt,
 	}
 }
@@ -2222,6 +2224,13 @@ type SetSystemUserStatusRequest struct {
 	IsActive *bool `json:"is_active" binding:"required"`
 }
 
+// SetSystemUserCreatorRequest defines the explicit platform creator approval
+// mutation. Creator approval is independent from tenant roles and system-admin
+// status.
+type SetSystemUserCreatorRequest struct {
+	IsCreator *bool `json:"is_creator" binding:"required"`
+}
+
 // SetSystemUserStatus changes whether a user can log in. The route is mounted
 // under the SystemAdmin group; the service additionally revokes all existing
 // sessions when the account is disabled.
@@ -2275,6 +2284,40 @@ func (h *SystemHandler) SetSystemUserStatus(c *gin.Context) {
 	default:
 		logger.Errorf(ctx, "Failed to change status for user %s: %v", targetID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user status"})
+	}
+}
+
+// SetSystemUserCreator changes whether a user is approved to appear in the
+// platform creator catalogue. The route is SystemAdmin-only and the mutation
+// is audited as a system-scoped user lifecycle change.
+func (h *SystemHandler) SetSystemUserCreator(c *gin.Context) {
+	ctx := logger.CloneContext(c.Request.Context())
+	targetID := strings.TrimSpace(c.Param("id"))
+	if targetID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "User ID is required"})
+		return
+	}
+
+	var req SetSystemUserCreatorRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.IsCreator == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "is_creator is required"})
+		return
+	}
+
+	user, err := h.userSvc.SetSystemUserCreator(ctx, targetID, *req.IsCreator)
+	switch {
+	case err == nil:
+		h.emitAdminAudit(ctx, types.AuditActionSystemUserCreatorStatusChanged, user, map[string]any{
+			"target_email":    user.Email,
+			"target_username": user.Username,
+			"is_creator":      *req.IsCreator,
+		})
+		c.JSON(http.StatusOK, newSystemUserSummary(user))
+	case errors.Is(err, repository.ErrUserNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	default:
+		logger.Errorf(ctx, "Failed to change creator status for user %s: %v", targetID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update creator status"})
 	}
 }
 

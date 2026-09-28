@@ -48,6 +48,9 @@ type RouterParams struct {
 	KBShareService               interfaces.KBShareService
 	AgentShareService            interfaces.AgentShareService
 	KBHandler                    *handler.KnowledgeBaseHandler
+	PublicKnowledgeBaseHandler   *handler.PublicKnowledgeBaseHandler
+	PublicContentHandler         *handler.PublicContentHandler
+	PublicCreatorHandler         *handler.PublicCreatorHandler
 	KnowledgeHandler             *handler.KnowledgeHandler
 	TenantHandler                *handler.TenantHandler
 	TenantService                interfaces.TenantService
@@ -239,6 +242,9 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterTenantRoutes(v1, params.TenantHandler, params.TenantMemberHandler, params.TenantInvitationHandler, params.AuditLogHandler, rbacGuards)
 		RegisterMyInvitationRoutes(v1, params.TenantInvitationHandler)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)
+		RegisterPublicKnowledgeBaseRoutes(v1, params.PublicKnowledgeBaseHandler, rbacGuards)
+		RegisterPublicContentRoutes(v1, params.PublicContentHandler, rbacGuards)
+		RegisterPublicCreatorRoutes(v1, params.PublicCreatorHandler, rbacGuards)
 		// KB-scoped image proxy: lets tenants render images embedded in
 		// org-shared / agent-visible KB content, which the tenant-scoped
 		// /files route cannot serve because it enforces same-tenant paths.
@@ -292,6 +298,84 @@ func NewRouter(params RouterParams) *gin.Engine {
 	}
 
 	return r
+}
+
+// RegisterPublicKnowledgeBaseRoutes exposes platform-public knowledge-base
+// publication controls to SystemAdmin and discovery/subscription APIs to
+// authenticated users. The public routes intentionally remain JWT-only:
+// API keys must not acquire cross-tenant public-library access implicitly.
+func RegisterPublicKnowledgeBaseRoutes(
+	r *gin.RouterGroup,
+	handler *handler.PublicKnowledgeBaseHandler,
+	g *rbacGuards,
+) {
+	if handler == nil {
+		return
+	}
+
+	admin := r.Group("/system/admin/public-knowledge-bases", g.SystemAdmin())
+	{
+		admin.GET("", handler.ListAdminPublications)
+		admin.POST("", handler.CreateAdminPublication)
+		admin.GET("/:id", handler.GetAdminPublication)
+		admin.PUT("/:id", handler.UpdateAdminPublication)
+		admin.POST("/:id/publish", handler.PublishAdminPublication)
+		admin.POST("/:id/offline", handler.OfflineAdminPublication)
+	}
+
+	discovery := r.Group("/discovery/knowledge-bases", g.Viewer())
+	{
+		discovery.GET("", handler.ListPublications)
+		discovery.GET("/subscriptions", handler.ListMySubscriptions)
+		discovery.GET("/:id", handler.GetPublicPublication)
+		discovery.POST("/:id/subscribe", handler.Subscribe)
+		discovery.DELETE("/:id/subscribe", handler.Unsubscribe)
+	}
+}
+
+// RegisterPublicContentRoutes exposes platform-public posts and learning
+// courses. Creators use the regular Organize upload/editor flow; SystemAdmin
+// controls the cross-tenant review and publication lifecycle.
+func RegisterPublicContentRoutes(
+	r *gin.RouterGroup,
+	handler *handler.PublicContentHandler,
+	g *rbacGuards,
+) {
+	if handler == nil {
+		return
+	}
+
+	admin := r.Group("/system/admin/public-contents", g.SystemAdmin())
+	{
+		admin.GET("", handler.ListAdminContents)
+		admin.POST("/upload", handler.UploadAdminContent)
+		admin.GET("/:id", handler.GetAdminContent)
+		admin.PUT("/:id", handler.UpdateAdminContent)
+		admin.POST("/:id/publish", handler.PublishAdminContent)
+		admin.POST("/:id/offline", handler.OfflineAdminContent)
+		admin.POST("/:id/reject", handler.RejectAdminContent)
+	}
+}
+
+// RegisterPublicCreatorRoutes exposes SystemAdmin creator aggregation and
+// bulk publication controls for creator-owned public assets.
+func RegisterPublicCreatorRoutes(
+	r *gin.RouterGroup,
+	handler *handler.PublicCreatorHandler,
+	g *rbacGuards,
+) {
+	if handler == nil {
+		return
+	}
+
+	admin := r.Group("/system/admin/creators", g.SystemAdmin())
+	{
+		admin.GET("", handler.ListCreators)
+		admin.GET("/:id", handler.GetCreator)
+		admin.POST("/:id/knowledge-bases/:knowledge_base_id/publish", handler.PublishKnowledgeBase)
+		admin.POST("/:id/publish", handler.PublishCreator)
+		admin.POST("/:id/offline", handler.OfflineCreator)
+	}
 }
 
 // RegisterBillingRoutes exposes the current workspace billing projection and
@@ -1050,6 +1134,7 @@ func RegisterSystemAdminRoutes(
 		adminRoutes.GET("/users/search", handler.SearchSystemUsers)
 		adminRoutes.POST("/users/reset-password", handler.ResetUserPassword)
 		adminRoutes.PUT("/users/:id/status", handler.SetSystemUserStatus)
+		adminRoutes.PUT("/users/:id/creator-status", handler.SetSystemUserCreator)
 		adminRoutes.DELETE("/users/:id", handler.DeleteSystemUser)
 		adminRoutes.GET("/enterprises", handler.ListSystemEnterprises)
 		adminRoutes.POST("/enterprise-workspaces", handler.ProvisionEnterpriseWorkspace)

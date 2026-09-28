@@ -66,6 +66,11 @@
           </label>
 
           <label class="upload-field">
+            <span>内容用途</span>
+            <t-select v-model="contentType" :options="contentTypeOptions" />
+          </label>
+
+          <label class="upload-field">
             <span>栏目</span>
             <t-select v-model="category" :options="categoryOptions" placeholder="请选择发现栏目" />
           </label>
@@ -97,6 +102,17 @@
                 @keydown.enter.prevent="addTag"
               />
             </div>
+          </div>
+
+          <div v-if="contentType === 'course'" class="upload-field upload-field--full course-fields">
+            <label class="upload-field">
+              <span>系列名称</span>
+              <t-input v-model="seriesTitle" placeholder="留空表示单篇课程；填写后可归入系列" />
+            </label>
+            <label class="upload-field">
+              <span>系列节次</span>
+              <t-input-number v-model="seriesOrder" :min="1" :max="999" theme="normal" />
+            </label>
           </div>
 
           <div class="upload-field upload-field--full">
@@ -189,8 +205,12 @@ const kindOptions = [
   { label: '视频类', value: 'video' },
   { label: '音频类', value: 'audio' },
 ]
+const contentTypeOptions = [
+  { label: '图文内容', value: 'post' },
+  { label: '学习课程', value: 'course' },
+]
 const statusOptions = [
-  { label: '待确认', value: 'review' },
+  { label: '提交审核', value: 'review' },
   { label: '草稿', value: 'draft' },
   { label: '已发布', value: 'ready' },
 ]
@@ -207,6 +227,10 @@ const title = ref('')
 const summary = ref('')
 const kind = ref<OutputKind>('article')
 const status = ref<OrganizeOutputStatus>('review')
+const contentType = ref<'post' | 'course'>('post')
+const seriesId = ref('')
+const seriesTitle = ref('')
+const seriesOrder = ref(0)
 const category = ref<DiscoverCategoryKey | ''>('')
 const tags = ref<string[]>([])
 const tagInput = ref('')
@@ -241,7 +265,7 @@ const primaryLabel = computed(() => {
   if (step.value === 'pick') return '选择文件'
   if (step.value === 'processing') return '处理中'
   if (status.value === 'draft') return '保存草稿'
-  if (status.value === 'review') return '保存待确认'
+  if (status.value === 'review') return '提交审核'
   return '确认发布'
 })
 const secondaryLabel = computed(() => {
@@ -260,6 +284,10 @@ const resetState = () => {
   summary.value = ''
   kind.value = props.initialKind || 'article'
   status.value = 'review'
+  contentType.value = 'post'
+  seriesId.value = ''
+  seriesTitle.value = ''
+  seriesOrder.value = 0
   category.value = ''
   tags.value = []
   tagInput.value = ''
@@ -299,6 +327,10 @@ const hydrateDraft = (item: OrganizeOutput) => {
   summary.value = item.source_summary || ''
   kind.value = extractKind(item)
   status.value = item.status || 'review'
+  contentType.value = item.public_content_type || 'post'
+  seriesId.value = item.series_id || ''
+  seriesTitle.value = item.series_title || ''
+  seriesOrder.value = item.series_order || 0
   category.value = normalizeDiscoverCategory(item.metadata?.discover_category || item.metadata?.discover_category_label)
   tags.value = extractTags(item)
 }
@@ -355,6 +387,9 @@ const buildMetadata = () => {
     content_kind_label: kindLabel.value,
     discover_category: category.value,
     discover_category_label: discoverCategoryLabel(category.value),
+    public_content_type: contentType.value,
+    series_title: seriesTitle.value.trim(),
+    series_order: seriesTitle.value.trim() ? seriesOrder.value : 0,
     tags: [...tags.value],
     ai_status: 'confirmed',
   }
@@ -378,6 +413,15 @@ const handlePrimary = async () => {
       output_type: kindLabel.value,
       source_summary: summary.value.trim() || draft.value.source_summary || '',
       status: status.value,
+      public_content_type: contentType.value,
+      public_status: status.value === 'review'
+        ? 'pending_review'
+        : status.value === 'ready'
+          ? 'published'
+          : 'draft',
+      series_id: seriesTitle.value.trim() ? (seriesId.value || seriesTitle.value.trim()) : '',
+      series_title: seriesTitle.value.trim(),
+      series_order: seriesTitle.value.trim() ? seriesOrder.value : 0,
       icon: draft.value.icon || (kind.value === 'video' ? 'play-circle' : kind.value === 'audio' ? 'sound' : 'file-word'),
       memory_ids: draft.value.memory_ids || [],
       metadata: buildMetadata(),
@@ -406,6 +450,10 @@ const handleSecondary = () => {
     summary.value = ''
     kind.value = props.initialKind || 'article'
     status.value = 'review'
+    contentType.value = 'post'
+    seriesId.value = ''
+    seriesTitle.value = ''
+    seriesOrder.value = 0
     category.value = ''
     return
   }
@@ -555,6 +603,12 @@ watch(
   gap: 14px 12px;
 }
 
+.course-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 12px;
+}
+
 .upload-field {
   display: flex;
   flex-direction: column;
@@ -641,6 +695,10 @@ watch(
 
 @media (max-width: 640px) {
   .upload-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .course-fields {
     grid-template-columns: 1fr;
   }
 

@@ -38,6 +38,7 @@ const knowledgeBaseWorkspaceConfigMessage = "知识库模型、解析、索引�
 // knowledgeBaseService implements the knowledge base service interface
 type knowledgeBaseService struct {
 	repo            interfaces.KnowledgeBaseRepository
+	publicKBRepo    interfaces.PublicKnowledgeBaseRepository
 	kgRepo          interfaces.KnowledgeRepository
 	chunkRepo       interfaces.ChunkRepository
 	shareRepo       interfaces.KBShareRepository
@@ -58,6 +59,7 @@ type knowledgeBaseService struct {
 
 // NewKnowledgeBaseService creates a new knowledge base service
 func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
+	publicKBRepo interfaces.PublicKnowledgeBaseRepository,
 	kgRepo interfaces.KnowledgeRepository,
 	chunkRepo interfaces.ChunkRepository,
 	shareRepo interfaces.KBShareRepository,
@@ -77,6 +79,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 ) interfaces.KnowledgeBaseService {
 	return &knowledgeBaseService{
 		repo:            repo,
+		publicKBRepo:    publicKBRepo,
 		kgRepo:          kgRepo,
 		chunkRepo:       chunkRepo,
 		shareRepo:       shareRepo,

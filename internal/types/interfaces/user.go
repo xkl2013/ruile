@@ -42,6 +42,8 @@ type UserService interface {
 	// SetSystemUserActive changes a system user's login status. The actor
 	// and last-system-admin safeguards are enforced by the service/repository.
 	SetSystemUserActive(ctx context.Context, userID, actorID string, active bool) (*types.User, error)
+	// SetSystemUserCreator updates the explicit platform creator approval flag.
+	SetSystemUserCreator(ctx context.Context, userID string, isCreator bool) (*types.User, error)
 	// DeleteSystemUser permanently deletes a system user after applying the
 	// self-delete, last-system-admin, and enterprise-asset safeguards.
 	DeleteSystemUser(ctx context.Context, userID, actorID string) (*types.User, error)

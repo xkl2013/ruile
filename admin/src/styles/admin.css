@@ -218,6 +218,15 @@ a {
   transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
+.admin-nav__item--child {
+  margin-left: 14px;
+  padding-left: 12px;
+}
+
+.admin-nav__item--parent {
+  margin-bottom: 0;
+}
+
 .admin-nav__item .t-icon {
   color: var(--admin-text-muted);
   font-size: 17px;

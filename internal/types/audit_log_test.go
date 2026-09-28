@@ -47,6 +47,7 @@ func TestAuditAction_DotNamespaceConvention(t *testing.T) {
 		AuditActionSystemUserActivated,
 		AuditActionSystemUserDeactivated,
 		AuditActionSystemUserDeleted,
+		AuditActionSystemUserCreatorStatusChanged,
 		AuditActionSystemQueueTaskRetried,
 		AuditActionSystemQueueTaskDeleted,
 		AuditActionSystemQueueTaskRunNow,
@@ -142,6 +143,7 @@ func TestAuditAction_NoCollisionsAcrossNamespaces(t *testing.T) {
 	register("AuditActionSystemUserActivated", AuditActionSystemUserActivated)
 	register("AuditActionSystemUserDeactivated", AuditActionSystemUserDeactivated)
 	register("AuditActionSystemUserDeleted", AuditActionSystemUserDeleted)
+	register("AuditActionSystemUserCreatorStatusChanged", AuditActionSystemUserCreatorStatusChanged)
 	register("AuditActionSystemQueueTaskRetried", AuditActionSystemQueueTaskRetried)
 	register("AuditActionSystemQueueTaskDeleted", AuditActionSystemQueueTaskDeleted)
 	register("AuditActionSystemQueueTaskRunNow", AuditActionSystemQueueTaskRunNow)
@@ -164,6 +166,7 @@ func TestAuditAction_SystemNamespacePrefix(t *testing.T) {
 		AuditActionSystemUserActivated,
 		AuditActionSystemUserDeactivated,
 		AuditActionSystemUserDeleted,
+		AuditActionSystemUserCreatorStatusChanged,
 		AuditActionSystemQueueTaskRetried,
 		AuditActionSystemQueueTaskDeleted,
 		AuditActionSystemQueueTaskRunNow,
@@ -194,6 +197,7 @@ func TestAuditAction_SystemWireValues(t *testing.T) {
 		{AuditActionSystemUserActivated, "system.user_activated"},
 		{AuditActionSystemUserDeactivated, "system.user_deactivated"},
 		{AuditActionSystemUserDeleted, "system.user_deleted"},
+		{AuditActionSystemUserCreatorStatusChanged, "system.user_creator_status_changed"},
 		{AuditActionSystemQueueTaskRetried, "system.queue_task_retried"},
 		{AuditActionSystemQueueTaskDeleted, "system.queue_task_deleted"},
 		{AuditActionSystemQueueTaskRunNow, "system.queue_task_run_now"},

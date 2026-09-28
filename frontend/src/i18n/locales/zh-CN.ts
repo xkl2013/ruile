@@ -3246,6 +3246,7 @@ export default {
           "system.user_activated": "启用用户",
           "system.user_deactivated": "禁用用户",
           "system.user_deleted": "删除用户",
+          "system.user_creator_status_changed": "变更创作者资格",
           "system.queue_task_retried": "重新执行失败任务",
           "system.queue_task_deleted": "清除失败任务记录",
           "system.queue_task_run_now": "立即执行队列任务",

@@ -11,10 +11,10 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
-// ResolveKnowledgeBaseAccess centralizes the current KB access semantics for
-// V1 of the personal/organization knowledge-space rollout. It deliberately
-// mirrors the existing behavior before V2 starts adding subscriptions and
-// organization-internal sharing constraints.
+// ResolveKnowledgeBaseAccess centralizes all KB access semantics, including
+// platform-public subscriptions. Public subscriptions are checked before
+// tenant-local/share fallbacks so a subscriber can read a published KB from
+// any active workspace without receiving write permission.
 func (s *knowledgeBaseService) ResolveKnowledgeBaseAccess(
 	ctx context.Context,
 	kbID string,
@@ -63,6 +63,41 @@ func (s *knowledgeBaseService) ResolveKnowledgeBaseAccess(
 			AccessSource:      types.KnowledgeBaseAccessSourceSystemAdmin,
 			OwnerType:         ownerType,
 		}, nil
+	}
+
+	// A published public subscription grants viewer-only access across tenant
+	// boundaries. It is deliberately checked before personal-workspace
+	// isolation and organization-share resolution, but after the system-admin
+	// bypass. The effective tenant remains the KB owner tenant so retrieval,
+	// storage and vector lookups use the source resource context.
+	if s.publicKBRepo != nil {
+		userID, userOK := types.UserIDFromContext(ctx)
+		if userOK && strings.TrimSpace(userID) != "" && !types.IsSyntheticUserID(userID) {
+			publication, publicationErr := s.publicKBRepo.GetPublicationByKnowledgeBaseID(ctx, kbID)
+			if publicationErr == nil && publication != nil &&
+				publication.Status == types.PublicKnowledgeBasePublicationPublished {
+				active, subscriptionErr := s.publicKBRepo.IsActiveSubscription(ctx, userID, publication.ID)
+				if subscriptionErr != nil {
+					return nil, subscriptionErr
+				}
+				if active {
+					if !types.OrgRoleViewer.HasPermission(requiredPermission) {
+						return nil, types.ErrKnowledgeBaseAccessForbidden
+					}
+					return &types.KnowledgeBaseAccess{
+						KnowledgeBase:     kb,
+						EffectiveTenantID: kb.TenantID,
+						Permission:        types.OrgRoleViewer,
+						AccessSource:      types.KnowledgeBaseAccessSourcePublicSubscription,
+						OwnerType:         ownerType,
+						IsSubscribed:      true,
+					}, nil
+				}
+			} else if publicationErr != nil &&
+				!stderrors.Is(publicationErr, apprepo.ErrPublicKnowledgeBasePublicationNotFound) {
+				return nil, publicationErr
+			}
+		}
 	}
 
 	if kb.TenantID == tenantID {

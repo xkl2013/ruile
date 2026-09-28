@@ -3184,6 +3184,7 @@ export default {
           "system.admin_promoted": "시스템 관리자 부여",
           "system.admin_revoked": "시스템 관리자 회수",
           "system.user_password_reset": "사용자 비밀번호 재설정",
+          "system.user_creator_status_changed": "크리에이터 승인 변경",
           "system.queue_task_retried": "실패 작업 다시 실행",
           "system.queue_task_deleted": "실패 작업 기록 삭제",
           "system.queue_task_run_now": "큐 작업 즉시 실행",

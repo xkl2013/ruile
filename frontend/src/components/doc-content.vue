@@ -14,22 +14,15 @@ import { sanitizeHTML, safeMarkdownToHTML, createSafeImage, isValidImageURL, hyd
 import { normalizeSpuriousTablePrefixes } from '@/utils/markdownTableNormalize';
 import { openMermaidFullscreen } from '@/utils/mermaidViewer';
 import { useI18n } from 'vue-i18n';
-import { useAuthStore } from '@/stores/auth';
 import DocumentPreview from '@/components/document-preview.vue';
 import KnowledgeProcessingTimeline from '@/components/knowledge-processing-timeline.vue';
 
 const { t } = useI18n();
-const authStore = useAuthStore();
 
-// canDeleteGeneratedQuestion 对应后端 DELETE /chunks/by-id/:id/questions
-// 的 OwnedChunkKBOrAdminFromChunkID 守卫——KB 创建者或空间 Admin+
-// 才允许删除。父组件 KnowledgeBase.vue 通过 :canEditKB 把 KB 级权限
-// 传下来（包含 KB creator / Admin / 组织分享 editor 三种来源），未
-// 传时按更严格的 Admin 兜底，避免 Viewer 看到一个会 403 的入口。
-const canDeleteGeneratedQuestion = computed(() => {
-  if (props.canEditKB === true) return true;
-  return authStore.hasRole('admin');
-});
+// The parent passes the resolved KB permission. Do not fall back to the
+// active tenant role here: a tenant Admin can still be viewer-only on a
+// shared or subscribed KB.
+const canDeleteGeneratedQuestion = computed(() => props.canEditKB === true);
 
 const isSummaryRegenerationBusy = computed(() => {
   const parseStatus = String(props.details?.parse_status ?? '');
@@ -37,7 +30,9 @@ const isSummaryRegenerationBusy = computed(() => {
   return ['pending', 'processing', 'finalizing'].includes(parseStatus)
     || ['pending', 'processing'].includes(summaryStatus);
 });
-const canRegenerateSummary = computed(() => Boolean(props.details?.id) && props.canEditKB !== false && !isSummaryRegenerationBusy.value);
+const canRegenerateSummary = computed(() =>
+  Boolean(props.details?.id) && props.canEditKB === true && !isSummaryRegenerationBusy.value,
+);
 
 const detailTags = computed(() => {
   const tags = props.details?.tags;

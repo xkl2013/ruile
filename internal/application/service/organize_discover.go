@@ -62,16 +62,14 @@ func (s *organizeService) listAllDiscoverOutputs(ctx context.Context, tenantID u
 		pageSize = 100
 	}
 
-	query := types.OrganizeListQuery{
-		TenantID: tenantID,
-		UserID:   userID,
-		Page:     1,
-		PageSize: pageSize,
-	}
-
 	outputs := make([]*types.OrganizeOutput, 0, pageSize)
+	query := types.OrganizePublicContentQuery{
+		PublicStatus: types.OrganizePublicContentStatusPublished,
+		Page:         1,
+		PageSize:     pageSize,
+	}
 	for {
-		items, total, err := s.repo.ListOutputs(ctx, query)
+		items, total, err := s.repo.ListPublicContents(ctx, query)
 		if err != nil {
 			return nil, err
 		}

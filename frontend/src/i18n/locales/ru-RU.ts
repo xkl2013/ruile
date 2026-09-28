@@ -2867,6 +2867,7 @@ export default {
           'system.admin_promoted': 'Выдан системный администратор',
           'system.admin_revoked': 'Отозван системный администратор',
           'system.user_password_reset': 'Сброшен пароль пользователя',
+          'system.user_creator_status_changed': 'Изменен статус автора',
           'system.queue_task_retried': 'Повторно запущена сбойная задача',
           'system.queue_task_deleted': 'Удалена запись о сбойной задаче',
           'system.queue_task_run_now': 'Задача очереди запущена сейчас',

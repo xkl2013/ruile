@@ -16,6 +16,7 @@ export function resolveKnowledgeBaseScope(
     fallback === 'subscribed'
     || kb?.list_category === 'subscribed'
     || kb?.access_source === 'subscription'
+    || kb?.access_source === 'public_subscription'
   ) {
     return 'subscribed'
   }

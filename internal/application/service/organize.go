@@ -13,15 +13,17 @@ import (
 )
 
 var (
-	ErrOrganizeInvalidScope      = errors.New("invalid organize scope")
-	ErrOrganizeNotFound          = errors.New("organize item not found")
-	ErrOrganizeTitleRequired     = errors.New("title is required")
-	ErrOrganizeInvalidMemoryKind = errors.New("invalid memory kind")
-	ErrOrganizeInvalidStatus     = errors.New("invalid output status")
-	ErrOrganizeInvalidCategory   = errors.New("invalid discover category")
-	ErrOrganizeInvalidStage      = errors.New("invalid sprout stage")
-	ErrOrganizeMemoryRequired    = errors.New("memory_id is required")
-	ErrOrganizeInvalidMemoryRefs = errors.New("memory_ids contains unknown memories")
+	ErrOrganizeInvalidScope        = errors.New("invalid organize scope")
+	ErrOrganizeNotFound            = errors.New("organize item not found")
+	ErrOrganizeTitleRequired       = errors.New("title is required")
+	ErrOrganizeInvalidMemoryKind   = errors.New("invalid memory kind")
+	ErrOrganizeInvalidStatus       = errors.New("invalid output status")
+	ErrOrganizeInvalidCategory     = errors.New("invalid discover category")
+	ErrOrganizeInvalidStage        = errors.New("invalid sprout stage")
+	ErrOrganizeMemoryRequired      = errors.New("memory_id is required")
+	ErrOrganizeInvalidMemoryRefs   = errors.New("memory_ids contains unknown memories")
+	ErrOrganizeInvalidPublicType   = errors.New("invalid public content type")
+	ErrOrganizeInvalidPublicStatus = errors.New("invalid public content status")
 )
 
 const (
@@ -189,6 +191,7 @@ func (s *organizeService) CreateOutput(
 	if err != nil {
 		return nil, err
 	}
+	applyCreatorPublicationGuard(ctx, output, input.PublicStatus)
 	if err := s.repo.CreateOutput(ctx, output, memoryIDs); err != nil {
 		return nil, err
 	}
@@ -232,6 +235,25 @@ func (s *organizeService) UpdateOutput(
 	if strings.TrimSpace(input.TemplateVersion) == "" {
 		output.TemplateVersion = current.TemplateVersion
 	}
+	if strings.TrimSpace(input.PublicContentType) == "" {
+		output.PublicContentType = current.PublicContentType
+	}
+	if strings.TrimSpace(input.PublicStatus) == "" {
+		output.PublicStatus = current.PublicStatus
+	}
+	if strings.TrimSpace(input.SeriesID) == "" {
+		output.SeriesID = current.SeriesID
+	}
+	if strings.TrimSpace(input.SeriesTitle) == "" {
+		output.SeriesTitle = current.SeriesTitle
+	}
+	if input.SeriesOrder == 0 {
+		output.SeriesOrder = current.SeriesOrder
+	}
+	if strings.TrimSpace(input.ReviewNote) == "" {
+		output.ReviewNote = current.ReviewNote
+	}
+	applyCreatorPublicationGuard(ctx, output, input.PublicStatus)
 	if input.Fields == nil {
 		output.Fields = current.Fields
 	}
@@ -276,6 +298,125 @@ func (s *organizeService) ListOutputs(
 	query.Status = strings.TrimSpace(query.Status)
 	query = normalizeOrganizePagination(query)
 	return s.repo.ListOutputs(ctx, query)
+}
+
+func (s *organizeService) ListAdminPublicContents(
+	ctx context.Context,
+	query types.OrganizePublicContentQuery,
+) ([]*types.OrganizeOutput, int64, error) {
+	query.PublicStatus = strings.TrimSpace(query.PublicStatus)
+	if query.PublicStatus != "" && !types.IsValidOrganizePublicContentStatus(query.PublicStatus) {
+		return nil, 0, ErrOrganizeInvalidPublicStatus
+	}
+	query.PublicContentType = strings.TrimSpace(query.PublicContentType)
+	if query.PublicContentType != "" && !types.IsValidOrganizePublicContentType(query.PublicContentType) {
+		return nil, 0, ErrOrganizeInvalidPublicType
+	}
+	if query.Page <= 0 {
+		query.Page = organizeDefaultPage
+	}
+	if query.PageSize <= 0 || query.PageSize > organizeMaxPageSize {
+		query.PageSize = organizeMaxPageSize
+	}
+	return s.repo.ListPublicContents(ctx, query)
+}
+
+func (s *organizeService) GetAdminPublicContent(ctx context.Context, id string) (*types.OrganizeOutput, error) {
+	output, err := s.repo.GetOutputByID(ctx, strings.TrimSpace(id))
+	if err != nil {
+		return nil, err
+	}
+	if output == nil {
+		return nil, ErrOrganizeNotFound
+	}
+	return output, nil
+}
+
+func (s *organizeService) UpdateAdminPublicContent(
+	ctx context.Context,
+	id string,
+	input types.OrganizeOutputInput,
+) (*types.OrganizeOutput, error) {
+	current, err := s.repo.GetOutputByID(ctx, strings.TrimSpace(id))
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, ErrOrganizeNotFound
+	}
+	if strings.TrimSpace(input.Title) != "" {
+		current.Title = trimMax(input.Title, organizeMaxTitleLength)
+	}
+	if input.Content != "" {
+		current.Content = input.Content
+	}
+	if input.SourceSummary != "" {
+		current.SourceSummary = trimMax(input.SourceSummary, organizeMaxShortText)
+	}
+	if input.PublicContentType != "" {
+		if !types.IsValidOrganizePublicContentType(input.PublicContentType) {
+			return nil, ErrOrganizeInvalidPublicType
+		}
+		current.PublicContentType = input.PublicContentType
+	}
+	current.SeriesID = trimMax(input.SeriesID, 128)
+	current.SeriesTitle = trimMax(input.SeriesTitle, organizeMaxShortText)
+	current.SeriesOrder = max(0, input.SeriesOrder)
+	current.ReviewNote = trimMax(input.ReviewNote, 0)
+	if input.Metadata != nil {
+		current.Metadata = normalizeJSONMap(input.Metadata)
+	}
+	current.UpdatedAt = time.Now().UTC()
+	if err := s.repo.UpdatePublicContent(ctx, current); err != nil {
+		return nil, err
+	}
+	return s.repo.GetOutputByID(ctx, current.ID)
+}
+
+func (s *organizeService) ModeratePublicContent(
+	ctx context.Context,
+	id, status, reviewNote string,
+) (*types.OrganizeOutput, error) {
+	output, err := s.repo.GetOutputByID(ctx, strings.TrimSpace(id))
+	if err != nil {
+		return nil, err
+	}
+	if output == nil {
+		return nil, ErrOrganizeNotFound
+	}
+	status = strings.TrimSpace(status)
+	if !types.IsValidOrganizePublicContentStatus(status) {
+		return nil, ErrOrganizeInvalidPublicStatus
+	}
+	if status == types.OrganizePublicContentStatusPublished && strings.TrimSpace(output.Title) == "" {
+		return nil, ErrOrganizeTitleRequired
+	}
+	output.PublicStatus = status
+	output.ReviewNote = trimMax(reviewNote, 0)
+	actorID, _ := types.UserIDFromContext(ctx)
+	switch status {
+	case types.OrganizePublicContentStatusPendingReview:
+		output.Status = types.OrganizeOutputStatusReview
+		output.PublishedAt = nil
+		output.PublishedBy = ""
+	case types.OrganizePublicContentStatusPublished:
+		now := time.Now().UTC()
+		output.Status = types.OrganizeOutputStatusReady
+		output.PublishedAt = &now
+		output.PublishedBy = actorID
+	case types.OrganizePublicContentStatusOffline, types.OrganizePublicContentStatusRejected:
+		output.Status = types.OrganizeOutputStatusArchived
+		output.PublishedBy = actorID
+	default:
+		output.Status = types.OrganizeOutputStatusDraft
+		output.PublishedAt = nil
+		output.PublishedBy = ""
+	}
+	output.UpdatedAt = time.Now().UTC()
+	if err := s.repo.UpdatePublicContent(ctx, output); err != nil {
+		return nil, err
+	}
+	return s.repo.GetOutputByID(ctx, output.ID)
 }
 
 func (s *organizeService) CreateSproutReport(
@@ -417,23 +558,56 @@ func (s *organizeService) buildOutput(
 		return nil, nil, err
 	}
 	return &types.OrganizeOutput{
-		ID:              id,
-		TenantID:        tenantID,
-		UserID:          userID,
-		ConfigID:        trimMax(input.ConfigID, 36),
-		JobID:           trimMax(input.JobID, 36),
-		TemplateKey:     trimMax(input.TemplateKey, 64),
-		TemplateVersion: trimMax(input.TemplateVersion, 32),
-		Title:           title,
-		OutputType:      trimMax(input.OutputType, 64),
-		Content:         trimMax(input.Content, 0),
-		SourceSummary:   trimMax(input.SourceSummary, organizeMaxShortText),
-		Status:          status,
-		Icon:            trimMax(input.Icon, 64),
-		Fields:          normalizeJSONMap(input.Fields),
-		Citations:       normalizeJSONMap(input.Citations),
-		Metadata:        metadata,
+		ID:                id,
+		TenantID:          tenantID,
+		UserID:            userID,
+		ConfigID:          trimMax(input.ConfigID, 36),
+		JobID:             trimMax(input.JobID, 36),
+		TemplateKey:       trimMax(input.TemplateKey, 64),
+		TemplateVersion:   trimMax(input.TemplateVersion, 32),
+		Title:             title,
+		OutputType:        trimMax(input.OutputType, 64),
+		Content:           trimMax(input.Content, 0),
+		SourceSummary:     trimMax(input.SourceSummary, organizeMaxShortText),
+		Status:            status,
+		PublicContentType: normalizePublicContentType(input.PublicContentType),
+		PublicStatus:      normalizePublicContentStatus(input.PublicStatus, status),
+		SeriesID:          trimMax(input.SeriesID, 128),
+		SeriesTitle:       trimMax(input.SeriesTitle, organizeMaxShortText),
+		SeriesOrder:       max(0, input.SeriesOrder),
+		ReviewNote:        trimMax(input.ReviewNote, 0),
+		Icon:              trimMax(input.Icon, 64),
+		Fields:            normalizeJSONMap(input.Fields),
+		Citations:         normalizeJSONMap(input.Citations),
+		Metadata:          metadata,
 	}, memoryIDs, nil
+}
+
+func normalizePublicContentType(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if types.IsValidOrganizePublicContentType(value) {
+		return value
+	}
+	return types.OrganizePublicContentTypePost
+}
+
+func normalizePublicContentStatus(value, outputStatus string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if types.IsValidOrganizePublicContentStatus(value) {
+		return value
+	}
+	_ = outputStatus
+	return ""
+}
+
+func applyCreatorPublicationGuard(ctx context.Context, output *types.OrganizeOutput, requestedStatus string) {
+	if output == nil || types.IsSystemAdminFromContext(ctx) {
+		return
+	}
+	if strings.TrimSpace(requestedStatus) == types.OrganizePublicContentStatusPublished {
+		output.PublicStatus = types.OrganizePublicContentStatusPendingReview
+		output.Status = types.OrganizeOutputStatusReview
+	}
 }
 
 func (s *organizeService) buildSproutReport(

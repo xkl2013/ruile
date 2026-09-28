@@ -168,6 +168,9 @@ const (
 	// AuditActionSystemUserDeleted fires when a SystemAdmin soft-deletes a
 	// user account. Business resources are retained for audit/data recovery.
 	AuditActionSystemUserDeleted AuditAction = "system.user_deleted"
+	// AuditActionSystemUserCreatorStatusChanged fires when a SystemAdmin
+	// grants or removes explicit platform creator approval.
+	AuditActionSystemUserCreatorStatusChanged AuditAction = "system.user_creator_status_changed"
 
 	// AuditActionTenantStorageQuotaUpdated fires when a SystemAdmin changes a
 	// single workspace's storage quota. TenantID=0 because the action is
