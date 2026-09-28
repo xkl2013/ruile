@@ -7,6 +7,10 @@
           返回{{ fromConfig ? '整理任务' : '我的整理' }}
         </button>
         <div class="organize-output-detail-actions">
+          <t-button theme="primary" size="small" :loading="serviceImporting" @click="openServiceDialog">
+            <template #icon><t-icon name="share" /></template>
+            分配到服务
+          </t-button>
           <t-button variant="outline" size="small" @click="close">关闭</t-button>
         </div>
       </header>
@@ -18,8 +22,19 @@
             <h2>{{ output.title }}</h2>
             <p>{{ output.date }} · 来源 {{ output.sourceCount }} 条记忆</p>
           </div>
-          <span class="organize-tag organize-tag--success">已完成</span>
+          <div class="organize-output-statuses">
+            <span class="organize-tag organize-tag--success">已完成</span>
+            <span
+              class="organize-tag"
+              :class="output.assignmentStatus === 'assigned' ? 'organize-tag--success' : 'organize-tag--pending'"
+            >
+              {{ output.assignmentStatus === 'assigned' ? '已归属服务' : '待归属' }}
+            </span>
+          </div>
         </header>
+        <p v-if="output.assignmentReason" class="organize-output-assignment-reason">
+          {{ output.assignmentReason }}
+        </p>
 
         <div v-if="output.fields.length" class="organize-output-fields">
           <div v-for="field in output.fields" :key="field.label">
@@ -57,6 +72,53 @@
         <t-button variant="outline" size="small" @click="close">返回我的整理</t-button>
       </div>
     </main>
+
+    <t-dialog v-model:visible="serviceDialogVisible" header="分配到服务" width="620px" :footer="false">
+      <div class="organize-service-dialog">
+        <p class="organize-service-dialog-copy">
+          将这份整理结果归属到服务空间。归属后，服务助理会把它作为持续工作的背景资料。
+        </p>
+        <div v-if="serviceLoading" class="organize-service-dialog-state">
+          <t-loading size="small" />
+          <span>正在加载我的服务</span>
+        </div>
+        <div v-else-if="serviceError" class="organize-service-dialog-state organize-service-dialog-state--error">
+          <span>{{ serviceError }}</span>
+          <t-button variant="text" theme="primary" size="small" @click="loadServices">重试</t-button>
+        </div>
+        <div v-else class="organize-service-dialog-list">
+          <button
+            v-for="service in services"
+            :key="service.id"
+            type="button"
+            class="organize-service-option"
+            :class="{ selected: selectedServiceId === service.id }"
+            @click="selectedServiceId = service.id"
+          >
+            <span class="organize-service-option-icon"><t-icon name="folder" /></span>
+            <span class="organize-service-option-main">
+              <strong>{{ service.name }}</strong>
+              <small>{{ service.description || '未填写服务描述' }}</small>
+            </span>
+            <span class="organize-service-option-state">{{ service.state === 'active' ? '进行中' : '草稿' }}</span>
+          </button>
+          <div v-if="!services.length" class="organize-service-dialog-empty">
+            还没有可用的服务空间，请先创建一个服务。
+          </div>
+        </div>
+        <div class="organize-service-dialog-actions">
+          <t-button variant="outline" @click="createNewService">新建服务并使用</t-button>
+          <t-button
+            theme="primary"
+            :disabled="!selectedServiceId || serviceImporting"
+            :loading="serviceImporting"
+            @click="importToSelectedService"
+          >
+            确认分配
+          </t-button>
+        </div>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -65,9 +127,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  assignOrganizeOutputToService,
   getOrganizeOutput,
   listOrganizeTemplates,
 } from '@/api/organize'
+import { listServiceSpaces, type ServiceSpace } from '@/api/service'
 import {
   toOrganizeOutput,
   toOrganizeTemplate,
@@ -81,6 +145,12 @@ const output = ref<OrganizeOutput | null>(null)
 const loading = ref(true)
 const fromConfig = computed(() => route.query.from === 'config')
 const outputHtml = computed(() => renderSproutReportHtml(output.value?.content || ''))
+const serviceDialogVisible = ref(false)
+const serviceLoading = ref(false)
+const serviceImporting = ref(false)
+const serviceError = ref('')
+const services = ref<ServiceSpace[]>([])
+const selectedServiceId = ref('')
 
 const loadOutput = async () => {
   loading.value = true
@@ -107,6 +177,10 @@ const close = async () => {
     })
     return
   }
+  if (route.query.from === 'service') {
+    await router.push('/platform/service')
+    return
+  }
   await router.push('/platform/organize/mine')
 }
 
@@ -115,6 +189,63 @@ const showCitation = (citationId: string) => {
   if (!citation) return
   const source = citation.source ? ` · ${citation.source}` : ''
   MessagePlugin.info(`${citation.label} · ${citation.title}${source}`)
+}
+
+const loadServices = async () => {
+  serviceLoading.value = true
+  serviceError.value = ''
+  try {
+    const response = await listServiceSpaces()
+    services.value = (response.data || []).filter((service) => service.state !== 'archived')
+    if (!services.value.some((service) => service.id === selectedServiceId.value)) {
+      selectedServiceId.value = services.value[0]?.id || ''
+    }
+  } catch (error: any) {
+    services.value = []
+    serviceError.value = error?.message || '服务列表加载失败'
+  } finally {
+    serviceLoading.value = false
+  }
+}
+
+const openServiceDialog = async () => {
+  if (!output.value?.id) return
+  serviceDialogVisible.value = true
+  await loadServices()
+}
+
+const importToSelectedService = async () => {
+  if (!output.value?.id || !selectedServiceId.value || serviceImporting.value) return
+  serviceImporting.value = true
+  try {
+    await assignOrganizeOutputToService(output.value.id, selectedServiceId.value)
+    serviceDialogVisible.value = false
+    await router.push({
+      path: '/platform/service',
+      query: {
+        service: selectedServiceId.value,
+        context_source: output.value.id,
+      },
+    })
+    MessagePlugin.success('整理结果已带入服务')
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '带入服务失败')
+  } finally {
+    serviceImporting.value = false
+  }
+}
+
+const createNewService = async () => {
+  if (!output.value?.id) return
+  serviceDialogVisible.value = false
+  await router.push({
+    path: '/platform/service',
+    query: {
+      create: '1',
+      source_type: 'organize_output',
+      source_id: output.value.id,
+    },
+  })
 }
 
 onMounted(() => {
@@ -160,6 +291,112 @@ watch(
   margin-bottom: 18px;
 }
 
+.organize-output-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.organize-service-dialog-copy {
+  margin: 0 0 14px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.organize-service-dialog-list {
+  display: flex;
+  max-height: 300px;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.organize-service-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.organize-service-option:hover,
+.organize-service-option.selected {
+  border-color: var(--td-brand-color);
+  background: var(--td-brand-color-1);
+}
+
+.organize-service-option-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 6px;
+  background: var(--td-brand-color-2);
+  color: var(--td-brand-color);
+}
+
+.organize-service-option-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.organize-service-option-main strong,
+.organize-service-option-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organize-service-option-main strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.organize-service-option-main small,
+.organize-service-option-state {
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+}
+
+.organize-service-option-state {
+  flex: none;
+}
+
+.organize-service-dialog-state,
+.organize-service-dialog-empty {
+  display: flex;
+  min-height: 100px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+}
+
+.organize-service-dialog-state--error {
+  flex-direction: column;
+}
+
+.organize-service-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
 .organize-back-button {
   display: inline-flex;
   align-items: center;
@@ -181,12 +418,26 @@ watch(
 }
 
 .organize-output-document-head {
-  display: flex;
-  align-items: flex-start;
+	display: flex;
+	align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
   padding-bottom: 22px;
-  border-bottom: 1px solid var(--td-component-stroke);
+	border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.organize-output-statuses {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.organize-output-assignment-reason {
+  margin: -8px 0 18px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .organize-output-eyebrow {
@@ -281,9 +532,15 @@ watch(
 }
 
 .organize-tag--success {
-  border-color: #b7e1cf;
-  background: #eef9f3;
-  color: #23805a;
+	border-color: #b7e1cf;
+	background: #eef9f3;
+	color: #23805a;
+}
+
+.organize-tag--pending {
+	border-color: #f0d7a1;
+	background: #fff8e8;
+	color: #9a6a13;
 }
 
 .organize-detail-empty {

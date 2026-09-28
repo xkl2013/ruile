@@ -202,27 +202,6 @@ SET asr_config = (
 WHERE id IN (SELECT id FROM rewritten);
 
 WITH RECURSIVE rewritten(id, value, seq) AS (
-    SELECT kb.id, COALESCE(kb.wiki_config, ''), 0
-    FROM knowledge_bases kb
-    WHERE EXISTS (
-        SELECT 1 FROM model_dedup_redirects r
-        WHERE instr(COALESCE(kb.wiki_config, ''), r.old_id) > 0
-    )
-    UNION ALL
-    SELECT rewritten.id, REPLACE(rewritten.value, r.old_id, r.new_id), r.seq
-    FROM rewritten
-    JOIN model_dedup_redirects r ON r.seq = rewritten.seq + 1
-)
-UPDATE knowledge_bases
-SET wiki_config = (
-    SELECT value FROM rewritten
-    WHERE rewritten.id = knowledge_bases.id
-    ORDER BY seq DESC
-    LIMIT 1
-)
-WHERE id IN (SELECT id FROM rewritten);
-
-WITH RECURSIVE rewritten(id, value, seq) AS (
     SELECT agent.id, COALESCE(agent.config, ''), 0
     FROM custom_agents agent
     WHERE EXISTS (

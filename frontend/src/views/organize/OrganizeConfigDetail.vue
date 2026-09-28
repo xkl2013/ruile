@@ -36,6 +36,15 @@
                 <span v-if="job.id === route.query.job" class="organize-job-focus">深链定位 · {{ job.id }}</span>
               </div>
               <p>{{ job.summary }}</p>
+              <div v-if="job.assignmentReason" class="organize-job-assignment">
+                <span
+                  class="organize-tag"
+                  :class="job.assignmentStatus === 'assigned' ? 'organize-tag--success' : 'organize-tag--pending'"
+                >
+                  {{ job.assignmentStatus === 'assigned' ? '已自动归属' : '待手动分配' }}
+                </span>
+                <span>{{ job.assignmentReason }}</span>
+              </div>
               <div class="organize-job-meta">
                 <span>{{ job.rangeLabel }}</span>
                 <i />
@@ -405,6 +414,18 @@ watch(
   color: var(--td-text-color-secondary);
   font-size: 13px;
   line-height: 20px;
+}
+
+.organize-job-assignment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -4px;
+  margin-bottom: 10px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .organize-job-meta {

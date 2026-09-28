@@ -255,10 +255,14 @@ func (t *ServiceSpaceTemplate) Validate() error {
 }
 
 type ServiceSpaceTemplateApplyInput struct {
-	TemplateKey     string `json:"template_key"`
-	TemplateVersion int    `json:"template_version,omitempty"`
-	Name            string `json:"name"`
-	IdempotencyKey  string `json:"idempotency_key"`
+	TemplateKey      string                      `json:"template_key"`
+	TemplateVersion  int                         `json:"template_version,omitempty"`
+	Name             string                      `json:"name"`
+	Description      string                      `json:"description,omitempty"`
+	Instruction      string                      `json:"instruction,omitempty"`
+	IdempotencyKey   string                      `json:"idempotency_key"`
+	KnowledgeBaseIDs StringArray                 `json:"knowledge_base_ids,omitempty"`
+	Experts          []ServiceExpertBindingInput `json:"experts,omitempty"`
 }
 
 func (i ServiceSpaceTemplateApplyInput) Validate() error {

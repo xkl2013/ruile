@@ -4,8 +4,10 @@ import {
   listServiceExperts,
   listServiceSessions,
   listServiceSpaces,
+  listServiceTemplates,
   type ServiceExpertBinding,
   type ServiceSpace,
+  type ServiceSpaceTemplate as ApiServiceSpaceTemplate,
   type ServiceSession as ApiServiceSession,
 } from '@/api/service'
 import { listPublishedExperts, type PublishedExpert } from '@/api/expert-package'
@@ -216,7 +218,7 @@ const earlyChildhoodMembershipInstruction = `你是“早教机构会员服务�
 5. 处理步骤、负责人和下一步动作。
 当资料不足时固定输出“已知信息、缺失信息、当前建议、需要谁确认”。`
 
-export const serviceTemplates: ServiceTemplate[] = [
+export const serviceTemplates = reactive<ServiceTemplate[]>([
   {
     id: 't1',
     name: '招生咨询全流程',
@@ -345,7 +347,7 @@ export const serviceTemplates: ServiceTemplate[] = [
     summarySections: ['会员概况', '近期服务', '权益与到期', '待跟进事项'],
     autoApply: true,
   },
-]
+])
 
 export const currentUserServiceProfile = {
   role: '教培工作者',
@@ -766,6 +768,49 @@ const formatUpdatedLabel = (value?: string) => {
   return new Date(timestamp).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
 }
 
+const mapRemoteServiceTemplate = (
+  remoteTemplate: ApiServiceSpaceTemplate,
+  existing?: ServiceTemplate,
+): ServiceTemplate => {
+  const blueprint = remoteTemplate.blueprint
+  return {
+    id: remoteTemplate.key,
+    name: remoteTemplate.name || existing?.name || remoteTemplate.key,
+    description: existing?.description || blueprint?.source_instruction || '已发布的服务空间模板',
+    instruction: existing?.instruction || blueprint?.source_instruction || '',
+    experts: existing?.experts
+      || blueprint?.expert_suggestions?.map((expert) => expert.expert_ref).filter(Boolean)
+      || [],
+    icon: existing?.icon || 'folder',
+    spaceType: blueprint?.proposed_space_type || existing?.spaceType,
+    spaceTypeLabel: existing?.spaceTypeLabel,
+    subjectLabel: existing?.subjectLabel,
+    matchScore: existing?.matchScore,
+    matchReason: existing?.matchReason,
+    profileFields: blueprint?.profile_schema?.map((field) => field.label) || existing?.profileFields || [],
+    summarySections: blueprint?.summary_schema?.map((section) => section.label) || existing?.summarySections || [],
+    autoApply: remoteTemplate.auto_apply,
+  }
+}
+
+const syncServiceTemplates = async () => {
+  try {
+    const response = await listServiceTemplates()
+    const remoteTemplates = Array.isArray(response?.data) ? response.data : []
+    remoteTemplates.forEach((remoteTemplate) => {
+      const existing = serviceTemplates.find((template) => template.id === remoteTemplate.key)
+      const mapped = mapRemoteServiceTemplate(remoteTemplate, existing)
+      if (existing) {
+        Object.assign(existing, mapped)
+      } else {
+        serviceTemplates.push(mapped)
+      }
+    })
+  } catch (error) {
+    console.warn('[ServiceHub] failed to load published service templates', error)
+  }
+}
+
 const mapService = (service: ServiceSpace, experts: ServiceExpertBinding[]): ServiceRecord => ({
   id: service.id,
   name: service.name,
@@ -798,6 +843,7 @@ export const loadServiceHub = async (force = false) => {
   if (loadPromise && !force) return loadPromise
   loadPromise = (async () => {
     try {
+      await syncServiceTemplates()
       await loadServiceExperts().catch((error) => {
         console.warn('[ServiceHub] failed to load published experts', error)
       })

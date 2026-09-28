@@ -11,7 +11,7 @@ import (
 
 func TestServiceSpaceCreateRejectsInvalidSpaceType(t *testing.T) {
 	db := newAgentRunTestDB(t)
-	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil, nil)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
 
 	_, err := svc.Create(context.Background(), 101, "owner", types.ServiceSpaceCreateInput{
 		Name:      "非法空间类型测试",
@@ -22,7 +22,7 @@ func TestServiceSpaceCreateRejectsInvalidSpaceType(t *testing.T) {
 
 func TestServiceSpaceCreateDefaultsCustomerServiceType(t *testing.T) {
 	db := newAgentRunTestDB(t)
-	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil, nil)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
 
 	space, err := svc.Create(context.Background(), 102, "owner", types.ServiceSpaceCreateInput{
 		Name: "默认客户服务空间",

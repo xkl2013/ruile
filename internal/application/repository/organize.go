@@ -164,6 +164,9 @@ func (r *organizeRepository) UpdateOutput(ctx context.Context, output *types.Org
 			Select(
 				"config_id",
 				"job_id",
+				"assigned_service_id",
+				"assignment_status",
+				"assignment_reason",
 				"template_key",
 				"template_version",
 				"title",
@@ -200,6 +203,9 @@ func (r *organizeRepository) ListOutputs(ctx context.Context, query types.Organi
 		Where("tenant_id = ? AND user_id = ?", query.TenantID, query.UserID)
 	if query.Status != "" {
 		dbq = dbq.Where("status = ?", query.Status)
+	}
+	if query.AssignmentStatus != "" {
+		dbq = dbq.Where("assignment_status = ?", query.AssignmentStatus)
 	}
 	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "content", "output_type", "source_summary")
 

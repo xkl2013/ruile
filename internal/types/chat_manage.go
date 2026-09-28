@@ -66,13 +66,14 @@ type PipelineRequest struct {
 	IntentPromptOverrides map[string]string `json:"-"`
 
 	// Misc request-scoped config
-	TenantID            uint64 `json:"-"`
-	WebSearchEnabled    bool   `json:"-"`
-	WebSearchProviderID string `json:"-"` // Resolved from agent config or tenant default
-	WebSearchMaxResults int    `json:"-"` // Resolved from agent config or tenant default
-	WebFetchEnabled     bool   `json:"-"` // Auto-fetch full page content for web search results after rerank
-	WebFetchTopN        int    `json:"-"` // Max pages to fetch (default 3)
-	Language            string `json:"-"`
+	TenantID              uint64 `json:"-"`
+	WebSearchEnabled      bool   `json:"-"`
+	WebSearchProviderID   string `json:"-"` // Resolved from agent config or tenant default
+	WebSearchMaxResults   int    `json:"-"` // Resolved from agent config or tenant default
+	WebFetchEnabled       bool   `json:"-"` // Auto-fetch full page content for web search results after rerank
+	WebFetchTopN          int    `json:"-"` // Max pages to fetch (default 3)
+	Language              string `json:"-"`
+	ServiceRuntimeContext string `json:"-"`
 }
 
 // CitationsEnabled returns the effective citation setting for this request.
@@ -240,6 +241,7 @@ func (c *ChatManage) Clone() *ChatManage {
 			WebFetchEnabled:          c.WebFetchEnabled,
 			WebFetchTopN:             c.WebFetchTopN,
 			Language:                 c.Language,
+			ServiceRuntimeContext:    c.ServiceRuntimeContext,
 			IntentPromptOverrides:    maps.Clone(c.IntentPromptOverrides),
 		},
 		PipelineState: PipelineState{

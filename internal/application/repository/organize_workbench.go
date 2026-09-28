@@ -100,6 +100,7 @@ func (r *organizeRepository) UpdateConfig(ctx context.Context, config *types.Org
 		Select(
 			"name",
 			"template_key",
+			"target_service_id",
 			"instruction",
 			"expert_ids",
 			"schedule",
@@ -199,6 +200,7 @@ func (r *organizeRepository) UpdateJob(ctx context.Context, job *types.OrganizeJ
 		Model(&types.OrganizeJob{}).
 		Where("tenant_id = ? AND user_id = ? AND id = ?", job.TenantID, job.UserID, job.ID).
 		Select(
+			"target_service_id",
 			"status",
 			"stage",
 			"progress",

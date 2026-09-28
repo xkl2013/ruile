@@ -35,6 +35,9 @@ export interface OrganizeJob {
   conclusionCount?: number
   todoCount?: number
   outputId?: string
+  assignmentStatus?: 'pending' | 'assigned'
+  assignmentReason?: string
+  assignedServiceId?: string
   errorMessage?: string
   fresh?: boolean
 }
@@ -43,6 +46,7 @@ export interface OrganizeConfig {
   id: string
   name: string
   templateKey: string
+  targetServiceId: string
   instruction: string
   expertIds: string[]
   schedule: OrganizeScheduleKey
@@ -83,6 +87,9 @@ export interface OrganizeOutput {
   fields: OrganizeOutputField[]
   citations: OrganizeCitation[]
   content: string
+  assignmentStatus: 'pending' | 'assigned'
+  assignmentReason: string
+  assignedServiceId: string
 }
 
 export const organizeScheduleLabels: Record<OrganizeScheduleKey, string> = {
@@ -162,6 +169,9 @@ export const toOrganizeJob = (job: ApiOrganizeJob): OrganizeJob => {
     conclusionCount: toNumber(job.result?.conclusion_count),
     todoCount: toNumber(job.result?.todo_count),
     outputId: job.output_id,
+    assignmentStatus: job.result?.assignment_status === 'assigned' ? 'assigned' : 'pending',
+    assignmentReason: String(job.result?.assignment_reason || ''),
+    assignedServiceId: String(job.result?.assigned_service_id || ''),
     errorMessage: job.error_message,
     fresh: Boolean(job.finished_at && Date.now() - new Date(job.finished_at).getTime() < 5 * 60 * 1000),
   }
@@ -171,6 +181,7 @@ export const toOrganizeConfig = (config: ApiOrganizeConfig): OrganizeConfig => (
   id: config.id,
   name: config.name,
   templateKey: config.template_key,
+  targetServiceId: config.target_service_id || '',
   instruction: config.instruction,
   expertIds: [...(config.expert_ids || [])],
   schedule: config.schedule,
@@ -221,5 +232,8 @@ export const toOrganizeOutput = (
     fields,
     citations,
     content: output.content || '',
+    assignmentStatus: output.assignment_status || 'pending',
+    assignmentReason: output.assignment_reason || String(metadata.assignment_reason || ''),
+    assignedServiceId: output.assigned_service_id || String(metadata.assigned_service_id || ''),
   }
 }

@@ -35,6 +35,30 @@ func TestIntoChatMessage_NoKBRetrieval(t *testing.T) {
 	}
 }
 
+func TestIntoChatMessage_AppendsServiceRuntimeContext(t *testing.T) {
+	cm := &types.ChatManage{
+		PipelineRequest: types.PipelineRequest{
+			Query:                 "这个会员当前应该怎么跟进？",
+			ServiceRuntimeContext: "会员等级：白金\n最近一次沟通：已确认续费意向。",
+		},
+		PipelineState: types.PipelineState{
+			Intent: types.IntentChitchat,
+		},
+	}
+	plugin := &PluginIntoChatMessage{messageService: nil}
+	if err := plugin.OnEvent(context.Background(), types.INTO_CHAT_MESSAGE, cm, func() *PluginError {
+		return nil
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !contains(cm.UserContent, "[服务空间参考资料") {
+		t.Fatalf("service context marker missing from user content: %s", cm.UserContent)
+	}
+	if !contains(cm.UserContent, "已确认续费意向") {
+		t.Fatalf("service context content missing from user content: %s", cm.UserContent)
+	}
+}
+
 func TestIntoChatMessage_WithMergeResults(t *testing.T) {
 	cm := &types.ChatManage{
 		PipelineRequest: types.PipelineRequest{

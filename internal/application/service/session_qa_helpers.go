@@ -13,6 +13,70 @@ import (
 // Shared QA helpers: KB resolution, model resolution, retrieval tenant
 // ---------------------------------------------------------------------------
 
+func (s *sessionService) applyServiceRuntimeContext(
+	ctx context.Context,
+	req *types.QARequest,
+) error {
+	if req == nil || req.Session == nil || s.serviceSpace == nil {
+		return nil
+	}
+	serviceID := strings.TrimSpace(req.Session.ServiceID)
+	if serviceID == "" {
+		return nil
+	}
+
+	userID := strings.TrimSpace(req.Session.UserID)
+	if userID == "" {
+		userID = sessionUserIDFromContext(ctx)
+	}
+	runtimeContext, err := s.serviceSpace.ResolveRuntimeContext(
+		ctx,
+		req.Session.TenantID,
+		userID,
+		serviceID,
+	)
+	if err != nil {
+		return err
+	}
+	if runtimeContext == nil {
+		return nil
+	}
+
+	allowedKBs := make(map[string]struct{}, len(runtimeContext.KnowledgeBaseIDs))
+	for _, id := range runtimeContext.KnowledgeBaseIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			allowedKBs[id] = struct{}{}
+		}
+	}
+	for _, id := range req.KnowledgeBaseIDs {
+		if _, ok := allowedKBs[strings.TrimSpace(id)]; !ok {
+			return ErrServiceSpaceKBOutOfScope
+		}
+	}
+	for _, scope := range req.TagScopes {
+		if _, ok := allowedKBs[strings.TrimSpace(scope.KnowledgeBaseID)]; !ok {
+			return ErrServiceSpaceKBOutOfScope
+		}
+	}
+	if len(req.KnowledgeBaseIDs) == 0 && len(req.KnowledgeIDs) == 0 && len(req.TagScopes) == 0 {
+		req.KnowledgeBaseIDs = append([]string(nil), runtimeContext.KnowledgeBaseIDs...)
+	}
+	req.ServiceRuntimeInstruction = strings.TrimSpace(runtimeContext.Instruction)
+	if serviceContext, readErr := s.serviceSpace.ReadMarkdownContext(
+		ctx,
+		req.Session.TenantID,
+		userID,
+		serviceID,
+	); readErr != nil {
+		logger.Warnf(ctx, "Failed to read service runtime context: service_id=%s error=%v", serviceID, readErr)
+	} else {
+		req.ServiceRuntimeContext = strings.TrimSpace(serviceContext)
+	}
+	req.ServiceRuntimeContextHash = strings.TrimSpace(runtimeContext.ContextHash)
+	return nil
+}
+
 // resolveKnowledgeBases resolves the effective knowledge base IDs and knowledge IDs
 // for a QA request. Priority:
 //  1. Explicit @mentions (request-specified kbIDs / knowledgeIDs)

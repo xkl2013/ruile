@@ -41,6 +41,24 @@ type ServiceSubject struct {
 
 func (ServiceSubject) TableName() string { return "service_subjects" }
 
+type ServiceSubjectCreateInput struct {
+	SubjectType     string  `json:"subject_type"`
+	SubjectKey      string  `json:"subject_key"`
+	DisplayName     string  `json:"display_name"`
+	ParentSubjectID *string `json:"parent_subject_id,omitempty"`
+	Metadata        JSONMap `json:"metadata,omitempty"`
+	VisibilityScope string  `json:"visibility_scope,omitempty"`
+}
+
+type ServiceSubjectUpdateInput struct {
+	SubjectType     *string  `json:"subject_type,omitempty"`
+	SubjectKey      *string  `json:"subject_key,omitempty"`
+	DisplayName     *string  `json:"display_name,omitempty"`
+	ParentSubjectID *string  `json:"parent_subject_id,omitempty"`
+	Metadata        *JSONMap `json:"metadata,omitempty"`
+	VisibilityScope *string  `json:"visibility_scope,omitempty"`
+}
+
 // NormalizeServiceSubjectType validates a configurable, machine-readable type
 // key without restricting the business domain to a platform enum.
 func NormalizeServiceSubjectType(value string) (string, error) {

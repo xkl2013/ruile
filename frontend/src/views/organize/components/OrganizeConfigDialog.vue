@@ -66,7 +66,7 @@
               <small v-if="templateError" class="organize-config-error">{{ templateError }}</small>
             </div>
 
-            <section class="organize-config-option">
+            <section v-if="config" class="organize-config-option">
               <button
                 type="button"
                 class="organize-config-option-row"
@@ -115,6 +115,17 @@
                 </option>
               </select>
             </label>
+
+            <label class="organize-config-field">
+              <span>归属服务</span>
+              <select v-model="form.targetServiceId" class="organize-config-schedule">
+                <option value="">暂不指定，生成待归属任务</option>
+                <option v-for="service in services" :key="service.id" :value="service.id">
+                  {{ service.name }}
+                </option>
+              </select>
+              <small>指定服务后，整理完成会自动进入该服务；不确定时可稍后手动分配。</small>
+            </label>
           </div>
 
           <footer>
@@ -138,6 +149,7 @@ import {
   listOrganizeTemplates,
   updateOrganizeConfig,
 } from '@/api/organize'
+import { listServiceSpaces, type ServiceSpace } from '@/api/service'
 import {
   organizeScheduleLabels,
   toOrganizeConfig,
@@ -168,6 +180,7 @@ const form = reactive({
   instruction: '',
   expertIds: [] as string[],
   schedule: 'manual' as OrganizeScheduleKey,
+  targetServiceId: '',
 })
 const nameError = ref('')
 const templateError = ref('')
@@ -175,6 +188,7 @@ const expertPickerOpen = ref(false)
 const saving = ref(false)
 const templates = ref<OrganizeTemplate[]>([])
 const experts = ref<OrganizeExpert[]>([])
+const services = ref<ServiceSpace[]>([])
 
 const scheduleOptions = Object.entries(organizeScheduleLabels).map(([value, label]) => ({
   value: value as OrganizeScheduleKey,
@@ -194,6 +208,7 @@ const resetForm = () => {
   form.instruction = source?.instruction || template?.defaultInstruction || ''
   form.expertIds = source ? [...source.expertIds] : [...(template?.expertIds || [])]
   form.schedule = source?.schedule || 'manual'
+  form.targetServiceId = source?.targetServiceId || ''
   nameError.value = ''
   templateError.value = ''
   expertPickerOpen.value = false
@@ -232,14 +247,16 @@ const toggleExpert = (expertId: string) => {
 const close = () => emit('update:visible', false)
 
 const loadOptions = async () => {
-  if (templates.value.length && experts.value.length) return
+  if (templates.value.length && (!props.config || experts.value.length)) return
   try {
-    const [templateResponse, expertResponse] = await Promise.all([
+    const [templateResponse, expertResponse, serviceResponse] = await Promise.all([
       listOrganizeTemplates(),
-      listOrganizeExperts(),
+      props.config ? listOrganizeExperts() : Promise.resolve(null),
+      listServiceSpaces(),
     ])
     templates.value = (templateResponse.data || []).map(toOrganizeTemplate)
-    experts.value = expertResponse.data || []
+    experts.value = expertResponse?.data || []
+    services.value = (serviceResponse.data || []).filter((service) => service.state !== 'archived')
   } catch (loadError: any) {
     MessagePlugin.error(loadError?.message || '整理配置选项加载失败')
   }
@@ -264,6 +281,7 @@ const submit = async () => {
       instruction: form.instruction.trim(),
       expert_ids: [...form.expertIds],
       schedule: form.schedule,
+      target_service_id: form.targetServiceId || undefined,
     }
     const response = props.config?.id
       ? await updateOrganizeConfig(props.config.id, input)

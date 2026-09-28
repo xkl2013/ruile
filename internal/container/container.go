@@ -228,7 +228,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewCustomAgentService))
 	must(container.Provide(service.NewUserResourceFavoriteService))
 	must(container.Provide(service.NewOrganizeService))
-	must(container.Provide(service.NewServiceSpaceService))
+	must(container.Provide(service.NewServiceSpaceServiceWithTenantRepository))
 	must(container.Provide(service.NewAgentRunService))
 	must(container.Provide(service.NewWikiPageService))
 	must(container.Provide(service.NewWikiLogEntryService))

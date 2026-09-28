@@ -1,0 +1,2 @@
+-- Default status rows are part of the service configuration and are retained
+-- on rollback; the schema rollback is owned by migration 000113.

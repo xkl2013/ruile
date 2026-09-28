@@ -120,24 +120,25 @@ func (v *OrganizeTemplateVersion) BeforeCreate(_ *gorm.DB) error {
 
 // OrganizeConfig is a user-owned reusable organize configuration.
 type OrganizeConfig struct {
-	ID          string            `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID    uint64            `json:"tenant_id" gorm:"not null;index"`
-	UserID      string            `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	Name        string            `json:"name" gorm:"type:varchar(255);not null"`
-	TemplateKey string            `json:"template_key" gorm:"type:varchar(64);not null;index"`
-	Instruction string            `json:"instruction" gorm:"type:text;not null;default:''"`
-	ExpertIDs   StringArray       `json:"expert_ids" gorm:"type:jsonb;not null;default:'[]'"`
-	Schedule    string            `json:"schedule" gorm:"type:varchar(32);not null;default:'manual';index"`
-	Status      string            `json:"status" gorm:"type:varchar(32);not null;default:'active';index"`
-	NextRunAt   *time.Time        `json:"next_run_at,omitempty" gorm:"index"`
-	LastRunAt   *time.Time        `json:"last_run_at,omitempty"`
-	Metadata    JSONMap           `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
-	Template    *OrganizeTemplate `json:"template,omitempty" gorm:"-"`
-	LatestJob   *OrganizeJob      `json:"latest_job,omitempty" gorm:"-"`
-	JobCount    int64             `json:"job_count" gorm:"-"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
-	DeletedAt   gorm.DeletedAt    `json:"deleted_at,omitempty" gorm:"index"`
+	ID              string            `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID        uint64            `json:"tenant_id" gorm:"not null;index"`
+	UserID          string            `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	Name            string            `json:"name" gorm:"type:varchar(255);not null"`
+	TemplateKey     string            `json:"template_key" gorm:"type:varchar(64);not null;index"`
+	TargetServiceID string            `json:"target_service_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	Instruction     string            `json:"instruction" gorm:"type:text;not null;default:''"`
+	ExpertIDs       StringArray       `json:"expert_ids" gorm:"type:jsonb;not null;default:'[]'"`
+	Schedule        string            `json:"schedule" gorm:"type:varchar(32);not null;default:'manual';index"`
+	Status          string            `json:"status" gorm:"type:varchar(32);not null;default:'active';index"`
+	NextRunAt       *time.Time        `json:"next_run_at,omitempty" gorm:"index"`
+	LastRunAt       *time.Time        `json:"last_run_at,omitempty"`
+	Metadata        JSONMap           `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	Template        *OrganizeTemplate `json:"template,omitempty" gorm:"-"`
+	LatestJob       *OrganizeJob      `json:"latest_job,omitempty" gorm:"-"`
+	JobCount        int64             `json:"job_count" gorm:"-"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt    `json:"deleted_at,omitempty" gorm:"index"`
 }
 
 func (OrganizeConfig) TableName() string { return "organize_configs" }
@@ -169,6 +170,7 @@ type OrganizeJob struct {
 	ConfigID        string         `json:"config_id" gorm:"type:varchar(36);not null;index"`
 	TemplateKey     string         `json:"template_key" gorm:"type:varchar(64);not null;index"`
 	TemplateVersion string         `json:"template_version" gorm:"type:varchar(32);not null;default:''"`
+	TargetServiceID string         `json:"target_service_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
 	Status          string         `json:"status" gorm:"type:varchar(32);not null;default:'queued';index"`
 	Stage           string         `json:"stage" gorm:"type:varchar(64);not null;default:'queued'"`
 	Progress        int            `json:"progress" gorm:"not null;default:0"`
@@ -238,12 +240,13 @@ type OrganizeJobQuery struct {
 }
 
 type OrganizeConfigInput struct {
-	Name        string      `json:"name"`
-	TemplateKey string      `json:"template_key"`
-	Instruction string      `json:"instruction,omitempty"`
-	ExpertIDs   StringArray `json:"expert_ids,omitempty"`
-	Schedule    string      `json:"schedule,omitempty"`
-	Metadata    JSONMap     `json:"metadata,omitempty"`
+	Name            string      `json:"name"`
+	TemplateKey     string      `json:"template_key"`
+	TargetServiceID string      `json:"target_service_id,omitempty"`
+	Instruction     string      `json:"instruction,omitempty"`
+	ExpertIDs       StringArray `json:"expert_ids,omitempty"`
+	Schedule        string      `json:"schedule,omitempty"`
+	Metadata        JSONMap     `json:"metadata,omitempty"`
 }
 
 type OrganizeJobInput struct {

@@ -176,12 +176,23 @@ func TestOrganizeWorkbenchCreatesDurableFallbackOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, config.ID, output.ConfigID)
 	require.Equal(t, job.ID, output.JobID)
+	require.Equal(t, types.OrganizeAssignmentStatusPending, output.AssignmentStatus)
+	require.Equal(t, "未指定目标服务，等待用户手动分配", output.AssignmentReason)
 	require.Equal(t, template.Key, output.TemplateKey)
 	require.Equal(t, template.PublishedVersion, output.TemplateVersion)
 	require.Equal(t, int64(1), output.MemoryCount)
 	require.Equal(t, 2, metadataInt(output.Metadata, "todo_count"))
 	require.NotEmpty(t, output.Fields)
 	require.NotEmpty(t, output.Citations)
+
+	pending, pendingTotal, err := svc.ListPendingAssignments(ctx, 9, "user-a", types.OrganizeListQuery{
+		Page:     1,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), pendingTotal)
+	require.Len(t, pending, 1)
+	require.Equal(t, output.ID, pending[0].ID)
 
 	configs, total, err := svc.ListConfigs(ctx, types.OrganizeConfigQuery{
 		TenantID: 9,
@@ -192,6 +203,167 @@ func TestOrganizeWorkbenchCreatesDurableFallbackOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), total)
 	require.Equal(t, job.ID, configs[0].LatestJob.ID)
+}
+
+func TestOrganizeWorkbenchAutoAssignsReadyOutputToConfiguredService(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&types.OrganizeMemory{},
+		&types.OrganizeOutput{},
+		&types.OrganizeOutputMemory{},
+		&types.OrganizeTemplate{},
+		&types.OrganizeTemplateVersion{},
+		&types.OrganizeConfig{},
+		&types.OrganizeJob{},
+	))
+
+	organizeRepo := repository.NewOrganizeRepository(db)
+	serviceSpaces := NewServiceSpaceService(
+		repository.NewServiceSpaceRepository(db),
+		organizeRepo,
+		nil,
+		nil,
+	)
+	svc := &organizeService{
+		repo:          organizeRepo,
+		serviceSpaces: serviceSpaces,
+	}
+
+	serviceSpace, err := serviceSpaces.Create(ctx, 91, "owner", types.ServiceSpaceCreateInput{
+		Name: "会员服务空间",
+		Experts: []types.ServiceExpertBindingInput{
+			{ExpertRef: "membership-expert", ExpertName: "会员服务专家"},
+		},
+		Activate: true,
+	})
+	require.NoError(t, err)
+
+	template := &types.OrganizeTemplate{
+		Scope:              types.OrganizeTemplateScopePlatform,
+		Key:                "member_weekly",
+		Name:               "会员周报",
+		Scene:              "会员服务",
+		OutputLabel:        "会员服务摘要",
+		DefaultInstruction: "提炼会员服务中的关键事实和待办",
+		Status:             types.OrganizeTemplateStatusEnabled,
+		PublishedVersion:   "v1",
+	}
+	require.NoError(t, db.Create(template).Error)
+
+	memory, err := svc.CreateMemory(ctx, 91, "owner", types.OrganizeMemoryInput{
+		Kind:    types.OrganizeMemoryKindNote,
+		Title:   "会员续费沟通",
+		Content: "会员已确认下月续费，需要跟进合同发送。",
+	})
+	require.NoError(t, err)
+
+	config, err := svc.CreateConfig(ctx, 91, "owner", types.OrganizeConfigInput{
+		Name:            "会员服务周整理",
+		TemplateKey:     template.Key,
+		TargetServiceID: serviceSpace.ID,
+		Schedule:        types.OrganizeScheduleManual,
+	})
+	require.NoError(t, err)
+
+	job, err := svc.RunConfig(ctx, 91, "owner", config.ID, types.OrganizeJobInput{
+		MemoryIDs: types.StringArray{memory.ID},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, job.OutputID)
+
+	output, err := svc.GetOutput(ctx, 91, "owner", job.OutputID)
+	require.NoError(t, err)
+	require.Equal(t, types.OrganizeAssignmentStatusAssigned, output.AssignmentStatus)
+	require.Equal(t, serviceSpace.ID, output.AssignedServiceID)
+	require.Equal(t, "已自动归属到指定服务", output.AssignmentReason)
+
+	sources, err := serviceSpaces.ListContextSources(ctx, 91, "owner", serviceSpace.ID)
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+	require.Equal(t, output.ID, sources[0].SourceID)
+}
+
+func TestOrganizeWorkbenchAutoAssignmentFailureLeavesTraceablePendingOutput(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&types.OrganizeMemory{},
+		&types.OrganizeOutput{},
+		&types.OrganizeOutputMemory{},
+		&types.OrganizeTemplate{},
+		&types.OrganizeTemplateVersion{},
+		&types.OrganizeConfig{},
+		&types.OrganizeJob{},
+	))
+
+	organizeRepo := repository.NewOrganizeRepository(db)
+	serviceSpaces := NewServiceSpaceService(
+		repository.NewServiceSpaceRepository(db),
+		organizeRepo,
+		nil,
+		nil,
+	)
+	svc := &organizeService{
+		repo:          organizeRepo,
+		serviceSpaces: serviceSpaces,
+	}
+
+	serviceSpace, err := serviceSpaces.Create(ctx, 92, "owner", types.ServiceSpaceCreateInput{
+		Name: "会被暂停的服务",
+		Experts: []types.ServiceExpertBindingInput{
+			{ExpertRef: "membership-expert", ExpertName: "会员服务专家"},
+		},
+		Activate: true,
+	})
+	require.NoError(t, err)
+
+	template := &types.OrganizeTemplate{
+		Scope:              types.OrganizeTemplateScopePlatform,
+		Key:                "member_followup",
+		Name:               "会员跟进",
+		Scene:              "会员服务",
+		OutputLabel:        "跟进摘要",
+		DefaultInstruction: "提炼会员服务中的跟进事项",
+		Status:             types.OrganizeTemplateStatusEnabled,
+		PublishedVersion:   "v1",
+	}
+	require.NoError(t, db.Create(template).Error)
+
+	memory, err := svc.CreateMemory(ctx, 92, "owner", types.OrganizeMemoryInput{
+		Kind:    types.OrganizeMemoryKindNote,
+		Title:   "待跟进会员",
+		Content: "会员等待课程顾问回访。",
+	})
+	require.NoError(t, err)
+
+	config, err := svc.CreateConfig(ctx, 92, "owner", types.OrganizeConfigInput{
+		Name:            "暂停服务自动整理",
+		TemplateKey:     template.Key,
+		TargetServiceID: serviceSpace.ID,
+		Schedule:        types.OrganizeScheduleManual,
+	})
+	require.NoError(t, err)
+	_, err = serviceSpaces.SetState(ctx, 92, "owner", serviceSpace.ID, types.ServiceSpaceStatePaused)
+	require.NoError(t, err)
+
+	job, err := svc.RunConfig(ctx, 92, "owner", config.ID, types.OrganizeJobInput{
+		MemoryIDs: types.StringArray{memory.ID},
+	})
+	require.NoError(t, err)
+	output, err := svc.GetOutput(ctx, 92, "owner", job.OutputID)
+	require.NoError(t, err)
+	require.Equal(t, types.OrganizeAssignmentStatusPending, output.AssignmentStatus)
+	require.Contains(t, output.AssignmentReason, "目标服务不可用")
+	require.Equal(t, "目标服务不可用", output.Metadata["assignment_error"])
+
+	pending, total, err := svc.ListPendingAssignments(ctx, 92, "owner", types.OrganizeListQuery{
+		Page:     1,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, pending, 1)
 }
 
 func TestOrganizeServiceDiscover(t *testing.T) {

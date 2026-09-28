@@ -38,6 +38,9 @@ test('legacy sprout path redirects to my organize and templates load from the ba
 test('workbench exposes persisted config cards, templates, and config dialog', () => {
   assert.ok(workbenchSource.includes('我的整理'))
   assert.ok(workbenchSource.includes('从模板创建'))
+  assert.ok(workbenchSource.includes('待归属'))
+  assert.ok(workbenchSource.includes('listOrganizePendingAssignments'))
+  assert.ok(workbenchSource.includes('openPendingAssignment(output.id)'))
   assert.ok(workbenchSource.includes('<OrganizeConfigDialog'))
   assert.ok(workbenchSource.includes('openConfig(config.id)'))
   assert.ok(workbenchSource.includes('openCreateDialog(template.key)'))
@@ -67,6 +70,7 @@ test('organize config validation points missing template errors at the template 
     new URL('./components/OrganizeConfigDialog.vue', import.meta.url),
     'utf8',
   )
+  assert.ok(dialogSource.includes('<section v-if="config" class="organize-config-option">'))
   assert.ok(dialogSource.includes('const templateError = ref(\'\')'))
   assert.ok(dialogSource.includes(':class="{ \'is-error\': templateError }"'))
   assert.ok(dialogSource.includes('templateError.value = \'请选择整理模板\''))

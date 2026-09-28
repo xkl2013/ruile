@@ -2,6 +2,7 @@ import { del, get, post, postUpload, put } from '@/utils/request'
 
 export type OrganizeMemoryKind = 'note' | 'record' | 'audio' | 'audio_card'
 export type OrganizeOutputStatus = 'draft' | 'review' | 'ready' | 'archived'
+export type OrganizeAssignmentStatus = 'pending' | 'assigned'
 export type OrganizeSproutStage = 'organizing' | 'expandable' | 'formed'
 export type OrganizeScheduleKey = 'manual' | 'daily' | 'weekly' | 'monthly'
 export type OrganizeJobStatus =
@@ -42,6 +43,7 @@ export interface OrganizeJob {
   config_id: string
   template_key: string
   template_version: string
+  target_service_id?: string
   status: OrganizeJobStatus
   stage: string
   progress: number
@@ -63,6 +65,7 @@ export interface OrganizeConfig {
   id: string
   name: string
   template_key: string
+  target_service_id?: string
   instruction: string
   expert_ids: string[]
   schedule: OrganizeScheduleKey
@@ -103,6 +106,9 @@ export interface OrganizeOutput {
   user_id?: string
   config_id?: string
   job_id?: string
+  assigned_service_id?: string
+  assignment_status?: OrganizeAssignmentStatus
+  assignment_reason?: string
   template_key?: string
   template_version?: string
   title: string
@@ -222,6 +228,7 @@ export interface OrganizeSproutReportInput {
 export interface OrganizeConfigInput {
   name: string
   template_key: string
+  target_service_id?: string
   instruction?: string
   expert_ids?: string[]
   schedule?: OrganizeScheduleKey
@@ -351,6 +358,19 @@ export function deleteOrganizeMemory(id: string) {
 
 export function listOrganizeOutputs(params?: OrganizeListParams & { status?: OrganizeOutputStatus }) {
   return get<OrganizeResponse<OrganizeListData<OrganizeOutput>>>(withQuery('/api/v1/organize/outputs', params))
+}
+
+export function listOrganizePendingAssignments(params?: OrganizeListParams) {
+  return get<OrganizeResponse<OrganizeListData<OrganizeOutput>>>(
+    withQuery('/api/v1/organize/assignments/pending', params),
+  )
+}
+
+export function assignOrganizeOutputToService(outputId: string, serviceId: string) {
+  return post<OrganizeResponse<OrganizeOutput>>(
+    `/api/v1/organize/outputs/${encodeURIComponent(outputId)}/assign`,
+    { service_id: serviceId },
+  )
 }
 
 export function getOrganizeDiscover(params?: OrganizeListParams & { tab?: string; featured_offset?: number }) {

@@ -238,17 +238,18 @@ func (s *organizeService) CreateJob(
 		return nil, err
 	}
 	requirement := types.JSONMap{
-		"config_name":     config.Name,
-		"instruction":     config.Instruction,
-		"expert_ids":      []string(config.ExpertIDs),
-		"experts":         experts,
-		"template_name":   template.Name,
-		"template_scene":  template.Scene,
-		"template_output": template.OutputLabel,
-		"template_icon":   template.Icon,
-		"template_spec":   template.Spec,
-		"requested_text":  strings.TrimSpace(input.Requirement),
-		"created_at":      time.Now().UTC().Format(time.RFC3339),
+		"config_name":       config.Name,
+		"target_service_id": config.TargetServiceID,
+		"instruction":       config.Instruction,
+		"expert_ids":        []string(config.ExpertIDs),
+		"experts":           experts,
+		"template_name":     template.Name,
+		"template_scene":    template.Scene,
+		"template_output":   template.OutputLabel,
+		"template_icon":     template.Icon,
+		"template_spec":     template.Spec,
+		"requested_text":    strings.TrimSpace(input.Requirement),
+		"created_at":        time.Now().UTC().Format(time.RFC3339),
 	}
 	job := &types.OrganizeJob{
 		TenantID:        tenantID,
@@ -256,6 +257,7 @@ func (s *organizeService) CreateJob(
 		ConfigID:        config.ID,
 		TemplateKey:     template.Key,
 		TemplateVersion: template.PublishedVersion,
+		TargetServiceID: config.TargetServiceID,
 		Status:          types.OrganizeJobStatusQueued,
 		Stage:           "queued",
 		Progress:        5,
@@ -412,11 +414,14 @@ func (s *organizeService) ProcessOrganizeJob(ctx context.Context, task *asynq.Ta
 	job.Progress = 100
 	job.Summary = output.SourceSummary
 	job.Result = types.JSONMap{
-		"output_id":        output.ID,
-		"memory_count":     len(job.MemoryIDs),
-		"conclusion_count": metadataInt(output.Metadata, "conclusion_count"),
-		"todo_count":       metadataInt(output.Metadata, "todo_count"),
-		"fallback":         fallback,
+		"output_id":           output.ID,
+		"memory_count":        len(job.MemoryIDs),
+		"conclusion_count":    metadataInt(output.Metadata, "conclusion_count"),
+		"todo_count":          metadataInt(output.Metadata, "todo_count"),
+		"assignment_status":   output.AssignmentStatus,
+		"assignment_reason":   output.AssignmentReason,
+		"assigned_service_id": output.AssignedServiceID,
+		"fallback":            fallback,
 	}
 	job.FinishedAt = &finishedAt
 	job.UpdatedAt = finishedAt
@@ -495,18 +500,29 @@ func (s *organizeService) buildOrganizeConfig(
 	if _, err := s.resolveOrganizeExpertSnapshots(ctx, tenantID, expertIDs); err != nil {
 		return nil, err
 	}
+	targetServiceID := strings.TrimSpace(input.TargetServiceID)
+	if targetServiceID != "" && s.serviceSpaces != nil {
+		service, err := s.serviceSpaces.Get(ctx, tenantID, userID, targetServiceID)
+		if err != nil {
+			return nil, err
+		}
+		if service == nil {
+			return nil, ErrOrganizeTargetServiceNotFound
+		}
+	}
 	return &types.OrganizeConfig{
-		ID:          id,
-		TenantID:    tenantID,
-		UserID:      userID,
-		Name:        name,
-		TemplateKey: template.Key,
-		Instruction: instruction,
-		ExpertIDs:   expertIDs,
-		Schedule:    schedule,
-		Status:      types.OrganizeConfigStatusActive,
-		NextRunAt:   nextOrganizeRun(schedule, time.Now()),
-		Metadata:    normalizeJSONMap(input.Metadata),
+		ID:              id,
+		TenantID:        tenantID,
+		UserID:          userID,
+		Name:            name,
+		TemplateKey:     template.Key,
+		TargetServiceID: targetServiceID,
+		Instruction:     instruction,
+		ExpertIDs:       expertIDs,
+		Schedule:        schedule,
+		Status:          types.OrganizeConfigStatusActive,
+		NextRunAt:       nextOrganizeRun(schedule, time.Now()),
+		Metadata:        normalizeJSONMap(input.Metadata),
 	}, nil
 }
 
@@ -618,28 +634,78 @@ func (s *organizeService) executeOrganizeJob(
 		"scene":            stringValue(job.Requirement, "template_scene"),
 		"expert_ids":       job.Requirement["expert_ids"],
 	}
+	targetServiceID := strings.TrimSpace(job.TargetServiceID)
+	assignmentStatus := types.OrganizeAssignmentStatusPending
+	assignmentReason := "未指定目标服务，等待用户手动分配"
+	if targetServiceID != "" {
+		assignmentReason = "已指定目标服务，等待系统归属"
+	}
+	metadata["assignment_status"] = assignmentStatus
+	metadata["target_service_id"] = targetServiceID
+	metadata["assignment_reason"] = assignmentReason
 	output := &types.OrganizeOutput{
-		TenantID:        job.TenantID,
-		UserID:          job.UserID,
-		ConfigID:        job.ConfigID,
-		JobID:           job.ID,
-		TemplateKey:     job.TemplateKey,
-		TemplateVersion: job.TemplateVersion,
-		Title:           title,
-		OutputType:      outputLabel,
-		Content:         content,
-		SourceSummary:   summary,
-		Status:          types.OrganizeOutputStatusReady,
-		Icon:            icon,
-		Fields:          fields,
-		Citations:       citations,
-		Metadata:        metadata,
+		TenantID:         job.TenantID,
+		UserID:           job.UserID,
+		ConfigID:         job.ConfigID,
+		JobID:            job.ID,
+		AssignmentStatus: assignmentStatus,
+		AssignmentReason: assignmentReason,
+		TemplateKey:      job.TemplateKey,
+		TemplateVersion:  job.TemplateVersion,
+		Title:            title,
+		OutputType:       outputLabel,
+		Content:          content,
+		SourceSummary:    summary,
+		Status:           types.OrganizeOutputStatusReady,
+		Icon:             icon,
+		Fields:           fields,
+		Citations:        citations,
+		Metadata:         metadata,
 	}
 	if err := s.repo.CreateOutput(ctx, output, job.MemoryIDs); err != nil {
 		return nil, false, err
 	}
+	if targetServiceID != "" && s.serviceSpaces != nil {
+		if _, assignErr := s.serviceSpaces.ImportOrganizeOutput(
+			ctx,
+			job.TenantID,
+			job.UserID,
+			targetServiceID,
+			output.ID,
+		); assignErr == nil {
+			output.AssignedServiceID = targetServiceID
+			output.AssignmentStatus = types.OrganizeAssignmentStatusAssigned
+			output.AssignmentReason = "已自动归属到指定服务"
+			output.Metadata["assignment_status"] = output.AssignmentStatus
+			output.Metadata["assigned_service_id"] = targetServiceID
+			output.Metadata["assignment_reason"] = output.AssignmentReason
+		} else {
+			output.AssignmentReason = "自动归属失败，等待用户手动分配：" + organizeAssignmentFailureReason(assignErr)
+			output.Metadata["assignment_reason"] = output.AssignmentReason
+			output.Metadata["assignment_error"] = organizeAssignmentFailureReason(assignErr)
+		}
+		if err := s.repo.UpdateOutput(ctx, output, job.MemoryIDs); err != nil {
+			return nil, false, err
+		}
+	}
 	created, err := s.repo.GetOutput(ctx, job.TenantID, job.UserID, output.ID)
 	return created, fallback, err
+}
+
+func organizeAssignmentFailureReason(err error) string {
+	switch {
+	case errors.Is(err, ErrServiceSpaceNotFound),
+		errors.Is(err, ErrServiceSpaceForbidden),
+		errors.Is(err, ErrServiceSpaceArchived),
+		errors.Is(err, ErrServiceSpaceNotActive):
+		return "目标服务不可用"
+	case errors.Is(err, ErrServiceSpaceContextSourceNotReady):
+		return "整理结果尚未就绪"
+	case errors.Is(err, ErrServiceSpaceContextSourceAssigned):
+		return "整理结果已归属到其他服务"
+	default:
+		return "目标服务导入失败"
+	}
 }
 
 func (s *organizeService) generateOrganizeJobContent(
@@ -719,20 +785,22 @@ func (s *organizeService) createScheduledOrganizeJob(
 		ConfigID:        config.ID,
 		TemplateKey:     template.Key,
 		TemplateVersion: template.PublishedVersion,
+		TargetServiceID: config.TargetServiceID,
 		Status:          types.OrganizeJobStatusQueued,
 		Stage:           "queued",
 		Progress:        5,
 		Requirement: types.JSONMap{
-			"config_name":     config.Name,
-			"instruction":     config.Instruction,
-			"expert_ids":      []string(config.ExpertIDs),
-			"experts":         experts,
-			"template_name":   template.Name,
-			"template_scene":  template.Scene,
-			"template_output": template.OutputLabel,
-			"template_icon":   template.Icon,
-			"template_spec":   template.Spec,
-			"scheduled":       true,
+			"config_name":       config.Name,
+			"target_service_id": config.TargetServiceID,
+			"instruction":       config.Instruction,
+			"expert_ids":        []string(config.ExpertIDs),
+			"experts":           experts,
+			"template_name":     template.Name,
+			"template_scene":    template.Scene,
+			"template_output":   template.OutputLabel,
+			"template_icon":     template.Icon,
+			"template_spec":     template.Spec,
+			"scheduled":         true,
 		},
 		MemoryIDs:    types.StringArray(memoryIDs),
 		Summary:      fmt.Sprintf("周期任务等待整理 %d 条记忆", len(memoryIDs)),

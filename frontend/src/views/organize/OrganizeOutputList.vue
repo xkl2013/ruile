@@ -45,6 +45,12 @@
             <div class="organize-output-title-row">
               <h3>{{ output.title }}</h3>
               <span class="organize-tag organize-tag--success">已完成</span>
+              <span
+                class="organize-tag"
+                :class="output.assignmentStatus === 'assigned' ? 'organize-tag--success' : 'organize-tag--pending'"
+              >
+                {{ output.assignmentStatus === 'assigned' ? '已归属服务' : '待归属' }}
+              </span>
             </div>
             <p class="organize-output-subject">
               主题：{{ output.subject }}
@@ -356,6 +362,12 @@ onMounted(() => {
   border-color: #b7e1cf;
   background: #eef9f3;
   color: #23805a;
+}
+
+.organize-tag--pending {
+  border-color: #f0d7a1;
+  background: #fff8e8;
+  color: #9a6a13;
 }
 
 .organize-output-card-side {

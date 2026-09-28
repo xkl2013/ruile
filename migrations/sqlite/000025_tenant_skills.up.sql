@@ -19,4 +19,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_skills_name
     WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tenant_skills_tenant
     ON tenant_skills(tenant_id, enabled, updated_at DESC);
-

@@ -559,6 +559,55 @@ func (h *OrganizeHandler) ListOutputs(c *gin.Context) {
 	c.JSON(http.StatusOK, listPayload(items, total, query.Page, query.PageSize))
 }
 
+func (h *OrganizeHandler) ListPendingAssignments(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	page, pageSize, ok := parseListPagination(c)
+	if !ok {
+		return
+	}
+	items, total, err := h.service.ListPendingAssignments(ctx, tenantID, userID, types.OrganizeListQuery{
+		Keyword:  firstNonEmptyQuery(c, "q", "keyword"),
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, listPayload(items, total, page, pageSize))
+}
+
+func (h *OrganizeHandler) AssignOutputToService(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		ServiceID string `json:"service_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid assignment request").WithDetails(err.Error()))
+		return
+	}
+	output, err := h.service.AssignOutputToService(
+		ctx,
+		tenantID,
+		userID,
+		c.Param("id"),
+		req.ServiceID,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": output})
+}
+
 func (h *OrganizeHandler) GetDiscover(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := organizeScope(c)
@@ -866,6 +915,8 @@ func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
 		c.Error(apperrors.NewUnauthorizedError(err.Error()))
 	case stderrors.Is(err, service.ErrOrganizeNotFound):
 		c.Error(apperrors.NewNotFoundError(err.Error()))
+	case stderrors.Is(err, service.ErrOrganizeTargetServiceNotFound):
+		c.Error(apperrors.NewNotFoundError(err.Error()))
 	case stderrors.Is(err, service.ErrOrganizeTitleRequired),
 		stderrors.Is(err, service.ErrOrganizeTemplateRequired),
 		stderrors.Is(err, service.ErrOrganizeTemplateDisabled),
@@ -878,7 +929,9 @@ func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, service.ErrOrganizeInvalidStatus),
 		stderrors.Is(err, service.ErrOrganizeInvalidStage),
 		stderrors.Is(err, service.ErrOrganizeMemoryRequired),
-		stderrors.Is(err, service.ErrOrganizeInvalidMemoryRefs):
+		stderrors.Is(err, service.ErrOrganizeInvalidMemoryRefs),
+		stderrors.Is(err, service.ErrOrganizeOutputAlreadyAssigned),
+		stderrors.Is(err, service.ErrOrganizeOutputNotReady):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	default:
 		logger.ErrorWithFields(c.Request.Context(), err, nil)

@@ -13,15 +13,18 @@ import (
 )
 
 var (
-	ErrOrganizeInvalidScope      = errors.New("invalid organize scope")
-	ErrOrganizeNotFound          = errors.New("organize item not found")
-	ErrOrganizeTitleRequired     = errors.New("title is required")
-	ErrOrganizeInvalidMemoryKind = errors.New("invalid memory kind")
-	ErrOrganizeInvalidStatus     = errors.New("invalid output status")
-	ErrOrganizeInvalidCategory   = errors.New("invalid discover category")
-	ErrOrganizeInvalidStage      = errors.New("invalid sprout stage")
-	ErrOrganizeMemoryRequired    = errors.New("memory_id is required")
-	ErrOrganizeInvalidMemoryRefs = errors.New("memory_ids contains unknown memories")
+	ErrOrganizeInvalidScope          = errors.New("invalid organize scope")
+	ErrOrganizeNotFound              = errors.New("organize item not found")
+	ErrOrganizeTitleRequired         = errors.New("title is required")
+	ErrOrganizeInvalidMemoryKind     = errors.New("invalid memory kind")
+	ErrOrganizeInvalidStatus         = errors.New("invalid output status")
+	ErrOrganizeInvalidCategory       = errors.New("invalid discover category")
+	ErrOrganizeInvalidStage          = errors.New("invalid sprout stage")
+	ErrOrganizeMemoryRequired        = errors.New("memory_id is required")
+	ErrOrganizeInvalidMemoryRefs     = errors.New("memory_ids contains unknown memories")
+	ErrOrganizeTargetServiceNotFound = errors.New("target service not found")
+	ErrOrganizeOutputAlreadyAssigned = errors.New("organize output is already assigned to another service")
+	ErrOrganizeOutputNotReady        = errors.New("organize output is not ready")
 )
 
 const (
@@ -42,6 +45,7 @@ type organizeService struct {
 	expertPackages  interfaces.ExpertPackageService
 	taskEnqueuer    interfaces.TaskEnqueuer
 	documentReader  interfaces.DocumentReader
+	serviceSpaces   interfaces.ServiceSpaceService
 	audioTranscoder func(context.Context, []byte, string) ([]byte, string, error)
 }
 
@@ -55,6 +59,7 @@ func NewOrganizeService(
 	tenantRepo interfaces.TenantRepository,
 	resourceCatalog interfaces.ResourceCatalog,
 	expertPackages interfaces.ExpertPackageService,
+	serviceSpaces interfaces.ServiceSpaceService,
 ) interfaces.OrganizeService {
 	return &organizeService{
 		repo:            repo,
@@ -66,6 +71,7 @@ func NewOrganizeService(
 		expertPackages:  expertPackages,
 		taskEnqueuer:    taskEnqueuer,
 		documentReader:  documentReader,
+		serviceSpaces:   serviceSpaces,
 		audioTranscoder: transcodeOrganizeAudioToMP3,
 	}
 }
@@ -232,6 +238,9 @@ func (s *organizeService) UpdateOutput(
 	if strings.TrimSpace(input.TemplateVersion) == "" {
 		output.TemplateVersion = current.TemplateVersion
 	}
+	output.AssignedServiceID = current.AssignedServiceID
+	output.AssignmentStatus = current.AssignmentStatus
+	output.AssignmentReason = current.AssignmentReason
 	if input.Fields == nil {
 		output.Fields = current.Fields
 	}
@@ -276,6 +285,76 @@ func (s *organizeService) ListOutputs(
 	query.Status = strings.TrimSpace(query.Status)
 	query = normalizeOrganizePagination(query)
 	return s.repo.ListOutputs(ctx, query)
+}
+
+func (s *organizeService) ListPendingAssignments(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	query types.OrganizeListQuery,
+) ([]*types.OrganizeOutput, int64, error) {
+	if err := validateOrganizeScope(tenantID, userID); err != nil {
+		return nil, 0, err
+	}
+	query.TenantID = tenantID
+	query.UserID = userID
+	query.Status = types.OrganizeOutputStatusReady
+	query.AssignmentStatus = types.OrganizeAssignmentStatusPending
+	query = normalizeOrganizePagination(query)
+	return s.repo.ListOutputs(ctx, query)
+}
+
+func (s *organizeService) AssignOutputToService(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	outputID string,
+	serviceID string,
+) (*types.OrganizeOutput, error) {
+	if err := validateOrganizeScope(tenantID, userID); err != nil {
+		return nil, err
+	}
+	outputID = strings.TrimSpace(outputID)
+	serviceID = strings.TrimSpace(serviceID)
+	if outputID == "" || serviceID == "" {
+		return nil, ErrOrganizeTargetServiceNotFound
+	}
+	output, err := s.GetOutput(ctx, tenantID, userID, outputID)
+	if err != nil {
+		return nil, err
+	}
+	if output.AssignmentStatus == types.OrganizeAssignmentStatusAssigned &&
+		strings.TrimSpace(output.AssignedServiceID) != serviceID {
+		return nil, ErrOrganizeOutputAlreadyAssigned
+	}
+	if output.Status != types.OrganizeOutputStatusReady {
+		return nil, ErrOrganizeOutputNotReady
+	}
+	if s.serviceSpaces == nil {
+		return nil, ErrOrganizeTargetServiceNotFound
+	}
+	if _, err := s.serviceSpaces.ImportOrganizeOutput(
+		ctx,
+		tenantID,
+		userID,
+		serviceID,
+		outputID,
+	); err != nil {
+		switch {
+		case errors.Is(err, ErrServiceSpaceNotFound),
+			errors.Is(err, ErrServiceSpaceForbidden),
+			errors.Is(err, ErrServiceSpaceArchived),
+			errors.Is(err, ErrServiceSpaceNotActive):
+			return nil, ErrOrganizeTargetServiceNotFound
+		case errors.Is(err, ErrServiceSpaceContextSourceNotReady):
+			return nil, ErrOrganizeOutputNotReady
+		case errors.Is(err, ErrServiceSpaceContextSourceAssigned):
+			return nil, ErrOrganizeOutputAlreadyAssigned
+		default:
+			return nil, err
+		}
+	}
+	return s.GetOutput(ctx, tenantID, userID, outputID)
 }
 
 func (s *organizeService) CreateSproutReport(
@@ -417,22 +496,24 @@ func (s *organizeService) buildOutput(
 		return nil, nil, err
 	}
 	return &types.OrganizeOutput{
-		ID:              id,
-		TenantID:        tenantID,
-		UserID:          userID,
-		ConfigID:        trimMax(input.ConfigID, 36),
-		JobID:           trimMax(input.JobID, 36),
-		TemplateKey:     trimMax(input.TemplateKey, 64),
-		TemplateVersion: trimMax(input.TemplateVersion, 32),
-		Title:           title,
-		OutputType:      trimMax(input.OutputType, 64),
-		Content:         trimMax(input.Content, 0),
-		SourceSummary:   trimMax(input.SourceSummary, organizeMaxShortText),
-		Status:          status,
-		Icon:            trimMax(input.Icon, 64),
-		Fields:          normalizeJSONMap(input.Fields),
-		Citations:       normalizeJSONMap(input.Citations),
-		Metadata:        metadata,
+		ID:               id,
+		TenantID:         tenantID,
+		UserID:           userID,
+		ConfigID:         trimMax(input.ConfigID, 36),
+		JobID:            trimMax(input.JobID, 36),
+		AssignmentStatus: types.OrganizeAssignmentStatusPending,
+		AssignmentReason: "未指定目标服务，等待用户手动分配",
+		TemplateKey:      trimMax(input.TemplateKey, 64),
+		TemplateVersion:  trimMax(input.TemplateVersion, 32),
+		Title:            title,
+		OutputType:       trimMax(input.OutputType, 64),
+		Content:          trimMax(input.Content, 0),
+		SourceSummary:    trimMax(input.SourceSummary, organizeMaxShortText),
+		Status:           status,
+		Icon:             trimMax(input.Icon, 64),
+		Fields:           normalizeJSONMap(input.Fields),
+		Citations:        normalizeJSONMap(input.Citations),
+		Metadata:         metadata,
 	}, memoryIDs, nil
 }
 

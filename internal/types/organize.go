@@ -22,6 +22,9 @@ const (
 	OrganizeOutputStatusReady    = "ready"
 	OrganizeOutputStatusArchived = "archived"
 
+	OrganizeAssignmentStatusPending  = "pending"
+	OrganizeAssignmentStatusAssigned = "assigned"
+
 	OrganizeSproutStageOrganizing = "organizing"
 	OrganizeSproutStageExpandable = "expandable"
 	OrganizeSproutStageFormed     = "formed"
@@ -96,27 +99,30 @@ type OrganizeMemoryReference struct {
 
 // OrganizeOutput is a user-scoped deliverable produced from memories.
 type OrganizeOutput struct {
-	ID              string         `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID        uint64         `json:"tenant_id" gorm:"not null;index"`
-	UserID          string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	ConfigID        string         `json:"config_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
-	JobID           string         `json:"job_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
-	TemplateKey     string         `json:"template_key,omitempty" gorm:"type:varchar(64);not null;default:'';index"`
-	TemplateVersion string         `json:"template_version,omitempty" gorm:"type:varchar(32);not null;default:''"`
-	Title           string         `json:"title" gorm:"type:varchar(512);not null"`
-	OutputType      string         `json:"output_type" gorm:"type:varchar(64);not null;default:''"`
-	Content         string         `json:"content,omitempty" gorm:"type:text;not null;default:''"`
-	SourceSummary   string         `json:"source_summary,omitempty" gorm:"type:varchar(255);not null;default:''"`
-	Status          string         `json:"status" gorm:"type:varchar(32);not null;default:'draft';index"`
-	Icon            string         `json:"icon,omitempty" gorm:"type:varchar(64);not null;default:''"`
-	Fields          JSONMap        `json:"fields,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
-	Citations       JSONMap        `json:"citations,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
-	Metadata        JSONMap        `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
-	MemoryCount     int64          `json:"memory_count" gorm:"-"`
-	MemoryIDs       []string       `json:"memory_ids,omitempty" gorm:"-"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	DeletedAt       gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+	ID                string         `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID          uint64         `json:"tenant_id" gorm:"not null;index"`
+	UserID            string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	ConfigID          string         `json:"config_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	JobID             string         `json:"job_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	AssignedServiceID string         `json:"assigned_service_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	AssignmentStatus  string         `json:"assignment_status" gorm:"type:varchar(32);not null;default:'pending';index"`
+	AssignmentReason  string         `json:"assignment_reason,omitempty" gorm:"type:text;not null;default:''"`
+	TemplateKey       string         `json:"template_key,omitempty" gorm:"type:varchar(64);not null;default:'';index"`
+	TemplateVersion   string         `json:"template_version,omitempty" gorm:"type:varchar(32);not null;default:''"`
+	Title             string         `json:"title" gorm:"type:varchar(512);not null"`
+	OutputType        string         `json:"output_type" gorm:"type:varchar(64);not null;default:''"`
+	Content           string         `json:"content,omitempty" gorm:"type:text;not null;default:''"`
+	SourceSummary     string         `json:"source_summary,omitempty" gorm:"type:varchar(255);not null;default:''"`
+	Status            string         `json:"status" gorm:"type:varchar(32);not null;default:'draft';index"`
+	Icon              string         `json:"icon,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	Fields            JSONMap        `json:"fields,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	Citations         JSONMap        `json:"citations,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	Metadata          JSONMap        `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	MemoryCount       int64          `json:"memory_count" gorm:"-"`
+	MemoryIDs         []string       `json:"memory_ids,omitempty" gorm:"-"`
+	CreatedAt         time.Time      `json:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt `json:"deleted_at" gorm:"index"`
 }
 
 func (OrganizeOutput) TableName() string { return "organize_outputs" }
@@ -136,6 +142,9 @@ func (o *OrganizeOutput) BeforeCreate(_ *gorm.DB) error {
 	}
 	if o.Citations == nil {
 		o.Citations = JSONMap{}
+	}
+	if o.AssignmentStatus == "" {
+		o.AssignmentStatus = OrganizeAssignmentStatusPending
 	}
 	return nil
 }
@@ -206,15 +215,16 @@ type OrganizeSproutMemory struct {
 func (OrganizeSproutMemory) TableName() string { return "organize_sprout_memories" }
 
 type OrganizeListQuery struct {
-	TenantID uint64
-	UserID   string
-	Keyword  string
-	Kind     string
-	Status   string
-	Stage    string
-	MemoryID string
-	Page     int
-	PageSize int
+	TenantID         uint64
+	UserID           string
+	Keyword          string
+	Kind             string
+	Status           string
+	AssignmentStatus string
+	Stage            string
+	MemoryID         string
+	Page             int
+	PageSize         int
 }
 
 type OrganizeDiscoverQuery struct {

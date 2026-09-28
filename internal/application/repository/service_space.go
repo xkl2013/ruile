@@ -57,7 +57,7 @@ func (r *serviceSpaceRepository) Create(
 				return err
 			}
 		}
-		return nil
+		return seedDefaultReminderStatusMachine(tx, service.TenantID, service.ID, service.CreatedBy)
 	})
 }
 
@@ -269,8 +269,283 @@ func (r *serviceSpaceRepository) ReplaceExperts(
 	})
 }
 
+func (r *serviceSpaceRepository) ListSubjects(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectType string,
+	page, pageSize int,
+) ([]*types.ServiceSubject, int64, error) {
+	query := r.db.WithContext(ctx).Model(&types.ServiceSubject{}).
+		Where("tenant_id = ? AND service_id = ?", tenantID, serviceID)
+	if subjectType = strings.TrimSpace(subjectType); subjectType != "" {
+		query = query.Where("subject_type = ?", subjectType)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var subjects []*types.ServiceSubject
+	err := query.Order("updated_at DESC").
+		Order("created_at DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&subjects).Error
+	return subjects, total, err
+}
+
+func (r *serviceSpaceRepository) GetSubject(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID string,
+) (*types.ServiceSubject, error) {
+	var subject types.ServiceSubject
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, subjectID).
+		First(&subject).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &subject, err
+}
+
+func (r *serviceSpaceRepository) CreateSubject(
+	ctx context.Context,
+	subject *types.ServiceSubject,
+) error {
+	return r.db.WithContext(ctx).Create(subject).Error
+}
+
+func (r *serviceSpaceRepository) UpdateSubject(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID string,
+	fields map[string]any,
+) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	fields["updated_at"] = time.Now().UTC()
+	return r.db.WithContext(ctx).Model(&types.ServiceSubject{}).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, subjectID).
+		Updates(fields).Error
+}
+
+func (r *serviceSpaceRepository) DeleteSubject(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID string,
+) error {
+	return r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, subjectID).
+		Delete(&types.ServiceSubject{}).Error
+}
+
+func (r *serviceSpaceRepository) ListReminderStatuses(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID string,
+	includeDisabled bool,
+) ([]*types.ServiceReminderStatus, error) {
+	query := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ?", tenantID, serviceID)
+	if !includeDisabled {
+		query = query.Where("enabled = ?", true)
+	}
+	var statuses []*types.ServiceReminderStatus
+	err := query.Order("display_order ASC").Order("created_at ASC").Find(&statuses).Error
+	return statuses, err
+}
+
+func (r *serviceSpaceRepository) GetReminderStatus(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, statusID string,
+) (*types.ServiceReminderStatus, error) {
+	var status types.ServiceReminderStatus
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, statusID).
+		First(&status).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &status, err
+}
+
+func (r *serviceSpaceRepository) CreateReminderStatus(
+	ctx context.Context,
+	status *types.ServiceReminderStatus,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if status.IsInitial {
+			if err := tx.Model(&types.ServiceReminderStatus{}).
+				Where("tenant_id = ? AND service_id = ? AND deleted_at IS NULL", status.TenantID, status.ServiceID).
+				Update("is_initial", false).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(status).Error
+	})
+}
+
+func (r *serviceSpaceRepository) UpdateReminderStatus(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, statusID string,
+	fields map[string]any,
+) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if initial, ok := fields["is_initial"].(bool); ok && initial {
+			if err := tx.Model(&types.ServiceReminderStatus{}).
+				Where("tenant_id = ? AND service_id = ? AND id <> ? AND deleted_at IS NULL", tenantID, serviceID, statusID).
+				Update("is_initial", false).Error; err != nil {
+				return err
+			}
+		}
+		fields["updated_at"] = time.Now().UTC()
+		return tx.Model(&types.ServiceReminderStatus{}).
+			Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, statusID).
+			Updates(fields).Error
+	})
+}
+
+func (r *serviceSpaceRepository) DeleteReminderStatus(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, statusID string,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var status types.ServiceReminderStatus
+		if err := tx.Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, statusID).
+			First(&status).Error; err != nil {
+			return err
+		}
+		if status.IsInitial {
+			var next types.ServiceReminderStatus
+			err := tx.Where("tenant_id = ? AND service_id = ? AND id <> ? AND enabled = ? AND deleted_at IS NULL",
+				tenantID, serviceID, statusID, true).
+				Order("display_order ASC").Order("created_at ASC").First(&next).Error
+			if err != nil {
+				return err
+			}
+			if err := tx.Model(&types.ServiceReminderStatus{}).Where("id = ?", next.ID).
+				Update("is_initial", true).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, statusID).
+			Delete(&types.ServiceReminderStatus{}).Error
+	})
+}
+
+func (r *serviceSpaceRepository) ListReminderStatusTransitions(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID string,
+) ([]*types.ServiceReminderStatusTransition, error) {
+	var transitions []*types.ServiceReminderStatusTransition
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ?", tenantID, serviceID).
+		Order("created_at ASC").
+		Find(&transitions).Error
+	return transitions, err
+}
+
+func (r *serviceSpaceRepository) ReplaceReminderStatusTransitions(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID string,
+	transitions []*types.ServiceReminderStatusTransition,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("tenant_id = ? AND service_id = ?", tenantID, serviceID).
+			Delete(&types.ServiceReminderStatusTransition{}).Error; err != nil {
+			return err
+		}
+		if len(transitions) == 0 {
+			return nil
+		}
+		return tx.Create(&transitions).Error
+	})
+}
+
 func (r *serviceSpaceRepository) CreateSession(ctx context.Context, session *types.Session) error {
 	return r.db.WithContext(ctx).Create(session).Error
+}
+
+type defaultReminderStatusDefinition struct {
+	key          string
+	label        string
+	category     string
+	initial      bool
+	terminal     bool
+	displayOrder int
+}
+
+func seedDefaultReminderStatusMachine(
+	tx *gorm.DB,
+	tenantID uint64,
+	serviceID, createdBy string,
+) error {
+	definitions := []defaultReminderStatusDefinition{
+		{key: "candidate", label: "待识别", category: types.ServiceReminderStatusCategoryOpen, initial: true, displayOrder: 10},
+		{key: "pending", label: "待处理", category: types.ServiceReminderStatusCategoryOpen, displayOrder: 20},
+		{key: "generated", label: "已生成", category: types.ServiceReminderStatusCategoryInProgress, displayOrder: 30},
+		{key: "confirmed", label: "已确认", category: types.ServiceReminderStatusCategoryInProgress, displayOrder: 40},
+		{key: "completed", label: "已完成", category: types.ServiceReminderStatusCategoryDone, terminal: true, displayOrder: 50},
+		{key: "ignored", label: "已忽略", category: types.ServiceReminderStatusCategoryDismissed, terminal: true, displayOrder: 60},
+		{key: "snoozed", label: "已延后", category: types.ServiceReminderStatusCategoryInProgress, displayOrder: 70},
+		{key: "stale", label: "已过期", category: types.ServiceReminderStatusCategoryOpen, displayOrder: 80},
+		{key: "recompute_required", label: "待重新计算", category: types.ServiceReminderStatusCategoryOpen, displayOrder: 90},
+	}
+	statuses := make(map[string]*types.ServiceReminderStatus, len(definitions))
+	for _, definition := range definitions {
+		status := &types.ServiceReminderStatus{
+			TenantID:     tenantID,
+			ServiceID:    serviceID,
+			StatusKey:    definition.key,
+			Label:        definition.label,
+			Category:     definition.category,
+			IsInitial:    definition.initial,
+			IsTerminal:   definition.terminal,
+			DisplayOrder: definition.displayOrder,
+			IsSystem:     true,
+			Enabled:      true,
+			CreatedBy:    createdBy,
+		}
+		if err := tx.Create(status).Error; err != nil {
+			return err
+		}
+		statuses[definition.key] = status
+	}
+	edges := [][2]string{
+		{"candidate", "pending"},
+		{"candidate", "ignored"},
+		{"pending", "generated"},
+		{"pending", "ignored"},
+		{"pending", "snoozed"},
+		{"generated", "confirmed"},
+		{"generated", "ignored"},
+		{"confirmed", "completed"},
+		{"confirmed", "ignored"},
+		{"snoozed", "pending"},
+		{"stale", "pending"},
+		{"recompute_required", "pending"},
+	}
+	transitions := make([]*types.ServiceReminderStatusTransition, 0, len(edges))
+	for _, edge := range edges {
+		transitions = append(transitions, &types.ServiceReminderStatusTransition{
+			TenantID:     tenantID,
+			ServiceID:    serviceID,
+			FromStatusID: statuses[edge[0]].ID,
+			ToStatusID:   statuses[edge[1]].ID,
+			AllowedRoles: types.StringArray{},
+			Enabled:      true,
+		})
+	}
+	return tx.Create(&transitions).Error
 }
 
 func (r *serviceSpaceRepository) GetSession(

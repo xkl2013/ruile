@@ -41,7 +41,7 @@ func newAgentRunTestService(
 	t.Helper()
 	db := newAgentRunTestDB(t)
 	runRepo := repository.NewAgentRunRepository(db)
-	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil, nil)
+	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
 	expertRepo := repository.NewExpertPackageRepository(db)
 	enqueuer := &agentRunTaskEnqueuer{}
 	return NewAgentRunService(runRepo, serviceSpaces, expertRepo, nil, enqueuer, nil, nil, nil), runRepo, enqueuer, db
@@ -59,7 +59,17 @@ func newAgentRunTestDB(t *testing.T) *gorm.DB {
 		&types.ServiceSpace{},
 		&types.ServiceSpaceMember{},
 		&types.ServiceExpertBinding{},
+		&types.ServiceSubject{},
+		&types.ServiceReminder{},
+		&types.ServiceReminderAssignee{},
+		&types.ServiceReminderComment{},
+		&types.ServiceReminderHistory{},
+		&types.ServiceReminderStatus{},
+		&types.ServiceReminderStatusTransition{},
 		&types.ServiceArtifact{},
+		&types.ServiceContextSource{},
+		&types.OrganizeOutput{},
+		&types.OrganizeOutputMemory{},
 		&types.AgentRun{},
 		&types.AgentRunEvent{},
 		&types.AgentRunEventSequence{},
@@ -155,7 +165,7 @@ func newExpertAgentRunTestService(
 	t.Helper()
 	db := newAgentRunTestDB(t)
 	runRepo := repository.NewAgentRunRepository(db)
-	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil, nil)
+	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
 	expertRepo := repository.NewExpertPackageRepository(db)
 	enqueuer := &agentRunTaskEnqueuer{}
 	chatModel := &expertTestChatModel{
@@ -383,7 +393,7 @@ func TestServiceAgentRunKeepsSessionBoundaryAndIndexesArtifacts(t *testing.T) {
 		[]string{expertTestLongReport()},
 	)
 	pkg, definition := createPublishedExpertTestDefinition(t, db, tenantID)
-	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), nil, nil)
+	serviceSpaces := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
 	space, err := serviceSpaces.Create(ctx, tenantID, userID, types.ServiceSpaceCreateInput{
 		Name: "秋季招生咨询",
 		Experts: []types.ServiceExpertBindingInput{

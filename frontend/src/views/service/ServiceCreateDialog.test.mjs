@@ -53,6 +53,44 @@ test('templates live under my services and populate the creation dialog', () => 
   assert.match(dialog, /直接创建空间/)
 })
 
+test('planned service flow confirms instruction-generated blueprints before activation', () => {
+  assert.match(hub, /applyServiceTemplate/)
+  assert.match(hub, /previewServiceBlueprint/)
+  assert.match(hub, /confirmServiceBlueprint/)
+  assert.match(hub, /确认服务空间蓝图/)
+  assert.match(hub, /activate: true/)
+  assert.match(hub, /空间档案/)
+  assert.match(hub, /首页摘要/)
+})
+
+test('service workspace exposes generated profile and summary panels on web only', () => {
+  assert.match(hub, /getServiceProfile/)
+  assert.match(hub, /getServiceSummary/)
+  assert.match(hub, /refreshServiceSummary/)
+  assert.match(hub, /route\.meta\.mobileEntry/)
+  assert.match(hub, /serviceProfile\?\.schema/)
+  assert.match(hub, /serviceSummary\?\.schema/)
+})
+
+test('service workspace refreshes and focuses imported organize sources from the route', () => {
+  assert.match(hub, /route\.query\.context_source/)
+  assert.match(hub, /await loadContextSources\(queryService\)/)
+  assert.match(hub, /panel\.value = 'context'/)
+  assert.match(hub, /sourceMatchesRoute\(source\)/)
+  assert.match(hub, /刚带入/)
+})
+
+test('service workspace exposes service-scoped reminders and status actions', () => {
+  assert.match(hub, /panel === 'reminders'/)
+  assert.match(hub, /listServiceReminders/)
+  assert.match(hub, /createServiceReminder/)
+  assert.match(hub, /updateServiceReminder/)
+  assert.match(hub, /deleteServiceReminder/)
+  assert.match(hub, /nextReminderStatuses/)
+  assert.match(hub, /服务事项/)
+  assert.match(hub, /事项已创建/)
+})
+
 test('market research template covers the full research-to-review workflow', () => {
   assert.match(hubState, /市场调研与竞品分析协同助手/)
   assert.match(hubState, /阶段一：调研课题定义/)

@@ -2,11 +2,15 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -15,49 +19,90 @@ import (
 )
 
 var (
-	ErrServiceSpaceInvalidScope       = errors.New("invalid service scope")
-	ErrServiceSpaceNotFound           = errors.New("service not found")
-	ErrServiceSpaceForbidden          = errors.New("service access forbidden")
-	ErrServiceSpaceNameRequired       = errors.New("service name is required")
-	ErrServiceSpaceInvalidType        = errors.New("invalid service space type")
-	ErrServiceSpaceInvalidState       = errors.New("invalid service state")
-	ErrServiceSpaceNotActive          = errors.New("service is not active")
-	ErrServiceSpaceArchived           = errors.New("service is archived")
-	ErrServiceSpaceExpertRequired     = errors.New("at least one enabled expert is required")
-	ErrServiceSpaceInvalidRole        = errors.New("invalid service member role")
-	ErrServiceSpaceOwnerImmutable     = errors.New("service owner cannot be removed or downgraded")
-	ErrServiceSpaceMemberLimit        = errors.New("service member limit reached")
-	ErrServiceSpaceSessionNotFound    = errors.New("service session not found")
-	ErrServiceSpaceArtifactNotFound   = errors.New("service artifact not found")
-	ErrServiceSpaceDuplicateExpertRef = errors.New("duplicate expert_ref")
+	ErrServiceSpaceInvalidScope          = errors.New("invalid service scope")
+	ErrServiceSpaceNotFound              = errors.New("service not found")
+	ErrServiceSpaceForbidden             = errors.New("service access forbidden")
+	ErrServiceSpaceNameRequired          = errors.New("service name is required")
+	ErrServiceSpaceInvalidType           = errors.New("invalid service space type")
+	ErrServiceSpaceInvalidState          = errors.New("invalid service state")
+	ErrServiceSpaceNotActive             = errors.New("service is not active")
+	ErrServiceSpaceArchived              = errors.New("service is archived")
+	ErrServiceSpaceExpertRequired        = errors.New("at least one enabled expert is required")
+	ErrServiceSpaceInvalidRole           = errors.New("invalid service member role")
+	ErrServiceSpaceOwnerImmutable        = errors.New("service owner cannot be removed or downgraded")
+	ErrServiceSpaceMemberLimit           = errors.New("service member limit reached")
+	ErrServiceSpaceSessionNotFound       = errors.New("service session not found")
+	ErrServiceSpaceArtifactNotFound      = errors.New("service artifact not found")
+	ErrServiceSpaceDuplicateExpertRef    = errors.New("duplicate expert_ref")
+	ErrServiceSpaceBlueprintNotFound     = errors.New("service blueprint not found")
+	ErrServiceSpaceBlueprintConflict     = errors.New("service blueprint version conflict")
+	ErrServiceSpaceTemplateNotFound      = errors.New("service template not found")
+	ErrServiceSpaceTemplateNotAllowed    = errors.New("service template cannot be auto-applied")
+	ErrServiceSpaceInvalidLifecycle      = errors.New("invalid artifact lifecycle transition")
+	ErrServiceSpaceKBOutOfScope          = errors.New("SERVICE_KB_OUT_OF_SCOPE")
+	ErrServiceSpaceSubjectNotFound       = errors.New("service subject not found")
+	ErrServiceSpaceSubjectInvalid        = errors.New("invalid service subject")
+	ErrServiceSpaceSubjectParent         = errors.New("service subject parent must belong to the same service")
+	ErrServiceSpaceStatusNotFound        = errors.New("service reminder status not found")
+	ErrServiceSpaceStatusInvalid         = errors.New("invalid service reminder status")
+	ErrServiceSpaceStatusInUse           = errors.New("service reminder status is in use")
+	ErrServiceSpaceLastStatus            = errors.New("service reminder status cannot leave the service without an initial status")
+	ErrServiceSpaceDuplicateStatusKey    = errors.New("duplicate service reminder status key")
+	ErrServiceSpaceTransitionInvalid     = errors.New("invalid service reminder status transition")
+	ErrServiceSpaceContextSourceNotFound = errors.New("service context source not found")
+	ErrServiceSpaceContextSourceInvalid  = errors.New("invalid service context source")
+	ErrServiceSpaceContextSourceNotReady = errors.New("organize output is not ready")
+	ErrServiceSpaceContextSourceAssigned = errors.New("organize output is already assigned to another service")
+	ErrServiceSpaceReminderNotFound      = errors.New("service reminder not found")
+	ErrServiceSpaceReminderInvalid       = errors.New("invalid service reminder")
+	ErrServiceSpaceReminderTransition    = errors.New("service reminder status transition is not allowed")
+	ErrServiceSpaceReminderParent        = errors.New("invalid service reminder parent")
+	ErrServiceSpaceReminderDepth         = errors.New("service reminder nesting exceeds five levels")
+	ErrServiceSpaceProfileSchemaInvalid  = errors.New("invalid service profile schema")
 )
 
 const (
-	serviceSpaceMaxNameRunes         = 255
-	serviceSpaceDefaultPage          = 1
-	serviceSpaceDefaultSize          = 20
-	serviceSpaceMaxPageSize          = 100
-	serviceSpaceMarkdownPageSize     = 100
-	serviceSpaceMarkdownMaxFiles     = 100
-	serviceSpaceMarkdownMaxBytes     = 512 * 1024
-	serviceSpaceMarkdownMaxFileBytes = 128 * 1024
+	serviceSpaceMaxNameRunes          = 255
+	serviceSpaceDefaultPage           = 1
+	serviceSpaceDefaultSize           = 20
+	serviceSpaceMaxPageSize           = 100
+	serviceSpaceMarkdownPageSize      = 100
+	serviceSpaceMarkdownMaxFiles      = 100
+	serviceSpaceMarkdownMaxBytes      = 512 * 1024
+	serviceSpaceMarkdownMaxFileBytes  = 128 * 1024
+	serviceSpaceContextSourceMaxBytes = 256 * 1024
 )
 
 type serviceSpaceService struct {
 	repo            interfaces.ServiceSpaceRepository
+	organizeRepo    interfaces.OrganizeRepository
 	resourceCatalog interfaces.ResourceCatalog
 	fileService     interfaces.FileService
+	tenantRepo      interfaces.TenantRepository
 }
 
 func NewServiceSpaceService(
 	repo interfaces.ServiceSpaceRepository,
+	organizeRepo interfaces.OrganizeRepository,
 	resourceCatalog interfaces.ResourceCatalog,
 	fileService interfaces.FileService,
 ) interfaces.ServiceSpaceService {
+	return NewServiceSpaceServiceWithTenantRepository(repo, organizeRepo, resourceCatalog, fileService, nil)
+}
+
+func NewServiceSpaceServiceWithTenantRepository(
+	repo interfaces.ServiceSpaceRepository,
+	organizeRepo interfaces.OrganizeRepository,
+	resourceCatalog interfaces.ResourceCatalog,
+	fileService interfaces.FileService,
+	tenantRepo interfaces.TenantRepository,
+) interfaces.ServiceSpaceService {
 	return &serviceSpaceService{
 		repo:            repo,
+		organizeRepo:    organizeRepo,
 		resourceCatalog: resourceCatalog,
 		fileService:     fileService,
+		tenantRepo:      tenantRepo,
 	}
 }
 
@@ -123,6 +168,943 @@ func (s *serviceSpaceService) Create(
 		return nil, err
 	}
 	return s.Get(ctx, tenantID, userID, service.ID)
+}
+
+func (s *serviceSpaceService) ListTemplates(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+) ([]*types.ServiceSpaceTemplate, error) {
+	if err := validateServiceSpaceScope(tenantID, userID); err != nil {
+		return nil, err
+	}
+	templates := builtinServiceTemplates()
+	stored, err := s.repo.ListTemplates(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	byKey := make(map[string]*types.ServiceSpaceTemplate, len(templates)+len(stored))
+	for _, template := range templates {
+		if template != nil {
+			byKey[template.Key] = template
+		}
+	}
+	for _, template := range stored {
+		if template != nil {
+			byKey[template.Key] = template
+		}
+	}
+	result := make([]*types.ServiceSpaceTemplate, 0, len(byKey))
+	for _, template := range byKey {
+		result = append(result, template)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+	return result, nil
+}
+
+func (s *serviceSpaceService) ApplyTemplate(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	input types.ServiceSpaceTemplateApplyInput,
+) (*types.ServiceSpaceView, error) {
+	if err := input.Validate(); err != nil {
+		return nil, err
+	}
+	if err := validateServiceSpaceScope(tenantID, userID); err != nil {
+		return nil, err
+	}
+	if existing, err := s.repo.GetTemplateApplicationByIdempotency(ctx, tenantID, input.IdempotencyKey); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return s.Get(ctx, tenantID, userID, existing.ServiceID)
+	}
+
+	template, err := s.repo.GetTemplate(ctx, tenantID, input.TemplateKey, input.TemplateVersion)
+	if err != nil {
+		return nil, err
+	}
+	if template == nil {
+		for _, candidate := range builtinServiceTemplates() {
+			if candidate.Key == strings.TrimSpace(input.TemplateKey) &&
+				(input.TemplateVersion == 0 || candidate.Version == input.TemplateVersion) {
+				template = candidate
+				break
+			}
+		}
+	}
+	if template == nil {
+		return nil, ErrServiceSpaceTemplateNotFound
+	}
+	if err := template.Validate(); err != nil {
+		return nil, err
+	}
+	if template.Status != types.ServiceSpaceTemplateStatusPublished ||
+		!template.AutoApply ||
+		template.RiskLevel != types.ServiceSpaceTemplateRiskLow {
+		return nil, ErrServiceSpaceTemplateNotAllowed
+	}
+
+	blueprint := template.Blueprint
+	blueprint.TenantID = tenantID
+	blueprint.SourceType = types.ServiceSpaceBlueprintSourceTemplate
+	blueprint.Status = types.ServiceSpaceBlueprintStatusConfirmed
+	blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationAutoApply
+	blueprint.TemplateVersion = template.Version
+	blueprint.ProposedTemplateKey = template.Key
+	blueprint.Version = 1
+	blueprint.ProfileVersion = 1
+	blueprint.ProfileHash = profileHash(tenantID, userID)
+	blueprint.SourceInstruction = strings.TrimSpace(input.Instruction)
+	if blueprint.SourceInstruction == "" {
+		blueprint.SourceInstruction = strings.TrimSpace(template.Blueprint.SourceInstruction)
+	}
+
+	expertInputs := append([]types.ServiceExpertBindingInput(nil), input.Experts...)
+	if len(expertInputs) == 0 {
+		expertInputs = make([]types.ServiceExpertBindingInput, 0, len(blueprint.ExpertSuggestions))
+		for i, suggestion := range blueprint.ExpertSuggestions {
+			ref := strings.TrimSpace(suggestion.ExpertRef)
+			if ref == "" {
+				ref = "builtin-smart-reasoning"
+			}
+			expertInputs = append(expertInputs, types.ServiceExpertBindingInput{
+				ExpertRef: ref, ExpertName: suggestion.ExpertName, DisplayOrder: i + 1,
+			})
+		}
+	}
+	if len(expertInputs) == 0 {
+		expertInputs = []types.ServiceExpertBindingInput{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}
+	}
+	description := strings.TrimSpace(input.Description)
+	if description == "" {
+		description = template.Name
+	}
+	service, err := s.Create(ctx, tenantID, userID, types.ServiceSpaceCreateInput{
+		Name:             input.Name,
+		SpaceType:        string(blueprint.ProposedSpaceType),
+		Description:      description,
+		Instruction:      blueprint.SourceInstruction,
+		KnowledgeBaseIDs: input.KnowledgeBaseIDs,
+		TemplateKey:      template.Key,
+		Experts:          expertInputs,
+		Activate:         template.AutoActivate,
+	})
+	if err != nil {
+		return nil, err
+	}
+	blueprint.ServiceID = service.ID
+	blueprint.ID = ""
+	blueprintJSON, marshalErr := json.Marshal(blueprint)
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	record := &types.ServiceSpaceBlueprintRecord{
+		TenantID: tenantID, ServiceID: service.ID, Version: 1,
+		SourceType:        string(types.ServiceSpaceBlueprintSourceTemplate),
+		SourceInstruction: blueprint.SourceInstruction, Blueprint: types.JSON(blueprintJSON),
+		Status:           string(types.ServiceSpaceBlueprintStatusConfirmed),
+		ConfirmationMode: string(types.ServiceSpaceBlueprintConfirmationAutoApply),
+		ProfileVersion:   1, ProfileHash: blueprint.ProfileHash,
+		ConfirmedBy: userID,
+	}
+	now := time.Now().UTC()
+	record.ConfirmedAt = &now
+	if err := s.repo.CreateBlueprint(ctx, record); err != nil {
+		return nil, err
+	}
+	if err := s.initializeProfileAndSummary(ctx, tenantID, service.ID, blueprint); err != nil {
+		return nil, err
+	}
+	if err := s.repo.CreateTemplateApplication(ctx, &types.ServiceSpaceTemplateApplicationRecord{
+		TenantID: tenantID, ServiceID: service.ID, TemplateKey: template.Key,
+		TemplateVersion: template.Version, ProfileVersion: 1, ProfileHash: blueprint.ProfileHash,
+		MatchReason:    types.JSONMap{"mode": "builtin_or_published", "reason": "published_template"},
+		ApplyMode:      string(types.ServiceSpaceBlueprintConfirmationAutoApply),
+		IdempotencyKey: input.IdempotencyKey,
+		Result:         string(types.ServiceSpaceTemplateApplicationApplied),
+	}); err != nil {
+		return nil, err
+	}
+	return s.Get(ctx, tenantID, userID, service.ID)
+}
+
+func (s *serviceSpaceService) PreviewBlueprint(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceSpaceBlueprintPreviewInput,
+) (*types.ServiceSpaceBlueprint, error) {
+	if err := input.Validate(); err != nil {
+		return nil, err
+	}
+	if err := validateServiceSpaceScope(tenantID, userID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(serviceID) != "" {
+		if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+			return nil, err
+		}
+	}
+	blueprint := buildInstructionBlueprint(input.Instruction)
+	blueprint.TenantID = tenantID
+	blueprint.ServiceID = strings.TrimSpace(serviceID)
+	blueprint.ProfileHash = profileHash(tenantID, userID)
+	if serviceID == "" {
+		return &blueprint, nil
+	}
+	latest, err := s.repo.GetLatestBlueprint(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	version := 1
+	if latest != nil {
+		version = latest.Version + 1
+	}
+	blueprint.Version = version
+	encoded, err := json.Marshal(blueprint)
+	if err != nil {
+		return nil, err
+	}
+	record := &types.ServiceSpaceBlueprintRecord{
+		TenantID: tenantID, ServiceID: serviceID, Version: version,
+		SourceType:        string(types.ServiceSpaceBlueprintSourceInstruction),
+		SourceInstruction: blueprint.SourceInstruction, Blueprint: types.JSON(encoded),
+		Status:           string(types.ServiceSpaceBlueprintStatusDraft),
+		ConfirmationMode: string(types.ServiceSpaceBlueprintConfirmationPending),
+		ProfileVersion:   1, ProfileHash: blueprint.ProfileHash,
+	}
+	if err := s.repo.CreateBlueprint(ctx, record); err != nil {
+		return nil, err
+	}
+	blueprint.ID = record.ID
+	blueprint.CreatedAt = record.CreatedAt
+	blueprint.UpdatedAt = record.UpdatedAt
+	return &blueprint, nil
+}
+
+func (s *serviceSpaceService) GetBlueprint(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) (*types.ServiceSpaceBlueprint, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, err
+	}
+	record, err := s.repo.GetLatestBlueprint(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, ErrServiceSpaceBlueprintNotFound
+	}
+	blueprint, err := record.ToBlueprint()
+	if err != nil {
+		return nil, err
+	}
+	return &blueprint, nil
+}
+
+func (s *serviceSpaceService) ConfirmBlueprint(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceSpaceBlueprintConfirmInput,
+) (*types.ServiceSpaceView, error) {
+	if err := input.Validate(); err != nil {
+		return nil, err
+	}
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleAdmin, true); err != nil {
+		return nil, err
+	}
+	record, err := s.repo.GetBlueprintByID(ctx, tenantID, serviceID, input.BlueprintID)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, ErrServiceSpaceBlueprintNotFound
+	}
+	if record.Status == string(types.ServiceSpaceBlueprintStatusConfirmed) {
+		return s.Get(ctx, tenantID, userID, serviceID)
+	}
+	if record.Version != input.ExpectedVersion || record.Status != string(types.ServiceSpaceBlueprintStatusDraft) {
+		return nil, ErrServiceSpaceBlueprintConflict
+	}
+	blueprint, err := record.ToBlueprint()
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if err := s.repo.UpdateBlueprint(ctx, record, map[string]any{
+		"status":            string(types.ServiceSpaceBlueprintStatusConfirmed),
+		"confirmation_mode": string(types.ServiceSpaceBlueprintConfirmationManual),
+		"confirmed_by":      userID,
+		"confirmed_at":      now,
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.repo.Update(ctx, &types.ServiceSpace{TenantID: tenantID, ID: serviceID}, map[string]any{
+		"space_type":   blueprint.ProposedSpaceType,
+		"instruction":  blueprint.SourceInstruction,
+		"template_key": blueprint.ProposedTemplateKey,
+		"updated_by":   userID,
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.initializeProfileAndSummary(ctx, tenantID, serviceID, blueprint); err != nil {
+		return nil, err
+	}
+	if input.Activate {
+		if _, err := s.SetState(ctx, tenantID, userID, serviceID, types.ServiceSpaceStateActive); err != nil {
+			return nil, err
+		}
+	}
+	return s.Get(ctx, tenantID, userID, serviceID)
+}
+
+func (s *serviceSpaceService) GetProfile(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) (*types.ServiceSpaceProfile, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := s.repo.GetProfile(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	if profile == nil {
+		blueprint, blueprintErr := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, service.Instruction)
+		if blueprintErr != nil {
+			return nil, blueprintErr
+		}
+		return &types.ServiceSpaceProfile{
+			TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
+			Version: 1, Schema: blueprint.ProfileSchema, Values: types.JSONMap{},
+			SourceWatermark: profileHash(tenantID, serviceID),
+		}, nil
+	}
+	return profile, nil
+}
+
+func (s *serviceSpaceService) UpdateProfile(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceSpaceProfileUpdateInput,
+) (*types.ServiceSpaceProfile, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true)
+	if err != nil {
+		return nil, err
+	}
+	blueprint, err := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, service.Instruction)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.repo.GetProfile(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	version := 1
+	if current != nil {
+		version = current.Version + 1
+	}
+	schema := blueprint.ProfileSchema
+	if current != nil && input.Schema == nil && len(current.Schema) > 0 {
+		schema = current.Schema
+	}
+	if input.Schema != nil {
+		normalized, schemaErr := normalizeServiceProfileSchema(*input.Schema)
+		if schemaErr != nil {
+			return nil, schemaErr
+		}
+		schema = normalized
+	}
+	profile := &types.ServiceSpaceProfile{
+		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
+		Version: version, Schema: schema, Values: input.Values,
+		SourceWatermark: profileHash(tenantID, serviceID),
+	}
+	if err := s.repo.UpsertProfile(ctx, profile); err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+func normalizeServiceProfileSchema(fields []types.ServiceSpaceProfileField) ([]types.ServiceSpaceProfileField, error) {
+	if len(fields) > 50 {
+		return nil, ErrServiceSpaceProfileSchemaInvalid
+	}
+	normalized := make([]types.ServiceSpaceProfileField, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for index, field := range fields {
+		field.Key = strings.TrimSpace(field.Key)
+		field.Label = strings.TrimSpace(field.Label)
+		field.ValueType = strings.TrimSpace(field.ValueType)
+		field.Source = strings.TrimSpace(field.Source)
+		if field.Key == "" || field.Label == "" || utf8.RuneCountInString(field.Key) > 64 || utf8.RuneCountInString(field.Label) > 128 {
+			return nil, ErrServiceSpaceProfileSchemaInvalid
+		}
+		if _, exists := seen[field.Key]; exists {
+			return nil, ErrServiceSpaceProfileSchemaInvalid
+		}
+		seen[field.Key] = struct{}{}
+		if field.ValueType == "" {
+			field.ValueType = "text"
+		}
+		if field.Source == "" {
+			field.Source = "manual"
+		}
+		if field.DisplayOrder <= 0 {
+			field.DisplayOrder = index + 1
+		}
+		normalized = append(normalized, field)
+	}
+	return normalized, nil
+}
+
+func (s *serviceSpaceService) GetSummary(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) (*types.ServiceSpaceSummary, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false)
+	if err != nil {
+		return nil, err
+	}
+	summary, err := s.repo.GetSummary(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	if summary == nil {
+		blueprint, blueprintErr := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, service.Instruction)
+		if blueprintErr != nil {
+			return nil, blueprintErr
+		}
+		sections := types.JSONMap{}
+		for _, section := range blueprint.SummarySchema {
+			sections[section.Key] = types.JSONMap{
+				"label":         section.Label,
+				"status":        "待补充事实",
+				"source_scopes": section.SourceScopes,
+			}
+		}
+		return &types.ServiceSpaceSummary{
+			TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
+			Version: 1, Schema: blueprint.SummarySchema, Sections: sections,
+			SourceWatermark: profileHash(tenantID, serviceID), RefreshStatus: "ready",
+		}, nil
+	}
+	return summary, nil
+}
+
+func (s *serviceSpaceService) RefreshSummary(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) (*types.ServiceSpaceSummary, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true)
+	if err != nil {
+		return nil, err
+	}
+	blueprint, err := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, service.Instruction)
+	if err != nil {
+		return nil, err
+	}
+	profile, _ := s.repo.GetProfile(ctx, tenantID, serviceID)
+	version := 1
+	if existing, getErr := s.repo.GetSummary(ctx, tenantID, serviceID); getErr == nil && existing != nil {
+		version = existing.Version + 1
+	}
+	sections := types.JSONMap{}
+	for _, section := range blueprint.SummarySchema {
+		sections[section.Key] = types.JSONMap{
+			"label":         section.Label,
+			"status":        "待补充事实",
+			"source_scopes": section.SourceScopes,
+		}
+	}
+	if profile != nil {
+		sections["profile_snapshot"] = profile.Values
+	}
+	summary := &types.ServiceSpaceSummary{
+		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
+		Version: version, Schema: blueprint.SummarySchema, Sections: sections,
+		SourceWatermark: profileHash(tenantID, serviceID), RefreshStatus: "ready",
+	}
+	if err := s.repo.UpsertSummary(ctx, summary); err != nil {
+		return nil, err
+	}
+	return summary, nil
+}
+
+func (s *serviceSpaceService) resolvePlanningBlueprint(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID string,
+	instruction string,
+) (*types.ServiceSpaceBlueprint, error) {
+	record, err := s.repo.GetLatestBlueprint(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	if record != nil {
+		blueprint, convertErr := record.ToBlueprint()
+		if convertErr != nil {
+			return nil, convertErr
+		}
+		return &blueprint, nil
+	}
+	blueprint := buildInstructionBlueprint(instruction)
+	blueprint.TenantID = tenantID
+	blueprint.ServiceID = serviceID
+	blueprint.Status = types.ServiceSpaceBlueprintStatusConfirmed
+	blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationManual
+	blueprint.Version = 1
+	return &blueprint, nil
+}
+
+func (s *serviceSpaceService) ResolveRuntimeContext(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) (*types.ServiceRuntimeContext, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false)
+	if err != nil {
+		return nil, err
+	}
+	experts, err := s.repo.ListExperts(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	blueprint, _ := s.GetBlueprint(ctx, tenantID, userID, serviceID)
+	profile, _ := s.repo.GetProfile(ctx, tenantID, serviceID)
+	summary, _ := s.repo.GetSummary(ctx, tenantID, serviceID)
+	artifacts, _, err := s.repo.ListArtifacts(ctx, tenantID, serviceID, types.ServiceArtifactLifecycleSaved, 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return nil, err
+	}
+	shared, _, err := s.repo.ListArtifacts(ctx, tenantID, serviceID, types.ServiceArtifactLifecycleShared, 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return nil, err
+	}
+	artifacts = append(artifacts, shared...)
+	contextSources, err := s.repo.ListContextSources(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	templateVersion := 0
+	blueprintVersion := 0
+	if blueprint != nil {
+		templateVersion = blueprint.TemplateVersion
+		blueprintVersion = blueprint.Version
+	}
+	hashInput := struct {
+		ServiceID        string   `json:"service_id"`
+		Instruction      string   `json:"instruction"`
+		KnowledgeBaseIDs []string `json:"knowledge_base_ids"`
+		TemplateKey      string   `json:"template_key"`
+		TemplateVersion  int      `json:"template_version"`
+		BlueprintVersion int      `json:"blueprint_version"`
+		ProfileVersion   int      `json:"profile_version"`
+		SummaryVersion   int      `json:"summary_version"`
+		ContextSources   []string `json:"context_sources"`
+	}{service.ID, service.Instruction, service.KnowledgeBaseIDs, service.TemplateKey, templateVersion,
+		blueprintVersion, profileVersion(profile), summaryVersion(summary),
+		contextSourceHashInputs(contextSources)}
+	encoded, _ := json.Marshal(hashInput)
+	digest := sha256.Sum256(encoded)
+	return &types.ServiceRuntimeContext{
+		ServiceID: service.ID, SpaceType: service.SpaceType, Instruction: service.Instruction,
+		KnowledgeBaseIDs: append([]string(nil), service.KnowledgeBaseIDs...),
+		TemplateKey:      service.TemplateKey, TemplateVersion: templateVersion,
+		BlueprintVersion: blueprintVersion, Experts: experts, Profile: profile,
+		Summary: summary, Artifacts: artifacts, ContextSources: contextSources,
+		ContextHash: fmt.Sprintf("%x", digest[:]),
+	}, nil
+}
+
+func (s *serviceSpaceService) ListContextSources(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) ([]*types.ServiceContextSource, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, err
+	}
+	return s.repo.ListContextSources(ctx, tenantID, serviceID)
+}
+
+func (s *serviceSpaceService) ImportOrganizeOutput(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, outputID string,
+) (*types.ServiceContextSource, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return nil, err
+	}
+	if s.organizeRepo == nil {
+		return nil, ErrServiceSpaceContextSourceInvalid
+	}
+	outputID = strings.TrimSpace(outputID)
+	if outputID == "" {
+		return nil, ErrServiceSpaceContextSourceInvalid
+	}
+	if existing, err := s.repo.GetContextSourceBySource(
+		ctx,
+		tenantID,
+		serviceID,
+		types.ServiceContextSourceTypeOrganizeOutput,
+		outputID,
+	); err != nil {
+		return nil, err
+	} else if existing != nil {
+		if output, outputErr := s.organizeRepo.GetOutput(ctx, tenantID, userID, outputID); outputErr != nil {
+			return nil, outputErr
+		} else if output != nil {
+			markOrganizeOutputAssigned(output, serviceID)
+			if outputErr := s.organizeRepo.UpdateOutput(ctx, output, output.MemoryIDs); outputErr != nil {
+				return nil, outputErr
+			}
+		}
+		return existing, nil
+	}
+
+	output, err := s.organizeRepo.GetOutput(ctx, tenantID, userID, outputID)
+	if err != nil {
+		return nil, err
+	}
+	if output == nil {
+		return nil, ErrServiceSpaceContextSourceNotFound
+	}
+	if output.Status != types.OrganizeOutputStatusReady {
+		return nil, ErrServiceSpaceContextSourceNotReady
+	}
+	if output.AssignmentStatus == types.OrganizeAssignmentStatusAssigned &&
+		strings.TrimSpace(output.AssignedServiceID) != "" &&
+		strings.TrimSpace(output.AssignedServiceID) != serviceID {
+		return nil, ErrServiceSpaceContextSourceAssigned
+	}
+
+	sourceVersion := strings.TrimSpace(output.TemplateVersion)
+	if sourceVersion == "" && !output.UpdatedAt.IsZero() {
+		sourceVersion = output.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	source := &types.ServiceContextSource{
+		TenantID:      tenantID,
+		ServiceID:     serviceID,
+		SourceType:    types.ServiceContextSourceTypeOrganizeOutput,
+		SourceID:      output.ID,
+		SourceTitle:   strings.TrimSpace(output.Title),
+		SourceVersion: sourceVersion,
+		SourceSummary: strings.TrimSpace(output.SourceSummary),
+		SourceContent: output.Content,
+		MemoryIDs:     types.StringArray(append([]string(nil), output.MemoryIDs...)),
+		Metadata: types.JSONMap{
+			"output_type":       output.OutputType,
+			"template_key":      output.TemplateKey,
+			"template_version":  output.TemplateVersion,
+			"fields":            output.Fields,
+			"citations":         output.Citations,
+			"output_metadata":   output.Metadata,
+			"source_updated_at": output.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		},
+		ImportedBy: userID,
+	}
+	if err := s.repo.CreateContextSource(ctx, source); err != nil {
+		return nil, err
+	}
+	markOrganizeOutputAssigned(output, serviceID)
+	if err := s.organizeRepo.UpdateOutput(ctx, output, output.MemoryIDs); err != nil {
+		return nil, err
+	}
+	return source, nil
+}
+
+func markOrganizeOutputAssigned(output *types.OrganizeOutput, serviceID string) {
+	if output == nil {
+		return
+	}
+	output.AssignedServiceID = strings.TrimSpace(serviceID)
+	output.AssignmentStatus = types.OrganizeAssignmentStatusAssigned
+	output.AssignmentReason = "已由用户分配到服务"
+	if output.Metadata == nil {
+		output.Metadata = types.JSONMap{}
+	}
+	output.Metadata["assignment_status"] = output.AssignmentStatus
+	output.Metadata["assigned_service_id"] = output.AssignedServiceID
+	output.Metadata["assignment_reason"] = output.AssignmentReason
+}
+
+func (s *serviceSpaceService) DeleteContextSource(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, sourceID string,
+) error {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return err
+	}
+	source, err := s.repo.GetContextSource(ctx, tenantID, serviceID, strings.TrimSpace(sourceID))
+	if err != nil {
+		return err
+	}
+	if source == nil {
+		return ErrServiceSpaceContextSourceNotFound
+	}
+	return s.repo.DeleteContextSource(ctx, tenantID, serviceID, source.ID)
+}
+
+func contextSourceHashInputs(sources []*types.ServiceContextSource) []string {
+	if len(sources) == 0 {
+		return nil
+	}
+	inputs := make([]string, 0, len(sources))
+	for _, source := range sources {
+		if source == nil {
+			continue
+		}
+		inputs = append(inputs, fmt.Sprintf(
+			"%s:%s:%s",
+			source.ID,
+			source.SourceVersion,
+			source.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		))
+	}
+	sort.Strings(inputs)
+	return inputs
+}
+
+func (s *serviceSpaceService) UpdateArtifactLifecycle(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, artifactID, lifecycle, idempotencyKey string,
+) (*types.ServiceArtifact, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return nil, fmt.Errorf("idempotency key is required")
+	}
+	artifact, err := s.GetArtifact(ctx, tenantID, userID, serviceID, artifactID, 0)
+	if err != nil {
+		return nil, err
+	}
+	if !validArtifactLifecycleTransition(artifact.Lifecycle, lifecycle) {
+		return nil, ErrServiceSpaceInvalidLifecycle
+	}
+	if lifecycle == types.ServiceArtifactLifecycleShared &&
+		types.ServiceMemberRoleRank(service.Role) < types.ServiceMemberRoleRank(types.ServiceMemberRoleAdmin) {
+		return nil, ErrServiceSpaceForbidden
+	}
+	if lifecycle != artifact.Lifecycle && s.tenantRepo != nil && s.resourceCatalog != nil {
+		if resource, resolveErr := s.resourceCatalog.Resolve(ctx, artifact.ResourceRef); resolveErr == nil && resource != nil && resource.Size > 0 {
+			delta := int64(0)
+			operation := ""
+			switch {
+			case lifecycle == types.ServiceArtifactLifecycleArchived && artifact.Lifecycle != types.ServiceArtifactLifecycleArchived:
+				delta = -resource.Size
+				operation = "release"
+			case artifact.Lifecycle == types.ServiceArtifactLifecycleArchived && lifecycle != types.ServiceArtifactLifecycleArchived:
+				delta = resource.Size
+				operation = "restore"
+			}
+			if delta != 0 {
+				if err := recordStorageDeltaWithRepository(
+					ctx,
+					s.tenantRepo,
+					tenantID,
+					fmt.Sprintf("artifact:%s:%s", operation, artifact.VersionID),
+					"artifact_"+operation,
+					delta,
+					map[string]any{"service_id": serviceID, "artifact_id": artifact.ArtifactID, "version_id": artifact.VersionID},
+				); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if err := s.repo.UpdateArtifactLifecycle(ctx, tenantID, serviceID, artifactID, lifecycle); err != nil {
+		return nil, err
+	}
+	return s.GetArtifact(ctx, tenantID, userID, serviceID, artifactID, 0)
+}
+
+func (s *serviceSpaceService) initializeProfileAndSummary(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID string,
+	blueprint types.ServiceSpaceBlueprint,
+) error {
+	profile := &types.ServiceSpaceProfile{
+		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
+		Version: 1, Schema: blueprint.ProfileSchema, Values: types.JSONMap{},
+		SourceWatermark: profileHash(tenantID, serviceID),
+	}
+	if err := s.repo.UpsertProfile(ctx, profile); err != nil {
+		return err
+	}
+	sections := types.JSONMap{}
+	for _, section := range blueprint.SummarySchema {
+		sections[section.Key] = types.JSONMap{"label": section.Label, "status": "待补充事实"}
+	}
+	summary := &types.ServiceSpaceSummary{
+		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
+		Version: 1, Schema: blueprint.SummarySchema, Sections: sections,
+		SourceWatermark: profileHash(tenantID, serviceID), RefreshStatus: "ready",
+	}
+	return s.repo.UpsertSummary(ctx, summary)
+}
+
+func profileHash(tenantID uint64, userID string) string {
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%d:%s", tenantID, strings.TrimSpace(userID))))
+	return fmt.Sprintf("%x", digest[:])
+}
+
+func profileVersion(profile *types.ServiceSpaceProfile) int {
+	if profile == nil {
+		return 0
+	}
+	return profile.Version
+}
+
+func summaryVersion(summary *types.ServiceSpaceSummary) int {
+	if summary == nil {
+		return 0
+	}
+	return summary.Version
+}
+
+func validArtifactLifecycleTransition(from, to string) bool {
+	if from == to {
+		return true
+	}
+	switch from {
+	case types.ServiceArtifactLifecycleTemporary:
+		return to == types.ServiceArtifactLifecycleSaved || to == types.ServiceArtifactLifecycleArchived
+	case types.ServiceArtifactLifecycleSaved:
+		return to == types.ServiceArtifactLifecycleShared || to == types.ServiceArtifactLifecycleArchived
+	case types.ServiceArtifactLifecycleShared:
+		return to == types.ServiceArtifactLifecycleArchived
+	case types.ServiceArtifactLifecycleArchived:
+		return to == types.ServiceArtifactLifecycleSaved
+	default:
+		return false
+	}
+}
+
+func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
+	text := strings.TrimSpace(instruction)
+	spaceType := types.ServiceSpaceTypeCustomerService
+	subjectRequired := true
+	allowedTypes := []string{"service_subject"}
+	switch {
+	case strings.Contains(text, "调研") || strings.Contains(text, "竞品") || strings.Contains(text, "研究") || strings.Contains(text, "课题"):
+		spaceType = types.ServiceSpaceTypeResearch
+		allowedTypes = []string{"research_subject"}
+	case strings.Contains(text, "巡查") || strings.Contains(text, "运营") || strings.Contains(text, "活动") || strings.Contains(text, "排期"):
+		spaceType = types.ServiceSpaceTypeOperations
+		subjectRequired = false
+		allowedTypes = nil
+	}
+	return types.ServiceSpaceBlueprint{
+		SourceType:        types.ServiceSpaceBlueprintSourceInstruction,
+		SourceInstruction: text, ProposedSpaceType: spaceType,
+		SubjectPolicy: types.ServiceSubjectPolicy{
+			Required: subjectRequired, AllowedTypes: allowedTypes, AllowHierarchy: true,
+		},
+		ProfileSchema: []types.ServiceSpaceProfileField{
+			{Key: "current_status", Label: "当前状态", ValueType: "text", Source: "facts", Required: false, DisplayOrder: 1},
+			{Key: "key_focus", Label: "重点关注", ValueType: "text", Source: "facts", Required: false, DisplayOrder: 2},
+			{Key: "next_actions", Label: "下一步动作", ValueType: "text", Source: "facts", Required: false, DisplayOrder: 3},
+		},
+		SummarySchema: []types.ServiceSpaceSummarySection{
+			{Key: "progress", Label: "进展", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+			{Key: "risks", Label: "风险与卡点", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+			{Key: "next_actions", Label: "下一步动作", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+		},
+		Status:           types.ServiceSpaceBlueprintStatusDraft,
+		ConfirmationMode: types.ServiceSpaceBlueprintConfirmationPending,
+		Version:          1,
+	}
+}
+
+func builtinServiceTemplates() []*types.ServiceSpaceTemplate {
+	makeTemplate := func(key, name, instruction string, spaceType types.ServiceSpaceType, subject string, fields []types.ServiceSpaceProfileField, sections []types.ServiceSpaceSummarySection, experts []types.ServiceSpaceBlueprintExpertSuggestion) *types.ServiceSpaceTemplate {
+		blueprint := buildInstructionBlueprint(instruction)
+		blueprint.SourceType = types.ServiceSpaceBlueprintSourceTemplate
+		blueprint.ProposedSpaceType = spaceType
+		blueprint.ProposedTemplateKey = key
+		blueprint.TemplateVersion = 1
+		blueprint.Status = types.ServiceSpaceBlueprintStatusConfirmed
+		blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationAutoApply
+		blueprint.ProfileSchema = fields
+		blueprint.SummarySchema = sections
+		blueprint.ExpertSuggestions = experts
+		if subject == "" {
+			blueprint.SubjectPolicy.Required = false
+			blueprint.SubjectPolicy.AllowedTypes = nil
+		} else {
+			blueprint.SubjectPolicy.AllowedTypes = []string{subject}
+		}
+		template := &types.ServiceSpaceTemplate{
+			TenantID: 0, Key: key, Name: name, Version: 1,
+			Status:    types.ServiceSpaceTemplateStatusPublished,
+			Blueprint: blueprint, AutoApply: true, AutoActivate: true,
+			RiskLevel:  types.ServiceSpaceTemplateRiskLow,
+			MatchRules: types.ServiceSpaceTemplateMatchRules{MinConfidencePct: 80},
+		}
+		return template
+	}
+	commonFields := []types.ServiceSpaceProfileField{
+		{Key: "current_status", Label: "当前状态", ValueType: "text", Source: "facts", DisplayOrder: 1},
+		{Key: "key_focus", Label: "重点关注", ValueType: "text", Source: "facts", DisplayOrder: 2},
+		{Key: "next_actions", Label: "下一步动作", ValueType: "text", Source: "facts", DisplayOrder: 3},
+	}
+	commonSections := []types.ServiceSpaceSummarySection{
+		{Key: "progress", Label: "进展", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+		{Key: "risks", Label: "风险与卡点", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+		{Key: "next_actions", Label: "下一步动作", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+	}
+	researchFields := []types.ServiceSpaceProfileField{
+		{Key: "topic_type", Label: "课题类型", ValueType: "text", Source: "facts", DisplayOrder: 1},
+		{Key: "research_scope", Label: "研究范围", ValueType: "text", Source: "facts", DisplayOrder: 2},
+		{Key: "key_hypotheses", Label: "核心假设", ValueType: "text", Source: "facts", DisplayOrder: 3},
+		{Key: "key_conclusions", Label: "关键结论", ValueType: "text", Source: "facts", DisplayOrder: 4},
+	}
+	researchSections := []types.ServiceSpaceSummarySection{
+		{Key: "core_findings", Label: "核心发现", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+		{Key: "evidence_uncertainty", Label: "证据与不确定性", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+		{Key: "opportunities_risks", Label: "机会与风险", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+		{Key: "next_validation", Label: "下一步验证", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
+	}
+	membershipFields := []types.ServiceSpaceProfileField{
+		{Key: "member_status", Label: "会员状态", ValueType: "text", Source: "facts", DisplayOrder: 1},
+		{Key: "child_stage", Label: "孩子阶段", ValueType: "text", Source: "facts", DisplayOrder: 2},
+		{Key: "benefit_usage", Label: "权益使用", ValueType: "text", Source: "facts", DisplayOrder: 3},
+		{Key: "service_preference", Label: "服务偏好", ValueType: "text", Source: "facts", DisplayOrder: 4},
+		{Key: "renewal_risk", Label: "续费风险", ValueType: "text", Source: "facts", DisplayOrder: 5},
+	}
+	membershipSections := []types.ServiceSpaceSummarySection{
+		{Key: "member_overview", Label: "会员概况", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+		{Key: "recent_service", Label: "近期服务", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+		{Key: "benefits_expiry", Label: "权益与到期", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+		{Key: "follow_up", Label: "待跟进事项", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
+	}
+	return []*types.ServiceSpaceTemplate{
+		makeTemplate("t1", "招生咨询全流程", "围绕招生线索记录家长顾虑、到访意向和下一步跟进。", types.ServiceSpaceTypeCustomerService, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t2", "家长续费跟进", "围绕续费窗口跟进服务对象，记录顾虑、政策依据和下一步动作。", types.ServiceSpaceTypeCustomerService, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t3", "一日流程巡查", "按一日流程巡查运营现场，记录异常并当日汇总上报。", types.ServiceSpaceTypeOperations, "", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t4", "新教师带教", "为新教师制定带教计划，按阶段评估并沉淀反馈。", types.ServiceSpaceTypeOperations, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t5", "活动筹备", "筹备活动，管理排期、通知、物资准备与活动后复盘。", types.ServiceSpaceTypeOperations, "project_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t6", "教学教研沉淀", "整理课堂观察和教研资料，沉淀可复用的经验条目。", types.ServiceSpaceTypeResearch, "research_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t7", "市场调研与竞品分析协同助手", "围绕调研课题、竞品和用户需求收集证据，区分事实、分析和建议。", types.ServiceSpaceTypeResearch, "research_subject", researchFields, researchSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t8", "早教机构会员服务", "围绕会员家庭提供课程、权益、问题跟进和续费服务，记录关联服务对象和下一步动作。", types.ServiceSpaceTypeCustomerService, "member_family", membershipFields, membershipSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+	}
 }
 
 func (s *serviceSpaceService) List(
@@ -617,6 +1599,433 @@ func (s *serviceSpaceService) ReplaceExperts(
 	return s.repo.ListExperts(ctx, tenantID, serviceID)
 }
 
+func (s *serviceSpaceService) ListSubjects(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, subjectType string,
+	page, pageSize int,
+) ([]*types.ServiceSubject, int64, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, 0, err
+	}
+	if strings.TrimSpace(subjectType) != "" {
+		normalized, err := types.NormalizeServiceSubjectType(subjectType)
+		if err != nil {
+			return nil, 0, ErrServiceSpaceSubjectInvalid
+		}
+		subjectType = normalized
+	}
+	page, pageSize = normalizeServicePagination(page, pageSize)
+	return s.repo.ListSubjects(ctx, tenantID, serviceID, subjectType, page, pageSize)
+}
+
+func (s *serviceSpaceService) GetSubject(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, subjectID string,
+) (*types.ServiceSubject, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, err
+	}
+	subject, err := s.repo.GetSubject(ctx, tenantID, serviceID, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	if subject == nil {
+		return nil, ErrServiceSpaceSubjectNotFound
+	}
+	return subject, nil
+}
+
+func (s *serviceSpaceService) CreateSubject(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceSubjectCreateInput,
+) (*types.ServiceSubject, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return nil, err
+	}
+	subjectTypeInput := strings.TrimSpace(input.SubjectType)
+	if subjectTypeInput == "" {
+		subjectTypeInput = types.ServiceSubjectTypeCustom
+	}
+	subjectType, err := types.NormalizeServiceSubjectType(subjectTypeInput)
+	if err != nil {
+		return nil, ErrServiceSpaceSubjectInvalid
+	}
+	subjectKey := strings.TrimSpace(input.SubjectKey)
+	if subjectKey == "" || utf8.RuneCountInString(subjectKey) > types.ServiceSubjectKeyMaxLen {
+		return nil, ErrServiceSpaceSubjectInvalid
+	}
+	parentID, err := s.validateSubjectParent(ctx, tenantID, serviceID, "", input.ParentSubjectID)
+	if err != nil {
+		return nil, err
+	}
+	visibility := strings.TrimSpace(input.VisibilityScope)
+	if visibility == "" {
+		visibility = types.ServiceSpaceVisibilityPrivate
+	}
+	if visibility != types.ServiceSpaceVisibilityPrivate && visibility != types.ServiceSpaceVisibilityTenant {
+		return nil, ErrServiceSpaceSubjectInvalid
+	}
+	subject := &types.ServiceSubject{
+		TenantID: tenantID, ServiceID: serviceID, OwnerUserID: userID,
+		SubjectType: subjectType, SubjectKey: subjectKey,
+		DisplayName:     strings.TrimSpace(input.DisplayName),
+		ParentSubjectID: parentID, Metadata: input.Metadata,
+		VisibilityScope: visibility,
+	}
+	if subject.DisplayName == "" {
+		subject.DisplayName = subject.SubjectKey
+	}
+	if err := subject.ValidateForServiceWrite(); err != nil {
+		return nil, ErrServiceSpaceSubjectInvalid
+	}
+	if err := s.repo.CreateSubject(ctx, subject); err != nil {
+		return nil, err
+	}
+	return subject, nil
+}
+
+func (s *serviceSpaceService) UpdateSubject(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, subjectID string,
+	input types.ServiceSubjectUpdateInput,
+) (*types.ServiceSubject, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return nil, err
+	}
+	current, err := s.repo.GetSubject(ctx, tenantID, serviceID, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, ErrServiceSpaceSubjectNotFound
+	}
+	fields := map[string]any{}
+	if input.SubjectType != nil {
+		subjectType, normalizeErr := types.NormalizeServiceSubjectType(*input.SubjectType)
+		if normalizeErr != nil {
+			return nil, ErrServiceSpaceSubjectInvalid
+		}
+		fields["subject_type"] = subjectType
+	}
+	if input.SubjectKey != nil {
+		subjectKey := strings.TrimSpace(*input.SubjectKey)
+		if subjectKey == "" || utf8.RuneCountInString(subjectKey) > types.ServiceSubjectKeyMaxLen {
+			return nil, ErrServiceSpaceSubjectInvalid
+		}
+		fields["subject_key"] = subjectKey
+	}
+	if input.DisplayName != nil {
+		fields["display_name"] = strings.TrimSpace(*input.DisplayName)
+	}
+	if input.ParentSubjectID != nil {
+		parentID, parentErr := s.validateSubjectParent(ctx, tenantID, serviceID, current.ID, input.ParentSubjectID)
+		if parentErr != nil {
+			return nil, parentErr
+		}
+		fields["parent_subject_id"] = parentID
+	}
+	if input.Metadata != nil {
+		fields["metadata"] = *input.Metadata
+	}
+	if input.VisibilityScope != nil {
+		visibility := strings.TrimSpace(*input.VisibilityScope)
+		if visibility != types.ServiceSpaceVisibilityPrivate && visibility != types.ServiceSpaceVisibilityTenant {
+			return nil, ErrServiceSpaceSubjectInvalid
+		}
+		fields["visibility_scope"] = visibility
+	}
+	if err := s.repo.UpdateSubject(ctx, tenantID, serviceID, current.ID, fields); err != nil {
+		return nil, err
+	}
+	return s.GetSubject(ctx, tenantID, userID, serviceID, current.ID)
+}
+
+func (s *serviceSpaceService) DeleteSubject(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, subjectID string,
+) error {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return err
+	}
+	subject, err := s.repo.GetSubject(ctx, tenantID, serviceID, strings.TrimSpace(subjectID))
+	if err != nil {
+		return err
+	}
+	if subject == nil {
+		return ErrServiceSpaceSubjectNotFound
+	}
+	return s.repo.DeleteSubject(ctx, tenantID, serviceID, subject.ID)
+}
+
+func (s *serviceSpaceService) ListReminderStatuses(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	includeDisabled bool,
+) ([]*types.ServiceReminderStatus, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, err
+	}
+	return s.repo.ListReminderStatuses(ctx, tenantID, strings.TrimSpace(serviceID), includeDisabled)
+}
+
+func (s *serviceSpaceService) CreateReminderStatus(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceReminderStatusCreateInput,
+) (*types.ServiceReminderStatus, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleAdmin, true); err != nil {
+		return nil, err
+	}
+	statusKey, err := types.NormalizeServiceReminderStatusKey(input.StatusKey)
+	if err != nil || !types.IsValidServiceReminderStatusCategory(input.Category) {
+		return nil, ErrServiceSpaceStatusInvalid
+	}
+	existingStatuses, err := s.repo.ListReminderStatuses(ctx, tenantID, serviceID, true)
+	if err != nil {
+		return nil, err
+	}
+	for _, existing := range existingStatuses {
+		if existing.StatusKey == statusKey {
+			return nil, ErrServiceSpaceDuplicateStatusKey
+		}
+	}
+	label := strings.TrimSpace(input.Label)
+	if label == "" || utf8.RuneCountInString(label) > types.ServiceReminderStatusLabelMaxLen {
+		return nil, ErrServiceSpaceStatusInvalid
+	}
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	status := &types.ServiceReminderStatus{
+		TenantID:     tenantID,
+		ServiceID:    strings.TrimSpace(serviceID),
+		StatusKey:    statusKey,
+		Label:        label,
+		Category:     strings.TrimSpace(input.Category),
+		IsInitial:    input.IsInitial,
+		IsTerminal:   input.IsTerminal,
+		DisplayOrder: input.DisplayOrder,
+		Color:        strings.TrimSpace(input.Color),
+		Description:  strings.TrimSpace(input.Description),
+		Enabled:      enabled,
+		CreatedBy:    userID,
+	}
+	if err := status.Validate(); err != nil {
+		return nil, ErrServiceSpaceStatusInvalid
+	}
+	if err := s.repo.CreateReminderStatus(ctx, status); err != nil {
+		if isDuplicateMembership(err) {
+			return nil, ErrServiceSpaceDuplicateStatusKey
+		}
+		return nil, err
+	}
+	return s.repo.GetReminderStatus(ctx, tenantID, serviceID, status.ID)
+}
+
+func (s *serviceSpaceService) UpdateReminderStatus(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, statusID string,
+	input types.ServiceReminderStatusUpdateInput,
+) (*types.ServiceReminderStatus, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleAdmin, true); err != nil {
+		return nil, err
+	}
+	status, err := s.repo.GetReminderStatus(ctx, tenantID, serviceID, strings.TrimSpace(statusID))
+	if err != nil {
+		return nil, err
+	}
+	if status == nil {
+		return nil, ErrServiceSpaceStatusNotFound
+	}
+	fields := map[string]any{}
+	if input.Label != nil {
+		label := strings.TrimSpace(*input.Label)
+		if label == "" || utf8.RuneCountInString(label) > types.ServiceReminderStatusLabelMaxLen {
+			return nil, ErrServiceSpaceStatusInvalid
+		}
+		fields["label"] = label
+	}
+	if input.IsInitial != nil {
+		if !*input.IsInitial && status.IsInitial {
+			others, listErr := s.repo.ListReminderStatuses(ctx, tenantID, serviceID, false)
+			if listErr != nil {
+				return nil, listErr
+			}
+			if len(others) <= 1 {
+				return nil, ErrServiceSpaceLastStatus
+			}
+		}
+		fields["is_initial"] = *input.IsInitial
+	}
+	if input.IsTerminal != nil {
+		fields["is_terminal"] = *input.IsTerminal
+	}
+	if input.DisplayOrder != nil {
+		if *input.DisplayOrder < 0 {
+			return nil, ErrServiceSpaceStatusInvalid
+		}
+		fields["display_order"] = *input.DisplayOrder
+	}
+	if input.Color != nil {
+		value := strings.TrimSpace(*input.Color)
+		if utf8.RuneCountInString(value) > types.ServiceReminderStatusColorMaxLen {
+			return nil, ErrServiceSpaceStatusInvalid
+		}
+		fields["color"] = value
+	}
+	if input.Description != nil {
+		value := strings.TrimSpace(*input.Description)
+		if utf8.RuneCountInString(value) > types.ServiceReminderStatusDescriptionMaxLen {
+			return nil, ErrServiceSpaceStatusInvalid
+		}
+		fields["description"] = value
+	}
+	if input.Enabled != nil {
+		if !*input.Enabled && status.IsInitial {
+			return nil, ErrServiceSpaceLastStatus
+		}
+		fields["enabled"] = *input.Enabled
+	}
+	if err := s.repo.UpdateReminderStatus(ctx, tenantID, serviceID, status.ID, fields); err != nil {
+		return nil, err
+	}
+	return s.repo.GetReminderStatus(ctx, tenantID, serviceID, status.ID)
+}
+
+func (s *serviceSpaceService) DeleteReminderStatus(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, statusID string,
+) error {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleAdmin, true); err != nil {
+		return err
+	}
+	status, err := s.repo.GetReminderStatus(ctx, tenantID, serviceID, strings.TrimSpace(statusID))
+	if err != nil {
+		return err
+	}
+	if status == nil {
+		return ErrServiceSpaceStatusNotFound
+	}
+	statuses, err := s.repo.ListReminderStatuses(ctx, tenantID, serviceID, false)
+	if err != nil {
+		return err
+	}
+	if len(statuses) <= 1 {
+		return ErrServiceSpaceLastStatus
+	}
+	transitions, err := s.repo.ListReminderStatusTransitions(ctx, tenantID, serviceID)
+	if err != nil {
+		return err
+	}
+	for _, transition := range transitions {
+		if transition.FromStatusID == status.ID || transition.ToStatusID == status.ID {
+			return ErrServiceSpaceStatusInUse
+		}
+	}
+	return s.repo.DeleteReminderStatus(ctx, tenantID, serviceID, status.ID)
+}
+
+func (s *serviceSpaceService) ListReminderStatusTransitions(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) ([]*types.ServiceReminderStatusTransition, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, err
+	}
+	return s.repo.ListReminderStatusTransitions(ctx, tenantID, strings.TrimSpace(serviceID))
+}
+
+func (s *serviceSpaceService) ReplaceReminderStatusTransitions(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceReminderStatusTransitionReplaceInput,
+) ([]*types.ServiceReminderStatusTransition, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleAdmin, true); err != nil {
+		return nil, err
+	}
+	statuses, err := s.repo.ListReminderStatuses(ctx, tenantID, serviceID, true)
+	if err != nil {
+		return nil, err
+	}
+	statusByID := make(map[string]*types.ServiceReminderStatus, len(statuses))
+	for _, status := range statuses {
+		statusByID[status.ID] = status
+	}
+	seen := make(map[string]struct{}, len(input.Transitions))
+	transitions := make([]*types.ServiceReminderStatusTransition, 0, len(input.Transitions))
+	for _, item := range input.Transitions {
+		fromID := strings.TrimSpace(item.FromStatusID)
+		toID := strings.TrimSpace(item.ToStatusID)
+		if fromID == "" || toID == "" || fromID == toID ||
+			statusByID[fromID] == nil || statusByID[toID] == nil {
+			return nil, ErrServiceSpaceTransitionInvalid
+		}
+		key := fromID + "\x00" + toID
+		if _, exists := seen[key]; exists {
+			return nil, ErrServiceSpaceTransitionInvalid
+		}
+		seen[key] = struct{}{}
+		roles := make(types.StringArray, 0, len(item.AllowedRoles))
+		for _, role := range item.AllowedRoles {
+			role = strings.TrimSpace(role)
+			if role != "" && !types.IsValidServiceMemberRole(role) {
+				return nil, ErrServiceSpaceTransitionInvalid
+			}
+			if role != "" {
+				roles = append(roles, role)
+			}
+		}
+		transitions = append(transitions, &types.ServiceReminderStatusTransition{
+			TenantID:     tenantID,
+			ServiceID:    strings.TrimSpace(serviceID),
+			FromStatusID: fromID,
+			ToStatusID:   toID,
+			AllowedRoles: roles,
+			Enabled:      item.Enabled,
+		})
+	}
+	if err := s.repo.ReplaceReminderStatusTransitions(ctx, tenantID, serviceID, transitions); err != nil {
+		return nil, err
+	}
+	return s.repo.ListReminderStatusTransitions(ctx, tenantID, serviceID)
+}
+
+func (s *serviceSpaceService) validateSubjectParent(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID string,
+	parentID *string,
+) (*string, error) {
+	if parentID == nil || strings.TrimSpace(*parentID) == "" {
+		return nil, nil
+	}
+	normalized := strings.TrimSpace(*parentID)
+	if normalized == subjectID {
+		return nil, ErrServiceSpaceSubjectParent
+	}
+	parent, err := s.repo.GetSubject(ctx, tenantID, serviceID, normalized)
+	if err != nil {
+		return nil, err
+	}
+	if parent == nil {
+		return nil, ErrServiceSpaceSubjectParent
+	}
+	return &normalized, nil
+}
+
 func (s *serviceSpaceService) ListArtifacts(
 	ctx context.Context,
 	tenantID uint64,
@@ -658,18 +2067,64 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 	tenantID uint64,
 	userID, serviceID string,
 ) (string, error) {
-	if s.fileService == nil {
-		return "", nil
-	}
 	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
 		return "", err
 	}
 
+	contextSources, err := s.repo.ListContextSources(ctx, tenantID, serviceID)
+	if err != nil {
+		return "", err
+	}
 	var builder strings.Builder
 	var total int64
 	var page = serviceSpaceDefaultPage
 	var loaded int
 	var truncated bool
+	artifactHeaderWritten := false
+
+	for _, source := range contextSources {
+		if source == nil {
+			continue
+		}
+		remaining := int64(serviceSpaceContextSourceMaxBytes) - total
+		if remaining <= 0 {
+			truncated = true
+			break
+		}
+		sourceText := strings.TrimSpace(source.SourceContent)
+		if summary := strings.TrimSpace(source.SourceSummary); summary != "" {
+			sourceText = "摘要：" + summary + "\n\n" + sourceText
+		}
+		if sourceText == "" {
+			continue
+		}
+		if int64(len(sourceText)) > remaining {
+			sourceText = sourceText[:remaining]
+			truncated = true
+		}
+		if builder.Len() == 0 {
+			builder.WriteString("[服务空间整理来源]\n")
+		}
+		builder.WriteString("\n## ")
+		builder.WriteString(firstNonEmptyServiceText(source.SourceTitle, source.SourceID))
+		builder.WriteString("\n")
+		builder.WriteString(sourceText)
+		builder.WriteString("\n")
+		total += int64(len(sourceText))
+		if truncated {
+			break
+		}
+	}
+
+	if s.fileService == nil {
+		if builder.Len() == 0 {
+			return "", nil
+		}
+		if truncated {
+			builder.WriteString("\n[服务空间参考资料已达到读取上限，以上为已读取内容。]\n")
+		}
+		return builder.String(), nil
+	}
 
 	for {
 		artifacts, totalArtifacts, err := s.repo.ListArtifacts(
@@ -746,8 +2201,9 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 			if name == "" {
 				name = artifact.ArtifactID
 			}
-			if builder.Len() == 0 {
+			if !artifactHeaderWritten {
 				builder.WriteString("[服务空间 Markdown 资料]\n")
+				artifactHeaderWritten = true
 			}
 			builder.WriteString("\n## ")
 			builder.WriteString(name)
@@ -770,6 +2226,15 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 		builder.WriteString("\n[服务空间 Markdown 资料已达到读取上限，以上为已读取内容。]\n")
 	}
 	return builder.String(), nil
+}
+
+func firstNonEmptyServiceText(values ...string) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(value); text != "" {
+			return text
+		}
+	}
+	return "未命名来源"
 }
 
 func isMarkdownServiceArtifact(artifact *types.ServiceArtifact) bool {
@@ -803,9 +2268,13 @@ func (s *serviceSpaceService) IndexRunArtifacts(
 		return fmt.Errorf("agent run service/session ownership mismatch")
 	}
 	indexes := make([]*types.ServiceArtifact, 0, len(artifacts))
+	artifactSizes := make(map[string]int64, len(artifacts))
 	for _, artifact := range artifacts {
 		if strings.TrimSpace(artifact.ID) == "" || strings.TrimSpace(artifact.VersionID) == "" {
 			return fmt.Errorf("agent artifact identity is incomplete")
+		}
+		if artifact.SizeBytes > 0 {
+			artifactSizes[artifact.VersionID] = artifact.SizeBytes
 		}
 		resourceID := ""
 		if strings.TrimSpace(artifact.ResourceRef) != "" && s.resourceCatalog != nil {
@@ -813,10 +2282,16 @@ func (s *serviceSpaceService) IndexRunArtifacts(
 			if resolveErr != nil {
 				return fmt.Errorf("resolve service artifact resource: %w", resolveErr)
 			}
+			if resource == nil {
+				return fmt.Errorf("resolve service artifact resource: resource not found")
+			}
 			if resource.TenantID != run.TenantID {
 				return fmt.Errorf("agent artifact resource tenant mismatch")
 			}
 			resourceID = resource.ID
+			if resource.Size > 0 {
+				artifactSizes[artifact.VersionID] = resource.Size
+			}
 		}
 		lifecycle := strings.TrimSpace(artifact.Lifecycle)
 		switch lifecycle {
@@ -847,7 +2322,72 @@ func (s *serviceSpaceService) IndexRunArtifacts(
 			CreatedBy:    run.UserID,
 		})
 	}
-	return s.repo.UpsertArtifacts(ctx, indexes)
+	if err := s.repo.UpsertArtifacts(ctx, indexes); err != nil {
+		return err
+	}
+	for _, artifact := range indexes {
+		if artifact == nil || artifactSizes[artifact.VersionID] <= 0 || s.tenantRepo == nil {
+			continue
+		}
+		if err := commitServiceArtifactStorage(
+			ctx,
+			s.tenantRepo,
+			run.TenantID,
+			run.UserID,
+			fmt.Sprintf("artifact:commit:%s", artifact.VersionID),
+			"artifact_commit",
+			artifactSizes[artifact.VersionID],
+			map[string]any{
+				"service_id":  artifact.ServiceID,
+				"artifact_id": artifact.ArtifactID,
+				"version_id":  artifact.VersionID,
+				"resource_id": artifact.ResourceID,
+			},
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func commitServiceArtifactStorage(
+	ctx context.Context,
+	tenantRepo interfaces.TenantRepository,
+	tenantID uint64,
+	actorUserID, refNo, operation string,
+	actualBytes int64,
+	metadata map[string]any,
+) error {
+	if actualBytes <= 0 {
+		return nil
+	}
+	accountingRepo, ok := tenantRepo.(interfaces.StorageAccountingRepository)
+	if !ok {
+		return recordStorageDeltaWithRepository(ctx, tenantRepo, tenantID, refNo, operation, actualBytes, metadata)
+	}
+	reservation, err := accountingRepo.ReserveStorage(ctx, &types.TenantStorageReservation{
+		TenantID:       tenantID,
+		ActorUserID:    strings.TrimSpace(actorUserID),
+		RefNo:          refNo,
+		Operation:      operation,
+		RequestedBytes: actualBytes,
+		ExpiresAt:      time.Now().UTC().Add(2 * time.Hour),
+		MetadataJSON:   storageMetadata(metadata),
+	})
+	if err != nil {
+		return err
+	}
+	if reservation != nil && reservation.Status == types.StorageReservationStatusCommitted {
+		return nil
+	}
+	_, err = accountingRepo.CommitStorageReservation(
+		ctx,
+		tenantID,
+		refNo,
+		actualBytes,
+		storageMetadata(metadata),
+	)
+	return err
 }
 
 func validateServiceSpaceScope(tenantID uint64, userID string) error {

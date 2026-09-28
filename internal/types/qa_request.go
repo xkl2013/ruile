@@ -4,22 +4,25 @@ package types
 // replacing the previous 14-parameter method signatures.
 // EventBus is passed separately to avoid circular dependency with the event package.
 type QARequest struct {
-	Session            *Session           // The conversation session
-	Query              string             // User query text
-	AssistantMessageID string             // Pre-created assistant message ID
-	ResponseTier       ResponseTier       // User-facing model tier selected for this request
-	SummaryModelID     string             // Optional model override; empty = use agent/KB default
-	ResolvedModelID    string             // Internal model binding resolved from ResponseTierConfig
-	CustomAgent        *CustomAgent       // Optional custom agent for config override
-	KnowledgeBaseIDs   []string           // Knowledge base IDs to search (from request + @mentions)
-	KnowledgeIDs       []string           // Specific knowledge (file) IDs to search
-	TagScopes          []TagScope         // Tag-constrained KB scopes from @mentions
-	MCPServiceIDs      []string           // Per-request MCP service IDs from @mentions
-	SkillNames         []string           // Per-request preloaded skill names from @mentions
-	ImageURLs          []string           // Image URLs for multimodal input
-	ImageDescription   string             // VLM-generated image description (fallback for non-vision models)
-	UserMessageID      string             // Created user message ID
-	WebSearchEnabled   bool               // Whether web search is enabled for this request
-	QuotedContext      string             // Additional prompt-only context, e.g. IM quote-reply or service card
-	Attachments        MessageAttachments // File attachments (processed and ready for prompt injection)
+	Session                   *Session           // The conversation session
+	Query                     string             // User query text
+	AssistantMessageID        string             // Pre-created assistant message ID
+	ResponseTier              ResponseTier       // User-facing model tier selected for this request
+	SummaryModelID            string             // Optional model override; empty = use agent/KB default
+	ResolvedModelID           string             // Internal model binding resolved from ResponseTierConfig
+	CustomAgent               *CustomAgent       // Optional custom agent for config override
+	KnowledgeBaseIDs          []string           // Knowledge base IDs to search (from request + @mentions)
+	KnowledgeIDs              []string           // Specific knowledge (file) IDs to search
+	TagScopes                 []TagScope         // Tag-constrained KB scopes from @mentions
+	MCPServiceIDs             []string           // Per-request MCP service IDs from @mentions
+	SkillNames                []string           // Per-request preloaded skill names from @mentions
+	ImageURLs                 []string           // Image URLs for multimodal input
+	ImageDescription          string             // VLM-generated image description (fallback for non-vision models)
+	UserMessageID             string             // Created user message ID
+	WebSearchEnabled          bool               // Whether web search is enabled for this request
+	QuotedContext             string             // Additional prompt-only context, e.g. IM quote-reply or service card
+	Attachments               MessageAttachments // File attachments (processed and ready for prompt injection)
+	ServiceRuntimeInstruction string             // Server-resolved service-space instruction, injected at the system layer
+	ServiceRuntimeContext     string             // Server-resolved service-space sources, injected as background context
+	ServiceRuntimeContextHash string             // Runtime context version used for this turn
 }

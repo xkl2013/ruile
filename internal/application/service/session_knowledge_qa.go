@@ -47,6 +47,10 @@ func (s *sessionService) KnowledgeQA(
 		ctx = context.WithValue(ctx, types.SessionTenantIDContextKey, req.Session.TenantID)
 	}
 
+	if err := s.applyServiceRuntimeContext(ctx, req); err != nil {
+		return err
+	}
+
 	// Resolve knowledge bases using shared helper
 	knowledgeBaseIDs, knowledgeIDs, err := s.resolveKnowledgeBases(ctx, req)
 	if err != nil {
@@ -169,6 +173,7 @@ func (s *sessionService) KnowledgeQA(
 			ChatModelSupportsVision: chatModelSupportsVision,
 			Attachments:             req.Attachments,
 			Language:                types.LanguageNameFromContext(ctx),
+			ServiceRuntimeContext:   req.ServiceRuntimeContext,
 		},
 		PipelineState: types.PipelineState{
 			RewriteQuery:     req.Query,
@@ -185,6 +190,13 @@ func (s *sessionService) KnowledgeQA(
 	// Apply custom agent overrides (system prompt, temperature, retrieval params,
 	// rewrite, fallback, FAQ strategy, history turns)
 	s.applyAgentOverridesToChatManage(ctx, req.CustomAgent, chatManage)
+	if req.ServiceRuntimeInstruction != "" {
+		chatManage.SummaryConfig.Prompt = types.AppendCustomPromptInstructions(
+			chatManage.SummaryConfig.Prompt,
+			req.ServiceRuntimeInstruction,
+			"service_space",
+		)
+	}
 	if responseTierProfile.Thinking != nil {
 		chatManage.SummaryConfig.Thinking = responseTierProfile.Thinking
 		logger.Infof(ctx, "Using response tier thinking: %v", *responseTierProfile.Thinking)
