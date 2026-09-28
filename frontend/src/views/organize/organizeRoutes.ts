@@ -133,7 +133,7 @@ export const ORGANIZE_MEMORY_STATUS_ROUTES: readonly OrganizeMemoryStatusRouteIt
   {
     key: 'organized',
     label: '已整理',
-    description: '已生成产物或经营复盘',
+    description: '已生成整理产物',
     icon: 'check-circle',
     unit: '条',
   },

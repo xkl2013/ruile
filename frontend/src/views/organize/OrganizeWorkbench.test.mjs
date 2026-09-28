@@ -48,6 +48,7 @@ function sourceIncludesStatusCards() {
 test('legacy sprout path redirects to my organize and templates load from the backend', () => {
   assert.ok(routerSource.includes('path: "organize/sprout"'))
   assert.ok(routerSource.includes('redirect: "/platform/organize/mine"'))
+  assert.ok(routerSource.includes('path: "organize/editor/sprout/:id"'))
   assert.ok(apiSource.includes("'/api/v1/organize/templates'"))
   assert.ok(workbenchSource.includes('listOrganizeTemplates()'))
   assert.ok(workbenchSource.includes('从模板创建'))

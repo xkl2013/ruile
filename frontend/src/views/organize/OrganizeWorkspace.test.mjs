@@ -26,13 +26,15 @@ test('discover output menu exposes deletion and uses the output delete API', () 
   assert.ok(source.includes('源文件也会一并删除'))
 })
 
-test('sprout report cards show linked memory references', () => {
-  assert.ok(apiSource.includes('memory_refs?: OrganizeMemoryReference[]'))
-  assert.ok(source.includes('sproutReportReferenceLabels(report)'))
-  assert.ok(source.includes('sproutReportSourceLabels(report)'))
-  assert.ok(source.includes('memoryRefs: item.memory_refs || []'))
-  assert.ok(source.includes('@创建了'))
-  assert.ok(!source.includes('<span>@记忆</span>'))
+test('memory actions create organize jobs instead of legacy sprout reports', () => {
+  assert.ok(source.includes("type MemoryMenuAction = 'edit' | 'organize' | 'delete'"))
+  assert.ok(source.includes("handleMemoryMenuAction(item, 'organize')"))
+  assert.ok(source.includes('createOrganizeFromMemory'))
+  assert.ok(source.includes('listOrganizeConfigs'))
+  assert.ok(source.includes('createOrganizeJob'))
+  assert.ok(!source.includes('createOrganizeSproutReportFromMemory'))
+  assert.ok(!source.includes('memorySproutActionLabel'))
+  assert.ok(!source.includes('发芽'))
 })
 
 test('discover uses the fixed first-version kindergarten columns', () => {

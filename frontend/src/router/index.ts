@@ -186,6 +186,11 @@ const router = createRouter({
           meta: { ...organizeRouteMeta, organizeTab: "mine" },
         },
         {
+          path: "organize/editor/sprout/:id",
+          redirect: "/platform/organize/mine",
+          meta: organizeRouteMeta,
+        },
+        {
           path: "organize/editor/:documentType/:id",
           name: ORGANIZE_ROUTE_NAMES.editor,
           component: organizeEditorComponent,

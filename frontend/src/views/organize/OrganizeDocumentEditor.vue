@@ -21,15 +21,15 @@
           v-if="isActionableMemory"
           theme="default"
           variant="outline"
-          class="editor-sprout-action"
-          :class="`editor-sprout-action--${noteSproutHeaderState}`"
-          :loading="noteSproutCreating"
-          :disabled="noteSproutLoading"
-          :aria-label="noteSproutHeaderAriaLabel"
-          @click="handleMemorySproutHeaderAction"
+          class="editor-organize-action"
+          :class="`editor-organize-action--${memoryOrganizeHeaderState}`"
+          :loading="memoryOrganizeCreating"
+          :disabled="memoryOrganizeLoading"
+          :aria-label="memoryOrganizeHeaderAriaLabel"
+          @click="handleMemoryOrganizeHeaderAction"
         >
-          <template #icon><OrganizeSproutIcon class="editor-sprout-action-icon" /></template>
-          {{ noteSproutHeaderLabel }}
+          <template #icon><t-icon name="layers" class="editor-organize-action-icon" /></template>
+          {{ memoryOrganizeHeaderLabel }}
         </t-button>
         <span class="editor-save-state" :class="`editor-save-state--${saveState}`" aria-live="polite">{{ saveStateLabel }}</span>
       </div>
@@ -162,10 +162,10 @@
                 <button
                   type="button"
                   class="memory-note-tab"
-                  :class="{ 'is-active': noteActiveTab === 'sprout' }"
-                  @click="noteActiveTab = 'sprout'"
+                  :class="{ 'is-active': noteActiveTab === 'result' }"
+                  @click="noteActiveTab = 'result'"
                 >
-                  发芽
+                  整理结果
                 </button>
               </div>
 
@@ -189,46 +189,43 @@
                   </div>
                 </section>
 
-                <section v-show="noteActiveTab === 'sprout'" class="memory-note-panel-view memory-note-panel-view--sprout">
-                  <div v-if="noteSproutLoading" class="memory-note-sprout-loading">
-                    <t-loading size="small" text="加载发芽中" />
+                <section v-show="noteActiveTab === 'result'" class="memory-note-panel-view memory-note-panel-view--result">
+                  <div v-if="memoryOrganizeLoading" class="memory-note-organize-loading">
+                    <t-loading size="small" text="加载整理结果中" />
                   </div>
                   <article
-                    v-else-if="noteSproutCard"
-                    class="memory-note-sprout-card sprout-report-card"
+                    v-else-if="memoryOrganizeCard"
+                    class="memory-note-organize-card organize-result-card"
                     role="button"
                     tabindex="0"
-                    @click="openNoteSproutReport"
-                    @keydown.enter.self="openNoteSproutReport"
+                    @click="openMemoryOrganizeCard"
+                    @keydown.enter.self="openMemoryOrganizeCard"
                   >
-                    <div class="sprout-report-gutter" aria-hidden="true">
-                      <div class="sprout-report-ribbon">
-                        <span>经营</span>
-                        <span>复盘</span>
-                      </div>
+                    <div class="organize-result-gutter" aria-hidden="true">
+                      <t-icon name="layers" size="20px" />
                     </div>
 
-                    <div class="sprout-report-main">
-                      <div class="sprout-report-title-row">
-                        <h2>{{ noteSproutCard.title }}</h2>
-                        <span class="type-badge" :class="`sprout-stage--${noteSproutCard.stageKey}`">{{ noteSproutCard.stage }}</span>
+                    <div class="organize-result-main">
+                      <div class="organize-result-title-row">
+                        <h2>{{ memoryOrganizeCard.title }}</h2>
+                        <span class="type-badge" :class="`organize-stage--${memoryOrganizeCard.stageKey}`">{{ memoryOrganizeCard.stage }}</span>
                       </div>
-                      <p class="sprout-report-intro">{{ noteSproutCard.intro }}</p>
+                      <p class="organize-result-intro">{{ memoryOrganizeCard.intro }}</p>
 
-                      <div v-if="noteSproutCard.chips.length" class="report-chips">
-                        <span v-for="chip in noteSproutCard.chips" :key="chip">{{ chip }}</span>
+                      <div v-if="memoryOrganizeCard.chips.length" class="organize-result-chips">
+                        <span v-for="chip in memoryOrganizeCard.chips" :key="chip">{{ chip }}</span>
                       </div>
 
-                      <div class="report-meta sprout-report-meta">
-                        <span>{{ noteSproutCard.updated }}</span>
+                      <div class="report-meta organize-result-meta">
+                        <span>{{ memoryOrganizeCard.updated }}</span>
                         <span
-                          v-if="noteSproutCard.referenceLabels.length || noteSproutCard.sourceLabels.length"
-                          class="sprout-report-meta-separator"
+                          v-if="memoryOrganizeCard.referenceLabels.length || memoryOrganizeCard.sourceLabels.length"
+                          class="organize-result-meta-separator"
                         >
                           |
                         </span>
-                        <span v-for="label in noteSproutCard.referenceLabels" :key="`note-sprout-ref-${label}`">{{ label }}</span>
-                        <span v-for="label in noteSproutCard.sourceLabels" :key="`note-sprout-source-${label}`">{{ label }}</span>
+                        <span v-for="label in memoryOrganizeCard.referenceLabels" :key="`note-organize-ref-${label}`">{{ label }}</span>
+                        <span v-for="label in memoryOrganizeCard.sourceLabels" :key="`note-organize-source-${label}`">{{ label }}</span>
                       </div>
                     </div>
                   </article>
@@ -308,60 +305,6 @@
         />
       </section>
     </t-drawer>
-
-    <t-drawer
-      v-model:visible="sproutPreviewVisible"
-      class="sprout-preview-drawer"
-      :header="false"
-      :footer="false"
-      :close-btn="false"
-      :size="'min(760px, 92vw)'"
-      attach="body"
-      placement="right"
-    >
-      <template v-if="activeNoteSproutPreview">
-        <div class="sprout-preview-header">
-          <div class="sprout-preview-header-copy">
-            <div class="sprout-preview-eyebrow">经营复盘</div>
-            <div class="sprout-preview-title">{{ activeNoteSproutPreview.title }}</div>
-          </div>
-          <div class="sprout-preview-actions">
-            <t-button
-              variant="text"
-              theme="default"
-              size="small"
-              class="sprout-preview-action"
-              aria-label="编辑报告"
-              @click="openNoteSproutEditor"
-            >
-              <template #icon><t-icon name="edit-1" size="16px" /></template>
-            </t-button>
-            <t-button
-              variant="text"
-              theme="default"
-              size="small"
-              class="sprout-preview-action"
-              aria-label="关闭预览"
-              @click="closeNoteSproutPreview"
-            >
-              <template #icon><t-icon name="close" size="16px" /></template>
-            </t-button>
-          </div>
-        </div>
-
-        <div class="sprout-preview-page">
-          <div class="sprout-preview-body">
-            <div class="sprout-preview-meta">
-              <span>{{ activeNoteSproutPreview.updated }}</span>
-              <span>{{ activeNoteSproutPreview.memoryCount }} 条记忆</span>
-            </div>
-            <h1>{{ activeNoteSproutPreview.title }}</h1>
-
-            <div class="sprout-preview-content" v-html="activeNoteSproutPreview.renderedHtml" />
-          </div>
-        </div>
-      </template>
-    </t-drawer>
   </div>
 </template>
 
@@ -374,32 +317,27 @@ import 'tiptap-ui-kit/style.css'
 import DocumentPreview from '@/components/document-preview.vue'
 import { getDown } from '@/utils/request'
 import {
+  createOrganizeJob,
   createOrganizeMemory,
-  createOrganizeSproutReportFromMemory,
   createOrganizeOutput,
-  createOrganizeSproutReport,
   getOrganizeMemory,
   getOrganizeOutput,
-  getOrganizeSproutReport,
-  listOrganizeSproutReports,
+  listOrganizeConfigs,
+  listOrganizeJobs,
   updateOrganizeMemory,
   updateOrganizeOutput,
-  updateOrganizeSproutReport,
+  type OrganizeConfig,
+  type OrganizeJob,
   type OrganizeMemory,
-  type OrganizeMemoryReference,
   type OrganizeMemoryKind,
   type OrganizeOutput,
   type OrganizeOutputStatus,
-  type OrganizeSproutReport,
-  type OrganizeSproutStage,
 } from '@/api/organize'
-import { useAuthStore } from '@/stores/auth'
 import {
   clearOrganizeEditorDraft,
   readOrganizeEditorDraft,
   type OrganizeEditorDraft,
 } from './editorDraftStorage'
-import { buildSproutReportPreview, sproutReportContentForEditor } from './sproutReport'
 import {
   buildSmartNoteTags,
   mergeNoteMetadata,
@@ -412,14 +350,13 @@ import {
   type DiscoverCategoryKey,
 } from './discoverCategories'
 
-type OrganizeDocumentType = 'memory' | 'output' | 'sprout'
+type OrganizeDocumentType = 'memory' | 'output'
 type SaveState = 'idle' | 'saving' | 'saved' | 'waiting' | 'error'
 
 const AUTOSAVE_DELAY = 700
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
 
 const title = ref('')
 const emptyDocumentContent = '<h1></h1><p></p>'
@@ -448,21 +385,18 @@ const memoryCreatedAt = ref('')
 const memoryUpdatedAt = ref('')
 const noteTagDraft = ref('')
 const noteTagMenuVisible = ref(false)
-const noteSproutReport = ref<OrganizeSproutReport | null>(null)
-const noteSproutCreating = ref(false)
-const noteSproutLoading = ref(false)
-const noteSproutStatus = ref<OrganizeSproutStage | ''>('')
-const noteActiveTab = ref<'content' | 'sprout'>('content')
+const memoryOrganizeJob = ref<OrganizeJob | null>(null)
+const memoryOrganizeCreating = ref(false)
+const memoryOrganizeLoading = ref(false)
+const noteActiveTab = ref<'content' | 'result'>('content')
 const sourcePreviewVisible = ref(false)
 const audioPlayerUrl = ref('')
 const audioPlayerLoading = ref(false)
 const audioPlayerError = ref('')
-const sproutPreviewVisible = ref(false)
 const outputDraft = ref<OrganizeOutput | null>(null)
 const outputCategory = ref<DiscoverCategoryKey | ''>('')
-const sproutDraft = ref<OrganizeSproutReport | null>(null)
 const discoverCategoryOptions = DISCOVER_CATEGORY_OPTIONS
-let noteSproutRequestSeq = 0
+let memoryOrganizeRequestSeq = 0
 let audioPlayerRequestSeq = 0
 let audioPlayerObjectUrl = ''
 
@@ -485,7 +419,7 @@ const editorFeatures: FeatureConfig = {
 const readParam = (value: unknown) => (typeof value === 'string' ? value : '')
 const documentType = computed<OrganizeDocumentType | ''>(() => {
   const value = readParam(route.params.documentType)
-  return value === 'memory' || value === 'output' || value === 'sprout' ? value : ''
+  return value === 'memory' || value === 'output' ? value : ''
 })
 const documentId = computed(() => readParam(route.params.id))
 const activeDocumentId = computed(() => savedDocumentId.value || documentId.value)
@@ -506,13 +440,11 @@ const editorPlaceholder = computed(() => {
 
 const typeLabel = computed(() => {
   if (documentType.value === 'output') return '发现文档'
-  if (documentType.value === 'sprout') return '经营复盘'
   return memoryAssetLabel.value
 })
 
 const breadcrumbRootLabel = computed(() => {
   if (documentType.value === 'output') return '发现'
-  if (documentType.value === 'sprout') return '经营复盘'
   return '记忆'
 })
 
@@ -528,7 +460,6 @@ const editorVersion = computed(() => (isMemoryDocument.value ? 'advanced' : 'bas
 
 const defaultReturnTo = computed(() => {
   if (documentType.value === 'output') return '/platform/organize/output'
-  if (documentType.value === 'sprout') return '/platform/organize/sprout'
   if (memoryKind.value === 'audio') return '/platform/organize/memory/audio'
   if (memoryKind.value === 'audio_card') return '/platform/organize/memory/audio-cards'
   return '/platform/organize/memory/notes'
@@ -550,7 +481,6 @@ const returnTo = computed(() => {
 
 const returnLabel = computed(() => {
   if (returnTo.value.includes('/output')) return '发现'
-  if (returnTo.value.includes('/sprout')) return '经营复盘'
   return '记忆'
 })
 
@@ -662,39 +592,6 @@ const noteTagIcon = (tag: string) => {
   const normalized = tag.trim().toLowerCase()
   if (normalized.includes('录音') || normalized.includes('音频') || normalized.includes('audio')) return 'microphone'
   return ''
-}
-
-const memoryReferenceKindLabel = (kind?: string) => {
-  if (kind === 'audio') return '录音'
-  if (kind === 'audio_card') return '工牌'
-  if (kind === 'record') return '记录'
-  return '笔记'
-}
-
-const memoryReferenceLabel = (ref: OrganizeMemoryReference) => {
-  const title = asTrimmedString(ref.title) || '未命名'
-  return `@创建了${memoryReferenceKindLabel(ref.kind)}${title}`
-}
-
-const memoryReferenceSourceLabel = (source?: string) => {
-  const normalized = asTrimmedString(source)
-  if (!normalized || normalized === '手动输入') return ''
-  if (normalized === '文件导入') return '@上传文件'
-  return `@${normalized}`
-}
-
-const sproutReferenceLabels = (refs: OrganizeMemoryReference[] = [], memoryCount = 0) => {
-  if (!refs.length) return memoryCount > 0 ? [`@${memoryCount}条记忆`] : []
-  return refs.slice(0, 2).map(memoryReferenceLabel)
-}
-
-const sproutSourceLabels = (refs: OrganizeMemoryReference[] = []) => {
-  const labels = new Set<string>()
-  for (const ref of refs) {
-    const label = memoryReferenceSourceLabel(ref.source)
-    if (label) labels.add(label)
-  }
-  return Array.from(labels).slice(0, 2)
 }
 
 const fileBaseName = (value = '') => {
@@ -880,14 +777,6 @@ const markDocumentDirty = () => {
 
 const currentEditor = () => editorRef.value?.getEditor() || null
 
-const memorySproutRoleConfig = () => ({
-  role: authStore.currentTenantRole || 'viewer',
-  tenant_id: authStore.effectiveTenantId || authStore.currentTenantId || '',
-  tenant_name: authStore.currentTenantName || '',
-  user_id: authStore.currentUserId || '',
-  user_name: authStore.user?.username || authStore.user?.email || '我',
-})
-
 const addMemoryTag = (tag = noteTagDraft.value) => {
   const normalized = normalizeNoteTags([tag])[0]
   if (!normalized) return
@@ -915,161 +804,166 @@ const generateMemoryTags = () => {
   MessagePlugin.success('已生成标签')
 }
 
-const createMemorySprout = async () => {
-  if (!isMemoryDocument.value || noteSproutCreating.value) return
+const activeOrganizeJobStatuses: OrganizeJob['status'][] = ['queued', 'running', 'repairing']
+const finishedOrganizeJobStatuses: OrganizeJob['status'][] = ['completed', 'fallback']
+
+const isActiveOrganizeJob = (job?: OrganizeJob | null) =>
+  Boolean(job && activeOrganizeJobStatuses.includes(job.status))
+
+const isFinishedOrganizeJob = (job?: OrganizeJob | null) =>
+  Boolean(job && finishedOrganizeJobStatuses.includes(job.status))
+
+const organizeJobStageLabel = (job?: OrganizeJob | null) => {
+  if (!job) return '整理'
+  if (isActiveOrganizeJob(job)) return '整理中'
+  if (job.status === 'failed') return '整理失败'
+  if (job.status === 'canceled') return '已取消'
+  if (isFinishedOrganizeJob(job)) return '已完成'
+  return job.stage || '整理'
+}
+
+const loadMemoryOrganizeJob = async (memoryID: string, options?: { silent?: boolean }) => {
+  if (!memoryID || memoryID === 'new') return
+  const requestSeq = ++memoryOrganizeRequestSeq
+  if (!options?.silent) memoryOrganizeLoading.value = true
+  try {
+    const response = await listOrganizeJobs({ page: 1, page_size: 100 })
+    if (requestSeq !== memoryOrganizeRequestSeq) return
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '整理任务加载失败')
+    }
+    const linkedJobs = response.data.items
+      .filter((job) => (job.memory_ids || []).includes(memoryID))
+      .sort((left, right) => {
+        const leftTime = new Date(left.updated_at || left.created_at).getTime()
+        const rightTime = new Date(right.updated_at || right.created_at).getTime()
+        return rightTime - leftTime
+      })
+    memoryOrganizeJob.value = linkedJobs[0] || null
+  } catch {
+    if (!options?.silent) memoryOrganizeJob.value = null
+  } finally {
+    if (requestSeq === memoryOrganizeRequestSeq && !options?.silent) {
+      memoryOrganizeLoading.value = false
+    }
+  }
+}
+
+const scheduleMemoryOrganizeRefresh = (memoryID: string) => {
+  const refresh = () => {
+    void loadMemoryOrganizeJob(memoryID, { silent: true })
+  }
+  window.setTimeout(refresh, 1500)
+  window.setTimeout(refresh, 5000)
+  window.setTimeout(refresh, 10000)
+}
+
+const createMemoryOrganizeJob = async () => {
+  if (!isMemoryDocument.value || memoryOrganizeCreating.value) return
   if (!savedDocumentId.value && documentId.value === 'new') {
     await saveDocument()
   }
 
   const memoryID = activeDocumentId.value
   if (!memoryID || memoryID === 'new') {
-    MessagePlugin.warning('请先保存笔记')
+    MessagePlugin.warning('请先保存记忆')
     return
   }
 
-  noteSproutCreating.value = true
+  memoryOrganizeCreating.value = true
   try {
-    const response = await createOrganizeSproutReportFromMemory({
-      memory_id: memoryID,
-      role_config: memorySproutRoleConfig(),
+    const configResponse = await listOrganizeConfigs({ page: 1, page_size: 100, status: 'active' })
+    if (!configResponse.success) {
+      throw new Error(configResponse.message || '整理配置加载失败')
+    }
+    const config: OrganizeConfig | undefined = configResponse.data?.items?.[0]
+    if (!config) {
+      MessagePlugin.warning('请先在整理工作台创建启用的整理配置')
+      return
+    }
+
+    const response = await createOrganizeJob({
+      config_id: config.id,
+      memory_ids: [memoryID],
     })
     if (!response.success || !response.data) {
-      throw new Error(response.message || '发芽任务创建失败')
-    }
-    noteSproutReport.value = response.data
-    noteSproutStatus.value = response.data.stage
-    noteActiveTab.value = 'sprout'
-    MessagePlugin.success('发芽任务已创建')
-    scheduleNoteSproutRefresh(memoryID)
+      throw new Error(response.message || '整理任务创建失败')
+  }
+  memoryOrganizeJob.value = response.data
+    noteActiveTab.value = 'result'
+    MessagePlugin.success(`已按「${config.name}」发起整理任务`)
+    scheduleMemoryOrganizeRefresh(memoryID)
   } catch (error: any) {
-    MessagePlugin.error(error?.message || '发芽任务创建失败')
+    MessagePlugin.error(error?.message || '整理任务创建失败')
   } finally {
-    noteSproutCreating.value = false
+    memoryOrganizeCreating.value = false
   }
 }
 
-const noteSproutStageLabel = (stage: OrganizeSproutStage | '' = '') => {
-  const labels: Record<OrganizeSproutStage, string> = {
-    organizing: '发芽中',
-    expandable: '发芽',
-    formed: '已发芽',
-  }
-  return stage ? labels[stage] : '发芽'
-}
-
-const noteSproutHeaderState = computed(() => {
-  const stage = noteSproutReport.value?.stage || noteSproutStatus.value
-  if (noteSproutCreating.value || stage === 'organizing') return 'organizing'
-  if (noteSproutReport.value || stage === 'formed') return 'formed'
+const memoryOrganizeHeaderState = computed(() => {
+  const job = memoryOrganizeJob.value
+  if (memoryOrganizeCreating.value || isActiveOrganizeJob(job)) return 'organizing'
+  if (isFinishedOrganizeJob(job)) return 'formed'
   return 'idle'
 })
 
-const noteSproutHeaderLabel = computed(() => {
-  const state = noteSproutHeaderState.value
-  if (state === 'organizing') return '发芽中'
-  if (state === 'formed') return '已发芽'
-  return '发芽'
+const memoryOrganizeHeaderLabel = computed(() => {
+  const state = memoryOrganizeHeaderState.value
+  if (state === 'organizing') return '整理中'
+  if (state === 'formed') return '查看整理结果'
+  return '整理'
 })
 
-const noteSproutHeaderAriaLabel = computed(() => {
-  const state = noteSproutHeaderState.value
-  if (state === 'organizing') return '发芽报告生成中'
-  if (state === 'formed') return '查看发芽结果'
-  return '生成发芽报告'
+const memoryOrganizeHeaderAriaLabel = computed(() => {
+  const state = memoryOrganizeHeaderState.value
+  if (state === 'organizing') return '整理任务生成中'
+  if (state === 'formed') return '查看整理结果'
+  return '发起整理任务'
 })
 
-const noteSproutCard = computed(() => {
-  const report = noteSproutReport.value
-  if (!report) return null
-  const preview = buildSproutReportPreview(report.summary || report.output_hint || report.title, report.title)
-  const updatedAt = report.updated_at || report.created_at || ''
-  const memoryRefs = report.memory_refs || []
+const memoryOrganizeTaskCard = computed(() => {
+  const job = memoryOrganizeJob.value
+  if (!job) return null
+  const configName = typeof job.requirement?.config_name === 'string'
+    ? job.requirement.config_name
+    : '整理任务'
+  const active = isActiveOrganizeJob(job)
   return {
-    id: report.id,
-    title: report.title || '未命名发芽',
-    intro: preview.intro || report.output_hint || report.title,
-    stage: noteSproutStageLabel(report.stage),
-    stageKey: report.stage,
-    updated: updatedAt ? formatUpdatedLabel(updatedAt) : '刚刚 --:--',
-    chips: report.chips || [],
-    referenceLabels: sproutReferenceLabels(memoryRefs, report.memory_count || 0),
-    sourceLabels: sproutSourceLabels(memoryRefs),
+    id: job.id,
+    title: configName,
+    intro: active
+      ? job.summary || '整理任务正在处理这条记忆，完成后会生成整理结果。'
+      : job.summary || (isFinishedOrganizeJob(job) ? '整理结果已生成，可进入结果页查看。' : '整理任务暂未完成。'),
+    stage: organizeJobStageLabel(job),
+    stageKey: active ? 'organizing' : isFinishedOrganizeJob(job) ? 'formed' : 'expandable',
+    updated: job.updated_at ? formatUpdatedLabel(job.updated_at) : '刚刚 --:--',
+    chips: [],
+    referenceLabels: [`任务 ${job.id.slice(0, 8)}`],
+    sourceLabels: [],
   }
 })
 
-const activeNoteSproutPreview = computed(() => {
-  const report = noteSproutReport.value
-  if (!report) return null
-  const updatedAt = report.updated_at || report.created_at || ''
-  const contentSource = report.summary || report.output_hint || report.title
-  return {
-    id: report.id,
-    title: report.title || '未命名发芽',
-    updated: updatedAt ? formatUpdatedLabel(updatedAt) : '刚刚 --:--',
-    memoryCount: report.memory_count || report.memory_ids?.length || 0,
-    renderedHtml: sproutReportContentForEditor(contentSource),
-  }
-})
+const memoryOrganizeCard = computed(() => memoryOrganizeTaskCard.value)
 
-const loadLinkedMemorySproutReport = async (memoryID: string, options?: { silent?: boolean }) => {
-  if (!memoryID || memoryID === 'new') return
-  const requestSeq = ++noteSproutRequestSeq
-  if (!options?.silent) noteSproutLoading.value = true
-  try {
-    const response = await listOrganizeSproutReports({ page_size: 10, memory_id: memoryID })
-    if (requestSeq !== noteSproutRequestSeq) return
-    if (!response.success || !response.data) {
-      throw new Error(response.message || '发芽数据加载失败')
-    }
-    const linkedReport = response.data.items.find((report) => (report.memory_ids || []).includes(memoryID)) || response.data.items[0] || null
-    noteSproutReport.value = linkedReport
-    noteSproutStatus.value = linkedReport?.stage || ''
-  } catch {
-    if (!options?.silent) {
-      noteSproutReport.value = null
-      noteSproutStatus.value = ''
-    }
-  } finally {
-    if (requestSeq === noteSproutRequestSeq && !options?.silent) {
-      noteSproutLoading.value = false
-    }
-  }
-}
-
-const scheduleNoteSproutRefresh = (memoryID: string) => {
-  const refresh = () => {
-    void loadLinkedMemorySproutReport(memoryID, { silent: true })
-  }
-  window.setTimeout(refresh, 1500)
-  window.setTimeout(refresh, 5000)
-}
-
-const openNoteSproutReport = () => {
-  if (!activeNoteSproutPreview.value) return
-  sproutPreviewVisible.value = true
-}
-
-const closeNoteSproutPreview = () => {
-  sproutPreviewVisible.value = false
-}
-
-const openNoteSproutEditor = () => {
-  const report = noteSproutReport.value
-  if (!report?.id) return
-  sproutPreviewVisible.value = false
-  void router.push({
-    path: `/platform/organize/editor/sprout/${encodeURIComponent(report.id)}`,
-    query: { return: route.fullPath },
-  })
-}
-
-const handleMemorySproutHeaderAction = () => {
-  if (noteSproutCreating.value || noteSproutLoading.value) return
-  if (noteSproutReport.value) {
-    noteActiveTab.value = 'sprout'
+const openMemoryOrganizeCard = () => {
+  const outputID = memoryOrganizeJob.value?.output_id
+  if (outputID) {
+    void router.push({
+      path: `/platform/organize/outputs/${encodeURIComponent(outputID)}`,
+      query: { from: 'memory', memoryId: activeDocumentId.value },
+    })
     return
   }
-  void createMemorySprout()
+  noteActiveTab.value = 'result'
+}
+
+const handleMemoryOrganizeHeaderAction = () => {
+  if (memoryOrganizeCreating.value || memoryOrganizeLoading.value) return
+  if (isFinishedOrganizeJob(memoryOrganizeJob.value)) {
+    openMemoryOrganizeCard()
+    return
+  }
+  void createMemoryOrganizeJob()
 }
 
 const audioMemoryFallbackTitle = (html = '') => {
@@ -1194,8 +1088,6 @@ const loadAudioPlayerUrl = async (sourceUrl: string) => {
 
 const readQuery = (key: string) => readParam(route.query[key])
 
-const readQueryList = (key: string) => readQuery(key).split(',').map((item) => item.trim()).filter(Boolean)
-
 const readQueryDraft = (): OrganizeEditorDraft => {
   const draft: OrganizeEditorDraft = {
     title: readQuery('title') || undefined,
@@ -1208,9 +1100,6 @@ const readQueryDraft = (): OrganizeEditorDraft => {
   const sourceSummary = readQuery('source_summary')
   const status = readQuery('status')
   const icon = readQuery('icon')
-  const stage = readQuery('stage')
-  const outputHint = readQuery('output_hint')
-  const chips = readQueryList('chips')
 
   if (kind) draft.kind = kind as OrganizeMemoryKind
   if (source) draft.source = source
@@ -1219,9 +1108,6 @@ const readQueryDraft = (): OrganizeEditorDraft => {
   if (sourceSummary) draft.source_summary = sourceSummary
   if (status) draft.status = status as OrganizeOutputStatus
   if (icon) draft.icon = icon
-  if (stage) draft.stage = stage as OrganizeSproutStage
-  if (outputHint) draft.output_hint = outputHint
-  if (chips.length) draft.chips = chips
 
   return draft
 }
@@ -1252,25 +1138,6 @@ const outputFromDraft = (draft: OrganizeEditorDraft): OrganizeOutput | null => {
   }
 }
 
-const sproutFromDraft = (draft: OrganizeEditorDraft): OrganizeSproutReport | null => {
-  const draftTitle = normalizeTitle(draft.title || extractTitleFromContent(draft.content))
-  if (documentType.value !== 'sprout' || !draftTitle) return null
-  const editableSummary = sproutReportContentForEditor(draft.content)
-  return {
-    id: documentId.value,
-    title: draftTitle,
-    summary: normalizeDocumentContent(draftTitle, editableSummary),
-    stage: draft.stage || 'organizing',
-    output_hint: draft.output_hint,
-    chips: draft.chips || [],
-    memory_count: draft.memory_ids?.length || 0,
-    memory_ids: draft.memory_ids || [],
-    metadata: draft.metadata,
-    created_at: '',
-    updated_at: '',
-  }
-}
-
 const clearAutosaveTimer = () => {
   if (autosaveTimer) {
     clearTimeout(autosaveTimer)
@@ -1281,9 +1148,7 @@ const clearAutosaveTimer = () => {
 const resetDraft = () => {
   const draft = readInitialDraft()
   const draftTitle = normalizeTitle(draft.title || extractTitleFromContent(draft.content))
-  const draftContent = documentType.value === 'sprout'
-    ? sproutReportContentForEditor(draft.content)
-    : draft.content
+  const draftContent = draft.content
   title.value = draftTitle
   memoryKind.value = draft.kind || 'note'
   memorySource.value = draft.source || '手动输入'
@@ -1298,12 +1163,10 @@ const resetDraft = () => {
   memoryUpdatedAt.value = ''
   noteTagDraft.value = ''
   noteTagMenuVisible.value = false
-  noteSproutReport.value = null
-  noteSproutLoading.value = false
-  noteSproutStatus.value = ''
+  memoryOrganizeJob.value = null
+  memoryOrganizeLoading.value = false
   sourcePreviewVisible.value = false
-  sproutPreviewVisible.value = false
-  noteSproutRequestSeq += 1
+  memoryOrganizeRequestSeq += 1
   noteActiveTab.value = 'content'
   if (documentType.value === 'memory' && memoryKind.value === 'audio') {
     content.value = normalizeAudioMemoryContent(draftContent)
@@ -1314,7 +1177,6 @@ const resetDraft = () => {
     content.value = normalizeDocumentContent(draftTitle, draftContent)
   }
   outputDraft.value = outputFromDraft(draft)
-  sproutDraft.value = sproutFromDraft(draft)
 }
 
 const loadDocument = async () => {
@@ -1354,8 +1216,8 @@ const loadDocument = async () => {
       memoryUpdatedAt.value = item.updated_at || ''
       noteTagDraft.value = ''
       noteTagMenuVisible.value = false
-      noteSproutReport.value = null
-      noteSproutStatus.value = ''
+      memoryOrganizeJob.value = null
+      memoryOrganizeLoading.value = false
       sourcePreviewVisible.value = false
       noteActiveTab.value = 'content'
       title.value = item.kind === 'audio'
@@ -1369,7 +1231,7 @@ const loadDocument = async () => {
           ? memoryBodyContent(item.title, item.content)
           : normalizeDocumentContent(item.title, item.content)
       if (isActionableMemory.value) {
-        await loadLinkedMemorySproutReport(item.id)
+        await loadMemoryOrganizeJob(item.id)
       }
     } else if (documentType.value === 'output') {
       const response = await getOrganizeOutput(documentId.value)
@@ -1381,13 +1243,6 @@ const loadDocument = async () => {
       outputCategory.value = normalizeDiscoverCategory(
         item.metadata?.discover_category || item.metadata?.discover_category_label,
       )
-    } else {
-      const response = await getOrganizeSproutReport(documentId.value)
-      if (!response.success || !response.data) throw new Error(response.message || '发芽加载失败')
-      const item = response.data
-      title.value = item.title
-      content.value = normalizeDocumentContent(item.title, sproutReportContentForEditor(item.summary))
-      sproutDraft.value = item
     }
     editorKey.value += 1
     await nextTick()
@@ -1507,23 +1362,6 @@ const saveDocument = async () => {
       if (!response.success || !response.data) throw new Error(response.message || '发现保存失败')
       savedId = response.data.id
       outputDraft.value = response.data
-    } else if (currentType === 'sprout') {
-      const draft = sproutDraft.value
-      const input = {
-        title: normalizedTitle,
-        summary: html,
-        stage: draft?.stage || (readQuery('stage') as OrganizeSproutStage) || 'organizing',
-        output_hint: draft?.output_hint || readQuery('output_hint') || '可继续整理',
-        chips: draft?.chips || readQueryList('chips'),
-        memory_ids: draft?.memory_ids || [],
-        metadata: draft?.metadata,
-      }
-      const response = creating
-        ? await createOrganizeSproutReport(input)
-        : await updateOrganizeSproutReport(currentDocumentId, input)
-      if (!response.success || !response.data) throw new Error(response.message || '发芽保存失败')
-      savedId = response.data.id
-      sproutDraft.value = response.data
     }
 
     if (creating && savedId && currentType) {
@@ -1708,7 +1546,7 @@ watch(
   flex: 0 0 auto;
 }
 
-.editor-sprout-action {
+.editor-organize-action {
   height: 36px;
   padding: 0 14px;
   border-color: rgba(55, 53, 47, 0.14);
@@ -1720,35 +1558,35 @@ watch(
   line-height: 20px;
 }
 
-.editor-sprout-action:hover {
+.editor-organize-action:hover {
   border-color: rgba(34, 101, 73, 0.32);
   background: rgba(34, 101, 73, 0.04);
   color: #20242a;
 }
 
-.editor-sprout-action :deep(.t-button__icon) {
+.editor-organize-action :deep(.t-button__icon) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin-right: 8px;
 }
 
-.editor-sprout-action-icon {
+.editor-organize-action-icon {
   font-size: 18px;
   color: #22c55e;
 }
 
-.editor-sprout-action--organizing .editor-sprout-action-icon {
+.editor-organize-action--organizing .editor-organize-action-icon {
   color: #2eaadc;
 }
 
-.editor-sprout-action--formed {
+.editor-organize-action--formed {
   border-color: rgba(34, 101, 73, 0.24);
   background: rgba(34, 101, 73, 0.06);
   color: #236549;
 }
 
-.editor-sprout-action--formed:hover {
+.editor-organize-action--formed:hover {
   border-color: rgba(34, 101, 73, 0.36);
   background: rgba(34, 101, 73, 0.1);
   color: #236549;
@@ -2185,169 +2023,6 @@ watch(
   box-sizing: border-box;
 }
 
-:deep(.sprout-preview-drawer .t-drawer__body) {
-  padding: 0;
-  background: #f5f0e7;
-}
-
-.sprout-preview-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 64px;
-  padding: 12px 18px;
-  border-bottom: 1px solid rgba(32, 36, 42, 0.1);
-  background: rgba(255, 255, 255, 0.94);
-  box-sizing: border-box;
-}
-
-.sprout-preview-header-copy {
-  min-width: 0;
-}
-
-.sprout-preview-eyebrow {
-  color: var(--td-text-color-primary);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
-}
-
-.sprout-preview-title {
-  overflow: hidden;
-  color: var(--td-text-color-primary);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sprout-preview-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-}
-
-.sprout-preview-action {
-  width: 30px !important;
-  min-width: 30px !important;
-  height: 30px !important;
-  padding: 0 !important;
-  border-radius: 6px !important;
-}
-
-.sprout-preview-page {
-  min-height: 100%;
-  padding: 22px 26px 48px;
-  box-sizing: border-box;
-}
-
-.sprout-preview-body {
-  margin-top: 0;
-  padding: 30px 34px 38px;
-  border: 1px solid #ded2bf;
-  border-radius: 8px;
-  background: #fffdf8;
-  color: var(--td-text-color-primary);
-  box-shadow: 0 10px 26px rgba(38, 34, 29, 0.08);
-  box-sizing: border-box;
-
-  h1 {
-    margin: 12px 0 18px;
-    color: var(--td-text-color-primary);
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 18px;
-    letter-spacing: 0;
-  }
-}
-
-.sprout-preview-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
-}
-
-.sprout-preview-content {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
-
-  :deep(h1) {
-    display: none;
-  }
-
-  :deep(h2) {
-    margin: 30px 0 12px;
-    padding-top: 18px;
-    border-top: 1px solid rgba(32, 36, 42, 0.12);
-    color: var(--td-text-color-primary);
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 18px;
-    letter-spacing: 0;
-  }
-
-  :deep(h3) {
-    margin: 24px 0 10px;
-    color: var(--td-text-color-primary);
-    font-size: 12px;
-    font-weight: 400;
-    line-height: 18px;
-    letter-spacing: 0;
-  }
-
-  :deep(p) {
-    margin: 10px 0;
-  }
-
-  :deep(> p:first-child) {
-    margin: 0 0 18px;
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-    line-height: 18px;
-  }
-
-  :deep(blockquote) {
-    margin: 14px 0;
-    padding: 11px 14px 11px 16px;
-    border-left: 3px solid #2d7a52;
-    border-radius: 0 6px 6px 0;
-    background: rgba(34, 101, 73, 0.06);
-    color: #4e5a52;
-  }
-
-  :deep(blockquote p) {
-    margin: 4px 0;
-  }
-
-  :deep(strong) {
-    color: var(--td-text-color-primary);
-    font-weight: 400;
-  }
-
-  :deep(ul),
-  :deep(ol) {
-    margin: 10px 0 14px;
-    padding-left: 22px;
-  }
-
-  :deep(li) {
-    margin: 4px 0;
-  }
-}
-
 .memory-note-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -2399,74 +2074,48 @@ watch(
   min-width: 0;
 }
 
-.memory-note-sprout-loading {
+.memory-note-organize-loading {
   display: flex;
   align-items: center;
   min-height: 124px;
   padding-top: 4px;
 }
 
-.memory-note-sprout-card {
+.memory-note-organize-card {
   cursor: pointer;
 }
 
-.sprout-report-card {
+.organize-result-card {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr);
   min-height: 124px;
   overflow: hidden;
-  border: 1px solid #e1d7c7;
+  border: 1px solid rgba(55, 53, 47, 0.12);
   border-radius: 8px;
-  background:
-    linear-gradient(0deg, rgba(35, 31, 27, 0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(35, 31, 27, 0.014) 1px, transparent 1px),
-    #fffdf8;
-  background-size: 22px 22px;
-  box-shadow: 0 4px 14px rgba(38, 34, 29, 0.05);
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(55, 53, 47, 0.06);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 
   &:hover,
   &:focus {
-    border-color: rgba(34, 101, 73, 0.42);
-    box-shadow: 0 10px 26px rgba(38, 34, 29, 0.1);
+    border-color: rgba(46, 170, 220, 0.42);
+    box-shadow: 0 10px 26px rgba(55, 53, 47, 0.1);
     outline: none;
   }
 }
 
-.sprout-report-gutter {
+.organize-result-gutter {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100%;
-  border-right: 1px solid #e6ddcf;
-  background:
-    linear-gradient(180deg, rgba(34, 101, 73, 0.08), rgba(164, 128, 57, 0.08)),
-    #f8f2e7;
+  border-right: 1px solid rgba(55, 53, 47, 0.08);
+  background: rgba(46, 170, 220, 0.08);
+  color: #2eaadc;
 }
 
-.sprout-report-ribbon {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 56px;
-  border: 2px solid #20242a;
-  background: rgba(255, 253, 248, 0.72);
-  color: var(--td-text-color-primary);
-  font-family: "Songti SC", "STSong", serif;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 18px;
-  letter-spacing: 0;
-  text-align: center;
-  box-shadow: inset 0 0 0 1px rgba(32, 36, 42, 0.12);
-
-  span {
-    display: block;
-  }
-}
-
-.sprout-report-main {
+.organize-result-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -2487,7 +2136,7 @@ watch(
   }
 }
 
-.sprout-report-title-row {
+.organize-result-title-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -2507,7 +2156,7 @@ watch(
   }
 }
 
-.sprout-report-intro {
+.organize-result-intro {
   display: -webkit-box;
   margin: 0;
   max-height: 54px;
@@ -2538,7 +2187,7 @@ watch(
   }
 }
 
-.sprout-report-main .report-chips {
+.organize-result-chips {
   margin-top: auto;
   margin-bottom: 6px;
 }
@@ -2553,11 +2202,11 @@ watch(
   line-height: 18px;
 }
 
-.sprout-report-meta {
+.organize-result-meta {
   padding-top: 6px;
 }
 
-.sprout-report-meta-separator {
+.organize-result-meta-separator {
   color: var(--td-text-color-placeholder);
 }
 
@@ -2575,17 +2224,17 @@ watch(
   box-sizing: border-box;
 }
 
-.type-badge.sprout-stage--formed {
+.type-badge.organize-stage--formed {
   background: rgba(34, 101, 73, 0.1);
   color: #236549;
 }
 
-.type-badge.sprout-stage--expandable {
+.type-badge.organize-stage--expandable {
   background: rgba(146, 94, 28, 0.1);
   color: #7a4d18;
 }
 
-.type-badge.sprout-stage--organizing {
+.type-badge.organize-stage--organizing {
   background: rgba(35, 99, 148, 0.1);
   color: #1f5a86;
 }
@@ -2897,23 +2546,14 @@ watch(
     font-size: 14px;
   }
 
-  .sprout-report-card {
+  .organize-result-card {
     grid-template-columns: 1fr;
   }
 
-  .sprout-report-gutter {
+  .organize-result-gutter {
     min-height: 72px;
     border-right: 0;
-    border-bottom: 1px solid #e6ddcf;
-  }
-
-  .sprout-report-ribbon {
-    width: 72px;
-    height: 42px;
-    grid-template-columns: repeat(2, auto);
-    gap: 4px;
-    font-size: 12px;
-    line-height: 18px;
+    border-bottom: 1px solid rgba(55, 53, 47, 0.08);
   }
 
   .memory-note-tag-panel {

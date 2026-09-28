@@ -112,11 +112,11 @@
                         <button
                           type="button"
                           class="popup-menu-item memory-menu-item"
-                          :disabled="isMemorySproutCreating(item.id)"
-                          @click.stop="handleMemoryMenuAction(item, 'sprout')"
+                          :disabled="isMemoryOrganizeCreating(item.id)"
+                          @click.stop="handleMemoryMenuAction(item, 'organize')"
                         >
-                          <OrganizeSproutIcon class="menu-icon memory-sprout-icon" />
-                          <span>{{ memorySproutActionLabel(item) }}</span>
+                          <t-icon class="menu-icon" name="layers" />
+                          <span>{{ memoryOrganizeActionLabel(item) }}</span>
                         </button>
                         <button type="button" class="popup-menu-item delete memory-menu-item" @click.stop="handleMemoryMenuAction(item, 'delete')">
                           <t-icon class="menu-icon" name="delete" />
@@ -366,99 +366,6 @@
           </div>
         </section>
 
-        <section v-else class="organize-section organize-section--sprout">
-          <div class="sprout-hero">
-            <div class="sprout-hero-copy">
-              <div class="section-heading">
-                <OrganizeSproutIcon class="section-heading-icon" />
-                <span>经营复盘</span>
-              </div>
-              <p>沉淀招生、家长沟通和园务管理要点，生成园长可直接复盘和安排跟进的经营建议。</p>
-            </div>
-            <div class="sprout-hero-stats">
-              <span><strong>{{ filteredSproutReports.length }}</strong> 份复盘</span>
-              <span><strong>{{ sproutReports.length }}</strong> 条素材</span>
-            </div>
-          </div>
-
-          <div v-if="sproutLoading" class="organize-loading">
-            <t-loading size="medium" text="加载发芽中" />
-          </div>
-          <div v-else class="sprout-month-list">
-            <section v-for="group in sproutMonthGroups" :key="group.key" class="sprout-month-group">
-              <div class="sprout-month-header">
-                <div class="sprout-month-heading">
-                  <h3>{{ group.label }}</h3>
-                  <div class="segmented-tabs sprout-range-tabs" role="tablist" aria-label="经营复盘时间筛选">
-                    <button
-                      v-for="tab in sproutRangeTabs"
-                      :key="tab.value"
-                      type="button"
-                      class="segmented-tab"
-                      :class="{ 'segmented-tab--active': sproutRange === tab.value }"
-                      role="tab"
-                      :aria-selected="sproutRange === tab.value"
-                      @click="setSproutRange(tab.value)"
-                    >
-                      {{ tab.label }}
-                    </button>
-                  </div>
-                </div>
-                <span>{{ filteredSproutReports.length }} 份复盘</span>
-              </div>
-
-              <div v-if="group.reports.length" class="report-list sprout-report-list">
-                <article
-                  v-for="report in group.reports"
-                  :key="report.id"
-                  class="sprout-report-card report-card--editable"
-                  role="button"
-                  tabindex="0"
-                  @click="openSproutPreview(report)"
-                  @keydown.enter.self="openSproutPreview(report)"
-                >
-                  <div class="sprout-report-gutter" aria-hidden="true">
-                    <div class="sprout-report-ribbon">
-                      <span>经营</span>
-                      <span>复盘</span>
-                    </div>
-                  </div>
-
-                  <div class="sprout-report-main">
-                    <div class="sprout-report-title-row">
-                      <h2>{{ report.title }}</h2>
-                      <span class="type-badge" :class="`sprout-stage--${report.stageKey}`">{{ report.stage }}</span>
-                    </div>
-                    <p class="sprout-report-intro">{{ report.intro }}</p>
-
-                    <div v-if="report.chips.length" class="report-chips">
-                      <span v-for="chip in report.chips" :key="chip">{{ chip }}</span>
-                    </div>
-
-                    <div class="report-meta sprout-report-meta">
-                      <span>{{ report.updated }}</span>
-                      <span v-if="sproutReportReferenceLabels(report).length || sproutReportSourceLabels(report).length" class="sprout-report-meta-separator">|</span>
-                      <span v-for="label in sproutReportReferenceLabels(report)" :key="`${report.id}-${label}`">{{ label }}</span>
-                      <span v-for="label in sproutReportSourceLabels(report)" :key="`${report.id}-${label}`">{{ label }}</span>
-                    </div>
-                  </div>
-
-                </article>
-              </div>
-
-              <div v-else class="output-empty">暂无经营复盘</div>
-            </section>
-          </div>
-          <div v-if="!sproutLoading && filteredSproutReports.length > SPROUT_PAGE_SIZE" class="sprout-pagination" aria-label="经营复盘分页">
-            <t-pagination
-              v-model="sproutPage"
-              :page-size="SPROUT_PAGE_SIZE"
-              :total="filteredSproutReports.length"
-              size="small"
-              show-page-number
-            />
-          </div>
-        </section>
       </div>
     </main>
 
@@ -507,61 +414,6 @@
         @change="handleMemoryImportFileChange"
       />
     </div>
-
-    <t-drawer
-      v-model:visible="sproutPreviewVisible"
-      class="sprout-preview-drawer"
-      :header="false"
-      :footer="false"
-      :close-btn="false"
-      :size="'min(760px, 92vw)'"
-      attach="body"
-      placement="right"
-    >
-      <template v-if="activeSproutReport">
-        <div class="sprout-preview-header">
-          <div class="sprout-preview-header-copy">
-            <div class="sprout-preview-eyebrow">经营复盘</div>
-            <div class="sprout-preview-title">{{ activeSproutReport.title }}</div>
-          </div>
-          <div class="sprout-preview-actions">
-            <t-button
-              v-if="canEditSproutReport(activeSproutReport)"
-              variant="text"
-              theme="default"
-              size="small"
-              class="sprout-preview-action"
-              aria-label="编辑报告"
-              @click="openSproutEditor(activeSproutReport)"
-            >
-              <template #icon><t-icon name="edit-1" size="16px" /></template>
-            </t-button>
-            <t-button
-              variant="text"
-              theme="default"
-              size="small"
-              class="sprout-preview-action"
-              aria-label="关闭预览"
-              @click="closeSproutPreview"
-            >
-              <template #icon><t-icon name="close" size="16px" /></template>
-            </t-button>
-          </div>
-        </div>
-
-        <div class="sprout-preview-page">
-          <div class="sprout-preview-body">
-            <div class="sprout-preview-meta">
-              <span>{{ activeSproutReport.updated }}</span>
-              <span>{{ activeSproutReport.memoryCount }} 条记忆</span>
-            </div>
-            <h1>{{ activeSproutReport.title }}</h1>
-
-            <div class="sprout-preview-content" v-html="activeSproutReport.renderedHtml" />
-          </div>
-        </div>
-      </template>
-      </t-drawer>
 
     <t-drawer
       v-model:visible="outputPreviewVisible"
@@ -662,24 +514,21 @@ import { DialogPlugin, Icon as TIcon, MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import DocumentPreview from '@/components/document-preview.vue'
 import {
-  createOrganizeSproutReportFromMemory,
+  createOrganizeJob,
   deleteOrganizeMemory,
   deleteOrganizeOutput,
   getOrganizeDiscover,
+  listOrganizeConfigs,
   listOrganizeJobs,
   listOrganizeMemories,
   listOrganizeOutputs,
-  listOrganizeSproutReports,
   type OrganizeDiscoverTab,
   type OrganizeJob,
   type OrganizeJobStatus,
   type OrganizeMemory,
-  type OrganizeMemoryReference,
   type OrganizeMemoryKind,
   type OrganizeOutput,
   type OrganizeOutputStatus,
-  type OrganizeSproutReport,
-  type OrganizeSproutStage,
   updateOrganizeOutput,
   uploadOrganizeMemory,
 } from '@/api/organize'
@@ -690,23 +539,16 @@ import {
   findMemoryAssetRoute,
   isMemoryAssetKey,
   isMemoryStatusKey,
-  type LegacyOrganizeTab,
   type MemoryAssetKey,
   type MemoryStatusKey,
 } from './organizeRoutes'
 import { saveOrganizeEditorDraft, type OrganizeEditorDraft } from './editorDraftStorage'
-import {
-  buildSproutReportPreview,
-  sproutReportContentForEditor,
-  type SproutReportPreviewSection,
-} from './sproutReport'
 import {
   DISCOVER_CATEGORIES,
   discoverCategoryLabel,
   normalizeDiscoverCategory,
 } from './discoverCategories'
 import OrganizeOutputUploadDrawer from './components/OrganizeOutputUploadDrawer.vue'
-import OrganizeSproutIcon from './components/OrganizeSproutIcon.vue'
 import PublicKnowledgeBaseDiscover from './components/PublicKnowledgeBaseDiscover.vue'
 
 type MemoryType = 'note' | 'record' | 'audio' | 'audio-card'
@@ -715,7 +557,6 @@ type OutputKind = 'all' | 'article' | 'video' | 'audio'
 type OutputCreateKind = Exclude<OutputKind, 'all'>
 type OutputStatusFilter = 'all' | OrganizeOutputStatus
 type OutputViewMode = 'list' | 'grid'
-type SproutRange = '3d' | '7d' | '1m'
 type MemoryCreateAction = 'new-note' | 'import-file'
 
 interface MemoryItem {
@@ -749,7 +590,7 @@ interface MemoryDisplayGroup {
   items: Array<MemoryItem | MemoryListItem>
 }
 
-type MemoryMenuAction = 'edit' | 'sprout' | 'delete'
+type MemoryMenuAction = 'edit' | 'organize' | 'delete'
 
 interface OutputItem {
   id: string
@@ -780,30 +621,6 @@ interface OutputItem {
   persisted: boolean
 }
 
-interface SproutReportItem {
-  id: string
-  title: string
-  content: string
-  renderedHtml: string
-  intro: string
-  previewSections: SproutReportPreviewSection[]
-  stage: string
-  stageKey: OrganizeSproutStage
-  updated: string
-  updatedAt: string
-  generatedLabel: string
-  memoryCount: number
-  memoryIds: string[]
-  memoryRefs: OrganizeMemoryReference[]
-  outputHint: string
-  chips: string[]
-  creatorId?: string
-  creatorName?: string
-  creatorAvatar?: string
-  metadata?: Record<string, unknown>
-  persisted: boolean
-}
-
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -816,9 +633,8 @@ const memoryOrganizationJobs = ref<OrganizeJob[]>([])
 const memoryOrganizationOutputs = ref<OrganizeOutput[]>([])
 const discoverFeaturedLoading = ref(true)
 const discoverFeedLoading = ref(true)
-const sproutLoading = ref(true)
 const activeMemoryMenuId = ref('')
-const sproutingMemoryIds = ref<Set<string>>(new Set())
+const organizingMemoryIds = ref<Set<string>>(new Set())
 const outputUploadVisible = ref(false)
 const outputUploadInitialKind = ref<OutputCreateKind>('article')
 const outputPreviewVisible = ref(false)
@@ -831,15 +647,9 @@ const discoverTabs = ref<OrganizeDiscoverTab[]>([
   ...DISCOVER_CATEGORIES.map((category) => ({ label: category.label, value: category.key })),
 ])
 const featuredRotation = ref(0)
-const sproutRange = ref<SproutRange>('3d')
-const sproutPreviewVisible = ref(false)
-const activeSproutReport = ref<SproutReportItem | null>(null)
 const OUTPUT_PAGE_SIZE = 30
 const FEATURED_OUTPUT_SIZE = 4
 const outputPage = ref(1)
-const SPROUT_PAGE_SIZE = 10
-const sproutPage = ref(1)
-const SPROUT_DAY_MS = 24 * 60 * 60 * 1000
 const editableOutputStatusOptions: Array<{ label: string; value: OrganizeOutputStatus }> = [
   { label: '草稿', value: 'draft' },
   { label: '待确认', value: 'review' },
@@ -907,16 +717,9 @@ const memoryImportAccept = [
   '.wmv',
   '.flv',
 ].join(',')
-const sproutRangeTabs: Array<{ label: string; value: SproutRange; days: number }> = [
-  { label: '近3天', value: '3d', days: 3 },
-  { label: '近7天', value: '7d', days: 7 },
-  { label: '近一月', value: '1m', days: 30 },
-]
-
-const activeTab = computed<LegacyOrganizeTab>(() => {
+const activeTab = computed<'memory' | 'output'>(() => {
   const tab = route.meta.organizeTab
   if (tab === 'discover') return 'output'
-  if (tab === 'sprout') return 'sprout'
   return 'memory'
 })
 
@@ -947,52 +750,6 @@ const discoverTotal = ref(0)
 let discoverFeedRequestSeq = 0
 let discoverFeaturedRequestSeq = 0
 
-type SproutReportBaseItem = Omit<SproutReportItem, 'renderedHtml' | 'intro' | 'previewSections' | 'updatedAt' | 'generatedLabel'>
-
-const formatGeneratedDateLabel = (value: string) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return `${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日生成`
-}
-
-const enrichSproutReport = (item: SproutReportBaseItem & { updatedAt?: string }): SproutReportItem => {
-  const preview = buildSproutReportPreview(item.content, item.title)
-  return {
-    ...item,
-    renderedHtml: sproutReportContentForEditor(item.content),
-    intro: preview.intro || item.title,
-    previewSections: preview.sections,
-    updatedAt: item.updatedAt || '',
-    generatedLabel: (item.updatedAt && formatGeneratedDateLabel(item.updatedAt)) || item.updated,
-  }
-}
-
-const sproutReports = ref<SproutReportItem[]>([])
-
-const setMemorySproutCreating = (id: string, creating: boolean) => {
-  const next = new Set(sproutingMemoryIds.value)
-  if (creating) {
-    next.add(id)
-  } else {
-    next.delete(id)
-  }
-  sproutingMemoryIds.value = next
-}
-
-const isMemorySproutCreating = (id: string) => sproutingMemoryIds.value.has(id)
-
-const linkedMemorySproutReport = (item: MemoryItem | MemoryListItem) => {
-  return sproutReports.value.find((report) => report.persisted && report.memoryIds.includes(item.id))
-}
-
-const memorySproutActionLabel = (item: MemoryItem | MemoryListItem) => {
-  if (isMemorySproutCreating(item.id)) return '发芽中...'
-  const report = linkedMemorySproutReport(item)
-  if (report?.stageKey === 'organizing') return '发芽中...'
-  if (report?.stageKey === 'formed') return '已发芽'
-  return '发芽'
-}
-
 const allMemoryItems = computed<MemoryListItem[]>(() => {
   return memoryGroups.value.flatMap((group) => group.items.map((item) => ({ ...item, date: group.date })))
 })
@@ -1000,20 +757,24 @@ const allMemoryItems = computed<MemoryListItem[]>(() => {
 const processingJobStatuses = new Set<OrganizeJobStatus>(['queued', 'running', 'repairing'])
 const organizedJobStatuses = new Set<OrganizeJobStatus>(['completed', 'fallback'])
 
+const memoryOrganizeActionLabel = (item: MemoryItem | MemoryListItem) => {
+  if (isMemoryOrganizeCreating(item.id)) return '整理中...'
+  const job = memoryOrganizationJobs.value
+    .filter((candidate) => (candidate.memory_ids || []).includes(item.id))
+    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0]
+  if (job && processingJobStatuses.has(job.status)) return '整理中...'
+  if (job && organizedJobStatuses.has(job.status)) return '查看整理结果'
+  return '整理'
+}
+
 const memoryOrganizationStatus = (memoryID: string): MemoryOrganizationStatus => {
   const jobs = memoryOrganizationJobs.value.filter((job) => (job.memory_ids || []).includes(memoryID))
   const hasProcessingJob = jobs.some((job) => processingJobStatuses.has(job.status))
   const hasOrganizedJob = jobs.some((job) => organizedJobStatuses.has(job.status))
-  const hasProcessingReport = sproutReports.value.some(
-    (report) => report.memoryIds.includes(memoryID) && report.stageKey === 'organizing',
-  )
-  const hasOrganizedReport = sproutReports.value.some(
-    (report) => report.memoryIds.includes(memoryID) && (report.stageKey === 'expandable' || report.stageKey === 'formed'),
-  )
   const hasOutput = memoryOrganizationOutputs.value.some((output) => (output.memory_ids || []).includes(memoryID))
 
-  if (sproutingMemoryIds.value.has(memoryID) || hasProcessingJob || hasProcessingReport) return 'processing'
-  if (hasOrganizedJob || hasOrganizedReport || hasOutput) return 'organized'
+  if (organizingMemoryIds.value.has(memoryID) || hasProcessingJob) return 'processing'
+  if (hasOrganizedJob || hasOutput) return 'organized'
   return 'unorganized'
 }
 
@@ -1061,9 +822,6 @@ const activeMeta = computed(() => {
   if (activeTab.value === 'output') {
     return { title: '发现', actionIcon: 'file-add', actionLabel: '新建' }
   }
-  if (activeTab.value === 'sprout') {
-    return { title: '经营复盘', actionIcon: 'add', actionLabel: '新建复盘' }
-  }
   if (activeMemoryAsset.value || activeMemoryStatus.value) {
     return { title: `${activeMemoryFilterMeta.value.label}列表`, actionIcon: 'add', actionLabel: '添加记忆' }
   }
@@ -1071,11 +829,6 @@ const activeMeta = computed(() => {
 })
 
 const currentUserId = computed(() => authStore.currentUserId || authStore.user?.id || '')
-
-const setSproutRange = (range: SproutRange) => {
-  sproutRange.value = range
-  sproutPage.value = 1
-}
 
 const filteredMemoryGroups = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -1223,10 +976,6 @@ const canEditOutputItem = (item?: OutputItem | null) => {
   return Boolean(item && item.persisted && item.creatorId && currentUserId.value && item.creatorId === currentUserId.value)
 }
 
-const canEditSproutReport = (item?: SproutReportItem | null) => {
-  return Boolean(item && (!item.creatorId || !currentUserId.value || item.creatorId === currentUserId.value))
-}
-
 const canEditActiveOutputPreview = computed(() => {
   return canEditOutputItem(activeOutputPreview.value)
 })
@@ -1251,67 +1000,6 @@ const getOutputStatusMenuOptions = (currentStatus?: OrganizeOutputStatus) => {
     },
   ]
 }
-
-const sproutReportTime = (report: SproutReportItem) => {
-  const explicitDate = new Date(report.updatedAt)
-  if (!Number.isNaN(explicitDate.getTime())) return explicitDate.getTime()
-
-  const now = new Date()
-  const labelDate = new Date(now)
-  const timeMatch = report.updated.match(/(\d{1,2}):(\d{2})/)
-  const applyTime = (date: Date) => {
-    if (timeMatch) {
-      date.setHours(Number(timeMatch[1]), Number(timeMatch[2]), 0, 0)
-    } else {
-      date.setHours(0, 0, 0, 0)
-    }
-    return date.getTime()
-  }
-
-  if (report.updated.includes('今天')) return applyTime(labelDate)
-  if (report.updated.includes('昨天')) {
-    labelDate.setDate(labelDate.getDate() - 1)
-    return applyTime(labelDate)
-  }
-
-  const monthDayMatch = report.updated.match(/(\d{1,2})月(\d{1,2})日/)
-  if (monthDayMatch) {
-    const month = Number(monthDayMatch[1]) - 1
-    const day = Number(monthDayMatch[2])
-    const parsedDate = new Date(now.getFullYear(), month, day)
-    if (parsedDate.getTime() > now.getTime()) {
-      parsedDate.setFullYear(parsedDate.getFullYear() - 1)
-    }
-    return applyTime(parsedDate)
-  }
-
-  return Number.NaN
-}
-
-const filteredSproutReports = computed(() => {
-  const activeRange = sproutRangeTabs.find((tab) => tab.value === sproutRange.value) || sproutRangeTabs[0]
-  const now = new Date()
-  const start = new Date(now.getTime() - (activeRange.days - 1) * SPROUT_DAY_MS)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(now)
-  end.setHours(23, 59, 59, 999)
-  return sproutReports.value.filter((report) => {
-    const reportTime = sproutReportTime(report)
-    return !Number.isNaN(reportTime) && reportTime >= start.getTime() && reportTime <= end.getTime()
-  })
-})
-
-const sproutTotalPages = computed(() => Math.max(1, Math.ceil(filteredSproutReports.value.length / SPROUT_PAGE_SIZE)))
-
-const paginatedSproutReports = computed(() => {
-  const page = Math.min(Math.max(sproutPage.value, 1), sproutTotalPages.value)
-  const start = (page - 1) * SPROUT_PAGE_SIZE
-  return filteredSproutReports.value.slice(start, start + SPROUT_PAGE_SIZE)
-})
-
-const sproutMonthGroups = computed(() => {
-  return [{ key: 'recent', label: '近期', reports: paginatedSproutReports.value }]
-})
 
 const formatDateLabel = (value: string) => {
   const date = new Date(value)
@@ -1349,35 +1037,7 @@ const memoryReferenceKindLabel = (kind?: string) => {
   return '笔记'
 }
 
-const memoryReferenceLabel = (ref: OrganizeMemoryReference) => {
-  const title = asTrimmedString(ref.title) || '未命名'
-  return `@创建了${memoryReferenceKindLabel(ref.kind)}${title}`
-}
-
-const memoryReferenceSourceLabel = (source?: string) => {
-  const normalized = asTrimmedString(source)
-  if (!normalized || normalized === '手动输入') return ''
-  if (normalized === '文件导入') return '@上传文件'
-  return `@${normalized}`
-}
-
-const sproutReportReferenceLabels = (report: Pick<SproutReportItem, 'memoryRefs' | 'memoryCount'>) => {
-  const refs = report.memoryRefs || []
-  if (!refs.length) return report.memoryCount > 0 ? [`@${report.memoryCount}条记忆`] : []
-  return refs.slice(0, 2).map(memoryReferenceLabel)
-}
-
-const sproutReportSourceLabels = (report: Pick<SproutReportItem, 'memoryRefs'>) => {
-  const labels = new Set<string>()
-  for (const ref of report.memoryRefs || []) {
-    const label = memoryReferenceSourceLabel(ref.source)
-    if (label) labels.add(label)
-  }
-  return Array.from(labels).slice(0, 2)
-}
-
 const statusLabel = (status: OrganizeOutputStatus) => ({ draft: '草稿', review: '评审中', ready: '可交付', archived: '已归档' })[status]
-const stageLabel = (stage: OrganizeSproutStage) => ({ organizing: '发芽中', expandable: '发芽', formed: '已发芽' })[stage]
 const outputKindLabelMap: Record<Exclude<OutputKind, 'all'>, string> = {
   article: '图文类',
   video: '视频类',
@@ -1534,14 +1194,6 @@ const memorySummary = (item: OrganizeMemory) => {
 
 const currentUserDisplayName = () => authStore.user?.username || authStore.user?.email || '我'
 
-const memorySproutRoleConfig = () => ({
-  role: authStore.currentTenantRole || 'viewer',
-  tenant_id: authStore.effectiveTenantId || authStore.currentTenantId || '',
-  tenant_name: authStore.currentTenantName || '',
-  user_id: currentUserId.value,
-  user_name: currentUserDisplayName(),
-})
-
 const outputCreatorId = (item: OrganizeOutput) => {
   const metadata = item.metadata || {}
   return asTrimmedString(item.user_id)
@@ -1571,39 +1223,6 @@ const outputCreatorAvatar = (item: OrganizeOutput) => {
     || asTrimmedString(metadata.user_avatar)
   if (explicitAvatar) return explicitAvatar
   const creatorId = outputCreatorId(item)
-  if (!creatorId || creatorId === currentUserId.value) return authStore.user?.avatar || ''
-  return ''
-}
-
-const sproutCreatorId = (item: OrganizeSproutReport) => {
-  const metadata = item.metadata || {}
-  return asTrimmedString(item.user_id)
-    || asTrimmedString(metadata.creator_id)
-    || asTrimmedString(metadata.created_by)
-    || asTrimmedString(metadata.user_id)
-}
-
-const sproutCreatorName = (item: OrganizeSproutReport) => {
-  const metadata = item.metadata || {}
-  const explicitName = asTrimmedString(item.creator_name)
-    || asTrimmedString(metadata.creator_name)
-    || asTrimmedString(metadata.creator_username)
-    || asTrimmedString(metadata.author_name)
-    || asTrimmedString(metadata.user_name)
-  if (explicitName) return explicitName
-  const creatorId = sproutCreatorId(item)
-  if (!creatorId || creatorId === currentUserId.value) return currentUserDisplayName()
-  return '未知用户'
-}
-
-const sproutCreatorAvatar = (item: OrganizeSproutReport) => {
-  const metadata = item.metadata || {}
-  const explicitAvatar = asTrimmedString(item.creator_avatar)
-    || asTrimmedString(metadata.creator_avatar)
-    || asTrimmedString(metadata.author_avatar)
-    || asTrimmedString(metadata.user_avatar)
-  if (explicitAvatar) return explicitAvatar
-  const creatorId = sproutCreatorId(item)
   if (!creatorId || creatorId === currentUserId.value) return authStore.user?.avatar || ''
   return ''
 }
@@ -1648,12 +1267,6 @@ watch(discoverTotal, () => {
   }
   if (outputPage.value < 1) {
     outputPage.value = 1
-  }
-})
-
-watch(filteredSproutReports, () => {
-  if (sproutPage.value > sproutTotalPages.value) {
-    sproutPage.value = sproutTotalPages.value
   }
 })
 
@@ -1708,26 +1321,6 @@ const mapOutput = (item: OrganizeOutput): OutputItem => ({
   persisted: true,
 })
 
-const mapSproutReport = (item: OrganizeSproutReport): SproutReportItem => enrichSproutReport({
-  id: item.id,
-  title: item.title,
-  content: item.summary || placeholderContent(item.title),
-  stage: stageLabel(item.stage),
-  stageKey: item.stage,
-  updated: formatUpdatedLabel(item.updated_at),
-  updatedAt: item.updated_at,
-  memoryCount: item.memory_count || 0,
-  memoryIds: item.memory_ids || [],
-  memoryRefs: item.memory_refs || [],
-  outputHint: item.output_hint || '可继续整理',
-  chips: item.chips || [],
-  creatorId: sproutCreatorId(item),
-  creatorName: sproutCreatorName(item),
-  creatorAvatar: sproutCreatorAvatar(item),
-  metadata: item.metadata,
-  persisted: true,
-})
-
 const syncActiveOutputPreview = () => {
   if (!activeOutputPreview.value) return
   const nextPreview = [...outputs.value, ...featuredOutputs.value].find(
@@ -1738,17 +1331,6 @@ const syncActiveOutputPreview = () => {
   } else {
     activeOutputPreview.value = null
     outputPreviewVisible.value = false
-  }
-}
-
-const syncActiveSproutPreview = () => {
-  if (!activeSproutReport.value) return
-  const nextReport = sproutReports.value.find((item) => item.id === activeSproutReport.value?.id)
-  if (nextReport) {
-    activeSproutReport.value = nextReport
-  } else {
-    activeSproutReport.value = null
-    sproutPreviewVisible.value = false
   }
 }
 
@@ -1781,27 +1363,6 @@ const loadMemoryOrganizationState = async () => {
   }
   memoryOrganizationJobs.value = jobsResponse.data.items
   memoryOrganizationOutputs.value = outputsResponse.data.items
-}
-
-const loadSproutReportsData = async (options?: { silent?: boolean }) => {
-  if (!options?.silent) {
-    sproutLoading.value = true
-  }
-  try {
-    const response = await listOrganizeSproutReports({ page_size: 100 })
-    if (!response.success || !response.data) {
-      throw new Error(response.message || '发芽数据加载失败')
-    }
-
-    const nextReports = response.data.items.map(mapSproutReport)
-    sproutReports.value = nextReports
-    syncActiveSproutPreview()
-    return nextReports
-  } finally {
-    if (!options?.silent) {
-      sproutLoading.value = false
-    }
-  }
 }
 
 // 顶部精选和底部分页列表分开拉取，切 tab 只刷新底部当前页。
@@ -1901,16 +1462,15 @@ const loadOrganizeData = async () => {
     loadMemoryOrganizationState(),
     loadDiscoverFeaturedData(),
     loadDiscoverFeedData({ tab: discoverTab.value, page: 1, resetPage: true }),
-    loadSproutReportsData(),
   ])
 
-  const [memoryResult, memoryStateResult, featuredResult, feedResult, sproutResult] = results
+  const [memoryResult, memoryStateResult, featuredResult, feedResult] = results
   if (featuredResult.status === 'rejected' || feedResult.status === 'rejected') {
     MessagePlugin.warning('发现数据加载失败')
   }
 
-  if (memoryResult.status === 'rejected' || sproutResult.status === 'rejected') {
-    MessagePlugin.warning('部分文档数据加载失败')
+  if (memoryResult.status === 'rejected') {
+    MessagePlugin.warning('记忆数据加载失败')
   }
   if (memoryStateResult.status === 'rejected') {
     MessagePlugin.warning('记忆整理状态加载失败')
@@ -1933,13 +1493,13 @@ const contentExcerpt = (html: string, fallback: string) => {
   return parsed.length > 96 ? `${parsed.slice(0, 96)}...` : parsed || fallback
 }
 
-type EditorDocumentType = 'memory' | 'output' | 'sprout'
+type EditorDocumentType = 'memory' | 'output'
 
 const editorPath = (documentType: EditorDocumentType, id: string) => {
   return `/platform/organize/editor/${documentType}/${encodeURIComponent(id)}`
 }
 
-const editorDraft = (item: MemoryItem | OutputItem | SproutReportItem | undefined): OrganizeEditorDraft | null => {
+const editorDraft = (item: MemoryItem | OutputItem | undefined): OrganizeEditorDraft | null => {
   if (!item || item.persisted) return null
 
   const draft: OrganizeEditorDraft = {
@@ -1963,11 +1523,6 @@ const editorDraft = (item: MemoryItem | OutputItem | SproutReportItem | undefine
         : {}),
       ...(item.tags.length ? { tags: item.tags } : {}),
     }
-  } else if ('stageKey' in item) {
-    draft.stage = item.stageKey
-    draft.output_hint = item.outputHint
-    draft.chips = item.chips
-    draft.memory_ids = item.memoryIds
   } else {
     draft.kind = memoryTypeToApi(item.type)
     draft.duration_seconds = item.durationSeconds
@@ -1979,7 +1534,7 @@ const editorDraft = (item: MemoryItem | OutputItem | SproutReportItem | undefine
 const openDocumentEditor = async (
   documentType: EditorDocumentType,
   id = 'new',
-  item?: MemoryItem | OutputItem | SproutReportItem,
+  item?: MemoryItem | OutputItem,
 ) => {
   const draft = editorDraft(item)
   if (draft) {
@@ -2085,58 +1640,73 @@ const deleteMemoryItem = (item: MemoryItem) => {
   })
 }
 
-const upsertSproutReportItem = (item: OrganizeSproutReport) => {
-  const next = mapSproutReport(item)
-  const index = sproutReports.value.findIndex((candidate) => candidate.id === next.id)
-  if (index !== -1) {
-    sproutReports.value = sproutReports.value.map((candidate) => (candidate.id === next.id ? next : candidate))
+const setMemoryOrganizeCreating = (id: string, creating: boolean) => {
+  const next = new Set(organizingMemoryIds.value)
+  if (creating) {
+    next.add(id)
   } else {
-    sproutReports.value = [next, ...sproutReports.value]
+    next.delete(id)
   }
-  if (activeSproutReport.value?.id === next.id) {
-    activeSproutReport.value = next
-  }
-  return next
+  organizingMemoryIds.value = next
 }
 
-const scheduleSproutReportRefresh = () => {
-  const refresh = () => {
-    void loadSproutReportsData({ silent: true }).catch(() => {
-      // 创建后短轮询只用于同步异步生成结果，失败时保留当前“发芽中”状态。
-    })
-  }
-  window.setTimeout(refresh, 1500)
-  window.setTimeout(refresh, 5000)
-}
+const isMemoryOrganizeCreating = (id: string) => organizingMemoryIds.value.has(id)
 
-const createSproutFromMemory = async (item: MemoryItem) => {
-  const linkedReport = linkedMemorySproutReport(item)
-  if (linkedReport) {
-    return
-  }
-  if (isMemorySproutCreating(item.id)) return
+const createOrganizeFromMemory = async (item: MemoryItem) => {
+  if (isMemoryOrganizeCreating(item.id)) return
   if (!item.persisted) {
-    MessagePlugin.warning('该记忆暂不支持发芽')
+    MessagePlugin.warning('请先保存记忆')
     return
   }
 
-  setMemorySproutCreating(item.id, true)
-  try {
-    const response = await createOrganizeSproutReportFromMemory({
-      memory_id: item.id,
-      role_config: memorySproutRoleConfig(),
+  const latestJob = memoryOrganizationJobs.value
+    .filter((job) => (job.memory_ids || []).includes(item.id))
+    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0]
+  if (latestJob && processingJobStatuses.has(latestJob.status)) {
+    MessagePlugin.info('整理任务正在处理中')
+    return
+  }
+  if (latestJob && organizedJobStatuses.has(latestJob.status) && latestJob.output_id) {
+    await router.push({
+      path: `/platform/organize/outputs/${encodeURIComponent(latestJob.output_id)}`,
+      query: { from: 'memory', memoryId: item.id },
     })
-    if (!response.success || !response.data) {
-      throw new Error(response.message || '发芽任务创建失败')
+    return
+  }
+
+  setMemoryOrganizeCreating(item.id, true)
+  try {
+    const configResponse = await listOrganizeConfigs({
+      page: 1,
+      page_size: 100,
+      status: 'active',
+    })
+    if (!configResponse.success) {
+      throw new Error(configResponse.message || '整理配置加载失败')
+    }
+    const config = configResponse.data?.items?.[0]
+    if (!config) {
+      MessagePlugin.warning('请先在整理工作台创建启用的整理配置')
+      return
     }
 
-    upsertSproutReportItem(response.data)
-    MessagePlugin.success('发芽任务已创建')
-    scheduleSproutReportRefresh()
+    const response = await createOrganizeJob({
+      config_id: config.id,
+      memory_ids: [item.id],
+    })
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '整理任务创建失败')
+    }
+
+    memoryOrganizationJobs.value = [
+      response.data,
+      ...memoryOrganizationJobs.value.filter((job) => job.id !== response.data?.id),
+    ]
+    MessagePlugin.success(`已按「${config.name}」发起整理任务`)
   } catch (error: any) {
-    MessagePlugin.error(error?.message || '发芽任务创建失败')
+    MessagePlugin.error(error?.message || '整理任务创建失败')
   } finally {
-    setMemorySproutCreating(item.id, false)
+    setMemoryOrganizeCreating(item.id, false)
   }
 }
 
@@ -2146,8 +1716,9 @@ const handleMemoryMenuAction = (item: MemoryItem, action: MemoryMenuAction) => {
     openMemoryEditor(item)
     return
   }
-  if (action === 'sprout') {
-    void createSproutFromMemory(item)
+  if (action === 'organize') {
+    closeMemoryMenu()
+    void createOrganizeFromMemory(item)
     return
   }
   if (action === 'delete') {
@@ -2281,20 +1852,6 @@ const handleOutputSaved = (item: OrganizeOutput) => {
   upsertOutputItem(item)
   void refreshDiscoverData({ resetPage: true })
   MessagePlugin.success('发现已更新')
-}
-
-const openSproutPreview = (item: SproutReportItem) => {
-  activeSproutReport.value = item
-  sproutPreviewVisible.value = true
-}
-
-const closeSproutPreview = () => {
-  sproutPreviewVisible.value = false
-}
-
-const openSproutEditor = (item: SproutReportItem) => {
-  sproutPreviewVisible.value = false
-  void openDocumentEditor('sprout', item.id, item)
 }
 
 onMounted(loadOrganizeData)
@@ -2747,12 +2304,6 @@ button.asset-card {
     opacity: 0.56;
     cursor: progress;
   }
-}
-
-.memory-sprout-icon {
-  display: block;
-  width: 16px;
-  height: 16px;
 }
 
 .memory-list-empty {
@@ -3285,8 +2836,7 @@ button.asset-card {
   min-height: 140px;
 }
 
-.output-pagination,
-.sprout-pagination {
+.output-pagination {
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -3298,10 +2848,6 @@ button.asset-card {
     justify-content: flex-end;
     row-gap: 8px;
   }
-}
-
-.sprout-pagination {
-  padding-top: 8px;
 }
 
 .output-card,

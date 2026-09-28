@@ -1,10 +1,9 @@
 import type {
   OrganizeMemoryKind,
   OrganizeOutputStatus,
-  OrganizeSproutStage,
 } from '@/api/organize'
 
-export type OrganizeEditorDraftType = 'memory' | 'output' | 'sprout'
+export type OrganizeEditorDraftType = 'memory' | 'output'
 
 export interface OrganizeEditorDraft {
   title?: string
@@ -16,9 +15,6 @@ export interface OrganizeEditorDraft {
   source_summary?: string
   status?: OrganizeOutputStatus
   icon?: string
-  stage?: OrganizeSproutStage
-  output_hint?: string
-  chips?: string[]
   memory_ids?: string[]
   metadata?: Record<string, unknown>
 }
