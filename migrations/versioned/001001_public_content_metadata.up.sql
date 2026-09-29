@@ -1,3 +1,7 @@
+-- Migration 001001: public content metadata.
+-- This was previously numbered 000110 on a parallel branch. Keep the SQL
+-- idempotent so databases that already applied that branch can be upgraded.
+
 -- Public content metadata is kept on organize_outputs so existing upload,
 -- parsing, preview, and editor flows remain the source of truth for media.
 ALTER TABLE organize_outputs

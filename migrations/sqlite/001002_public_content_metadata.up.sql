@@ -1,3 +1,6 @@
+-- Migration 001002: public content metadata.
+-- This was previously numbered 000025 on a parallel branch.
+
 ALTER TABLE organize_outputs ADD COLUMN public_content_type VARCHAR(32) NOT NULL DEFAULT 'post';
 ALTER TABLE organize_outputs ADD COLUMN public_status VARCHAR(32) NOT NULL DEFAULT '';
 ALTER TABLE organize_outputs ADD COLUMN series_id VARCHAR(128) NOT NULL DEFAULT '';
