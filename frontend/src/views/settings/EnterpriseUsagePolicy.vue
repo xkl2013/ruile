@@ -16,6 +16,50 @@
     </div>
 
     <div v-else class="enterprise-usage__content">
+      <section class="enterprise-credit-pool">
+        <div class="enterprise-credit-pool__heading">
+          <div>
+            <h2>{{ t('tenant.subscriptionUsage.enterpriseCreditPoolTitle') }}</h2>
+            <p>{{ t('tenant.subscriptionUsage.enterpriseCreditPoolDescription') }}</p>
+          </div>
+          <t-tag variant="light">{{ enterpriseCreditPool.periodText }}</t-tag>
+        </div>
+
+        <div class="enterprise-credit-pool__grid">
+          <div class="enterprise-credit-pool__metric">
+            <span>{{ t('tenant.subscriptionUsage.creditAvailable') }}</span>
+            <strong>{{ t('tenant.subscriptionUsage.points', { count: enterpriseCreditPool.balanceAvailableText }) }}</strong>
+            <small>{{ t('tenant.subscriptionUsage.enterpriseCreditSource') }}</small>
+          </div>
+          <div class="enterprise-credit-pool__metric">
+            <span>{{ t('tenant.subscriptionUsage.enterpriseBalanceUsage') }}</span>
+            <strong>
+              {{ t('tenant.subscriptionUsage.usedOfTotal', {
+                used: enterpriseCreditPool.balanceUsedText,
+                total: enterpriseCreditPool.balanceTotalText,
+              }) }}
+            </strong>
+            <small>{{ t('tenant.subscriptionUsage.enterpriseBalanceRemaining', { count: enterpriseCreditPool.balanceAvailableText }) }}</small>
+          </div>
+          <div class="enterprise-credit-pool__metric">
+            <span>{{ t('tenant.subscriptionUsage.periodCredits') }}</span>
+            <strong>
+              {{ t('tenant.subscriptionUsage.usedOfTotal', {
+                used: enterpriseCreditPool.periodUsedText,
+                total: enterpriseCreditPool.periodTotalText,
+              }) }}
+            </strong>
+            <small>{{ t('tenant.subscriptionUsage.periodCreditsRemaining', { count: enterpriseCreditPool.periodRemainingText }) }}</small>
+            <t-progress
+              :percentage="enterpriseCreditPool.periodProgress"
+              :show-info="false"
+              size="small"
+              :status="enterpriseCreditPool.periodProgress >= 100 ? 'success' : 'active'"
+            />
+          </div>
+        </div>
+      </section>
+
       <section class="enterprise-policy">
         <div class="enterprise-policy__heading">
           <div>
@@ -140,10 +184,12 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
+  getBillingOverview,
   getMemberCreditAllocations,
   getMemberStorageUsage,
   getTenantBillingPolicy,
   updateTenantBillingPolicy,
+  type BillingOverview,
   type TenantBillingPolicy,
 } from '@/api/billing'
 import { fetchAllTenantMembers, type TenantMember } from '@/api/tenant/members'
@@ -168,10 +214,12 @@ const authStore = useAuthStore()
 
 const loading = ref(true)
 const error = ref('')
+const enterpriseOverview = ref<BillingOverview | null>(null)
 const enterprisePolicy = ref<TenantBillingPolicy | null>(null)
 const policyError = ref('')
 const enterpriseMemberRows = ref<EnterpriseMemberUsageRow[]>([])
 const memberUsageError = ref('')
+const enterpriseCustomAssignedPointMicros = ref(0)
 const savingPolicy = ref(false)
 const policyForm = reactive<{
   defaultMemberMonthlyLimitPoints: number
@@ -217,6 +265,85 @@ const formatUsageTime = (value: string) => {
     minute: '2-digit',
   }).format(date)
 }
+
+const formatPeriod = (billing: BillingOverview | null) => {
+  if (!billing?.subscription?.current_period_start || !billing.subscription.current_period_end) {
+    return t('tenant.subscriptionUsage.noFixedPeriod')
+  }
+  const start = new Date(billing.subscription.current_period_start)
+  const end = new Date(billing.subscription.current_period_end)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return t('tenant.subscriptionUsage.noFixedPeriod')
+  }
+  const formatter = new Intl.DateTimeFormat(locale.value || 'zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return `${formatter.format(start)} - ${formatter.format(end)}`
+}
+
+const enterpriseCreditPool = computed(() => {
+  const credits = enterpriseOverview.value?.credits
+  const periodTotalMicros = Math.max(0, toFiniteNumber(credits?.period_point_micros, 0))
+  const periodUsedMicros = Math.max(0, toFiniteNumber(credits?.period_used_point_micros, 0))
+  const periodRemainingMicros = Math.max(
+    0,
+    toFiniteNumber(credits?.period_remaining_point_micros, periodTotalMicros - periodUsedMicros),
+  )
+  const balanceAvailableMicros = Math.max(0, toFiniteNumber(credits?.balance_point_micros, 0))
+  const balanceTotalMicros = Math.max(
+    balanceAvailableMicros,
+    toFiniteNumber(credits?.balance_allocated_point_micros, balanceAvailableMicros),
+  )
+  const balanceUsedMicros = Math.max(0, balanceTotalMicros - balanceAvailableMicros)
+
+  return {
+    periodText: formatPeriod(enterpriseOverview.value),
+    balanceAvailableText: formatCredits(balanceAvailableMicros),
+    balanceTotalText: formatCredits(balanceTotalMicros),
+    balanceUsedText: formatCredits(balanceUsedMicros),
+    periodTotalText: formatCredits(periodTotalMicros),
+    periodUsedText: formatCredits(periodUsedMicros),
+    periodRemainingText: formatCredits(periodRemainingMicros),
+    periodProgress: periodTotalMicros > 0
+      ? Math.min(100, Math.round((periodUsedMicros / periodTotalMicros) * 10000) / 100)
+      : 0,
+  }
+})
+
+const memberCustomAssignedLimitMicros = (allocation: { monthly_limit_point_micros?: number; allocated_period_point_micros?: number; allocated_balance_point_micros?: number } | undefined) => {
+  if (!allocation) return 0
+  const monthlyLimit = toFiniteNumber(allocation.monthly_limit_point_micros, 0)
+  if (monthlyLimit > 0) return Math.max(0, monthlyLimit)
+  return Math.max(
+    0,
+    toFiniteNumber(allocation.allocated_period_point_micros, 0)
+      + toFiniteNumber(allocation.allocated_balance_point_micros, 0),
+  )
+}
+
+const enterpriseAssignableCreditMicros = computed(() => {
+  const credits = enterpriseOverview.value?.credits
+  const periodTotalMicros = Math.max(0, toFiniteNumber(credits?.period_point_micros, 0))
+  const balanceAvailableMicros = Math.max(0, toFiniteNumber(credits?.balance_point_micros, 0))
+  const balanceTotalMicros = Math.max(
+    balanceAvailableMicros,
+    toFiniteNumber(credits?.balance_allocated_point_micros, balanceAvailableMicros),
+  )
+  return periodTotalMicros + balanceTotalMicros
+})
+
+const inheritedMemberLimitMicros = computed(() => {
+  const defaultLimitMicros = Math.max(
+    0,
+    enterprisePolicy.value?.default_member_monthly_limit_point_micros || 0,
+  )
+  const assignedMicros = Math.max(0, enterpriseCustomAssignedPointMicros.value)
+  if (assignedMicros <= 0) return defaultLimitMicros
+  const remainingMicros = Math.max(0, enterpriseAssignableCreditMicros.value - assignedMicros)
+  return Math.min(defaultLimitMicros, remainingMicros)
+})
 
 const formatBytes = (bytes: number) => {
   const value = Math.max(0, toFiniteNumber(bytes, 0))
@@ -267,12 +394,11 @@ const loadEnterpriseMemberUsage = async () => {
     const allocationByUserID = new Map(
       (allocationResponse.data || []).map((allocation) => [allocation.user_id, allocation]),
     )
+    enterpriseCustomAssignedPointMicros.value = (allocationResponse.data || [])
+      .filter((allocation) => allocation.limit_mode === 'custom')
+      .reduce((total, allocation) => total + memberCustomAssignedLimitMicros(allocation), 0)
     const storageByUserID = new Map(
       (storageResponse.data || []).map((usage) => [usage.actor_user_id, usage]),
-    )
-    const defaultLimitMicros = Math.max(
-      0,
-      enterprisePolicy.value?.default_member_monthly_limit_point_micros || 0,
     )
 
     enterpriseMemberRows.value = members
@@ -280,6 +406,10 @@ const loadEnterpriseMemberUsage = async () => {
       .map((member) => {
         const allocation = allocationByUserID.get(member.user_id)
         const mode = allocation?.limit_mode || 'inherit'
+        const defaultOveragePolicy = enterprisePolicy.value?.member_overage_policy === 'use_enterprise_balance'
+          ? 'use_enterprise_balance'
+          : 'block'
+        const effectiveOveragePolicy = allocation?.effective_overage_policy || defaultOveragePolicy
         const effectiveLimitMicros = mode === 'custom'
           ? Math.max(
             0,
@@ -289,7 +419,10 @@ const loadEnterpriseMemberUsage = async () => {
           )
           : mode === 'unlimited'
             ? 0
-            : defaultLimitMicros
+            : Math.max(
+              0,
+              allocation?.effective_monthly_limit_point_micros || inheritedMemberLimitMicros.value,
+            )
         const usedMicros = Math.max(0, allocation?.used_point_micros || 0)
         const storageUsage = storageByUserID.get(member.user_id)
 
@@ -310,7 +443,7 @@ const loadEnterpriseMemberUsage = async () => {
             })
             : t('tenant.subscriptionUsage.memberStorageNoTransactions'),
           strategy: memberStrategyLabel(mode),
-          overage: allocation?.effective_overage_policy === 'use_enterprise_balance'
+          overage: effectiveOveragePolicy === 'use_enterprise_balance'
             ? t('tenant.subscriptionUsage.overageUseBalance')
             : t('tenant.subscriptionUsage.overageBlock'),
           lastBilling: allocation?.last_billing_at
@@ -367,9 +500,11 @@ const loadEnterpriseUsage = async () => {
   loading.value = true
   error.value = ''
   policyError.value = ''
+  enterpriseOverview.value = null
   enterprisePolicy.value = null
   enterpriseMemberRows.value = []
   memberUsageError.value = ''
+  enterpriseCustomAssignedPointMicros.value = 0
 
   if (!activeTenantId.value || !canManageEnterprisePolicy.value) {
     error.value = t('tenant.subscriptionUsage.enterprisePermissionRequired')
@@ -378,11 +513,18 @@ const loadEnterpriseUsage = async () => {
   }
 
   try {
-    const policyResponse = await getTenantBillingPolicy(activeTenantId.value)
+    const [overviewResponse, policyResponse] = await Promise.all([
+      getBillingOverview(activeTenantId.value),
+      getTenantBillingPolicy(activeTenantId.value),
+    ])
     if (sequence !== loadSequence) return
+    if (!overviewResponse.success || !overviewResponse.data) {
+      throw new Error(overviewResponse.message || t('tenant.subscriptionUsage.enterpriseCreditPoolLoadFailed'))
+    }
     if (!policyResponse.success || !policyResponse.data) {
       throw new Error(policyResponse.message || t('tenant.subscriptionUsage.policyLoadFailed'))
     }
+    enterpriseOverview.value = overviewResponse.data
     applyEnterprisePolicy(policyResponse.data)
     await loadEnterpriseMemberUsage()
   } catch (err: any) {
@@ -425,6 +567,7 @@ watch(
   gap: 16px;
 }
 
+.enterprise-credit-pool,
 .enterprise-policy,
 .enterprise-member-usage {
   padding: 24px;
@@ -433,6 +576,7 @@ watch(
   background: var(--td-bg-color-container);
 }
 
+.enterprise-credit-pool__heading,
 .enterprise-policy__heading,
 .enterprise-policy__field {
   display: flex;
@@ -441,6 +585,7 @@ watch(
   gap: 24px;
 }
 
+.enterprise-credit-pool__heading,
 .enterprise-policy__heading {
   padding-bottom: 18px;
   border-bottom: 1px solid var(--td-component-stroke);
@@ -459,6 +604,46 @@ watch(
     margin-top: 5px;
     color: var(--td-text-color-secondary);
     font-size: 13px;
+  }
+}
+
+.enterprise-credit-pool__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  padding-top: 20px;
+}
+
+.enterprise-credit-pool__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 20px;
+
+  &:first-child {
+    padding-left: 0;
+  }
+
+  & + & {
+    border-left: 1px solid var(--td-component-stroke);
+  }
+
+  span,
+  small {
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  strong {
+    color: var(--td-text-color-primary);
+    font-size: 20px;
+    line-height: 1.35;
+  }
+
+  :deep(.t-progress) {
+    margin-top: 4px;
   }
 }
 
@@ -595,10 +780,26 @@ watch(
 }
 
 @media (max-width: 720px) {
+  .enterprise-credit-pool__heading,
   .enterprise-policy__heading,
   .enterprise-policy__field,
   .enterprise-member-usage__heading {
     flex-direction: column;
+  }
+
+  .enterprise-credit-pool__grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .enterprise-credit-pool__metric {
+    padding: 0;
+
+    & + & {
+      padding-top: 16px;
+      border-top: 1px solid var(--td-component-stroke);
+      border-left: 0;
+    }
   }
 }
 </style>

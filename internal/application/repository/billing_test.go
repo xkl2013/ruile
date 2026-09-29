@@ -867,6 +867,34 @@ func TestEnterpriseMemberAllocationAndActorUsageSummary(t *testing.T) {
 	if _, err := repo.SettleUsage(context.Background(), handle, ledger); err != nil {
 		t.Fatal(err)
 	}
+	legacyLedger := &types.TenantUsageLedger{
+		ID:                  "ledger-enterprise-91-legacy",
+		TenantID:            tenant.ID,
+		ActorUserID:         "user-91",
+		UsageScope:          types.BillingUsageScopeEnterprise,
+		RefNo:               "chat:91:message-2:test-model",
+		ModelKey:            "test-model",
+		InputTokens:         40,
+		OutputTokens:        10,
+		BilledPointMicros:   5 * types.PointMicrosPerPoint,
+		Status:              "observed",
+		BillingAt:           now,
+		UsageDate:           now,
+		PricingSnapshotJSON: types.JSON([]byte("{}")),
+	}
+	legacyHandle := &types.BillingUsageHandle{
+		Request: types.BillingUsageStartRequest{
+			TenantID:    tenant.ID,
+			ActorUserID: "user-91",
+			RefNo:       legacyLedger.RefNo,
+			ModelKey:    legacyLedger.ModelKey,
+		},
+		Mode:       "observe",
+		UsageScope: types.BillingUsageScopeEnterprise,
+	}
+	if _, err := repo.SettleUsage(context.Background(), legacyHandle, legacyLedger); err != nil {
+		t.Fatal(err)
+	}
 
 	usage, err := repo.ListUsageSummaryByActor(context.Background(), []string{"user-91"})
 	if err != nil {
@@ -874,10 +902,10 @@ func TestEnterpriseMemberAllocationAndActorUsageSummary(t *testing.T) {
 	}
 	if len(usage) != 1 ||
 		usage[0].ActorUserID != "user-91" ||
-		usage[0].EnterpriseLedgerCount != 1 ||
-		usage[0].InputTokens != 120 ||
-		usage[0].OutputTokens != 30 ||
-		usage[0].BilledPointMicros != 15*types.PointMicrosPerPoint {
+		usage[0].EnterpriseLedgerCount != 2 ||
+		usage[0].InputTokens != 160 ||
+		usage[0].OutputTokens != 40 ||
+		usage[0].BilledPointMicros != 20*types.PointMicrosPerPoint {
 		t.Fatalf("usage=%#v", usage)
 	}
 
@@ -888,9 +916,310 @@ func TestEnterpriseMemberAllocationAndActorUsageSummary(t *testing.T) {
 	if len(allocations) != 1 ||
 		allocations[0].ID != allocation.ID ||
 		allocations[0].EffectiveMonthlyLimitPointMicros != 100*types.PointMicrosPerPoint ||
-		allocations[0].UsedPointMicros != 15*types.PointMicrosPerPoint ||
-		allocations[0].LedgerCount != 1 {
+		allocations[0].UsedPointMicros != 20*types.PointMicrosPerPoint ||
+		allocations[0].LedgerCount != 2 {
 		t.Fatalf("allocations=%#v", allocations)
+	}
+}
+
+func TestListMemberAllocationsCapsInheritedMembersByAssignedCredits(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	spaceType := types.SpaceTypeOrganization
+	tenant := &types.Tenant{
+		ID:                93,
+		Name:              "继承额度企业",
+		SpaceType:         &spaceType,
+		EnterpriseCredits: 100,
+	}
+	if err := db.Exec(
+		"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+		tenant.ID,
+		tenant.Name,
+		spaceType,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.EnsureTenantBilling(context.Background(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	subscription, _, err := repo.GetCurrentSubscription(context.Background(), tenant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.EnsureTenantBillingPolicy(
+		context.Background(),
+		tenant.ID,
+		100*types.PointMicrosPerPoint,
+		"owner-93",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	periodStart, periodEnd := billingPeriod(subscription, time.Now().UTC())
+	custom, err := repo.SetCurrentMemberPolicy(
+		context.Background(),
+		tenant.ID,
+		"member-custom-93",
+		periodStart,
+		periodEnd,
+		types.MemberLimitModeCustom,
+		80*types.PointMicrosPerPoint,
+		"owner-93",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inherited, err := repo.EnsureCurrentMemberAllocation(
+		context.Background(),
+		tenant.ID,
+		"member-inherit-93",
+		periodStart,
+		periodEnd,
+		policy.DefaultMemberMonthlyLimitPointMicros,
+		"owner-93",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := repo.ListMemberAllocations(context.Background(), tenant.ID, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows=%d", len(rows))
+	}
+	byUserID := map[string]*types.TenantMemberCreditAllocationSummary{}
+	for _, row := range rows {
+		byUserID[row.UserID] = row
+	}
+	if got := byUserID[custom.UserID].EffectiveMonthlyLimitPointMicros; got != 80*types.PointMicrosPerPoint {
+		t.Fatalf("custom effective limit=%d", got)
+	}
+	if got := byUserID[inherited.UserID].EffectiveMonthlyLimitPointMicros; got != 20*types.PointMicrosPerPoint {
+		t.Fatalf("inherited effective limit=%d", got)
+	}
+}
+
+func TestEnterpriseReservationCapsInheritedMemberByAssignedCredits(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	spaceType := types.SpaceTypeOrganization
+	tenant := &types.Tenant{
+		ID:                94,
+		Name:              "继承调用额度企业",
+		SpaceType:         &spaceType,
+		EnterpriseCredits: 100,
+	}
+	if err := db.Exec(
+		"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+		tenant.ID,
+		tenant.Name,
+		spaceType,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.EnsureTenantBilling(context.Background(), tenant); err != nil {
+		t.Fatal(err)
+	}
+	subscription, plan, err := repo.GetCurrentSubscription(context.Background(), tenant.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy, err := repo.EnsureTenantBillingPolicy(
+		context.Background(),
+		tenant.ID,
+		100*types.PointMicrosPerPoint,
+		"owner-94",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	periodStart, periodEnd := billingPeriod(subscription, time.Now().UTC())
+	if _, err := repo.SetCurrentMemberPolicy(
+		context.Background(),
+		tenant.ID,
+		"member-custom-94",
+		periodStart,
+		periodEnd,
+		types.MemberLimitModeCustom,
+		80*types.PointMicrosPerPoint,
+		"owner-94",
+	); err != nil {
+		t.Fatal(err)
+	}
+	allocation, err := repo.EnsureCurrentMemberAllocation(
+		context.Background(),
+		tenant.ID,
+		"member-inherit-94",
+		periodStart,
+		periodEnd,
+		policy.DefaultMemberMonthlyLimitPointMicros,
+		"owner-94",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := &types.BillingUsageHandle{
+		Request: types.BillingUsageStartRequest{
+			TenantID:    tenant.ID,
+			ActorUserID: allocation.UserID,
+			RefNo:       "enterprise-inherit-cap-block",
+			ModelKey:    "test-model",
+		},
+		Mode:                          "enforce",
+		UsageScope:                    types.BillingUsageScopeEnterprise,
+		AllocationID:                  allocation.ID,
+		MemberLimitMode:               types.MemberLimitModeInherit,
+		MemberMonthlyLimitPointMicros: policy.DefaultMemberMonthlyLimitPointMicros,
+		MemberOveragePolicy:           types.MemberOveragePolicyUseEnterpriseBalance,
+		Plan:                          plan,
+		Subscription:                  subscription,
+		Allocation:                    allocation,
+		EnterprisePolicy:              policy,
+	}
+	if _, err := repo.CreateUsageReservation(
+		context.Background(),
+		handle,
+		0,
+		21*types.PointMicrosPerPoint,
+	); !errors.Is(err, ErrInsufficientBillingCredits) {
+		t.Fatalf("expected inherited cap to block reservation, got %v", err)
+	}
+
+	handle.Request.RefNo = "enterprise-inherit-cap-allow"
+	reservation, err := repo.CreateUsageReservation(
+		context.Background(),
+		handle,
+		0,
+		20*types.PointMicrosPerPoint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reservation.ReservedBalancePointMicros != 20*types.PointMicrosPerPoint {
+		t.Fatalf("reservation=%+v", reservation)
+	}
+}
+
+func TestPersonalUsageFallsBackToEnterpriseMemberBalance(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	personalType := types.SpaceTypePersonal
+	enterpriseType := types.SpaceTypeOrganization
+	personal := &types.Tenant{
+		ID:        95,
+		Name:      "成员个人空间",
+		SpaceType: &personalType,
+	}
+	enterprise := &types.Tenant{
+		ID:                96,
+		Name:              "成员企业空间",
+		SpaceType:         &enterpriseType,
+		EnterpriseCredits: 100,
+	}
+	for _, tenant := range []*types.Tenant{personal, enterprise} {
+		if err := db.Exec(
+			"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+			tenant.ID,
+			tenant.Name,
+			*tenant.SpaceType,
+		).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.EnsureTenantBilling(context.Background(), tenant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&types.TenantMember{
+		UserID:   "user-combined-95",
+		TenantID: personal.ID,
+		Role:     types.TenantRoleOwner,
+		Status:   types.TenantMemberStatusActive,
+		JoinedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&types.TenantMember{
+		UserID:   "user-combined-95",
+		TenantID: enterprise.ID,
+		Role:     types.TenantRoleOwner,
+		Status:   types.TenantMemberStatusActive,
+		JoinedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	personalSubscription, personalPlan, err := repo.GetCurrentSubscription(context.Background(), personal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := &types.BillingUsageHandle{
+		Request: types.BillingUsageStartRequest{
+			TenantID:    personal.ID,
+			ActorUserID: "user-combined-95",
+			RefNo:       "personal-to-enterprise-fallback",
+			ModelKey:    "test-model",
+		},
+		Mode:                                 "enforce",
+		UsageScope:                           types.BillingUsageScopePersonal,
+		DefaultMemberMonthlyLimitPointMicros: 100 * types.PointMicrosPerPoint,
+		Plan:                                 personalPlan,
+		Subscription:                         personalSubscription,
+	}
+	reservation, err := repo.CreateUsageReservation(
+		context.Background(),
+		handle,
+		0,
+		20*types.PointMicrosPerPoint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handle.Request.TenantID != enterprise.ID ||
+		handle.UsageScope != types.BillingUsageScopeEnterprise ||
+		handle.AllocationID == "" {
+		t.Fatalf("handle was not switched to enterprise billing: %+v", handle)
+	}
+	if reservation.TenantID != enterprise.ID ||
+		reservation.ReservedBalancePointMicros != 20*types.PointMicrosPerPoint {
+		t.Fatalf("reservation=%+v", reservation)
+	}
+	handle.Reservation = reservation
+	now := time.Now().UTC()
+	ledger, err := repo.SettleUsage(context.Background(), handle, &types.TenantUsageLedger{
+		ID:                  "ledger-personal-to-enterprise-fallback",
+		TenantID:            handle.Request.TenantID,
+		ActorUserID:         handle.Request.ActorUserID,
+		UsageScope:          handle.UsageScope,
+		AllocationID:        handle.AllocationID,
+		RefNo:               handle.Request.RefNo,
+		ModelKey:            handle.Request.ModelKey,
+		BilledPointMicros:   12 * types.PointMicrosPerPoint,
+		Status:              "settled",
+		BillingAt:           now,
+		UsageDate:           now,
+		PricingSnapshotJSON: types.JSON([]byte("{}")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledger.TenantID != enterprise.ID ||
+		ledger.BalanceChargedPointMicros != 12*types.PointMicrosPerPoint {
+		t.Fatalf("ledger=%+v", ledger)
+	}
+	enterpriseAccount, err := repo.GetCreditAccount(context.Background(), enterprise.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enterpriseAccount.BalancePointMicros != 88*types.PointMicrosPerPoint {
+		t.Fatalf("enterprise balance=%d", enterpriseAccount.BalancePointMicros)
+	}
+	usage, err := repo.ListUsageSummaryByActor(context.Background(), []string{"user-combined-95"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(usage) != 1 ||
+		usage[0].ActorUserID != "user-combined-95" ||
+		usage[0].EnterpriseBilledPointMicros != 12*types.PointMicrosPerPoint {
+		t.Fatalf("usage=%#v", usage)
 	}
 }
 
@@ -1119,7 +1448,7 @@ func TestEnterpriseReservationHonorsMemberLimitAndOveragePolicy(t *testing.T) {
 		Mode:                          "enforce",
 		UsageScope:                    types.BillingUsageScopeEnterprise,
 		AllocationID:                  allocation.ID,
-		MemberLimitMode:               types.MemberLimitModeInherit,
+		MemberLimitMode:               types.MemberLimitModeCustom,
 		MemberMonthlyLimitPointMicros: 10 * types.PointMicrosPerPoint,
 		MemberOveragePolicy:           types.MemberOveragePolicyBlock,
 		Plan:                          plan,

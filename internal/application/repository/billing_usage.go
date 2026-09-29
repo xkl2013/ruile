@@ -288,35 +288,13 @@ func (r *billingRepository) EnsureTenantBillingPolicy(
 	defaultMemberMonthlyLimitPointMicros int64,
 	actorUserID string,
 ) (*types.TenantBillingPolicy, error) {
-	if tenantID == 0 {
-		return nil, errors.New("billing: tenant_id is required for enterprise policy")
-	}
-	if defaultMemberMonthlyLimitPointMicros < 0 {
-		defaultMemberMonthlyLimitPointMicros = 0
-	}
-	policy := &types.TenantBillingPolicy{
-		TenantID:                             tenantID,
-		DefaultMemberMonthlyLimitPointMicros: defaultMemberMonthlyLimitPointMicros,
-		MemberOveragePolicy:                  types.MemberOveragePolicyBlock,
-		UpdatedByUserID:                      strings.TrimSpace(actorUserID),
-	}
-	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "tenant_id"}},
-		DoNothing: true,
-	}).Create(policy).Error; err != nil {
-		return nil, err
-	}
-	var persisted types.TenantBillingPolicy
-	if err := r.db.WithContext(ctx).
-		Where("tenant_id = ?", tenantID).
-		First(&persisted).Error; err != nil {
-		return nil, err
-	}
-	persisted.MemberOveragePolicy = normalizeMemberOveragePolicy(persisted.MemberOveragePolicy)
-	if persisted.DefaultMemberMonthlyLimitPointMicros < 0 {
-		persisted.DefaultMemberMonthlyLimitPointMicros = 0
-	}
-	return &persisted, nil
+	return ensureTenantBillingPolicyWithDB(
+		ctx,
+		r.db,
+		tenantID,
+		defaultMemberMonthlyLimitPointMicros,
+		actorUserID,
+	)
 }
 
 func (r *billingRepository) UpdateTenantBillingPolicy(
@@ -370,95 +348,16 @@ func (r *billingRepository) EnsureCurrentMemberAllocation(
 	defaultBalancePointMicros int64,
 	actorUserID string,
 ) (*types.TenantMemberCreditAllocation, error) {
-	userID = strings.TrimSpace(userID)
-	actorUserID = strings.TrimSpace(actorUserID)
-	if tenantID == 0 || userID == "" {
-		return nil, errors.New("billing: tenant_id and user_id are required for member allocation")
-	}
-	periodStart = periodStart.UTC()
-	periodEnd = periodEnd.UTC()
-	if periodStart.IsZero() || !periodEnd.After(periodStart) {
-		return nil, errors.New("billing: valid allocation period is required")
-	}
-	if defaultBalancePointMicros < 0 {
-		defaultBalancePointMicros = 0
-	}
-
-	limitMode := types.MemberLimitModeInherit
-	monthlyLimitPointMicros := int64(0)
-	overagePolicy := types.MemberOveragePolicyInherit
-	legacyPeriodPointMicros := int64(0)
-	legacyBalancePointMicros := int64(0)
-	var previous types.TenantMemberCreditAllocation
-	err := r.db.WithContext(ctx).
-		Where("tenant_id = ? AND user_id = ?", tenantID, userID).
-		Order("period_start_at DESC").
-		First(&previous).Error
-	if err == nil {
-		normalizeStoredMemberAllocation(&previous)
-		limitMode = previous.LimitMode
-		monthlyLimitPointMicros = previous.MonthlyLimitPointMicros
-		overagePolicy = previous.OveragePolicy
-		if limitMode == types.MemberLimitModeCustom {
-			legacyPeriodPointMicros = monthlyLimitPointMicros
-		}
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-
-	snapshot, err := json.Marshal(map[string]any{
-		"source": "auto_default",
-		"default_member_monthly_limit_point_micros": defaultBalancePointMicros,
-		"limit_mode":                       limitMode,
-		"monthly_limit_point_micros":       monthlyLimitPointMicros,
-		"default_member_policy_created_at": time.Now().UTC(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	allocation := &types.TenantMemberCreditAllocation{
-		ID:                          uuid.NewString(),
-		TenantID:                    tenantID,
-		UserID:                      userID,
-		PeriodStartAt:               periodStart,
-		PeriodEndAt:                 periodEnd,
-		AllocatedPeriodPointMicros:  legacyPeriodPointMicros,
-		AllocatedBalancePointMicros: legacyBalancePointMicros,
-		LimitMode:                   limitMode,
-		MonthlyLimitPointMicros:     monthlyLimitPointMicros,
-		OveragePolicy:               overagePolicy,
-		Status:                      types.BillingStatusActive,
-		CreatedByUserID:             actorUserID,
-		UpdatedByUserID:             actorUserID,
-		SnapshotJSON:                types.JSON(snapshot),
-	}
-	err = r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "tenant_id"},
-			{Name: "user_id"},
-			{Name: "period_start_at"},
-			{Name: "period_end_at"},
-		},
-		DoNothing: true,
-	}).Create(allocation).Error
-	if err != nil {
-		return nil, err
-	}
-
-	var persisted types.TenantMemberCreditAllocation
-	if err := r.db.WithContext(ctx).
-		Where(
-			"tenant_id = ? AND user_id = ? AND period_start_at = ? AND period_end_at = ?",
-			tenantID,
-			userID,
-			periodStart,
-			periodEnd,
-		).
-		First(&persisted).Error; err != nil {
-		return nil, err
-	}
-	normalizeStoredMemberAllocation(&persisted)
-	return &persisted, nil
+	return ensureCurrentMemberAllocationWithDB(
+		ctx,
+		r.db,
+		tenantID,
+		userID,
+		periodStart,
+		periodEnd,
+		defaultBalancePointMicros,
+		actorUserID,
+	)
 }
 
 func (r *billingRepository) SetCurrentMemberAllocation(
@@ -737,6 +636,587 @@ func isEnterpriseUsageScope(scope string) bool {
 		scope == types.BillingUsageScopeEnterpriseLegacy
 }
 
+func repositoryEffectiveMemberUsagePolicy(
+	enterprisePolicy *types.TenantBillingPolicy,
+	allocation *types.TenantMemberCreditAllocation,
+) (string, int64, string) {
+	limitMode := types.MemberLimitModeInherit
+	monthlyLimit := int64(0)
+	overagePolicy := types.MemberOveragePolicyBlock
+	if enterprisePolicy != nil {
+		monthlyLimit = max(enterprisePolicy.DefaultMemberMonthlyLimitPointMicros, 0)
+		overagePolicy = normalizeMemberOveragePolicy(enterprisePolicy.MemberOveragePolicy)
+	}
+	if allocation == nil {
+		return limitMode, monthlyLimit, overagePolicy
+	}
+	normalizeStoredMemberAllocation(allocation)
+	switch allocation.LimitMode {
+	case types.MemberLimitModeCustom:
+		limitMode = types.MemberLimitModeCustom
+		monthlyLimit = max(allocation.MonthlyLimitPointMicros, 0)
+	case types.MemberLimitModeUnlimited:
+		limitMode = types.MemberLimitModeUnlimited
+		monthlyLimit = 0
+	}
+	switch allocation.OveragePolicy {
+	case types.MemberOveragePolicyBlock, types.MemberOveragePolicyUseEnterpriseBalance:
+		overagePolicy = allocation.OveragePolicy
+	}
+	return limitMode, monthlyLimit, overagePolicy
+}
+
+func currentSubscriptionWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+) (*types.TenantSubscription, *types.BillingPlan, error) {
+	var subscription types.TenantSubscription
+	err := db.WithContext(ctx).
+		Where("tenant_id = ? AND status IN ?", tenantID, []string{
+			types.BillingStatusActive,
+			types.BillingStatusTrialing,
+			types.BillingStatusLegacy,
+		}).
+		Order("created_at DESC").
+		First(&subscription).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	var plan types.BillingPlan
+	if err := db.WithContext(ctx).Where("id = ?", subscription.PlanID).First(&plan).Error; err != nil {
+		return nil, nil, err
+	}
+	return &subscription, &plan, nil
+}
+
+func tenantUsageAvailablePointMicrosWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+	refNo string,
+	plan *types.BillingPlan,
+	subscription *types.TenantSubscription,
+	now time.Time,
+) (int64, int64, *types.TenantCreditAccount, time.Time, time.Time, error) {
+	if tenantID == 0 || plan == nil || subscription == nil {
+		return 0, 0, nil, time.Time{}, time.Time{}, errors.New("billing: subscription context is required")
+	}
+	var account types.TenantCreditAccount
+	if err := db.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("tenant_id = ?", tenantID).
+		First(&account).Error; err != nil {
+		return 0, 0, nil, time.Time{}, time.Time{}, fmt.Errorf("billing: load credit account: %w", err)
+	}
+	periodStart, periodEnd := billingPeriod(subscription, now)
+	var usedPeriod int64
+	if err := db.WithContext(ctx).Model(&types.TenantUsageLedger{}).
+		Where(
+			"tenant_id = ? AND status = ? AND billing_at >= ? AND billing_at < ?",
+			tenantID,
+			"settled",
+			periodStart,
+			periodEnd,
+		).
+		Select("COALESCE(SUM(period_covered_point_micros), 0)").
+		Scan(&usedPeriod).Error; err != nil {
+		return 0, 0, nil, time.Time{}, time.Time{}, err
+	}
+	reservationQuery := db.WithContext(ctx).Model(&types.TenantUsageReservation{}).
+		Where(
+			"tenant_id = ? AND status = ? AND expires_at > ?",
+			tenantID,
+			"active",
+			now,
+		)
+	if strings.TrimSpace(refNo) != "" {
+		reservationQuery = reservationQuery.Where("ref_no <> ?", strings.TrimSpace(refNo))
+	}
+	var reservedPeriod, reservedBalance int64
+	if err := reservationQuery.Select(`
+		COALESCE(SUM(reserved_period_point_micros), 0),
+		COALESCE(SUM(reserved_balance_point_micros), 0)
+	`).Row().Scan(&reservedPeriod, &reservedBalance); err != nil {
+		return 0, 0, nil, time.Time{}, time.Time{}, err
+	}
+	availablePeriod := max(plan.IncludedPointMicros-usedPeriod-reservedPeriod, 0)
+	availableBalance := max(account.BalancePointMicros-reservedBalance, 0)
+	return availablePeriod, availableBalance, &account, periodStart, periodEnd, nil
+}
+
+func ensureTenantBillingPolicyWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+	defaultMemberMonthlyLimitPointMicros int64,
+	actorUserID string,
+) (*types.TenantBillingPolicy, error) {
+	if tenantID == 0 {
+		return nil, errors.New("billing: tenant_id is required for enterprise policy")
+	}
+	if defaultMemberMonthlyLimitPointMicros < 0 {
+		defaultMemberMonthlyLimitPointMicros = 0
+	}
+	policy := &types.TenantBillingPolicy{
+		TenantID:                             tenantID,
+		DefaultMemberMonthlyLimitPointMicros: defaultMemberMonthlyLimitPointMicros,
+		MemberOveragePolicy:                  types.MemberOveragePolicyBlock,
+		UpdatedByUserID:                      strings.TrimSpace(actorUserID),
+	}
+	if err := db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "tenant_id"}},
+		DoNothing: true,
+	}).Create(policy).Error; err != nil {
+		return nil, err
+	}
+	var persisted types.TenantBillingPolicy
+	if err := db.WithContext(ctx).Where("tenant_id = ?", tenantID).First(&persisted).Error; err != nil {
+		return nil, err
+	}
+	persisted.MemberOveragePolicy = normalizeMemberOveragePolicy(persisted.MemberOveragePolicy)
+	if persisted.DefaultMemberMonthlyLimitPointMicros < 0 {
+		persisted.DefaultMemberMonthlyLimitPointMicros = 0
+	}
+	return &persisted, nil
+}
+
+func ensureCurrentMemberAllocationWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+	userID string,
+	periodStart time.Time,
+	periodEnd time.Time,
+	defaultBalancePointMicros int64,
+	actorUserID string,
+) (*types.TenantMemberCreditAllocation, error) {
+	userID = strings.TrimSpace(userID)
+	actorUserID = strings.TrimSpace(actorUserID)
+	if tenantID == 0 || userID == "" {
+		return nil, errors.New("billing: tenant_id and user_id are required for member allocation")
+	}
+	periodStart = periodStart.UTC()
+	periodEnd = periodEnd.UTC()
+	if periodStart.IsZero() || !periodEnd.After(periodStart) {
+		return nil, errors.New("billing: valid allocation period is required")
+	}
+	if defaultBalancePointMicros < 0 {
+		defaultBalancePointMicros = 0
+	}
+	limitMode := types.MemberLimitModeInherit
+	monthlyLimitPointMicros := int64(0)
+	overagePolicy := types.MemberOveragePolicyInherit
+	legacyPeriodPointMicros := int64(0)
+	legacyBalancePointMicros := int64(0)
+	var previous types.TenantMemberCreditAllocation
+	err := db.WithContext(ctx).
+		Where("tenant_id = ? AND user_id = ?", tenantID, userID).
+		Order("period_start_at DESC").
+		First(&previous).Error
+	if err == nil {
+		normalizeStoredMemberAllocation(&previous)
+		limitMode = previous.LimitMode
+		monthlyLimitPointMicros = previous.MonthlyLimitPointMicros
+		overagePolicy = previous.OveragePolicy
+		if limitMode == types.MemberLimitModeCustom {
+			legacyPeriodPointMicros = monthlyLimitPointMicros
+		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	allocation := &types.TenantMemberCreditAllocation{
+		ID:                          uuid.NewString(),
+		TenantID:                    tenantID,
+		UserID:                      userID,
+		PeriodStartAt:               periodStart,
+		PeriodEndAt:                 periodEnd,
+		AllocatedPeriodPointMicros:  legacyPeriodPointMicros,
+		AllocatedBalancePointMicros: legacyBalancePointMicros,
+		LimitMode:                   limitMode,
+		MonthlyLimitPointMicros:     monthlyLimitPointMicros,
+		OveragePolicy:               overagePolicy,
+		Status:                      types.BillingStatusActive,
+		CreatedByUserID:             actorUserID,
+		UpdatedByUserID:             actorUserID,
+	}
+	snapshot, err := json.Marshal(map[string]any{
+		"source": "auto_default",
+		"default_member_monthly_limit_point_micros": defaultBalancePointMicros,
+		"limit_mode":                       allocation.LimitMode,
+		"monthly_limit_point_micros":       allocation.MonthlyLimitPointMicros,
+		"default_member_policy_created_at": time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	allocation.SnapshotJSON = types.JSON(snapshot)
+	if err := db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "tenant_id"},
+			{Name: "user_id"},
+			{Name: "period_start_at"},
+			{Name: "period_end_at"},
+		},
+		DoNothing: true,
+	}).Create(allocation).Error; err != nil {
+		return nil, err
+	}
+	var persisted types.TenantMemberCreditAllocation
+	if err := db.WithContext(ctx).
+		Where(
+			"tenant_id = ? AND user_id = ? AND period_start_at = ? AND period_end_at = ?",
+			tenantID,
+			userID,
+			periodStart,
+			periodEnd,
+		).
+		First(&persisted).Error; err != nil {
+		return nil, err
+	}
+	normalizeStoredMemberAllocation(&persisted)
+	return &persisted, nil
+}
+
+func (r *billingRepository) allocatedCreditPointMicrosWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+) (int64, error) {
+	if tenantID == 0 {
+		return 0, nil
+	}
+	var allocated int64
+	if err := db.WithContext(ctx).
+		Model(&types.TenantCreditTransaction{}).
+		Where("tenant_id = ? AND amount_point_micros > 0", tenantID).
+		Select("COALESCE(SUM(amount_point_micros), 0)").
+		Scan(&allocated).Error; err != nil {
+		return 0, err
+	}
+	return max(allocated, 0), nil
+}
+
+func (r *billingRepository) enterpriseCreditBudgetPointMicrosWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+	plan *types.BillingPlan,
+	balancePointMicros int64,
+) (int64, error) {
+	allocatedBalance, err := r.allocatedCreditPointMicrosWithDB(ctx, db, tenantID)
+	if err != nil {
+		return 0, err
+	}
+	if allocatedBalance < balancePointMicros {
+		allocatedBalance = max(balancePointMicros, 0)
+	}
+	periodBudget := int64(0)
+	if plan != nil {
+		periodBudget = max(plan.IncludedPointMicros, 0)
+	}
+	return periodBudget + allocatedBalance, nil
+}
+
+func (r *billingRepository) activeCustomMemberAllocationLimitPointMicrosWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+	at time.Time,
+	excludeUserID string,
+) (int64, error) {
+	if tenantID == 0 {
+		return 0, nil
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	query := db.WithContext(ctx).
+		Model(&types.TenantMemberCreditAllocation{}).
+		Where(
+			"tenant_id = ? AND status = ? AND limit_mode = ? AND period_start_at <= ? AND period_end_at > ?",
+			tenantID,
+			types.BillingStatusActive,
+			types.MemberLimitModeCustom,
+			at.UTC(),
+			at.UTC(),
+		)
+	if strings.TrimSpace(excludeUserID) != "" {
+		query = query.Where("user_id <> ?", strings.TrimSpace(excludeUserID))
+	}
+	var allocated int64
+	if err := query.Select(`
+		COALESCE(SUM(
+			CASE
+				WHEN monthly_limit_point_micros > 0 THEN monthly_limit_point_micros
+				ELSE allocated_period_point_micros + allocated_balance_point_micros
+			END
+		), 0)
+	`).Scan(&allocated).Error; err != nil {
+		return 0, err
+	}
+	return max(allocated, 0), nil
+}
+
+func cappedInheritedMemberLimitPointMicros(defaultLimitPointMicros, creditBudgetPointMicros, assignedPointMicros int64) int64 {
+	defaultLimitPointMicros = max(defaultLimitPointMicros, 0)
+	remaining := creditBudgetPointMicros - assignedPointMicros
+	if remaining < 0 {
+		remaining = 0
+	}
+	return min(defaultLimitPointMicros, remaining)
+}
+
+func (r *billingRepository) inheritedMemberAssignedCreditCapWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+	actorUserID string,
+	at time.Time,
+	plan *types.BillingPlan,
+	balancePointMicros int64,
+) (int64, bool, error) {
+	assigned, err := r.activeCustomMemberAllocationLimitPointMicrosWithDB(
+		ctx,
+		db,
+		tenantID,
+		at,
+		actorUserID,
+	)
+	if err != nil || assigned <= 0 {
+		return 0, false, err
+	}
+	budget, err := r.enterpriseCreditBudgetPointMicrosWithDB(
+		ctx,
+		db,
+		tenantID,
+		plan,
+		balancePointMicros,
+	)
+	if err != nil {
+		return 0, false, err
+	}
+	remaining := budget - assigned
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining, true, nil
+}
+
+func (r *billingRepository) memberPeriodAvailableWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	tenantID uint64,
+	actorUserID string,
+	refNo string,
+	memberLimitMode string,
+	memberMonthlyLimitPointMicros int64,
+	periodStart time.Time,
+	periodEnd time.Time,
+	now time.Time,
+) (int64, error) {
+	if tenantID == 0 || strings.TrimSpace(actorUserID) == "" ||
+		memberLimitMode == types.MemberLimitModeUnlimited {
+		return int64(^uint64(0) >> 1), nil
+	}
+	var usedByMember int64
+	if err := db.WithContext(ctx).Model(&types.TenantUsageLedger{}).
+		Where(
+			"tenant_id = ? AND actor_user_id = ? AND status = ? AND billing_at >= ? AND billing_at < ? AND usage_scope IN ?",
+			tenantID,
+			actorUserID,
+			"settled",
+			periodStart,
+			periodEnd,
+			[]string{types.BillingUsageScopeEnterprise, types.BillingUsageScopeEnterpriseLegacy},
+		).
+		Select("COALESCE(SUM(billed_point_micros), 0)").
+		Scan(&usedByMember).Error; err != nil {
+		return 0, err
+	}
+	query := db.WithContext(ctx).Model(&types.TenantUsageReservation{}).
+		Where(
+			"tenant_id = ? AND actor_user_id = ? AND status = ? AND expires_at > ? AND usage_scope IN ?",
+			tenantID,
+			actorUserID,
+			"active",
+			now,
+			[]string{types.BillingUsageScopeEnterprise, types.BillingUsageScopeEnterpriseLegacy},
+		)
+	if strings.TrimSpace(refNo) != "" {
+		query = query.Where("ref_no <> ?", strings.TrimSpace(refNo))
+	}
+	var reservedByMember int64
+	if err := query.Select("COALESCE(SUM(estimated_billed_point_micros), 0)").
+		Scan(&reservedByMember).Error; err != nil {
+		return 0, err
+	}
+	available := memberMonthlyLimitPointMicros - usedByMember - reservedByMember
+	if available < 0 {
+		return 0, nil
+	}
+	return available, nil
+}
+
+func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	handle *types.BillingUsageHandle,
+	estimatedBilledPointMicros int64,
+	now time.Time,
+) (bool, error) {
+	if handle == nil || handle.UsageScope != types.BillingUsageScopePersonal ||
+		strings.TrimSpace(handle.Request.ActorUserID) == "" || handle.Plan == nil ||
+		handle.Subscription == nil {
+		return false, nil
+	}
+	availablePeriod, availableBalance, _, _, _, err := tenantUsageAvailablePointMicrosWithDB(
+		ctx,
+		db,
+		handle.Request.TenantID,
+		handle.Request.RefNo,
+		handle.Plan,
+		handle.Subscription,
+		now,
+	)
+	if err != nil {
+		return false, err
+	}
+	if availablePeriod+availableBalance >= estimatedBilledPointMicros {
+		return false, nil
+	}
+
+	type enterpriseCandidate struct {
+		TenantID uint64
+	}
+	var candidates []enterpriseCandidate
+	if err := db.WithContext(ctx).
+		Table("tenant_members AS tm").
+		Select("tm.tenant_id").
+		Joins("JOIN tenants AS t ON t.id = tm.tenant_id AND t.deleted_at IS NULL").
+		Where(
+			"tm.user_id = ? AND tm.status = ? AND tm.deleted_at IS NULL AND t.space_type = ?",
+			strings.TrimSpace(handle.Request.ActorUserID),
+			types.TenantMemberStatusActive,
+			types.SpaceTypeOrganization,
+		).
+		Order("tm.joined_at DESC, tm.tenant_id ASC").
+		Scan(&candidates).Error; err != nil {
+		return false, err
+	}
+	defaultMemberLimit := handle.DefaultMemberMonthlyLimitPointMicros
+	if defaultMemberLimit <= 0 {
+		defaultMemberLimit = 100 * types.PointMicrosPerPoint
+	}
+	for _, candidate := range candidates {
+		subscription, plan, err := currentSubscriptionWithDB(ctx, db, candidate.TenantID)
+		if err != nil {
+			return false, err
+		}
+		if subscription == nil || plan == nil || plan.SpaceType != types.SpaceTypeOrganization {
+			continue
+		}
+		enterprisePeriodAvailable, enterpriseBalanceAvailable, account, periodStart, periodEnd, err :=
+			tenantUsageAvailablePointMicrosWithDB(
+				ctx,
+				db,
+				candidate.TenantID,
+				handle.Request.RefNo,
+				plan,
+				subscription,
+				now,
+			)
+		if err != nil {
+			return false, err
+		}
+		policy, err := ensureTenantBillingPolicyWithDB(
+			ctx,
+			db,
+			candidate.TenantID,
+			defaultMemberLimit,
+			handle.Request.ActorUserID,
+		)
+		if err != nil {
+			return false, err
+		}
+		allocation, err := ensureCurrentMemberAllocationWithDB(
+			ctx,
+			db,
+			candidate.TenantID,
+			handle.Request.ActorUserID,
+			periodStart,
+			periodEnd,
+			policy.DefaultMemberMonthlyLimitPointMicros,
+			handle.Request.ActorUserID,
+		)
+		if err != nil {
+			return false, err
+		}
+		limitMode, monthlyLimit, overagePolicy :=
+			repositoryEffectiveMemberUsagePolicy(policy, allocation)
+		if limitMode == types.MemberLimitModeInherit {
+			assignedCapActive := false
+			if assignedCap, ok, err := r.inheritedMemberAssignedCreditCapWithDB(
+				ctx,
+				db,
+				candidate.TenantID,
+				handle.Request.ActorUserID,
+				now,
+				plan,
+				account.BalancePointMicros,
+			); err != nil {
+				return false, err
+			} else if ok {
+				monthlyLimit = min(monthlyLimit, assignedCap)
+				assignedCapActive = true
+			}
+			if !assignedCapActive {
+				overagePolicy = types.MemberOveragePolicyUseEnterpriseBalance
+			}
+		}
+		memberAvailable, err := r.memberPeriodAvailableWithDB(
+			ctx,
+			db,
+			candidate.TenantID,
+			handle.Request.ActorUserID,
+			handle.Request.RefNo,
+			limitMode,
+			monthlyLimit,
+			periodStart,
+			periodEnd,
+			now,
+		)
+		if err != nil {
+			return false, err
+		}
+		enterprisePeriodAvailable = min(enterprisePeriodAvailable, memberAvailable)
+		if enterprisePeriodAvailable < 0 {
+			enterprisePeriodAvailable = 0
+		}
+		balanceNeeded := estimatedBilledPointMicros - min(estimatedBilledPointMicros, enterprisePeriodAvailable)
+		if balanceNeeded > 0 && overagePolicy != types.MemberOveragePolicyUseEnterpriseBalance {
+			continue
+		}
+		if enterprisePeriodAvailable+enterpriseBalanceAvailable < estimatedBilledPointMicros {
+			continue
+		}
+		handle.Request.TenantID = candidate.TenantID
+		handle.UsageScope = types.BillingUsageScopeEnterprise
+		handle.AllocationID = allocation.ID
+		handle.MemberLimitMode = limitMode
+		handle.MemberMonthlyLimitPointMicros = monthlyLimit
+		handle.MemberOveragePolicy = overagePolicy
+		handle.Plan = plan
+		handle.Subscription = subscription
+		handle.Allocation = allocation
+		handle.EnterprisePolicy = policy
+		return true, nil
+	}
+	return false, nil
+}
+
 func (r *billingRepository) CreateUsageReservation(
 	ctx context.Context,
 	handle *types.BillingUsageHandle,
@@ -748,6 +1228,15 @@ func (r *billingRepository) CreateUsageReservation(
 	}
 	var result *types.TenantUsageReservation
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := r.switchPersonalUsageToEnterpriseFallbackWithDB(
+			ctx,
+			tx,
+			handle,
+			estimatedBilledPointMicros,
+			time.Now().UTC(),
+		); err != nil {
+			return err
+		}
 		var existing types.TenantUsageReservation
 		err := tx.Where(
 			"tenant_id = ? AND ref_no = ?",
@@ -812,7 +1301,27 @@ func (r *billingRepository) CreateUsageReservation(
 
 		enterpriseUsage := isEnterpriseUsageScope(handle.UsageScope)
 		memberPeriodAvailable := int64(^uint64(0) >> 1)
+		assignedCapActive := false
 		if enterpriseUsage && handle.MemberLimitMode != types.MemberLimitModeUnlimited {
+			memberMonthlyLimit := max(handle.MemberMonthlyLimitPointMicros, 0)
+			if handle.MemberLimitMode == types.MemberLimitModeInherit {
+				assignedCap, ok, err := r.inheritedMemberAssignedCreditCapWithDB(
+					ctx,
+					tx,
+					handle.Request.TenantID,
+					handle.Request.ActorUserID,
+					now,
+					handle.Plan,
+					account.BalancePointMicros,
+				)
+				if err != nil {
+					return err
+				}
+				if ok {
+					memberMonthlyLimit = min(memberMonthlyLimit, assignedCap)
+					assignedCapActive = true
+				}
+			}
 			var usedByMember int64
 			if err := tx.Model(&types.TenantUsageLedger{}).
 				Where(
@@ -843,9 +1352,12 @@ func (r *billingRepository) CreateUsageReservation(
 				return err
 			}
 			memberPeriodAvailable =
-				handle.MemberMonthlyLimitPointMicros - usedByMember - reservedByMember
+				memberMonthlyLimit - usedByMember - reservedByMember
 			if memberPeriodAvailable < 0 {
 				memberPeriodAvailable = 0
+			}
+			if assignedCapActive && estimatedBilledPointMicros > memberPeriodAvailable {
+				return ErrInsufficientBillingCredits
 			}
 		}
 		availablePeriod = min(availablePeriod, memberPeriodAvailable)
@@ -853,7 +1365,8 @@ func (r *billingRepository) CreateUsageReservation(
 		balanceReserve := estimatedBilledPointMicros - periodReserve
 		if enterpriseUsage &&
 			balanceReserve > 0 &&
-			handle.MemberOveragePolicy != types.MemberOveragePolicyUseEnterpriseBalance {
+			handle.MemberOveragePolicy != types.MemberOveragePolicyUseEnterpriseBalance &&
+			!(handle.MemberLimitMode == types.MemberLimitModeInherit && !assignedCapActive) {
 			return ErrInsufficientBillingCredits
 		}
 		if balanceReserve > availableBalance {
@@ -1003,7 +1516,27 @@ func (r *billingRepository) SettleUsage(
 
 		enterpriseUsage := isEnterpriseUsageScope(handle.UsageScope)
 		memberPeriodAvailable := int64(^uint64(0) >> 1)
+		assignedCapActive := false
 		if enterpriseUsage && handle.MemberLimitMode != types.MemberLimitModeUnlimited {
+			memberMonthlyLimit := max(handle.MemberMonthlyLimitPointMicros, 0)
+			if handle.MemberLimitMode == types.MemberLimitModeInherit {
+				assignedCap, ok, err := r.inheritedMemberAssignedCreditCapWithDB(
+					ctx,
+					tx,
+					ledger.TenantID,
+					ledger.ActorUserID,
+					time.Now().UTC(),
+					handle.Plan,
+					account.BalancePointMicros,
+				)
+				if err != nil {
+					return err
+				}
+				if ok {
+					memberMonthlyLimit = min(memberMonthlyLimit, assignedCap)
+					assignedCapActive = true
+				}
+			}
 			var usedByMember int64
 			if err := tx.Model(&types.TenantUsageLedger{}).
 				Where(
@@ -1035,9 +1568,32 @@ func (r *billingRepository) SettleUsage(
 				return err
 			}
 			memberPeriodAvailable =
-				handle.MemberMonthlyLimitPointMicros - usedByMember - otherReservedByMember
+				memberMonthlyLimit - usedByMember - otherReservedByMember
 			if memberPeriodAvailable < 0 {
 				memberPeriodAvailable = 0
+			}
+			if assignedCapActive && ledger.BilledPointMicros > memberPeriodAvailable {
+				now := time.Now().UTC()
+				ledger.Status = "reconciliation"
+				ledger.FailureCode = "enterprise_inherited_member_unassigned_credits_exceeded"
+				ledger.PeriodCoveredPointMicros = 0
+				ledger.BalanceChargedPointMicros = 0
+				balanceAfter := account.BalancePointMicros
+				ledger.BalanceAfterPointMicros = &balanceAfter
+				if err := tx.Create(ledger).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(&reservation).Updates(map[string]any{
+					"status":            "reconciliation",
+					"usage_ledger_id":   ledger.ID,
+					"reconciliation_at": now,
+					"failure_code":      ledger.FailureCode,
+					"updated_at":        now,
+				}).Error; err != nil {
+					return err
+				}
+				result = ledger
+				return nil
 			}
 		}
 		availablePeriod = min(availablePeriod, memberPeriodAvailable)
@@ -1045,7 +1601,8 @@ func (r *billingRepository) SettleUsage(
 		balanceCharge := ledger.BilledPointMicros - periodCharge
 		overageBlocked := enterpriseUsage &&
 			balanceCharge > 0 &&
-			handle.MemberOveragePolicy != types.MemberOveragePolicyUseEnterpriseBalance
+			handle.MemberOveragePolicy != types.MemberOveragePolicyUseEnterpriseBalance &&
+			!(handle.MemberLimitMode == types.MemberLimitModeInherit && !assignedCapActive)
 		if overageBlocked || balanceCharge > availableBalance {
 			now := time.Now().UTC()
 			ledger.Status = "reconciliation"
@@ -1364,6 +1921,49 @@ func (r *billingRepository) ListMemberAllocations(
 	}
 	enterprisePolicy.MemberOveragePolicy =
 		normalizeMemberOveragePolicy(enterprisePolicy.MemberOveragePolicy)
+	subscription, plan, err := r.GetCurrentSubscription(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	balancePointMicros := int64(0)
+	account, err := r.GetCreditAccount(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if account != nil {
+		balancePointMicros = account.BalancePointMicros
+	}
+	inheritedDefaultLimitPointMicros := enterprisePolicy.DefaultMemberMonthlyLimitPointMicros
+	if subscription != nil && plan != nil {
+		creditBudget, err := r.enterpriseCreditBudgetPointMicrosWithDB(
+			ctx,
+			r.db,
+			tenantID,
+			plan,
+			balancePointMicros,
+		)
+		if err != nil {
+			return nil, err
+		}
+		customAssignedPointMicros, err := r.activeCustomMemberAllocationLimitPointMicrosWithDB(
+			ctx,
+			r.db,
+			tenantID,
+			at,
+			"",
+		)
+		if err != nil {
+			return nil, err
+		}
+		if customAssignedPointMicros > 0 {
+			inheritedDefaultLimitPointMicros =
+				cappedInheritedMemberLimitPointMicros(
+					enterprisePolicy.DefaultMemberMonthlyLimitPointMicros,
+					creditBudget,
+					customAssignedPointMicros,
+				)
+		}
+	}
 	var allocations []*types.TenantMemberCreditAllocation
 	if err := r.db.WithContext(ctx).
 		Where(
@@ -1398,18 +1998,25 @@ func (r *billingRepository) ListMemberAllocations(
 	}
 	var usageRows []usageRow
 	if err := r.db.WithContext(ctx).
-		Table("tenant_usage_ledgers").
+		Table("tenant_usage_ledgers AS ledgers").
 		Select(`
-			allocation_id,
-			COALESCE(SUM(billed_point_micros), 0) AS used_point_micros,
-			COALESCE(SUM(input_tokens), 0) AS input_tokens,
-			COALESCE(SUM(output_tokens), 0) AS output_tokens,
-			COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+			allocations.id AS allocation_id,
+			COALESCE(SUM(ledgers.billed_point_micros), 0) AS used_point_micros,
+			COALESCE(SUM(ledgers.input_tokens), 0) AS input_tokens,
+			COALESCE(SUM(ledgers.output_tokens), 0) AS output_tokens,
+			COALESCE(SUM(ledgers.reasoning_tokens), 0) AS reasoning_tokens,
 			COUNT(*) AS ledger_count,
-			MAX(billing_at) AS last_billing_at
+			MAX(ledgers.billing_at) AS last_billing_at
 		`).
-		Where("tenant_id = ? AND allocation_id IN ?", tenantID, allocationIDs).
-		Group("allocation_id").
+		Joins(`
+			JOIN tenant_member_credit_allocations AS allocations
+				ON allocations.tenant_id = ledgers.tenant_id
+				AND allocations.user_id = ledgers.actor_user_id
+				AND allocations.period_start_at <= ledgers.billing_at
+				AND allocations.period_end_at > ledgers.billing_at
+		`).
+		Where("ledgers.tenant_id = ? AND allocations.id IN ?", tenantID, allocationIDs).
+		Group("allocations.id").
 		Scan(&usageRows).Error; err != nil {
 		return nil, err
 	}
@@ -1435,7 +2042,7 @@ func (r *billingRepository) ListMemberAllocations(
 			summary.EffectiveMonthlyLimitPointMicros = 0
 		default:
 			summary.EffectiveMonthlyLimitPointMicros =
-				enterprisePolicy.DefaultMemberMonthlyLimitPointMicros
+				max(inheritedDefaultLimitPointMicros, 0)
 		}
 		if row, ok := usageByAllocationID[allocation.ID]; ok {
 			summary.UsedPointMicros = row.UsedPointMicros

@@ -200,8 +200,9 @@ func (s *usageBillingService) BeginModelUsage(
 	req = normalizeUsageRequest(req)
 	policy := s.policy.RuntimePolicy(ctx)
 	handle := &types.BillingUsageHandle{
-		Request: req,
-		Mode:    "off",
+		Request:                              req,
+		Mode:                                 "off",
+		DefaultMemberMonthlyLimitPointMicros: policy.DefaultMemberMonthlyLimitPointMicros,
 	}
 	if !policy.Enabled || policy.EnforcementMode == "off" {
 		return handle, nil

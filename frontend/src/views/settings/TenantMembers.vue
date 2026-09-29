@@ -517,7 +517,7 @@
           {{
             allocationForm.limitMode === 'inherit'
               ? $t('tenantMember.allocation.inheritDescription', {
-                count: formatAllocationPoints(defaultMemberMonthlyLimitMicros),
+                count: formatAllocationPoints(inheritedMemberMonthlyLimitMicros),
               })
               : allocationForm.limitMode === 'unlimited'
                 ? $t('tenantMember.allocation.unlimitedDescription')
@@ -812,10 +812,12 @@ import {
   type AuditOutcome,
 } from '@/api/tenant/audit-log'
 import {
+  getBillingOverview,
   getMemberCreditAllocations,
   getTenantBillingPolicy,
   updateMemberCreditPolicies,
   updateMemberCreditPolicy,
+  type BillingOverview,
   type MemberCreditAllocation,
   type TenantBillingPolicy,
 } from '@/api/billing'
@@ -876,6 +878,7 @@ const membersPage = ref(1)
 const membersPageSize = ref(20)
 const allocationsByUserID = ref<Record<string, MemberCreditAllocation>>({})
 const tenantBillingPolicy = ref<TenantBillingPolicy | null>(null)
+const enterpriseBillingOverview = ref<BillingOverview | null>(null)
 const allocationDialogVisible = ref(false)
 const allocationTarget = ref<TenantMember | null>(null)
 const savingAllocation = ref(false)
@@ -1171,10 +1174,50 @@ const defaultMemberMonthlyLimitMicros = computed(() =>
   Math.max(0, tenantBillingPolicy.value?.default_member_monthly_limit_point_micros || 0),
 )
 
+function memberCustomAssignedLimitMicros(allocation: MemberCreditAllocation | undefined) {
+  if (!allocation) return 0
+  const monthlyLimit = Number(allocation.monthly_limit_point_micros || 0)
+  if (Number.isFinite(monthlyLimit) && monthlyLimit > 0) {
+    return Math.max(0, monthlyLimit)
+  }
+  return Math.max(
+    0,
+    Number(allocation.allocated_period_point_micros || 0)
+      + Number(allocation.allocated_balance_point_micros || 0),
+  )
+}
+
+const enterpriseAssignableCreditMicros = computed(() => {
+  const credits = enterpriseBillingOverview.value?.credits
+  const periodTotal = Math.max(0, Number(credits?.period_point_micros || 0))
+  const balanceAvailable = Math.max(0, Number(credits?.balance_point_micros || 0))
+  const balanceTotal = Math.max(
+    balanceAvailable,
+    Number(credits?.balance_allocated_point_micros || balanceAvailable),
+  )
+  return periodTotal + balanceTotal
+})
+
+const customAssignedCreditMicros = computed(() =>
+  Object.values(allocationsByUserID.value)
+    .filter((allocation) => allocation.limit_mode === 'custom')
+    .reduce((total, allocation) => total + memberCustomAssignedLimitMicros(allocation), 0),
+)
+
+const inheritedMemberMonthlyLimitMicros = computed(() => {
+  const assigned = Math.max(0, customAssignedCreditMicros.value)
+  if (assigned <= 0) return defaultMemberMonthlyLimitMicros.value
+  const remaining = Math.max(0, enterpriseAssignableCreditMicros.value - assigned)
+  return Math.min(defaultMemberMonthlyLimitMicros.value, remaining)
+})
+
 function memberEffectiveMonthlyLimitMicros(userId: string) {
   const allocation = allocationFor(userId)
   if (!allocation || allocation.limit_mode === 'inherit') {
-    return defaultMemberMonthlyLimitMicros.value
+    return Math.max(
+      0,
+      allocation?.effective_monthly_limit_point_micros || inheritedMemberMonthlyLimitMicros.value,
+    )
   }
   if (allocation.limit_mode === 'unlimited') return 0
   return Math.max(
@@ -1348,11 +1391,13 @@ async function loadMemberAllocations() {
   if (!activeTenantId.value || !canManage.value) {
     allocationsByUserID.value = {}
     tenantBillingPolicy.value = null
+    enterpriseBillingOverview.value = null
     return
   }
-  const [resp, policyResp] = await Promise.all([
+  const [resp, policyResp, overviewResp] = await Promise.all([
     getMemberCreditAllocations(activeTenantId.value),
     getTenantBillingPolicy(activeTenantId.value),
+    getBillingOverview(activeTenantId.value),
   ])
   if (!resp.success) {
     throw new Error(resp.message || t('tenantMember.allocation.loadError'))
@@ -1360,7 +1405,11 @@ async function loadMemberAllocations() {
   if (!policyResp.success || !policyResp.data) {
     throw new Error(policyResp.message || t('tenantMember.allocation.loadError'))
   }
+  if (!overviewResp.success || !overviewResp.data) {
+    throw new Error(overviewResp.message || t('tenantMember.allocation.loadError'))
+  }
   tenantBillingPolicy.value = policyResp.data
+  enterpriseBillingOverview.value = overviewResp.data
   const next: Record<string, MemberCreditAllocation> = {}
   for (const allocation of resp.data || []) {
     if (allocation?.user_id) {
@@ -1401,26 +1450,7 @@ async function saveAllocation() {
     if (!resp.success || !resp.data) {
       throw new Error(resp.message || t('tenantMember.allocation.saveError'))
     }
-    allocationsByUserID.value = {
-      ...allocationsByUserID.value,
-      [target.user_id]: {
-        ...resp.data,
-        effective_monthly_limit_point_micros:
-          resp.data.limit_mode === 'custom'
-            ? resp.data.monthly_limit_point_micros
-            : resp.data.limit_mode === 'unlimited'
-              ? 0
-              : defaultMemberMonthlyLimitMicros.value,
-        effective_overage_policy:
-          tenantBillingPolicy.value?.member_overage_policy || 'block',
-        used_point_micros: allocationFor(target.user_id)?.used_point_micros || 0,
-        input_tokens: allocationFor(target.user_id)?.input_tokens || 0,
-        output_tokens: allocationFor(target.user_id)?.output_tokens || 0,
-        reasoning_tokens: allocationFor(target.user_id)?.reasoning_tokens || 0,
-        ledger_count: allocationFor(target.user_id)?.ledger_count || 0,
-        last_billing_at: allocationFor(target.user_id)?.last_billing_at,
-      },
-    }
+    await loadMemberAllocations()
     allocationDialogVisible.value = false
     MessagePlugin.success(t('tenantMember.allocation.success'))
   } catch (err: any) {

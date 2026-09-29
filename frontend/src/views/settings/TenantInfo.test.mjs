@@ -41,6 +41,10 @@ test('billing overview uses the current authenticated workspace', () => {
 test('enterprise usage policy lives in the enterprise settings module', () => {
   assert.ok(enterpriseUsage.includes('enterprisePolicyTitle'))
   assert.ok(enterpriseUsage.includes('memberUsageTitle'))
+  assert.ok(enterpriseUsage.includes('enterpriseCreditPoolTitle'))
+  assert.ok(enterpriseUsage.includes('getBillingOverview'))
+  assert.ok(enterpriseUsage.includes('balance_point_micros'))
+  assert.ok(enterpriseUsage.includes('balance_allocated_point_micros'))
   assert.ok(enterpriseUsage.includes('getMemberCreditAllocations'))
   assert.ok(enterpriseUsage.includes('getMemberStorageUsage'))
   assert.ok(enterpriseUsage.includes('memberStorage'))

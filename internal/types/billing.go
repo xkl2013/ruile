@@ -454,21 +454,22 @@ type BillingUsageStartRequest struct {
 }
 
 type BillingUsageHandle struct {
-	Request                       BillingUsageStartRequest
-	Mode                          string
-	UsageScope                    string
-	AllocationID                  string
-	FailureCode                   string
-	MemberLimitMode               string
-	MemberMonthlyLimitPointMicros int64
-	MemberOveragePolicy           string
-	Price                         *BillingModelPrice
-	ServicePrice                  *BillingServicePrice
-	Plan                          *BillingPlan
-	Subscription                  *TenantSubscription
-	Allocation                    *TenantMemberCreditAllocation
-	EnterprisePolicy              *TenantBillingPolicy
-	Reservation                   *TenantUsageReservation
+	Request                              BillingUsageStartRequest
+	Mode                                 string
+	UsageScope                           string
+	AllocationID                         string
+	FailureCode                          string
+	DefaultMemberMonthlyLimitPointMicros int64
+	MemberLimitMode                      string
+	MemberMonthlyLimitPointMicros        int64
+	MemberOveragePolicy                  string
+	Price                                *BillingModelPrice
+	ServicePrice                         *BillingServicePrice
+	Plan                                 *BillingPlan
+	Subscription                         *TenantSubscription
+	Allocation                           *TenantMemberCreditAllocation
+	EnterprisePolicy                     *TenantBillingPolicy
+	Reservation                          *TenantUsageReservation
 }
 
 const (
@@ -497,8 +498,9 @@ type TenantBillingPolicy struct {
 func (TenantBillingPolicy) TableName() string { return "tenant_billing_policies" }
 
 // TenantMemberCreditAllocation scopes an enterprise member's usable credits
-// for one billing period. Usage is derived from tenant_usage_ledgers by
-// allocation_id; this row is the authorization envelope, not a mutable balance.
+// for one billing period. Usage is derived from tenant_usage_ledgers by actor
+// user and billing period; this row is the authorization envelope, not a
+// mutable balance.
 type TenantMemberCreditAllocation struct {
 	ID                          string    `gorm:"type:varchar(36);primaryKey" json:"id"`
 	TenantID                    uint64    `gorm:"not null;uniqueIndex:uq_tenant_member_credit_allocation_period;index" json:"tenant_id"`
