@@ -1,3 +1,4 @@
+-- Compatibility migration moved out of the conflicting 000025 branch range.
 DROP INDEX IF EXISTS idx_organize_outputs_public_series;
 DROP INDEX IF EXISTS idx_organize_outputs_public_status;
 

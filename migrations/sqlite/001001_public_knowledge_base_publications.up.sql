@@ -1,3 +1,6 @@
+-- Migration 001001: public knowledge-base publication tables.
+-- This was previously numbered 000024 on a parallel branch.
+
 CREATE TABLE IF NOT EXISTS knowledge_base_publications (
     id TEXT PRIMARY KEY,
     knowledge_base_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,

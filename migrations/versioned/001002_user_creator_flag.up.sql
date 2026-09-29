@@ -1,3 +1,6 @@
+-- Migration 001002: creator approval flag.
+-- This was previously numbered 000112 on a parallel branch.
+
 -- Mark platform-approved content creators explicitly.
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS is_creator BOOLEAN NOT NULL DEFAULT FALSE;
