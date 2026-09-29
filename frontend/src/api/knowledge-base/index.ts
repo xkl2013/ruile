@@ -377,6 +377,7 @@ export function uploadKnowledgeFile(
     [key: string]: any
   } = { file: new File([], '') },
   onProgress?: (progressEvent: any) => void,
+  requestOptions: { signal?: AbortSignal } = {},
 ) {
   const formData = new FormData();
   Object.keys(data).forEach(key => {
@@ -392,6 +393,7 @@ export function uploadKnowledgeFile(
   });
   return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/file`, formData, onProgress, {
     timeout: KNOWLEDGE_FILE_UPLOAD_TIMEOUT_MS,
+    signal: requestOptions.signal,
   });
 }
 

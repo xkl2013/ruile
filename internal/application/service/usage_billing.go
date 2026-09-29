@@ -385,6 +385,7 @@ func (s *usageBillingService) SettleModelUsage(
 		"subscription_id":            idOfSubscription(handle.Subscription),
 		"plan_code":                  codeOfPlan(handle.Plan),
 		"point_micros_per_usd":       policy.PointMicrosPerUSD,
+		"point_micros_per_cny":       policy.PointMicrosPerUSD,
 		"model_multiplier_ppm":       modelMultiplier,
 		"service_multiplier_ppm":     serviceMultiplier,
 		"plan_multiplier_ppm":        planMultiplier,
@@ -531,6 +532,13 @@ func (s *usageBillingService) ListUsageSummaryByActor(
 	actorUserIDs []string,
 ) ([]*types.BillingActorUsageSummary, error) {
 	return s.billing.ListUsageSummaryByActor(ctx, actorUserIDs)
+}
+
+func (s *usageBillingService) ListStorageUsageSummaryByActor(
+	ctx context.Context,
+	tenantID uint64,
+) ([]*types.BillingActorStorageUsageSummary, error) {
+	return s.billing.ListStorageUsageSummaryByActor(ctx, tenantID)
 }
 
 func (s *usageBillingService) ListMemberAllocations(

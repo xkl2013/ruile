@@ -11,6 +11,7 @@ type BillingRepository interface {
 	EnsureTenantBilling(ctx context.Context, tenant *types.Tenant) error
 	GetCurrentSubscription(ctx context.Context, tenantID uint64) (*types.TenantSubscription, *types.BillingPlan, error)
 	GetCreditAccount(ctx context.Context, tenantID uint64) (*types.TenantCreditAccount, error)
+	GetAllocatedCreditPointMicros(ctx context.Context, tenantID uint64) (int64, error)
 	ListPlans(ctx context.Context) ([]*types.BillingPlan, error)
 	ListPrices(ctx context.Context) ([]*types.BillingPrice, error)
 	CreatePlan(ctx context.Context, input types.BillingPlanInput) (*types.BillingPlan, error)
@@ -113,6 +114,7 @@ type BillingRepository interface {
 	ListUsageLedgersByActor(ctx context.Context, tenantID uint64, actorUserID string, limit int) ([]*types.BillingUsageLedgerSummary, error)
 	GetPeriodUsedPointMicros(ctx context.Context, tenantID uint64, periodStart, periodEnd time.Time) (int64, error)
 	ListUsageSummaryByActor(ctx context.Context, actorUserIDs []string) ([]*types.BillingActorUsageSummary, error)
+	ListStorageUsageSummaryByActor(ctx context.Context, tenantID uint64) ([]*types.BillingActorStorageUsageSummary, error)
 	ListMemberAllocations(ctx context.Context, tenantID uint64, at time.Time) ([]*types.TenantMemberCreditAllocationSummary, error)
 	ListStorageTransactions(ctx context.Context, tenantID uint64, limit int) ([]*types.BillingStorageTransactionSummary, error)
 }
@@ -146,6 +148,7 @@ type UsageBillingService interface {
 	ListUsageLedgers(ctx context.Context, tenantID uint64, limit int) ([]*types.BillingUsageLedgerSummary, error)
 	ListUsageLedgersByActor(ctx context.Context, tenantID uint64, actorUserID string, limit int) ([]*types.BillingUsageLedgerSummary, error)
 	ListUsageSummaryByActor(ctx context.Context, actorUserIDs []string) ([]*types.BillingActorUsageSummary, error)
+	ListStorageUsageSummaryByActor(ctx context.Context, tenantID uint64) ([]*types.BillingActorStorageUsageSummary, error)
 	ListMemberAllocations(ctx context.Context, tenantID uint64, at time.Time) ([]*types.TenantMemberCreditAllocationSummary, error)
 	GetTenantBillingPolicy(ctx context.Context, tenantID uint64) (*types.TenantBillingPolicy, error)
 	UpdateTenantBillingPolicy(

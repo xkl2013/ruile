@@ -392,6 +392,7 @@ func RegisterBillingRoutes(r *gin.RouterGroup, billingHandler *handler.BillingHa
 	billingAdminRoutes.GET("/policy", billingHandler.GetCurrentTenantBillingPolicy)
 	billingAdminRoutes.PUT("/policy", billingHandler.UpdateCurrentTenantBillingPolicy)
 	billingAdminRoutes.GET("/member-policies", billingHandler.ListCurrentMemberAllocations)
+	billingAdminRoutes.GET("/member-storage-usage", billingHandler.ListCurrentMemberStorageUsage)
 	billingAdminRoutes.PUT("/member-policies", billingHandler.UpdateCurrentMemberPolicies)
 	billingAdminRoutes.PUT("/member-policies/:user_id", billingHandler.UpdateCurrentMemberPolicy)
 	billingAdminRoutes.GET("/member-allocations", billingHandler.ListCurrentMemberAllocations)

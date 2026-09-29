@@ -174,6 +174,28 @@ func (r *billingRepository) GetCreditAccount(
 	return &account, nil
 }
 
+func (r *billingRepository) GetAllocatedCreditPointMicros(
+	ctx context.Context,
+	tenantID uint64,
+) (int64, error) {
+	if tenantID == 0 {
+		return 0, nil
+	}
+	var allocated int64
+	err := r.db.WithContext(ctx).
+		Model(&types.TenantCreditTransaction{}).
+		Where("tenant_id = ? AND amount_point_micros > 0", tenantID).
+		Select("COALESCE(SUM(amount_point_micros), 0)").
+		Scan(&allocated).Error
+	if err != nil {
+		return 0, err
+	}
+	if allocated < 0 {
+		return 0, nil
+	}
+	return allocated, nil
+}
+
 func (r *billingRepository) ListPlans(ctx context.Context) ([]*types.BillingPlan, error) {
 	var rows []*types.BillingPlan
 	err := r.db.WithContext(ctx).Order("is_public DESC, created_at ASC, code ASC").Find(&rows).Error

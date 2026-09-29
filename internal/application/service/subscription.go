@@ -49,6 +49,10 @@ func (s *subscriptionService) GetOverview(ctx context.Context, tenantID uint64) 
 	if err != nil {
 		return nil, err
 	}
+	allocatedBalance, err := s.billing.GetAllocatedCreditPointMicros(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
 	if subscription == nil || plan == nil || account == nil {
 		logger.Warnf(ctx, "[billing] missing billing records for tenant=%d; running idempotent repair", tenantID)
 		if err := s.billing.EnsureTenantBilling(ctx, tenant); err != nil {
@@ -62,9 +66,16 @@ func (s *subscriptionService) GetOverview(ctx context.Context, tenantID uint64) 
 		if err != nil {
 			return nil, err
 		}
+		allocatedBalance, err = s.billing.GetAllocatedCreditPointMicros(ctx, tenantID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if subscription == nil || plan == nil || account == nil {
 		return nil, errors.New("billing overview is incomplete after repair")
+	}
+	if allocatedBalance < account.BalancePointMicros {
+		allocatedBalance = account.BalancePointMicros
 	}
 	periodStart, periodEnd := billingOverviewPeriod(subscription, time.Now().UTC())
 	periodUsed, err := s.billing.GetPeriodUsedPointMicros(ctx, tenantID, periodStart, periodEnd)
@@ -145,11 +156,12 @@ func (s *subscriptionService) GetOverview(ctx context.Context, tenantID uint64) 
 			Visible:        true,
 		},
 		Credits: types.BillingOverviewCredits{
-			BalancePointMicros:         account.BalancePointMicros,
-			PeriodPointMicros:          plan.IncludedPointMicros,
-			PeriodUsedPointMicros:      periodUsed,
-			PeriodRemainingPointMicros: periodRemaining,
-			Visible:                    true,
+			BalancePointMicros:          account.BalancePointMicros,
+			BalanceAllocatedPointMicros: allocatedBalance,
+			PeriodPointMicros:           plan.IncludedPointMicros,
+			PeriodUsedPointMicros:       periodUsed,
+			PeriodRemainingPointMicros:  periodRemaining,
+			Visible:                     true,
 		},
 		CompatibilityMode: compatibilityMode,
 	}, nil

@@ -80,7 +80,10 @@
                   <span>{{ t('tenant.subscriptionUsage.periodCredits') }}</span>
                 </div>
                 <span class="resource-primary resource-primary--credits">
-                  {{ t('tenant.subscriptionUsage.points', { count: card.periodCreditText }) }}
+                  {{ t('tenant.subscriptionUsage.usedOfTotal', {
+                    used: card.periodUsedCreditText,
+                    total: card.periodCreditText,
+                  }) }}
                 </span>
               </div>
               <div class="resource-meta">
@@ -106,7 +109,10 @@
                   <span>{{ t('tenant.subscriptionUsage.creditBalance') }}</span>
                 </div>
                 <span class="resource-primary resource-primary--credits">
-                  {{ t('tenant.subscriptionUsage.points', { count: card.balanceCreditText }) }}
+                  {{ t('tenant.subscriptionUsage.usedOfTotal', {
+                    used: card.balanceUsedCreditText,
+                    total: card.balanceCreditText,
+                  }) }}
                 </span>
               </div>
               <div class="resource-meta">
@@ -335,6 +341,7 @@ interface UsageCard {
   periodRemainingCreditText: string
   periodCreditProgress: number
   balanceCreditText: string
+  balanceUsedCreditText: string
   creditSource: string
   showPoolDetails: boolean
   memberUsage?: {
@@ -387,10 +394,13 @@ const formatPercent = (value: number) => {
   return `${String(rounded).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}%`
 }
 
-const formatCredits = (pointMicros: number) =>
-  new Intl.NumberFormat(locale.value || 'zh-CN', {
-    maximumFractionDigits: 2,
-  }).format(Math.max(0, toFiniteNumber(pointMicros, 0)) / 1_000_000)
+const formatCredits = (pointMicros: number) => {
+  const points = Math.max(0, toFiniteNumber(pointMicros, 0)) / 1_000_000
+  const maximumFractionDigits = points > 0 && points < 0.01 ? 6 : 2
+  return new Intl.NumberFormat(locale.value || 'zh-CN', {
+    maximumFractionDigits,
+  }).format(points)
+}
 
 const formatUsageTime = (value: string) => {
   const date = new Date(value)
@@ -529,6 +539,12 @@ const usageCards = computed<UsageCard[]>(() => {
     0,
     toFiniteNumber(memberUsage?.monthly_used_point_micros, 0),
   )
+  const balanceMicros = Math.max(0, toFiniteNumber(billing.credits.balance_point_micros, 0))
+  const balanceTotalMicros = Math.max(
+    balanceMicros,
+    toFiniteNumber(billing.credits.balance_allocated_point_micros, balanceMicros),
+  )
+  const balanceUsedMicros = Math.max(0, balanceTotalMicros - balanceMicros)
   const memberUnlimited = memberUsage?.limit_mode === 'unlimited'
   return [{
     key: billing.space_type,
@@ -542,7 +558,8 @@ const usageCards = computed<UsageCard[]>(() => {
     periodCreditProgress: periodTotalMicros > 0
       ? Math.min(100, Math.round((periodUsedMicros / periodTotalMicros) * 10000) / 100)
       : 0,
-    balanceCreditText: formatCredits(billing.credits.balance_point_micros),
+    balanceCreditText: formatCredits(balanceTotalMicros),
+    balanceUsedCreditText: formatCredits(balanceUsedMicros),
     creditSource: isEnterprise
       ? t('tenant.subscriptionUsage.enterpriseCreditSource')
       : t('tenant.subscriptionUsage.personalCreditSource'),

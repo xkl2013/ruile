@@ -97,6 +97,8 @@ export interface BillingOverview {
   policy: {
     enabled: boolean
     enforcement_mode: 'off' | 'observe' | 'enforce'
+    point_micros_per_cny?: number
+    // Legacy response field retained while the backend keeps the old API name.
     point_micros_per_usd: number
   }
   plan: {
@@ -125,6 +127,7 @@ export interface BillingOverview {
   }
   credits: {
     balance_point_micros: number
+    balance_allocated_point_micros?: number
     period_point_micros: number
     period_used_point_micros: number
     period_remaining_point_micros: number
@@ -234,6 +237,19 @@ export interface MemberCreditAllocationsResponse {
   message?: string
 }
 
+export interface MemberStorageUsage {
+  actor_user_id: string
+  used_bytes: number
+  transaction_count: number
+  last_storage_at?: string
+}
+
+export interface MemberStorageUsageResponse {
+  success: boolean
+  data?: MemberStorageUsage[]
+  message?: string
+}
+
 function tenantScopedConfig(tenantId: number) {
   return {
     headers: {
@@ -249,6 +265,15 @@ export async function getMemberCreditAllocations(
     '/api/v1/billing/member-policies',
     tenantScopedConfig(tenantId),
   ) as unknown as MemberCreditAllocationsResponse
+}
+
+export async function getMemberStorageUsage(
+  tenantId: number,
+): Promise<MemberStorageUsageResponse> {
+  return get(
+    '/api/v1/billing/member-storage-usage',
+    tenantScopedConfig(tenantId),
+  ) as unknown as MemberStorageUsageResponse
 }
 
 export async function updateMemberCreditPolicy(

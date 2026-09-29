@@ -20,7 +20,7 @@ func (s *billingPolicyService) RuntimePolicy(ctx context.Context) types.BillingR
 	policy := types.BillingRuntimePolicy{
 		Enabled:                              false,
 		EnforcementMode:                      "off",
-		PointMicrosPerUSD:                    types.PointMicrosPerPoint,
+		PointMicrosPerUSD:                    types.PointMicrosPerCNY,
 		DefaultModelMultiplierPPM:            1_000_000,
 		DefaultServiceMultiplierPPM:          1_000_000,
 		DefaultMemberMonthlyLimitPointMicros: 100 * types.PointMicrosPerPoint,
@@ -31,7 +31,7 @@ func (s *billingPolicyService) RuntimePolicy(ctx context.Context) types.BillingR
 	}
 	policy.Enabled = s.settings.GetBool(ctx, "billing.enabled", "", true)
 	policy.EnforcementMode = strings.ToLower(strings.TrimSpace(
-		s.settings.GetString(ctx, "billing.enforcement_mode", "", "observe"),
+		s.settings.GetString(ctx, "billing.enforcement_mode", "", "enforce"),
 	))
 	switch policy.EnforcementMode {
 	case "off", "observe", "enforce":
@@ -42,10 +42,10 @@ func (s *billingPolicyService) RuntimePolicy(ctx context.Context) types.BillingR
 		ctx,
 		"billing.point_micros_per_usd",
 		"",
-		types.PointMicrosPerPoint,
+		types.PointMicrosPerCNY,
 	)
 	if policy.PointMicrosPerUSD <= 0 {
-		policy.PointMicrosPerUSD = types.PointMicrosPerPoint
+		policy.PointMicrosPerUSD = types.PointMicrosPerCNY
 	}
 	policy.DefaultModelMultiplierPPM = s.settings.GetInt(
 		ctx,

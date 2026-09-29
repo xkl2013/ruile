@@ -50,6 +50,8 @@ import DocumentListView from './components/DocumentListView.vue';
 import DocumentCardView from './components/DocumentCardView.vue';
 import DocumentBatchBar from './components/DocumentBatchBar.vue';
 import KbUploadSourceDropdown from './components/KbUploadSourceDropdown.vue';
+import KnowledgeUploadProgressCard from './components/KnowledgeUploadProgressCard.vue';
+import type { KnowledgeUploadProgressState } from './components/knowledgeUploadProgress';
 import TagEditDialog from './components/TagEditDialog.vue';
 import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess';
 import { useUploadConfirmStore, type UploadConfirmResult } from '@/stores/uploadConfirm';
@@ -76,6 +78,11 @@ const kbInfo = ref<any>(null);
 const knowledgeBasePermissionLoaded = ref(false);
 const uploadSourceRef = ref<InstanceType<typeof KbUploadSourceDropdown> | null>(null);
 const uploading = ref(false);
+const uploadProgress = ref<KnowledgeUploadProgressState | null>(null);
+const uploadPaused = ref(false);
+const uploadCancelled = ref(false);
+const uploadAbortController = ref<AbortController | null>(null);
+let uploadProgressDismissTimer: ReturnType<typeof setTimeout> | null = null;
 const kbLoading = ref(false);
 const docListLoading = ref(true);
 const isFAQ = computed(() => (kbInfo.value?.type || '') === 'faq');
@@ -1870,6 +1877,9 @@ onUnmounted(() => {
   window.removeEventListener('openURLImportDialog', handleOpenURLImportDialog as EventListener);
   window.removeEventListener('weknora:open-knowledge', handleOpenKnowledgeEvent as EventListener);
   window.removeEventListener(KNOWLEDGE_FILE_DROP_EVENT, handleKnowledgeFileDrop as EventListener);
+  clearUploadProgressDismissTimer();
+  uploadCancelled.value = true;
+  uploadAbortController.value?.abort();
   stopMovePoll();
   if (timeout !== null) {
     clearTimeout(timeout);
@@ -2216,6 +2226,70 @@ const showUploadResultMessages = (
   }
 };
 
+const getUploadBatchTitle = (files: File[]) => {
+  const firstRelativePath = (files[0] as File & { webkitRelativePath?: string })?.webkitRelativePath || '';
+  const relativeParts = firstRelativePath.split('/').filter(Boolean);
+  if (relativeParts.length > 1) {
+    return relativeParts[0];
+  }
+  if (files.length === 1) {
+    return files[0]?.name || t('knowledgeBase.uploadProgress.selectedFiles', { count: 1 });
+  }
+  return t('knowledgeBase.uploadProgress.selectedFiles', { count: files.length });
+};
+
+const getUploadFileName = (file: File) => {
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  return relativePath || file.name;
+};
+
+const clearUploadProgressDismissTimer = () => {
+  if (uploadProgressDismissTimer) {
+    clearTimeout(uploadProgressDismissTimer);
+    uploadProgressDismissTimer = null;
+  }
+};
+
+const scheduleUploadProgressDismiss = () => {
+  clearUploadProgressDismissTimer();
+  uploadProgressDismissTimer = setTimeout(() => {
+    uploadProgress.value = null;
+    uploadProgressDismissTimer = null;
+  }, 2600);
+};
+
+const patchUploadProgress = (patch: Partial<KnowledgeUploadProgressState>) => {
+  if (!uploadProgress.value) return;
+  uploadProgress.value = { ...uploadProgress.value, ...patch };
+};
+
+const pauseKnowledgeUpload = () => {
+  if (uploadProgress.value?.status !== 'uploading') return;
+  uploadPaused.value = true;
+  uploadProgress.value = { ...uploadProgress.value, status: 'paused' };
+  uploadAbortController.value?.abort();
+};
+
+const resumeKnowledgeUpload = () => {
+  if (uploadProgress.value?.status !== 'paused') return;
+  uploadPaused.value = false;
+  patchUploadProgress({ status: 'uploading' });
+};
+
+const cancelKnowledgeUpload = () => {
+  if (!uploadProgress.value) return;
+  if (uploadProgress.value.status === 'completed' || uploadProgress.value.status === 'failed') {
+    clearUploadProgressDismissTimer();
+    uploadProgress.value = null;
+    return;
+  }
+  if (uploadProgress.value.status === 'cancelled') return;
+  uploadCancelled.value = true;
+  uploadPaused.value = false;
+  uploadAbortController.value?.abort();
+  patchUploadProgress({ status: 'cancelled' });
+};
+
 const executeUploadBatch = async (
   files: File[],
   options: { processConfig?: KnowledgeProcessOverrides } = {},
@@ -2234,7 +2308,36 @@ const executeUploadBatch = async (
     return !!relativePath && relativePath.split('/').length > 2;
   });
 
-  for (const file of files) {
+  clearUploadProgressDismissTimer();
+  uploadPaused.value = false;
+  uploadCancelled.value = false;
+  uploadProgress.value = {
+    title: getUploadBatchTitle(files),
+    total: totalCount,
+    processed: 0,
+    failed: 0,
+    currentProgress: 0,
+    currentName: '',
+    status: 'uploading',
+  };
+
+  let fileIndex = 0;
+  while (fileIndex < files.length) {
+    if (uploadCancelled.value) break;
+    while (uploadPaused.value && !uploadCancelled.value) {
+      await new Promise(resolve => setTimeout(resolve, 120));
+    }
+    if (uploadCancelled.value) break;
+
+    const file = files[fileIndex];
+    patchUploadProgress({
+      status: 'uploading',
+      currentName: getUploadFileName(file),
+      currentProgress: 0,
+    });
+    const controller = new AbortController();
+    uploadAbortController.value = controller;
+
     try {
       const uploadData: {
         file: File
@@ -2252,7 +2355,17 @@ const executeUploadBatch = async (
         uploadData.process_config = options.processConfig;
       }
 
-      const responseData: any = await uploadKnowledgeFile(targetKbId, uploadData);
+      const responseData: any = await uploadKnowledgeFile(
+        targetKbId,
+        uploadData,
+        (progressEvent: { loaded?: number; total?: number }) => {
+          const loaded = Number(progressEvent?.loaded || 0);
+          const total = Number(progressEvent?.total || file.size || 0);
+          const currentProgress = total > 0 ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+          patchUploadProgress({ currentProgress });
+        },
+        { signal: controller.signal },
+      );
       const isSuccess = responseData?.success || responseData?.code === 200 || responseData?.status === 'success' || (!responseData?.error && responseData);
       if (isSuccess) {
         successCount++;
@@ -2271,7 +2384,19 @@ const executeUploadBatch = async (
           MessagePlugin.error(errorMessage);
         }
       }
+      patchUploadProgress({
+        processed: successCount + failCount,
+        failed: failCount,
+        currentProgress: 100,
+      });
+      fileIndex++;
     } catch (error: any) {
+      if (uploadCancelled.value) {
+        break;
+      }
+      if (uploadPaused.value) {
+        continue;
+      }
       failCount++;
       if (totalCount === 1) {
         let errorMessage = error?.error?.message || error?.message || t('knowledgeBase.uploadFailed');
@@ -2280,16 +2405,40 @@ const executeUploadBatch = async (
         }
         MessagePlugin.error(errorMessage);
       }
+      patchUploadProgress({
+        processed: successCount + failCount,
+        failed: failCount,
+        currentProgress: 100,
+      });
+      fileIndex++;
+    } finally {
+      if (uploadAbortController.value === controller) {
+        uploadAbortController.value = null;
+      }
     }
   }
 
+  const wasCancelled = uploadCancelled.value;
   if (successCount > 0) {
     window.dispatchEvent(new CustomEvent('knowledgeFileUploaded', {
       detail: { kbId: targetKbId },
     }));
   }
 
-  showUploadResultMessages(successCount, failCount, totalCount, hasFolderPaths ? 'folder' : 'document');
+  if (successCount > 0 || failCount > 0) {
+    showUploadResultMessages(successCount, failCount, totalCount, hasFolderPaths ? 'folder' : 'document');
+  }
+  patchUploadProgress({
+    status: wasCancelled
+      ? 'cancelled'
+      : failCount === totalCount
+        ? 'failed'
+        : 'completed',
+    currentName: '',
+    currentProgress: wasCancelled ? uploadProgress.value?.currentProgress || 0 : 100,
+    processed: successCount + failCount,
+  });
+  scheduleUploadProgressDismiss();
   return { successCount, failCount };
 };
 
@@ -2348,6 +2497,7 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
   if (uploading.value) return;
 
   uploading.value = true;
+  uploadCancelled.value = false;
   try {
     if (files.length > 0) {
       const hasFolderPaths = files.some((file) => {
@@ -2360,8 +2510,10 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
       await executeUploadBatch(files, { processConfig });
     }
 
-    for (const url of urls) {
-      await executeUrlImport(url, processConfig);
+    if (!uploadCancelled.value) {
+      for (const url of urls) {
+        await executeUrlImport(url, processConfig);
+      }
     }
   } finally {
     uploading.value = false;
@@ -3217,6 +3369,12 @@ async function createNewSession(value: string): Promise<void> {
                   </div>
                 </template>
               </div>
+              <KnowledgeUploadProgressCard
+                :state="uploadProgress"
+                @pause="pauseKnowledgeUpload"
+                @resume="resumeKnowledgeUpload"
+                @cancel="cancelKnowledgeUpload"
+              />
               <div class="doc-batch-bar-anchor" v-show="batchMode || selectedIds.size > 0">
                 <DocumentBatchBar :count="selectedIds.size" :delete-loading="batchDeleting"
                   :reparse-loading="batchReparsing" :visible="batchMode || selectedIds.size > 0"

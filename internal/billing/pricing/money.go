@@ -86,15 +86,16 @@ func ComposeMultipliers(multipliers ...int64) (int64, error) {
 	return result, nil
 }
 
-// BaseCostToPointMicros converts nano-USD cost into billed point micros, then
-// applies the composed multiplier. The exchange rate is point micros per USD.
-func BaseCostToPointMicros(baseCostNanoUSD, pointMicrosPerUSD, multiplierMicros int64) (int64, error) {
-	ratedCost, err := ApplyMultiplier(baseCostNanoUSD, multiplierMicros)
+// BaseCostToPointMicros converts the stored nano-currency cost into billed
+// point micros, then applies the composed multiplier. The current product
+// currency is CNY; the legacy nanousd field names remain unchanged in storage.
+func BaseCostToPointMicros(baseCostNanoCNY, pointMicrosPerCNY, multiplierMicros int64) (int64, error) {
+	ratedCost, err := ApplyMultiplier(baseCostNanoCNY, multiplierMicros)
 	if err != nil {
 		return 0, err
 	}
 	converted, err := CeilDiv(
-		new(big.Int).Mul(big.NewInt(ratedCost), big.NewInt(pointMicrosPerUSD)),
+		new(big.Int).Mul(big.NewInt(ratedCost), big.NewInt(pointMicrosPerCNY)),
 		big.NewInt(1_000_000_000),
 	)
 	if err != nil {

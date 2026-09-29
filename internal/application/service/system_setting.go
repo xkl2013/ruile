@@ -207,20 +207,21 @@ var registry = map[string]settingSpec{
 		Type:        "bool",
 		Default:     true,
 		Category:    "billing",
-		Description: "是否启用工作区订阅与模型用量计费能力。默认开启；可配合 observe 模式仅记录真实 Token 和模拟积分，不扣减余额。",
+		Description: "是否启用工作区订阅与模型用量计费能力。默认开启；线上默认配合 enforce 执行额度和余额限制，必要时可降级到 observe 仅记录。",
 	},
 	"billing.enforcement_mode": {
 		Type:        "string",
-		Default:     "observe",
+		Default:     "enforce",
 		Enum:        []string{"off", "observe", "enforce"},
 		Category:    "billing",
-		Description: "计费执行模式。默认 observe，记录真实模型 Token 和模拟积分但不扣减；off 完全关闭；enforce 对个人与企业工作区执行预留、成员月额度校验和积分结算。",
+		Description: "计费执行模式。默认 enforce，对个人与企业工作区执行预留、成员月额度校验和积分结算；observe 只记录真实模型 Token 和模拟积分但不扣减；off 完全关闭。",
 	},
 	"billing.point_micros_per_usd": {
-		Type:        "int",
-		Default:     int64(types.PointMicrosPerPoint),
-		Category:    "billing",
-		Description: "每 1 美元对应的积分微单位数量。1000000 表示 1 美元换算为 1 积分，只影响之后发生的新调用。",
+		Type:     "int",
+		Default:  int64(types.PointMicrosPerCNY),
+		Category: "billing",
+		Description: "每 1 元人民币对应的积分微单位数量。10000000 表示 0.1 元人民币换算为 1 积分。" +
+			"配置键名保留 point_micros_per_usd 以兼容已有接口，只影响之后发生的新调用。",
 	},
 	"billing.default_model_multiplier_ppm": {
 		Type:        "int",
@@ -929,11 +930,27 @@ func isBootstrapDefaultRow(row *types.SystemSetting, spec settingSpec) bool {
 	if isLegacyEnterpriseBootstrapDefaultRow(row) {
 		return true
 	}
+	if isLegacyBillingBootstrapDefaultRow(row) {
+		return true
+	}
+	if isLegacyBillingEnforcementModeBootstrapRow(row) {
+		return true
+	}
 	def, err := encodeDefault(spec)
 	if err != nil {
 		return false
 	}
 	return jsonEqual(row.Value, def)
+}
+
+func isLegacyBillingBootstrapDefaultRow(row *types.SystemSetting) bool {
+	return row.Key == "billing.point_micros_per_usd" &&
+		jsonEqual(row.Value, types.JSON(`1000000`))
+}
+
+func isLegacyBillingEnforcementModeBootstrapRow(row *types.SystemSetting) bool {
+	return row.Key == "billing.enforcement_mode" &&
+		jsonEqual(row.Value, types.JSON(`"observe"`))
 }
 
 func isLegacyEnterpriseBootstrapDefaultRow(row *types.SystemSetting) bool {

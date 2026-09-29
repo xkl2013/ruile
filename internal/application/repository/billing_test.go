@@ -637,6 +637,59 @@ func TestEnsureTenantBillingClassifiesLegacyWorkspace(t *testing.T) {
 	}
 }
 
+func TestGetAllocatedCreditPointMicrosCountsOnlyPositiveAllocations(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	ctx := context.Background()
+	tenantID := uint64(78)
+	accountID := "account-allocated-78"
+	if err := db.Exec(
+		"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+		tenantID,
+		"分配积分企业",
+		types.SpaceTypeOrganization,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&types.TenantCreditAccount{
+		ID:                 accountID,
+		TenantID:           tenantID,
+		BalancePointMicros: 95 * types.PointMicrosPerPoint,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	transactions := []*types.TenantCreditTransaction{
+		{
+			ID:                 "credit-allocation-78",
+			TenantID:           tenantID,
+			AccountID:          accountID,
+			Type:               "legacy_import",
+			AmountPointMicros:  100 * types.PointMicrosPerPoint,
+			BalancePointMicros: 100 * types.PointMicrosPerPoint,
+			RefNo:              "allocation:78",
+		},
+		{
+			ID:                 "credit-debit-78",
+			TenantID:           tenantID,
+			AccountID:          accountID,
+			Type:               "usage_debit",
+			AmountPointMicros:  -5 * types.PointMicrosPerPoint,
+			BalancePointMicros: 95 * types.PointMicrosPerPoint,
+			RefNo:              "debit:78",
+		},
+	}
+	if err := db.Create(&transactions).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	allocated, err := repo.GetAllocatedCreditPointMicros(ctx, tenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64(100 * types.PointMicrosPerPoint); allocated != want {
+		t.Fatalf("allocated=%d, want=%d", allocated, want)
+	}
+}
+
 func TestListCreditAccountsAggregatesByUserAndEnterprise(t *testing.T) {
 	db, repo := newBillingTestRepository(t)
 	ctx := context.Background()
@@ -841,7 +894,104 @@ func TestEnterpriseMemberAllocationAndActorUsageSummary(t *testing.T) {
 	}
 }
 
-func TestGetPeriodUsedPointMicrosOnlyCountsSettledPeriodUsage(t *testing.T) {
+func TestListStorageUsageSummaryByActorAggregatesNetMemberUsage(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	tenantID := uint64(92)
+	if err := db.Exec(
+		"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+		tenantID,
+		"存储统计企业",
+		types.SpaceTypeOrganization,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	rows := []*types.TenantStorageTransaction{
+		{
+			ID:                    "storage-92-a-upload",
+			TenantID:              tenantID,
+			ActorUserID:           "member-a",
+			RefNo:                 "knowledge:upload:a",
+			Operation:             "knowledge_upload",
+			AmountBytes:           4096,
+			StorageUsedAfterBytes: 4096,
+			MetadataJSON:          types.JSON([]byte("{}")),
+			CreatedAt:             now.Add(-2 * time.Hour),
+		},
+		{
+			ID:                    "storage-92-a-delete",
+			TenantID:              tenantID,
+			ActorUserID:           "member-a",
+			RefNo:                 "knowledge:delete:a",
+			Operation:             "knowledge_delete",
+			AmountBytes:           -1024,
+			StorageUsedAfterBytes: 3072,
+			MetadataJSON:          types.JSON([]byte("{}")),
+			CreatedAt:             now.Add(-time.Hour),
+		},
+		{
+			ID:                    "storage-92-b-upload",
+			TenantID:              tenantID,
+			ActorUserID:           "member-b",
+			RefNo:                 "knowledge:upload:b",
+			Operation:             "knowledge_upload",
+			AmountBytes:           2048,
+			StorageUsedAfterBytes: 5120,
+			MetadataJSON:          types.JSON([]byte("{}")),
+			CreatedAt:             now,
+		},
+		{
+			ID:                    "storage-92-unattributed",
+			TenantID:              tenantID,
+			ActorUserID:           "",
+			RefNo:                 "system:storage",
+			Operation:             "storage_reconcile",
+			AmountBytes:           8192,
+			StorageUsedAfterBytes: 13312,
+			MetadataJSON:          types.JSON([]byte("{}")),
+			CreatedAt:             now,
+		},
+		{
+			ID:                    "storage-93-other-tenant",
+			TenantID:              93,
+			ActorUserID:           "member-a",
+			RefNo:                 "knowledge:upload:other",
+			Operation:             "knowledge_upload",
+			AmountBytes:           9999,
+			StorageUsedAfterBytes: 9999,
+			MetadataJSON:          types.JSON([]byte("{}")),
+			CreatedAt:             now,
+		},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	summaries, err := repo.ListStorageUsageSummaryByActor(context.Background(), tenantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("summaries=%#v", summaries)
+	}
+	byUser := make(map[string]*types.BillingActorStorageUsageSummary, len(summaries))
+	for _, summary := range summaries {
+		byUser[summary.ActorUserID] = summary
+	}
+	if byUser["member-a"] == nil ||
+		byUser["member-a"].UsedBytes != 3072 ||
+		byUser["member-a"].TransactionCount != 2 {
+		t.Fatalf("member-a summary=%+v", byUser["member-a"])
+	}
+	if byUser["member-b"] == nil ||
+		byUser["member-b"].UsedBytes != 2048 ||
+		byUser["member-b"].TransactionCount != 1 {
+		t.Fatalf("member-b summary=%+v", byUser["member-b"])
+	}
+}
+
+func TestGetPeriodUsedPointMicrosIncludesObservedUsage(t *testing.T) {
 	db, repo := newBillingTestRepository(t)
 	now := time.Now().UTC()
 	periodStart := now.Add(-time.Hour)
@@ -881,6 +1031,18 @@ func TestGetPeriodUsedPointMicrosOnlyCountsSettledPeriodUsage(t *testing.T) {
 			UsageDate:                now,
 			PricingSnapshotJSON:      types.JSON([]byte("{}")),
 		},
+		{
+			ID:                  "period-unpriced",
+			TenantID:            901,
+			ActorUserID:         "user-901",
+			UsageScope:          types.BillingUsageScopeEnterprise,
+			RefNo:               "period:unpriced",
+			BilledPointMicros:   40 * types.PointMicrosPerPoint,
+			Status:              "unpriced",
+			BillingAt:           now,
+			UsageDate:           now,
+			PricingSnapshotJSON: types.JSON([]byte("{}")),
+		},
 	}
 	if err := db.Create(&rows).Error; err != nil {
 		t.Fatal(err)
@@ -889,7 +1051,7 @@ func TestGetPeriodUsedPointMicrosOnlyCountsSettledPeriodUsage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := int64(12 * types.PointMicrosPerPoint); used != want {
+	if want := int64(42 * types.PointMicrosPerPoint); used != want {
 		t.Fatalf("used=%d want=%d", used, want)
 	}
 }

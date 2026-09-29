@@ -69,7 +69,37 @@ func TestIsBootstrapDefaultRow_PreservesUserModifiedLegacyValues(t *testing.T) {
 	}
 }
 
-func TestBillingDefaultsObserveUsageWithoutCharging(t *testing.T) {
+func TestIsBootstrapDefaultRowTreatsLegacyBillingRateAsBootstrap(t *testing.T) {
+	row := &types.SystemSetting{
+		Key:   "billing.point_micros_per_usd",
+		Value: types.JSON(`1000000`),
+	}
+	if !isBootstrapDefaultRow(row, registry[row.Key]) {
+		t.Fatal("legacy 1,000,000 billing rate should use the new CNY default")
+	}
+
+	row.LastModifiedBy = "admin"
+	if isBootstrapDefaultRow(row, registry[row.Key]) {
+		t.Fatal("user-modified billing rate must not be treated as bootstrap")
+	}
+}
+
+func TestIsBootstrapDefaultRowTreatsLegacyBillingObserveModeAsBootstrap(t *testing.T) {
+	row := &types.SystemSetting{
+		Key:   "billing.enforcement_mode",
+		Value: types.JSON(`"observe"`),
+	}
+	if !isBootstrapDefaultRow(row, registry[row.Key]) {
+		t.Fatal("legacy observe billing mode should use the new enforce default")
+	}
+
+	row.LastModifiedBy = "admin"
+	if isBootstrapDefaultRow(row, registry[row.Key]) {
+		t.Fatal("user-modified billing mode must not be treated as bootstrap")
+	}
+}
+
+func TestBillingDefaultsEnforceUsageCharging(t *testing.T) {
 	enabled, ok := registry["billing.enabled"]
 	if !ok {
 		t.Fatal("billing.enabled setting is not registered")
@@ -82,8 +112,8 @@ func TestBillingDefaultsObserveUsageWithoutCharging(t *testing.T) {
 	if !ok {
 		t.Fatal("billing.enforcement_mode setting is not registered")
 	}
-	if mode.Default != "observe" {
-		t.Fatalf("billing.enforcement_mode default = %v, want observe", mode.Default)
+	if mode.Default != "enforce" {
+		t.Fatalf("billing.enforcement_mode default = %v, want enforce", mode.Default)
 	}
 }
 

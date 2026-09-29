@@ -17,6 +17,9 @@ const (
 	BillingServiceCodeMCPToolCall = "mcp.tool_call"
 
 	PointMicrosPerPoint int64 = 1_000_000
+	// PointMicrosPerCNY is the current product conversion rate:
+	// 0.1 CNY equals 1 displayed point.
+	PointMicrosPerCNY int64 = 10 * PointMicrosPerPoint
 )
 
 // BillingPlan is the deploy-wide product definition assigned to a workspace.
@@ -262,13 +265,15 @@ type TenantCreditTransaction struct {
 func (TenantCreditTransaction) TableName() string { return "tenant_credit_transactions" }
 
 type BillingRuntimePolicy struct {
-	Enabled                              bool   `json:"enabled"`
-	EnforcementMode                      string `json:"enforcement_mode"`
-	PointMicrosPerUSD                    int64  `json:"point_micros_per_usd"`
-	DefaultModelMultiplierPPM            int64  `json:"default_model_multiplier_ppm"`
-	DefaultServiceMultiplierPPM          int64  `json:"default_service_multiplier_ppm"`
-	DefaultMemberMonthlyLimitPointMicros int64  `json:"default_member_monthly_limit_point_micros"`
-	DefaultMemberAllocationPointMicros   int64  `json:"default_member_allocation_point_micros"`
+	Enabled         bool   `json:"enabled"`
+	EnforcementMode string `json:"enforcement_mode"`
+	// PointMicrosPerUSD keeps the historical API/field name for compatibility.
+	// Its configured value is now the point-micros rate per CNY.
+	PointMicrosPerUSD                    int64 `json:"point_micros_per_usd"`
+	DefaultModelMultiplierPPM            int64 `json:"default_model_multiplier_ppm"`
+	DefaultServiceMultiplierPPM          int64 `json:"default_service_multiplier_ppm"`
+	DefaultMemberMonthlyLimitPointMicros int64 `json:"default_member_monthly_limit_point_micros"`
+	DefaultMemberAllocationPointMicros   int64 `json:"default_member_allocation_point_micros"`
 }
 
 // BillingModelPrice is an immutable version of a model's upstream cost.
@@ -544,6 +549,16 @@ type BillingActorUsageSummary struct {
 	LastBillingAt               *time.Time `json:"last_billing_at,omitempty"`
 }
 
+// BillingActorStorageUsageSummary aggregates the net storage ledger changes
+// attributed to each workspace member. Positive transactions consume storage;
+// negative transactions release it.
+type BillingActorStorageUsageSummary struct {
+	ActorUserID      string     `json:"actor_user_id"`
+	UsedBytes        int64      `json:"used_bytes"`
+	TransactionCount int64      `json:"transaction_count"`
+	LastStorageAt    *time.Time `json:"last_storage_at,omitempty"`
+}
+
 type BillingOverviewPlan struct {
 	Code                 string `json:"code"`
 	Name                 string `json:"name"`
@@ -572,11 +587,12 @@ type BillingOverviewStorage struct {
 }
 
 type BillingOverviewCredits struct {
-	BalancePointMicros         int64 `json:"balance_point_micros"`
-	PeriodPointMicros          int64 `json:"period_point_micros"`
-	PeriodUsedPointMicros      int64 `json:"period_used_point_micros"`
-	PeriodRemainingPointMicros int64 `json:"period_remaining_point_micros"`
-	Visible                    bool  `json:"visible"`
+	BalancePointMicros          int64 `json:"balance_point_micros"`
+	BalanceAllocatedPointMicros int64 `json:"balance_allocated_point_micros"`
+	PeriodPointMicros           int64 `json:"period_point_micros"`
+	PeriodUsedPointMicros       int64 `json:"period_used_point_micros"`
+	PeriodRemainingPointMicros  int64 `json:"period_remaining_point_micros"`
+	Visible                     bool  `json:"visible"`
 }
 
 type BillingOverviewMemberUsage struct {

@@ -54,13 +54,16 @@ func (defaultingSystemSettingService) SubscribeRedis(context.Context) error {
 	return nil
 }
 
-func TestBillingPolicyDefaultsToObserveMode(t *testing.T) {
+func TestBillingPolicyDefaultsToEnforceMode(t *testing.T) {
 	policy := NewBillingPolicyService(defaultingSystemSettingService{}).RuntimePolicy(context.Background())
 
 	if !policy.Enabled {
 		t.Fatal("billing policy should enable usage tracking by default")
 	}
-	if policy.EnforcementMode != "observe" {
-		t.Fatalf("enforcement mode = %q, want observe", policy.EnforcementMode)
+	if policy.EnforcementMode != "enforce" {
+		t.Fatalf("enforcement mode = %q, want enforce", policy.EnforcementMode)
+	}
+	if policy.PointMicrosPerUSD != types.PointMicrosPerCNY {
+		t.Fatalf("point rate = %d, want %d", policy.PointMicrosPerUSD, types.PointMicrosPerCNY)
 	}
 }

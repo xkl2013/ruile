@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_tenant_storage_transactions_tenant_actor;

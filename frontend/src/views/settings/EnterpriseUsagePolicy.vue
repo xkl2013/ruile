@@ -98,6 +98,7 @@
               <tr>
                 <th>{{ t('tenant.subscriptionUsage.member') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.memberUsage') }}</th>
+                <th>{{ t('tenant.subscriptionUsage.memberStorage') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.memberStrategy') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.memberOverage') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.memberLastBilling') }}</th>
@@ -113,12 +114,16 @@
                   <strong>{{ member.usedText }}</strong>
                   <span>{{ member.limitText }}</span>
                 </td>
+                <td>
+                  <strong>{{ member.storageUsedText }}</strong>
+                  <span>{{ member.storageTransactionText }}</span>
+                </td>
                 <td>{{ member.strategy }}</td>
                 <td>{{ member.overage }}</td>
                 <td>{{ member.lastBilling }}</td>
               </tr>
               <tr v-if="enterpriseMemberRows.length === 0">
-                <td colspan="5" class="enterprise-member-usage__empty">
+                <td colspan="6" class="enterprise-member-usage__empty">
                   {{ t('tenant.subscriptionUsage.noMemberUsage') }}
                 </td>
               </tr>
@@ -136,6 +141,7 @@ import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
   getMemberCreditAllocations,
+  getMemberStorageUsage,
   getTenantBillingPolicy,
   updateTenantBillingPolicy,
   type TenantBillingPolicy,
@@ -149,6 +155,8 @@ interface EnterpriseMemberUsageRow {
   role: string
   usedText: string
   limitText: string
+  storageUsedText: string
+  storageTransactionText: string
   strategy: string
   overage: string
   lastBilling: string
@@ -210,6 +218,22 @@ const formatUsageTime = (value: string) => {
   }).format(date)
 }
 
+const formatBytes = (bytes: number) => {
+  const value = Math.max(0, toFiniteNumber(bytes, 0))
+  if (value < 1024) return `${Math.round(value)} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let scaled = value
+  let unitIndex = -1
+  while (scaled >= 1024 && unitIndex < units.length - 1) {
+    scaled /= 1024
+    unitIndex += 1
+  }
+  const maximumFractionDigits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2
+  return `${new Intl.NumberFormat(locale.value || 'zh-CN', {
+    maximumFractionDigits,
+  }).format(scaled)} ${units[unitIndex]}`
+}
+
 const memberName = (member: TenantMember) =>
   member.username?.trim() || member.email?.trim() || member.user_id
 
@@ -224,8 +248,9 @@ const loadEnterpriseMemberUsage = async () => {
   if (!activeTenantId.value || !canManageEnterprisePolicy.value) return
 
   try {
-    const [allocationResponse, members] = await Promise.all([
+    const [allocationResponse, storageResponse, members] = await Promise.all([
       getMemberCreditAllocations(activeTenantId.value),
+      getMemberStorageUsage(activeTenantId.value),
       fetchAllTenantMembers(activeTenantId.value),
     ])
     if (!allocationResponse.success) {
@@ -233,9 +258,17 @@ const loadEnterpriseMemberUsage = async () => {
         allocationResponse.message || t('tenant.subscriptionUsage.memberUsageLoadFailed'),
       )
     }
+    if (!storageResponse.success) {
+      throw new Error(
+        storageResponse.message || t('tenant.subscriptionUsage.memberUsageLoadFailed'),
+      )
+    }
 
     const allocationByUserID = new Map(
       (allocationResponse.data || []).map((allocation) => [allocation.user_id, allocation]),
+    )
+    const storageByUserID = new Map(
+      (storageResponse.data || []).map((usage) => [usage.actor_user_id, usage]),
     )
     const defaultLimitMicros = Math.max(
       0,
@@ -258,6 +291,7 @@ const loadEnterpriseMemberUsage = async () => {
             ? 0
             : defaultLimitMicros
         const usedMicros = Math.max(0, allocation?.used_point_micros || 0)
+        const storageUsage = storageByUserID.get(member.user_id)
 
         return {
           userId: member.user_id,
@@ -269,6 +303,12 @@ const loadEnterpriseMemberUsage = async () => {
             : t('tenant.subscriptionUsage.memberLimit', {
               limit: formatCredits(effectiveLimitMicros),
             }),
+          storageUsedText: formatBytes(storageUsage?.used_bytes || 0),
+          storageTransactionText: storageUsage?.transaction_count
+            ? t('tenant.subscriptionUsage.memberStorageTransactions', {
+              count: storageUsage.transaction_count,
+            })
+            : t('tenant.subscriptionUsage.memberStorageNoTransactions'),
           strategy: memberStrategyLabel(mode),
           overage: allocation?.effective_overage_policy === 'use_enterprise_balance'
             ? t('tenant.subscriptionUsage.overageUseBalance')

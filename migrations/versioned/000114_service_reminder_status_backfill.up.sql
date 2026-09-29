@@ -1,6 +1,61 @@
 -- Migration 000114: backfill the default reminder status machine for legacy
 -- service spaces created before migration 000113 was deployed.
 
+-- Some databases recorded migration 000113 from the parallel compatibility
+-- branch. In that branch these status tables were not created, but migration
+-- 000114 was still recorded as the next version. Recreate the schema
+-- idempotently before running the backfill so dirty databases can recover
+-- without editing schema_migrations manually.
+CREATE TABLE IF NOT EXISTS service_reminder_statuses (
+    id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+    tenant_id BIGINT NOT NULL,
+    service_id VARCHAR(36) NOT NULL,
+    status_key VARCHAR(64) NOT NULL,
+    label VARCHAR(128) NOT NULL,
+    category VARCHAR(32) NOT NULL,
+    is_initial BOOLEAN NOT NULL DEFAULT false,
+    is_terminal BOOLEAN NOT NULL DEFAULT false,
+    display_order INTEGER NOT NULL DEFAULT 0,
+    color VARCHAR(32) NOT NULL DEFAULT '',
+    description VARCHAR(512) NOT NULL DEFAULT '',
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_by VARCHAR(36) NOT NULL DEFAULT '',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT chk_service_reminder_statuses_category
+        CHECK (category IN ('open', 'in_progress', 'done', 'dismissed'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_service_reminder_statuses_key
+    ON service_reminder_statuses(service_id, status_key)
+    WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_service_reminder_statuses_initial
+    ON service_reminder_statuses(service_id)
+    WHERE is_initial = true AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_service_reminder_statuses_scope
+    ON service_reminder_statuses(tenant_id, service_id, enabled, display_order);
+
+CREATE TABLE IF NOT EXISTS service_reminder_status_transitions (
+    id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+    tenant_id BIGINT NOT NULL,
+    service_id VARCHAR(36) NOT NULL,
+    from_status_id VARCHAR(36) NOT NULL,
+    to_status_id VARCHAR(36) NOT NULL,
+    allowed_roles JSONB NOT NULL DEFAULT '[]'::jsonb,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_service_reminder_status_transitions_edge
+        CHECK (from_status_id <> to_status_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_service_reminder_status_transitions_edge
+    ON service_reminder_status_transitions(service_id, from_status_id, to_status_id);
+CREATE INDEX IF NOT EXISTS idx_service_reminder_status_transitions_scope
+    ON service_reminder_status_transitions(tenant_id, service_id, enabled);
+
 INSERT INTO service_reminder_statuses (
     id, tenant_id, service_id, status_key, label, category,
     is_initial, is_terminal, display_order, is_system, enabled, created_by
@@ -56,4 +111,3 @@ WHERE NOT EXISTS (
       AND existing.from_status_id = from_status.id
       AND existing.to_status_id = to_status.id
 );
-

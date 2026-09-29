@@ -1,19 +1,19 @@
 -- Migration 000116: bind organize configurations and outputs to service spaces.
 
 ALTER TABLE organize_configs
-    ADD COLUMN target_service_id VARCHAR(36) NOT NULL DEFAULT '';
+    ADD COLUMN IF NOT EXISTS target_service_id VARCHAR(36) NOT NULL DEFAULT '';
 
 ALTER TABLE organize_jobs
-    ADD COLUMN target_service_id VARCHAR(36) NOT NULL DEFAULT '';
+    ADD COLUMN IF NOT EXISTS target_service_id VARCHAR(36) NOT NULL DEFAULT '';
 
 ALTER TABLE organize_outputs
-    ADD COLUMN assigned_service_id VARCHAR(36) NOT NULL DEFAULT '';
+    ADD COLUMN IF NOT EXISTS assigned_service_id VARCHAR(36) NOT NULL DEFAULT '';
 
 ALTER TABLE organize_outputs
-    ADD COLUMN assignment_status VARCHAR(32) NOT NULL DEFAULT 'pending';
+    ADD COLUMN IF NOT EXISTS assignment_status VARCHAR(32) NOT NULL DEFAULT 'pending';
 
 ALTER TABLE organize_outputs
-    ADD COLUMN assignment_reason TEXT NOT NULL DEFAULT '';
+    ADD COLUMN IF NOT EXISTS assignment_reason TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_organize_configs_target_service
     ON organize_configs(tenant_id, target_service_id, updated_at DESC);

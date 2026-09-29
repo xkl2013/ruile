@@ -2,6 +2,8 @@ package chatpipeline
 
 import (
 	"context"
+	"errors"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -128,6 +130,37 @@ var (
 	}
 )
 
+const (
+	billingInsufficientCreditsMessage = "当前工作区积分不足，请充值后再试。如果你使用的是企业空间，请联系管理员调整成员额度或开启企业余额。"
+	billingPricingUnavailableMessage  = "当前模型计费配置未完成，请联系管理员配置模型价格后再试。"
+	billingRejectedMessage            = "当前工作区计费状态暂时不可用，请充值或联系管理员处理后再试。"
+)
+
+func isBillingRejectedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "billing:")
+}
+
+func userFacingBillingError(err error) error {
+	if err == nil {
+		return errors.New(billingRejectedMessage)
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "insufficient credits"):
+		return errors.New(billingInsufficientCreditsMessage)
+	case strings.Contains(msg, "no active model price") ||
+		strings.Contains(msg, "model price") ||
+		strings.Contains(msg, "pricing"):
+		return errors.New(billingPricingUnavailableMessage)
+	default:
+		return errors.New(billingRejectedMessage)
+	}
+}
+
 // clone creates a copy of the PluginError
 func (p *PluginError) clone() *PluginError {
 	return &PluginError{
@@ -139,6 +172,10 @@ func (p *PluginError) clone() *PluginError {
 // WithError attaches an error to the PluginError and returns a new instance
 func (p *PluginError) WithError(err error) *PluginError {
 	pp := p.clone()
+	if p.ErrorType == ErrBillingRejected.ErrorType {
+		pp.Err = userFacingBillingError(err)
+		return pp
+	}
 	pp.Err = err
 	return pp
 }

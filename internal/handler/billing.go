@@ -117,6 +117,21 @@ func (h *BillingHandler) ListCurrentMemberAllocations(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows})
 }
 
+func (h *BillingHandler) ListCurrentMemberStorageUsage(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, ok := types.TenantIDFromContext(ctx)
+	if !ok || tenantID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "workspace context is required"})
+		return
+	}
+	rows, err := h.usage.ListStorageUsageSummaryByActor(ctx, tenantID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to list member storage usage"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": rows})
+}
+
 func (h *BillingHandler) GetCurrentTenantBillingPolicy(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, ok := types.TenantIDFromContext(ctx)

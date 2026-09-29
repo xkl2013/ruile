@@ -1181,13 +1181,21 @@ func (r *billingRepository) GetPeriodUsedPointMicros(
 	err := r.db.WithContext(ctx).
 		Model(&types.TenantUsageLedger{}).
 		Where(
-			"tenant_id = ? AND status = ? AND billing_at >= ? AND billing_at < ?",
+			"tenant_id = ? AND status IN ? AND billing_at >= ? AND billing_at < ?",
 			tenantID,
-			"settled",
+			[]string{"settled", "observed"},
 			periodStart.UTC(),
 			periodEnd.UTC(),
 		).
-		Select("COALESCE(SUM(period_covered_point_micros), 0)").
+		Select(`
+			COALESCE(SUM(
+				CASE
+					WHEN status = 'settled' THEN period_covered_point_micros
+					WHEN status = 'observed' THEN billed_point_micros
+					ELSE 0
+				END
+			), 0)
+		`).
 		Scan(&used).Error
 	if err != nil {
 		return 0, err
@@ -1281,6 +1289,55 @@ func (r *billingRepository) ListUsageSummaryByActor(
 		rows = append(rows, summary)
 	}
 	return rows, err
+}
+
+func (r *billingRepository) ListStorageUsageSummaryByActor(
+	ctx context.Context,
+	tenantID uint64,
+) ([]*types.BillingActorStorageUsageSummary, error) {
+	if tenantID == 0 {
+		return []*types.BillingActorStorageUsageSummary{}, nil
+	}
+
+	type storageUsageRow struct {
+		ActorUserID      string
+		UsedBytes        int64
+		TransactionCount int64
+		LastStorageAt    aggregateTime `gorm:"column:last_storage_at"`
+	}
+	var aggregateRows []storageUsageRow
+	if err := r.db.WithContext(ctx).
+		Table("tenant_storage_transactions").
+		Select(`
+			actor_user_id,
+			COALESCE(SUM(amount_bytes), 0) AS used_bytes,
+			COUNT(*) AS transaction_count,
+			MAX(created_at) AS last_storage_at
+		`).
+		Where("tenant_id = ? AND TRIM(actor_user_id) <> ''", tenantID).
+		Group("actor_user_id").
+		Scan(&aggregateRows).Error; err != nil {
+		return nil, err
+	}
+
+	rows := make([]*types.BillingActorStorageUsageSummary, 0, len(aggregateRows))
+	for _, row := range aggregateRows {
+		usedBytes := row.UsedBytes
+		if usedBytes < 0 {
+			usedBytes = 0
+		}
+		summary := &types.BillingActorStorageUsageSummary{
+			ActorUserID:      row.ActorUserID,
+			UsedBytes:        usedBytes,
+			TransactionCount: row.TransactionCount,
+		}
+		if row.LastStorageAt.Valid {
+			lastStorageAt := row.LastStorageAt.Time
+			summary.LastStorageAt = &lastStorageAt
+		}
+		rows = append(rows, summary)
+	}
+	return rows, nil
 }
 
 func (r *billingRepository) ListMemberAllocations(

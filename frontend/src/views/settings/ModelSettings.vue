@@ -493,6 +493,13 @@ function priceToNanoCNY(value: number | string | null | undefined) {
   return Math.round(amount * 1_000_000_000)
 }
 
+function nanoCNYToPrice(value: number | string | null | undefined) {
+  const normalized = typeof value === 'string' ? value.trim() : value
+  const amount = Number(normalized || 0)
+  if (!Number.isFinite(amount) || amount < 0) return 0
+  return amount / 1_000_000_000
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message
   if (error && typeof error === 'object') {
@@ -512,7 +519,14 @@ const priceDialogTitle = computed(() => (
 ))
 
 function openPriceDialog(model: any, fromCreation = false) {
+  const existingPrice = modelPriceFor(model)
   resetPriceDraft()
+  if (existingPrice?.pricing_mode === 'token') {
+    priceDraft.inputCNY = nanoCNYToPrice(existingPrice.input_nanousd_per_m_tokens)
+    priceDraft.cacheReadCNY = nanoCNYToPrice(existingPrice.cache_read_nanousd_per_m_tokens)
+    priceDraft.cacheWriteCNY = nanoCNYToPrice(existingPrice.cache_write_nanousd_per_m_tokens)
+    priceDraft.outputCNY = nanoCNYToPrice(existingPrice.output_nanousd_per_m_tokens)
+  }
   priceTarget.value = {
     modelKey: model.modelName || model.name || '',
     provider: model.provider || '',

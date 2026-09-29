@@ -58,7 +58,7 @@ func roundedUnitCost(units, rate, divisor int64) (int64, error) {
 func CalculateModelCharge(
 	rates ModelRates,
 	usage ModelUsage,
-	pointMicrosPerUSD int64,
+	pointMicrosPerCNY int64,
 	modelMultiplierPPM int64,
 	planMultiplierPPM int64,
 ) (ModelCharge, error) {
@@ -67,7 +67,7 @@ func CalculateModelCharge(
 		usage.ReasoningTokens < 0 || usage.CallCount < 0 || usage.DurationMillis < 0 {
 		return result, errors.New("pricing: usage must be non-negative")
 	}
-	if pointMicrosPerUSD <= 0 || modelMultiplierPPM <= 0 || planMultiplierPPM <= 0 {
+	if pointMicrosPerCNY <= 0 || modelMultiplierPPM <= 0 || planMultiplierPPM <= 0 {
 		return result, errors.New("pricing: exchange rate and multipliers must be positive")
 	}
 
@@ -126,7 +126,7 @@ func CalculateModelCharge(
 	}
 	result.BilledPointMicros, err = BaseCostToPointMicros(
 		result.RatedCostNanoUSD,
-		pointMicrosPerUSD,
+		pointMicrosPerCNY,
 		MultiplierScale,
 	)
 	if err != nil {

@@ -93,12 +93,27 @@ func (p *PluginSearch) OnEvent(ctx context.Context,
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	allResults := make([]*types.SearchResult, 0)
+	var searchErr *PluginError
+	recordSearchErr := func(err *PluginError) {
+		if err == nil {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if searchErr == nil {
+			searchErr = err
+		}
+	}
 
 	wg.Add(2)
 	// Goroutine 1: Knowledge base search using SearchTargets
 	go func() {
 		defer wg.Done()
-		kbResults := p.searchByTargets(ctx, chatManage)
+		kbResults, err := p.searchByTargets(ctx, chatManage)
+		if err != nil {
+			recordSearchErr(err)
+			return
+		}
 		if len(kbResults) > 0 {
 			mu.Lock()
 			allResults = append(allResults, kbResults...)
@@ -118,6 +133,10 @@ func (p *PluginSearch) OnEvent(ctx context.Context,
 	}()
 
 	wg.Wait()
+
+	if searchErr != nil {
+		return searchErr
+	}
 
 	chatManage.SearchResult = allResults
 
@@ -317,9 +336,9 @@ func logSearchScoreSample(ctx context.Context, action string, results []*types.S
 func (p *PluginSearch) searchByTargets(
 	ctx context.Context,
 	chatManage *types.ChatManage,
-) []*types.SearchResult {
+) ([]*types.SearchResult, *PluginError) {
 	if len(chatManage.SearchTargets) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	queryText := strings.TrimSpace(chatManage.RewriteQuery)
@@ -363,7 +382,19 @@ func (p *PluginSearch) searchByTargets(
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var errMu sync.Mutex
 	var results []*types.SearchResult
+	var firstErr *PluginError
+	recordErr := func(err *PluginError) {
+		if err == nil {
+			return
+		}
+		errMu.Lock()
+		defer errMu.Unlock()
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
 
 	for modelKey, targets := range groups {
 		wg.Add(1)
@@ -380,6 +411,10 @@ func (p *PluginSearch) searchByTargets(
 						"kb_id":     targets[0].KnowledgeBaseID,
 						"error":     err.Error(),
 					})
+					if isBillingRejectedError(err) {
+						recordErr(ErrBillingRejected.WithError(err))
+						return
+					}
 				} else {
 					queryEmbedding = emb
 				}
@@ -427,6 +462,9 @@ func (p *PluginSearch) searchByTargets(
 							"kb_ids": fullKBIDs,
 							"error":  err.Error(),
 						})
+						if isBillingRejectedError(err) {
+							recordErr(ErrBillingRejected.WithError(err))
+						}
 						return
 					}
 					pipelineInfo(ctx, "Search", "combined_kb_result", map[string]interface{}{
@@ -444,7 +482,9 @@ func (p *PluginSearch) searchByTargets(
 				innerWg.Add(1)
 				go func(t *types.SearchTarget) {
 					defer innerWg.Done()
-					p.searchSingleTarget(ctx, chatManage, t, queryText, queryEmbedding, &mu, &results)
+					if err := p.searchSingleTarget(ctx, chatManage, t, queryText, queryEmbedding, &mu, &results); err != nil {
+						recordErr(err)
+					}
 				}(target)
 			}
 
@@ -454,10 +494,14 @@ func (p *PluginSearch) searchByTargets(
 
 	wg.Wait()
 
+	if firstErr != nil {
+		return nil, firstErr
+	}
+
 	pipelineInfo(ctx, "Search", "kb_result_summary", map[string]interface{}{
 		"total_hits": len(results),
 	})
-	return results
+	return results, nil
 }
 
 // searchSingleTarget performs hybrid retrieval inside one constrained target.
@@ -469,9 +513,9 @@ func (p *PluginSearch) searchSingleTarget(
 	queryEmbedding []float32,
 	mu *sync.Mutex,
 	results *[]*types.SearchResult,
-) {
+) *PluginError {
 	if t.Type == types.SearchTargetTypeKnowledge && len(t.KnowledgeIDs) == 0 {
-		return
+		return nil
 	}
 
 	vectorThreshold, keywordThreshold := t.RecallThresholds(
@@ -506,7 +550,10 @@ func (p *PluginSearch) searchSingleTarget(
 			"query":       params.QueryText,
 			"error":       err.Error(),
 		})
-		return
+		if isBillingRejectedError(err) {
+			return ErrBillingRejected.WithError(err)
+		}
+		return nil
 	}
 	pipelineInfo(ctx, "Search", "kb_result", map[string]interface{}{
 		"kb_id":       t.KnowledgeBaseID,
@@ -516,6 +563,7 @@ func (p *PluginSearch) searchSingleTarget(
 	mu.Lock()
 	*results = append(*results, res...)
 	mu.Unlock()
+	return nil
 }
 
 // searchWebIfEnabled executes web search when enabled and returns converted results

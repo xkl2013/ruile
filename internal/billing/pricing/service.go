@@ -24,7 +24,7 @@ func CalculateServiceCharge(
 	mode string,
 	rates ServiceRates,
 	usage ServiceUsage,
-	pointMicrosPerUSD int64,
+	pointMicrosPerCNY int64,
 	serviceMultiplierPPM int64,
 	planMultiplierPPM int64,
 ) (ServiceCharge, error) {
@@ -32,7 +32,7 @@ func CalculateServiceCharge(
 	if usage.CallCount < 0 || usage.Units < 0 {
 		return result, errors.New("pricing: service usage must be non-negative")
 	}
-	if pointMicrosPerUSD <= 0 || serviceMultiplierPPM <= 0 || planMultiplierPPM <= 0 {
+	if pointMicrosPerCNY <= 0 || serviceMultiplierPPM <= 0 || planMultiplierPPM <= 0 {
 		return result, errors.New("pricing: exchange rate and multipliers must be positive")
 	}
 	var err error
@@ -66,7 +66,7 @@ func CalculateServiceCharge(
 	}
 	result.BilledPointMicros, err = BaseCostToPointMicros(
 		result.RatedCostNanoUSD,
-		pointMicrosPerUSD,
+		pointMicrosPerCNY,
 		MultiplierScale,
 	)
 	if err != nil {
@@ -94,13 +94,13 @@ func CalculateCombinedCharge(
 	serviceUsage ServiceUsage,
 	serviceMultiplierPPM int64,
 	planMultiplierPPM int64,
-	pointMicrosPerUSD int64,
+	pointMicrosPerCNY int64,
 ) (CombinedCharge, error) {
 	var result CombinedCharge
 	modelCharge, err := CalculateModelCharge(
 		modelRates,
 		modelUsage,
-		pointMicrosPerUSD,
+		pointMicrosPerCNY,
 		modelMultiplierPPM,
 		MultiplierScale,
 	)
@@ -111,7 +111,7 @@ func CalculateCombinedCharge(
 		serviceMode,
 		serviceRates,
 		serviceUsage,
-		pointMicrosPerUSD,
+		pointMicrosPerCNY,
 		serviceMultiplierPPM,
 		MultiplierScale,
 	)
@@ -130,7 +130,7 @@ func CalculateCombinedCharge(
 	}
 	result.BilledPointMicros, err = BaseCostToPointMicros(
 		result.RatedCostNanoUSD,
-		pointMicrosPerUSD,
+		pointMicrosPerCNY,
 		MultiplierScale,
 	)
 	if err != nil {

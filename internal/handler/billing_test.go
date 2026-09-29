@@ -87,6 +87,12 @@ func (s *stubUsageBillingService) ListUsageSummaryByActor(
 ) ([]*types.BillingActorUsageSummary, error) {
 	return nil, nil
 }
+func (s *stubUsageBillingService) ListStorageUsageSummaryByActor(
+	context.Context,
+	uint64,
+) ([]*types.BillingActorStorageUsageSummary, error) {
+	return nil, nil
+}
 func (s *stubUsageBillingService) ListMemberAllocations(
 	context.Context,
 	uint64,

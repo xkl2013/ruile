@@ -2,7 +2,9 @@ package chatpipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -122,4 +124,24 @@ func TestTrigger(t *testing.T) {
 			t.Errorf("Expected error %v, got %v", expectedErr, err)
 		}
 	})
+}
+
+func TestBillingRejectedErrorUsesFriendlyMessage(t *testing.T) {
+	err := ErrBillingRejected.WithError(errors.New("billing: insufficient credits for this model call"))
+	if err.Err == nil {
+		t.Fatal("expected user-facing error")
+	}
+	if !strings.Contains(err.Err.Error(), "积分不足") || !strings.Contains(err.Err.Error(), "充值") {
+		t.Fatalf("unexpected billing error message: %q", err.Err.Error())
+	}
+}
+
+func TestBillingRejectedModelPricingErrorUsesAdminMessage(t *testing.T) {
+	err := ErrBillingRejected.WithError(errors.New(`billing: no active model price for "qwen"`))
+	if err.Err == nil {
+		t.Fatal("expected user-facing error")
+	}
+	if !strings.Contains(err.Err.Error(), "计费配置") || !strings.Contains(err.Err.Error(), "管理员") {
+		t.Fatalf("unexpected billing error message: %q", err.Err.Error())
+	}
 }

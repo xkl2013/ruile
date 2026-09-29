@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="zh-CN" theme-mode="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>课程模块 · admin 上传文件夹原型 v0.2</title>
+<style>
+  :root{
+    --app-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --brand:#07c05f; --brand-hover:#08dd6e; --brand-active:#06b04d;
+    --brand-1:#e9f8ec; --brand-3:#08dd6e; --brand-6:#049b38; --brand-8:#027218;
+    --warn:#ed7b2f; --warn-1:#fef3e6;
+    --error:#e34d59; --error-1:#fdecee;
+    --success:#00a870; --success-1:#e8f8f2;
+    --g1:#f3f3f3; --g2:#eee; --g3:#e7e7e7; --g4:#dcdcdc; --g5:#c5c5c5;
+    --g6:#a6a6a6; --g7:#8b8b8b; --g9:#5e5e5e; --g12:#2c2c2c;
+    --t1:rgba(0,0,0,.9); --t2:rgba(0,0,0,.6); --t3:rgba(0,0,0,.4); --t4:rgba(0,0,0,.26);
+    --bg-page:#f3f5f4; --bg-card:#fff; --bd:#e7e7e7; --bd2:#dcdcdc;
+    --r-s:2px; --r:3px; --r-m:6px; --r-l:9px; --r-xl:12px; --r-round:999px;
+    --sh1:0 1px 10px rgba(0,0,0,.05),0 4px 5px rgba(0,0,0,.04),0 2px 4px -1px rgba(0,0,0,.06);
+    --sh2:0 3px 14px 2px rgba(0,0,0,.05),0 8px 10px 1px rgba(0,0,0,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--app-font-family);background:var(--bg-page);color:var(--t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:var(--g4);border-radius:var(--r-round)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  .app{display:flex;height:100vh;overflow:hidden}
+  .rail{width:236px;flex:0 0 236px;background:#fbfcfb;border-right:1px solid var(--bd);display:flex;flex-direction:column}
+  .rail-head{padding:18px 18px 14px}
+  .rail-title{font-size:15px;font-weight:600;letter-spacing:.2px}
+  .rail-sub{font-size:12px;color:var(--t3);margin-top:4px;line-height:1.6}
+  .rail-group{padding:6px 10px;overflow-y:auto;flex:1}
+  .rail-label{font-size:11px;color:var(--t4);padding:12px 8px 6px;letter-spacing:.6px}
+  .rail-btn{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:var(--r-m);color:var(--t2);text-align:left;line-height:1.35;transition:background .14s,color .14s}
+  .rail-btn:hover{background:var(--g1);color:var(--t1)}
+  .rail-btn.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .rail-btn .idx{width:19px;height:19px;flex:0 0 19px;border-radius:var(--r-round);background:var(--g3);color:var(--g7);font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:600}
+  .rail-btn.on .idx{background:var(--brand);color:#fff}
+  .rail-btn .lb{font-size:13px}
+  .rail-foot{padding:12px 18px 16px;border-top:1px solid var(--bd);font-size:11px;color:var(--t4);line-height:1.7}
+
+  .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-page)}
+  .bar{display:flex;align-items:center;gap:12px;padding:12px 22px;background:var(--bg-card);border-bottom:1px solid var(--bd);flex-wrap:wrap}
+  .bar h1{margin:0;font-size:16px;font-weight:600}
+  .bar .path{font-size:12px;color:var(--t3);font-family:ui-monospace,Menlo,monospace}
+  .bar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .scroll{flex:1;overflow-y:auto;padding:20px 22px 60px}
+  .canvas{max-width:1180px;margin:0 auto}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 15px;border-radius:var(--r-m);border:1px solid var(--bd2);background:#fff;color:var(--t1);font-size:13px;transition:all .14s;white-space:nowrap}
+  .btn:hover{border-color:var(--brand);color:var(--brand-6)}
+  .btn.pri{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.pri:hover{background:var(--brand-active);border-color:var(--brand-active);color:#fff}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--t2)}
+  .btn.ghost:hover{background:var(--g1);color:var(--t1)}
+  .btn.sm{height:27px;padding:0 11px;font-size:12px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .tag{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:var(--r);font-size:11px;background:var(--g1);color:var(--t2);white-space:nowrap}
+  .tag.official{background:#eaf1ff;color:#2f5fd0}
+  .tag.creator{background:var(--brand-1);color:var(--brand-6)}
+  .tag.cat{background:var(--g1);color:var(--t2)}
+  .chip{height:28px;padding:0 13px;border-radius:var(--r-round);border:1px solid var(--bd2);background:#fff;font-size:12px;color:var(--t2);transition:all .14s}
+  .chip:hover{border-color:var(--brand);color:var(--brand-6)}
+  .chip.on{background:var(--brand-1);border-color:var(--brand);color:var(--brand-6);font-weight:600}
+  .field{height:32px;padding:0 11px;border:1px solid var(--bd2);border-radius:var(--r-m);background:#fff;width:100%;outline:none;transition:border-color .14s}
+  .field:focus{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-1)}
+  textarea.field{height:auto;padding:9px 11px;resize:vertical;line-height:1.6}
+  select.field{padding-right:28px}
+  .search{display:flex;align-items:center;gap:7px;height:32px;padding:0 11px;border:1px solid var(--bd2);border-radius:var(--r-m);background:#fff;min-width:240px}
+  .search:focus-within{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-1)}
+  .search input{border:none;outline:none;background:none;flex:1;min-width:0}
+  .lbl{font-size:12px;color:var(--t2);margin-bottom:6px;display:block}
+  .prog{height:5px;border-radius:var(--r-round);background:var(--g2);overflow:hidden}
+  .prog i{display:block;height:100%;background:var(--brand);border-radius:var(--r-round);transition:width .3s}
+  .muted{color:var(--t3)}
+  .sec-title{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;margin:0 0 12px}
+  .card{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-l);box-shadow:var(--sh1)}
+  .empty{text-align:center;padding:52px 20px;color:var(--t3)}
+  .empty .big{font-size:15px;color:var(--t2);margin-bottom:8px}
+  .divider{height:1px;background:var(--bd);margin:16px 0}
+
+  .tabs{display:flex;gap:4px;overflow-x:auto;padding:4px;background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-l);box-shadow:var(--sh1)}
+  .tab{height:32px;padding:0 14px;border-radius:var(--r-m);font-size:13px;color:var(--t2);white-space:nowrap;display:flex;align-items:center;gap:6px;transition:all .14s;border:none;background:transparent}
+  .tab:hover{background:var(--g1)}
+  .tab.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .tab .c{font-size:11px;color:var(--t3);font-weight:400}
+  .tab.on .c{color:var(--brand-6);opacity:.75}
+
+  .filter-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0 14px}
+  .filter-row .sp{margin-left:auto}
+  .seg{display:inline-flex;background:var(--g1);border-radius:var(--r-m);padding:2px}
+  .seg button{height:26px;padding:0 12px;border-radius:var(--r);font-size:12px;color:var(--t2);border:none;background:transparent}
+  .seg button.on{background:#fff;color:var(--t1);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:16px}
+  .cc{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-l);overflow:hidden;box-shadow:var(--sh1);transition:transform .16s,box-shadow .16s;cursor:pointer;display:flex;flex-direction:column}
+  .cc:hover{transform:translateY(-2px);box-shadow:var(--sh2)}
+  .cc-cover{position:relative;aspect-ratio:16/9;display:flex;align-items:flex-end;padding:10px}
+  .cc-cover .badges{position:absolute;left:10px;top:10px;display:flex;gap:5px}
+  .cc-cover .cnt{position:absolute;right:10px;bottom:10px;font-size:11px;color:#fff;background:rgba(0,0,0,.45);border-radius:var(--r);padding:2px 7px;backdrop-filter:blur(4px)}
+  .cc-body{padding:12px 13px 13px;display:flex;flex-direction:column;gap:8px;flex:1}
+  .cc-title{font-size:14px;font-weight:600;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:40px}
+  .cc-meta{font-size:12px;color:var(--t3);display:flex;align-items:center;gap:7px}
+  .cc-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--g2);display:flex;align-items:center;gap:8px}
+  .cc-foot .pl{font-size:11px;color:var(--t3);flex:0 0 auto}
+  .cc-foot .prog{flex:1}
+  .avatar{width:20px;height:20px;border-radius:var(--r-round);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex:0 0 20px}
+
+  .hero{display:flex;gap:20px;padding:20px;align-items:flex-start}
+  .hero-cover{flex:0 0 300px;aspect-ratio:16/9;border-radius:var(--r-l);display:flex;align-items:center;justify-content:center;position:relative}
+  .hero-cover .badges{position:absolute;left:10px;top:10px;display:flex;gap:5px}
+  .hero-main{flex:1;min-width:0}
+  .hero-main h2{margin:0 0 8px;font-size:20px;line-height:1.35}
+  .hero-meta{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--t2);margin:10px 0}
+  .hero-sum{margin:12px 0 16px;font-size:13px;line-height:1.75;color:var(--t2)}
+  .hero-teacher{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--t2);margin-bottom:16px}
+  .hero-act{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .progress-box{flex:0 0 168px;background:var(--g1);border-radius:var(--r-l);padding:14px;text-align:center}
+  .progress-box .num{font-size:26px;font-weight:600;color:var(--brand-6);line-height:1.2}
+  .progress-box .t{font-size:12px;color:var(--t3);margin-bottom:10px}
+
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;margin-top:16px}
+  .lesson-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--g2);cursor:pointer;transition:background .14s}
+  .lesson-row:last-child{border-bottom:none}
+  .lesson-row:hover{background:var(--g1)}
+  .lesson-row.cur{background:var(--brand-1)}
+  .lesson-row .st{width:22px;height:22px;flex:0 0 22px;border-radius:var(--r-round);border:1px solid var(--bd2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--t3);background:#fff}
+  .lesson-row.done .st{background:var(--success);border-color:var(--success);color:#fff}
+  .lesson-row.cur .st{background:var(--brand);border-color:var(--brand);color:#fff}
+  .lesson-row .lt{flex:1;min-width:0}
+  .lesson-row .lt b{font-weight:500;font-size:13px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lesson-row .lt span{font-size:11px;color:var(--t3)}
+  .lesson-row .dur{font-size:12px;color:var(--t3);flex:0 0 auto}
+  .side-box{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-l);padding:15px;box-shadow:var(--sh1);margin-bottom:14px}
+  .kv{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;color:var(--t2)}
+  .kv b{color:var(--t1);font-weight:500}
+
+  .lesson-shell{display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:16px}
+  .player{aspect-ratio:16/9;background:linear-gradient(135deg,#22302a,#0e1a14);border-radius:var(--r-l);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+  .player .play{width:56px;height:56px;border-radius:var(--r-round);background:rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center;color:var(--brand-6)}
+  .player .bar-time{position:absolute;left:16px;right:16px;bottom:14px}
+  .player .bar-time .prog{background:rgba(255,255,255,.25)}
+  .player .bar-time .prog i{background:#fff}
+  .player .bar-time .tt{display:flex;justify-content:space-between;font-size:11px;color:rgba(255,255,255,.8);margin-bottom:6px}
+  .article{padding:20px 22px;line-height:1.85;font-size:14px;color:var(--t1)}
+  .article h3{font-size:15px;margin:22px 0 10px;padding-left:10px;border-left:3px solid var(--brand);line-height:1.4}
+  .article h3:first-child{margin-top:0}
+  .article p{margin:0 0 12px;color:var(--t2)}
+  .article ul{margin:0 0 12px;padding-left:20px;color:var(--t2)}
+  .article li{margin-bottom:7px}
+  .nav-foot{display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--bd);background:var(--bg-card)}
+  .nav-foot .mid{margin-left:auto;margin-right:auto;font-size:12px;color:var(--t3)}
+
+  /* admin upload */
+  .dropzone{border:2px dashed var(--bd2);border-radius:var(--r-l);background:#fbfcfb;padding:42px 30px;text-align:center;transition:all .18s;cursor:pointer}
+  .dropzone:hover, .dropzone.dragover{border-color:var(--brand);background:var(--brand-1)}
+  .dropzone .big{font-size:16px;color:var(--t1);margin:14px 0 6px}
+  .dropzone .hint{font-size:12px;color:var(--t3);line-height:1.7}
+  .file-tree{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-m);padding:12px 14px;font-size:12.5px;max-height:260px;overflow-y:auto}
+  .file-tree .row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--g2)}
+  .file-tree .row:last-child{border-bottom:none}
+  .file-tree .row .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file-tree .row .type{font-size:10px;color:var(--t3);background:var(--g1);padding:1px 5px;border-radius:var(--r)}
+  .upload-step{display:none}
+  .upload-step.on{display:block}
+  .stepbar{display:flex;gap:0;margin-bottom:22px}
+  .stepbar .s{flex:1;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);padding:10px 0;position:relative}
+  .stepbar .s::after{content:"";position:absolute;right:16px;top:50%;width:40%;height:1px;background:var(--g3)}
+  .stepbar .s:last-child::after{display:none}
+  .stepbar .s .d{width:22px;height:22px;border-radius:var(--r-round);background:var(--g2);color:var(--g7);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600}
+  .stepbar .s.on{color:var(--brand-6);font-weight:600}
+  .stepbar .s.on .d{background:var(--brand);color:#fff}
+  .stepbar .s.done .d{background:var(--brand-1);color:var(--brand-6)}
+  .lesson-edit{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--g2)}
+  .lesson-edit:last-child{border-bottom:none}
+  .lesson-edit .ord{width:26px;height:26px;border-radius:var(--r-round);background:var(--brand-1);color:var(--brand-6);font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:0 0 26px}
+  .lesson-edit input{flex:1;min-width:0}
+  .lesson-edit select{width:110px;flex:0 0 110px}
+
+  .note{background:#fffaf0;border:1px solid #f5e2c0;border-left:3px solid var(--warn);border-radius:var(--r-m);padding:12px 14px;margin:14px 0;font-size:12.5px;line-height:1.7;color:#6b4a12}
+  .note b{color:#8a5a00}
+  .note code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;background:#fff3dd;border-radius:var(--r-s);padding:1px 5px}
+  .anno{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:var(--r-round);background:var(--warn);color:#fff;font-size:10px;font-weight:700;vertical-align:middle;cursor:help;margin-left:6px;flex:0 0 17px}
+  .annotations{margin-top:22px}
+  .annotations h4{font-size:13px;margin:0 0 10px;color:var(--t2)}
+  .anno-list{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-l);padding:6px 16px}
+  .anno-item{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--g2);font-size:12.5px;line-height:1.7;color:var(--t2)}
+  .anno-item:last-child{border-bottom:none}
+  .anno-item .n{flex:0 0 18px;height:18px;border-radius:var(--r-round);background:var(--warn);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:2px}
+  .anno-item b{color:var(--t1);display:block;margin-bottom:2px}
+
+  .spec h2{font-size:16px;margin:26px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--bd)}
+  .spec h2:first-child{margin-top:0}
+  .spec h3{font-size:13.5px;margin:18px 0 8px;color:var(--t1)}
+  .spec p,.spec li{font-size:13px;line-height:1.8;color:var(--t2)}
+  .spec ul{padding-left:20px;margin:8px 0}
+  .spec li{margin-bottom:6px}
+  .spec code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--g1);border:1px solid var(--bd);border-radius:var(--r-s);padding:1px 5px;color:var(--brand-8)}
+  .spec table{width:100%;border-collapse:collapse;margin:10px 0 16px;font-size:12.5px}
+  .spec th{background:var(--g1);text-align:left;padding:9px 11px;font-weight:600;border:1px solid var(--bd);color:var(--t1)}
+  .spec td{padding:9px 11px;border:1px solid var(--bd);color:var(--t2);vertical-align:top;line-height:1.65}
+  .spec pre{background:#fbfcfb;border:1px solid var(--bd);border-radius:var(--r-m);padding:13px 15px;overflow-x:auto;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7;color:var(--g12);margin:10px 0 16px}
+  .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:var(--r);background:var(--g1);color:var(--t2);margin-right:5px}
+
+  .toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(14px);background:rgba(0,0,0,.86);color:#fff;font-size:13px;padding:10px 18px;border-radius:var(--r-m);opacity:0;pointer-events:none;transition:all .22s;z-index:90}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="rail-title">课程模块 · 原型</div>
+      <div class="rail-sub">前期聚焦 admin 上传文件夹<br>v0.2 · 2026-09-29</div>
+    </div>
+    <div class="rail-group" id="rail"></div>
+    <div class="rail-foot">点击左侧切换场景<br>admin 上传页可真实选文件夹</div>
+  </aside>
+  <main class="stage">
+    <div class="bar">
+      <h1 id="barTitle">发现模块</h1>
+      <span class="path" id="barPath">/platform/organize/discover</span>
+      <div class="bar-right">
+        <button class="btn sm ghost" id="noteToggle">隐藏设计批注</button>
+        <button class="btn sm ghost" id="resetBtn">重置数据</button>
+      </div>
+    </div>
+    <div class="scroll"><div class="canvas" id="root"></div></div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const esc = (s='') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let toastTimer;
+function toast(msg){
+  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>el.classList.remove('on'), 1900);
+}
+
+const ICONS = {
+  play:'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  book:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4z"/><path d="M20 4h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z"/></svg>',
+  audio:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v-4M8 18V6M12 15V9M16 20V4M20 14v-4"/></svg>',
+  check:'<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9.5 18 20 6.5"/></svg>',
+  search:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  left:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg>',
+  right:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg>',
+  plus:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  up:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>',
+  down:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  x:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  cap:'<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 8.5l10 5.5 10-5.5z"/><path d="M6 11v5.5c0 1.5 2.7 3 6 3s6-1.5 6-3V11"/></svg>',
+  folder:'<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+};
+const kindIcon = k => k==='video' ? ICONS.play : (k==='audio' ? ICONS.audio : ICONS.book);
+const kindLabel = k => k==='video' ? '视频' : (k==='audio' ? '音频' : '图文');
+
+const CATEGORIES = [
+  {key:'recommended', label:'推荐'},
+  {key:'course', label:'系列课程'},
+  {key:'admissions_growth', label:'招生增长'},
+  {key:'parent_service', label:'家长服务'},
+  {key:'event_planning', label:'活动策划'},
+  {key:'kindergarten_operations', label:'园所运营'},
+  {key:'team_leadership', label:'团队运营/领导力'},
+  {key:'nutrition_food_education', label:'儿童营养与食育'},
+  {key:'space_environment', label:'空间设计 / 环创'},
+  {key:'teacher_research', label:'教师成长 / 教研'}
+];
+const catLabel = k => (CATEGORIES.find(c=>c.key===k)||{}).label || '未分类';
+const GRADS = {
+  admissions_growth:'linear-gradient(135deg,#2f7de1,#1b4fa8)',
+  parent_service:'linear-gradient(135deg,#12b981,#0d8a60)',
+  event_planning:'linear-gradient(135deg,#f2994f,#c9691b)',
+  kindergarten_operations:'linear-gradient(135deg,#5b6ee1,#353f9e)',
+  team_leadership:'linear-gradient(135deg,#9257e0,#5f2fa3)',
+  nutrition_food_education:'linear-gradient(135deg,#e4665f,#a8342f)',
+  space_environment:'linear-gradient(135deg,#39b6c9,#1d7c8c)',
+  teacher_research:'linear-gradient(135deg,#7a8b99,#48565f)'
+};
+
+function seed(){
+  return [
+    { id:'crs_01H8XK2M', source:'official', title:'招生转化全流程拆解：从体验课到成交', teacher:'林晓雯', teacherTitle:'睿乐教育 · 招生负责人', avatarBg:'#2f7de1', category:'admissions_growth', students:1284, updatedAt:'2026-09-24', summary:'把一次体验课的完整转化链路拆成 6 个可复用的动作。', lessons:[
+      {id:'l1',title:'第 1 讲 邀约到访：三个必问问题',type:'audio',duration:'12:30'},
+      {id:'l2',title:'第 2 讲 接待动线：签到到试听的 15 分钟',type:'video',duration:'15:20'},
+      {id:'l3',title:'第 3 讲 试听课的三段式讲解法',type:'video',duration:'15:20'},
+      {id:'l4',title:'第 4 讲 家长常见异议与回应脚本',type:'article',duration:'8 分钟阅读'},
+      {id:'l5',title:'第 5 讲 成交环节的节奏控制',type:'audio',duration:'09:45'},
+      {id:'l6',title:'第 6 讲 未成交回访：7 天跟进表',type:'article',duration:'6 分钟阅读'}
+    ]},
+    { id:'crs_01H8XM9B', source:'official', title:'幼儿园环境创设入门：从主题墙到区角', teacher:'睿乐教研中心', teacherTitle:'学前教育研究员', avatarBg:'#39b6c9', category:'space_environment', students:1930, updatedAt:'2026-09-11', summary:'10 讲把环创从“好看”拉回“可用”。', lessons:[
+      {id:'l1',title:'第 1 讲 环创的目标不是装饰',type:'article',duration:'6 分钟阅读'},
+      {id:'l2',title:'第 2 讲 主题墙的信息层次设计',type:'video',duration:'14:30'},
+      {id:'l3',title:'第 3 讲 区角划分与动线',type:'video',duration:'16:00'},
+      {id:'l4',title:'第 4 讲 材料投放的梯度原则',type:'article',duration:'9 分钟阅读'},
+      {id:'l5',title:'第 5 讲 低结构材料的 12 种玩法',type:'video',duration:'18:20'}
+    ]}
+  ];
+}
+
+const state = {
+  scene:'admin',
+  showNotes:true,
+  courses: seed(),
+  tab:'course',
+  sourceFilter:'all',
+  sort:'recent',
+  keyword:'',
+  currentCourseId:'crs_01H8XK2M',
+  currentLessonId:'l3',
+  // admin upload
+  uploadStep: 1, // 1 choose, 2 preview, 3 edit, 4 publish
+  uploadFiles: [],
+  uploadCourse: { title:'', category:'admissions_growth', summary:'', teacher:'', teacherTitle:'', lessons:[] }
+};
+
+const getCourse = id => state.courses.find(c=>c.id===id);
+
+const SCENES = [
+  {key:'discover', n:1, label:'发现页 · 系列课程页签', path:'/platform/organize/discover?tab=course'},
+  {key:'detail',   n:2, label:'课程详情 · 大纲',        path:'/platform/organize/discover/course/:id'},
+  {key:'lesson',   n:3, label:'学习页 · 第 3 讲',       path:'/platform/organize/discover/course/:id/lesson/:lid'},
+  {key:'admin',    n:4, label:'Admin · 上传文件夹',     path:'/admin/courses/upload'},
+  {key:'spec',     n:5, label:'设计说明 · 字段与契约',   path:'—'}
+];
+
+function coverBadges(c){
+  const src = c.source==='official' ? '<span class="tag official">官方精品课</span>' : '<span class="tag creator">创作者课程</span>';
+  return `<div class="badges">${src}</div>`;
+}
+function coverOf(c){
+  return `<div class="cc-cover" style="background:${GRADS[c.category]||GRADS.teacher_research}">
+    ${coverBadges(c)}
+    <span style="color:rgba(255,255,255,.55)">${ICONS.cap}</span>
+    <span class="cnt">${c.lessons.length} 讲</span>
+  </div>`;
+}
+function catTag(k){ return `<span class="tag cat">${esc(catLabel(k))}</span>`; }
+function anno(n){ return state.showNotes ? `<span class="anno" title="见页面底部第 ${n} 条设计批注">${n}</span>` : ''; }
+function noteBlock(list){
+  if(!state.showNotes || !list.length) return '';
+  return `<div class="annotations"><h4>本页设计批注</h4><div class="anno-list">${
+    list.map((x,i)=>`<div class="anno-item"><span class="n">${i+1}</span><div><b>${x[0]}</b>${x[1]}</div></div>`).join('')
+  }</div></div>`;
+}
+
+/* ---------- discover ---------- */
+function sceneDiscover(){
+  const counts = {recommended: state.courses.length + 12, course: state.courses.length};
+  CATEGORIES.forEach(c=>{ if(c.key!=='recommended'&&c.key!=='course') counts[c.key] = state.courses.filter(x=>x.category===c.key).length * 3 + 2; });
+
+  let list = state.courses.filter(c=>{
+    if(state.sourceFilter!=='all' && c.source!==state.sourceFilter) return false;
+    if(state.keyword){
+      const k = state.keyword.toLowerCase();
+      const hay = [c.title,c.summary,c.teacher,catLabel(c.category)].join(' ').toLowerCase();
+      if(!hay.includes(k)) return false;
+    }
+    return true;
+  });
+  if(state.sort==='popular') list.sort((a,b)=>b.students-a.students);
+  else list.sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+
+  const cards = list.map(c=>`
+    <article class="cc" data-open="${c.id}">
+      ${coverOf(c)}
+      <div class="cc-body">
+        <div class="cc-title">${esc(c.title)}</div>
+        <div class="cc-meta"><span class="avatar" style="background:${c.avatarBg}">${esc(c.teacher.slice(0,1))}</span>${esc(c.teacher)}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${catTag(c.category)}<span class="tag">${c.students.toLocaleString()} 人学过</span></div>
+        <div class="cc-foot"><span class="pl">共 ${c.lessons.length} 讲</span><span class="prog"><i style="width:0%"></i></span></div>
+      </div>
+    </article>`).join('');
+
+  return `
+  <div class="tabs">
+    ${CATEGORIES.map(t=>`<button class="tab ${state.tab===t.key?'on':''}" data-tab="${t.key}">${esc(t.label)}${counts[t.key]!==undefined?`<span class="c">${counts[t.key]}</span>`:''}</button>`).join('')}
+  </div>
+  <div class="filter-row">
+    <div class="seg">
+      <button class="${state.sourceFilter==='all'?'on':''}" data-src="all">全部</button>
+      <button class="${state.sourceFilter==='official'?'on':''}" data-src="official">官方精品课</button>
+      <button class="${state.sourceFilter==='creator'?'on':''}" data-src="creator">创作者课程</button>
+    </div>
+    <div class="seg">
+      <button class="${state.sort==='recent'?'on':''}" data-sort="recent">最新更新</button>
+      <button class="${state.sort==='popular'?'on':''}" data-sort="popular">最多人学</button>
+    </div>
+    <div class="sp"></div>
+    <div class="search">${ICONS.search}<input placeholder="搜索课程、讲师或分类" value="${esc(state.keyword)}" data-search /></div>
+  </div>
+  <div class="sec-title">系列课程<span style="font-weight:400;font-size:12px;color:var(--t3)">共 ${list.length} 门 · 点击进入课程详情</span>${anno(1)}</div>
+  ${list.length ? `<div class="grid">${cards}</div>` : `<div class="card empty"><div class="big">没有匹配的课程</div>换个关键词试试</div>`}
+  ${noteBlock([
+    ['课程是发现模块的独立页签','与现有 8 个经营场景分类并列，不是第 9 个分类。'],
+    ['前期内容由 admin 通过「上传文件夹」批量录入','一期不做创作者编组和平台审核，课程来源只有 official。']
+  ])}`;
+}
+
+/* ---------- detail ---------- */
+function sceneDetail(){
+  const c = getCourse(state.currentCourseId);
+  if(!c) return '<div class="card empty">课程不存在</div>';
+  const total = c.lessons.length;
+  return `
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+    <button class="btn sm ghost" data-scene="discover">${ICONS.left} 返回发现</button>
+    <span class="muted" style="font-size:12px">发现 / 系列课程 / ${esc(c.title)}</span>
+  </div>
+  <div class="card hero">
+    <div class="hero-cover" style="background:${GRADS[c.category]}">
+      ${coverBadges(c)}
+      <span style="color:rgba(255,255,255,.55)">${ICONS.cap}</span>
+    </div>
+    <div class="hero-main">
+      <h2>${esc(c.title)}${anno(1)}</h2>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${catTag(c.category)}<span class="tag">平台官方出品</span></div>
+      <div class="hero-meta"><span>${total} 讲</span><span>·</span><span>${c.students.toLocaleString()} 人学过</span><span>·</span><span>更新于 ${esc(c.updatedAt)}</span></div>
+      <div class="hero-sum">${esc(c.summary)}</div>
+      <div class="hero-teacher">
+        <span class="avatar" style="background:${c.avatarBg};width:26px;height:26px;flex:0 0 26px;font-size:11px">${esc(c.teacher.slice(0,1))}</span>
+        <div><b style="font-weight:600;color:var(--t1)">${esc(c.teacher)}</b><span class="muted"> · ${esc(c.teacherTitle)}</span></div>
+      </div>
+      <div class="hero-act">
+        <button class="btn pri" data-lesson="${c.lessons[0].id}" data-course="${c.id}">${ICONS.play} 开始学习</button>
+        <span class="muted" style="font-size:12px">${total} 讲已上架</span>
+      </div>
+    </div>
+    <div class="progress-box"><div class="t">学习进度</div><div class="num">0%</div><div class="prog" style="margin:10px 0 6px"><i style="width:0%"></i></div><div class="muted" style="font-size:12px">尚未开始</div></div>
+  </div>
+  <div class="cols">
+    <div class="card">
+      <div style="padding:15px 16px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px">
+        <b style="font-size:14px">课程大纲</b><span class="muted" style="font-size:12px">${total} 讲 · 点击任一一讲进入学习</span>
+      </div>
+      ${c.lessons.map((l,i)=>`
+        <div class="lesson-row" data-lesson="${l.id}" data-course="${c.id}">
+          <span class="st">${i+1}</span>
+          <div class="lt"><b>${esc(l.title)}</b><span>${kindLabel(l.type)}</span></div>
+          <span class="tag">${kindIcon(l.type)}${kindLabel(l.type)}</span>
+          <span class="dur">${esc(l.duration)}</span>
+        </div>`).join('')}
+    </div>
+    <div>
+      <div class="side-box">
+        <div class="sec-title" style="margin-bottom:10px">课程信息</div>
+        <div class="kv"><span>来源</span><b>平台官方</b></div>
+        <div class="kv"><span>分类</span><b>${esc(catLabel(c.category))}</b></div>
+        <div class="kv"><span>课时</span><b>${total} 讲</b></div>
+        <div class="kv"><span>课程 ID</span><b style="font-family:ui-monospace,Menlo,monospace;font-size:11px">${esc(c.id)}</b></div>
+      </div>
+    </div>
+  </div>
+  ${noteBlock([
+    ['课程是独立实体，有自己的一等 ID','不再用系列标题文本当 ID，改名也不断链。']
+  ])}`;
+}
+
+/* ---------- lesson ---------- */
+function sceneLesson(){
+  const c = getCourse(state.currentCourseId);
+  const idx = c ? c.lessons.findIndex(l=>l.id===state.currentLessonId) : -1;
+  if(!c || idx<0) return '<div class="card empty">未选择节次</div>';
+  const l = c.lessons[idx], prev = c.lessons[idx-1], next = c.lessons[idx+1];
+  const body = l.type==='article' ? `
+    <div class="article">
+      <h3>为什么这一讲重要</h3>
+      <p>试听课是家长第一次完整看见"我们怎么教"。这 15 分钟里，家长同时在做两件事：判断孩子有没有被看见，以及判断这套方法值不值得付费。</p>
+      <h3>三段式：打开 — 演示 — 落到孩子身上</h3>
+      <ul>
+        <li><b>打开（3 分钟）</b>：用一个孩子当下的真实行为切入。</li>
+        <li><b>演示（8 分钟）</b>：教师示范一次，家长看得见操作步骤。</li>
+        <li><b>落到孩子身上（4 分钟）</b>：点名今天每个孩子的具体表现。</li>
+      </ul>
+      <div class="cite" style="border-top:1px dashed var(--bd2);padding-top:12px;margin-top:18px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);flex-wrap:wrap">
+        <span>本讲来自 admin 上传文件夹中的：</span><span class="tag">${ICONS.book} 03 试听课的三段式讲解法.md</span>
+      </div>
+    </div>` : `
+    <div style="padding:16px 20px">
+      <div class="player"><div class="play">${ICONS.play}</div>
+        <div class="bar-time"><div class="tt"><span>03:41</span><span>${esc(l.duration)}</span></div><div class="prog"><i style="width:24%;background:#fff"></i></div></div>
+      </div>
+      <div class="article" style="padding:18px 2px 0">
+        <h3>本讲要点</h3>
+        <ul><li>试听课的三段式节奏：打开 3 分钟、演示 8 分钟、落到孩子身上 4 分钟。</li><li>打开环节必须用一个孩子当下的真实行为切入。</li></ul>
+        <div class="cite" style="border-top:1px dashed var(--bd2);padding-top:12px;margin-top:18px;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3);flex-wrap:wrap">
+          <span>本讲来自 admin 上传文件夹中的：</span><span class="tag">${ICONS.play} 03 试听课的三段式讲解法.mp4</span>
+        </div>
+      </div>
+    </div>`;
+  return `
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+    <button class="btn sm ghost" data-scene="discover">${ICONS.left} 返回发现</button>
+    <button class="btn sm ghost" data-detail="${c.id}">课程详情</button>
+    <span class="muted" style="font-size:12px">发现 / 系列课程 / ${esc(c.title)} / 第 ${idx+1} 讲</span>
+  </div>
+  <div class="lesson-shell">
+    <div class="card">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--bd)">
+        <div style="font-size:12px;color:var(--t3);margin-bottom:5px">${esc(c.title)}</div>
+        <h2 style="margin:0;font-size:18px;line-height:1.4">${esc(l.title)}</h2>
+        <div style="display:flex;gap:8px;margin-top:9px;align-items:center">
+          <span class="tag">${kindIcon(l.type)}${kindLabel(l.type)}</span>
+          <span class="muted" style="font-size:12px">${esc(l.duration)}</span>
+          <span class="tag">${idx+1} / ${c.lessons.length}</span>
+        </div>
+      </div>
+      ${body}
+      <div class="nav-foot">
+        <button class="btn" ${prev?'':'disabled'} ${prev?`data-lesson="${prev.id}" data-course="${c.id}"`:''}>${ICONS.left} 上一讲</button>
+        <span class="mid">${idx+1} / ${c.lessons.length}</span>
+        <button class="btn pri" ${next?'':'disabled'} ${next?`data-lesson="${next.id}" data-course="${c.id}"`:''}>下一讲 ${ICONS.right}</button>
+      </div>
+    </div>
+    <div>
+      <div class="side-box" style="padding:0">
+        <div style="padding:13px 15px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between">
+          <b style="font-size:13px">课程大纲</b><span class="muted" style="font-size:11px">${c.lessons.length} 讲</span>
+        </div>
+        <div class="pick-list" style="max-height:520px;overflow-y:auto">
+          ${c.lessons.map((x,i)=>`
+            <div class="pick-row" style="cursor:pointer;padding:9px 12px;border-bottom:1px solid var(--g2);display:flex;align-items:center;gap:9px;${x.id===l.id?'background:var(--brand-1)':''}" data-lesson="${x.id}" data-course="${c.id}">
+              <span class="st" style="width:18px;height:18px;flex:0 0 18px;border-radius:var(--r-round);border:1px solid var(--bd2);display:flex;align-items:center;justify-content:center;font-size:10px">${i+1}</span>
+              <span class="t" style="${x.id===l.id?'color:var(--brand-6);font-weight:600':''};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.title)}</span>
+              <span class="muted" style="font-size:11px">${kindLabel(x.type)}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- admin upload ---------- */
+function fileType(name){
+  const ext = name.split('.').pop().toLowerCase();
+  if(['mp4','mov','webm','mkv'].includes(ext)) return 'video';
+  if(['mp3','wav','m4a','aac'].includes(ext)) return 'audio';
+  if(['md','txt','doc','docx','pdf'].includes(ext)) return 'article';
+  return 'other';
+}
+function typeLabel(t){ return {video:'视频',audio:'音频',article:'图文',other:'其他'}[t]; }
+function inferTitle(name){
+  return name.replace(/\.[^.]+$/,'').replace(/^\d+[-_.\s]+/,'').trim();
+}
+function inferOrder(name){
+  const m = name.match(/^(\d+)/);
+  return m ? parseInt(m[1],10) : 999;
+}
+
+function sceneAdmin(){
+  const s = state.uploadStep;
+  const c = state.uploadCourse;
+  const cats = CATEGORIES.filter(x=>x.key!=='recommended'&&x.key!=='course');
+
+  return `
+  <div class="card" style="padding:18px 20px">
+    <div class="stepbar">
+      <div class="s ${s===1?'on':(s>1?'done':'')}"><span class="d">1</span>选择文件夹</div>
+      <div class="s ${s===2?'on':(s>2?'done':'')}"><span class="d">2</span>预览文件</div>
+      <div class="s ${s===3?'on':(s>3?'done':'')}"><span class="d">3</span>填写课程信息</div>
+      <div class="s ${s===4?'on':''}"><span class="d">4</span>发布</div>
+    </div>
+
+    <!-- STEP 1 -->
+    <div class="upload-step ${s===1?'on':''}">
+      <div class="dropzone" id="dropzone">
+        <div style="color:var(--brand)">${ICONS.folder}</div>
+        <div class="big">点击选择文件夹，或拖拽文件夹到此处</div>
+        <div class="hint">支持文件夹内包含视频、音频、图文等课程内容文件<br>系统将按文件名中的序号自动排序生成课程大纲</div>
+        <input type="file" id="folderInput" webkitdirectory directory multiple style="display:none" />
+      </div>
+      ${noteBlock([
+        ['使用浏览器原生的文件夹选择能力','<code>&lt;input webkitdirectory&gt;</code> 可一次选择整个文件夹，前端拿到文件列表后按文件名排序，无需用户逐个点选。'],
+        ['不上传真实文件，只做结构解析','原型阶段用 File API 读取文件名和类型；真实后端需实现分片上传与异步转码。']
+      ])}
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="upload-step ${s===2?'on':''}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <b style="font-size:14px">解析结果</b>
+        <span class="muted" style="font-size:12px">共 ${state.uploadFiles.length} 个文件 · 已识别 ${c.lessons.length} 讲</span>
+        <button class="btn sm ghost" style="margin-left:auto" data-rechoose>重新选择</button>
+      </div>
+      <div class="file-tree">
+        ${state.uploadFiles.map(f=>`
+          <div class="row">
+            <span class="type">${typeLabel(fileType(f.name))}</span>
+            <span class="t" title="${esc(f.name)}">${esc(f.name)}</span>
+          </div>`).join('') || '<div class="row"><span class="muted">暂无文件</span></div>'}
+      </div>
+      <div class="note" style="margin-top:14px"><b>排序规则：</b>按文件名前缀数字升序；无数字的文件排在末尾。视频/音频/图文类型自动识别，其他类型暂不入课。</div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px">
+        <button class="btn" data-rechoose>上一步</button>
+        <button class="btn pri" data-step-admin="3">下一步：填写课程信息${anno(1)}</button>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="upload-step ${s===3?'on':''}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+        <div>
+          <label class="lbl">课程名称${anno(2)}</label>
+          <input class="field" data-c-title value="${esc(c.title)}" placeholder="例如：招生转化全流程拆解" />
+        </div>
+        <div>
+          <label class="lbl">所属分类</label>
+          <select class="field" data-c-cat>${cats.map(x=>`<option value="${x.key}" ${c.category===x.key?'selected':''}>${esc(x.label)}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+        <div>
+          <label class="lbl">讲师姓名</label>
+          <input class="field" data-c-teacher value="${esc(c.teacher)}" placeholder="例如：林晓雯" />
+        </div>
+        <div>
+          <label class="lbl">讲师头衔</label>
+          <input class="field" data-c-title2 value="${esc(c.teacherTitle)}" placeholder="例如：睿乐教育 · 招生负责人" />
+        </div>
+      </div>
+      <div style="margin-bottom:16px">
+        <label class="lbl">课程简介</label>
+        <textarea class="field" data-c-sum rows="3" placeholder="一句话说清这门课解决什么问题">${esc(c.summary)}</textarea>
+      </div>
+
+      <div class="sec-title">节次列表（可编辑标题与类型）${anno(3)}</div>
+      <div class="card" style="padding:6px 14px;margin-bottom:16px">
+        ${c.lessons.map((l,i)=>`
+          <div class="lesson-edit">
+            <span class="ord">${i+1}</span>
+            <input class="field" data-l-title="${i}" value="${esc(l.title)}" />
+            <select class="field" data-l-type="${i}">
+              <option value="video" ${l.type==='video'?'selected':''}>视频</option>
+              <option value="audio" ${l.type==='audio'?'selected':''}>音频</option>
+              <option value="article" ${l.type==='article'?'selected':''}>图文</option>
+            </select>
+          </div>`).join('') || '<div class="empty">没有识别到可用文件</div>'}
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button class="btn" data-step-admin="2">上一步</button>
+        <button class="btn pri" data-publish>发布到发现模块</button>
+      </div>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="upload-step ${s===4?'on':''}">
+      <div class="empty" style="padding:60px 20px">
+        <div style="width:64px;height:64px;border-radius:var(--r-round);background:var(--success-1);color:var(--success);display:flex;align-items:center;justify-content:center;margin:0 auto 16px">${ICONS.check}</div>
+        <div class="big">课程已发布</div>
+        <div class="muted" style="max-width:420px;margin:12px auto 22px;line-height:1.7">《${esc(c.title||'未命名课程')}》已生成课程实体，${c.lessons.length} 讲已按顺序入库，学员可在发现模块「系列课程」页签查看。</div>
+        <div style="display:flex;justify-content:center;gap:10px">
+          <button class="btn" data-rechoose>再传一门</button>
+          <button class="btn pri" data-scene="discover">去发现页查看</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- spec ---------- */
+function sceneSpec(){
+  return `<div class="spec">
+  <h2>1. 这份 v0.2 原型的范围</h2>
+  <p>按你圈掉的范围，<strong>本期不做创作者编组、不做平台课程审核</strong>。前期只保留一条最小通路：</p>
+  <p style="font-size:14px"><span class="pill">admin 选择本地文件夹</span> → <span class="pill">前端解析文件列表并排序</span> → <span class="pill">admin 填写课程元信息</span> → <span class="pill">后端生成课程实体与节次</span> → <span class="pill">发现页「系列课程」页签展示</span></p>
+
+  <h2>2. 新增数据模型（最小版）</h2>
+  <h3>2.1 <code>organize_courses</code></h3>
+  <pre>CREATE TABLE organize_courses (
+    id             VARCHAR(36)  PRIMARY KEY,          -- crs_xxx
+    tenant_id      BIGINT       NOT NULL,
+    user_id        VARCHAR(36)  NOT NULL,             -- 上传的 admin user_id
+    source         VARCHAR(16)  NOT NULL DEFAULT 'official',
+    title          VARCHAR(255) NOT NULL,
+    summary        TEXT         NOT NULL DEFAULT '',
+    category       VARCHAR(64)  NOT NULL DEFAULT '',
+    cover_url      VARCHAR(512) NOT NULL DEFAULT '',
+    teacher_name   VARCHAR(64)  NOT NULL DEFAULT '',
+    teacher_title  VARCHAR(128) NOT NULL DEFAULT '',
+    public_status  VARCHAR(32)  NOT NULL DEFAULT 'published',
+    lesson_count   INT          NOT NULL DEFAULT 0,
+    learner_count  INT          NOT NULL DEFAULT 0,
+    created_at     TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP,
+    deleted_at     TIMESTAMPTZ
+);</pre>
+
+  <h3>2.2 <code>organize_course_lessons</code></h3>
+  <pre>CREATE TABLE organize_course_lessons (
+    id           VARCHAR(36) PRIMARY KEY,
+    course_id    VARCHAR(36) NOT NULL REFERENCES organize_courses(id),
+    output_id    VARCHAR(36) NOT NULL,       -- 指向 organize_outputs
+    title        VARCHAR(255) NOT NULL,
+    lesson_type  VARCHAR(16) NOT NULL DEFAULT 'article',
+    sort_order   INT         NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);</pre>
+
+  <h2>3. 上传文件夹的处理流程</h2>
+  <table>
+    <tr><th style="width:40px">#</th><th>步骤</th><th>说明</th></tr>
+    <tr><td>1</td><td>选择文件夹</td><td>前端用 <code>&lt;input type="file" webkitdirectory directory multiple&gt;</code> 打开系统文件夹选择器</td></tr>
+    <tr><td>2</td><td>过滤与排序</td><td>按扩展名过滤出视频/音频/图文；按文件名前缀数字升序排列</td></tr>
+    <tr><td>3</td><td>文件上传</td><td>每个文件分片上传，后端异步写入对象存储并创建 <code>organize_outputs</code> 记录</td></tr>
+    <tr><td>4</td><td>生成课程</td><td>创建 <code>organize_courses</code> 与 <code>organize_course_lessons</code>，<code>output_id</code> 指向刚上传的产物</td></tr>
+    <tr><td>5</td><td>发现页可见</td><td>课程直接以 <code>public_status=published</code> 状态进入发现页「系列课程」页签</td></tr>
+  </table>
+
+  <h2>4. API 契约（最小版）</h2>
+  <table>
+    <tr><th>接口</th><th>方法</th><th>说明</th></tr>
+    <tr><td><code>/system/admin/courses/upload</code></td><td>POST</td><td>文件夹上传：form-data，含课程元信息 + 多个文件字段，<code>g.SystemAdmin()</code> 守卫</td></tr>
+    <tr><td><code>/organize/courses</code></td><td>GET</td><td>课程列表，发现页「系列课程」页签消费</td></tr>
+    <tr><td><code>/organize/courses/:id</code></td><td>GET</td><td>课程详情 + 节次数组</td></tr>
+  </table>
+
+  <h2>5. 不做的事（本期明确砍掉）</h2>
+  <ul>
+    <li>创作者侧的「我的课程」与编组流程。</li>
+    <li>平台侧的课程维度审核队列；上传后直接 published，靠 admin 人工保证内容质量。</li>
+    <li>学习进度、收藏、完课统计等用户侧学习行为。</li>
+    <li>课程封面上传，先用分类渐变色占位。</li>
+  </ul>
+</div>`;
+}
+
+const RENDER = {discover:sceneDiscover, detail:sceneDetail, lesson:sceneLesson, admin:sceneAdmin, spec:sceneSpec};
+
+function render(){
+  const scene = SCENES.find(s=>s.key===state.scene);
+  $('#barTitle').textContent = scene.label;
+  $('#barPath').textContent = scene.path;
+  $('#root').innerHTML = RENDER[state.scene]();
+  $('#rail').innerHTML = SCENES.map(s=>`
+    <button class="rail-btn ${state.scene===s.key?'on':''}" data-scene="${s.key}">
+      <span class="idx">${s.n}</span><span class="lb">${esc(s.label)}</span>
+    </button>`).join('');
+  $('#noteToggle').textContent = state.showNotes ? '隐藏设计批注' : '显示设计批注';
+  bindAdminUpload();
+}
+
+/* ---------- admin upload events ---------- */
+function bindAdminUpload(){
+  if(state.scene !== 'admin') return;
+  const dz = $('#dropzone');
+  const input = $('#folderInput');
+  if(!dz || !input) return;
+
+  dz.addEventListener('click', ()=>input.click());
+  dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', ()=>dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e=>{
+    e.preventDefault(); dz.classList.remove('dragover');
+    handleFiles(Array.from(e.dataTransfer.files));
+  });
+  input.addEventListener('change', e=>{
+    handleFiles(Array.from(e.target.files));
+    input.value = '';
+  });
+}
+
+function handleFiles(files){
+  const valid = files.filter(f=>{
+    const t = fileType(f.name);
+    return t !== 'other' && !f.name.startsWith('.') && f.size > 0;
+  }).sort((a,b)=>inferOrder(a.name)-inferOrder(b.name));
+
+  state.uploadFiles = valid;
+  state.uploadCourse.lessons = valid.map((f,i)=>({
+    title: inferTitle(f.name),
+    type: fileType(f.name),
+    duration: fileType(f.name)==='article' ? '5 分钟阅读' : '10:00',
+    file: f
+  }));
+  state.uploadCourse.title = valid.length ? inferTitle(valid[0].name).replace(/第.*讲/,'').trim() : '';
+  state.uploadStep = 2;
+  render();
+}
+
+/* ---------- global events ---------- */
+document.addEventListener('click', e => {
+  const t = e.target;
+  const hit = sel => t.closest(sel);
+
+  if(hit('[data-scene]')){ state.scene = hit('[data-scene]').dataset.scene; render(); $('.scroll').scrollTop=0; return; }
+  if(hit('[data-tab]')){ state.tab = hit('[data-tab]').dataset.tab; render(); return; }
+  if(hit('[data-src]')){ state.sourceFilter = hit('[data-src]').dataset.src; render(); return; }
+  if(hit('[data-sort]')){ state.sort = hit('[data-sort]').dataset.sort; render(); return; }
+
+  const open = hit('[data-open]');
+  if(open){ state.currentCourseId = open.dataset.open; state.scene='detail'; render(); $('.scroll').scrollTop=0; return; }
+  const det = hit('[data-detail]');
+  if(det){ state.currentCourseId = det.dataset.detail; state.scene='detail'; render(); $('.scroll').scrollTop=0; return; }
+  const les = hit('[data-lesson]');
+  if(les){ state.currentCourseId = les.dataset.course || state.currentCourseId; state.currentLessonId = les.dataset.lesson; state.scene='lesson'; render(); $('.scroll').scrollTop=0; return; }
+
+  if(hit('[data-rechoose]')){
+    state.uploadStep = 1; state.uploadFiles = []; state.uploadCourse = {title:'',category:'admissions_growth',summary:'',teacher:'',teacherTitle:'',lessons:[]};
+    render(); return;
+  }
+  const stp = hit('[data-step-admin]');
+  if(stp){ state.uploadStep = +stp.dataset.stepAdmin; render(); return; }
+
+  if(hit('[data-publish]')){
+    const c = state.uploadCourse;
+    const newCourse = {
+      id: 'crs_' + Math.random().toString(36).slice(2,10).toUpperCase(),
+      source:'official', title:c.title||'未命名课程', teacher:c.teacher||'平台运营', teacherTitle:c.teacherTitle||'睿乐教育',
+      avatarBg:'#2f7de1', category:c.category, students:0, updatedAt: new Date().toISOString().slice(0,10),
+      summary: c.summary || '暂无简介',
+      lessons: c.lessons.map((l,i)=>({id:'l'+Date.now()+i, title:l.title, type:l.type, duration:l.duration}))
+    };
+    state.courses.unshift(newCourse);
+    state.uploadStep = 4;
+    toast('课程已发布');
+    render(); return;
+  }
+});
+
+document.addEventListener('input', e => {
+  const t = e.target;
+  if(t.dataset.search!==undefined){ state.keyword = t.value; render(); const el=$('[data-search]'); if(el){ el.focus(); el.setSelectionRange(t.value.length,t.value.length); } return; }
+  if(t.dataset.cTitle!==undefined){ state.uploadCourse.title = t.value; }
+  if(t.dataset.cTeacher!==undefined){ state.uploadCourse.teacher = t.value; }
+  if(t.dataset.cTitle2!==undefined){ state.uploadCourse.teacherTitle = t.value; }
+  if(t.dataset.cSum!==undefined){ state.uploadCourse.summary = t.value; }
+  if(t.dataset.lTitle!==undefined){ state.uploadCourse.lessons[+t.dataset.lTitle].title = t.value; }
+});
+document.addEventListener('change', e => {
+  const t = e.target;
+  if(t.dataset.cCat!==undefined){ state.uploadCourse.category = t.value; }
+  if(t.dataset.lType!==undefined){ state.uploadCourse.lessons[+t.dataset.lType].type = t.value; }
+});
+
+$('#noteToggle').addEventListener('click', ()=>{ state.showNotes=!state.showNotes; render(); });
+$('#resetBtn').addEventListener('click', ()=>{
+  Object.assign(state, {scene:'admin', showNotes:true, courses:seed(), tab:'course', sourceFilter:'all', sort:'recent', keyword:'', currentCourseId:'crs_01H8XK2M', currentLessonId:'l3', uploadStep:1, uploadFiles:[], uploadCourse:{title:'',category:'admissions_growth',summary:'',teacher:'',teacherTitle:'',lessons:[]}});
+  render(); $('.scroll').scrollTop=0; toast('数据已重置');
+});
+
+render();
+</script>
+</body>
+</html>

@@ -58,3 +58,14 @@ func TestBaseCostToPointMicrosRoundsUpFinalPoints(t *testing.T) {
 		t.Fatalf("got %d, want the minimum non-zero micro-point charge", got)
 	}
 }
+
+func TestBaseCostToPointMicrosUsesCNYProductRate(t *testing.T) {
+	// 0.1 CNY = 100,000,000 nano-CNY and should produce exactly 1 point.
+	got, err := BaseCostToPointMicros(100_000_000, 10_000_000, 1_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1_000_000 {
+		t.Fatalf("got %d point micros, want 1000000", got)
+	}
+}
