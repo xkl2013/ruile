@@ -1542,6 +1542,8 @@ func RegisterServiceSpaceRoutes(r *gin.RouterGroup, h *handler.ServiceSpaceHandl
 		svc.GET("/:service_id/subjects/:subject_id", g.Viewer(), h.GetSubject)
 		svc.PUT("/:service_id/subjects/:subject_id", g.Viewer(), h.UpdateSubject)
 		svc.DELETE("/:service_id/subjects/:subject_id", g.Viewer(), h.DeleteSubject)
+		svc.GET("/:service_id/facts", g.Viewer(), h.ListFacts)
+		svc.POST("/:service_id/facts", g.Viewer(), h.AppendFact)
 
 		svc.GET("/:service_id/statuses", g.Viewer(), h.ListReminderStatuses)
 		svc.POST("/:service_id/statuses", g.Viewer(), h.CreateReminderStatus)

@@ -28,6 +28,9 @@ type ServiceSpaceRepository interface {
 	CreateSubject(ctx context.Context, subject *types.ServiceSubject) error
 	UpdateSubject(ctx context.Context, tenantID uint64, serviceID, subjectID string, fields map[string]any) error
 	DeleteSubject(ctx context.Context, tenantID uint64, serviceID, subjectID string) error
+	CreateFact(ctx context.Context, fact *types.ServiceFact) error
+	ListFacts(ctx context.Context, tenantID uint64, serviceID, subjectID, factType, sourceType, sourceID string, page, pageSize int) ([]*types.ServiceFact, int64, error)
+	GetFactBySource(ctx context.Context, tenantID uint64, serviceID, sourceType, sourceID, factKey string) (*types.ServiceFact, error)
 
 	ListReminderStatuses(ctx context.Context, tenantID uint64, serviceID string, includeDisabled bool) ([]*types.ServiceReminderStatus, error)
 	GetReminderStatus(ctx context.Context, tenantID uint64, serviceID, statusID string) (*types.ServiceReminderStatus, error)
@@ -60,6 +63,8 @@ type ServiceSpaceRepository interface {
 	ListArtifacts(ctx context.Context, tenantID uint64, serviceID, lifecycle string, page, pageSize int) ([]*types.ServiceArtifact, int64, error)
 	GetArtifact(ctx context.Context, tenantID uint64, serviceID, artifactID string, version int) (*types.ServiceArtifact, error)
 	UpdateArtifactLifecycle(ctx context.Context, tenantID uint64, serviceID, artifactID, lifecycle string) error
+	GetArtifactLifecycleOperation(ctx context.Context, tenantID uint64, serviceID, artifactID, idempotencyKey string) (*types.ServiceArtifactLifecycleOperation, error)
+	CreateArtifactLifecycleOperation(ctx context.Context, operation *types.ServiceArtifactLifecycleOperation) error
 	CountOverview(ctx context.Context, tenantID uint64, serviceID string) (sessions, artifacts, members int64, err error)
 
 	ListTemplates(ctx context.Context, tenantID uint64) ([]*types.ServiceSpaceTemplate, error)
@@ -112,6 +117,8 @@ type ServiceSpaceService interface {
 	CreateSubject(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceSubjectCreateInput) (*types.ServiceSubject, error)
 	UpdateSubject(ctx context.Context, tenantID uint64, userID, serviceID, subjectID string, input types.ServiceSubjectUpdateInput) (*types.ServiceSubject, error)
 	DeleteSubject(ctx context.Context, tenantID uint64, userID, serviceID, subjectID string) error
+	ListFacts(ctx context.Context, tenantID uint64, userID, serviceID, subjectID, factType, sourceType, sourceID string, page, pageSize int) ([]*types.ServiceFact, int64, error)
+	AppendFact(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceFactAppendInput) (*types.ServiceFact, error)
 
 	ListReminderStatuses(ctx context.Context, tenantID uint64, userID, serviceID string, includeDisabled bool) ([]*types.ServiceReminderStatus, error)
 	CreateReminderStatus(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceReminderStatusCreateInput) (*types.ServiceReminderStatus, error)
@@ -147,6 +154,7 @@ type ServiceSpaceService interface {
 	GetSummary(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceSpaceSummary, error)
 	RefreshSummary(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceSpaceSummary, error)
 	ResolveRuntimeContext(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceRuntimeContext, error)
+	RecordAudit(ctx context.Context, tenantID uint64, userID string, action types.AuditAction, targetType, targetID string, details map[string]any)
 	ListContextSources(ctx context.Context, tenantID uint64, userID, serviceID string) ([]*types.ServiceContextSource, error)
 	ImportOrganizeOutput(ctx context.Context, tenantID uint64, userID, serviceID, outputID string) (*types.ServiceContextSource, error)
 	DeleteContextSource(ctx context.Context, tenantID uint64, userID, serviceID, sourceID string) error

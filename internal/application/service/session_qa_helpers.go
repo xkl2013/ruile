@@ -51,11 +51,17 @@ func (s *sessionService) applyServiceRuntimeContext(
 	}
 	for _, id := range req.KnowledgeBaseIDs {
 		if _, ok := allowedKBs[strings.TrimSpace(id)]; !ok {
+			s.serviceSpace.RecordAudit(ctx, req.Session.TenantID, userID, types.AuditActionServiceKBScopeReject, "service", serviceID, map[string]any{
+				"service_id": serviceID, "requested_kb_id": strings.TrimSpace(id), "reason": "knowledge_base_out_of_scope",
+			})
 			return ErrServiceSpaceKBOutOfScope
 		}
 	}
 	for _, scope := range req.TagScopes {
 		if _, ok := allowedKBs[strings.TrimSpace(scope.KnowledgeBaseID)]; !ok {
+			s.serviceSpace.RecordAudit(ctx, req.Session.TenantID, userID, types.AuditActionServiceKBScopeReject, "service", serviceID, map[string]any{
+				"service_id": serviceID, "requested_kb_id": strings.TrimSpace(scope.KnowledgeBaseID), "reason": "tag_scope_out_of_scope",
+			})
 			return ErrServiceSpaceKBOutOfScope
 		}
 	}

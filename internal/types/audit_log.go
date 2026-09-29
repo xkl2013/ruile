@@ -184,6 +184,25 @@ const (
 	AuditActionSystemQueueTaskDeleted   AuditAction = "system.queue_task_deleted"
 	AuditActionSystemQueueTaskRunNow    AuditAction = "system.queue_task_run_now"
 	AuditActionSystemQueueTaskCancelled AuditAction = "system.queue_task_cancelled"
+
+	// Service-space actions record mutations that change the facts and
+	// context consumed by service agents. Details contain identifiers only,
+	// never source contents or other sensitive payloads.
+	AuditActionServiceUpdate            AuditAction = "service.update"
+	AuditActionServiceStateChange       AuditAction = "service.state_change"
+	AuditActionServiceMemberChange      AuditAction = "service.member_change"
+	AuditActionServiceContextAccess     AuditAction = "service.context_access"
+	AuditActionServiceKBScopeReject     AuditAction = "service.kb_scope_reject"
+	AuditActionServiceFactAppend        AuditAction = "service.fact_append"
+	AuditActionServiceProfileUpdate     AuditAction = "service.profile_update"
+	AuditActionServiceSummaryRefresh    AuditAction = "service.summary_refresh"
+	AuditActionServiceArtifactLifecycle AuditAction = "service.artifact_lifecycle"
+	AuditActionServiceRawMaterialAssign AuditAction = "service.raw_material_assign"
+
+	// Backward-compatible names used by the first service-facts increment.
+	AuditActionServiceFactAppended   = AuditActionServiceFactAppend
+	AuditActionServiceOutputAssigned = AuditActionServiceRawMaterialAssign
+	AuditActionServiceContextDeleted = AuditActionServiceContextAccess
 )
 
 // AuditOutcome distinguishes successful mutations from middleware-level

@@ -339,6 +339,12 @@ func TestServiceSpaceIndexesArtifactsUnderRunService(t *testing.T) {
 	require.Equal(t, session.ID, run.ThreadID)
 	require.Equal(t, "artifact-renewal-list", artifacts[0].ArtifactID)
 	require.Equal(t, types.ServiceArtifactLifecycleSaved, artifacts[0].Lifecycle)
+	archived, err := svc.UpdateArtifactLifecycle(ctx, 8, "owner", space.ID, "artifact-renewal-list", types.ServiceArtifactLifecycleArchived, "artifact-op-1")
+	require.NoError(t, err)
+	require.Equal(t, types.ServiceArtifactLifecycleArchived, archived.Lifecycle)
+	replayed, err := svc.UpdateArtifactLifecycle(ctx, 8, "owner", space.ID, "artifact-renewal-list", types.ServiceArtifactLifecycleSaved, "artifact-op-1")
+	require.NoError(t, err)
+	require.Equal(t, types.ServiceArtifactLifecycleArchived, replayed.Lifecycle)
 
 	other, err := svc.Create(ctx, 8, "owner", types.ServiceSpaceCreateInput{
 		Name: "晨检异常",
@@ -467,16 +473,101 @@ func TestServiceSpaceContextSourcesImportReadyOutputIdempotently(t *testing.T) {
 	runtimeContext, err := svc.ResolveRuntimeContext(ctx, 73, "owner", space.ID)
 	require.NoError(t, err)
 	require.Len(t, runtimeContext.ContextSources, 1)
+	require.Len(t, runtimeContext.Facts, 1)
+	require.Equal(t, types.ServiceFactTypeOrganizeOutput, runtimeContext.Facts[0].FactType)
 	require.NotEmpty(t, runtimeContext.ContextHash)
 
 	contextText, err := svc.ReadMarkdownContext(ctx, 73, "owner", space.ID)
 	require.NoError(t, err)
 	require.Contains(t, contextText, "优先跟进待续费会员")
+	require.Contains(t, contextText, "服务空间事实")
+	require.Contains(t, contextText, output.ID)
 
 	require.NoError(t, svc.DeleteContextSource(ctx, 73, "owner", space.ID, source.ID))
 	sources, err = svc.ListContextSources(ctx, 73, "owner", space.ID)
 	require.NoError(t, err)
 	require.Empty(t, sources)
+}
+
+func TestServiceSpaceFactsAreScopedAppendOnlyAndAudited(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	audit := &captureAuditLogService{}
+	svc := NewServiceSpaceServiceWithDependencies(
+		repository.NewServiceSpaceRepository(db),
+		repository.NewOrganizeRepository(db),
+		nil,
+		nil,
+		nil,
+		audit,
+	)
+
+	first, err := svc.Create(ctx, 75, "owner", types.ServiceSpaceCreateInput{Name: "事实服务一"})
+	require.NoError(t, err)
+	second, err := svc.Create(ctx, 75, "owner", types.ServiceSpaceCreateInput{Name: "事实服务二"})
+	require.NoError(t, err)
+
+	input := types.ServiceFactAppendInput{
+		FactType:      "member_status",
+		FactKey:       "member-001",
+		Value:         types.JSONMap{"status": "active"},
+		SourceType:    "manual_note",
+		SourceID:      "note-001",
+		SourceVersion: "v1",
+	}
+	fact, err := svc.AppendFact(ctx, 75, "owner", first.ID, input)
+	require.NoError(t, err)
+	require.NotEmpty(t, fact.ID)
+
+	duplicate, err := svc.AppendFact(ctx, 75, "owner", first.ID, input)
+	require.NoError(t, err)
+	require.Equal(t, fact.ID, duplicate.ID)
+
+	facts, total, err := svc.ListFacts(ctx, 75, "owner", first.ID, "", "", "", "", 1, 20)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, facts, 1)
+	summaryBefore, err := svc.GetSummary(ctx, 75, "owner", first.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, summaryBefore.SourceWatermark)
+
+	otherFacts, total, err := svc.ListFacts(ctx, 75, "owner", second.ID, "", "", "", "", 1, 20)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, total)
+	require.Empty(t, otherFacts)
+
+	_, err = svc.AppendFact(ctx, 75, "owner", first.ID, types.ServiceFactAppendInput{
+		FactType: "member_status", FactKey: "member-002",
+		Value:      types.JSONMap{"status": "pending"},
+		SourceType: "manual_note", SourceID: "note-002",
+	})
+	require.NoError(t, err)
+	summaryAfter, err := svc.GetSummary(ctx, 75, "owner", first.ID)
+	require.NoError(t, err)
+	require.Greater(t, summaryAfter.Version, summaryBefore.Version)
+	require.NotEqual(t, summaryBefore.SourceWatermark, summaryAfter.SourceWatermark)
+
+	_, _, err = svc.ListFacts(ctx, 75, "outsider", first.ID, "", "", "", "", 1, 20)
+	require.ErrorIs(t, err, ErrServiceSpaceNotFound)
+
+	_, err = svc.AppendFact(ctx, 75, "owner", first.ID, types.ServiceFactAppendInput{
+		FactType: "member_status",
+		Value:    types.JSONMap{"status": "active"},
+	})
+	require.ErrorIs(t, err, ErrServiceSpaceFactSourceRequired)
+
+	require.NotEmpty(t, audit.entries)
+	var sawFactAppend, sawSummaryRefresh bool
+	for _, entry := range audit.entries {
+		if entry.Action == types.AuditActionServiceFactAppend {
+			sawFactAppend = true
+		}
+		if entry.Action == types.AuditActionServiceSummaryRefresh {
+			sawSummaryRefresh = true
+		}
+	}
+	require.True(t, sawFactAppend)
+	require.True(t, sawSummaryRefresh)
 }
 
 func TestServiceSpaceContextSourcesRejectNonReadyOutputAndUnauthorizedUser(t *testing.T) {

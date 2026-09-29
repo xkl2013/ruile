@@ -545,6 +545,49 @@ func (h *ServiceSpaceHandler) DeleteSubject(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func (h *ServiceSpaceHandler) ListFacts(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	page, pageSize, valid := parseServiceSpacePagination(c)
+	if !valid {
+		return
+	}
+	facts, total, err := h.service.ListFacts(
+		c.Request.Context(), tenantID, userID, c.Param("service_id"),
+		c.Query("subject_id"), c.Query("fact_type"), c.Query("source_type"), c.Query("source_id"),
+		page, pageSize,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"items": facts, "total": total, "page": page, "page_size": pageSize,
+	}})
+}
+
+func (h *ServiceSpaceHandler) AppendFact(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ServiceFactAppendInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid service fact request").WithDetails(err.Error()))
+		return
+	}
+	fact, err := h.service.AppendFact(
+		c.Request.Context(), tenantID, userID, c.Param("service_id"), input,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": fact})
+}
+
 func (h *ServiceSpaceHandler) ListReminderStatuses(c *gin.Context) {
 	tenantID, userID, ok := serviceScope(c)
 	if !ok {
@@ -1230,6 +1273,8 @@ func (h *ServiceSpaceHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, appsvc.ErrServiceSpaceContextSourceInvalid),
 		stderrors.Is(err, appsvc.ErrServiceSpaceContextSourceNotReady),
 		stderrors.Is(err, appsvc.ErrServiceSpaceContextSourceAssigned),
+		stderrors.Is(err, appsvc.ErrServiceSpaceFactInvalid),
+		stderrors.Is(err, appsvc.ErrServiceSpaceFactSourceRequired),
 		stderrors.Is(err, appsvc.ErrServiceSpaceReminderInvalid),
 		stderrors.Is(err, appsvc.ErrServiceSpaceReminderTransition),
 		stderrors.Is(err, appsvc.ErrServiceSpaceReminderParent),

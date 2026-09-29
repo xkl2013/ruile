@@ -278,6 +278,68 @@ func (r *serviceSpaceRepository) DeleteContextSource(
 		Delete(&types.ServiceContextSource{}).Error
 }
 
+func (r *serviceSpaceRepository) CreateFact(
+	ctx context.Context,
+	fact *types.ServiceFact,
+) error {
+	return r.db.WithContext(ctx).Create(fact).Error
+}
+
+func (r *serviceSpaceRepository) ListFacts(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID, factType, sourceType, sourceID string,
+	page, pageSize int,
+) ([]*types.ServiceFact, int64, error) {
+	query := r.db.WithContext(ctx).Model(&types.ServiceFact{}).
+		Where("tenant_id = ? AND service_id = ?", tenantID, strings.TrimSpace(serviceID))
+	if subjectID = strings.TrimSpace(subjectID); subjectID != "" {
+		query = query.Where("subject_id = ?", subjectID)
+	}
+	if factType = strings.TrimSpace(factType); factType != "" {
+		query = query.Where("fact_type = ?", factType)
+	}
+	if sourceType = strings.TrimSpace(sourceType); sourceType != "" {
+		query = query.Where("source_type = ?", sourceType)
+	}
+	if sourceID = strings.TrimSpace(sourceID); sourceID != "" {
+		query = query.Where("source_id = ?", sourceID)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var facts []*types.ServiceFact
+	err := query.Order("created_at DESC").
+		Order("id DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&facts).Error
+	return facts, total, err
+}
+
+func (r *serviceSpaceRepository) GetFactBySource(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, sourceType, sourceID, factKey string,
+) (*types.ServiceFact, error) {
+	var fact types.ServiceFact
+	err := r.db.WithContext(ctx).
+		Where(
+			"tenant_id = ? AND service_id = ? AND source_type = ? AND source_id = ? AND fact_key = ?",
+			tenantID,
+			strings.TrimSpace(serviceID),
+			strings.TrimSpace(sourceType),
+			strings.TrimSpace(sourceID),
+			strings.TrimSpace(factKey),
+		).
+		First(&fact).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &fact, err
+}
+
 func (r *serviceSpaceRepository) UpdateArtifactLifecycle(
 	ctx context.Context,
 	tenantID uint64,
@@ -287,6 +349,34 @@ func (r *serviceSpaceRepository) UpdateArtifactLifecycle(
 		Where("tenant_id = ? AND service_id = ? AND artifact_id = ? AND is_current = ?",
 			tenantID, serviceID, artifactID, true).
 		Updates(map[string]any{"lifecycle": lifecycle, "updated_at": time.Now().UTC()}).Error
+}
+
+func (r *serviceSpaceRepository) GetArtifactLifecycleOperation(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, artifactID, idempotencyKey string,
+) (*types.ServiceArtifactLifecycleOperation, error) {
+	var operation types.ServiceArtifactLifecycleOperation
+	err := r.db.WithContext(ctx).
+		Where(
+			"tenant_id = ? AND service_id = ? AND artifact_id = ? AND idempotency_key = ?",
+			tenantID,
+			strings.TrimSpace(serviceID),
+			strings.TrimSpace(artifactID),
+			strings.TrimSpace(idempotencyKey),
+		).
+		First(&operation).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &operation, err
+}
+
+func (r *serviceSpaceRepository) CreateArtifactLifecycleOperation(
+	ctx context.Context,
+	operation *types.ServiceArtifactLifecycleOperation,
+) error {
+	return r.db.WithContext(ctx).Create(operation).Error
 }
 
 var _ interfaces.ServiceSpaceRepository = (*serviceSpaceRepository)(nil)

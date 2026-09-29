@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_service_artifact_lifecycle_ops_artifact;
+DROP INDEX IF EXISTS idx_service_artifact_lifecycle_ops_key;
+DROP TABLE IF EXISTS service_artifact_lifecycle_operations;

@@ -277,6 +277,7 @@ type ServiceRuntimeContext struct {
 	Summary          *ServiceSpaceSummary    `json:"summary,omitempty"`
 	Artifacts        []*ServiceArtifact      `json:"artifacts,omitempty"`
 	ContextSources   []*ServiceContextSource `json:"context_sources,omitempty"`
+	Facts            []*ServiceFact          `json:"facts,omitempty"`
 	ContextHash      string                  `json:"context_hash"`
 }
 

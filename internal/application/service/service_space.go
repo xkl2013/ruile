@@ -59,6 +59,8 @@ var (
 	ErrServiceSpaceReminderParent        = errors.New("invalid service reminder parent")
 	ErrServiceSpaceReminderDepth         = errors.New("service reminder nesting exceeds five levels")
 	ErrServiceSpaceProfileSchemaInvalid  = errors.New("invalid service profile schema")
+	ErrServiceSpaceFactInvalid           = errors.New("invalid service fact")
+	ErrServiceSpaceFactSourceRequired    = errors.New("service fact source is required")
 )
 
 const (
@@ -79,6 +81,7 @@ type serviceSpaceService struct {
 	resourceCatalog interfaces.ResourceCatalog
 	fileService     interfaces.FileService
 	tenantRepo      interfaces.TenantRepository
+	audit           interfaces.AuditLogService
 }
 
 func NewServiceSpaceService(
@@ -97,12 +100,24 @@ func NewServiceSpaceServiceWithTenantRepository(
 	fileService interfaces.FileService,
 	tenantRepo interfaces.TenantRepository,
 ) interfaces.ServiceSpaceService {
+	return NewServiceSpaceServiceWithDependencies(repo, organizeRepo, resourceCatalog, fileService, tenantRepo, nil)
+}
+
+func NewServiceSpaceServiceWithDependencies(
+	repo interfaces.ServiceSpaceRepository,
+	organizeRepo interfaces.OrganizeRepository,
+	resourceCatalog interfaces.ResourceCatalog,
+	fileService interfaces.FileService,
+	tenantRepo interfaces.TenantRepository,
+	audit interfaces.AuditLogService,
+) interfaces.ServiceSpaceService {
 	return &serviceSpaceService{
 		repo:            repo,
 		organizeRepo:    organizeRepo,
 		resourceCatalog: resourceCatalog,
 		fileService:     fileService,
 		tenantRepo:      tenantRepo,
+		audit:           audit,
 	}
 }
 
@@ -167,7 +182,17 @@ func (s *serviceSpaceService) Create(
 	if err := s.repo.Create(ctx, service, owner, experts); err != nil {
 		return nil, err
 	}
-	return s.Get(ctx, tenantID, userID, service.ID)
+	view, err := s.Get(ctx, tenantID, userID, service.ID)
+	if err != nil {
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service", service.ID, map[string]any{
+		"operation":  "create",
+		"service_id": service.ID,
+		"state":      service.State,
+		"space_type": service.SpaceType,
+	})
+	return view, nil
 }
 
 func (s *serviceSpaceService) ListTemplates(
@@ -328,6 +353,12 @@ func (s *serviceSpaceService) ApplyTemplate(
 	}); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service", service.ID, map[string]any{
+		"operation":        "template_apply",
+		"template_key":     template.Key,
+		"template_version": template.Version,
+		"apply_mode":       string(types.ServiceSpaceBlueprintConfirmationAutoApply),
+	})
 	return s.Get(ctx, tenantID, userID, service.ID)
 }
 
@@ -456,6 +487,12 @@ func (s *serviceSpaceService) ConfirmBlueprint(
 	if err := s.initializeProfileAndSummary(ctx, tenantID, serviceID, blueprint); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_blueprint", record.ID, map[string]any{
+		"operation":         "blueprint_confirm",
+		"service_id":        serviceID,
+		"blueprint_version": record.Version,
+		"activate":          input.Activate,
+	})
 	if input.Activate {
 		if _, err := s.SetState(ctx, tenantID, userID, serviceID, types.ServiceSpaceStateActive); err != nil {
 			return nil, err
@@ -482,10 +519,14 @@ func (s *serviceSpaceService) GetProfile(
 		if blueprintErr != nil {
 			return nil, blueprintErr
 		}
+		watermark, watermarkErr := s.currentSourceWatermark(ctx, tenantID, serviceID)
+		if watermarkErr != nil {
+			return nil, watermarkErr
+		}
 		return &types.ServiceSpaceProfile{
 			TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
 			Version: 1, Schema: blueprint.ProfileSchema, Values: types.JSONMap{},
-			SourceWatermark: profileHash(tenantID, serviceID),
+			SourceWatermark: watermark,
 		}, nil
 	}
 	return profile, nil
@@ -524,14 +565,25 @@ func (s *serviceSpaceService) UpdateProfile(
 		}
 		schema = normalized
 	}
+	watermark, err := s.currentSourceWatermark(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
 	profile := &types.ServiceSpaceProfile{
 		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
 		Version: version, Schema: schema, Values: input.Values,
-		SourceWatermark: profileHash(tenantID, serviceID),
+		SourceWatermark: watermark,
 	}
 	if err := s.repo.UpsertProfile(ctx, profile); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceProfileUpdate, "service_profile", profile.ID, map[string]any{
+		"service_id":        serviceID,
+		"previous_version":  profileVersion(current),
+		"version":           profile.Version,
+		"blueprint_version": profile.BlueprintVersion,
+		"source_watermark":  profile.SourceWatermark,
+	})
 	return profile, nil
 }
 
@@ -585,18 +637,23 @@ func (s *serviceSpaceService) GetSummary(
 		if blueprintErr != nil {
 			return nil, blueprintErr
 		}
+		watermark, watermarkErr := s.currentSourceWatermark(ctx, tenantID, serviceID)
+		if watermarkErr != nil {
+			return nil, watermarkErr
+		}
 		sections := types.JSONMap{}
 		for _, section := range blueprint.SummarySchema {
 			sections[section.Key] = types.JSONMap{
-				"label":         section.Label,
-				"status":        "待补充事实",
-				"source_scopes": section.SourceScopes,
+				"label":            section.Label,
+				"status":           "待补充事实",
+				"source_scopes":    section.SourceScopes,
+				"source_watermark": watermark,
 			}
 		}
 		return &types.ServiceSpaceSummary{
 			TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
 			Version: 1, Schema: blueprint.SummarySchema, Sections: sections,
-			SourceWatermark: profileHash(tenantID, serviceID), RefreshStatus: "ready",
+			SourceWatermark: watermark, RefreshStatus: "ready",
 		}, nil
 	}
 	return summary, nil
@@ -607,6 +664,14 @@ func (s *serviceSpaceService) RefreshSummary(
 	tenantID uint64,
 	userID, serviceID string,
 ) (*types.ServiceSpaceSummary, error) {
+	return s.refreshSummaryFromSources(ctx, tenantID, userID, serviceID, "manual")
+}
+
+func (s *serviceSpaceService) refreshSummaryFromSources(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, trigger string,
+) (*types.ServiceSpaceSummary, error) {
 	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true)
 	if err != nil {
 		return nil, err
@@ -615,18 +680,43 @@ func (s *serviceSpaceService) RefreshSummary(
 	if err != nil {
 		return nil, err
 	}
-	profile, _ := s.repo.GetProfile(ctx, tenantID, serviceID)
+	profile, err := s.repo.GetProfile(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	facts, _, err := s.repo.ListFacts(ctx, tenantID, serviceID, "", "", "", "", 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return nil, err
+	}
+	watermark, err := s.currentSourceWatermark(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	previous, err := s.repo.GetSummary(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
 	version := 1
-	if existing, getErr := s.repo.GetSummary(ctx, tenantID, serviceID); getErr == nil && existing != nil {
-		version = existing.Version + 1
+	if previous != nil {
+		version = previous.Version + 1
+	}
+	status := "待补充事实"
+	if len(facts) > 0 {
+		status = "已根据事实刷新"
 	}
 	sections := types.JSONMap{}
 	for _, section := range blueprint.SummarySchema {
 		sections[section.Key] = types.JSONMap{
-			"label":         section.Label,
-			"status":        "待补充事实",
-			"source_scopes": section.SourceScopes,
+			"label":            section.Label,
+			"status":           status,
+			"source_scopes":    section.SourceScopes,
+			"fact_count":       len(facts),
+			"source_watermark": watermark,
 		}
+	}
+	sections["facts"] = types.JSONMap{
+		"count": len(facts),
+		"items": serviceFactSnapshots(facts),
 	}
 	if profile != nil {
 		sections["profile_snapshot"] = profile.Values
@@ -634,11 +724,20 @@ func (s *serviceSpaceService) RefreshSummary(
 	summary := &types.ServiceSpaceSummary{
 		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
 		Version: version, Schema: blueprint.SummarySchema, Sections: sections,
-		SourceWatermark: profileHash(tenantID, serviceID), RefreshStatus: "ready",
+		SourceWatermark: watermark, RefreshStatus: "ready",
 	}
 	if err := s.repo.UpsertSummary(ctx, summary); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceSummaryRefresh, "service_summary", summary.ID, map[string]any{
+		"service_id":        serviceID,
+		"trigger":           trigger,
+		"previous_version":  summaryVersion(previous),
+		"version":           summary.Version,
+		"blueprint_version": summary.BlueprintVersion,
+		"fact_count":        len(facts),
+		"source_watermark":  summary.SourceWatermark,
+	})
 	return summary, nil
 }
 
@@ -697,6 +796,10 @@ func (s *serviceSpaceService) ResolveRuntimeContext(
 	if err != nil {
 		return nil, err
 	}
+	facts, _, err := s.repo.ListFacts(ctx, tenantID, serviceID, "", "", "", "", 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return nil, err
+	}
 	templateVersion := 0
 	blueprintVersion := 0
 	if blueprint != nil {
@@ -713,9 +816,10 @@ func (s *serviceSpaceService) ResolveRuntimeContext(
 		ProfileVersion   int      `json:"profile_version"`
 		SummaryVersion   int      `json:"summary_version"`
 		ContextSources   []string `json:"context_sources"`
+		Facts            []string `json:"facts"`
 	}{service.ID, service.Instruction, service.KnowledgeBaseIDs, service.TemplateKey, templateVersion,
 		blueprintVersion, profileVersion(profile), summaryVersion(summary),
-		contextSourceHashInputs(contextSources)}
+		contextSourceHashInputs(contextSources), factHashInputs(facts)}
 	encoded, _ := json.Marshal(hashInput)
 	digest := sha256.Sum256(encoded)
 	return &types.ServiceRuntimeContext{
@@ -723,9 +827,84 @@ func (s *serviceSpaceService) ResolveRuntimeContext(
 		KnowledgeBaseIDs: append([]string(nil), service.KnowledgeBaseIDs...),
 		TemplateKey:      service.TemplateKey, TemplateVersion: templateVersion,
 		BlueprintVersion: blueprintVersion, Experts: experts, Profile: profile,
-		Summary: summary, Artifacts: artifacts, ContextSources: contextSources,
+		Summary: summary, Artifacts: artifacts, ContextSources: contextSources, Facts: facts,
 		ContextHash: fmt.Sprintf("%x", digest[:]),
 	}, nil
+}
+
+func (s *serviceSpaceService) ListFacts(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, subjectID, factType, sourceType, sourceID string,
+	page, pageSize int,
+) ([]*types.ServiceFact, int64, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, 0, err
+	}
+	page, pageSize = normalizeServiceSpacePagination(page, pageSize)
+	return s.repo.ListFacts(ctx, tenantID, serviceID, subjectID, factType, sourceType, sourceID, page, pageSize)
+}
+
+func (s *serviceSpaceService) AppendFact(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceFactAppendInput,
+) (*types.ServiceFact, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return nil, err
+	}
+	input.SubjectID = strings.TrimSpace(input.SubjectID)
+	input.FactType = strings.TrimSpace(input.FactType)
+	input.FactKey = strings.TrimSpace(input.FactKey)
+	input.SourceType = strings.TrimSpace(input.SourceType)
+	input.SourceID = strings.TrimSpace(input.SourceID)
+	input.SourceVersion = strings.TrimSpace(input.SourceVersion)
+	if input.SourceType == "" || input.SourceID == "" {
+		return nil, ErrServiceSpaceFactSourceRequired
+	}
+	if input.FactType == "" || utf8.RuneCountInString(input.FactType) > types.ServiceFactTypeMaxLen ||
+		utf8.RuneCountInString(input.FactKey) > types.ServiceFactKeyMaxLen ||
+		utf8.RuneCountInString(input.SourceType) > types.ServiceFactSourceTypeMaxLen ||
+		utf8.RuneCountInString(input.SourceID) > types.ServiceFactSourceIDMaxLen {
+		return nil, ErrServiceSpaceFactInvalid
+	}
+	if input.SubjectID != "" {
+		subject, err := s.repo.GetSubject(ctx, tenantID, serviceID, input.SubjectID)
+		if err != nil {
+			return nil, err
+		}
+		if subject == nil {
+			return nil, ErrServiceSpaceSubjectNotFound
+		}
+	}
+	if existing, err := s.repo.GetFactBySource(ctx, tenantID, serviceID, input.SourceType, input.SourceID, input.FactKey); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return existing, nil
+	}
+	fact := &types.ServiceFact{
+		TenantID: tenantID, ServiceID: serviceID, SubjectID: input.SubjectID,
+		FactType: input.FactType, FactKey: input.FactKey, Value: input.Value,
+		SourceType: input.SourceType, SourceID: input.SourceID,
+		SourceVersion: input.SourceVersion, CreatedBy: userID,
+	}
+	if err := fact.ValidateForAppend(); err != nil {
+		return nil, ErrServiceSpaceFactInvalid
+	}
+	if err := s.repo.CreateFact(ctx, fact); err != nil {
+		if existing, getErr := s.repo.GetFactBySource(ctx, tenantID, serviceID, input.SourceType, input.SourceID, input.FactKey); getErr == nil && existing != nil {
+			return existing, nil
+		}
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceFactAppended, "service_fact", fact.ID, map[string]any{
+		"service_id": serviceID, "fact_type": fact.FactType, "source_type": fact.SourceType, "source_id": fact.SourceID,
+	})
+	if _, refreshErr := s.refreshSummaryFromSources(ctx, tenantID, userID, serviceID, "fact_append"); refreshErr != nil {
+		logger.Warnf(ctx, "service summary refresh after fact append failed: service_id=%s fact_id=%s err=%v", serviceID, fact.ID, refreshErr)
+	}
+	return fact, nil
 }
 
 func (s *serviceSpaceService) ListContextSources(
@@ -769,6 +948,9 @@ func (s *serviceSpaceService) ImportOrganizeOutput(
 			markOrganizeOutputAssigned(output, serviceID)
 			if outputErr := s.organizeRepo.UpdateOutput(ctx, output, output.MemoryIDs); outputErr != nil {
 				return nil, outputErr
+			}
+			if _, factErr := s.ensureOrganizeOutputFact(ctx, tenantID, userID, serviceID, output); factErr != nil {
+				return nil, factErr
 			}
 		}
 		return existing, nil
@@ -822,7 +1004,56 @@ func (s *serviceSpaceService) ImportOrganizeOutput(
 	if err := s.organizeRepo.UpdateOutput(ctx, output, output.MemoryIDs); err != nil {
 		return nil, err
 	}
+	if _, err := s.ensureOrganizeOutputFact(ctx, tenantID, userID, serviceID, output); err != nil {
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceOutputAssigned, "service_context_source", source.ID, map[string]any{
+		"service_id": serviceID, "source_type": source.SourceType, "source_id": source.SourceID,
+	})
 	return source, nil
+}
+
+func (s *serviceSpaceService) ensureOrganizeOutputFact(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	output *types.OrganizeOutput,
+) (*types.ServiceFact, error) {
+	if output == nil {
+		return nil, ErrServiceSpaceContextSourceInvalid
+	}
+	sourceVersion := strings.TrimSpace(output.TemplateVersion)
+	if sourceVersion == "" && !output.UpdatedAt.IsZero() {
+		sourceVersion = output.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	fact, err := s.repo.GetFactBySource(
+		ctx, tenantID, serviceID,
+		types.ServiceContextSourceTypeOrganizeOutput,
+		output.ID,
+		"output",
+	)
+	if err != nil {
+		return nil, err
+	}
+	if fact != nil {
+		return fact, nil
+	}
+	return s.AppendFact(ctx, tenantID, userID, serviceID, types.ServiceFactAppendInput{
+		FactType: types.ServiceFactTypeOrganizeOutput,
+		FactKey:  "output",
+		Value: types.JSONMap{
+			"title":        output.Title,
+			"summary":      output.SourceSummary,
+			"output_type":  output.OutputType,
+			"template_key": output.TemplateKey,
+			"fields":       output.Fields,
+			"citations":    output.Citations,
+			"memory_ids":   output.MemoryIDs,
+		},
+		SourceType:    types.ServiceContextSourceTypeOrganizeOutput,
+		SourceID:      output.ID,
+		SourceVersion: sourceVersion,
+	})
 }
 
 func markOrganizeOutputAssigned(output *types.OrganizeOutput, serviceID string) {
@@ -855,7 +1086,13 @@ func (s *serviceSpaceService) DeleteContextSource(
 	if source == nil {
 		return ErrServiceSpaceContextSourceNotFound
 	}
-	return s.repo.DeleteContextSource(ctx, tenantID, serviceID, source.ID)
+	if err := s.repo.DeleteContextSource(ctx, tenantID, serviceID, source.ID); err != nil {
+		return err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceContextDeleted, "service_context_source", source.ID, map[string]any{
+		"service_id": serviceID, "source_type": source.SourceType, "source_id": source.SourceID,
+	})
+	return nil
 }
 
 func contextSourceHashInputs(sources []*types.ServiceContextSource) []string {
@@ -878,6 +1115,174 @@ func contextSourceHashInputs(sources []*types.ServiceContextSource) []string {
 	return inputs
 }
 
+func factHashInputs(facts []*types.ServiceFact) []string {
+	if len(facts) == 0 {
+		return nil
+	}
+	inputs := make([]string, 0, len(facts))
+	for _, fact := range facts {
+		if fact == nil {
+			continue
+		}
+		inputs = append(inputs, fmt.Sprintf(
+			"%s:%s:%s:%s",
+			fact.ID,
+			fact.FactType,
+			fact.SourceID,
+			fact.CreatedAt.UTC().Format(time.RFC3339Nano),
+		))
+	}
+	sort.Strings(inputs)
+	return inputs
+}
+
+func (s *serviceSpaceService) currentSourceWatermark(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID string,
+) (string, error) {
+	facts, _, err := s.repo.ListFacts(ctx, tenantID, serviceID, "", "", "", "", 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return "", err
+	}
+	sources, err := s.repo.ListContextSources(ctx, tenantID, serviceID)
+	if err != nil {
+		return "", err
+	}
+	saved, _, err := s.repo.ListArtifacts(ctx, tenantID, serviceID, types.ServiceArtifactLifecycleSaved, 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return "", err
+	}
+	shared, _, err := s.repo.ListArtifacts(ctx, tenantID, serviceID, types.ServiceArtifactLifecycleShared, 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return "", err
+	}
+	payload := struct {
+		Facts     []string `json:"facts"`
+		Sources   []string `json:"sources"`
+		Artifacts []string `json:"artifacts"`
+	}{
+		Facts:     factHashInputs(facts),
+		Sources:   contextSourceHashInputs(sources),
+		Artifacts: artifactHashInputs(append(saved, shared...)),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func artifactHashInputs(artifacts []*types.ServiceArtifact) []string {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	inputs := make([]string, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact == nil {
+			continue
+		}
+		inputs = append(inputs, fmt.Sprintf(
+			"%s:%s:%s:%s",
+			artifact.ArtifactID,
+			artifact.VersionID,
+			artifact.Lifecycle,
+			artifact.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		))
+	}
+	sort.Strings(inputs)
+	return inputs
+}
+
+func serviceFactSnapshots(facts []*types.ServiceFact) []map[string]any {
+	if len(facts) == 0 {
+		return []map[string]any{}
+	}
+	snapshots := make([]map[string]any, 0, len(facts))
+	for _, fact := range facts {
+		if fact == nil {
+			continue
+		}
+		snapshots = append(snapshots, map[string]any{
+			"id":             fact.ID,
+			"fact_type":      fact.FactType,
+			"fact_key":       fact.FactKey,
+			"value":          fact.Value,
+			"source_type":    fact.SourceType,
+			"source_id":      fact.SourceID,
+			"source_version": fact.SourceVersion,
+			"created_at":     fact.CreatedAt,
+		})
+	}
+	return snapshots
+}
+
+func normalizeServiceSpacePagination(page, pageSize int) (int, int) {
+	if page < 1 {
+		page = serviceSpaceDefaultPage
+	}
+	if pageSize < 1 {
+		pageSize = serviceSpaceDefaultSize
+	}
+	if pageSize > serviceSpaceMaxPageSize {
+		pageSize = serviceSpaceMaxPageSize
+	}
+	return page, pageSize
+}
+
+func serviceFieldNames(fields map[string]any) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		if name == "updated_by" {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func (s *serviceSpaceService) emitAudit(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	action types.AuditAction,
+	targetType, targetID string,
+	details map[string]any,
+) {
+	if s.audit == nil {
+		return
+	}
+	raw, err := json.Marshal(details)
+	if err != nil {
+		return
+	}
+	_ = s.audit.Log(ctx, &types.AuditLog{
+		TenantID:    tenantID,
+		ActorUserID: userID,
+		Action:      action,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		Outcome:     types.AuditOutcomeSuccess,
+		Details:     types.JSON(raw),
+	})
+}
+
+func (s *serviceSpaceService) RecordAudit(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	action types.AuditAction,
+	targetType, targetID string,
+	details map[string]any,
+) {
+	s.emitAudit(ctx, tenantID, userID, action, targetType, targetID, details)
+}
+
 func (s *serviceSpaceService) UpdateArtifactLifecycle(
 	ctx context.Context,
 	tenantID uint64,
@@ -889,6 +1294,14 @@ func (s *serviceSpaceService) UpdateArtifactLifecycle(
 	}
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return nil, fmt.Errorf("idempotency key is required")
+	}
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if operation, opErr := s.repo.GetArtifactLifecycleOperation(
+		ctx, tenantID, serviceID, artifactID, idempotencyKey,
+	); opErr != nil {
+		return nil, opErr
+	} else if operation != nil {
+		return s.GetArtifact(ctx, tenantID, userID, serviceID, artifactID, 0)
 	}
 	artifact, err := s.GetArtifact(ctx, tenantID, userID, serviceID, artifactID, 0)
 	if err != nil {
@@ -931,6 +1344,32 @@ func (s *serviceSpaceService) UpdateArtifactLifecycle(
 	if err := s.repo.UpdateArtifactLifecycle(ctx, tenantID, serviceID, artifactID, lifecycle); err != nil {
 		return nil, err
 	}
+	operation := &types.ServiceArtifactLifecycleOperation{
+		TenantID:        tenantID,
+		ServiceID:       serviceID,
+		ArtifactID:      artifact.ArtifactID,
+		IdempotencyKey:  idempotencyKey,
+		FromLifecycle:   artifact.Lifecycle,
+		ToLifecycle:     lifecycle,
+		ResultVersionID: artifact.VersionID,
+		CreatedBy:       userID,
+	}
+	if err := s.repo.CreateArtifactLifecycleOperation(ctx, operation); err != nil {
+		if existing, getErr := s.repo.GetArtifactLifecycleOperation(ctx, tenantID, serviceID, artifactID, idempotencyKey); getErr == nil && existing != nil {
+			return s.GetArtifact(ctx, tenantID, userID, serviceID, artifactID, 0)
+		}
+		return nil, err
+	}
+	if artifact.Lifecycle != lifecycle {
+		s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceArtifactLifecycle, "service_artifact", artifact.ArtifactID, map[string]any{
+			"service_id":          serviceID,
+			"artifact_id":         artifact.ArtifactID,
+			"version_id":          artifact.VersionID,
+			"from_lifecycle":      artifact.Lifecycle,
+			"to_lifecycle":        lifecycle,
+			"idempotency_present": strings.TrimSpace(idempotencyKey) != "",
+		})
+	}
 	return s.GetArtifact(ctx, tenantID, userID, serviceID, artifactID, 0)
 }
 
@@ -940,10 +1379,14 @@ func (s *serviceSpaceService) initializeProfileAndSummary(
 	serviceID string,
 	blueprint types.ServiceSpaceBlueprint,
 ) error {
+	watermark, err := s.currentSourceWatermark(ctx, tenantID, serviceID)
+	if err != nil {
+		return err
+	}
 	profile := &types.ServiceSpaceProfile{
 		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
 		Version: 1, Schema: blueprint.ProfileSchema, Values: types.JSONMap{},
-		SourceWatermark: profileHash(tenantID, serviceID),
+		SourceWatermark: watermark,
 	}
 	if err := s.repo.UpsertProfile(ctx, profile); err != nil {
 		return err
@@ -955,7 +1398,7 @@ func (s *serviceSpaceService) initializeProfileAndSummary(
 	summary := &types.ServiceSpaceSummary{
 		TenantID: tenantID, ServiceID: serviceID, BlueprintVersion: blueprint.Version,
 		Version: 1, Schema: blueprint.SummarySchema, Sections: sections,
-		SourceWatermark: profileHash(tenantID, serviceID), RefreshStatus: "ready",
+		SourceWatermark: watermark, RefreshStatus: "ready",
 	}
 	return s.repo.UpsertSummary(ctx, summary)
 }
@@ -1217,6 +1660,11 @@ func (s *serviceSpaceService) Update(
 	if err := s.repo.Update(ctx, &service.ServiceSpace, fields); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service", serviceID, map[string]any{
+		"operation":      "update",
+		"service_id":     serviceID,
+		"changed_fields": serviceFieldNames(fields),
+	})
 	return s.Get(ctx, tenantID, userID, serviceID)
 }
 
@@ -1255,6 +1703,11 @@ func (s *serviceSpaceService) SetState(
 	}); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceStateChange, "service", serviceID, map[string]any{
+		"service_id": serviceID,
+		"from_state": service.State,
+		"to_state":   state,
+	})
 	return s.Get(ctx, tenantID, userID, serviceID)
 }
 
@@ -1266,7 +1719,14 @@ func (s *serviceSpaceService) SetDefault(
 	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleOwner, false); err != nil {
 		return err
 	}
-	return s.repo.SetDefault(ctx, tenantID, userID, serviceID)
+	if err := s.repo.SetDefault(ctx, tenantID, userID, serviceID); err != nil {
+		return err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service", serviceID, map[string]any{
+		"operation":  "set_default",
+		"service_id": serviceID,
+	})
+	return nil
 }
 
 func (s *serviceSpaceService) Delete(
@@ -1277,7 +1737,14 @@ func (s *serviceSpaceService) Delete(
 	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleOwner, false); err != nil {
 		return err
 	}
-	return s.repo.Delete(ctx, tenantID, serviceID)
+	if err := s.repo.Delete(ctx, tenantID, serviceID); err != nil {
+		return err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service", serviceID, map[string]any{
+		"operation":  "delete",
+		"service_id": serviceID,
+	})
+	return nil
 }
 
 func (s *serviceSpaceService) GetOverview(
@@ -1515,7 +1982,16 @@ func (s *serviceSpaceService) AddMember(
 	if err := s.repo.UpsertMember(ctx, member); err != nil {
 		return nil, err
 	}
-	return s.repo.GetMember(ctx, tenantID, serviceID, input.UserID)
+	result, err := s.repo.GetMember(ctx, tenantID, serviceID, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceMemberChange, "service_member", input.UserID, map[string]any{
+		"service_id": serviceID,
+		"operation":  "add",
+		"role":       input.Role,
+	})
+	return result, nil
 }
 
 func (s *serviceSpaceService) UpdateMemberRole(
@@ -1536,7 +2012,15 @@ func (s *serviceSpaceService) UpdateMemberRole(
 	if member.Role == types.ServiceMemberRoleOwner || !types.IsValidServiceMemberRole(role) || role == types.ServiceMemberRoleOwner {
 		return ErrServiceSpaceOwnerImmutable
 	}
-	return s.repo.UpdateMemberRole(ctx, tenantID, serviceID, member.UserID, strings.TrimSpace(role))
+	role = strings.TrimSpace(role)
+	if err := s.repo.UpdateMemberRole(ctx, tenantID, serviceID, member.UserID, role); err != nil {
+		return err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceMemberChange, "service_member", member.UserID, map[string]any{
+		"service_id": serviceID, "operation": "role_change",
+		"from_role": member.Role, "to_role": role,
+	})
+	return nil
 }
 
 func (s *serviceSpaceService) RemoveMember(
@@ -1557,7 +2041,13 @@ func (s *serviceSpaceService) RemoveMember(
 	if member.Role == types.ServiceMemberRoleOwner {
 		return ErrServiceSpaceOwnerImmutable
 	}
-	return s.repo.MarkMemberLeft(ctx, tenantID, serviceID, member.UserID)
+	if err := s.repo.MarkMemberLeft(ctx, tenantID, serviceID, member.UserID); err != nil {
+		return err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceMemberChange, "service_member", member.UserID, map[string]any{
+		"service_id": serviceID, "operation": "remove", "previous_role": member.Role,
+	})
+	return nil
 }
 
 func (s *serviceSpaceService) ListExperts(
@@ -1595,7 +2085,15 @@ func (s *serviceSpaceService) ReplaceExperts(
 		}); err != nil {
 			return nil, err
 		}
+		s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceStateChange, "service", serviceID, map[string]any{
+			"from_state": types.ServiceSpaceStateActive,
+			"to_state":   types.ServiceSpaceStateDraft,
+			"reason":     "no_enabled_expert",
+		})
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service", serviceID, map[string]any{
+		"operation": "experts_replace", "expert_count": len(experts),
+	})
 	return s.repo.ListExperts(ctx, tenantID, serviceID)
 }
 
@@ -1685,6 +2183,9 @@ func (s *serviceSpaceService) CreateSubject(
 	if err := s.repo.CreateSubject(ctx, subject); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_subject", subject.ID, map[string]any{
+		"service_id": serviceID, "operation": "subject_create", "subject_type": subject.SubjectType,
+	})
 	return subject, nil
 }
 
@@ -1742,6 +2243,9 @@ func (s *serviceSpaceService) UpdateSubject(
 	if err := s.repo.UpdateSubject(ctx, tenantID, serviceID, current.ID, fields); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_subject", current.ID, map[string]any{
+		"service_id": serviceID, "operation": "subject_update", "changed_fields": serviceFieldNames(fields),
+	})
 	return s.GetSubject(ctx, tenantID, userID, serviceID, current.ID)
 }
 
@@ -1760,7 +2264,13 @@ func (s *serviceSpaceService) DeleteSubject(
 	if subject == nil {
 		return ErrServiceSpaceSubjectNotFound
 	}
-	return s.repo.DeleteSubject(ctx, tenantID, serviceID, subject.ID)
+	if err := s.repo.DeleteSubject(ctx, tenantID, serviceID, subject.ID); err != nil {
+		return err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_subject", subject.ID, map[string]any{
+		"service_id": serviceID, "operation": "subject_delete",
+	})
+	return nil
 }
 
 func (s *serviceSpaceService) ListReminderStatuses(
@@ -1828,7 +2338,14 @@ func (s *serviceSpaceService) CreateReminderStatus(
 		}
 		return nil, err
 	}
-	return s.repo.GetReminderStatus(ctx, tenantID, serviceID, status.ID)
+	result, err := s.repo.GetReminderStatus(ctx, tenantID, serviceID, status.ID)
+	if err != nil {
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_reminder_status", status.ID, map[string]any{
+		"service_id": serviceID, "operation": "status_create", "status_key": status.StatusKey,
+	})
+	return result, nil
 }
 
 func (s *serviceSpaceService) UpdateReminderStatus(
@@ -1899,6 +2416,9 @@ func (s *serviceSpaceService) UpdateReminderStatus(
 	if err := s.repo.UpdateReminderStatus(ctx, tenantID, serviceID, status.ID, fields); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_reminder_status", status.ID, map[string]any{
+		"service_id": serviceID, "operation": "status_update", "changed_fields": serviceFieldNames(fields),
+	})
 	return s.repo.GetReminderStatus(ctx, tenantID, serviceID, status.ID)
 }
 
@@ -1933,7 +2453,13 @@ func (s *serviceSpaceService) DeleteReminderStatus(
 			return ErrServiceSpaceStatusInUse
 		}
 	}
-	return s.repo.DeleteReminderStatus(ctx, tenantID, serviceID, status.ID)
+	if err := s.repo.DeleteReminderStatus(ctx, tenantID, serviceID, status.ID); err != nil {
+		return err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_reminder_status", status.ID, map[string]any{
+		"service_id": serviceID, "operation": "status_delete", "status_key": status.StatusKey,
+	})
+	return nil
 }
 
 func (s *serviceSpaceService) ListReminderStatusTransitions(
@@ -2000,6 +2526,9 @@ func (s *serviceSpaceService) ReplaceReminderStatusTransitions(
 	if err := s.repo.ReplaceReminderStatusTransitions(ctx, tenantID, serviceID, transitions); err != nil {
 		return nil, err
 	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_reminder_status", serviceID, map[string]any{
+		"service_id": serviceID, "operation": "status_transitions_replace", "transition_count": len(transitions),
+	})
 	return s.repo.ListReminderStatusTransitions(ctx, tenantID, serviceID)
 }
 
@@ -2075,12 +2604,48 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 	if err != nil {
 		return "", err
 	}
+	facts, _, err := s.repo.ListFacts(ctx, tenantID, serviceID, "", "", "", "", 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return "", err
+	}
 	var builder strings.Builder
 	var total int64
 	var page = serviceSpaceDefaultPage
 	var loaded int
 	var truncated bool
 	artifactHeaderWritten := false
+
+	for _, fact := range facts {
+		if fact == nil {
+			continue
+		}
+		remaining := int64(serviceSpaceContextSourceMaxBytes) - total
+		if remaining <= 0 {
+			truncated = true
+			break
+		}
+		value, marshalErr := json.Marshal(fact.Value)
+		if marshalErr != nil {
+			continue
+		}
+		factText := fmt.Sprintf(
+			"事实类型：%s\n事实键：%s\n来源：%s/%s\n值：%s\n",
+			fact.FactType, fact.FactKey, fact.SourceType, fact.SourceID, string(value),
+		)
+		if int64(len(factText)) > remaining {
+			factText = factText[:remaining]
+			truncated = true
+		}
+		if builder.Len() == 0 {
+			builder.WriteString("[服务空间事实]\n")
+		}
+		builder.WriteString("\n")
+		builder.WriteString(factText)
+		total += int64(len(factText))
+		if truncated {
+			break
+		}
+	}
 
 	for _, source := range contextSources {
 		if source == nil {
