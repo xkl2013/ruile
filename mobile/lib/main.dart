@@ -706,8 +706,9 @@ class _RuileApiClient {
       ];
 
       memories.addAll(pageMemories);
-      if (payload is Map<String, dynamic>) {
-        total ??= _readInt(payload, const ['total']);
+      final data = _unwrapData(payload);
+      if (data is Map<String, dynamic>) {
+        total ??= _readInt(data, const ['total']);
       }
 
       if (pageMemories.isEmpty || pageMemories.length < pageSize) {
@@ -717,6 +718,79 @@ class _RuileApiClient {
     }
 
     return memories;
+  }
+
+  Future<List<_OrganizeJob>> fetchOrganizeJobs({
+    int page = 1,
+    int pageSize = 100,
+  }) async {
+    final safePage = page < 1 ? 1 : page;
+    final safePageSize = pageSize < 1 ? 1 : pageSize;
+    final query = Uri(
+      queryParameters: {
+        'page': '$safePage',
+        'page_size': '$safePageSize',
+      },
+    ).query;
+    final payload = await _getJson('/api/v1/organize/jobs?$query');
+    return [
+      for (final item in _extractList(payload))
+        if (item is Map<String, dynamic>)
+          _OrganizeJob.fromApi(item)
+        else if (item is Map)
+          _OrganizeJob.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  Future<List<_OrganizeConfig>> fetchActiveOrganizeConfigs({
+    int pageSize = 100,
+  }) async {
+    final safePageSize = pageSize < 1 ? 1 : pageSize;
+    final query = Uri(
+      queryParameters: {
+        'page': '1',
+        'page_size': '$safePageSize',
+        'status': 'active',
+      },
+    ).query;
+    final payload = await _getJson('/api/v1/organize/configs?$query');
+    return [
+      for (final item in _extractList(payload))
+        if (item is Map<String, dynamic>)
+          _OrganizeConfig.fromApi(item)
+        else if (item is Map)
+          _OrganizeConfig.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+  }
+
+  Future<_OrganizeJob> createOrganizeJob({
+    required String configId,
+    required String memoryId,
+  }) async {
+    final normalizedConfigId = configId.trim();
+    final normalizedMemoryId = memoryId.trim();
+    if (normalizedConfigId.isEmpty || normalizedMemoryId.isEmpty) {
+      throw const FormatException('整理任务参数不能为空');
+    }
+
+    final payload = await _postJson('/api/v1/organize/jobs', {
+      'config_id': normalizedConfigId,
+      'memory_ids': [normalizedMemoryId],
+    });
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeJob.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeJob.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('整理任务响应格式无效');
   }
 
   Future<_OrganizeMemory?> fetchOrganizeMemory(String memoryId) async {
@@ -4636,6 +4710,34 @@ class _CaptureMenuItem extends StatelessWidget {
   }
 }
 
+enum _MemoryStatusFilter { all, unorganized, processing, organized }
+
+class _MemoryFilterOption extends StatelessWidget {
+  const _MemoryFilterOption({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+        color: selected ? AppColors.accent : AppColors.textTertiary,
+      ),
+      title: Text(label),
+      onTap: onTap,
+    );
+  }
+}
+
 class NotesPage extends StatefulWidget {
   const NotesPage({
     super.key,
@@ -4665,12 +4767,16 @@ class _NotesPageState extends State<NotesPage> {
       const RecordingCardLocalStore();
   final List<Timer> _recordingCardMemoryRefreshTimers = <Timer>[];
   var _sortNewestFirst = true;
+  var _memorySearchQuery = '';
+  var _memoryStatusFilter = _MemoryStatusFilter.all;
+  final TextEditingController _memorySearchController = TextEditingController();
   List<_KnowledgeBase> _knowledgeBases = const [];
   _RecordingCardPendingSummary _recordingCardPendingSummary =
       _RecordingCardPendingSummary.empty;
   String _pendingRemoteMemoryId = '';
   bool _loadingKnowledgeBases = true;
   List<_NoteItem> _notes = [];
+  List<_OrganizeJob> _organizeJobs = const [];
   bool _loadingNotes = false;
   bool _notesReloadQueued = false;
   String? _notesError;
@@ -4696,11 +4802,13 @@ class _NotesPageState extends State<NotesPage> {
     RecordingCardFileQueueBus.notifier.addListener(_recordingCardQueueListener);
     _loadRemoteKnowledgeBases();
     unawaited(_loadRemoteMemories());
+    unawaited(_loadOrganizeJobs());
     unawaited(_loadRecordingCardPendingSummary());
   }
 
   @override
   void dispose() {
+    _memorySearchController.dispose();
     _cancelRecordingCardMemoryRefreshTimers();
     RecordingCardAppSyncBus.notifier.removeListener(_recordingCardSyncListener);
     RecordingCardFileQueueBus.notifier
@@ -4724,6 +4832,7 @@ class _NotesPageState extends State<NotesPage> {
     }
     _cancelRecordingCardMemoryRefreshTimers();
     unawaited(_loadRemoteMemories(memoryId: normalizedMemoryId));
+    unawaited(_loadOrganizeJobs());
     for (final delay in const [
       Duration(seconds: 1),
       Duration(seconds: 3),
@@ -4874,6 +4983,33 @@ class _NotesPageState extends State<NotesPage> {
     }
   }
 
+  Future<void> _loadOrganizeJobs() async {
+    if (!_apiClient.isConfigured) {
+      if (mounted && _organizeJobs.isNotEmpty) {
+        setState(() {
+          _organizeJobs = const [];
+        });
+      }
+      return;
+    }
+
+    try {
+      final jobs = await _apiClient.fetchOrganizeJobs();
+      if (!mounted) return;
+      setState(() {
+        _organizeJobs = jobs;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      debugPrint('Failed to load organize jobs: $error');
+    } catch (error) {
+      debugPrint('Failed to load organize jobs: $error');
+    }
+  }
+
   Future<void> _loadRecordingCardPendingSummary() async {
     try {
       final entries = await _recordingCardStore.loadAllFiles();
@@ -4888,13 +5024,55 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   List<_NoteItem> get _visibleNotes {
-    return _sortNewestFirst ? _notes : _notes.reversed.toList();
+    final filtered = _notes.where(_matchesMemoryFilter).toList();
+    return _sortNewestFirst ? filtered : filtered.reversed.toList();
+  }
+
+  bool _matchesMemoryFilter(_NoteItem note) {
+    final query = _memorySearchQuery.trim().toLowerCase();
+    if (query.isNotEmpty) {
+      final searchable = [
+        note.title,
+        note.excerpt,
+        note.content,
+        note.source,
+      ].join(' ').toLowerCase();
+      if (!searchable.contains(query)) return false;
+    }
+
+    if (_memoryStatusFilter == _MemoryStatusFilter.all) return true;
+    return _memoryStatusFor(note.id) == _memoryStatusFilter;
+  }
+
+  _MemoryStatusFilter _memoryStatusFor(String memoryId) {
+    final normalizedID = memoryId.trim();
+    if (normalizedID.isEmpty) return _MemoryStatusFilter.unorganized;
+
+    final linkedJobs = _organizeJobs
+        .where((job) => job.memoryIds.contains(normalizedID))
+        .toList()
+      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    if (linkedJobs.isEmpty) return _MemoryStatusFilter.unorganized;
+    if (linkedJobs.first.isActive) return _MemoryStatusFilter.processing;
+    if (linkedJobs.first.isFinished) return _MemoryStatusFilter.organized;
+    return _MemoryStatusFilter.unorganized;
+  }
+
+  String _memoryFilterLabel() {
+    final status = switch (_memoryStatusFilter) {
+      _MemoryStatusFilter.all => '',
+      _MemoryStatusFilter.unorganized => '待整理',
+      _MemoryStatusFilter.processing => '整理中',
+      _MemoryStatusFilter.organized => '已整理',
+    };
+    return status;
   }
 
   Future<void> _refreshRemoteContent() async {
     await Future.wait<void>([
       _loadRemoteKnowledgeBases(),
       _loadRemoteMemories(),
+      _loadOrganizeJobs(),
       _loadRecordingCardPendingSummary(),
     ]);
   }
@@ -4906,6 +5084,89 @@ class _NotesPageState extends State<NotesPage> {
         behavior: SnackBarBehavior.floating,
         duration: const Duration(milliseconds: 1200),
       ),
+    );
+  }
+
+  Future<void> _showMemoryFilters() async {
+    var selectedStatus = _memoryStatusFilter;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '筛选记忆',
+                      style: AppTextStyles.sectionTitle,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text('整理状态', style: AppTextStyles.controlLabel),
+                    _MemoryFilterOption(
+                      label: '全部',
+                      selected: selectedStatus == _MemoryStatusFilter.all,
+                      onTap: () {
+                        setSheetState(() {
+                          selectedStatus = _MemoryStatusFilter.all;
+                        });
+                      },
+                    ),
+                    _MemoryFilterOption(
+                      label: '待整理',
+                      selected:
+                          selectedStatus == _MemoryStatusFilter.unorganized,
+                      onTap: () {
+                        setSheetState(() {
+                          selectedStatus = _MemoryStatusFilter.unorganized;
+                        });
+                      },
+                    ),
+                    _MemoryFilterOption(
+                      label: '整理中',
+                      selected:
+                          selectedStatus == _MemoryStatusFilter.processing,
+                      onTap: () {
+                        setSheetState(() {
+                          selectedStatus = _MemoryStatusFilter.processing;
+                        });
+                      },
+                    ),
+                    _MemoryFilterOption(
+                      label: '已整理',
+                      selected: selectedStatus == _MemoryStatusFilter.organized,
+                      onTap: () {
+                        setSheetState(() {
+                          selectedStatus = _MemoryStatusFilter.organized;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () {
+                          setState(() {
+                            _memoryStatusFilter = selectedStatus;
+                          });
+                          Navigator.of(sheetContext).pop();
+                        },
+                        child: const Text('应用筛选'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -4977,6 +5238,55 @@ class _NotesPageState extends State<NotesPage> {
     } catch (error) {
       if (!mounted) return;
       _showMessage('删除失败：$error');
+    }
+  }
+
+  Future<void> _organizeNote(_NoteItem note) async {
+    final memoryID = note.id.trim();
+    if (memoryID.isEmpty) {
+      _showMessage('请先保存记忆后再整理');
+      return;
+    }
+    if (!_apiClient.isConfigured) {
+      _showMessage('登录后可发起整理');
+      return;
+    }
+    if (_memoryStatusFor(memoryID) == _MemoryStatusFilter.processing) {
+      _showMessage('这条记忆正在整理中');
+      return;
+    }
+
+    try {
+      final configs = await _apiClient.fetchActiveOrganizeConfigs();
+      if (configs.isEmpty) {
+        if (!mounted) return;
+        _showMessage('请先创建并启用整理配置');
+        return;
+      }
+      final job = await _apiClient.createOrganizeJob(
+        configId: configs.first.id,
+        memoryId: memoryID,
+      );
+      if (!mounted) return;
+      setState(() {
+        _organizeJobs = [
+          job,
+          for (final existing in _organizeJobs)
+            if (existing.id != job.id) existing,
+        ];
+      });
+      _showMessage('已按「${configs.first.name}」发起整理');
+      unawaited(_loadOrganizeJobs());
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      _showMessage('整理失败：${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('整理失败：$error');
     }
   }
 
@@ -5100,6 +5410,8 @@ class _NotesPageState extends State<NotesPage> {
 
   void _showNoteActions(_NoteItem note) {
     final extractingService = _isExtractingService(note);
+    final organizing =
+        _memoryStatusFor(note.id) == _MemoryStatusFilter.processing;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -5115,6 +5427,23 @@ class _NotesPageState extends State<NotesPage> {
                   Navigator.pop(context);
                   unawaited(_openNote(note));
                 },
+              ),
+              ListTile(
+                enabled: !organizing,
+                leading: organizing
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.layers_outlined),
+                title: Text(organizing ? '整理中' : '整理'),
+                onTap: organizing
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        unawaited(_organizeNote(note));
+                      },
               ),
               ListTile(
                 enabled: !extractingService,
@@ -5187,6 +5516,88 @@ class _NotesPageState extends State<NotesPage> {
                     ),
                   ],
                   const SizedBox(height: 26),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _memorySearchController,
+                          onChanged: (value) {
+                            setState(() {
+                              _memorySearchQuery = value;
+                            });
+                          },
+                          textInputAction: TextInputAction.search,
+                          decoration: InputDecoration(
+                            hintText: '搜索记忆',
+                            prefixIcon: const Icon(Icons.search, size: 20),
+                            suffixIcon: _memorySearchQuery.trim().isEmpty
+                                ? null
+                                : IconButton(
+                                    tooltip: '清除搜索',
+                                    onPressed: () {
+                                      _memorySearchController.clear();
+                                      setState(() {
+                                        _memorySearchQuery = '';
+                                      });
+                                    },
+                                    icon: const Icon(Icons.close, size: 18),
+                                  ),
+                            filled: true,
+                            fillColor: AppColors.surface,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 11,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: AppColors.border),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: AppColors.border),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: AppColors.accent,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Tooltip(
+                        message: '筛选',
+                        child: IconButton(
+                          onPressed: _showMemoryFilters,
+                          style: IconButton.styleFrom(
+                            backgroundColor: _memoryFilterLabel().isEmpty
+                                ? AppColors.surface
+                                : const Color(0xFFE9F8F3),
+                            foregroundColor: _memoryFilterLabel().isEmpty
+                                ? AppColors.textPrimary
+                                : AppColors.accent,
+                            side: const BorderSide(color: AppColors.border),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          icon: const Icon(Icons.tune),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_memoryFilterLabel().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '当前筛选：${_memoryFilterLabel()}',
+                      style: AppTextStyles.meta,
+                    ),
+                  ],
+                  const SizedBox(height: 18),
                   _NotesToolbar(
                     newestFirst: _sortNewestFirst,
                     onTitleTap: () {
@@ -7519,66 +7930,6 @@ class _KnowledgeRoundButton extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _OrganizeSproutIcon extends StatelessWidget {
-  const _OrganizeSproutIcon();
-
-  @override
-  Widget build(BuildContext context) {
-    final iconTheme = IconTheme.of(context);
-    final resolvedSize = iconTheme.size ?? 24;
-    final resolvedColor = iconTheme.color ?? AppColors.textPrimary;
-
-    return SizedBox(
-      width: resolvedSize,
-      height: resolvedSize,
-      child: CustomPaint(
-        painter: _OrganizeSproutIconPainter(color: resolvedColor),
-      ),
-    );
-  }
-}
-
-class _OrganizeSproutIconPainter extends CustomPainter {
-  const _OrganizeSproutIconPainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scaleX = size.width / 24;
-    final scaleY = size.height / 24;
-    canvas
-      ..save()
-      ..scale(scaleX, scaleY);
-
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.85
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final path = Path()
-      ..moveTo(12, 19.5)
-      ..lineTo(12, 13.25)
-      ..moveTo(12, 13.25)
-      ..cubicTo(8.25, 13.25, 5.6, 11.3, 4.55, 7.75)
-      ..cubicTo(8.2, 7.2, 11.2, 9.2, 12, 13.25)
-      ..moveTo(12, 13.25)
-      ..cubicTo(12.8, 9.05, 15.8, 7, 19.45, 7.75)
-      ..cubicTo(18.4, 11.3, 15.75, 13.25, 12, 13.25);
-
-    canvas
-      ..drawPath(path, paint)
-      ..restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _OrganizeSproutIconPainter oldDelegate) {
-    return oldDelegate.color != color;
   }
 }
 
@@ -10437,14 +10788,14 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   late _NoteItem _note;
   late _RuileApiClient _apiClient;
   Timer? _transcriptionPollTimer;
-  Timer? _sproutRefreshTimer;
+  Timer? _organizeRefreshTimer;
   DateTime? _transcriptionPollStartedAt;
   bool _refreshingRemoteNote = false;
-  _OrganizeSproutReport? _sproutReport;
-  bool _sproutLoading = false;
-  bool _sproutCreating = false;
-  String? _sproutError;
-  int _sproutRequestSeq = 0;
+  _OrganizeJob? _organizeJob;
+  bool _organizeLoading = false;
+  bool _organizeCreating = false;
+  String? _organizeError;
+  int _organizeRequestSeq = 0;
   List<_ServiceReminder> _serviceReminders = const [];
   bool _serviceLoading = false;
   bool _serviceLoaded = false;
@@ -10460,7 +10811,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     _apiClient = _buildApiClient();
     _restartTranscriptionPollingIfNeeded(immediate: true);
     unawaited(_loadLinkedServiceReminders());
-    unawaited(_loadLinkedSproutReport());
+    unawaited(_loadLinkedOrganizeJob());
   }
 
   @override
@@ -10471,24 +10822,24 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       _apiClient = _buildApiClient();
       _resetServiceState();
       unawaited(_loadLinkedServiceReminders());
-      unawaited(_loadLinkedSproutReport());
+      unawaited(_loadLinkedOrganizeJob());
     }
     if (oldWidget.note.id != widget.note.id) {
       _note = widget.note;
       _selectedTabIndex = _defaultTabIndexFor(_note);
-      _sproutReport = null;
-      _sproutError = null;
+      _organizeJob = null;
+      _organizeError = null;
       _resetServiceState();
       _restartTranscriptionPollingIfNeeded(immediate: true);
       unawaited(_loadLinkedServiceReminders());
-      unawaited(_loadLinkedSproutReport());
+      unawaited(_loadLinkedOrganizeJob());
     }
   }
 
   @override
   void dispose() {
     _transcriptionPollTimer?.cancel();
-    _sproutRefreshTimer?.cancel();
+    _organizeRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -10502,15 +10853,15 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
 
   List<String> get _detailTabs {
     return _note.hasAudioLink
-        ? const ['录音原文', '笔记内容', '服务', '发芽']
-        : const ['笔记内容', '服务', '发芽'];
+        ? const ['录音原文', '笔记内容', '服务', '整理']
+        : const ['笔记内容', '服务', '整理'];
   }
 
   int get _contentTabIndex => _note.hasAudioLink ? 1 : 0;
 
   int get _serviceTabIndex => _note.hasAudioLink ? 2 : 1;
 
-  int get _sproutTabIndex => _note.hasAudioLink ? 3 : 2;
+  int get _organizeTabIndex => _note.hasAudioLink ? 3 : 2;
 
   int _defaultTabIndexFor(_NoteItem note) {
     return note.hasAudioLink ? 1 : 0;
@@ -10627,7 +10978,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     await Future.wait<void>([
       _refreshRemoteNote(ignoreTimeout: true),
       _loadLinkedServiceReminders(silent: true),
-      _loadLinkedSproutReport(silent: true),
+      _loadLinkedOrganizeJob(silent: true),
     ]);
   }
 
@@ -10847,140 +11198,128 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     unawaited(_loadLinkedServiceReminders(silent: true));
   }
 
-  String get _sproutButtonTooltip {
-    if (_sproutCreating || _sproutReport?.stage == 'organizing') {
-      return '发芽报告生成中';
+  String get _organizeButtonTooltip {
+    if (_organizeCreating || _organizeJob?.isActive == true) {
+      return '整理任务生成中';
     }
-    if (_sproutReport != null) return '查看发芽结果';
-    return '生成发芽报告';
+    if (_organizeJob?.isFinished == true) return '查看整理结果';
+    return '发起整理';
   }
 
-  Color get _sproutButtonIconColor {
-    if (_sproutReport != null) return AppColors.accent;
+  Color get _organizeButtonIconColor {
+    if (_organizeJob != null) return AppColors.accent;
     return AppColors.textPrimary;
   }
 
-  Map<String, Object?> _sproutRoleConfig() {
-    return {
-      'role': 'viewer',
-      'tenant_id': widget.tenantId,
-      'created_from': 'mobile_memory_detail',
-    };
-  }
-
-  Future<void> _loadLinkedSproutReport({bool silent = false}) async {
+  Future<void> _loadLinkedOrganizeJob({bool silent = false}) async {
     final memoryID = _note.id.trim();
     if (memoryID.isEmpty || !_apiClient.isConfigured) return;
 
-    final requestSeq = ++_sproutRequestSeq;
+    final requestSeq = ++_organizeRequestSeq;
     if (!silent && mounted) {
       setState(() {
-        _sproutLoading = true;
-        _sproutError = null;
+        _organizeLoading = true;
+        _organizeError = null;
       });
     }
 
     try {
-      final reports = await _apiClient.fetchSproutReportsForMemory(memoryID);
-      if (!mounted || requestSeq != _sproutRequestSeq) return;
-
-      final linkedReport = _linkedSproutReport(reports, memoryID);
+      final jobs = await _apiClient.fetchOrganizeJobs();
+      if (!mounted || requestSeq != _organizeRequestSeq) return;
+      final linkedJobs = jobs
+          .where((job) => job.memoryIds.contains(memoryID))
+          .toList()
+        ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+      final linkedJob = linkedJobs.isEmpty ? null : linkedJobs.first;
       setState(() {
-        _sproutReport = linkedReport;
-        _sproutError = null;
+        _organizeJob = linkedJob;
+        _organizeError = null;
       });
-      _scheduleSproutRefreshIfNeeded(linkedReport);
+      _scheduleOrganizeRefreshIfNeeded(linkedJob);
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
-        _stopSproutRefresh();
+        _stopOrganizeRefresh();
         widget.onAuthFailure();
         return;
       }
-      if (!silent && mounted && requestSeq == _sproutRequestSeq) {
+      if (!silent && mounted && requestSeq == _organizeRequestSeq) {
         setState(() {
-          _sproutError = error.message;
+          _organizeError = error.message;
         });
       }
     } catch (error) {
-      if (!silent && mounted && requestSeq == _sproutRequestSeq) {
+      if (!silent && mounted && requestSeq == _organizeRequestSeq) {
         setState(() {
-          _sproutError = error.toString();
+          _organizeError = error.toString();
         });
       }
     } finally {
-      if (!silent && mounted && requestSeq == _sproutRequestSeq) {
+      if (!silent && mounted && requestSeq == _organizeRequestSeq) {
         setState(() {
-          _sproutLoading = false;
+          _organizeLoading = false;
         });
       }
     }
   }
 
-  _OrganizeSproutReport? _linkedSproutReport(
-    List<_OrganizeSproutReport> reports,
-    String memoryID,
-  ) {
-    for (final report in reports) {
-      if (report.memoryIds.contains(memoryID)) return report;
-    }
-    return reports.isNotEmpty ? reports.first : null;
-  }
-
-  void _scheduleSproutRefreshIfNeeded(_OrganizeSproutReport? report) {
-    _sproutRefreshTimer?.cancel();
-    if (report?.stage != 'organizing') {
-      _sproutRefreshTimer = null;
+  void _scheduleOrganizeRefreshIfNeeded(_OrganizeJob? job) {
+    _organizeRefreshTimer?.cancel();
+    if (job?.isActive != true) {
+      _organizeRefreshTimer = null;
       return;
     }
-    _sproutRefreshTimer = Timer(
+    _organizeRefreshTimer = Timer(
       const Duration(seconds: 3),
-      () => unawaited(_loadLinkedSproutReport(silent: true)),
+      () => unawaited(_loadLinkedOrganizeJob(silent: true)),
     );
   }
 
-  void _stopSproutRefresh() {
-    _sproutRefreshTimer?.cancel();
-    _sproutRefreshTimer = null;
+  void _stopOrganizeRefresh() {
+    _organizeRefreshTimer?.cancel();
+    _organizeRefreshTimer = null;
   }
 
-  Future<void> _handleSproutAction() async {
-    if (_sproutCreating || _sproutLoading) return;
-    if (_sproutReport != null) {
-      setState(() {
-        _selectedTabIndex = _sproutTabIndex;
-      });
+  Future<void> _handleOrganizeAction() async {
+    if (_organizeCreating || _organizeLoading) return;
+    if (_organizeJob?.isFinished == true) {
+      await _openOrganizeResult();
       return;
     }
-    await _createSproutReport();
+    await _createOrganizeJob();
   }
 
-  Future<void> _createSproutReport() async {
+  Future<void> _createOrganizeJob() async {
     final memoryID = _note.id.trim();
     if (memoryID.isEmpty) {
-      _showMessage('请先保存笔记');
+      _showMessage('请先保存记忆');
       return;
     }
     if (!_apiClient.isConfigured) {
-      _showMessage('登录后可发芽');
+      _showMessage('登录后可发起整理');
       return;
     }
 
     setState(() {
-      _sproutCreating = true;
-      _sproutError = null;
+      _organizeCreating = true;
+      _organizeError = null;
     });
     try {
-      final report = await _apiClient.createSproutReportFromMemory(
+      final configs = await _apiClient.fetchActiveOrganizeConfigs();
+      if (configs.isEmpty) {
+        if (mounted) _showMessage('请先创建并启用整理配置');
+        return;
+      }
+      final job = await _apiClient.createOrganizeJob(
+        configId: configs.first.id,
         memoryId: memoryID,
-        roleConfig: _sproutRoleConfig(),
       );
       if (!mounted) return;
       setState(() {
-        _sproutReport = report;
-        _selectedTabIndex = _sproutTabIndex;
+        _organizeJob = job;
+        _selectedTabIndex = _organizeTabIndex;
       });
-      _showMessage('发芽任务已创建');
-      _scheduleSproutRefreshIfNeeded(report);
+      _showMessage('已按「${configs.first.name}」发起整理');
+      _scheduleOrganizeRefreshIfNeeded(job);
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
         widget.onAuthFailure();
@@ -10988,58 +11327,65 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       }
       if (!mounted) return;
       setState(() {
-        _sproutError = error.message;
+        _organizeError = error.message;
       });
-      _showMessage('发芽失败：${error.message}');
+      _showMessage('整理失败：${error.message}');
     } catch (error) {
       if (!mounted) return;
       final message = error.toString();
       setState(() {
-        _sproutError = message;
+        _organizeError = message;
       });
-      _showMessage('发芽失败：$message');
+      _showMessage('整理失败：$message');
     } finally {
       if (mounted) {
         setState(() {
-          _sproutCreating = false;
+          _organizeCreating = false;
         });
       }
     }
   }
 
-  Future<void> _openSproutPreview() async {
-    var report = _sproutReport;
-    if (report == null) return;
+  Future<void> _openOrganizeResult() async {
+    final job = _organizeJob;
+    if (job == null) return;
+
+    var outputID = job.outputId.trim();
+    if (outputID.isEmpty) {
+      await _loadLinkedOrganizeJob(silent: true);
+      outputID = _organizeJob?.outputId.trim() ?? '';
+    }
+    if (outputID.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _selectedTabIndex = _organizeTabIndex;
+        });
+      }
+      return;
+    }
 
     try {
-      final latest = await _apiClient.fetchSproutReport(report.id);
-      if (mounted && latest != null) {
-        report = latest;
-        setState(() {
-          _sproutReport = latest;
-        });
-        _scheduleSproutRefreshIfNeeded(latest);
-      }
+      final output = await _apiClient.fetchOrganizeOutput(outputID);
+      if (!mounted || output == null) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (context) => _DiscoverDetailPage(
+            initialOutput: output,
+            authToken: widget.authToken,
+            tenantId: widget.tenantId,
+            onAuthFailure: widget.onAuthFailure,
+          ),
+        ),
+      );
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
         widget.onAuthFailure();
         return;
       }
-    } catch (_) {
-      // Open the cached report when refreshing the preview fails.
+      if (mounted) _showMessage('整理结果加载失败：${error.message}');
+    } catch (error) {
+      if (mounted) _showMessage('整理结果加载失败：$error');
     }
-
-    if (!mounted || report == null) return;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => _SproutReportPreviewSheet(report: report!),
-    );
   }
 
   void _showMessage(String message) {
@@ -11156,15 +11502,15 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   ),
                   const SizedBox(width: 14),
                   _KnowledgeRoundButton(
-                    tooltip: _sproutButtonTooltip,
-                    iconWidget: const _OrganizeSproutIcon(),
+                    tooltip: _organizeButtonTooltip,
+                    icon: Icons.layers_outlined,
                     backgroundColor: _buttonColor,
                     size: 40,
                     iconSize: 21,
-                    iconColor: _sproutButtonIconColor,
-                    loading: _sproutCreating,
-                    enabled: !_sproutLoading && !_sproutCreating,
-                    onTap: () => unawaited(_handleSproutAction()),
+                    iconColor: _organizeButtonIconColor,
+                    loading: _organizeCreating,
+                    enabled: !_organizeLoading && !_organizeCreating,
+                    onTap: () => unawaited(_handleOrganizeAction()),
                   ),
                   const SizedBox(width: 14),
                   _KnowledgeRoundButton(
@@ -11265,17 +11611,16 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                                 onTapReminder: (reminder) =>
                                     unawaited(_openServiceReminder(reminder)),
                               )
-                            : _MemorySproutPanel(
-                                key: const ValueKey('memory-sprout'),
-                                report: _sproutReport,
-                                loading: _sproutLoading,
-                                creating: _sproutCreating,
-                                error: _sproutError,
+                            : _MemoryOrganizePanel(
+                                key: const ValueKey('memory-organize'),
+                                job: _organizeJob,
+                                loading: _organizeLoading,
+                                creating: _organizeCreating,
+                                error: _organizeError,
                                 onRetry: () =>
-                                    unawaited(_loadLinkedSproutReport()),
-                                onCreate: () =>
-                                    unawaited(_createSproutReport()),
-                                onOpen: () => unawaited(_openSproutPreview()),
+                                    unawaited(_loadLinkedOrganizeJob()),
+                                onCreate: () => unawaited(_createOrganizeJob()),
+                                onOpen: () => unawaited(_openOrganizeResult()),
                               ),
               ),
             ],
@@ -11533,10 +11878,10 @@ class _MemoryServicePanel extends StatelessWidget {
   }
 }
 
-class _MemorySproutPanel extends StatelessWidget {
-  const _MemorySproutPanel({
+class _MemoryOrganizePanel extends StatelessWidget {
+  const _MemoryOrganizePanel({
     super.key,
-    required this.report,
+    required this.job,
     required this.loading,
     required this.creating,
     required this.error,
@@ -11545,7 +11890,7 @@ class _MemorySproutPanel extends StatelessWidget {
     required this.onOpen,
   });
 
-  final _OrganizeSproutReport? report;
+  final _OrganizeJob? job;
   final bool loading;
   final bool creating;
   final String? error;
@@ -11555,46 +11900,43 @@ class _MemorySproutPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currentReport = report;
-    if (currentReport != null) {
-      return _SproutReportCard(
-        report: currentReport,
-        onTap: onOpen,
-      );
+    final currentJob = job;
+    if (currentJob != null) {
+      return _OrganizeJobCard(job: currentJob, onTap: onOpen);
     }
 
     if (loading || creating) {
-      return const _SproutPanelState(
-        icon: _OrganizeSproutIcon(),
-        title: '发芽中',
-        message: '正在生成发芽报告',
+      return const _OrganizePanelState(
+        icon: Icons.layers_outlined,
+        title: '整理中',
+        message: '正在加载整理任务',
         busy: true,
       );
     }
 
     final errorText = error?.trim() ?? '';
     if (errorText.isNotEmpty) {
-      return _SproutPanelState(
-        icon: const Icon(Icons.error_outline),
-        title: '发芽失败',
+      return _OrganizePanelState(
+        icon: Icons.error_outline,
+        title: '整理失败',
         message: errorText,
         actionLabel: '重试',
         onAction: onRetry,
       );
     }
 
-    return _SproutPanelState(
-      icon: const _OrganizeSproutIcon(),
-      title: '暂无发芽',
-      message: '这条笔记还没有发芽报告',
-      actionLabel: '开始发芽',
+    return _OrganizePanelState(
+      icon: Icons.layers_outlined,
+      title: '暂无整理任务',
+      message: '这条记忆还没有发起整理',
+      actionLabel: '开始整理',
       onAction: onCreate,
     );
   }
 }
 
-class _SproutPanelState extends StatelessWidget {
-  const _SproutPanelState({
+class _OrganizePanelState extends StatelessWidget {
+  const _OrganizePanelState({
     required this.icon,
     required this.title,
     required this.message,
@@ -11603,7 +11945,7 @@ class _SproutPanelState extends StatelessWidget {
     this.onAction,
   });
 
-  final Widget icon;
+  final IconData icon;
   final String title;
   final String message;
   final bool busy;
@@ -11630,13 +11972,7 @@ class _SproutPanelState extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           else
-            IconTheme(
-              data: const IconThemeData(
-                size: 24,
-                color: AppColors.textTertiary,
-              ),
-              child: icon,
-            ),
+            Icon(icon, size: 24, color: AppColors.textTertiary),
           const SizedBox(height: 12),
           Text(
             title,
@@ -11657,7 +11993,7 @@ class _SproutPanelState extends StatelessWidget {
             const SizedBox(height: 14),
             _MemoryTagButton(
               label: actionLabel,
-              iconWidget: const _OrganizeSproutIcon(),
+              icon: Icons.layers_outlined,
               onPressed: onAction!,
             ),
           ],
@@ -11667,24 +12003,34 @@ class _SproutPanelState extends StatelessWidget {
   }
 }
 
-class _SproutReportCard extends StatelessWidget {
-  const _SproutReportCard({
-    required this.report,
+class _OrganizeJobCard extends StatelessWidget {
+  const _OrganizeJobCard({
+    required this.job,
     required this.onTap,
   });
 
-  final _OrganizeSproutReport report;
+  final _OrganizeJob job;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final intro = report.previewIntro;
+    final statusColor = job.isFinished
+        ? const Color(0xFF11835C)
+        : job.isActive
+            ? const Color(0xFF4966D9)
+            : const Color(0xFFC43A31);
+    final statusBackground = job.isFinished
+        ? const Color(0xFFEAF8F1)
+        : job.isActive
+            ? const Color(0xFFEEF2FF)
+            : const Color(0xFFFFF0EE);
+
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(AppRadii.card),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.card),
-        onTap: onTap,
+        onTap: job.isFinished ? onTap : null,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
@@ -11709,12 +12055,10 @@ class _SproutReportCard extends StatelessWidget {
                   color: const Color(0xFFEAF8F1),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const IconTheme(
-                  data: IconThemeData(
-                    size: 19,
-                    color: AppColors.accent,
-                  ),
-                  child: _OrganizeSproutIcon(),
+                child: const Icon(
+                  Icons.layers_outlined,
+                  size: 19,
+                  color: AppColors.accent,
                 ),
               ),
               const SizedBox(width: 12),
@@ -11727,7 +12071,7 @@ class _SproutReportCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            report.displayTitle,
+                            job.configName,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTextStyles.cardTitle.copyWith(
@@ -11736,35 +12080,42 @@ class _SproutReportCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        _SproutStageChip(stage: report.stage),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: statusBackground,
+                            borderRadius: BorderRadius.circular(AppRadii.pill),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            child: Text(
+                              job.statusLabel,
+                              style: TextStyle(
+                                fontSize: 11,
+                                height: 1,
+                                color: statusColor,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
-                    if (intro.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        intro,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTextStyles.meta.copyWith(
-                          height: 1.45,
-                          color: AppColors.textSecondary,
-                        ),
+                    const SizedBox(height: 8),
+                    Text(
+                      job.displaySummary,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.meta.copyWith(
+                        height: 1.45,
+                        color: AppColors.textSecondary,
                       ),
-                    ],
-                    if (report.chips.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          for (final chip in report.chips.take(4))
-                            _SproutMiniChip(label: chip),
-                        ],
-                      ),
-                    ],
+                    ),
                     const SizedBox(height: 12),
                     Text(
-                      report.metaLabel,
+                      '${_formatRecordDateTime(job.updatedAt)}${job.isActive ? ' · ${job.progress}%' : ''}',
                       style: AppTextStyles.meta,
                     ),
                   ],
@@ -11773,179 +12124,6 @@ class _SproutReportCard extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SproutStageChip extends StatelessWidget {
-  const _SproutStageChip({required this.stage});
-
-  final String stage;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = _sproutStageLabel(stage);
-    final formed = stage == 'formed';
-    final organizing = stage == 'organizing';
-    final color = formed
-        ? const Color(0xFF11835C)
-        : organizing
-            ? const Color(0xFF4966D9)
-            : AppColors.textSecondary;
-    final background = formed
-        ? const Color(0xFFEAF8F1)
-        : organizing
-            ? const Color(0xFFEEF2FF)
-            : const Color(0xFFF3F4F6);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontSize: 11,
-            height: 1,
-            color: color,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SproutMiniChip extends StatelessWidget {
-  const _SproutMiniChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF6F7FB),
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTextStyles.meta.copyWith(
-            fontSize: 11,
-            height: 1,
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SproutReportPreviewSheet extends StatelessWidget {
-  const _SproutReportPreviewSheet({required this.report});
-
-  final _OrganizeSproutReport report;
-
-  @override
-  Widget build(BuildContext context) {
-    final blocks = _sproutPreviewBlocks(report.contentSource);
-    return FractionallySizedBox(
-      heightFactor: 0.88,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 18, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 38,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '经营复盘',
-                            style: TextStyle(
-                              fontSize: 12,
-                              height: 1.2,
-                              color: AppColors.textTertiary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            report.displayTitle,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 20,
-                              height: 1.25,
-                              color: AppColors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _SproutStageChip(stage: report.stage),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  report.metaLabel,
-                  style: AppTextStyles.meta,
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1, color: AppColors.border),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (report.chips.isNotEmpty) ...[
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final chip in report.chips)
-                          _SproutMiniChip(label: chip),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-                  ],
-                  for (final block in blocks) _SproutPreviewBlock(block: block),
-                ],
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -12250,7 +12428,8 @@ class _LocalRecordDraftStore {
       id: id,
       createdAt: now,
       updatedAt: now,
-      audioPath: _joinPath(dir, '$id.m4a'),
+      // WAV avoids relying on MP4/M4A container finalization before upload.
+      audioPath: _joinPath(dir, '$id.wav'),
       jsonPath: _joinPath(dir, '$id.json'),
       transcript: '',
       durationSeconds: 0,
@@ -12434,8 +12613,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
       }
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 64000,
+          encoder: AudioEncoder.wav,
           sampleRate: 16000,
           numChannels: 1,
           echoCancel: true,
@@ -13145,15 +13323,15 @@ String _normalizeReadableText(String value) {
 String _organizeMemoryKindLabel(String kind) {
   switch (kind.trim()) {
     case 'note':
-      return '文字记忆';
+      return '笔记';
     case 'record':
-      return '录音记忆';
+      return '笔记';
     case 'audio':
-      return '语音记忆';
+      return '录音';
     case 'audio_card':
-      return '记忆卡记忆';
+      return '工牌';
     default:
-      return '';
+      return '记忆';
   }
 }
 
@@ -18132,6 +18310,134 @@ class _OrganizeSproutReport {
   }
 }
 
+class _OrganizeConfig {
+  const _OrganizeConfig({
+    required this.id,
+    required this.name,
+    required this.status,
+  });
+
+  factory _OrganizeConfig.fromApi(Map<String, dynamic> json) {
+    return _OrganizeConfig(
+      id: _readString(json, const ['id']),
+      name: _readString(json, const ['name'], fallback: '整理配置'),
+      status: _readString(json, const ['status'], fallback: 'active'),
+    );
+  }
+
+  final String id;
+  final String name;
+  final String status;
+}
+
+class _OrganizeJob {
+  const _OrganizeJob({
+    required this.id,
+    required this.configId,
+    required this.status,
+    required this.stage,
+    required this.progress,
+    required this.memoryIds,
+    required this.outputId,
+    required this.summary,
+    required this.errorMessage,
+    required this.requirement,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory _OrganizeJob.fromApi(Map<String, dynamic> json) {
+    final createdAt = _readDateTime(json, const ['created_at']) ??
+        _readDateTime(json, const ['updated_at']) ??
+        DateTime.now();
+    final updatedAt = _readDateTime(json, const ['updated_at']) ?? createdAt;
+    return _OrganizeJob(
+      id: _readString(json, const ['id']),
+      configId: _readString(json, const ['config_id']),
+      status: _readString(json, const ['status'], fallback: 'queued'),
+      stage: _readString(json, const ['stage']),
+      progress: _readInt(json, const ['progress']) ?? 0,
+      memoryIds: _readStringList(json, const ['memory_ids']),
+      outputId: _readString(json, const ['output_id']),
+      summary: _readString(json, const ['summary']),
+      errorMessage: _readString(json, const ['error_message']),
+      requirement: _readMap(json, const ['requirement']),
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+  }
+
+  final String id;
+  final String configId;
+  final String status;
+  final String stage;
+  final int progress;
+  final List<String> memoryIds;
+  final String outputId;
+  final String summary;
+  final String errorMessage;
+  final Map<String, dynamic> requirement;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  bool get isActive {
+    switch (status.trim().toLowerCase()) {
+      case 'queued':
+      case 'running':
+      case 'repairing':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  bool get isFinished {
+    switch (status.trim().toLowerCase()) {
+      case 'completed':
+      case 'fallback':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  String get statusLabel {
+    switch (status.trim().toLowerCase()) {
+      case 'queued':
+        return '排队中';
+      case 'running':
+      case 'repairing':
+        return '整理中';
+      case 'completed':
+        return '已完成';
+      case 'fallback':
+        return '已完成';
+      case 'failed':
+        return '整理失败';
+      case 'canceled':
+        return '已取消';
+      default:
+        return stage.trim().isEmpty ? '整理' : stage.trim();
+    }
+  }
+
+  String get displaySummary {
+    final normalizedSummary = _normalizeSpaces(summary);
+    if (normalizedSummary.isNotEmpty) return normalizedSummary;
+    final normalizedError = _normalizeSpaces(errorMessage);
+    if (normalizedError.isNotEmpty) return normalizedError;
+    if (isActive) return '整理任务正在处理这条记忆，完成后会生成整理结果。';
+    if (isFinished) return '整理结果已生成，可进入结果页查看。';
+    return '整理任务暂未完成。';
+  }
+
+  String get configName {
+    final value = requirement['config_name'];
+    final normalized = _normalizeSpaces(value?.toString() ?? '');
+    return normalized.isEmpty ? '整理任务' : normalized;
+  }
+}
+
 class _OrganizeMemory {
   const _OrganizeMemory({
     required this.id,
@@ -18219,11 +18525,13 @@ class _OrganizeMemory {
     final excerpt = body.isNotEmpty ? _organizeMemoryExcerpt(body) : summary;
     return _NoteItem(
       id: id,
+      kind: kind,
       title: title,
       excerpt: excerpt,
       time: _formatRecordDateTime(occurredAt),
       createdAtText: _formatMemoryTimestamp(occurredAt),
       content: displayBody,
+      source: source,
       audioUrl: audioUrl,
       audioFileName: _organizeMemoryMetadataText(
         const ['audio_file_name', 'file_name', 'recording_file_name'],
@@ -18331,11 +18639,13 @@ class _OrganizeMemory {
 class _NoteItem {
   const _NoteItem({
     required this.id,
+    this.kind = 'note',
     required this.title,
     required this.excerpt,
     required this.time,
     this.createdAtText = '',
     this.content = '',
+    this.source = '',
     this.audioUrl = '',
     this.audioFileName = '',
     this.durationSeconds = 0,
@@ -18345,11 +18655,13 @@ class _NoteItem {
   });
 
   final String id;
+  final String kind;
   final String title;
   final String excerpt;
   final String time;
   final String createdAtText;
   final String content;
+  final String source;
   final String audioUrl;
   final String audioFileName;
   final int durationSeconds;
@@ -18462,19 +18774,6 @@ class _SproutTextBlock {
 
   final _SproutTextBlockKind kind;
   final String text;
-}
-
-String _sproutStageLabel(String stage) {
-  switch (stage.trim().toLowerCase()) {
-    case 'organizing':
-      return '发芽中';
-    case 'formed':
-      return '已发芽';
-    case 'expandable':
-      return '发芽';
-    default:
-      return '发芽';
-  }
 }
 
 String _sproutPlainText(String value) {
@@ -18599,6 +18898,14 @@ String _readString(
   for (final key in keys) {
     final value = json[key];
     if (value == null) continue;
+    if (value is Map) {
+      final nestedMessage = value['message'];
+      if (nestedMessage != null) {
+        final text = nestedMessage.toString().trim();
+        if (text.isNotEmpty) return text;
+      }
+      continue;
+    }
     final text = value.toString().trim();
     if (text.isNotEmpty) return text;
   }

@@ -68,14 +68,14 @@ void main() {
   testWidgets('shows the notes home screen', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
-    expect(find.text('搜索笔记'), findsNothing);
+    expect(find.text('搜索记忆'), findsOneWidget);
     expect(find.text('知识库'), findsOneWidget);
     expect(find.text('测试一下'), findsNothing);
     expect(find.text('金句名言'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsWidgets);
     expect(find.text('全部记忆'), findsOneWidget);
-    expect(find.byTooltip('筛选'), findsNothing);
-    expect(find.byIcon(Icons.tune), findsNothing);
+    expect(find.byTooltip('筛选'), findsOneWidget);
+    expect(find.byIcon(Icons.tune), findsOneWidget);
     expect(find.byTooltip('录入'), findsOneWidget);
     expect(find.byTooltip('录音记忆'), findsNothing);
     expect(find.byTooltip('文字记忆'), findsNothing);
@@ -85,6 +85,18 @@ void main() {
     expect(find.text('文字记忆'), findsNothing);
     expect(find.text('录音记忆'), findsNothing);
     expect(find.text('更多方式'), findsNothing);
+
+    await tester.tap(find.byTooltip('筛选'));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.text('类型'), findsNothing);
+    expect(find.text('整理状态'), findsOneWidget);
+    expect(find.text('笔记'), findsNothing);
+    expect(find.text('录音'), findsNothing);
+    expect(find.text('工牌'), findsNothing);
+
+    await tester.tapAt(const Offset(20, 20));
+    await tester.pump(const Duration(milliseconds: 350));
 
     final knowledgeBaseList = find.byWidgetPredicate(
       (widget) =>

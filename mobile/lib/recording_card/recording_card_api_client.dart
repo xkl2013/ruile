@@ -344,6 +344,14 @@ class RecordingCardApiClient {
     for (final key in keys) {
       final value = json[key];
       if (value == null) continue;
+      if (value is Map) {
+        final nestedMessage = value['message'];
+        if (nestedMessage != null) {
+          final text = nestedMessage.toString().trim();
+          if (text.isNotEmpty) return text;
+        }
+        continue;
+      }
       final text = value.toString().trim();
       if (text.isNotEmpty) return text;
     }

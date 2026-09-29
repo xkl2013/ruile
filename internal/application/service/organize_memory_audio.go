@@ -154,8 +154,8 @@ func (s *organizeService) CreateMemoryFromUpload(
 	metadata["audio_file_name"] = trimMax(storedName, 0)
 	metadata["audio_file_path"] = trimMax(storagePath, 0)
 	metadata["audio_url"] = audioURL
-	metadata["audio_mime_type"] = "audio/mpeg"
-	metadata["audio_codec"] = "mp3"
+	metadata["audio_mime_type"] = organizeAudioMimeType(storedName, mimeType)
+	metadata["audio_codec"] = memoryAudioCodec(storedName, nil)
 	metadata["audio_size_bytes"] = len(storedBytes)
 	metadata["transcription_status"] = "pending"
 	if _, ok := metadata["recording_file_name"]; !ok {
@@ -270,15 +270,47 @@ func (s *organizeService) normalizeOrganizeAudioForStorage(
 	audioBytes []byte,
 	fileName string,
 ) ([]byte, string, error) {
-	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(fileName)))
-	if ext == ".mp3" {
-		return audioBytes, replaceOrganizeAudioExtension(fileName, ".mp3"), nil
+	ext := strings.TrimPrefix(
+		strings.ToLower(strings.TrimSpace(filepath.Ext(fileName))),
+		".",
+	)
+	// Keep formats supported by the recorder and ASR pipeline as-is. Doing
+	// this conversion during the request makes saving a valid recording depend
+	// on ffmpeg being available and can turn a save into a generic 500 error.
+	if isOrganizeASRCompatibleAudio(ext) {
+		return audioBytes, fileName, nil
 	}
 	transcoder := transcodeOrganizeAudioToMP3
 	if s != nil && s.audioTranscoder != nil {
 		transcoder = s.audioTranscoder
 	}
 	return transcoder(ctx, audioBytes, fileName)
+}
+
+func organizeAudioMimeType(fileName, fallback string) string {
+	switch strings.TrimPrefix(strings.ToLower(filepath.Ext(fileName)), ".") {
+	case "mp3":
+		return "audio/mpeg"
+	case "wav":
+		return "audio/wav"
+	case "m4a", "mp4":
+		return "audio/mp4"
+	case "flac":
+		return "audio/flac"
+	case "ogg":
+		return "audio/ogg"
+	case "aac":
+		return "audio/aac"
+	case "amr":
+		return "audio/amr"
+	case "opus":
+		return "audio/opus"
+	}
+	fallback = strings.TrimSpace(strings.Split(fallback, ";")[0])
+	if fallback != "" {
+		return fallback
+	}
+	return "application/octet-stream"
 }
 
 func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asynq.Task) error {

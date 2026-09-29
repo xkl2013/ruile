@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 
@@ -83,8 +84,38 @@ func TestOrganizeServiceCreateMemoryFromUpload_CleansInvalidUTF8Content(t *testi
 	require.NoError(t, err)
 	require.NotNil(t, item)
 	assert.Equal(t, "录音保存", item.Content)
-	assert.Equal(t, "recording.mp3", item.Metadata["audio_file_name"])
-	assert.Equal(t, "mp3", item.Metadata["audio_codec"])
+	assert.Equal(t, "recording.m4a", item.Metadata["audio_file_name"])
+	assert.Equal(t, "m4a", item.Metadata["audio_codec"])
+	assert.Equal(t, "audio/mp4", item.Metadata["audio_mime_type"])
+}
+
+func TestOrganizeServiceCreateMemoryFromUploadDoesNotTranscodeSupportedMobileAudio(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		&stubOrganizeFileService{},
+		&stubOrganizeDocumentReader{},
+	)
+	svc.audioTranscoder = func(context.Context, []byte, string) ([]byte, string, error) {
+		return nil, "", errors.New("ffmpeg should not be called for m4a")
+	}
+
+	item, err := svc.CreateMemoryFromUpload(
+		ctx,
+		9,
+		"user-a",
+		"recording.m4a",
+		"audio/mp4",
+		[]byte("audio-bytes"),
+		types.OrganizeMemoryInput{
+			Kind:  types.OrganizeMemoryKindAudio,
+			Title: "录音记忆",
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	assert.Equal(t, "recording.m4a", item.Metadata["audio_file_name"])
 }
 
 func TestOrganizeServiceCreateMemoryFromUpload_ConvertsLocalStorageURL(t *testing.T) {

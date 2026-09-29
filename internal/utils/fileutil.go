@@ -51,6 +51,18 @@ func GetContentTypeByExt(ext string) string {
 		return "audio/mpeg"
 	case ".wav":
 		return "audio/wav"
+	case ".m4a":
+		return "audio/mp4"
+	case ".flac":
+		return "audio/flac"
+	case ".ogg":
+		return "audio/ogg"
+	case ".aac":
+		return "audio/aac"
+	case ".amr":
+		return "audio/amr"
+	case ".opus":
+		return "audio/opus"
 	case ".zip":
 		return "application/zip"
 	case ".tar":
