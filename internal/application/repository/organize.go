@@ -293,6 +293,13 @@ func (r *organizeRepository) ListPublicContents(
 	if query.PublicContentType != "" {
 		dbq = dbq.Where("public_content_type = ?", query.PublicContentType)
 	}
+	// A row whose series_id points at a real course is a lesson body, not a post.
+	// Matching on series_id rather than public_content_type keeps the legacy
+	// single "学习课程" posts (which carry the type but belong to no course) in
+	// the listing.
+	if query.ExcludeCourseLessons {
+		dbq = dbq.Where("COALESCE(series_id, '') NOT IN (SELECT id FROM organize_courses)")
+	}
 	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "content", "output_type", "source_summary", "series_title")
 
 	var total int64

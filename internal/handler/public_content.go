@@ -37,12 +37,18 @@ type publicContentUpdateRequest struct {
 
 func (h *PublicContentHandler) ListAdminContents(c *gin.Context) {
 	page, pageSize := parsePublicContentPagination(c)
+	contentType := strings.TrimSpace(c.Query("content_type"))
 	items, total, err := h.service.ListAdminPublicContents(c.Request.Context(), types.OrganizePublicContentQuery{
 		Keyword:           firstNonEmptyQuery(c, "q", "keyword"),
 		PublicStatus:      strings.TrimSpace(c.Query("status")),
-		PublicContentType: strings.TrimSpace(c.Query("content_type")),
+		PublicContentType: contentType,
 		Page:              page,
 		PageSize:          pageSize,
+		// The unfiltered view hides lesson bodies. They are managed through the
+		// course they belong to, and listing fourteen "第N节" rows here would
+		// invite editing them as if they were posts. Narrowing the type filter
+		// brings them back for anyone who needs to inspect one.
+		ExcludeCourseLessons: contentType == "",
 	})
 	if err != nil {
 		h.writeError(c, err)

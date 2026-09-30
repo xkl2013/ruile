@@ -375,6 +375,8 @@ func newOrganizeStorageUploadServiceForTest(
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeSproutReport{},
 		&types.OrganizeSproutMemory{},
+		&types.OrganizeCourse{},
+		&types.OrganizeCourseLesson{},
 		&types.StoredResource{},
 		&types.ResourceBinding{},
 		&types.ResourceAccessGrant{},

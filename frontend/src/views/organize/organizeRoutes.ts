@@ -31,6 +31,8 @@ export const ORGANIZE_ROUTE_NAMES = {
   discover: 'organizeDiscover',
   configDetail: 'organizeConfigDetail',
   outputDetail: 'organizeOutputDetail',
+  courseDetail: 'organizeCourseDetail',
+  lessonDetail: 'organizeLessonDetail',
   editor: 'organizeEditor',
   memoryNotes: 'organizeMemoryNotes',
   memoryAudio: 'organizeMemoryAudio',

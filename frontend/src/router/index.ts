@@ -18,6 +18,8 @@ const organizeWorkbenchComponent = () => import("../views/organize/OrganizeWorkb
 const organizeMineComponent = () => import("../views/organize/OrganizeOutputList.vue")
 const organizeConfigDetailComponent = () => import("../views/organize/OrganizeConfigDetail.vue")
 const organizeOutputDetailComponent = () => import("../views/organize/OrganizeOutputDetail.vue")
+const organizeCourseDetailComponent = () => import("../views/organize/OrganizeCourseDetail.vue")
+const organizeLessonDetailComponent = () => import("../views/organize/OrganizeLessonDetail.vue")
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
@@ -184,6 +186,18 @@ const router = createRouter({
           name: ORGANIZE_ROUTE_NAMES.outputDetail,
           component: organizeOutputDetailComponent,
           meta: { ...organizeRouteMeta, organizeTab: "mine" },
+        },
+        {
+          path: "organize/courses/:courseId",
+          name: ORGANIZE_ROUTE_NAMES.courseDetail,
+          component: organizeCourseDetailComponent,
+          meta: { ...organizeRouteMeta, organizeTab: "discover" },
+        },
+        {
+          path: "organize/courses/:courseId/lesson/:lessonId",
+          name: ORGANIZE_ROUTE_NAMES.lessonDetail,
+          component: organizeLessonDetailComponent,
+          meta: { ...organizeRouteMeta, organizeTab: "discover" },
         },
         {
           path: "organize/editor/sprout/:id",

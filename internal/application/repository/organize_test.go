@@ -25,6 +25,8 @@ func newOrganizeTestDB(t *testing.T) *gorm.DB {
 		&types.OrganizeTemplateVersion{},
 		&types.OrganizeConfig{},
 		&types.OrganizeJob{},
+		&types.OrganizeCourse{},
+		&types.OrganizeCourseLesson{},
 	))
 	return db
 }

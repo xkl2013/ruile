@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -52,6 +53,19 @@ type OrganizeRepository interface {
 	DeleteSproutReport(ctx context.Context, tenantID uint64, userID, id string) error
 	ListSproutReports(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeSproutReport, int64, error)
 	CountSproutReportsByStage(ctx context.Context, tenantID uint64, userID string) (map[string]int64, error)
+
+	CreateCourse(ctx context.Context, course *types.OrganizeCourse, lessons []*types.OrganizeCourseLesson) error
+	GetCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
+	UpdateCourse(ctx context.Context, course *types.OrganizeCourse) error
+	UpdateCoursePublicStatus(ctx context.Context, id, status string) (*types.OrganizeCourse, error)
+	DeleteCourse(ctx context.Context, tenantID uint64, id string) error
+	ListCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
+	GetCourseStats(ctx context.Context, query types.OrganizeCourseQuery) (*types.OrganizeCourseStats, error)
+	ListCourseLessons(ctx context.Context, courseID string) ([]*types.OrganizeCourseLesson, error)
+	// ListCourseLessonsWithOutputs hydrates each lesson's Output WITHOUT its
+	// body columns; use GetCourseLesson when the content itself is needed.
+	ListCourseLessonsWithOutputs(ctx context.Context, courseID string) ([]*types.OrganizeCourseLesson, error)
+	GetCourseLesson(ctx context.Context, courseID, lessonID string) (*types.OrganizeCourseLesson, error)
 }
 
 type OrganizeService interface {
@@ -104,4 +118,21 @@ type OrganizeService interface {
 
 	GetDiscover(ctx context.Context, tenantID uint64, userID string, query types.OrganizeDiscoverQuery) (*types.OrganizeDiscover, error)
 	GetOverview(ctx context.Context, tenantID uint64, userID string) (*types.OrganizeOverview, error)
+
+	CreateCourseFromFolder(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		input types.OrganizeCourseUploadInput,
+		files []types.OrganizeCourseUploadFile,
+	) (*types.OrganizeCourseUploadResult, error)
+	GetCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
+	GetPublishedCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
+	ListCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
+	ListPublishedCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
+	GetCourseStats(ctx context.Context, query types.OrganizeCourseQuery) (*types.OrganizeCourseStats, error)
+	OpenPublishedCourseLessonMedia(ctx context.Context, courseID, lessonID string) (io.ReadCloser, string, string, error)
+	GetPublishedCourseLessonContent(ctx context.Context, courseID, lessonID string) (string, error)
+	UpdateCoursePublicStatus(ctx context.Context, id, status string) (*types.OrganizeCourse, error)
+	DeleteCourse(ctx context.Context, id string) error
 }

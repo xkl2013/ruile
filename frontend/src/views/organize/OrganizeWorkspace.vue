@@ -281,6 +281,10 @@
             </section>
 
             <section class="discover-feed-section">
+              <OrganizeCourseDiscover
+                v-if="discoverTab === 'recommended'"
+                ref="courseDiscoverRef"
+              />
               <div v-if="discoverFeedLoading" class="organize-loading discover-loading">
                 <t-loading size="medium" text="加载发现中" />
               </div>
@@ -353,7 +357,11 @@
               </div>
             </section>
 
-            <div v-if="!discoverFeedLoading && discoverTotal > OUTPUT_PAGE_SIZE" class="output-pagination" aria-label="发现分页">
+            <div
+              v-if="!discoverFeedLoading && discoverTotal > OUTPUT_PAGE_SIZE"
+              class="output-pagination"
+              aria-label="发现分页"
+            >
               <t-pagination
                 v-model="outputPage"
                 :page-size="OUTPUT_PAGE_SIZE"
@@ -550,6 +558,7 @@ import {
 } from './discoverCategories'
 import OrganizeOutputUploadDrawer from './components/OrganizeOutputUploadDrawer.vue'
 import PublicKnowledgeBaseDiscover from './components/PublicKnowledgeBaseDiscover.vue'
+import OrganizeCourseDiscover from './OrganizeCourseDiscover.vue'
 
 type MemoryType = 'note' | 'record' | 'audio' | 'audio-card'
 type MemoryOrganizationStatus = MemoryStatusKey
@@ -640,7 +649,10 @@ const outputUploadInitialKind = ref<OutputCreateKind>('article')
 const outputPreviewVisible = ref(false)
 const activeOutputPreview = ref<OutputItem | null>(null)
 const outputStatusSaving = ref(false)
-const discoverTab = ref('recommended')
+const initialDiscoverTab = typeof route.query.tab === 'string' && route.query.tab !== 'course'
+  ? route.query.tab
+  : ''
+const discoverTab = ref(initialDiscoverTab || 'recommended')
 const discoverMode = ref<'content' | 'knowledge-base'>('content')
 const discoverTabs = ref<OrganizeDiscoverTab[]>([
   { label: '推荐', value: 'recommended' },
@@ -907,6 +919,8 @@ const memoryListEmptyText = computed(() => {
 const activeDiscoverTabLabel = computed(() => {
   return discoverTabs.value.find((tab) => tab.value === discoverTab.value)?.label || '推荐'
 })
+
+const courseDiscoverRef = ref<{ reload: () => Promise<void> } | null>(null)
 
 const setDiscoverTab = (tab: string) => {
   if (discoverTab.value === tab) return
@@ -1436,6 +1450,9 @@ const refreshDiscoverData = (options?: { resetPage?: boolean }) => {
       page: options?.resetPage ? 1 : outputPage.value,
       resetPage: options?.resetPage,
     }),
+    discoverTab.value === 'recommended'
+      ? courseDiscoverRef.value?.reload?.() || Promise.resolve()
+      : Promise.resolve(),
   ]).then((results) => {
     if (results.some((result) => result.status === 'rejected')) {
       MessagePlugin.warning('发现数据刷新失败')

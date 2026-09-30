@@ -96,6 +96,14 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
             requiresSystemAdmin: true,
           },
           {
+            key: 'courses',
+            label: '系列课程',
+            description: '上传文件夹建课并发布到发现模块',
+            icon: 'book-open',
+            path: '/courses',
+            requiresSystemAdmin: true,
+          },
+          {
             key: 'public-creators',
             label: '创作者管理',
             description: '查看创作者创建的知识库和内容并统一发布',

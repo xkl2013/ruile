@@ -234,6 +234,17 @@ const moduleRoutes: RouteRecordRaw[] = [
     },
   },
   {
+    path: 'courses',
+    name: 'adminCourses',
+    component: () => import('@admin/views/AdminCourses.vue'),
+    meta: {
+      navKey: 'courses',
+      title: '系列课程',
+      description: '上传一个文件夹即生成一门课程，发布到发现模块供学习者按讲次学习。',
+      requiresSystemAdmin: true,
+    },
+  },
+  {
     path: 'public-creators',
     name: 'adminPublicCreators',
     component: () => import('@admin/views/AdminPublicCreators.vue'),

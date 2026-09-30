@@ -936,7 +936,13 @@ func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, service.ErrOrganizeMemoryRequired),
 		stderrors.Is(err, service.ErrOrganizeInvalidMemoryRefs),
 		stderrors.Is(err, service.ErrOrganizeOutputAlreadyAssigned),
-		stderrors.Is(err, service.ErrOrganizeOutputNotReady):
+		stderrors.Is(err, service.ErrOrganizeOutputNotReady),
+		stderrors.Is(err, service.ErrOrganizeInvalidCategory),
+		stderrors.Is(err, service.ErrOrganizeInvalidPublicType),
+		stderrors.Is(err, service.ErrOrganizeInvalidPublicStatus),
+		stderrors.Is(err, service.ErrOrganizeCourseInvalidSource),
+		stderrors.Is(err, service.ErrOrganizeCourseNoValidFiles),
+		stderrors.Is(err, service.ErrOrganizeCourseLessonNotReady):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	default:
 		logger.ErrorWithFields(c.Request.Context(), err, nil)

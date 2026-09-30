@@ -33,6 +33,8 @@ func newOrganizeUploadServiceForTest(t *testing.T, modelSvc interfaces.ModelServ
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeSproutReport{},
 		&types.OrganizeSproutMemory{},
+		&types.OrganizeCourse{},
+		&types.OrganizeCourseLesson{},
 	))
 	return &organizeService{
 		repo:           repository.NewOrganizeRepository(db),
@@ -170,6 +172,8 @@ func readOrganizeOutputTags(t *testing.T, metadata types.JSONMap) []string {
 type stubOrganizeFileService struct {
 	fileURL      string
 	saveCalls    int
+	saveTemps    []bool
+	fileScheme   string
 	deletedPaths []string
 	deleteErr    error
 }
@@ -178,9 +182,14 @@ func (s *stubOrganizeFileService) CheckConnectivity(context.Context) error { ret
 func (s *stubOrganizeFileService) SaveFile(context.Context, *multipart.FileHeader, uint64, string) (string, error) {
 	return "", nil
 }
-func (s *stubOrganizeFileService) SaveBytes(_ context.Context, _ []byte, tenantID uint64, fileName string, _ bool) (string, error) {
+func (s *stubOrganizeFileService) SaveBytes(_ context.Context, _ []byte, tenantID uint64, fileName string, temp bool) (string, error) {
 	s.saveCalls++
-	return "local://" + strings.TrimSpace(fileName), nil
+	s.saveTemps = append(s.saveTemps, temp)
+	scheme := s.fileScheme
+	if scheme == "" {
+		scheme = "local"
+	}
+	return scheme + "://" + strings.TrimSpace(fileName), nil
 }
 func (s *stubOrganizeFileService) GetFile(context.Context, string) (io.ReadCloser, error) {
 	return nil, nil

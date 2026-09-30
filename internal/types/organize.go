@@ -33,6 +33,10 @@ const (
 	OrganizePublicContentStatusOffline       = "offline"
 	OrganizePublicContentStatusRejected      = "rejected"
 
+	// OrganizeDiscoverTabCourse is retained as a legacy query alias. Courses
+	// are now rendered inside 推荐 instead of a separate discover tab.
+	OrganizeDiscoverTabCourse = "course"
+
 	OrganizeSproutStageOrganizing = "organizing"
 	OrganizeSproutStageExpandable = "expandable"
 	OrganizeSproutStageFormed     = "formed"
@@ -275,6 +279,12 @@ type OrganizePublicContentQuery struct {
 	PublicContentType string
 	Page              int
 	PageSize          int
+	// ExcludeCourseLessons drops outputs that belong to a course in
+	// organize_courses. Those rows are lesson bodies, not posts: they are
+	// managed through the course they belong to, so a default content listing
+	// should not show fourteen "第N节" entries the administrator cannot act on
+	// individually anyway.
+	ExcludeCourseLessons bool
 }
 
 type OrganizeDiscoverQuery struct {

@@ -355,6 +355,19 @@ func RegisterPublicContentRoutes(
 		admin.POST("/:id/offline", handler.OfflineAdminContent)
 		admin.POST("/:id/reject", handler.RejectAdminContent)
 	}
+
+	// Courses are authored by uploading a whole folder, so they get their own
+	// admin surface instead of the single-post public-contents one. The upload
+	// endpoint is the only way a course is created in this release.
+	courses := r.Group("/system/admin/courses", g.SystemAdmin())
+	{
+		courses.GET("", handler.ListAdminCourses)
+		courses.POST("/upload", handler.UploadAdminCourse)
+		courses.GET("/:id", handler.GetAdminCourse)
+		courses.POST("/:id/publish", handler.PublishAdminCourse)
+		courses.POST("/:id/offline", handler.OfflineAdminCourse)
+		courses.DELETE("/:id", handler.DeleteAdminCourse)
+	}
 }
 
 // RegisterPublicCreatorRoutes exposes SystemAdmin creator aggregation and
@@ -1443,6 +1456,11 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 	{
 		org.GET("/overview", g.Viewer(), h.GetOverview)
 		org.GET("/discover", g.Viewer(), h.GetDiscover)
+		org.GET("/courses", g.Viewer(), h.ListCourses)
+		org.GET("/courses/:id", g.Viewer(), h.GetCourse)
+		org.GET("/courses/:id/lessons/:lesson_id/media", g.Viewer(), h.GetCourseLessonMedia)
+		// Body read is separate from the outline: one chapter per request.
+		org.GET("/courses/:id/lessons/:lesson_id/content", g.Viewer(), h.GetCourseLessonContent)
 
 		org.GET("/templates", g.Viewer(), h.ListTemplates)
 		org.GET("/templates/scenes", g.Viewer(), h.ListTemplateScenes)

@@ -97,6 +97,10 @@ func (s *publicCreatorService) listAllPublicContents(ctx context.Context) ([]*ty
 		rows, total, err := s.organizeSvc.ListAdminPublicContents(ctx, types.OrganizePublicContentQuery{
 			Page:     page,
 			PageSize: pageSize,
+			// Lesson bodies are parts of a course, not works the creator
+			// published; counting them would inflate every course author's tally
+			// by the length of their course.
+			ExcludeCourseLessons: true,
 		})
 		if err != nil {
 			return nil, err

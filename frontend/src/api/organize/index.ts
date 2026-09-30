@@ -195,6 +195,40 @@ export interface OrganizeListParams {
   page_size?: number
 }
 
+export type OrganizeCourseSource = 'official' | 'creator'
+export type OrganizeCourseLessonType = 'video' | 'audio' | 'article'
+
+export interface OrganizeCourseLesson {
+  id: string
+  course_id: string
+  title: string
+  lesson_type: OrganizeCourseLessonType
+  duration_seconds: number
+  sort_order: number
+  created_at: string
+  updated_at: string
+  available: boolean
+  content?: string
+  media_url?: string
+  source_file_name?: string
+}
+
+export interface OrganizeCourse {
+  id: string
+  source: OrganizeCourseSource
+  title: string
+  summary: string
+  category: string
+  cover_url: string
+  teacher_name: string
+  teacher_title: string
+  lesson_count: number
+  learner_count: number
+  created_at: string
+  updated_at: string
+  lessons?: OrganizeCourseLesson[]
+}
+
 export interface OrganizeMemoryInput {
   kind?: OrganizeMemoryKind
   title: string
@@ -391,6 +425,26 @@ export function assignOrganizeOutputToService(outputId: string, serviceId: strin
 
 export function getOrganizeDiscover(params?: OrganizeListParams & { tab?: string; featured_offset?: number }) {
   return get<OrganizeResponse<OrganizeDiscoverData>>(withQuery('/api/v1/organize/discover', params))
+}
+
+/**
+ * Loads the course cards shown inside 推荐. The pool is cross-tenant and
+ * published-only, so no workspace scope is sent from the client.
+ */
+export function getOrganizeCourses(params?: OrganizeListParams & { category?: string; source?: OrganizeCourseSource }) {
+  return get<OrganizeResponse<OrganizeListData<OrganizeCourse>>>(withQuery('/api/v1/organize/courses', params))
+}
+
+export function getOrganizeCourse(id: string) {
+  return get<OrganizeResponse<OrganizeCourse>>(`/api/v1/organize/courses/${encodeURIComponent(id)}`)
+}
+
+// The outline deliberately carries no lesson bodies, so each chapter is fetched
+// on demand; see getOrganizeCourse.
+export function getOrganizeCourseLessonContent(courseId: string, lessonId: string) {
+  return get<OrganizeResponse<{ content: string }>>(
+    `/api/v1/organize/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/content`,
+  )
 }
 
 export function createOrganizeOutput(input: OrganizeOutputInput) {

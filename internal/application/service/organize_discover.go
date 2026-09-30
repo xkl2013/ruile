@@ -35,7 +35,15 @@ func (s *organizeService) GetDiscover(
 		return nil, err
 	}
 
-	tabs := buildDiscoverTabs(outputs)
+	// Courses are shown in the recommendation stream, so their count belongs
+	// to the recommendation tab even though course lessons are excluded from
+	// the public output listing.
+	courseCount, err := s.countPublishedCourses(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tabs := buildDiscoverTabs(outputs, courseCount)
 	filtered := filterDiscoverOutputs(outputs, query.Tab, query.Keyword)
 	sortDiscoverOutputs(filtered)
 
@@ -56,6 +64,20 @@ func (s *organizeService) GetDiscover(
 	}, nil
 }
 
+// countPublishedCourses returns how many course cards belong in 推荐.
+// PageSize 1 keeps it a COUNT without dragging rows across.
+func (s *organizeService) countPublishedCourses(ctx context.Context) (int64, error) {
+	_, total, err := s.repo.ListCourses(ctx, types.OrganizeCourseQuery{
+		PublicStatus: types.OrganizePublicContentStatusPublished,
+		Page:         1,
+		PageSize:     1,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func (s *organizeService) listAllDiscoverOutputs(ctx context.Context, tenantID uint64, userID string) ([]*types.OrganizeOutput, error) {
 	pageSize := organizeMaxPageSize
 	if pageSize <= 0 {
@@ -64,9 +86,10 @@ func (s *organizeService) listAllDiscoverOutputs(ctx context.Context, tenantID u
 
 	outputs := make([]*types.OrganizeOutput, 0, pageSize)
 	query := types.OrganizePublicContentQuery{
-		PublicStatus: types.OrganizePublicContentStatusPublished,
-		Page:         1,
-		PageSize:     pageSize,
+		PublicStatus:         types.OrganizePublicContentStatusPublished,
+		ExcludeCourseLessons: true,
+		Page:                 1,
+		PageSize:             pageSize,
 	}
 	for {
 		items, total, err := s.repo.ListPublicContents(ctx, query)
@@ -82,19 +105,28 @@ func (s *organizeService) listAllDiscoverOutputs(ctx context.Context, tenantID u
 	return outputs, nil
 }
 
-func buildDiscoverTabs(outputs []*types.OrganizeOutput) []types.OrganizeDiscoverTab {
+func buildDiscoverTabs(outputs []*types.OrganizeOutput, courseCount int64) []types.OrganizeDiscoverTab {
 	categoryCounts := make(map[string]int64)
+	var recommendedCount int64
 
 	for _, output := range outputs {
 		if output == nil {
 			continue
 		}
+		if isDiscoverCourseOutput(output) {
+			continue
+		}
+		recommendedCount++
 		if category := discoverOutputCategory(output); category != "" {
 			categoryCounts[category]++
 		}
 	}
 
-	tabs := []types.OrganizeDiscoverTab{{Label: "推荐", Value: "recommended", Count: int64(len(outputs))}}
+	tabs := []types.OrganizeDiscoverTab{{
+		Label: "推荐",
+		Value: "recommended",
+		Count: recommendedCount + courseCount,
+	}}
 	for _, category := range types.OrganizeDiscoverCategories() {
 		tabs = append(tabs, types.OrganizeDiscoverTab{
 			Label: category.Label,
@@ -191,12 +223,33 @@ func paginateDiscoverOutputs(outputs []*types.OrganizeOutput, page, pageSize int
 
 func matchesDiscoverTab(output *types.OrganizeOutput, tab string) bool {
 	normalizedTab := normalizeDiscoverTab(tab)
+	isCourseOutput := isDiscoverCourseOutput(output)
+
 	switch normalizedTab {
 	case "", "recommended":
-		return true
+		return !isCourseOutput
 	default:
-		return discoverOutputCategory(output) == normalizedTab
+		return !isCourseOutput && discoverOutputCategory(output) == normalizedTab
 	}
+}
+
+// isDiscoverCourseOutput reports whether an output is a course lesson rather
+// than a post of its own.
+//
+// This is a second line of defence, not the mechanism. Lessons are written with
+// public_status = 'draft' and therefore never reach ListPublicContents in the
+// first place; this guard catches rows that predate that rule (or that someone
+// published by hand) so a stray lesson can never surface as a standalone card.
+func isDiscoverCourseOutput(output *types.OrganizeOutput) bool {
+	if output == nil {
+		return false
+	}
+	// Legacy posts may use series_id for ordinary grouping. A course lesson is
+	// identified by both the explicit course content type and a real course
+	// linkage; the repository query above removes linked lessons already, while
+	// this guard protects against manually published or stale rows.
+	return output.PublicContentType == types.OrganizePublicContentTypeCourse &&
+		strings.TrimSpace(output.SeriesID) != ""
 }
 
 func matchesDiscoverKeyword(output *types.OrganizeOutput, keyword string) bool {
@@ -360,6 +413,9 @@ func normalizeDiscoverTab(tab string) string {
 	tab = strings.TrimSpace(tab)
 	switch tab {
 	case "推荐":
+		return "recommended"
+	case "系列课程", types.OrganizeDiscoverTabCourse:
+		// Keep old links working after courses moved into 推荐.
 		return "recommended"
 	default:
 		for _, category := range types.OrganizeDiscoverCategories() {

@@ -35,6 +35,10 @@ func newOrganizeServiceWithDBForTest(t *testing.T) (*organizeService, *gorm.DB) 
 		&types.OrganizeTemplateVersion{},
 		&types.OrganizeConfig{},
 		&types.OrganizeJob{},
+		// GetDiscover counts published courses for 推荐, so the course tables
+		// have to exist even in tests that never create one.
+		&types.OrganizeCourse{},
+		&types.OrganizeCourseLesson{},
 	))
 	return &organizeService{repo: repository.NewOrganizeRepository(db)}, db
 }
@@ -216,6 +220,8 @@ func TestOrganizeWorkbenchAutoAssignsReadyOutputToConfiguredService(t *testing.T
 		&types.OrganizeTemplateVersion{},
 		&types.OrganizeConfig{},
 		&types.OrganizeJob{},
+		&types.OrganizeCourse{},
+		&types.OrganizeCourseLesson{},
 	))
 
 	organizeRepo := repository.NewOrganizeRepository(db)
@@ -407,6 +413,7 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, discover.Page)
 	require.Equal(t, 30, discover.PageSize)
+	// 推荐 + the eight scenario categories.
 	require.Len(t, discover.Tabs, 9)
 	require.Equal(t, "recommended", discover.Tabs[0].Value)
 	require.Equal(t, int64(1), discover.Tabs[0].Count)
@@ -415,6 +422,14 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 
 	require.Len(t, discover.FeaturedOutputs, 1)
 	require.Equal(t, "电力行业相关企业分析及功率半导体产业链解读", discover.FeaturedOutputs[0].Title)
+
+	// The legacy course alias now resolves to 推荐 after courses moved into
+	// the recommendation stream.
+	courseDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{
+		Tab: types.OrganizeDiscoverTabCourse,
+	})
+	require.NoError(t, err)
+	require.Len(t, courseDiscover.Items, 1)
 
 	recommendedDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Tab: "recommended"})
 	require.NoError(t, err)
@@ -460,13 +475,10 @@ func TestOrganizeServicePublicContentModeration(t *testing.T) {
 	require.NoError(t, err)
 
 	pendingOutput, err := svc.CreateOutput(ctx, 7, "creator-a", types.OrganizeOutputInput{
-		Title:             "招生课程第一节",
+		Title:             "招生干货第一节",
 		Status:            types.OrganizeOutputStatusReview,
 		PublicStatus:      types.OrganizePublicContentStatusPendingReview,
-		PublicContentType: types.OrganizePublicContentTypeCourse,
-		SeriesID:          "招生课程",
-		SeriesTitle:       "招生课程",
-		SeriesOrder:       1,
+		PublicContentType: types.OrganizePublicContentTypePost,
 	})
 	require.NoError(t, err)
 	require.Equal(t, types.OrganizePublicContentStatusPendingReview, pendingOutput.PublicStatus)
