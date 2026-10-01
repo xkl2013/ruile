@@ -40,6 +40,7 @@ dependencies:
   permission_handler: ^13.0.1
   flutter_reactive_ble: ^5.5.0
   record: ^6.1.2
+  flutter_lame: ^1.0.3
   speech_to_text: ^7.4.0
   audioplayers: ^6.8.1
   video_player: ^2.14.0

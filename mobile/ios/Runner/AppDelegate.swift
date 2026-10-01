@@ -85,6 +85,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   private var activeReadPath = ""
   private var activeReadHandle: FileHandle?
   private var activeReadBytes = 0
+  private var activeReadLastProgressAt: Date?
   private var activeDeleteTaskId: String?
   private var activeDeleteStorageIndex: Int?
   private var activeDeleteCluster: UInt32?
@@ -1217,6 +1218,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     activeReadPath = outputURL.path
     activeReadHandle = fileHandle
     activeReadBytes = 0
+    activeReadLastProgressAt = nil
     emitFileReadEvent(
       type: "fileReadStarted",
       taskId: taskId,
@@ -1229,15 +1231,16 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     manager.mFileManager.cmdFileReadContent(
       withFileClus: UInt32(cluster),
       result: { [weak self] fileResult, size, data, progress in
-        DispatchQueue.main.async {
-          self?.handleFileReadResult(
-            taskId: taskId,
-            result: fileResult,
-            size: size,
-            data: data,
-            progress: progress
-          )
-        }
+        // File data callbacks can arrive at a high frequency. Persist the
+        // bytes on the SDK callback queue so the main thread remains
+        // responsive for Flutter progress and completion events.
+        self?.handleFileReadResult(
+          taskId: taskId,
+          result: fileResult,
+          size: size,
+          data: data,
+          progress: progress
+        )
       }
     )
     result([
@@ -2013,6 +2016,21 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         bytes: activeReadBytes
       )
     case .reading:
+      let now = Date()
+      let reachedEnd = progressValue >= 100
+      if !reachedEnd,
+         let lastProgressAt = activeReadLastProgressAt,
+         now.timeIntervalSince(lastProgressAt) < 0.1 {
+        return
+      }
+      activeReadLastProgressAt = now
+      if reachedEnd {
+        debugLog(
+          "file read reached 100% without end callback task=\(taskId) bytes=\(activeReadBytes)"
+        )
+        finishActiveRead(taskId: taskId, size: size)
+        return
+      }
       emitFileReadEvent(
         type: "fileReadProgress",
         taskId: taskId,
@@ -2024,19 +2042,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         bytes: activeReadBytes
       )
     case .end:
-      closeActiveReadFile(removeFile: false)
-      emitFileReadEvent(
-        type: "fileReadComplete",
-        taskId: taskId,
-        storageIndex: activeReadStorageIndex ?? -1,
-        cluster: activeReadCluster ?? 0,
-        name: activeReadName,
-        path: activeReadPath,
-        progress: 100,
-        bytes: activeReadBytes,
-        code: Int(size)
-      )
-      clearActiveReadTask()
+      finishActiveRead(taskId: taskId, size: size)
     case .cancel:
       closeActiveReadFile(removeFile: true)
       emitFileReadEvent(
@@ -2083,6 +2089,23 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     }
   }
 
+  private func finishActiveRead(taskId: String, size: UInt32) {
+    guard activeReadTaskId == taskId else { return }
+    closeActiveReadFile(removeFile: false)
+    emitFileReadEvent(
+      type: "fileReadComplete",
+      taskId: taskId,
+      storageIndex: activeReadStorageIndex ?? -1,
+      cluster: activeReadCluster ?? 0,
+      name: activeReadName,
+      path: activeReadPath,
+      progress: 100,
+      bytes: activeReadBytes,
+      code: Int(size)
+    )
+    clearActiveReadTask()
+  }
+
   private func emitFileDeleteEvent(
     type: String,
     taskId: String,
@@ -2125,6 +2148,7 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     activeReadName = ""
     activeReadPath = ""
     activeReadBytes = 0
+    activeReadLastProgressAt = nil
   }
 
   private func clearActiveDeleteTask() {
