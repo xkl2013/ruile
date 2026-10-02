@@ -44,6 +44,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     qos: .userInitiated
   )
   private let audioEventFlushInterval: TimeInterval = 0.05
+  private let fileReadQueue = DispatchQueue(
+    label: "com.ruile.recording_card.jieli.file_read",
+    qos: .utility
+  )
 
   private var eventSink: FlutterEventSink?
   private var bleMultiple: JL_BLEMultiple?
@@ -1152,7 +1156,8 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       return
     }
     let manager = entity.mCmdManager
-    guard activeReadTaskId == nil else {
+    let readBusy = fileReadQueue.sync { activeReadTaskId != nil }
+    guard !readBusy else {
       result(FlutterError(
         code: "JIELI_READ_FILE_BUSY",
         message: "A Jieli file read task is already running.",
@@ -1173,6 +1178,23 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       ))
       return
     }
+    guard storageIndex >= 0,
+          storageIndex <= Int(UInt8.max),
+          let cardType = JL_CardType(rawValue: UInt8(storageIndex)),
+          let handleType = fileHandleType(for: cardType) else {
+      result(FlutterError(
+        code: "JIELI_BAD_STORAGE",
+        message: "Jieli storage handle is invalid.",
+        details: storageIndex
+      ))
+      return
+    }
+    manager.mFileManager.setCurrentFileHandleType(handleType)
+    debugLog(
+      "read request storage=\(storageIndex) cluster=\(cluster) name=\(name) "
+        + "handleType=\(Int(manager.mFileManager.getCurrentFileHandleType().rawValue)) "
+        + "handleBytes=\(manager.mFileManager.currentDeviceHandleData().count)"
+    )
 
     let outputDirectory = FileManager.default.urls(
       for: .cachesDirectory,
@@ -1211,14 +1233,28 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     }
 
     let taskId = "\(storageIndex)-\(cluster)-\(Int(Date().timeIntervalSince1970 * 1000))"
-    activeReadTaskId = taskId
-    activeReadStorageIndex = storageIndex
-    activeReadCluster = UInt32(cluster)
-    activeReadName = name
-    activeReadPath = outputURL.path
-    activeReadHandle = fileHandle
-    activeReadBytes = 0
-    activeReadLastProgressAt = nil
+    let claimed = fileReadQueue.sync {
+      guard activeReadTaskId == nil else { return false }
+      activeReadTaskId = taskId
+      activeReadStorageIndex = storageIndex
+      activeReadCluster = UInt32(cluster)
+      activeReadName = name
+      activeReadPath = outputURL.path
+      activeReadHandle = fileHandle
+      activeReadBytes = 0
+      activeReadLastProgressAt = nil
+      return true
+    }
+    guard claimed else {
+      fileHandle.closeFile()
+      try? FileManager.default.removeItem(at: outputURL)
+      result(FlutterError(
+        code: "JIELI_READ_FILE_BUSY",
+        message: "A Jieli file read task is already running.",
+        details: nil
+      ))
+      return
+    }
     emitFileReadEvent(
       type: "fileReadStarted",
       taskId: taskId,
@@ -1231,17 +1267,24 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
     manager.mFileManager.cmdFileReadContent(
       withFileClus: UInt32(cluster),
       result: { [weak self] fileResult, size, data, progress in
-        // File data callbacks can arrive at a high frequency. Persist the
-        // bytes on the SDK callback queue so the main thread remains
-        // responsive for Flutter progress and completion events.
-        self?.handleFileReadResult(
-          taskId: taskId,
-          result: fileResult,
-          size: size,
-          data: data,
-          progress: progress
-        )
+        // The SDK callback is part of the BLE transfer path. Return quickly
+        // and serialize file I/O separately so writing a chunk cannot block
+        // the next packet or the terminal callback.
+        guard let self else { return }
+        self.fileReadQueue.async {
+          self.handleFileReadResult(
+            taskId: taskId,
+            result: fileResult,
+            size: size,
+            data: data,
+            progress: progress
+          )
+        }
       }
+    )
+    debugLog(
+      "read command issued storage=\(storageIndex) cluster=\(cluster) "
+        + "task=\(taskId)"
     )
     result([
       "success": true,
@@ -1254,24 +1297,38 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
   }
 
   private func cancelReadFile() {
-    guard let taskId = activeReadTaskId else { return }
-    activeEntity?.mCmdManager.mFileManager.cmdFileReadContentCancel()
-    let storageIndex = activeReadStorageIndex ?? -1
-    let cluster = activeReadCluster ?? 0
-    let name = activeReadName
-    let path = activeReadPath
-    closeActiveReadFile(removeFile: true)
-    emitFileReadEvent(
-      type: "fileReadCancelled",
-      taskId: taskId,
-      storageIndex: storageIndex,
-      cluster: cluster,
-      name: name,
-      path: path,
-      code: 0,
-      message: "文件读取已取消"
+    let snapshot = fileReadQueue.sync {
+      (
+        taskId: activeReadTaskId,
+        bytes: activeReadBytes,
+        path: activeReadPath
+      )
+    }
+    guard let taskId = snapshot.taskId else { return }
+    debugLog(
+      "cancel file read task=\(taskId) bytes=\(snapshot.bytes) "
+        + "path=\(snapshot.path)"
     )
-    clearActiveReadTask()
+    activeEntity?.mCmdManager.mFileManager.cmdFileReadContentCancel()
+    fileReadQueue.async { [weak self] in
+      guard let self, self.activeReadTaskId == taskId else { return }
+      let storageIndex = self.activeReadStorageIndex ?? -1
+      let cluster = self.activeReadCluster ?? 0
+      let name = self.activeReadName
+      let path = self.activeReadPath
+      self.closeActiveReadFile(removeFile: true)
+      self.emitFileReadEvent(
+        type: "fileReadCancelled",
+        taskId: taskId,
+        storageIndex: storageIndex,
+        cluster: cluster,
+        name: name,
+        path: path,
+        code: 0,
+        message: "文件读取已取消"
+      )
+      self.clearActiveReadTask()
+    }
   }
 
   private func deleteFile(
@@ -2004,6 +2061,14 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       activeReadBytes += data.count
     }
     let progressValue = normalizedProgress(progress)
+    if progressValue >= 95 || result != .reading {
+      debugLog(
+        "file callback task=\(taskId) result=\(result.rawValue) "
+          + "size=\(size) chunk=\(data?.count ?? 0) "
+          + "progressRaw=\(progress) progress=\(progressValue) "
+          + "bytes=\(activeReadBytes)"
+      )
+    }
     switch result {
     case .start:
       emitFileReadEvent(
@@ -2017,20 +2082,11 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       )
     case .reading:
       let now = Date()
-      let reachedEnd = progressValue >= 100
-      if !reachedEnd,
-         let lastProgressAt = activeReadLastProgressAt,
+      if let lastProgressAt = activeReadLastProgressAt,
          now.timeIntervalSince(lastProgressAt) < 0.1 {
         return
       }
       activeReadLastProgressAt = now
-      if reachedEnd {
-        debugLog(
-          "file read reached 100% without end callback task=\(taskId) bytes=\(activeReadBytes)"
-        )
-        finishActiveRead(taskId: taskId, size: size)
-        return
-      }
       emitFileReadEvent(
         type: "fileReadProgress",
         taskId: taskId,
@@ -2091,6 +2147,10 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
 
   private func finishActiveRead(taskId: String, size: UInt32) {
     guard activeReadTaskId == taskId else { return }
+    debugLog(
+      "finish file read task=\(taskId) bytes=\(activeReadBytes) "
+        + "path=\(activeReadPath) sink=\(eventSink != nil)"
+    )
     closeActiveReadFile(removeFile: false)
     emitFileReadEvent(
       type: "fileReadComplete",
@@ -2502,6 +2562,9 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
 
   private func emit(_ type: String, payload: [String: Any] = [:]) {
     guard let eventSink else { return }
+    if type.hasPrefix("fileRead") {
+      debugLog("queue event \(type) payload=\(payload)")
+    }
     DispatchQueue.main.async {
       eventSink([
         "type": type,

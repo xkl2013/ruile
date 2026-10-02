@@ -118,7 +118,6 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   int _fileReadLastBytes = 0;
   DateTime? _fileReadLastSampleAt;
   DateTime? _fileReadLastUiUpdateAt;
-  bool _fileReadCompletingFromProgress = false;
   String _fileReadMessage = '';
   bool _fileDeleteLoading = false;
   String _fileDeleteMessage = '';
@@ -137,6 +136,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   _JieliDeviceFileRef? _activeDeleteFileRef;
   Completer<bool>? _activeDeleteCompleter;
   bool _activeReadIsSidecar = false;
+  String _activeReadTaskId = '';
   bool _activeDeleteIsSidecar = false;
 
   _JieliDevice get _targetDevice {
@@ -762,7 +762,6 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       _fileReadLastBytes = 0;
       _fileReadLastSampleAt = null;
       _fileReadLastUiUpdateAt = null;
-      _fileReadCompletingFromProgress = false;
       _fileReadMessage = '正在下载 ${file.name}';
       _error = null;
     });
@@ -862,10 +861,20 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   Future<void> _loadLocalPendingEntries() async {
     try {
       final entries = await _localStore.loadAllFiles();
+      debugPrint(
+        '[JieliState] restore all count=${entries.length} '
+        'statuses=${entries.map((entry) => '${entry.fileNameNoExt}:${entry.transferStatus.name}:${entry.syncedBytes}/${entry.fileSizeBytes}').join(',')}',
+      );
       if (!mounted) return;
       setState(() {
         for (final entry in entries) {
           final restored = normalizeJieliRestoredAutoSyncEntry(entry);
+          if (restored.transferStatus != entry.transferStatus) {
+            debugPrint(
+              '[JieliState] normalize ${entry.fileNameNoExt} '
+              '${entry.transferStatus.name}->${restored.transferStatus.name}',
+            );
+          }
           if (restored.transferStatus != entry.transferStatus) {
             unawaited(_persistAutoSyncEntry(restored));
           }
@@ -890,9 +899,19 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     final deviceId = _connectedAddress;
     if (deviceId == null || deviceId.trim().isEmpty) return;
     final loadedEntries = await _localStore.loadFiles(deviceId);
+    debugPrint(
+      '[JieliState] restore device=$deviceId count=${loadedEntries.length} '
+      'statuses=${loadedEntries.map((entry) => '${entry.fileNameNoExt}:${entry.transferStatus.name}:${entry.syncedBytes}/${entry.fileSizeBytes}').join(',')}',
+    );
     final entries = <RecordingCardFileEntry>[];
     for (final entry in loadedEntries) {
       final restored = normalizeJieliRestoredAutoSyncEntry(entry);
+      if (restored.transferStatus != entry.transferStatus) {
+        debugPrint(
+          '[JieliState] normalize device ${entry.fileNameNoExt} '
+          '${entry.transferStatus.name}->${restored.transferStatus.name}',
+        );
+      }
       if (restored.transferStatus != entry.transferStatus) {
         unawaited(_persistAutoSyncEntry(restored));
       }
@@ -1079,6 +1098,11 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
 
     if (_connectedAddress == null || !_rcspReady) return;
     final downloadCandidate = _nextJieliDownloadCandidate();
+    debugPrint(
+      '[JieliState] advance active=${_activeReadFileRef?.file.name} '
+      'loading=$_fileReadLoading entries=${_fileEntries.values.map((entry) => '${entry.fileNameNoExt}:${entry.transferStatus.name}:${entry.syncedBytes}/${entry.fileSizeBytes}').join(',')} '
+      'download=${downloadCandidate?.fileNameNoExt}',
+    );
     if (downloadCandidate != null) {
       await _downloadJieliEntry(downloadCandidate);
       return;
@@ -1152,6 +1176,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _activeReadFileRef = ref;
     _activeSyncEntry = entry;
     _activeReadIsSidecar = false;
+    _activeReadTaskId = '';
     final downloading = entry.copyWith(
       transferStatus: RecordingCardFileTransferStatus.downloading,
       lastError: '',
@@ -1170,7 +1195,6 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       _fileReadLastBytes = 0;
       _fileReadLastSampleAt = null;
       _fileReadLastUiUpdateAt = null;
-      _fileReadCompletingFromProgress = false;
     });
     _armFileReadTimeout(ref.file.name);
     try {
@@ -1183,6 +1207,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         '[JieliRead] command result name=${ref.file.name} '
         'success=${result.success} task=${result.taskId} path=${result.path}',
       );
+      if (_activeReadFileRef == ref && result.taskId.trim().isNotEmpty) {
+        _activeReadTaskId = result.taskId.trim();
+      }
       if (!result.success) {
         _markActiveReadFailed(
             result.message.isEmpty ? '下载启动失败' : result.message);
@@ -1195,23 +1222,41 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   Future<void> _handleAutoFileReadComplete(
     Map<String, Object?> payload,
   ) async {
+    debugPrint(
+      '[JieliRead] complete handler entered '
+      'payload=$payload activeRef=${_activeReadFileRef?.file.name} '
+      'activeEntry=${_activeSyncEntry?.fileNameNoExt}',
+    );
     if (_activeReadIsSidecar) {
       await _handleAutoSidecarReadComplete(payload);
       return;
     }
     final ref = _activeReadFileRef;
     final entry = _activeSyncEntry;
-    if (ref == null || entry == null || !_matchesFilePayload(payload, ref)) {
+    if (ref == null ||
+        entry == null ||
+        !_matchesActiveReadPayload(payload, ref)) {
+      debugPrint(
+        '[JieliRead] complete ignored '
+        'ref=${ref?.file.name} entry=${entry?.fileNameNoExt} '
+        'task=${payload['task_id']} activeTask=$_activeReadTaskId '
+        'matches=${ref == null ? false : _matchesActiveReadPayload(payload, ref)}',
+      );
       return;
     }
     final sourcePath = payload['path']?.toString().trim() ?? '';
     if (sourcePath.isEmpty) {
+      debugPrint('[JieliRead] complete rejected: empty source path');
       _markActiveReadFailed('SDK 未返回本地文件路径');
       return;
     }
     try {
       final sourceFile = File(sourcePath);
-      if (!await sourceFile.exists()) {
+      final sourceExists = await sourceFile.exists();
+      debugPrint(
+        '[JieliRead] complete source path=$sourcePath exists=$sourceExists',
+      );
+      if (!sourceExists) {
         _markActiveReadFailed('SDK 下载文件不存在');
         return;
       }
@@ -1226,6 +1271,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         await sourceFile.copy(targetFile.path);
       }
       final bytes = await targetFile.length();
+      debugPrint(
+        '[JieliRead] complete local copy target=${targetFile.path} '
+        'bytes=$bytes',
+      );
       final downloaded = entry.copyWith(
         fileSizeBytes: bytes,
         localSbcPath: targetFile.path,
@@ -1238,7 +1287,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       );
       _activeReadFileRef = null;
       _activeSyncEntry = null;
-      _fileReadCompletingFromProgress = false;
+      _activeReadTaskId = '';
       final pendingUpload = downloaded.copyWith(
         transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
       );
@@ -1290,40 +1339,6 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _fileEntries[next.fileNameNoExt] = next;
   }
 
-  Future<void> _completeAudioReadFromProgress(
-    Map<String, Object?> payload,
-  ) async {
-    await Future<void>.delayed(const Duration(milliseconds: 800));
-    if (!mounted || _activeReadFileRef == null || _activeReadIsSidecar) {
-      return;
-    }
-    final ref = _activeReadFileRef;
-    if (ref == null || !_matchesFilePayload(payload, ref)) return;
-    final sourcePath = payload['path']?.toString().trim() ?? '';
-    if (sourcePath.isEmpty) return;
-    final sourceFile = File(sourcePath);
-    if (!await sourceFile.exists()) return;
-    final bytes = await sourceFile.length();
-    if (bytes <= 0) return;
-    _fileReadTimeoutTimer?.cancel();
-    _fileReadTimeoutTimer = null;
-    if (mounted) {
-      setState(() {
-        _fileReadLoading = false;
-        _fileReadBytes = bytes;
-        _fileReadSpeedBytesPerSecond = 0;
-        _fileReadMessage = '${ref.file.name} 下载完成，${bytes}B';
-      });
-    }
-    await _handleAutoFileReadComplete({
-      ...payload,
-      'progress': 100,
-      'bytes': bytes,
-      'name': ref.file.name,
-      'path': sourcePath,
-    });
-  }
-
   Future<void> _deleteDownloadedAudioAndReadSidecar(
     RecordingCardFileEntry entry,
     _JieliDeviceFileRef? sidecarRef, {
@@ -1345,7 +1360,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       return;
     }
     final ref = _activeReadFileRef;
-    if (ref == null || !_matchesFilePayload(payload, ref)) return;
+    if (ref == null || !_matchesActiveReadPayload(payload, ref)) return;
     final message = payload['message']?.toString().trim() ?? '文件下载失败';
     debugPrint('[JieliRead] failed payload=$payload');
     _markActiveReadFailed(message);
@@ -1359,7 +1374,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _activeReadFileRef = null;
     _activeSyncEntry = null;
     _activeReadIsSidecar = false;
-    _fileReadCompletingFromProgress = false;
+    _activeReadTaskId = '';
     if (entry != null) {
       _upsertAutoSyncEntry(
         entry.copyWith(
@@ -1385,6 +1400,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _activeReadFileRef = ref;
     _activeSyncEntry = entry;
     _activeReadIsSidecar = true;
+    _activeReadTaskId = '';
     if (mounted) {
       setState(() {
         _autoSyncMessage = '正在读取 ${ref.file.name}';
@@ -1414,7 +1430,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   ) async {
     final ref = _activeReadFileRef;
     final entry = _activeSyncEntry;
-    if (ref == null || entry == null || !_matchesFilePayload(payload, ref)) {
+    if (ref == null ||
+        entry == null ||
+        !_matchesActiveReadPayload(payload, ref)) {
       return;
     }
     final sourcePath = payload['path']?.toString().trim() ?? '';
@@ -1443,6 +1461,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       _activeReadFileRef = null;
       _activeSyncEntry = null;
       _activeReadIsSidecar = false;
+      _activeReadTaskId = '';
       _upsertAutoSyncEntry(
         entry.copyWith(
           createdAtFromDevice: recordedAt ?? entry.createdAtFromDevice,
@@ -1476,6 +1495,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _activeReadFileRef = null;
     _activeSyncEntry = null;
     _activeReadIsSidecar = false;
+    _activeReadTaskId = '';
     if (entry != null) {
       _upsertAutoSyncEntry(
         entry.copyWith(
@@ -2052,6 +2072,23 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     return name.isNotEmpty && name == ref.file.name;
   }
 
+  bool _matchesActiveReadPayload(
+    Map<String, Object?> payload,
+    _JieliDeviceFileRef ref,
+  ) {
+    final payloadTaskId = payload['task_id']?.toString().trim() ?? '';
+    if (_activeReadTaskId.isNotEmpty &&
+        payloadTaskId.isNotEmpty &&
+        payloadTaskId != _activeReadTaskId) {
+      return false;
+    }
+    if (!_matchesFilePayload(payload, ref)) return false;
+    if (_activeReadTaskId.isEmpty && payloadTaskId.isNotEmpty) {
+      _activeReadTaskId = payloadTaskId;
+    }
+    return true;
+  }
+
   void _applyStorageList(Object? value) {
     final storages = JieliRecordingCardStorage.listFromPlatform(value);
     if (!mounted) return;
@@ -2137,6 +2174,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _cloudSyncInProgress = false;
     _activeSyncEntry = null;
     _activeReadFileRef = null;
+    _activeReadTaskId = '';
     _activeDeleteFileRef = null;
     _activeReadIsSidecar = false;
     _fileReadTimeoutTimer?.cancel();
@@ -2854,6 +2892,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         break;
       case 'fileReadStarted':
         if (!mounted || _activeReadFileRef == null) return;
+        if (!_matchesActiveReadPayload(payload, _activeReadFileRef!)) {
+          debugPrint('[JieliRead] stale start ignored payload=$payload');
+          return;
+        }
         debugPrint('[JieliRead] event started payload=$payload');
         setState(() {
           _fileReadLoading = true;
@@ -2863,9 +2905,20 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         break;
       case 'fileReadProgress':
         if (!mounted || _activeReadFileRef == null) return;
+        if (!_matchesActiveReadPayload(payload, _activeReadFileRef!)) {
+          debugPrint('[JieliRead] stale progress ignored payload=$payload');
+          return;
+        }
         final progressName = payload['name']?.toString().trim() ?? '';
         final progress = _readInt(payload, 'progress');
         final bytes = _readInt(payload, 'bytes');
+        if (progress >= 95) {
+          debugPrint(
+            '[JieliRead] progress name=$progressName progress=$progress '
+            'bytes=$bytes active=${_activeReadFileRef?.file.name} '
+            'entry=${_activeSyncEntry?.fileNameNoExt}',
+          );
+        }
         final now = DateTime.now();
         final isAudioRead = _isJieliAudioFileName(progressName) ||
             (_activeReadFileRef != null &&
@@ -2886,13 +2939,6 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           _fileReadLastBytes = bytes;
           _fileReadLastSampleAt = now;
           _updateActiveAudioProgress(bytes: bytes, progress: progress);
-          if (_jieliDownloadOnlyDebugMode &&
-              progress >= 100 &&
-              bytes > 0 &&
-              !_fileReadCompletingFromProgress) {
-            _fileReadCompletingFromProgress = true;
-            unawaited(_completeAudioReadFromProgress(payload));
-          }
         }
 
         // BLE can deliver hundreds of chunks per second. Keep the file
@@ -2915,7 +2961,12 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       case 'fileReadComplete':
         if (!mounted) return;
         debugPrint('[JieliRead] event complete payload=$payload');
-        if (_activeReadFileRef == null) return;
+        final completeRef = _activeReadFileRef;
+        if (completeRef == null ||
+            !_matchesActiveReadPayload(payload, completeRef)) {
+          debugPrint('[JieliRead] stale complete ignored payload=$payload');
+          return;
+        }
         _fileReadTimeoutTimer?.cancel();
         _fileReadTimeoutTimer = null;
         final completeName = payload['name']?.toString().trim() ?? '';
@@ -2941,7 +2992,12 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         break;
       case 'fileReadFailed':
         if (!mounted) return;
-        if (_activeReadFileRef == null) return;
+        final failedRef = _activeReadFileRef;
+        if (failedRef == null ||
+            !_matchesActiveReadPayload(payload, failedRef)) {
+          debugPrint('[JieliRead] stale failure ignored payload=$payload');
+          return;
+        }
         setState(() {
           _fileReadLoading = false;
           final message = payload['message']?.toString().trim() ?? '';
@@ -2953,13 +3009,18 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       case 'fileReadCancelled':
         if (!mounted) return;
         debugPrint('[JieliRead] event cancelled payload=$payload');
-        if (_activeReadFileRef == null) return;
+        final cancelledRef = _activeReadFileRef;
+        if (cancelledRef == null ||
+            !_matchesActiveReadPayload(payload, cancelledRef)) {
+          debugPrint('[JieliRead] stale cancellation ignored payload=$payload');
+          return;
+        }
         _fileReadTimeoutTimer?.cancel();
         _fileReadTimeoutTimer = null;
         _activeReadFileRef = null;
         _activeSyncEntry = null;
         _activeReadIsSidecar = false;
-        _fileReadCompletingFromProgress = false;
+        _activeReadTaskId = '';
         setState(() {
           _fileReadLoading = false;
           _fileReadMessage = '文件下载已取消';
