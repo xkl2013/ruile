@@ -76,6 +76,32 @@ void main() {
     expect(nextJieliCloudCandidate([restored])?.fileNameNoExt, 'REC0000');
   });
 
+  test('requeues local audio after device source was already deleted', () {
+    final restored = normalizeJieliRestoredAutoSyncEntry(
+      _entry(
+        RecordingCardFileTransferStatus.deletedOnDevice,
+        localSbcPath: '/tmp/REC0000.MP3',
+      ),
+    );
+
+    expect(
+      restored.transferStatus,
+      RecordingCardFileTransferStatus.cloudSyncPending,
+    );
+    expect(nextJieliCloudCandidate([restored])?.fileNameNoExt, 'REC0000');
+  });
+
+  test('requeues an interrupted Bluetooth download after app restart', () {
+    final restored = normalizeJieliRestoredAutoSyncEntry(
+      _entry(RecordingCardFileTransferStatus.downloading),
+    );
+
+    expect(
+      restored.transferStatus,
+      RecordingCardFileTransferStatus.downloadPending,
+    );
+  });
+
   test('hides recording files that already completed synchronization', () {
     expect(
       shouldShowJieliRecordingFile(
@@ -88,6 +114,23 @@ void main() {
         _entry(RecordingCardFileTransferStatus.cloudSyncFailed),
       ),
       isTrue,
+    );
+    expect(
+      shouldShowJieliRecordingFile(
+        _entry(
+          RecordingCardFileTransferStatus.cloudSyncing,
+          localSbcPath: '/tmp/REC0000.MP3',
+        ),
+      ),
+      isFalse,
+    );
+    expect(
+      shouldShowJieliRecordingFile(
+        _entry(
+          RecordingCardFileTransferStatus.cloudSyncFailed,
+        ).copyWith(localPlayablePath: '/tmp/REC0000.MP3'),
+      ),
+      isFalse,
     );
     expect(
       shouldShowJieliRecordingFile(

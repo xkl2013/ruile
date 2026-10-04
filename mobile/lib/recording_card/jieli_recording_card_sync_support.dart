@@ -26,8 +26,14 @@ String jieliSidecarFileNameFor(String fileNameNoExt) {
 }
 
 bool shouldShowJieliRecordingFile(RecordingCardFileEntry entry) {
-  return entry.transferStatus != RecordingCardFileTransferStatus.synced &&
-      entry.transferStatus != RecordingCardFileTransferStatus.deletedOnDevice;
+  if (entry.transferStatus == RecordingCardFileTransferStatus.synced ||
+      entry.transferStatus == RecordingCardFileTransferStatus.deletedOnDevice) {
+    return false;
+  }
+  // Once the audio is safely on the phone, the card list is no longer the
+  // right place to display it. Cloud upload/transcription can resume from the
+  // persisted local queue without blocking Bluetooth/card browsing.
+  return !entry.hasLocalAudio;
 }
 
 String formatJieliRecordingCardRemainingStorage(int? usedBytes) {
@@ -72,12 +78,25 @@ RecordingCardFileTransferStatus jieliStatusAfterFileSeen(
 RecordingCardFileEntry normalizeJieliRestoredAutoSyncEntry(
   RecordingCardFileEntry entry,
 ) {
-  if (entry.transferStatus != RecordingCardFileTransferStatus.cloudSyncing) {
-    return entry;
+  if (entry.transferStatus == RecordingCardFileTransferStatus.deletedOnDevice &&
+      entry.cloudMemoryId.trim().isEmpty &&
+      entry.hasLocalAudio) {
+    return entry.copyWith(
+      transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+      lastError: '',
+    );
   }
-  return entry.copyWith(
-    transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
-  );
+  if (entry.transferStatus == RecordingCardFileTransferStatus.cloudSyncing) {
+    return entry.copyWith(
+      transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+    );
+  }
+  if (entry.transferStatus == RecordingCardFileTransferStatus.downloading) {
+    return entry.copyWith(
+      transferStatus: RecordingCardFileTransferStatus.downloadPending,
+    );
+  }
+  return entry;
 }
 
 RecordingCardFileEntry? nextJieliDownloadCandidate(

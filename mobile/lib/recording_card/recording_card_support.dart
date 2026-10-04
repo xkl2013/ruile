@@ -32,9 +32,9 @@ extension RecordingCardFileTransferStatusX on RecordingCardFileTransferStatus {
         RecordingCardFileTransferStatus.retryPending => '断点重传中',
         RecordingCardFileTransferStatus.downloaded => '待自动生成',
         RecordingCardFileTransferStatus.cloudSyncPending => '自动生成队列',
-        RecordingCardFileTransferStatus.cloudSyncing => '生成记忆中',
+        RecordingCardFileTransferStatus.cloudSyncing => '上传中',
         RecordingCardFileTransferStatus.cloudSyncFailed => '生成失败',
-        RecordingCardFileTransferStatus.synced => '已生成记忆',
+        RecordingCardFileTransferStatus.synced => '已上传，等待转写',
         RecordingCardFileTransferStatus.failed => '下载失败',
         RecordingCardFileTransferStatus.deletedOnDevice => '已删设备文件',
       };
@@ -123,7 +123,8 @@ class RecordingCardFileEntry {
     return (syncedBytes / fileSizeBytes).clamp(0.0, 1.0);
   }
 
-  bool get hasLocalAudio => localSbcPath.trim().isNotEmpty;
+  bool get hasLocalAudio =>
+      localSbcPath.trim().isNotEmpty || localPlayablePath.trim().isNotEmpty;
 
   bool get isDownloaded =>
       transferStatus == RecordingCardFileTransferStatus.downloaded ||
@@ -587,6 +588,17 @@ class RecordingCardProtocol {
 
 class RecordingCardLocalStore {
   const RecordingCardLocalStore();
+
+  Future<bool> hasLocalAudio(RecordingCardFileEntry entry) async {
+    final paths = <String>{
+      entry.localSbcPath.trim(),
+      entry.localPlayablePath.trim(),
+    }..removeWhere((path) => path.isEmpty);
+    for (final path in paths) {
+      if (await File(path).exists()) return true;
+    }
+    return false;
+  }
 
   Future<List<RecordingCardFileEntry>> loadAllFiles() async {
     final root = await getApplicationDocumentsDirectory();

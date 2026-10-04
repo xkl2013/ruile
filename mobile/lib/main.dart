@@ -11,7 +11,11 @@ import 'package:pdfx/pdfx.dart';
 import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
 
+import 'audio/phone_recording_mp3_encoder.dart';
+import 'recording_card/jieli_recording_card_native_api.dart';
 import 'recording_card/jieli_recording_card_page.dart';
+import 'recording_card/jieli_recording_card_runtime.dart';
+import 'recording_card/jieli_recording_card_sync_support.dart';
 import 'recording_card/recording_card_support.dart';
 
 const bool _launchJieliDebug = bool.fromEnvironment(
@@ -808,6 +812,21 @@ class _RuileApiClient {
       return _OrganizeMemory.fromApi(
         data.map((key, value) => MapEntry(key.toString(), value)),
       );
+    }
+
+    return null;
+  }
+
+  Future<_OrganizeMemory?> findOrganizeMemoryByMobileLocalId(
+    String mobileLocalId,
+  ) async {
+    final target = mobileLocalId.trim();
+    if (target.isEmpty) return null;
+
+    final memories = await fetchOrganizeMemories();
+    for (final memory in memories) {
+      final value = memory.metadata['mobile_local_id']?.toString().trim() ?? '';
+      if (value == target) return memory;
     }
     return null;
   }
@@ -4766,6 +4785,7 @@ class _NotesPageState extends State<NotesPage> {
   final RecordingCardLocalStore _recordingCardStore =
       const RecordingCardLocalStore();
   final List<Timer> _recordingCardMemoryRefreshTimers = <Timer>[];
+  Future<void>? _recordingCardAutoConnectFuture;
   var _sortNewestFirst = true;
   var _memorySearchQuery = '';
   var _memoryStatusFilter = _MemoryStatusFilter.all;
@@ -4773,6 +4793,7 @@ class _NotesPageState extends State<NotesPage> {
   List<_KnowledgeBase> _knowledgeBases = const [];
   _RecordingCardPendingSummary _recordingCardPendingSummary =
       _RecordingCardPendingSummary.empty;
+  int _recordingCardDevicePendingCount = 0;
   String _pendingRemoteMemoryId = '';
   bool _loadingKnowledgeBases = true;
   List<_NoteItem> _notes = [];
@@ -4804,6 +4825,7 @@ class _NotesPageState extends State<NotesPage> {
     unawaited(_loadRemoteMemories());
     unawaited(_loadOrganizeJobs());
     unawaited(_loadRecordingCardPendingSummary());
+    unawaited(_loadRecordingCardDevicePendingCount());
   }
 
   @override
@@ -5013,13 +5035,191 @@ class _NotesPageState extends State<NotesPage> {
   Future<void> _loadRecordingCardPendingSummary() async {
     try {
       final entries = await _recordingCardStore.loadAllFiles();
+      final localEntries = <RecordingCardFileEntry>[];
+      for (final entry in entries) {
+        if (await _recordingCardStore.hasLocalAudio(entry)) {
+          localEntries.add(entry);
+        } else if (entry.hasLocalAudio) {
+          // Remove stale metadata whose local audio was manually deleted.
+          await _recordingCardStore.deleteFile(
+            entry.deviceId,
+            entry.fileNameNoExt,
+          );
+        }
+      }
       if (!mounted) return;
       setState(() {
         _recordingCardPendingSummary =
-            _RecordingCardPendingSummary.fromEntries(entries);
+            _RecordingCardPendingSummary.fromEntries(localEntries);
       });
     } catch (error) {
       debugPrint('Failed to load memory card pending summary: $error');
+    }
+  }
+
+  Future<void> _loadRecordingCardDevicePendingCount() async {
+    final runtime = JieliRecordingCardRuntime.instance;
+    await runtime.runHomeFileOperation(
+      _loadRecordingCardDevicePendingCountInternal,
+    );
+  }
+
+  Future<void> _loadRecordingCardDevicePendingCountInternal() async {
+    final status = await _ensureRecordingCardConnectedForHome();
+    if (!status.connected) {
+      debugPrint('[HomeJieli] skip card count: not connected');
+      if (mounted && _recordingCardDevicePendingCount != 0) {
+        setState(() {
+          _recordingCardDevicePendingCount = 0;
+        });
+      }
+      return;
+    }
+    try {
+      final count = await _readConnectedJieliAudioCount();
+      debugPrint('[HomeJieli] card pending audio count=$count');
+      if (!mounted) return;
+      setState(() {
+        _recordingCardDevicePendingCount = count;
+      });
+    } catch (error) {
+      debugPrint('Failed to load connected memory card file count: $error');
+    }
+  }
+
+  Future<RecordingCardConnectionStatus>
+      _ensureRecordingCardConnectedForHome() async {
+    final runtime = JieliRecordingCardRuntime.instance;
+    final current = RecordingCardConnectionStatusBus.notifier.value;
+    if (current.connected &&
+        runtime.connectionState.connected &&
+        runtime.connectionState.rcspReady) {
+      return current;
+    }
+    if (current.connected) {
+      final refreshed = await runtime.refreshConnectionState();
+      if (refreshed.connected && refreshed.rcspReady) {
+        return RecordingCardConnectionStatusBus.notifier.value;
+      }
+    }
+    final existing = _recordingCardAutoConnectFuture;
+    if (existing != null) {
+      await existing;
+      return RecordingCardConnectionStatusBus.notifier.value;
+    }
+    final future = runtime
+        .ensureConnectedToOfficialCard(scanTimeout: const Duration(seconds: 8))
+        .then<void>((_) {});
+    _recordingCardAutoConnectFuture = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_recordingCardAutoConnectFuture, future)) {
+        _recordingCardAutoConnectFuture = null;
+      }
+    }
+    return RecordingCardConnectionStatusBus.notifier.value;
+  }
+
+  void _openRecordingCardDevicePending() {
+    widget.onOpenRecordingCard();
+  }
+
+  void _openRecordingCardLocalPending() {
+    Navigator.of(context)
+        .push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _RecordingCardLocalAudioListPage(
+          store: _recordingCardStore,
+          apiClient: _apiClient,
+        ),
+      ),
+    )
+        .then((_) {
+      unawaited(_loadRecordingCardPendingSummary());
+    });
+  }
+
+  Future<int> _readConnectedJieliAudioCount() async {
+    final runtime = JieliRecordingCardRuntime.instance;
+    final state = await runtime.sdk.getConnectionState();
+    if (!state.connected || !state.rcspReady) {
+      debugPrint(
+        '[HomeJieli] skip card count: connected=${state.connected} rcspReady=${state.rcspReady}',
+      );
+      return 0;
+    }
+    final storages = await runtime.sdk.listStorages();
+    final storage = _homePreferredRecordingStorage(storages);
+    if (storage == null) {
+      debugPrint('[HomeJieli] skip card count: no storage');
+      return 0;
+    }
+
+    final root = await _waitForJieliSnapshot(
+      trigger: () => runtime.sdk.loadStorageFiles(storageIndex: storage.index),
+      accept: (snapshot) => snapshot.storageIndex == storage.index,
+    );
+    final recordingFolder = _homeFindRecordingFolder(root);
+    debugPrint(
+      '[HomeJieli] root files=${root.files.length} recordingFolder=${recordingFolder?.name ?? '-'}',
+    );
+    final folder = recordingFolder == null
+        ? root
+        : await _waitForJieliSnapshot(
+            trigger: () => runtime.sdk.openFolder(
+              storageIndex: storage.index,
+              cluster: recordingFolder.cluster,
+            ),
+            accept: (snapshot) =>
+                snapshot.storageIndex == storage.index &&
+                _homeIsRecordingFolderSnapshot(snapshot),
+          );
+    if (!_homeIsRecordingFolderSnapshot(folder)) {
+      debugPrint(
+        '[HomeJieli] skip card count: snapshot path=${folder.path} name=${folder.name}',
+      );
+      return 0;
+    }
+    final count = folder.files
+        .where((file) => file.file && isJieliRecordingAudioFileName(file.name))
+        .length;
+    debugPrint('[HomeJieli] recording files=${folder.files.length} mp3=$count');
+    return count;
+  }
+
+  Future<JieliRecordingCardFolderSnapshot> _waitForJieliSnapshot({
+    required Future<JieliRecordingCardFileBrowseResult> Function() trigger,
+    required bool Function(JieliRecordingCardFolderSnapshot snapshot) accept,
+  }) async {
+    final runtime = JieliRecordingCardRuntime.instance;
+    final completer = Completer<JieliRecordingCardFolderSnapshot>();
+    late final StreamSubscription<JieliRecordingCardSdkEvent> subscription;
+    subscription = runtime.events.listen((event) {
+      if (event.type != JieliRecordingCardNativeEventType.fileList &&
+          event.type != JieliRecordingCardNativeEventType.fileBrowseState) {
+        return;
+      }
+      final snapshot = JieliRecordingCardFolderSnapshot.fromMap(event.payload);
+      if (!accept(snapshot)) return;
+      if (!snapshot.loadFinished) {
+        if (event.type != JieliRecordingCardNativeEventType.fileBrowseState) {
+          return;
+        }
+        final state = event.payload['state']?.toString().trim() ?? '';
+        if (state != 'finished') return;
+      }
+      if (!completer.isCompleted) completer.complete(snapshot);
+    });
+    try {
+      final result = await trigger();
+      final snapshot = result.snapshot;
+      if (snapshot != null && accept(snapshot) && snapshot.loadFinished) {
+        if (!completer.isCompleted) completer.complete(snapshot);
+      }
+      return await completer.future.timeout(const Duration(seconds: 8));
+    } finally {
+      await subscription.cancel();
     }
   }
 
@@ -5074,6 +5274,7 @@ class _NotesPageState extends State<NotesPage> {
       _loadRemoteMemories(),
       _loadOrganizeJobs(),
       _loadRecordingCardPendingSummary(),
+      _loadRecordingCardDevicePendingCount(),
     ]);
   }
 
@@ -5507,12 +5708,20 @@ class _NotesPageState extends State<NotesPage> {
                     loading: _loadingKnowledgeBases,
                     onTap: _openKnowledgeBase,
                   ),
+                  if (_recordingCardDevicePendingCount > 0) ...[
+                    const SizedBox(height: 16),
+                    _RecordingCardDevicePendingSyncCard(
+                      devicePendingCount: _recordingCardDevicePendingCount,
+                      onTap: _openRecordingCardDevicePending,
+                      onLongPress: _openRecordingCardDevicePending,
+                    ),
+                  ],
                   if (_recordingCardPendingSummary.hasPending) ...[
                     const SizedBox(height: 16),
-                    _RecordingCardPendingSyncCard(
+                    _RecordingCardLocalPendingSyncCard(
                       summary: _recordingCardPendingSummary,
-                      onTap: widget.onOpenRecordingCard,
-                      onLongPress: widget.onOpenRecordingCard,
+                      onTap: _openRecordingCardLocalPending,
+                      onLongPress: _openRecordingCardLocalPending,
                     ),
                   ],
                   const SizedBox(height: 26),
@@ -5641,6 +5850,400 @@ class _NotesPageState extends State<NotesPage> {
   }
 }
 
+class _RecordingCardLocalAudioListPage extends StatefulWidget {
+  const _RecordingCardLocalAudioListPage({
+    required this.store,
+    required this.apiClient,
+  });
+
+  final RecordingCardLocalStore store;
+  final _RuileApiClient apiClient;
+
+  @override
+  State<_RecordingCardLocalAudioListPage> createState() =>
+      _RecordingCardLocalAudioListPageState();
+}
+
+class _RecordingCardLocalAudioListPageState
+    extends State<_RecordingCardLocalAudioListPage> {
+  var _loading = true;
+  var _entries = const <RecordingCardFileEntry>[];
+  final Set<String> _uploadingIds = <String>{};
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadEntries());
+  }
+
+  Future<void> _loadEntries() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final entries = await widget.store.loadAllFiles();
+      if (!mounted) return;
+      setState(() {
+        _entries = entries
+            .where((entry) =>
+                entry.hasLocalAudio &&
+                entry.transferStatus !=
+                    RecordingCardFileTransferStatus.synced &&
+                entry.transferStatus !=
+                    RecordingCardFileTransferStatus.deletedOnDevice)
+            .toList()
+          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        _loading = false;
+      });
+      unawaited(_runUploadQueue());
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = '读取本地音频失败：$error';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _runUploadQueue() async {
+    if (!mounted || !widget.apiClient.isConfigured) return;
+    final candidates = _entries
+        .where((entry) =>
+            entry.transferStatus ==
+                RecordingCardFileTransferStatus.cloudSyncPending ||
+            entry.transferStatus ==
+                RecordingCardFileTransferStatus.cloudSyncFailed ||
+            entry.transferStatus == RecordingCardFileTransferStatus.downloaded)
+        .where((entry) => !_uploadingIds.contains(entry.id))
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    if (candidates.isEmpty) return;
+    for (final entry in candidates) {
+      if (!mounted) return;
+      await _uploadEntry(entry);
+    }
+  }
+
+  Future<void> _uploadEntry(RecordingCardFileEntry entry) async {
+    final localPath = entry.localSbcPath.trim().isNotEmpty
+        ? entry.localSbcPath.trim()
+        : entry.localPlayablePath.trim();
+    if (localPath.isEmpty || !await File(localPath).exists()) {
+      final failed = entry.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
+        lastError: '本地音频文件不存在',
+      );
+      await widget.store.saveFile(failed);
+      if (!mounted) return;
+      setState(() {
+        _entries = _entries
+            .map((item) => item.id == failed.id ? failed : item)
+            .toList(growable: false);
+      });
+      return;
+    }
+
+    _uploadingIds.add(entry.id);
+    final syncing = entry.copyWith(
+      transferStatus: RecordingCardFileTransferStatus.cloudSyncing,
+      lastError: '',
+    );
+    await widget.store.saveFile(syncing);
+    if (mounted) {
+      setState(() {
+        _entries = _entries
+            .map((item) => item.id == syncing.id ? syncing : item)
+            .toList(growable: false);
+      });
+    }
+
+    try {
+      final result = await widget.apiClient.uploadOrganizeMemoryAudio(
+        filePath: localPath,
+        fileName: localPath.split(Platform.pathSeparator).last,
+        kind: 'audio_card',
+        title: _recordingCardUploadTitle(syncing),
+        content: _recordingCardUploadContent(syncing),
+        source: '记忆卡',
+        occurredAt: syncing.createdAtFromDevice ?? syncing.createdAt,
+        durationSeconds: syncing.durationSeconds ?? 0,
+        metadata: {
+          'sync_source': 'recording_card',
+          'device_name': syncing.deviceName,
+          'device_mac': syncing.deviceMac,
+          'recording_file_name': syncing.fileNameNoExt,
+          'audio_file_name': localPath.split(Platform.pathSeparator).last,
+          'audio_codec': _recordingCardAudioCodec(localPath),
+          'file_size_bytes': syncing.fileSizeBytes,
+          'mobile_local_id': syncing.id,
+          'source_label': '来自记忆卡',
+          'transcription_status': 'pending',
+        },
+      ).timeout(const Duration(seconds: 75));
+      final synced = syncing.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.synced,
+        cloudMemoryId: result.id,
+        lastError: '',
+      );
+      await widget.store.saveFile(synced);
+      await widget.store.deleteFile(synced.deviceId, synced.fileNameNoExt);
+      RecordingCardAppSyncBus.notifyChanged(memoryId: result.id);
+      if (!mounted) return;
+      setState(() {
+        _entries = _entries
+            .where((item) => item.id != synced.id)
+            .toList(growable: false);
+      });
+    } catch (error) {
+      final failed = syncing.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
+        lastError: _friendlyRecordingCardUploadError(error),
+      );
+      await widget.store.saveFile(failed);
+      if (!mounted) return;
+      setState(() {
+        _entries = _entries
+            .map((item) => item.id == failed.id ? failed : item)
+            .toList(growable: false);
+      });
+    } finally {
+      _uploadingIds.remove(entry.id);
+    }
+  }
+
+  Future<void> _confirmDeleteLocalEntry(RecordingCardFileEntry entry) async {
+    if (_uploadingIds.contains(entry.id)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('删除本地录音？'),
+        content: Text(
+          '将删除手机上的 ${entry.fileNameNoExt}.MP3 本地文件及其同步记录，'
+          '不会删除录音卡中的原始文件。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFD14343),
+            ),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.store.deleteFile(entry.deviceId, entry.fileNameNoExt);
+      if (!mounted) return;
+      setState(() {
+        _entries = _entries
+            .where((item) => item.id != entry.id)
+            .toList(growable: false);
+      });
+      RecordingCardAppSyncBus.notifyChanged();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = '删除本地录音失败：$error';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text('本地待上传音频'),
+        backgroundColor: AppColors.background,
+        foregroundColor: AppColors.textPrimary,
+      ),
+      body: RefreshIndicator(
+        onRefresh: _loadEntries,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+          children: [
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.only(top: 80),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_error != null)
+              _EmptyStateCard(
+                icon: Icons.error_outline,
+                title: '加载失败',
+                message: _error!,
+              )
+            else if (_entries.isEmpty)
+              const _EmptyStateCard(
+                icon: Icons.cloud_done_outlined,
+                title: '暂无待上传音频',
+                message: '手机本地没有等待上传或生成的录音卡音频。',
+              )
+            else
+              for (final entry in _entries) ...[
+                _RecordingCardLocalAudioTile(
+                  entry: entry,
+                  uploading: _uploadingIds.contains(entry.id),
+                  onLongPress: () => _confirmDeleteLocalEntry(entry),
+                ),
+                const SizedBox(height: 10),
+              ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordingCardLocalAudioTile extends StatelessWidget {
+  const _RecordingCardLocalAudioTile({
+    required this.entry,
+    required this.uploading,
+    required this.onLongPress,
+  });
+
+  final RecordingCardFileEntry entry;
+  final bool uploading;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: InkWell(
+        onLongPress: uploading ? null : onLongPress,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                uploading
+                    ? Icons.cloud_upload_outlined
+                    : Icons.audio_file_outlined,
+                color: AppColors.accent,
+                size: 22,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${entry.fileNameNoExt}.MP3',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTextStyles.cardTitle.copyWith(fontSize: 15),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${entry.statusLabel} · ${entry.displaySize}',
+                      style: AppTextStyles.meta.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    if (entry.lastError.trim().isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        entry.lastError.trim(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTextStyles.meta.copyWith(
+                          color: const Color(0xFFB42318),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+String _recordingCardUploadTitle(RecordingCardFileEntry entry) {
+  final occurredAt = entry.createdAtFromDevice ?? entry.createdAt;
+  return '记忆卡记录 · ${_formatRecordDateTime(occurredAt)}';
+}
+
+String _recordingCardUploadContent(RecordingCardFileEntry entry) {
+  final escape = const HtmlEscape().convert;
+  final deviceName = escape(entry.deviceName.isEmpty ? 'X9' : entry.deviceName);
+  final fileName = escape(entry.fileNameNoExt);
+  return '<p>录音已保存，等待自动转写。</p>'
+      '<p>来源：记忆卡 · 设备：$deviceName · 原文件：$fileName</p>';
+}
+
+String _recordingCardAudioCodec(String path) {
+  final normalized = path.trim().toLowerCase();
+  final dot = normalized.lastIndexOf('.');
+  if (dot < 0 || dot == normalized.length - 1) return 'unknown';
+  return normalized.substring(dot + 1);
+}
+
+String _friendlyRecordingCardUploadError(Object error) {
+  if (error is TimeoutException) return '上传超时，请稍后重试';
+  if (error is SocketException) return '网络连接失败，请稍后重试';
+  if (error is HttpException && error.message.trim().isNotEmpty) {
+    return error.message.trim();
+  }
+  return error.toString().replaceFirst('Exception: ', '').trim();
+}
+
+class _EmptyStateCard extends StatelessWidget {
+  const _EmptyStateCard({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 80),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 32, color: AppColors.textTertiary),
+          const SizedBox(height: 10),
+          Text(title, style: AppTextStyles.cardTitle),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppTextStyles.meta.copyWith(
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RecordingCardPendingSummary {
   const _RecordingCardPendingSummary({
     required this.pendingCount,
@@ -5722,30 +6325,26 @@ class _RecordingCardPendingSummary {
   }
 }
 
-class _RecordingCardPendingSyncCard extends StatelessWidget {
-  const _RecordingCardPendingSyncCard({
-    required this.summary,
+class _RecordingCardDevicePendingSyncCard extends StatelessWidget {
+  const _RecordingCardDevicePendingSyncCard({
+    required this.devicePendingCount,
     required this.onTap,
     required this.onLongPress,
   });
 
-  final _RecordingCardPendingSummary summary;
+  final int devicePendingCount;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
-    final sizeText = summary.bluetoothPendingBytes <= 0
-        ? ''
-        : ' · 待传 ${RecordingCardProtocol.formatFileSize(summary.bluetoothPendingBytes)}';
-
     return ValueListenableBuilder<RecordingCardConnectionStatus>(
       valueListenable: RecordingCardConnectionStatusBus.notifier,
       builder: (context, status, child) {
         final deviceName =
             status.deviceName.trim().isEmpty ? '记忆卡' : status.deviceName.trim();
-        final connectionText =
-            status.connected ? '已连接 $deviceName，打开查看进度' : '连接记忆卡后继续同步';
+        final title = '$deviceName 有 $devicePendingCount 条音频待同步';
+        final subtitle = status.connected ? '点击进入记忆卡下载到手机' : '连接记忆卡后继续同步';
 
         return DecoratedBox(
           decoration: BoxDecoration(
@@ -5789,7 +6388,123 @@ class _RecordingCardPendingSyncCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '记忆卡有 ${summary.pendingCount} 条音频未同步',
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.cardTitle.copyWith(
+                              fontSize: 15,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTextStyles.meta.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _RecordingCardPendingChip(
+                                label: '卡内待传 $devicePendingCount',
+                                color: AppColors.accent,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 22,
+                      color: AppColors.textTertiary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _RecordingCardLocalPendingSyncCard extends StatelessWidget {
+  const _RecordingCardLocalPendingSyncCard({
+    required this.summary,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final _RecordingCardPendingSummary summary;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizeText = summary.bluetoothPendingBytes <= 0
+        ? ''
+        : ' · 待传 ${RecordingCardProtocol.formatFileSize(summary.bluetoothPendingBytes)}';
+    return ValueListenableBuilder<RecordingCardConnectionStatus>(
+      valueListenable: RecordingCardConnectionStatusBus.notifier,
+      builder: (context, status, child) {
+        final deviceName =
+            status.deviceName.trim().isEmpty ? '记忆卡' : status.deviceName.trim();
+        final connectionText = summary.cloudPendingCount > 0
+            ? '点击查看手机本地待上传音频'
+            : status.connected
+                ? '已连接 $deviceName'
+                : '连接记忆卡后继续同步';
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x05000000),
+                blurRadius: 14,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Material(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadii.card),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppRadii.card),
+              onTap: onTap,
+              onLongPress: onLongPress,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 15, 12, 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: AppColors.control.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.cloud_upload_outlined,
+                        size: 20,
+                        color: AppColors.control,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '记忆卡有 ${summary.pendingCount} 条本地音频待处理',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTextStyles.cardTitle.copyWith(
@@ -6462,6 +7177,44 @@ class _CustomerSpaceListPageState extends State<CustomerSpaceListPage> {
       (sum, item) => sum + item.openReminderCount,
     );
   }
+}
+
+JieliRecordingCardStorage? _homePreferredRecordingStorage(
+  List<JieliRecordingCardStorage> storages,
+) {
+  for (final storage in storages) {
+    final name = storage.displayName.toLowerCase();
+    if (storage.online && name.contains('sd card 0')) return storage;
+  }
+  for (final storage in storages) {
+    final name = storage.displayName.toLowerCase();
+    if (storage.online && (storage.type == 0 || name.contains('sd'))) {
+      return storage;
+    }
+  }
+  for (final storage in storages) {
+    if (storage.online) return storage;
+  }
+  return null;
+}
+
+bool _homeIsRecordingFolderSnapshot(
+  JieliRecordingCardFolderSnapshot snapshot,
+) {
+  final path = snapshot.displayPath.trim().toUpperCase();
+  final name = snapshot.name.trim().toUpperCase();
+  return name == 'JL_REC' || path == 'JL_REC' || path.endsWith('/JL_REC');
+}
+
+JieliRecordingCardFile? _homeFindRecordingFolder(
+  JieliRecordingCardFolderSnapshot snapshot,
+) {
+  for (final file in snapshot.files) {
+    if (file.directory && file.name.trim().toUpperCase() == 'JL_REC') {
+      return file;
+    }
+  }
+  return null;
 }
 
 class _AvatarProfilePage extends StatefulWidget {
@@ -12530,6 +13283,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
 
   final _recorder = AudioRecorder();
   final _draftStore = const _LocalRecordDraftStore();
+  final _mp3Encoder = const PhoneRecordingMp3Encoder();
 
   Timer? _elapsedTimer;
   _LocalRecordDraft? _draft;
@@ -12550,6 +13304,14 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
   bool get _isSaving => _operation == _RecordDraftOperation.saving;
 
   bool get _canFinish => _draft != null && !_isBusy;
+
+  bool get _canRetryUpload {
+    final status = _draft?.syncStatus.trim().toLowerCase() ?? '';
+    return !_isRecording &&
+        !_isBusy &&
+        _draft != null &&
+        const {'pending_sync', 'sync_failed'}.contains(status);
+  }
 
   bool get _showPausedChip => _isRecording && _isPaused && !_isBusy;
 
@@ -12763,6 +13525,13 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
             _errorText = _friendlyRecordError(error);
           });
         }
+        if (mounted) {
+          setState(() {
+            _operation = _RecordDraftOperation.idle;
+            _statusText = '录音保存失败，本地录音仍保留';
+          });
+        }
+        return;
       }
     }
 
@@ -12770,16 +13539,37 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
     setState(() {
       _isRecording = false;
       _isPaused = false;
-      _statusText = '本地已保存，正在同步云端...';
+      _statusText = '本地已保存，正在编码 MP3...';
     });
 
     final savedDraft = await _persistDraft(
-      syncStatus: 'pending_sync',
+      syncStatus: 'encoding',
       audioPath: finalAudioPath,
     );
     if (savedDraft == null) return;
 
-    final synced = await _syncDraftToCloud(savedDraft);
+    final wavPath = savedDraft.audioPath;
+    late final String mp3Path;
+    try {
+      mp3Path = await _mp3Encoder.encodeWavFile(wavPath);
+    } catch (error) {
+      await _persistDraft(syncStatus: 'conversion_failed');
+      if (!mounted) return;
+      setState(() {
+        _operation = _RecordDraftOperation.idle;
+        _statusText = 'MP3 编码失败，本地 WAV 已保留';
+        _errorText = _friendlyRecordError(error);
+      });
+      return;
+    }
+
+    final mp3Draft = await _persistDraft(
+      syncStatus: 'pending_sync',
+      audioPath: mp3Path,
+    );
+    if (mp3Draft == null) return;
+
+    final synced = await _syncDraftToCloud(mp3Draft);
     if (!mounted) return;
     if (synced) {
       _showSnack('录音记忆已保存');
@@ -12803,6 +13593,29 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
 
     try {
       await _persistDraft(syncStatus: 'syncing');
+      _OrganizeMemory? existingMemory;
+      try {
+        existingMemory =
+            await widget.apiClient.findOrganizeMemoryByMobileLocalId(draft.id);
+      } on _ApiException catch (error) {
+        if (error.isAuthFailure) rethrow;
+        // A temporary list failure must not block the upload itself.
+      }
+      if (existingMemory != null) {
+        await _persistDraft(
+          syncStatus: 'synced',
+          remoteMemoryId: existingMemory.id,
+          remoteAudioUrl: existingMemory.audioUrl,
+        );
+        RecordingCardAppSyncBus.notifyChanged(memoryId: existingMemory.id);
+        if (mounted) {
+          setState(() {
+            _statusText = '云端已存在，已恢复同步状态';
+          });
+        }
+        return true;
+      }
+
       final title = _recordTitle(draft);
       final uploadResult = await widget.apiClient.uploadOrganizeMemoryAudio(
         filePath: draft.audioPath,
@@ -12853,6 +13666,36 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
         _errorText = _friendlyRecordError(error);
       });
       return false;
+    }
+  }
+
+  Future<void> _retryUpload() async {
+    final draft = _draft;
+    if (draft == null || !_canRetryUpload) return;
+
+    final file = File(draft.audioPath);
+    if (!await file.exists()) {
+      if (!mounted) return;
+      setState(() {
+        _errorText = '本地 MP3 文件不存在，无法重新上传';
+      });
+      return;
+    }
+
+    setState(() {
+      _operation = _RecordDraftOperation.saving;
+      _errorText = '';
+      _statusText = '正在重新上传录音...';
+    });
+    final synced = await _syncDraftToCloud(draft);
+    if (!mounted) return;
+    if (synced) {
+      _showSnack('录音记忆已重新上传');
+      _closeDraftPage(saved: true);
+    } else {
+      setState(() {
+        _operation = _RecordDraftOperation.idle;
+      });
     }
   }
 
@@ -13030,7 +13873,11 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
               ),
               Expanded(
                 child: TextButton(
-                  onPressed: _canFinish ? _finishRecording : null,
+                  onPressed: _canRetryUpload
+                      ? _retryUpload
+                      : _canFinish
+                          ? _finishRecording
+                          : null,
                   style: TextButton.styleFrom(
                     foregroundColor: AppColors.textPrimary,
                     disabledForegroundColor: AppColors.textTertiary,
@@ -13039,7 +13886,7 @@ class _RecordMemoryDraftState extends State<_RecordMemoryDraft> {
                       fontWeight: FontWeight.w800,
                     ),
                   ),
-                  child: const Text('完成'),
+                  child: Text(_canRetryUpload ? '再次上传' : '完成'),
                 ),
               ),
             ],
@@ -14207,10 +15054,16 @@ class _HomeFloatingMenu extends StatelessWidget {
     return Positioned(
       left: _leftInset,
       top: topInset + _topInset,
-      child: _HomeTopIconButton(
-        tooltip: '菜单',
-        icon: Icons.menu_rounded,
-        onTap: onMenuTap,
+      child: ValueListenableBuilder<RecordingCardConnectionStatus>(
+        valueListenable: RecordingCardConnectionStatusBus.notifier,
+        builder: (context, status, child) {
+          return _HomeTopIconButton(
+            tooltip: status.connected ? '菜单，记忆卡已连接' : '菜单',
+            icon: Icons.menu_rounded,
+            showBadge: status.connected,
+            onTap: onMenuTap,
+          );
+        },
       ),
     );
   }
@@ -14220,6 +15073,7 @@ class _HomeTopIconButton extends StatelessWidget {
   const _HomeTopIconButton({
     required this.tooltip,
     required this.icon,
+    this.showBadge = false,
     this.onTap,
   });
 
@@ -14228,6 +15082,7 @@ class _HomeTopIconButton extends StatelessWidget {
 
   final String tooltip;
   final IconData icon;
+  final bool showBadge;
   final VoidCallback? onTap;
 
   @override
@@ -14258,10 +15113,32 @@ class _HomeTopIconButton extends StatelessWidget {
               child: SizedBox(
                 width: size,
                 height: size,
-                child: Icon(
-                  icon,
-                  size: iconSize,
-                  color: AppColors.textPrimary,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(
+                      icon,
+                      size: iconSize,
+                      color: AppColors.textPrimary,
+                    ),
+                    if (showBadge)
+                      Positioned(
+                        right: 9,
+                        top: 9,
+                        child: Container(
+                          width: 9,
+                          height: 9,
+                          decoration: BoxDecoration(
+                            color: AppColors.accent,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.surface,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),

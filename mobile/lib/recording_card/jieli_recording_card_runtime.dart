@@ -24,6 +24,8 @@ class JieliRecordingCardRuntime {
       StreamController<JieliRecordingCardSdkEvent>.broadcast();
   final Map<String, Map<String, Object?>> _devicePayloads =
       <String, Map<String, Object?>>{};
+  Future<void> _homeFileOperation = Future<void>.value();
+  int _recordingCardDetailCount = 0;
 
   // Keep the native event channel subscribed for the lifetime of the app.
   late final StreamSubscription<JieliRecordingCardSdkEvent>
@@ -35,6 +37,33 @@ class JieliRecordingCardRuntime {
   Stream<JieliRecordingCardSdkEvent> get events => _events.stream;
 
   JieliRecordingCardConnectionState get connectionState => _connectionState;
+
+  bool get recordingCardDetailActive => _recordingCardDetailCount > 0;
+
+  void setRecordingCardDetailActive(bool active) {
+    if (active) {
+      _recordingCardDetailCount += 1;
+    } else if (_recordingCardDetailCount > 0) {
+      _recordingCardDetailCount -= 1;
+    }
+  }
+
+  Future<void> waitForHomeFileOperation() async {
+    try {
+      await _homeFileOperation;
+    } catch (_) {
+      // A failed background count must not block the detail page.
+    }
+  }
+
+  Future<void> runHomeFileOperation(Future<void> Function() operation) {
+    final next = _homeFileOperation.catchError((_) {}).then<void>((_) async {
+      if (recordingCardDetailActive) return;
+      await operation();
+    });
+    _homeFileOperation = next;
+    return next;
+  }
 
   Map<String, Object?>? get currentDevicePayload {
     final address = _connectionState.address;
@@ -65,6 +94,58 @@ class JieliRecordingCardRuntime {
       _setDisconnected();
     }
     return nativeState;
+  }
+
+  Future<JieliRecordingCardConnectionState> ensureConnectedToOfficialCard({
+    Duration scanTimeout = const Duration(seconds: 8),
+    Duration connectTimeout = const Duration(seconds: 12),
+  }) async {
+    final current = await refreshConnectionState();
+    if (current.connected && current.rcspReady) return current;
+
+    final availability = await sdk.initialize(preferBle: true);
+    if (!availability.available) return _connectionState;
+
+    final discovered = Completer<Map<String, Object?>>();
+    late final StreamSubscription<JieliRecordingCardSdkEvent> subscription;
+    subscription = events.listen((event) {
+      if (event.type != 'deviceFound') return;
+      final payload = event.payload;
+      final name = _asString(payload['name']).toUpperCase();
+      final address = _asString(payload['address']);
+      if (address.isEmpty || name != 'X9') return;
+      if (!discovered.isCompleted) discovered.complete(payload);
+    });
+    try {
+      await sdk.stopScan();
+      await sdk.startScan(timeout: scanTimeout);
+      final payload = await discovered.future.timeout(scanTimeout);
+      await sdk.stopScan();
+      final address = _asString(payload['address']);
+      if (address.isEmpty) return _connectionState;
+      await sdk.connect(address).timeout(connectTimeout);
+      final ready = await events.firstWhere((event) {
+        if (event.type != 'rcspReady' && event.type != 'connection') {
+          return false;
+        }
+        final eventAddress = _asString(event.payload['address']);
+        if (eventAddress.isNotEmpty && eventAddress != address) return false;
+        if (event.type == 'rcspReady') {
+          return _asBool(event.payload['ready']);
+        }
+        return _asBool(event.payload['connected']) &&
+            _asBool(event.payload['rcsp_ready']);
+      }).timeout(connectTimeout, onTimeout: () {
+        return const JieliRecordingCardSdkEvent(type: 'timeout');
+      });
+      if (ready.type == 'timeout') return await refreshConnectionState();
+      return await refreshConnectionState();
+    } on TimeoutException {
+      return await refreshConnectionState();
+    } finally {
+      await subscription.cancel();
+      unawaited(sdk.stopScan());
+    }
   }
 
   void _handleEvent(JieliRecordingCardSdkEvent event) {
