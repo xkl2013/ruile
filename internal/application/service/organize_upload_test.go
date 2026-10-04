@@ -146,6 +146,30 @@ func TestOrganizeServiceCreateMemoryFromUploadCreatesAudioMemory(t *testing.T) {
 	assert.NotEmpty(t, item.Metadata["audio_url"])
 }
 
+func TestOrganizeRecordingNoteMarkdownAddsReadableSections(t *testing.T) {
+	got := organizeRecordingNoteMarkdown(
+		"记录了本周招生跟进重点。",
+		"本周需要优先跟进试听家庭。",
+		"本周需要优先跟进试听家庭。",
+	)
+	assert.Equal(
+		t,
+		"## 摘要\n\n记录了本周招生跟进重点。\n\n## 记录内容\n\n本周需要优先跟进试听家庭。",
+		got,
+	)
+
+	structured := organizeRecordingNoteMarkdown(
+		"记录了本周招生跟进重点。",
+		"本周需要优先跟进试听家庭。",
+		"## 关键要点\n\n- 优先跟进试听家庭",
+	)
+	assert.Equal(
+		t,
+		"## 摘要\n\n记录了本周招生跟进重点。\n\n## 关键要点\n\n- 优先跟进试听家庭",
+		structured,
+	)
+}
+
 func readOrganizeOutputTags(t *testing.T, metadata types.JSONMap) []string {
 	t.Helper()
 	raw, ok := metadata["tags"]

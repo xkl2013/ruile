@@ -300,7 +300,8 @@ func (s *organizeService) generateOrganizeRecordingNoteAIResult(
 - 标题简短准确，优先概括录音核心主题，不要使用“录音记忆”“未命名”等泛泛标题。
 - 摘要用 1-2 句话说明录音主要信息。
 - 标签使用简洁、具体的中文词组，最多 %d 个，贴近业务对象、场景、行动或关键概念。
-- note_markdown 用 Markdown 输出可读笔记，可包含二级标题、项目列表和行动项。
+- note_markdown 用 Markdown 输出可读笔记，优先按“摘要、关键要点、行动项”组织，可使用二级标题、项目列表和行动项。
+- 如果转写内容很短，至少使用“## 记录内容”作为小标题；没有明确行动项时不要编造，也不要强行输出空的行动项。
 - 不要编造转写中没有的信息；如果转写内容很短，就整理成一段自然文字。
 - 不要输出代码块、HTML 或 JSON 之外的任何文字。
 
@@ -597,11 +598,48 @@ func organizeRecordingFallbackAIResult(currentTitle, fileName, source, transcrip
 		note = "未识别到语音内容。"
 	}
 	return organizeUploadAIResult{
-		Title:        trimMax(title, organizeMaxTitleLength),
-		Summary:      organizeRecordingFallbackSummary(transcript),
-		Tags:         organizeRecordingFallbackTags(source),
-		NoteMarkdown: note,
+		Title:   trimMax(title, organizeMaxTitleLength),
+		Summary: organizeRecordingFallbackSummary(transcript),
+		Tags:    organizeRecordingFallbackTags(source),
+		NoteMarkdown: organizeRecordingNoteMarkdown(
+			organizeRecordingFallbackSummary(transcript),
+			transcript,
+			note,
+		),
 	}
+}
+
+func organizeRecordingNoteMarkdown(summary, transcript, note string) string {
+	summary = strings.TrimSpace(summary)
+	transcript = strings.TrimSpace(transcript)
+	note = strings.TrimSpace(note)
+	if note == "" {
+		note = transcript
+	}
+	if note == "" {
+		note = "未识别到语音内容。"
+	}
+
+	hasHeading := false
+	for _, line := range strings.Split(strings.ReplaceAll(note, "\r\n", "\n"), "\n") {
+		if _, ok := organizeMarkdownHeading(strings.TrimSpace(line)); ok {
+			hasHeading = true
+			break
+		}
+	}
+	if !hasHeading {
+		sections := make([]string, 0, 2)
+		if summary != "" {
+			sections = append(sections, "## 摘要\n\n"+summary)
+		}
+		sections = append(sections, "## 记录内容\n\n"+note)
+		return strings.Join(sections, "\n\n")
+	}
+
+	if summary == "" || strings.Contains(note, "摘要") {
+		return note
+	}
+	return "## 摘要\n\n" + summary + "\n\n" + note
 }
 
 func organizeRecordingFallbackSummary(transcript string) string {

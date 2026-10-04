@@ -4844,6 +4844,7 @@ class _NotesPageState extends State<NotesPage> {
       _pendingRemoteMemoryId = memoryId;
     }
     unawaited(_loadRecordingCardPendingSummary());
+    unawaited(_loadRecordingCardDevicePendingCount());
     _scheduleRecordingCardMemoryRefresh(memoryId: memoryId);
   }
 
@@ -5156,9 +5157,12 @@ class _NotesPageState extends State<NotesPage> {
       return 0;
     }
 
+    await runtime.sdk.refreshFileBrowse(storageIndex: storage.index);
     final root = await _waitForJieliSnapshot(
       trigger: () => runtime.sdk.loadStorageFiles(storageIndex: storage.index),
-      accept: (snapshot) => snapshot.storageIndex == storage.index,
+      accept: (snapshot) =>
+          snapshot.storageIndex == storage.index &&
+          _homeIsRootFolderSnapshot(snapshot),
     );
     final recordingFolder = _homeFindRecordingFolder(root);
     debugPrint(
@@ -5212,11 +5216,7 @@ class _NotesPageState extends State<NotesPage> {
       if (!completer.isCompleted) completer.complete(snapshot);
     });
     try {
-      final result = await trigger();
-      final snapshot = result.snapshot;
-      if (snapshot != null && accept(snapshot) && snapshot.loadFinished) {
-        if (!completer.isCompleted) completer.complete(snapshot);
-      }
+      await trigger();
       return await completer.future.timeout(const Duration(seconds: 8));
     } finally {
       await subscription.cancel();
@@ -7204,6 +7204,12 @@ bool _homeIsRecordingFolderSnapshot(
   final path = snapshot.displayPath.trim().toUpperCase();
   final name = snapshot.name.trim().toUpperCase();
   return name == 'JL_REC' || path == 'JL_REC' || path.endsWith('/JL_REC');
+}
+
+bool _homeIsRootFolderSnapshot(JieliRecordingCardFolderSnapshot snapshot) {
+  if (snapshot.root || snapshot.level == 0) return true;
+  final path = snapshot.displayPath.trim().toUpperCase();
+  return path.isEmpty || path == '/ROOT' || path == 'ROOT';
 }
 
 JieliRecordingCardFile? _homeFindRecordingFolder(
@@ -12346,10 +12352,13 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                         style: _bodyStyle,
                       )
                     : selectedTabIndex == _contentTabIndex
-                        ? Text(
-                            note.detailBody,
+                        ? Column(
                             key: const ValueKey('memory-content'),
-                            style: _bodyStyle,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (final block in _memoryContentBlocks(note))
+                                _SproutPreviewBlock(block: block),
+                            ],
                           )
                         : selectedTabIndex == _serviceTabIndex
                             ? _MemoryServicePanel(
@@ -12957,6 +12966,32 @@ class _SproutPreviewBlock extends StatelessWidget {
         );
     }
   }
+}
+
+List<_SproutTextBlock> _memoryContentBlocks(_NoteItem note) {
+  final blocks = List<_SproutTextBlock>.of(
+    _sproutPreviewBlocks(note.detailBody),
+  );
+  final title = _normalizeSpaces(note.title).toLowerCase();
+  if (blocks.isNotEmpty &&
+      blocks.first.kind == _SproutTextBlockKind.heading &&
+      _normalizeSpaces(blocks.first.text).toLowerCase() == title) {
+    blocks.removeAt(0);
+  }
+
+  final isAudioMemory = note.kind == 'audio' || note.kind == 'audio_card';
+  if (isAudioMemory &&
+      blocks.length == 1 &&
+      blocks.first.kind == _SproutTextBlockKind.paragraph) {
+    return [
+      const _SproutTextBlock(
+        kind: _SproutTextBlockKind.heading,
+        text: '记录内容',
+      ),
+      blocks.first,
+    ];
+  }
+  return blocks;
 }
 
 enum _MemoryDraftMode { record, text }
@@ -14042,7 +14077,18 @@ String _plainTextFromHtml(String value) {
   if (text.isEmpty) return '';
 
   text = text.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
-  text = text.replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '• ');
+  text = text.replaceAllMapped(
+    RegExp(r'<h([1-6])[^>]*>', caseSensitive: false),
+    (match) {
+      final level = int.tryParse(match.group(1) ?? '') ?? 2;
+      return '\n${'#' * level} ';
+    },
+  );
+  text = text.replaceAll(
+    RegExp(r'</h[1-6]\s*>', caseSensitive: false),
+    '\n\n',
+  );
+  text = text.replaceAll(RegExp(r'<li[^>]*>', caseSensitive: false), '\n- ');
   text = text.replaceAll(RegExp(r'</li\s*>', caseSensitive: false), '\n');
   text = text.replaceAll(
     RegExp(r'</(p|div|section|article|blockquote|h[1-6]|ul|ol)\s*>',
@@ -19441,8 +19487,8 @@ class _OrganizeMemory {
   }
 
   String _organizeMemoryBodyText() {
-    final normalizedContent = _readableMemoryText(content);
-    if (normalizedContent.isNotEmpty) return normalizedContent;
+    final structuredContent = content.trim();
+    if (structuredContent.isNotEmpty) return structuredContent;
     return '';
   }
 
@@ -19701,7 +19747,7 @@ List<_SproutTextBlock> _sproutPreviewBlocks(String value) {
       continue;
     }
 
-    final bullet = RegExp(r'^[-*+]\s+(.+)$').firstMatch(line) ??
+    final bullet = RegExp(r'^[-*+•]\s+(.+)$').firstMatch(line) ??
         RegExp(r'^\d+[.、]\s+(.+)$').firstMatch(line);
     if (bullet != null) {
       final text = _cleanSproutInlineText(bullet.group(1) ?? '');

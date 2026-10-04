@@ -156,6 +156,8 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       refreshDeviceStatus(result: result)
     case "listStorages":
       listStorages(result: result)
+    case "refreshFileBrowse":
+      refreshFileBrowse(call, result: result)
     case "loadStorageFiles":
       loadStorageFiles(call, result: result)
     case "openFolder":
@@ -1046,6 +1048,43 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       success: true,
       code: 0,
       message: continueCurrentBrowse ? "正在读取下一页" : "正在读取目录"
+    ))
+  }
+
+  private func refreshFileBrowse(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    guard let entity = connectedEntity() else {
+      result(FlutterError(
+        code: "JIELI_FILES_NOT_CONNECTED",
+        message: "No connected Jieli device.",
+        details: nil
+      ))
+      return
+    }
+    let arguments = call.arguments as? [String: Any]
+    let storageIndex = (arguments?["storage_index"] as? Int) ?? -1
+    guard let root = makeStorageRoot(storageIndex: storageIndex, entity: entity) else {
+      result(FlutterError(
+        code: "JIELI_STORAGE_NOT_FOUND",
+        message: "Online Jieli storage is not found.",
+        details: storageIndex
+      ))
+      return
+    }
+
+    storageRoots[storageIndex] = root
+    storageCurrentModels[storageIndex] = root
+    storageModelStacks[storageIndex] = [root]
+    storageFiles[storageIndex] = []
+    storageLoadFinished[storageIndex] = false
+    entity.mCmdManager.mFileManager.cmdCleanCacheType(root.cardType)
+    result(browseResultMap(
+      storageIndex: storageIndex,
+      success: true,
+      code: 0,
+      message: "已刷新文件目录缓存"
     ))
   }
 
@@ -2094,7 +2133,9 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
         cluster: activeReadCluster ?? 0,
         name: activeReadName,
         path: activeReadPath,
-        progress: progressValue,
+        // A progress callback reaching 100 is not the terminal callback.
+        // Keep the UI below 100 until the SDK sends JL_FileContentResult.end.
+        progress: min(progressValue, 99),
         bytes: activeReadBytes
       )
     case .end:
@@ -2147,10 +2188,33 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
 
   private func finishActiveRead(taskId: String, size: UInt32) {
     guard activeReadTaskId == taskId else { return }
+    let actualBytes = activeReadBytes
+    let expectedBytes = Int(size)
     debugLog(
-      "finish file read task=\(taskId) bytes=\(activeReadBytes) "
+      "finish file read task=\(taskId) expectedBytes=\(expectedBytes) "
+        + "actualBytes=\(actualBytes) "
         + "path=\(activeReadPath) sink=\(eventSink != nil)"
     )
+    if actualBytes != expectedBytes {
+      let message =
+        "Data loss. Firmware return data size = \(expectedBytes), "
+          + "Actual received data size = \(actualBytes)"
+      closeActiveReadFile(removeFile: true)
+      emitFileReadEvent(
+        type: "fileReadFailed",
+        taskId: taskId,
+        storageIndex: activeReadStorageIndex ?? -1,
+        cluster: activeReadCluster ?? 0,
+        name: activeReadName,
+        path: activeReadPath,
+        progress: 99,
+        bytes: actualBytes,
+        code: 16387,
+        message: message
+      )
+      clearActiveReadTask()
+      return
+    }
     closeActiveReadFile(removeFile: false)
     emitFileReadEvent(
       type: "fileReadComplete",
@@ -2160,8 +2224,8 @@ private final class JieliRecordingCardSdkIosBridge: NSObject,
       name: activeReadName,
       path: activeReadPath,
       progress: 100,
-      bytes: activeReadBytes,
-      code: Int(size)
+      bytes: actualBytes,
+      code: expectedBytes
     )
     clearActiveReadTask()
   }

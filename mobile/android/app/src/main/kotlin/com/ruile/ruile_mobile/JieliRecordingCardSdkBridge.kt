@@ -412,6 +412,7 @@ class JieliRecordingCardSdkBridge(
             "startRecord" -> startRecord(call, result)
             "stopRecord" -> stopRecord(call, result)
             "listStorages" -> listStorages(result)
+            "refreshFileBrowse" -> refreshFileBrowse(call, result)
             "loadStorageFiles" -> loadStorageFiles(call, result)
             "openFolder" -> openFolder(call, result)
             "backFolder" -> backFolder(call, result)
@@ -709,6 +710,29 @@ class JieliRecordingCardSdkBridge(
         }
     }
 
+    private fun refreshFileBrowse(call: MethodCall, result: MethodChannel.Result) {
+        if (!rcspReady) {
+            result.error("JIELI_RCSP_NOT_READY", "RCSP is not ready.", null)
+            return
+        }
+        val storageIndex = call.argument<Int>("storage_index") ?: -1
+        val storage = findOnlineStorage(storageIndex)
+        if (storage == null) {
+            result.error("JIELI_STORAGE_NOT_FOUND", "Online storage is not found.", null)
+            return
+        }
+        try {
+            ensureFileBrowseObserver()
+            activeBrowseStorage = storage
+            FileBrowseManager.getInstance().cleanCache(storage)
+            emitStorageList()
+            result.success(fileBrowseResultMap(storage, FileBrowseConstant.SUCCESS, "refresh"))
+        } catch (error: Throwable) {
+            Log.e(TAG, "refreshFileBrowse failed", error)
+            result.error("JIELI_REFRESH_FILES_FAILED", error.message, null)
+        }
+    }
+
     private fun openFolder(call: MethodCall, result: MethodChannel.Result) {
         if (!rcspReady) {
             result.error("JIELI_RCSP_NOT_READY", "RCSP is not ready.", null)
@@ -807,6 +831,9 @@ class JieliRecordingCardSdkBridge(
             outputDir,
             "${storage.getIndex()}_${cluster}_${name.ifBlank { "recording" }.sanitizeFileName()}",
         )
+        if (outputFile.exists() && !outputFile.delete()) {
+            Log.w(TAG, "readFile could not remove stale output path=${outputFile.absolutePath}")
+        }
         val taskId = "${storage.getIndex()}-$cluster-${System.currentTimeMillis()}"
         val task = GetFileByClusterTask(
             ensureWatchManager(),
@@ -829,6 +856,7 @@ class JieliRecordingCardSdkBridge(
                 }
 
                 override fun onProgress(progress: Int) {
+                    val bytes = if (outputFile.exists()) outputFile.length() else 0L
                     emitFileReadEvent(
                         type = "fileReadProgress",
                         storage = storage,
@@ -837,6 +865,7 @@ class JieliRecordingCardSdkBridge(
                         cluster = cluster,
                         path = outputFile.absolutePath,
                         progress = progress,
+                        bytes = bytes,
                     )
                 }
 
@@ -860,7 +889,11 @@ class JieliRecordingCardSdkBridge(
                 }
 
                 override fun onError(code: Int, msg: String?) {
-                    Log.e(TAG, "readFile onError taskId=$taskId code=$code msg=$msg")
+                    val bytes = if (outputFile.exists()) outputFile.length() else 0L
+                    Log.e(
+                        TAG,
+                        "readFile onError taskId=$taskId code=$code msg=$msg bytes=$bytes path=${outputFile.absolutePath}",
+                    )
                     emitFileReadEvent(
                         type = "fileReadFailed",
                         storage = storage,
@@ -870,7 +903,11 @@ class JieliRecordingCardSdkBridge(
                         path = outputFile.absolutePath,
                         code = code,
                         message = msg.orEmpty(),
+                        bytes = bytes,
                     )
+                    if (outputFile.exists() && !outputFile.delete()) {
+                        Log.w(TAG, "readFile could not remove failed output path=${outputFile.absolutePath}")
+                    }
                     clearFileReadTask(taskId)
                 }
 
@@ -885,6 +922,9 @@ class JieliRecordingCardSdkBridge(
                         path = outputFile.absolutePath,
                         code = reason,
                     )
+                    if (outputFile.exists() && !outputFile.delete()) {
+                        Log.w(TAG, "readFile could not remove cancelled output path=${outputFile.absolutePath}")
+                    }
                     clearFileReadTask(taskId)
                 }
             },

@@ -52,6 +52,13 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   final Set<String> _autoConnectAttemptedAddresses = <String>{};
   final Map<String, RecordingCardFileEntry> _fileEntries =
       <String, RecordingCardFileEntry>{};
+  final Set<String> _autoSyncSkippedDownloadNames = <String>{};
+  final Set<String> _autoSyncDeferredDownloadNames = <String>{};
+  final Map<String, DateTime> _autoSyncFileFirstSeenAt = <String, DateTime>{};
+  final Map<String, String> _autoSyncFileIdentities = <String, String>{};
+  final Map<String, int> _autoSyncFileSeenGenerations = <String, int>{};
+  final Map<String, int> _autoSyncDownloadAttempts = <String, int>{};
+  final Map<String, DateTime> _autoSyncRetryNotBefore = <String, DateTime>{};
   final Map<String, Future<void>> _autoSyncPersistenceQueues =
       <String, Future<void>>{};
   final Map<String, _JieliDeviceFileRef> _deviceAudioFiles =
@@ -70,6 +77,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   Timer? _recordingTickTimer;
   Timer? _fileReadTimeoutTimer;
   Timer? _fileBrowseTimeoutTimer;
+  Timer? _autoSyncWakeTimer;
   RandomAccessFile? _recordingAudioWriter;
   Future<void> _recordingAudioWriteQueue = Future<void>.value();
   Future<RecordingCardFileEntry?>? _recordingAudioFinalizeFuture;
@@ -126,6 +134,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   bool _autoOpeningRecordingFolder = false;
   bool _autoLoadingMoreRecordingFiles = false;
   bool _cloudSyncInProgress = false;
+  int _autoSyncBrowseGeneration = 0;
   String _autoSyncMessage = '连接 X9 后自动导入录音';
   String? _autoSyncError;
   DateTime? _lastAutoSyncAt;
@@ -204,6 +213,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _recordingTickTimer?.cancel();
     _fileReadTimeoutTimer?.cancel();
     _fileBrowseTimeoutTimer?.cancel();
+    _autoSyncWakeTimer?.cancel();
     unawaited(_recordingAudioWriter?.close());
     final deleteCompleter = _activeDeleteCompleter;
     if (deleteCompleter != null && !deleteCompleter.isCompleted) {
@@ -603,6 +613,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (_connectedAddress == null || !_rcspReady || _fileBrowseLoading) return;
     setState(() {
       if (autoSync) {
+        _autoSyncBrowseGeneration += 1;
         _deviceAudioFiles.clear();
         _deviceSidecarFiles.clear();
         _autoSyncRunning = true;
@@ -853,6 +864,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _activeDeleteFileRef != null) {
       return;
     }
+    _autoSyncSkippedDownloadNames.clear();
+    _autoSyncDeferredDownloadNames.clear();
+    _autoSyncDownloadAttempts.clear();
+    _autoSyncRetryNotBefore.clear();
     await _loadCachedAutoSyncEntries();
     if (!mounted || _connectedAddress == null || !_rcspReady) return;
     await _refreshDeviceFiles(autoSync: true);
@@ -1025,6 +1040,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           continue;
         }
         if (!_isJieliAudioFileName(file.name)) continue;
+        _observeJieliAudioFile(ref, now);
         _deviceAudioFiles[fileNameNoExt] = ref;
         final existing = _fileEntries[fileNameNoExt];
         if (existing == null) {
@@ -1104,6 +1120,32 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       'download=${downloadCandidate?.fileNameNoExt}',
     );
     if (downloadCandidate != null) {
+      final downloadRef = _deviceAudioFiles[downloadCandidate.fileNameNoExt];
+      if (downloadRef == null) return;
+      final settleRemaining = _jieliFileSettleRemaining(downloadRef);
+      if (settleRemaining != null) {
+        if (mounted) {
+          setState(() {
+            _autoSyncMessage = '正在等待 ${downloadRef.file.name} 写入完成，再开始传输';
+          });
+        }
+        _scheduleAutoSyncWake(settleRemaining);
+        return;
+      }
+      final retryNotBefore =
+          _autoSyncRetryNotBefore[downloadCandidate.fileNameNoExt];
+      if (retryNotBefore != null) {
+        final remaining = retryNotBefore.difference(DateTime.now());
+        if (remaining > Duration.zero) {
+          if (mounted) {
+            setState(() {
+              _autoSyncMessage = '正在准备重试 ${downloadRef.file.name}';
+            });
+          }
+          _scheduleAutoSyncWake(remaining);
+          return;
+        }
+      }
       await _downloadJieliEntry(downloadCandidate);
       return;
     }
@@ -1141,6 +1183,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     return nextJieliDownloadCandidate(
       _fileEntries.values,
       _deviceAudioFiles.keys.toSet(),
+      excludedFileNameNoExt: _autoSyncSkippedDownloadNames,
+      deferredFileNameNoExt: _autoSyncDeferredDownloadNames,
     );
   }
 
@@ -1165,13 +1209,59 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     return fileNameNoExt == null ? null : _fileEntries[fileNameNoExt];
   }
 
+  void _observeJieliAudioFile(
+    _JieliDeviceFileRef ref,
+    DateTime now,
+  ) {
+    final name = _fileNameNoExtension(ref.file.name);
+    if (name.isEmpty) return;
+    final identity =
+        '${ref.storage.index}:${ref.file.cluster}:${ref.file.name}';
+    if (_autoSyncFileIdentities[name] != identity ||
+        _autoSyncFileSeenGenerations[name] != _autoSyncBrowseGeneration) {
+      _autoSyncFileIdentities[name] = identity;
+      _autoSyncFileSeenGenerations[name] = _autoSyncBrowseGeneration;
+      _autoSyncFileFirstSeenAt[name] = now;
+    } else {
+      _autoSyncFileFirstSeenAt.putIfAbsent(name, () => now);
+    }
+  }
+
+  Duration? _jieliFileSettleRemaining(_JieliDeviceFileRef ref) {
+    final name = _fileNameNoExtension(ref.file.name);
+    if (name.isEmpty) return null;
+    final firstSeen = _autoSyncFileFirstSeenAt[name];
+    if (firstSeen == null) {
+      _observeJieliAudioFile(ref, DateTime.now());
+      return jieliNewRecordingSettleDelay;
+    }
+    final remaining =
+        jieliNewRecordingSettleDelay - DateTime.now().difference(firstSeen);
+    return remaining > Duration.zero ? remaining : null;
+  }
+
+  void _scheduleAutoSyncWake(Duration delay) {
+    if (!mounted || !_autoSyncRunning) return;
+    _autoSyncWakeTimer?.cancel();
+    _autoSyncWakeTimer = Timer(
+      delay,
+      () {
+        _autoSyncWakeTimer = null;
+        unawaited(_advanceAutoSyncQueue());
+      },
+    );
+  }
+
   Future<void> _downloadJieliEntry(RecordingCardFileEntry entry) async {
     final ref = _deviceAudioFiles[entry.fileNameNoExt];
     if (ref == null) return;
+    _autoSyncDeferredDownloadNames.remove(entry.fileNameNoExt);
+    _autoSyncRetryNotBefore.remove(entry.fileNameNoExt);
+    final attempt = _autoSyncDownloadAttempts[entry.fileNameNoExt] ?? 0;
     debugPrint(
       '[JieliRead] start name=${ref.file.name} '
       'storage=${ref.storage.index} cluster=${ref.file.cluster} '
-      'expectedBytes=${entry.fileSizeBytes}',
+      'expectedBytes=${entry.fileSizeBytes} attempt=$attempt',
     );
     _activeReadFileRef = ref;
     _activeSyncEntry = entry;
@@ -1187,7 +1277,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _activeSyncEntry = downloading;
     _upsertAutoSyncEntry(downloading);
     setState(() {
-      _autoSyncMessage = '正在下载 ${ref.file.name}';
+      _autoSyncMessage = attempt == 0
+          ? '正在下载 ${ref.file.name}'
+          : '正在重试 ${ref.file.name}（$attempt/$jieliAutomaticDownloadRetryLimit）';
       _autoSyncError = null;
       _fileReadLoading = true;
       _fileReadBytes = 0;
@@ -1285,6 +1377,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         deviceMac: entry.deviceMac.isNotEmpty ? entry.deviceMac : deviceId,
         deviceName: _targetDevice.displayName,
       );
+      _autoSyncDownloadAttempts.remove(entry.fileNameNoExt);
+      _autoSyncDeferredDownloadNames.remove(entry.fileNameNoExt);
+      _autoSyncRetryNotBefore.remove(entry.fileNameNoExt);
       _activeReadFileRef = null;
       _activeSyncEntry = null;
       _activeReadTaskId = '';
@@ -1317,21 +1412,18 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
 
   void _updateActiveAudioProgress({
     required int bytes,
-    required int progress,
   }) {
     final entry = _activeSyncEntry;
     if (entry == null || bytes <= 0) return;
-    final estimatedTotal = entry.fileSizeBytes > 0
+    // Jieli progress is transfer progress, not a reliable file-size source.
+    // Keep an already known size, but do not turn progress=100 into a fake
+    // total. The actual local file length is authoritative on completion.
+    final knownTotal = entry.fileSizeBytes > 0
         ? (entry.fileSizeBytes < bytes ? bytes : entry.fileSizeBytes)
-        : progress > 0
-            ? (() {
-                final estimated = (bytes * 100 / progress).round();
-                return estimated < bytes ? bytes : estimated;
-              })()
-            : 0;
+        : 0;
     final next = entry.copyWith(
       syncedBytes: bytes,
-      fileSizeBytes: estimatedTotal > 0 ? estimatedTotal : entry.fileSizeBytes,
+      fileSizeBytes: knownTotal,
       transferStatus: RecordingCardFileTransferStatus.downloading,
       lastError: '',
     );
@@ -1362,35 +1454,82 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     final ref = _activeReadFileRef;
     if (ref == null || !_matchesActiveReadPayload(payload, ref)) return;
     final message = payload['message']?.toString().trim() ?? '文件下载失败';
+    final code = _readInt(payload, 'code', fallback: -1);
     debugPrint('[JieliRead] failed payload=$payload');
-    _markActiveReadFailed(message);
+    _markActiveReadFailed(
+      message,
+      retryable: shouldRetryJieliFileReadFailure(
+        code: code,
+        message: message,
+      ),
+    );
   }
 
-  void _markActiveReadFailed(String message) {
+  void _markActiveReadFailed(
+    String message, {
+    bool continueQueue = true,
+    bool retryable = false,
+  }) {
     debugPrint('[JieliRead] failed message=$message');
     _fileReadTimeoutTimer?.cancel();
     _fileReadTimeoutTimer = null;
     final entry = _activeSyncEntry;
+    final failedName = _activeReadFileRef?.file.name.trim().isNotEmpty == true
+        ? _activeReadFileRef!.file.name
+        : entry?.fileNameNoExt ?? '';
+    final retryCount = entry == null
+        ? 0
+        : (_autoSyncDownloadAttempts[entry.fileNameNoExt] ?? 0);
+    final shouldRetry = entry != null &&
+        retryable &&
+        retryCount < jieliAutomaticDownloadRetryLimit;
     _activeReadFileRef = null;
     _activeSyncEntry = null;
     _activeReadIsSidecar = false;
     _activeReadTaskId = '';
     if (entry != null) {
-      _upsertAutoSyncEntry(
-        entry.copyWith(
-          transferStatus: RecordingCardFileTransferStatus.failed,
-          lastError: message,
-        ),
-      );
+      if (shouldRetry) {
+        final nextAttempt = retryCount + 1;
+        _autoSyncDownloadAttempts[entry.fileNameNoExt] = nextAttempt;
+        _autoSyncDeferredDownloadNames.add(entry.fileNameNoExt);
+        _autoSyncRetryNotBefore[entry.fileNameNoExt] =
+            DateTime.now().add(jieliAutomaticRetryDelay);
+        _upsertAutoSyncEntry(
+          entry.copyWith(
+            fileSizeBytes: 0,
+            syncedBytes: 0,
+            transferStatus: RecordingCardFileTransferStatus.retryPending,
+            lastError:
+                '$message，准备第 $nextAttempt/$jieliAutomaticDownloadRetryLimit 次重试',
+          ),
+        );
+      } else {
+        _autoSyncSkippedDownloadNames.add(entry.fileNameNoExt);
+        _autoSyncDeferredDownloadNames.remove(entry.fileNameNoExt);
+        _autoSyncRetryNotBefore.remove(entry.fileNameNoExt);
+        _upsertAutoSyncEntry(
+          entry.copyWith(
+            transferStatus: RecordingCardFileTransferStatus.failed,
+            lastError: message,
+          ),
+        );
+      }
     }
     if (!mounted) return;
     setState(() {
       _fileReadLoading = false;
-      _autoSyncRunning = false;
-      _autoSyncMessage = '下载失败';
-      _autoSyncError = message;
+      _autoSyncMessage = shouldRetry
+          ? '${failedName.isEmpty ? '当前录音' : failedName} 传输异常，准备自动重试'
+          : continueQueue
+              ? '${failedName.isEmpty ? '当前录音' : failedName} 下载失败，继续处理其他录音'
+              : '${failedName.isEmpty ? '当前录音' : failedName} 下载失败，正在结束当前传输';
+      _autoSyncError = null;
+      _error = null;
       _lastAutoSyncAt = DateTime.now();
     });
+    if (continueQueue) {
+      unawaited(_advanceAutoSyncQueue());
+    }
   }
 
   Future<void> _downloadJieliSidecar(
@@ -1488,7 +1627,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _markActiveSidecarReadFailed(message);
   }
 
-  void _markActiveSidecarReadFailed(String message) {
+  void _markActiveSidecarReadFailed(
+    String message, {
+    bool continueQueue = true,
+  }) {
     _fileReadTimeoutTimer?.cancel();
     _fileReadTimeoutTimer = null;
     final entry = _activeSyncEntry;
@@ -1507,12 +1649,16 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (mounted) {
       setState(() {
         _fileReadLoading = false;
-        _autoSyncMessage = 'TXT 读取失败，继续上传';
-        _autoSyncError = message;
+        _autoSyncMessage =
+            continueQueue ? 'TXT 读取失败，继续处理其他录音' : 'TXT 读取失败，正在结束当前传输';
+        _autoSyncError = null;
+        _error = null;
         _lastAutoSyncAt = DateTime.now();
       });
     }
-    unawaited(_advanceAutoSyncQueue());
+    if (continueQueue) {
+      unawaited(_advanceAutoSyncQueue());
+    }
   }
 
   Future<void> _markUnavailableAutoSyncEntries() async {
@@ -2172,6 +2318,15 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _autoOpeningRecordingFolder = false;
     _autoLoadingMoreRecordingFiles = false;
     _cloudSyncInProgress = false;
+    _autoSyncSkippedDownloadNames.clear();
+    _autoSyncDeferredDownloadNames.clear();
+    _autoSyncFileFirstSeenAt.clear();
+    _autoSyncFileIdentities.clear();
+    _autoSyncFileSeenGenerations.clear();
+    _autoSyncDownloadAttempts.clear();
+    _autoSyncRetryNotBefore.clear();
+    _autoSyncWakeTimer?.cancel();
+    _autoSyncWakeTimer = null;
     _activeSyncEntry = null;
     _activeReadFileRef = null;
     _activeReadTaskId = '';
@@ -2188,6 +2343,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   }
 
   void _armFileReadTimeout(String fileName) {
+    // This watchdog measures callback silence, not byte throughput. A
+    // progress callback with unchanged bytes is still an active transfer
+    // signal and must keep the read alive.
     _fileReadTimeoutTimer?.cancel();
     _fileReadTimeoutTimer = Timer(const Duration(seconds: 12), () {
       if (!mounted || _activeReadFileRef == null) return;
@@ -2198,11 +2356,20 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
 
   Future<void> _cancelTimedOutFileRead(String fileName) async {
     if (!mounted || _activeReadFileRef == null) return;
-    _markActiveReadFailed(
-      '读取 ${fileName.isEmpty ? '文件' : fileName} 超时，请检查录音卡连接后重试',
-    );
+    final message = '读取 ${fileName.isEmpty ? '文件' : fileName} 超时，请检查录音卡连接后重试';
+    final sidecar = _activeReadIsSidecar;
+    if (sidecar) {
+      _markActiveSidecarReadFailed(message, continueQueue: false);
+    } else {
+      _markActiveReadFailed(
+        message,
+        continueQueue: false,
+        retryable: true,
+      );
+    }
     try {
       await _sdk.cancelReadFile();
+      unawaited(_advanceAutoSyncQueue());
     } catch (error) {
       debugPrint('Failed to cancel timed out Jieli file read: $error');
     }
@@ -2211,9 +2378,21 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   Future<void> _cancelActiveFileRead() async {
     final ref = _activeReadFileRef;
     if (ref == null) return;
-    _markActiveReadFailed('${ref.file.name} 下载已中止');
+    final sidecar = _activeReadIsSidecar;
+    if (sidecar) {
+      _markActiveSidecarReadFailed(
+        '${ref.file.name} 下载已中止',
+        continueQueue: false,
+      );
+    } else {
+      _markActiveReadFailed(
+        '${ref.file.name} 下载已中止',
+        continueQueue: false,
+      );
+    }
     try {
       await _sdk.cancelReadFile();
+      unawaited(_advanceAutoSyncQueue());
     } catch (error) {
       debugPrint('Failed to cancel active Jieli file read: $error');
     }
@@ -2912,6 +3091,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         final progressName = payload['name']?.toString().trim() ?? '';
         final progress = _readInt(payload, 'progress');
         final bytes = _readInt(payload, 'bytes');
+        _armFileReadTimeout(progressName);
         if (progress >= 95) {
           debugPrint(
             '[JieliRead] progress name=$progressName progress=$progress '
@@ -2925,10 +3105,6 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
                 _isJieliAudioFileName(_activeReadFileRef!.file.name));
         if (isAudioRead) {
           final previousAt = _fileReadLastSampleAt;
-          final bytesAdvanced = bytes > _fileReadLastBytes;
-          if (bytesAdvanced) {
-            _armFileReadTimeout(progressName);
-          }
           if (previousAt != null && bytes >= _fileReadLastBytes) {
             final elapsed =
                 now.difference(previousAt).inMilliseconds.clamp(1, 60000);
@@ -2938,7 +3114,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           _fileReadBytes = bytes;
           _fileReadLastBytes = bytes;
           _fileReadLastSampleAt = now;
-          _updateActiveAudioProgress(bytes: bytes, progress: progress);
+          _updateActiveAudioProgress(bytes: bytes);
         }
 
         // BLE can deliver hundreds of chunks per second. Keep the file

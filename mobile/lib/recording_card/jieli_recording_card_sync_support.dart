@@ -3,6 +3,25 @@ import 'dart:convert';
 import 'recording_card_support.dart';
 
 const int jieliRecordingCardTotalStorageBytes = 64 * 1024 * 1024 * 1024;
+const int jieliAutomaticDownloadRetryLimit = 2;
+const Duration jieliNewRecordingSettleDelay = Duration(seconds: 3);
+const Duration jieliAutomaticRetryDelay = Duration(seconds: 2);
+
+bool shouldRetryJieliFileReadFailure({
+  required int code,
+  required String message,
+}) {
+  final normalized = message.trim().toLowerCase();
+  return code == 16387 ||
+      code == 12290 ||
+      normalized.contains('data loss') ||
+      normalized.contains('crc error') ||
+      normalized.contains('offset does not match') ||
+      normalized.contains('dataerror') ||
+      normalized.contains('data error') ||
+      normalized.contains('timeout') ||
+      normalized.contains('超时');
+}
 
 bool isJieliRecordingAudioFileName(String name) {
   return name.trim().toLowerCase().endsWith('.mp3');
@@ -101,10 +120,13 @@ RecordingCardFileEntry normalizeJieliRestoredAutoSyncEntry(
 
 RecordingCardFileEntry? nextJieliDownloadCandidate(
   Iterable<RecordingCardFileEntry> entries,
-  Set<String> availableAudioFileNames,
-) {
+  Set<String> availableAudioFileNames, {
+  Set<String> excludedFileNameNoExt = const <String>{},
+  Set<String> deferredFileNameNoExt = const <String>{},
+}) {
   final candidates = entries.where((entry) {
     if (!availableAudioFileNames.contains(entry.fileNameNoExt)) return false;
+    if (excludedFileNameNoExt.contains(entry.fileNameNoExt)) return false;
     return entry.transferStatus == RecordingCardFileTransferStatus.listed ||
         entry.transferStatus ==
             RecordingCardFileTransferStatus.downloadPending ||
@@ -113,7 +135,11 @@ RecordingCardFileEntry? nextJieliDownloadCandidate(
         entry.transferStatus == RecordingCardFileTransferStatus.checksumFailed;
   }).toList()
     ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
-  return candidates.isEmpty ? null : candidates.first;
+  if (candidates.isEmpty) return null;
+  final preferred = candidates
+      .where((entry) => !deferredFileNameNoExt.contains(entry.fileNameNoExt))
+      .toList(growable: false);
+  return (preferred.isEmpty ? candidates : preferred).first;
 }
 
 RecordingCardFileEntry? nextJieliCloudCandidate(

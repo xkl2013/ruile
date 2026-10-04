@@ -157,6 +157,18 @@ class JieliRecordingCardNativeApi {
     return JieliRecordingCardFileBrowseResult.fromMap(result);
   }
 
+  Future<JieliRecordingCardFileBrowseResult> refreshFileBrowse({
+    required int storageIndex,
+  }) async {
+    final result = await _methodChannel.invokeMapMethod<String, Object?>(
+      'refreshFileBrowse',
+      <String, Object?>{
+        'storage_index': storageIndex,
+      },
+    );
+    return JieliRecordingCardFileBrowseResult.fromMap(result);
+  }
+
   Future<JieliRecordingCardFileBrowseResult> openFolder({
     required int storageIndex,
     required int cluster,

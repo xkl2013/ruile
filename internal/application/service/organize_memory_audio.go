@@ -409,6 +409,11 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 	if noteMarkdown == "" {
 		noteMarkdown = transcript
 	}
+	noteMarkdown = organizeRecordingNoteMarkdown(
+		aiResult.Summary,
+		transcript,
+		noteMarkdown,
+	)
 	if title := trimMax(aiResult.Title, organizeMaxTitleLength); title != "" {
 		memory.Title = title
 	}

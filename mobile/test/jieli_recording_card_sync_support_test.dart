@@ -190,10 +190,77 @@ void main() {
       nextJieliDownloadCandidate(entries, available)?.fileNameNoExt,
       'REC0001',
     );
+    expect(
+      nextJieliDownloadCandidate(
+        [
+          _entry(
+            RecordingCardFileTransferStatus.failed,
+            fileNameNoExt: 'REC0000',
+          ),
+          ...entries,
+        ],
+        {'REC0000', ...available},
+        excludedFileNameNoExt: {'REC0000'},
+      )?.fileNameNoExt,
+      'REC0001',
+    );
     expect(nextJieliCloudCandidate(entries)?.fileNameNoExt, 'REC0002');
     expect(
       nextJieliDeleteCandidate(entries, available)?.fileNameNoExt,
       'REC0003',
+    );
+  });
+
+  test('defers a retrying file until normal download candidates are handled',
+      () {
+    final retrying = _entry(
+      RecordingCardFileTransferStatus.retryPending,
+      fileNameNoExt: 'REC0000',
+    );
+    final pending = _entry(
+      RecordingCardFileTransferStatus.downloadPending,
+      fileNameNoExt: 'REC0001',
+    );
+
+    expect(
+      nextJieliDownloadCandidate(
+        [retrying, pending],
+        {'REC0000', 'REC0001'},
+        deferredFileNameNoExt: {'REC0000'},
+      )?.fileNameNoExt,
+      'REC0001',
+    );
+    expect(
+      nextJieliDownloadCandidate(
+        [retrying],
+        {'REC0000'},
+        deferredFileNameNoExt: {'REC0000'},
+      )?.fileNameNoExt,
+      'REC0000',
+    );
+  });
+
+  test('recognizes retryable Jieli transfer integrity failures', () {
+    expect(
+      shouldRetryJieliFileReadFailure(
+        code: 16387,
+        message: 'Data loss. Firmware return data size = 57420',
+      ),
+      isTrue,
+    );
+    expect(
+      shouldRetryJieliFileReadFailure(
+        code: 2,
+        message: 'CRC error',
+      ),
+      isTrue,
+    );
+    expect(
+      shouldRetryJieliFileReadFailure(
+        code: 4097,
+        message: 'File not found',
+      ),
+      isFalse,
     );
   });
 
