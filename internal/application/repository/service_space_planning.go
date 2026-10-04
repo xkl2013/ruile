@@ -177,6 +177,42 @@ func (r *serviceSpaceRepository) UpsertProfile(
 	})
 }
 
+func (r *serviceSpaceRepository) GetSubjectProfile(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID string,
+) (*types.ServiceSubjectProfile, error) {
+	var profile types.ServiceSubjectProfile
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ? AND subject_id = ?", tenantID, serviceID, subjectID).
+		Order("version DESC").
+		First(&profile).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &profile, err
+}
+
+func (r *serviceSpaceRepository) UpsertSubjectProfile(
+	ctx context.Context,
+	profile *types.ServiceSubjectProfile,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&types.ServiceSubjectProfile{}).
+			Where(
+				"tenant_id = ? AND service_id = ? AND subject_id = ? AND frozen = ?",
+				profile.TenantID,
+				profile.ServiceID,
+				profile.SubjectID,
+				false,
+			).
+			Update("frozen", true).Error; err != nil {
+			return err
+		}
+		return tx.Create(profile).Error
+	})
+}
+
 func (r *serviceSpaceRepository) GetSummary(
 	ctx context.Context,
 	tenantID uint64,
@@ -338,6 +374,64 @@ func (r *serviceSpaceRepository) GetFactBySource(
 		return nil, nil
 	}
 	return &fact, err
+}
+
+func (r *serviceSpaceRepository) CreateFactProposal(
+	ctx context.Context,
+	proposal *types.ServiceFactProposal,
+) error {
+	return r.db.WithContext(ctx).Create(proposal).Error
+}
+
+func (r *serviceSpaceRepository) GetFactProposal(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, proposalID string,
+) (*types.ServiceFactProposal, error) {
+	var proposal types.ServiceFactProposal
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, proposalID).
+		First(&proposal).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &proposal, err
+}
+
+func (r *serviceSpaceRepository) GetFactProposalBySource(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, sourceType, sourceID string,
+) (*types.ServiceFactProposal, error) {
+	var proposal types.ServiceFactProposal
+	err := r.db.WithContext(ctx).
+		Where(
+			"tenant_id = ? AND service_id = ? AND source_type = ? AND source_id = ?",
+			tenantID,
+			serviceID,
+			strings.TrimSpace(sourceType),
+			strings.TrimSpace(sourceID),
+		).
+		First(&proposal).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &proposal, err
+}
+
+func (r *serviceSpaceRepository) UpdateFactProposal(
+	ctx context.Context,
+	proposal *types.ServiceFactProposal,
+	fields map[string]any,
+) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	fields["updated_at"] = time.Now().UTC()
+	return r.db.WithContext(ctx).
+		Model(proposal).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", proposal.TenantID, proposal.ServiceID, proposal.ID).
+		Updates(fields).Error
 }
 
 func (r *serviceSpaceRepository) UpdateArtifactLifecycle(

@@ -510,7 +510,8 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
       (data.response_type === 'thinking' ||
         data.response_type === 'answer' ||
         data.response_type === 'tool_call' ||
-        data.response_type === 'tool_approval_required')
+        data.response_type === 'tool_approval_required' ||
+        data.response_type === 'service_update_proposal')
     ) {
       log('[Agent Chunk] Closing loading for continued stream')
       loading.value = false
@@ -631,6 +632,27 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
             e.canceled = d.canceled
           }
         })
+        break
+      }
+      case 'service_update_proposal': {
+        if (!message.agentEventStream) message.agentEventStream = []
+        const d = dataPayload || {}
+        const proposal = (d.proposal as ChatMessage | undefined) || d
+        const proposalId = String(
+          proposal.id || data.id || `service-proposal-${Date.now()}`,
+        )
+        const stream = message.agentEventStream as ChatMessage[]
+        const alreadyAdded = stream.some(
+          (event) => event.type === 'service_update_proposal'
+            && (event.proposal as ChatMessage | undefined)?.id === proposalId,
+        )
+        if (!alreadyAdded) {
+          stream.push({
+            type: 'service_update_proposal',
+            proposal: { ...proposal, id: proposalId },
+            timestamp: Date.now(),
+          })
+        }
         break
       }
       case 'tool_call': {
@@ -906,7 +928,8 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
       data.response_type === 'thinking' ||
       data.response_type === 'tool_call' ||
       data.response_type === 'tool_result' ||
-      data.response_type === 'reflection'
+      data.response_type === 'reflection' ||
+      data.response_type === 'service_update_proposal'
 
     const lastMessage = messagesList[messagesList.length - 1]
     const isCurrentlyAgentMode = lastMessage?.isAgentMode === true

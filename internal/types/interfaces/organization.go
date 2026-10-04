@@ -45,6 +45,7 @@ type OrganizationRepository interface {
 	Create(ctx context.Context, org *types.Organization) error
 	GetByID(ctx context.Context, id string) (*types.Organization, error)
 	ListByTenantID(ctx context.Context, tenantID uint64) ([]*types.Organization, error)
+	ListAll(ctx context.Context) ([]*types.Organization, error)
 	Update(ctx context.Context, org *types.Organization) error
 	Delete(ctx context.Context, id string) error
 

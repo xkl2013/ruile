@@ -14,20 +14,23 @@ import (
 )
 
 var (
-	ErrOrganizeInvalidScope          = errors.New("invalid organize scope")
-	ErrOrganizeNotFound              = errors.New("organize item not found")
-	ErrOrganizeTitleRequired         = errors.New("title is required")
-	ErrOrganizeInvalidMemoryKind     = errors.New("invalid memory kind")
-	ErrOrganizeInvalidStatus         = errors.New("invalid output status")
-	ErrOrganizeInvalidCategory       = errors.New("invalid discover category")
-	ErrOrganizeInvalidStage          = errors.New("invalid sprout stage")
-	ErrOrganizeMemoryRequired        = errors.New("memory_id is required")
-	ErrOrganizeInvalidMemoryRefs     = errors.New("memory_ids contains unknown memories")
-	ErrOrganizeTargetServiceNotFound = errors.New("target service not found")
-	ErrOrganizeOutputAlreadyAssigned = errors.New("organize output is already assigned to another service")
-	ErrOrganizeOutputNotReady        = errors.New("organize output is not ready")
-	ErrOrganizeInvalidPublicType     = errors.New("invalid public content type")
-	ErrOrganizeInvalidPublicStatus   = errors.New("invalid public content status")
+	ErrOrganizeInvalidScope              = errors.New("invalid organize scope")
+	ErrOrganizeNotFound                  = errors.New("organize item not found")
+	ErrOrganizeTitleRequired             = errors.New("title is required")
+	ErrOrganizeInvalidMemoryKind         = errors.New("invalid memory kind")
+	ErrOrganizeInvalidStatus             = errors.New("invalid output status")
+	ErrOrganizeInvalidCategory           = errors.New("invalid discover category")
+	ErrOrganizeInvalidStage              = errors.New("invalid sprout stage")
+	ErrOrganizeMemoryRequired            = errors.New("memory_id is required")
+	ErrOrganizeInvalidMemoryRefs         = errors.New("memory_ids contains unknown memories")
+	ErrOrganizeTargetServiceNotFound     = errors.New("target service not found")
+	ErrOrganizeOutputAlreadyAssigned     = errors.New("organize output is already assigned to another service")
+	ErrOrganizeOutputNotReady            = errors.New("organize output is not ready")
+	ErrOrganizeInvalidPublicType         = errors.New("invalid public content type")
+	ErrOrganizeInvalidPublicStatus       = errors.New("invalid public content status")
+	ErrOrganizeInvalidVisibilityScope    = errors.New("invalid course visibility scope")
+	ErrOrganizeCourseSharedSpaceRequired = errors.New("at least one shared space is required")
+	ErrOrganizeCourseSharedSpaceNotFound = errors.New("course shared space not found")
 )
 
 const (
@@ -39,21 +42,23 @@ const (
 )
 
 type organizeService struct {
-	repo            interfaces.OrganizeRepository
-	modelService    interfaces.ModelService
-	fileService     interfaces.FileService
-	storageResolver interfaces.StorageBackendResolver
-	tenantRepo      interfaces.TenantRepository
-	resourceCatalog interfaces.ResourceCatalog
-	expertPackages  interfaces.ExpertPackageService
-	taskEnqueuer    interfaces.TaskEnqueuer
-	documentReader  interfaces.DocumentReader
-	serviceSpaces   interfaces.ServiceSpaceService
-	audioTranscoder func(context.Context, []byte, string) ([]byte, string, error)
+	repo             interfaces.OrganizeRepository
+	organizationRepo interfaces.OrganizationRepository
+	modelService     interfaces.ModelService
+	fileService      interfaces.FileService
+	storageResolver  interfaces.StorageBackendResolver
+	tenantRepo       interfaces.TenantRepository
+	resourceCatalog  interfaces.ResourceCatalog
+	expertPackages   interfaces.ExpertPackageService
+	taskEnqueuer     interfaces.TaskEnqueuer
+	documentReader   interfaces.DocumentReader
+	serviceSpaces    interfaces.ServiceSpaceService
+	audioTranscoder  func(context.Context, []byte, string) ([]byte, string, error)
 }
 
 func NewOrganizeService(
 	repo interfaces.OrganizeRepository,
+	organizationRepo interfaces.OrganizationRepository,
 	modelService interfaces.ModelService,
 	fileService interfaces.FileService,
 	taskEnqueuer interfaces.TaskEnqueuer,
@@ -65,17 +70,18 @@ func NewOrganizeService(
 	serviceSpaces interfaces.ServiceSpaceService,
 ) interfaces.OrganizeService {
 	return &organizeService{
-		repo:            repo,
-		modelService:    modelService,
-		fileService:     fileService,
-		storageResolver: storageResolver,
-		tenantRepo:      tenantRepo,
-		resourceCatalog: resourceCatalog,
-		expertPackages:  expertPackages,
-		taskEnqueuer:    taskEnqueuer,
-		documentReader:  documentReader,
-		serviceSpaces:   serviceSpaces,
-		audioTranscoder: transcodeOrganizeAudioToMP3,
+		repo:             repo,
+		organizationRepo: organizationRepo,
+		modelService:     modelService,
+		fileService:      fileService,
+		storageResolver:  storageResolver,
+		tenantRepo:       tenantRepo,
+		resourceCatalog:  resourceCatalog,
+		expertPackages:   expertPackages,
+		taskEnqueuer:     taskEnqueuer,
+		documentReader:   documentReader,
+		serviceSpaces:    serviceSpaces,
+		audioTranscoder:  transcodeOrganizeAudioToMP3,
 	}
 }
 

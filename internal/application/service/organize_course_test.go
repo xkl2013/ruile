@@ -182,9 +182,220 @@ func TestReadOrganizeCourseUploadFileUsesStreamingOpener(t *testing.T) {
 			return io.NopCloser(strings.NewReader("streamed content")), nil
 		},
 	}
-	data, err := readOrganizeCourseUploadFile(file, 1024)
+	data, err := readOrganizeCourseUploadFile(file)
 	require.NoError(t, err)
 	require.Equal(t, "streamed content", string(data))
+}
+
+func TestCreateCourseFromFolderDoesNotRejectLargeSingleLesson(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		&stubOrganizeFileService{},
+		&stubOrganizeDocumentReader{},
+	)
+
+	result, err := svc.CreateCourseFromFolder(
+		ctx,
+		9,
+		"user-a",
+		types.OrganizeCourseUploadInput{
+			Title:        "大文件课程",
+			PublicStatus: types.OrganizePublicContentStatusPublished,
+		},
+		[]types.OrganizeCourseUploadFile{courseFile("01_第一讲.md", func(file *types.OrganizeCourseUploadFile) {
+			file.Size = 80 * 1024 * 1024
+			file.Data = []byte("# 第一讲\n\n正文")
+		})},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Course)
+	require.Len(t, result.Course.Lessons, 1)
+}
+
+func TestCreateCourseCreatesEmptyCourseForSequentialUploads(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		&stubOrganizeFileService{},
+		&stubOrganizeDocumentReader{},
+	)
+
+	course, err := svc.CreateCourse(
+		ctx,
+		9,
+		"user-a",
+		types.OrganizeCourseUploadInput{
+			Title:        "先建信息再加课程",
+			Summary:      "课程信息独立保存",
+			PublicStatus: types.OrganizePublicContentStatusDraft,
+		},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, course)
+	require.NotEmpty(t, course.ID)
+	require.Equal(t, "先建信息再加课程", course.Title)
+	require.Equal(t, 0, course.LessonCount)
+	require.Empty(t, course.Lessons)
+
+	persisted, err := svc.repo.GetCourse(ctx, course.ID)
+	require.NoError(t, err)
+	require.NotNil(t, persisted)
+	require.Equal(t, 0, persisted.LessonCount)
+}
+
+func TestAppendCourseLessonFromUploadAddsOneLesson(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		&stubOrganizeFileService{},
+		&stubOrganizeDocumentReader{},
+	)
+
+	created, err := svc.CreateCourseFromFolder(
+		ctx,
+		9,
+		"user-a",
+		types.OrganizeCourseUploadInput{
+			Title:        "逐个上传课程",
+			PublicStatus: types.OrganizePublicContentStatusPublished,
+		},
+		[]types.OrganizeCourseUploadFile{courseFile("01_第一讲.md")},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, created)
+
+	appended, err := svc.AppendCourseLessonFromUpload(
+		ctx,
+		9,
+		"user-a",
+		created.Course.ID,
+		courseFile("02_第二讲.md"),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, appended)
+	require.Equal(t, 2, appended.Course.LessonCount)
+
+	lessons, err := svc.repo.ListCourseLessons(ctx, created.Course.ID)
+	require.NoError(t, err)
+	require.Len(t, lessons, 2)
+	require.Equal(t, 0, lessons[0].SortOrder)
+	require.Equal(t, 1, lessons[1].SortOrder)
+}
+
+func TestCourseLessonCanBeEditedAndDeleted(t *testing.T) {
+	ctx := context.Background()
+	fileService := &stubOrganizeFileService{}
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		fileService,
+		&stubOrganizeDocumentReader{},
+	)
+
+	created, err := svc.CreateCourseFromFolder(
+		ctx,
+		9,
+		"user-a",
+		types.OrganizeCourseUploadInput{
+			Title:        "课程内容维护",
+			PublicStatus: types.OrganizePublicContentStatusPublished,
+		},
+		[]types.OrganizeCourseUploadFile{
+			courseFile("01_第一讲.md"),
+			courseFile("02_第二讲.md"),
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, created.Course.Lessons, 2)
+
+	lessons, err := svc.repo.ListCourseLessons(ctx, created.Course.ID)
+	require.NoError(t, err)
+	require.Len(t, lessons, 2)
+
+	updated, err := svc.UpdateCourseLesson(
+		ctx,
+		created.Course.ID,
+		lessons[0].ID,
+		types.OrganizeCourseLessonUpdateInput{
+			Title:       "第一讲：重新命名",
+			Description: "补充这一讲的学习重点。",
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "第一讲：重新命名", updated.Title)
+	require.NotNil(t, updated.Output)
+	require.Equal(t, "第一讲：重新命名", updated.Output.Title)
+	require.Equal(t, "补充这一讲的学习重点。", updated.Output.SourceSummary)
+
+	deletedOutputID := lessons[0].OutputID
+	require.NoError(t, svc.DeleteCourseLesson(ctx, created.Course.ID, lessons[0].ID))
+	require.NotNil(t, svc.repo)
+
+	remaining, err := svc.repo.ListCourseLessons(ctx, created.Course.ID)
+	require.NoError(t, err)
+	require.Len(t, remaining, 1)
+	require.Equal(t, 0, remaining[0].SortOrder)
+	deletedOutput, err := svc.repo.GetOutputByID(ctx, deletedOutputID)
+	require.NoError(t, err)
+	require.Nil(t, deletedOutput)
+
+	appended, err := svc.AppendCourseLessonFromUpload(
+		ctx,
+		9,
+		"user-a",
+		created.Course.ID,
+		courseFile("03_第三讲.md"),
+	)
+	require.NoError(t, err)
+	require.Equal(t, 2, appended.Course.LessonCount)
+	remaining, err = svc.repo.ListCourseLessons(ctx, created.Course.ID)
+	require.NoError(t, err)
+	require.Len(t, remaining, 2)
+	require.Equal(t, 0, remaining[0].SortOrder)
+	require.Equal(t, 1, remaining[1].SortOrder)
+	require.NotEmpty(t, fileService.deletedPaths)
+}
+
+func TestCreateCourseFromFolderStoresCoverImage(t *testing.T) {
+	ctx := context.Background()
+	fileService := &stubOrganizeFileService{fileURL: "https://cdn.example.test/course-cover.png"}
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		fileService,
+		&stubOrganizeDocumentReader{},
+	)
+
+	result, err := svc.CreateCourseFromFolder(
+		ctx,
+		9,
+		"user-a",
+		types.OrganizeCourseUploadInput{
+			Title:              "带封面课程",
+			PublicStatus:       types.OrganizePublicContentStatusPublished,
+			CoverImageFileName: "cover.png",
+			CoverImageMimeType: "image/png",
+			CoverImageData: []byte{
+				0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+				0x00, 0x00, 0x00, 0x0d,
+			},
+		},
+		[]types.OrganizeCourseUploadFile{courseFile("01_第一讲.md")},
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Course)
+	require.Equal(t, "https://cdn.example.test/course-cover.png", result.Course.CoverURL)
+	require.Equal(t, 2, fileService.saveCalls)
+	require.Equal(t, []bool{false, false}, fileService.saveTemps)
 }
 
 func TestCreateCourseFromFolderUsesTenantPersistentStorage(t *testing.T) {

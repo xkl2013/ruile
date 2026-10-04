@@ -31,6 +31,10 @@ type ServiceSpaceRepository interface {
 	CreateFact(ctx context.Context, fact *types.ServiceFact) error
 	ListFacts(ctx context.Context, tenantID uint64, serviceID, subjectID, factType, sourceType, sourceID string, page, pageSize int) ([]*types.ServiceFact, int64, error)
 	GetFactBySource(ctx context.Context, tenantID uint64, serviceID, sourceType, sourceID, factKey string) (*types.ServiceFact, error)
+	CreateFactProposal(ctx context.Context, proposal *types.ServiceFactProposal) error
+	GetFactProposal(ctx context.Context, tenantID uint64, serviceID, proposalID string) (*types.ServiceFactProposal, error)
+	GetFactProposalBySource(ctx context.Context, tenantID uint64, serviceID, sourceType, sourceID string) (*types.ServiceFactProposal, error)
+	UpdateFactProposal(ctx context.Context, proposal *types.ServiceFactProposal, fields map[string]any) error
 
 	ListReminderStatuses(ctx context.Context, tenantID uint64, serviceID string, includeDisabled bool) ([]*types.ServiceReminderStatus, error)
 	GetReminderStatus(ctx context.Context, tenantID uint64, serviceID, statusID string) (*types.ServiceReminderStatus, error)
@@ -77,6 +81,8 @@ type ServiceSpaceRepository interface {
 	CreateTemplateApplication(ctx context.Context, record *types.ServiceSpaceTemplateApplicationRecord) error
 	GetProfile(ctx context.Context, tenantID uint64, serviceID string) (*types.ServiceSpaceProfile, error)
 	UpsertProfile(ctx context.Context, profile *types.ServiceSpaceProfile) error
+	GetSubjectProfile(ctx context.Context, tenantID uint64, serviceID, subjectID string) (*types.ServiceSubjectProfile, error)
+	UpsertSubjectProfile(ctx context.Context, profile *types.ServiceSubjectProfile) error
 	GetSummary(ctx context.Context, tenantID uint64, serviceID string) (*types.ServiceSpaceSummary, error)
 	UpsertSummary(ctx context.Context, summary *types.ServiceSpaceSummary) error
 	CreateContextSource(ctx context.Context, source *types.ServiceContextSource) error
@@ -119,6 +125,8 @@ type ServiceSpaceService interface {
 	DeleteSubject(ctx context.Context, tenantID uint64, userID, serviceID, subjectID string) error
 	ListFacts(ctx context.Context, tenantID uint64, userID, serviceID, subjectID, factType, sourceType, sourceID string, page, pageSize int) ([]*types.ServiceFact, int64, error)
 	AppendFact(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceFactAppendInput) (*types.ServiceFact, error)
+	PreviewFactProposal(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceFactProposalPreviewInput) (*types.ServiceFactProposal, error)
+	ResolveFactProposal(ctx context.Context, tenantID uint64, userID, serviceID, proposalID string, input types.ServiceFactProposalResolveInput) (*types.ServiceFactProposal, error)
 
 	ListReminderStatuses(ctx context.Context, tenantID uint64, userID, serviceID string, includeDisabled bool) ([]*types.ServiceReminderStatus, error)
 	CreateReminderStatus(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceReminderStatusCreateInput) (*types.ServiceReminderStatus, error)
@@ -151,6 +159,8 @@ type ServiceSpaceService interface {
 	ConfirmBlueprint(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceSpaceBlueprintConfirmInput) (*types.ServiceSpaceView, error)
 	GetProfile(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceSpaceProfile, error)
 	UpdateProfile(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceSpaceProfileUpdateInput) (*types.ServiceSpaceProfile, error)
+	GetSubjectProfile(ctx context.Context, tenantID uint64, userID, serviceID, subjectID string) (*types.ServiceSubjectProfile, error)
+	RefreshSubjectProfile(ctx context.Context, tenantID uint64, userID, serviceID, subjectID string) (*types.ServiceSubjectProfile, error)
 	GetSummary(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceSpaceSummary, error)
 	RefreshSummary(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceSpaceSummary, error)
 	ResolveRuntimeContext(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceRuntimeContext, error)

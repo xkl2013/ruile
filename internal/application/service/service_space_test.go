@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -568,6 +569,231 @@ func TestServiceSpaceFactsAreScopedAppendOnlyAndAudited(t *testing.T) {
 	}
 	require.True(t, sawFactAppend)
 	require.True(t, sawSummaryRefresh)
+}
+
+func TestServiceSpaceProfilesMaterializeInstructionFieldsAndSubjectFacts(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
+
+	space, err := svc.Create(ctx, 76, "owner", types.ServiceSpaceCreateInput{
+		Name:        "会员档案物化测试",
+		Instruction: "围绕会员家庭记录孩子阶段、服务偏好和续费风险",
+		Experts: []types.ServiceExpertBindingInput{{
+			ExpertRef:  "membership-expert",
+			ExpertName: "会员服务专家",
+		}},
+		Activate: true,
+	})
+	require.NoError(t, err)
+
+	blueprint, err := svc.PreviewBlueprint(ctx, 76, "owner", space.ID, types.ServiceSpaceBlueprintPreviewInput{
+		Instruction: space.Instruction,
+	})
+	require.NoError(t, err)
+	require.Contains(t, blueprint.ProfileSchema, types.ServiceSpaceProfileField{
+		Key:                 "child_stage",
+		Label:               "孩子阶段",
+		ValueType:           "text",
+		Source:              "facts",
+		Aliases:             []string{"孩子年级", "成长阶段"},
+		ExtractionHint:      "提取孩子明确的年龄、年级或成长阶段",
+		ConfidenceThreshold: 0.8,
+		AskWhenMissing:      true,
+		DisplayOrder:        2,
+	})
+
+	_, err = svc.ConfirmBlueprint(ctx, 76, "owner", space.ID, types.ServiceSpaceBlueprintConfirmInput{
+		BlueprintID:     blueprint.ID,
+		ExpectedVersion: blueprint.Version,
+		Activate:        true,
+		IdempotencyKey:  "confirm-membership-profile",
+	})
+	require.NoError(t, err)
+
+	subject, err := svc.CreateSubject(ctx, 76, "owner", space.ID, types.ServiceSubjectCreateInput{
+		SubjectType: "member_family",
+		SubjectKey:  "family-076",
+		DisplayName: "测试会员家庭",
+	})
+	require.NoError(t, err)
+
+	childFact, err := svc.AppendFact(ctx, 76, "owner", space.ID, types.ServiceFactAppendInput{
+		SubjectID:  subject.ID,
+		FactType:   types.ServiceFactTypeProfileField,
+		FactKey:    "child_stage",
+		Value:      types.JSONMap{"value": "下个月升大班", "confidence": 0.96, "evidence": "家长说明孩子下个月升大班"},
+		SourceType: "chat_message",
+		SourceID:   "message-076-001",
+	})
+	require.NoError(t, err)
+
+	_, err = svc.AppendFact(ctx, 76, "owner", space.ID, types.ServiceFactAppendInput{
+		SubjectID:  subject.ID,
+		FactType:   types.ServiceFactTypeProfileField,
+		FactKey:    "service_preference",
+		Value:      types.JSONMap{"value": "英语启蒙", "confidence": 0.93, "evidence": "家长明确关注英语启蒙"},
+		SourceType: "chat_message",
+		SourceID:   "message-076-002",
+	})
+	require.NoError(t, err)
+
+	subjectProfile, err := svc.GetSubjectProfile(ctx, 76, "owner", space.ID, subject.ID)
+	require.NoError(t, err)
+	require.Equal(t, subject.ID, subjectProfile.SubjectID)
+	require.NotEmpty(t, subjectProfile.SourceWatermark)
+	require.GreaterOrEqual(t, subjectProfile.Version, 2)
+
+	var childValue map[string]any
+	childJSON, err := json.Marshal(subjectProfile.Values["child_stage"])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(childJSON, &childValue))
+	require.Equal(t, "下个月升大班", childValue["value"])
+	require.Equal(t, childFact.ID, childValue["source_fact_id"])
+	require.Equal(t, "家长说明孩子下个月升大班", childValue["evidence"])
+
+	_, err = svc.AppendFact(ctx, 76, "owner", space.ID, types.ServiceFactAppendInput{
+		FactType:   types.ServiceFactTypeProfileField,
+		FactKey:    "member_status",
+		Value:      types.JSONMap{"value": "已完成首次沟通", "confidence": 0.91, "evidence": "本次沟通已完成"},
+		SourceType: "chat_message",
+		SourceID:   "message-076-003",
+	})
+	require.NoError(t, err)
+	spaceProfile, err := svc.GetProfile(ctx, 76, "owner", space.ID)
+	require.NoError(t, err)
+	var statusValue map[string]any
+	statusJSON, err := json.Marshal(spaceProfile.Values["member_status"])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(statusJSON, &statusValue))
+	require.Equal(t, "已完成首次沟通", statusValue["value"])
+}
+
+func TestServiceFactProposalRequiresConfirmationBeforeAppendingFacts(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
+
+	space, err := svc.Create(ctx, 77, "owner", types.ServiceSpaceCreateInput{
+		Name:        "会员聊天提案测试",
+		Instruction: "围绕会员家庭记录孩子阶段、服务偏好和续费风险",
+		Experts: []types.ServiceExpertBindingInput{{
+			ExpertRef:  "membership-expert",
+			ExpertName: "会员服务专家",
+		}},
+		Activate: true,
+	})
+	require.NoError(t, err)
+	blueprint, err := svc.PreviewBlueprint(ctx, 77, "owner", space.ID, types.ServiceSpaceBlueprintPreviewInput{
+		Instruction: space.Instruction,
+	})
+	require.NoError(t, err)
+	_, err = svc.ConfirmBlueprint(ctx, 77, "owner", space.ID, types.ServiceSpaceBlueprintConfirmInput{
+		BlueprintID:     blueprint.ID,
+		ExpectedVersion: blueprint.Version,
+		Activate:        true,
+		IdempotencyKey:  "confirm-chat-proposal",
+	})
+	require.NoError(t, err)
+	subject, err := svc.CreateSubject(ctx, 77, "owner", space.ID, types.ServiceSubjectCreateInput{
+		SubjectType: "member_family",
+		SubjectKey:  "family-077",
+		DisplayName: "七七会员家庭",
+	})
+	require.NoError(t, err)
+
+	input := types.ServiceFactProposalPreviewInput{
+		SessionID:  "session-077",
+		Text:       "七七会员家庭的孩子下个月升大班，最近比较关注英语启蒙。",
+		SubjectID:  subject.ID,
+		SourceType: "chat_message",
+		SourceID:   "message-077",
+	}
+	proposal, err := svc.PreviewFactProposal(ctx, 77, "owner", space.ID, input)
+	require.NoError(t, err)
+	require.NotNil(t, proposal)
+	require.Equal(t, types.ServiceFactProposalStatusPending, proposal.Status)
+	require.Len(t, proposal.Items, 2)
+
+	facts, total, err := svc.ListFacts(ctx, 77, "owner", space.ID, subject.ID, "", "", "", 1, 20)
+	require.NoError(t, err)
+	require.Zero(t, total)
+	require.Empty(t, facts)
+
+	duplicate, err := svc.PreviewFactProposal(ctx, 77, "owner", space.ID, input)
+	require.NoError(t, err)
+	require.Equal(t, proposal.ID, duplicate.ID)
+
+	resolved, err := svc.ResolveFactProposal(ctx, 77, "owner", space.ID, proposal.ID, types.ServiceFactProposalResolveInput{
+		Decision: types.ServiceFactProposalStatusConfirmed,
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.ServiceFactProposalStatusConfirmed, resolved.Status)
+	require.Equal(t, subject.ID, resolved.SubjectID)
+
+	facts, total, err = svc.ListFacts(ctx, 77, "owner", space.ID, subject.ID, types.ServiceFactTypeProfileField, "", "", 1, 20)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, total)
+	require.Len(t, facts, 2)
+
+	subjectProfile, err := svc.GetSubjectProfile(ctx, 77, "owner", space.ID, subject.ID)
+	require.NoError(t, err)
+	require.Contains(t, subjectProfile.Values, "child_stage")
+	require.Contains(t, subjectProfile.Values, "service_preference")
+}
+
+func TestServiceFactProposalSupportsServiceScopedFacts(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
+
+	space, err := svc.Create(ctx, 78, "owner", types.ServiceSpaceCreateInput{
+		Name:        "运营巡查提案测试",
+		Instruction: "围绕运营现场巡查记录当前状态和下一步动作",
+		Experts: []types.ServiceExpertBindingInput{{
+			ExpertRef:  "operations-expert",
+			ExpertName: "运营服务专家",
+		}},
+		Activate: true,
+	})
+	require.NoError(t, err)
+	blueprint, err := svc.PreviewBlueprint(ctx, 78, "owner", space.ID, types.ServiceSpaceBlueprintPreviewInput{
+		Instruction: space.Instruction,
+	})
+	require.NoError(t, err)
+	require.False(t, blueprint.SubjectPolicy.Required)
+	_, err = svc.ConfirmBlueprint(ctx, 78, "owner", space.ID, types.ServiceSpaceBlueprintConfirmInput{
+		BlueprintID:     blueprint.ID,
+		ExpectedVersion: blueprint.Version,
+		Activate:        true,
+		IdempotencyKey:  "confirm-service-scoped-proposal",
+	})
+	require.NoError(t, err)
+
+	proposal, err := svc.PreviewFactProposal(ctx, 78, "owner", space.ID, types.ServiceFactProposalPreviewInput{
+		SessionID:  "session-078",
+		Text:       "当前状态：已完成上午巡查。",
+		SourceType: "chat_message",
+		SourceID:   "message-078",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, proposal)
+	require.False(t, proposal.NeedsSubject)
+
+	resolved, err := svc.ResolveFactProposal(ctx, 78, "owner", space.ID, proposal.ID, types.ServiceFactProposalResolveInput{
+		Decision: types.ServiceFactProposalStatusConfirmed,
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.ServiceFactProposalStatusConfirmed, resolved.Status)
+	require.Empty(t, resolved.SubjectID)
+
+	profile, err := svc.GetProfile(ctx, 78, "owner", space.ID)
+	require.NoError(t, err)
+	var statusValue map[string]any
+	statusJSON, err := json.Marshal(profile.Values["current_status"])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(statusJSON, &statusValue))
+	require.Equal(t, "已完成上午巡查", statusValue["value"])
 }
 
 func TestServiceSpaceContextSourcesRejectNonReadyOutputAndUnauthorizedUser(t *testing.T) {

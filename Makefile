@@ -1,4 +1,4 @@
-.PHONY: help build run test clean docker-build-app docker-build-docreader docker-build-frontend docker-build-admin docker-build-all docker-run migrate-up migrate-down backup-db docker-restart docker-stop start-all stop-all start-ollama stop-ollama build-images build-images-app build-images-docreader build-images-frontend build-images-admin clean-images check-env list-containers pull-images show-platform release-preflight dev-start dev-stop dev-restart dev-logs dev-status dev-app dev-frontend dev-admin docs install-swagger build-lite run-lite package-lite
+.PHONY: help build run test clean docker-build-app docker-build-docreader docker-build-frontend docker-build-admin docker-build-website docker-build-all docker-run migrate-up migrate-down backup-db docker-restart docker-stop start-all stop-all start-ollama stop-ollama build-images build-images-app build-images-docreader build-images-frontend build-images-admin clean-images check-env list-containers pull-images show-platform release-preflight dev-start dev-stop dev-restart dev-logs dev-status dev-app dev-frontend dev-admin docs install-swagger build-lite run-lite package-lite build-website-dist
 
 # Show help
 help:
@@ -15,6 +15,7 @@ help:
 	@echo "  docker-build-docreader 构建文档读取器镜像 (wechatopenai/weknora-docreader)"
 	@echo "  docker-build-frontend  构建前端镜像 (wechatopenai/weknora-ui)"
 	@echo "  docker-build-admin     构建 Admin 前端镜像 (wechatopenai/weknora-admin)"
+	@echo "  docker-build-website   构建官网镜像 (ruile-website)"
 	@echo "  docker-build-all       构建所有 Docker 镜像"
 	@echo "  docker-run            运行 Docker 容器"
 	@echo "  docker-stop           停止 Docker 容器"
@@ -31,6 +32,7 @@ help:
 	@echo "  build-images-docreader 从源码构建文档读取器镜像"
 	@echo "  build-images-frontend  从源码构建前端镜像"
 	@echo "  build-images-admin     从源码构建 Admin 前端镜像"
+	@echo "  build-website-dist     暂存官网静态产物到 website/dist（不构建镜像）"
 	@echo "  clean-images      清理本地镜像"
 	@echo ""
 	@echo "数据库:"
@@ -131,8 +133,17 @@ docker-build-admin:
 	./scripts/build_admin_dist.sh
 	docker build --platform $(PLATFORM) -f admin/Dockerfile -t wechatopenai/weknora-admin:latest admin/
 
+# Stage website static assets (no bundler — staging only)
+build-website-dist:
+	./scripts/build_website_dist.sh
+
+# Build marketing website Docker image
+docker-build-website:
+	./scripts/build_website_dist.sh
+	docker build --platform $(PLATFORM) -f website/Dockerfile -t ruile-website:latest website/
+
 # Build all Docker images
-docker-build-all: docker-build-app docker-build-docreader docker-build-frontend docker-build-admin
+docker-build-all: docker-build-app docker-build-docreader docker-build-frontend docker-build-admin docker-build-website
 
 # Run Docker container (传统方式)
 # Touch .env if missing — docker-compose.yml's `env_file: [.env]` is required

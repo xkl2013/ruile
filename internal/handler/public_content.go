@@ -16,11 +16,44 @@ import (
 )
 
 type PublicContentHandler struct {
-	service interfaces.OrganizeService
+	service          interfaces.OrganizeService
+	organizationRepo interfaces.OrganizationRepository
 }
 
-func NewPublicContentHandler(svc interfaces.OrganizeService) *PublicContentHandler {
-	return &PublicContentHandler{service: svc}
+func NewPublicContentHandler(
+	svc interfaces.OrganizeService,
+	organizationRepo interfaces.OrganizationRepository,
+) *PublicContentHandler {
+	return &PublicContentHandler{
+		service:          svc,
+		organizationRepo: organizationRepo,
+	}
+}
+
+func (h *PublicContentHandler) ListAdminCourseOrganizations(c *gin.Context) {
+	if h.organizationRepo == nil {
+		c.Error(apperrors.NewInternalServerError("organization repository is not configured"))
+		return
+	}
+	organizations, err := h.organizationRepo.ListAll(c.Request.Context())
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	items := make([]gin.H, 0, len(organizations))
+	for _, organization := range organizations {
+		if organization == nil {
+			continue
+		}
+		items = append(items, gin.H{
+			"id":   organization.ID,
+			"name": organization.Name,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    gin.H{"items": items, "total": len(items)},
+	})
 }
 
 type publicContentUpdateRequest struct {

@@ -1858,6 +1858,13 @@ const handleServiceSessionMutation = (event: Event) => {
   }
 }
 
+const handleServiceSpaceDataUpdated = (event: Event) => {
+  const detail = (event as CustomEvent<{ serviceId?: string }>).detail
+  const serviceId = activeService.value?.id
+  if (!serviceId || detail?.serviceId !== serviceId) return
+  void loadPlanningData(serviceId)
+}
+
 watch(panel, (value) => {
   if ((value === 'profile' || value === 'summary') && activeService.value?.id) {
     void loadPlanningData(activeService.value.id)
@@ -1910,10 +1917,14 @@ watch(
 
 onMounted(async () => {
   window.addEventListener(SESSION_MUTATION_EVENT, handleServiceSessionMutation)
+  window.addEventListener('service-space-data-updated', handleServiceSpaceDataUpdated)
   await loadServiceHub()
   await syncFromRoute()
 })
-onUnmounted(() => window.removeEventListener(SESSION_MUTATION_EVENT, handleServiceSessionMutation))
+onUnmounted(() => {
+  window.removeEventListener(SESSION_MUTATION_EVENT, handleServiceSessionMutation)
+  window.removeEventListener('service-space-data-updated', handleServiceSpaceDataUpdated)
+})
 
 watch(
   () => [

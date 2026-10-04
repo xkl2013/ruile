@@ -27,6 +27,7 @@ show_help() {
     echo "  -d, --docreader 仅构建文档读取器镜像"
     echo "  -f, --frontend 仅构建前端镜像"
     echo "  --admin        仅构建 Admin 前端镜像"
+    echo "  --website      仅构建官网镜像"
     echo "  -s, --sandbox  仅构建沙箱镜像"
     echo "  -c, --clean    清理所有本地镜像"
     echo "  -v, --version  显示版本信息"
@@ -248,6 +249,31 @@ build_admin_image() {
     fi
 }
 
+# 构建官网镜像（营销站，纯静态）
+build_website_image() {
+    log_info "构建官网镜像 (ruile-website)..."
+
+    cd "$PROJECT_ROOT"
+
+    log_info "暂存官网静态资源..."
+    "$SCRIPT_DIR/build_website_dist.sh"
+
+    docker build \
+        --platform $PLATFORM \
+        --build-arg NGINX_BASE=${NGINX_BASE:-nginx:stable-alpine} \
+        -f website/Dockerfile \
+        -t ruile-website:latest \
+        website/
+
+    if [ $? -eq 0 ]; then
+        log_success "官网镜像构建成功"
+        return 0
+    else
+        log_error "官网镜像构建失败"
+        return 1
+    fi
+}
+
 # 构建沙箱镜像
 build_sandbox_image() {
     log_info "构建沙箱镜像 (weknora-sandbox)..."
@@ -279,6 +305,7 @@ build_all_images() {
     local docreader_result=0
     local frontend_result=0
     local admin_result=0
+    local website_result=0
     local sandbox_result=0
 
     # 构建应用镜像
@@ -296,6 +323,10 @@ build_all_images() {
     # 构建 Admin 前端镜像
     build_admin_image
     admin_result=$?
+
+    # 构建官网镜像
+    build_website_image
+    website_result=$?
 
     # 构建沙箱镜像
     build_sandbox_image
@@ -328,13 +359,19 @@ build_all_images() {
         log_error "✗ Admin 前端镜像构建失败"
     fi
 
+    if [ $website_result -eq 0 ]; then
+        log_success "✓ 官网镜像构建成功"
+    else
+        log_error "✗ 官网镜像构建失败"
+    fi
+
     if [ $sandbox_result -eq 0 ]; then
         log_success "✓ 沙箱镜像构建成功"
     else
         log_error "✗ 沙箱镜像构建失败"
     fi
 
-    if [ $app_result -eq 0 ] && [ $docreader_result -eq 0 ] && [ $frontend_result -eq 0 ] && [ $admin_result -eq 0 ] && [ $sandbox_result -eq 0 ]; then
+    if [ $app_result -eq 0 ] && [ $docreader_result -eq 0 ] && [ $frontend_result -eq 0 ] && [ $admin_result -eq 0 ] && [ $website_result -eq 0 ] && [ $sandbox_result -eq 0 ]; then
         log_success "所有镜像构建完成！"
         return 0
     else
@@ -367,6 +404,7 @@ clean_images() {
     docker rmi wechatopenai/weknora-docreader:latest 2>/dev/null || true
     docker rmi wechatopenai/weknora-ui:latest 2>/dev/null || true
     docker rmi wechatopenai/weknora-admin:latest 2>/dev/null || true
+    docker rmi ruile-website:latest 2>/dev/null || true
     docker rmi wechatopenai/weknora-sandbox:latest 2>/dev/null || true
     
     docker image prune -f
@@ -381,6 +419,7 @@ BUILD_APP=false
 BUILD_DOCREADER=false
 BUILD_FRONTEND=false
 BUILD_ADMIN=false
+BUILD_WEBSITE=false
 BUILD_SANDBOX=false
 CLEAN_IMAGES=false
 
@@ -402,6 +441,8 @@ while [ "$1" != "" ]; do
         -f | --frontend )   BUILD_FRONTEND=true
                             ;;
         --admin )           BUILD_ADMIN=true
+                            ;;
+        --website )         BUILD_WEBSITE=true
                             ;;
         -s | --sandbox )    BUILD_SANDBOX=true
                             ;;
@@ -454,6 +495,11 @@ fi
 
 if [ "$BUILD_ADMIN" = true ]; then
     build_admin_image
+    exit $?
+fi
+
+if [ "$BUILD_WEBSITE" = true ]; then
+    build_website_image
     exit $?
 fi
 

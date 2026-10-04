@@ -4,11 +4,11 @@
       <div>
         <div class="course-eyebrow">平台内容目录</div>
         <h2>系列课程</h2>
-        <p>上传一个文件夹即生成一门课程：系统按文件名前缀数字决定讲次顺序，逐个解析内容后一次性发布到发现模块。</p>
+        <p>先创建课程信息，再逐集添加课程内容；每次只上传一份课程文件。</p>
       </div>
       <t-button theme="primary" @click="openWizard">
-        <template #icon><t-icon name="folder-add" /></template>
-        上传文件夹建课
+        <template #icon><t-icon name="add" /></template>
+        创建课程
       </t-button>
     </div>
 
@@ -38,8 +38,8 @@
 
       <div v-if="loading" class="course-state"><t-loading size="small" /> 加载中</div>
       <div v-else-if="!courses.length" class="course-state">
-        <t-icon name="folder-open" />
-        <span>还没有课程，点右上角上传一个文件夹试试</span>
+        <t-icon name="book-open" />
+        <span>还没有课程，点右上角先创建课程信息</span>
       </div>
       <div v-else class="course-list">
         <div v-for="item in courses" :key="item.id" class="course-row">
@@ -53,6 +53,9 @@
               <t-tag theme="default" variant="light-outline" size="small">
                 {{ sourceLabel(item.source) }}
               </t-tag>
+              <t-tag theme="default" variant="light-outline" size="small">
+                {{ visibilityLabel(item.visibility_scope) }}
+              </t-tag>
             </div>
             <p>{{ item.summary || '暂无课程简介' }}</p>
             <div class="course-row__meta">
@@ -63,6 +66,7 @@
             </div>
           </div>
           <div class="course-row__actions">
+            <t-button variant="outline" size="small" @click="openLessonWizard(item)">添加内容</t-button>
             <t-button variant="text" size="small" @click="openDetail(item)">查看</t-button>
             <t-button
               v-if="item.public_status !== 'published'"
@@ -102,10 +106,10 @@
       </div>
     </section>
 
-    <!-- Folder-upload wizard: pick folder -> preview -> metadata -> result -->
+    <!-- Course creation: metadata first, then one lesson per request -->
     <t-dialog
       v-model:visible="wizardVisible"
-      header="上传文件夹建课"
+      header="创建系列课程"
       :width="820"
       :footer="false"
       :close-on-overlay-click="false"
@@ -114,55 +118,6 @@
       <t-steps :options="stepOptions" :current="step" class="course-steps" />
 
       <div v-if="step === 0" class="course-step">
-        <input
-          ref="folderInput"
-          type="file"
-          multiple
-          webkitdirectory
-          directory
-          class="course-hidden-input"
-          @change="onFolderPicked"
-        />
-        <div class="course-dropzone" @click="pickFolder">
-          <t-icon name="folder-add" class="course-dropzone__icon" />
-          <strong>{{ pickedFiles.length ? pickedFolderName : '选择本地文件夹' }}</strong>
-          <span v-if="pickedFiles.length">
-            已读取 {{ pickedFiles.length }} 个文件，其中 {{ usableFiles.length }} 个可作为讲次
-          </span>
-          <span v-else>点此打开系统文件夹选择器，一次选中整门课的材料</span>
-        </div>
-        <p class="course-hint">
-          建议把文件名写成「01_开课说明」「02_家长沟通」这样的形式，系统会按前缀数字排讲次。
-          .DS_Store、__MACOSX 等系统文件会被自动忽略。
-        </p>
-      </div>
-
-      <div v-else-if="step === 1" class="course-step">
-        <div class="course-preview-head">
-          <span>共 {{ usableFiles.length }} 讲将发布</span>
-          <span v-if="skippedFiles.length" class="course-preview-skip">
-            已忽略 {{ skippedFiles.length }} 个文件
-          </span>
-        </div>
-        <div class="course-preview">
-          <div v-for="(item, index) in usableFiles" :key="item.relativePath" class="course-preview-row">
-            <span class="course-preview-row__order">{{ index + 1 }}</span>
-            <t-icon :name="kindIcon(item.kind)" class="course-preview-row__icon" />
-            <span class="course-preview-row__name" :title="item.relativePath">{{ item.name }}</span>
-            <t-tag theme="default" variant="light-outline" size="small">{{ kindLabel(item.kind) }}</t-tag>
-            <span class="course-preview-row__size">{{ formatSize(item.file.size) }}</span>
-          </div>
-          <div v-for="item in skippedFiles" :key="item.relativePath" class="course-preview-row course-preview-row--muted">
-            <span class="course-preview-row__order">—</span>
-            <t-icon name="close-circle" class="course-preview-row__icon" />
-            <span class="course-preview-row__name" :title="item.relativePath">{{ item.name }}</span>
-            <t-tag theme="default" variant="light" size="small">已忽略</t-tag>
-            <span class="course-preview-row__size">{{ item.skipReason }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div v-else-if="step === 2" class="course-step">
         <t-form :data="metaForm" label-align="top" class="course-form">
           <t-form-item label="课程名称">
             <t-input v-model="metaForm.title" placeholder="例如：园所招生话术实操" />
@@ -194,6 +149,31 @@
             </t-form-item>
           </div>
           <div class="course-form-grid">
+            <t-form-item label="可见范围">
+              <t-select v-model="metaForm.visibilityScope">
+                <t-option value="system" label="系统公开（所有已登录用户）" />
+                <t-option value="shared_space" label="指定共享空间可见" />
+                <t-option value="private" label="私有（创建空间可见）" />
+              </t-select>
+            </t-form-item>
+            <t-form-item v-if="metaForm.visibilityScope === 'shared_space'" label="共享空间">
+              <t-select
+                v-model="metaForm.sharedSpaceIds"
+                multiple
+                filterable
+                :loading="organizationLoading"
+                placeholder="选择一个或多个共享空间"
+              >
+                <t-option
+                  v-for="organization in organizations"
+                  :key="organization.id"
+                  :value="organization.id"
+                  :label="organization.name"
+                />
+              </t-select>
+            </t-form-item>
+          </div>
+          <div class="course-form-grid">
             <t-form-item label="讲师姓名">
               <t-input v-model="metaForm.teacherName" placeholder="选填" />
             </t-form-item>
@@ -201,63 +181,115 @@
               <t-input v-model="metaForm.teacherTitle" placeholder="选填，例如 教学园长" />
             </t-form-item>
           </div>
-          <t-form-item label="课程封面地址">
-            <t-input v-model="metaForm.coverUrl" placeholder="选填，留空则使用首讲内容生成卡片" />
+          <t-form-item label="课程封面">
+            <div class="course-cover-upload">
+              <input
+                ref="coverInput"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                class="course-hidden-input"
+                @change="onCoverPicked"
+              />
+              <button type="button" class="course-cover-upload__box" @click="pickCover">
+                <img v-if="coverPreviewUrl" :src="coverPreviewUrl" alt="课程封面预览" />
+                <span v-else class="course-cover-upload__empty">
+                  <t-icon name="upload" />
+                  <span>上传课程封面</span>
+                </span>
+              </button>
+              <div class="course-cover-upload__meta">
+                <span>{{ coverFileName || '选填，留空则使用首讲内容生成卡片' }}</span>
+                <t-button
+                  v-if="coverPreviewUrl"
+                  size="small"
+                  variant="text"
+                  theme="danger"
+                  @click="clearCover"
+                >
+                  移除
+                </t-button>
+              </div>
+            </div>
           </t-form-item>
         </t-form>
-
-        <div v-if="uploading" class="course-progress">
-          <t-progress :percentage="uploadPercent" :label="true" />
-          <span>正在上传并解析 {{ usableFiles.length }} 个文件，视频文件耗时较长，请勿关闭页面</span>
-        </div>
       </div>
 
       <div v-else class="course-step">
-        <div class="course-done">
-          <t-icon name="check-circle-filled" class="course-done__icon" />
-          <strong>{{ result?.course?.title || '课程已创建' }}</strong>
-          <span>
-            已生成 {{ result?.course?.lesson_count || 0 }} 讲，状态为
-            {{ statusLabel((result?.course?.public_status || 'published') as CourseStatus) }}
-          </span>
+        <div class="course-lesson-head">
+          <div>
+            <strong>{{ courseDraft?.title }}</strong>
+            <span>{{ courseDraft?.lesson_count || 0 }} 讲</span>
+          </div>
+          <t-tag :theme="statusTheme(courseDraft?.public_status || 'draft')" variant="light" size="small">
+            {{ statusLabel(courseDraft?.public_status || 'draft') }}
+          </t-tag>
         </div>
-        <div v-if="result?.skipped?.length" class="course-done__skipped">
-          <div class="course-done__skipped-title">以下文件未生成讲次</div>
-          <div v-for="item in result.skipped" :key="item.file_name" class="course-preview-row course-preview-row--muted">
-            <span class="course-preview-row__name" :title="item.file_name">{{ item.file_name }}</span>
-            <span class="course-preview-row__size">{{ item.reason }}</span>
+        <input
+          ref="lessonInput"
+          type="file"
+          class="course-hidden-input"
+          @change="onLessonPicked"
+        />
+        <div class="course-lesson-picker" @click="pickLesson">
+          <t-icon name="upload" class="course-dropzone__icon" />
+          <strong>{{ lessonFileName || '选择一集课程文件' }}</strong>
+          <span>{{ lessonFile ? formatSize(lessonFile.size) : '每次选择一个文件并上传' }}</span>
+        </div>
+        <div v-if="lessonFile" class="course-lesson-selected">
+          <span>{{ lessonFileName }}</span>
+          <t-button
+            theme="primary"
+            :loading="uploadingLesson"
+            @click="uploadLesson"
+          >
+            上传这一集
+          </t-button>
+        </div>
+        <div v-if="uploadingLesson" class="course-progress">
+          <t-progress :percentage="uploadPercent" :label="true" />
+          <span>正在上传并解析当前课程文件，请勿关闭页面</span>
+        </div>
+        <div class="course-preview-head">
+          <span>已添加 {{ lessonItems.length }} 讲</span>
+        </div>
+        <div v-if="lessonItems.length" class="course-preview">
+          <div v-for="(lesson, index) in lessonItems" :key="lesson.id" class="course-preview-row">
+            <span class="course-preview-row__order">{{ index + 1 }}</span>
+            <t-icon :name="kindIcon(lesson.lesson_type)" class="course-preview-row__icon" />
+            <span class="course-preview-row__name">{{ lesson.title }}</span>
+            <t-tag theme="default" variant="light-outline" size="small">{{ kindLabel(lesson.lesson_type) }}</t-tag>
           </div>
         </div>
+        <div v-else class="course-empty-lessons">课程还没有内容，选择文件后上传第一集</div>
       </div>
 
       <div class="course-wizard-footer">
-        <t-button v-if="step > 0 && step < 3" variant="outline" :disabled="uploading" @click="step -= 1">
+        <t-button v-if="step === 1" variant="outline" :disabled="uploadingLesson" @click="step = 0">
           上一步
         </t-button>
         <span class="course-wizard-footer__spacer" />
-        <t-button variant="text" :disabled="uploading" @click="closeWizard">
-          {{ step === 3 ? '完成' : '取消' }}
+        <t-button variant="text" :disabled="creatingCourse || uploadingLesson" @click="closeWizard">
+          {{ step === 0 ? '取消' : '完成' }}
         </t-button>
-        <t-button v-if="step === 0" theme="primary" :disabled="!usableFiles.length" @click="step = 1">
-          下一步
+        <t-button v-if="step === 0" theme="primary" :loading="creatingCourse" @click="createCourse">
+          创建课程
         </t-button>
-        <t-button v-else-if="step === 1" theme="primary" @click="goToMeta">
-          下一步
-        </t-button>
-        <t-button v-else-if="step === 2" theme="primary" :loading="uploading" @click="submit">
-          开始上传（{{ usableFiles.length }} 讲）
-        </t-button>
-        <t-button v-else theme="primary" @click="closeWizard">完成</t-button>
       </div>
     </t-dialog>
 
-    <t-dialog v-model:visible="detailVisible" header="课程详情" :width="720" :footer="false">
+    <t-dialog v-model:visible="detailVisible" header="课程详情" :width="820" :footer="false">
       <div v-if="detail" class="course-detail">
         <div class="course-detail__head">
-          <strong>{{ detail.title }}</strong>
-          <t-tag :theme="statusTheme(detail.public_status)" variant="light" size="small">
-            {{ statusLabel(detail.public_status) }}
-          </t-tag>
+          <div class="course-detail__heading">
+            <strong>{{ detail.title }}</strong>
+            <t-tag :theme="statusTheme(detail.public_status)" variant="light" size="small">
+              {{ statusLabel(detail.public_status) }}
+            </t-tag>
+          </div>
+          <t-button theme="primary" variant="outline" size="small" @click="addLessonFromDetail">
+            <template #icon><t-icon name="add" /></template>
+            添加一讲
+          </t-button>
         </div>
         <p class="course-detail__summary">{{ detail.summary || '暂无课程简介' }}</p>
         <div class="course-detail__meta">
@@ -266,52 +298,134 @@
           <span v-if="detail.teacher_name">讲师：{{ detail.teacher_name }}</span>
           <span v-if="detail.category">分类：{{ categoryLabel(detail.category) }}</span>
         </div>
+        <div class="course-detail__visibility">
+          <div class="course-detail__visibility-field">
+            <span>可见范围</span>
+            <t-select v-model="detailVisibilityScope" style="width: 240px">
+              <t-option value="system" label="系统公开（所有已登录用户）" />
+              <t-option value="shared_space" label="指定共享空间可见" />
+              <t-option value="private" label="私有（创建空间可见）" />
+            </t-select>
+          </div>
+          <div v-if="detailVisibilityScope === 'shared_space'" class="course-detail__visibility-field">
+            <span>共享空间</span>
+            <t-select
+              v-model="detailSharedSpaceIds"
+              multiple
+              filterable
+              :loading="organizationLoading"
+              style="min-width: 240px; flex: 1"
+              placeholder="选择一个或多个共享空间"
+            >
+              <t-option
+                v-for="organization in organizations"
+                :key="organization.id"
+                :value="organization.id"
+                :label="organization.name"
+              />
+            </t-select>
+          </div>
+          <div class="course-detail__visibility-actions">
+            <t-button
+              theme="primary"
+              variant="outline"
+              size="small"
+              :loading="savingVisibility"
+              @click="saveVisibility"
+            >
+              保存可见范围
+            </t-button>
+          </div>
+        </div>
         <div class="course-detail__lessons">
           <div class="course-detail__lessons-title">课程大纲（{{ detail.lessons?.length || 0 }} 讲）</div>
-          <div v-for="(lesson, index) in detail.lessons || []" :key="lesson.id" class="course-preview-row">
+          <div v-for="(lesson, index) in detail.lessons || []" :key="lesson.id" class="course-preview-row course-detail__lesson-row">
             <span class="course-preview-row__order">{{ index + 1 }}</span>
             <t-icon :name="kindIcon(lesson.lesson_type)" class="course-preview-row__icon" />
             <span class="course-preview-row__name">{{ lesson.title }}</span>
             <t-tag theme="default" variant="light-outline" size="small">{{ kindLabel(lesson.lesson_type) }}</t-tag>
+            <div class="course-detail__lesson-actions">
+              <t-button
+                variant="text"
+                shape="square"
+                title="编辑讲次"
+                @click="openLessonEdit(lesson)"
+              >
+                <template #icon><t-icon name="edit" /></template>
+              </t-button>
+              <t-button
+                variant="text"
+                shape="square"
+                theme="danger"
+                title="删除讲次"
+                :loading="deletingLessonId === lesson.id"
+                @click="deleteLesson(lesson, index)"
+              >
+                <template #icon><t-icon name="delete" /></template>
+              </t-button>
+            </div>
+          </div>
+          <div v-if="!detail.lessons?.length" class="course-empty-lessons">
+            课程还没有内容，点击右上角添加第一讲
           </div>
         </div>
       </div>
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="lessonEditVisible"
+      header="编辑课程内容"
+      :width="520"
+      :confirm-btn="{ content: '保存', loading: savingLesson }"
+      @confirm="saveLessonEdit"
+      @close="resetLessonEdit"
+    >
+      <t-form v-if="editingLesson" :data="lessonEditForm" label-align="top">
+        <t-form-item label="本讲名称">
+          <t-input v-model="lessonEditForm.title" placeholder="学习者看到的讲次名称" />
+        </t-form-item>
+        <t-form-item label="课程描述">
+          <t-textarea
+            v-model="lessonEditForm.description"
+            :autosize="{ minRows: 4, maxRows: 7 }"
+            placeholder="补充这一讲的学习重点或内容简介"
+          />
+        </t-form-item>
+        <div class="course-edit-meta">
+          <span>内容类型：{{ kindLabel(editingLesson.lesson_type) }}</span>
+          <span>原始文件不会被替换，如需替换请删除后重新上传。</span>
+        </div>
+      </t-form>
     </t-dialog>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
+  createAdminCourse,
+  deleteAdminCourseLesson,
   deleteAdminCourse,
   getAdminCourse,
+  listAdminCourseOrganizations,
   listAdminCourses,
   offlineAdminCourse,
   publishAdminCourse,
+  updateAdminCourseVisibility,
+  updateAdminCourseLesson,
   uploadAdminCourse,
   type AdminCourse,
-  type AdminCourseSkippedFile,
+  type AdminCourseLesson,
+  type AdminCourseOrganization,
   type AdminCourseStats,
-  type AdminCourseUploadResult,
-  type CourseLessonType,
   type CourseStatus,
+  type CourseVisibilityScope,
 } from '@admin/api/course'
 import {
   DISCOVER_CATEGORY_OPTIONS,
   discoverCategoryLabel,
 } from '@/views/organize/discoverCategories'
-
-const VIDEO_EXTS = ['mp4', 'mov', 'm4v', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'mpeg', 'mpg']
-const AUDIO_EXTS = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg', 'wma', 'amr', 'opus']
-
-interface PreviewItem {
-  file: File
-  relativePath: string
-  name: string
-  kind: CourseLessonType
-  skipReason: string
-}
 
 const courses = ref<AdminCourse[]>([])
 const loading = ref(false)
@@ -323,20 +437,30 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 20
 const stats = ref<AdminCourseStats>({ total: 0, published: 0, offline: 0, lesson_total: 0 })
+const organizations = ref<AdminCourseOrganization[]>([])
+const organizationLoading = ref(false)
 
 const wizardVisible = ref(false)
 const step = ref(0)
-const folderInput = ref<HTMLInputElement | null>(null)
-const pickedFiles = ref<PreviewItem[]>([])
-const pickedFolderName = ref('')
-const uploading = ref(false)
+const coverInput = ref<HTMLInputElement | null>(null)
+const lessonInput = ref<HTMLInputElement | null>(null)
+const coverFile = ref<File | null>(null)
+const coverPreviewUrl = ref('')
+const coverFileName = ref('')
+const lessonFile = ref<File | null>(null)
+const lessonFileName = ref('')
+const lessonItems = ref<AdminCourseLesson[]>([])
+const courseDraft = ref<AdminCourse | null>(null)
+const creatingCourse = ref(false)
+const uploadingLesson = ref(false)
 const uploadPercent = ref(0)
-const result = ref<AdminCourseUploadResult | null>(null)
 const metaForm = ref({
   title: '',
   summary: '',
   category: '',
   publicStatus: 'published' as CourseStatus,
+  visibilityScope: 'system' as CourseVisibilityScope,
+  sharedSpaceIds: [] as string[],
   teacherName: '',
   teacherTitle: '',
   coverUrl: '',
@@ -344,16 +468,20 @@ const metaForm = ref({
 
 const detailVisible = ref(false)
 const detail = ref<AdminCourse | null>(null)
+const lessonEditVisible = ref(false)
+const editingLesson = ref<AdminCourseLesson | null>(null)
+const lessonEditForm = ref({ title: '', description: '' })
+const savingLesson = ref(false)
+const deletingLessonId = ref('')
+const detailVisibilityScope = ref<CourseVisibilityScope>('system')
+const detailSharedSpaceIds = ref<string[]>([])
+const savingVisibility = ref(false)
 
 const stepOptions = [
-  { title: '选择文件夹' },
-  { title: '预览讲次' },
   { title: '填写课程信息' },
-  { title: '发布完成' },
+  { title: '添加课程内容' },
 ]
 
-const usableFiles = computed(() => pickedFiles.value.filter((item) => !item.skipReason))
-const skippedFiles = computed(() => pickedFiles.value.filter((item) => item.skipReason))
 const lessonTotal = computed(() => stats.value.lesson_total)
 
 function countByStatus(status: CourseStatus) {
@@ -381,6 +509,15 @@ function statusTheme(status: CourseStatus) {
 
 function sourceLabel(source?: string) {
   return source === 'creator' ? '创作者课程' : '官方精品课'
+}
+
+function visibilityLabel(scope?: CourseVisibilityScope) {
+  return ({
+    system: '系统公开',
+    shared_space: '共享空间',
+    private: '私有',
+  } as Record<CourseVisibilityScope, string>)[scope || 'system']
+    || '系统公开'
 }
 
 function categoryLabel(category?: string) {
@@ -494,9 +631,119 @@ async function openDetail(item: AdminCourse) {
   try {
     const response = await getAdminCourse(item.id)
     detail.value = response.data || null
+    detailVisibilityScope.value = detail.value?.visibility_scope || 'system'
+    detailSharedSpaceIds.value = [...(detail.value?.shared_space_ids || [])]
     detailVisible.value = true
   } catch (error: any) {
     MessagePlugin.error(error?.message || '加载课程详情失败')
+  }
+}
+
+async function saveVisibility() {
+  if (!detail.value) return
+  if (detailVisibilityScope.value === 'shared_space' && !detailSharedSpaceIds.value.length) {
+    MessagePlugin.warning('请选择至少一个共享空间')
+    return
+  }
+  savingVisibility.value = true
+  try {
+    const response = await updateAdminCourseVisibility(detail.value.id, {
+      visibilityScope: detailVisibilityScope.value,
+      sharedSpaceIds: detailVisibilityScope.value === 'shared_space'
+        ? detailSharedSpaceIds.value
+        : [],
+    })
+    detail.value = response.data || detail.value
+    detailVisibilityScope.value = detail.value.visibility_scope || 'system'
+    detailSharedSpaceIds.value = [...(detail.value.shared_space_ids || [])]
+    MessagePlugin.success('课程可见范围已保存')
+    await loadCourses()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '保存可见范围失败')
+  } finally {
+    savingVisibility.value = false
+  }
+}
+
+function addLessonFromDetail() {
+  if (!detail.value) return
+  const course = detail.value
+  detailVisible.value = false
+  void openLessonWizard(course)
+}
+
+function openLessonEdit(lesson: AdminCourseLesson) {
+  editingLesson.value = lesson
+  lessonEditForm.value = {
+    title: lesson.title || '',
+    description: lesson.output?.source_summary || '',
+  }
+  lessonEditVisible.value = true
+}
+
+function resetLessonEdit() {
+  editingLesson.value = null
+  lessonEditForm.value = { title: '', description: '' }
+  savingLesson.value = false
+}
+
+async function saveLessonEdit() {
+  if (!detail.value || !editingLesson.value) return
+  const title = lessonEditForm.value.title.trim()
+  if (!title) {
+    MessagePlugin.warning('请输入课程名称')
+    return
+  }
+
+  savingLesson.value = true
+  try {
+    await updateAdminCourseLesson(detail.value.id, editingLesson.value.id, {
+      title,
+      description: lessonEditForm.value.description.trim(),
+    })
+    MessagePlugin.success('课程内容已保存')
+    lessonEditVisible.value = false
+    const response = await getAdminCourse(detail.value.id)
+    detail.value = response.data || detail.value
+    await loadCourses()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '保存课程内容失败')
+  } finally {
+    savingLesson.value = false
+  }
+}
+
+async function deleteLesson(lesson: AdminCourseLesson, index: number) {
+  if (!detail.value) return
+  // eslint-disable-next-line no-alert
+  const confirmed = window.confirm(`删除第 ${index + 1} 讲「${lesson.title}」？视频文件和这一讲的内容也会一并删除。`)
+  if (!confirmed) return
+
+  deletingLessonId.value = lesson.id
+  try {
+    await deleteAdminCourseLesson(detail.value.id, lesson.id)
+    MessagePlugin.success('课程内容已删除')
+    const response = await getAdminCourse(detail.value.id)
+    detail.value = response.data || detail.value
+    await loadCourses()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '删除课程内容失败')
+  } finally {
+    deletingLessonId.value = ''
+  }
+}
+
+async function openLessonWizard(item: AdminCourse) {
+  try {
+    const response = await getAdminCourse(item.id)
+    courseDraft.value = response.data || item
+    lessonItems.value = response.data?.lessons || []
+    step.value = 1
+    clearLesson()
+    clearCover()
+    wizardVisible.value = true
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '加载课程内容失败')
   }
 }
 
@@ -515,151 +762,200 @@ function closeWizard() {
 
 function resetWizard() {
   step.value = 0
-  pickedFiles.value = []
-  pickedFolderName.value = ''
-  uploading.value = false
+  courseDraft.value = null
+  lessonItems.value = []
+  clearLesson()
+  clearCover()
+  creatingCourse.value = false
+  uploadingLesson.value = false
   uploadPercent.value = 0
-  result.value = null
   metaForm.value = {
     title: '',
     summary: '',
     category: '',
     publicStatus: 'published',
+    visibilityScope: 'system',
+    sharedSpaceIds: [],
     teacherName: '',
     teacherTitle: '',
     coverUrl: '',
   }
 }
 
-function pickFolder() {
-  const input = folderInput.value
+function pickCover() {
+  const input = coverInput.value
   if (!input) return
-  // Vue renders the non-standard attributes, but setting them imperatively
-  // keeps folder selection working on browsers that only honour the
-  // prefixed/legacy spellings.
-  input.setAttribute('webkitdirectory', '')
-  input.setAttribute('directory', '')
   input.value = ''
   input.click()
 }
 
-function onFolderPicked(event: Event) {
+function onCoverPicked(event: Event) {
   const input = event.target as HTMLInputElement
-  const fileList = input.files
-  if (!fileList || !fileList.length) return
-
-  const items: PreviewItem[] = []
-  for (let index = 0; index < fileList.length; index += 1) {
-    const file = fileList[index]
-    const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
-    const name = relativePath.split('/').pop() || file.name
-    items.push({
-      file,
-      relativePath,
-      name,
-      kind: kindOf(name),
-      skipReason: skipReasonFor(relativePath, name),
-    })
-  }
-
-  pickedFiles.value = sortPreviewItems(items)
-  const first = pickedFiles.value.find((item) => item.relativePath.includes('/'))
-  pickedFolderName.value = first ? first.relativePath.split('/')[0] : ''
-  if (!metaForm.value.title && pickedFolderName.value) {
-    metaForm.value.title = pickedFolderName.value
-  }
-
-  if (!usableFiles.value.length) {
-    MessagePlugin.warning('这个文件夹里没有可用的讲课文件，请换一个文件夹')
-  }
-}
-
-/**
- * Mirrors the backend ordering rule: files whose name starts with a number are
- * ordered by that number first, everything else follows in name order. The
- * preview must match what will actually be published, so if this rule changes
- * the Go side has to change with it.
- */
-function sortPreviewItems(items: PreviewItem[]) {
-  return [...items].sort((left, right) => {
-    const leftRank = rankOf(left.name)
-    const rightRank = rankOf(right.name)
-    if ((leftRank !== null) !== (rightRank !== null)) return leftRank !== null ? -1 : 1
-    if (leftRank !== null && rightRank !== null && leftRank !== rightRank) return leftRank - rightRank
-    const leftName = left.name.toLowerCase()
-    const rightName = right.name.toLowerCase()
-    if (leftName !== rightName) return leftName < rightName ? -1 : 1
-    return 0
-  })
-}
-
-function rankOf(name: string) {
-  const match = /^(\d{1,4})([_\-.\s]|$)/.exec(name)
-  return match ? Number(match[1]) : null
-}
-
-function kindOf(name: string): CourseLessonType {
-  const ext = name.split('.').pop()?.toLowerCase() || ''
-  if (VIDEO_EXTS.includes(ext)) return 'video'
-  if (AUDIO_EXTS.includes(ext)) return 'audio'
-  return 'article'
-}
-
-function skipReasonFor(relativePath: string, name: string) {
-  if (name.startsWith('.')) return '隐藏文件'
-  const lower = relativePath.toLowerCase()
-  if (lower.startsWith('__macosx/') || lower.includes('/__macosx/')) return '系统文件'
-  return ''
-}
-
-function goToMeta() {
-  if (!usableFiles.value.length) {
-    MessagePlugin.warning('至少需要一个可用的讲课文件')
+  const file = input.files?.[0]
+  if (!file) return
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  const imageExts = new Set(['png', 'jpg', 'jpeg', 'webp', 'gif'])
+  if (!file.type.startsWith('image/') && !imageExts.has(ext)) {
+    MessagePlugin.warning('请选择图片文件作为课程封面')
+    input.value = ''
     return
   }
-  step.value = 2
+  if (coverPreviewUrl.value) {
+    URL.revokeObjectURL(coverPreviewUrl.value)
+  }
+  coverFile.value = file
+  coverFileName.value = file.name
+  coverPreviewUrl.value = URL.createObjectURL(file)
 }
 
-async function submit() {
+function clearCover() {
+  if (coverPreviewUrl.value) {
+    URL.revokeObjectURL(coverPreviewUrl.value)
+  }
+  coverFile.value = null
+  coverPreviewUrl.value = ''
+  coverFileName.value = ''
+  if (coverInput.value) {
+    coverInput.value.value = ''
+  }
+}
+
+function pickLesson() {
+  const input = lessonInput.value
+  if (!input) return
+  input.value = ''
+  input.click()
+}
+
+function onLessonPicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  lessonFile.value = file
+  lessonFileName.value = file.name
+}
+
+function clearLesson() {
+  lessonFile.value = null
+  lessonFileName.value = ''
+  if (lessonInput.value) {
+    lessonInput.value.value = ''
+  }
+}
+
+async function createCourse() {
   if (!metaForm.value.title.trim()) {
     MessagePlugin.warning('请填写课程名称')
     return
   }
-  uploading.value = true
+  if (metaForm.value.visibilityScope === 'shared_space' && !metaForm.value.sharedSpaceIds.length) {
+    MessagePlugin.warning('请选择至少一个共享空间')
+    return
+  }
+
+  creatingCourse.value = true
   uploadPercent.value = 0
   try {
+    const response = await createAdminCourse({
+      title: metaForm.value.title.trim(),
+      summary: metaForm.value.summary.trim(),
+      category: metaForm.value.category,
+      coverUrl: metaForm.value.coverUrl.trim(),
+      coverImage: coverFile.value,
+      teacherName: metaForm.value.teacherName.trim(),
+      teacherTitle: metaForm.value.teacherTitle.trim(),
+      source: 'official',
+      publicStatus: metaForm.value.publicStatus,
+      visibilityScope: metaForm.value.visibilityScope,
+      sharedSpaceIds: metaForm.value.sharedSpaceIds,
+    })
+    courseDraft.value = response.data
+    lessonItems.value = response.data?.lessons || []
+    step.value = 1
+    MessagePlugin.success('课程信息已创建，现在可以逐集上传')
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '创建课程失败')
+  } finally {
+    creatingCourse.value = false
+  }
+}
+
+async function uploadLesson() {
+  if (!courseDraft.value) {
+    MessagePlugin.warning('请先创建课程信息')
+    return
+  }
+  if (!lessonFile.value) {
+    MessagePlugin.warning('请选择一集课程文件')
+    return
+  }
+
+  uploadingLesson.value = true
+  uploadPercent.value = 0
+  try {
+    const file = lessonFile.value
     const response = await uploadAdminCourse(
-      usableFiles.value.map((item) => ({ file: item.file, relativePath: item.relativePath })),
+      [{ file, relativePath: file.name }],
       {
-        title: metaForm.value.title.trim(),
-        summary: metaForm.value.summary.trim(),
-        category: metaForm.value.category,
-        coverUrl: metaForm.value.coverUrl.trim(),
-        teacherName: metaForm.value.teacherName.trim(),
-        teacherTitle: metaForm.value.teacherTitle.trim(),
-        source: 'official',
-        publicStatus: metaForm.value.publicStatus,
-        folder: pickedFolderName.value,
+        title: courseDraft.value.title,
+        summary: courseDraft.value.summary,
+        category: courseDraft.value.category,
+        courseId: courseDraft.value.id,
+        teacherName: courseDraft.value.teacher_name,
+        teacherTitle: courseDraft.value.teacher_title,
+        source: courseDraft.value.source,
+        publicStatus: courseDraft.value.public_status,
+        visibilityScope: courseDraft.value.visibility_scope,
+        sharedSpaceIds: courseDraft.value.shared_space_ids,
       },
       (event: any) => {
-        if (event?.total) {
-          uploadPercent.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
-        }
+        uploadPercent.value = event?.total
+          ? Math.min(99, Math.round((event.loaded / event.total) * 100))
+          : 0
       },
     )
-    result.value = response.data || null
+    const nextCourse = response.data?.course
+    if (nextCourse) {
+      const appendedLesson = nextCourse.lessons?.[0]
+      courseDraft.value = { ...courseDraft.value, ...nextCourse }
+      if (
+        appendedLesson
+        && !lessonItems.value.some((item) => item.id === appendedLesson.id)
+      ) {
+        lessonItems.value.push(appendedLesson)
+      }
+    }
+    clearLesson()
     uploadPercent.value = 100
-    step.value = 3
-    MessagePlugin.success('课程创建成功')
+    MessagePlugin.success('本集上传成功')
+    void loadCourses()
   } catch (error: any) {
-    MessagePlugin.error(error?.message || '上传建课失败')
+    MessagePlugin.error(error?.message || '本集上传失败')
   } finally {
-    uploading.value = false
+    uploadingLesson.value = false
+  }
+}
+
+async function loadOrganizations() {
+  organizationLoading.value = true
+  try {
+    const response = await listAdminCourseOrganizations()
+    organizations.value = response.data?.items || []
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '加载共享空间失败')
+  } finally {
+    organizationLoading.value = false
   }
 }
 
 onMounted(() => {
   void loadCourses()
+  void loadOrganizations()
+})
+
+onBeforeUnmount(() => {
+  clearCover()
+  clearLesson()
 })
 </script>
 
@@ -715,8 +1011,46 @@ onMounted(() => {
 
 .course-form { max-width: 100%; }
 .course-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.course-cover-upload { display: flex; align-items: center; gap: 12px; }
+.course-cover-upload__box {
+  width: 152px;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--td-component-border);
+  background: var(--td-bg-color-container-hover);
+  border-radius: 6px;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+.course-cover-upload__box:hover { border-color: var(--td-brand-color); }
+.course-cover-upload__box img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.course-cover-upload__empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+.course-cover-upload__empty .t-icon { color: var(--td-brand-color); font-size: 22px; }
+.course-cover-upload__meta { min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--td-text-color-placeholder); font-size: 12px; }
+.course-cover-upload__meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .course-progress { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 .course-progress span { color: var(--td-text-color-secondary); font-size: 12px; }
+.course-lesson-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.course-lesson-head > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.course-lesson-head strong { overflow: hidden; color: var(--td-text-color-primary); font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+.course-lesson-head span { color: var(--td-text-color-secondary); font-size: 13px; }
+.course-lesson-picker { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 148px; padding: 24px 20px; border: 1px dashed var(--td-component-border); background: var(--td-bg-color-container-hover); cursor: pointer; text-align: center; }
+.course-lesson-picker:hover { border-color: var(--td-brand-color); }
+.course-lesson-picker .course-dropzone__icon { font-size: 30px; }
+.course-lesson-picker strong { max-width: 100%; overflow: hidden; color: var(--td-text-color-primary); font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.course-lesson-picker span { color: var(--td-text-color-secondary); font-size: 12px; }
+.course-lesson-selected { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--td-component-border); }
+.course-lesson-selected > span { min-width: 0; overflow: hidden; color: var(--td-text-color-primary); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.course-empty-lessons { padding: 28px 12px; color: var(--td-text-color-placeholder); font-size: 13px; text-align: center; }
 
 .course-done { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 26px 20px 18px; text-align: center; }
 .course-done__icon { font-size: 40px; color: var(--td-success-color); }
@@ -728,13 +1062,21 @@ onMounted(() => {
 .course-wizard-footer { display: flex; align-items: center; gap: 8px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--td-component-border); }
 .course-wizard-footer__spacer { flex: 1; }
 
-.course-detail__head { display: flex; align-items: center; gap: 8px; }
-.course-detail__head strong { color: var(--td-text-color-primary); font-size: 16px; }
+.course-detail__head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.course-detail__heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.course-detail__heading strong { overflow: hidden; color: var(--td-text-color-primary); font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
 .course-detail__summary { margin: 10px 0; color: var(--td-text-color-secondary); line-height: 1.7; }
 .course-detail__meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--td-text-color-placeholder); font-size: 12px; margin-bottom: 16px; }
+.course-detail__visibility { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; padding: 12px; border: 1px solid var(--td-component-border); background: var(--td-bg-color-container-hover); }
+.course-detail__visibility-field { display: flex; align-items: center; gap: 12px; }
+.course-detail__visibility-field > span { flex: 0 0 64px; color: var(--td-text-color-secondary); font-size: 12px; }
+.course-detail__visibility-actions { display: flex; justify-content: flex-end; }
 .course-detail__lessons-title { margin-bottom: 8px; color: var(--td-text-color-secondary); font-size: 13px; }
 .course-detail__lessons .course-preview-row { border: 1px solid var(--td-component-border); border-bottom: 0; }
 .course-detail__lessons .course-preview-row:last-child { border-bottom: 1px solid var(--td-component-border); }
+.course-detail__lesson-row { min-height: 46px; }
+.course-detail__lesson-actions { display: flex; align-items: center; gap: 2px; margin-left: 4px; }
+.course-edit-meta { display: flex; flex-direction: column; gap: 6px; color: var(--td-text-color-placeholder); font-size: 12px; line-height: 1.5; }
 
 @media (max-width: 900px) {
   .course-page__header { flex-direction: column; }
@@ -743,5 +1085,6 @@ onMounted(() => {
   .course-row { align-items: flex-start; flex-wrap: wrap; }
   .course-row__actions { width: 100%; justify-content: flex-start; padding-left: 52px; }
   .course-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .course-detail__visibility-field { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
 </style>

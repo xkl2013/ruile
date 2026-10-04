@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -61,6 +62,9 @@ var (
 	ErrServiceSpaceProfileSchemaInvalid  = errors.New("invalid service profile schema")
 	ErrServiceSpaceFactInvalid           = errors.New("invalid service fact")
 	ErrServiceSpaceFactSourceRequired    = errors.New("service fact source is required")
+	ErrServiceSpaceFactProposalNotFound  = errors.New("service fact proposal not found")
+	ErrServiceSpaceFactProposalInvalid   = errors.New("invalid service fact proposal")
+	ErrServiceSpaceFactProposalSubject   = errors.New("service fact proposal subject is required")
 )
 
 const (
@@ -532,6 +536,121 @@ func (s *serviceSpaceService) GetProfile(
 	return profile, nil
 }
 
+func (s *serviceSpaceService) GetSubjectProfile(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, subjectID string,
+) (*types.ServiceSubjectProfile, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false)
+	if err != nil {
+		return nil, err
+	}
+	subject, err := s.repo.GetSubject(ctx, tenantID, serviceID, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	if subject == nil {
+		return nil, ErrServiceSpaceSubjectNotFound
+	}
+	blueprint, err := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, service.Instruction)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := s.repo.GetSubjectProfile(ctx, tenantID, serviceID, subject.ID)
+	if err != nil {
+		return nil, err
+	}
+	if profile != nil {
+		return profile, nil
+	}
+	facts, err := s.listAllFacts(ctx, tenantID, serviceID, subject.ID)
+	if err != nil {
+		return nil, err
+	}
+	watermark, err := subjectProfileWatermark(blueprint.Version, facts)
+	if err != nil {
+		return nil, err
+	}
+	return &types.ServiceSubjectProfile{
+		TenantID:         tenantID,
+		ServiceID:        serviceID,
+		SubjectID:        subject.ID,
+		BlueprintVersion: blueprint.Version,
+		Version:          1,
+		Schema:           blueprint.ProfileSchema,
+		Values:           materializeProfileValues(blueprint.ProfileSchema, facts, nil),
+		SourceWatermark:  watermark,
+	}, nil
+}
+
+func (s *serviceSpaceService) RefreshSubjectProfile(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, subjectID string,
+) (*types.ServiceSubjectProfile, error) {
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true)
+	if err != nil {
+		return nil, err
+	}
+	subject, err := s.repo.GetSubject(ctx, tenantID, serviceID, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	if subject == nil {
+		return nil, ErrServiceSpaceSubjectNotFound
+	}
+	blueprint, err := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, service.Instruction)
+	if err != nil {
+		return nil, err
+	}
+	facts, err := s.listAllFacts(ctx, tenantID, serviceID, subject.ID)
+	if err != nil {
+		return nil, err
+	}
+	watermark, err := subjectProfileWatermark(blueprint.Version, facts)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.repo.GetSubjectProfile(ctx, tenantID, serviceID, subject.ID)
+	if err != nil {
+		return nil, err
+	}
+	values := materializeProfileValues(blueprint.ProfileSchema, facts, subjectProfileValues(current))
+	if current != nil &&
+		current.BlueprintVersion == blueprint.Version &&
+		current.SourceWatermark == watermark &&
+		reflect.DeepEqual(current.Values, values) {
+		return current, nil
+	}
+	version := 1
+	if current != nil {
+		version = current.Version + 1
+	}
+	profile := &types.ServiceSubjectProfile{
+		TenantID:         tenantID,
+		ServiceID:        serviceID,
+		SubjectID:        subject.ID,
+		BlueprintVersion: blueprint.Version,
+		Version:          version,
+		Schema:           blueprint.ProfileSchema,
+		Values:           values,
+		SourceWatermark:  watermark,
+	}
+	if err := s.repo.UpsertSubjectProfile(ctx, profile); err != nil {
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceProfileUpdate, "service_subject_profile", profile.ID, map[string]any{
+		"service_id":        serviceID,
+		"subject_id":        subject.ID,
+		"previous_version":  subjectProfileVersion(current),
+		"version":           profile.Version,
+		"blueprint_version": profile.BlueprintVersion,
+		"source_watermark":  profile.SourceWatermark,
+		"fact_count":        len(facts),
+	})
+	return profile, nil
+}
+
 func (s *serviceSpaceService) UpdateProfile(
 	ctx context.Context,
 	tenantID uint64,
@@ -611,12 +730,171 @@ func normalizeServiceProfileSchema(fields []types.ServiceSpaceProfileField) ([]t
 		if field.Source == "" {
 			field.Source = "manual"
 		}
+		field.ExtractionHint = strings.TrimSpace(field.ExtractionHint)
+		field.OverwritePolicy = strings.TrimSpace(field.OverwritePolicy)
+		if field.ConfidenceThreshold < 0 || field.ConfidenceThreshold > 1 {
+			return nil, ErrServiceSpaceProfileSchemaInvalid
+		}
+		if len(field.Aliases) > 20 {
+			return nil, ErrServiceSpaceProfileSchemaInvalid
+		}
+		for aliasIndex, alias := range field.Aliases {
+			field.Aliases[aliasIndex] = strings.TrimSpace(alias)
+		}
 		if field.DisplayOrder <= 0 {
 			field.DisplayOrder = index + 1
 		}
 		normalized = append(normalized, field)
 	}
 	return normalized, nil
+}
+
+func (s *serviceSpaceService) listAllFacts(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID string,
+) ([]*types.ServiceFact, error) {
+	page := 1
+	all := make([]*types.ServiceFact, 0)
+	for {
+		facts, total, err := s.repo.ListFacts(
+			ctx,
+			tenantID,
+			serviceID,
+			subjectID,
+			"",
+			"",
+			"",
+			page,
+			serviceSpaceMaxPageSize,
+		)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, facts...)
+		if len(facts) == 0 || len(all) >= int(total) {
+			return all, nil
+		}
+		page++
+	}
+}
+
+func subjectProfileValues(profile *types.ServiceSubjectProfile) types.JSONMap {
+	if profile == nil || profile.Values == nil {
+		return nil
+	}
+	values := make(types.JSONMap, len(profile.Values))
+	for key, value := range profile.Values {
+		values[key] = value
+	}
+	return values
+}
+
+func subjectProfileVersion(profile *types.ServiceSubjectProfile) int {
+	if profile == nil {
+		return 0
+	}
+	return profile.Version
+}
+
+func subjectProfileWatermark(blueprintVersion int, facts []*types.ServiceFact) (string, error) {
+	payload := struct {
+		BlueprintVersion int      `json:"blueprint_version"`
+		Facts            []string `json:"facts"`
+	}{BlueprintVersion: blueprintVersion, Facts: factHashInputs(facts)}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func materializeProfileValues(
+	schema []types.ServiceSpaceProfileField,
+	facts []*types.ServiceFact,
+	current types.JSONMap,
+) types.JSONMap {
+	values := types.JSONMap{}
+	for key, value := range current {
+		values[key] = value
+	}
+	for _, field := range schema {
+		if strings.TrimSpace(field.Source) != "" && field.Source != "facts" {
+			continue
+		}
+		for _, fact := range facts {
+			if fact == nil || !profileFactMatchesField(fact, field) {
+				continue
+			}
+			if !profileFactMeetsConfidence(fact, field) {
+				continue
+			}
+			value, ok := profileFactValue(fact, field)
+			if !ok {
+				continue
+			}
+			values[field.Key] = types.JSONMap{
+				"value":          value,
+				"confidence":     fact.Value["confidence"],
+				"evidence":       fact.Value["evidence"],
+				"source_fact_id": fact.ID,
+				"source_type":    fact.SourceType,
+				"source_id":      fact.SourceID,
+				"source_version": fact.SourceVersion,
+			}
+			break
+		}
+	}
+	return values
+}
+
+func profileFactMatchesField(fact *types.ServiceFact, field types.ServiceSpaceProfileField) bool {
+	if fact.FactType == types.ServiceFactTypeProfileField && fact.FactKey == field.Key {
+		return true
+	}
+	if fact.FactType == field.Key || fact.FactKey == field.Key {
+		return true
+	}
+	for _, alias := range field.Aliases {
+		alias = strings.TrimSpace(alias)
+		if alias != "" && (fact.FactType == alias || fact.FactKey == alias) {
+			return true
+		}
+	}
+	if rawKey, ok := fact.Value["field_key"].(string); ok {
+		return strings.TrimSpace(rawKey) == field.Key
+	}
+	return false
+}
+
+func profileFactMeetsConfidence(fact *types.ServiceFact, field types.ServiceSpaceProfileField) bool {
+	if field.ConfidenceThreshold <= 0 {
+		return true
+	}
+	confidence, ok := fact.Value["confidence"].(float64)
+	if !ok {
+		return true
+	}
+	return confidence >= field.ConfidenceThreshold
+}
+
+func profileFactValue(fact *types.ServiceFact, field types.ServiceSpaceProfileField) (any, bool) {
+	if value, ok := fact.Value["value"]; ok {
+		return value, true
+	}
+	if value, ok := fact.Value["raw"]; ok {
+		return value, true
+	}
+	if value, ok := fact.Value[field.Key]; ok {
+		return value, true
+	}
+	if len(fact.Value) == 1 {
+		for _, value := range fact.Value {
+			return value, true
+		}
+	}
+	return nil, false
 }
 
 func (s *serviceSpaceService) GetSummary(
@@ -680,15 +958,15 @@ func (s *serviceSpaceService) refreshSummaryFromSources(
 	if err != nil {
 		return nil, err
 	}
-	profile, err := s.repo.GetProfile(ctx, tenantID, serviceID)
-	if err != nil {
-		return nil, err
-	}
-	facts, _, err := s.repo.ListFacts(ctx, tenantID, serviceID, "", "", "", "", 1, serviceSpaceMaxPageSize)
+	facts, err := s.listAllFacts(ctx, tenantID, serviceID, "")
 	if err != nil {
 		return nil, err
 	}
 	watermark, err := s.currentSourceWatermark(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	profile, err := s.refreshServiceProfileFromFacts(ctx, tenantID, userID, serviceID, blueprint, facts, watermark)
 	if err != nil {
 		return nil, err
 	}
@@ -739,6 +1017,77 @@ func (s *serviceSpaceService) refreshSummaryFromSources(
 		"source_watermark":  summary.SourceWatermark,
 	})
 	return summary, nil
+}
+
+func (s *serviceSpaceService) refreshServiceProfileFromFacts(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	blueprint *types.ServiceSpaceBlueprint,
+	facts []*types.ServiceFact,
+	watermark string,
+) (*types.ServiceSpaceProfile, error) {
+	current, err := s.repo.GetProfile(ctx, tenantID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	serviceFacts := make([]*types.ServiceFact, 0, len(facts))
+	for _, fact := range facts {
+		if fact != nil && strings.TrimSpace(fact.SubjectID) == "" {
+			serviceFacts = append(serviceFacts, fact)
+		}
+	}
+	schema := blueprint.ProfileSchema
+	if current != nil && current.BlueprintVersion == blueprint.Version && len(current.Schema) > 0 {
+		schema = current.Schema
+	}
+	values := materializeProfileValues(schema, serviceFacts, profileValues(current))
+	if current != nil &&
+		current.BlueprintVersion == blueprint.Version &&
+		current.SourceWatermark == watermark &&
+		reflect.DeepEqual(current.Values, values) {
+		return current, nil
+	}
+	if current == nil && len(values) == 0 {
+		return nil, nil
+	}
+	version := 1
+	if current != nil {
+		version = current.Version + 1
+	}
+	profile := &types.ServiceSpaceProfile{
+		TenantID:         tenantID,
+		ServiceID:        serviceID,
+		BlueprintVersion: blueprint.Version,
+		Version:          version,
+		Schema:           schema,
+		Values:           values,
+		SourceWatermark:  watermark,
+	}
+	if err := s.repo.UpsertProfile(ctx, profile); err != nil {
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceProfileUpdate, "service_profile", profile.ID, map[string]any{
+		"service_id":        serviceID,
+		"previous_version":  profileVersion(current),
+		"version":           profile.Version,
+		"blueprint_version": profile.BlueprintVersion,
+		"source_watermark":  profile.SourceWatermark,
+		"fact_count":        len(serviceFacts),
+		"trigger":           "fact_materialization",
+	})
+	return profile, nil
+}
+
+func profileValues(profile *types.ServiceSpaceProfile) types.JSONMap {
+	if profile == nil || profile.Values == nil {
+		return nil
+	}
+	values := make(types.JSONMap, len(profile.Values))
+	for key, value := range profile.Values {
+		values[key] = value
+	}
+	return values
 }
 
 func (s *serviceSpaceService) resolvePlanningBlueprint(
@@ -901,10 +1250,364 @@ func (s *serviceSpaceService) AppendFact(
 	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceFactAppended, "service_fact", fact.ID, map[string]any{
 		"service_id": serviceID, "fact_type": fact.FactType, "source_type": fact.SourceType, "source_id": fact.SourceID,
 	})
+	if fact.SubjectID != "" {
+		if _, refreshErr := s.RefreshSubjectProfile(ctx, tenantID, userID, serviceID, fact.SubjectID); refreshErr != nil {
+			logger.Warnf(ctx, "service subject profile refresh after fact append failed: service_id=%s subject_id=%s fact_id=%s err=%v", serviceID, fact.SubjectID, fact.ID, refreshErr)
+		}
+	}
 	if _, refreshErr := s.refreshSummaryFromSources(ctx, tenantID, userID, serviceID, "fact_append"); refreshErr != nil {
 		logger.Warnf(ctx, "service summary refresh after fact append failed: service_id=%s fact_id=%s err=%v", serviceID, fact.ID, refreshErr)
 	}
 	return fact, nil
+}
+
+func (s *serviceSpaceService) PreviewFactProposal(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	input types.ServiceFactProposalPreviewInput,
+) (*types.ServiceFactProposal, error) {
+	if err := input.Validate(); err != nil {
+		return nil, ErrServiceSpaceFactProposalInvalid
+	}
+	service, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false)
+	if err != nil {
+		return nil, err
+	}
+	sourceType := strings.TrimSpace(input.SourceType)
+	sourceID := strings.TrimSpace(input.SourceID)
+	if existing, err := s.repo.GetFactProposalBySource(ctx, tenantID, serviceID, sourceType, sourceID); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return existing, nil
+	}
+	blueprint, err := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, service.Instruction)
+	if err != nil {
+		return nil, err
+	}
+	text := strings.TrimSpace(input.Text)
+	subject, err := s.resolveProposalSubject(ctx, tenantID, serviceID, strings.TrimSpace(input.SubjectID), text)
+	if err != nil {
+		return nil, err
+	}
+	items := extractProfileProposalItems(text, blueprint.ProfileSchema)
+	if len(items) == 0 {
+		return nil, nil
+	}
+	subjectID := ""
+	if subject != nil {
+		subjectID = subject.ID
+		for index := range items {
+			items[index].SubjectID = subject.ID
+		}
+	}
+	needsSubject := blueprint.SubjectPolicy.Required && subjectID == ""
+	proposal := &types.ServiceFactProposal{
+		TenantID:      tenantID,
+		ServiceID:     serviceID,
+		SessionID:     strings.TrimSpace(input.SessionID),
+		SourceType:    sourceType,
+		SourceID:      sourceID,
+		SourceVersion: strings.TrimSpace(input.SourceVersion),
+		SubjectID:     subjectID,
+		Status:        types.ServiceFactProposalStatusPending,
+		NeedsSubject:  needsSubject,
+		Question:      proposalSubjectQuestion(needsSubject),
+		Items:         items,
+		CreatedBy:     userID,
+	}
+	if err := s.repo.CreateFactProposal(ctx, proposal); err != nil {
+		if existing, getErr := s.repo.GetFactProposalBySource(ctx, tenantID, serviceID, sourceType, sourceID); getErr == nil && existing != nil {
+			return existing, nil
+		}
+		return nil, err
+	}
+	return proposal, nil
+}
+
+func (s *serviceSpaceService) ResolveFactProposal(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, proposalID string,
+	input types.ServiceFactProposalResolveInput,
+) (*types.ServiceFactProposal, error) {
+	if err := input.Validate(); err != nil {
+		return nil, ErrServiceSpaceFactProposalInvalid
+	}
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return nil, err
+	}
+	proposal, err := s.repo.GetFactProposal(ctx, tenantID, serviceID, strings.TrimSpace(proposalID))
+	if err != nil {
+		return nil, err
+	}
+	if proposal == nil {
+		return nil, ErrServiceSpaceFactProposalNotFound
+	}
+	if proposal.Status != types.ServiceFactProposalStatusPending {
+		return proposal, nil
+	}
+	decision := strings.ToLower(strings.TrimSpace(input.Decision))
+	now := time.Now().UTC()
+	if decision == types.ServiceFactProposalStatusRejected {
+		if err := s.repo.UpdateFactProposal(ctx, proposal, map[string]any{
+			"status":      types.ServiceFactProposalStatusRejected,
+			"resolved_by": userID,
+			"resolved_at": now,
+		}); err != nil {
+			return nil, err
+		}
+		proposal.Status = types.ServiceFactProposalStatusRejected
+		proposal.ResolvedBy = userID
+		proposal.ResolvedAt = &now
+		return proposal, nil
+	}
+
+	subjectID := strings.TrimSpace(input.SubjectID)
+	if subjectID == "" {
+		subjectID = strings.TrimSpace(proposal.SubjectID)
+	}
+	blueprint, err := s.resolvePlanningBlueprint(ctx, tenantID, serviceID, "")
+	if err != nil {
+		return nil, err
+	}
+	if subjectID == "" && blueprint.SubjectPolicy.Required {
+		return nil, ErrServiceSpaceFactProposalSubject
+	}
+	if subjectID != "" {
+		subject, subjectErr := s.repo.GetSubject(ctx, tenantID, serviceID, subjectID)
+		if subjectErr != nil {
+			return nil, subjectErr
+		}
+		if subject == nil {
+			return nil, ErrServiceSpaceSubjectNotFound
+		}
+	}
+	items := proposal.Items
+	if input.Items != nil {
+		items = *input.Items
+	}
+	items, err = normalizeProposalItems(items, blueprint.ProfileSchema)
+	if err != nil || len(items) == 0 {
+		return nil, ErrServiceSpaceFactProposalInvalid
+	}
+	for _, item := range items {
+		if _, err := s.AppendFact(ctx, tenantID, userID, serviceID, types.ServiceFactAppendInput{
+			SubjectID: subjectID,
+			FactType:  types.ServiceFactTypeProfileField,
+			FactKey:   item.FieldKey,
+			Value: types.JSONMap{
+				"value":      item.Value,
+				"confidence": item.Confidence,
+				"evidence":   item.Evidence,
+			},
+			SourceType:    proposal.SourceType,
+			SourceID:      proposal.SourceID,
+			SourceVersion: proposal.SourceVersion,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	itemsJSON, err := json.Marshal(items)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.UpdateFactProposal(ctx, proposal, map[string]any{
+		"status":         types.ServiceFactProposalStatusConfirmed,
+		"subject_id":     subjectID,
+		"needs_subject":  false,
+		"question":       "",
+		"proposal_items": types.JSON(itemsJSON),
+		"resolved_by":    userID,
+		"resolved_at":    now,
+	}); err != nil {
+		return nil, err
+	}
+	proposal.Status = types.ServiceFactProposalStatusConfirmed
+	proposal.SubjectID = subjectID
+	proposal.NeedsSubject = false
+	proposal.Question = ""
+	proposal.Items = items
+	proposal.ResolvedBy = userID
+	proposal.ResolvedAt = &now
+	return proposal, nil
+}
+
+func (s *serviceSpaceService) resolveProposalSubject(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, requestedID, text string,
+) (*types.ServiceSubject, error) {
+	if requestedID != "" {
+		subject, err := s.repo.GetSubject(ctx, tenantID, serviceID, requestedID)
+		if err != nil {
+			return nil, err
+		}
+		if subject == nil {
+			return nil, ErrServiceSpaceSubjectNotFound
+		}
+		return subject, nil
+	}
+	subjects, _, err := s.repo.ListSubjects(ctx, tenantID, serviceID, "", 1, serviceSpaceMaxPageSize)
+	if err != nil {
+		return nil, err
+	}
+	var matched *types.ServiceSubject
+	for _, subject := range subjects {
+		if subject == nil || !subjectAppearsInText(subject, text) {
+			continue
+		}
+		if matched != nil {
+			return nil, nil
+		}
+		matched = subject
+	}
+	if matched != nil {
+		return matched, nil
+	}
+	if len(subjects) == 1 {
+		return subjects[0], nil
+	}
+	return nil, nil
+}
+
+func subjectAppearsInText(subject *types.ServiceSubject, text string) bool {
+	candidates := []string{subject.ID, subject.SubjectKey, subject.DisplayName, subject.StudentName}
+	candidates = append(candidates, subject.Aliases...)
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate != "" && strings.Contains(text, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractProfileProposalItems(text string, schema []types.ServiceSpaceProfileField) []types.ServiceFactProposalItem {
+	items := make([]types.ServiceFactProposalItem, 0)
+	for _, field := range schema {
+		if strings.TrimSpace(field.Source) != "" && field.Source != "facts" {
+			continue
+		}
+		value, evidence, ok := extractProfileFieldValue(text, field)
+		if !ok {
+			continue
+		}
+		confidence := 0.9
+		if field.ConfidenceThreshold > confidence {
+			confidence = field.ConfidenceThreshold
+		}
+		items = append(items, types.ServiceFactProposalItem{
+			FieldKey:   field.Key,
+			FieldLabel: field.Label,
+			Value:      value,
+			Confidence: confidence,
+			Evidence:   evidence,
+		})
+	}
+	return items
+}
+
+func extractProfileFieldValue(text string, field types.ServiceSpaceProfileField) (string, string, bool) {
+	labels := append([]string{field.Label, field.Key}, field.Aliases...)
+	for _, label := range labels {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		if index := strings.Index(text, label); index >= 0 {
+			rest := strings.TrimSpace(text[index+len(label):])
+			rest = strings.TrimLeft(rest, "：:是为的，, ")
+			if value := trimProposalClause(rest); value != "" {
+				return value, text, true
+			}
+		}
+	}
+	clauses := splitProposalClauses(text)
+	switch field.Key {
+	case "child_stage":
+		for _, clause := range clauses {
+			if strings.Contains(clause, "升") || strings.Contains(clause, "年级") || strings.Contains(clause, "岁") {
+				return clause, clause, true
+			}
+		}
+	case "service_preference", "key_focus":
+		for _, clause := range clauses {
+			if strings.Contains(clause, "关注") || strings.Contains(clause, "偏好") {
+				value := strings.TrimSpace(strings.TrimPrefix(clause, "最近"))
+				value = strings.TrimSpace(strings.TrimPrefix(value, "比较"))
+				value = strings.TrimSpace(strings.TrimPrefix(value, "特别"))
+				value = strings.TrimSpace(strings.TrimPrefix(value, "关注"))
+				if value != "" {
+					return value, clause, true
+				}
+			}
+		}
+	case "renewal_risk":
+		for _, clause := range clauses {
+			if strings.Contains(clause, "续费") {
+				return clause, clause, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+func trimProposalClause(value string) string {
+	for index, separator := range []string{"，", "。", "；", ";", "\n"} {
+		if cut := strings.Index(value, separator); cut >= 0 {
+			value = value[:cut]
+			_ = index
+		}
+	}
+	return strings.TrimSpace(value)
+}
+
+func splitProposalClauses(text string) []string {
+	replacer := strings.NewReplacer("。", "\n", "，", "\n", "；", "\n", ";", "\n", ",", "\n")
+	raw := strings.Split(replacer.Replace(text), "\n")
+	clauses := make([]string, 0, len(raw))
+	for _, clause := range raw {
+		if clause = strings.TrimSpace(clause); clause != "" {
+			clauses = append(clauses, clause)
+		}
+	}
+	return clauses
+}
+
+func normalizeProposalItems(
+	items []types.ServiceFactProposalItem,
+	schema []types.ServiceSpaceProfileField,
+) ([]types.ServiceFactProposalItem, error) {
+	fields := make(map[string]types.ServiceSpaceProfileField, len(schema))
+	for _, field := range schema {
+		fields[field.Key] = field
+	}
+	normalized := make([]types.ServiceFactProposalItem, 0, len(items))
+	for _, item := range items {
+		item.FieldKey = strings.TrimSpace(item.FieldKey)
+		field, ok := fields[item.FieldKey]
+		if !ok || item.FieldKey == "" || item.Value == nil {
+			return nil, ErrServiceSpaceFactProposalInvalid
+		}
+		item.FieldLabel = field.Label
+		item.Evidence = strings.TrimSpace(item.Evidence)
+		if item.Confidence <= 0 {
+			item.Confidence = 0.9
+		}
+		if item.Confidence < 0 || item.Confidence > 1 {
+			return nil, ErrServiceSpaceFactProposalInvalid
+		}
+		normalized = append(normalized, item)
+	}
+	return normalized, nil
+}
+
+func proposalSubjectQuestion(needsSubject bool) string {
+	if !needsSubject {
+		return ""
+	}
+	return "这条信息属于哪个服务对象？请选择后再更新档案。"
 }
 
 func (s *serviceSpaceService) ListContextSources(
@@ -1141,7 +1844,7 @@ func (s *serviceSpaceService) currentSourceWatermark(
 	tenantID uint64,
 	serviceID string,
 ) (string, error) {
-	facts, _, err := s.repo.ListFacts(ctx, tenantID, serviceID, "", "", "", "", 1, serviceSpaceMaxPageSize)
+	facts, err := s.listAllFacts(ctx, tenantID, serviceID, "")
 	if err != nil {
 		return "", err
 	}
@@ -1454,22 +2157,52 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 		subjectRequired = false
 		allowedTypes = nil
 	}
+	profileSchema := []types.ServiceSpaceProfileField{
+		{
+			Key: "current_status", Label: "当前状态", ValueType: "text", Source: "facts",
+			ExtractionHint: "提取明确描述的当前状态、阶段或处理结果",
+			DisplayOrder:   1,
+		},
+		{
+			Key: "key_focus", Label: "重点关注", ValueType: "text", Source: "facts",
+			ExtractionHint: "提取明确表达的重点关注、需求或顾虑",
+			DisplayOrder:   2,
+		},
+		{
+			Key: "next_actions", Label: "下一步动作", ValueType: "text", Source: "facts",
+			ExtractionHint: "只提取已明确约定的下一步动作，不从建议中推断",
+			DisplayOrder:   3,
+		},
+	}
+	summarySchema := []types.ServiceSpaceSummarySection{
+		{Key: "progress", Label: "进展", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+		{Key: "risks", Label: "风险与卡点", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+		{Key: "next_actions", Label: "下一步动作", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+	}
+	if strings.Contains(text, "会员") || strings.Contains(text, "家长") || strings.Contains(text, "续费") || strings.Contains(text, "孩子") {
+		allowedTypes = []string{"member_family"}
+		profileSchema = []types.ServiceSpaceProfileField{
+			{Key: "member_status", Label: "会员状态", ValueType: "text", Source: "facts", Aliases: []string{"会员状态", "会员情况"}, ExtractionHint: "提取会员当前状态或服务阶段", ConfidenceThreshold: 0.8, DisplayOrder: 1},
+			{Key: "child_stage", Label: "孩子阶段", ValueType: "text", Source: "facts", Aliases: []string{"孩子年级", "成长阶段"}, ExtractionHint: "提取孩子明确的年龄、年级或成长阶段", ConfidenceThreshold: 0.8, AskWhenMissing: true, DisplayOrder: 2},
+			{Key: "benefit_usage", Label: "权益使用", ValueType: "text", Source: "facts", Aliases: []string{"权益", "课程使用"}, ExtractionHint: "提取课程、权益或服务的使用情况", ConfidenceThreshold: 0.8, DisplayOrder: 3},
+			{Key: "service_preference", Label: "服务偏好", ValueType: "text", Source: "facts", Aliases: []string{"偏好", "关注"}, ExtractionHint: "提取家长或会员明确表达的服务偏好和关注点", ConfidenceThreshold: 0.8, DisplayOrder: 4},
+			{Key: "renewal_risk", Label: "续费风险", ValueType: "text", Source: "facts", Aliases: []string{"续费意向", "续费顾虑"}, ExtractionHint: "只提取明确表达的续费意向、顾虑或风险", ConfidenceThreshold: 0.8, DisplayOrder: 5},
+		}
+		summarySchema = []types.ServiceSpaceSummarySection{
+			{Key: "member_overview", Label: "会员概况", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+			{Key: "recent_service", Label: "近期服务", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+			{Key: "benefits_expiry", Label: "权益与到期", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+			{Key: "follow_up", Label: "待跟进事项", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
+		}
+	}
 	return types.ServiceSpaceBlueprint{
 		SourceType:        types.ServiceSpaceBlueprintSourceInstruction,
 		SourceInstruction: text, ProposedSpaceType: spaceType,
 		SubjectPolicy: types.ServiceSubjectPolicy{
 			Required: subjectRequired, AllowedTypes: allowedTypes, AllowHierarchy: true,
 		},
-		ProfileSchema: []types.ServiceSpaceProfileField{
-			{Key: "current_status", Label: "当前状态", ValueType: "text", Source: "facts", Required: false, DisplayOrder: 1},
-			{Key: "key_focus", Label: "重点关注", ValueType: "text", Source: "facts", Required: false, DisplayOrder: 2},
-			{Key: "next_actions", Label: "下一步动作", ValueType: "text", Source: "facts", Required: false, DisplayOrder: 3},
-		},
-		SummarySchema: []types.ServiceSpaceSummarySection{
-			{Key: "progress", Label: "进展", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
-			{Key: "risks", Label: "风险与卡点", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
-			{Key: "next_actions", Label: "下一步动作", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
-		},
+		ProfileSchema:    profileSchema,
+		SummarySchema:    summarySchema,
 		Status:           types.ServiceSpaceBlueprintStatusDraft,
 		ConfirmationMode: types.ServiceSpaceBlueprintConfirmationPending,
 		Version:          1,

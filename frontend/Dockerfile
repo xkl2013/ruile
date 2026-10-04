@@ -10,7 +10,7 @@ COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-ENV MAX_FILE_SIZE_MB=50
+ENV MAX_FILE_SIZE_MB=100
 ENV UPLOAD_REQUEST_MAX_FILE_SIZE_MB=100
 
 EXPOSE 80

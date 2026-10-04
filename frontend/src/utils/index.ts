@@ -6,17 +6,25 @@ declare global {
   interface Window {
     __RUNTIME_CONFIG__?: {
       MAX_FILE_SIZE_MB?: number;
+      UPLOAD_REQUEST_MAX_FILE_SIZE_MB?: number;
     };
   }
 }
 
 // 从运行时配置获取最大文件大小(MB)，支持 Docker 环境动态配置
-// 优先级：运行时配置 > 构建时环境变量 > 默认值 50MB
+// 优先级：运行时配置 > 构建时环境变量 > 默认值 100MB
 export const MAX_FILE_SIZE_MB = window.__RUNTIME_CONFIG__?.MAX_FILE_SIZE_MB
   || Number(import.meta.env.VITE_MAX_FILE_SIZE_MB) 
-  || 50;
+  || 100;
 export const AUDIO_MAX_FILE_SIZE_MB = 100;
-export const REQUEST_MAX_FILE_SIZE_MB = Math.max(MAX_FILE_SIZE_MB, AUDIO_MAX_FILE_SIZE_MB);
+export const UPLOAD_REQUEST_MAX_FILE_SIZE_MB = window.__RUNTIME_CONFIG__?.UPLOAD_REQUEST_MAX_FILE_SIZE_MB
+  || Number(import.meta.env.VITE_UPLOAD_REQUEST_MAX_FILE_SIZE_MB)
+  || Math.max(MAX_FILE_SIZE_MB, AUDIO_MAX_FILE_SIZE_MB);
+export const REQUEST_MAX_FILE_SIZE_MB = Math.max(
+  MAX_FILE_SIZE_MB,
+  AUDIO_MAX_FILE_SIZE_MB,
+  UPLOAD_REQUEST_MAX_FILE_SIZE_MB,
+);
 const AUDIO_FILE_TYPES = new Set(["mp3", "wav", "m4a", "flac", "ogg", "aac"]);
 
 export function generateRandomString(length: number) {
