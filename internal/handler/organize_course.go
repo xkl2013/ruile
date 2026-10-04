@@ -98,6 +98,30 @@ func (h *OrganizeHandler) GetCourseLessonMedia(c *gin.Context) {
 	}
 }
 
+// GetCourseLessonMediaURL returns a short-lived/presigned URL after the course
+// visibility check. Native media elements use this URL for browser Range
+// requests, while the protected API remains available as a compatibility
+// fallback.
+func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
+	mediaURL, fileName, mimeType, err := h.service.GetPublishedCourseLessonMediaURL(
+		c.Request.Context(),
+		c.Param("id"),
+		c.Param("lesson_id"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"url":       mediaURL,
+			"file_name": fileName,
+			"mime_type": mimeType,
+		},
+	})
+}
+
 func redactOrganizeCourse(course *types.OrganizeCourse, includeLessons bool) *types.OrganizePublicCourse {
 	if course == nil {
 		return nil

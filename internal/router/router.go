@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -1463,6 +1464,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 		org.GET("/courses", g.Viewer(), h.ListCourses)
 		org.GET("/courses/:id", g.Viewer(), h.GetCourse)
 		org.GET("/courses/:id/lessons/:lesson_id/media", g.Viewer(), h.GetCourseLessonMedia)
+		org.GET("/courses/:id/lessons/:lesson_id/media-url", g.Viewer(), h.GetCourseLessonMediaURL)
 		// Body read is separate from the outline: one chapter per request.
 		org.GET("/courses/:id/lessons/:lesson_id/content", g.Viewer(), h.GetCourseLessonContent)
 
@@ -2163,7 +2165,8 @@ func serveResourceGrants(
 			c.Status(http.StatusNotFound)
 			return
 		}
-		tenant, err := tenantService.GetTenantByID(ctx, resource.TenantID)
+		ownerCtx := context.WithValue(ctx, types.TenantIDContextKey, resource.TenantID)
+		tenant, err := tenantService.GetTenantByID(ownerCtx, resource.TenantID)
 		if err != nil || tenant == nil {
 			c.Status(http.StatusNotFound)
 			return
@@ -2177,7 +2180,7 @@ func serveResourceGrants(
 		var fileSvc interfaces.FileService
 		if storageResolver != nil {
 			fileSvc, _, err = storageResolver.ResolveFileService(
-				ctx,
+				ownerCtx,
 				tenant,
 				resource.StorageBackendID,
 				provider,
@@ -2191,12 +2194,11 @@ func serveResourceGrants(
 			c.Status(http.StatusNotFound)
 			return
 		}
-		reader, err := fileSvc.GetFile(ctx, resource.PhysicalPath)
+		reader, err := fileSvc.GetFile(ownerCtx, resource.PhysicalPath)
 		if err != nil {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		defer func() { _ = reader.Close() }()
 
 		fileName := resource.OriginalName
 		if fileName == "" {
@@ -2212,15 +2214,102 @@ func serveResourceGrants(
 		if !inline {
 			c.Header("Content-Disposition", "attachment")
 		}
-		c.Status(http.StatusOK)
-		if c.Request.Method != http.MethodHead {
-			if _, err := io.Copy(c.Writer, reader); err != nil {
-				logger.Warnf(ctx, "[Router] resource grant write failed: resource_id=%s err=%v", resource.ID, err)
-			}
+		if err := writeRangedResponse(c, reader, resource.Size); err != nil {
+			logger.Warnf(ownerCtx, "[Router] resource grant write failed: resource_id=%s err=%v", resource.ID, err)
 		}
 	}
 	r.GET("/r/:token", handler)
 	r.HEAD("/r/:token", handler)
+}
+
+// writeRangedResponse serves one stored object using the byte range requested
+// by a native media element. The storage abstraction currently exposes a
+// forward-only reader, so non-zero ranges are skipped before writing; the
+// initial browser request still starts at byte zero and can begin playback
+// without downloading the complete object first.
+func writeRangedResponse(c *gin.Context, reader io.ReadCloser, size int64) error {
+	defer func() { _ = reader.Close() }()
+
+	c.Header("Accept-Ranges", "bytes")
+	start, end, hasRange, unsatisfiable := parseSingleByteRange(c.GetHeader("Range"), size)
+	if unsatisfiable {
+		if size > 0 {
+			c.Header("Content-Range", fmt.Sprintf("bytes */%d", size))
+		}
+		c.Status(http.StatusRequestedRangeNotSatisfiable)
+		return nil
+	}
+
+	status := http.StatusOK
+	body := io.Reader(reader)
+	if size > 0 {
+		c.Header("Content-Length", strconv.FormatInt(size, 10))
+	}
+	if hasRange {
+		status = http.StatusPartialContent
+		length := end - start + 1
+		c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, size))
+		c.Header("Content-Length", strconv.FormatInt(length, 10))
+		if start > 0 {
+			if _, err := io.CopyN(io.Discard, reader, start); err != nil {
+				return err
+			}
+		}
+		body = io.LimitReader(reader, length)
+	}
+
+	c.Status(status)
+	if c.Request.Method == http.MethodHead {
+		return nil
+	}
+	_, err := io.Copy(c.Writer, body)
+	return err
+}
+
+func parseSingleByteRange(value string, size int64) (start, end int64, hasRange, unsatisfiable bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || size <= 0 || !strings.HasPrefix(value, "bytes=") {
+		return 0, 0, false, false
+	}
+	spec := strings.TrimSpace(strings.TrimPrefix(value, "bytes="))
+	if strings.Contains(spec, ",") {
+		return 0, 0, false, false
+	}
+	parts := strings.SplitN(spec, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, false, false
+	}
+
+	if strings.TrimSpace(parts[0]) == "" {
+		suffix, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		if err != nil || suffix <= 0 {
+			return 0, 0, false, false
+		}
+		if suffix > size {
+			suffix = size
+		}
+		return size - suffix, size - 1, true, false
+	}
+
+	start, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+	if err != nil || start < 0 {
+		return 0, 0, false, false
+	}
+	if start >= size {
+		return 0, 0, false, true
+	}
+
+	if strings.TrimSpace(parts[1]) == "" {
+		return start, size - 1, true, false
+	}
+	end, err = strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	if err != nil || end < start {
+		return 0, 0, false, false
+	}
+	if end >= size {
+		end = size - 1
+	}
+	return start, end, true, false
 }
 
 func localStorageBaseDir() string {

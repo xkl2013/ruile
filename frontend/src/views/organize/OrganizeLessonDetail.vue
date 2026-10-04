@@ -6,10 +6,6 @@
           <t-icon name="chevron-left" />
           返回发现
         </button>
-        <t-button variant="outline" size="small" @click="backToCourse">课程详情</t-button>
-        <span class="organize-lesson-crumb">
-          发现 / 推荐 / {{ course.title }} / 第 {{ currentIndex + 1 }} 讲
-        </span>
       </header>
 
       <div class="lesson-shell">
@@ -31,22 +27,32 @@
             <t-loading size="small" text="加载媒体" />
           </div>
           <div v-else-if="mediaPlayerUrl" class="lesson-player">
-            <video v-if="isVideo" class="lesson-player-media" controls :src="mediaPlayerUrl" preload="metadata" />
-            <audio v-else class="lesson-player-audio" controls :src="mediaPlayerUrl" preload="metadata" />
+            <video
+              v-if="isVideo"
+              class="lesson-player-media"
+              controls
+              :src="mediaPlayerUrl"
+              preload="metadata"
+              ref="mediaElement"
+              @error="handleMediaPlaybackError"
+            />
+            <audio
+              v-else
+              class="lesson-player-audio"
+              controls
+              :src="mediaPlayerUrl"
+              preload="metadata"
+              ref="mediaElement"
+              @error="handleMediaPlaybackError"
+            />
           </div>
           <div v-else-if="mediaError" class="lesson-body-empty">{{ mediaError }}</div>
 
-          <div v-if="lessonBodyLoading" class="lesson-body-empty">
-            <t-loading size="small" text="加载正文" />
-          </div>
-          <div v-else-if="lessonHtml" class="lesson-body markdown-content" v-html="lessonHtml" />
-          <div v-else class="lesson-body-empty">本讲暂无正文</div>
-
-          <div v-if="sourceFileName" class="lesson-source">
-            <span>本讲来自 admin 上传文件夹中的：</span>
+          <div v-if="lecturerLabel" class="lesson-source">
+            <span>讲师：</span>
             <span class="lesson-source-tag">
-              <t-icon name="book-open" />
-              {{ sourceFileName }}
+              <t-icon name="user" />
+              {{ lecturerLabel }}
             </span>
           </div>
 
@@ -97,7 +103,7 @@
     <main v-else class="organize-lesson-scroll">
       <div class="organize-detail-empty">
         <t-icon name="error-circle" />
-        <strong>{{ course ? '讲次不存在或未开放' : '课程不存在或已下架' }}</strong>
+        <strong>{{ courseLoadError || (course ? '讲次不存在或未开放' : '课程不存在或已下架') }}</strong>
         <t-button variant="outline" size="small" @click="backToDiscover">返回发现</t-button>
       </div>
     </main>
@@ -106,22 +112,21 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
-import { getOrganizeCourse, getOrganizeCourseLessonContent, type OrganizeCourse, type OrganizeCourseLesson } from '@/api/organize'
+import {
+  getOrganizeCourse,
+  getOrganizeCourseLessonMediaURL,
+  type OrganizeCourse,
+  type OrganizeCourseLesson,
+} from '@/api/organize'
 import { getDown } from '@/utils/request'
-import { renderSproutReportHtml } from './sproutReport'
 
 const route = useRoute()
 const router = useRouter()
 
 const course = ref<OrganizeCourse | null>(null)
 const loading = ref(true)
-
-// The outline deliberately ships no bodies — a 14-lesson course used to move
-// ~16 MB per load — so each chapter arrives in its own request.
-const lessonContent = ref('')
-const lessonBodyLoading = ref(false)
+const courseLoadError = ref('')
 
 const courseId = computed(() => String(route.params.courseId || ''))
 const lessonId = computed(() => String(route.params.lessonId || ''))
@@ -140,8 +145,6 @@ const nextLesson = computed<OrganizeCourseLesson | null>(() =>
     : null,
 )
 
-const lessonHtml = computed(() => renderSproutReportHtml(lessonContent.value))
-
 const isVideo = computed(() => currentLesson.value?.lesson_type === 'video')
 
 // duration_seconds exists on the lesson but the upload pipeline does not measure
@@ -159,10 +162,16 @@ const mediaEndpointUrl = computed(() => currentLesson.value?.media_url || '')
 const mediaPlayerUrl = ref('')
 const mediaLoading = ref(false)
 const mediaError = ref('')
+const mediaElement = ref<HTMLMediaElement | null>(null)
 let mediaObjectUrl = ''
 let mediaRequestSeq = 0
+let mediaBlobFallbackAttempted = false
+let courseAbortController: AbortController | null = null
+let mediaAbortController: AbortController | null = null
 
-const sourceFileName = computed(() => currentLesson.value?.source_file_name || '')
+const lecturerLabel = computed(() =>
+  [course.value?.teacher_name, course.value?.teacher_title].filter((value) => value?.trim()).join(' · '),
+)
 
 function kindIcon(kind?: string) {
   if (kind === 'video') return 'play-circle'
@@ -182,89 +191,124 @@ function revokeMediaObjectUrl() {
   mediaObjectUrl = ''
 }
 
-async function loadLessonMedia() {
+function cancelNativeMediaRequest() {
+  const element = mediaElement.value
+  if (!element) return
+  element.pause()
+  element.removeAttribute('src')
+  element.load()
+}
+
+function isNativeMediaUrl(url: string) {
+  return /^https?:\/\//i.test(url) || url.startsWith('/')
+}
+
+function isRequestCanceled(error: any) {
+  return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError'
+}
+
+async function loadLessonMedia(forceBlob = false) {
   const requestSeq = ++mediaRequestSeq
   const sourceUrl = mediaEndpointUrl.value
+  mediaAbortController?.abort()
+  const controller = new AbortController()
+  mediaAbortController = controller
+  cancelNativeMediaRequest()
   revokeMediaObjectUrl()
   mediaPlayerUrl.value = ''
   mediaError.value = ''
+  mediaBlobFallbackAttempted = forceBlob
   if (!sourceUrl) {
     mediaLoading.value = false
+    mediaAbortController = null
     return
   }
 
   mediaLoading.value = true
   try {
-    // Native media elements cannot attach the JWT that the Axios interceptor
-    // adds to API requests, so hydrate the protected response first.
-    const rawBlob = await getDown(sourceUrl)
+    if (!forceBlob) {
+      try {
+        const response = await getOrganizeCourseLessonMediaURL(courseId.value, lessonId.value, {
+          timeout: 0,
+          signal: controller.signal,
+        })
+        const streamUrl = response.success ? response.data?.url || '' : ''
+        if (isNativeMediaUrl(streamUrl)) {
+          if (requestSeq !== mediaRequestSeq) return
+          mediaPlayerUrl.value = streamUrl
+          return
+        }
+      } catch (error) {
+        if (isRequestCanceled(error)) return
+        // Older deployments may not have the media-url endpoint yet. Fall
+        // back to the protected Blob path until the backend is upgraded.
+      }
+    }
+
+    // Compatibility path for storage backends that cannot produce a browser
+    // URL. It remains authenticated, but is no longer the primary player path.
+    const rawBlob = await getDown(sourceUrl, { timeout: 0, signal: controller.signal })
     if (requestSeq !== mediaRequestSeq) return
+    mediaBlobFallbackAttempted = true
     const blob = rawBlob.type
       ? rawBlob
       : new Blob([rawBlob], { type: isVideo.value ? 'video/mp4' : 'audio/mpeg' })
     mediaObjectUrl = URL.createObjectURL(blob)
     mediaPlayerUrl.value = mediaObjectUrl
-  } catch {
-    if (requestSeq !== mediaRequestSeq) return
+  } catch (error) {
+    if (requestSeq !== mediaRequestSeq || isRequestCanceled(error)) return
     mediaError.value = '媒体加载失败，请稍后重试'
   } finally {
     if (requestSeq === mediaRequestSeq) {
       mediaLoading.value = false
     }
+    if (mediaAbortController === controller) {
+      mediaAbortController = null
+    }
   }
 }
 
-async function loadLessonBody() {
-  const lesson = currentLesson.value
-  if (!lesson) {
-    lessonContent.value = ''
-    return
-  }
-  lessonBodyLoading.value = true
-  try {
-    const response = await getOrganizeCourseLessonContent(courseId.value, lesson.id)
-    lessonContent.value = response.success ? response.data?.content || '' : ''
-    if (!response.success) {
-      throw new Error(response.message || '正文加载失败')
-    }
-  } catch (error: any) {
-    lessonContent.value = ''
-    MessagePlugin.error(error?.message || '正文加载失败')
-  } finally {
-    lessonBodyLoading.value = false
-  }
+function handleMediaPlaybackError() {
+  if (mediaBlobFallbackAttempted || !mediaEndpointUrl.value) return
+  void loadLessonMedia(true)
 }
 
 async function loadCourse() {
+  courseAbortController?.abort()
+  const controller = new AbortController()
+  courseAbortController = controller
+  courseLoadError.value = ''
   loading.value = true
   try {
-    const response = await getOrganizeCourse(courseId.value)
+    const response = await getOrganizeCourse(courseId.value, {
+      timeout: 0,
+      signal: controller.signal,
+    })
     if (!response.success || !response.data) {
       throw new Error(response.message || '课程加载失败')
     }
     course.value = response.data
     void loadLessonMedia()
-    await loadLessonBody()
   } catch (error: any) {
+    if (isRequestCanceled(error)) return
     course.value = null
-    MessagePlugin.error(error?.message || '课程加载失败')
+    courseLoadError.value = '课程加载失败，请稍后重试'
   } finally {
-    loading.value = false
+    if (courseAbortController === controller) {
+      courseAbortController = null
+      loading.value = false
+    }
   }
 }
 
 // Moving between lessons swaps the URL in place: the course stays loaded, so
-// the outline keeps its scroll position and only the body changes.
+// the outline keeps its scroll position and only the media source changes.
 function goTo(lesson: OrganizeCourseLesson | null) {
   if (!lesson || !lesson.available) return
   void router.replace({
     name: 'organizeLessonDetail',
     params: { courseId: courseId.value, lessonId: lesson.id },
   })
-}
-
-function backToCourse() {
-  void router.push({ name: 'organizeCourseDetail', params: { courseId: courseId.value } })
 }
 
 // Return to the recommendation stream because courses are now part of 推荐.
@@ -275,8 +319,7 @@ function backToDiscover() {
 watch(lessonId, () => {
   const scroll = document.querySelector('.organize-lesson-scroll')
   if (scroll) scroll.scrollTop = 0
-  // Switching chapters only swaps the route; refetch just the body.
-  void loadLessonBody()
+  // Switching chapters only swaps the route and media source.
   void loadLessonMedia()
 })
 
@@ -286,6 +329,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   mediaRequestSeq += 1
+  cancelNativeMediaRequest()
+  courseAbortController?.abort()
+  mediaAbortController?.abort()
+  courseAbortController = null
+  mediaAbortController = null
   revokeMediaObjectUrl()
 })
 </script>
@@ -303,17 +351,24 @@ onBeforeUnmount(() => {
 .organize-lesson-head {
   display: flex;
   align-items: center;
-  gap: 10px;
   margin-bottom: 14px;
-  flex-wrap: wrap;
 }
 
-.organize-lesson-crumb {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.organize-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.organize-back-button:hover {
+  color: var(--td-brand-color);
 }
 
 .lesson-shell {
@@ -373,29 +428,37 @@ onBeforeUnmount(() => {
 }
 
 .lesson-player {
-  padding: 16px 20px 0;
+  margin: 16px 20px 0;
+  padding: 10px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 10px;
+  background: #111318;
 }
 
 .lesson-player--loading {
-  min-height: 80px;
+  min-height: 120px;
+  margin: 16px 20px 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: var(--td-bg-color-secondarycontainer);
 }
 
 .lesson-player-media {
+  display: block;
   width: 100%;
-  max-height: 420px;
+  aspect-ratio: 16 / 9;
+  max-height: min(70vh, 560px);
   border-radius: 8px;
   background: #000;
+  object-fit: contain;
 }
 
 .lesson-player-audio {
+  display: block;
   width: 100%;
-}
-
-.lesson-body {
-  padding: 18px 20px 4px;
+  height: 44px;
+  accent-color: var(--td-brand-color);
 }
 
 .lesson-body-empty {

@@ -30,12 +30,17 @@ func (s *organizeService) resolveOrganizeFileService(
 		return nil, err
 	}
 
+	// Storage backends are owned by the tenant that owns the stored object.
+	// Public course/media requests may be issued from a different viewer
+	// tenant, so the explicit owner tenant must win over the viewer context
+	// when the resolver performs its backend lookup.
+	storageCtx := context.WithValue(ctx, types.TenantIDContextKey, tenantID)
 	backendID, provider, err := s.organizeStorageSelection(ctx, filePath)
 	if err != nil {
 		return nil, err
 	}
 	fileService, _, err := s.storageResolver.ResolveFileService(
-		ctx,
+		storageCtx,
 		tenant,
 		backendID,
 		provider,
@@ -117,11 +122,12 @@ func (s *organizeService) deleteOrganizeStoredFile(
 	if filePath == "" {
 		return nil
 	}
-	fileService, err := s.resolveOrganizeFileService(ctx, tenantID, filePath)
+	storageCtx := context.WithValue(ctx, types.TenantIDContextKey, tenantID)
+	fileService, err := s.resolveOrganizeFileService(storageCtx, tenantID, filePath)
 	if err != nil {
 		return fmt.Errorf("resolve %s file service for %q: %w", ownerType, filePath, err)
 	}
-	if err := fileService.DeleteFile(ctx, filePath); err != nil {
+	if err := fileService.DeleteFile(storageCtx, filePath); err != nil {
 		return fmt.Errorf("delete %s file for %s %q: %w", ownerType, ownerID, filePath, err)
 	}
 	return nil

@@ -158,6 +158,7 @@ type OrganizeService interface {
 	ListPublishedCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
 	GetCourseStats(ctx context.Context, query types.OrganizeCourseQuery) (*types.OrganizeCourseStats, error)
 	OpenPublishedCourseLessonMedia(ctx context.Context, courseID, lessonID string) (io.ReadCloser, string, string, error)
+	GetPublishedCourseLessonMediaURL(ctx context.Context, courseID, lessonID string) (string, string, string, error)
 	GetPublishedCourseLessonContent(ctx context.Context, courseID, lessonID string) (string, error)
 	UpdateCoursePublicStatus(ctx context.Context, id, status string) (*types.OrganizeCourse, error)
 	UpdateCourseVisibility(ctx context.Context, id string, input types.OrganizeCourseVisibilityInput) (*types.OrganizeCourse, error)

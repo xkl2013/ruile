@@ -213,6 +213,12 @@ export interface OrganizeCourseLesson {
   source_file_name?: string
 }
 
+export interface OrganizeCourseLessonMediaURL {
+  url: string
+  file_name?: string
+  mime_type?: string
+}
+
 export interface OrganizeCourse {
   id: string
   source: OrganizeCourseSource
@@ -435,15 +441,23 @@ export function getOrganizeCourses(params?: OrganizeListParams & { category?: st
   return get<OrganizeResponse<OrganizeListData<OrganizeCourse>>>(withQuery('/api/v1/organize/courses', params))
 }
 
-export function getOrganizeCourse(id: string) {
-  return get<OrganizeResponse<OrganizeCourse>>(`/api/v1/organize/courses/${encodeURIComponent(id)}`)
+export function getOrganizeCourse(id: string, config?: any) {
+  return get<OrganizeResponse<OrganizeCourse>>(`/api/v1/organize/courses/${encodeURIComponent(id)}`, config)
 }
 
 // The outline deliberately carries no lesson bodies, so each chapter is fetched
 // on demand; see getOrganizeCourse.
-export function getOrganizeCourseLessonContent(courseId: string, lessonId: string) {
+export function getOrganizeCourseLessonContent(courseId: string, lessonId: string, config?: any) {
   return get<OrganizeResponse<{ content: string }>>(
     `/api/v1/organize/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/content`,
+    config,
+  )
+}
+
+export function getOrganizeCourseLessonMediaURL(courseId: string, lessonId: string, config?: any) {
+  return get<OrganizeResponse<OrganizeCourseLessonMediaURL>>(
+    `/api/v1/organize/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}/media-url`,
+    config,
   )
 }
 

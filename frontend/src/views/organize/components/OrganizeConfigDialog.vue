@@ -17,7 +17,7 @@
           <header>
             <div>
               <h2 id="organize-config-dialog-title">{{ config ? '编辑整理' : templateKey ? '从模板新建整理' : '新建整理' }}</h2>
-              <p>整理会按这里的配置执行</p>
+              <p>配置名称、整理指令与执行周期</p>
             </div>
             <button type="button" class="dialog-icon-button" aria-label="关闭" @click="close">
               <t-icon name="close" />
@@ -40,21 +40,9 @@
             <div class="organize-config-field">
               <div class="organize-config-field-head">
                 <span>指令</span>
-                <label>
-                  <span class="sr-only">选择整理模板</span>
-                  <select
-                    v-model="form.templateKey"
-                    class="organize-config-template-select"
-                    :class="{ 'is-error': templateError }"
-                    :aria-invalid="templateError ? 'true' : undefined"
-                    @change="handleTemplateChange"
-                  >
-                    <option value="">选择模板</option>
-                    <option v-for="template in templates" :key="template.key" :value="template.key">
-                      {{ template.name }}（{{ template.scene }}）
-                    </option>
-                  </select>
-                </label>
+                <span v-if="selectedTemplate" class="organize-config-template-context">
+                  {{ selectedTemplate.name }} · {{ selectedTemplate.scene }}
+                </span>
               </div>
               <t-textarea
                 v-model="form.instruction"
@@ -62,7 +50,7 @@
                 :maxlength="4000"
                 :autosize="{ minRows: 5, maxRows: 9 }"
               />
-              <small>产出结构由模板决定，指令负责按什么口径整理</small>
+              <small>整理结构按方案执行，指令用于补充整理口径</small>
               <small v-if="templateError" class="organize-config-error">{{ templateError }}</small>
             </div>
 
@@ -199,9 +187,15 @@ const selectedExperts = computed(() =>
   experts.value.filter((expert) => form.expertIds.includes(expert.id)),
 )
 
+const selectedTemplate = computed(() =>
+  templates.value.find((template) => template.key === form.templateKey),
+)
+
 const resetForm = () => {
   const source = props.config
-  const initialTemplateKey = source?.templateKey || props.templateKey || ''
+  const defaultTemplate = templates.value.find((template) => template.key === 'sprout_review')
+    || templates.value[0]
+  const initialTemplateKey = source?.templateKey || props.templateKey || defaultTemplate?.key || ''
   const template = templates.value.find((item) => item.key === initialTemplateKey)
   form.name = source?.name || (template ? `${template.name}整理` : '')
   form.templateKey = initialTemplateKey
@@ -223,20 +217,6 @@ watch(
   },
   { immediate: true },
 )
-
-const applyTemplate = () => {
-  const template = templates.value.find((item) => item.key === form.templateKey)
-  if (!template) return
-  templateError.value = ''
-  form.instruction = template.defaultInstruction
-  form.expertIds = [...template.expertIds]
-  if (!form.name.trim()) form.name = `${template.name}整理`
-}
-
-const handleTemplateChange = () => {
-  templateError.value = ''
-  applyTemplate()
-}
 
 const toggleExpert = (expertId: string) => {
   form.expertIds = form.expertIds.includes(expertId)
@@ -269,7 +249,7 @@ const submit = async () => {
     return
   }
   if (!form.templateKey) {
-    templateError.value = '请选择整理模板'
+    templateError.value = '暂无可用整理方案，请稍后重试'
     return
   }
 
@@ -402,7 +382,6 @@ const submit = async () => {
   font-weight: 600;
 }
 
-.organize-config-field-head select,
 .organize-config-schedule {
   min-height: 36px;
   padding: 0 34px 0 12px;
@@ -414,9 +393,15 @@ const submit = async () => {
   font-size: 13px;
 }
 
-.organize-config-template-select.is-error {
-  border-color: var(--td-error-color);
-  box-shadow: 0 0 0 1px var(--td-error-color);
+.organize-config-template-context {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .organize-config-schedule {
@@ -543,14 +528,6 @@ const submit = async () => {
 .organize-config-dialog > footer > div {
   display: flex;
   gap: 8px;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
 }
 
 .organize-config-dialog-enter-active,

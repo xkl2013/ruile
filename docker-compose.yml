@@ -25,6 +25,21 @@ services:
       - WeKnora-network
     restart: unless-stopped
 
+  # 官网（营销站，纯静态）——独立镜像，不依赖 app/docreader。
+  # 端口默认 8088，避免与 frontend(80)、app(8080)、mcp(8082)、
+  # docreader(50051) 等已占用端口冲突；如需公网 80 请由外层网关转发。
+  website:
+    image: ${WEBSITE_IMAGE_REGISTRY:-registry.cn-beijing.aliyuncs.com/rl-knowledge}/ruile-website:${WEKNORA_VERSION:-latest}
+    # Requires website/dist — run ./scripts/build_website_dist.sh before --build
+    build:
+      context: ./website
+    container_name: WeKnora-website
+    ports:
+      - "${WEBSITE_PORT:-8088}:80"
+    networks:
+      - WeKnora-network
+    restart: unless-stopped
+
   app:
     image: wechatopenai/weknora-app:${WEKNORA_VERSION:-latest}
     build:
