@@ -356,14 +356,18 @@ func RegisterPublicContentRoutes(
 		admin.POST("/:id/reject", handler.RejectAdminContent)
 	}
 
-	// Courses are authored by uploading a whole folder, so they get their own
-	// admin surface instead of the single-post public-contents one. The upload
-	// endpoint is the only way a course is created in this release.
+	// Courses are created from metadata first, then lessons are uploaded one at
+	// a time through the dedicated upload endpoint.
 	courses := r.Group("/system/admin/courses", g.SystemAdmin())
 	{
+		courses.GET("/visibility-organizations", handler.ListAdminCourseOrganizations)
 		courses.GET("", handler.ListAdminCourses)
+		courses.POST("", handler.CreateAdminCourse)
 		courses.POST("/upload", handler.UploadAdminCourse)
 		courses.GET("/:id", handler.GetAdminCourse)
+		courses.PUT("/:id/visibility", handler.UpdateAdminCourseVisibility)
+		courses.PUT("/:id/lessons/:lesson_id", handler.UpdateAdminCourseLesson)
+		courses.DELETE("/:id/lessons/:lesson_id", handler.DeleteAdminCourseLesson)
 		courses.POST("/:id/publish", handler.PublishAdminCourse)
 		courses.POST("/:id/offline", handler.OfflineAdminCourse)
 		courses.DELETE("/:id", handler.DeleteAdminCourse)
@@ -1561,8 +1565,12 @@ func RegisterServiceSpaceRoutes(r *gin.RouterGroup, h *handler.ServiceSpaceHandl
 		svc.GET("/:service_id/subjects/:subject_id", g.Viewer(), h.GetSubject)
 		svc.PUT("/:service_id/subjects/:subject_id", g.Viewer(), h.UpdateSubject)
 		svc.DELETE("/:service_id/subjects/:subject_id", g.Viewer(), h.DeleteSubject)
+		svc.GET("/:service_id/subjects/:subject_id/profile", g.Viewer(), h.GetSubjectProfile)
+		svc.POST("/:service_id/subjects/:subject_id/profile/refresh", g.Viewer(), h.RefreshSubjectProfile)
 		svc.GET("/:service_id/facts", g.Viewer(), h.ListFacts)
 		svc.POST("/:service_id/facts", g.Viewer(), h.AppendFact)
+		svc.POST("/:service_id/fact-proposals/preview", g.Viewer(), h.PreviewFactProposal)
+		svc.POST("/:service_id/fact-proposals/:proposal_id/resolve", g.Viewer(), h.ResolveFactProposal)
 
 		svc.GET("/:service_id/statuses", g.Viewer(), h.ListReminderStatuses)
 		svc.POST("/:service_id/statuses", g.Viewer(), h.CreateReminderStatus)

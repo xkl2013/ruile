@@ -214,6 +214,55 @@ func (p *ServiceSpaceProfile) AfterFind(_ *gorm.DB) error {
 	return json.Unmarshal(p.SchemaJSON, &p.Schema)
 }
 
+// ServiceSubjectProfile is the materialized profile for one business subject
+// inside a service space. Keeping SubjectID in the storage key prevents facts
+// from multiple customers being mixed into one service-level profile.
+type ServiceSubjectProfile struct {
+	ID               string                     `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID         uint64                     `json:"tenant_id" gorm:"not null;index"`
+	ServiceID        string                     `json:"service_id" gorm:"type:varchar(36);not null;index"`
+	SubjectID        string                     `json:"subject_id" gorm:"type:varchar(36);not null;index"`
+	BlueprintVersion int                        `json:"blueprint_version" gorm:"not null"`
+	Version          int                        `json:"version" gorm:"not null;default:1"`
+	Schema           []ServiceSpaceProfileField `json:"schema" gorm:"-"`
+	SchemaJSON       JSON                       `json:"-" gorm:"column:schema_json;type:jsonb;not null;default:'[]'"`
+	Values           JSONMap                    `json:"values" gorm:"column:profile_values;type:jsonb;not null;default:'{}'"`
+	SourceWatermark  string                     `json:"source_watermark" gorm:"type:varchar(128);not null;default:''"`
+	Frozen           bool                       `json:"frozen" gorm:"not null;default:false"`
+	CreatedAt        time.Time                  `json:"created_at"`
+	UpdatedAt        time.Time                  `json:"updated_at"`
+}
+
+func (ServiceSubjectProfile) TableName() string { return "service_subject_profiles" }
+
+func (p *ServiceSubjectProfile) BeforeSave(_ *gorm.DB) error {
+	if p.ID == "" {
+		p.ID = uuid.NewString()
+	}
+	if p.Version < 1 {
+		p.Version = 1
+	}
+	if p.Values == nil {
+		p.Values = JSONMap{}
+	}
+	if len(p.SchemaJSON) == 0 {
+		data, err := json.Marshal(p.Schema)
+		if err != nil {
+			return err
+		}
+		p.SchemaJSON = JSON(data)
+	}
+	return nil
+}
+
+func (p *ServiceSubjectProfile) AfterFind(_ *gorm.DB) error {
+	if len(p.SchemaJSON) == 0 {
+		p.Schema = []ServiceSpaceProfileField{}
+		return nil
+	}
+	return json.Unmarshal(p.SchemaJSON, &p.Schema)
+}
+
 type ServiceSpaceSummary struct {
 	ID               string                       `json:"id" gorm:"type:varchar(36);primaryKey"`
 	TenantID         uint64                       `json:"tenant_id" gorm:"not null;index"`

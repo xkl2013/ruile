@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -26,6 +28,14 @@ func (r *organizeRepository) CreateCourse(
 		if err := tx.Create(course).Error; err != nil {
 			return err
 		}
+		if err := createCourseSharedSpaceRows(
+			tx,
+			course.ID,
+			course.SharedSpaceIDs,
+			course.UserID,
+		); err != nil {
+			return err
+		}
 		for _, lesson := range lessons {
 			if lesson != nil && lesson.CourseID == "" {
 				lesson.CourseID = course.ID
@@ -44,6 +54,160 @@ func (r *organizeRepository) CreateCourse(
 			return err
 		}
 		course.LessonCount = len(lessons)
+		return nil
+	})
+}
+
+// AppendCourseLesson adds one already-processed lesson to an existing course
+// and increments its denormalized lesson count atomically.
+func (r *organizeRepository) AppendCourseLesson(
+	ctx context.Context,
+	course *types.OrganizeCourse,
+	lesson *types.OrganizeCourseLesson,
+) error {
+	if course == nil || lesson == nil {
+		return errors.New("course and lesson are required")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if lesson.CourseID == "" {
+			lesson.CourseID = course.ID
+		}
+		if err := tx.Create(lesson).Error; err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		update := tx.Model(&types.OrganizeCourse{}).
+			Where("tenant_id = ? AND id = ?", course.TenantID, course.ID).
+			Updates(map[string]interface{}{
+				"lesson_count": gorm.Expr("lesson_count + ?", 1),
+				"updated_at":   now,
+			})
+		if update.Error != nil {
+			return update.Error
+		}
+		if update.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		course.LessonCount++
+		course.UpdatedAt = now
+		return nil
+	})
+}
+
+// UpdateCourseLesson changes the display title on both the lesson row and its
+// backing output. The description is stored as the output summary so existing
+// readers and the content-management view see the same value.
+func (r *organizeRepository) UpdateCourseLesson(
+	ctx context.Context,
+	course *types.OrganizeCourse,
+	lesson *types.OrganizeCourseLesson,
+) error {
+	if course == nil || lesson == nil {
+		return errors.New("course and lesson are required")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now().UTC()
+		lessonUpdate := tx.Model(&types.OrganizeCourseLesson{}).
+			Where("tenant_id = ? AND course_id = ? AND id = ?", course.TenantID, course.ID, lesson.ID).
+			Updates(map[string]interface{}{
+				"title":      lesson.Title,
+				"updated_at": now,
+			})
+		if lessonUpdate.Error != nil {
+			return lessonUpdate.Error
+		}
+		if lessonUpdate.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+
+		if lesson.Output != nil && lesson.OutputID != "" {
+			outputUpdate := tx.Model(&types.OrganizeOutput{}).
+				Where("tenant_id = ? AND user_id = ? AND id = ?", course.TenantID, course.UserID, lesson.OutputID).
+				Updates(map[string]interface{}{
+					"title":          lesson.Output.Title,
+					"source_summary": lesson.Output.SourceSummary,
+					"updated_at":     now,
+				})
+			if outputUpdate.Error != nil {
+				return outputUpdate.Error
+			}
+			if outputUpdate.RowsAffected == 0 {
+				return gorm.ErrRecordNotFound
+			}
+		}
+
+		return tx.Model(&types.OrganizeCourse{}).
+			Where("tenant_id = ? AND id = ?", course.TenantID, course.ID).
+			Update("updated_at", now).Error
+	})
+}
+
+// DeleteCourseLesson removes one lesson and its backing output atomically.
+// Remaining lessons are renumbered so the next append can safely use the
+// course lesson count as its sort order.
+func (r *organizeRepository) DeleteCourseLesson(
+	ctx context.Context,
+	course *types.OrganizeCourse,
+	lesson *types.OrganizeCourseLesson,
+) error {
+	if course == nil || lesson == nil {
+		return errors.New("course and lesson are required")
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		lessonDelete := tx.
+			Where("tenant_id = ? AND course_id = ? AND id = ?", course.TenantID, course.ID, lesson.ID).
+			Delete(&types.OrganizeCourseLesson{})
+		if lessonDelete.Error != nil {
+			return lessonDelete.Error
+		}
+		if lessonDelete.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+
+		if lesson.OutputID != "" {
+			if err := tx.Where("output_id = ?", lesson.OutputID).
+				Delete(&types.OrganizeOutputMemory{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("tenant_id = ? AND user_id = ? AND id = ?", course.TenantID, course.UserID, lesson.OutputID).
+				Delete(&types.OrganizeOutput{}).Error; err != nil {
+				return err
+			}
+		}
+
+		var remaining []*types.OrganizeCourseLesson
+		if err := tx.Where("tenant_id = ? AND course_id = ?", course.TenantID, course.ID).
+			Order("sort_order ASC").
+			Order("created_at ASC").
+			Find(&remaining).Error; err != nil {
+			return err
+		}
+		for index, remainingLesson := range remaining {
+			if remainingLesson == nil || remainingLesson.SortOrder == index {
+				continue
+			}
+			if err := tx.Model(&types.OrganizeCourseLesson{}).
+				Where("tenant_id = ? AND course_id = ? AND id = ?", course.TenantID, course.ID, remainingLesson.ID).
+				Update("sort_order", index).Error; err != nil {
+				return err
+			}
+		}
+
+		now := time.Now().UTC()
+		update := tx.Model(&types.OrganizeCourse{}).
+			Where("tenant_id = ? AND id = ?", course.TenantID, course.ID).
+			Updates(map[string]interface{}{
+				"lesson_count": len(remaining),
+				"updated_at":   now,
+			})
+		if update.Error != nil {
+			return update.Error
+		}
+		if update.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		course.LessonCount = len(remaining)
+		course.UpdatedAt = now
 		return nil
 	})
 }
@@ -72,9 +236,148 @@ func (r *organizeRepository) UpdateCourse(ctx context.Context, course *types.Org
 		Where("tenant_id = ? AND id = ?", course.TenantID, course.ID).
 		Select(
 			"title", "summary", "category", "cover_url", "teacher_name", "teacher_title",
-			"source", "public_status", "lesson_count", "learner_count", "updated_at",
+			"source", "public_status", "visibility_scope", "lesson_count", "learner_count", "updated_at",
 		).
 		Updates(course).Error
+}
+
+func (r *organizeRepository) UpdateCourseVisibility(
+	ctx context.Context,
+	id string,
+	visibilityScope string,
+	organizationIDs []string,
+	createdBy string,
+) (*types.OrganizeCourse, error) {
+	var result types.OrganizeCourse
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var course types.OrganizeCourse
+		if err := tx.Where("id = ?", id).First(&course).Error; err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if err := tx.Model(&types.OrganizeCourse{}).
+			Where("id = ?", id).
+			Updates(map[string]interface{}{
+				"visibility_scope": visibilityScope,
+				"updated_at":       now,
+			}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("course_id = ?", id).
+			Delete(&types.OrganizeCourseSharedSpace{}).Error; err != nil {
+			if !isMissingCourseSharedSpaceTable(err) || len(organizationIDs) > 0 {
+				return err
+			}
+		}
+		if err := createCourseSharedSpaceRows(tx, id, organizationIDs, createdBy); err != nil {
+			return err
+		}
+		course.VisibilityScope = visibilityScope
+		course.UpdatedAt = now
+		course.SharedSpaceIDs = append([]string(nil), organizationIDs...)
+		result = course
+		return nil
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ReplaceCourseSharedSpaces replaces the selected organization links in one
+// transaction. Organization membership is validated by the service before
+// this method is called; the repository only owns the relation rows.
+func (r *organizeRepository) ReplaceCourseSharedSpaces(
+	ctx context.Context,
+	courseID string,
+	organizationIDs []string,
+	createdBy string,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("course_id = ?", courseID).
+			Delete(&types.OrganizeCourseSharedSpace{}).Error; err != nil {
+			if !isMissingCourseSharedSpaceTable(err) {
+				return err
+			}
+		}
+		for _, organizationID := range organizationIDs {
+			organizationID = strings.TrimSpace(organizationID)
+			if organizationID == "" {
+				continue
+			}
+			row := &types.OrganizeCourseSharedSpace{
+				ID:             uuid.NewString(),
+				CourseID:       courseID,
+				OrganizationID: organizationID,
+				CreatedBy:      strings.TrimSpace(createdBy),
+			}
+			if err := tx.Create(row).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func createCourseSharedSpaceRows(
+	tx *gorm.DB,
+	courseID string,
+	organizationIDs []string,
+	createdBy string,
+) error {
+	for _, organizationID := range organizationIDs {
+		organizationID = strings.TrimSpace(organizationID)
+		if organizationID == "" {
+			continue
+		}
+		row := &types.OrganizeCourseSharedSpace{
+			ID:             uuid.NewString(),
+			CourseID:       courseID,
+			OrganizationID: organizationID,
+			CreatedBy:      strings.TrimSpace(createdBy),
+		}
+		if err := tx.Create(row).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *organizeRepository) ListCourseSharedSpaceIDs(
+	ctx context.Context,
+	courseID string,
+) ([]string, error) {
+	var rows []types.OrganizeCourseSharedSpace
+	if err := r.db.WithContext(ctx).
+		Where("course_id = ?", courseID).
+		Order("created_at ASC").
+		Find(&rows).Error; err != nil {
+		if isMissingCourseSharedSpaceTable(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if id := strings.TrimSpace(row.OrganizationID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func isMissingCourseSharedSpaceTable(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "organize_course_shared_spaces") &&
+		(strings.Contains(message, "no such table") ||
+			strings.Contains(message, "does not exist") ||
+			strings.Contains(message, "undefined table"))
 }
 
 // UpdateCoursePublicStatus changes the course and all lesson bodies in one
@@ -183,6 +486,12 @@ func (r *organizeRepository) DeleteCourse(ctx context.Context, tenantID uint64, 
 			Delete(&types.OrganizeCourseLesson{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("course_id = ?", id).
+			Delete(&types.OrganizeCourseSharedSpace{}).Error; err != nil {
+			if !isMissingCourseSharedSpaceTable(err) {
+				return err
+			}
+		}
 		return tx.Where("tenant_id = ? AND id = ?", tenantID, id).
 			Delete(&types.OrganizeCourse{}).Error
 	})
@@ -193,6 +502,7 @@ func (r *organizeRepository) ListCourses(
 	query types.OrganizeCourseQuery,
 ) ([]*types.OrganizeCourse, int64, error) {
 	dbq := r.db.WithContext(ctx).Model(&types.OrganizeCourse{})
+	dbq = applyCourseVisibilityFilter(ctx, dbq, query)
 	if query.TenantID > 0 {
 		dbq = dbq.Where("tenant_id = ?", query.TenantID)
 	}
@@ -236,6 +546,7 @@ func (r *organizeRepository) GetCourseStats(
 	query types.OrganizeCourseQuery,
 ) (*types.OrganizeCourseStats, error) {
 	dbq := r.db.WithContext(ctx).Model(&types.OrganizeCourse{})
+	dbq = applyCourseVisibilityFilter(ctx, dbq, query)
 	if query.TenantID > 0 {
 		dbq = dbq.Where("tenant_id = ?", query.TenantID)
 	}
@@ -267,12 +578,56 @@ func (r *organizeRepository) GetCourseStats(
 	return &stats, nil
 }
 
+func applyCourseVisibilityFilter(
+	ctx context.Context,
+	dbq *gorm.DB,
+	query types.OrganizeCourseQuery,
+) *gorm.DB {
+	if !query.VisibilityFilter || types.IsSystemAdminFromContext(ctx) {
+		return dbq
+	}
+
+	clauses := []string{"visibility_scope = ?"}
+	args := []interface{}{types.OrganizeCourseVisibilitySystem}
+
+	privateClauses := make([]string, 0, 2)
+	privateArgs := make([]interface{}, 0, 2)
+	if query.ViewerTenantID > 0 {
+		privateClauses = append(privateClauses, "tenant_id = ?")
+		privateArgs = append(privateArgs, query.ViewerTenantID)
+	}
+	if strings.TrimSpace(query.ViewerUserID) != "" {
+		privateClauses = append(privateClauses, "user_id = ?")
+		privateArgs = append(privateArgs, strings.TrimSpace(query.ViewerUserID))
+	}
+	if len(privateClauses) > 0 {
+		clauses = append(
+			clauses,
+			"visibility_scope = ? AND ("+strings.Join(privateClauses, " OR ")+")",
+		)
+		args = append(args, types.OrganizeCourseVisibilityPrivate)
+		args = append(args, privateArgs...)
+	}
+	if len(query.ViewerOrganizationIDs) > 0 {
+		clauses = append(
+			clauses,
+			"visibility_scope = ? AND EXISTS ("+
+				"SELECT 1 FROM organize_course_shared_spaces css "+
+				"WHERE css.course_id = organize_courses.id "+
+				"AND css.organization_id IN ?)",
+		)
+		args = append(args, types.OrganizeCourseVisibilitySharedSpace, query.ViewerOrganizationIDs)
+	}
+
+	return dbq.Where("("+strings.Join(clauses, " OR ")+")", args...)
+}
+
 // organizeCourseLessonOutputColumns is what an outline read needs from an
 // output: identity plus availability plus storage metadata. Adding `content`
 // back here would silently restore the multi-megabyte payload this deliberately
 // avoids.
 const organizeCourseLessonOutputColumns = "id, tenant_id, user_id, title, output_type, icon, " +
-	"status, public_status, public_content_type, series_id, series_title, series_order, metadata"
+	"source_summary, status, public_status, public_content_type, series_id, series_title, series_order, metadata"
 
 // GetCourseLesson reads one lesson together with its full output body.
 //

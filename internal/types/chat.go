@@ -120,6 +120,9 @@ const (
 	// MCPOAuthResolved: authorization completed / timed out / canceled;
 	// informational for UI replay.
 	ResponseTypeMCPOAuthResolved ResponseType = "mcp_oauth_resolved"
+	// ServiceUpdateProposal is a reviewable suggestion to append structured
+	// service-space facts. It never mutates service data by itself.
+	ResponseTypeServiceUpdateProposal ResponseType = "service_update_proposal"
 )
 
 // StreamResponse stream response

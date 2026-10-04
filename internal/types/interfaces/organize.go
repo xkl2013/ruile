@@ -55,9 +55,15 @@ type OrganizeRepository interface {
 	CountSproutReportsByStage(ctx context.Context, tenantID uint64, userID string) (map[string]int64, error)
 
 	CreateCourse(ctx context.Context, course *types.OrganizeCourse, lessons []*types.OrganizeCourseLesson) error
+	AppendCourseLesson(ctx context.Context, course *types.OrganizeCourse, lesson *types.OrganizeCourseLesson) error
+	UpdateCourseLesson(ctx context.Context, course *types.OrganizeCourse, lesson *types.OrganizeCourseLesson) error
+	DeleteCourseLesson(ctx context.Context, course *types.OrganizeCourse, lesson *types.OrganizeCourseLesson) error
 	GetCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
 	UpdateCourse(ctx context.Context, course *types.OrganizeCourse) error
 	UpdateCoursePublicStatus(ctx context.Context, id, status string) (*types.OrganizeCourse, error)
+	UpdateCourseVisibility(ctx context.Context, id, visibilityScope string, organizationIDs []string, createdBy string) (*types.OrganizeCourse, error)
+	ReplaceCourseSharedSpaces(ctx context.Context, courseID string, organizationIDs []string, createdBy string) error
+	ListCourseSharedSpaceIDs(ctx context.Context, courseID string) ([]string, error)
 	DeleteCourse(ctx context.Context, tenantID uint64, id string) error
 	ListCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
 	GetCourseStats(ctx context.Context, query types.OrganizeCourseQuery) (*types.OrganizeCourseStats, error)
@@ -126,6 +132,26 @@ type OrganizeService interface {
 		input types.OrganizeCourseUploadInput,
 		files []types.OrganizeCourseUploadFile,
 	) (*types.OrganizeCourseUploadResult, error)
+	CreateCourse(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		input types.OrganizeCourseUploadInput,
+	) (*types.OrganizeCourse, error)
+	AppendCourseLessonFromUpload(
+		ctx context.Context,
+		tenantID uint64,
+		userID string,
+		courseID string,
+		file types.OrganizeCourseUploadFile,
+	) (*types.OrganizeCourseUploadResult, error)
+	UpdateCourseLesson(
+		ctx context.Context,
+		courseID string,
+		lessonID string,
+		input types.OrganizeCourseLessonUpdateInput,
+	) (*types.OrganizeCourseLesson, error)
+	DeleteCourseLesson(ctx context.Context, courseID string, lessonID string) error
 	GetCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
 	GetPublishedCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
 	ListCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
@@ -134,5 +160,6 @@ type OrganizeService interface {
 	OpenPublishedCourseLessonMedia(ctx context.Context, courseID, lessonID string) (io.ReadCloser, string, string, error)
 	GetPublishedCourseLessonContent(ctx context.Context, courseID, lessonID string) (string, error)
 	UpdateCoursePublicStatus(ctx context.Context, id, status string) (*types.OrganizeCourse, error)
+	UpdateCourseVisibility(ctx context.Context, id string, input types.OrganizeCourseVisibilityInput) (*types.OrganizeCourse, error)
 	DeleteCourse(ctx context.Context, id string) error
 }

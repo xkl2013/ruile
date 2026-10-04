@@ -545,6 +545,44 @@ func (h *ServiceSpaceHandler) DeleteSubject(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+func (h *ServiceSpaceHandler) GetSubjectProfile(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	profile, err := h.service.GetSubjectProfile(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("service_id"),
+		c.Param("subject_id"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": profile})
+}
+
+func (h *ServiceSpaceHandler) RefreshSubjectProfile(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	profile, err := h.service.RefreshSubjectProfile(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("service_id"),
+		c.Param("subject_id"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": profile})
+}
+
 func (h *ServiceSpaceHandler) ListFacts(c *gin.Context) {
 	tenantID, userID, ok := serviceScope(c)
 	if !ok {
@@ -586,6 +624,55 @@ func (h *ServiceSpaceHandler) AppendFact(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, gin.H{"success": true, "data": fact})
+}
+
+func (h *ServiceSpaceHandler) PreviewFactProposal(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ServiceFactProposalPreviewInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid service fact proposal request").WithDetails(err.Error()))
+		return
+	}
+	proposal, err := h.service.PreviewFactProposal(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("service_id"),
+		input,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": proposal})
+}
+
+func (h *ServiceSpaceHandler) ResolveFactProposal(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ServiceFactProposalResolveInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid service fact proposal resolution request").WithDetails(err.Error()))
+		return
+	}
+	proposal, err := h.service.ResolveFactProposal(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("service_id"),
+		c.Param("proposal_id"),
+		input,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": proposal})
 }
 
 func (h *ServiceSpaceHandler) ListReminderStatuses(c *gin.Context) {
@@ -1275,6 +1362,8 @@ func (h *ServiceSpaceHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, appsvc.ErrServiceSpaceContextSourceAssigned),
 		stderrors.Is(err, appsvc.ErrServiceSpaceFactInvalid),
 		stderrors.Is(err, appsvc.ErrServiceSpaceFactSourceRequired),
+		stderrors.Is(err, appsvc.ErrServiceSpaceFactProposalInvalid),
+		stderrors.Is(err, appsvc.ErrServiceSpaceFactProposalSubject),
 		stderrors.Is(err, appsvc.ErrServiceSpaceReminderInvalid),
 		stderrors.Is(err, appsvc.ErrServiceSpaceReminderTransition),
 		stderrors.Is(err, appsvc.ErrServiceSpaceReminderParent),
@@ -1283,7 +1372,8 @@ func (h *ServiceSpaceHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, appsvc.ErrAgentRunInvalidRequest):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	case stderrors.Is(err, appsvc.ErrServiceSpaceSubjectNotFound),
-		stderrors.Is(err, appsvc.ErrServiceSpaceStatusNotFound):
+		stderrors.Is(err, appsvc.ErrServiceSpaceStatusNotFound),
+		stderrors.Is(err, appsvc.ErrServiceSpaceFactProposalNotFound):
 		c.Error(apperrors.NewNotFoundError(err.Error()))
 	default:
 		logger.ErrorWithFields(c.Request.Context(), err, nil)

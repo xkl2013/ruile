@@ -10,12 +10,21 @@ import (
 )
 
 // Course sources. Only "official" is produced today: platform administrators
-// build courses by uploading a folder in the admin console. "creator" is kept
-// in the vocabulary so a creator-side channel can land later without a
-// migration or a second taxonomy.
+// create the course metadata first and then add lessons in the admin console.
+// "creator" is kept in the vocabulary so a creator-side channel can land later
+// without a migration or a second taxonomy.
 const (
 	OrganizeCourseSourceOfficial = "official"
 	OrganizeCourseSourceCreator  = "creator"
+)
+
+// Course visibility is independent from publication status. A published
+// course can be visible platform-wide, to selected shared spaces, or only to
+// its owning workspace/creator.
+const (
+	OrganizeCourseVisibilitySystem      = "system"
+	OrganizeCourseVisibilitySharedSpace = "shared_space"
+	OrganizeCourseVisibilityPrivate     = "private"
 )
 
 // Course lesson kinds. Same three values as the organize upload pipeline's
@@ -39,26 +48,31 @@ const (
 // existing organize_outputs row through output_id, so the upload, parsing,
 // editing and preview pipelines keep exactly one source of truth for content.
 type OrganizeCourse struct {
-	ID           string         `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID     uint64         `json:"tenant_id" gorm:"not null;index"`
-	UserID       string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	Source       string         `json:"source" gorm:"type:varchar(16);not null;default:'official';index"`
-	Title        string         `json:"title" gorm:"type:varchar(255);not null"`
-	Summary      string         `json:"summary" gorm:"type:text;not null;default:''"`
-	Category     string         `json:"category" gorm:"type:varchar(64);not null;default:'';index"`
-	CoverURL     string         `json:"cover_url" gorm:"type:varchar(512);not null;default:''"`
-	TeacherName  string         `json:"teacher_name" gorm:"type:varchar(64);not null;default:''"`
-	TeacherTitle string         `json:"teacher_title" gorm:"type:varchar(128);not null;default:''"`
-	PublicStatus string         `json:"public_status" gorm:"type:varchar(32);not null;default:'published';index"`
-	LessonCount  int            `json:"lesson_count" gorm:"not null;default:0"`
-	LearnerCount int            `json:"learner_count" gorm:"not null;default:0"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	DeletedAt    gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+	ID              string         `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID        uint64         `json:"tenant_id" gorm:"not null;index"`
+	UserID          string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	Source          string         `json:"source" gorm:"type:varchar(16);not null;default:'official';index"`
+	Title           string         `json:"title" gorm:"type:varchar(255);not null"`
+	Summary         string         `json:"summary" gorm:"type:text;not null;default:''"`
+	Category        string         `json:"category" gorm:"type:varchar(64);not null;default:'';index"`
+	CoverURL        string         `json:"cover_url" gorm:"type:varchar(512);not null;default:''"`
+	TeacherName     string         `json:"teacher_name" gorm:"type:varchar(64);not null;default:''"`
+	TeacherTitle    string         `json:"teacher_title" gorm:"type:varchar(128);not null;default:''"`
+	PublicStatus    string         `json:"public_status" gorm:"type:varchar(32);not null;default:'published';index"`
+	VisibilityScope string         `json:"visibility_scope" gorm:"type:varchar(32);not null;default:'system';index"`
+	LessonCount     int            `json:"lesson_count" gorm:"not null;default:0"`
+	LearnerCount    int            `json:"learner_count" gorm:"not null;default:0"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt `json:"deleted_at" gorm:"index"`
 
 	// Lessons is populated by the read paths that need the outline. It is never
 	// persisted here: rows live in organize_course_lessons.
 	Lessons []*OrganizeCourseLesson `json:"lessons,omitempty" gorm:"-"`
+
+	// SharedSpaceIDs is hydrated by admin detail/list reads. The IDs live in
+	// organize_course_shared_spaces and are not persisted on this row.
+	SharedSpaceIDs []string `json:"shared_space_ids,omitempty" gorm:"-"`
 }
 
 func (OrganizeCourse) TableName() string { return "organize_courses" }
@@ -73,9 +87,28 @@ func (c *OrganizeCourse) BeforeCreate(_ *gorm.DB) error {
 	if c.PublicStatus == "" {
 		c.PublicStatus = OrganizePublicContentStatusPublished
 	}
+	if c.VisibilityScope == "" {
+		c.VisibilityScope = OrganizeCourseVisibilitySystem
+	}
 	c.LessonCount = nonNegativeCount(c.LessonCount)
 	c.LearnerCount = nonNegativeCount(c.LearnerCount)
 	return nil
+}
+
+// OrganizeCourseSharedSpace links a course to an existing organization
+// (shared space). Membership is resolved through the organization member
+// table, so courses do not introduce a second membership model.
+type OrganizeCourseSharedSpace struct {
+	ID             string    `json:"id" gorm:"type:varchar(36);primaryKey"`
+	CourseID       string    `json:"course_id" gorm:"type:varchar(36);not null;index"`
+	OrganizationID string    `json:"organization_id" gorm:"type:varchar(36);not null;index"`
+	CreatedBy      string    `json:"created_by" gorm:"type:varchar(36);not null"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+func (OrganizeCourseSharedSpace) TableName() string {
+	return "organize_course_shared_spaces"
 }
 
 // OrganizeCourseLesson is one position inside a course. It owns the ordering
@@ -98,6 +131,14 @@ type OrganizeCourseLesson struct {
 }
 
 func (OrganizeCourseLesson) TableName() string { return "organize_course_lessons" }
+
+// OrganizeCourseLessonUpdateInput contains the administrator-editable fields
+// for one lesson. The uploaded file itself remains immutable; replacing a
+// lesson is done by deleting it and uploading a new lesson.
+type OrganizeCourseLessonUpdateInput struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
 
 // OrganizePublicCourse is the redacted course contract used by Discover.
 // Tenant, user, output and storage fields deliberately do not cross this
@@ -159,6 +200,13 @@ type OrganizeCourseQuery struct {
 	PublicStatus string
 	Page         int
 	PageSize     int
+
+	// VisibilityFilter is set only for public published-course reads.
+	// Admin list reads intentionally remain platform-wide.
+	VisibilityFilter      bool
+	ViewerTenantID        uint64
+	ViewerUserID          string
+	ViewerOrganizationIDs []string
 }
 
 type OrganizeCourseStats struct {
@@ -171,15 +219,25 @@ type OrganizeCourseStats struct {
 // OrganizeCourseUploadInput carries the course-level metadata an administrator
 // fills in the upload wizard. Lesson-level titles come from the file names.
 type OrganizeCourseUploadInput struct {
-	Title         string
-	Summary       string
-	Category      string
-	CoverURL      string
-	TeacherName   string
-	TeacherTitle  string
-	Source        string
-	PublicStatus  string
-	DirectoryName string
+	Title              string
+	Summary            string
+	Category           string
+	CoverURL           string
+	CoverImageFileName string
+	CoverImageMimeType string
+	CoverImageData     []byte
+	TeacherName        string
+	TeacherTitle       string
+	Source             string
+	PublicStatus       string
+	VisibilityScope    string
+	SharedSpaceIDs     []string
+	DirectoryName      string
+}
+
+type OrganizeCourseVisibilityInput struct {
+	VisibilityScope string   `json:"visibility_scope"`
+	SharedSpaceIDs  []string `json:"shared_space_ids"`
 }
 
 // OrganizeCourseUploadFile is one file picked from the uploaded folder.
@@ -233,6 +291,17 @@ func nonNegativeCount(v int) int {
 func IsValidOrganizeCourseSource(source string) bool {
 	switch strings.TrimSpace(source) {
 	case OrganizeCourseSourceOfficial, OrganizeCourseSourceCreator:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsValidOrganizeCourseVisibilityScope(scope string) bool {
+	switch strings.TrimSpace(scope) {
+	case OrganizeCourseVisibilitySystem,
+		OrganizeCourseVisibilitySharedSpace,
+		OrganizeCourseVisibilityPrivate:
 		return true
 	default:
 		return false

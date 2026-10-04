@@ -1,8 +1,9 @@
-import { del, get, post, postUpload } from '@/utils/request'
+import { del, get, post, postUpload, put } from '@/utils/request'
 
 export type CourseStatus = 'draft' | 'pending_review' | 'published' | 'offline' | 'rejected'
 export type CourseSource = 'official' | 'creator'
 export type CourseLessonType = 'video' | 'audio' | 'article'
+export type CourseVisibilityScope = 'system' | 'shared_space' | 'private'
 
 export interface AdminCourseLesson {
   id: string
@@ -12,6 +13,12 @@ export interface AdminCourseLesson {
   lesson_type: CourseLessonType
   duration_seconds: number
   sort_order: number
+  output?: {
+    id: string
+    title?: string
+    source_summary?: string
+    metadata?: Record<string, any>
+  }
 }
 
 export interface AdminCourse {
@@ -26,6 +33,8 @@ export interface AdminCourse {
   teacher_name: string
   teacher_title: string
   public_status: CourseStatus
+  visibility_scope: CourseVisibilityScope
+  shared_space_ids?: string[]
   lesson_count: number
   learner_count: number
   created_at: string
@@ -64,12 +73,21 @@ export interface CourseUploadMetadata {
   summary?: string
   category?: string
   coverUrl?: string
+  coverImage?: File | null
+  courseId?: string
   teacherName?: string
   teacherTitle?: string
   source?: CourseSource
   publicStatus?: CourseStatus
+  visibilityScope?: CourseVisibilityScope
+  sharedSpaceIds?: string[]
   /** The picked folder's name, used as the course title fallback. */
   folder?: string
+}
+
+export interface AdminCourseOrganization {
+  id: string
+  name: string
 }
 
 function withQuery(path: string, params: Record<string, string | number | undefined>) {
@@ -107,8 +125,40 @@ export function getAdminCourse(id: string) {
   )
 }
 
+export function listAdminCourseOrganizations() {
+  return get<{ success: boolean; data: { items: AdminCourseOrganization[]; total: number } }>(
+    '/api/v1/system/admin/courses/visibility-organizations',
+  )
+}
+
+export function createAdminCourse(meta: CourseUploadMetadata) {
+  const formData = new FormData()
+  formData.append('title', meta.title)
+  formData.append('summary', meta.summary || '')
+  formData.append('category', meta.category || '')
+  formData.append('cover_url', meta.coverUrl || '')
+  formData.append('teacher_name', meta.teacherName || '')
+  formData.append('teacher_title', meta.teacherTitle || '')
+  formData.append('source', meta.source || 'official')
+  formData.append('public_status', meta.publicStatus || 'published')
+  formData.append('visibility_scope', meta.visibilityScope || 'system')
+  formData.append('shared_space_ids', JSON.stringify(meta.sharedSpaceIds || []))
+  formData.append('folder', meta.folder || '')
+  if (meta.coverImage) {
+    formData.append('cover_image', meta.coverImage)
+  }
+
+  return postUpload(
+    '/api/v1/system/admin/courses',
+    formData,
+    undefined,
+    { timeout: 0 },
+  ) as Promise<{ success: boolean; data: AdminCourse }>
+}
+
 /**
- * Uploads a whole folder as one course.
+ * Appends one lesson to an existing course. The legacy path still accepts an
+ * empty courseId and creates a course from that first lesson for compatibility.
  *
  * The backend pairs `files` with `file_paths` by position, which is how
  * __MACOSX / dotfile noise is filtered out. So both lists must be built from
@@ -128,10 +178,16 @@ export function uploadAdminCourse(
   formData.append('summary', meta.summary || '')
   formData.append('category', meta.category || '')
   formData.append('cover_url', meta.coverUrl || '')
+  formData.append('course_id', meta.courseId || '')
+  if (meta.coverImage) {
+    formData.append('cover_image', meta.coverImage)
+  }
   formData.append('teacher_name', meta.teacherName || '')
   formData.append('teacher_title', meta.teacherTitle || '')
   formData.append('source', meta.source || 'official')
   formData.append('public_status', meta.publicStatus || 'published')
+  formData.append('visibility_scope', meta.visibilityScope || 'system')
+  formData.append('shared_space_ids', JSON.stringify(meta.sharedSpaceIds || []))
   formData.append('folder', meta.folder || '')
 
   return postUpload(
@@ -140,6 +196,23 @@ export function uploadAdminCourse(
     onUploadProgress,
     { timeout: 0 },
   ) as Promise<{ success: boolean; data: AdminCourseUploadResult }>
+}
+
+export function updateAdminCourseLesson(
+  courseId: string,
+  lessonId: string,
+  data: { title: string; description?: string },
+) {
+  return put<{ success: boolean; data: AdminCourseLesson }>(
+    `/api/v1/system/admin/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`,
+    data,
+  )
+}
+
+export function deleteAdminCourseLesson(courseId: string, lessonId: string) {
+  return del<{ success: boolean }>(
+    `/api/v1/system/admin/courses/${encodeURIComponent(courseId)}/lessons/${encodeURIComponent(lessonId)}`,
+  )
 }
 
 function moderate(id: string, action: 'publish' | 'offline') {
@@ -155,6 +228,19 @@ export function publishAdminCourse(id: string) {
 
 export function offlineAdminCourse(id: string) {
   return moderate(id, 'offline')
+}
+
+export function updateAdminCourseVisibility(
+  id: string,
+  data: { visibilityScope: CourseVisibilityScope; sharedSpaceIds?: string[] },
+) {
+  return put<{ success: boolean; data: AdminCourse }>(
+    `/api/v1/system/admin/courses/${encodeURIComponent(id)}/visibility`,
+    {
+      visibility_scope: data.visibilityScope,
+      shared_space_ids: data.sharedSpaceIds || [],
+    },
+  )
 }
 
 export function deleteAdminCourse(id: string) {

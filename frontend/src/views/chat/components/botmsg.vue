@@ -17,13 +17,13 @@
             <div v-if="session.isRagMode" class="rag-answer-stack">
                 <RagPipelineProgress :session="session" :embedded-mode="embeddedMode" />
                 <AgentStreamDisplay v-if="session.isAgentMode" :session="session" :session-id="sessionId"
-                    :user-query="userQuery" :rag-mode="true" :follow-up-loading="followUpLoading"
+                    :user-query="userQuery" :service-id="serviceId" :rag-mode="true" :follow-up-loading="followUpLoading"
                     @render-complete-change="emit('render-complete-change', $event)" />
             </div>
             <template v-else>
                 <docInfo v-if="session.knowledge_references?.length" :session="session"></docInfo>
                 <AgentStreamDisplay :session="session" :session-id="sessionId" :user-query="userQuery"
-                    v-if="session.isAgentMode" :follow-up-loading="followUpLoading"
+                    :service-id="serviceId" v-if="session.isAgentMode" :follow-up-loading="followUpLoading"
                     @render-complete-change="emit('render-complete-change', $event)" />
             </template>
             <deepThink :deepSession="session" v-if="session.showThink && !session.isAgentMode"></deepThink>
@@ -155,6 +155,10 @@ const props = defineProps({
         default: false
     },
     sessionId: {
+        type: String,
+        default: ''
+    },
+    serviceId: {
         type: String,
         default: ''
     },

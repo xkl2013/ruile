@@ -11,6 +11,7 @@ import (
 
 const (
 	ServiceFactTypeOrganizeOutput = "organize_output"
+	ServiceFactTypeProfileField   = "profile_field"
 	ServiceFactTypeMaxLen         = 64
 	ServiceFactKeyMaxLen          = 128
 	ServiceFactSourceTypeMaxLen   = 64

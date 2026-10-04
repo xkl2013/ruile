@@ -27,10 +27,14 @@
             </div>
           </header>
 
-          <div v-if="mediaUrl" class="lesson-player">
-            <video v-if="isVideo" class="lesson-player-media" controls :src="mediaUrl" preload="metadata" />
-            <audio v-else class="lesson-player-audio" controls :src="mediaUrl" preload="metadata" />
+          <div v-if="mediaLoading" class="lesson-player lesson-player--loading">
+            <t-loading size="small" text="加载媒体" />
           </div>
+          <div v-else-if="mediaPlayerUrl" class="lesson-player">
+            <video v-if="isVideo" class="lesson-player-media" controls :src="mediaPlayerUrl" preload="metadata" />
+            <audio v-else class="lesson-player-audio" controls :src="mediaPlayerUrl" preload="metadata" />
+          </div>
+          <div v-else-if="mediaError" class="lesson-body-empty">{{ mediaError }}</div>
 
           <div v-if="lessonBodyLoading" class="lesson-body-empty">
             <t-loading size="small" text="加载正文" />
@@ -101,10 +105,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { getOrganizeCourse, getOrganizeCourseLessonContent, type OrganizeCourse, type OrganizeCourseLesson } from '@/api/organize'
+import { getDown } from '@/utils/request'
 import { renderSproutReportHtml } from './sproutReport'
 
 const route = useRoute()
@@ -150,7 +155,12 @@ const durationLabel = computed(() => {
   return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`
 })
 
-const mediaUrl = computed(() => currentLesson.value?.media_url || '')
+const mediaEndpointUrl = computed(() => currentLesson.value?.media_url || '')
+const mediaPlayerUrl = ref('')
+const mediaLoading = ref(false)
+const mediaError = ref('')
+let mediaObjectUrl = ''
+let mediaRequestSeq = 0
 
 const sourceFileName = computed(() => currentLesson.value?.source_file_name || '')
 
@@ -164,6 +174,44 @@ function kindLabel(kind?: string) {
   if (kind === 'video') return '视频'
   if (kind === 'audio') return '音频'
   return '图文'
+}
+
+function revokeMediaObjectUrl() {
+  if (!mediaObjectUrl) return
+  URL.revokeObjectURL(mediaObjectUrl)
+  mediaObjectUrl = ''
+}
+
+async function loadLessonMedia() {
+  const requestSeq = ++mediaRequestSeq
+  const sourceUrl = mediaEndpointUrl.value
+  revokeMediaObjectUrl()
+  mediaPlayerUrl.value = ''
+  mediaError.value = ''
+  if (!sourceUrl) {
+    mediaLoading.value = false
+    return
+  }
+
+  mediaLoading.value = true
+  try {
+    // Native media elements cannot attach the JWT that the Axios interceptor
+    // adds to API requests, so hydrate the protected response first.
+    const rawBlob = await getDown(sourceUrl)
+    if (requestSeq !== mediaRequestSeq) return
+    const blob = rawBlob.type
+      ? rawBlob
+      : new Blob([rawBlob], { type: isVideo.value ? 'video/mp4' : 'audio/mpeg' })
+    mediaObjectUrl = URL.createObjectURL(blob)
+    mediaPlayerUrl.value = mediaObjectUrl
+  } catch {
+    if (requestSeq !== mediaRequestSeq) return
+    mediaError.value = '媒体加载失败，请稍后重试'
+  } finally {
+    if (requestSeq === mediaRequestSeq) {
+      mediaLoading.value = false
+    }
+  }
 }
 
 async function loadLessonBody() {
@@ -195,6 +243,7 @@ async function loadCourse() {
       throw new Error(response.message || '课程加载失败')
     }
     course.value = response.data
+    void loadLessonMedia()
     await loadLessonBody()
   } catch (error: any) {
     course.value = null
@@ -228,10 +277,16 @@ watch(lessonId, () => {
   if (scroll) scroll.scrollTop = 0
   // Switching chapters only swaps the route; refetch just the body.
   void loadLessonBody()
+  void loadLessonMedia()
 })
 
 onMounted(() => {
   void loadCourse()
+})
+
+onBeforeUnmount(() => {
+  mediaRequestSeq += 1
+  revokeMediaObjectUrl()
 })
 </script>
 
@@ -319,6 +374,13 @@ onMounted(() => {
 
 .lesson-player {
   padding: 16px 20px 0;
+}
+
+.lesson-player--loading {
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lesson-player-media {

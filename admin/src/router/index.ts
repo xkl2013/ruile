@@ -240,7 +240,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'courses',
       title: '系列课程',
-      description: '上传一个文件夹即生成一门课程，发布到发现模块供学习者按讲次学习。',
+      description: '先创建课程信息，再逐集添加课程内容，发布到发现模块供学习者按讲次学习。',
       requiresSystemAdmin: true,
     },
   },

@@ -71,13 +71,18 @@ type ServiceSubjectPolicy struct {
 }
 
 type ServiceSpaceProfileField struct {
-	Key          string `json:"key"`
-	Label        string `json:"label"`
-	ValueType    string `json:"value_type"`
-	Source       string `json:"source"`
-	Required     bool   `json:"required"`
-	Sensitive    bool   `json:"sensitive"`
-	DisplayOrder int    `json:"display_order"`
+	Key                 string   `json:"key"`
+	Label               string   `json:"label"`
+	ValueType           string   `json:"value_type"`
+	Source              string   `json:"source"`
+	Required            bool     `json:"required"`
+	Sensitive           bool     `json:"sensitive"`
+	DisplayOrder        int      `json:"display_order"`
+	Aliases             []string `json:"aliases,omitempty"`
+	ExtractionHint      string   `json:"extraction_hint,omitempty"`
+	ConfidenceThreshold float64  `json:"confidence_threshold,omitempty"`
+	OverwritePolicy     string   `json:"overwrite_policy,omitempty"`
+	AskWhenMissing      bool     `json:"ask_when_missing,omitempty"`
 }
 
 type ServiceSpaceSummarySection struct {

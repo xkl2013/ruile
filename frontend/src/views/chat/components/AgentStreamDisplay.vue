@@ -98,6 +98,15 @@
                   v-bind="embedAuthProps" />
               </div>
 
+              <!-- Service-space fact proposal -->
+              <div v-else-if="event.type === 'service_update_proposal'" class="tool-event">
+                <ServiceFactProposalCard
+                  v-if="event.proposal"
+                  :proposal="event.proposal"
+                  :service-id="props.serviceId || ''"
+                />
+              </div>
+
               <!-- Tool Call Event (non-thinking) -->
               <div v-else-if="event.type === 'tool_call'" class="tool-event">
                 <div class="action-card" :class="{
@@ -263,6 +272,15 @@
                 :timeout-seconds="event.timeout_seconds" :requested-at="event.requested_at" :resolved="event.resolved"
                 :authorized="event.authorized" :resolve-reason="event.resolve_reason" :timed-out="event.timed_out"
                 :canceled="event.canceled" v-bind="embedAuthProps" />
+            </div>
+
+            <!-- Service-space fact proposal -->
+            <div v-else-if="event.type === 'service_update_proposal'" class="tool-event">
+              <ServiceFactProposalCard
+                v-if="event.proposal"
+                :proposal="event.proposal"
+                :service-id="props.serviceId || ''"
+              />
             </div>
 
             <!-- Thinking Tool Call -->
@@ -478,6 +496,7 @@ import 'katex/dist/katex.min.css';
 import ToolResultRenderer from './ToolResultRenderer.vue';
 import ToolApprovalCard from './ToolApprovalCard.vue';
 import McpOAuthCard from './McpOAuthCard.vue';
+import ServiceFactProposalCard from './ServiceFactProposalCard.vue';
 import ChatRequestInfoButton from '@/components/ChatRequestInfoButton.vue';
 import ChatCitationFloat from '@/components/ChatCitationFloat.vue';
 import picturePreview from '@/components/picture-preview.vue';
@@ -784,6 +803,7 @@ const props = defineProps<{
   embedVisitorId?: string;
   ragMode?: boolean;
   followUpLoading?: boolean;
+  serviceId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -1667,6 +1687,7 @@ const intermediateEvents = computed(() => {
   const hidden = hiddenThinkingEventIds.value;
   return result.filter((e: any) => {
     if (e.type === 'answer' || e.type === 'agent_complete') return false;
+    if (e.type === 'service_update_proposal') return false;
     if (e.type === 'thinking' && e.event_id && hidden.has(e.event_id)) return false;
     return true;
   });
@@ -1693,7 +1714,9 @@ const displayEvents = computed(() => {
   // Quick-answer RAG: pipeline steps (including attachment prep) live in
   // RagPipelineProgress; this component only renders the answer stream.
   if (props.ragMode) {
-    return result.filter((e: any) => e.type === 'answer');
+    return result.filter((e: any) => (
+      e.type === 'answer' || e.type === 'service_update_proposal'
+    ));
   }
 
   // While the conversation is still running, keep the same lightweight tool-log
@@ -1708,9 +1731,11 @@ const displayEvents = computed(() => {
   }
 
   // Done: the steps live in the collapsed tree; show only the answer here.
-  const answerEvents = result.filter((e: any) => e.type === 'answer');
-  if (answerEvents.length > 0) {
-    return answerEvents;
+  const finalEvents = result.filter((e: any) => (
+    e.type === 'answer' || e.type === 'service_update_proposal'
+  ));
+  if (finalEvents.length > 0) {
+    return finalEvents;
   }
 
   // If the intermediate-steps tree is active, all thinking/tool_call events

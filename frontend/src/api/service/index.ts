@@ -237,6 +237,11 @@ export interface ServiceSpaceBlueprint {
     required: boolean
     sensitive: boolean
     display_order: number
+    aliases?: string[]
+    extraction_hint?: string
+    confidence_threshold?: number
+    overwrite_policy?: string
+    ask_when_missing?: boolean
   }>
   summary_schema: Array<{
     key: string
@@ -270,6 +275,35 @@ export interface ServiceSpaceProfile {
 }
 
 export type ServiceSpaceProfileField = ServiceSpaceProfile['schema'][number]
+
+export interface ServiceFactProposalItem {
+  field_key: string
+  field_label: string
+  value: unknown
+  confidence?: number
+  evidence?: string
+  subject_id?: string
+}
+
+export type ServiceFactProposalStatus = 'pending' | 'confirmed' | 'rejected'
+
+export interface ServiceFactProposal {
+  id: string
+  tenant_id: number
+  service_id: string
+  session_id?: string
+  source_type: string
+  source_id: string
+  source_version?: string
+  subject_id?: string
+  status: ServiceFactProposalStatus
+  needs_subject: boolean
+  question?: string
+  items: ServiceFactProposalItem[]
+  created_at?: string
+  updated_at?: string
+  resolved_at?: string
+}
 
 export interface ServiceSpaceSummary {
   id: string
@@ -457,6 +491,21 @@ export function refreshServiceSummary(serviceId: string) {
   return post<ServiceResponse<ServiceSpaceSummary>>(
     `/api/v1/services/${encodeURIComponent(serviceId)}/summary/refresh`,
     {},
+  )
+}
+
+export function resolveServiceFactProposal(
+  serviceId: string,
+  proposalId: string,
+  input: {
+    decision: 'confirmed' | 'rejected'
+    subject_id?: string
+    items?: ServiceFactProposalItem[]
+  },
+) {
+  return post<ServiceResponse<ServiceFactProposal>>(
+    `/api/v1/services/${encodeURIComponent(serviceId)}/fact-proposals/${encodeURIComponent(proposalId)}/resolve`,
+    input,
   )
 }
 

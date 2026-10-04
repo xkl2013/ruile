@@ -89,6 +89,19 @@ func (r *organizationRepository) ListByTenantID(ctx context.Context, tenantID ui
 	return orgs, nil
 }
 
+// ListAll is reserved for SystemAdmin control-plane screens. Unlike
+// ListByTenantID it intentionally does not apply the current-account
+// membership scope.
+func (r *organizationRepository) ListAll(ctx context.Context) ([]*types.Organization, error) {
+	var orgs []*types.Organization
+	if err := r.db.WithContext(ctx).
+		Order("created_at DESC").
+		Find(&orgs).Error; err != nil {
+		return nil, err
+	}
+	return orgs, nil
+}
+
 // Update updates organization fields that remain configurable by admins.
 func (r *organizationRepository) Update(ctx context.Context, org *types.Organization) error {
 	return r.db.WithContext(ctx).Model(&types.Organization{}).Where("id = ?", org.ID).

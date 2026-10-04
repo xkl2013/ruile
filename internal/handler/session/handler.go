@@ -29,7 +29,8 @@ type Handler struct {
 	fileService          interfaces.FileService          // Service for file storage (image uploads)
 	storageResolver      interfaces.StorageBackendResolver
 	modelService         interfaces.ModelService // Service for model management (VLM access)
-	attachmentProcessor  *AttachmentProcessor    // Processor for file attachments
+	serviceSpace         interfaces.ServiceSpaceService
+	attachmentProcessor  *AttachmentProcessor // Processor for file attachments
 	temporaryDocuments   interfaces.TemporaryDocumentService
 }
 
@@ -51,6 +52,7 @@ func NewHandler(
 	documentReader interfaces.DocumentReader,
 	imageResolver *docparser.ImageResolver,
 	temporaryDocuments interfaces.TemporaryDocumentService,
+	serviceSpace interfaces.ServiceSpaceService,
 ) *Handler {
 	return &Handler{
 		sessionService:       sessionService,
@@ -66,6 +68,7 @@ func NewHandler(
 		fileService:          fileService,
 		storageResolver:      storageResolver,
 		modelService:         modelService,
+		serviceSpace:         serviceSpace,
 		temporaryDocuments:   temporaryDocuments,
 		attachmentProcessor: NewAttachmentProcessor(
 			fileService,

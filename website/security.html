@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>安全与部署｜睿乐大脑</title>
+    <meta name="description" content="睿乐大脑支持本地与私有云部署，提供多空间 RBAC、AES-256-GCM 加密、授权采集与全链路可观测，园所数据完全自主可控。" />
+    <meta property="og:title" content="安全与部署｜睿乐大脑" />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="assets/logo.png" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <div class="container nav-wrap">
+          <a class="brand" href="index.html" aria-label="睿乐大脑首页">
+            <span class="brand-logo"><img src="assets/logo-header.png" alt="睿乐大脑" /></span>
+            <span class="brand-extension">幼教版</span>
+          </a>
+          <nav class="desktop-nav" aria-label="主导航">
+            <a href="product.html">产品模块</a>
+            <a href="scenes.html">园所场景</a>
+            <a href="pricing.html">版本定价</a>
+            <a href="security.html">安全部署</a>
+            <a href="index.html#faq">常见问题</a>
+          </nav>
+          <div class="nav-actions">
+            <a class="nav-source" href="index.html#contact">预约演示 <span aria-hidden="true">→</span></a>
+            <a class="button button-small button-primary" href="index.html#contact">开始体验 <span aria-hidden="true">→</span></a>
+            <button class="menu-toggle" type="button" aria-label="打开导航" aria-expanded="false"><span></span><span></span></button>
+          </div>
+        </div>
+        <div class="mobile-nav" aria-hidden="true">
+          <a href="product.html">产品模块</a>
+          <a href="scenes.html">园所场景</a>
+          <a href="pricing.html">版本定价</a>
+          <a href="security.html">安全部署</a>
+          <a href="index.html#faq">常见问题</a>
+          <a href="index.html#contact">开始体验 <span aria-hidden="true">→</span></a>
+        </div>
+      </header>
+
+      <main>
+        <!-- ============ 页面 Hero ============ -->
+        <section class="page-hero">
+          <div class="container">
+            <p class="eyebrow"><span class="eyebrow-line"></span> SECURITY & DEPLOYMENT</p>
+            <h1>孩子的数据在哪里，<br />必须由园所说了算。</h1>
+            <p class="page-lede">
+              睿乐大脑面向早幼教行业构建安全基线：支持本地与私有云部署，权限、加密、采集授权与审计全程可控，满足园所对家长与儿童数据的严格要求。
+            </p>
+          </div>
+        </section>
+
+        <!-- ============ 部署方式 ============ -->
+        <section class="section" id="deploy">
+          <div class="container">
+            <div class="section-heading reveal">
+              <p class="eyebrow"><span class="eyebrow-line"></span> DEPLOYMENT</p>
+              <h2>三种部署方式，按数据敏感度选择。</h2>
+            </div>
+            <div class="scene-detail-grid reveal">
+              <article class="scene-detail">
+                <div class="scene-detail-head"><span class="scene-glyph">◫</span><h3>本地部署</h3></div>
+                <div class="scene-block"><b>适合</b><p>对数据出园所有严格要求的单所园与集团。</p></div>
+                <div class="scene-block"><b>说明</b><p>部署在园所自有服务器或一体机，Docker / Kubernetes 交付，支持离线安装，数据不出内网。</p></div>
+              </article>
+              <article class="scene-detail">
+                <div class="scene-detail-head"><span class="scene-glyph">☁</span><h3>私有云部署</h3></div>
+                <div class="scene-block"><b>适合</b><p>希望免运维、但要求资源独享的多园区机构。</p></div>
+                <div class="scene-block"><b>说明</b><p>部署在指定云厂商的专属资源池，支持 Helm Chart 交付，网络与存储逻辑隔离。</p></div>
+              </article>
+              <article class="scene-detail">
+                <div class="scene-detail-head"><span class="scene-glyph">◍</span><h3>托管云（SaaS）</h3></div>
+                <div class="scene-block"><b>适合</b><p>快速起步的个人与小团队。</p></div>
+                <div class="scene-block"><b>说明</b><p>开箱即用，托管模型与文档解析；数据按空间隔离，随时可迁移至私有化部署。</p></div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 安全能力 ============ -->
+        <section class="section section-soft" id="controls">
+          <div class="container">
+            <div class="section-heading reveal">
+              <p class="eyebrow"><span class="eyebrow-line"></span> SECURITY CONTROLS</p>
+              <h2>六层安全控制，覆盖数据的全生命周期。</h2>
+            </div>
+            <div class="scene-grid reveal" style="grid-template-columns: repeat(3, minmax(0, 1fr))">
+              <article class="scene-card">
+                <span class="scene-glyph">◎</span>
+                <h3>多空间 RBAC</h3>
+                <p>Owner / Admin / Contributor / Viewer 四级角色矩阵，按知识库归属授权，附每空间审计日志。</p>
+              </article>
+              <article class="scene-card">
+                <span class="scene-glyph">🔒</span>
+                <h3>静态加密</h3>
+                <p>API Key 与 MCP / 数据源凭据 AES-256-GCM 加密存储，支持平滑密钥轮换。</p>
+              </article>
+              <article class="scene-card">
+                <span class="scene-glyph">✓</span>
+                <h3>授权采集</h3>
+                <p>音频、影像与手机资料按授权范围接入，支持脱敏处理与分级查看，杜绝无授权留存。</p>
+              </article>
+              <article class="scene-card">
+                <span class="scene-glyph">↔</span>
+                <h3>传输安全</h3>
+                <p>服务间 gRPC TLS + Token，Redis TLS，防 SSRF 的 HTTP 客户端覆盖数据源与 URL 导入。</p>
+              </article>
+              <article class="scene-card">
+                <span class="scene-glyph">▣</span>
+                <h3>最小权限集成</h3>
+                <p>权限范围 API Key：能力级授权、按知识库限制、last_used 追踪，程序化访问可控可审计。</p>
+              </article>
+              <article class="scene-card">
+                <span class="scene-glyph">⌕</span>
+                <h3>全链路可观测</h3>
+                <p>Agent 运行、解析进度、任务队列与审计日志全程可追踪，出问题可回溯到具体环节。</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ 落地清单 ============ -->
+        <section class="section">
+          <div class="container trust-grid reveal">
+            <div>
+              <p class="eyebrow"><span class="eyebrow-line"></span> ONBOARDING CHECKLIST</p>
+              <h2>部署前的四件事，<br />我们陪你一起确认。</h2>
+            </div>
+            <div class="trust-list">
+              <div class="trust-item"><span>01</span><div><b>采集授权范围</b><p>明确哪些岗位、哪些场景允许音频与影像采集，向家长与员工完成告知。</p></div></div>
+              <div class="trust-item"><span>02</span><div><b>角色与空间规划</b><p>按园区 / 部门规划空间，指定每类角色的权限边界。</p></div></div>
+              <div class="trust-item"><span>03</span><div><b>模型与数据归属</b><p>选择模型厂商与向量库方案，确认调用链路里数据的落点。</p></div></div>
+              <div class="trust-item"><span>04</span><div><b>敏感信息处理</b><p>配置脱敏规则与分级查看策略，儿童与家长信息默认最小可见。</p></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============ CTA ============ -->
+        <section class="contact-section">
+          <div class="container contact-inner reveal">
+            <div>
+              <p class="eyebrow eyebrow-light"><span class="eyebrow-line"></span> NEXT STEP</p>
+              <h2>把安全方案聊清楚，<br />再决定要不要开始。</h2>
+              <p>预约演示时可指定安全与部署专项沟通，出具对应架构建议。</p>
+            </div>
+            <div class="contact-actions">
+              <a class="button button-light button-large" href="index.html#contact">预约安全沟通 <span aria-hidden="true">→</span></a>
+              <a class="contact-secondary" href="pricing.html">查看版本定价 →</a>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <div class="container footer-top">
+          <div class="footer-brand">
+            <a class="brand" href="index.html" aria-label="睿乐大脑首页">
+              <span class="brand-logo"><img src="assets/logo-header.png" alt="睿乐大脑" /></span>
+              <span class="brand-extension">幼教版</span>
+            </a>
+            <p>让园所经验真正流动起来。</p>
+          </div>
+          <div class="footer-links">
+            <div>
+              <span>产品</span>
+              <a href="product.html">产品模块</a>
+              <a href="scenes.html">园所场景</a>
+              <a href="index.html#signals">数据采集</a>
+            </div>
+            <div>
+              <span>方案</span>
+              <a href="pricing.html">版本定价</a>
+              <a href="security.html">安全部署</a>
+              <a href="index.html#faq">常见问题</a>
+            </div>
+            <div>
+              <span>支持与条款</span>
+              <a href="index.html#contact">预约演示</a>
+              <a href="terms.html">服务协议</a>
+              <a href="privacy.html">隐私政策</a>
+            </div>
+          </div>
+        </div>
+        <div class="container footer-bottom">
+          <span>© 2026 睿乐大脑 · 早幼教 AI 运营中枢</span>
+          <span>Designed for early education teams</span>
+        </div>
+      </footer>
+    </div>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
