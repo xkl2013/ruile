@@ -258,9 +258,12 @@
                   </div>
                 </article>
               </div>
-              <div v-else class="output-empty">
-                暂无精选
-              </div>
+              <OrganizeCourseDiscover
+                v-else
+                ref="featuredCourseDiscoverRef"
+                variant="featured"
+                :limit="FEATURED_OUTPUT_SIZE"
+              />
             </section>
 
             <section class="discover-tabs-section">
@@ -282,7 +285,7 @@
 
             <section class="discover-feed-section">
               <OrganizeCourseDiscover
-                v-if="discoverTab === 'recommended'"
+                v-if="discoverTab === 'recommended' && !discoverFeaturedLoading && !showFeaturedCourseFallback"
                 ref="courseDiscoverRef"
               />
               <div v-if="discoverFeedLoading" class="organize-loading discover-loading">
@@ -920,7 +923,12 @@ const activeDiscoverTabLabel = computed(() => {
   return discoverTabs.value.find((tab) => tab.value === discoverTab.value)?.label || '推荐'
 })
 
+const showFeaturedCourseFallback = computed(() => {
+  return !discoverFeaturedLoading.value && featuredOutputs.value.length === 0
+})
+
 const courseDiscoverRef = ref<{ reload: () => Promise<void> } | null>(null)
+const featuredCourseDiscoverRef = ref<{ reload: () => Promise<void> } | null>(null)
 
 const setDiscoverTab = (tab: string) => {
   if (discoverTab.value === tab) return
@@ -1453,6 +1461,7 @@ const refreshDiscoverData = (options?: { resetPage?: boolean }) => {
     discoverTab.value === 'recommended'
       ? courseDiscoverRef.value?.reload?.() || Promise.resolve()
       : Promise.resolve(),
+    featuredCourseDiscoverRef.value?.reload?.() || Promise.resolve(),
   ]).then((results) => {
     if (results.some((result) => result.status === 'rejected')) {
       MessagePlugin.warning('发现数据刷新失败')
