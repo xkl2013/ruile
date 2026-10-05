@@ -112,7 +112,7 @@
                         <button
                           type="button"
                           class="popup-menu-item memory-menu-item"
-                          :disabled="isMemoryOrganizeCreating(item.id)"
+                          :disabled="isMemoryOrganizeDisabled(item.id)"
                           @click.stop="handleMemoryMenuAction(item, 'organize')"
                         >
                           <t-icon class="menu-icon" name="layers" />
@@ -421,6 +421,7 @@
         ref="memoryImportInputRef"
         class="memory-import-input"
         type="file"
+        multiple
         :accept="memoryImportAccept"
         @change="handleMemoryImportFileChange"
       />
@@ -1577,17 +1578,18 @@ const createActiveDocument = () => {
   void openDocumentEditor('memory')
 }
 
-const importMemoryFile = async (file: File) => {
+const importMemoryFile = async (files: File[]) => {
   if (memoryImporting.value) return
+  if (!files.length) return
   memoryImporting.value = true
   try {
-    const response = await uploadOrganizeMemory(file)
+    const response = await uploadOrganizeMemory(files)
     if (!response.success || !response.data) {
       throw new Error(response.message || '文件导入失败')
     }
 
     await loadMemoryData()
-    MessagePlugin.success('已导入为笔记')
+    MessagePlugin.success(files.length > 1 ? `已导入 ${files.length} 个文件，正在解析` : '已导入，正在解析')
     const imported = mapMemory(response.data)
     await openDocumentEditor('memory', imported.id, imported)
   } catch (error: any) {
@@ -1610,10 +1612,10 @@ const handleMemoryCreateAction = (data: { value: string | number | boolean }) =>
 
 const handleMemoryImportFileChange = (event: Event) => {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+  const files = Array.from(input.files || [])
   input.value = ''
-  if (!file) return
-  void importMemoryFile(file)
+  if (!files.length) return
+  void importMemoryFile(files)
 }
 
 const isEditableMemory = (item: MemoryItem) =>
@@ -1678,16 +1680,25 @@ const setMemoryOrganizeCreating = (id: string, creating: boolean) => {
 
 const isMemoryOrganizeCreating = (id: string) => organizingMemoryIds.value.has(id)
 
+const latestMemoryOrganizeJob = (id: string) =>
+  memoryOrganizationJobs.value
+    .filter((job) => (job.memory_ids || []).includes(id))
+    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0]
+
+const isMemoryOrganizeDisabled = (id: string) => {
+  if (isMemoryOrganizeCreating(id)) return true
+  const job = latestMemoryOrganizeJob(id)
+  return Boolean(job && processingJobStatuses.has(job.status))
+}
+
 const createOrganizeFromMemory = async (item: MemoryItem) => {
-  if (isMemoryOrganizeCreating(item.id)) return
+  if (isMemoryOrganizeDisabled(item.id)) return
   if (!item.persisted) {
     MessagePlugin.warning('请先保存记忆')
     return
   }
 
-  const latestJob = memoryOrganizationJobs.value
-    .filter((job) => (job.memory_ids || []).includes(item.id))
-    .sort((left, right) => new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime())[0]
+  const latestJob = latestMemoryOrganizeJob(item.id)
   if (latestJob && processingJobStatuses.has(latestJob.status)) {
     MessagePlugin.info('整理任务正在处理中')
     return

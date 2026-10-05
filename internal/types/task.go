@@ -513,8 +513,9 @@ type KnowledgePostProcessPayload struct {
 // an uploaded organize memory audio file.
 type OrganizeMemoryTranscribeTaskPayload struct {
 	TracingContext
-	TenantID uint64 `json:"tenant_id"`
-	MemoryID string `json:"memory_id"`
+	TenantID     uint64 `json:"tenant_id"`
+	MemoryID     string `json:"memory_id"`
+	AttachmentID string `json:"attachment_id,omitempty"`
 }
 
 // KBCloneTaskStatus represents the status of a knowledge base clone task

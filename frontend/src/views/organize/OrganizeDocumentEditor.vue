@@ -24,7 +24,7 @@
           class="editor-organize-action"
           :class="`editor-organize-action--${memoryOrganizeHeaderState}`"
           :loading="memoryOrganizeCreating"
-          :disabled="memoryOrganizeLoading"
+          :disabled="memoryOrganizeLoading || isActiveOrganizeJob(memoryOrganizeJob)"
           :aria-label="memoryOrganizeHeaderAriaLabel"
           @click="handleMemoryOrganizeHeaderAction"
         >
@@ -160,6 +160,15 @@
                   笔记内容
                 </button>
                 <button
+                  v-if="isAudioMemory"
+                  type="button"
+                  class="memory-note-tab"
+                  :class="{ 'is-active': noteActiveTab === 'transcript' }"
+                  @click="noteActiveTab = 'transcript'"
+                >
+                  转写原文
+                </button>
+                <button
                   type="button"
                   class="memory-note-tab"
                   :class="{ 'is-active': noteActiveTab === 'result' }"
@@ -186,6 +195,40 @@
                       :placeholder="editorPlaceholder"
                       :features="editorFeatures"
                     />
+                  </div>
+                </section>
+
+                <section v-if="isAudioMemory" v-show="noteActiveTab === 'transcript'" class="memory-note-panel-view memory-note-panel-view--transcript">
+                  <div class="memory-transcript-view">
+                    <div class="memory-transcript-view__header">
+                      <span>原始转写</span>
+                      <span v-if="memoryTranscriptStatusLabel" class="memory-transcript-view__status">{{ memoryTranscriptStatusLabel }}</span>
+                    </div>
+                    <pre v-if="memoryTranscriptText" class="memory-transcript-view__content">{{ memoryTranscriptText }}</pre>
+                    <div v-else class="memory-transcript-view__empty">转写完成后，原文会显示在这里。</div>
+                    <div v-if="memoryAttachments.length" class="memory-attachment-list">
+                      <div
+                        v-for="attachment in memoryAttachments"
+                        :key="attachment.id"
+                        class="memory-attachment-item"
+                        :class="`memory-attachment-item--${attachment.status}`"
+                      >
+                        <div class="memory-attachment-item__main">
+                          <t-icon name="file" size="16px" />
+                          <span class="memory-attachment-item__name">{{ attachment.file_name }}</span>
+                          <span class="memory-attachment-item__status">{{ memoryAttachmentStatusLabel(attachment.status) }}</span>
+                        </div>
+                        <button
+                          v-if="attachment.status === 'failed' || attachment.status === 'skipped'"
+                          type="button"
+                          class="memory-attachment-item__retry"
+                          :disabled="memoryAttachmentRetryingId === attachment.id"
+                          @click.stop="retryMemoryAttachment(attachment.id)"
+                        >
+                          {{ memoryAttachmentRetryingId === attachment.id ? '重试中' : '重试' }}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </section>
 
@@ -324,11 +367,13 @@ import {
   getOrganizeOutput,
   listOrganizeConfigs,
   listOrganizeJobs,
+  retryOrganizeMemoryAttachment,
   updateOrganizeMemory,
   updateOrganizeOutput,
   type OrganizeConfig,
   type OrganizeJob,
   type OrganizeMemory,
+  type OrganizeMemoryAttachment,
   type OrganizeMemoryKind,
   type OrganizeOutput,
   type OrganizeOutputStatus,
@@ -379,6 +424,7 @@ const memoryKind = ref<OrganizeMemoryKind>('note')
 const memorySource = ref('手动输入')
 const memoryDurationSeconds = ref(0)
 const memoryMetadata = ref<Record<string, unknown> | undefined>()
+const memoryAttachments = ref<OrganizeMemoryAttachment[]>([])
 const memoryTags = ref<string[]>([])
 const memoryOccurredAt = ref('')
 const memoryCreatedAt = ref('')
@@ -388,7 +434,8 @@ const noteTagMenuVisible = ref(false)
 const memoryOrganizeJob = ref<OrganizeJob | null>(null)
 const memoryOrganizeCreating = ref(false)
 const memoryOrganizeLoading = ref(false)
-const noteActiveTab = ref<'content' | 'result'>('content')
+const memoryAttachmentRetryingId = ref('')
+const noteActiveTab = ref<'content' | 'transcript' | 'result'>('content')
 const sourcePreviewVisible = ref(false)
 const audioPlayerUrl = ref('')
 const audioPlayerLoading = ref(false)
@@ -431,7 +478,32 @@ const memoryAssetLabel = computed(() => {
   return '笔记'
 })
 
-const isAudioMemory = computed(() => documentType.value === 'memory' && memoryKind.value === 'audio')
+const isAudioMemory = computed(
+  () => documentType.value === 'memory' && (memoryKind.value === 'audio' || memoryKind.value === 'audio_card'),
+)
+const memoryTranscriptText = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  const direct = asTrimmedString(metadata.raw_transcript) || asTrimmedString(metadata.transcript) || asTrimmedString(metadata.transcription)
+  if (direct) return direct
+  return ''
+})
+const memoryTranscriptStatusLabel = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  const status = asTrimmedString(metadata.transcription_status) || asTrimmedString(metadata.attachment_status)
+  if (status === 'pending') return '等待解析'
+  if (status === 'transcribing' || status === 'processing') return '解析中'
+  if (status === 'partial') return '部分完成'
+  if (status === 'failed') return '解析失败'
+  if (status === 'completed') return '已完成'
+  return ''
+})
+const memoryAttachmentStatusLabel = (status: OrganizeMemoryAttachment['status']) => {
+  if (status === 'pending') return '等待解析'
+  if (status === 'processing') return '解析中'
+  if (status === 'completed') return '已完成'
+  if (status === 'skipped') return '已跳过'
+  return '解析失败'
+}
 const editorPlaceholder = computed(() => {
   if (isAudioMemory.value) return '录音转写内容'
   if (isMemoryDocument.value) return '输入正文'
@@ -450,7 +522,7 @@ const breadcrumbRootLabel = computed(() => {
 
 const breadcrumbItems = computed(() => {
   const root = breadcrumbRootLabel.value
-  const section = typeLabel.value
+  const section = String(typeLabel.value)
   return section && section !== root ? [root, section] : [root]
 })
 
@@ -849,6 +921,25 @@ const loadMemoryOrganizeJob = async (memoryID: string, options?: { silent?: bool
   }
 }
 
+const retryMemoryAttachment = async (attachmentID: string) => {
+  const memoryID = activeDocumentId.value
+  if (!memoryID || memoryID === 'new' || memoryAttachmentRetryingId.value) return
+  memoryAttachmentRetryingId.value = attachmentID
+  try {
+    const response = await retryOrganizeMemoryAttachment(memoryID, attachmentID)
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '附件重试失败')
+    }
+    memoryAttachments.value = response.data.attachments || []
+    memoryMetadata.value = response.data.metadata
+    MessagePlugin.success('已重新发起解析')
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '附件重试失败')
+  } finally {
+    memoryAttachmentRetryingId.value = ''
+  }
+}
+
 const scheduleMemoryOrganizeRefresh = (memoryID: string) => {
   const refresh = () => {
     void loadMemoryOrganizeJob(memoryID, { silent: true })
@@ -958,7 +1049,7 @@ const openMemoryOrganizeCard = () => {
 }
 
 const handleMemoryOrganizeHeaderAction = () => {
-  if (memoryOrganizeCreating.value || memoryOrganizeLoading.value) return
+  if (memoryOrganizeCreating.value || memoryOrganizeLoading.value || isActiveOrganizeJob(memoryOrganizeJob.value)) return
   if (isFinishedOrganizeJob(memoryOrganizeJob.value)) {
     openMemoryOrganizeCard()
     return
@@ -1210,6 +1301,7 @@ const loadDocument = async () => {
       memorySource.value = item.source || '手动输入'
       memoryDurationSeconds.value = item.duration_seconds || 0
       memoryMetadata.value = item.metadata
+      memoryAttachments.value = item.attachments || []
       memoryTags.value = noteTagsFromMetadata(item.metadata)
       memoryOccurredAt.value = item.occurred_at || item.created_at || item.updated_at || ''
       memoryCreatedAt.value = item.created_at || ''
@@ -1220,12 +1312,12 @@ const loadDocument = async () => {
       memoryOrganizeLoading.value = false
       sourcePreviewVisible.value = false
       noteActiveTab.value = 'content'
-      title.value = item.kind === 'audio'
+      title.value = item.kind === 'audio' || item.kind === 'audio_card'
         ? audioMemoryDisplayTitle(item)
         : isMemoryDocument.value
           ? normalizeTitle(item.title || extractTitleFromContent(item.content) || plainTextFromHtml(item.content).slice(0, 80))
           : item.title
-      content.value = item.kind === 'audio'
+      content.value = item.kind === 'audio' || item.kind === 'audio_card'
         ? normalizeAudioMemoryContent(audioMemoryContentSource(item))
         : isMemoryDocument.value
           ? memoryBodyContent(item.title, item.content)
@@ -2072,6 +2164,107 @@ watch(
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+
+.memory-transcript-view {
+  min-height: 260px;
+  padding: 18px 20px;
+  border: 1px solid rgba(55, 53, 47, 0.1);
+  border-radius: 8px;
+  background: #fbfbfa;
+}
+
+.memory-transcript-view__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: #37352f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.memory-transcript-view__status {
+  color: rgba(55, 53, 47, 0.52);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.memory-transcript-view__content {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.82);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.memory-transcript-view__empty {
+  color: rgba(55, 53, 47, 0.48);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.memory-attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(55, 53, 47, 0.08);
+}
+
+.memory-attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  color: rgba(55, 53, 47, 0.72);
+  font-size: 13px;
+}
+
+.memory-attachment-item__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.memory-attachment-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-attachment-item__status {
+  flex: 0 0 auto;
+  color: rgba(55, 53, 47, 0.46);
+  font-size: 12px;
+}
+
+.memory-attachment-item--failed .memory-attachment-item__status,
+.memory-attachment-item--skipped .memory-attachment-item__status {
+  color: #c9372c;
+}
+
+.memory-attachment-item__retry {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid rgba(55, 53, 47, 0.16);
+  border-radius: 4px;
+  background: #fff;
+  color: #37352f;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.memory-attachment-item__retry:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .memory-note-organize-loading {

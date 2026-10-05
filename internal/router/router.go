@@ -1492,6 +1492,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 		org.POST("/memories", g.Viewer(), h.CreateMemory)
 		org.POST("/memories/upload", g.Viewer(), h.UploadMemory)
 		org.GET("/memories/:id", g.Viewer(), h.GetMemory)
+		org.POST("/memories/:id/attachments/:attachment_id/retry", g.Viewer(), h.RetryMemoryAttachment)
 		org.PUT("/memories/:id", g.Viewer(), h.UpdateMemory)
 		org.DELETE("/memories/:id", g.Viewer(), h.DeleteMemory)
 

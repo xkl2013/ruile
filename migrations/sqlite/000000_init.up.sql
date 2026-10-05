@@ -1034,6 +1034,35 @@ CREATE INDEX IF NOT EXISTS idx_organize_memories_scope_time
 CREATE INDEX IF NOT EXISTS idx_organize_memories_scope_kind
     ON organize_memories(tenant_id, user_id, kind);
 
+CREATE TABLE IF NOT EXISTS organize_memory_attachments (
+    id VARCHAR(36) PRIMARY KEY,
+    tenant_id INTEGER NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    memory_id VARCHAR(36) NOT NULL,
+    file_name VARCHAR(512) NOT NULL,
+    mime_type VARCHAR(255) NOT NULL DEFAULT '',
+    storage_path TEXT NOT NULL DEFAULT '',
+    storage_url TEXT NOT NULL DEFAULT '',
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    error_stage VARCHAR(64) NOT NULL DEFAULT '',
+    error_message TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    transcript TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    deleted_at DATETIME,
+    CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'skipped')),
+    CHECK (size_bytes >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_organize_memory_attachments_memory
+    ON organize_memory_attachments(tenant_id, user_id, memory_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_organize_memory_attachments_status
+    ON organize_memory_attachments(tenant_id, user_id, status, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS organize_outputs (
     id VARCHAR(36) PRIMARY KEY,
     tenant_id INTEGER NOT NULL,

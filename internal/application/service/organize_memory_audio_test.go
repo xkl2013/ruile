@@ -63,6 +63,83 @@ func TestOrganizeServiceCreateMemoryFromUpload_EnqueuesTranscription(t *testing.
 	assert.Equal(t, item.ID, payload.MemoryID)
 }
 
+func TestOrganizeServiceCreateMemoryFromUploadsCreatesOneMemoryWithOrderedAttachments(t *testing.T) {
+	ctx := context.Background()
+	fileSvc := &organizeMemoryAudioFileService{fileData: []byte("source")}
+	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, fileSvc, &stubOrganizeDocumentReader{})
+	enqueuer := &recordingTaskEnqueuer{}
+	svc.taskEnqueuer = enqueuer
+
+	item, err := svc.CreateMemoryFromUploads(
+		ctx,
+		9,
+		"user-a",
+		[]types.OrganizeMemoryUpload{
+			{FileName: "访谈.md", MimeType: "text/markdown", Data: []byte("# 访谈重点\n\n关注试听节奏")},
+			{FileName: "行动项.txt", MimeType: "text/plain", Data: []byte("发送课程安排")},
+		},
+		types.OrganizeMemoryInput{Title: "访谈整理"},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, item)
+	require.Len(t, item.Attachments, 2)
+	assert.Equal(t, "访谈.md", item.Attachments[0].FileName)
+	assert.Equal(t, "行动项.txt", item.Attachments[1].FileName)
+	assert.Equal(t, 0, item.Attachments[0].SortOrder)
+	assert.Equal(t, 1, item.Attachments[1].SortOrder)
+	assert.Equal(t, types.OrganizeMemoryAttachmentStatusPending, item.Attachments[0].Status)
+	assert.Equal(t, types.OrganizeMemoryAttachmentStatusPending, item.Attachments[1].Status)
+	assert.Equal(t, types.OrganizeMemoryAttachmentAggregatePending, item.Metadata["attachment_status"])
+	assert.Equal(t, types.TypeOrganizeMemoryTranscribe, enqueuer.task.Type())
+	var payload types.OrganizeMemoryTranscribeTaskPayload
+	require.NoError(t, json.Unmarshal(enqueuer.task.Payload(), &payload))
+	assert.Equal(t, item.ID, payload.MemoryID)
+	assert.NotEmpty(t, payload.AttachmentID)
+}
+
+func TestOrganizeServiceProcessMemoryAttachmentAggregatesPartialStatus(t *testing.T) {
+	ctx := context.Background()
+	fileSvc := &organizeMemoryAudioFileService{fileData: []byte("source")}
+	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, fileSvc, &stubOrganizeDocumentReader{})
+
+	item, err := svc.CreateMemoryFromUploads(
+		ctx,
+		9,
+		"user-a",
+		[]types.OrganizeMemoryUpload{
+			{FileName: "第一段.txt", MimeType: "text/plain", Data: []byte("第一段内容")},
+			{FileName: "第二段.txt", MimeType: "text/plain", Data: []byte("第二段内容")},
+		},
+		types.OrganizeMemoryInput{Title: "多附件记忆"},
+	)
+	require.NoError(t, err)
+	require.Len(t, item.Attachments, 2)
+
+	payload := types.OrganizeMemoryTranscribeTaskPayload{
+		TenantID:     9,
+		MemoryID:     item.ID,
+		AttachmentID: item.Attachments[0].ID,
+	}
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	require.NoError(t, svc.ProcessMemoryTranscribe(ctx, asynq.NewTask(types.TypeOrganizeMemoryTranscribe, raw)))
+
+	updated, err := svc.GetMemory(ctx, 9, "user-a", item.ID)
+	require.NoError(t, err)
+	updated.Attachments[1].Status = types.OrganizeMemoryAttachmentStatusFailed
+	updated.Attachments[1].ErrorStage = "parse"
+	updated.Attachments[1].ErrorMessage = "test failure"
+	require.NoError(t, svc.repo.UpdateMemoryAttachment(ctx, updated.Attachments[1]))
+	require.NoError(t, svc.refreshOrganizeMemoryAttachmentSummary(ctx, updated))
+	updated, err = svc.GetMemory(ctx, 9, "user-a", item.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.OrganizeMemoryAttachmentAggregatePartial, updated.Metadata["attachment_status"])
+	assert.Equal(t, "partial", updated.Metadata["transcription_status"])
+	assert.Contains(t, updated.Content, "source")
+	assert.Equal(t, types.OrganizeMemoryAttachmentStatusCompleted, updated.Attachments[0].Status)
+	assert.Equal(t, types.OrganizeMemoryAttachmentStatusFailed, updated.Attachments[1].Status)
+}
+
 func TestOrganizeServiceCreateMemoryFromUpload_CleansInvalidUTF8Content(t *testing.T) {
 	ctx := context.Background()
 	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, &stubOrganizeFileService{}, &stubOrganizeDocumentReader{})
@@ -371,6 +448,7 @@ func newOrganizeStorageUploadServiceForTest(
 		&types.TenantStorageReservation{},
 		&types.TenantStorageTransaction{},
 		&types.OrganizeMemory{},
+		&types.OrganizeMemoryAttachment{},
 		&types.OrganizeOutput{},
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeSproutReport{},

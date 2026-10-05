@@ -250,10 +250,11 @@ type OrganizeConfigInput struct {
 }
 
 type OrganizeJobInput struct {
-	ConfigID    string      `json:"config_id,omitempty"`
-	MemoryIDs   StringArray `json:"memory_ids,omitempty"`
-	ModelID     string      `json:"model_id,omitempty"`
-	Requirement string      `json:"requirement,omitempty"`
+	ConfigID     string      `json:"config_id,omitempty"`
+	MemoryIDs    StringArray `json:"memory_ids,omitempty"`
+	ModelID      string      `json:"model_id,omitempty"`
+	Requirement  string      `json:"requirement,omitempty"`
+	AllowPartial bool        `json:"allow_partial,omitempty"`
 }
 
 type OrganizeJobTaskPayload struct {

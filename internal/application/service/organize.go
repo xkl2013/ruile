@@ -22,6 +22,7 @@ var (
 	ErrOrganizeInvalidCategory           = errors.New("invalid discover category")
 	ErrOrganizeInvalidStage              = errors.New("invalid sprout stage")
 	ErrOrganizeMemoryRequired            = errors.New("memory_id is required")
+	ErrOrganizeMemoryNotReady            = errors.New("memory attachments are still processing")
 	ErrOrganizeInvalidMemoryRefs         = errors.New("memory_ids contains unknown memories")
 	ErrOrganizeTargetServiceNotFound     = errors.New("target service not found")
 	ErrOrganizeOutputAlreadyAssigned     = errors.New("organize output is already assigned to another service")
@@ -137,6 +138,7 @@ func (s *organizeService) UpdateMemory(
 	if err != nil {
 		return nil, err
 	}
+	previousContent := memory.Content
 	kind, title, err := normalizeMemoryBasics(input.Kind, memory.Kind, input.Title)
 	if err != nil {
 		return nil, err
@@ -150,6 +152,14 @@ func (s *organizeService) UpdateMemory(
 	}
 	memory.DurationSeconds = nonNegative(input.DurationSeconds)
 	memory.Metadata = normalizeJSONMap(input.Metadata)
+	if previousContent != trimMax(input.Content, 0) &&
+		(memory.Metadata["attachment_status"] == types.OrganizeMemoryAttachmentAggregateCompleted ||
+			memory.Metadata["attachment_status"] == types.OrganizeMemoryAttachmentAggregatePartial ||
+			strings.EqualFold(stringValue(memory.Metadata, "transcription_status"), "completed") ||
+			strings.EqualFold(stringValue(memory.Metadata, "transcription_status"), "partial")) {
+		memory.Metadata["note_user_edited"] = true
+		memory.Metadata["note_source"] = "user"
+	}
 	memory.UpdatedAt = time.Now().UTC()
 	if err := s.repo.UpdateMemory(ctx, memory); err != nil {
 		return nil, err
@@ -161,6 +171,49 @@ func (s *organizeService) DeleteMemory(ctx context.Context, tenantID uint64, use
 	memory, err := s.GetMemory(ctx, tenantID, userID, id)
 	if err != nil {
 		return err
+	}
+	attachments, err := s.repo.ListMemoryAttachments(ctx, tenantID, userID, memory.ID)
+	if err != nil {
+		return err
+	}
+	if len(attachments) > 0 {
+		for _, attachment := range attachments {
+			if attachment == nil {
+				continue
+			}
+			storagePath := strings.TrimSpace(attachment.StoragePath)
+			if storagePath == "" {
+				continue
+			}
+			if err := s.deleteOrganizeStoredFileByPath(
+				ctx,
+				tenantID,
+				"memory",
+				memory.ID,
+				storagePath,
+			); err != nil {
+				return err
+			}
+			storageSize := organizeMemoryStorageSize(
+				ctx,
+				s.resourceCatalog,
+				types.JSONMap{"storage_size_bytes": attachment.SizeBytes},
+				storagePath,
+			)
+			if storageSize > 0 {
+				if err := s.recordOrganizeMemoryStorageRelease(
+					ctx,
+					tenantID,
+					organizeMemoryStorageReleaseRef(attachment.ID, attachment.UpdatedAt, storageSize),
+					memory.ID,
+					attachment.FileName,
+					storageSize,
+				); err != nil {
+					logger.GetLogger(ctx).WithField("error", err).Error("Failed to release memory attachment storage usage")
+				}
+			}
+		}
+		return s.repo.DeleteMemory(ctx, tenantID, userID, strings.TrimSpace(id))
 	}
 	storagePath := organizeStoredFilePath(
 		memory.Metadata,
@@ -211,6 +264,39 @@ func (s *organizeService) ListMemories(
 	}
 	query = normalizeOrganizePagination(query)
 	return s.repo.ListMemories(ctx, query)
+}
+
+func (s *organizeService) ensureOrganizeMemoriesReady(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	memoryIDs []string,
+	allowPartial bool,
+) error {
+	for _, memoryID := range memoryIDs {
+		memory, err := s.repo.GetMemory(ctx, tenantID, userID, memoryID)
+		if err != nil {
+			return err
+		}
+		if memory == nil {
+			return ErrOrganizeInvalidMemoryRefs
+		}
+		status := strings.TrimSpace(stringValue(memory.Metadata, "attachment_status"))
+		if status == types.OrganizeMemoryAttachmentAggregatePending ||
+			status == types.OrganizeMemoryAttachmentAggregateProcessing ||
+			status == types.OrganizeMemoryAttachmentAggregateFailed ||
+			strings.EqualFold(stringValue(memory.Metadata, "transcription_status"), "pending") ||
+			strings.EqualFold(stringValue(memory.Metadata, "transcription_status"), "transcribing") ||
+			strings.EqualFold(stringValue(memory.Metadata, "transcription_status"), "failed") {
+			return ErrOrganizeMemoryNotReady
+		}
+		if !allowPartial &&
+			(status == types.OrganizeMemoryAttachmentAggregatePartial ||
+				strings.EqualFold(stringValue(memory.Metadata, "transcription_status"), "partial")) {
+			return ErrOrganizeMemoryNotReady
+		}
+	}
+	return nil
 }
 
 func (s *organizeService) CreateOutput(

@@ -233,6 +233,9 @@ func (s *organizeService) CreateJob(
 	if err != nil {
 		return nil, err
 	}
+	if err := s.ensureOrganizeMemoriesReady(ctx, tenantID, userID, memoryIDs, input.AllowPartial); err != nil {
+		return nil, err
+	}
 	experts, err := s.resolveOrganizeExpertSnapshots(ctx, tenantID, config.ExpertIDs)
 	if err != nil {
 		return nil, err
@@ -249,6 +252,7 @@ func (s *organizeService) CreateJob(
 		"template_icon":     template.Icon,
 		"template_spec":     template.Spec,
 		"requested_text":    strings.TrimSpace(input.Requirement),
+		"allow_partial":     input.AllowPartial,
 		"created_at":        time.Now().UTC().Format(time.RFC3339),
 	}
 	job := &types.OrganizeJob{

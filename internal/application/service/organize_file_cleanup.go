@@ -133,6 +133,26 @@ func (s *organizeService) deleteOrganizeStoredFile(
 	return nil
 }
 
+func (s *organizeService) deleteOrganizeStoredFileByPath(
+	ctx context.Context,
+	tenantID uint64,
+	ownerType, ownerID, filePath string,
+) error {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return nil
+	}
+	storageCtx := context.WithValue(ctx, types.TenantIDContextKey, tenantID)
+	fileService, err := s.resolveOrganizeFileService(storageCtx, tenantID, filePath)
+	if err != nil {
+		return fmt.Errorf("resolve %s file service for %q: %w", ownerType, filePath, err)
+	}
+	if err := fileService.DeleteFile(storageCtx, filePath); err != nil {
+		return fmt.Errorf("delete %s file for %s %q: %w", ownerType, ownerID, filePath, err)
+	}
+	return nil
+}
+
 func organizeStoredFilePath(metadata types.JSONMap, keys ...string) string {
 	for _, key := range keys {
 		value, ok := metadata[key].(string)

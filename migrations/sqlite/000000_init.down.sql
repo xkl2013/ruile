@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS organize_sprout_memories;
 DROP TABLE IF EXISTS organize_sprout_reports;
 DROP TABLE IF EXISTS organize_output_memories;
 DROP TABLE IF EXISTS organize_outputs;
+DROP TABLE IF EXISTS organize_memory_attachments;
 DROP TABLE IF EXISTS organize_memories;
 DROP TABLE IF EXISTS agent_runs;
 DROP TABLE IF EXISTS agent_action_logs;

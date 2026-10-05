@@ -182,6 +182,29 @@ func (s *organizeService) CreateMemoryFromUpload(
 		return nil, err
 	}
 
+	attachment := &types.OrganizeMemoryAttachment{
+		ID:          uuid.NewString(),
+		TenantID:    tenantID,
+		UserID:      userID,
+		MemoryID:    memory.ID,
+		FileName:    trimMax(storedName, 0),
+		MimeType:    organizeAudioMimeType(storedName, mimeType),
+		StoragePath: trimMax(storagePath, 0),
+		StorageURL:  audioURL,
+		SizeBytes:   int64(len(storedBytes)),
+		SortOrder:   0,
+		Status:      types.OrganizeMemoryAttachmentStatusPending,
+		Metadata: types.JSONMap{
+			"source_kind": "audio",
+			"codec":       memoryAudioCodec(storedName, nil),
+		},
+	}
+	if err := s.repo.CreateMemoryAttachment(ctx, attachment); err != nil {
+		_ = fileService.DeleteFile(ctx, storagePath)
+		_ = s.repo.DeleteMemory(ctx, tenantID, userID, memory.ID)
+		return nil, err
+	}
+
 	if s.resourceCatalog != nil {
 		if _, ok := types.ParseResourcePath(storagePath); ok {
 			if err := s.resourceCatalog.Bind(ctx, storagePath, "memory", memory.ID, "source_file"); err != nil {
@@ -206,8 +229,12 @@ func (s *organizeService) CreateMemoryFromUpload(
 	}
 	storageCommitted = true
 
-	if err := s.scheduleMemoryTranscription(ctx, tenantID, memory.ID); err != nil {
+	if err := s.scheduleMemoryTranscription(ctx, tenantID, memory.ID, attachment.ID); err != nil {
 		logger.Warnf(ctx, "[Organize] schedule memory transcription failed: %v", err)
+		attachment.Status = types.OrganizeMemoryAttachmentStatusFailed
+		attachment.ErrorStage = "queue"
+		attachment.ErrorMessage = trimMax(err.Error(), organizeMaxShortText)
+		_ = s.repo.UpdateMemoryAttachment(ctx, attachment)
 		memory.Metadata["transcription_status"] = "queued_failed"
 		memory.Metadata["transcription_error"] = trimMax(err.Error(), organizeMaxShortText)
 		memory.UpdatedAt = time.Now().UTC()
@@ -322,6 +349,9 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 		return fmt.Errorf("invalid organize memory transcribe payload")
 	}
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, payload.TenantID)
+	if strings.TrimSpace(payload.AttachmentID) != "" {
+		return s.processMemoryAttachment(ctx, payload)
+	}
 
 	memory, err := s.repo.GetTenantMemory(ctx, payload.TenantID, strings.TrimSpace(payload.MemoryID))
 	if err != nil {
@@ -437,7 +467,7 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 	return s.repo.UpdateMemory(ctx, memory)
 }
 
-func (s *organizeService) scheduleMemoryTranscription(ctx context.Context, tenantID uint64, memoryID string) error {
+func (s *organizeService) scheduleMemoryTranscription(ctx context.Context, tenantID uint64, memoryID, attachmentID string) error {
 	if s.taskEnqueuer == nil {
 		return nil
 	}
@@ -449,8 +479,9 @@ func (s *organizeService) scheduleMemoryTranscription(ctx context.Context, tenan
 		return fmt.Errorf("memory_id is required")
 	}
 	payload := types.OrganizeMemoryTranscribeTaskPayload{
-		TenantID: tenantID,
-		MemoryID: memoryID,
+		TenantID:     tenantID,
+		MemoryID:     memoryID,
+		AttachmentID: strings.TrimSpace(attachmentID),
 	}
 	langfuse.InjectTracing(ctx, &payload)
 	raw, err := json.Marshal(payload)
@@ -463,9 +494,19 @@ func (s *organizeService) scheduleMemoryTranscription(ctx context.Context, tenan
 	}
 	_, err = s.taskEnqueuer.Enqueue(
 		asynq.NewTask(types.TypeOrganizeMemoryTranscribe, raw),
-		asynq.Queue(queue), asynq.MaxRetry(organizeMemoryTranscribeRetryCount), asynq.Timeout(organizeMemoryTranscribeTimeout),
+		asynq.Queue(queue),
+		asynq.MaxRetry(organizeMemoryTranscribeRetryCount),
+		asynq.Timeout(organizeMemoryTranscribeTimeout),
+		asynq.TaskID(organizeMemoryTranscriptionTaskID(memoryID, attachmentID)),
 	)
 	return err
+}
+
+func organizeMemoryTranscriptionTaskID(memoryID, attachmentID string) string {
+	if strings.TrimSpace(attachmentID) != "" {
+		return "organize-memory-attachment:" + strings.TrimSpace(attachmentID)
+	}
+	return "organize-memory:" + strings.TrimSpace(memoryID)
 }
 
 func (s *organizeService) failOrganizeMemoryTranscription(

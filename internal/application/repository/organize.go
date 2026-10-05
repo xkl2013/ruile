@@ -30,6 +30,12 @@ func (r *organizeRepository) GetMemory(ctx context.Context, tenantID uint64, use
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
+	if err != nil {
+		return &memory, err
+	}
+	if err := r.fillMemoryAttachments(ctx, tenantID, userID, []*types.OrganizeMemory{&memory}); err != nil {
+		return nil, err
+	}
 	return &memory, err
 }
 
@@ -40,6 +46,12 @@ func (r *organizeRepository) GetTenantMemory(ctx context.Context, tenantID uint6
 		First(&memory).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
+	}
+	if err != nil {
+		return &memory, err
+	}
+	if err := r.fillMemoryAttachments(ctx, tenantID, "", []*types.OrganizeMemory{&memory}); err != nil {
+		return nil, err
 	}
 	return &memory, err
 }
@@ -52,6 +64,75 @@ func (r *organizeRepository) UpdateMemory(ctx context.Context, memory *types.Org
 		Updates(memory).Error
 }
 
+func (r *organizeRepository) CreateMemoryAttachment(ctx context.Context, attachment *types.OrganizeMemoryAttachment) error {
+	return r.db.WithContext(ctx).Create(attachment).Error
+}
+
+func (r *organizeRepository) GetMemoryAttachment(
+	ctx context.Context,
+	tenantID uint64,
+	userID, id string,
+) (*types.OrganizeMemoryAttachment, error) {
+	var attachment types.OrganizeMemoryAttachment
+	query := r.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id)
+	if strings.TrimSpace(userID) != "" {
+		query = query.Where("user_id = ?", userID)
+	}
+	err := query.First(&attachment).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &attachment, err
+}
+
+func (r *organizeRepository) GetTenantMemoryAttachment(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (*types.OrganizeMemoryAttachment, error) {
+	return r.GetMemoryAttachment(ctx, tenantID, "", id)
+}
+
+func (r *organizeRepository) UpdateMemoryAttachment(
+	ctx context.Context,
+	attachment *types.OrganizeMemoryAttachment,
+) error {
+	return r.db.WithContext(ctx).
+		Model(&types.OrganizeMemoryAttachment{}).
+		Where("tenant_id = ? AND id = ?", attachment.TenantID, attachment.ID).
+		Select(
+			"file_name",
+			"mime_type",
+			"storage_path",
+			"storage_url",
+			"size_bytes",
+			"sort_order",
+			"status",
+			"error_stage",
+			"error_message",
+			"content",
+			"transcript",
+			"metadata",
+			"updated_at",
+		).
+		Updates(attachment).Error
+}
+
+func (r *organizeRepository) ListMemoryAttachments(
+	ctx context.Context,
+	tenantID uint64,
+	userID, memoryID string,
+) ([]*types.OrganizeMemoryAttachment, error) {
+	query := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND memory_id = ?", tenantID, memoryID)
+	if strings.TrimSpace(userID) != "" {
+		query = query.Where("user_id = ?", userID)
+	}
+	var attachments []*types.OrganizeMemoryAttachment
+	err := query.Order("sort_order ASC").Order("created_at ASC").Find(&attachments).Error
+	return attachments, err
+}
+
 func (r *organizeRepository) DeleteMemory(ctx context.Context, tenantID uint64, userID, id string) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("tenant_id = ? AND user_id = ? AND memory_id = ?", tenantID, userID, id).
@@ -60,6 +141,10 @@ func (r *organizeRepository) DeleteMemory(ctx context.Context, tenantID uint64, 
 		}
 		if err := tx.Where("tenant_id = ? AND user_id = ? AND memory_id = ?", tenantID, userID, id).
 			Delete(&types.OrganizeSproutMemory{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("tenant_id = ? AND user_id = ? AND memory_id = ?", tenantID, userID, id).
+			Delete(&types.OrganizeMemoryAttachment{}).Error; err != nil {
 			return err
 		}
 		return tx.Where("tenant_id = ? AND user_id = ? AND id = ?", tenantID, userID, id).
@@ -86,7 +171,52 @@ func (r *organizeRepository) ListMemories(ctx context.Context, query types.Organ
 		Limit(query.PageSize).
 		Offset((query.Page - 1) * query.PageSize).
 		Find(&memories).Error
+	if err != nil {
+		return memories, total, err
+	}
+	if err := r.fillMemoryAttachments(ctx, query.TenantID, query.UserID, memories); err != nil {
+		return nil, 0, err
+	}
 	return memories, total, err
+}
+
+func (r *organizeRepository) fillMemoryAttachments(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	memories []*types.OrganizeMemory,
+) error {
+	if len(memories) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(memories))
+	byID := make(map[string]*types.OrganizeMemory, len(memories))
+	for _, memory := range memories {
+		if memory == nil || strings.TrimSpace(memory.ID) == "" {
+			continue
+		}
+		ids = append(ids, memory.ID)
+		byID[memory.ID] = memory
+		memory.Attachments = nil
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND memory_id IN ?", tenantID, ids)
+	if strings.TrimSpace(userID) != "" {
+		query = query.Where("user_id = ?", userID)
+	}
+	var attachments []*types.OrganizeMemoryAttachment
+	if err := query.Order("sort_order ASC").Order("created_at ASC").Find(&attachments).Error; err != nil {
+		return err
+	}
+	for _, attachment := range attachments {
+		if memory := byID[attachment.MemoryID]; memory != nil {
+			memory.Attachments = append(memory.Attachments, attachment)
+		}
+	}
+	return nil
 }
 
 func (r *organizeRepository) CountMemoriesByKind(ctx context.Context, tenantID uint64, userID string) (map[string]int64, error) {

@@ -8,6 +8,7 @@ type ReadRequest struct {
 	FileContent           []byte
 	FileName              string
 	FileType              string
+	MimeType              string
 	URL                   string
 	Title                 string
 	ParserEngine          string

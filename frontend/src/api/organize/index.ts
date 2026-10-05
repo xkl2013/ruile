@@ -16,6 +16,9 @@ export type OrganizeJobStatus =
   | 'failed'
   | 'canceled'
 
+export type OrganizeMemoryAttachmentStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
+export type OrganizeMemoryAttachmentAggregateStatus = 'pending' | 'processing' | 'partial' | 'completed' | 'failed'
+
 export interface OrganizeTemplate {
   id: string
   key: string
@@ -90,6 +93,25 @@ export interface OrganizeMemory {
   source?: string
   occurred_at: string
   duration_seconds?: number
+  metadata?: Record<string, unknown>
+  attachments?: OrganizeMemoryAttachment[]
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizeMemoryAttachment {
+  id: string
+  memory_id: string
+  file_name: string
+  mime_type?: string
+  storage_url?: string
+  size_bytes?: number
+  sort_order: number
+  status: OrganizeMemoryAttachmentStatus
+  error_stage?: string
+  error_message?: string
+  content?: string
+  transcript?: string
   metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
@@ -296,6 +318,7 @@ export interface OrganizeJobInput {
   memory_ids?: string[]
   model_id?: string
   requirement?: string
+  allow_partial?: boolean
 }
 
 export interface OrganizeSproutFromMemoryInput {
@@ -394,9 +417,10 @@ export function createOrganizeMemory(input: OrganizeMemoryInput) {
   return post<OrganizeResponse<OrganizeMemory>>('/api/v1/organize/memories', input)
 }
 
-export function uploadOrganizeMemory(file: File) {
+export function uploadOrganizeMemory(file: File | File[]) {
   const formData = new FormData()
-  formData.append('file', file)
+  const files = Array.isArray(file) ? file : [file]
+  files.forEach((item) => formData.append(files.length > 1 ? 'files' : 'file', item))
   return postUpload('/api/v1/organize/memories/upload', formData, undefined, { timeout: 300000 }) as Promise<OrganizeResponse<OrganizeMemory>>
 }
 
@@ -406,6 +430,12 @@ export function updateOrganizeMemory(id: string, input: OrganizeMemoryInput) {
 
 export function getOrganizeMemory(id: string) {
   return get<OrganizeResponse<OrganizeMemory>>(`/api/v1/organize/memories/${encodeURIComponent(id)}`)
+}
+
+export function retryOrganizeMemoryAttachment(memoryID: string, attachmentID: string) {
+  return post<OrganizeResponse<OrganizeMemory>>(
+    `/api/v1/organize/memories/${encodeURIComponent(memoryID)}/attachments/${encodeURIComponent(attachmentID)}/retry`,
+  )
 }
 
 export function deleteOrganizeMemory(id: string) {

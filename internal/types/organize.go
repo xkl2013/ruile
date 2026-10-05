@@ -40,6 +40,18 @@ const (
 	OrganizeSproutStageOrganizing = "organizing"
 	OrganizeSproutStageExpandable = "expandable"
 	OrganizeSproutStageFormed     = "formed"
+
+	OrganizeMemoryAttachmentStatusPending    = "pending"
+	OrganizeMemoryAttachmentStatusProcessing = "processing"
+	OrganizeMemoryAttachmentStatusCompleted  = "completed"
+	OrganizeMemoryAttachmentStatusFailed     = "failed"
+	OrganizeMemoryAttachmentStatusSkipped    = "skipped"
+
+	OrganizeMemoryAttachmentAggregatePending    = "pending"
+	OrganizeMemoryAttachmentAggregateProcessing = "processing"
+	OrganizeMemoryAttachmentAggregatePartial    = "partial"
+	OrganizeMemoryAttachmentAggregateCompleted  = "completed"
+	OrganizeMemoryAttachmentAggregateFailed     = "failed"
 )
 
 func IsValidOrganizeMemoryKind(kind string) bool {
@@ -93,19 +105,20 @@ func IsValidOrganizeSproutStage(stage string) bool {
 
 // OrganizeMemory is a user-scoped memory item in the Organize section.
 type OrganizeMemory struct {
-	ID              string         `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID        uint64         `json:"tenant_id" gorm:"not null;index"`
-	UserID          string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	Kind            string         `json:"kind" gorm:"type:varchar(32);not null;index"`
-	Title           string         `json:"title" gorm:"type:varchar(512);not null"`
-	Content         string         `json:"content,omitempty" gorm:"type:text;not null;default:''"`
-	Source          string         `json:"source,omitempty" gorm:"type:varchar(255);not null;default:''"`
-	OccurredAt      time.Time      `json:"occurred_at" gorm:"not null;index"`
-	DurationSeconds int            `json:"duration_seconds,omitempty" gorm:"not null;default:0"`
-	Metadata        JSONMap        `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	DeletedAt       gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+	ID              string                      `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID        uint64                      `json:"tenant_id" gorm:"not null;index"`
+	UserID          string                      `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	Kind            string                      `json:"kind" gorm:"type:varchar(32);not null;index"`
+	Title           string                      `json:"title" gorm:"type:varchar(512);not null"`
+	Content         string                      `json:"content,omitempty" gorm:"type:text;not null;default:''"`
+	Source          string                      `json:"source,omitempty" gorm:"type:varchar(255);not null;default:''"`
+	OccurredAt      time.Time                   `json:"occurred_at" gorm:"not null;index"`
+	DurationSeconds int                         `json:"duration_seconds,omitempty" gorm:"not null;default:0"`
+	Metadata        JSONMap                     `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	Attachments     []*OrganizeMemoryAttachment `json:"attachments,omitempty" gorm:"-"`
+	CreatedAt       time.Time                   `json:"created_at"`
+	UpdatedAt       time.Time                   `json:"updated_at"`
+	DeletedAt       gorm.DeletedAt              `json:"deleted_at" gorm:"index"`
 }
 
 func (OrganizeMemory) TableName() string { return "organize_memories" }
@@ -119,6 +132,48 @@ func (m *OrganizeMemory) BeforeCreate(_ *gorm.DB) error {
 	}
 	if m.Metadata == nil {
 		m.Metadata = JSONMap{}
+	}
+	return nil
+}
+
+// OrganizeMemoryAttachment is one source file belonging to a memory.
+//
+// The memory remains the user-facing container while each attachment owns its
+// parser/ASR lifecycle. This lets a single memory contain mixed file formats
+// without making the legacy memory table carry an array of storage paths.
+type OrganizeMemoryAttachment struct {
+	ID           string         `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID     uint64         `json:"tenant_id" gorm:"not null;index"`
+	UserID       string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	MemoryID     string         `json:"memory_id" gorm:"type:varchar(36);not null;index"`
+	FileName     string         `json:"file_name" gorm:"type:varchar(512);not null"`
+	MimeType     string         `json:"mime_type,omitempty" gorm:"type:varchar(255);not null;default:''"`
+	StoragePath  string         `json:"storage_path,omitempty" gorm:"type:text;not null;default:''"`
+	StorageURL   string         `json:"storage_url,omitempty" gorm:"type:text;not null;default:''"`
+	SizeBytes    int64          `json:"size_bytes,omitempty" gorm:"not null;default:0"`
+	SortOrder    int            `json:"sort_order" gorm:"not null;default:0"`
+	Status       string         `json:"status" gorm:"type:varchar(32);not null;default:'pending';index"`
+	ErrorStage   string         `json:"error_stage,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	ErrorMessage string         `json:"error_message,omitempty" gorm:"type:text;not null;default:''"`
+	Content      string         `json:"content,omitempty" gorm:"type:text;not null;default:''"`
+	Transcript   string         `json:"transcript,omitempty" gorm:"type:text;not null;default:''"`
+	Metadata     JSONMap        `json:"metadata,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+}
+
+func (OrganizeMemoryAttachment) TableName() string { return "organize_memory_attachments" }
+
+func (a *OrganizeMemoryAttachment) BeforeCreate(_ *gorm.DB) error {
+	if a.ID == "" {
+		a.ID = uuid.NewString()
+	}
+	if a.Metadata == nil {
+		a.Metadata = JSONMap{}
+	}
+	if a.Status == "" {
+		a.Status = OrganizeMemoryAttachmentStatusPending
 	}
 	return nil
 }
@@ -386,6 +441,14 @@ type OrganizeSproutReportInput struct {
 	MemoryIDs       []string    `json:"memory_ids,omitempty"`
 	Fields          JSONMap     `json:"fields,omitempty"`
 	Metadata        JSONMap     `json:"metadata,omitempty"`
+}
+
+// OrganizeMemoryUpload is the service-layer representation of one multipart
+// upload. It is intentionally not exposed as a persisted model.
+type OrganizeMemoryUpload struct {
+	FileName string
+	MimeType string
+	Data     []byte
 }
 
 type OrganizeSproutFromMemoryInput struct {

@@ -31,6 +31,11 @@ type OrganizeRepository interface {
 	GetMemory(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeMemory, error)
 	GetTenantMemory(ctx context.Context, tenantID uint64, id string) (*types.OrganizeMemory, error)
 	UpdateMemory(ctx context.Context, memory *types.OrganizeMemory) error
+	CreateMemoryAttachment(ctx context.Context, attachment *types.OrganizeMemoryAttachment) error
+	GetMemoryAttachment(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeMemoryAttachment, error)
+	GetTenantMemoryAttachment(ctx context.Context, tenantID uint64, id string) (*types.OrganizeMemoryAttachment, error)
+	UpdateMemoryAttachment(ctx context.Context, attachment *types.OrganizeMemoryAttachment) error
+	ListMemoryAttachments(ctx context.Context, tenantID uint64, userID, memoryID string) ([]*types.OrganizeMemoryAttachment, error)
 	DeleteMemory(ctx context.Context, tenantID uint64, userID, id string) error
 	ListMemories(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeMemory, int64, error)
 	CountMemoriesByKind(ctx context.Context, tenantID uint64, userID string) (map[string]int64, error)
@@ -96,7 +101,9 @@ type OrganizeService interface {
 
 	CreateMemory(ctx context.Context, tenantID uint64, userID string, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
 	CreateMemoryFromUpload(ctx context.Context, tenantID uint64, userID, fileName, mimeType string, data []byte, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
+	CreateMemoryFromUploads(ctx context.Context, tenantID uint64, userID string, uploads []types.OrganizeMemoryUpload, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
 	GetMemory(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeMemory, error)
+	RetryMemoryAttachment(ctx context.Context, tenantID uint64, userID, memoryID, attachmentID string) (*types.OrganizeMemory, error)
 	UpdateMemory(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeMemoryInput) (*types.OrganizeMemory, error)
 	DeleteMemory(ctx context.Context, tenantID uint64, userID, id string) error
 	ListMemories(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeMemory, int64, error)

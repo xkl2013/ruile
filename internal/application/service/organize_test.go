@@ -27,6 +27,7 @@ func newOrganizeServiceWithDBForTest(t *testing.T) (*organizeService, *gorm.DB) 
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&types.OrganizeMemory{},
+		&types.OrganizeMemoryAttachment{},
 		&types.OrganizeOutput{},
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeSproutReport{},
@@ -214,6 +215,7 @@ func TestOrganizeWorkbenchAutoAssignsReadyOutputToConfiguredService(t *testing.T
 	db := newAgentRunTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&types.OrganizeMemory{},
+		&types.OrganizeMemoryAttachment{},
 		&types.OrganizeOutput{},
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeTemplate{},
@@ -295,6 +297,7 @@ func TestOrganizeWorkbenchAutoAssignmentFailureLeavesTraceablePendingOutput(t *t
 	db := newAgentRunTestDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&types.OrganizeMemory{},
+		&types.OrganizeMemoryAttachment{},
 		&types.OrganizeOutput{},
 		&types.OrganizeOutputMemory{},
 		&types.OrganizeTemplate{},

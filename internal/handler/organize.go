@@ -400,46 +400,63 @@ func (h *OrganizeHandler) UploadMemory(c *gin.Context) {
 		return
 	}
 
-	header, err := c.FormFile("file")
-	if err != nil {
+	form, err := c.MultipartForm()
+	if err != nil || form == nil {
 		c.Error(apperrors.NewBadRequestError("file is required"))
 		return
 	}
-	fileName := strings.TrimSpace(header.Filename)
-	if fileName == "" {
-		c.Error(apperrors.NewBadRequestError("file name is required"))
+	headers := form.File["files"]
+	if len(headers) == 0 {
+		headers = form.File["file"]
+	}
+	if len(headers) == 0 {
+		c.Error(apperrors.NewBadRequestError("file is required"))
 		return
 	}
 
-	contentType := ""
-	if header.Header != nil {
-		contentType = header.Header.Get("Content-Type")
+	uploads := make([]types.OrganizeMemoryUpload, 0, len(headers))
+	for _, header := range headers {
+		if header == nil {
+			continue
+		}
+		fileName := strings.TrimSpace(header.Filename)
+		if fileName == "" {
+			c.Error(apperrors.NewBadRequestError("file name is required"))
+			return
+		}
+		contentType := ""
+		if header.Header != nil {
+			contentType = header.Header.Get("Content-Type")
+		}
+		maxSizeMB := secutils.GetMaxFileSizeMBForUpload(fileName, contentType)
+		maxSize := maxSizeMB * 1024 * 1024
+		if header.Size > 0 && header.Size > maxSize {
+			c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
+			return
+		}
+		file, openErr := header.Open()
+		if openErr != nil {
+			c.Error(apperrors.NewInternalServerError("failed to open upload file"))
+			return
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, maxSize+1))
+		_ = file.Close()
+		if readErr != nil {
+			c.Error(apperrors.NewInternalServerError("failed to read upload file"))
+			return
+		}
+		if int64(len(data)) > maxSize {
+			c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
+			return
+		}
+		uploads = append(uploads, types.OrganizeMemoryUpload{
+			FileName: fileName,
+			MimeType: contentType,
+			Data:     data,
+		})
 	}
-	if !secutils.IsAudioUpload(fileName, contentType) {
-		c.Error(apperrors.NewBadRequestError("audio file is required"))
-		return
-	}
-	maxSizeMB := secutils.GetMaxFileSizeMBForUpload(fileName, contentType)
-	maxSize := maxSizeMB * 1024 * 1024
-	if header.Size > 0 && header.Size > maxSize {
-		c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
-		return
-	}
-
-	file, err := header.Open()
-	if err != nil {
-		c.Error(apperrors.NewInternalServerError("failed to open upload file"))
-		return
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, maxSize+1))
-	if err != nil {
-		c.Error(apperrors.NewInternalServerError("failed to read upload file"))
-		return
-	}
-	if int64(len(data)) > maxSize {
-		c.Error(apperrors.NewBadRequestError("file too large").WithDetails(fileName))
+	if len(uploads) == 0 {
+		c.Error(apperrors.NewBadRequestError("file is required"))
 		return
 	}
 
@@ -449,7 +466,7 @@ func (h *OrganizeHandler) UploadMemory(c *gin.Context) {
 		return
 	}
 
-	item, err := h.service.CreateMemoryFromUpload(ctx, tenantID, userID, fileName, contentType, data, req)
+	item, err := h.service.CreateMemoryFromUploads(ctx, tenantID, userID, uploads, req)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -464,6 +481,26 @@ func (h *OrganizeHandler) GetMemory(c *gin.Context) {
 		return
 	}
 	item, err := h.service.GetMemory(ctx, tenantID, userID, c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) RetryMemoryAttachment(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	item, err := h.service.RetryMemoryAttachment(
+		ctx,
+		tenantID,
+		userID,
+		c.Param("id"),
+		c.Param("attachment_id"),
+	)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -930,6 +967,7 @@ func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, service.ErrOrganizeInvalidExpert),
 		stderrors.Is(err, service.ErrOrganizeJobNotRetryable),
 		stderrors.Is(err, service.ErrOrganizeJobNotCancelable),
+		stderrors.Is(err, service.ErrOrganizeMemoryNotReady),
 		stderrors.Is(err, service.ErrOrganizeInvalidMemoryKind),
 		stderrors.Is(err, service.ErrOrganizeInvalidStatus),
 		stderrors.Is(err, service.ErrOrganizeInvalidStage),
