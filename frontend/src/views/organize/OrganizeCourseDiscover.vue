@@ -14,7 +14,12 @@
         @keydown.enter.self="openCourse(item)"
       >
         <div class="course-card-cover" :style="coverStyle(item)">
-          <img v-if="item.cover_url" :src="item.cover_url" :alt="item.title" />
+          <img
+            v-if="hasCover(item)"
+            :src="coverSource(item)"
+            :alt="item.title"
+            @error="handleCoverError(item)"
+          />
           <template v-else>
             <t-icon name="book-open" />
             <span class="course-card-cover__kind">系列课程</span>
@@ -45,10 +50,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRouter } from 'vue-router'
-import { getOrganizeCourses, type OrganizeCourse } from '@/api/organize'
+import { getOrganizeCourseCover, getOrganizeCourses, type OrganizeCourse } from '@/api/organize'
 import { discoverCategoryLabel } from './discoverCategories'
 
 const props = withDefaults(defineProps<{
@@ -63,6 +68,8 @@ const router = useRouter()
 
 const courses = ref<OrganizeCourse[]>([])
 const loading = ref(true)
+const failedCoverIds = ref(new Set<string>())
+const coverSources = ref(new Map<string, string>())
 
 function sourceLabel(source?: string) {
   return source === 'creator' ? '创作者课程' : '官方精品课'
@@ -79,11 +86,45 @@ function formatDate(value?: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-// Courses ship a cover only for platform-authored material; the rest get the
-// same soft brand wash used by the recommendation cards.
+function hasCover(item: OrganizeCourse) {
+  return Boolean(coverSource(item) && !failedCoverIds.value.has(item.id))
+}
+
+function handleCoverError(item: OrganizeCourse) {
+  if (failedCoverIds.value.has(item.id)) return
+  failedCoverIds.value = new Set(failedCoverIds.value).add(item.id)
+}
+
+function coverSource(item: OrganizeCourse) {
+  return coverSources.value.get(item.id) || ''
+}
+
 function coverStyle(item: OrganizeCourse) {
-  if (item.cover_url) return { backgroundImage: `url(${item.cover_url})` }
-  return { background: 'linear-gradient(135deg, var(--td-brand-color-light) 0%, var(--td-bg-color-secondarycontainer) 100%)' }
+  if (hasCover(item)) return {}
+  return { background: 'var(--td-brand-color-light)' }
+}
+
+function revokeCoverSources() {
+  coverSources.value.forEach((source) => URL.revokeObjectURL(source))
+  coverSources.value = new Map()
+}
+
+function setCoverSource(id: string, source: string) {
+  coverSources.value = new Map(coverSources.value).set(id, source)
+}
+
+async function loadCoverSource(item: OrganizeCourse) {
+  if (!item.cover_url) return
+  if (!item.cover_url.startsWith('/api/')) {
+    setCoverSource(item.id, item.cover_url)
+    return
+  }
+  try {
+    const blob = await getOrganizeCourseCover(item.cover_url)
+    setCoverSource(item.id, URL.createObjectURL(blob))
+  } catch {
+    handleCoverError(item)
+  }
 }
 
 async function loadCourses() {
@@ -96,7 +137,10 @@ async function loadCourses() {
     if (!response.success || !response.data) {
       throw new Error(response.message || '课程加载失败')
     }
+    revokeCoverSources()
     courses.value = response.data.items || []
+    failedCoverIds.value = new Set()
+    void Promise.all(courses.value.map((item) => loadCoverSource(item)))
   } catch (error: any) {
     courses.value = []
     MessagePlugin.error(error?.message || '课程加载失败')
@@ -113,11 +157,13 @@ onMounted(() => {
   void loadCourses()
 })
 
+onBeforeUnmount(revokeCoverSources)
+
 defineExpose({ reload: loadCourses })
 </script>
 
 <style scoped>
-.course-discover { display: flex; flex-direction: column; gap: 12px; }
+.course-discover { display: flex; flex-direction: column; gap: 16px; }
 .course-discover--loading { min-height: 120px; align-items: center; justify-content: center; }
 .course-discover--empty {
   min-height: 120px;
@@ -129,23 +175,27 @@ defineExpose({ reload: loadCourses })
 }
 .course-discover--empty .t-icon { font-size: 20px; }
 
-.course-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 10px; }
+.course-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
 
 .course-card {
   display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
+  grid-template-columns: 92px minmax(0, 1fr);
   align-items: start;
-  gap: 12px;
-  min-height: 124px;
-  padding: 12px;
+  gap: 16px;
+  min-height: 128px;
+  padding: 14px 16px;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   background: var(--td-bg-color-container);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
-.course-card:hover { border-color: var(--td-brand-color); box-shadow: 0 4px 12px rgba(7, 192, 95, 0.12); }
+.course-card:hover {
+  border-color: rgba(7, 192, 95, 0.55);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
 .course-card:focus-visible { outline: 2px solid var(--td-brand-color); outline-offset: 2px; }
 
 .course-card-cover {
@@ -153,23 +203,32 @@ defineExpose({ reload: loadCourses })
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  width: 88px;
-  height: 88px;
-  padding: 10px;
+  gap: 7px;
+  width: 92px;
+  height: 92px;
+  padding: 8px;
   box-sizing: border-box;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   background-color: var(--td-bg-color-secondarycontainer);
   background-size: cover;
   background-position: center;
-  color: var(--td-text-color-primary);
-  font-size: 26px;
+  color: var(--td-brand-color);
+  font-size: 25px;
 }
-.course-card-cover img { width: 100%; height: 100%; object-fit: cover; border-radius: 4px; }
-.course-card-cover__kind { font-size: 11px; color: var(--td-text-color-secondary); }
+.course-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.course-card-cover__kind {
+  color: var(--td-brand-color-7);
+  font-size: 11px;
+  line-height: 16px;
+}
 
-.course-card-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.course-card-body { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .course-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .course-card-title h3 {
   margin: 0;
@@ -180,17 +239,25 @@ defineExpose({ reload: loadCourses })
   color: var(--td-text-color-primary);
   font-size: 15px;
   font-weight: 600;
+  line-height: 22px;
 }
 .course-source-badge {
   flex: 0 0 auto;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 6px;
-  background: var(--td-brand-color-light);
-  color: var(--td-brand-color);
+  background: rgba(7, 192, 95, 0.1);
+  color: var(--td-brand-color-7);
   font-size: 11px;
-  line-height: 18px;
+  line-height: 17px;
 }
-.course-card-meta { display: flex; gap: 12px; color: var(--td-text-color-placeholder); font-size: 12px; flex-wrap: wrap; }
+.course-card-meta {
+  display: flex;
+  gap: 12px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  flex-wrap: wrap;
+}
 .course-card-summary {
   margin: 0;
   display: -webkit-box;
@@ -199,20 +266,28 @@ defineExpose({ reload: loadCourses })
   overflow: hidden;
   color: var(--td-text-color-secondary);
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 20px;
 }
-.course-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.course-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 1px;
+}
 .course-card-category {
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 6px;
-  background: var(--td-bg-color-secondarycontainer);
+  background: rgba(15, 23, 42, 0.05);
   color: var(--td-text-color-secondary);
   font-size: 11px;
-  line-height: 18px;
+  line-height: 17px;
 }
 .course-card-date { color: var(--td-text-color-placeholder); font-size: 12px; }
 
 @media (max-width: 720px) {
-  .course-grid { grid-template-columns: minmax(0, 1fr); }
+  .course-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .course-card { gap: 12px; padding: 12px; }
+  .course-card-cover { width: 84px; height: 84px; }
 }
 </style>

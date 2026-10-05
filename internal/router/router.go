@@ -1463,6 +1463,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 		org.GET("/discover", g.Viewer(), h.GetDiscover)
 		org.GET("/courses", g.Viewer(), h.ListCourses)
 		org.GET("/courses/:id", g.Viewer(), h.GetCourse)
+		org.GET("/courses/:id/cover", g.Viewer(), h.GetCourseCover)
 		org.GET("/courses/:id/lessons/:lesson_id/media", g.Viewer(), h.GetCourseLessonMedia)
 		org.GET("/courses/:id/lessons/:lesson_id/media-url", g.Viewer(), h.GetCourseLessonMediaURL)
 		// Body read is separate from the outline: one chapter per request.

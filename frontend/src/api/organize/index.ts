@@ -1,4 +1,4 @@
-import { del, get, post, postUpload, put } from '@/utils/request'
+import { del, get, getDown, post, postUpload, put } from '@/utils/request'
 
 export type OrganizeMemoryKind = 'note' | 'record' | 'audio' | 'audio_card'
 export type OrganizeOutputStatus = 'draft' | 'review' | 'ready' | 'archived'
@@ -473,6 +473,10 @@ export function getOrganizeCourses(params?: OrganizeListParams & { category?: st
 
 export function getOrganizeCourse(id: string, config?: any) {
   return get<OrganizeResponse<OrganizeCourse>>(`/api/v1/organize/courses/${encodeURIComponent(id)}`, config)
+}
+
+export function getOrganizeCourseCover(url: string) {
+  return getDown(url)
 }
 
 // The outline deliberately carries no lesson bodies, so each chapter is fetched

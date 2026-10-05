@@ -578,20 +578,9 @@ func (s *organizeService) saveOrganizeCourseCoverImage(
 	if err != nil {
 		return "", "", fmt.Errorf("save course cover image: %w", err)
 	}
-	coverURL, err := fileService.GetFileURL(ctx, storagePath)
-	if err != nil {
-		_ = fileService.DeleteFile(ctx, storagePath)
-		return "", "", fmt.Errorf("resolve course cover image: %w", err)
-	}
-	coverURL = strings.TrimSpace(coverURL)
-	if coverURL == "" {
-		coverURL = storagePath
-	}
-	if len([]rune(coverURL)) > organizeCourseMaxCoverURLLen &&
-		len([]rune(storagePath)) <= organizeCourseMaxCoverURLLen {
-		coverURL = storagePath
-	}
-	return trimMax(coverURL, organizeCourseMaxCoverURLLen), storagePath, nil
+	// Persist the stable storage reference, not a presigned URL. Presigned
+	// OSS URLs and resource grants expire, while course rows are long-lived.
+	return trimMax(storagePath, organizeCourseMaxCoverURLLen), storagePath, nil
 }
 
 func detectOrganizeCourseCoverMIME(data []byte) string {
@@ -801,6 +790,57 @@ func (s *organizeService) OpenPublishedCourseLessonMedia(
 	return reader, fileName, stringValue(target.Output.Metadata, "mime_type"), nil
 }
 
+<<<<<<< HEAD
+// OpenPublishedCourseCover serves a course cover through the course visibility
+// boundary. The storage locator stays server-side, so private OSS buckets do
+// not need public-read ACLs or client-facing credentials.
+func (s *organizeService) OpenPublishedCourseCover(
+	ctx context.Context,
+	courseID string,
+) (io.ReadCloser, string, string, error) {
+	course, err := s.repo.GetCourse(ctx, strings.TrimSpace(courseID))
+	if err != nil {
+		return nil, "", "", err
+	}
+	if course == nil || course.PublicStatus != types.OrganizePublicContentStatusPublished {
+		return nil, "", "", ErrOrganizeNotFound
+	}
+	visible, err := s.courseVisibleToViewer(ctx, course)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if !visible {
+		return nil, "", "", ErrOrganizeNotFound
+	}
+
+	coverPath := strings.TrimSpace(course.CoverURL)
+	if !isOrganizeStoredFileReference(coverPath) {
+		return nil, "", "", ErrOrganizeNotFound
+	}
+	fileService, err := s.resolveOrganizeFileService(ctx, course.TenantID, coverPath)
+	if err != nil {
+		return nil, "", "", err
+	}
+	reader, err := fileService.GetFile(ctx, coverPath)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	fileName := filepath.Base(coverPath)
+	mimeType := ""
+	if s.resourceCatalog != nil {
+		if resource, resolveErr := s.resourceCatalog.Resolve(ctx, coverPath); resolveErr == nil && resource != nil {
+			if strings.TrimSpace(resource.OriginalName) != "" {
+				fileName = resource.OriginalName
+			}
+			mimeType = strings.TrimSpace(resource.MimeType)
+		}
+	}
+	if fileName == "" || fileName == "." || fileName == "/" {
+		fileName = "course-cover"
+	}
+	return reader, fileName, mimeType, nil
+=======
 // GetPublishedCourseLessonMediaURL returns a short-lived or presigned URL
 // after applying the same course visibility checks as the protected media
 // endpoint. Native media elements can use this URL to issue Range requests
@@ -827,6 +867,7 @@ func (s *organizeService) GetPublishedCourseLessonMediaURL(
 		fileName = target.Title
 	}
 	return mediaURL, fileName, stringValue(target.Output.Metadata, "mime_type"), nil
+>>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 }
 
 // ListPublishedCourses backs the course cards embedded in 推荐: the same
@@ -984,6 +1025,15 @@ func (s *organizeService) DeleteCourse(ctx context.Context, id string) error {
 			"storage_path",
 		); err != nil {
 			return err
+		}
+	}
+	if isOrganizeStoredFileReference(course.CoverURL) {
+		fileService, resolveErr := s.resolveOrganizeFileService(ctx, course.TenantID, course.CoverURL)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		if deleteErr := fileService.DeleteFile(ctx, course.CoverURL); deleteErr != nil {
+			return deleteErr
 		}
 	}
 	return s.repo.DeleteCourse(ctx, course.TenantID, course.ID)

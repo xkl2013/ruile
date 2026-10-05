@@ -98,6 +98,14 @@ func (h *OrganizeHandler) GetCourseLessonMedia(c *gin.Context) {
 	}
 }
 
+<<<<<<< HEAD
+// GetCourseCover serves a course cover through the same visibility check as
+// the course detail endpoint. The browser never talks to OSS directly.
+func (h *OrganizeHandler) GetCourseCover(c *gin.Context) {
+	reader, fileName, mimeType, err := h.service.OpenPublishedCourseCover(
+		c.Request.Context(),
+		c.Param("id"),
+=======
 // GetCourseLessonMediaURL returns a short-lived/presigned URL after the course
 // visibility check. Native media elements use this URL for browser Range
 // requests, while the protected API remains available as a compatibility
@@ -107,11 +115,27 @@ func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
 		c.Request.Context(),
 		c.Param("id"),
 		c.Param("lesson_id"),
+>>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 	)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
+<<<<<<< HEAD
+	defer reader.Close()
+
+	contentType, inline := secutils.SafeContentTypeByFilename(fileName)
+	if strings.TrimSpace(mimeType) != "" && inline {
+		contentType = mimeType
+	}
+	c.Header("Content-Type", contentType)
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "private, max-age=300")
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, reader); err != nil {
+		c.Error(err)
+	}
+=======
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -120,6 +144,7 @@ func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
 			"mime_type": mimeType,
 		},
 	})
+>>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 }
 
 func redactOrganizeCourse(course *types.OrganizeCourse, includeLessons bool) *types.OrganizePublicCourse {
@@ -132,7 +157,7 @@ func redactOrganizeCourse(course *types.OrganizeCourse, includeLessons bool) *ty
 		Title:        course.Title,
 		Summary:      course.Summary,
 		Category:     course.Category,
-		CoverURL:     course.CoverURL,
+		CoverURL:     publicCourseCoverURL(course),
 		TeacherName:  course.TeacherName,
 		TeacherTitle: course.TeacherTitle,
 		LessonCount:  course.LessonCount,
@@ -174,6 +199,34 @@ func redactOrganizeCourse(course *types.OrganizeCourse, includeLessons bool) *ty
 		result.Lessons = append(result.Lessons, publicLesson)
 	}
 	return result
+}
+
+func publicCourseCoverURL(course *types.OrganizeCourse) string {
+	if course == nil {
+		return ""
+	}
+	coverURL := strings.TrimSpace(course.CoverURL)
+	if coverURL == "" {
+		return ""
+	}
+	if isStoredCourseCoverReference(coverURL) {
+		return "/api/v1/organize/courses/" + url.PathEscape(course.ID) + "/cover"
+	}
+	return coverURL
+}
+
+func isStoredCourseCoverReference(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return false
+	}
+	if _, ok := types.ParseResourcePath(value); ok {
+		return true
+	}
+	if _, _, ok := types.ParseStorageBackendPath(value); ok {
+		return true
+	}
+	return types.ParseProviderScheme(value) != ""
 }
 
 func publicCourseMetadataString(metadata types.JSONMap, key string) string {
