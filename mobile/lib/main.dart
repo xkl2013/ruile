@@ -833,6 +833,32 @@ class _RuileApiClient {
     return null;
   }
 
+  Future<_OrganizeMemory> retryOrganizeMemoryAttachment({
+    required String memoryId,
+    required String attachmentId,
+  }) async {
+    final normalizedMemoryId = memoryId.trim();
+    final normalizedAttachmentId = attachmentId.trim();
+    if (normalizedMemoryId.isEmpty || normalizedAttachmentId.isEmpty) {
+      throw const FormatException('记忆附件参数不能为空');
+    }
+
+    final payload = await _postJson(
+      '/api/v1/organize/memories/${Uri.encodeComponent(normalizedMemoryId)}/attachments/${Uri.encodeComponent(normalizedAttachmentId)}/retry',
+      const {},
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeMemory.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeMemory.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('附件重试响应格式无效');
+  }
+
   Future<_OrganizeMemory?> findOrganizeMemoryByMobileLocalId(
     String mobileLocalId,
   ) async {
@@ -11528,12 +11554,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     color: AppColors.textTertiary,
     fontWeight: FontWeight.w500,
   );
-  static const _bodyStyle = TextStyle(
-    fontSize: 16,
-    height: 1.65,
-    color: AppColors.textPrimary,
-    fontWeight: FontWeight.w500,
-  );
   static const _transcriptionPollInterval = Duration(seconds: 3);
   static const _transcriptionPollTimeout = Duration(minutes: 3);
 
@@ -11594,21 +11614,19 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   }
 
   List<String> get _detailTabs {
-    return _note.hasAudioLink
-        ? const ['录音原文', '笔记内容', '整理']
-        : const ['笔记内容', '整理'];
+    return const ['笔记内容', '整理'];
   }
 
-  int get _contentTabIndex => _note.hasAudioLink ? 1 : 0;
+  int get _contentTabIndex => 0;
 
-  int get _organizeTabIndex => _note.hasAudioLink ? 2 : 1;
+  int get _organizeTabIndex => 1;
 
   int _defaultTabIndexFor(_NoteItem note) {
-    return note.hasAudioLink ? 1 : 0;
+    return 0;
   }
 
   int _normalizeSelectedTabIndex(int index, _NoteItem note) {
-    final length = note.hasAudioLink ? 3 : 2;
+    const length = 2;
     if (index < 0 || index >= length) {
       return _defaultTabIndexFor(note);
     }
@@ -11640,7 +11658,9 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
 
   bool _shouldPollTranscription(_NoteItem note) {
     final id = note.id.trim();
-    if (id.isEmpty || !note.hasAudioLink) return false;
+    if (id.isEmpty) return false;
+
+    if (note.hasPendingProcessing) return true;
 
     final status = note.transcriptionStatus.trim().toLowerCase();
     switch (status) {
@@ -11655,11 +11675,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
         return false;
     }
 
-    return _isWaitingForTranscription(note.detailBody);
-  }
-
-  bool _isWaitingForTranscription(String text) {
-    return _normalizeSpaces(text).contains('录音已保存，等待转写');
+    return _isWaitingForMemoryProcessing(note.detailBody);
   }
 
   bool _hasPollingTimedOut() {
@@ -11719,6 +11735,53 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       _refreshRemoteNote(ignoreTimeout: true),
       _loadLinkedOrganizeJob(silent: true),
     ]);
+  }
+
+  Future<void> _retryAttachment(_OrganizeMemoryAttachment attachment) async {
+    if (!attachment.canRetry || attachment.id.trim().isEmpty) return;
+    final memoryId = _note.id.trim();
+    if (memoryId.isEmpty) return;
+
+    try {
+      final memory = await _apiClient.retryOrganizeMemoryAttachment(
+        memoryId: memoryId,
+        attachmentId: attachment.id,
+      );
+      if (!mounted) return;
+      setState(() {
+        _note = memory.toNoteItem();
+      });
+      _restartTranscriptionPollingIfNeeded(immediate: true);
+      _showMessage('已重新发起解析');
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (mounted) _showMessage('重新解析失败：${error.message}');
+    } catch (error) {
+      if (mounted) _showMessage('重新解析失败：$error');
+    }
+  }
+
+  Future<void> _openAttachmentPreview(
+    _OrganizeMemoryAttachment attachment,
+  ) async {
+    final sourceUrl = attachment.sourceUrl.trim();
+    if (sourceUrl.isEmpty) {
+      _showMessage('暂无附件预览资源');
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _MemoryAttachmentPreviewPage(
+          attachment: attachment,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
   }
 
   String get _organizeButtonTooltip {
@@ -12075,6 +12138,21 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   ],
                 ],
               ],
+              if (note.hasAttachments) ...[
+                const SizedBox(height: 18),
+                const Text(
+                  '附件',
+                  style: _metaStyle,
+                ),
+                const SizedBox(height: 8),
+                for (final attachment in note.attachments) ...[
+                  _MemoryAttachmentCard(
+                    attachment: attachment,
+                    onTap: () => unawaited(_openAttachmentPreview(attachment)),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
               const SizedBox(height: 20),
               _MemoryTagButton(
                 onPressed: _openAddMemory,
@@ -12096,37 +12174,517 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                 duration: const Duration(milliseconds: 180),
                 switchInCurve: Curves.easeOut,
                 switchOutCurve: Curves.easeIn,
-                child: note.hasAudioLink && selectedTabIndex == 0
-                    ? Text(
-                        note.transcriptBody,
-                        key: const ValueKey('memory-transcript'),
-                        style: _bodyStyle,
+                child: selectedTabIndex == _contentTabIndex
+                    ? Column(
+                        key: const ValueKey('memory-content'),
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (final block in _memoryContentBlocks(note))
+                            _SproutPreviewBlock(
+                              block: block,
+                              compact: true,
+                            ),
+                          if (note.hasAttachments ||
+                              note.transcript.trim().isNotEmpty ||
+                              note.hasAudioLink) ...[
+                            const SizedBox(height: 18),
+                            _MemoryFileNotes(
+                              note: note,
+                              onRetry: (attachment) =>
+                                  unawaited(_retryAttachment(attachment)),
+                            ),
+                          ],
+                        ],
                       )
-                    : selectedTabIndex == _contentTabIndex
-                        ? Column(
-                            key: const ValueKey('memory-content'),
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (final block in _memoryContentBlocks(note))
-                                _SproutPreviewBlock(
-                                  block: block,
-                                  compact: true,
-                                ),
-                            ],
-                          )
-                        : _MemoryOrganizePanel(
-                            key: const ValueKey('memory-organize'),
-                            job: _organizeJob,
-                            loading: _organizeLoading,
-                            creating: _organizeCreating,
-                            error: _organizeError,
-                            onRetry: () => unawaited(_loadLinkedOrganizeJob()),
-                            onCreate: () => unawaited(_createOrganizeJob()),
-                            onOpen: () => unawaited(_openOrganizeResult()),
-                          ),
+                    : _MemoryOrganizePanel(
+                        key: const ValueKey('memory-organize'),
+                        job: _organizeJob,
+                        loading: _organizeLoading,
+                        creating: _organizeCreating,
+                        error: _organizeError,
+                        onRetry: () => unawaited(_loadLinkedOrganizeJob()),
+                        onCreate: () => unawaited(_createOrganizeJob()),
+                        onOpen: () => unawaited(_openOrganizeResult()),
+                      ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemoryAttachmentCard extends StatelessWidget {
+  const _MemoryAttachmentCard({
+    required this.attachment,
+    required this.onTap,
+  });
+
+  final _OrganizeMemoryAttachment attachment;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final typeLabel = attachment.fileType.trim().isEmpty
+        ? 'FILE'
+        : attachment.fileType.toUpperCase();
+    final accent = _fileTypeColor(typeLabel);
+    final canPreview = attachment.sourceUrl.trim().isNotEmpty;
+
+    return Material(
+      color: const Color(0xFFF8F9FB),
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: canPreview ? onTap : null,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(
+                  attachment.isVideo
+                      ? Icons.video_library_outlined
+                      : _fileTypeIcon(typeLabel),
+                  size: 19,
+                  color: accent,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      attachment.fileName,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.3,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      attachment.statusLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.2,
+                        color: _memoryAttachmentStatusColor(attachment.status),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                typeLabel,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: accent,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              if (canPreview) ...[
+                const SizedBox(width: 6),
+                const Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: AppColors.textTertiary,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MemoryFileNotes extends StatelessWidget {
+  const _MemoryFileNotes({
+    required this.note,
+    required this.onRetry,
+  });
+
+  final _NoteItem note;
+  final ValueChanged<_OrganizeMemoryAttachment> onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final aggregateLabel = note.transcriptionStatusLabel;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const Expanded(
+              child: Text(
+                '附件解析笔记',
+                style: TextStyle(
+                  fontSize: 17,
+                  height: 1.3,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (aggregateLabel.isNotEmpty)
+              Text(
+                aggregateLabel,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _memoryAttachmentStatusColor(
+                    note.attachmentStatus.isEmpty
+                        ? note.transcriptionStatus
+                        : note.attachmentStatus,
+                  ),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (note.attachments.isEmpty)
+          _MemoryLegacyFileNote(note: note)
+        else
+          for (var index = 0; index < note.attachments.length; index++) ...[
+            _MemoryFileNote(
+              attachment: note.attachments[index],
+              summaryOverride:
+                  note.attachments.length == 1 ? note.memorySummary : '',
+              onRetry: () => onRetry(note.attachments[index]),
+            ),
+            if (index != note.attachments.length - 1)
+              const SizedBox(height: 16),
+          ],
+      ],
+    );
+  }
+}
+
+class _MemoryLegacyFileNote extends StatelessWidget {
+  const _MemoryLegacyFileNote({required this.note});
+
+  final _NoteItem note;
+
+  @override
+  Widget build(BuildContext context) {
+    final transcript = note.transcript.trim();
+    final blocks = transcript.isEmpty
+        ? const <_SproutTextBlock>[]
+        : _sproutPreviewBlocks(transcript);
+    final statusLabel = note.transcriptionStatusLabel;
+    final detail = note.transcriptionStatusDetailText;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F9FB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '原始转写',
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.35,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (blocks.isNotEmpty) ...[
+              for (final block in blocks)
+                _SproutPreviewBlock(block: block, compact: true),
+            ] else ...[
+              Text(
+                detail.isNotEmpty
+                    ? detail
+                    : statusLabel.isNotEmpty
+                        ? '$statusLabel，请稍候刷新。'
+                        : '暂无录音原文。',
+                style: AppTextStyles.body,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MemoryFileNote extends StatelessWidget {
+  const _MemoryFileNote({
+    required this.attachment,
+    this.summaryOverride = '',
+    required this.onRetry,
+  });
+
+  final _OrganizeMemoryAttachment attachment;
+  final String summaryOverride;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = attachment.displayContent.trim();
+    final blocks =
+        body.isEmpty ? const <_SproutTextBlock>[] : _sproutPreviewBlocks(body);
+    final isTranscript = attachment.transcript.trim().isNotEmpty ||
+        attachment.isAudio ||
+        attachment.isVideo;
+    final summary = summaryOverride.trim().isNotEmpty
+        ? summaryOverride.trim()
+        : attachment.summary;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F9FB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    '[${attachment.fileName}]',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.35,
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (attachment.canRetry)
+                  TextButton(
+                    onPressed: onRetry,
+                    style: TextButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.fromLTRB(8, 2, 0, 2),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('重新解析'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (attachment.status.trim().toLowerCase() == 'completed') ...[
+              if (summary.isNotEmpty) ...[
+                Text(
+                  isTranscript ? '转写摘要' : '文件摘要',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  summary,
+                  style: AppTextStyles.body.copyWith(height: 1.55),
+                ),
+                const SizedBox(height: 12),
+              ],
+              Text(
+                isTranscript ? '转写正文' : '正文内容',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 5),
+              if (blocks.isEmpty) ...[
+                const Text(
+                  '该文件暂未生成可展示的解析内容。',
+                  style: AppTextStyles.body,
+                ),
+              ] else ...[
+                for (final block in blocks)
+                  _SproutPreviewBlock(block: block, compact: true),
+              ],
+            ] else
+              Text(
+                attachment.errorMessage.trim().isNotEmpty
+                    ? attachment.errorMessage.trim()
+                    : '${attachment.statusLabel}，请稍候刷新。',
+                style: AppTextStyles.body.copyWith(
+                  color: attachment.canRetry
+                      ? const Color(0xFFC43A31)
+                      : AppColors.textSecondary,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Color _memoryAttachmentStatusColor(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'completed':
+    case 'partial':
+      return const Color(0xFF11835C);
+    case 'failed':
+    case 'skipped':
+    case 'queued_failed':
+      return const Color(0xFFC43A31);
+    default:
+      return const Color(0xFF4966D9);
+  }
+}
+
+class _MemoryAttachmentPreviewPage extends StatelessWidget {
+  const _MemoryAttachmentPreviewPage({
+    required this.attachment,
+    required this.authToken,
+    required this.tenantId,
+    this.onAuthFailure,
+  });
+
+  final _OrganizeMemoryAttachment attachment;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback? onAuthFailure;
+
+  @override
+  Widget build(BuildContext context) {
+    final sourceUrl = attachment.sourceUrl.trim();
+    final fileType = attachment.fileType;
+    final document = _KnowledgeDocument(
+      path: attachment.fileName,
+      date: '',
+      fileType: fileType,
+    );
+
+    Widget preview;
+    if (attachment.isImage) {
+      preview = _KnowledgeImageDetailPreview(
+        previewSourceUrl: sourceUrl,
+        authToken: authToken,
+        tenantId: tenantId,
+        onAuthFailure: onAuthFailure,
+      );
+    } else if (attachment.isAudio) {
+      preview = _AudioDetailPreview(
+        fileName: attachment.fileName,
+        previewSourceUrl: sourceUrl,
+        authToken: authToken,
+        tenantId: tenantId,
+        onAuthFailure: onAuthFailure,
+      );
+    } else if (attachment.isVideo) {
+      preview = _KnowledgeVideoDetailPreview(
+        document: document,
+        previewSourceUrl: sourceUrl,
+        authToken: authToken,
+        tenantId: tenantId,
+        onAuthFailure: onAuthFailure,
+      );
+    } else if (attachment.isPdf) {
+      preview = _KnowledgePdfDetailPreview(
+        previewSourceUrl: sourceUrl,
+        authToken: authToken,
+        tenantId: tenantId,
+        onAuthFailure: onAuthFailure,
+      );
+    } else {
+      preview = const _KnowledgePreviewUnavailable(
+        title: '暂不支持预览',
+        message: '移动端暂不支持直接预览该文件，但已在详情页展示解析内容。',
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.pageX,
+                16,
+                AppSpacing.pageX,
+                10,
+              ),
+              child: _KnowledgeDetailTopBar(
+                title: '文件预览',
+                onBackTap: () => Navigator.maybePop(context),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.pageX,
+                  4,
+                  AppSpacing.pageX,
+                  24,
+                ),
+                children: [
+                  Text(
+                    attachment.fileName,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      height: 1.28,
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _KnowledgeFileTypeBadge(
+                        label:
+                            fileType.isEmpty ? 'FILE' : fileType.toUpperCase(),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        attachment.statusLabel,
+                        style: AppTextStyles.meta.copyWith(
+                          color:
+                              _memoryAttachmentStatusColor(attachment.status),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  preview,
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -19076,6 +19634,214 @@ class _OrganizeJob {
   }
 }
 
+class _OrganizeMemoryAttachment {
+  const _OrganizeMemoryAttachment({
+    required this.id,
+    required this.memoryId,
+    required this.fileName,
+    required this.mimeType,
+    required this.storagePath,
+    required this.storageUrl,
+    required this.sizeBytes,
+    required this.sortOrder,
+    required this.status,
+    required this.errorStage,
+    required this.errorMessage,
+    required this.content,
+    required this.transcript,
+    required this.metadata,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  factory _OrganizeMemoryAttachment.fromApi(Map<String, dynamic> json) {
+    final metadata = _readMap(json, const ['metadata']);
+    final fileName = _readString(
+      json,
+      const ['file_name', 'filename', 'name'],
+      fallback: _readString(metadata, const ['file_name', 'filename', 'name']),
+    );
+    final storagePath = _readString(
+      json,
+      const ['storage_path', 'file_path', 'source_path'],
+      fallback: _readString(
+        metadata,
+        const ['storage_path', 'file_path', 'source_path'],
+      ),
+    );
+    final storageUrl = _readString(
+      json,
+      const ['storage_url', 'file_url', 'source_url', 'url'],
+      fallback: _readString(
+        metadata,
+        const ['storage_url', 'file_url', 'source_url', 'url'],
+      ),
+    );
+    return _OrganizeMemoryAttachment(
+      id: _readString(json, const ['id', 'attachment_id']),
+      memoryId: _readString(json, const ['memory_id']),
+      fileName: fileName.isEmpty ? '未命名文件' : fileName,
+      mimeType: _readString(
+        json,
+        const ['mime_type', 'mimeType'],
+        fallback: _readString(metadata, const ['mime_type', 'mimeType']),
+      ),
+      storagePath: storagePath,
+      storageUrl: storageUrl,
+      sizeBytes: _readInt(json, const ['size_bytes', 'size']),
+      sortOrder: _readInt(json, const ['sort_order']) ?? 0,
+      status: _readString(
+        json,
+        const ['status', 'attachment_status'],
+        fallback: 'pending',
+      ),
+      errorStage: _readString(json, const ['error_stage']),
+      errorMessage: _readString(
+        json,
+        const ['error_message', 'error', 'message'],
+      ),
+      content: _readString(json, const ['content']),
+      transcript: _readString(
+        json,
+        const [
+          'transcript',
+          'transcription',
+          'transcription_text',
+          'raw_transcript',
+        ],
+      ),
+      metadata: metadata,
+      createdAt: _readDateTime(json, const ['created_at']),
+      updatedAt: _readDateTime(json, const ['updated_at']),
+    );
+  }
+
+  final String id;
+  final String memoryId;
+  final String fileName;
+  final String mimeType;
+  final String storagePath;
+  final String storageUrl;
+  final int? sizeBytes;
+  final int sortOrder;
+  final String status;
+  final String errorStage;
+  final String errorMessage;
+  final String content;
+  final String transcript;
+  final Map<String, dynamic> metadata;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  String get fileType {
+    final fromName = _fileExtension(fileName);
+    if (fromName.isNotEmpty) return fromName;
+    final normalizedMime = mimeType.toLowerCase();
+    if (normalizedMime.contains('pdf')) return 'pdf';
+    if (normalizedMime.startsWith('image/')) {
+      return normalizedMime.split('/').last;
+    }
+    if (normalizedMime.startsWith('audio/')) {
+      return normalizedMime.split('/').last;
+    }
+    if (normalizedMime.startsWith('video/')) {
+      return normalizedMime.split('/').last;
+    }
+    return '';
+  }
+
+  String get sourceUrl {
+    final source = storagePath.trim().isNotEmpty ? storagePath : storageUrl;
+    return _publicFileUrl(source, baseUrl: AppApiConfig.baseUrl);
+  }
+
+  String get displayContent {
+    final rawTranscript = transcript.trim();
+    if (rawTranscript.isNotEmpty) return rawTranscript;
+    return content;
+  }
+
+  String get summary {
+    for (final key in const [
+      'summary',
+      'file_summary',
+      'summary_text',
+      'description'
+    ]) {
+      final value = metadata[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty) return _normalizeSpaces(value);
+    }
+    return _compactMemoryFileSummary(displayContent);
+  }
+
+  bool get isAudio => const {
+        'mp3',
+        'wav',
+        'm4a',
+        'flac',
+        'ogg',
+        'aac',
+      }.contains(fileType);
+
+  bool get isVideo => const {
+        'mp4',
+        'mov',
+        'm4v',
+        'webm',
+        'mkv',
+        'avi',
+        'wmv',
+        'flv',
+        '3gp',
+      }.contains(fileType);
+
+  bool get isImage => const {
+        'jpg',
+        'jpeg',
+        'png',
+        'gif',
+        'bmp',
+        'webp',
+        'tiff',
+        'svg',
+      }.contains(fileType);
+
+  bool get isPdf => fileType == 'pdf';
+
+  bool get canRetry =>
+      status.trim().toLowerCase() == 'failed' ||
+      status.trim().toLowerCase() == 'skipped';
+
+  bool get isPendingOrProcessing {
+    switch (status.trim().toLowerCase()) {
+      case 'pending':
+      case 'processing':
+      case 'transcribing':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  String get statusLabel {
+    switch (status.trim().toLowerCase()) {
+      case 'pending':
+        return '等待解析';
+      case 'processing':
+      case 'transcribing':
+        return '解析中';
+      case 'completed':
+        return '解析完成';
+      case 'failed':
+        return '解析失败';
+      case 'skipped':
+        return '已跳过';
+      default:
+        return status.trim().isEmpty ? '等待解析' : status.trim();
+    }
+  }
+}
+
 class _OrganizeMemory {
   const _OrganizeMemory({
     required this.id,
@@ -19088,13 +19854,16 @@ class _OrganizeMemory {
     required this.metadata,
     required this.audioUrl,
     required this.transcriptionStatus,
+    required this.attachmentStatus,
     required this.transcript,
+    required this.attachments,
     required this.createdAt,
     required this.updatedAt,
   });
 
   factory _OrganizeMemory.fromApi(Map<String, dynamic> json) {
     final metadata = _readMap(json, const ['metadata']);
+    final attachments = _readOrganizeMemoryAttachments(json);
     final occurredAt = _readDateTime(json, const ['occurred_at']) ??
         _readDateTime(json, const ['created_at']) ??
         DateTime.now();
@@ -19135,7 +19904,13 @@ class _OrganizeMemory {
       metadata: metadata,
       audioUrl: audioUrl,
       transcriptionStatus: transcriptionStatus,
+      attachmentStatus: _readOrganizeMemoryText(
+        json,
+        metadata,
+        const ['attachment_status'],
+      ),
       transcript: transcript,
+      attachments: attachments,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -19151,7 +19926,9 @@ class _OrganizeMemory {
   final Map<String, dynamic> metadata;
   final String audioUrl;
   final String transcriptionStatus;
+  final String attachmentStatus;
   final String transcript;
+  final List<_OrganizeMemoryAttachment> attachments;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -19177,6 +19954,11 @@ class _OrganizeMemory {
       durationSeconds: durationSeconds,
       transcriptionStatus: transcriptionStatus,
       transcript: _organizeMemoryTranscriptText(),
+      attachmentStatus: attachmentStatus,
+      attachments: attachments,
+      memorySummary: _organizeMemoryMetadataText(
+        const ['summary', 'file_summary', 'summary_text'],
+      ),
       transcriptionDetail: _organizeMemoryMetadataText(
         const ['transcription_error', 'transcription_reason'],
       ),
@@ -19274,6 +20056,32 @@ class _OrganizeMemory {
   }
 }
 
+List<_OrganizeMemoryAttachment> _readOrganizeMemoryAttachments(
+  Map<String, dynamic> json,
+) {
+  final rawAttachments = json['attachments'];
+  if (rawAttachments is! List) return const [];
+
+  final attachments = <_OrganizeMemoryAttachment>[];
+  for (final rawAttachment in rawAttachments) {
+    if (rawAttachment is Map<String, dynamic>) {
+      attachments.add(_OrganizeMemoryAttachment.fromApi(rawAttachment));
+    } else if (rawAttachment is Map) {
+      attachments.add(
+        _OrganizeMemoryAttachment.fromApi(
+          rawAttachment.map((key, value) => MapEntry(key.toString(), value)),
+        ),
+      );
+    }
+  }
+  attachments.sort((left, right) {
+    final order = left.sortOrder.compareTo(right.sortOrder);
+    if (order != 0) return order;
+    return left.fileName.compareTo(right.fileName);
+  });
+  return attachments;
+}
+
 class _NoteItem {
   const _NoteItem({
     required this.id,
@@ -19289,6 +20097,9 @@ class _NoteItem {
     this.durationSeconds = 0,
     this.transcriptionStatus = '',
     this.transcript = '',
+    this.attachmentStatus = '',
+    this.attachments = const [],
+    this.memorySummary = '',
     this.transcriptionDetail = '',
   });
 
@@ -19305,6 +20116,9 @@ class _NoteItem {
   final int durationSeconds;
   final String transcriptionStatus;
   final String transcript;
+  final String attachmentStatus;
+  final List<_OrganizeMemoryAttachment> attachments;
+  final String memorySummary;
   final String transcriptionDetail;
 
   String get detailCreatedAt {
@@ -19320,7 +20134,46 @@ class _NoteItem {
     return title;
   }
 
-  bool get hasAudioLink => audioUrl.trim().isNotEmpty;
+  bool get hasAttachments => attachments.isNotEmpty;
+
+  bool get hasAudioAttachment =>
+      attachments.any((attachment) => attachment.isAudio);
+
+  bool get hasPendingAttachment =>
+      attachments.any((attachment) => attachment.isPendingOrProcessing);
+
+  bool get hasFailedAttachment =>
+      attachments.any((attachment) => attachment.canRetry);
+
+  bool get hasAudioLink {
+    if (audioUrl.trim().isEmpty) return false;
+    if (hasAttachments) return hasAudioAttachment;
+    final type = _fileExtension(audioFileName);
+    if (const {'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi'}.contains(type)) {
+      return false;
+    }
+    return kind == 'audio' || kind == 'audio_card';
+  }
+
+  bool get hasPendingProcessing {
+    if (hasPendingAttachment) return true;
+    final aggregate = attachmentStatus.trim().toLowerCase();
+    if (aggregate == 'pending' ||
+        aggregate == 'processing' ||
+        aggregate == 'transcribing') {
+      return true;
+    }
+    switch (transcriptionStatus.trim().toLowerCase()) {
+      case 'pending':
+      case 'queued':
+      case 'transcribing':
+        return true;
+      default:
+        return _isWaitingForMemoryProcessing(detailBody);
+    }
+  }
+
+  bool get isAudioMemory => kind == 'audio' || kind == 'audio_card';
 
   String get transcriptBody {
     final normalizedTranscript = _readableMemoryText(transcript);
@@ -19338,17 +20191,38 @@ class _NoteItem {
   }
 
   String get transcriptionStatusLabel {
+    if (hasAttachments) {
+      final statuses = attachments
+          .map((attachment) => attachment.status.trim().toLowerCase())
+          .toSet();
+      if (statuses.contains('processing') ||
+          statuses.contains('pending') ||
+          statuses.contains('transcribing') ||
+          attachmentStatus.trim().toLowerCase() == 'transcribing') {
+        return isAudioMemory ? '转写中' : '解析中';
+      }
+      if (statuses.contains('failed') || statuses.contains('skipped')) {
+        return statuses.contains('completed') ? '部分完成' : '解析失败';
+      }
+      if (statuses.contains('completed') ||
+          attachmentStatus.trim().toLowerCase() == 'completed') {
+        return isAudioMemory ? '转写成功' : '解析完成';
+      }
+    }
+
     switch (transcriptionStatus.trim().toLowerCase()) {
       case 'pending':
       case 'queued':
       case 'transcribing':
-        return '转写中';
+        return isAudioMemory ? '转写中' : '解析中';
       case 'completed':
-        return '转写成功';
+        return isAudioMemory ? '转写成功' : '解析完成';
+      case 'partial':
+        return '部分完成';
       case 'failed':
       case 'skipped':
       case 'queued_failed':
-        return '转写失败';
+        return isAudioMemory ? '转写失败' : '解析失败';
       default:
         return '';
     }
@@ -19356,7 +20230,11 @@ class _NoteItem {
 
   String get transcriptionStatusDetailText {
     final label = transcriptionStatusLabel;
-    if (label != '转写失败') return '';
+    if (label != '转写失败' && label != '解析失败') return '';
+    final attachmentError = attachments
+        .map((attachment) => attachment.errorMessage.trim())
+        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    if (attachmentError.isNotEmpty) return '原因：$attachmentError';
     final detail = _normalizeSpaces(transcriptionDetail);
     if (detail.isEmpty) return '';
     return '原因：$detail';
@@ -19400,6 +20278,28 @@ class _NoteItem {
     if (_isTranscriptionFailure) return Icons.error_outline;
     return Icons.sync;
   }
+}
+
+String _fileExtension(String value) {
+  final source = value.split('?').first.replaceAll('\\', '/');
+  final fileName =
+      source.split('/').where((part) => part.isNotEmpty).lastOrNull ?? '';
+  final dotIndex = fileName.lastIndexOf('.');
+  return dotIndex >= 0 ? fileName.substring(dotIndex + 1).toLowerCase() : '';
+}
+
+String _compactMemoryFileSummary(String value) {
+  final readable = _readableMemoryText(value);
+  if (readable.isEmpty) return '';
+  if (readable.length <= 180) return readable;
+  final boundary = readable.lastIndexOf('。', 180);
+  final end = boundary >= 80 ? boundary + 1 : 180;
+  return '${readable.substring(0, end)}...';
+}
+
+bool _isWaitingForMemoryProcessing(String value) {
+  final normalized = _normalizeSpaces(value);
+  return normalized.contains('文件已保存，等待解析') || normalized.contains('录音已保存，等待转写');
 }
 
 enum _SproutTextBlockKind { heading, paragraph, quote, bullet }
