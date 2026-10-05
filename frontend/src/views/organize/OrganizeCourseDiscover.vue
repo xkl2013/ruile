@@ -2,7 +2,7 @@
   <div v-if="loading" class="course-discover course-discover--loading">
     <t-loading size="medium" text="加载课程中" />
   </div>
-  <div v-else-if="courses.length" class="course-discover">
+  <div v-else-if="courses.length" class="course-discover" :class="{ 'course-discover--featured': props.variant === 'featured' }">
     <div class="course-grid">
       <article
         v-for="item in courses"
@@ -43,6 +43,10 @@
       </article>
     </div>
   </div>
+  <div v-else-if="props.variant === 'featured'" class="course-discover course-discover--empty">
+    <t-icon name="book-open" />
+    <span>暂无可推荐内容或课程</span>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -52,9 +56,15 @@ import { useRouter } from 'vue-router'
 import { getOrganizeCourseCover, getOrganizeCourses, type OrganizeCourse } from '@/api/organize'
 import { discoverCategoryLabel } from './discoverCategories'
 
-const router = useRouter()
+const props = withDefaults(defineProps<{
+  variant?: 'feed' | 'featured'
+  limit?: number
+}>(), {
+  variant: 'feed',
+  limit: 6,
+})
 
-const PAGE_SIZE = 6
+const router = useRouter()
 
 const courses = ref<OrganizeCourse[]>([])
 const loading = ref(true)
@@ -122,7 +132,7 @@ async function loadCourses() {
   try {
     const response = await getOrganizeCourses({
       page: 1,
-      page_size: PAGE_SIZE,
+      page_size: Math.max(1, props.limit),
     })
     if (!response.success || !response.data) {
       throw new Error(response.message || '课程加载失败')
@@ -155,6 +165,15 @@ defineExpose({ reload: loadCourses })
 <style scoped>
 .course-discover { display: flex; flex-direction: column; gap: 16px; }
 .course-discover--loading { min-height: 120px; align-items: center; justify-content: center; }
+.course-discover--empty {
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+.course-discover--empty .t-icon { font-size: 20px; }
 
 .course-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
 

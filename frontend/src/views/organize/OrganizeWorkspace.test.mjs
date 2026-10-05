@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const source = readFileSync(new URL('./OrganizeWorkspace.vue', import.meta.url), 'utf8')
+const courseSource = readFileSync(new URL('./OrganizeCourseDiscover.vue', import.meta.url), 'utf8')
 const apiSource = readFileSync(new URL('../../api/organize/index.ts', import.meta.url), 'utf8')
 const categorySource = readFileSync(new URL('./discoverCategories.ts', import.meta.url), 'utf8')
 
@@ -44,4 +45,13 @@ test('discover uses the fixed first-version kindergarten columns', () => {
   assert.ok(source.includes('categoryLabel: discoverCategoryLabel'))
   assert.ok(source.includes("discover_category: normalizeDiscoverCategory(item.categoryLabel)"))
   assert.ok(!source.includes('tag:'))
+})
+
+test('discover fills an empty featured area with published courses', () => {
+  assert.ok(source.includes('showFeaturedCourseFallback'))
+  assert.ok(source.includes('featuredCourseDiscoverRef'))
+  assert.ok(source.includes('variant="featured"'))
+  assert.ok(source.includes(':limit="FEATURED_OUTPUT_SIZE"'))
+  assert.ok(courseSource.includes('暂无可推荐内容或课程'))
+  assert.ok(!source.includes('暂无精选'))
 })

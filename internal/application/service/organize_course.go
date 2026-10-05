@@ -720,31 +720,27 @@ func (s *organizeService) GetPublishedCourseLessonContent(
 	return lesson.Output.Content, nil
 }
 
-// OpenPublishedCourseLessonMedia returns a reader only after verifying that
-// the course is published and the lesson belongs to it. The storage path never
-// leaves this method, so cross-tenant viewers receive the bytes without
-// learning an internal locator.
-func (s *organizeService) OpenPublishedCourseLessonMedia(
+func (s *organizeService) publishedCourseLessonMediaTarget(
 	ctx context.Context,
 	courseID, lessonID string,
-) (io.ReadCloser, string, string, error) {
+) (*types.OrganizeCourse, *types.OrganizeCourseLesson, string, error) {
 	course, err := s.repo.GetCourse(ctx, strings.TrimSpace(courseID))
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", err
 	}
 	if course == nil || course.PublicStatus != types.OrganizePublicContentStatusPublished {
-		return nil, "", "", ErrOrganizeNotFound
+		return nil, nil, "", ErrOrganizeNotFound
 	}
 	visible, err := s.courseVisibleToViewer(ctx, course)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", err
 	}
 	if !visible {
-		return nil, "", "", ErrOrganizeNotFound
+		return nil, nil, "", ErrOrganizeNotFound
 	}
 	lessons, err := s.repo.ListCourseLessonsWithOutputs(ctx, course.ID)
 	if err != nil {
-		return nil, "", "", err
+		return nil, nil, "", err
 	}
 	var target *types.OrganizeCourseLesson
 	for _, lesson := range lessons {
@@ -754,17 +750,36 @@ func (s *organizeService) OpenPublishedCourseLessonMedia(
 		}
 	}
 	if target == nil || target.Output == nil || target.Output.Status == types.OrganizeOutputStatusArchived {
-		return nil, "", "", ErrOrganizeCourseLessonNotReady
+		return nil, nil, "", ErrOrganizeCourseLessonNotReady
 	}
 	filePath := organizeStoredFilePath(target.Output.Metadata, "file_path", "storage_path")
 	if filePath == "" {
-		return nil, "", "", ErrOrganizeCourseLessonNotReady
+		return nil, nil, "", ErrOrganizeCourseLessonNotReady
 	}
-	fileService, err := s.resolveOrganizeFileService(ctx, course.TenantID, filePath)
+	return course, target, filePath, nil
+}
+
+// OpenPublishedCourseLessonMedia returns a reader only after verifying that
+// the course is published and the lesson belongs to it. The storage path never
+// leaves this method, so cross-tenant viewers receive the bytes without
+// learning an internal locator.
+func (s *organizeService) OpenPublishedCourseLessonMedia(
+	ctx context.Context,
+	courseID, lessonID string,
+) (io.ReadCloser, string, string, error) {
+	course, target, filePath, err := s.publishedCourseLessonMediaTarget(ctx, courseID, lessonID)
 	if err != nil {
 		return nil, "", "", err
 	}
-	reader, err := fileService.GetFile(ctx, filePath)
+	// The course owns the stored object. A public/shared-space viewer may carry
+	// a different effective tenant, but that tenant must not be used to resolve
+	// or read the course's storage backend.
+	ownerCtx := context.WithValue(ctx, types.TenantIDContextKey, course.TenantID)
+	fileService, err := s.resolveOrganizeFileService(ownerCtx, course.TenantID, filePath)
+	if err != nil {
+		return nil, "", "", err
+	}
+	reader, err := fileService.GetFile(ownerCtx, filePath)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -775,6 +790,7 @@ func (s *organizeService) OpenPublishedCourseLessonMedia(
 	return reader, fileName, stringValue(target.Output.Metadata, "mime_type"), nil
 }
 
+<<<<<<< HEAD
 // OpenPublishedCourseCover serves a course cover through the course visibility
 // boundary. The storage locator stays server-side, so private OSS buckets do
 // not need public-read ACLs or client-facing credentials.
@@ -824,6 +840,34 @@ func (s *organizeService) OpenPublishedCourseCover(
 		fileName = "course-cover"
 	}
 	return reader, fileName, mimeType, nil
+=======
+// GetPublishedCourseLessonMediaURL returns a short-lived or presigned URL
+// after applying the same course visibility checks as the protected media
+// endpoint. Native media elements can use this URL to issue Range requests
+// without exposing the API bearer token to the browser media loader.
+func (s *organizeService) GetPublishedCourseLessonMediaURL(
+	ctx context.Context,
+	courseID, lessonID string,
+) (string, string, string, error) {
+	course, target, filePath, err := s.publishedCourseLessonMediaTarget(ctx, courseID, lessonID)
+	if err != nil {
+		return "", "", "", err
+	}
+	ownerCtx := context.WithValue(ctx, types.TenantIDContextKey, course.TenantID)
+	fileService, err := s.resolveOrganizeFileService(ownerCtx, course.TenantID, filePath)
+	if err != nil {
+		return "", "", "", err
+	}
+	mediaURL, err := fileService.GetFileURL(ownerCtx, filePath)
+	if err != nil {
+		return "", "", "", err
+	}
+	fileName := stringValue(target.Output.Metadata, "file_name")
+	if fileName == "" {
+		fileName = target.Title
+	}
+	return mediaURL, fileName, stringValue(target.Output.Metadata, "mime_type"), nil
+>>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 }
 
 // ListPublishedCourses backs the course cards embedded in 推荐: the same

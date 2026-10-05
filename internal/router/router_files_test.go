@@ -236,6 +236,54 @@ func TestResourceGrantServesShortPublicURL(t *testing.T) {
 	}
 }
 
+func TestResourceGrantServesByteRangeForMedia(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	physical := "oss://42/exports/course.mp4"
+	engine := gin.New()
+	serveResourceGrants(
+		engine,
+		&stubResourceCatalog{resource: &types.StoredResource{
+			ID:           "resource-video",
+			TenantID:     42,
+			PhysicalPath: physical,
+			OriginalName: "course.mp4",
+			MimeType:     "video/mp4",
+			Size:         int64(len("hello world")),
+		}},
+		&stubTenantService{get: func(_ context.Context, id uint64) (*types.Tenant, error) {
+			return &types.Tenant{ID: id}, nil
+		}},
+		&stubFileService{getFile: func(_ context.Context, path string) (io.ReadCloser, error) {
+			if path != physical {
+				t.Fatalf("path = %q, want %q", path, physical)
+			}
+			return io.NopCloser(strings.NewReader("hello world")), nil
+		}},
+		nil,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/r/GrantVideoToken", nil)
+	req.Header.Set("Range", "bytes=6-10")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusPartialContent; got != want {
+		t.Fatalf("status = %d, want %d body=%q", got, want, recorder.Body.String())
+	}
+	if got, want := recorder.Body.String(), "world"; got != want {
+		t.Fatalf("body = %q, want %q", got, want)
+	}
+	if got, want := recorder.Header().Get("Accept-Ranges"), "bytes"; got != want {
+		t.Fatalf("Accept-Ranges = %q, want %q", got, want)
+	}
+	if got, want := recorder.Header().Get("Content-Range"), "bytes 6-10/11"; got != want {
+		t.Fatalf("Content-Range = %q, want %q", got, want)
+	}
+	if got, want := recorder.Header().Get("Content-Length"), "5"; got != want {
+		t.Fatalf("Content-Length = %q, want %q", got, want)
+	}
+}
+
 func TestServeFilesDoesNotFallbackWhenProviderDoesNotMatchGlobalStorage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("STORAGE_TYPE", "minio")

@@ -131,7 +131,14 @@ instance.interceptors.response.use(
   },
   async (error: any) => {
     const originalRequest = error.config;
-    
+
+    // Aborted page requests are expected during route changes/unmounts. Keep
+    // Axios' cancellation error intact so callers can ignore it without
+    // showing a misleading network-error toast.
+    if (axios.isCancel(error) || error?.code === 'ERR_CANCELED') {
+      return Promise.reject(error);
+    }
+
     if (!error.response) {
       return Promise.reject({ message: t('error.networkError') });
     }
@@ -260,8 +267,9 @@ export function get<T = any>(url: string, config?: any): Promise<T> {
   return instance.get<T>(url, config) as unknown as Promise<T>;
 }
 
-export async function getDown(url: string): Promise<Blob> {
+export async function getDown(url: string, config: any = {}): Promise<Blob> {
   const res = await instance.get<Blob>(url, {
+    ...config,
     responseType: "blob",
   }) as unknown as Blob;
   return res

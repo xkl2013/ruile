@@ -49,9 +49,49 @@ python3 -m http.server 5180 --bind 127.0.0.1
 # 2. 构建生产镜像（内部会先执行步骤 1）
 make docker-build-website              # 产物镜像 ruile-website:latest
 
-# 3. 运行验证
-docker run --rm -p 5181:80 ruile-website:latest
+# 3. 运行验证（宿主机端口用 8088，避免与 frontend:80 / app:8080 / mcp:8082 冲突）
+docker run --rm -p 8088:80 ruile-website:latest
 ```
+
+**端口约定**：容器内 nginx 固定监听 `80`，只调宿主机映射端口。默认用 **8088**；仓库 `docker-compose.yml` 的 `website` 服务已按 `WEBSITE_PORT`（默认 8088）暴露，`.env` 里改 `WEBSITE_PORT` 即为准。
+
+发布到 ACR + 服务器首次部署：
+
+```bash
+# 本机：构建并推镜像（必须先推，服务器才有可拉取的 tag）
+./scripts/deploy/deploy_website_acr.sh --tag v0.7.0
+
+# 服务器：拉取并运行
+docker pull registry.cn-beijing.aliyuncs.com/rl-knowledge/ruile-website:v0.7.0
+docker run -d --name ruile-website --restart always -p 8088:80 \
+  registry.cn-beijing.aliyuncs.com/rl-knowledge/ruile-website:v0.7.0
+```
+
+## 服务器端 Compose 编排
+
+官网是纯静态站、零后端依赖，因此**单独成文件**编排，而不是混进 WeKnora 主栈：
+
+```bash
+# 服务器部署目录（如 weknora-image-deploy/）下
+docker compose -f docker-compose.website.yml pull
+docker compose -f docker-compose.website.yml up -d
+docker compose -f docker-compose.website.yml ps
+```
+
+| 编排文件 | 适用场景 |
+|------|------|
+| `deploy/docker-compose.website.yml` | **服务器独立部署（推荐）**。发布包升级时主 compose 会被覆盖，本文件与官网容器不受影响；官网不需要接入 `WeKnora-network` |
+| 仓库 `docker-compose.yml` 的 `website` 服务 | 本地/自建全栈场景，跟随 `WEBSITE_PORT`（默认 8088）|
+
+若确实想与主栈一条命令起，用四文件叠加（已在发布包目录验证解析通过）：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.override.yml \
+               -f docker-compose.aliyun-amd64.yml \
+               -f docker-compose.website.yml up -d --no-build
+```
+
+前置条件：服务器需先 `docker login registry.cn-beijing.aliyuncs.com`（ACR 仓库为私有，凭据见仓库根 `.acr.env`）。
 
 组成文件（对齐 `admin/`）：
 

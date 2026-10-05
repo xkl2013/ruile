@@ -92,17 +92,20 @@ test('organize config detail header only shows the organize name and action', ()
   assert.ok(!configDetailSource.includes('scheduleLabel'))
 })
 
-test('organize config validation points missing template errors at the template selector', () => {
+test('organize config dialog keeps template selection outside the instruction field', () => {
   const dialogSource = readFileSync(
     new URL('./components/OrganizeConfigDialog.vue', import.meta.url),
     'utf8',
   )
   assert.ok(dialogSource.includes('<section v-if="config" class="organize-config-option">'))
-  assert.ok(dialogSource.includes('const templateError = ref(\'\')'))
-  assert.ok(dialogSource.includes(':class="{ \'is-error\': templateError }"'))
-  assert.ok(dialogSource.includes('templateError.value = \'请选择整理模板\''))
-  assert.ok(dialogSource.includes('organize-config-template-select.is-error'))
-  assert.ok(!dialogSource.includes(':status="error ? \'error\' : undefined"'))
+  assert.ok(dialogSource.includes("const defaultTemplate = templates.value.find((template) => template.key === 'sprout_review')"))
+  assert.ok(dialogSource.includes('class="organize-config-template-context"'))
+  assert.ok(dialogSource.includes('template_key: form.templateKey'))
+  assert.ok(!dialogSource.includes('organize-config-template-select'))
+  assert.ok(!dialogSource.includes('handleTemplateChange'))
+  assert.ok(!dialogSource.includes('applyTemplate'))
+  assert.ok(!dialogSource.includes('<option value="">选择模板</option>'))
+  assert.ok(dialogSource.includes('templateError.value = \'暂无可用整理方案，请稍后重试\''))
 })
 
 test('saved organize configs and jobs are served by organize APIs', () => {
