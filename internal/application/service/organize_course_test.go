@@ -393,7 +393,7 @@ func TestCreateCourseFromFolderStoresCoverImage(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.Course)
-	require.Equal(t, "https://cdn.example.test/course-cover.png", result.Course.CoverURL)
+	require.True(t, strings.HasPrefix(result.Course.CoverURL, "local://organize_course_cover_"))
 	require.Equal(t, 2, fileService.saveCalls)
 	require.Equal(t, []bool{false, false}, fileService.saveTemps)
 }

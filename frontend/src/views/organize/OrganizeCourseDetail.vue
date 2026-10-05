@@ -13,7 +13,12 @@
 
       <article class="organize-course-hero">
         <div class="course-hero-cover" :style="coverStyle">
-          <img v-if="course.cover_url" :src="course.cover_url" :alt="course.title" />
+          <img
+            v-if="hasCover"
+            :src="coverSource"
+            :alt="course.title"
+            @error="handleCoverError"
+          />
           <template v-else>
             <t-icon name="book-open" />
             <span class="course-hero-cover__kind">系列课程</span>
@@ -85,10 +90,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
-import { getOrganizeCourse, type OrganizeCourse, type OrganizeCourseLesson } from '@/api/organize'
+import {
+  getOrganizeCourse,
+  getOrganizeCourseCover,
+  type OrganizeCourse,
+  type OrganizeCourseLesson,
+} from '@/api/organize'
 import { DISCOVER_CATEGORIES, discoverCategoryLabel } from './discoverCategories'
 import { ORGANIZE_ROUTE_NAMES } from './organizeRoutes'
 
@@ -97,6 +107,9 @@ const router = useRouter()
 
 const course = ref<OrganizeCourse | null>(null)
 const loading = ref(true)
+const coverLoadFailed = ref(false)
+const coverSource = ref('')
+let coverObjectUrl = ''
 
 const lessons = computed<OrganizeCourseLesson[]>(() => course.value?.lessons || [])
 
@@ -105,6 +118,7 @@ const lessons = computed<OrganizeCourseLesson[]>(() => course.value?.lessons || 
 const firstOpenLesson = computed<OrganizeCourseLesson | null>(
   () => lessons.value.find((lesson) => lesson.available) || null,
 )
+const hasCover = computed(() => Boolean(coverSource.value && !coverLoadFailed.value))
 
 function sourceLabel(source?: string) {
   return source === 'creator' ? '创作者课程' : '官方精品课'
@@ -133,12 +147,37 @@ function formatDate(value?: string) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-// Same treatment as the discover grid: platform courses ship a cover, the rest
-// get the brand wash so a course page and its card look like one surface.
 const coverStyle = computed(() => {
-  if (course.value?.cover_url) return { backgroundImage: `url(${course.value.cover_url})` }
-  return { background: 'linear-gradient(135deg, var(--td-brand-color-light) 0%, var(--td-bg-color-secondarycontainer) 100%)' }
+  if (hasCover.value) return {}
+  return { background: 'var(--td-brand-color-light)' }
 })
+
+function handleCoverError() {
+  coverLoadFailed.value = true
+}
+
+function clearCoverObjectUrl() {
+  if (!coverObjectUrl) return
+  URL.revokeObjectURL(coverObjectUrl)
+  coverObjectUrl = ''
+}
+
+async function loadCoverSource(url?: string) {
+  clearCoverObjectUrl()
+  coverSource.value = ''
+  if (!url) return
+  if (!url.startsWith('/api/')) {
+    coverSource.value = url
+    return
+  }
+  try {
+    const blob = await getOrganizeCourseCover(url)
+    coverObjectUrl = URL.createObjectURL(blob)
+    coverSource.value = coverObjectUrl
+  } catch {
+    coverLoadFailed.value = true
+  }
+}
 
 async function loadCourse() {
   loading.value = true
@@ -148,6 +187,8 @@ async function loadCourse() {
       throw new Error(response.message || '课程详情加载失败')
     }
     course.value = response.data
+    coverLoadFailed.value = false
+    void loadCoverSource(response.data.cover_url)
   } catch (error: any) {
     course.value = null
     MessagePlugin.error(error?.message || '课程详情加载失败')
@@ -181,6 +222,8 @@ watch(
   () => route.params.courseId,
   () => void loadCourse(),
 )
+
+onBeforeUnmount(clearCoverObjectUrl)
 </script>
 
 <style scoped lang="less">

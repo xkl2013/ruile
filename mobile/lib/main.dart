@@ -681,47 +681,63 @@ class _RuileApiClient {
   Future<List<_OrganizeMemory>> fetchOrganizeMemories({
     String keyword = '',
   }) async {
-    const pageSize = 100;
-
     final memories = <_OrganizeMemory>[];
-    int? total;
     var page = 1;
 
-    while (total == null || memories.length < total) {
-      final queryParameters = <String, String>{
-        'page': '$page',
-        'page_size': '$pageSize',
-      };
-      final normalizedKeyword = keyword.trim();
-      if (normalizedKeyword.isNotEmpty) {
-        queryParameters['q'] = normalizedKeyword;
-      }
-      final query = Uri(queryParameters: queryParameters).query;
-      final payload = await _getJson('/api/v1/organize/memories?$query');
-      final items = _extractList(payload);
-      final pageMemories = [
-        for (final item in items)
-          if (item is Map<String, dynamic>)
-            _OrganizeMemory.fromApi(item)
-          else if (item is Map)
-            _OrganizeMemory.fromApi(
-              item.map((key, value) => MapEntry(key.toString(), value)),
-            ),
-      ];
-
-      memories.addAll(pageMemories);
-      final data = _unwrapData(payload);
-      if (data is Map<String, dynamic>) {
-        total ??= _readInt(data, const ['total']);
-      }
-
-      if (pageMemories.isEmpty || pageMemories.length < pageSize) {
+    while (true) {
+      final result = await fetchOrganizeMemoriesPage(
+        keyword: keyword,
+        page: page,
+      );
+      memories.addAll(result.items);
+      if (!_hasMoreOrganizeMemoryPages(result)) {
         break;
       }
-      page += 1;
+      page = result.page + 1;
     }
 
     return memories;
+  }
+
+  Future<_OrganizeMemoryPageResult> fetchOrganizeMemoriesPage({
+    String keyword = '',
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final safePage = page < 1 ? 1 : page;
+    final safePageSize = pageSize < 1 ? 1 : pageSize;
+    final queryParameters = <String, String>{
+      'page': '$safePage',
+      'page_size': '$safePageSize',
+    };
+    final normalizedKeyword = keyword.trim();
+    if (normalizedKeyword.isNotEmpty) {
+      queryParameters['q'] = normalizedKeyword;
+    }
+    final query = Uri(queryParameters: queryParameters).query;
+    final payload = await _getJson('/api/v1/organize/memories?$query');
+    final pageMemories = [
+      for (final item in _extractList(payload))
+        if (item is Map<String, dynamic>)
+          _OrganizeMemory.fromApi(item)
+        else if (item is Map)
+          _OrganizeMemory.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+          ),
+    ];
+    final data = _unwrapData(payload);
+    final dataMap = data is Map<String, dynamic>
+        ? data
+        : data is Map
+            ? data.map((key, value) => MapEntry(key.toString(), value))
+            : const <String, dynamic>{};
+
+    return _OrganizeMemoryPageResult(
+      items: pageMemories,
+      total: _readInt(dataMap, const ['total']),
+      page: _readInt(dataMap, const ['page']) ?? safePage,
+      pageSize: _readInt(dataMap, const ['page_size']) ?? safePageSize,
+    );
   }
 
   Future<List<_OrganizeJob>> fetchOrganizeJobs({
@@ -4778,18 +4794,18 @@ class NotesPage extends StatefulWidget {
 class _NotesPageState extends State<NotesPage> {
   static const _edgeSwipeWidth = 42.0;
   static const _edgeSwipeThreshold = 74.0;
+  static const _memoryPageSize = 20;
 
   late final _RuileApiClient _apiClient;
   late final VoidCallback _recordingCardSyncListener;
   late final VoidCallback _recordingCardQueueListener;
+  final ScrollController _notesScrollController = ScrollController();
   final RecordingCardLocalStore _recordingCardStore =
       const RecordingCardLocalStore();
   final List<Timer> _recordingCardMemoryRefreshTimers = <Timer>[];
   Future<void>? _recordingCardAutoConnectFuture;
   var _sortNewestFirst = true;
-  var _memorySearchQuery = '';
   var _memoryStatusFilter = _MemoryStatusFilter.all;
-  final TextEditingController _memorySearchController = TextEditingController();
   List<_KnowledgeBase> _knowledgeBases = const [];
   _RecordingCardPendingSummary _recordingCardPendingSummary =
       _RecordingCardPendingSummary.empty;
@@ -4799,8 +4815,13 @@ class _NotesPageState extends State<NotesPage> {
   List<_NoteItem> _notes = [];
   List<_OrganizeJob> _organizeJobs = const [];
   bool _loadingNotes = false;
+  bool _loadingMoreNotes = false;
+  int _notesPage = 0;
+  int? _notesTotal;
+  bool _hasMoreNotes = true;
   bool _notesReloadQueued = false;
   String? _notesError;
+  String? _notesMoreError;
   final Set<String> _serviceExtractingMemoryIds = <String>{};
   Offset? _edgeSwipeStart;
   bool _edgeSwipeFromLeft = false;
@@ -4819,6 +4840,7 @@ class _NotesPageState extends State<NotesPage> {
     _recordingCardQueueListener = () {
       unawaited(_loadRecordingCardPendingSummary());
     };
+    _notesScrollController.addListener(_handleNotesScroll);
     RecordingCardAppSyncBus.notifier.addListener(_recordingCardSyncListener);
     RecordingCardFileQueueBus.notifier.addListener(_recordingCardQueueListener);
     _loadRemoteKnowledgeBases();
@@ -4830,12 +4852,27 @@ class _NotesPageState extends State<NotesPage> {
 
   @override
   void dispose() {
-    _memorySearchController.dispose();
     _cancelRecordingCardMemoryRefreshTimers();
     RecordingCardAppSyncBus.notifier.removeListener(_recordingCardSyncListener);
     RecordingCardFileQueueBus.notifier
         .removeListener(_recordingCardQueueListener);
+    _notesScrollController
+      ..removeListener(_handleNotesScroll)
+      ..dispose();
     super.dispose();
+  }
+
+  void _handleNotesScroll() {
+    if (!_notesScrollController.hasClients) return;
+    if (_notesScrollController.position.extentAfter > 480) return;
+    unawaited(_loadMoreRemoteMemories());
+  }
+
+  void _scheduleNotesLoadMoreCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _handleNotesScroll();
+    });
   }
 
   void _handleRecordingCardAppSyncChanged() {
@@ -4914,7 +4951,7 @@ class _NotesPageState extends State<NotesPage> {
       _pendingRemoteMemoryId = requestedMemoryId;
     }
 
-    if (_loadingNotes) {
+    if (_loadingNotes || _loadingMoreNotes) {
       _notesReloadQueued = true;
       return;
     }
@@ -4923,6 +4960,7 @@ class _NotesPageState extends State<NotesPage> {
       setState(() {
         _loadingNotes = true;
         _notesError = null;
+        _notesMoreError = null;
       });
     } else {
       _loadingNotes = true;
@@ -4930,9 +4968,12 @@ class _NotesPageState extends State<NotesPage> {
 
     var shouldReload = false;
     try {
-      final memories = await _apiClient.fetchOrganizeMemories();
+      final pageResult = await _apiClient.fetchOrganizeMemoriesPage(
+        page: 1,
+        pageSize: _memoryPageSize,
+      );
       if (!mounted) return;
-      final sortedMemories = List<_OrganizeMemory>.of(memories)
+      final sortedMemories = List<_OrganizeMemory>.of(pageResult.items)
         ..sort((a, b) {
           final occurredCompare = b.occurredAt.compareTo(a.occurredAt);
           if (occurredCompare != 0) return occurredCompare;
@@ -4963,12 +5004,17 @@ class _NotesPageState extends State<NotesPage> {
       }
       setState(() {
         _notes = notes;
+        _notesPage = pageResult.page;
+        _notesTotal = pageResult.total;
+        _hasMoreNotes = _hasMoreOrganizeMemoryPages(pageResult);
         _notesError = null;
+        _notesMoreError = null;
       });
       if (requestedMemoryVisible &&
           _pendingRemoteMemoryId == requestedMemoryId) {
         _pendingRemoteMemoryId = '';
       }
+      _scheduleNotesLoadMoreCheck();
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
         widget.onAuthFailure();
@@ -4997,6 +5043,83 @@ class _NotesPageState extends State<NotesPage> {
         });
       } else {
         _loadingNotes = false;
+      }
+      shouldReload = _notesReloadQueued;
+      _notesReloadQueued = false;
+      if (mounted && shouldReload) {
+        unawaited(_loadRemoteMemories(memoryId: _pendingRemoteMemoryId));
+      }
+    }
+  }
+
+  Future<void> _loadMoreRemoteMemories() async {
+    if (!_apiClient.isConfigured ||
+        _loadingNotes ||
+        _loadingMoreNotes ||
+        !_hasMoreNotes ||
+        _notesPage < 1) {
+      return;
+    }
+
+    final nextPage = _notesPage + 1;
+    if (mounted) {
+      setState(() {
+        _loadingMoreNotes = true;
+        _notesMoreError = null;
+      });
+    } else {
+      _loadingMoreNotes = true;
+    }
+
+    var shouldReload = false;
+    try {
+      final pageResult = await _apiClient.fetchOrganizeMemoriesPage(
+        page: nextPage,
+        pageSize: _memoryPageSize,
+      );
+      if (!mounted) return;
+
+      final existingIds = _notes.map((note) => note.id).toSet();
+      final nextNotes = [
+        for (final memory in pageResult.items)
+          if (existingIds.add(memory.id)) memory.toNoteItem(),
+      ];
+      setState(() {
+        _notes = [..._notes, ...nextNotes];
+        _notesPage = pageResult.page;
+        _notesTotal = pageResult.total ?? _notesTotal;
+        _hasMoreNotes = _hasMoreOrganizeMemoryPages(pageResult);
+        _notesMoreError = null;
+      });
+      _scheduleNotesLoadMoreCheck();
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _notesMoreError = '更多记忆加载失败：${error.message}';
+        });
+      } else {
+        _notesMoreError = '更多记忆加载失败：${error.message}';
+      }
+    } catch (error) {
+      final message = '更多记忆加载失败：$error';
+      if (mounted) {
+        setState(() {
+          _notesMoreError = message;
+        });
+      } else {
+        _notesMoreError = message;
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loadingMoreNotes = false;
+        });
+      } else {
+        _loadingMoreNotes = false;
       }
       shouldReload = _notesReloadQueued;
       _notesReloadQueued = false;
@@ -5229,17 +5352,6 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   bool _matchesMemoryFilter(_NoteItem note) {
-    final query = _memorySearchQuery.trim().toLowerCase();
-    if (query.isNotEmpty) {
-      final searchable = [
-        note.title,
-        note.excerpt,
-        note.content,
-        note.source,
-      ].join(' ').toLowerCase();
-      if (!searchable.contains(query)) return false;
-    }
-
     if (_memoryStatusFilter == _MemoryStatusFilter.all) return true;
     return _memoryStatusFor(note.id) == _memoryStatusFilter;
   }
@@ -5694,6 +5806,7 @@ class _NotesPageState extends State<NotesPage> {
             RefreshIndicator(
               onRefresh: _refreshRemoteContent,
               child: ListView(
+                controller: _notesScrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(18, 58, 18, 128),
                 children: [
@@ -5725,79 +5838,15 @@ class _NotesPageState extends State<NotesPage> {
                     ),
                   ],
                   const SizedBox(height: 26),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _memorySearchController,
-                          onChanged: (value) {
-                            setState(() {
-                              _memorySearchQuery = value;
-                            });
-                          },
-                          textInputAction: TextInputAction.search,
-                          decoration: InputDecoration(
-                            hintText: '搜索记忆',
-                            prefixIcon: const Icon(Icons.search, size: 20),
-                            suffixIcon: _memorySearchQuery.trim().isEmpty
-                                ? null
-                                : IconButton(
-                                    tooltip: '清除搜索',
-                                    onPressed: () {
-                                      _memorySearchController.clear();
-                                      setState(() {
-                                        _memorySearchQuery = '';
-                                      });
-                                    },
-                                    icon: const Icon(Icons.close, size: 18),
-                                  ),
-                            filled: true,
-                            fillColor: AppColors.surface,
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 11,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  const BorderSide(color: AppColors.border),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  const BorderSide(color: AppColors.border),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(
-                                color: AppColors.accent,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Tooltip(
-                        message: '筛选',
-                        child: IconButton(
-                          onPressed: _showMemoryFilters,
-                          style: IconButton.styleFrom(
-                            backgroundColor: _memoryFilterLabel().isEmpty
-                                ? AppColors.surface
-                                : const Color(0xFFE9F8F3),
-                            foregroundColor: _memoryFilterLabel().isEmpty
-                                ? AppColors.textPrimary
-                                : AppColors.accent,
-                            side: const BorderSide(color: AppColors.border),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          icon: const Icon(Icons.tune),
-                        ),
-                      ),
-                    ],
+                  _NotesToolbar(
+                    newestFirst: _sortNewestFirst,
+                    filterActive: _memoryFilterLabel().isNotEmpty,
+                    onFilterTap: _showMemoryFilters,
+                    onTitleTap: () {
+                      setState(() {
+                        _sortNewestFirst = !_sortNewestFirst;
+                      });
+                    },
                   ),
                   if (_memoryFilterLabel().isNotEmpty) ...[
                     const SizedBox(height: 8),
@@ -5806,15 +5855,6 @@ class _NotesPageState extends State<NotesPage> {
                       style: AppTextStyles.meta,
                     ),
                   ],
-                  const SizedBox(height: 18),
-                  _NotesToolbar(
-                    newestFirst: _sortNewestFirst,
-                    onTitleTap: () {
-                      setState(() {
-                        _sortNewestFirst = !_sortNewestFirst;
-                      });
-                    },
-                  ),
                   const SizedBox(height: 18),
                   if (_notesError != null) ...[
                     _NotesLoadError(
@@ -5831,15 +5871,22 @@ class _NotesPageState extends State<NotesPage> {
                     for (var index = 0; index < notes.length; index++) ...[
                       _NoteCard(
                         note: notes[index],
-                        serviceExtracting: _isExtractingService(notes[index]),
                         onTap: () => unawaited(_openNote(notes[index])),
-                        onExtractServiceTap: () =>
-                            unawaited(_extractServiceFromNote(notes[index])),
                         onMoreTap: () => _showNoteActions(notes[index]),
                       ),
                       if (index != notes.length - 1)
                         const SizedBox(height: AppSpacing.itemGap),
                     ],
+                  if (_loadingMoreNotes) ...[
+                    const SizedBox(height: AppSpacing.itemGap),
+                    const _NotesLoading(),
+                  ] else if (_notesMoreError != null) ...[
+                    const SizedBox(height: AppSpacing.itemGap),
+                    _NotesLoadMoreError(
+                      message: _notesMoreError!,
+                      onRetry: () => unawaited(_loadMoreRemoteMemories()),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -11238,16 +11285,20 @@ String _resolvePreviewImageUrl(String rawUrl) {
 class _NotesToolbar extends StatelessWidget {
   const _NotesToolbar({
     required this.newestFirst,
+    required this.filterActive,
+    required this.onFilterTap,
     required this.onTitleTap,
   });
 
   final bool newestFirst;
+  final bool filterActive;
+  final VoidCallback onFilterTap;
   final VoidCallback onTitleTap;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: GestureDetector(
@@ -11287,6 +11338,23 @@ class _NotesToolbar extends StatelessWidget {
             ),
           ),
         ),
+        Tooltip(
+          message: '筛选',
+          child: IconButton(
+            onPressed: onFilterTap,
+            style: IconButton.styleFrom(
+              backgroundColor:
+                  filterActive ? const Color(0xFFE9F8F3) : AppColors.surface,
+              foregroundColor:
+                  filterActive ? AppColors.accent : AppColors.textPrimary,
+              side: const BorderSide(color: AppColors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            icon: const Icon(Icons.tune),
+          ),
+        ),
       ],
     );
   }
@@ -11296,16 +11364,12 @@ class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
     required this.onTap,
-    required this.onExtractServiceTap,
     required this.onMoreTap,
-    this.serviceExtracting = false,
   });
 
   final _NoteItem note;
   final VoidCallback onTap;
-  final VoidCallback onExtractServiceTap;
   final VoidCallback onMoreTap;
-  final bool serviceExtracting;
 
   @override
   Widget build(BuildContext context) {
@@ -11364,11 +11428,6 @@ class _NoteCard extends StatelessWidget {
                       const SizedBox(width: 8),
                       _TranscriptionStatusChip(note: note),
                     ],
-                    const SizedBox(width: 8),
-                    _NoteServiceActionButton(
-                      extracting: serviceExtracting,
-                      onTap: onExtractServiceTap,
-                    ),
                     const SizedBox(width: 4),
                     IconButton(
                       tooltip: '更多',
@@ -11385,71 +11444,6 @@ class _NoteCard extends StatelessWidget {
                   ],
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NoteServiceActionButton extends StatelessWidget {
-  const _NoteServiceActionButton({
-    required this.extracting,
-    required this.onTap,
-  });
-
-  final bool extracting;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = extracting ? AppColors.textTertiary : AppColors.accent;
-    return Tooltip(
-      message: extracting ? '服务提取中' : '提取服务',
-      child: Material(
-        color: extracting
-            ? const Color(0xFFF4F6F9)
-            : AppColors.accent.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: extracting ? null : onTap,
-          child: SizedBox(
-            width: 82,
-            height: 34,
-            child: Center(
-              child: extracting
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(color),
-                      ),
-                    )
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.support_agent_outlined,
-                          size: 15,
-                          color: color,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '提取服务',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1,
-                            color: color,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
             ),
           ),
         ),
@@ -11555,12 +11549,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   bool _organizeCreating = false;
   String? _organizeError;
   int _organizeRequestSeq = 0;
-  List<_ServiceReminder> _serviceReminders = const [];
-  bool _serviceLoading = false;
-  bool _serviceLoaded = false;
-  bool _serviceExtracting = false;
-  String? _serviceError;
-  int _serviceRequestSeq = 0;
 
   @override
   void initState() {
@@ -11569,7 +11557,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     _selectedTabIndex = _defaultTabIndexFor(_note);
     _apiClient = _buildApiClient();
     _restartTranscriptionPollingIfNeeded(immediate: true);
-    unawaited(_loadLinkedServiceReminders());
     unawaited(_loadLinkedOrganizeJob());
   }
 
@@ -11579,8 +11566,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     if (oldWidget.authToken != widget.authToken ||
         oldWidget.tenantId != widget.tenantId) {
       _apiClient = _buildApiClient();
-      _resetServiceState();
-      unawaited(_loadLinkedServiceReminders());
       unawaited(_loadLinkedOrganizeJob());
     }
     if (oldWidget.note.id != widget.note.id) {
@@ -11588,9 +11573,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       _selectedTabIndex = _defaultTabIndexFor(_note);
       _organizeJob = null;
       _organizeError = null;
-      _resetServiceState();
       _restartTranscriptionPollingIfNeeded(immediate: true);
-      unawaited(_loadLinkedServiceReminders());
       unawaited(_loadLinkedOrganizeJob());
     }
   }
@@ -11612,22 +11595,20 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
 
   List<String> get _detailTabs {
     return _note.hasAudioLink
-        ? const ['录音原文', '笔记内容', '服务', '整理']
-        : const ['笔记内容', '服务', '整理'];
+        ? const ['录音原文', '笔记内容', '整理']
+        : const ['笔记内容', '整理'];
   }
 
   int get _contentTabIndex => _note.hasAudioLink ? 1 : 0;
 
-  int get _serviceTabIndex => _note.hasAudioLink ? 2 : 1;
-
-  int get _organizeTabIndex => _note.hasAudioLink ? 3 : 2;
+  int get _organizeTabIndex => _note.hasAudioLink ? 2 : 1;
 
   int _defaultTabIndexFor(_NoteItem note) {
     return note.hasAudioLink ? 1 : 0;
   }
 
   int _normalizeSelectedTabIndex(int index, _NoteItem note) {
-    final length = note.hasAudioLink ? 4 : 3;
+    final length = note.hasAudioLink ? 3 : 2;
     if (index < 0 || index >= length) {
       return _defaultTabIndexFor(note);
     }
@@ -11736,225 +11717,8 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     _transcriptionPollStartedAt = DateTime.now();
     await Future.wait<void>([
       _refreshRemoteNote(ignoreTimeout: true),
-      _loadLinkedServiceReminders(silent: true),
       _loadLinkedOrganizeJob(silent: true),
     ]);
-  }
-
-  void _resetServiceState() {
-    _serviceReminders = const [];
-    _serviceLoading = false;
-    _serviceLoaded = false;
-    _serviceExtracting = false;
-    _serviceError = null;
-  }
-
-  List<_ServiceReminder> _mergeServiceReminder(
-    List<_ServiceReminder> reminders,
-    _ServiceReminder reminder,
-  ) {
-    if (reminder.id.trim().isEmpty) return reminders;
-    return [
-      reminder,
-      for (final item in reminders)
-        if (item.id != reminder.id) item,
-    ];
-  }
-
-  List<_ServiceReminder> _prioritizeLinkedServiceReminders(
-    List<_ServiceReminder> reminders,
-    String memoryID,
-  ) {
-    final normalizedMemoryID = memoryID.trim();
-    if (normalizedMemoryID.isEmpty || reminders.length <= 1) {
-      return reminders;
-    }
-    return List<_ServiceReminder>.of(reminders)
-      ..sort((a, b) {
-        final aLinked = a.sourceMemoryIds.contains(normalizedMemoryID);
-        final bLinked = b.sourceMemoryIds.contains(normalizedMemoryID);
-        if (aLinked == bLinked) return 0;
-        return aLinked ? -1 : 1;
-      });
-  }
-
-  String get _serviceButtonTooltip {
-    if (_serviceExtracting) return '服务提取中';
-    if (_serviceLoading && !_serviceLoaded) return '加载服务中';
-    if (_serviceReminders.isNotEmpty) return '查看服务';
-    return '提取服务';
-  }
-
-  Color get _serviceButtonIconColor {
-    if (_serviceReminders.isNotEmpty) return AppColors.accent;
-    return AppColors.textPrimary;
-  }
-
-  String get _serviceEmptyMessage {
-    if (_note.id.trim().isEmpty) return '请先保存记忆后再提取服务';
-    if (!_apiClient.isConfigured) return '登录后可查看服务卡片';
-    return '这条记忆还没有提取出可关联的服务提醒。';
-  }
-
-  Future<void> _loadLinkedServiceReminders({bool silent = false}) async {
-    final requestSeq = ++_serviceRequestSeq;
-    final memoryID = _note.id.trim();
-    if (memoryID.isEmpty) {
-      if (!silent && mounted) {
-        setState(() {
-          _serviceReminders = const [];
-          _serviceLoaded = true;
-          _serviceError = null;
-          _serviceLoading = false;
-        });
-      }
-      return;
-    }
-    if (!silent && mounted) {
-      setState(() {
-        _serviceLoading = true;
-        _serviceError = null;
-      });
-    }
-
-    if (!_apiClient.isConfigured) {
-      if (!mounted || requestSeq != _serviceRequestSeq) return;
-      setState(() {
-        _serviceReminders = const [];
-        _serviceLoaded = true;
-        _serviceError = null;
-        _serviceLoading = false;
-      });
-      return;
-    }
-
-    try {
-      final reminders = _prioritizeLinkedServiceReminders(
-        await _apiClient.fetchServiceReminders(memoryId: memoryID),
-        memoryID,
-      );
-      if (!mounted || requestSeq != _serviceRequestSeq) return;
-      setState(() {
-        if (reminders.isNotEmpty || !silent || _serviceReminders.isEmpty) {
-          _serviceReminders = reminders;
-        }
-        _serviceLoaded = true;
-        _serviceError = null;
-      });
-    } on _ApiException catch (error) {
-      if (error.isAuthFailure) {
-        widget.onAuthFailure();
-        return;
-      }
-      if (!silent && mounted && requestSeq == _serviceRequestSeq) {
-        if (_serviceReminders.isEmpty) {
-          setState(() {
-            _serviceLoaded = true;
-            _serviceError = error.message;
-          });
-        } else {
-          _showMessage('服务加载失败：${error.message}');
-        }
-      }
-    } catch (error) {
-      if (!silent && mounted && requestSeq == _serviceRequestSeq) {
-        if (_serviceReminders.isEmpty) {
-          setState(() {
-            _serviceLoaded = true;
-            _serviceError = error.toString();
-          });
-        } else {
-          _showMessage('服务加载失败：$error');
-        }
-      }
-    } finally {
-      if (!silent && mounted && requestSeq == _serviceRequestSeq) {
-        setState(() {
-          _serviceLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _handleServiceAction() async {
-    if (_serviceLoading || _serviceExtracting) return;
-    if (_serviceReminders.isNotEmpty) {
-      setState(() {
-        _selectedTabIndex = _serviceTabIndex;
-      });
-      return;
-    }
-    await _extractServiceFromMemory();
-  }
-
-  Future<void> _extractServiceFromMemory() async {
-    final memoryID = _note.id.trim();
-    if (memoryID.isEmpty) {
-      _showMessage('请先保存记忆');
-      return;
-    }
-    if (!_apiClient.isConfigured) {
-      _showMessage('登录后可提取服务');
-      return;
-    }
-
-    setState(() {
-      _serviceExtracting = true;
-      _serviceError = null;
-    });
-    try {
-      final result = await _apiClient.extractServiceMemory(memoryID);
-      if (!mounted) return;
-      if (!result.generated) {
-        _showMessage(_serviceExtractionReasonMessage(result.reason));
-        return;
-      }
-      if (result.reminder != null) {
-        setState(() {
-          _serviceReminders = _mergeServiceReminder(
-            _serviceReminders,
-            result.reminder!,
-          );
-          _serviceLoaded = true;
-        });
-      }
-      unawaited(_loadLinkedServiceReminders(silent: true));
-      setState(() {
-        _selectedTabIndex = _serviceTabIndex;
-      });
-      _showMessage('服务已提取');
-    } on _ApiException catch (error) {
-      if (error.isAuthFailure) {
-        widget.onAuthFailure();
-        return;
-      }
-      if (!mounted) return;
-      _showMessage('服务提取失败：${error.message}');
-    } catch (error) {
-      if (!mounted) return;
-      _showMessage('服务提取失败：$error');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _serviceExtracting = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _openServiceReminder(_ServiceReminder reminder) async {
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (context) => _ServiceReminderDetailPage(
-          reminder: reminder,
-          authToken: widget.authToken,
-          tenantId: widget.tenantId,
-          onAuthFailure: widget.onAuthFailure,
-        ),
-      ),
-    );
-    if (!mounted || changed != true) return;
-    unawaited(_loadLinkedServiceReminders(silent: true));
   }
 
   String get _organizeButtonTooltip {
@@ -12248,19 +12012,6 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   ),
                   const Spacer(),
                   _KnowledgeRoundButton(
-                    tooltip: _serviceButtonTooltip,
-                    icon: Icons.support_agent_outlined,
-                    backgroundColor: _buttonColor,
-                    size: 40,
-                    iconSize: 22,
-                    iconColor: _serviceButtonIconColor,
-                    loading: _serviceExtracting ||
-                        (_serviceLoading && !_serviceLoaded),
-                    enabled: !_serviceLoading && !_serviceExtracting,
-                    onTap: () => unawaited(_handleServiceAction()),
-                  ),
-                  const SizedBox(width: 14),
-                  _KnowledgeRoundButton(
                     tooltip: _organizeButtonTooltip,
                     icon: Icons.layers_outlined,
                     backgroundColor: _buttonColor,
@@ -12357,33 +12108,22 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               for (final block in _memoryContentBlocks(note))
-                                _SproutPreviewBlock(block: block),
+                                _SproutPreviewBlock(
+                                  block: block,
+                                  compact: true,
+                                ),
                             ],
                           )
-                        : selectedTabIndex == _serviceTabIndex
-                            ? _MemoryServicePanel(
-                                key: const ValueKey('memory-service'),
-                                reminders: _serviceReminders,
-                                loading: _serviceLoading,
-                                loaded: _serviceLoaded,
-                                error: _serviceError,
-                                emptyMessage: _serviceEmptyMessage,
-                                onRetry: () =>
-                                    unawaited(_loadLinkedServiceReminders()),
-                                onTapReminder: (reminder) =>
-                                    unawaited(_openServiceReminder(reminder)),
-                              )
-                            : _MemoryOrganizePanel(
-                                key: const ValueKey('memory-organize'),
-                                job: _organizeJob,
-                                loading: _organizeLoading,
-                                creating: _organizeCreating,
-                                error: _organizeError,
-                                onRetry: () =>
-                                    unawaited(_loadLinkedOrganizeJob()),
-                                onCreate: () => unawaited(_createOrganizeJob()),
-                                onOpen: () => unawaited(_openOrganizeResult()),
-                              ),
+                        : _MemoryOrganizePanel(
+                            key: const ValueKey('memory-organize'),
+                            job: _organizeJob,
+                            loading: _organizeLoading,
+                            creating: _organizeCreating,
+                            error: _organizeError,
+                            onRetry: () => unawaited(_loadLinkedOrganizeJob()),
+                            onCreate: () => unawaited(_createOrganizeJob()),
+                            onOpen: () => unawaited(_openOrganizeResult()),
+                          ),
               ),
             ],
           ),
@@ -12559,82 +12299,6 @@ class _MemoryDetailTabs extends StatelessWidget {
           ),
           if (index != labels.length - 1) const SizedBox(width: 30),
         ],
-      ],
-    );
-  }
-}
-
-class _MemoryServicePanel extends StatelessWidget {
-  const _MemoryServicePanel({
-    super.key,
-    required this.reminders,
-    required this.loading,
-    required this.loaded,
-    required this.error,
-    required this.emptyMessage,
-    required this.onRetry,
-    required this.onTapReminder,
-  });
-
-  final List<_ServiceReminder> reminders;
-  final bool loading;
-  final bool loaded;
-  final String? error;
-  final String emptyMessage;
-  final VoidCallback onRetry;
-  final ValueChanged<_ServiceReminder> onTapReminder;
-
-  @override
-  Widget build(BuildContext context) {
-    final errorText = error?.trim() ?? '';
-    final hasReminders = reminders.isNotEmpty;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text('关联服务', style: AppTextStyles.sectionTitle),
-            ),
-            if (loaded)
-              Text(
-                '${reminders.length} 条',
-                style: AppTextStyles.meta,
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (loading && !loaded)
-          const _KnowledgeListLoading()
-        else if (errorText.isNotEmpty && !hasReminders)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _CustomerSpaceEmptyCard(
-                icon: Icons.error_outline,
-                title: '服务加载失败',
-                message: errorText,
-              ),
-              const SizedBox(height: 10),
-              TextButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh),
-                label: const Text('重试'),
-              ),
-            ],
-          )
-        else if (!hasReminders)
-          _CustomerSpaceEmptyCard(
-            icon: Icons.support_agent_outlined,
-            title: '暂无服务卡片',
-            message: emptyMessage,
-          )
-        else
-          _ServiceReminderListCard(
-            reminders: reminders,
-            onTap: onTapReminder,
-          ),
       ],
     );
   }
@@ -12892,23 +12556,30 @@ class _OrganizeJobCard extends StatelessWidget {
 }
 
 class _SproutPreviewBlock extends StatelessWidget {
-  const _SproutPreviewBlock({required this.block});
+  const _SproutPreviewBlock({
+    required this.block,
+    this.compact = false,
+  });
 
   final _SproutTextBlock block;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     switch (block.kind) {
       case _SproutTextBlockKind.heading:
         return Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 10),
+          padding: EdgeInsets.only(
+            top: compact ? 10 : 4,
+            bottom: compact ? 6 : 10,
+          ),
           child: Text(
             block.text,
-            style: const TextStyle(
-              fontSize: 17,
-              height: 1.35,
+            style: TextStyle(
+              fontSize: compact ? 15 : 17,
+              height: compact ? 1.3 : 1.35,
               color: AppColors.textPrimary,
-              fontWeight: FontWeight.w700,
+              fontWeight: compact ? FontWeight.w600 : FontWeight.w700,
             ),
           ),
         );
@@ -14815,6 +14486,27 @@ class _NotesLoadError extends StatelessWidget {
           child: const Text('重试'),
         ),
       ],
+    );
+  }
+}
+
+class _NotesLoadMoreError extends StatelessWidget {
+  const _NotesLoadMoreError({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: TextButton.icon(
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh, size: 18),
+        label: Text(message),
+      ),
     );
   }
 }
@@ -17918,6 +17610,29 @@ class _CustomerSpaceListResult {
   final int total;
   final int page;
   final int pageSize;
+}
+
+class _OrganizeMemoryPageResult {
+  const _OrganizeMemoryPageResult({
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.pageSize,
+  });
+
+  final List<_OrganizeMemory> items;
+  final int? total;
+  final int page;
+  final int pageSize;
+}
+
+bool _hasMoreOrganizeMemoryPages(_OrganizeMemoryPageResult result) {
+  if (result.items.isEmpty) return false;
+  final total = result.total;
+  if (total != null) {
+    return result.page * result.pageSize < total;
+  }
+  return result.items.length >= result.pageSize;
 }
 
 class _CustomerSpace {

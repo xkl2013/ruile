@@ -14,6 +14,7 @@ func TestRedactOrganizeCourseOmitsInternalFields(t *testing.T) {
 		TenantID:     42,
 		UserID:       "private-user",
 		Title:        "公开课程",
+		CoverURL:     "oss://bucket/course-cover.png",
 		PublicStatus: types.OrganizePublicContentStatusPublished,
 		Lessons: []*types.OrganizeCourseLesson{{
 			ID:         "lsn_public",
@@ -40,6 +41,7 @@ func TestRedactOrganizeCourseOmitsInternalFields(t *testing.T) {
 	require.NoError(t, err)
 	body := string(payload)
 	require.Contains(t, body, `"title":"公开课程"`)
+	require.Contains(t, body, `"cover_url":"/api/v1/organize/courses/crs_public/cover"`)
 	require.Contains(t, body, `"media_url":"/api/v1/organize/courses/crs_public/lessons/lsn_public/media"`)
 	// The outline must not carry lesson bodies: a real 14-lesson course wrote
 	// ~16 MB into this payload. Bodies come from the per-lesson endpoint.

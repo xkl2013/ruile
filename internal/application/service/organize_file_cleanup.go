@@ -148,3 +148,14 @@ func organizeStoredFilePath(metadata types.JSONMap, keys ...string) string {
 	}
 	return ""
 }
+
+func isOrganizeStoredFileReference(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if _, ok := types.ParseResourcePath(value); ok {
+		return true
+	}
+	return types.ParseProviderScheme(value) != ""
+}

@@ -68,7 +68,7 @@ void main() {
   testWidgets('shows the notes home screen', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
-    expect(find.text('搜索记忆'), findsOneWidget);
+    expect(find.text('搜索记忆'), findsNothing);
     expect(find.text('知识库'), findsOneWidget);
     expect(find.text('测试一下'), findsNothing);
     expect(find.text('金句名言'), findsNothing);
