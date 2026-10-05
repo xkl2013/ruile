@@ -132,8 +132,29 @@
                 </div>
               </section>
 
+              <section v-if="memoryAttachments.length" class="memory-note-attachment-cards" aria-label="附件列表">
+                <button
+                  v-for="(attachment, index) in memoryAttachments"
+                  :key="attachment.id"
+                  type="button"
+                  class="memory-note-source-card memory-note-attachment-card"
+                  :aria-label="`预览附件 ${attachment.file_name}`"
+                  @click="openMemoryAttachmentPreview(attachment)"
+                >
+                  <span class="memory-note-source-icon" aria-hidden="true">
+                    <t-icon :name="memoryAttachmentIcon(attachment)" size="18px" />
+                  </span>
+                  <span class="memory-note-source-main">
+                    <span class="memory-note-source-label">附件 {{ index + 1 }}</span>
+                    <span class="memory-note-source-name">{{ attachment.file_name }}</span>
+                  </span>
+                  <span class="memory-note-source-meta">{{ memoryAttachmentKindLabel(attachment) }}</span>
+                  <t-icon class="memory-note-source-arrow" name="file-view" size="16px" />
+                </button>
+              </section>
+
               <button
-                v-else-if="sourceFileCardVisible"
+                v-if="!memoryAttachments.length && sourceFileCardVisible"
                 type="button"
                 class="memory-note-source-card"
                 :aria-label="`预览源文件 ${sourceFileName}`"
@@ -158,15 +179,6 @@
                   @click="noteActiveTab = 'content'"
                 >
                   笔记内容
-                </button>
-                <button
-                  v-if="isAudioMemory"
-                  type="button"
-                  class="memory-note-tab"
-                  :class="{ 'is-active': noteActiveTab === 'transcript' }"
-                  @click="noteActiveTab = 'transcript'"
-                >
-                  转写原文
                 </button>
                 <button
                   type="button"
@@ -196,40 +208,59 @@
                       :features="editorFeatures"
                     />
                   </div>
-                </section>
 
-                <section v-if="isAudioMemory" v-show="noteActiveTab === 'transcript'" class="memory-note-panel-view memory-note-panel-view--transcript">
-                  <div class="memory-transcript-view">
-                    <div class="memory-transcript-view__header">
-                      <span>原始转写</span>
-                      <span v-if="memoryTranscriptStatusLabel" class="memory-transcript-view__status">{{ memoryTranscriptStatusLabel }}</span>
-                    </div>
-                    <pre v-if="memoryTranscriptText" class="memory-transcript-view__content">{{ memoryTranscriptText }}</pre>
-                    <div v-else class="memory-transcript-view__empty">转写完成后，原文会显示在这里。</div>
-                    <div v-if="memoryAttachments.length" class="memory-attachment-list">
-                      <div
-                        v-for="attachment in memoryAttachments"
-                        :key="attachment.id"
-                        class="memory-attachment-item"
-                        :class="`memory-attachment-item--${attachment.status}`"
+                  <section v-if="memoryFileNotes.length" class="memory-file-notes" aria-label="文件解析笔记">
+                    <div class="memory-file-notes__header">
+                      <h2>附件解析笔记</h2>
+                      <span
+                        v-if="memoryAttachmentAggregateStatusLabel && memoryAttachmentAggregateStatusLabel !== '全部完成'"
+                        class="memory-file-notes__status"
                       >
-                        <div class="memory-attachment-item__main">
-                          <t-icon name="file" size="16px" />
-                          <span class="memory-attachment-item__name">{{ attachment.file_name }}</span>
-                          <span class="memory-attachment-item__status">{{ memoryAttachmentStatusLabel(attachment.status) }}</span>
-                        </div>
-                        <button
-                          v-if="attachment.status === 'failed' || attachment.status === 'skipped'"
-                          type="button"
-                          class="memory-attachment-item__retry"
-                          :disabled="memoryAttachmentRetryingId === attachment.id"
-                          @click.stop="retryMemoryAttachment(attachment.id)"
-                        >
-                          {{ memoryAttachmentRetryingId === attachment.id ? '重试中' : '重试' }}
-                        </button>
-                      </div>
+                        {{ memoryAttachmentAggregateStatusLabel }}
+                      </span>
                     </div>
-                  </div>
+
+                    <div class="memory-file-note-list">
+                      <article
+                        v-for="fileNote in memoryFileNotes"
+                        :key="fileNote.id"
+                        class="memory-file-note"
+                        :class="`memory-file-note--${fileNote.status}`"
+                      >
+                        <header class="memory-file-note__header">
+                          <h3>[{{ fileNote.fileName }}]</h3>
+                          <button
+                            v-if="fileNote.canRetry"
+                            type="button"
+                            class="memory-file-note__retry"
+                            :disabled="memoryAttachmentRetryingId === fileNote.id"
+                            @click.stop="retryMemoryAttachment(fileNote.id)"
+                          >
+                            {{ memoryAttachmentRetryingId === fileNote.id ? '重试中' : '重新解析' }}
+                          </button>
+                        </header>
+
+                        <template v-if="fileNote.status === 'completed'">
+                          <section v-if="fileNote.summary" class="memory-file-note__section">
+                            <h4>{{ fileNote.isTranscript ? '转写摘要' : '文件摘要' }}</h4>
+                            <p>{{ fileNote.summary }}</p>
+                          </section>
+                          <section class="memory-file-note__section memory-file-note__section--body">
+                            <h4>{{ fileNote.isTranscript ? '转写正文' : '正文内容' }}</h4>
+                            <div
+                              v-if="fileNote.renderedContent"
+                              class="memory-file-note__content"
+                              v-html="fileNote.renderedContent"
+                            />
+                            <p v-else class="memory-file-note__empty">该文件暂未生成可展示的解析内容。</p>
+                          </section>
+                        </template>
+                        <p v-else class="memory-file-note__state">
+                          {{ memoryFileNoteStateLabel(fileNote) }}
+                        </p>
+                      </article>
+                    </div>
+                  </section>
                 </section>
 
                 <section v-show="noteActiveTab === 'result'" class="memory-note-panel-view memory-note-panel-view--result">
@@ -332,17 +363,17 @@
     <t-drawer
       v-model:visible="sourcePreviewVisible"
       class="memory-source-preview-drawer"
-      :header="sourceFileName || '源文件预览'"
+      :header="sourcePreviewFileName || '源文件预览'"
       :footer="false"
       :close-btn="false"
       size="min(860px, 92vw)"
       destroy-on-close
     >
-      <section v-if="sourcePreviewVisible && sourceFilePreviewUrl" class="memory-source-preview-body">
+      <section v-if="sourcePreviewVisible && sourcePreviewFileUrl" class="memory-source-preview-body">
         <DocumentPreview
-          :source-url="sourceFilePreviewUrl"
-          :file-type="sourceFilePreviewType"
-          :file-name="sourceFileName || '源文件'"
+          :source-url="sourcePreviewFileUrl"
+          :file-type="sourcePreviewFileType"
+          :file-name="sourcePreviewFileName || '源文件'"
           :active="sourcePreviewVisible"
           fill-height
         />
@@ -354,11 +385,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { marked } from 'marked'
 import { useRoute, useRouter } from 'vue-router'
 import { TiptapProEditor, type FeatureConfig, type TiptapProEditorExpose } from 'tiptap-ui-kit'
 import 'tiptap-ui-kit/style.css'
 import DocumentPreview from '@/components/document-preview.vue'
 import { getDown } from '@/utils/request'
+import { sanitizeHTML, sanitizeMarkdownHTML, safeMarkdownToHTML } from '@/utils/security'
 import {
   createOrganizeJob,
   createOrganizeMemory,
@@ -397,6 +430,22 @@ import {
 
 type OrganizeDocumentType = 'memory' | 'output'
 type SaveState = 'idle' | 'saving' | 'saved' | 'waiting' | 'error'
+type MemoryFileNoteStatus = OrganizeMemoryAttachment['status']
+
+interface MemoryFileNote {
+  id: string
+  fileName: string
+  mimeType: string
+  status: MemoryFileNoteStatus
+  content: string
+  transcript: string
+  summary: string
+  renderedContent: string
+  isTranscript: boolean
+  canRetry: boolean
+  errorMessage: string
+  metadata: Record<string, unknown>
+}
 
 const AUTOSAVE_DELAY = 700
 
@@ -435,8 +484,9 @@ const memoryOrganizeJob = ref<OrganizeJob | null>(null)
 const memoryOrganizeCreating = ref(false)
 const memoryOrganizeLoading = ref(false)
 const memoryAttachmentRetryingId = ref('')
-const noteActiveTab = ref<'content' | 'transcript' | 'result'>('content')
+const noteActiveTab = ref<'content' | 'result'>('content')
 const sourcePreviewVisible = ref(false)
+const sourcePreviewAttachment = ref<OrganizeMemoryAttachment | null>(null)
 const audioPlayerUrl = ref('')
 const audioPlayerLoading = ref(false)
 const audioPlayerError = ref('')
@@ -487,16 +537,6 @@ const memoryTranscriptText = computed(() => {
   if (direct) return direct
   return ''
 })
-const memoryTranscriptStatusLabel = computed(() => {
-  const metadata = memoryMetadata.value || {}
-  const status = asTrimmedString(metadata.transcription_status) || asTrimmedString(metadata.attachment_status)
-  if (status === 'pending') return '等待解析'
-  if (status === 'transcribing' || status === 'processing') return '解析中'
-  if (status === 'partial') return '部分完成'
-  if (status === 'failed') return '解析失败'
-  if (status === 'completed') return '已完成'
-  return ''
-})
 const memoryAttachmentStatusLabel = (status: OrganizeMemoryAttachment['status']) => {
   if (status === 'pending') return '等待解析'
   if (status === 'processing') return '解析中'
@@ -504,6 +544,16 @@ const memoryAttachmentStatusLabel = (status: OrganizeMemoryAttachment['status'])
   if (status === 'skipped') return '已跳过'
   return '解析失败'
 }
+const memoryAttachmentAggregateStatusLabel = computed(() => {
+  const metadata = memoryMetadata.value || {}
+  const status = asTrimmedString(metadata.attachment_status) || asTrimmedString(metadata.transcription_status)
+  if (status === 'pending') return '等待解析'
+  if (status === 'processing' || status === 'transcribing') return '解析中'
+  if (status === 'partial') return '部分完成'
+  if (status === 'completed') return '全部完成'
+  if (status === 'failed') return '解析失败'
+  return ''
+})
 const editorPlaceholder = computed(() => {
   if (isAudioMemory.value) return '录音转写内容'
   if (isMemoryDocument.value) return '输入正文'
@@ -697,6 +747,160 @@ const fileTypeFromMime = (value = '') => {
   return ''
 }
 
+const fileIconForType = (fileType = '') => {
+  if (fileType === 'pdf') return 'file-pdf'
+  if (['doc', 'docx'].includes(fileType)) return 'file-word'
+  if (['xls', 'xlsx', 'csv'].includes(fileType)) return 'file-excel'
+  if (['ppt', 'pptx'].includes(fileType)) return 'file-powerpoint'
+  if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'svg'].includes(fileType)) return 'image'
+  if (['mp3', 'wav', 'm4a', 'flac', 'ogg'].includes(fileType)) return 'sound'
+  if (['mp4', 'mov', 'webm', 'avi', 'mkv', 'wmv', 'flv'].includes(fileType)) return 'play-circle'
+  return 'file'
+}
+
+const readableTextFromFileContent = (value = '') => {
+  if (!value.trim()) return ''
+  if (/<[a-z][\s\S]*>/i.test(value)) {
+    return plainTextFromHtml(value)
+  }
+  return value
+    .replace(/!\[[^\]]*]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+[.、)]\s+/gm, '')
+    .replace(/[*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const compactFileSummary = (value = '') => {
+  const readable = readableTextFromFileContent(value)
+  if (!readable) return ''
+  if (readable.length <= 180) return readable
+  const boundary = readable.lastIndexOf('。', 180)
+  const end = boundary >= 80 ? boundary + 1 : 180
+  return `${readable.slice(0, end)}...`
+}
+
+const metadataText = (metadata: Record<string, unknown> | undefined, keys: string[]) => {
+  if (!metadata) return ''
+  for (const key of keys) {
+    const value = asTrimmedString(metadata[key])
+    if (value) return value
+  }
+  return ''
+}
+
+const renderMemoryFileNoteContent = (value = '') => {
+  const source = value.trim()
+  if (!source) return ''
+  if (/<\/?(h[1-6]|p|ul|ol|li|blockquote|div|table|article|section|br)\b/i.test(source)) {
+    return sanitizeHTML(source)
+  }
+  const html = marked.parse(safeMarkdownToHTML(source), {
+    gfm: true,
+    breaks: true,
+    async: false,
+  }) as string
+  return sanitizeMarkdownHTML(html)
+}
+
+const memoryFileNoteStatusFromMetadata = (hasContent: boolean): MemoryFileNoteStatus => {
+  const metadata = memoryMetadata.value || {}
+  const status = asTrimmedString(metadata.attachment_status) || asTrimmedString(metadata.transcription_status)
+  if (status === 'pending') return 'pending'
+  if (status === 'processing' || status === 'transcribing') return 'processing'
+  if (status === 'failed') return 'failed'
+  if (status === 'completed' || status === 'partial') return 'completed'
+  return hasContent ? 'completed' : 'pending'
+}
+
+const memoryFileNotes = computed<MemoryFileNote[]>(() => {
+  const attachments = memoryAttachments.value.map((attachment) => {
+    const metadata = attachment.metadata || {}
+    const transcript = asTrimmedString(attachment.transcript)
+    const content = asTrimmedString(attachment.content)
+    const body = transcript || content
+    const attachmentFileType = fileExtension(attachment.file_name) || fileTypeFromMime(attachment.mime_type || '')
+    const isTranscript = Boolean(transcript) || ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'mp4', 'mov', 'webm'].includes(attachmentFileType)
+    const summary = metadataText(metadata, ['summary', 'file_summary', 'summary_text', 'description']) ||
+      (memoryAttachments.value.length === 1
+        ? metadataText(memoryMetadata.value, ['summary', 'file_summary', 'summary_text'])
+        : '') ||
+      compactFileSummary(body)
+
+    return {
+      id: attachment.id,
+      fileName: attachment.file_name || '未命名文件',
+      mimeType: attachment.mime_type || '',
+      status: attachment.status,
+      content,
+      transcript,
+      summary,
+      renderedContent: renderMemoryFileNoteContent(body),
+      isTranscript,
+      canRetry: attachment.status === 'failed' || attachment.status === 'skipped',
+      errorMessage: attachment.error_message || '',
+      metadata,
+    }
+  })
+
+  if (attachments.length > 0) return attachments
+
+  const legacyTranscript = memoryTranscriptText.value
+  if (legacyTranscript) {
+    return [{
+      id: 'legacy-transcript',
+      fileName: sourceFileName.value || title.value || '原始转写',
+      mimeType: asTrimmedString(memoryMetadata.value?.mime_type),
+      status: 'completed',
+      content: legacyTranscript,
+      transcript: legacyTranscript,
+      summary: metadataText(memoryMetadata.value, ['summary', 'file_summary', 'summary_text']) ||
+        compactFileSummary(legacyTranscript),
+      renderedContent: renderMemoryFileNoteContent(legacyTranscript),
+      isTranscript: true,
+      canRetry: false,
+      errorMessage: '',
+      metadata: memoryMetadata.value || {},
+    }]
+  }
+
+  const legacyFileContent = content.value.trim()
+  const hasLegacySource = Boolean(
+    sourceFilePath.value ||
+    metadataText(memoryMetadata.value, ['file_name', 'fileName', 'original_name', 'originalName', 'filename']),
+  )
+  if (!hasLegacySource) return []
+
+  const isPlaceholder = /文件已保存，等待解析/.test(readableTextFromFileContent(legacyFileContent))
+  const displayContent = isPlaceholder ? '' : legacyFileContent
+  const status = memoryFileNoteStatusFromMetadata(Boolean(displayContent))
+  return [{
+    id: 'legacy-source-file',
+    fileName: sourceFileName.value || '源文件',
+    mimeType: asTrimmedString(memoryMetadata.value?.mime_type) || asTrimmedString(memoryMetadata.value?.mimeType),
+    status,
+    content: displayContent,
+    transcript: '',
+    summary: metadataText(memoryMetadata.value, ['summary', 'file_summary', 'summary_text']) ||
+      compactFileSummary(displayContent),
+    renderedContent: renderMemoryFileNoteContent(displayContent),
+    isTranscript: false,
+    canRetry: false,
+    errorMessage: '',
+    metadata: memoryMetadata.value || {},
+  }]
+})
+
+const memoryFileNoteStateLabel = (fileNote: MemoryFileNote) => {
+  if (fileNote.status === 'pending') return '文件已保存，等待解析。'
+  if (fileNote.status === 'processing') return '正在解析文件内容，请稍候。'
+  if (fileNote.status === 'skipped') return fileNote.errorMessage || '该文件已跳过解析。'
+  return fileNote.errorMessage || '文件解析失败，请重新解析。'
+}
+
 const isProviderFilePath = (value = '') => /^[a-z][a-z\d+.-]*:\/\//i.test(value)
   && !/^https?:\/\//i.test(value)
   && !value.startsWith('blob:')
@@ -812,15 +1016,7 @@ const sourceFileKindLabel = computed(() => {
 })
 
 const sourceFileIcon = computed(() => {
-  const fileType = sourceFilePreviewType.value
-  if (fileType === 'pdf') return 'file-pdf'
-  if (['doc', 'docx'].includes(fileType)) return 'file-word'
-  if (['xls', 'xlsx', 'csv'].includes(fileType)) return 'file-excel'
-  if (['ppt', 'pptx'].includes(fileType)) return 'file-powerpoint'
-  if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'svg'].includes(fileType)) return 'image'
-  if (['mp3', 'wav', 'm4a', 'flac', 'ogg'].includes(fileType)) return 'sound'
-  if (['mp4', 'mov', 'webm', 'avi', 'mkv', 'wmv', 'flv'].includes(fileType)) return 'play-circle'
-  return 'file'
+  return fileIconForType(sourceFilePreviewType.value)
 })
 
 const sourceFilePreviewUrl = computed(() => {
@@ -829,11 +1025,68 @@ const sourceFilePreviewUrl = computed(() => {
   return playbackUrlFromSource(source)
 })
 
+const memoryAttachmentSourcePath = (attachment: OrganizeMemoryAttachment) => {
+  const metadata = attachment.metadata || {}
+  return (
+    asTrimmedString(attachment.storage_path) ||
+    asTrimmedString(attachment.storage_url) ||
+    asTrimmedString(metadata.file_path) ||
+    asTrimmedString(metadata.filePath) ||
+    asTrimmedString(metadata.source_path) ||
+    asTrimmedString(metadata.sourcePath) ||
+    asTrimmedString(metadata.file_url) ||
+    asTrimmedString(metadata.fileUrl) ||
+    asTrimmedString(metadata.source_url) ||
+    asTrimmedString(metadata.sourceUrl)
+  )
+}
+
+const memoryAttachmentType = (attachment: OrganizeMemoryAttachment) =>
+  fileExtension(attachment.file_name) || fileTypeFromMime(attachment.mime_type || '')
+
+const memoryAttachmentKindLabel = (attachment: OrganizeMemoryAttachment) => {
+  const fileType = memoryAttachmentType(attachment)
+  return fileType ? fileType.toUpperCase() : '附件'
+}
+
+const memoryAttachmentIcon = (attachment: OrganizeMemoryAttachment) =>
+  fileIconForType(memoryAttachmentType(attachment))
+
+const sourcePreviewFileName = computed(() =>
+  sourcePreviewAttachment.value?.file_name || sourceFileName.value,
+)
+
+const sourcePreviewFileType = computed(() => {
+  if (sourcePreviewAttachment.value) {
+    return memoryAttachmentType(sourcePreviewAttachment.value) || 'bin'
+  }
+  return sourceFilePreviewType.value
+})
+
+const sourcePreviewFileUrl = computed(() => {
+  if (sourcePreviewAttachment.value) {
+    const source = memoryAttachmentSourcePath(sourcePreviewAttachment.value)
+    return source ? playbackUrlFromSource(source) : ''
+  }
+  return sourceFilePreviewUrl.value
+})
+
 const sourceFileCardVisible = computed(() => isMemoryDocument.value && Boolean(sourceFilePath.value))
 
 const openSourceFilePreview = () => {
-  if (!sourceFilePreviewUrl.value) {
+  sourcePreviewAttachment.value = null
+  if (!sourcePreviewFileUrl.value) {
     MessagePlugin.warning('暂无源文件')
+    return
+  }
+  sourcePreviewVisible.value = true
+}
+
+const openMemoryAttachmentPreview = (attachment: OrganizeMemoryAttachment) => {
+  sourcePreviewAttachment.value = attachment
+  if (!sourcePreviewFileUrl.value) {
+    sourcePreviewAttachment.value = null
+    MessagePlugin.warning('暂无附件预览')
     return
   }
   sourcePreviewVisible.value = true
@@ -1245,6 +1498,7 @@ const resetDraft = () => {
   memorySource.value = draft.source || '手动输入'
   memoryDurationSeconds.value = draft.duration_seconds || 0
   memoryMetadata.value = draft.metadata
+  memoryAttachments.value = []
   memoryTags.value = noteTagsFromMetadata(draft.metadata)
   outputCategory.value = normalizeDiscoverCategory(
     draft.metadata?.discover_category || draft.metadata?.discover_category_label,
@@ -1257,6 +1511,7 @@ const resetDraft = () => {
   memoryOrganizeJob.value = null
   memoryOrganizeLoading.value = false
   sourcePreviewVisible.value = false
+  sourcePreviewAttachment.value = null
   memoryOrganizeRequestSeq += 1
   noteActiveTab.value = 'content'
   if (documentType.value === 'memory' && memoryKind.value === 'audio') {
@@ -1311,6 +1566,7 @@ const loadDocument = async () => {
       memoryOrganizeJob.value = null
       memoryOrganizeLoading.value = false
       sourcePreviewVisible.value = false
+      sourcePreviewAttachment.value = null
       noteActiveTab.value = 'content'
       title.value = item.kind === 'audio' || item.kind === 'audio_card'
         ? audioMemoryDisplayTitle(item)
@@ -2055,6 +2311,17 @@ watch(
   outline: none;
 }
 
+.memory-note-attachment-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: min(860px, 100%);
+}
+
+.memory-note-attachment-card {
+  width: 100%;
+}
+
 .memory-note-source-icon {
   display: inline-flex;
   align-items: center;
@@ -2166,105 +2433,194 @@ watch(
   min-width: 0;
 }
 
-.memory-transcript-view {
-  min-height: 260px;
-  padding: 18px 20px;
-  border: 1px solid rgba(55, 53, 47, 0.1);
-  border-radius: 8px;
-  background: #fbfbfa;
+.memory-file-notes {
+  margin-top: 16px;
+  padding: 24px 22px 34px;
+  border-radius: 0 0 8px 8px;
+  background: #f1f1f1;
 }
 
-.memory-transcript-view__header {
+.memory-file-notes__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  color: #37352f;
-  font-size: 14px;
-  font-weight: 600;
+  gap: 16px;
+  margin-bottom: 42px;
 }
 
-.memory-transcript-view__status {
-  color: rgba(55, 53, 47, 0.52);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.memory-transcript-view__content {
+.memory-file-notes__header h2 {
   margin: 0;
-  color: rgba(55, 53, 47, 0.82);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  color: #37352f;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
-.memory-transcript-view__empty {
+.memory-file-notes__status {
+  flex: 0 0 auto;
   color: rgba(55, 53, 47, 0.48);
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
-.memory-attachment-list {
+.memory-file-note-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(55, 53, 47, 0.08);
+  gap: 38px;
 }
 
-.memory-attachment-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 36px;
-  color: rgba(55, 53, 47, 0.72);
-  font-size: 13px;
+.memory-file-note {
+  padding: 0;
 }
 
-.memory-attachment-item__main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.memory-attachment-item__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.memory-attachment-item__status {
-  flex: 0 0 auto;
-  color: rgba(55, 53, 47, 0.46);
-  font-size: 12px;
-}
-
-.memory-attachment-item--failed .memory-attachment-item__status,
-.memory-attachment-item--skipped .memory-attachment-item__status {
+.memory-file-note--failed,
+.memory-file-note--skipped {
   color: #c9372c;
 }
 
-.memory-attachment-item__retry {
-  flex: 0 0 auto;
-  padding: 3px 8px;
-  border: 1px solid rgba(55, 53, 47, 0.16);
-  border-radius: 4px;
-  background: #fff;
+.memory-file-note__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.memory-file-note__header h3 {
+  margin: 0;
   color: #37352f;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.memory-file-note__retry {
+  flex: 0 0 auto;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #2383c4;
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
-.memory-attachment-item__retry:disabled {
+.memory-file-note__retry:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.memory-file-note__section + .memory-file-note__section {
+  margin-top: 26px;
+}
+
+.memory-file-note__section h4 {
+  margin: 0 0 10px;
+  color: #37352f;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.memory-file-note__section > p {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.78);
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.memory-file-note__content {
+  color: rgba(55, 53, 47, 0.82);
+  font-size: 16px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+.memory-file-note__content :deep(h1),
+.memory-file-note__content :deep(h2),
+.memory-file-note__content :deep(h3),
+.memory-file-note__content :deep(h4) {
+  margin: 14px 0 6px;
+  color: #37352f;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.memory-file-note__content :deep(h1) {
+  font-size: 22px;
+}
+
+.memory-file-note__content :deep(h2) {
+  font-size: 20px;
+}
+
+.memory-file-note__content :deep(h3),
+.memory-file-note__content :deep(h4) {
+  font-size: 18px;
+}
+
+.memory-file-note__content :deep(p) {
+  margin: 0 0 10px;
+}
+
+.memory-file-note__content :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.memory-file-note__content :deep(ul),
+.memory-file-note__content :deep(ol) {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.memory-file-note__content :deep(blockquote) {
+  margin: 10px 0;
+  padding-left: 12px;
+  border-left: 3px solid rgba(46, 170, 220, 0.45);
+  color: rgba(55, 53, 47, 0.66);
+}
+
+.memory-file-note__content :deep(pre) {
+  margin: 10px 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: rgba(55, 53, 47, 0.06);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.memory-file-note__content :deep(table) {
+  width: 100%;
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.memory-file-note__content :deep(th),
+.memory-file-note__content :deep(td) {
+  padding: 7px 9px;
+  border: 1px solid rgba(55, 53, 47, 0.12);
+  text-align: left;
+  vertical-align: top;
+}
+
+.memory-file-note__content :deep(th) {
+  background: rgba(55, 53, 47, 0.04);
+  font-weight: 600;
+}
+
+.memory-file-note__empty,
+.memory-file-note__state {
+  margin: 0;
+  color: rgba(55, 53, 47, 0.52);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.memory-file-note--failed .memory-file-note__state,
+.memory-file-note--skipped .memory-file-note__state {
+  color: #c9372c;
 }
 
 .memory-note-organize-loading {
@@ -2726,6 +3082,10 @@ watch(
     min-height: 58px;
   }
 
+  .memory-note-attachment-cards {
+    grid-template-columns: 1fr;
+  }
+
   .memory-note-source-meta {
     display: none;
   }
@@ -2737,6 +3097,31 @@ watch(
   .memory-note-tab {
     padding-bottom: 12px;
     font-size: 14px;
+  }
+
+  .memory-file-notes {
+    padding-top: 20px;
+  }
+
+  .memory-file-notes__header {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .memory-file-notes__status {
+    align-self: flex-start;
+  }
+
+  .memory-file-note {
+    padding: 14px 14px 16px;
+  }
+
+  .memory-file-note__header {
+    align-items: flex-start;
+  }
+
+  .memory-file-note__retry {
+    padding-inline: 7px;
   }
 
   .organize-result-card {

@@ -104,6 +104,7 @@ export interface OrganizeMemoryAttachment {
   memory_id: string
   file_name: string
   mime_type?: string
+  storage_path?: string
   storage_url?: string
   size_bytes?: number
   sort_order: number
