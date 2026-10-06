@@ -212,6 +212,30 @@ const moduleRoutes: RouteRecordRaw[] = [
     },
   },
   {
+    path: 'organize/templates',
+    name: 'adminOrganizeTemplates',
+    component: () => import('@admin/views/AdminOrganizeTemplates.vue'),
+    meta: {
+      navKey: 'organize-templates',
+      title: '整理模板',
+      description: '维护平台整理模板、版本和试跑结果。',
+      requiresSystemAdmin: true,
+      requiresTenant: false,
+    },
+  },
+  {
+    path: 'organize/discover-categories',
+    name: 'adminDiscoverCategories',
+    component: () => import('@admin/views/AdminDiscoverCategories.vue'),
+    meta: {
+      navKey: 'discover-categories',
+      title: '发现栏目',
+      description: '维护发现页栏目和内容归类。',
+      requiresSystemAdmin: true,
+      requiresTenant: false,
+    },
+  },
+  {
     path: 'public-knowledge-bases',
     name: 'adminPublicKnowledgeBases',
     component: () => import('@admin/views/AdminPublicKnowledgeBases.vue'),

@@ -11,6 +11,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/deploy/cleanup_local_images.sh"
 
 ACR_REGISTRY="${ACR_REGISTRY:-registry.cn-beijing.aliyuncs.com}"
 ACR_USERNAME="${ACR_USERNAME:-睿乐未来}"
@@ -18,6 +20,7 @@ ACR_NAMESPACE="${ACR_NAMESPACE:-}"
 IMAGE_TAG="${IMAGE_TAG:-}"
 SKIP_BUILD=false
 SKIP_LOGIN=false
+CLEAN_LOCAL_IMAGES=true
 ACR_ENV_FILE="${ACR_ENV_FILE:-$PROJECT_ROOT/.acr.env}"
 
 if [[ -f "$ACR_ENV_FILE" ]]; then
@@ -54,6 +57,7 @@ Options:
   --tag <tag>              Image tag. Default: git short SHA.
   --skip-build             Skip local image build and only tag/push existing images.
   --skip-login             Skip docker login.
+  --keep-local-images      Keep local image tags and dangling images after a successful push.
   -h, --help               Show this help.
 
 Environment:
@@ -202,6 +206,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_LOGIN=true
       shift
       ;;
+    --keep-local-images)
+      CLEAN_LOCAL_IMAGES=false
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -257,6 +265,8 @@ for image in "${IMAGES[@]}"; do
 
   log "pushing ${remote_image}"
   docker push "$remote_image"
+
+  cleanup_pushed_images "$local_image" "$remote_image"
 done
 
 cat <<EOF

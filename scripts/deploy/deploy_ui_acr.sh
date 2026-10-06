@@ -5,6 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/cleanup_local_images.sh"
 
 ACR_ENV_FILE="${ACR_ENV_FILE:-$PROJECT_ROOT/.acr.env}"
 if [[ -f "$ACR_ENV_FILE" ]]; then
@@ -21,6 +23,7 @@ IMAGE_TAG="${IMAGE_TAG:-latest}"
 ACR_BUILD_PLATFORM="${ACR_BUILD_PLATFORM:-linux/amd64}"
 SKIP_BUILD=false
 SKIP_LOGIN=false
+CLEAN_LOCAL_IMAGES=true
 
 usage() {
   cat <<EOF
@@ -35,6 +38,7 @@ Options:
   --platform <platform>    Docker target platform. Default: ${ACR_BUILD_PLATFORM}
   --skip-build             Only tag/push an existing wechatopenai/weknora-ui:latest.
   --skip-login             Do not run docker login.
+  --keep-local-images      Keep local image tags and dangling images after a successful push.
   -h, --help               Show this help.
 
 Environment:
@@ -114,6 +118,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_LOGIN=true
       shift
       ;;
+    --keep-local-images)
+      CLEAN_LOCAL_IMAGES=false
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -148,5 +156,7 @@ docker tag "$local_image" "$remote_image"
 
 log "pushing ${remote_image}"
 docker push "$remote_image"
+
+cleanup_pushed_images "$local_image" "$remote_image"
 
 log "done: ${remote_image}"

@@ -428,7 +428,7 @@ func (s *organizeService) ProcessMemoryTranscribe(ctx context.Context, task *asy
 	}
 
 	now := time.Now().UTC()
-	aiResult, aiModelID, aiStatus := s.generateOrganizeRecordingNoteAIResult(
+	aiResult, aiModelID, aiStatus := s.generateMemoryRecordingNoteAIResult(
 		ctx,
 		memory.Title,
 		audioFileName,

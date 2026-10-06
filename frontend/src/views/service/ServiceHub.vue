@@ -68,7 +68,7 @@
 
     <t-dialog
       v-model:visible="reminderDetailVisible"
-      header="事项协作"
+      header="待办协作"
       width="680px"
       :confirm-btn="null"
       :cancel-btn="null"
@@ -79,7 +79,7 @@
             <strong>{{ selectedReminder.title }}</strong>
             <span>{{ reminderStatusLabel(selectedReminder.status) }} · {{ selectedReminder.depth || 0 }} 层</span>
           </div>
-          <span v-if="selectedReminder.parent_reminder_id">已有父事项</span>
+          <span v-if="selectedReminder.parent_reminder_id">已有上级待办</span>
         </div>
         <div v-if="reminderCollaborationLoading" class="service-hub-panel-empty">正在加载协作信息。</div>
         <template v-else>
@@ -353,7 +353,7 @@
                   {{ planningDataError }}
                 </div>
                 <template v-else-if="panel === 'context'">
-                  <div v-if="contextSourcesLoading" class="service-hub-panel-empty">正在加载来源资料。</div>
+                  <div v-if="contextSourcesLoading" class="service-hub-panel-empty">正在加载资料。</div>
                   <div v-else-if="contextSourcesError" class="service-hub-panel-empty service-hub-panel-error">
                     {{ contextSourcesError }}
                   </div>
@@ -399,18 +399,18 @@
                   </template>
                 </template>
                 <template v-else-if="panel === 'reminders'">
-                  <div v-if="remindersLoading" class="service-hub-panel-empty">正在加载服务事项。</div>
+                  <div v-if="remindersLoading" class="service-hub-panel-empty">正在加载服务待办。</div>
                   <div v-else-if="remindersError" class="service-hub-panel-empty service-hub-panel-error">
                     {{ remindersError }}
                   </div>
                   <template v-else>
                     <form class="service-hub-reminder-form" @submit.prevent="createActiveReminder">
-                      <t-input v-model="reminderDraftTitle" size="small" placeholder="事项标题，例如：回访会员家庭 A" />
+                      <t-input v-model="reminderDraftTitle" size="small" placeholder="待办标题，例如：回访会员家庭 A" />
                       <t-textarea
                         v-model="reminderDraftSummary"
                         size="small"
                         :autosize="{ minRows: 2, maxRows: 4 }"
-                        placeholder="补充事项背景和处理目标"
+                        placeholder="补充待办背景和处理目标"
                       />
                       <div class="service-hub-reminder-form-row">
                         <t-select v-model="reminderDraftPriority" size="small" :options="reminderPriorityOptions" />
@@ -421,7 +421,7 @@
                         size="small"
                         clearable
                         :options="reminderParentOptions"
-                        placeholder="可选：归入父事项"
+                        placeholder="可选：归入上级待办"
                       />
                       <t-input
                         v-model="reminderDraftAssignees"
@@ -429,7 +429,7 @@
                         placeholder="负责人用户 ID，多个用逗号分隔"
                       />
                       <t-button type="submit" block theme="primary" size="small" :loading="remindersSaving">
-                        新建事项
+                        新建待办
                       </t-button>
                     </form>
                     <div v-if="serviceReminders.length" class="service-hub-reminder-list">
@@ -444,7 +444,7 @@
                         <div class="service-hub-reminder-meta">
                           <span>{{ reminderStatusLabel(reminder.status) }}</span>
                           <span v-if="reminder.due_text">{{ reminder.due_text }}</span>
-                          <span v-if="reminder.parent_reminder_id">子事项 · {{ reminder.depth || 1 }} 层</span>
+                          <span v-if="reminder.parent_reminder_id">下级待办 · {{ reminder.depth || 1 }} 层</span>
                         </div>
                         <div class="service-hub-reminder-actions">
                           <button type="button" @click="openReminderCollaboration(reminder)">协作</button>
@@ -460,7 +460,7 @@
                         </div>
                       </article>
                     </div>
-                    <div v-else class="service-hub-panel-empty">当前服务还没有事项。可以先记录一个需要跟进的动作。</div>
+                    <div v-else class="service-hub-panel-empty">当前服务还没有待办。可以先记录一个需要跟进的动作。</div>
                   </template>
                 </template>
                 <template v-else-if="panel === 'settings'">
@@ -495,7 +495,7 @@
                       <t-input v-model="newProfileFieldLabel" size="small" placeholder="字段名称" />
                       <button type="button" @click="addProfileField">添加字段</button>
                     </div>
-                    <div class="service-hub-settings-divider">事项状态</div>
+                    <div class="service-hub-settings-divider">待办状态</div>
                     <div v-if="reminderStatuses.length" class="service-hub-status-list">
                       <div v-for="status in reminderStatuses" :key="status.id" class="service-hub-status-row">
                         <t-input
@@ -854,9 +854,9 @@ const panelTitle = computed(() => {
     case 'subjects':
       return '服务主体'
     case 'context':
-      return '来源资料'
+      return '资料'
     case 'reminders':
-      return '服务事项'
+      return '服务待办'
     case 'settings':
       return '服务设置'
     default:
@@ -867,7 +867,7 @@ const headTools = computed(() => [
   { key: 'artifacts' as const, label: '产物', icon: 'file', count: activeArtifacts.value.length },
   ...(route.meta.mobileEntry
     ? []
-    : [{ key: 'reminders' as const, label: '事项', icon: 'check-circle', count: serviceReminders.value.length }]),
+    : [{ key: 'reminders' as const, label: '待办', icon: 'check-circle', count: serviceReminders.value.length }]),
   ...(route.meta.mobileEntry
       ? []
       : [
@@ -1053,7 +1053,7 @@ const loadContextSources = async (serviceId: string) => {
   } catch (error) {
     console.error('[ServiceHub] Failed to load context sources:', error)
     contextSources.value = []
-    contextSourcesError.value = '来源资料暂不可用，请稍后重试'
+    contextSourcesError.value = '资料暂不可用，请稍后重试'
   } finally {
     contextSourcesLoading.value = false
   }
@@ -1077,7 +1077,7 @@ const loadReminders = async (serviceId: string) => {
     serviceReminders.value = []
     reminderStatuses.value = []
     reminderTransitions.value = []
-    remindersError.value = '服务事项暂不可用，请稍后重试'
+    remindersError.value = '服务待办暂不可用，请稍后重试'
   } finally {
     remindersLoading.value = false
   }
@@ -1110,7 +1110,7 @@ const createActiveReminder = async () => {
   const serviceId = activeService.value?.id
   const title = reminderDraftTitle.value.trim()
   if (!serviceId || !title) {
-    MessagePlugin.warning('请填写事项标题')
+    MessagePlugin.warning('请填写待办标题')
     return
   }
   remindersSaving.value = true
@@ -1133,11 +1133,11 @@ const createActiveReminder = async () => {
       reminderDraftDueText.value = ''
       reminderDraftParentId.value = ''
       reminderDraftAssignees.value = ''
-      MessagePlugin.success('事项已创建')
+      MessagePlugin.success('待办已创建')
     }
   } catch (error) {
     console.error('[ServiceHub] Failed to create service reminder:', error)
-    MessagePlugin.error('事项创建失败，请稍后重试')
+    MessagePlugin.error('待办创建失败，请稍后重试')
   } finally {
     remindersSaving.value = false
   }
@@ -1151,11 +1151,11 @@ const changeReminderStatus = async (reminder: ServiceReminder, status: string) =
     if (response?.data) {
       const index = serviceReminders.value.findIndex((item) => item.id === reminder.id)
       if (index >= 0) serviceReminders.value[index] = response.data
-      MessagePlugin.success(`事项已更新为${reminderStatusLabel(status)}`)
+      MessagePlugin.success(`待办已更新为${reminderStatusLabel(status)}`)
     }
   } catch (error) {
     console.error('[ServiceHub] Failed to update service reminder:', error)
-    MessagePlugin.error('事项状态更新失败，请检查状态流转规则')
+    MessagePlugin.error('待办状态更新失败，请检查状态流转规则')
   }
 }
 
@@ -1165,10 +1165,10 @@ const removeActiveReminder = async (reminder: ServiceReminder) => {
   try {
     await deleteServiceReminder(serviceId, reminder.id)
     serviceReminders.value = serviceReminders.value.filter((item) => item.id !== reminder.id)
-    MessagePlugin.success('事项已删除')
+    MessagePlugin.success('待办已删除')
   } catch (error) {
     console.error('[ServiceHub] Failed to delete service reminder:', error)
-    MessagePlugin.error('事项删除失败，请稍后重试')
+    MessagePlugin.error('待办删除失败，请稍后重试')
   }
 }
 
@@ -1191,7 +1191,7 @@ const openReminderCollaboration = async (reminder: ServiceReminder) => {
     reminderAssigneeDraft.value = reminderAssignees.value.map((item) => item.user_id).join(', ')
   } catch (error) {
     console.error('[ServiceHub] Failed to load reminder collaboration:', error)
-    MessagePlugin.error('事项协作信息加载失败')
+    MessagePlugin.error('待办协作信息加载失败')
   } finally {
     reminderCollaborationLoading.value = false
   }
@@ -1425,10 +1425,10 @@ const addReminderStatus = async () => {
     if (response?.data) reminderStatuses.value.push(response.data)
     newStatusKey.value = ''
     newStatusLabel.value = ''
-    MessagePlugin.success('事项状态已添加')
+    MessagePlugin.success('待办状态已添加')
   } catch (error) {
     console.error('[ServiceHub] Failed to create reminder status:', error)
-    MessagePlugin.error('事项状态添加失败')
+    MessagePlugin.error('待办状态添加失败')
   }
 }
 
@@ -1460,10 +1460,10 @@ const removeReminderStatus = async (status: ServiceReminderStatus) => {
   try {
     await deleteServiceReminderStatus(status.service_id, status.id)
     reminderStatuses.value = reminderStatuses.value.filter((item) => item.id !== status.id)
-    MessagePlugin.success('事项状态已删除')
+    MessagePlugin.success('待办状态已删除')
   } catch (error) {
     console.error('[ServiceHub] Failed to delete reminder status:', error)
-    MessagePlugin.error('事项状态删除失败')
+    MessagePlugin.error('待办状态删除失败')
   }
 }
 

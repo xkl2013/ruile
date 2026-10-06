@@ -1,6 +1,8 @@
-import { marked } from 'marked'
-
-import { sanitizeHTML, sanitizeMarkdownHTML, safeMarkdownToHTML } from '@/utils/security'
+import {
+  decodeBasicEntities,
+  htmlToReadableText,
+  renderOrganizeMarkdown,
+} from './organizeMarkdown'
 
 export interface SproutReportPreviewSection {
   number: string
@@ -16,34 +18,6 @@ export interface SproutReportPreview {
 }
 
 const GENERIC_REPORT_TITLES = new Set(['发芽报告', '发芽记录'])
-let markedConfigured = false
-
-const configureMarked = () => {
-  if (markedConfigured) return
-  marked.use({ gfm: true, breaks: true })
-  markedConfigured = true
-}
-
-const decodeBasicEntities = (value: string) => value
-  .replace(/&#39;/g, "'")
-  .replace(/&#x27;/gi, "'")
-  .replace(/&apos;/g, "'")
-  .replace(/&#34;/g, '"')
-  .replace(/&#x22;/gi, '"')
-  .replace(/&quot;/g, '"')
-  .replace(/&lt;/g, '<')
-  .replace(/&gt;/g, '>')
-  .replace(/&amp;/g, '&')
-
-const htmlToReadableText = (value: string) => {
-  if (!/<[a-z][\s\S]*>/i.test(value)) return value
-  return decodeBasicEntities(value)
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|section|article|li|blockquote)>/gi, '\n')
-    .replace(/<h([1-6])[^>]*>/gi, (_match, level) => `\n${'#'.repeat(Number(level))} `)
-    .replace(/<\/h[1-6]>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-}
 
 const stripMarkdownMarkers = (value: string) => decodeBasicEntities(value)
   .replace(/!\[[^\]]*]\([^)]*\)/g, '')
@@ -54,17 +28,6 @@ const stripMarkdownMarkers = (value: string) => decodeBasicEntities(value)
   .replace(/^\s*[-*+]\s+/gm, '')
   .replace(/\s+/g, ' ')
   .trim()
-
-const isHtmlDocument = (value: string) => /<\/?(h[1-6]|p|ul|ol|li|blockquote|div|table|article|section|br)\b/i.test(value)
-
-const isMarkdownLike = (value: string) => {
-  const text = htmlToReadableText(value)
-  return /^#{1,6}\s+\S/m.test(text)
-    || /^>\s+\S/m.test(text)
-    || /^\s*[-*+]\s+\S/m.test(text)
-    || /^\s*\d+[.、]\s+\S/m.test(text)
-    || /\*\*[^*]+\*\*/.test(text)
-}
 
 export const normalizeSproutMarkdownSource = (value = '') => {
   const readable = htmlToReadableText(value)
@@ -80,17 +43,7 @@ export const normalizeSproutMarkdownSource = (value = '') => {
 }
 
 export const renderSproutReportHtml = (value = '') => {
-  const source = value.trim()
-  if (!source) return ''
-
-  if (isHtmlDocument(source) && !isMarkdownLike(source)) {
-    return sanitizeHTML(source)
-  }
-
-  configureMarked()
-  const markdown = normalizeSproutMarkdownSource(source)
-  const html = marked.parse(safeMarkdownToHTML(markdown), { gfm: true, breaks: true, async: false }) as string
-  return sanitizeMarkdownHTML(html)
+  return renderOrganizeMarkdown(value, { normalize: normalizeSproutMarkdownSource })
 }
 
 export const sproutReportContentForEditor = (value = '') => stripSproutReportHeading(renderSproutReportHtml(value))

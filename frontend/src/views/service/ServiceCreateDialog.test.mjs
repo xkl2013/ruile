@@ -87,8 +87,8 @@ test('service workspace exposes service-scoped reminders and status actions', ()
   assert.match(hub, /updateServiceReminder/)
   assert.match(hub, /deleteServiceReminder/)
   assert.match(hub, /nextReminderStatuses/)
-  assert.match(hub, /服务事项/)
-  assert.match(hub, /事项已创建/)
+  assert.match(hub, /服务待办/)
+  assert.match(hub, /待办已创建/)
 })
 
 test('market research template covers the full research-to-review workflow', () => {
@@ -107,6 +107,6 @@ test('early childhood membership template covers member lifecycle service', () =
   assert.match(hubState, /课程预约与调整/)
   assert.match(hubState, /权益与使用/)
   assert.match(hubState, /投诉与负面反馈/)
-  assert.match(hubState, /儿童健康或安全相关事项/)
+  assert.match(hubState, /儿童健康或安全相关情形/)
   assert.match(hubState, /续费风险/)
 })

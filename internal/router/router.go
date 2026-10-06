@@ -89,6 +89,7 @@ type RouterParams struct {
 	ExpertPackageHandler         *handler.ExpertPackageHandler
 	UserFavoriteHandler          *handler.UserResourceFavoriteHandler
 	OrganizeHandler              *handler.OrganizeHandler
+	OrganizeAdminHandler         *handler.OrganizeAdminHandler
 	AgentRunHandler              *handler.AgentRunHandler
 	ServiceSpaceHandler          *handler.ServiceSpaceHandler
 	SkillHandler                 *handler.SkillHandler
@@ -269,6 +270,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterInitializationRoutes(v1, params.InitializationHandler, rbacGuards)
 		RegisterSystemRoutes(v1, params.SystemHandler, rbacGuards)
 		RegisterSystemAdminRoutes(v1, params.SystemHandler, params.AuditLogHandler, rbacGuards)
+		RegisterOrganizeAdminRoutes(v1, params.OrganizeAdminHandler, rbacGuards)
 		RegisterBillingRoutes(v1, params.BillingHandler, rbacGuards)
 		RegisterSystemBillingAdminRoutes(v1, params.BillingHandler, rbacGuards)
 		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler, params.MCPCredentialsHandler, params.MCPOAuthHandler, rbacGuards)
@@ -1201,6 +1203,35 @@ func RegisterSystemAdminRoutes(
 	}
 }
 
+// RegisterOrganizeAdminRoutes wires platform-wide organize template
+// governance. It is deliberately separate from the user-scoped organize
+// routes so the SystemAdmin policy is explicit at the route boundary.
+func RegisterOrganizeAdminRoutes(
+	r *gin.RouterGroup,
+	h *handler.OrganizeAdminHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	admin := r.Group("/system/admin/organize", g.SystemAdmin())
+	{
+		admin.GET("/templates", h.ListTemplates)
+		admin.POST("/templates", h.CreateTemplate)
+		admin.GET("/templates/:key", h.GetTemplate)
+		admin.PUT("/templates/:key", h.UpdateTemplate)
+		admin.POST("/templates/:key/preview", h.PreviewTemplate)
+		admin.POST("/templates/:key/publish", h.PublishTemplate)
+		admin.POST("/templates/:key/disable", h.DisableTemplate)
+		admin.GET("/templates/:key/versions", h.ListVersions)
+		admin.POST("/templates/:key/rollback", h.RollbackTemplate)
+		admin.GET("/discover-categories", h.ListDiscoverCategories)
+		admin.POST("/discover-categories", h.CreateDiscoverCategory)
+		admin.PUT("/discover-categories/:key", h.UpdateDiscoverCategory)
+		admin.POST("/discover-categories/:key/disable", h.DisableDiscoverCategory)
+	}
+}
+
 func RegisterMCPServiceRoutes(
 	r *gin.RouterGroup,
 	handler *handler.MCPServiceHandler,
@@ -1461,6 +1492,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 	{
 		org.GET("/overview", g.Viewer(), h.GetOverview)
 		org.GET("/discover", g.Viewer(), h.GetDiscover)
+		org.GET("/discover/categories", g.Viewer(), h.ListDiscoverCategories)
 		org.GET("/courses", g.Viewer(), h.ListCourses)
 		org.GET("/courses/:id", g.Viewer(), h.GetCourse)
 		org.GET("/courses/:id/cover", g.Viewer(), h.GetCourseCover)
@@ -1484,6 +1516,8 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 
 		org.GET("/jobs", g.Viewer(), h.ListJobs)
 		org.POST("/jobs", g.Viewer(), h.CreateJob)
+		org.POST("/requirements/preview", g.Viewer(), h.PreviewOrganizeRequirement)
+		org.POST("/requirements/confirm", g.Viewer(), h.ConfirmOrganizeRequirement)
 		org.GET("/jobs/:id", g.Viewer(), h.GetJob)
 		org.GET("/jobs/:id/events", g.Viewer(), h.StreamJobEvents)
 		org.POST("/jobs/:id/retry", g.Viewer(), h.RetryJob)
@@ -1498,10 +1532,12 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 		org.DELETE("/memories/:id", g.Viewer(), h.DeleteMemory)
 
 		org.GET("/outputs", g.Viewer(), h.ListOutputs)
+		org.GET("/outputs/facets", g.Viewer(), h.ListOutputFacets)
 		org.GET("/assignments/pending", g.Viewer(), h.ListPendingAssignments)
 		org.POST("/outputs", g.Viewer(), h.CreateOutput)
 		org.POST("/outputs/upload", g.Viewer(), h.UploadOutput)
 		org.GET("/outputs/:id", g.Viewer(), h.GetOutput)
+		org.GET("/outputs/:id/citation", g.Viewer(), h.GetOutputCitation)
 		org.POST("/outputs/:id/assign", g.Viewer(), h.AssignOutputToService)
 		org.PUT("/outputs/:id", g.Viewer(), h.UpdateOutput)
 		org.DELETE("/outputs/:id", g.Viewer(), h.DeleteOutput)

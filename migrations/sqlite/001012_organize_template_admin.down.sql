@@ -1,0 +1,3 @@
+-- SQLite does not support DROP COLUMN consistently across supported versions.
+-- The forward migration is additive and the application does not roll back
+-- SQLite schema columns in place.

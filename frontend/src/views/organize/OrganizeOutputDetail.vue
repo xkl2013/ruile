@@ -54,7 +54,7 @@
           </button>
         </div>
 
-        <div class="organize-output-document-body markdown-content" v-html="outputHtml" />
+        <OrganizeMarkdownRenderer :content="output.content" profile="report" />
       </article>
     </main>
 
@@ -128,6 +128,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
   assignOrganizeOutputToService,
+  getOrganizeOutputCitation,
   getOrganizeOutput,
   listOrganizeTemplates,
 } from '@/api/organize'
@@ -137,14 +138,13 @@ import {
   toOrganizeTemplate,
   type OrganizeOutput,
 } from './organizeWorkbenchState'
-import { renderSproutReportHtml } from './sproutReport'
+import OrganizeMarkdownRenderer from './components/OrganizeMarkdownRenderer.vue'
 
 const route = useRoute()
 const router = useRouter()
 const output = ref<OrganizeOutput | null>(null)
 const loading = ref(true)
 const fromConfig = computed(() => route.query.from === 'config')
-const outputHtml = computed(() => renderSproutReportHtml(output.value?.content || ''))
 const serviceDialogVisible = ref(false)
 const serviceLoading = ref(false)
 const serviceImporting = ref(false)
@@ -184,11 +184,24 @@ const close = async () => {
   await router.push('/platform/organize/mine')
 }
 
-const showCitation = (citationId: string) => {
+const showCitation = async (citationId: string) => {
   const citation = output.value?.citations.find((item) => item.id === citationId)
-  if (!citation) return
-  const source = citation.source ? ` · ${citation.source}` : ''
-  MessagePlugin.info(`${citation.label} · ${citation.title}${source}`)
+  if (!citation || !output.value) return
+  try {
+    const response = await getOrganizeOutputCitation(output.value.id, citationId)
+    if (response.data?.missing || !response.data?.memory) {
+      MessagePlugin.warning('引用来源已不存在，无法打开原始记忆')
+      return
+    }
+    const memory = response.data.memory
+    const documentType = memory.kind === 'audio_card' ? 'audio-card' : memory.kind || 'note'
+    await router.push({
+      path: `/platform/organize/editor/${encodeURIComponent(documentType)}/${encodeURIComponent(memory.id)}`,
+      query: { from: 'output', output: output.value.id },
+    })
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '打开引用来源失败')
+  }
 }
 
 const loadServices = async () => {
@@ -259,8 +272,6 @@ watch(
 </script>
 
 <style scoped lang="less">
-@import '../../components/css/chat-markdown.less';
-
 .organize-product-page {
   display: flex;
   height: 100%;
@@ -494,11 +505,6 @@ watch(
   flex-wrap: wrap;
   gap: 8px;
   padding: 4px 0 14px;
-}
-
-.organize-output-document-body {
-  padding-top: 8px;
-  .chat-markdown-typography();
 }
 
 .organize-citation {

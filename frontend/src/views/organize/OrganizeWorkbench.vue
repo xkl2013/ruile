@@ -18,6 +18,10 @@
           <template #icon><t-icon name="add" /></template>
           新建整理
         </t-button>
+        <t-button variant="outline" class="organize-requirement-button" @click="openRequirementDialog">
+          <template #icon><t-icon name="edit-1" /></template>
+          按要求整理
+        </t-button>
       </div>
 
       <div v-if="runningCount" class="organize-running-banner">
@@ -181,18 +185,84 @@
       :config="editingConfig"
       @saved="handleConfigSaved"
     />
+
+    <t-dialog
+      v-model:visible="requirementVisible"
+      header="按要求整理"
+      width="680px"
+      destroy-on-close
+    >
+      <t-form :data="requirementForm" label-align="top">
+        <t-form-item label="使用配置">
+          <t-select v-model="requirementForm.config_id" placeholder="选择一个已有整理配置">
+            <t-option
+              v-for="config in configs"
+              :key="config.id"
+              :value="config.id"
+              :label="config.name"
+            />
+          </t-select>
+        </t-form-item>
+        <t-form-item label="本次整理要求">
+          <t-textarea
+            v-model="requirementForm.text"
+            :autosize="{ minRows: 5, maxRows: 9 }"
+            placeholder="例如：只提取和家长沟通相关的待跟进事项，并按紧急程度排序"
+          />
+        </t-form-item>
+      </t-form>
+
+      <div v-if="requirementPreview" class="organize-requirement-preview">
+        <div class="organize-requirement-preview__head">
+          <strong>执行预览</strong>
+          <span>{{ requirementPreview.template_name }} · {{ requirementPreview.scene || '未分类场景' }}</span>
+        </div>
+        <p>{{ requirementPreview.normalized_text }}</p>
+        <t-alert
+          v-if="requirementPreview.ambiguities?.length"
+          theme="warning"
+          :message="requirementPreview.ambiguities?.join('；') || ''"
+        />
+        <div v-if="requirementPreview.suggestions?.length" class="organize-requirement-suggestions">
+          建议模板：{{ requirementPreview.suggestions?.join('、') }}
+        </div>
+        <t-checkbox v-if="requirementPreview.need_confirmation" v-model="requirementConfirmed">
+          我确认按以上模板和范围执行
+        </t-checkbox>
+      </div>
+
+      <template #footer>
+        <div class="organize-requirement-footer">
+          <t-button variant="outline" :loading="requirementPreviewing" @click="previewRequirement">
+            生成预览
+          </t-button>
+          <t-button variant="text" @click="requirementVisible = false">取消</t-button>
+          <t-button
+            theme="primary"
+            :loading="requirementConfirming"
+            :disabled="!requirementPreview || (requirementPreview.need_confirmation && !requirementConfirmed)"
+            @click="confirmRequirement"
+          >
+            {{ requirementPreview?.need_confirmation ? '确认并开始' : '开始整理' }}
+          </t-button>
+        </div>
+      </template>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  confirmOrganizeRequirement,
   deleteOrganizeConfig,
   listOrganizePendingAssignments,
   listOrganizeConfigs,
   listOrganizeTemplates,
+  previewOrganizeRequirement,
+  type OrganizeRequirementPreview,
 } from '@/api/organize'
 import OrganizeConfigDialog from './components/OrganizeConfigDialog.vue'
 import {
@@ -221,6 +291,15 @@ const sortMode = ref<SortMode>('time')
 const dialogVisible = ref(false)
 const dialogTemplateKey = ref('')
 const editingConfig = ref<OrganizeConfig | null>(null)
+const requirementVisible = ref(false)
+const requirementPreviewing = ref(false)
+const requirementConfirming = ref(false)
+const requirementConfirmed = ref(false)
+const requirementPreview = ref<OrganizeRequirementPreview | null>(null)
+const requirementForm = reactive({
+  config_id: '',
+  text: '',
+})
 const handledQuery = ref('')
 const configs = ref<OrganizeConfig[]>([])
 const organizeTemplates = ref<OrganizeTemplate[]>([])
@@ -302,6 +381,67 @@ const openCreateDialog = (templateKey = '') => {
   editingConfig.value = null
   dialogTemplateKey.value = templateKey
   dialogVisible.value = true
+}
+
+const openRequirementDialog = () => {
+  if (!configs.value.length) {
+    MessagePlugin.warning('请先创建一个整理配置')
+    return
+  }
+  requirementForm.config_id = configs.value[0].id
+  requirementForm.text = ''
+  requirementPreview.value = null
+  requirementConfirmed.value = false
+  requirementVisible.value = true
+}
+
+const previewRequirement = async () => {
+  if (!requirementForm.config_id || !requirementForm.text.trim()) {
+    MessagePlugin.warning('请选择整理配置并填写本次整理要求')
+    return
+  }
+  requirementPreviewing.value = true
+  try {
+    const response = await previewOrganizeRequirement({
+      config_id: requirementForm.config_id,
+      text: requirementForm.text.trim(),
+    })
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '整理要求预览失败')
+    }
+    requirementPreview.value = response.data
+    requirementConfirmed.value = !response.data.need_confirmation
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '整理要求预览失败')
+  } finally {
+    requirementPreviewing.value = false
+  }
+}
+
+const confirmRequirement = async () => {
+  if (!requirementPreview.value) {
+    await previewRequirement()
+    if (!requirementPreview.value) return
+  }
+  requirementConfirming.value = true
+  try {
+    const response = await confirmOrganizeRequirement({
+      config_id: requirementForm.config_id,
+      text: requirementForm.text.trim(),
+      confirmed: requirementConfirmed.value,
+    })
+    if (!response.success || !response.data) {
+      throw new Error(response.message || '整理任务创建失败')
+    }
+    requirementVisible.value = false
+    MessagePlugin.success('整理任务已创建')
+    await loadWorkbench()
+    await router.push(`/platform/organize/configs/${encodeURIComponent(response.data.config_id)}`)
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '整理任务创建失败')
+  } finally {
+    requirementConfirming.value = false
+  }
 }
 
 const openEditDialog = (config: OrganizeConfig) => {
@@ -541,6 +681,9 @@ watch(dialogVisible, (visible) => {
 }
 
 .organize-create-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 24px;
 }
 
@@ -552,6 +695,48 @@ watch(dialogVisible, (visible) => {
 
 .organize-primary-button:hover {
   background: var(--td-brand-color-hover);
+}
+
+.organize-requirement-button {
+  color: var(--organize-text);
+}
+
+.organize-requirement-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--organize-border);
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.organize-requirement-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.organize-requirement-preview__head span,
+.organize-requirement-suggestions {
+  color: var(--organize-secondary);
+  font-size: 12px;
+}
+
+.organize-requirement-preview p {
+  margin: 0;
+  color: var(--organize-text);
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.organize-requirement-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
 }
 
 .organize-running-banner {

@@ -323,8 +323,28 @@ type OrganizeListQuery struct {
 	AssignmentStatus string
 	Stage            string
 	MemoryID         string
+	TemplateKey      string
+	Scene            string
+	FieldFilters     map[string]string
+	SortBy           string
+	SortOrder        string
 	Page             int
 	PageSize         int
+}
+
+type OrganizeOutputFacet struct {
+	Key    string               `json:"key"`
+	Label  string               `json:"label"`
+	Values []OrganizeFacetValue `json:"values"`
+}
+
+type OrganizeFacetValue struct {
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+
+type OrganizeOutputFacets struct {
+	Fields []OrganizeOutputFacet `json:"fields"`
 }
 
 type OrganizePublicContentQuery struct {

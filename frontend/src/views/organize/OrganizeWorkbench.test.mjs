@@ -132,3 +132,9 @@ test('organize workbench no longer contains session mock data', () => {
   assert.ok(outputListSource.includes('listOrganizeOutputs'))
   assert.ok(outputDetailSource.includes('getOrganizeOutput'))
 })
+
+test('historical outputs without template metadata remain readable', () => {
+  assert.ok(stateSource.includes("templateName: output.template_key"))
+  assert.ok(stateSource.includes(": '历史内容'"))
+  assert.ok(outputDetailSource.includes(':content="output.content"'))
+})

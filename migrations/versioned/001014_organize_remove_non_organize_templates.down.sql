@@ -1,0 +1,3 @@
+-- The removed recipes are intentionally not restored on rollback. They are
+-- outside the organize-template domain and are now defined by their owning
+-- processing modules.

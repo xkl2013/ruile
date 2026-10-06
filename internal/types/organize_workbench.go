@@ -64,10 +64,14 @@ type OrganizeTemplate struct {
 	OutputLabel        string         `json:"output_label" gorm:"type:varchar(128);not null;default:''"`
 	Icon               string         `json:"icon" gorm:"type:varchar(64);not null;default:''"`
 	DefaultInstruction string         `json:"default_instruction" gorm:"type:text;not null;default:''"`
+	MarkdownTemplate   string         `json:"markdown_template" gorm:"type:text;not null;default:''"`
 	ExpertIDs          StringArray    `json:"expert_ids" gorm:"type:jsonb;not null;default:'[]'"`
 	Spec               JSONMap        `json:"spec" gorm:"type:jsonb;not null;default:'{}'"`
 	Status             string         `json:"status" gorm:"type:varchar(32);not null;default:'draft';index"`
 	PublishedVersion   string         `json:"published_version" gorm:"type:varchar(32);not null;default:''"`
+	PublishedAt        *time.Time     `json:"published_at,omitempty"`
+	PublishedBy        string         `json:"published_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	ValidationResult   JSONMap        `json:"validation_result,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
 	SortOrder          int            `json:"sort_order" gorm:"not null;default:0"`
 	CreatedAt          time.Time      `json:"created_at"`
 	UpdatedAt          time.Time      `json:"updated_at"`
@@ -92,7 +96,21 @@ func (t *OrganizeTemplate) BeforeCreate(_ *gorm.DB) error {
 	if t.Spec == nil {
 		t.Spec = JSONMap{}
 	}
+	if t.ValidationResult == nil {
+		t.ValidationResult = JSONMap{}
+	}
 	return nil
+}
+
+// IsOrganizeInternalTemplateKey identifies recipes used by ingestion and
+// upload pipelines rather than user-created organize configurations.
+func IsOrganizeInternalTemplateKey(key string) bool {
+	switch key {
+	case "note_import_meta", "note_audio_transcribe", "output_card_meta":
+		return true
+	default:
+		return false
+	}
 }
 
 // OrganizeTemplateVersion stores the immutable snapshot used by a job.
@@ -103,6 +121,7 @@ type OrganizeTemplateVersion struct {
 	Version     string    `json:"version" gorm:"type:varchar(32);not null"`
 	Snapshot    JSONMap   `json:"snapshot" gorm:"type:jsonb;not null;default:'{}'"`
 	CreatedBy   string    `json:"created_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	ChangeNote  string    `json:"change_note,omitempty" gorm:"type:text;not null;default:''"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -239,6 +258,49 @@ type OrganizeJobQuery struct {
 	PageSize int
 }
 
+type OrganizeTemplateAdminQuery struct {
+	Keyword  string
+	Scene    string
+	Status   string
+	Page     int
+	PageSize int
+}
+
+type OrganizeTemplateAdminInput struct {
+	Key                string      `json:"key"`
+	Name               string      `json:"name"`
+	Scene              string      `json:"scene"`
+	Description        string      `json:"description"`
+	OutputLabel        string      `json:"output_label"`
+	Icon               string      `json:"icon"`
+	DefaultInstruction string      `json:"default_instruction"`
+	MarkdownTemplate   string      `json:"markdown_template"`
+	ExpertIDs          StringArray `json:"expert_ids"`
+	Spec               JSONMap     `json:"spec"`
+	SortOrder          int         `json:"sort_order"`
+	ChangeNote         string      `json:"change_note"`
+}
+
+type OrganizeTemplatePreviewInput struct {
+	MemoryIDs []string `json:"memory_ids"`
+	Variables JSONMap  `json:"variables"`
+}
+
+type OrganizeTemplatePreview struct {
+	TemplateKey      string   `json:"template_key"`
+	Version          string   `json:"version"`
+	Prompt           string   `json:"prompt"`
+	MarkdownTemplate string   `json:"markdown_template"`
+	Spec             JSONMap  `json:"spec"`
+	Errors           []string `json:"errors"`
+}
+
+type OrganizeTemplateVersionQuery struct {
+	TemplateKey string
+	Page        int
+	PageSize    int
+}
+
 type OrganizeConfigInput struct {
 	Name            string      `json:"name"`
 	TemplateKey     string      `json:"template_key"`
@@ -255,6 +317,28 @@ type OrganizeJobInput struct {
 	ModelID      string      `json:"model_id,omitempty"`
 	Requirement  string      `json:"requirement,omitempty"`
 	AllowPartial bool        `json:"allow_partial,omitempty"`
+}
+
+type OrganizeRequirementInput struct {
+	ConfigID     string      `json:"config_id"`
+	TemplateKey  string      `json:"template_key,omitempty"`
+	Text         string      `json:"text"`
+	MemoryIDs    StringArray `json:"memory_ids,omitempty"`
+	ModelID      string      `json:"model_id,omitempty"`
+	AllowPartial bool        `json:"allow_partial,omitempty"`
+	Confirmed    bool        `json:"confirmed,omitempty"`
+}
+
+type OrganizeRequirementPreview struct {
+	ConfigID         string      `json:"config_id"`
+	TemplateKey      string      `json:"template_key"`
+	TemplateName     string      `json:"template_name"`
+	Scene            string      `json:"scene"`
+	NormalizedText   string      `json:"normalized_text"`
+	MemoryIDs        StringArray `json:"memory_ids,omitempty"`
+	Ambiguities      []string    `json:"ambiguities,omitempty"`
+	Suggestions      []string    `json:"suggestions,omitempty"`
+	NeedConfirmation bool        `json:"need_confirmation"`
 }
 
 type OrganizeJobTaskPayload struct {

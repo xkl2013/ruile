@@ -1,0 +1,22 @@
+{
+  "note_import_meta": {
+    "input": "baseline-note",
+    "expected_keys": ["title", "summary", "tags"],
+    "format": "json"
+  },
+  "note_audio_transcribe": {
+    "input": "baseline-audio",
+    "expected_keys": ["title", "summary", "tags", "note_markdown"],
+    "format": "json"
+  },
+  "output_card_meta": {
+    "input": "baseline-multi-attachment",
+    "expected_keys": ["title", "summary", "tags"],
+    "format": "json"
+  },
+  "sprout_review": {
+    "input": "baseline-note",
+    "expected_keys": ["title", "summary", "output_hint", "chips", "stage"],
+    "format": "markdown"
+  }
+}

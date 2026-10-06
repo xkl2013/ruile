@@ -1,0 +1,1449 @@
+<!DOCTYPE html>
+<html lang="zh-CN" theme-mode="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>服务模块优化原型 · 睿乐大脑</title>
+<style>
+  :root{
+    --app-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --brand:#07c05f; --brand-hover:#08dd6e; --brand-active:#06b04d;
+    --brand-1:#e9f8ec; --brand-3:#08dd6e; --brand-6:#049b38; --brand-8:#027218;
+    --warn:#ed7b2f; --warn-1:#fef3e6;
+    --error:#e34d59; --error-1:#fdecee;
+    --success:#00a870; --success-1:#e8f8f2;
+    --info:#2f7de1; --info-1:#eaf1ff;
+    --g1:#f3f3f3; --g2:#eee; --g3:#e7e7e7; --g4:#dcdcdc; --g5:#c5c5c5;
+    --g6:#a6a6a6; --g7:#8b8b8b; --g9:#5e5e5e; --g12:#2c2c2c;
+    --t1:rgba(0,0,0,.9); --t2:rgba(0,0,0,.6); --t3:rgba(0,0,0,.4); --t4:rgba(0,0,0,.26);
+    --bg-page:#f3f5f4; --bg-card:#fff; --bd:#e7e7e7; --bd2:#dcdcdc;
+    --r-s:2px; --r:3px; --r-m:6px; --r-l:9px; --r-xl:12px; --r-round:999px;
+    --sh1:0 1px 10px rgba(0,0,0,.05),0 4px 5px rgba(0,0,0,.04),0 2px 4px -1px rgba(0,0,0,.06);
+    --sh2:0 3px 14px 2px rgba(0,0,0,.05),0 8px 10px 1px rgba(0,0,0,.04);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--app-font-family);background:var(--bg-page);color:var(--t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0}
+  input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:var(--g4);border-radius:var(--r-round)}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* ── 原型外壳 ───────────────────────────────────────── */
+  .app{display:flex;height:100vh;overflow:hidden}
+  .rail{width:238px;flex:0 0 238px;background:#fbfcfb;border-right:1px solid var(--bd);display:flex;flex-direction:column}
+  .rail-head{padding:18px 18px 14px}
+  .rail-title{font-size:15px;font-weight:600;letter-spacing:.2px}
+  .rail-sub{font-size:12px;color:var(--t3);margin-top:4px;line-height:1.6}
+  .rail-group{padding:6px 10px;overflow-y:auto;flex:1}
+  .rail-label{font-size:11px;color:var(--t4);padding:12px 8px 6px;letter-spacing:.6px}
+  .rail-btn{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:var(--r-m);color:var(--t2);text-align:left;line-height:1.35;transition:background .14s,color .14s;margin-bottom:2px}
+  .rail-btn:hover{background:var(--g1);color:var(--t1)}
+  .rail-btn.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .rail-btn .idx{width:19px;height:19px;flex:0 0 19px;border-radius:var(--r-round);background:var(--g3);color:var(--g7);font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:600}
+  .rail-btn.on .idx{background:var(--brand);color:#fff}
+  .rail-btn .lb{font-size:13px}
+  .rail-note{margin:10px 10px 0;padding:9px 11px;border-radius:var(--r-l);background:var(--warn-1);color:#8a4a12;font-size:11.5px;line-height:1.65}
+  .rail-note b{display:block;font-size:12px;margin-bottom:3px;color:#6f3a08}
+  .rail-foot{padding:12px 18px 16px;border-top:1px solid var(--bd);font-size:11px;color:var(--t4);line-height:1.7}
+
+  .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-page)}
+  .bar{display:flex;align-items:center;gap:12px;padding:11px 22px;background:var(--bg-card);border-bottom:1px solid var(--bd);flex-wrap:wrap;min-height:56px}
+  .bar h1{margin:0;font-size:16px;font-weight:600}
+  .bar .path{font-size:11.5px;color:var(--t3);font-family:ui-monospace,Menlo,monospace;background:var(--g1);padding:3px 8px;border-radius:var(--r)}
+  .verstamp{font-size:11px;font-family:ui-monospace,Menlo,monospace;color:var(--brand-6);background:var(--brand-1);border:1px solid #b9e8c9;padding:2px 7px;border-radius:var(--r-round);cursor:help}
+  .bar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .scroll{flex:1;overflow-y:auto;padding:18px 22px 60px}
+  .canvas{max-width:1180px;margin:0 auto}
+  .canvas.bleed{max-width:none}
+
+  /* ── 通用控件 ───────────────────────────────────────── */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 15px;border-radius:var(--r-m);border:1px solid var(--bd2);background:#fff;color:var(--t1);font-size:13px;transition:all .14s;white-space:nowrap}
+  .btn:hover{border-color:var(--brand);color:var(--brand-6)}
+  .btn.pri{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+  .btn.pri:hover{background:var(--brand-active);border-color:var(--brand-active);color:#fff}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--t2)}
+  .btn.ghost:hover{background:var(--g1);color:var(--t1)}
+  .btn.sm{height:27px;padding:0 11px;font-size:12px}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .tag{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:var(--r);font-size:11px;background:var(--g1);color:var(--t2);white-space:nowrap}
+  .tag.brand{background:var(--brand-1);color:var(--brand-6)}
+  .tag.warn{background:var(--warn-1);color:#b25f14}
+  .tag.info{background:var(--info-1);color:#2258a8}
+  .tag.err{background:var(--error-1);color:#b03442}
+  .chip{height:28px;padding:0 13px;border-radius:var(--r-round);border:1px solid var(--bd2);background:#fff;font-size:12px;color:var(--t2);transition:all .14s}
+  .chip:hover{border-color:var(--brand);color:var(--brand-6)}
+  .chip.on{background:var(--brand-1);border-color:var(--brand);color:var(--brand-6);font-weight:600}
+  .field{height:32px;padding:0 11px;border:1px solid var(--bd2);border-radius:var(--r-m);background:#fff;width:100%;outline:none;transition:border-color .14s}
+  .field:focus{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-1)}
+  .field::placeholder{color:var(--t4)}
+  textarea.field{height:auto;padding:9px 11px;resize:vertical;line-height:1.6}
+  .lbl{font-size:12px;color:var(--t2);margin-bottom:6px;display:block}
+  .lbl .req{color:var(--error);margin-left:3px}
+  .lbl .opt{color:var(--t4);font-size:11px;margin-left:5px}
+  .hint{font-size:11.5px;color:var(--t3);line-height:1.65;margin-top:6px}
+  .muted{color:var(--t3)}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  .sec-title{font-size:13px;font-weight:600;margin:0 0 10px}
+  .card{background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-xl);box-shadow:var(--sh1)}
+  .note{border-radius:var(--r-l);padding:11px 14px;font-size:12.5px;line-height:1.7}
+  .note.brand{background:var(--brand-1);color:#155f36;border:1px solid #b9e8c9}
+  .note.warn{background:var(--warn-1);color:#8a4a12;border:1px solid #f5d3ae}
+  .note.gray{background:var(--g1);color:var(--t2);border:1px solid var(--bd)}
+  .note.err{background:var(--error-1);color:#8f2a36;border:1px solid #f6c8cd}
+  .note b{font-weight:600}
+
+  /* ── 产品外壳（侧栏 + 主区） ─────────────────────────── */
+  .product{display:flex;height:calc(100vh - 56px - 36px - 60px);min-height:620px;background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh1)}
+  .pside{width:236px;flex:0 0 236px;background:#fbfcfb;border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden}
+  .pside-brand{display:flex;align-items:center;gap:8px;padding:14px 16px 10px}
+  .pside-logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,var(--brand),var(--brand-6));display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700}
+  .pside-brandname{font-size:13.5px;font-weight:600}
+  .pside-nav{padding:2px 10px 12px;overflow-y:auto;flex:1}
+  .pnav{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r-m);color:var(--t2);font-size:13px}
+  .pnav:hover{background:var(--g1)}
+  .pnav.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .pnav .pi{width:16px;flex:0 0 16px;text-align:center;color:var(--t3)}
+  .pnav.on .pi{color:var(--brand-6)}
+  .pnav .chev{margin-left:auto;color:var(--t4);font-size:10px}
+  .psub{padding-left:4px}
+  .pservice{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r-m);color:var(--t2);font-size:12.5px}
+  .pservice:hover{background:var(--g1)}
+  .pservice.on{background:#eef6f1;color:var(--brand-6);font-weight:600}
+  .pservice .psi{width:14px;flex:0 0 14px;text-align:center;color:var(--t3)}
+  .pservice.on .psi{color:var(--brand-6)}
+  .pservice .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pservice .cnt{margin-left:auto;font-size:11px;color:var(--t4)}
+  .psessions{padding:1px 0 4px 22px}
+  .psess{display:flex;align-items:center;gap:6px;width:100%;padding:5px 8px;border-radius:var(--r);color:var(--t3);font-size:12px;text-align:left}
+  .psess:hover{background:var(--g1);color:var(--t1)}
+  .psess.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .psess .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .psess .pin{margin-left:auto;color:var(--brand);font-size:8px}
+  .psess-more{display:block;width:100%;padding:5px 8px;color:var(--t4);font-size:11.5px;text-align:left}
+  .psess-more:hover{color:var(--brand-6)}
+  .pmain{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-card)}
+
+  /* ── 服务头 ─────────────────────────────────────────── */
+  .sphead{display:flex;align-items:center;gap:10px;padding:0 16px;height:52px;border-bottom:1px solid var(--bd);flex:0 0 52px;position:relative;background:#fff}
+  .spback{width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:16px;line-height:1}
+  .spback:hover{background:var(--g1);color:var(--t1)}
+  .spico{width:22px;height:22px;flex:0 0 22px;border-radius:var(--r-m);background:var(--brand-1);color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:12px}
+  .spname{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
+  .sptype{font-size:11px;color:var(--t3);background:var(--g1);padding:2px 7px;border-radius:var(--r);white-space:nowrap}
+  .spstate{font-size:11px;padding:2px 7px;border-radius:var(--r);background:var(--warn-1);color:#b25f14;white-space:nowrap}
+  .spactions{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .hbtn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:var(--r-m);border:1px solid transparent;color:var(--t2);font-size:12.5px;transition:all .14s}
+  .hbtn:hover{background:var(--g1);color:var(--t1)}
+  .hbtn.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .hbtn .ci{font-size:13px}
+  .hbtn em{font-style:normal;font-size:11px;min-width:16px;height:16px;padding:0 4px;border-radius:var(--r-round);background:var(--g2);color:var(--t2);display:inline-flex;align-items:center;justify-content:center}
+  .hbtn.on em{background:var(--brand);color:#fff}
+  .cbtn{width:30px;height:30px;flex:0 0 30px;border-radius:var(--r-round);border:1px solid var(--bd2);background:#fff;color:var(--t2);display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;transition:all .14s}
+  .cbtn:hover{border-color:var(--brand);color:var(--brand-6)}
+  .morewrap{position:relative}
+  .moremenu{position:absolute;right:0;top:36px;z-index:40;width:236px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-l);box-shadow:var(--sh2);padding:5px;font-size:13px}
+  .mi{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border-radius:var(--r-m);color:var(--t1);text-align:left}
+  .mi:hover{background:var(--g1)}
+  .mi .mx{margin-left:auto;color:var(--t4);font-size:11px}
+  .msep{height:1px;background:var(--bd);margin:5px 6px}
+  .mgroup{font-size:10.5px;color:var(--t4);padding:7px 10px 3px;letter-spacing:.5px}
+  .mi.danger{color:var(--error)}
+  .mi.danger:hover{background:var(--error-1)}
+  .msub{background:#fbfcfb;border:1px solid var(--bd);border-radius:var(--r-m);margin:3px 0;overflow:hidden}
+
+  /* ── 对话区 ─────────────────────────────────────────── */
+  .workbench{flex:1;min-height:0;display:flex;position:relative}
+  .chatcol{flex:1;min-width:0;display:flex;flex-direction:column}
+  .chathead{display:flex;align-items:center;gap:9px;padding:10px 20px;border-bottom:1px solid var(--bd);flex:0 0 auto}
+  .chathead strong{font-size:13px;font-weight:600}
+  .chathead .expert{font-size:11px;color:var(--brand-6);background:var(--brand-1);padding:2px 7px;border-radius:var(--r)}
+  .chathead .time{margin-left:auto;font-size:11px;color:var(--t4)}
+  .chatbody{flex:1;min-height:0;overflow-y:auto;padding:20px 20px 12px}
+  .msg{max-width:720px;margin:0 auto 18px}
+  .msg.me{display:flex;justify-content:flex-end}
+  .msg.me .bubble{background:var(--brand-1);color:var(--t1);border-radius:var(--r-l) var(--r-l) var(--r-s) var(--r-l);padding:10px 14px;max-width:76%;line-height:1.72;font-size:13.5px}
+  .msg.ai .who{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .msg.ai .who b{font-size:12.5px}
+  .msg.ai .who .done{font-size:11px;color:var(--success);background:var(--success-1);padding:1px 7px;border-radius:var(--r)}
+  .steps{border:1px solid var(--bd);border-radius:var(--r-m);background:#fbfcfb;margin-bottom:9px}
+  .steps summary{padding:7px 11px;font-size:11.5px;color:var(--t2);cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px}
+  .steps summary::-webkit-details-marker{display:none}
+  .steps .st{padding:0 11px 9px 26px;font-size:11.5px;color:var(--t3);line-height:1.9}
+  .aitext{font-size:13.5px;line-height:1.78;color:var(--t1)}
+  .aitext p{margin:0 0 9px}
+  .artcard{display:flex;align-items:center;gap:11px;border:1px solid var(--bd);border-radius:var(--r-l);background:#fff;padding:11px 13px;margin-top:10px;cursor:pointer;transition:all .14s;box-shadow:var(--sh1)}
+  .artcard:hover{border-color:var(--brand);box-shadow:var(--sh2)}
+  .artcard .ico{width:34px;height:34px;flex:0 0 34px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;background:var(--success)}
+  .artcard .ico.xlsx{background:var(--success)}
+  .artcard .ico.md{background:var(--info)}
+  .artcard .ico.pdf{background:var(--error)}
+  .artcard .t{font-size:13px;font-weight:600}
+  .artcard .m{font-size:11.5px;color:var(--t3);margin-top:2px}
+  .artcard .go{margin-left:auto;font-size:11.5px;color:var(--brand-6)}
+  .msgfoot{display:flex;gap:16px;margin-top:9px;font-size:11.5px;color:var(--t3)}
+  .msgfoot button:hover{color:var(--brand-6)}
+  .composer{flex:0 0 auto;padding:0 20px 18px}
+  .composer-inner{max-width:720px;margin:0 auto}
+  .box{border:1px solid var(--bd2);border-radius:var(--r-xl);background:#fff;box-shadow:var(--sh1);transition:border-color .14s}
+  .box:focus-within{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-1)}
+  .box textarea{width:100%;border:none;outline:none;padding:12px 14px 4px;resize:none;font-size:13.5px;line-height:1.7;background:none;display:block;height:56px}
+  .box textarea::placeholder{color:var(--t4)}
+  .boxfoot{display:flex;align-items:center;gap:8px;padding:6px 9px 9px 12px}
+  .boxfoot .spacer{flex:1}
+  .expick{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 6px 0 9px;border-radius:var(--r-round);border:1px solid var(--bd2);font-size:12px;color:var(--t2);background:#fff}
+  .expick:hover{border-color:var(--brand);color:var(--brand-6)}
+  .expick .av{width:16px;height:16px;border-radius:var(--r-round);background:var(--brand-1);color:var(--brand-6);font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .expick .cw{color:var(--t4);font-size:9px}
+  .sendbtn{width:32px;height:32px;border-radius:var(--r-round);background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .suggest{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .suggest button{height:28px;padding:0 12px;border-radius:var(--r-round);border:1px dashed var(--bd2);color:var(--t2);font-size:12px;background:#fff}
+  .suggest button:hover{border-color:var(--brand);border-style:solid;color:var(--brand-6)}
+  .emptychat{max-width:720px;margin:0 auto;padding-top:34px;text-align:center}
+  .emptychat .ei{width:46px;height:46px;margin:0 auto 12px;border-radius:var(--r-round);background:var(--brand-1);color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:20px}
+  .emptychat h3{margin:0 0 6px;font-size:15px;font-weight:600}
+  .emptychat p{margin:0;font-size:12.5px;color:var(--t3);line-height:1.75}
+  .emptychat .suggest{justify-content:center;margin-top:14px}
+
+  /* ── 右侧浮层 ───────────────────────────────────────── */
+  .sidepanel{position:absolute;right:12px;top:0;bottom:78px;width:330px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);box-shadow:var(--sh2);display:flex;flex-direction:column;overflow:hidden;z-index:20}
+  .sp-head{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--bd);flex:0 0 auto}
+  .sp-head strong{font-size:13px;font-weight:600}
+  .sp-head .x{margin-left:auto;width:24px;height:24px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:13px}
+  .sp-head .x:hover{background:var(--g1);color:var(--t1)}
+  .sp-body{flex:1;min-height:0;overflow-y:auto;padding:12px}
+  .sp-tabs{display:flex;gap:6px;padding:0 12px 10px;border-bottom:1px solid var(--bd)}
+  .artitem{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:var(--r-l);border:1px solid transparent;text-align:left;transition:all .14s}
+  .artitem:hover{background:var(--g1)}
+  .artitem.on{background:var(--brand-1);border-color:#b9e8c9}
+  .artitem .ico{width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;background:var(--success)}
+  .artitem .ico.md{background:var(--info)}
+  .artitem .t{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .artitem .m{font-size:11px;color:var(--t4);margin-top:2px}
+  .artprev{border:1px solid var(--bd);border-radius:var(--r-l);overflow:hidden;margin-top:10px}
+  .artprev .ph{display:flex;align-items:center;gap:8px;padding:9px 11px;background:#fbfcfb;border-bottom:1px solid var(--bd);font-size:12px}
+  .artprev .pb{padding:11px;font-size:12px;line-height:1.85;color:var(--t2);font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap}
+  .artprev .pf{display:flex;gap:14px;padding:8px 11px;border-top:1px solid var(--bd);font-size:11.5px}
+  .artprev .pf a{color:var(--brand-6);text-decoration:none}
+  .rform{border:1px solid var(--bd);border-radius:var(--r-l);background:#fbfcfb;padding:11px;margin-bottom:12px}
+  .rform .row{display:flex;gap:8px;margin-top:8px}
+  .ritem{border:1px solid var(--bd);border-radius:var(--r-l);padding:10px 11px;margin-bottom:9px;background:#fff}
+  .rfoot{margin:12px 2px 4px;font-size:11px;color:var(--t3);line-height:1.7;border-top:1px dashed var(--bd2);padding-top:10px}
+  .rfoot b{color:var(--t2);font-weight:600}
+  .ritem .rh{display:flex;align-items:flex-start;gap:8px}
+  .ritem .rt{font-size:12.5px;font-weight:600;line-height:1.45}
+  .ritem .pr{font-size:10.5px;padding:1px 6px;border-radius:var(--r);background:var(--error-1);color:#b03442;white-space:nowrap}
+  .ritem .pr.mid{background:var(--warn-1);color:#b25f14}
+  .ritem .pr.low{background:var(--g1);color:var(--t2)}
+  .ritem .rm{display:flex;align-items:center;gap:12px;font-size:11px;color:var(--t3);margin-top:7px;flex-wrap:wrap}
+  .ritem .who{display:flex;align-items:center;gap:5px}
+  .ritem .av{width:18px;height:18px;border-radius:var(--r-round);background:var(--brand-1);color:var(--brand-6);font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .ritem .rf{display:flex;gap:8px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--bd)}
+  .tlbtn{font-size:11.5px;color:var(--brand-6);padding:3px 9px;border-radius:var(--r-round);border:1px solid #b9e8c9;background:var(--brand-1)}
+  .tlbtn:hover{background:#d8f2e0}
+  .collab{margin-top:10px;border-top:1px dashed var(--bd);padding-top:10px}
+  .cmt{display:flex;gap:8px;margin-bottom:9px}
+  .cmt .av{width:22px;height:22px;flex:0 0 22px;border-radius:var(--r-round);background:var(--g2);color:var(--t2);font-size:10px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .cmt .cb{font-size:12px;line-height:1.65;color:var(--t1)}
+  .cmt .cd{font-size:10.5px;color:var(--t4);margin-top:3px}
+  .empty{font-size:12px;color:var(--t3);text-align:center;padding:26px 12px;line-height:1.75}
+
+  /* ── 列表页 ─────────────────────────────────────────── */
+  .listhead{display:flex;align-items:flex-start;gap:16px;padding:22px 26px 16px}
+  .listhead h1{margin:0 0 5px;font-size:20px;font-weight:700;letter-spacing:.2px}
+  .listhead p{margin:0;font-size:12.5px;color:var(--t3)}
+  .listhead .act{margin-left:auto;flex:0 0 auto}
+  .listbody{padding:0 26px 30px}
+  .sechead{display:flex;align-items:center;gap:10px;margin:6px 0 13px}
+  .sechead .st{font-size:13.5px;font-weight:600}
+  .sechead .tools{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .search{display:flex;align-items:center;gap:7px;height:30px;padding:0 11px;border:1px solid var(--bd2);border-radius:var(--r-m);background:#fff;min-width:180px}
+  .search:focus-within{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-1)}
+  .search input{border:none;outline:none;background:none;flex:1;min-width:0;font-size:12.5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:14px}
+  .scard{background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);padding:15px 16px;box-shadow:var(--sh1);transition:all .16s;cursor:pointer;text-align:left;display:block;width:100%}
+  .scard:hover{border-color:var(--brand);box-shadow:var(--sh2);transform:translateY(-2px)}
+  .scard .top{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+  .scard .ic{width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-m);background:var(--brand-1);color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .scard .nm{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .scard .dots{margin-left:auto;color:var(--t4);font-size:13px;padding:0 3px}
+  .scard .tags{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+  .scard .desc{font-size:12.5px;color:var(--t2);line-height:1.65;min-height:38px;margin:0 0 11px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .scard .mt{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--t4);padding-top:10px;border-top:1px solid var(--bd)}
+  .tgroups{margin-top:22px}
+  .tgroup{margin-bottom:20px}
+  .tglabel{font-size:12px;color:var(--t3);font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:7px}
+  .tglabel:after{content:'';flex:1;height:1px;background:var(--bd)}
+  .tcard{background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);padding:15px 16px;box-shadow:var(--sh1);transition:all .16s;cursor:pointer;text-align:left;width:100%;display:block}
+  .tcard:hover{border-color:var(--brand);box-shadow:var(--sh2)}
+  .tcard .top{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .tcard .ic{width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-m);background:var(--info-1);color:#2258a8;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .tcard .nm{font-size:13.5px;font-weight:600}
+  .tcard p{margin:0 0 9px;font-size:12px;color:var(--t2);line-height:1.65;min-height:38px}
+  .tcard .ft{font-size:11px;color:var(--t4);display:flex;align-items:center;gap:6px}
+
+  /* ── 空态 ───────────────────────────────────────────── */
+  .emptywrap{background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);padding:44px 26px;text-align:center;box-shadow:var(--sh1)}
+  .emptywrap .ei{width:56px;height:56px;margin:0 auto 16px;border-radius:18px;background:var(--brand-1);color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:24px}
+  .emptywrap h2{margin:0 0 8px;font-size:17px;font-weight:600}
+  .emptywrap p{margin:0 auto;font-size:13px;color:var(--t3);line-height:1.8;max-width:520px}
+  .emptywrap .acts{display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap}
+
+  /* ── 创建表单 ───────────────────────────────────────── */
+  .formwrap{max-width:660px;margin:0 auto}
+  .formcard{padding:22px 24px;margin-bottom:14px}
+  .fgroup{margin-bottom:20px}
+  .fgroup:last-child{margin-bottom:0}
+  .radiogroup{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .radio{border:1px solid var(--bd2);border-radius:var(--r-l);padding:11px 12px;cursor:pointer;transition:all .14s;background:#fff;text-align:left}
+  .radio:hover{border-color:var(--brand)}
+  .radio.on{border-color:var(--brand);background:var(--brand-1);box-shadow:inset 0 0 0 1px var(--brand)}
+  .radio .rt{font-size:13px;font-weight:600;display:block;margin-bottom:3px}
+  .radio.on .rt{color:var(--brand-6)}
+  .radio .rd{font-size:11px;color:var(--t3);line-height:1.55}
+  .picker{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .pickchip{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 6px 0 9px;border-radius:var(--r-round);background:var(--brand-1);border:1px solid #b9e8c9;font-size:12.5px;color:var(--brand-6)}
+  .pickchip .av{width:18px;height:18px;border-radius:var(--r-round);background:var(--brand);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .pickchip .x{width:18px;height:18px;border-radius:var(--r-round);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--brand-6)}
+  .pickchip .x:hover{background:#cbeed8}
+  .addchip{height:32px;padding:0 13px;border-radius:var(--r-round);border:1px dashed var(--bd2);color:var(--t2);font-size:12.5px;background:#fff}
+  .addchip:hover{border-color:var(--brand);border-style:solid;color:var(--brand-6)}
+  .formfoot{display:flex;align-items:center;gap:12px;padding:14px 24px;border-top:1px solid var(--bd);background:#fbfcfb;border-radius:0 0 var(--r-xl) var(--r-xl)}
+  .formfoot .spacer{flex:1}
+
+  /* ── 设置页 ─────────────────────────────────────────── */
+  .settings{display:flex;min-height:520px}
+  .setnav{width:186px;flex:0 0 186px;border-right:1px solid var(--bd);padding:12px 10px;background:#fbfcfb}
+  .setnav .sn{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border-radius:var(--r-m);font-size:12.5px;color:var(--t2);text-align:left}
+  .setnav .sn:hover{background:var(--g1)}
+  .setnav .sn.on{background:#fff;color:var(--brand-6);font-weight:600;box-shadow:var(--sh1)}
+  .setnav .sngroup{font-size:10.5px;color:var(--t4);padding:12px 10px 5px;letter-spacing:.5px}
+  .setbody{flex:1;min-width:0;padding:20px 24px}
+  .setbody h2{margin:0 0 6px;font-size:15px;font-weight:600}
+  .setbody .sub{font-size:12px;color:var(--t3);margin:0 0 18px;line-height:1.7}
+  .fgrid{border:1px solid var(--bd);border-radius:var(--r-l);overflow:hidden}
+  .frow{display:grid;grid-template-columns:1fr 96px 66px;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--bd);background:#fff}
+  .frow:last-child{border-bottom:none}
+  .frow.head{background:#fbfcfb;font-size:11.5px;color:var(--t3);font-weight:600}
+  .frow .c{display:flex;align-items:center;gap:8px}
+  .frow .del{font-size:11.5px;color:var(--error);text-align:right}
+  .frow .del:hover{text-decoration:underline}
+  .switch{width:34px;height:19px;border-radius:var(--r-round);background:var(--brand);position:relative;flex:0 0 34px;cursor:pointer}
+  .switch:after{content:'';position:absolute;width:15px;height:15px;border-radius:var(--r-round);background:#fff;top:2px;left:17px}
+  .addrow{display:flex;gap:9px;margin-top:12px;align-items:center}
+
+  /* ── 重点记录（推荐 chips + 标签 + 预览） ─────────────── */
+  .ovgrid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;align-items:start}
+  .ovbox{background:#fff;border:1px solid var(--bd);border-radius:var(--r-l);padding:14px 15px}
+  .ovbox h3{margin:0 0 4px;font-size:12.5px;font-weight:600}
+  .ovbox .hint{font-size:11.5px;color:var(--t3);line-height:1.65;margin:0 0 12px}
+  .ovsec{font-size:11px;color:var(--t4);letter-spacing:.4px;margin:14px 0 8px}
+  .ovsec:first-of-type{margin-top:0}
+  .sugrow{display:flex;flex-wrap:wrap;gap:8px}
+  .sug{height:30px;padding:0 12px;border-radius:var(--r-round);border:1px solid var(--bd2);background:#fff;font-size:12px;color:var(--t2);display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+  .sug:hover{border-color:var(--brand);color:var(--brand-6)}
+  .sug i{font-style:normal;color:var(--brand);font-weight:700}
+  .ftags{display:flex;flex-wrap:wrap;gap:8px}
+  .ftag{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 6px 0 11px;border-radius:var(--r-round);background:var(--brand-1);border:1px solid #b9e8c9;font-size:12px;color:var(--brand-6)}
+  .ftag b{font-weight:600;cursor:pointer}
+  .ftag .x{width:18px;height:18px;border-radius:var(--r-round);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--brand-6)}
+  .ftag .x:hover{background:#cbeed8}
+  .ftag .src{font-size:9.5px;line-height:1;padding:3px 5px;border-radius:var(--r-s);background:#fff;border:1px solid #b9e8c9;color:var(--brand-6)}
+  .ovadd{display:flex;gap:8px;margin-top:12px}
+  .ovadd .field{max-width:220px}
+  /* ── 待办配置：状态流转 ─────────────── */
+  /* ── 资料：来源行 ─────────────── */
+  .srcrow{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:#fff}
+  .srcrow .ic{width:32px;height:32px;border-radius:8px;background:#eef7f1;color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+  .srcrow .meta{flex:1;min-width:0}
+  .srcrow .meta b{font-size:13px;display:block}
+  .srcrow .meta small{font-size:11px;color:var(--t3)}
+  .srcrow .rm{font-size:12px;color:var(--t3);border:1px solid var(--line);border-radius:var(--r-round);padding:4px 11px;background:#fff;flex:none}
+  .srcrow .rm:hover{color:#d4380d;border-color:#ffd5bf;background:#fff4ef}
+  /* ── 成员：头像 / 角色选择 / 主人锁定 ─────────────── */
+  .mavatar{width:32px;height:32px;border-radius:var(--r-round);background:#eef2f7;color:var(--t2);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex:none}
+  .srcrow .rsel{height:28px;padding:0 10px;border-radius:var(--r-round);border:1px solid var(--line);background:#fff;font-size:12px;color:var(--t2);flex:none}
+  .srcrow .rsel:hover{border-color:var(--brand);color:var(--brand-6)}
+  .rlock{font-size:12px;color:var(--t4);border:1px solid var(--line);border-radius:var(--r-round);padding:4px 11px;background:#fafafa;flex:none}
+  .ovadd .rsel{height:34px;padding:0 12px;border-radius:var(--r-m);border:1px solid var(--line);background:#fff;font-size:12.5px;color:var(--t2);flex:none}
+  /* 预览卡 */
+  .pvcard{border:1px solid var(--bd);border-radius:var(--r-l);background:#fff;overflow:hidden}
+  .pvcard .pvhead{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid var(--bd);background:#fbfcfb;font-size:12px;font-weight:600}
+  .pvcard .pvhead .dot{width:8px;height:8px;border-radius:var(--r-round);background:var(--brand)}
+  .pvcard .pvhead small{font-weight:400;color:var(--t3);margin-left:auto;font-size:10.5px}
+  .pvrow{display:flex;gap:10px;padding:9px 13px;border-bottom:1px solid var(--bd);font-size:12px;line-height:1.6}
+  .pvrow:last-child{border-bottom:none}
+  .pvrow .k{flex:0 0 84px;color:var(--t3)}
+  .pvrow .v{color:var(--t1)}
+  .pvfoot{padding:8px 13px;font-size:10.5px;color:var(--t4);background:#fbfcfb}
+
+  /* ── 对照页 ─────────────────────────────────────────── */
+  .diff h2{font-size:16px;font-weight:600;margin:0 0 6px}
+  .diff .lead{font-size:13px;color:var(--t3);line-height:1.75;margin:0 0 20px;max-width:800px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:26px}
+  .kpi{background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);padding:15px 16px;box-shadow:var(--sh1)}
+  .kpi .kn{font-size:12px;color:var(--t3);margin-bottom:9px}
+  .kpi .kv{display:flex;align-items:baseline;gap:8px}
+  .kpi .before{font-size:19px;font-weight:700;color:var(--t4);text-decoration:line-through}
+  .kpi .arrow{color:var(--t4);font-size:13px}
+  .kpi .after{font-size:24px;font-weight:700;color:var(--brand)}
+  .kpi .ku{font-size:11.5px;color:var(--t3);margin-left:2px}
+  .dtable{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh1);margin-bottom:26px;font-size:12.5px}
+  .dtable th{background:#fbfcfb;text-align:left;padding:11px 14px;font-size:12px;font-weight:600;color:var(--t2);border-bottom:1px solid var(--bd);white-space:nowrap}
+  .dtable td{padding:11px 14px;border-bottom:1px solid var(--bd);vertical-align:top;line-height:1.65}
+  .dtable tr:last-child td{border-bottom:none}
+  .dtable td.b{color:var(--t3)}
+  .dtable td.a{color:var(--t1);font-weight:500}
+  .pill{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:var(--r);font-size:10.5px;font-weight:600;white-space:nowrap}
+  .pill.keep{background:var(--brand-1);color:var(--brand-6)}
+  .pill.drop{background:var(--error-1);color:#b03442}
+  .pill.demote{background:var(--warn-1);color:#b25f14}
+  .pill.move{background:var(--info-1);color:#2258a8}
+  .prod{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:26px}
+  .pcol h3{font-size:13px;font-weight:600;margin:0 0 10px;display:flex;align-items:center;gap:7px}
+  .pcol.old h3{color:var(--error)}
+  .pcol.new h3{color:var(--brand-6)}
+  .pbox{border:1px solid var(--bd);border-radius:var(--r-l);padding:12px 13px;background:#fff;font-size:12px;line-height:1.75;color:var(--t2);min-height:96px}
+  .pbox.old{background:#fdfafa;border-color:#f2d9dc}
+  .pbox.new{background:#fafdfb;border-color:#c9ebd6}
+  .pbox code{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:var(--g1);padding:1px 4px;border-radius:var(--r-s);color:var(--t1)}
+  .pbox ul{margin:0;padding-left:17px}
+  .pbox li{margin-bottom:4px}
+
+  .toast{position:fixed;left:50%;bottom:34px;transform:translate(-50%,16px);background:rgba(0,0,0,.86);color:#fff;font-size:12.5px;padding:9px 16px;border-radius:var(--r-l);opacity:0;pointer-events:none;transition:all .22s;z-index:99}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+  .anno{display:inline-flex;align-items:center;gap:5px;height:19px;padding:0 7px;border-radius:var(--r);background:#fff4d6;color:#8a6d12;font-size:10.5px;font-weight:600;border:1px solid #f0dfa8;white-space:nowrap}
+  .annoline{border-left:3px solid var(--brand);background:#fafdfb;padding:8px 12px;border-radius:0 var(--r-l) var(--r-l) 0;font-size:12px;color:var(--t2);line-height:1.7;margin-bottom:14px}
+  .annoline.warn{border-left-color:var(--warn);background:#fffaf4}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="rail-title">服务模块 · 优化后原型</div>
+      <div class="rail-sub">v1.0 · 7 个场景<br/>配套《服务模块优化方案》</div>
+    </div>
+    <div class="rail-group" id="rail"></div>
+    <div class="rail-note">
+      <b>怎么看这份原型</b>
+      左侧切换场景。每个场景顶部有<b>黄底批注</b>标明它对应方案里的哪一条改动。
+    </div>
+    <div class="rail-foot">睿乐大脑 · 服务空间<br/>白底 / 品牌绿 #07c05f</div>
+  </aside>
+  <main class="stage">
+    <div class="bar">
+      <h1 id="barTitle"></h1>
+      <span class="path" id="barPath"></span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.14</span>
+      <div class="bar-right" id="barRight"></div>
+    </div>
+    <div class="scroll"><div class="canvas" id="root"></div></div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   工具
+   ═══════════════════════════════════════════════════════ */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = (s = '') => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let toastTimer;
+function toast(msg){
+  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), 1900);
+}
+
+const A = { // 头像文字
+  '林园长': '林', '王教务': '王', '陈老师': '陈', '刘老师': '刘', '赵主管': '赵'
+};
+const av = n => `<span class="av">${esc(A[n] || String(n||'?').slice(0,1))}</span>`;
+
+/* ═══════════════════════════════════════════════════════
+   数据
+   ═══════════════════════════════════════════════════════ */
+const SERVICES = [
+  { id:'s1', name:'秋季招生咨询', type:'家长与学员', desc:'从线索进入、跟进到转化，覆盖 2026 秋季招生全流程。', members:5, updated:'2 小时前', state:'active', role:'管理员', sessions:[
+      { id:'c1', title:'秋季招生线索跟进', pinned:true },
+      { id:'c2', title:'家长顾虑归纳', pinned:false },
+      { id:'c3', title:'10 月到访邀约话术', pinned:false }
+    ] },
+  { id:'s2', name:'会员续费跟进', type:'家长与学员', desc:'跟踪到期会员、记录续费意向与家长反馈。', members:3, updated:'昨天', state:'active', role:'成员', sessions:[
+      { id:'c4', title:'本月到期名单梳理', pinned:false }
+    ] },
+  { id:'s3', name:'保育巡查', type:'园所日常运营', desc:'晨检异常、午睡巡查与家长通知的日常记录。', members:4, updated:'3 天前', state:'paused', role:'成员', sessions:[] }
+];
+const TEMPLATES = [
+  { name:'招生旺季跟进', type:'家长与学员', icon:'◎', desc:'围绕线索与到访意向推进，内置招生顾问专家。', sub:'服务对象：家长与学员' },
+  { name:'会员续费运营', type:'家长与学员', icon:'◈', desc:'到期提醒、续费意向记录与个性化沟通话术。', sub:'服务对象：家长与学员' },
+  { name:'班级日常运营', type:'园所日常运营', icon:'▤', desc:'晨检、出勤、家长通知的统一记录与汇总。', sub:'服务对象：园所日常运营' },
+  { name:'主题活动策划', type:'园所日常运营', icon:'▦', desc:'从方案到执行清单再到复盘，全程留痕。', sub:'服务对象：园所日常运营' },
+  { name:'教研与备课', type:'教研与备课', icon:'▥', desc:'课题资料沉淀、活动设计共创与教研记录。', sub:'服务对象：教研与备课' }
+];
+const ARTIFACTS = [
+  { id:'a2', t:'秋季招生线索跟进表.xlsx', f:'XLSX', v:'v2', m:'表格 · v2（已更新）· 16 条 · 22 KB', prev:'秋季招生线索跟进表（v2）\n\n姓名　　意向　　状态\n乐乐　　明确　　待跟进\n朵朵　　待观察　已沟通\n小宝　　明确　　待跟进\n东苑 · 果果　明确　　待跟进\n东苑 · 米米　待观察　待跟进\n\n共 16 条线索，其中 5 条来自东苑分园' },
+  { id:'a3', t:'家长顾虑归纳.md', f:'MD', v:'v1', m:'文档 · v1 · 3 KB', prev:'本周家长顾虑归纳\n\n1. 上课时间冲突 —— 9 条\n2. 价格与优惠 —— 7 条\n3. 接送距离 —— 4 条\n4. 其他 —— 3 条\n\n建议：时间冲突集中在周三下午，可考虑增设一个时段。' },
+  { id:'a4', t:'到期未续费家长清单.xlsx', f:'XLSX', v:'v1', m:'表格 · v1 · 9 条 · 14 KB', prev:'本月到期未续费家长清单\n\n姓名　　到期日　联系情况\n阳阳　　9/18　　已联系\n糖糖　　9/20　　未联系\n豆豆　　9/25　　未联系\n\n共 9 条，其中 3 条已联系' }
+];
+const REMINDERS = [
+  { id:'r1', t:'回访东苑分园 4 位意向家长', pr:'high', prl:'高', who:'林园长', due:'本周五前', status:'进行中', from:'秋季招生线索跟进', collab:[
+      { who:'王教务', txt:'已电话联系其中 2 位，另外 2 位家长只有微信，我先发消息。', at:'今天 10:24' },
+      { who:'林园长', txt:'好，微信那条我来写，你把电话那两位的反馈补到跟进表里。', at:'今天 10:31' }
+    ] },
+  { id:'r2', t:'确认 10 月体验课排期', pr:'mid', prl:'普通', who:'陈老师', due:'明天', status:'待开始', from:'秋季招生线索跟进', collab:[] },
+  { id:'r3', t:'整理家长对价格的高频疑问', pr:'low', prl:'低', who:'林园长', due:'不限期', status:'待开始', from:'家长顾虑归纳', collab:[] }
+];
+const FIELDS = [
+  { label:'孩子小名', value:'果果' },
+  { label:'月龄', value:'3 岁 2 个月' },
+  { label:'家长关注点', value:'双语环境；离家近' },
+  { label:'最近到访', value:'10-02 参观东苑园' },
+  { label:'意向班型', value:'小班（2027 春）' }
+];
+/* 按家长说话方式起名的推荐项（点选即加入"重点记录"） */
+const FIELD_SUGGESTIONS = ['在读园所','居住片区','报名渠道','主要联系人','接送安排'];
+/* 从工作指令解析出的字段（示例指令："重点记录家长顾虑与到访意向"） */
+const INST_FIELDS = [
+  { label:'家长顾虑', value:'担心作息安排；离家有点远' },
+  { label:'到访意向', value:'想周末参观东苑园' }
+];
+
+/* ═══════════════════════════════════════════════════════
+   产品外壳
+   ═══════════════════════════════════════════════════════ */
+function productSidebar(active){
+  const s = SERVICES[0];
+  const nav = [
+    { k:'chat',   i:'◌', l:'对话' },
+    { k:'organize', i:'▤', l:'整理' },
+    { k:'discover', i:'◈', l:'发现' },
+    { k:'service', i:'▦', l:'服务', on:true, chev:'⌄' },
+    { k:'kb',     i:'▥', l:'知识库' }
+  ];
+  return `
+  <aside class="pside">
+    <div class="pside-brand">
+      <span class="pside-logo">睿</span>
+      <span class="pside-brandname">睿乐大脑</span>
+    </div>
+    <div class="pside-nav">
+      ${nav.map(n => `
+        <div class="pnav ${n.on ? 'on' : ''}">
+          <span class="pi">${n.i}</span><span>${n.l}</span>
+          ${n.chev ? `<span class="chev">${n.chev}</span>` : ''}
+        </div>`).join('')}
+      <div class="psub">
+        ${SERVICES.map(sv => `
+          <div class="pservice ${sv.id === active.service ? 'on' : ''}">
+            <span class="psi">▦</span>
+            <span class="nm">${esc(sv.name)}</span>
+            ${sv.sessions.length ? `<span class="cnt">${sv.sessions.length}</span>` : ''}
+          </div>
+          ${sv.id === active.service ? `
+            <div class="psessions">
+              ${sv.sessions.slice(0,3).map(ss => `
+                <button class="psess ${ss.id === active.session ? 'on' : ''}" data-noop>
+                  <span class="nm">${esc(ss.title)}</span>${ss.pinned ? '<span class="pin">●</span>' : ''}
+                </button>`).join('')}
+              <button class="psess-more" data-noop>还有 3 个 ›</button>
+            </div>` : ''}
+        `).join('')}
+      </div>
+    </div>
+  </aside>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   服务头（优化后：3 个入口）
+   ═══════════════════════════════════════════════════════ */
+function serviceHead(active, panel, moreOpen){
+  const svc = SERVICES.find(s => s.id === active.service) || SERVICES[0];
+  const count = { artifacts: ARTIFACTS.length, reminders: REMINDERS.length };
+  return `
+  <header class="sphead">
+    <button class="spback" title="返回服务列表" data-scene="list">‹</button>
+    <span class="spico">▦</span>
+    <span class="spname">${esc(svc.name)}</span>
+    <span class="sptype">${esc(svc.type)}</span>
+    ${svc.state !== 'active' ? `<span class="spstate">已暂停</span>` : ''}
+    <div class="spactions">
+      <button class="hbtn ${panel === 'artifacts' ? 'on' : ''}" data-panel="artifacts">
+        <span class="ci">▤</span><span>产物</span><em>${count.artifacts}</em>
+      </button>
+      <button class="hbtn ${panel === 'reminders' ? 'on' : ''}" data-panel="reminders">
+        <span class="ci">☑</span><span>待办</span><em>${count.reminders}</em>
+      </button>
+      <button class="cbtn" title="新建会话" data-newchat>＋</button>
+      <div class="morewrap">
+        <button class="cbtn" title="更多" data-more>⋯</button>
+        ${moreOpen ? `
+        <div class="moremenu">
+          <button class="mi" data-noop>修改名称</button>
+          <button class="mi" data-noop>修改描述</button>
+          <button class="mi" data-noop>分享服务</button>
+          <div class="msep"></div>
+          <div class="mgroup">更多 ›</div>
+          <div class="msub">
+            <button class="mi" data-scene="overview">服务概览<span class="mx">›</span></button>
+            <button class="mi" data-scene="subjects">服务对象<span class="mx">›</span></button>
+            <button class="mi" data-scene="settings">服务设置<span class="mx">›</span></button>
+          </div>
+          <div class="msep"></div>
+          <button class="mi" data-noop>暂停服务</button>
+          <button class="mi" data-noop>归档服务</button>
+          <button class="mi danger" data-noop>删除服务</button>
+        </div>` : ''}
+      </div>
+    </div>
+  </header>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   对话区
+   ═══════════════════════════════════════════════════════ */
+function chatColumn(){
+  return `
+  <div class="chatcol">
+    <div class="chathead">
+      <strong>秋季招生线索跟进</strong>
+      <span class="expert">招生顾问</span>
+      <span class="time">2 小时前</span>
+    </div>
+    <div class="chatbody">
+      <div class="msg me"><div class="bubble">把 9 月秋季招生线索按到访意向排个序，列成表。东苑分园那几条如果还没进来，也一起并进去。</div></div>
+      <div class="msg ai">
+        <div class="who"><b>招生顾问</b><span class="done">已完成</span></div>
+        <details class="steps"><summary>› 执行过程 · 4 步</summary>
+          <div class="st">1. 读取 2026 秋季招生线索台账<br/>2. 匹配东苑分园导入记录 · 新增 4 条<br/>3. 按到访意向分组排序<br/>4. 生成跟进表</div>
+        </details>
+        <div class="aitext">
+          <p>已更新：<b>秋季招生线索跟进表</b>，现在共 16 条线索，其中东苑分园 5 条。</p>
+        </div>
+        <div class="artcard" data-panel="artifacts">
+          <span class="ico xlsx">XLSX</span>
+          <span><span class="t">秋季招生线索跟进表.xlsx</span><span class="m">表格 · v2（已更新）· 16 条 · 22 KB</span></span>
+          <span class="go">查看 ›</span>
+        </div>
+        <div class="msgfoot"><button data-noop>继续追问</button><button data-noop>重新生成</button></div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="composer-inner">
+        <div class="box">
+          <textarea placeholder="说点什么…"></textarea>
+          <div class="boxfoot">
+            <button class="expick"><span class="av">招</span>招生顾问<span class="cw">⌄</span></button>
+            <span class="spacer"></span>
+            <button class="sendbtn" data-noop>↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* 空态对话区：mode='void' 无会话态（服务刚建）· mode='new' 新会话态（点服务头 ＋） */
+function chatEmpty(mode){
+  const isNew = mode === 'new';
+  return `
+  <div class="chatcol">
+    <div class="chathead"><strong>${isNew ? '新的会话' : '开始一段新的工作'}</strong><span class="expert">服务助理</span></div>
+    <div class="chatbody">
+      <div class="emptychat">
+        <div class="ei">${isNew ? '＋' : '◌'}</div>
+        <h3>${isNew ? '新的会话' : '这个服务还没有会话'}</h3>
+        <p>${isNew ? '上一段对话已经收好。直接说下一步要做什么，过程和产物会继续沉淀进「秋季招生咨询」。' : '直接说要在「秋季招生咨询」里做什么，工作过程和产物会持续沉淀在这里。'}</p>
+        <div class="suggest">
+          <button data-noop>帮我整理本周需要优先推进的招生工作</button>
+          <button data-noop>本月哪些家长该做回访？</button>
+          <button data-noop>把家长提到的顾虑归纳成一份清单</button>
+        </div>
+        ${isNew ? '<div class="hint" style="margin-top:10px">这 3 条建议来自这个服务的工作指令，每次新建会话都会按最新指令生成。</div>' : ''}
+      </div>
+    </div>
+    <div class="composer">
+      <div class="composer-inner">
+        <div class="box">
+          <textarea placeholder="说点什么…"></textarea>
+          <div class="boxfoot">
+            <button class="expick"><span class="av">服</span>服务助理<span class="cw">⌄</span></button>
+            <span class="spacer"></span>
+            <button class="sendbtn" data-noop>↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   右侧浮层：产物 / 待办
+   ═══════════════════════════════════════════════════════ */
+function artifactPanel(sel){
+  const cur = ARTIFACTS.find(a => a.id === sel) || ARTIFACTS[0];
+  return `
+  <aside class="sidepanel">
+    <div class="sp-head"><strong>产物</strong><button class="x" data-panel="artifacts">✕</button></div>
+    <div class="sp-body">
+      ${ARTIFACTS.map(a => `
+        <button class="artitem ${a.id === cur.id ? 'on' : ''}" data-art="${a.id}">
+          <span class="ico ${a.f === 'MD' ? 'md' : ''}">${a.f}</span>
+          <span><span class="t">${esc(a.t)}</span><span class="m">${esc(a.v)} · ${esc(a.m.split('·')[1] || '')}</span></span>
+        </button>`).join('')}
+      <div class="artprev">
+        <div class="ph"><span class="ico ${cur.f === 'MD' ? 'md' : ''}" style="width:20px;height:20px;border-radius:4px;font-size:8px">${cur.f}</span><b style="font-size:12px">${esc(cur.t)}</b></div>
+        <div class="pb">${esc(cur.prev)}</div>
+        <div class="pf"><a href="javascript:void(0)" data-noop>下载</a><a href="javascript:void(0)" data-noop>新窗口打开</a></div>
+      </div>
+    </div>
+  </aside>`;
+}
+
+function reminderPanel(collabOpen){
+  return `
+  <aside class="sidepanel">
+    <div class="sp-head"><strong>待办</strong><button class="x" data-panel="reminders">✕</button></div>
+    <div class="sp-body">
+      <div class="rform">
+        <input class="field" placeholder="要跟进什么？例如：回访东苑分园 4 位意向家长" />
+        <div class="row">
+          <input class="field" placeholder="时间，例如：本周五前" value="本周五前" />
+          <button class="field" style="width:auto;flex:0 0 auto;text-align:left;display:flex;align-items:center;gap:6px;padding-right:8px">
+            <span style="display:inline-flex;align-items:center;gap:5px"><span class="av" style="width:16px;height:16px;border-radius:999px;background:var(--brand-1);color:var(--brand-6);font-size:9px;display:inline-flex;align-items:center;justify-content:center;font-weight:700">林</span>林园长</span>
+            <span style="margin-left:auto;color:var(--t4);font-size:10px">⌄</span>
+          </button>
+        </div>
+        <button class="btn pri sm" style="width:100%;margin-top:9px" data-noop>添加待办</button>
+        <div class="hint" style="margin-top:8px">负责人从服务成员里选，不用记用户 ID。</div>
+      </div>
+
+      ${REMINDERS.map((r, i) => `
+        <div class="ritem">
+          <div class="rh">
+            <span class="rt">${esc(r.t)}</span>
+            <span class="pr ${r.pr === 'high' ? '' : (r.pr === 'low' ? 'low' : 'mid')}">${r.prl}</span>
+          </div>
+          <div class="rm">
+            <span class="who">${av(r.who)}${esc(r.who)}</span>
+            <span>${esc(r.due)}</span>
+            <span>来自：${esc(r.from)}</span>
+          </div>
+          <div class="rf">
+            <button class="tlbtn" data-noop>${r.status === '进行中' ? '标记完成' : '开始处理'}</button>
+            <button class="tlbtn" style="background:#fff;border-color:var(--bd2);color:var(--t2)" data-collab="${r.id}">
+              ${r.collab.length ? `协作 · ${r.collab.length}` : '协作'}
+            </button>
+          </div>
+          ${(collabOpen === r.id) ? `
+            <div class="collab">
+              ${r.collab.length ? r.collab.map(c => `
+                <div class="cmt">${av(c.who)}<div><div class="cb">${esc(c.txt)}</div><div class="cd">${esc(c.who)} · ${esc(c.at)}</div></div></div>
+              `).join('') : `<div class="empty" style="padding:12px 0">还没有评论。</div>`}
+              <input class="field" placeholder="记录处理意见或协作结果，回车提交" />
+            </div>` : ''}
+        </div>`).join('')}
+
+      <div class="rfoot">状态由 AI 自动配好：<b>待处理 → 进行中 → 已完成／已取消</b>，一般不用管；要调整，直接在工作指令里写清楚，AI 按指令补。</div>
+    </div>
+  </aside>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景 1 · 服务列表
+   ═══════════════════════════════════════════════════════ */
+function listView(mode){
+  const modeChips = `
+    <div style="display:flex;gap:7px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:11.5px;color:var(--t3);margin-right:2px">空态三分支：</span>
+      ${[['data','有服务'],['new','新用户'],['archived','全部已归档'],['noresult','搜索无结果']].map(([k,l]) =>
+        `<button class="chip ${mode === k ? 'on' : ''}" data-lmode="${k}">${l}</button>`).join('')}
+    </div>`;
+
+  if (mode === 'new') {
+    return `
+    ${modeChips}
+    <div class="emptywrap">
+      <div class="ei">▦</div>
+      <h2>先把第一个服务建起来</h2>
+      <p>一个服务 = 一摊持续要做的事（比如秋季招生、会员续费、班级日常）。建好之后，专家就在这个空间里帮你干活，聊天记录和产物都会留在这里。</p>
+      <div class="acts">
+        <button class="btn pri" data-scene="create">新建服务</button>
+        <button class="btn" data-noop>看看有哪些模板</button>
+      </div>
+      <div class="hint" style="margin-top:18px">不确定选哪个？「招生旺季跟进」是最常用的起点。</div>
+    </div>
+    <div class="tgroups">
+      <div class="tglabel">推荐模板</div>
+      <div class="grid">${TEMPLATES.slice(0,3).map(t => tplCard(t)).join('')}</div>
+    </div>`;
+  }
+  if (mode === 'archived') {
+    return `
+    ${modeChips}
+    <div class="emptywrap">
+      <div class="ei" style="background:var(--g1);color:var(--t3)">▤</div>
+      <h2>当前没有进行中的服务</h2>
+      <p>有 3 个服务已归档。归档不会删数据，随时可以恢复。</p>
+      <div class="acts">
+        <button class="btn pri" data-noop>查看已归档的 3 个服务</button>
+        <button class="btn" data-scene="create">新建服务</button>
+      </div>
+    </div>`;
+  }
+  if (mode === 'noresult') {
+    return `
+    ${modeChips}
+    <div class="listhead">
+      <div><h1>服务</h1><p>每个服务一个空间，专家在里面干活</p></div>
+      <div class="act"><button class="btn pri" data-scene="create">＋ 新建服务</button></div>
+    </div>
+    <div class="listbody">
+      <div class="sechead">
+        <span class="st">我的服务</span>
+        <div class="tools">
+          <div class="search"><span style="color:var(--t4)">⌕</span><input value="暑期托管" /></div>
+        </div>
+      </div>
+      <div class="emptywrap" style="padding:34px 26px">
+        <h2 style="font-size:15px">没有找到叫「暑期托管」的服务</h2>
+        <p>换个词试试，或者直接新建一个。搜索只匹配服务名称和描述。</p>
+        <div class="acts">
+          <button class="btn" data-lmode="data">清空搜索</button>
+          <button class="btn pri" data-scene="create">新建服务</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  return `
+  ${modeChips}
+  <div class="listhead">
+    <div><h1>服务</h1><p>每个服务一个空间，专家在里面干活</p></div>
+    <div class="act"><button class="btn pri" data-scene="create">＋ 新建服务</button></div>
+  </div>
+  <div class="listbody">
+    <div class="sechead">
+      <span class="st">我的服务</span>
+      <div class="tools">
+        <select class="field" style="width:auto;height:30px;font-size:12.5px"><option>按最近活动</option><option>按创建时间</option><option>按名称</option></select>
+        <div class="search"><span style="color:var(--t4)">⌕</span><input placeholder="搜索服务" /></div>
+      </div>
+    </div>
+    <div class="grid">
+      ${SERVICES.map(s => `
+        <button class="scard" data-scene="space">
+          <div class="top">
+            <span class="ic">▦</span>
+            <span class="nm">${esc(s.name)}</span>
+            <span class="dots" data-noop>⋯</span>
+          </div>
+          <div class="tags">
+            <span class="tag brand">${esc(s.type)}</span>
+            <span class="tag">${esc(s.role)}</span>
+            ${s.state === 'paused' ? '<span class="tag warn">已暂停</span>' : ''}
+          </div>
+          <p class="desc">${esc(s.desc)}</p>
+          <div class="mt"><span>${esc(s.updated)}</span><span>${s.members} 位成员</span><span>${s.sessions.length} 段工作</span></div>
+        </button>`).join('')}
+    </div>
+
+    <div class="tgroups">
+      <div class="tglabel">从模板创建</div>
+      <div class="grid">${TEMPLATES.map(t => tplCard(t)).join('')}</div>
+    </div>
+  </div>`;
+}
+function tplCard(t){
+  return `
+  <button class="tcard" data-scene="create">
+    <div class="top"><span class="ic">${t.icon}</span><span class="nm">${esc(t.name)}</span></div>
+    <p>${esc(t.desc)}</p>
+    <div class="ft">${esc(t.sub)}</div>
+  </button>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景 2 · 创建服务
+   ═══════════════════════════════════════════════════════ */
+function createView(){
+  return `
+  <div class="annoline">方案 §4.2：创建表单从<b>弹窗</b>改为<b>整页</b>；<b>删掉创建后的「确认服务空间蓝图」弹窗</b>；增加一组「服务类型」三选项（替代蓝图里的 <code>space_type</code> 枚举）。<b>v1.5 追加</b>：工作指令不只是给 AI 看的——指令里点名「重点记录 X / Y」，X、Y 会<b>解析成「重点记录」的字段</b>（见设置场景「来自你的工作指令」）。</div>
+  <div class="formwrap">
+    <div class="card formcard">
+      <div class="fgroup">
+        <label class="lbl">服务名称<span class="req">*</span></label>
+        <input class="field" value="秋季招生咨询" />
+        <div class="hint">一句话说清这摊事是什么，例如"秋季招生咨询"、"会员续费跟进"。</div>
+      </div>
+
+      <div class="fgroup">
+        <label class="lbl">这个服务主要围着谁转<span class="req">*</span></label>
+        <div class="radiogroup">
+          <div class="radio on"><span class="rt">家长与学员</span><span class="rd">招生、续费、回访、家长沟通</span></div>
+          <div class="radio"><span class="rt">园所日常运营</span><span class="rd">晨检、出勤、安全、后勤事务</span></div>
+          <div class="radio"><span class="rt">教研与备课</span><span class="rd">课题、活动设计、教研沉淀</span></div>
+        </div>
+        <div class="hint">这一项决定了首页概览看哪些栏目、预置哪些专家。<b>选完就直接生效，不需要再确认一次。</b></div>
+      </div>
+
+      <div class="fgroup">
+        <label class="lbl">工作指令<span class="opt">选填</span></label>
+        <textarea class="field" style="min-height:86px">跟进 2026 秋季招生线索，语气亲切，重点记录家长顾虑与到访意向。</textarea>
+        <div class="hint">用大白话写你要什么。写了「重点记录什么」，那几项就会直接进入这个服务的<b>重点记录</b>——不用再逐个配置。</div>
+      </div>
+
+      <div class="fgroup">
+        <label class="lbl">专家<span class="opt">选填 · 可以后面再加</span></label>
+        <div class="picker">
+          <span class="pickchip"><span class="av">招</span>招生顾问<button class="x" data-noop>✕</button></span>
+          <span class="pickchip"><span class="av">教</span>教务主管<button class="x" data-noop>✕</button></span>
+          <button class="addchip" data-noop>＋ 添加专家</button>
+        </div>
+      </div>
+
+      <div class="fgroup">
+        <label class="lbl">知识库<span class="opt">选填 · 服务内所有专家共享</span></label>
+        <div class="picker">
+          <span class="pickchip"><span class="av">园</span>园所制度手册<button class="x" data-noop>✕</button></span>
+          <span class="pickchip"><span class="av">招</span>招生话术库<button class="x" data-noop>✕</button></span>
+          <button class="addchip" data-noop>＋ 选择知识库</button>
+        </div>
+        <div class="hint">这里选一次，服务里所有专家都能用；不用给每个专家各配一遍。</div>
+      </div>
+    </div>
+
+    <div class="card" style="overflow:hidden">
+      <div class="formfoot">
+        <button class="btn ghost" data-scene="list">取消</button>
+        <span class="spacer"></span>
+        <button class="btn" data-noop>保存为草稿</button>
+        <button class="btn pri" data-scene="space">创建服务</button>
+      </div>
+    </div>
+    <div class="note brand" style="margin-top:4px">点「创建服务」后<b>直接进入服务空间</b>开始工作 —— 不再弹蓝图确认。</div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景 3 · 服务空间
+   ═══════════════════════════════════════════════════════ */
+function spaceView(panel, moreOpen, sel, collabOpen, empty){
+  return `
+  <div class="annoline">方案 §4.3 + §3 支柱 4：服务头从 <b>9 个入口</b>收到 <b>3 个</b>（产物 / 待办 / ⋯）；「来源」<b>撤出服务头</b>（不做输入框 chip，v1.9 复核；输入框上方的「已带入」chip 已随之删除，v1.14），管理落点收进 <b>服务设置 › 资料</b>；「⋯」改为<b>两级</b>（服务本身 / 更多 ›）；状态徽标只在非进行中时显示。<b>v1.14 追加</b>：<b>＋ = 新建会话</b>（§4.3 定位"天天要点"所以常驻）——点击<b>不弹窗、不跳新增页</b>，直接把对话区切到<b>新会话空态</b>：3 条建议问题从<b>工作指令</b>生成（§4.4），输入框可用。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, panel, moreOpen)}
+      <div class="workbench">
+        ${empty ? chatEmpty('void') : state.newChat ? chatEmpty('new') : chatColumn()}
+        ${panel === 'artifacts' ? artifactPanel(sel) : ''}
+        ${panel === 'reminders' ? reminderPanel(collabOpen) : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景 4 · 服务设置
+   ═══════════════════════════════════════════════════════ */
+function settingsView(){
+  return `
+  <div class="annoline">方案 §4.5 + §3 支柱 3：设置从 <b>320px 浮层里塞 3 段</b>改为<b>整页分区</b>（v1.10 删掉运行记录 / 高级后为 <b>5 分区</b>）；配置项<b>不再要求填 key</b>；补齐基本信息 / 成员 / 专家三个<b>有接口没界面</b>的分区（v1.11 补成员、v1.12 补基本信息与专家）。<b>v1.3 追加</b>：原「概览字段」（界面已改叫<b>「重点记录」</b>——"字段"是数据库词汇，园所老师不这么说话）从「名称 + 必填 + 删除」表格改为<b>场景化推荐 chips + 标签管理 + 右侧实时预览</b>——「必填」是后端零消费的死控件，直接删；名字决定 AI 抽取命中率，推荐项按家长原话起名。<b>v1.7 追加</b>：「资料」从导航占位做成<b>真面板</b>（左侧可点击切换）——承接撤销带入的唯一落点。<b>v1.11 追加</b>：<b>「成员」也做成真面板</b>（加人做成人选择器，不出现 user_id）。<b>v1.8 追加</b>：「待办配置」分区<b>整体撤下</b>——待办是通用概念，状态不需要配置：<b>AI 自动生成</b>（默认 4 态：待处理 / 进行中 / 已完成 / 已取消；工作指令点名的阶段由 AI 补充，与「重点记录」同一条派生链路）；状态流转的说明收进<b>待办浮层底部</b>。后端依据：迁移 000113 的默认状态机有 <b>9 态 + 流转表</b>，把 AI 提案生命周期（候选 / 已生成 / 待重算）混进了用户待办——需收窄到 4 个用户态。<b>v1.10 追加</b>：「<b>运行记录</b>」「<b>高级</b>」两个分区<b>整体删除</b>（含 ⋯ → 更多 里的运行记录入口）——运行记录只有单条 <code>/:run_id</code> 路由、没有列表接口；高级里真正有内容的只有"自定义待办状态"，而它依赖的 <code>service_reminder_statuses</code> 是<b>零引用的死表</b>（迁移 000113 建了、Go 侧只有 <code>TableName()</code>）。蓝图重生成随之不设界面入口，改结构走「改工作指令 → 按新指令重新推荐」。<b>v1.12 追加</b>：「<b>基本信息</b>」「<b>专家</b>」也做成<b>真面板</b>，不再有"点了没反应"的分区；同时顶栏加<b>版本戳</b>，用来一眼判断页面是不是缓存的旧文件。<b>v1.13 追加</b>：「<b>专家</b>」不再单列导航项，<b>并入「基本信息」</b>（两者都是"这个服务是什么"的属性，一次保存说完）——至此为 <b>4 分区</b>：设置〔基本信息〕· 工作方式〔重点记录 / 资料〕· 共享〔成员〕。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, '', false)}
+      <div class="settings">
+        <nav class="setnav">
+          <div class="sngroup">设置</div>
+          <button class="sn ${state.sec === 'basic' ? 'on' : ''}" data-sec="basic">基本信息</button>
+          <div class="sngroup">工作方式</div>
+          <button class="sn ${state.sec === 'fields' ? 'on' : ''}" data-sec="fields">重点记录</button>
+          <button class="sn ${state.sec === 'sources' ? 'on' : ''}" data-sec="sources">资料</button>
+          <div class="sngroup">共享</div>
+          <button class="sn ${state.sec === 'members' ? 'on' : ''}" data-sec="members">成员</button>
+        </nav>
+        <div class="setbody">
+          ${state.sec === 'basic' ? basicSec() : state.sec === 'sources' ? sourcesSec() : state.sec === 'members' ? membersSec() : `
+          <h2>重点记录</h2>
+          <p class="sub">家长聊天时说到这些，AI 会自动记到对应家庭名下，写进<b>服务概览</b>。点一下就能加上常用的，也可以自己写。</p>
+          <div class="ovgrid">
+            <div>
+              <div class="ovbox">
+                <div class="ovsec">来自你的工作指令 · 建服务时写了「重点记录家长顾虑与到访意向」，已自动记下这两项</div>
+                <div class="ftags">
+                  ${INST_FIELDS.map(f => `<span class="ftag" data-noop><b>${esc(f.label)}</b><span class="src">指令</span><span class="x" data-noop>✕</span></span>`).join('')}
+                </div>
+                <div class="hint" style="margin-top:6px">工作指令改过了？<span class="addchip" data-noop>↻ 按新指令重新推荐</span></div>
+                <div class="ovsec">常用推荐 · 按家长说话的习惯起的名，点一下就加入</div>
+                <div class="sugrow">
+                  ${FIELD_SUGGESTIONS.map(s => `<span class="sug" data-noop><i>＋</i>${esc(s)}</span>`).join('')}
+                </div>
+                <div class="ovsec">已加入 ${FIELDS.length + INST_FIELDS.length} 个 · 点名字可改写法，写得越像家长的原话，AI 认得越准</div>
+                <div class="ftags">
+                  ${FIELDS.map(f => `<span class="ftag" data-noop><b>${esc(f.label)}</b><span class="x" data-noop>✕</span></span>`).join('')}
+                  <span class="addchip" data-noop>＋ 自定义…</span>
+                </div>
+                <div class="ovadd">
+                  <input class="field" placeholder="用家长的话来写，例如：孩子多大" />
+                  <button class="btn sm" data-noop>添加</button>
+                </div>
+              </div>
+              <div class="annoline" style="margin-top:14px">
+                <b>v1.5 · 指令 → 重点记录</b>：工作指令里点名「重点记录 X、Y」，X、Y 直接成为上面的字段（带「指令」角标，可删可改名）。指令没提的，落到下面的常用推荐。改指令不会静默改动已配好的项——由上面的「↻ 按新指令重新推荐」显式触发（v1.10：原先设想挂在 服务设置 › 高级，该分区已撤，入口就近落在本面板）。
+              </div>
+              <div class="annoline warn" style="margin-top:10px">
+                <b>这版为什么改了三处（都有代码依据）：</b><br>
+                ① <b>删掉「必填」开关</b>——后端 <code>ServiceSpaceProfileField.Required</code>（<code>service_space_blueprint.go:68</code>）全仓<b>零消费</b>，拨不拨没有任何效果，纯装饰控件；<br>
+                ② <b>字段名不是随便起的</b>——AI 抽取就是拿「字段名 + 别名」在对话文本里做字符串匹配（<code>extractProfileFieldValue</code>，<code>service_space.go:1512</code>）。写「到访次数」匹配不到「今天来了 3 次」；所以推荐项按家长原话起名，真正影响命中的「别名」收进点开名字后的次级设置；<br>
+                ③ <b>不再要 key</b>——现状要同时填 <code>member_level</code> 这样的 key 和名称两列，还挤在 320px 浮层里；key 由后端自动生成。
+              </div>
+            </div>
+            <div>
+              <div class="ovsec" style="margin-top:0">配完长什么样 · 实时预览</div>
+              <div class="pvcard">
+                <div class="pvhead"><span class="dot"></span>服务概览 · 果果家<small>随左侧改动实时更新</small></div>
+                ${[...INST_FIELDS, ...FIELDS].map(f => `<div class="pvrow"><span class="k">${esc(f.label)}</span><span class="v">${esc(f.value)}</span></div>`).join('')}
+                <div class="pvfoot">AI 从对话和整理记录里自动填写，园所老师确认后生效</div>
+              </div>
+            </div>
+          </div>
+          `}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── v1.8：「待办配置」分区已撤——待办状态全自动（默认 4 态 + 指令派生），
+   状态说明收进待办浮层底部（.rfoot）。（v1.10：原计划的"自定义逃生口收进 高级"
+   已作废——高级分区整体删除，不提供状态自定义。）后端依据：
+   迁移 000113 的默认状态机有 9 态 + 流转表，把 AI 提案生命周期（候选/已生成/
+   待重算）混进了用户待办，本决策同时要求后端把默认机收窄到 4 个用户态。 ── */
+
+/* ── 设置 › 资料（v1.7 新增面板；v1.10 收敛为一列纯列表：
+   删引导段落 / 计数说明 / 条目来源小字 / 补资料两个办法，只留 名称+移除） ─────────────── */
+function sourcesSec(){
+  return `
+          <h2>资料</h2>
+          <div class="ovbox">
+            <div class="srcrow">
+              <span class="ic">▤</span>
+              <span class="meta"><b>本周家长顾虑归纳</b></span>
+              <button class="rm" data-noop>移除</button>
+            </div>
+            <div class="srcrow">
+              <span class="ic">▤</span>
+              <span class="meta"><b>2026 秋季招生方案（草稿）</b></span>
+              <button class="rm" data-noop>移除</button>
+            </div>
+          </div>
+          <div class="annoline" style="margin-top:14px">
+            <b>v1.10 · 资料面板收敛为一列纯列表：</b>删掉 v1.7 的四段说明（顶部引导段、「已带入 2 份」计数行、条目「来自整理记录 · 建服务时带入」小字、底部「想再补资料 · 两个办法」），只留 <b>名称 + 移除</b>。列表本身即语义，无需教学文案。代码依据不变：服务头「来源」pill 已撤（check §5.3），<code>deleteServiceContextSource</code> 全仓只有 <code>ServiceHub.vue:1278</code> 一处调用，这里仍是<b>唯一撤销入口</b>。
+          </div>`;
+}
+
+/* ── 设置 › 基本信息（v1.12 新增、v1.13 并入「专家」）：名称 / 说明 / 工作指令 + 专家 ── */
+function basicSec(){
+  return `
+          <h2>基本信息</h2>
+          <p class="sub">这个服务叫什么、干什么用的、谁在里面干活。改完点保存，之后的对话就按新的来。</p>
+          <div class="ovbox">
+            <div class="ovsec">服务名称</div>
+            <input class="field" value="果果家 2026 秋季招生" />
+            <div class="ovsec">一句话说明</div>
+            <input class="field" value="跟进到访意向家庭，把顾虑与进展记下来" />
+            <div class="ovsec">工作指令</div>
+            <textarea class="field" style="min-height:92px">跟进 2026 秋季招生线索，语气亲切，重点记录家长顾虑与到访意向。</textarea>
+            <div class="hint">指令里点名「重点记录 X」时，X 会成为 重点记录 里的项（带「指令」角标）。<b>改指令不会自动重算已配好的项</b>——要重算，去 重点记录 点「↻ 按新指令重新推荐」。</div>
+          </div>
+          <div class="ovbox" style="margin-top:14px">
+            <div class="ovsec">专家 · 已绑定 2 位（来自园所专家库）</div>
+            <div class="srcrow">
+              <span class="mavatar">招</span>
+              <span class="meta"><b>招生增长顾问</b><small>招生增长</small></span>
+              <button class="rm" data-noop>移出</button>
+            </div>
+            <div class="srcrow">
+              <span class="mavatar">家</span>
+              <span class="meta"><b>家长沟通教练</b><small>家长服务</small></span>
+              <button class="rm" data-noop>移出</button>
+            </div>
+            <div class="ovsec">从园所专家库加</div>
+            <div class="ovadd">
+              <input class="field" placeholder="搜索专家名称或领域" />
+              <button class="btn sm" data-noop>加入</button>
+            </div>
+            <div class="hint" style="margin:10px 0 0">加进来的专家会出现在 <b>服务对象</b> 的专家标签里，产出也按各自擅长的领域归口。</div>
+          </div>
+          <div class="ovadd" style="margin-top:14px"><button class="btn sm" data-noop>保存</button><span class="hint" style="margin:6px 0 0">两部分一起保存；改完立即生效，不改动已有的会话记录</span></div>
+          <div class="annoline" style="margin-top:14px">
+            <b>v1.13 · 基本信息（并入「专家」）：</b>「专家」原先是独立导航项（v1.12 补做），现<b>并入基本信息</b>——两者都是"这个服务是什么"的属性，一次说完更顺手。这一屏对应<b>两个</b>接口：① <code>PUT /:service_id</code>（<code>router.go:1566-1567</code>）管名称 / 说明 / 工作指令，入参 <code>ServiceSpaceUpdateInput</code>（<code>types/service_space.go:283-293</code>）全是<b>可选指针字段</b>——<code>Name / Description / Instruction / KnowledgeBaseIDs / SelectedSkills / CampusScope / CourseScope / Visibility / MemberLimit</code>，只传要改的（原型只演示前三项）；② <code>GET / PUT /:service_id/experts</code>（<code>router.go:1600-1601</code>）管专家绑定。注意<b>专家这个 PUT 是整体替换</b>：handler 名 <code>ReplaceExperts</code>（<code>handler/service_space.go:437-455</code>），入参 <code>{experts:[...]}</code>，提交的必须是"改完之后的完整列表"，<b>不是增量追加</b>——实现时最容易踩。绑定实体 <code>ServiceExpertBinding</code>（<code>types/service_space.go:158-177</code>）除 <code>expert_ref / expert_name / expert_domain</code> 外还有 <code>enabled</code>（可单独关掉，不必移出）、<code>display_order</code>、<code>instruction_override</code>、<code>work_doc_directory</code>、<code>output_policy</code>、<code>memory_filter</code>——<b>后 4 项即方案 §4.5 说的"收窄配置"，原型不展开</b>；候选来自园所专家库 <code>org.GET("/experts")</code>（<code>router.go:1507</code>）。工作指令是这个服务里<b>唯一影响 AI 行为的自由文本</b>，也是 重点记录 与待办状态的派生源（<code>buildInstructionBlueprint</code>，<code>service_space.go:2146</code>）。<b>界面不出现 expert_ref</b>——与成员不出现 user_id 一致（支柱 3：机器键撤出界面）。
+          </div>`;
+}
+
+/* ── 设置 › 成员（v1.11 新增面板）：一列成员 + 角色 + 移除，加人做成人选择器 ── */
+function membersSec(){
+  return `
+          <h2>成员</h2>
+          <div class="ovbox">
+            <div class="ovsec">在这个服务里一起干活的老师 · 已加入 4 / 20 人</div>
+            <div class="srcrow">
+              <span class="mavatar">王</span>
+              <span class="meta"><b>王园长</b></span>
+              <span class="rlock">主人</span>
+            </div>
+            <div class="srcrow">
+              <span class="mavatar">李</span>
+              <span class="meta"><b>李老师</b></span>
+              <button class="rsel" data-noop>管理员 ▾</button>
+            </div>
+            <div class="srcrow">
+              <span class="mavatar">陈</span>
+              <span class="meta"><b>陈老师</b></span>
+              <button class="rsel" data-noop>可编辑 ▾</button>
+              <button class="rm" data-noop>移除</button>
+            </div>
+            <div class="srcrow">
+              <span class="mavatar">赵</span>
+              <span class="meta"><b>赵老师</b></span>
+              <button class="rsel" data-noop>只看 ▾</button>
+              <button class="rm" data-noop>移除</button>
+            </div>
+            <div class="ovsec">加人 · 从园所成员里选，不用让对方注册</div>
+            <div class="ovadd">
+              <input class="field" placeholder="输入姓名或手机号" />
+              <button class="rsel" data-noop>可编辑 ▾</button>
+              <button class="btn sm" data-noop>加入</button>
+            </div>
+            <div class="hint" style="margin:10px 0 0">四种角色：<b>主人</b>——创建者，唯一，不能改也不能移出；<b>管理员</b>——能加人、能改这个服务的设置；<b>可编辑</b>——能干活（发消息、建会话、出产物），不能改设置；<b>只看</b>——只能看，不能动手。</div>
+          </div>
+          <div class="annoline" style="margin-top:14px">
+            <b>v1.11 · 成员面板（每一条都有代码依据）：</b>接口早就齐了，只是界面上一直没有入口——<code>GET / POST / PUT / DELETE /:service_id/members</code>（<code>router.go:1595-1598</code>）。三条必须遵守的规矩来自后端：① <b>主人不可改、不可移</b>——<code>UpdateMemberRole</code> 对 owner 直接返回 <code>ErrServiceSpaceOwnerImmutable</code>（<code>service_space.go:2739</code>），<code>AddMember</code> 也禁止把谁加成 owner（<code>:2695</code>），所以主人那行是<b>只读标签</b>而不是选择器；② <b>加人、改角色要「管理员」以上</b>（<code>:2690</code> / <code>:2730</code> 走 <code>Authorize(..., Admin, true)</code>）——可编辑 / 只看的人进这一页应当是<b>只读</b>；③ <b>人数有上限</b>：<code>service.MemberLimit</code> 默认 20（<code>types/service_space.go:70</code>），超限报 <code>ErrServiceSpaceMemberLimit</code>（<code>:2700-2703</code>），所以标题带 <code>4 / 20</code>。角色四值与先后由建表 CHECK 与排序函数定死：<code>owner / admin / editor / viewer</code>（迁移 <code>000105</code> 的 <code>chk_service_members_role</code>），权限按 <code>ServiceMemberRoleRank</code> 4&gt;3&gt;2&gt;1 比较（<code>types/service_space.go:341</code>）。<b>关键取舍：界面不出现 user_id</b>——后端入参是 <code>ServiceMemberInput{UserID, Role}</code>（<code>types/service_space.go:309</code>），但界面必须做成人选择器，候选取自园所成员（<code>GET /api/v1/tenants/:id/members</code>，<code>api/tenant/members.ts:200</code>），这是支柱 3「机器键撤出界面」在成员上的落点。另：<code>ListMembers</code> 支持 <code>status=left</code>（<code>service_space.go:2667</code>），已退出的人可查历史，本面板默认不展示。
+          </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景 5 · 服务概览 / 服务对象（⋯ → 更多 的两个落点）
+   ═══════════════════════════════════════════════════════ */function overviewView(){
+  return `
+  <div class="annoline warn">方案 §3 支柱 2：原来的「档案 × 摘要」两个常驻入口合并为<b>一个服务概览</b>，收进 <b>⋯ → 更多</b>。摘要用<b>自然语言</b>说，不再展示 <code>refresh_policy</code> 这类字段。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, '', false)}
+      <div class="setbody" style="padding:22px 26px;overflow-y:auto">
+        <div style="max-width:720px">
+          <h2 style="font-size:16px;margin:0 0 4px">服务概览</h2>
+          <p class="sub" style="margin-bottom:18px">按你说的，我把这个服务的重点放在<b>进展、风险、下一步动作</b>上。</p>
+
+          <div class="card" style="padding:15px 17px;margin-bottom:14px">
+            <div class="sechead" style="margin:0 0 10px">
+              <span class="st">当前进展</span>
+              <div class="tools"><button class="btn sm" data-noop>刷新</button></div>
+            </div>
+            <div style="font-size:13px;line-height:1.85;color:var(--t1)">
+              <p style="margin:0 0 9px">9 月共进入 <b>16 条</b>招生线索，其中东苑分园 5 条。本周新增 <b>4 条明确意向</b>，主要来自体验课后家长转介绍。</p>
+              <p style="margin:0 0 9px"><b>需要留意：</b>周三下午的时段冲突被 9 位家长提到，是当前最集中的顾虑；另有时段已满 2 位家长在等位。</p>
+              <p style="margin:0">下一步：推进 3 个待回访家庭，并确认 10 月体验课排期。</p>
+            </div>
+          </div>
+
+          <div class="card" style="padding:15px 17px">
+            <div class="sechead" style="margin:0 0 12px">
+              <span class="st">服务对象档案</span>
+              <div class="tools"><span style="font-size:11.5px;color:var(--t3)">要重点记哪些，在 服务设置 › 重点记录 里配</span></div>
+            </div>
+            <div class="fgrid" style="border-radius:var(--r-l)">
+              ${FIELDS.map(f => `
+                <div class="frow" style="grid-template-columns:150px 1fr;cursor:pointer">
+                  <span style="font-size:12.5px;color:var(--t3)">${esc(f.label)}${f.req ? '<span style="color:var(--error)">*</span>' : ''}</span>
+                  <span style="font-size:13px;color:var(--t1)">${esc({'学员等级':'大班 · 在读 2 年','主班老师':'陈老师','到访次数':'3 次','家长关注点':'时段冲突、价格'}[f.label] || '—')}</span>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function subjectsView(){
+  return `
+  <div class="annoline">方案 §3 支柱 3：「服务主体」改名<b>服务对象</b>，从常驻入口降为 <b>⋯ → 更多</b>；创建时<b>只填名称</b> —— <code>subject_type</code> 默认 <code>custom</code>、<code>subject_key</code> 由后端生成，界面不出现。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, '', false)}
+      <div class="setbody" style="padding:22px 26px;overflow-y:auto">
+        <div style="max-width:720px">
+          <div class="sechead">
+            <span class="st" style="font-size:16px">服务对象</span>
+            <div class="tools"><button class="btn pri sm" data-noop>＋ 添加对象</button></div>
+          </div>
+          <p class="sub">这个服务正在围着谁开展工作。可以是家庭、班级、园区，按你的习惯建就行。</p>
+
+          <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(216px,1fr))">
+            ${[
+              ['果果家','大班 · 在读 2 年','3 次到访'],
+              ['朵朵家','中班 · 在读 1 年','1 次到访'],
+              ['小宝家','新生 · 待入园','2 次到访'],
+              ['东苑 · 米米家','大班 · 在读 2 年','1 次到访'],
+              ['东苑 · 乐乐家','中班 · 在读 1 年','2 次到访']
+            ].map(([n,m,x]) => `
+              <div class="scard" style="cursor:pointer">
+                <div class="top"><span class="ic">◍</span><span class="nm">${esc(n)}</span><span class="dots" data-noop>⋯</span></div>
+                <div class="tags"><span class="tag">${esc(m)}</span></div>
+                <div class="mt" style="border-top:none;padding-top:2px"><span>${esc(x)}</span><span>2 个待办</span></div>
+              </div>`).join('')}
+          </div>
+
+          <div class="note gray" style="margin-top:18px">
+            <b>对比现状：</b>现在的「主体」表单要填<b>主体类型</b>（示例 <code>member_family</code>）和<b>唯一标识</b>（示例 <code>member-001</code>）三个输入框，等于要求园长先理解表设计。优化后只需要一个"叫什么"。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景 6 · 改造对照
+   ═══════════════════════════════════════════════════════ */
+function diffView(){
+  const kpis = [
+    ['服务头可点入口', '9', '3', '个'],
+    ['浮层承载的内容', '8', '3', '种'],
+    ['创建需理解的系统概念', '9', '4', '个'],
+    ['需手填的机器键', '4', '0', '处']
+  ];
+  const rows = [
+    ['① 创建后强制弹「确认服务空间蓝图」', '620px 对话框，要求用户确认空间形态 / 主体策略 / 档案字段 N 个 / 首页摘要 N 个模块', '<span class="pill drop">撤出界面</span> 静默生成，蓝图收回后端（v1.10：高级分区已删，界面不设入口）', '跑完只写草稿记录，界面不出现"蓝图"二字'],
+    ['② 服务头 7 个带计数入口', '产物 / 待办 / 来源 / 主体 / 档案 / 摘要 / 设置 并排，同权重', '<span class="pill keep">保留 2</span><span class="pill demote">降级 3</span><span class="pill move">改位置 1</span>', '常驻只剩 产物 / 待办；其余进 ⋯ → 更多'],
+    ['③ 320px 浮层装 8 种内容', '设置类表单（字段 key + 名称 + 必填 + 删除 四列）挤在 320px 里', '<span class="pill drop">移出 5 种</span>', '浮层只留"看"的内容；"配"的内容走整页'],
+    ['④ 机器键当字段', '<code>subject_type</code>、<code>subject_key</code>、字段 <code>key</code>、状态 <code>key</code>、负责人 <code>user_id</code>', '<span class="pill drop">4 处撤出</span>', '后端按名称生成 key；负责人改成员选择器'],
+    ['⑤ 一个组件一条路由', '<code>ServiceHub.vue</code> 3876 行；导航靠 7 个 query 参数', '<span class="pill move">拆 8 个组件 / 6 条路由</span>', '删掉 <code>?action=archive</code> 这类带写副作用的 URL'],
+    ['⑥ 面板状态与"换服务要重置 16 个 ref"', 'panel 不进 URL 刷新即丢；切服务人工清 16 个状态', '<span class="pill keep">由组件生命周期承担</span>', '拆组件后自然消失'],
+    ['⑦ 生产代码里的种子数据', '<code>serviceHubState.ts</code> 三处硬编码（服务 / 会话 / 产物）', '<span class="pill drop">删除</span>', '改走真接口 + 设计过的空态'],
+    ['⑧ 空态从未被设计', '因为总有假数据填充，空态只有一句"还没有服务"', '<span class="pill move">重做三分支</span>', '新用户 / 全归档 / 搜索无结果，文案与出口各不相同'],
+    ['⑨ 双轨遗留', '<code>user_work_profiles</code> / <code>work_profile_agent_settings</code> 两张死表 + <code>profile_id</code> 兼容字段', '<span class="pill demote">P4 清理</span>', '代码已无引用，新增迁移 drop'],
+    ['⑩ 有接口没界面', '成员 / 专家的接口早就有，界面上没有入口', '<span class="pill keep">补入口</span>', '收进 服务设置 的对应分区']
+  ];
+  return `
+  <div class="diff">
+    <h2>改造对照</h2>
+    <p class="lead">左侧栏的 6 个场景是"改后长什么样"，这一页回答"改了什么、为什么"。逐条对应《服务模块优化方案》§1.3 的五个根因。</p>
+
+    <div class="kpis">
+      ${kpis.map(([n, b, a, u]) => `
+        <div class="kpi">
+          <div class="kn">${n}</div>
+          <div class="kv"><span class="before">${b}</span><span class="arrow">→</span><span class="after">${a}</span><span class="ku">${u}</span></div>
+        </div>`).join('')}
+    </div>
+
+    <table class="dtable">
+      <thead><tr><th style="width:24%">问题</th><th style="width:32%">现状</th><th style="width:18%">处理</th><th style="width:26%">改后</th></tr></thead>
+      <tbody>
+        ${rows.map(([a, b, c, d]) => `<tr><td class="a">${a}</td><td class="b">${b}</td><td>${c}</td><td>${d}</td></tr>`).join('')}
+      </tbody>
+    </table>
+
+    <h2>同一条路径：从"建一个服务"到"开始干活"</h2>
+    <p class="lead">把两个版本的用户路径并排看。加粗是新增的认知负担。</p>
+    <div class="prod">
+      <div class="pcol old">
+        <h3>◀ 改造前 · 3 屏 9 个概念</h3>
+        <div class="pbox old">
+          <ul>
+            <li>1. 服务列表 →「新建服务」</li>
+            <li>2. 填表单：名称 / 指令 / 专家 / 知识库</li>
+            <li>3. <b>弹出 620px「确认服务空间蓝图」→ 要理解 空间形态、服务主体、档案字段、首页摘要</b></li>
+            <li>4. 进服务空间 → 服务头 <b>7 个带计数入口</b>，先判断该点哪个</li>
+            <li>5. 想加一个要跟进的家庭 → 点「主体」→ <b>要填 <code>member_family</code> 和 <code>member-001</code></b></li>
+            <li>6. 想加一个待办 → 点「待办」→ <b>一次填 6 个字段，负责人要填用户 ID 并用逗号分隔</b></li>
+            <li>7. 想让状态贴合业务 → 点「设置」→ <b>320px 浮层里三段合一，处处要填 key</b></li>
+          </ul>
+        </div>
+      </div>
+      <div class="pcol new">
+        <h3>▶ 改造后 · 2 屏 4 个概念</h3>
+        <div class="pbox new">
+          <ul>
+            <li>1. 服务列表 →「＋ 新建服务」</li>
+            <li>2. 填表单：名称 / <b>主要围着谁转（3 选 1）</b> / 指令 / 专家 / 知识库</li>
+            <li>3. 点「创建服务」→ <b>直接进服务空间</b>，没有第二个弹窗</li>
+            <li>4. 服务头只有 <b>产物 N · 待办 N · ⋯</b> —— 进来就是在对话里干活</li>
+            <li>5. 想加一个要跟进的家庭 → <b>⋯ → 服务对象 → 只填"叫什么"</b></li>
+            <li>6. 想加一个待办 → 点「待办」→ <b>3 个字段，负责人从成员里点选</b></li>
+            <li>7. 想让状态贴合业务 → <b>⋯ → 服务设置 → 只填名称，key 自动生成</b></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <h2>概念收敛</h2>
+    <p class="lead">这个模块一共有 22 个面向用户的概念。下面是每个的下场 —— 净效果是"建服务时要学的概念从 9 个降到 4 个，服务头常驻概念从 7 个降到 2 个"。</p>
+    <table class="dtable">
+      <thead><tr><th style="width:26%">概念</th><th style="width:30%">现状在哪</th><th style="width:16%">处理</th><th style="width:28%">改后在哪</th></tr></thead>
+      <tbody>
+        ${[
+          ['服务 / 指令 / 专家 / 知识库 / 会话 / 产物 / 待办 / 模板','列表页、创建表单、服务头、侧栏','<span class="pill keep">保留</span>','原位'],
+          ['服务提醒','已被「待办」吸收','<span class="pill keep">已收敛</span>','—'],
+          ['空间蓝图','创建后强制确认弹窗','<span class="pill demote">内部化</span>','无（静默）'],
+          ['空间形态（3 值枚举）','蓝图弹窗','<span class="pill demote">内部化</span>','并入「主要围着谁转」三选项'],
+          ['服务主体策略','蓝图弹窗','<span class="pill demote">内部化</span>','无'],
+          ['档案字段 schema / 首页摘要 schema','蓝图弹窗 + 常驻入口','<span class="pill move">改呈现</span>','服务概览里一段「重点记录」/ 一段自然语言'],
+          ['空间档案 / 首页摘要','服务头「档案 6」「摘要 4」','<span class="pill demote">降级</span>','⋯ → 服务概览'],
+          ['服务主体','服务头「主体 5」','<span class="pill demote">降级 + 改名</span>','⋯ → 服务对象'],
+          ['资料','服务头「来源 2」','<span class="pill move">改位置</span>','设置 › 资料（可查可删；<b>不做输入框 chip</b>，v5.3 复核）'],
+          ['待办状态机','设置浮层里配 9 态 + 流转表','<span class="pill demote">自动化</span>','<b>零配置</b>：AI 自动生成默认 4 态；说明收进待办浮层底部（v1.8）；<b>不提供自定义</b>（v1.10）'],
+          ['待办协作（负责人 / 评论 / 历史）','680px 弹窗','<span class="pill move">改呈现</span>','待办卡片内联展开'],
+          ['基本信息 / 成员 / 专家','有接口无界面','<span class="pill keep">补入口</span>','设置 › 对应分区（v1.11 补成员，v1.12 补基本信息与专家）'],
+          ['运行记录','有表没接口（只有单条 <code>/:run_id</code>，无列表）','<span class="pill drop">删除</span>','v1.10 整体删除：分区与 ⋯ → 更多 入口一并撤下']
+        ].map(([a, b, c, d]) => `<tr><td class="a">${a}</td><td class="b">${b}</td><td>${c}</td><td>${d}</td></tr>`).join('')}
+      </tbody>
+    </table>
+
+    <h2>分期</h2>
+    <p class="lead">P0 只删不加、不动后端，单独发一版就能让最扎眼的两件事消失（服务头 9 → 3、创建不再弹蓝图）。</p>
+    <table class="dtable">
+      <thead><tr><th style="width:16%">期</th><th style="width:52%">内容</th><th style="width:14%">动后端</th><th style="width:18%">可独立上线</th></tr></thead>
+      <tbody>
+        <tr><td class="a">P0 · 纯减法</td><td class="b">删蓝图确认弹窗；服务头 9 → 3；浮层 8 → 3</td><td>否</td><td><span class="pill keep">是</span></td></tr>
+        <tr><td class="a">P1 · 机器键自动化</td><td class="b">4 处手填 key 撤出 + 后端按名称生成 key</td><td>是（小）</td><td><span class="pill keep">是</span></td></tr>
+        <tr><td class="a">P2 · 拆分与深链</td><td class="b">组件拆分；6 条路由；侧栏三级联动；⋯ 两级菜单</td><td>否</td><td><span class="pill keep">是</span></td></tr>
+        <tr><td class="a">P3 · 设置整页与补口</td><td class="b">设置 4 分区；补基本信息（含专家）/ 成员界面入口（运行记录已删，不动后端）</td><td>否</td><td><span class="pill keep">是</span></td></tr>
+        <tr><td class="a">P4 · 清理</td><td class="b">删种子数据；删两张死表；写操作补服务级校验</td><td>是</td><td><span class="pill keep">是</span></td></tr>
+      </tbody>
+    </table>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景与渲染
+   ═══════════════════════════════════════════════════════ */
+const SCENES = [
+  { key:'list',     n:1, label:'服务列表页 · 含空态三分支', path:'/platform/service' },
+  { key:'create',   n:2, label:'创建服务 · 整页表单',       path:'/platform/service/new' },
+  { key:'space',    n:3, label:'服务空间 · 优化后服务头',   path:'/platform/service/:serviceId/sessions/:sessionId' },
+  { key:'artifacts',n:4, label:'服务空间 · 产物浮层',       path:'/platform/service/:serviceId  ▤ 产物 3' },
+  { key:'reminders',n:5, label:'服务空间 · 待办浮层',       path:'/platform/service/:serviceId  ☑ 待办 3' },
+  { key:'overview', n:6, label:'⋯ → 服务概览 / 服务对象',   path:'/platform/service/:serviceId/overview' },
+  { key:'settings', n:7, label:'服务设置 · 整页 4 分区',    path:'/platform/service/:serviceId/settings/fields' },
+  { key:'diff',     n:8, label:'改造对照 · 问题与概念收敛', path:'—' }
+];
+
+const state = {
+  scene: (location.hash || '').replace('#', '') || 'list',
+  lmode: 'data',
+  panel: '',
+  moreOpen: false,
+  sel: 'a2',
+  collabOpen: '',
+  emptyChat: false,
+  newChat: false, // v1.14：点服务头 ＋ 后的新会话空态（对话区切换，不新开页面）
+  sec: 'fields'   // 设置场景内的分区：basic / fields / sources / members（v1.13：「专家」并入基本信息，共 4 个分区）
+};
+
+const RENDER = {
+  list:      () => layout(listView(state.lmode)),
+  create:    () => layout(createView()),
+  space:     () => layout(spaceView(state.panel, state.moreOpen, state.sel, state.collabOpen, state.emptyChat), true),
+  artifacts: () => layout(spaceView('artifacts', false, state.sel, '', false), true),
+  reminders: () => layout(spaceView('reminders', false, '', state.collabOpen, false), true),
+  overview:  () => layout(overviewView(), true),
+  subjects:  () => layout(subjectsView(), true),
+  settings:  () => layout(settingsView(), true),
+  diff:      () => layout(diffView())
+};
+function layout(inner, bleed){ return `<div class="canvas ${bleed ? 'bleed' : ''}">${inner}</div>`; }
+
+function render(){
+  const sc = SCENES.find(s => s.key === state.scene) || SCENES[0];
+  state.scene = sc.key;
+  $('#barTitle').textContent = sc.label;
+  $('#barPath').textContent = sc.path;
+  $('#root').innerHTML = RENDER[state.scene] ? RENDER[state.scene]() : '';
+  $('#rail').innerHTML = SCENES.map(s => `
+    <button class="rail-btn ${state.scene === s.key ? 'on' : ''}" data-scene="${s.key}">
+      <span class="idx">${s.n}</span><span class="lb">${s.label}</span>
+    </button>`).join('');
+
+  const br = $('#barRight');
+  if (state.scene === 'space') {
+    br.innerHTML = `
+      <button class="chip ${state.emptyChat ? '' : 'on'}" data-empty="0">有会话</button>
+      <button class="chip ${state.emptyChat ? 'on' : ''}" data-empty="1">空态</button>
+      <button class="chip ${state.newChat ? 'on' : ''}" data-newchat>新会话（点 ＋）</button>
+      <button class="chip ${state.moreOpen ? 'on' : ''}" data-more>${state.moreOpen ? '收起 ⋯ 菜单' : '展开 ⋯ 菜单'}</button>`;
+  } else br.innerHTML = '';
+}
+
+/* ═══════════════════════════════════════════════════════
+   事件
+   ═══════════════════════════════════════════════════════ */
+document.addEventListener('click', e => {
+  const hit = s => e.target.closest(s);
+
+  const noop = hit('[data-noop]');
+  if (noop && !hit('[data-scene]') && !hit('[data-panel]') && !hit('[data-art]') && !hit('[data-more]') && !hit('[data-lmode]') && !hit('[data-empty]') && !hit('[data-collab]') && !hit('[data-newchat]')) {
+    toast('这是原型，仅演示布局与信息层级');
+    return;
+  }
+
+  const nc = hit('[data-newchat]');
+  if (nc) { state.newChat = true; state.emptyChat = false; state.panel = ''; state.moreOpen = false; render(); return; }
+
+  const sc = hit('[data-scene]');
+  if (sc) {
+    const k = sc.dataset.scene;
+    state.scene = k;
+    if (k === 'space') { state.panel = ''; state.moreOpen = false; state.emptyChat = false; state.newChat = false; }
+    history.replaceState(null, '', '#' + k);
+    render();
+    $('.scroll').scrollTop = 0;
+    return;
+  }
+
+  const sec = hit('[data-sec]');
+  if (sec) { state.sec = sec.dataset.sec; render(); return; }
+
+  const lm = hit('[data-lmode]');
+  if (lm) { state.lmode = lm.dataset.lmode; render(); return; }
+
+  const em = hit('[data-empty]');
+  if (em) { state.emptyChat = em.dataset.empty === '1'; state.newChat = false; render(); return; }
+
+  const more = hit('[data-more]');
+  if (more) { state.moreOpen = !state.moreOpen; render(); return; }
+
+  const pl = hit('[data-panel]');
+  if (pl) {
+    const k = pl.dataset.panel;
+    state.panel = (state.panel === k) ? '' : k;
+    state.moreOpen = false;
+    render();
+    return;
+  }
+
+  const art = hit('[data-art]');
+  if (art) { state.sel = art.dataset.art; render(); return; }
+
+  const cb = hit('[data-collab]');
+  if (cb) { state.collabOpen = state.collabOpen === cb.dataset.collab ? '' : cb.dataset.collab; render(); return; }
+});
+
+render();
+window.addEventListener('hashchange', () => {
+  state.scene = (location.hash || '').replace('#', '') || 'list';
+  state.panel = ''; state.moreOpen = false;
+  render();
+});
+</script>
+</body>
+</html>

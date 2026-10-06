@@ -21,7 +21,12 @@ func (s *organizeService) GetDiscover(
 	}
 
 	query.Keyword = strings.TrimSpace(query.Keyword)
-	query.Tab = normalizeDiscoverTab(strings.TrimSpace(query.Tab))
+	categories, err := s.ListDiscoverCategories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	categoryDTOs := discoverCategoryDTOs(categories)
+	query.Tab = normalizeDiscoverTab(strings.TrimSpace(query.Tab), categoryDTOs)
 	if query.Page < 1 {
 		query.Page = 1
 	}
@@ -43,8 +48,8 @@ func (s *organizeService) GetDiscover(
 		return nil, err
 	}
 
-	tabs := buildDiscoverTabs(outputs, courseCount)
-	filtered := filterDiscoverOutputs(outputs, query.Tab, query.Keyword)
+	tabs := buildDiscoverTabs(outputs, courseCount, categoryDTOs)
+	filtered := filterDiscoverOutputs(outputs, query.Tab, query.Keyword, categoryDTOs)
 	sortDiscoverOutputs(filtered)
 
 	totalPages := max(1, (len(filtered)+query.PageSize-1)/query.PageSize)
@@ -105,7 +110,11 @@ func (s *organizeService) listAllDiscoverOutputs(ctx context.Context, tenantID u
 	return outputs, nil
 }
 
-func buildDiscoverTabs(outputs []*types.OrganizeOutput, courseCount int64) []types.OrganizeDiscoverTab {
+func buildDiscoverTabs(
+	outputs []*types.OrganizeOutput,
+	courseCount int64,
+	categories []types.OrganizeDiscoverCategory,
+) []types.OrganizeDiscoverTab {
 	categoryCounts := make(map[string]int64)
 	var recommendedCount int64
 
@@ -117,7 +126,7 @@ func buildDiscoverTabs(outputs []*types.OrganizeOutput, courseCount int64) []typ
 			continue
 		}
 		recommendedCount++
-		if category := discoverOutputCategory(output); category != "" {
+		if category := discoverOutputCategory(output, categories); category != "" {
 			categoryCounts[category]++
 		}
 	}
@@ -127,7 +136,7 @@ func buildDiscoverTabs(outputs []*types.OrganizeOutput, courseCount int64) []typ
 		Value: "recommended",
 		Count: recommendedCount + courseCount,
 	}}
-	for _, category := range types.OrganizeDiscoverCategories() {
+	for _, category := range categories {
 		tabs = append(tabs, types.OrganizeDiscoverTab{
 			Label: category.Label,
 			Value: category.Key,
@@ -137,13 +146,18 @@ func buildDiscoverTabs(outputs []*types.OrganizeOutput, courseCount int64) []typ
 	return tabs
 }
 
-func filterDiscoverOutputs(outputs []*types.OrganizeOutput, tab, keyword string) []*types.OrganizeOutput {
+func filterDiscoverOutputs(
+	outputs []*types.OrganizeOutput,
+	tab,
+	keyword string,
+	categories []types.OrganizeDiscoverCategory,
+) []*types.OrganizeOutput {
 	filtered := make([]*types.OrganizeOutput, 0, len(outputs))
 	for _, output := range outputs {
 		if output == nil {
 			continue
 		}
-		if !matchesDiscoverTab(output, tab) {
+		if !matchesDiscoverTab(output, tab, categories) {
 			continue
 		}
 		if keyword != "" && !matchesDiscoverKeyword(output, keyword) {
@@ -221,15 +235,15 @@ func paginateDiscoverOutputs(outputs []*types.OrganizeOutput, page, pageSize int
 	return outputs[start:end]
 }
 
-func matchesDiscoverTab(output *types.OrganizeOutput, tab string) bool {
-	normalizedTab := normalizeDiscoverTab(tab)
+func matchesDiscoverTab(output *types.OrganizeOutput, tab string, categories []types.OrganizeDiscoverCategory) bool {
+	normalizedTab := normalizeDiscoverTab(tab, categories)
 	isCourseOutput := isDiscoverCourseOutput(output)
 
 	switch normalizedTab {
 	case "", "recommended":
 		return !isCourseOutput
 	default:
-		return !isCourseOutput && discoverOutputCategory(output) == normalizedTab
+		return !isCourseOutput && discoverOutputCategory(output, categories) == normalizedTab
 	}
 }
 
@@ -294,13 +308,13 @@ func discoverOutputKind(output *types.OrganizeOutput) string {
 	}
 }
 
-func discoverOutputCategory(output *types.OrganizeOutput) string {
+func discoverOutputCategory(output *types.OrganizeOutput, categories []types.OrganizeDiscoverCategory) string {
 	if output == nil {
 		return ""
 	}
 	metadata := output.Metadata
 	category := discoverOutputMetadataText(metadata, "discover_category", "category", "discover_category_label")
-	for _, candidate := range types.OrganizeDiscoverCategories() {
+	for _, candidate := range categories {
 		if category == candidate.Key || category == candidate.Label {
 			return candidate.Key
 		}
@@ -409,7 +423,7 @@ func discoverOutputMetadataText(metadata types.JSONMap, keys ...string) string {
 	return ""
 }
 
-func normalizeDiscoverTab(tab string) string {
+func normalizeDiscoverTab(tab string, categories []types.OrganizeDiscoverCategory) string {
 	tab = strings.TrimSpace(tab)
 	switch tab {
 	case "推荐":
@@ -418,7 +432,7 @@ func normalizeDiscoverTab(tab string) string {
 		// Keep old links working after courses moved into 推荐.
 		return "recommended"
 	default:
-		for _, category := range types.OrganizeDiscoverCategories() {
+		for _, category := range categories {
 			if tab == category.Label {
 				return category.Key
 			}
@@ -434,4 +448,20 @@ func normalizeDiscoverTab(tab string) string {
 		}
 		return tab
 	}
+}
+
+func discoverCategoryDTOs(
+	records []*types.OrganizeDiscoverCategoryRecord,
+) []types.OrganizeDiscoverCategory {
+	items := make([]types.OrganizeDiscoverCategory, 0, len(records))
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		items = append(items, types.OrganizeDiscoverCategory{
+			Key:   record.Key,
+			Label: record.Label,
+		})
+	}
+	return items
 }

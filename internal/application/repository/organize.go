@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -386,6 +388,15 @@ func (r *organizeRepository) ListOutputs(ctx context.Context, query types.Organi
 	if query.AssignmentStatus != "" {
 		dbq = dbq.Where("assignment_status = ?", query.AssignmentStatus)
 	}
+	if query.TemplateKey != "" {
+		dbq = dbq.Where("template_key = ?", query.TemplateKey)
+	}
+	if query.Scene != "" {
+		dbq = applyOrganizeJSONTextFilter(dbq, r.db.Dialector.Name(), "metadata", "scene", query.Scene)
+	}
+	for key, value := range query.FieldFilters {
+		dbq = applyOrganizeJSONTextFilter(dbq, r.db.Dialector.Name(), "fields", key, value)
+	}
 	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "content", "output_type", "source_summary")
 
 	var total int64
@@ -406,6 +417,72 @@ func (r *organizeRepository) ListOutputs(ctx context.Context, query types.Organi
 		return nil, 0, err
 	}
 	return outputs, total, nil
+}
+
+func (r *organizeRepository) ListOutputFacets(
+	ctx context.Context,
+	query types.OrganizeListQuery,
+) (*types.OrganizeOutputFacets, error) {
+	dbq := r.db.WithContext(ctx).Model(&types.OrganizeOutput{}).
+		Where("tenant_id = ? AND user_id = ?", query.TenantID, query.UserID)
+	if query.Status != "" {
+		dbq = dbq.Where("status = ?", query.Status)
+	}
+	if query.AssignmentStatus != "" {
+		dbq = dbq.Where("assignment_status = ?", query.AssignmentStatus)
+	}
+	if query.TemplateKey != "" {
+		dbq = dbq.Where("template_key = ?", query.TemplateKey)
+	}
+	if query.Scene != "" {
+		dbq = applyOrganizeJSONTextFilter(dbq, r.db.Dialector.Name(), "metadata", "scene", query.Scene)
+	}
+	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "content", "output_type", "source_summary")
+
+	var outputs []*types.OrganizeOutput
+	if err := dbq.Select("fields").Find(&outputs).Error; err != nil {
+		return nil, err
+	}
+	facetCounts := make(map[string]map[string]int64)
+	for _, output := range outputs {
+		if output == nil {
+			continue
+		}
+		for key, raw := range output.Fields {
+			value := strings.TrimSpace(fmt.Sprint(raw))
+			if value == "" || value == "<nil>" {
+				continue
+			}
+			if facetCounts[key] == nil {
+				facetCounts[key] = make(map[string]int64)
+			}
+			facetCounts[key][value]++
+		}
+	}
+	keys := make([]string, 0, len(facetCounts))
+	for key := range facetCounts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	facets := make([]types.OrganizeOutputFacet, 0, len(keys))
+	for _, key := range keys {
+		values := make([]types.OrganizeFacetValue, 0, len(facetCounts[key]))
+		for value, count := range facetCounts[key] {
+			values = append(values, types.OrganizeFacetValue{Value: value, Count: count})
+		}
+		sort.Slice(values, func(i, j int) bool {
+			if values[i].Count == values[j].Count {
+				return values[i].Value < values[j].Value
+			}
+			return values[i].Count > values[j].Count
+		})
+		facets = append(facets, types.OrganizeOutputFacet{
+			Key:    key,
+			Label:  key,
+			Values: values,
+		})
+	}
+	return &types.OrganizeOutputFacets{Fields: facets}, nil
 }
 
 func (r *organizeRepository) ListPublicContents(
@@ -602,6 +679,18 @@ func applyOrganizeKeyword(dbq *gorm.DB, keyword string, columns ...string) *gorm
 		args = append(args, pattern)
 	}
 	return dbq.Where(strings.Join(parts, " OR "), args...)
+}
+
+func applyOrganizeJSONTextFilter(dbq *gorm.DB, dialect, column, key, value string) *gorm.DB {
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" {
+		return dbq
+	}
+	if dialect == "postgres" {
+		return dbq.Where(column+"->>? = ?", key, value)
+	}
+	return dbq.Where("json_extract("+column+", ?) = ?", "$."+key, value)
 }
 
 func replaceOutputMemoryLinks(tx *gorm.DB, tenantID uint64, userID, outputID string, memoryIDs []string) error {

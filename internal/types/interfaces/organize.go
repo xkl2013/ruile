@@ -13,6 +13,16 @@ type OrganizeRepository interface {
 	ListTemplates(ctx context.Context, tenantID uint64, userID string) ([]*types.OrganizeTemplate, error)
 	GetTemplate(ctx context.Context, tenantID uint64, userID, key string) (*types.OrganizeTemplate, error)
 	GetTemplateVersion(ctx context.Context, templateID, version string) (*types.OrganizeTemplateVersion, error)
+	ListAdminTemplates(ctx context.Context, query types.OrganizeTemplateAdminQuery) ([]*types.OrganizeTemplate, int64, error)
+	GetAdminTemplate(ctx context.Context, key string) (*types.OrganizeTemplate, error)
+	CreateTemplate(ctx context.Context, template *types.OrganizeTemplate) error
+	UpdateTemplate(ctx context.Context, template *types.OrganizeTemplate) error
+	ListTemplateVersions(ctx context.Context, query types.OrganizeTemplateVersionQuery) ([]*types.OrganizeTemplateVersion, int64, error)
+	CreateTemplateVersion(ctx context.Context, version *types.OrganizeTemplateVersion) error
+	ListDiscoverCategories(ctx context.Context) ([]*types.OrganizeDiscoverCategoryRecord, error)
+	ListAdminDiscoverCategories(ctx context.Context, query types.OrganizeDiscoverCategoryQuery) ([]*types.OrganizeDiscoverCategoryRecord, int64, error)
+	CreateDiscoverCategory(ctx context.Context, category *types.OrganizeDiscoverCategoryRecord) error
+	UpdateDiscoverCategory(ctx context.Context, category *types.OrganizeDiscoverCategoryRecord) error
 
 	CreateConfig(ctx context.Context, config *types.OrganizeConfig) error
 	GetConfig(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeConfig, error)
@@ -47,6 +57,7 @@ type OrganizeRepository interface {
 	UpdateOutput(ctx context.Context, output *types.OrganizeOutput, memoryIDs []string) error
 	DeleteOutput(ctx context.Context, tenantID uint64, userID, id string) error
 	ListOutputs(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeOutput, int64, error)
+	ListOutputFacets(ctx context.Context, query types.OrganizeListQuery) (*types.OrganizeOutputFacets, error)
 	GetOutputByID(ctx context.Context, id string) (*types.OrganizeOutput, error)
 	ListPublicContents(ctx context.Context, query types.OrganizePublicContentQuery) ([]*types.OrganizeOutput, int64, error)
 	UpdatePublicContent(ctx context.Context, output *types.OrganizeOutput) error
@@ -83,6 +94,20 @@ type OrganizeService interface {
 	ListTemplates(ctx context.Context, tenantID uint64, userID string) ([]*types.OrganizeTemplate, error)
 	GetTemplate(ctx context.Context, tenantID uint64, userID, key string) (*types.OrganizeTemplate, error)
 	ListExperts(ctx context.Context, tenantID uint64, userID string) ([]types.OrganizeExpert, error)
+	ListAdminTemplates(ctx context.Context, query types.OrganizeTemplateAdminQuery) ([]*types.OrganizeTemplate, int64, error)
+	GetAdminTemplate(ctx context.Context, key string) (*types.OrganizeTemplate, error)
+	CreateAdminTemplate(ctx context.Context, actorID string, input types.OrganizeTemplateAdminInput) (*types.OrganizeTemplate, error)
+	UpdateAdminTemplate(ctx context.Context, key, actorID string, input types.OrganizeTemplateAdminInput) (*types.OrganizeTemplate, error)
+	PublishAdminTemplate(ctx context.Context, key, actorID, changeNote string) (*types.OrganizeTemplate, error)
+	DisableAdminTemplate(ctx context.Context, key, actorID string) (*types.OrganizeTemplate, error)
+	ListAdminTemplateVersions(ctx context.Context, query types.OrganizeTemplateVersionQuery) ([]*types.OrganizeTemplateVersion, int64, error)
+	RollbackAdminTemplate(ctx context.Context, key, version, actorID, changeNote string) (*types.OrganizeTemplate, error)
+	PreviewAdminTemplate(ctx context.Context, key string, input types.OrganizeTemplatePreviewInput) (*types.OrganizeTemplatePreview, error)
+	ListDiscoverCategories(ctx context.Context) ([]*types.OrganizeDiscoverCategoryRecord, error)
+	ListAdminDiscoverCategories(ctx context.Context, query types.OrganizeDiscoverCategoryQuery) ([]*types.OrganizeDiscoverCategoryRecord, int64, error)
+	CreateAdminDiscoverCategory(ctx context.Context, input types.OrganizeDiscoverCategoryInput) (*types.OrganizeDiscoverCategoryRecord, error)
+	UpdateAdminDiscoverCategory(ctx context.Context, key string, input types.OrganizeDiscoverCategoryInput) (*types.OrganizeDiscoverCategoryRecord, error)
+	DisableAdminDiscoverCategory(ctx context.Context, key string) (*types.OrganizeDiscoverCategoryRecord, error)
 
 	CreateConfig(ctx context.Context, tenantID uint64, userID string, input types.OrganizeConfigInput) (*types.OrganizeConfig, error)
 	GetConfig(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeConfig, error)
@@ -92,6 +117,8 @@ type OrganizeService interface {
 	RunConfig(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeJobInput) (*types.OrganizeJob, error)
 
 	CreateJob(ctx context.Context, tenantID uint64, userID string, input types.OrganizeJobInput) (*types.OrganizeJob, error)
+	PreviewOrganizeRequirement(ctx context.Context, tenantID uint64, userID string, input types.OrganizeRequirementInput) (*types.OrganizeRequirementPreview, error)
+	ConfirmOrganizeRequirement(ctx context.Context, tenantID uint64, userID string, input types.OrganizeRequirementInput) (*types.OrganizeJob, error)
 	GetJob(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeJob, error)
 	ListJobs(ctx context.Context, query types.OrganizeJobQuery) ([]*types.OrganizeJob, int64, error)
 	RetryJob(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeJob, error)
@@ -115,6 +142,8 @@ type OrganizeService interface {
 	UpdateOutput(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeOutputInput) (*types.OrganizeOutput, error)
 	DeleteOutput(ctx context.Context, tenantID uint64, userID, id string) error
 	ListOutputs(ctx context.Context, query types.OrganizeListQuery) ([]*types.OrganizeOutput, int64, error)
+	ListOutputFacets(ctx context.Context, query types.OrganizeListQuery) (*types.OrganizeOutputFacets, error)
+	GetOutputCitation(ctx context.Context, tenantID uint64, userID, outputID, ref string) (*types.OrganizeMemory, bool, error)
 	ListPendingAssignments(ctx context.Context, tenantID uint64, userID string, query types.OrganizeListQuery) ([]*types.OrganizeOutput, int64, error)
 	AssignOutputToService(ctx context.Context, tenantID uint64, userID, outputID, serviceID string) (*types.OrganizeOutput, error)
 	ListAdminPublicContents(ctx context.Context, query types.OrganizePublicContentQuery) ([]*types.OrganizeOutput, int64, error)
@@ -165,11 +194,8 @@ type OrganizeService interface {
 	ListPublishedCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
 	GetCourseStats(ctx context.Context, query types.OrganizeCourseQuery) (*types.OrganizeCourseStats, error)
 	OpenPublishedCourseLessonMedia(ctx context.Context, courseID, lessonID string) (io.ReadCloser, string, string, error)
-<<<<<<< HEAD
 	OpenPublishedCourseCover(ctx context.Context, courseID string) (io.ReadCloser, string, string, error)
-=======
 	GetPublishedCourseLessonMediaURL(ctx context.Context, courseID, lessonID string) (string, string, string, error)
->>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 	GetPublishedCourseLessonContent(ctx context.Context, courseID, lessonID string) (string, error)
 	UpdateCoursePublicStatus(ctx context.Context, id, status string) (*types.OrganizeCourse, error)
 	UpdateCourseVisibility(ctx context.Context, id string, input types.OrganizeCourseVisibilityInput) (*types.OrganizeCourse, error)

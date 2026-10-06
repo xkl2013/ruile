@@ -551,7 +551,7 @@ func (s *organizeService) refreshOrganizeMemoryAttachmentSummary(
 		allText := strings.TrimSpace(strings.Join(transcripts, "\n\n"))
 		if !userEdited && (status == types.OrganizeMemoryAttachmentAggregateCompleted ||
 			status == types.OrganizeMemoryAttachmentAggregatePartial) {
-			aiResult, aiModelID, aiStatus := s.generateOrganizeRecordingNoteAIResult(
+			aiResult, aiModelID, aiStatus := s.generateMemoryRecordingNoteAIResult(
 				ctx,
 				memory.Title,
 				attachmentDisplayName(attachments),

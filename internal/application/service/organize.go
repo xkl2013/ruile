@@ -14,24 +14,29 @@ import (
 )
 
 var (
-	ErrOrganizeInvalidScope              = errors.New("invalid organize scope")
-	ErrOrganizeNotFound                  = errors.New("organize item not found")
-	ErrOrganizeTitleRequired             = errors.New("title is required")
-	ErrOrganizeInvalidMemoryKind         = errors.New("invalid memory kind")
-	ErrOrganizeInvalidStatus             = errors.New("invalid output status")
-	ErrOrganizeInvalidCategory           = errors.New("invalid discover category")
-	ErrOrganizeInvalidStage              = errors.New("invalid sprout stage")
-	ErrOrganizeMemoryRequired            = errors.New("memory_id is required")
-	ErrOrganizeMemoryNotReady            = errors.New("memory attachments are still processing")
-	ErrOrganizeInvalidMemoryRefs         = errors.New("memory_ids contains unknown memories")
-	ErrOrganizeTargetServiceNotFound     = errors.New("target service not found")
-	ErrOrganizeOutputAlreadyAssigned     = errors.New("organize output is already assigned to another service")
-	ErrOrganizeOutputNotReady            = errors.New("organize output is not ready")
-	ErrOrganizeInvalidPublicType         = errors.New("invalid public content type")
-	ErrOrganizeInvalidPublicStatus       = errors.New("invalid public content status")
-	ErrOrganizeInvalidVisibilityScope    = errors.New("invalid course visibility scope")
-	ErrOrganizeCourseSharedSpaceRequired = errors.New("at least one shared space is required")
-	ErrOrganizeCourseSharedSpaceNotFound = errors.New("course shared space not found")
+	ErrOrganizeInvalidScope                  = errors.New("invalid organize scope")
+	ErrOrganizeNotFound                      = errors.New("organize item not found")
+	ErrOrganizeTitleRequired                 = errors.New("title is required")
+	ErrOrganizeInvalidMemoryKind             = errors.New("invalid memory kind")
+	ErrOrganizeInvalidStatus                 = errors.New("invalid output status")
+	ErrOrganizeInvalidCategory               = errors.New("invalid discover category")
+	ErrOrganizeInvalidStage                  = errors.New("invalid sprout stage")
+	ErrOrganizeMemoryRequired                = errors.New("memory_id is required")
+	ErrOrganizeMemoryNotReady                = errors.New("memory attachments are still processing")
+	ErrOrganizeInvalidMemoryRefs             = errors.New("memory_ids contains unknown memories")
+	ErrOrganizeTargetServiceNotFound         = errors.New("target service not found")
+	ErrOrganizeOutputAlreadyAssigned         = errors.New("organize output is already assigned to another service")
+	ErrOrganizeOutputNotReady                = errors.New("organize output is not ready")
+	ErrOrganizeInvalidPublicType             = errors.New("invalid public content type")
+	ErrOrganizeInvalidPublicStatus           = errors.New("invalid public content status")
+	ErrOrganizeInvalidVisibilityScope        = errors.New("invalid course visibility scope")
+	ErrOrganizeCourseSharedSpaceRequired     = errors.New("at least one shared space is required")
+	ErrOrganizeCourseSharedSpaceNotFound     = errors.New("course shared space not found")
+	ErrOrganizeRequirementTextRequired       = errors.New("custom organize requirement is required")
+	ErrOrganizeRequirementConfirmationNeeded = errors.New("custom organize requirement needs confirmation")
+	ErrOrganizeDiscoverCategoryKeyRequired   = errors.New("discover category key is required")
+	ErrOrganizeDiscoverCategoryLabelRequired = errors.New("discover category label is required")
+	ErrOrganizeDiscoverCategoryNotFound      = errors.New("discover category not found")
 )
 
 const (
@@ -421,6 +426,69 @@ func (s *organizeService) ListOutputs(
 	return s.repo.ListOutputs(ctx, query)
 }
 
+func (s *organizeService) ListOutputFacets(
+	ctx context.Context,
+	query types.OrganizeListQuery,
+) (*types.OrganizeOutputFacets, error) {
+	if err := validateOrganizeScope(query.TenantID, query.UserID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(query.Status) != "" && !types.IsValidOrganizeOutputStatus(strings.TrimSpace(query.Status)) {
+		return nil, ErrOrganizeInvalidStatus
+	}
+	query.Status = strings.TrimSpace(query.Status)
+	return s.repo.ListOutputFacets(ctx, query)
+}
+
+func (s *organizeService) GetOutputCitation(
+	ctx context.Context,
+	tenantID uint64,
+	userID, outputID, ref string,
+) (*types.OrganizeMemory, bool, error) {
+	output, err := s.GetOutput(ctx, tenantID, userID, outputID)
+	if err != nil {
+		return nil, false, err
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, true, nil
+	}
+	memoryID := ""
+	if refs, ok := output.Citations["memory_refs"].([]any); ok {
+		for _, raw := range refs {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			label := strings.TrimSpace(fmt.Sprint(item["label"]))
+			id := strings.TrimSpace(fmt.Sprint(item["id"]))
+			if strings.EqualFold(ref, label) || ref == id {
+				memoryID = id
+				break
+			}
+		}
+	}
+	if memoryID == "" {
+		for _, id := range output.MemoryIDs {
+			if ref == id {
+				memoryID = id
+				break
+			}
+		}
+	}
+	if memoryID == "" {
+		return nil, true, nil
+	}
+	memory, err := s.repo.GetMemory(ctx, tenantID, userID, memoryID)
+	if err != nil {
+		return nil, false, err
+	}
+	if memory == nil {
+		return nil, true, nil
+	}
+	return memory, false, nil
+}
+
 func (s *organizeService) ListPendingAssignments(
 	ctx context.Context,
 	tenantID uint64,
@@ -740,7 +808,7 @@ func (s *organizeService) buildOutput(
 	if !types.IsValidOrganizeOutputStatus(status) {
 		return nil, nil, ErrOrganizeInvalidStatus
 	}
-	metadata, err := normalizeDiscoverMetadata(input.Metadata)
+	metadata, err := s.normalizeDiscoverMetadataForService(ctx, input.Metadata)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -775,6 +843,38 @@ func (s *organizeService) buildOutput(
 		Citations:         normalizeJSONMap(input.Citations),
 		Metadata:          metadata,
 	}, memoryIDs, nil
+}
+
+func (s *organizeService) normalizeDiscoverMetadataForService(
+	ctx context.Context,
+	metadata types.JSONMap,
+) (types.JSONMap, error) {
+	normalized := normalizeJSONMap(metadata)
+	if _, ok := normalized["discover_category"]; !ok {
+		return normalized, nil
+	}
+	category := strings.TrimSpace(fmt.Sprint(normalized["discover_category"]))
+	categories, err := s.repo.ListDiscoverCategories(ctx)
+	if err == nil {
+		for _, candidate := range categories {
+			if candidate == nil {
+				continue
+			}
+			if category == candidate.Key || category == candidate.Label {
+				normalized["discover_category"] = candidate.Key
+				normalized["discover_category_label"] = candidate.Label
+				return normalized, nil
+			}
+		}
+		return nil, ErrOrganizeInvalidCategory
+	}
+	if !isMissingOrganizeTableError(err) {
+		return nil, err
+	}
+	if legacy, legacyErr := normalizeDiscoverMetadata(normalized); legacyErr == nil {
+		return legacy, nil
+	}
+	return nil, ErrOrganizeInvalidCategory
 }
 
 func normalizePublicContentType(value string) string {

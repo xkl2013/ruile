@@ -18,6 +18,7 @@ export interface OrganizeTemplate {
   outputLabel: string
   icon: string
   defaultInstruction: string
+  markdownTemplate: string
   expertIds: string[]
   publishedVersion: string
 }
@@ -85,6 +86,7 @@ export interface OrganizeOutput {
   todoCount: number
   sourceCount: number
   fields: OrganizeOutputField[]
+  fieldValues: Record<string, string>
   citations: OrganizeCitation[]
   content: string
   assignmentStatus: 'pending' | 'assigned'
@@ -150,6 +152,7 @@ export const toOrganizeTemplate = (template: ApiOrganizeTemplate): OrganizeTempl
   outputLabel: template.output_label,
   icon: template.icon || 'dashboard',
   defaultInstruction: template.default_instruction,
+  markdownTemplate: template.markdown_template || '',
   expertIds: [...(template.expert_ids || [])],
   publishedVersion: template.published_version,
 })
@@ -215,6 +218,7 @@ export const toOrganizeOutput = (
     label,
     value: formatFieldValue(value),
   }))
+  const fieldValues = Object.fromEntries(fields.map((field) => [field.label, field.value]))
   return {
     id: output.id,
     configId: output.config_id || '',
@@ -222,7 +226,9 @@ export const toOrganizeOutput = (
     title: output.title,
     subject: output.source_summary || output.output_type || '整理结果',
     templateKey: output.template_key || '',
-    templateName: template?.name || output.output_type || '整理结果',
+    templateName: output.template_key
+      ? template?.name || output.output_type || '整理结果'
+      : '历史内容',
     templateVersion: output.template_version || '-',
     date: (output.updated_at || output.created_at || '').slice(0, 10),
     tags: toStringList(metadata.tags),
@@ -230,6 +236,7 @@ export const toOrganizeOutput = (
     todoCount: toNumber(metadata.todo_count),
     sourceCount: output.memory_count || output.memory_ids?.length || 0,
     fields,
+    fieldValues,
     citations,
     content: output.content || '',
     assignmentStatus: output.assignment_status || 'pending',

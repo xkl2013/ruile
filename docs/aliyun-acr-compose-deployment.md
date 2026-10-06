@@ -163,6 +163,14 @@ chmod 600 .acr.env
 ./scripts/build_and_push_acr.sh --skip-build --tag 20260804-001
 ```
 
+推送成功后，脚本默认会删除本地应用镜像标签，并清理 dangling 镜像，不会删除
+Docker 容器、命名卷或 ACR 中的远程镜像。如果需要保留本地镜像用于调试或下次
+构建缓存，增加 `--keep-local-images`：
+
+```bash
+./scripts/build_and_push_acr.sh --tag 20260804-001 --keep-local-images
+```
+
 脚本完成后会输出：
 
 ```text

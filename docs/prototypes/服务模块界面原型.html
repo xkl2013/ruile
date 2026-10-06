@@ -298,12 +298,12 @@
   /* D18：服务空间内部**不再有服务级导航栏**（D16 的图标栏、再早的横向 tab 条都已删）。
      导航栏的存在本身就在问用户"你要去哪个页面"，可进了服务之后用户只有一个意图——继续干活。
      页面级入口按"离工作有多近"分层：
-       ① 服务头右侧「产物 / 事项」—— 天天要点，带计数、放在手边（点击在右侧面板查看）；
+       ① 服务头右侧「产物 / 待办」—— 天天要点，带计数、放在手边（点击在右侧面板查看）；
        ② 服务头 ⋯ 菜单 —— 服务本身的设置（改名 / 改描述 / 分享），配一次就忘。
      概览、服务对象、运行记录、服务设置收进 ⋯ 的「更多 ›」，不再各占一个位置。
      ⇒ D21 之后服务空间只剩**两块**：对话区 / 右侧面板。
        原来那条 236px 的会话栏由**应用级侧栏**取代（会话挂到服务名下方，见 D21），
-       它底部的「产物 / 事项」入口随之提到服务头右侧，与「新建会话 ⊕」并排。 */
+       它底部的「产物 / 待办」入口随之提到服务头右侧，与「新建会话 ⊕」并排。 */
 
   /* 服务头右侧的两个圆钮（对齐 WorkBuddy 项目头）：⋯ 更多操作、⊕ 新建会话 */
   .icon-btn{flex:none;width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:#fff;
@@ -325,7 +325,7 @@
      高度按视口算，并给底部演示条留出余量，避免整页出现无意义滚动 */
   .workbench{position:relative;display:flex;gap:14px;align-items:stretch;height:calc(100vh - 200px);min-height:400px;}
 
-  /* 服务头右侧的常驻入口（D21）：产物 / 事项带计数。
+  /* 服务头右侧的常驻入口（D21）：产物 / 待办带计数。
      它们原先长在会话栏底部；会话栏上移到应用级侧栏之后，这里是它们的新家——
      服务头本来就是"服务级"信息行，与 ⋯ 的分工也最清楚（⋯ 管服务本身，这两个管服务里攒下的东西）。
      带计数是必要的：这两个入口没有页面标题承载"有多少"，数字只能挂在入口上。 */
@@ -384,7 +384,7 @@
   .art-sub{font-size:11px;color:var(--text-3);}
   .msg-actions{display:flex;gap:14px;}
 
-  /* 右：统一侧面板（点产物卡、或服务头右侧的产物 / 事项入口打开）。
+  /* 右：统一侧面板（点产物卡、或服务头右侧的产物 / 待办入口打开）。
      浮层：不挤压对话区、开关时消息不横向跳动；定位基准是 .chat-body（消息区），
      所以它**不会盖住下方的输入框**——盖住了面板一开就没法发消息。 */
   .art-panel{position:absolute;top:0;right:0;bottom:0;width:320px;z-index:40;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--r-lg);background:#fff;overflow:hidden;box-shadow:-10px 0 26px rgba(0,0,0,.10);}
@@ -434,7 +434,7 @@
   .share-name{font-size:13px;color:var(--text-1);font-weight:500;}
   .share-desc{font-size:11px;color:var(--text-3);line-height:1.6;margin-top:2px;}
 
-  /* 右侧面板里的「事项」列表 */
+  /* 右侧面板里的「待办」列表 */
   .rem-row{border:1px solid var(--border);border-radius:var(--r);padding:9px 11px;margin-bottom:8px;cursor:pointer;}
   .rem-row:hover{border-color:var(--brand);}
   .rem-top{display:flex;align-items:flex-start;gap:8px;}
@@ -612,7 +612,7 @@
         <span class="space-name" id="space-name"></span>
         <span class="space-tpl" id="space-tpl"></span>
         <div class="space-head-r">
-          <!-- 产物 / 事项：带计数常驻（D21——原在会话栏底部，会话栏上移后落到这里） -->
+          <!-- 产物 / 待办：带计数常驻（D21——原在会话栏底部，会话栏上移后落到这里） -->
           <div class="head-tools" id="head-tools"></div>
           <span class="tag" id="space-state"></span>
           <!-- ⊕ 新建会话：语义是"再加一段工作"，与服务头 ⋯ 并排——两个圆钮，对齐 WorkBuddy 项目头 -->
@@ -671,7 +671,7 @@
     <button id="tg-arch" onclick="setMode('archived')" data-page-node-id="tGA9xVQm2wpLdRb7nKcJ3S">全部归档</button>
   </div>
   <span style="color:var(--text-3)" data-page-node-id="demo-note-sep">·</span>
-  <span data-page-node-id="demo-note-1">一个服务 = 一个工作空间：会话挂在侧栏的服务名下面（点一下直接进某条会话），产物与事项在服务头右侧，点开在右边看；服务本身（名称 / 描述 / 分享）在右上角 ⋯ 里</span>
+  <span data-page-node-id="demo-note-1">一个服务 = 一个工作空间：会话挂在侧栏的服务名下面（点一下直接进某条会话），产物与待办在服务头右侧，点开在右边看；服务本身（名称 / 描述 / 分享）在右上角 ⋯ 里</span>
 </div>
 <div class="toast" id="toast" data-page-node-id="uDOwxRdMyJxiuHloLuNGtX"></div>
 
@@ -786,7 +786,7 @@ let sessions = [
              summary:'并入东苑分园 4 条，去重后共 16 条：到访意向明确 7 条、待跟进 9 条。',
              next:'明天上午先联系意向明确的 7 条。' },
       arts:['a2'], actions:true },
-    { who:'sys', text:'已在「事项」中创建提醒：明天跟进 16 条线索' }
+    { who:'sys', text:'已在「待办」中创建提醒：明天跟进 16 条线索' }
   ] },
   { id:'c2', serviceId:'s1', title:'家长顾虑类型归纳', expert:'e1', pinned:false, ts:Date.now()-1*D, msgs:[
     { who:'user', text:'这周家长问得最多的顾虑是什么？' },
@@ -878,8 +878,8 @@ const ARTIFACTS = {
        body:'<h6>本周晨检异常汇总</h6><p>共 6 例异常：发热 3 例、皮疹 2 例、口腔异常 1 例。<br />均已通知家长并记录随访结果。</p>' }
 };
 
-/* 事项（D17：原「服务提醒」并入事项，`service_reminders` 是唯一待办模型）。
-   和产物一样，事项大多是会话跑出来的——所以 from 记"来自哪个会话"，
+/* 待办（D17：原「服务提醒」并入待办，`service_reminders` 是唯一待办模型）。
+   和产物一样，待办大多是会话跑出来的——所以 from 记"来自哪个会话"，
    让人能顺着它回到当时那轮对话，而不是面对一个孤立的待办。 */
 let REMINDERS = [
   { id:'r1', serviceId:'s1', title:'跟进意向明确的 7 条线索',   owner:'我',       state:'待处理', ts:Date.now()-2*H, from:'秋季招生线索跟进' },
@@ -890,12 +890,12 @@ let REMINDERS = [
 ];
 
 /* 服务头右侧的两个入口（D21）——这里是**唯一**常驻的服务级入口，其余都在服务头 ⋯ 菜单里。
-   为什么是这两个：产物与事项都是会话跑出来的沉淀物，跟会话同源；
+   为什么是这两个：产物与待办都是会话跑出来的沉淀物，跟会话同源；
    D21 之后会话挂在侧栏，沉淀物的入口就在手边的服务头上，不跳页、不藏起来。
    path 存内联 SVG（原型零依赖），label 是界面上真实出现的文字。 */
 const HEAD_TOOLS = [
   { k:'artifacts', label:'产物', path:'<path d="M9.3 2.5H4.6A1.6 1.6 0 0 0 3 4.1v7.8a1.6 1.6 0 0 0 1.6 1.6h6.8a1.6 1.6 0 0 0 1.6-1.6V6z"/><path d="M9.3 2.5V6h3.7"/>' },
-  { k:'reminders', label:'事项', path:'<path d="M2.6 4.4l1.5 1.5 2.6-2.6M2.6 11l1.5 1.5L6.7 9.9M9.2 4.4h4.2M9.2 11h4.2"/>' }
+  { k:'reminders', label:'待办', path:'<path d="M2.6 4.4l1.5 1.5 2.6-2.6M2.6 11l1.5 1.5L6.7 9.9M9.2 4.4h4.2M9.2 11h4.2"/>' }
 ];
 
 /* 内联 SVG 图标：统一 stroke 风格，颜色走 currentColor（激活时自动变品牌绿） */
@@ -906,11 +906,11 @@ function icon(path){
 
 /* 右侧面板「服务设置」的内容——原先各占一个导航位的项，现在都收在这一处（D18）。
    与 ⋯ 菜单的分工要分清：**⋯ 菜单管"服务本身"**（叫什么名、怎么写描述、谁能看到），
-   **这里管"服务里的东西"**（成员、专家、事项配置、运行记录）。两者不重叠。 */
+   **这里管"服务里的东西"**（成员、专家、待办配置、运行记录）。两者不重叠。 */
 const SETTINGS_SECTIONS = [
   { label:'成员',       desc:'协作者与四档角色，含「已离开」视图' },
   { label:'专家',       desc:'绑定岗位专家（招生顾问 / 教务主管…），并配各自的岗位级收窄' },
-  { label:'事项配置',   desc:'事项状态与流转规则、字段选项（优先级 / 标签 / 职能）' },
+  { label:'待办配置',   desc:'待办状态与流转规则、字段选项（优先级 / 标签 / 职能）' },
   { label:'运行记录',   desc:'追溯每次执行调了什么——按运行创建时间排序，与会话列表不是一回事' },
   { label:'知识库范围', desc:'本服务可检索的知识库——服务级；创建时选的那份在这里改（D23）' },
   { label:'技能',       desc:'本服务允许专家调用的内置技能——服务级；不勾 = 一项都不启用（D23）' }
@@ -920,7 +920,7 @@ const SETTINGS_SECTIONS = [
    expertId = 本会话由哪个岗位专家在跟；menuId / menuPos = 会话行的 ⋯ 菜单与算好的视口坐标；
    renaming = 行内重命名；
    panelKind + artifactId = 右侧面板在显示什么（D18）：panelKind 是
-     'artifacts'（产物列表）/ 'reminders'（事项列表）/ 'settings'（服务设置）/ 'overview'（概览），
+     'artifacts'（产物列表）/ 'reminders'（待办列表）/ 'settings'（服务设置）/ 'overview'（概览），
      artifactId 非空时表示正在预览某一份具体产物（优先级最高）；
    stepsOpen = 各条运行消息的执行过程是否展开；_sessRendered = 上一次渲染的会话（用于判断是否要跳到底部）；
    running = 当前正在跑的那一轮（含终止用的 timer）：非空时发送按钮显示「停止」 */
@@ -1161,7 +1161,7 @@ function tplHtml(t, big){
     '<div class="tpl-row1"><div class="tpl-icon">' + icon(t.icon) + '</div>' +
     '<span class="tpl-name">' + esc(t.name) + '</span></div>' +
     '<p class="tpl-desc">' + esc(t.desc) + '</p>' +
-    '<p class="tpl-prev">预置 ' + t.experts + ' 个专家 · ' + t.statuses + ' 个事项状态</p>' +
+    '<p class="tpl-prev">预置 ' + t.experts + ' 个专家 · ' + t.statuses + ' 个待办状态</p>' +
   '</div>';
 }
 
@@ -1463,7 +1463,7 @@ function renderSpace(){
   sc.scrollTop = (prevTop === null) ? sc.scrollHeight : prevTop;
   space._sessRendered = curId;
 
-  /* 服务头右侧：产物 / 事项 两个带计数入口（D21）——常驻，不随面板开关变化 */
+  /* 服务头右侧：产物 / 待办 两个带计数入口（D21）——常驻，不随面板开关变化 */
   renderHeadTools();
 
   /* 右：统一侧面板（浮层；关闭即隐藏，不影响对话位置） */
@@ -1580,7 +1580,7 @@ function artifactsOf(sid){
   return out;
 }
 
-/* 服务头右侧入口（D21）：产物 / 事项 —— 点击在右侧面板查看，不跳页。
+/* 服务头右侧入口（D21）：产物 / 待办 —— 点击在右侧面板查看，不跳页。
    它们原先坐在会话栏底部，会话栏上移到应用级侧栏之后落到这里（服务头本来就是服务级信息行）。
    带计数是必要的：这两个入口没有页面标题承载"有多少"，数字直接给在入口上；
    计数也让人一眼看出"这个服务攒下东西了没有"。 */
@@ -1601,7 +1601,7 @@ function renderHeadTools(){
   }).join('');
 }
 
-/* 右侧统一面板（D18）：产物预览 / 产物列表 / 事项列表 / 服务设置 / 概览
+/* 右侧统一面板（D18）：产物预览 / 产物列表 / 待办列表 / 服务设置 / 概览
    共用一个位置——用户不需要记住"哪个东西在哪个页面"，只需记住"点它，右边看"。 */
 function renderPanel(){
   const el = document.getElementById('art-panel');
@@ -1630,7 +1630,7 @@ function renderPanel(){
 
   const views = {
     artifacts: { t:'产物',    render:panelArtifactsHtml },
-    reminders: { t:'事项',    render:panelRemindersHtml },
+    reminders: { t:'待办',    render:panelRemindersHtml },
     settings:  { t:'服务设置', render:panelSettingsHtml },
     overview:  { t:'服务概览', render:panelOverviewHtml }
   };
@@ -1658,11 +1658,11 @@ function panelArtifactsHtml(){
 function panelRemindersHtml(){
   const list = REMINDERS.filter(r => r.serviceId === space.serviceId);
   if (!list.length) {
-    return '<p class="pane-empty">这个服务还没有事项。<br />会话里说一句"记得……"，专家就会替你建一条。</p>';
+    return '<p class="pane-empty">这个服务还没有待办。<br />会话里说一句"记得……"，专家就会替你建一条。</p>';
   }
-  return '<p class="pane-sub">多数事项是会话跑出来的。右下角标着它来自哪一段对话。</p>' +
+  return '<p class="pane-sub">多数待办是会话跑出来的。右下角标着它来自哪一段对话。</p>' +
     list.map(r =>
-      '<div class="rem-row" onclick="toast(\'打开事项（原型略）：' + r.title + '\')">' +
+      '<div class="rem-row" onclick="toast(\'打开待办（原型略）：' + r.title + '\')">' +
         '<div class="rem-top"><span class="rem-title">' + esc(r.title) + '</span>' +
           '<span class="rem-state' + (r.state === '已完成' ? ' ok' : '') + '">' + esc(r.state) + '</span></div>' +
         '<div class="rem-sub">' + esc(r.owner) + ' · ' + relTime(r.ts) + '</div>' +
@@ -1685,7 +1685,7 @@ function panelOverviewHtml(){
   const stats = [
     { n:sessionsOf(sid).length,          label:'会话' },
     { n:artifactsOf(sid).length,         label:'产物' },
-    { n:rem.length,                      label:'事项' },
+    { n:rem.length,                      label:'待办' },
     { n:rem.filter(r => r.state !== '已完成').length, label:'待推进' }
   ];
   return '<p class="pane-sub">这个服务的累积情况，只统计本服务。</p>' +
@@ -1711,7 +1711,7 @@ function closePanel(){
    一级只放**服务本身**的三件事——改名、改描述、分享；其余收进「更多 ›」。
    为什么一级只留三项：菜单一长就"什么都没突出"。改名 / 改描述 / 分享是服务级的日常动作，
    概览、服务对象、运行记录、服务设置是"偶尔才去"的，进二级不损失效率。
-   分工要记牢：**⋯ = 服务本身**；**「设置」= 服务里的东西**（成员 / 专家 / 事项配置 / 运行记录）。 */
+   分工要记牢：**⋯ = 服务本身**；**「设置」= 服务里的东西**（成员 / 专家 / 待办配置 / 运行记录）。 */
 function toggleSpaceMenu(e){
   e.stopPropagation();
   const already = !!document.querySelector('.space-more-menu');
@@ -2038,10 +2038,10 @@ function upsertService(state){
   const created = services.find(s => s.id === newId);
   document.getElementById('banner-slot').innerHTML =
     '<div class="banner">' + (madeDraft ? '已保存为草稿。' : '服务已创建。') +
-    '事项状态与字段选项已按' + (usedTpl ? '模板' : '默认') + '配好。' +
+    '待办状态与字段选项已按' + (usedTpl ? '模板' : '默认') + '配好。' +
     (expertCount ? '' : '添加专家后才能发起 Agent 工作。') +
     (kbCount ? (kbCount + ' 个知识库、' + skillCount + ' 项技能已就位。') : '未选知识库与技能，专家将只依据指令与对话回答。') +
-    '<button class="btn-text" onclick="toast(\'去配置事项状态（原型略）\')">去调整事项状态</button>' +
+    '<button class="btn-text" onclick="toast(\'去配置待办状态（原型略）\')">去调整待办状态</button>' +
     '<button class="banner-x" onclick="this.parentNode.remove()" aria-label="关闭">&#215;</button></div>';
   toast(madeDraft ? '已保存为草稿' : '服务「' + created.name + '」已创建');
   const to = leaveAfter; leaveAfter = undefined;
@@ -2122,7 +2122,7 @@ function renderForm(){
         '<button class="btn-text" style="margin-left:auto" onclick="openPicker(\'expert\')">＋ 添加专家</button></div>' +
       (noExpert
         ? '<div class="notice"><span class="notice-text">未添加专家，创建后可随时添加；未添加前无法发起 Agent 工作</span></div>' +
-          '<p class="notice-line">这是提示不是错误——只做事项协作的服务也可以直接创建。</p>'
+          '<p class="notice-line">这是提示不是错误——只做待办协作的服务也可以直接创建。</p>'
         : '<div class="expert-list">' + expertCards + '</div>') +
       expertPicker +
     '</div>' +
@@ -2221,7 +2221,7 @@ function dropChip(key, val){
    改名 / 改描述 / 分享设置共用一个外壳，差别只在"标题 + 内容 + 保存动作"。
    为什么这三项独立成模态、不并进「服务设置」：
    它们改的是**服务本身**（叫什么、怎么描述、谁能看到），
-   而「服务设置」配的是**服务里的东西**（成员、专家、事项配置、运行记录）。 */
+   而「服务设置」配的是**服务里的东西**（成员、专家、待办配置、运行记录）。 */
 function openDialog(kind){
   const s = services.find(x => x.id === space.serviceId);
   if (!s) return;

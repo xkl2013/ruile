@@ -42,7 +42,19 @@ func (s *organizeService) ListTemplates(
 	if err := validateOrganizeScope(tenantID, userID); err != nil {
 		return nil, err
 	}
-	return s.repo.ListTemplates(ctx, tenantID, userID)
+	templates, err := s.repo.ListTemplates(ctx, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	visible := make([]*types.OrganizeTemplate, 0, len(templates))
+	for _, template := range templates {
+		if template == nil || types.IsOrganizeInternalTemplateKey(template.Key) {
+			continue
+		}
+		hydrateOrganizeTemplateMarkdown(template)
+		visible = append(visible, template)
+	}
+	return visible, nil
 }
 
 func (s *organizeService) GetTemplate(
@@ -58,6 +70,9 @@ func (s *organizeService) GetTemplate(
 	if key == "" {
 		return nil, ErrOrganizeTemplateRequired
 	}
+	if types.IsOrganizeInternalTemplateKey(key) {
+		return nil, ErrOrganizeTemplateDisabled
+	}
 	template, err := s.repo.GetTemplate(ctx, tenantID, userID, key)
 	if err != nil {
 		return nil, err
@@ -65,7 +80,7 @@ func (s *organizeService) GetTemplate(
 	if template == nil {
 		return nil, ErrOrganizeTemplateDisabled
 	}
-	return template, nil
+	return hydrateOrganizeTemplateMarkdown(template), nil
 }
 
 func (s *organizeService) ListExperts(
@@ -241,19 +256,21 @@ func (s *organizeService) CreateJob(
 		return nil, err
 	}
 	requirement := types.JSONMap{
-		"config_name":       config.Name,
-		"target_service_id": config.TargetServiceID,
-		"instruction":       config.Instruction,
-		"expert_ids":        []string(config.ExpertIDs),
-		"experts":           experts,
-		"template_name":     template.Name,
-		"template_scene":    template.Scene,
-		"template_output":   template.OutputLabel,
-		"template_icon":     template.Icon,
-		"template_spec":     template.Spec,
-		"requested_text":    strings.TrimSpace(input.Requirement),
-		"allow_partial":     input.AllowPartial,
-		"created_at":        time.Now().UTC().Format(time.RFC3339),
+		"config_name":          config.Name,
+		"target_service_id":    config.TargetServiceID,
+		"instruction":          config.Instruction,
+		"expert_ids":           []string(config.ExpertIDs),
+		"experts":              experts,
+		"template_name":        template.Name,
+		"template_scene":       template.Scene,
+		"template_output":      template.OutputLabel,
+		"template_icon":        template.Icon,
+		"template_instruction": template.DefaultInstruction,
+		"template_markdown":    template.MarkdownTemplate,
+		"template_spec":        template.Spec,
+		"requested_text":       strings.TrimSpace(input.Requirement),
+		"allow_partial":        input.AllowPartial,
+		"created_at":           time.Now().UTC().Format(time.RFC3339),
 	}
 	job := &types.OrganizeJob{
 		TenantID:        tenantID,
@@ -598,6 +615,12 @@ func (s *organizeService) executeOrganizeJob(
 	hash := sha256.Sum256([]byte(prompt))
 	job.PromptHash = hex.EncodeToString(hash[:])
 	content, modelID, fallback := s.generateOrganizeJobContent(ctx, job, prompt, memories)
+	configName, _ := job.Requirement["config_name"].(string)
+	content = normalizeOrganizeGeneratedMarkdown(
+		content,
+		stringValue(job.Requirement, "template_markdown"),
+		configName,
+	)
 	job.ModelID = modelID
 	job.Stage = "saving_output"
 	job.Progress = 85
@@ -606,7 +629,6 @@ func (s *organizeService) executeOrganizeJob(
 		return nil, false, err
 	}
 
-	configName, _ := job.Requirement["config_name"].(string)
 	outputLabel, _ := job.Requirement["template_output"].(string)
 	icon, _ := job.Requirement["template_icon"].(string)
 	if outputLabel == "" {
@@ -794,17 +816,19 @@ func (s *organizeService) createScheduledOrganizeJob(
 		Stage:           "queued",
 		Progress:        5,
 		Requirement: types.JSONMap{
-			"config_name":       config.Name,
-			"target_service_id": config.TargetServiceID,
-			"instruction":       config.Instruction,
-			"expert_ids":        []string(config.ExpertIDs),
-			"experts":           experts,
-			"template_name":     template.Name,
-			"template_scene":    template.Scene,
-			"template_output":   template.OutputLabel,
-			"template_icon":     template.Icon,
-			"template_spec":     template.Spec,
-			"scheduled":         true,
+			"config_name":          config.Name,
+			"target_service_id":    config.TargetServiceID,
+			"instruction":          config.Instruction,
+			"expert_ids":           []string(config.ExpertIDs),
+			"experts":              experts,
+			"template_name":        template.Name,
+			"template_scene":       template.Scene,
+			"template_output":      template.OutputLabel,
+			"template_icon":        template.Icon,
+			"template_instruction": template.DefaultInstruction,
+			"template_markdown":    template.MarkdownTemplate,
+			"template_spec":        template.Spec,
+			"scheduled":            true,
 		},
 		MemoryIDs:    types.StringArray(memoryIDs),
 		Summary:      fmt.Sprintf("周期任务等待整理 %d 条记忆", len(memoryIDs)),
@@ -879,12 +903,13 @@ func organizeScheduleLocation() *time.Location {
 func buildOrganizeJobPrompt(job *types.OrganizeJob, memories []*types.OrganizeMemory) string {
 	instruction := stringValue(job.Requirement, "instruction")
 	requested := stringValue(job.Requirement, "requested_text")
-	spec, _ := json.Marshal(job.Requirement["template_spec"])
 	experts, _ := json.Marshal(job.Requirement["experts"])
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "整理名称：%s\n", stringValue(job.Requirement, "config_name"))
 	fmt.Fprintf(&builder, "模板：%s（%s）\n", stringValue(job.Requirement, "template_name"), job.TemplateVersion)
-	fmt.Fprintf(&builder, "模板结构：%s\n\n", string(spec))
+	fmt.Fprintf(&builder, "模板指令：\n%s\n\n", stringValue(job.Requirement, "template_instruction"))
+	builder.WriteString(organizeMarkdownTemplatePrompt(stringValue(job.Requirement, "template_markdown")))
+	builder.WriteString("\n\n")
 	if len(experts) > 0 && string(experts) != "null" && string(experts) != "[]" {
 		fmt.Fprintf(&builder, "参与专家：%s\n\n", string(experts))
 	}
@@ -894,7 +919,7 @@ func buildOrganizeJobPrompt(job *types.OrganizeJob, memories []*types.OrganizeMe
 	}
 	builder.WriteString("\n输出要求：\n")
 	builder.WriteString("- 输出可直接阅读的中文 Markdown。\n")
-	builder.WriteString("- 先给主题和核心结论，再给证据、待办或模板要求的结构。\n")
+	builder.WriteString("- 严格按照 Markdown 预设的章节顺序和层级组织内容。\n")
 	builder.WriteString("- 每条关键结论必须用 [M1] 形式标注来源；没有依据的字段明确写“记录中未提供”。\n")
 	builder.WriteString("- 待办使用 Markdown 清单 `- [ ]`。\n\n")
 	builder.WriteString("原始记忆：\n")

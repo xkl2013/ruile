@@ -98,30 +98,17 @@ func (h *OrganizeHandler) GetCourseLessonMedia(c *gin.Context) {
 	}
 }
 
-<<<<<<< HEAD
 // GetCourseCover serves a course cover through the same visibility check as
 // the course detail endpoint. The browser never talks to OSS directly.
 func (h *OrganizeHandler) GetCourseCover(c *gin.Context) {
 	reader, fileName, mimeType, err := h.service.OpenPublishedCourseCover(
 		c.Request.Context(),
 		c.Param("id"),
-=======
-// GetCourseLessonMediaURL returns a short-lived/presigned URL after the course
-// visibility check. Native media elements use this URL for browser Range
-// requests, while the protected API remains available as a compatibility
-// fallback.
-func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
-	mediaURL, fileName, mimeType, err := h.service.GetPublishedCourseLessonMediaURL(
-		c.Request.Context(),
-		c.Param("id"),
-		c.Param("lesson_id"),
->>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 	)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
-<<<<<<< HEAD
 	defer reader.Close()
 
 	contentType, inline := secutils.SafeContentTypeByFilename(fileName)
@@ -135,7 +122,22 @@ func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
 	if _, err := io.Copy(c.Writer, reader); err != nil {
 		c.Error(err)
 	}
-=======
+}
+
+// GetCourseLessonMediaURL returns a short-lived/presigned URL after the course
+// visibility check. Native media elements use this URL for browser Range
+// requests, while the protected API remains available as a compatibility
+// fallback.
+func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
+	mediaURL, fileName, mimeType, err := h.service.GetPublishedCourseLessonMediaURL(
+		c.Request.Context(),
+		c.Param("id"),
+		c.Param("lesson_id"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
@@ -144,7 +146,6 @@ func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
 			"mime_type": mimeType,
 		},
 	})
->>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 }
 
 func redactOrganizeCourse(course *types.OrganizeCourse, includeLessons bool) *types.OrganizePublicCourse {

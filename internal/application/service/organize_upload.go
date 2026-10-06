@@ -63,7 +63,7 @@ func (s *organizeService) CreateOutputFromUpload(
 		return nil, err
 	}
 
-	aiResult, aiModelID, aiStatus := s.generateOrganizeUploadAIResult(ctx, cleanName, outputType, content)
+	aiResult, aiModelID, aiStatus := s.generateUploadedOutputAIResult(ctx, cleanName, outputType, content)
 	if aiResult.Title == "" {
 		aiResult.Title = baseName
 	}
@@ -212,7 +212,7 @@ func (s *organizeService) transcribeOrganizeUploadAudio(
 	return trimMax(result.Text, 0), modelID, nil
 }
 
-func (s *organizeService) generateOrganizeMemoryImportAIResult(
+func (s *organizeService) generateMemoryImportAIResult(
 	ctx context.Context,
 	fileName, contentType, content string,
 ) (organizeUploadAIResult, string, string) {
@@ -226,22 +226,18 @@ func (s *organizeService) generateOrganizeMemoryImportAIResult(
 		return organizeMemoryImportFallbackAIResult(fileName, content), modelID, "fallback"
 	}
 
-	prompt := fmt.Sprintf(`你在为“记忆”模块把导入文件整理成一条笔记元数据。
+	instruction := fmt.Sprintf(`只输出 JSON，格式为 {"title":"标题","summary":"摘要","tags":["标签"]}。
+标题简短准确，摘要说明文件主要信息，标签使用具体中文词组，最多 %d 个。`, organizeUploadMaxTags)
+	prompt := fmt.Sprintf(`请为“记忆”模块生成导入文件的笔记元数据。
 
-请只输出 JSON，格式如下：
-{"title":"标题","summary":"摘要","tags":["标签1","标签2"]}
-
-要求：
-- 标题简短准确，优先概括文件核心内容。
-- 摘要用 1-2 句话说明文件主要信息。
-- 标签使用简洁、具体的中文词组，最多 %d 个，避免“文档”“文件”“其他”这类泛泛词。
-- 标签应贴近文件主题、业务对象、行动场景或关键概念。
+处理规则：
+%s
 
 内容类型：%s
 文件名：%s
 
 内容：
-%s`, organizeUploadMaxTags, contentType, fileName, sampleRunes(strings.TrimSpace(content), organizeUploadPromptRuneBudget, "…"))
+%s`, instruction, contentType, fileName, sampleRunes(strings.TrimSpace(content), organizeUploadPromptRuneBudget, "…"))
 
 	thinking := false
 	resp, chatErr := chatModel.Chat(ctx, []chat.Message{
@@ -276,7 +272,7 @@ func (s *organizeService) generateOrganizeMemoryImportAIResult(
 	return parsed, modelID, "completed"
 }
 
-func (s *organizeService) generateOrganizeRecordingNoteAIResult(
+func (s *organizeService) generateMemoryRecordingNoteAIResult(
 	ctx context.Context,
 	currentTitle, fileName, source, transcript string,
 ) (organizeUploadAIResult, string, string) {
@@ -291,26 +287,19 @@ func (s *organizeService) generateOrganizeRecordingNoteAIResult(
 		return fallback, modelID, "fallback"
 	}
 
-	prompt := fmt.Sprintf(`你在为“记忆”模块把一段录音转写整理成可阅读的笔记。
+	instruction := fmt.Sprintf(`只输出 JSON，格式为 {"title":"标题","summary":"摘要","tags":["标签"],"note_markdown":"Markdown 笔记"}。
+笔记只整理转写内容，不得编造，标签最多 %d 个。`, organizeUploadMaxTags)
+	prompt := fmt.Sprintf(`请把记忆中的录音转写整理成可阅读的笔记。
 
-请只输出 JSON，格式如下：
-{"title":"标题","summary":"摘要","tags":["标签1","标签2"],"note_markdown":"格式化笔记 Markdown"}
-
-要求：
-- 标题简短准确，优先概括录音核心主题，不要使用“录音记忆”“未命名”等泛泛标题。
-- 摘要用 1-2 句话说明录音主要信息。
-- 标签使用简洁、具体的中文词组，最多 %d 个，贴近业务对象、场景、行动或关键概念。
-- note_markdown 用 Markdown 输出可读笔记，优先按“摘要、关键要点、行动项”组织，可使用二级标题、项目列表和行动项。
-- 如果转写内容很短，至少使用“## 记录内容”作为小标题；没有明确行动项时不要编造，也不要强行输出空的行动项。
-- 不要编造转写中没有的信息；如果转写内容很短，就整理成一段自然文字。
-- 不要输出代码块、HTML 或 JSON 之外的任何文字。
+处理规则：
+%s
 
 当前标题：%s
 来源：%s
 文件名：%s
 
 录音转写：
-%s`, organizeUploadMaxTags, currentTitle, source, fileName, sampleRunes(strings.TrimSpace(transcript), organizeUploadPromptRuneBudget, "…"))
+%s`, instruction, currentTitle, source, fileName, sampleRunes(strings.TrimSpace(transcript), organizeUploadPromptRuneBudget, "…"))
 
 	thinking := false
 	resp, chatErr := chatModel.Chat(ctx, []chat.Message{
@@ -349,7 +338,7 @@ func (s *organizeService) generateOrganizeRecordingNoteAIResult(
 	return parsed, modelID, "completed"
 }
 
-func (s *organizeService) generateOrganizeUploadAIResult(
+func (s *organizeService) generateUploadedOutputAIResult(
 	ctx context.Context,
 	fileName, outputType, content string,
 ) (organizeUploadAIResult, string, string) {
@@ -363,22 +352,18 @@ func (s *organizeService) generateOrganizeUploadAIResult(
 		return organizeUploadFallbackAIResult(fileName, outputType, content), modelID, "fallback"
 	}
 
-	prompt := fmt.Sprintf(`你在为一个成果分享模块生成卡片元数据。
+	instruction := fmt.Sprintf(`只输出 JSON，格式为 {"title":"标题","summary":"摘要","tags":["标签"]}。
+标题、摘要和标签必须依据输入内容，不得编造，标签最多 %d 个。`, organizeUploadMaxTags)
+	prompt := fmt.Sprintf(`请为成果分享模块生成卡片元数据。
 
-请只输出 JSON，格式如下：
-{"title":"标题","summary":"摘要","tags":["标签1","标签2"]}
-
-要求：
-- 标题简短准确，优先概括内容核心。
-- 摘要用 1-2 句话说明这份内容能帮助观看者提升什么业务能力。
-- 标签使用简洁、具体的中文词组，最多 %d 个，避免“文档”“文件”“其他”这类泛泛词。
-- 标签应尽量贴近园所招生、业务能力提升、内容类型或主题。
+处理规则：
+%s
 
 内容类型：%s
 文件名：%s
 
 内容：
-%s`, organizeUploadMaxTags, outputType, fileName, sampleRunes(strings.TrimSpace(content), organizeUploadPromptRuneBudget, "…"))
+%s`, instruction, outputType, fileName, sampleRunes(strings.TrimSpace(content), organizeUploadPromptRuneBudget, "…"))
 
 	thinking := false
 	resp, chatErr := chatModel.Chat(ctx, []chat.Message{

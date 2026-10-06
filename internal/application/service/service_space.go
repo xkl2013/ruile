@@ -2192,7 +2192,7 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 			{Key: "member_overview", Label: "会员概况", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
 			{Key: "recent_service", Label: "近期服务", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
 			{Key: "benefits_expiry", Label: "权益与到期", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
-			{Key: "follow_up", Label: "待跟进事项", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
+			{Key: "follow_up", Label: "待跟进", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
 		}
 	}
 	return types.ServiceSpaceBlueprint{
@@ -2269,7 +2269,7 @@ func builtinServiceTemplates() []*types.ServiceSpaceTemplate {
 		{Key: "member_overview", Label: "会员概况", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
 		{Key: "recent_service", Label: "近期服务", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
 		{Key: "benefits_expiry", Label: "权益与到期", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
-		{Key: "follow_up", Label: "待跟进事项", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
+		{Key: "follow_up", Label: "待跟进", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
 	}
 	return []*types.ServiceSpaceTemplate{
 		makeTemplate("t1", "招生咨询全流程", "围绕招生线索记录家长顾虑、到访意向和下一步跟进。", types.ServiceSpaceTypeCustomerService, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),

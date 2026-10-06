@@ -146,9 +146,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
+  listOrganizeDiscoverCategories,
   type OrganizeOutput,
   type OrganizeOutputInput,
   type OrganizeOutputStatus,
@@ -159,7 +160,6 @@ import {
   DISCOVER_CATEGORY_OPTIONS,
   discoverCategoryLabel,
   normalizeDiscoverCategory,
-  type DiscoverCategoryKey,
 } from '../discoverCategories'
 
 type OutputKind = 'article' | 'video' | 'audio'
@@ -214,7 +214,7 @@ const statusOptions = [
   { label: '草稿', value: 'draft' },
   { label: '已发布', value: 'ready' },
 ]
-const categoryOptions = DISCOVER_CATEGORY_OPTIONS
+const categoryOptions = ref<Array<{ label: string; value: string }>>([...DISCOVER_CATEGORY_OPTIONS])
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const step = ref<UploadStep>('pick')
@@ -231,7 +231,7 @@ const contentType = ref<'post' | 'course'>('post')
 const seriesId = ref('')
 const seriesTitle = ref('')
 const seriesOrder = ref(0)
-const category = ref<DiscoverCategoryKey | ''>('')
+const category = ref('')
 const tags = ref<string[]>([])
 const tagInput = ref('')
 
@@ -332,6 +332,7 @@ const hydrateDraft = (item: OrganizeOutput) => {
   seriesTitle.value = item.series_title || ''
   seriesOrder.value = item.series_order || 0
   category.value = normalizeDiscoverCategory(item.metadata?.discover_category || item.metadata?.discover_category_label)
+    || String(item.metadata?.discover_category || item.metadata?.discover_category_label || '').trim()
   tags.value = extractTags(item)
 }
 
@@ -386,7 +387,9 @@ const buildMetadata = () => {
     content_kind: kind.value,
     content_kind_label: kindLabel.value,
     discover_category: category.value,
-    discover_category_label: discoverCategoryLabel(category.value),
+    discover_category_label: categoryOptions.value.find((item) => item.value === category.value)?.label
+      || discoverCategoryLabel(category.value)
+      || category.value,
     public_content_type: contentType.value,
     series_title: seriesTitle.value.trim(),
     series_order: seriesTitle.value.trim() ? seriesOrder.value : 0,
@@ -470,6 +473,23 @@ watch(
     }
   },
 )
+
+const loadDiscoverCategories = async () => {
+  try {
+    const response = await listOrganizeDiscoverCategories()
+    if (response.success && response.data?.length) {
+      categoryOptions.value = response.data
+        .filter((item) => item.status === 'enabled')
+        .map((item) => ({ label: item.label, value: item.key }))
+    }
+  } catch {
+    // Keep the built-in options when the public category endpoint is unavailable.
+  }
+}
+
+onMounted(() => {
+  void loadDiscoverCategories()
+})
 </script>
 
 <style scoped lang="less">

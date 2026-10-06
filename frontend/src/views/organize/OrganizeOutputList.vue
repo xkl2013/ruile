@@ -16,14 +16,33 @@
         </t-input>
         <div class="organize-output-tags" aria-label="按场景筛选">
           <button
-            v-for="option in sceneOptions"
-            :key="option.value"
-            type="button"
-            :class="{ active: sceneFilter === option.value }"
-            @click="sceneFilter = option.value"
+          v-for="option in sceneOptions"
+          :key="option.value"
+          type="button"
+          :class="{ active: sceneFilter === option.value }"
+            @click="selectScene(option.value)"
           >
             {{ option.label }}
           </button>
+        </div>
+        <div v-if="facets.length" class="organize-output-facets">
+          <div v-for="facet in facets" :key="facet.key" class="organize-output-facet">
+            <span>{{ facet.label }}</span>
+            <t-select
+              v-model="fieldFilters[facet.key]"
+              clearable
+              size="small"
+              :placeholder="`筛选${facet.label}`"
+              @change="loadOutputs"
+            >
+              <t-option
+                v-for="value in facet.values"
+                :key="value.value"
+                :value="value.value"
+                :label="`${value.value} (${value.count})`"
+              />
+            </t-select>
+          </div>
         </div>
         <select v-model="sortMode" aria-label="产物排序">
           <option value="time">按时间</option>
@@ -90,7 +109,9 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useRouter } from 'vue-router'
 import {
   listOrganizeOutputs,
+  listOrganizeOutputFacets,
   listOrganizeTemplates,
+  type OrganizeOutputFacet,
 } from '@/api/organize'
 import {
   toOrganizeOutput,
@@ -107,6 +128,8 @@ const sceneFilter = ref('all')
 const sortMode = ref<SortMode>('time')
 const outputs = ref<OrganizeOutput[]>([])
 const templates = ref<OrganizeTemplate[]>([])
+const facets = ref<OrganizeOutputFacet[]>([])
+const fieldFilters = ref<Record<string, string>>({})
 
 const sceneOptions = computed(() => [
   { value: 'all', label: '全部' },
@@ -121,13 +144,16 @@ const filteredOutputs = computed(() => {
   const filtered = outputs.value.filter((output) => {
     const template = templates.value.find((item) => item.key === output.templateKey)
     const sceneMatched = sceneFilter.value === 'all' || template?.scene === sceneFilter.value
+    const fieldsMatched = Object.entries(fieldFilters.value).every(
+      ([key, value]) => !value || output.fieldValues[key] === value,
+    )
     const textMatched =
       !normalizedQuery ||
       [output.title, output.subject, output.templateName, ...output.tags]
         .join(' ')
         .toLowerCase()
         .includes(normalizedQuery)
-    return sceneMatched && textMatched
+    return sceneMatched && fieldsMatched && textMatched
   })
 
   if (sortMode.value === 'todo') {
@@ -138,17 +164,30 @@ const filteredOutputs = computed(() => {
 
 const loadOutputs = async () => {
   try {
-    const [templateResponse, outputResponse] = await Promise.all([
+    const scene = sceneFilter.value === 'all' ? undefined : sceneFilter.value
+    const [templateResponse, outputResponse, facetResponse] = await Promise.all([
       listOrganizeTemplates(),
-      listOrganizeOutputs({ page: 1, page_size: 100 }),
+      listOrganizeOutputs({
+        page: 1,
+        page_size: 100,
+        scene,
+        field_filters: fieldFilters.value,
+      }),
+      listOrganizeOutputFacets({ scene }),
     ])
     templates.value = (templateResponse.data || []).map(toOrganizeTemplate)
     outputs.value = (outputResponse.data?.items || []).map((item) =>
       toOrganizeOutput(item, templates.value),
     )
+    facets.value = facetResponse.data?.fields || []
   } catch (error: any) {
     MessagePlugin.error(error?.message || '整理结果加载失败')
   }
+}
+
+const selectScene = (value: string) => {
+  sceneFilter.value = value
+  void loadOutputs()
 }
 
 const openOutput = async (outputId: string) => {
@@ -255,6 +294,25 @@ onMounted(() => {
 .organize-output-tags button.active {
   background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-primary);
+}
+
+.organize-output-facets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.organize-output-facet {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.organize-output-facet :deep(.t-select) {
+  min-width: 150px;
 }
 
 .organize-output-toolbar > select {
@@ -420,7 +478,8 @@ onMounted(() => {
   }
 
   .organize-output-toolbar :deep(.t-input),
-  .organize-output-toolbar > select {
+  .organize-output-toolbar > select,
+  .organize-output-facets {
     width: 100%;
     margin-left: 0;
   }

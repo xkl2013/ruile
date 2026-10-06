@@ -1,0 +1,56 @@
+[
+  {
+    "id": "baseline-note",
+    "kind": "note",
+    "title": "家长沟通记录",
+    "content": "家长反馈孩子在集体活动中不愿主动表达，需要先从熟悉的小组活动开始。",
+    "source": "手动记录",
+    "occurred_at": "2026-09-29T09:00:00Z",
+    "attachments": []
+  },
+  {
+    "id": "baseline-audio",
+    "kind": "audio",
+    "title": "磨课录音",
+    "content": "今天讨论了导入环节，孩子们对实物材料的反应更积极。",
+    "source": "录音转写",
+    "occurred_at": "2026-09-29T10:00:00Z",
+    "attachments": [
+      {
+        "file_name": "磨课录音.mp3",
+        "mime_type": "audio/mpeg",
+        "status": "completed",
+        "transcript": "今天讨论了导入环节，孩子们对实物材料的反应更积极。"
+      }
+    ]
+  },
+  {
+    "id": "baseline-multi-attachment",
+    "kind": "note",
+    "title": "招生复盘材料",
+    "content": "试听后有三位家长暂未决定，其中两位关注接送安排。",
+    "source": "文件导入",
+    "occurred_at": "2026-09-30T08:00:00Z",
+    "attachments": [
+      {
+        "file_name": "家长反馈.docx",
+        "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "status": "completed"
+      },
+      {
+        "file_name": "试听统计.xlsx",
+        "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "status": "completed"
+      }
+    ]
+  },
+  {
+    "id": "baseline-empty",
+    "kind": "note",
+    "title": "待补充记忆",
+    "content": "",
+    "source": "手动记录",
+    "occurred_at": "2026-09-30T09:00:00Z",
+    "attachments": []
+  }
+]

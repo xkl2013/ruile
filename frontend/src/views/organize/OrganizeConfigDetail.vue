@@ -120,6 +120,7 @@ import {
   listOrganizeConfigJobs,
   retryOrganizeJob,
   runOrganizeConfig,
+  streamOrganizeJobEvents,
 } from '@/api/organize'
 import {
   toOrganizeConfig,
@@ -133,7 +134,7 @@ const router = useRouter()
 const config = ref<OrganizeConfig | null>(null)
 const loading = ref(true)
 const running = ref(false)
-let refreshTimer: number | undefined
+let eventController: AbortController | null = null
 
 const isActive = (job: OrganizeJob) =>
   ['queued', 'running', 'repairing'].includes(job.state)
@@ -174,6 +175,44 @@ const loadConfig = async (quiet = false) => {
   }
 }
 
+const mergeStreamJob = (rawJob: Parameters<typeof toOrganizeJob>[0]) => {
+  if (!config.value) return
+  const mapped = toOrganizeJob(rawJob)
+  const index = config.value.jobs.findIndex((job) => job.id === mapped.id)
+  if (index < 0) {
+    config.value.jobs = [mapped, ...config.value.jobs]
+    return
+  }
+  config.value.jobs = config.value.jobs.map((job) => (job.id === mapped.id ? mapped : job))
+}
+
+const connectToJobStream = async () => {
+  eventController?.abort()
+  const activeJob = config.value?.jobs.find((job) => job.id === route.query.job) ||
+    config.value?.jobs.find(isActive)
+  if (!activeJob || !isActive(activeJob)) return
+
+  const controller = new AbortController()
+  eventController = controller
+  try {
+    await streamOrganizeJobEvents(activeJob.id, {
+      signal: controller.signal,
+      onJob: (job) => {
+        mergeStreamJob(job)
+        if (!isActive(toOrganizeJob(job))) {
+          void loadConfig(true)
+        }
+      },
+    })
+  } catch (error: any) {
+    if (controller.signal.aborted) return
+    MessagePlugin.error(error?.message || '任务实时进度连接失败')
+    await loadConfig(true)
+  } finally {
+    if (eventController === controller) eventController = null
+  }
+}
+
 const runNow = async () => {
   if (!config.value || running.value) return
   running.value = true
@@ -185,6 +224,7 @@ const runNow = async () => {
       path: route.path,
       query: { ...route.query, job: response.data.id },
     })
+    void connectToJobStream()
   } catch (error: any) {
     MessagePlugin.error(error?.message || '整理任务创建失败')
   } finally {
@@ -198,6 +238,7 @@ const retry = async (jobId: string) => {
     MessagePlugin.success('已重新创建整理任务')
     await loadConfig(true)
     await router.replace({ path: route.path, query: { job: response.data.id } })
+    void connectToJobStream()
   } catch (error: any) {
     MessagePlugin.error(error?.message || '任务重试失败')
   }
@@ -222,19 +263,21 @@ const openOutput = async (outputId: string) => {
 }
 
 onMounted(() => {
-  void loadConfig()
-  refreshTimer = window.setInterval(() => {
-    if (config.value?.jobs.some(isActive)) void loadConfig(true)
-  }, 3000)
+  void loadConfig().then(() => connectToJobStream())
 })
 
 onBeforeUnmount(() => {
-  if (refreshTimer) window.clearInterval(refreshTimer)
+  eventController?.abort()
 })
 
 watch(
   () => route.params.configId,
-  () => void loadConfig(),
+  () => void loadConfig().then(() => connectToJobStream()),
+)
+
+watch(
+  () => route.query.job,
+  () => void connectToJobStream(),
 )
 </script>
 

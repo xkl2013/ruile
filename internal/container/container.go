@@ -395,6 +395,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewCustomAgentHandler))
 	must(container.Provide(handler.NewUserResourceFavoriteHandler))
 	must(container.Provide(handler.NewOrganizeHandler))
+	must(container.Provide(handler.NewOrganizeAdminHandler))
 	must(container.Provide(handler.NewAgentRunHandler))
 	must(container.Provide(handler.NewServiceSpaceHandler))
 	must(container.Provide(handler.NewExpertPackageHandler))

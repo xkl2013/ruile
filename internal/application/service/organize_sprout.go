@@ -167,10 +167,19 @@ func (s *organizeService) generateSproutReportFromMemory(
 		return fallbackSproutReportFromMemory(memory, role, roleConfig, "AI 模型不可用，已生成基础发芽报告，可进入编辑完善。"), modelID, "fallback"
 	}
 
-	prompt := buildSproutAIPrompt(memory, role, roleConfig)
+	templateInstruction := s.resolvePlatformTemplateInstruction(
+		ctx,
+		"sprout_review",
+		"保留原始想法和事实，提炼值得继续发展的方向，标注验证线索并列出下一步尝试。",
+		map[string]string{
+			"role":        organizeTenantRoleLabel(role),
+			"role_config": organizeRoleConfigText(role, roleConfig),
+		},
+	)
+	prompt := buildSproutAIPrompt(memory, role, roleConfig, templateInstruction)
 	thinking := false
 	resp, err := chatModel.Chat(ctx, []chat.Message{
-		{Role: "system", Content: "你是面向教培和园所经营场景的发芽报告生成助手。输出必须是中文 Markdown，不要输出 JSON。"},
+		{Role: "system", Content: "你是整理模板执行助手。输出必须是中文 Markdown，不要输出 JSON；只能使用输入事实。"},
 		{Role: "user", Content: prompt},
 	}, &chat.ChatOptions{
 		Temperature: 0.35,
@@ -190,23 +199,28 @@ func (s *organizeService) generateSproutReportFromMemory(
 	}, modelID, "completed"
 }
 
-func buildSproutAIPrompt(memory *types.OrganizeMemory, role types.TenantRole, roleConfig types.JSONMap) string {
+func buildSproutAIPrompt(
+	memory *types.OrganizeMemory,
+	role types.TenantRole,
+	roleConfig types.JSONMap,
+	templateInstruction string,
+) string {
 	memoryText := strings.TrimSpace(memory.Content)
 	if memoryText == "" {
 		memoryText = memory.Title
 	}
-	return fmt.Sprintf(`请基于一条记忆生成一份“发芽报告”。
+	return fmt.Sprintf(`请按照以下整理模板基于一条记忆生成一份“发芽报告”。
+
+模板指令：
+%s
 
 用户角色：%s
 角色配置：%s
 
 写作要求：
+- 输出结构必须遵循模板指令。
 - 报告要服务当前角色的决策和跟进动作。
-- 先用 1 段话概括这条记忆值得发芽的经营价值。
-- 至少包含 3 个二级标题，使用“## 01. 标题”格式。
-- 每个部分都要包含“🌱 种子”和“✨ Aha 瞬间”两个小段落。
-- 最后给出 3 条可执行跟进行动。
-- 不要编造具体数字、客户姓名或不存在的事实。
+- 只能使用记忆中的事实，不要编造具体数字、客户姓名或不存在的事实。
 
 记忆标题：%s
 记忆类型：%s
@@ -215,6 +229,7 @@ func buildSproutAIPrompt(memory *types.OrganizeMemory, role types.TenantRole, ro
 
 记忆内容：
 %s`,
+		templateInstruction,
 		organizeTenantRoleLabel(role),
 		organizeRoleConfigText(role, roleConfig),
 		memory.Title,

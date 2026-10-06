@@ -36,6 +36,8 @@ func newOrganizeUploadServiceForTest(t *testing.T, modelSvc interfaces.ModelServ
 		&types.OrganizeSproutMemory{},
 		&types.OrganizeCourse{},
 		&types.OrganizeCourseLesson{},
+		&types.OrganizeTemplate{},
+		&types.OrganizeTemplateVersion{},
 	))
 	return &organizeService{
 		repo:           repository.NewOrganizeRepository(db),
@@ -79,6 +81,42 @@ func TestOrganizeServiceCreateOutputFromUpload_Article(t *testing.T) {
 	assert.Equal(t, "completed", item.Metadata["ai_status"])
 	assert.Equal(t, "chat-1", item.Metadata["ai_model_id"])
 	assert.Equal(t, "招生实战笔记.md", item.Metadata["file_name"])
+}
+
+func TestMemoryRecordingNoteGenerationDoesNotReadOrganizeTemplate(t *testing.T) {
+	ctx := context.Background()
+	chatModel := &stubOrganizeChatModel{
+		content:  `{"title":"录音笔记","summary":"整理后的摘要","tags":["家长沟通"],"note_markdown":"## 重点\n\n试听节奏。"}`,
+		messages: nil,
+	}
+	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{
+		models: []*types.Model{
+			{ID: "chat-1", Type: types.ModelTypeKnowledgeQA, Status: types.ModelStatusActive, IsDefault: true},
+		},
+		chatModel: chatModel,
+	}, &stubOrganizeFileService{}, &stubOrganizeDocumentReader{})
+
+	require.NoError(t, svc.repo.CreateTemplate(ctx, &types.OrganizeTemplate{
+		Scope:              types.OrganizeTemplateScopePlatform,
+		Key:                "note_audio_transcribe",
+		Name:               "旧录音模板",
+		DefaultInstruction: "CUSTOM_ORGANIZE_TEMPLATE",
+		Status:             types.OrganizeTemplateStatusEnabled,
+		PublishedVersion:   "v1",
+	}))
+
+	result, _, status := svc.generateMemoryRecordingNoteAIResult(
+		ctx,
+		"录音记忆",
+		"访谈.mp3",
+		"语音记录",
+		"试听节奏需要更清晰。",
+	)
+	require.Equal(t, "completed", status)
+	require.Equal(t, "录音笔记", result.Title)
+	require.Len(t, chatModel.messages, 2)
+	assert.Contains(t, chatModel.messages[1].Content, "记忆中的录音转写")
+	assert.NotContains(t, chatModel.messages[1].Content, "CUSTOM_ORGANIZE_TEMPLATE")
 }
 
 func TestOrganizeServiceCreateOutputFromUpload_AudioTranscribes(t *testing.T) {
@@ -294,10 +332,12 @@ func (s *stubOrganizeModelService) GetASRModel(context.Context, string) (asr.ASR
 }
 
 type stubOrganizeChatModel struct {
-	content string
+	content  string
+	messages []chat.Message
 }
 
-func (s *stubOrganizeChatModel) Chat(context.Context, []chat.Message, *chat.ChatOptions) (*types.ChatResponse, error) {
+func (s *stubOrganizeChatModel) Chat(_ context.Context, messages []chat.Message, _ *chat.ChatOptions) (*types.ChatResponse, error) {
+	s.messages = append(s.messages, messages...)
 	return &types.ChatResponse{Content: s.content}, nil
 }
 func (s *stubOrganizeChatModel) ChatStream(context.Context, []chat.Message, *chat.ChatOptions) (<-chan types.StreamResponse, error) {

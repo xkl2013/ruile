@@ -383,7 +383,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { marked } from 'marked'
 import { useRoute, useRouter } from 'vue-router'
@@ -398,6 +398,7 @@ import {
   createOrganizeOutput,
   getOrganizeMemory,
   getOrganizeOutput,
+  listOrganizeDiscoverCategories,
   listOrganizeConfigs,
   listOrganizeJobs,
   retryOrganizeMemoryAttachment,
@@ -425,7 +426,6 @@ import {
   DISCOVER_CATEGORY_OPTIONS,
   discoverCategoryLabel,
   normalizeDiscoverCategory,
-  type DiscoverCategoryKey,
 } from './discoverCategories'
 
 type OrganizeDocumentType = 'memory' | 'output'
@@ -491,8 +491,8 @@ const audioPlayerUrl = ref('')
 const audioPlayerLoading = ref(false)
 const audioPlayerError = ref('')
 const outputDraft = ref<OrganizeOutput | null>(null)
-const outputCategory = ref<DiscoverCategoryKey | ''>('')
-const discoverCategoryOptions = DISCOVER_CATEGORY_OPTIONS
+const outputCategory = ref('')
+const discoverCategoryOptions = ref<Array<{ label: string; value: string }>>([...DISCOVER_CATEGORY_OPTIONS])
 let memoryOrganizeRequestSeq = 0
 let audioPlayerRequestSeq = 0
 let audioPlayerObjectUrl = ''
@@ -1502,7 +1502,7 @@ const resetDraft = () => {
   memoryTags.value = noteTagsFromMetadata(draft.metadata)
   outputCategory.value = normalizeDiscoverCategory(
     draft.metadata?.discover_category || draft.metadata?.discover_category_label,
-  )
+  ) || asTrimmedString(draft.metadata?.discover_category || draft.metadata?.discover_category_label)
   memoryOccurredAt.value = ''
   memoryCreatedAt.value = ''
   memoryUpdatedAt.value = ''
@@ -1590,7 +1590,7 @@ const loadDocument = async () => {
       outputDraft.value = item
       outputCategory.value = normalizeDiscoverCategory(
         item.metadata?.discover_category || item.metadata?.discover_category_label,
-      )
+      ) || asTrimmedString(item.metadata?.discover_category || item.metadata?.discover_category_label)
     }
     editorKey.value += 1
     await nextTick()
@@ -1701,7 +1701,9 @@ const saveDocument = async () => {
         metadata: {
           ...draft?.metadata,
           discover_category: outputCategory.value,
-          discover_category_label: discoverCategoryLabel(outputCategory.value),
+          discover_category_label: discoverCategoryOptions.value.find((item) => item.value === outputCategory.value)?.label
+            || discoverCategoryLabel(outputCategory.value)
+            || outputCategory.value,
         },
       }
       const response = creating
@@ -1756,6 +1758,23 @@ const syncTitleFromContent = () => {
     title.value = nextTitle
   }
 }
+
+const loadDiscoverCategories = async () => {
+  try {
+    const response = await listOrganizeDiscoverCategories()
+    if (response.success && response.data?.length) {
+      discoverCategoryOptions.value = response.data
+        .filter((item) => item.status === 'enabled')
+        .map((item) => ({ label: item.label, value: item.key }))
+    }
+  } catch {
+    // Keep the built-in options when the public category endpoint is unavailable.
+  }
+}
+
+onMounted(() => {
+  void loadDiscoverCategories()
+})
 
 watch(content, () => {
   if (!editorReady.value || loading.value) return

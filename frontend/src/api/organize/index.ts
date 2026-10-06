@@ -1,4 +1,7 @@
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { del, get, getDown, post, postUpload, put } from '@/utils/request'
+import { generateRandomString } from '@/utils/index'
+import { getApiBaseUrl } from '@/utils/api-base'
 
 export type OrganizeMemoryKind = 'note' | 'record' | 'audio' | 'audio_card'
 export type OrganizeOutputStatus = 'draft' | 'review' | 'ready' | 'archived'
@@ -28,6 +31,7 @@ export interface OrganizeTemplate {
   output_label: string
   icon: string
   default_instruction: string
+  markdown_template: string
   expert_ids: string[]
   spec?: Record<string, unknown>
   status: 'draft' | 'enabled' | 'disabled'
@@ -162,6 +166,21 @@ export interface OrganizeOutput {
   updated_at: string
 }
 
+export interface OrganizeOutputFacetValue {
+  value: string
+  count: number
+}
+
+export interface OrganizeOutputFacet {
+  key: string
+  label: string
+  values: OrganizeOutputFacetValue[]
+}
+
+export interface OrganizeOutputFacets {
+  fields: OrganizeOutputFacet[]
+}
+
 export interface OrganizeSproutReport {
   id: string
   user_id?: string
@@ -196,6 +215,17 @@ export interface OrganizeDiscoverTab {
   count?: number
 }
 
+export interface OrganizeDiscoverCategory {
+  id: string
+  key: string
+  label: string
+  description?: string
+  sort_order: number
+  status: 'enabled' | 'disabled'
+  created_at: string
+  updated_at: string
+}
+
 export interface OrganizeDiscoverData {
   tabs: OrganizeDiscoverTab[]
   featured_outputs: OrganizeOutput[]
@@ -204,6 +234,28 @@ export interface OrganizeDiscoverData {
   page?: number
   page_size?: number
   featured_offset?: number
+}
+
+export interface OrganizeRequirementInput {
+  config_id: string
+  template_key?: string
+  text: string
+  memory_ids?: string[]
+  model_id?: string
+  allow_partial?: boolean
+  confirmed?: boolean
+}
+
+export interface OrganizeRequirementPreview {
+  config_id: string
+  template_key: string
+  template_name: string
+  scene: string
+  normalized_text: string
+  memory_ids: string[]
+  ambiguities?: string[]
+  suggestions?: string[]
+  need_confirmation: boolean
 }
 
 export interface OrganizeResponse<T> {
@@ -414,6 +466,45 @@ export function cancelOrganizeJob(id: string) {
   return post<OrganizeResponse<OrganizeJob>>(`/api/v1/organize/jobs/${encodeURIComponent(id)}/cancel`)
 }
 
+export async function streamOrganizeJobEvents(
+  id: string,
+  options: {
+    signal?: AbortSignal
+    onJob: (job: OrganizeJob) => void
+  },
+) {
+  const token = localStorage.getItem('weknora_token')
+  if (!token) throw new Error('登录状态已失效，请重新登录')
+  const selectedTenantId = localStorage.getItem('weknora_selected_tenant_id')
+  const url = `${getApiBaseUrl()}/api/v1/organize/jobs/${encodeURIComponent(id)}/events`
+
+  await fetchEventSource(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/event-stream',
+      'Accept-Language': localStorage.getItem('locale') || 'zh-CN',
+      'X-Request-ID': generateRandomString(12),
+      ...(selectedTenantId ? { 'X-Tenant-ID': selectedTenantId } : {}),
+    },
+    signal: options.signal,
+    openWhenHidden: true,
+    onopen: async (response) => {
+      if (!response.ok) {
+        throw new Error(`任务事件流连接失败（HTTP ${response.status}）`)
+      }
+    },
+    onmessage: (message) => {
+      if (!message.data) return
+      options.onJob(JSON.parse(message.data) as OrganizeJob)
+    },
+    onclose: () => undefined,
+    onerror: (error) => {
+      throw error instanceof Error ? error : new Error('任务事件流连接失败')
+    },
+  })
+}
+
 export function createOrganizeMemory(input: OrganizeMemoryInput) {
   return post<OrganizeResponse<OrganizeMemory>>('/api/v1/organize/memories', input)
 }
@@ -443,8 +534,33 @@ export function deleteOrganizeMemory(id: string) {
   return del<OrganizeResponse<null>>(`/api/v1/organize/memories/${encodeURIComponent(id)}`)
 }
 
-export function listOrganizeOutputs(params?: OrganizeListParams & { status?: OrganizeOutputStatus }) {
-  return get<OrganizeResponse<OrganizeListData<OrganizeOutput>>>(withQuery('/api/v1/organize/outputs', params))
+export function listOrganizeOutputs(params?: OrganizeListParams & {
+  status?: OrganizeOutputStatus
+  template_key?: string
+  scene?: string
+  field_filters?: Record<string, string>
+  sort_by?: string
+  sort_order?: string
+}) {
+  const query = new URLSearchParams()
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (key === 'field_filters' || value === undefined || value === null || value === '') return
+    query.set(key, String(value))
+  })
+  Object.entries(params?.field_filters || {}).forEach(([key, value]) => {
+    if (key && value) query.set(`field.${key}`, value)
+  })
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return get<OrganizeResponse<OrganizeListData<OrganizeOutput>>>(`/api/v1/organize/outputs${suffix}`)
+}
+
+export function listOrganizeOutputFacets(params?: {
+  keyword?: string
+  status?: OrganizeOutputStatus
+  template_key?: string
+  scene?: string
+}) {
+  return get<OrganizeResponse<OrganizeOutputFacets>>(withQuery('/api/v1/organize/outputs/facets', params))
 }
 
 export function listOrganizePendingAssignments(params?: OrganizeListParams) {
@@ -462,6 +578,18 @@ export function assignOrganizeOutputToService(outputId: string, serviceId: strin
 
 export function getOrganizeDiscover(params?: OrganizeListParams & { tab?: string; featured_offset?: number }) {
   return get<OrganizeResponse<OrganizeDiscoverData>>(withQuery('/api/v1/organize/discover', params))
+}
+
+export function listOrganizeDiscoverCategories() {
+  return get<OrganizeResponse<OrganizeDiscoverCategory[]>>('/api/v1/organize/discover/categories')
+}
+
+export function previewOrganizeRequirement(input: OrganizeRequirementInput) {
+  return post<OrganizeResponse<OrganizeRequirementPreview>>('/api/v1/organize/requirements/preview', input)
+}
+
+export function confirmOrganizeRequirement(input: OrganizeRequirementInput) {
+  return post<OrganizeResponse<OrganizeJob>>('/api/v1/organize/requirements/confirm', input)
 }
 
 /**
@@ -512,6 +640,12 @@ export function updateOrganizeOutput(id: string, input: OrganizeOutputInput) {
 
 export function getOrganizeOutput(id: string) {
   return get<OrganizeResponse<OrganizeOutput>>(`/api/v1/organize/outputs/${encodeURIComponent(id)}`)
+}
+
+export function getOrganizeOutputCitation(id: string, ref: string) {
+  return get<OrganizeResponse<{ memory: OrganizeMemory | null; missing: boolean }>>(
+    withQuery(`/api/v1/organize/outputs/${encodeURIComponent(id)}/citation`, { ref }),
+  )
 }
 
 export function deleteOrganizeOutput(id: string) {

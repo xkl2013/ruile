@@ -286,6 +286,44 @@ func (h *OrganizeHandler) CreateJob(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 
+func (h *OrganizeHandler) PreviewOrganizeRequirement(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeRequirementInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.PreviewOrganizeRequirement(ctx, tenantID, userID, req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) ConfirmOrganizeRequirement(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeRequirementInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.ConfirmOrganizeRequirement(ctx, tenantID, userID, req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
 func (h *OrganizeHandler) GetJob(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := organizeScope(c)
@@ -340,13 +378,21 @@ func (h *OrganizeHandler) StreamJobEvents(c *gin.Context) {
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	first := true
 	for {
 		item, err := h.service.GetJob(c.Request.Context(), tenantID, userID, c.Param("id"))
 		if err != nil {
 			h.handleError(c, err)
 			return
 		}
-		c.SSEvent("job", item)
+		eventName := "progress"
+		if first {
+			eventName = "snapshot"
+			first = false
+		} else if types.IsTerminalOrganizeJobStatus(item.Status) {
+			eventName = item.Status
+		}
+		c.SSEvent(eventName, item)
 		c.Writer.Flush()
 		if types.IsTerminalOrganizeJobStatus(item.Status) {
 			return
@@ -596,6 +642,21 @@ func (h *OrganizeHandler) ListOutputs(c *gin.Context) {
 	c.JSON(http.StatusOK, listPayload(items, total, query.Page, query.PageSize))
 }
 
+func (h *OrganizeHandler) ListOutputFacets(c *gin.Context) {
+	ctx := c.Request.Context()
+	query, ok := h.listQuery(c)
+	if !ok {
+		return
+	}
+	query.Status = c.Query("status")
+	facets, err := h.service.ListOutputFacets(ctx, query)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": facets})
+}
+
 func (h *OrganizeHandler) ListPendingAssignments(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := organizeScope(c)
@@ -680,6 +741,15 @@ func (h *OrganizeHandler) GetDiscover(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) ListDiscoverCategories(c *gin.Context) {
+	items, err := h.service.ListDiscoverCategories(c.Request.Context())
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
 }
 
 func parseDiscoverPagination(c *gin.Context) (page, pageSize int, ok bool) {
@@ -790,6 +860,32 @@ func (h *OrganizeHandler) GetOutput(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+func (h *OrganizeHandler) GetOutputCitation(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	memory, missing, err := h.service.GetOutputCitation(
+		ctx,
+		tenantID,
+		userID,
+		c.Param("id"),
+		c.Query("ref"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"memory":  memory,
+			"missing": missing,
+		},
+	})
 }
 
 func (h *OrganizeHandler) UpdateOutput(c *gin.Context) {
@@ -938,12 +1034,38 @@ func (h *OrganizeHandler) listQuery(c *gin.Context) (types.OrganizeListQuery, bo
 		keyword = strings.TrimSpace(c.Query("keyword"))
 	}
 	return types.OrganizeListQuery{
-		TenantID: tenantID,
-		UserID:   userID,
-		Keyword:  keyword,
-		Page:     page,
-		PageSize: pageSize,
+		TenantID:     tenantID,
+		UserID:       userID,
+		Keyword:      keyword,
+		TemplateKey:  strings.TrimSpace(c.Query("template_key")),
+		Scene:        strings.TrimSpace(c.Query("scene")),
+		FieldFilters: organizeFieldFilters(c),
+		SortBy:       strings.TrimSpace(c.Query("sort_by")),
+		SortOrder:    strings.TrimSpace(c.Query("sort_order")),
+		Page:         page,
+		PageSize:     pageSize,
 	}, true
+}
+
+func organizeFieldFilters(c *gin.Context) map[string]string {
+	filters := make(map[string]string)
+	for key, values := range c.Request.URL.Query() {
+		if !strings.HasPrefix(key, "field.") || len(values) == 0 {
+			continue
+		}
+		field := strings.TrimSpace(strings.TrimPrefix(key, "field."))
+		value := strings.TrimSpace(values[len(values)-1])
+		if field != "" && value != "" {
+			filters[field] = value
+		}
+	}
+	for key, values := range c.QueryMap("field") {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(values) == "" {
+			continue
+		}
+		filters[strings.TrimSpace(key)] = strings.TrimSpace(values)
+	}
+	return filters
 }
 
 func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
@@ -967,6 +1089,8 @@ func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, service.ErrOrganizeInvalidExpert),
 		stderrors.Is(err, service.ErrOrganizeJobNotRetryable),
 		stderrors.Is(err, service.ErrOrganizeJobNotCancelable),
+		stderrors.Is(err, service.ErrOrganizeRequirementTextRequired),
+		stderrors.Is(err, service.ErrOrganizeRequirementConfirmationNeeded),
 		stderrors.Is(err, service.ErrOrganizeMemoryNotReady),
 		stderrors.Is(err, service.ErrOrganizeInvalidMemoryKind),
 		stderrors.Is(err, service.ErrOrganizeInvalidStatus),

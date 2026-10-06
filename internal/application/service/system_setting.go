@@ -326,6 +326,41 @@ var registry = map[string]settingSpec{
 			"每次调用实时读取，修改后立即生效、无需重启。0 或负数表示关闭默认限制" +
 			"（各模型仍会尊重自身在模型管理里配置的上限）。仅影响后台任务，不影响交互式对话。",
 	},
+	"organize.template_engine.enabled": {
+		Type:        "bool",
+		EnvName:     "WEKNORA_ORGANIZE_TEMPLATE_ENGINE_ENABLED",
+		Default:     false,
+		Category:    "organize",
+		Description: "是否启用整理模板引擎的新执行链路。默认关闭，关闭时继续使用现有整理逻辑。",
+	},
+	"organize.template_engine.observe_only": {
+		Type:        "bool",
+		EnvName:     "WEKNORA_ORGANIZE_TEMPLATE_ENGINE_OBSERVE_ONLY",
+		Default:     false,
+		Category:    "organize",
+		Description: "模板引擎观察模式。开启后只记录新旧链路差异，不改变用户看到的整理结果。",
+	},
+	"organize.sse.enabled": {
+		Type:        "bool",
+		EnvName:     "WEKNORA_ORGANIZE_SSE_ENABLED",
+		Default:     false,
+		Category:    "organize",
+		Description: "是否让整理任务前端优先使用 SSE 实时进度。关闭时使用兼容的轮询方式。",
+	},
+	"organize.custom_requirement.enabled": {
+		Type:        "bool",
+		EnvName:     "WEKNORA_ORGANIZE_CUSTOM_REQUIREMENT_ENABLED",
+		Default:     false,
+		Category:    "organize",
+		Description: "是否开放自然语言自定义整理要求。默认关闭，避免未确认的自由整理入口影响现有模板流程。",
+	},
+	"organize.discover_categories.enabled": {
+		Type:        "bool",
+		EnvName:     "WEKNORA_ORGANIZE_DISCOVER_CATEGORIES_ENABLED",
+		Default:     false,
+		Category:    "organize",
+		Description: "是否启用发现栏目动态管理。默认关闭，继续使用当前固定栏目。",
+	},
 	types.SystemResponseTierSettingKey: {
 		Type:     "json",
 		Default:  types.DefaultResponseTierConfig(),

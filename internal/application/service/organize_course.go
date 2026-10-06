@@ -469,7 +469,7 @@ func (s *organizeService) buildOrganizeCourseLessonOutput(
 		return nil, "", err
 	}
 
-	aiResult, aiModelID, aiStatus := s.generateOrganizeUploadAIResult(ctx, cleanName, outputType, content)
+	aiResult, aiModelID, aiStatus := s.generateUploadedOutputAIResult(ctx, cleanName, outputType, content)
 	if aiResult.Title == "" {
 		aiResult.Title = baseName
 	}
@@ -790,7 +790,6 @@ func (s *organizeService) OpenPublishedCourseLessonMedia(
 	return reader, fileName, stringValue(target.Output.Metadata, "mime_type"), nil
 }
 
-<<<<<<< HEAD
 // OpenPublishedCourseCover serves a course cover through the course visibility
 // boundary. The storage locator stays server-side, so private OSS buckets do
 // not need public-read ACLs or client-facing credentials.
@@ -840,7 +839,8 @@ func (s *organizeService) OpenPublishedCourseCover(
 		fileName = "course-cover"
 	}
 	return reader, fileName, mimeType, nil
-=======
+}
+
 // GetPublishedCourseLessonMediaURL returns a short-lived or presigned URL
 // after applying the same course visibility checks as the protected media
 // endpoint. Native media elements can use this URL to issue Range requests
@@ -867,7 +867,6 @@ func (s *organizeService) GetPublishedCourseLessonMediaURL(
 		fileName = target.Title
 	}
 	return mediaURL, fileName, stringValue(target.Output.Metadata, "mime_type"), nil
->>>>>>> 005c40083cf443d511c9442b0c0f30f86ff37885
 }
 
 // ListPublishedCourses backs the course cards embedded in 推荐: the same
