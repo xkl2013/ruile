@@ -460,7 +460,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.17</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.19</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll"><div class="canvas" id="root"></div></div>
@@ -584,16 +584,22 @@ function productSidebar(active){
 
 /* ═══════════════════════════════════════════════════════
    服务头（优化后：3 个入口）
+   v1.18：标题跟随中间内容——聊天区显示**会话标题**（右侧灰字回落为服务名），
+   产物 / 待办面板是服务级视图，标题仍显示服务名；新会话态显示「新的会话」
    ═══════════════════════════════════════════════════════ */
 function serviceHead(active, panel, moreOpen){
   const svc = SERVICES.find(s => s.id === active.service) || SERVICES[0];
   const count = { artifacts: ARTIFACTS.length, reminders: REMINDERS.length };
+  const sess = svc.sessions.find(s => s.id === active.session) || svc.sessions[0];
+  const inChat = !panel;
+  const title = inChat ? (state.newChat ? '新的会话' : (sess ? sess.title : svc.name)) : svc.name;
+  const tag = inChat ? svc.name : svc.type;
   return `
   <header class="sphead">
     <button class="spback" title="返回服务列表" data-scene="list">‹</button>
     <span class="spico">▦</span>
-    <span class="spname">${esc(svc.name)}</span>
-    <span class="sptype">${esc(svc.type)}</span>
+    <span class="spname">${esc(title)}</span>
+    <span class="sptype">${esc(tag)}</span>
     ${svc.state !== 'active' ? `<span class="spstate">已暂停</span>` : ''}
     <div class="spactions">
       <button class="hbtn ${panel === 'artifacts' ? 'on' : ''}" data-panel="artifacts">
@@ -1265,7 +1271,7 @@ function subjectsView(){
    ═══════════════════════════════════════════════════════ */
 function activityView(){
   return `
-  <div class="annoline">方案 §3 支柱 2 + §6：<b>动态</b>用一条时间线统计这个空间里的变化——重点是<b>服务对象（主体）身上发生的变化</b>。数据源不是新表：主体字段变化读 append-only 的 <code>service_facts</code>（带 <code>subject_id</code> / <code>fact_key</code> / <code>evidence</code> / 可回链来源），空间级动作读审计 <code>audit_logs</code> 里已经在你写库时发出的 <code>service.*</code> 事件。入口收进 <b>⋯ → 更多</b>，服务概览底部嵌最近 3 条。</div>
+  <div class="annoline">方案 §3 支柱 2 + §6：<b>动态</b>用一条时间线统计这个空间里的变化——重点是<b>服务对象（主体）身上发生的变化</b>。数据源不是新表：主体字段变化读 append-only 的 <code>service_facts</code>（带 <code>subject_id</code> / <code>fact_key</code> / <code>evidence</code> / 可回链来源），空间级动作读审计 <code>audit_logs</code> 里已经在你写库时发出的 <code>service.*</code> 事件。入口收进 <b>⋯ → 更多</b>，服务概览底部嵌最近 3 条。<b>v1.19 追加</b>：待办<b>只把终态记进来</b>——「已完成 / 已取消」各出一条（如右，昨天那条）；「待处理 → 进行中」这类过程翻转<b>不记</b>，对回顾没价值、只会刷屏。数据源用真历史表 <code>service_reminder_history</code>（<code>service_id</code> 是一等索引列，比审计 JSONB 还干净；写入点 <code>service_reminder.go:110/134/224</code>），缺的只是<b>服务级 history 列表查询</b>——现有只有单条待办的 <code>GET /:reminder_id/history</code>（<code>router.go:1631</code>）。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
@@ -1322,8 +1328,8 @@ function activityView(){
             </div>
             <div class="tlitem act">
               <span class="tdot">☑</span>
-              <div class="tmain">待办 <b>回访东苑分园 5 位家长</b> 状态：待处理 → 进行中</div>
-              <div class="tmeta"><span>14:31</span><span>陈老师</span><span class="src" data-noop>看这条待办</span></div>
+              <div class="tmain">待办 <b>回访东苑分园 5 位家长</b> <span class="tlval">已完成</span></div>
+              <div class="tmeta"><span>16:05</span><span>陈老师</span><span class="src" data-noop>看这条待办</span></div>
             </div>
           </div>
 

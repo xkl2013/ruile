@@ -179,26 +179,33 @@ defineExpose({ reload: loadCourses })
 }
 .course-discover--empty .t-icon { font-size: 20px; }
 
-.course-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 768px);
+}
 
 .course-card {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  align-items: start;
-  gap: 16px;
-  min-height: 128px;
-  padding: 14px 16px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
+  width: 100%;
+  height: 91px;
+  min-height: 91px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 16px;
   background: var(--td-bg-color-container);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 .course-card:hover {
-  border-color: rgba(7, 192, 95, 0.55);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-  transform: translateY(-1px);
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 .course-card:focus-visible { outline: 2px solid var(--td-brand-color); outline-offset: 2px; }
 
@@ -208,31 +215,27 @@ defineExpose({ reload: loadCourses })
   align-items: center;
   justify-content: center;
   gap: 7px;
-  width: 92px;
-  height: 92px;
-  padding: 8px;
+  width: 56px;
+  height: 56px;
+  padding: 0;
   box-sizing: border-box;
-  border: 1px solid var(--td-component-stroke);
+  border: 0.5px solid rgba(0, 0, 0, 0.04);
   border-radius: 8px;
   background-color: var(--td-bg-color-secondarycontainer);
   background-size: cover;
   background-position: center;
   color: var(--td-brand-color);
-  font-size: 25px;
+  font-size: 20px;
 }
 .course-card-cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 5px;
+  border-radius: 8px;
 }
-.course-card-cover__kind {
-  color: var(--td-brand-color-7);
-  font-size: 11px;
-  line-height: 16px;
-}
+.course-card-cover__kind { display: none; }
 
-.course-card-body { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.course-card-body { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 0; overflow: hidden; }
 .course-card-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .course-card-title h3 {
   margin: 0;
@@ -241,43 +244,40 @@ defineExpose({ reload: loadCourses })
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--td-text-color-primary);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 22px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 16px;
 }
 .course-source-badge {
   flex: 0 0 auto;
-  padding: 2px 9px;
-  border-radius: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
   background: rgba(7, 192, 95, 0.1);
   color: var(--td-brand-color-7);
   font-size: 11px;
-  line-height: 17px;
+  line-height: 14px;
 }
 .course-card-meta {
   display: flex;
-  gap: 12px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  gap: 2px;
+  color: rgba(0, 0, 0, 0.44);
+  font-size: 11px;
+  line-height: 14px;
   flex-wrap: wrap;
 }
 .course-card-summary {
   margin: 0;
+  margin-top: 4px;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-  line-height: 20px;
+  color: rgba(0, 0, 0, 0.44);
+  font-size: 11px;
+  line-height: 14px;
 }
 .course-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 1px;
+  display: none;
 }
 .course-card-category {
   padding: 2px 9px;
@@ -290,8 +290,7 @@ defineExpose({ reload: loadCourses })
 .course-card-date { color: var(--td-text-color-placeholder); font-size: 12px; }
 
 @media (max-width: 720px) {
-  .course-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .course-card { gap: 12px; padding: 12px; }
-  .course-card-cover { width: 84px; height: 84px; }
+  .course-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+  .course-card { height: 132px; min-height: 132px; }
 }
 </style>
