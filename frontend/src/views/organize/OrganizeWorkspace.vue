@@ -259,10 +259,11 @@
                 </article>
               </div>
               <OrganizeCourseDiscover
-                v-else
+                v-if="!discoverFeaturedLoading"
                 ref="featuredCourseDiscoverRef"
                 variant="featured"
                 :limit="FEATURED_OUTPUT_SIZE"
+                :show-empty="showFeaturedCourseFallback"
               />
             </section>
 
@@ -285,7 +286,7 @@
 
             <section class="discover-feed-section">
               <OrganizeCourseDiscover
-                v-if="discoverTab === 'recommended' && !discoverFeaturedLoading && !showFeaturedCourseFallback"
+                v-if="discoverTab === 'recommended'"
                 ref="courseDiscoverRef"
               />
               <div v-if="discoverFeedLoading" class="organize-loading discover-loading">

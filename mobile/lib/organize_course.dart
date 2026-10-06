@@ -12,6 +12,9 @@ class _OrganizeCourse {
     required this.teacherTitle,
     required this.lessonCount,
     required this.learnerCount,
+    required this.featured,
+    required this.recommendable,
+    required this.sortOrder,
     required this.createdAt,
     required this.updatedAt,
     required this.lessons,
@@ -53,6 +56,11 @@ class _OrganizeCourse {
       teacherTitle: _readString(json, const ['teacher_title']),
       lessonCount: _readInt(json, const ['lesson_count']) ?? lessons.length,
       learnerCount: _readInt(json, const ['learner_count']) ?? 0,
+      featured: _readTruthy(json['featured']),
+      recommendable: json.containsKey('recommendable')
+          ? _readTruthy(json['recommendable'])
+          : true,
+      sortOrder: _readInt(json, const ['sort_order']) ?? 0,
       createdAt: createdAt,
       updatedAt: _readDateTime(json, const ['updated_at']) ?? createdAt,
       lessons: lessons,
@@ -69,6 +77,9 @@ class _OrganizeCourse {
   final String teacherTitle;
   final int lessonCount;
   final int learnerCount;
+  final bool featured;
+  final bool recommendable;
+  final int sortOrder;
   final DateTime createdAt;
   final DateTime updatedAt;
   final List<_OrganizeCourseLesson> lessons;
@@ -172,6 +183,7 @@ class _OrganizeCourseLesson {
 
 class _DiscoverCourseSection extends StatelessWidget {
   const _DiscoverCourseSection({
+    required this.title,
     required this.courses,
     required this.loading,
     required this.error,
@@ -181,6 +193,7 @@ class _DiscoverCourseSection extends StatelessWidget {
     required this.onTap,
   });
 
+  final String title;
   final List<_OrganizeCourse> courses;
   final bool loading;
   final String? error;
@@ -199,8 +212,8 @@ class _DiscoverCourseSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Expanded(
-              child: Text('系列课程', style: AppTextStyles.cardTitle),
+            Expanded(
+              child: Text(title, style: AppTextStyles.cardTitle),
             ),
             if (loading)
               const SizedBox(

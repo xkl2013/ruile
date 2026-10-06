@@ -1067,6 +1067,8 @@ class _RuileApiClient {
     String keyword = '',
     String category = '',
     String source = '',
+    bool? featured,
+    bool? recommendable,
   }) async {
     final queryParameters = <String, String>{
       'page': '${page < 1 ? 1 : page}',
@@ -1074,6 +1076,8 @@ class _RuileApiClient {
       if (keyword.trim().isNotEmpty) 'q': keyword.trim(),
       if (category.trim().isNotEmpty) 'category': category.trim(),
       if (source.trim().isNotEmpty) 'source': source.trim(),
+      if (featured != null) 'featured': '$featured',
+      if (recommendable != null) 'recommendable': '$recommendable',
     };
     final query = Uri(queryParameters: queryParameters).query;
     final payload = await _getJson('/api/v1/organize/courses?$query');
@@ -18279,12 +18283,15 @@ class _DiscoverPageState extends State<DiscoverPage> {
   late _RuileApiClient _apiClient;
   List<_OrganizeDiscoverTab> _tabs = _defaultTabs;
   List<_OrganizeOutput> _featuredOutputs = const [];
+  List<_OrganizeCourse> _featuredCourses = const [];
   List<_OrganizeOutput> _outputs = const [];
   List<_OrganizeCourse> _courses = const [];
   String _selectedTab = 'recommended';
   String? _error;
+  String? _featuredCourseError;
   String? _courseError;
   var _loading = false;
+  var _featuredCoursesLoading = false;
   var _coursesLoading = false;
   var _refreshingFeatured = false;
   var _featuredOffset = 0;
@@ -18304,6 +18311,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
     super.initState();
     _apiClient = _buildApiClient();
     unawaited(_loadDiscover());
+    unawaited(_loadFeaturedCourses());
     unawaited(_loadCourses());
   }
 
@@ -18314,6 +18322,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
         oldWidget.tenantId != widget.tenantId) {
       _apiClient = _buildApiClient();
       unawaited(_loadDiscover());
+      unawaited(_loadFeaturedCourses());
       unawaited(_loadCourses());
     }
   }
@@ -18402,6 +18411,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   Future<void> _refresh() async {
     await Future.wait([
       _loadDiscover(silent: true),
+      _loadFeaturedCourses(),
       _loadCourses(),
     ]);
   }
@@ -18415,7 +18425,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
       });
     }
     try {
-      final courses = await _apiClient.fetchOrganizeCourses();
+      final courses = await _apiClient.fetchOrganizeCourses(
+        featured: false,
+        recommendable: true,
+      );
       if (!mounted) return;
       setState(() {
         _courses = courses;
@@ -18439,6 +18452,47 @@ class _DiscoverPageState extends State<DiscoverPage> {
       if (mounted) {
         setState(() {
           _coursesLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadFeaturedCourses() async {
+    if (!_apiClient.isConfigured) return;
+    if (mounted) {
+      setState(() {
+        _featuredCoursesLoading = true;
+        _featuredCourseError = null;
+      });
+    }
+    try {
+      final courses = await _apiClient.fetchOrganizeCourses(
+        pageSize: 4,
+        featured: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _featuredCourses = courses;
+        _featuredCourseError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _featuredCourseError = error.message;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _featuredCourseError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _featuredCoursesLoading = false;
         });
       }
     }
@@ -18493,8 +18547,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
   @override
   Widget build(BuildContext context) {
     final hasContent = _featuredOutputs.isNotEmpty ||
+        _featuredCourses.isNotEmpty ||
         _outputs.isNotEmpty ||
         _courses.isNotEmpty ||
+        _featuredCoursesLoading ||
         _coursesLoading;
 
     return SafeArea(
@@ -18523,9 +18579,12 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       onRetry: () => unawaited(_loadDiscover()),
                     )
                   else ...[
-                    if (_featuredOutputs.isEmpty)
+                    if (_featuredOutputs.isEmpty &&
+                        _featuredCourses.isEmpty &&
+                        !_featuredCoursesLoading &&
+                        _featuredCourseError == null)
                       const _DiscoverEmpty(message: '暂无精选')
-                    else
+                    else ...[
                       for (final output in _featuredOutputs) ...[
                         _DiscoverOutputTile(
                           output: output,
@@ -18536,6 +18595,22 @@ class _DiscoverPageState extends State<DiscoverPage> {
                         ),
                         const SizedBox(height: 10),
                       ],
+                      if (_featuredCourses.isNotEmpty ||
+                          _featuredCoursesLoading ||
+                          _featuredCourseError != null) ...[
+                        const SizedBox(height: 4),
+                        _DiscoverCourseSection(
+                          title: '精选课程',
+                          courses: _featuredCourses,
+                          loading: _featuredCoursesLoading,
+                          error: _featuredCourseError,
+                          authToken: widget.authToken,
+                          tenantId: widget.tenantId,
+                          onRetry: () => unawaited(_loadFeaturedCourses()),
+                          onTap: (course) => unawaited(_openCourse(course)),
+                        ),
+                      ],
+                    ],
                     const SizedBox(height: 6),
                     _DiscoverTabsBar(
                       tabs: _tabs,
@@ -18545,6 +18620,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                     const SizedBox(height: 16),
                     if (_selectedTab == 'recommended') ...[
                       _DiscoverCourseSection(
+                        title: '系列课程',
                         courses: _courses,
                         loading: _coursesLoading,
                         error: _courseError,
@@ -22405,6 +22481,9 @@ class _OrganizeOutput {
     this.assignmentReason = '',
     this.fields = const {},
     this.citations = const {},
+    this.featured = false,
+    this.recommendable = true,
+    this.sortOrder = 0,
   });
 
   factory _OrganizeOutput.fromApi(
@@ -22457,6 +22536,11 @@ class _OrganizeOutput {
       assignmentReason: _readString(json, const ['assignment_reason']),
       fields: _readMap(json, const ['fields']),
       citations: _readMap(json, const ['citations']),
+      featured: _readTruthy(json['featured']),
+      recommendable: json.containsKey('recommendable')
+          ? _readTruthy(json['recommendable'])
+          : true,
+      sortOrder: _readInt(json, const ['sort_order']) ?? 0,
     );
   }
 
@@ -22484,6 +22568,9 @@ class _OrganizeOutput {
   final String assignmentReason;
   final Map<String, dynamic> fields;
   final Map<String, dynamic> citations;
+  final bool featured;
+  final bool recommendable;
+  final int sortOrder;
 
   String get kind {
     final source = _normalizeSpaces(

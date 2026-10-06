@@ -179,9 +179,6 @@ func (s *publicKnowledgeBaseService) ListPublications(
 		return nil, err
 	}
 	category = strings.TrimSpace(category)
-	if category == "" && userID == "" {
-		return rows, nil
-	}
 
 	activeByPublication := map[string]bool{}
 	if userID != "" {

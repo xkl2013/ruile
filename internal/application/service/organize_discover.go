@@ -225,7 +225,11 @@ func pickDiscoverFeaturedOutputs(outputs []*types.OrganizeOutput, keyword string
 		if output == nil || isDiscoverCourseOutput(output) {
 			continue
 		}
-		if explicit && !output.Featured {
+		if explicit {
+			if !output.Featured {
+				continue
+			}
+		} else if !output.Recommendable {
 			continue
 		}
 		if keyword != "" && !matchesDiscoverKeyword(output, keyword) {

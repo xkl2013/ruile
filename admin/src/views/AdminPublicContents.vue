@@ -54,6 +54,8 @@
               <t-tag theme="default" variant="light-outline" size="small">
                 {{ item.public_content_type === 'course' ? '课程' : '图文内容' }}
               </t-tag>
+              <t-tag v-if="item.featured" theme="warning" variant="light" size="small">精选</t-tag>
+              <t-tag v-if="item.recommendable" theme="success" variant="light-outline" size="small">参与推荐</t-tag>
             </div>
             <p>{{ item.source_summary || '暂无摘要' }}</p>
             <div class="public-content-row__meta">
@@ -128,6 +130,16 @@
             <t-input-number v-model="editForm.series_order" :min="1" :max="999" theme="normal" />
           </t-form-item>
         </div>
+        <t-form-item label="发现展示">
+          <div class="curation-options">
+            <t-checkbox v-model="editForm.featured">加入精选</t-checkbox>
+            <t-checkbox v-model="editForm.recommendable">参与推荐</t-checkbox>
+          </div>
+        </t-form-item>
+        <t-form-item label="推荐排序">
+          <t-input-number v-model="editForm.sort_order" :min="0" :max="9999" theme="normal" />
+          <div class="form-help">数值越小越靠前，0 表示按更新时间排序。</div>
+        </t-form-item>
         <t-form-item label="审核备注">
           <t-textarea v-model="editForm.review_note" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="可记录驳回原因或发布说明" />
         </t-form-item>
@@ -167,6 +179,9 @@ const editForm = ref({
   series_title: '',
   series_order: 0,
   review_note: '',
+  featured: false,
+  recommendable: true,
+  sort_order: 0,
 })
 
 const total = ref(0)
@@ -234,6 +249,9 @@ function openEdit(item: AdminPublicContent) {
     series_title: item.series_title || '',
     series_order: item.series_order || 0,
     review_note: item.review_note || '',
+    featured: Boolean(item.featured),
+    recommendable: item.recommendable !== false,
+    sort_order: item.sort_order || 0,
   }
   editVisible.value = true
 }
@@ -254,6 +272,9 @@ async function saveEdit() {
       series_title: seriesTitle,
       series_order: seriesTitle ? editForm.value.series_order : 0,
       review_note: editForm.value.review_note.trim(),
+      featured: editForm.value.featured,
+      recommendable: editForm.value.recommendable,
+      sort_order: editForm.value.sort_order,
     })
     MessagePlugin.success('内容信息已保存')
     editVisible.value = false
@@ -335,6 +356,8 @@ onMounted(() => {
 .public-content-row__actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .public-content-state { min-height: 220px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--td-text-color-secondary); }
 .course-fields { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 12px; }
+.curation-options { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.form-help { margin-top: 6px; color: var(--td-text-color-placeholder); font-size: 12px; }
 @media (max-width: 900px) {
   .public-content-page__header { flex-direction: column; }
   .public-content-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

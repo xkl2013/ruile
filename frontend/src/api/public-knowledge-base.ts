@@ -10,6 +10,8 @@ export interface PublicKnowledgeBasePublication {
   category: string
   status: PublicKnowledgeBaseStatus
   featured: boolean
+  recommendable: boolean
+  sort_order?: number
   published_at?: string
   updated_at: string
   subscriber_count: number

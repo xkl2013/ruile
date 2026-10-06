@@ -22,6 +22,9 @@ export interface AdminPublicContent {
   published_by?: string
   icon?: string
   metadata?: Record<string, any>
+  featured?: boolean
+  recommendable?: boolean
+  sort_order?: number
   created_at: string
   updated_at: string
 }
@@ -80,6 +83,9 @@ export function updateAdminPublicContent(id: string, data: {
   series_order?: number
   review_note?: string
   metadata?: Record<string, any>
+  featured?: boolean
+  recommendable?: boolean
+  sort_order?: number
 }) {
   return put<{ success: boolean; data: AdminPublicContent }>(
     `/api/v1/system/admin/public-contents/${encodeURIComponent(id)}`,

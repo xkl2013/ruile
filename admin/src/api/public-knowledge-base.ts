@@ -10,6 +10,7 @@ export interface PublicKnowledgeBasePublication {
   category: string
   status: PublicKnowledgeBaseStatus
   featured: boolean
+  recommendable: boolean
   sort_order: number
   published_at?: string
   created_at: string
@@ -52,6 +53,7 @@ export function updateAdminPublicKnowledgeBase(id: string, data: {
   description?: string
   category?: string
   featured?: boolean
+  recommendable?: boolean
   sort_order?: number
 }) {
   return put<{ success: boolean; data: PublicKnowledgeBasePublication }>(
