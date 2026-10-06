@@ -87,7 +87,7 @@ func (s *publicKnowledgeBaseService) GetAdminPublication(
 func (s *publicKnowledgeBaseService) UpdatePublication(
 	ctx context.Context,
 	id, title, description, category string,
-	featured bool,
+	featured, recommendable bool,
 	sortOrder int,
 ) (*types.PublicKnowledgeBasePublication, error) {
 	publication, err := s.repo.GetPublicationByID(ctx, strings.TrimSpace(id))
@@ -103,6 +103,7 @@ func (s *publicKnowledgeBaseService) UpdatePublication(
 	publication.Description = strings.TrimSpace(description)
 	publication.Category = strings.TrimSpace(category)
 	publication.Featured = featured
+	publication.Recommendable = recommendable
 	publication.SortOrder = sortOrder
 	publication.UpdatedBy = actorID
 	publication.UpdatedAt = time.Now().UTC()
@@ -178,9 +179,6 @@ func (s *publicKnowledgeBaseService) ListPublications(
 		return nil, err
 	}
 	category = strings.TrimSpace(category)
-	if category == "" && userID == "" {
-		return rows, nil
-	}
 
 	activeByPublication := map[string]bool{}
 	if userID != "" {
@@ -196,7 +194,8 @@ func (s *publicKnowledgeBaseService) ListPublications(
 	}
 	out := make([]*types.PublicKnowledgeBasePublication, 0, len(rows))
 	for _, row := range rows {
-		if row == nil || (category != "" && row.Category != category) {
+		if row == nil || (!row.Featured && !row.Recommendable) ||
+			(category != "" && row.Category != category) {
 			continue
 		}
 		row.IsSubscribed = activeByPublication[row.ID]

@@ -40,6 +40,7 @@ func newOrganizeServiceWithDBForTest(t *testing.T) (*organizeService, *gorm.DB) 
 		// have to exist even in tests that never create one.
 		&types.OrganizeCourse{},
 		&types.OrganizeCourseLesson{},
+		&types.OrganizeDiscoverCategoryRecord{},
 	))
 	return &organizeService{repo: repository.NewOrganizeRepository(db)}, db
 }

@@ -18,9 +18,16 @@ import 'recording_card/jieli_recording_card_runtime.dart';
 import 'recording_card/jieli_recording_card_sync_support.dart';
 import 'recording_card/recording_card_support.dart';
 
+part 'organize_course.dart';
+
 const bool _launchJieliDebug = bool.fromEnvironment(
   'RUILE_JIELI_DEBUG',
   defaultValue: false,
+);
+
+const bool _organizeUseMockData = bool.fromEnvironment(
+  'RUILE_ORGANIZE_MOCK',
+  defaultValue: true,
 );
 
 Future<void> main() async {
@@ -743,15 +750,26 @@ class _RuileApiClient {
   Future<List<_OrganizeJob>> fetchOrganizeJobs({
     int page = 1,
     int pageSize = 100,
+    String configId = '',
+    String status = '',
   }) async {
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.fetchJobs(
+        page: page,
+        pageSize: pageSize,
+        configId: configId,
+        status: status,
+      );
+    }
     final safePage = page < 1 ? 1 : page;
     final safePageSize = pageSize < 1 ? 1 : pageSize;
-    final query = Uri(
-      queryParameters: {
-        'page': '$safePage',
-        'page_size': '$safePageSize',
-      },
-    ).query;
+    final queryParameters = <String, String>{
+      'page': '$safePage',
+      'page_size': '$safePageSize',
+      if (configId.trim().isNotEmpty) 'config_id': configId.trim(),
+      if (status.trim().isNotEmpty) 'status': status.trim(),
+    };
+    final query = Uri(queryParameters: queryParameters).query;
     final payload = await _getJson('/api/v1/organize/jobs?$query');
     return [
       for (final item in _extractList(payload))
@@ -764,15 +782,25 @@ class _RuileApiClient {
     ];
   }
 
-  Future<List<_OrganizeConfig>> fetchActiveOrganizeConfigs({
+  Future<List<_OrganizeConfig>> fetchOrganizeConfigs({
+    int page = 1,
     int pageSize = 100,
+    String status = '',
   }) async {
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.fetchConfigs(
+        page: page,
+        pageSize: pageSize,
+        status: status,
+      );
+    }
+    final safePage = page < 1 ? 1 : page;
     final safePageSize = pageSize < 1 ? 1 : pageSize;
     final query = Uri(
       queryParameters: {
-        'page': '1',
+        'page': '$safePage',
         'page_size': '$safePageSize',
-        'status': 'active',
+        if (status.trim().isNotEmpty) 'status': status.trim(),
       },
     ).query;
     final payload = await _getJson('/api/v1/organize/configs?$query');
@@ -785,6 +813,138 @@ class _RuileApiClient {
             item.map((key, value) => MapEntry(key.toString(), value)),
           ),
     ];
+  }
+
+  Future<List<_OrganizeConfig>> fetchActiveOrganizeConfigs({
+    int pageSize = 100,
+  }) async {
+    return fetchOrganizeConfigs(pageSize: pageSize, status: 'active');
+  }
+
+  Future<_OrganizeConfig?> fetchOrganizeConfig(String configId) async {
+    final id = configId.trim();
+    if (id.isEmpty) return null;
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.fetchConfig(id);
+    }
+    final payload = await _getJson(
+      '/api/v1/organize/configs/${Uri.encodeComponent(id)}',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeConfig.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeConfig.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    return null;
+  }
+
+  Future<List<_OrganizeJob>> fetchOrganizeConfigJobs(
+    String configId, {
+    int page = 1,
+    int pageSize = 100,
+  }) {
+    return fetchOrganizeJobs(
+      page: page,
+      pageSize: pageSize,
+      configId: configId,
+    );
+  }
+
+  Future<_OrganizeJob> runOrganizeConfig(String configId) async {
+    final id = configId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('整理配置ID不能为空');
+    }
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.runConfig(id);
+    }
+    final payload = await _postJson(
+      '/api/v1/organize/configs/${Uri.encodeComponent(id)}/run',
+      const {},
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeJob.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeJob.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('整理任务响应格式无效');
+  }
+
+  Future<_OrganizeJob> retryOrganizeJob(String jobId) async {
+    final id = jobId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('整理任务ID不能为空');
+    }
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.retryJob(id);
+    }
+    final payload = await _postJson(
+      '/api/v1/organize/jobs/${Uri.encodeComponent(id)}/retry',
+      const {},
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeJob.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeJob.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('整理任务重试响应格式无效');
+  }
+
+  Future<_OrganizeJob> cancelOrganizeJob(String jobId) async {
+    final id = jobId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('整理任务ID不能为空');
+    }
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.cancelJob(id);
+    }
+    final payload = await _postJson(
+      '/api/v1/organize/jobs/${Uri.encodeComponent(id)}/cancel',
+      const {},
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeJob.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeJob.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    throw const FormatException('整理任务取消响应格式无效');
+  }
+
+  Future<_OrganizeJob?> fetchOrganizeJob(String jobId) async {
+    final id = jobId.trim();
+    if (id.isEmpty) return null;
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.fetchJob(id);
+    }
+    final payload = await _getJson(
+      '/api/v1/organize/jobs/${Uri.encodeComponent(id)}',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeJob.fromApi(data);
+    }
+    if (data is Map) {
+      return _OrganizeJob.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    return null;
   }
 
   Future<_OrganizeJob> createOrganizeJob({
@@ -901,9 +1061,117 @@ class _RuileApiClient {
     throw const FormatException('发现响应格式无效');
   }
 
+  Future<List<_OrganizeCourse>> fetchOrganizeCourses({
+    int page = 1,
+    int pageSize = 6,
+    String keyword = '',
+    String category = '',
+    String source = '',
+    bool? featured,
+    bool? recommendable,
+  }) async {
+    final queryParameters = <String, String>{
+      'page': '${page < 1 ? 1 : page}',
+      'page_size': '${pageSize < 1 ? 1 : pageSize}',
+      if (keyword.trim().isNotEmpty) 'q': keyword.trim(),
+      if (category.trim().isNotEmpty) 'category': category.trim(),
+      if (source.trim().isNotEmpty) 'source': source.trim(),
+      if (featured != null) 'featured': '$featured',
+      if (recommendable != null) 'recommendable': '$recommendable',
+    };
+    final query = Uri(queryParameters: queryParameters).query;
+    final payload = await _getJson('/api/v1/organize/courses?$query');
+    return [
+      for (final item in _extractList(payload))
+        if (item is Map<String, dynamic>)
+          _OrganizeCourse.fromApi(item, baseUrl: baseUrl)
+        else if (item is Map)
+          _OrganizeCourse.fromApi(
+            item.map((key, value) => MapEntry(key.toString(), value)),
+            baseUrl: baseUrl,
+          ),
+    ];
+  }
+
+  Future<_OrganizeCourse> fetchOrganizeCourse(String courseId) async {
+    final id = courseId.trim();
+    if (id.isEmpty) {
+      throw const FormatException('课程ID不能为空');
+    }
+    final payload = await _getJson(
+      '/api/v1/organize/courses/${Uri.encodeComponent(id)}',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _OrganizeCourse.fromApi(data, baseUrl: baseUrl);
+    }
+    if (data is Map) {
+      return _OrganizeCourse.fromApi(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+        baseUrl: baseUrl,
+      );
+    }
+    throw const FormatException('课程详情响应格式无效');
+  }
+
+  Future<String> fetchOrganizeCourseLessonContent({
+    required String courseId,
+    required String lessonId,
+  }) async {
+    final normalizedCourseId = courseId.trim();
+    final normalizedLessonId = lessonId.trim();
+    if (normalizedCourseId.isEmpty || normalizedLessonId.isEmpty) {
+      throw const FormatException('课程讲次ID不能为空');
+    }
+    final payload = await _getJson(
+      '/api/v1/organize/courses/${Uri.encodeComponent(normalizedCourseId)}'
+      '/lessons/${Uri.encodeComponent(normalizedLessonId)}/content',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _readString(data, const ['content']);
+    }
+    if (data is Map) {
+      return _readString(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+        const ['content'],
+      );
+    }
+    return '';
+  }
+
+  Future<String> fetchOrganizeCourseLessonMediaUrl({
+    required String courseId,
+    required String lessonId,
+  }) async {
+    final normalizedCourseId = courseId.trim();
+    final normalizedLessonId = lessonId.trim();
+    if (normalizedCourseId.isEmpty || normalizedLessonId.isEmpty) {
+      throw const FormatException('课程讲次ID不能为空');
+    }
+    final payload = await _getJson(
+      '/api/v1/organize/courses/${Uri.encodeComponent(normalizedCourseId)}'
+      '/lessons/${Uri.encodeComponent(normalizedLessonId)}/media-url',
+    );
+    final data = _unwrapData(payload);
+    if (data is Map<String, dynamic>) {
+      return _readString(data, const ['url']);
+    }
+    if (data is Map) {
+      return _readString(
+        data.map((key, value) => MapEntry(key.toString(), value)),
+        const ['url'],
+      );
+    }
+    return '';
+  }
+
   Future<_OrganizeOutput?> fetchOrganizeOutput(String outputId) async {
     final id = outputId.trim();
     if (id.isEmpty) return null;
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.fetchOutput(id);
+    }
 
     final payload = await _getJson(
       '/api/v1/organize/outputs/${Uri.encodeComponent(id)}',
@@ -1296,6 +1564,14 @@ class _RuileApiClient {
     );
     await file.writeAsBytes(bytes, flush: true);
     return file;
+  }
+
+  Uri resolveResourceUrl(String pathOrUrl) {
+    return _resolveResource(pathOrUrl);
+  }
+
+  void close({bool force = true}) {
+    _httpClient.close(force: force);
   }
 
   void _applyCommonHeaders(HttpClientRequest request) {
@@ -2449,6 +2725,11 @@ class _MainShellState extends State<MainShell> {
         onAuthFailure: widget.onLogout,
         onOpenRecordingCard: _openRecordingCardFromDrawer,
       ),
+      OrganizePage(
+        authToken: widget.session.token,
+        tenantId: widget.session.tenantId,
+        onAuthFailure: widget.onLogout,
+      ),
       DiscoverPage(
         authToken: widget.session.token,
         tenantId: widget.session.tenantId,
@@ -2490,7 +2771,8 @@ class _MainShellState extends State<MainShell> {
               onCaptureActionSelected: _handleCaptureAction,
             ),
           ),
-          _HomeFloatingMenu(onMenuTap: _openSideDrawer),
+          if (_selectedIndex == 0)
+            _HomeFloatingMenu(onMenuTap: _openSideDrawer),
         ],
       ),
     );
@@ -3645,6 +3927,2904 @@ class _UserSettingsLogoutButton extends StatelessWidget {
   }
 }
 
+enum _OrganizeReportFilter {
+  all,
+  completed,
+  running,
+  failed,
+}
+
+bool _isOrganizeRunning(_OrganizeJob job) => job.isActive;
+
+bool _isOrganizeFailed(_OrganizeJob job) {
+  final status = job.status.trim().toLowerCase();
+  return status == 'failed' || status == 'canceled';
+}
+
+bool _isOrganizeCompleted(_OrganizeJob job) {
+  return !_isOrganizeRunning(job) && !_isOrganizeFailed(job);
+}
+
+String _organizeScheduleLabel(String schedule) {
+  switch (schedule.trim().toLowerCase()) {
+    case 'daily':
+      return '每天 08:00';
+    case 'weekly':
+      return '每周一 09:00';
+    case 'monthly':
+      return '每月 1 日 09:00';
+    default:
+      return '手动触发';
+  }
+}
+
+DateTime _organizeDateOnly(DateTime value) {
+  final local = value.toLocal();
+  return DateTime(local.year, local.month, local.day);
+}
+
+DateTime _organizeMonday(DateTime value) {
+  final date = _organizeDateOnly(value);
+  return date.subtract(Duration(days: date.weekday - DateTime.monday));
+}
+
+bool _sameOrganizeDate(DateTime left, DateTime right) {
+  return _organizeDateOnly(left) == _organizeDateOnly(right);
+}
+
+String _organizeDateKey(DateTime value) {
+  final date = _organizeDateOnly(value);
+  return '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+}
+
+String _organizeDateLabel(DateTime value) {
+  final date = _organizeDateOnly(value);
+  const weekdays = ['一', '二', '三', '四', '五', '六', '日'];
+  return '${date.month}月${date.day}日 周${weekdays[date.weekday - 1]}';
+}
+
+String _organizeTimeLabel(DateTime value) {
+  final date = value.toLocal();
+  return '${date.hour.toString().padLeft(2, '0')}:'
+      '${date.minute.toString().padLeft(2, '0')}';
+}
+
+String _organizeJobStatusLabel(_OrganizeJob job) {
+  if (job.isActive) return job.stage.trim().isEmpty ? '进行中' : job.stage;
+  if (job.status.trim().toLowerCase() == 'failed') return '执行失败';
+  if (job.status.trim().toLowerCase() == 'canceled') return '已取消';
+  if (job.status.trim().toLowerCase() == 'fallback') return '基础结果';
+  return '已完成';
+}
+
+int _organizeStageNumber(_OrganizeJob job) {
+  final match = RegExp(r'([1-6])').firstMatch(job.stage);
+  if (match != null) return int.tryParse(match.group(1)!) ?? 1;
+  if (job.isFinished) return 6;
+  return (job.progress / 100 * 6).ceil().clamp(1, 6);
+}
+
+String _organizeValueLabel(Object? value) {
+  if (value == null) return '';
+  if (value is List) {
+    return value
+        .map(_organizeValueLabel)
+        .where((item) => item.isNotEmpty)
+        .join('、');
+  }
+  if (value is Map) {
+    return value.entries
+        .map((entry) =>
+            '${entry.key}: ${_organizeValueLabel(entry.value)}'.trim())
+        .where((item) => item.isNotEmpty)
+        .join(' · ');
+  }
+  return value.toString().trim();
+}
+
+bool _organizeScheduleRunsOn(
+  _OrganizeConfig config,
+  DateTime date,
+) {
+  if (config.status.trim().toLowerCase() != 'active') return false;
+  switch (config.schedule.trim().toLowerCase()) {
+    case 'daily':
+      return true;
+    case 'weekly':
+      return date.weekday == DateTime.monday;
+    case 'monthly':
+      return date.day == 1;
+    default:
+      return false;
+  }
+}
+
+String _organizeInactiveReason(_OrganizeConfig config) {
+  if (config.status.trim().toLowerCase() != 'active') return '已停用 · 不再自动执行';
+  switch (config.schedule.trim().toLowerCase()) {
+    case 'manual':
+      return '仅手动发起时执行';
+    case 'weekly':
+      return '每周一 09:00 才会执行';
+    case 'monthly':
+      return '每月 1 日 09:00 才会执行';
+    default:
+      return '今日待触发';
+  }
+}
+
+class _OrganizeDayConfig {
+  const _OrganizeDayConfig({
+    required this.config,
+    required this.jobs,
+    required this.due,
+    required this.auto,
+  });
+
+  final _OrganizeConfig config;
+  final List<_OrganizeJob> jobs;
+  final bool due;
+  final bool auto;
+
+  int get done => jobs.where(_isOrganizeCompleted).length;
+  int get running => jobs.where(_isOrganizeRunning).length;
+  int get failed => jobs.where(_isOrganizeFailed).length;
+
+  String get triggerLabel {
+    final autoCount = jobs.where((job) => job.scheduledFor != null).length;
+    final manualCount = jobs.length - autoCount;
+    final parts = <String>[
+      if (autoCount > 0) '自动 $autoCount 次',
+      if (manualCount > 0) '手动 $manualCount 次',
+    ];
+    return parts.isEmpty ? '今日待触发' : parts.join(' · ');
+  }
+
+  String get resultLabel {
+    if (jobs.isEmpty) return '待触发';
+    if (running > 0 && done == 0) return '进行中';
+    if (failed > 0 && done == 0) return '失败';
+    return '已完成';
+  }
+}
+
+class OrganizePage extends StatefulWidget {
+  const OrganizePage({
+    super.key,
+    this.authToken = AppApiConfig.authToken,
+    this.tenantId = AppApiConfig.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<OrganizePage> createState() => _OrganizePageState();
+}
+
+class _OrganizePageState extends State<OrganizePage> {
+  static const _dateCellWidth = 38.0;
+  static const _dateGap = 4.0;
+  static const _dateWindowDays = 21;
+
+  late _RuileApiClient _apiClient;
+  late final ScrollController _dateScrollController;
+  late DateTime _windowStart;
+  DateTime _selectedDate = _organizeDateOnly(DateTime.now());
+  List<_OrganizeConfig> _configs = const [];
+  List<_OrganizeJob> _jobs = const [];
+  _OrganizeReportFilter _filter = _OrganizeReportFilter.all;
+  bool _showInactive = false;
+  bool _loading = true;
+  bool _refreshing = false;
+  String? _error;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _buildApiClient();
+    _windowStart = _organizeMonday(_selectedDate).subtract(
+      const Duration(days: 7),
+    );
+    _dateScrollController = ScrollController();
+    _dateScrollController.addListener(_handleDateScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_dateScrollController.hasClients) return;
+      _dateScrollController.jumpTo(
+        7 * (_dateCellWidth + _dateGap) - 16,
+      );
+    });
+    unawaited(_loadData());
+  }
+
+  @override
+  void didUpdateWidget(covariant OrganizePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _buildApiClient();
+      unawaited(_loadData());
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _dateScrollController
+      ..removeListener(_handleDateScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  _RuileApiClient _buildApiClient() {
+    return _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+  }
+
+  List<DateTime> get _dateWindow {
+    return List<DateTime>.generate(
+      _dateWindowDays,
+      (index) => _windowStart.add(Duration(days: index)),
+    );
+  }
+
+  List<_OrganizeJob> get _selectedJobs {
+    final jobs = _jobs
+        .where((job) => _sameOrganizeDate(job.reportDateTime, _selectedDate))
+        .toList()
+      ..sort((left, right) {
+        return right.reportDateTime.compareTo(left.reportDateTime);
+      });
+    return jobs;
+  }
+
+  List<_OrganizeJob> get _filteredJobs {
+    switch (_filter) {
+      case _OrganizeReportFilter.completed:
+        return _selectedJobs.where(_isOrganizeCompleted).toList();
+      case _OrganizeReportFilter.running:
+        return _selectedJobs.where(_isOrganizeRunning).toList();
+      case _OrganizeReportFilter.failed:
+        return _selectedJobs.where(_isOrganizeFailed).toList();
+      case _OrganizeReportFilter.all:
+        return _selectedJobs;
+    }
+  }
+
+  List<_OrganizeDayConfig> get _dayConfigs {
+    final rows = <_OrganizeDayConfig>[
+      for (final config in _configs)
+        _OrganizeDayConfig(
+          config: config,
+          jobs:
+              _selectedJobs.where((job) => job.configId == config.id).toList(),
+          auto: _organizeScheduleRunsOn(config, _selectedDate),
+          due: _organizeScheduleRunsOn(config, _selectedDate) ||
+              (config.schedule.trim().toLowerCase() == 'manual' &&
+                  _selectedJobs.any((job) => job.configId == config.id)),
+        ),
+    ];
+    rows.sort((left, right) {
+      if (left.due != right.due) return left.due ? -1 : 1;
+      if (!left.due && !right.due) {
+        final leftDisabled = left.config.status != 'active';
+        final rightDisabled = right.config.status != 'active';
+        if (leftDisabled != rightDisabled) return leftDisabled ? 1 : -1;
+      }
+      final leftScore = left.running * 4 + left.failed * 2;
+      final rightScore = right.running * 4 + right.failed * 2;
+      if (leftScore != rightScore) return rightScore - leftScore;
+      if (left.jobs.length != right.jobs.length) {
+        return right.jobs.length - left.jobs.length;
+      }
+      return left.config.name.compareTo(right.config.name);
+    });
+    return rows;
+  }
+
+  List<_OrganizeDayConfig> get _dueConfigs =>
+      _dayConfigs.where((row) => row.due).toList();
+
+  List<_OrganizeDayConfig> get _inactiveConfigs =>
+      _dayConfigs.where((row) => !row.due).toList();
+
+  String get _filterLabel {
+    switch (_filter) {
+      case _OrganizeReportFilter.completed:
+        return '已完成';
+      case _OrganizeReportFilter.running:
+        return '进行中';
+      case _OrganizeReportFilter.failed:
+        return '失败';
+      case _OrganizeReportFilter.all:
+        return '筛选';
+    }
+  }
+
+  void _handleDateScroll() {
+    if (!_dateScrollController.hasClients) return;
+    // Keep one adjacent week visible so cross-week navigation never needs
+    // another date picker.
+    if (_dateScrollController.position.extentBefore < 8 &&
+        _windowStart.isAfter(DateTime(2025, 1, 1))) {
+      final current = _dateScrollController.offset;
+      setState(() {
+        _windowStart = _windowStart.subtract(const Duration(days: 7));
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_dateScrollController.hasClients) {
+          _dateScrollController
+              .jumpTo(current + 7 * (_dateCellWidth + _dateGap));
+        }
+      });
+    } else if (_dateScrollController.position.extentAfter < 8) {
+      final current = _dateScrollController.offset;
+      setState(() {
+        _windowStart = _windowStart.add(const Duration(days: 7));
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_dateScrollController.hasClients) {
+          _dateScrollController.jumpTo(
+            (current - 7 * (_dateCellWidth + _dateGap)).clamp(
+              0.0,
+              _dateScrollController.position.maxScrollExtent,
+            ),
+          );
+        }
+      });
+    }
+  }
+
+  Future<void> _loadData({bool silent = false}) async {
+    if (!_apiClient.isConfigured && !_organizeUseMockData) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _error = '登录后可查看整理日报';
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        if (silent) {
+          _refreshing = true;
+        } else {
+          _loading = true;
+          _error = null;
+        }
+      });
+    }
+    try {
+      final result = await Future.wait<dynamic>([
+        _apiClient.fetchOrganizeConfigs(pageSize: 100),
+        _apiClient.fetchOrganizeJobs(pageSize: 100),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _configs = result[0] as List<_OrganizeConfig>;
+        _jobs = result[1] as List<_OrganizeJob>;
+        _loading = false;
+        _refreshing = false;
+        _error = null;
+      });
+      _scheduleRefreshIfNeeded();
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _error = error.message;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _refreshing = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  void _scheduleRefreshIfNeeded() {
+    _refreshTimer?.cancel();
+    if (!_jobs.any(_isOrganizeRunning)) {
+      _refreshTimer = null;
+      return;
+    }
+    _refreshTimer = Timer(
+      const Duration(seconds: 15),
+      () {
+        if (!mounted) return;
+        unawaited(_loadData(silent: true));
+      },
+    );
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1400),
+      ),
+    );
+  }
+
+  void _openConfig(_OrganizeDayConfig row) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _OrganizeConfigReportsPage(
+          initialConfig: row.config,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+  }
+
+  void _openJob(_OrganizeJob job, _OrganizeConfig? config) {
+    if (job.outputId.trim().isNotEmpty && job.isFinished) {
+      unawaited(_openOutput(job.outputId));
+      return;
+    }
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _OrganizeJobDetailPage(
+          initialJob: job,
+          config: config,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openOutput(String outputId) async {
+    try {
+      final output = await _apiClient.fetchOrganizeOutput(outputId);
+      if (!mounted || output == null) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (context) => _OrganizeOutputDetailPage(
+            initialOutput: output,
+            authToken: widget.authToken,
+            tenantId: widget.tenantId,
+            onAuthFailure: widget.onAuthFailure,
+          ),
+        ),
+      );
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      _showMessage('整理结果加载失败：${error.message}');
+    } catch (error) {
+      _showMessage('整理结果加载失败：$error');
+    }
+  }
+
+  Future<void> _showFilterSheet() async {
+    final selected = await showModalBottomSheet<_OrganizeReportFilter>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text(
+                  '整理报告筛选',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              for (final option in const [
+                (_OrganizeReportFilter.all, '全部报告'),
+                (_OrganizeReportFilter.completed, '已完成'),
+                (_OrganizeReportFilter.running, '进行中'),
+                (_OrganizeReportFilter.failed, '失败 / 已取消'),
+              ])
+                ListTile(
+                  leading: Icon(
+                    option.$1 == _filter
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    color: option.$1 == _filter
+                        ? AppColors.accent
+                        : AppColors.textTertiary,
+                  ),
+                  title: Text(option.$2),
+                  onTap: () => Navigator.pop(context, option.$1),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (!mounted || selected == null) return;
+    setState(() {
+      _filter = selected;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final jobs = _selectedJobs;
+    final dueRows = _dueConfigs;
+    final inactiveRows = _inactiveConfigs;
+    final reportJobs = _filteredJobs;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(18, 12, 18, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('整理', style: AppTextStyles.pageTitle),
+              ),
+            ),
+            _OrganizeDateStrip(
+              controller: _dateScrollController,
+              dates: _dateWindow,
+              selectedDate: _selectedDate,
+              jobs: _jobs,
+              onSelected: (date) {
+                setState(() {
+                  _selectedDate = date;
+                  _filter = _OrganizeReportFilter.all;
+                  _showInactive = false;
+                });
+              },
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? _OrganizeEmptyState(
+                          icon: Icons.error_outline,
+                          title: '整理日报加载失败',
+                          message: _error!,
+                          actionLabel: '重试',
+                          onAction: () => unawaited(_loadData()),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: () => _loadData(silent: true),
+                          child: ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(18, 14, 18, 118),
+                            children: [
+                              _OrganizeSectionHeader(
+                                title: '今日整理',
+                                trailing: dueRows.isEmpty
+                                    ? null
+                                    : '${dueRows.length} 个配置 · ${jobs.length} 项',
+                              ),
+                              const SizedBox(height: 10),
+                              _OrganizeConfigCard(
+                                dueRows: dueRows,
+                                inactiveRows: inactiveRows,
+                                expanded: _showInactive,
+                                onToggleInactive: () {
+                                  setState(() {
+                                    _showInactive = !_showInactive;
+                                  });
+                                },
+                                onOpenConfig: _openConfig,
+                              ),
+                              const SizedBox(height: 22),
+                              _OrganizeSectionHeader(
+                                title: '整理报告',
+                                trailing: '${reportJobs.length} 项',
+                                actionLabel: _filterLabel,
+                                onAction: _showFilterSheet,
+                              ),
+                              const SizedBox(height: 10),
+                              _OrganizeReportCard(
+                                jobs: reportJobs,
+                                configs: _configs,
+                                onOpenJob: _openJob,
+                                onRetry: (job) async {
+                                  try {
+                                    await _apiClient.retryOrganizeJob(job.id);
+                                    _showMessage('已重新创建整理任务');
+                                    await _loadData(silent: true);
+                                  } catch (error) {
+                                    _showMessage('任务重试失败：$error');
+                                  }
+                                },
+                              ),
+                              if (_refreshing)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 12),
+                                  child: LinearProgressIndicator(minHeight: 2),
+                                ),
+                            ],
+                          ),
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeDateStrip extends StatelessWidget {
+  const _OrganizeDateStrip({
+    required this.controller,
+    required this.dates,
+    required this.selectedDate,
+    required this.jobs,
+    required this.onSelected,
+  });
+
+  final ScrollController controller;
+  final List<DateTime> dates;
+  final DateTime selectedDate;
+  final List<_OrganizeJob> jobs;
+  final ValueChanged<DateTime> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 94,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: ListView.separated(
+        controller: controller,
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+        itemCount: dates.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 4),
+        itemBuilder: (context, index) {
+          final date = dates[index];
+          final selected = _sameOrganizeDate(date, selectedDate);
+          final today = _sameOrganizeDate(date, DateTime.now());
+          final hasJobs = jobs.any(
+            (job) => _sameOrganizeDate(job.reportDateTime, date),
+          );
+          final showMonth = date.weekday == DateTime.monday || date.day == 1;
+          return SizedBox(
+            width: 38,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => onSelected(date),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    showMonth
+                        ? '${date.month}/${date.day}'
+                        : ['一', '二', '三', '四', '五', '六', '日'][date.weekday - 1],
+                    style: TextStyle(
+                      fontSize: showMonth ? 11.5 : 11.5,
+                      color:
+                          selected ? AppColors.accent : AppColors.textTertiary,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    width: 30,
+                    height: 30,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: selected ? AppColors.accent : Colors.transparent,
+                      borderRadius: BorderRadius.circular(11),
+                      border: today && !selected
+                          ? Border.all(color: AppColors.accent, width: 1.5)
+                          : null,
+                    ),
+                    child: Text(
+                      '${date.day}',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: selected
+                            ? Colors.white
+                            : today
+                                ? AppColors.accent
+                                : AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: hasJobs ? AppColors.accent : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _OrganizeSectionHeader extends StatelessWidget {
+  const _OrganizeSectionHeader({
+    required this.title,
+    this.trailing,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String title;
+  final String? trailing;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(title, style: AppTextStyles.sectionTitle),
+        if (trailing != null) ...[
+          const SizedBox(width: 7),
+          Text(trailing!, style: AppTextStyles.meta.copyWith(fontSize: 12)),
+        ],
+        const Spacer(),
+        if (actionLabel != null && onAction != null)
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: onAction,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    actionLabel!,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppColors.accent,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 16,
+                    color: AppColors.accent,
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _OrganizeConfigCard extends StatelessWidget {
+  const _OrganizeConfigCard({
+    required this.dueRows,
+    required this.inactiveRows,
+    required this.expanded,
+    required this.onToggleInactive,
+    required this.onOpenConfig,
+  });
+
+  final List<_OrganizeDayConfig> dueRows;
+  final List<_OrganizeDayConfig> inactiveRows;
+  final bool expanded;
+  final VoidCallback onToggleInactive;
+  final ValueChanged<_OrganizeDayConfig> onOpenConfig;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Column(
+          children: [
+            if (dueRows.isEmpty)
+              const Padding(
+                padding: EdgeInsets.fromLTRB(0, 16, 0, 12),
+                child: Text(
+                  '这一天没有要执行的整理',
+                  style: AppTextStyles.meta,
+                ),
+              ),
+            for (final row in dueRows)
+              _OrganizeConfigRow(
+                row: row,
+                onTap: () => onOpenConfig(row),
+              ),
+            if (inactiveRows.isNotEmpty) ...[
+              if (dueRows.isNotEmpty)
+                const Divider(height: 1, color: AppColors.border),
+              InkWell(
+                onTap: onToggleInactive,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        expanded
+                            ? '收起不自动执行的配置'
+                            : '今日不自动执行 ${inactiveRows.length} 个配置',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppColors.accent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Icon(
+                        expanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        size: 17,
+                        color: AppColors.accent,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (expanded)
+                for (final row in inactiveRows)
+                  _OrganizeInactiveConfigRow(row: row),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeConfigRow extends StatelessWidget {
+  const _OrganizeConfigRow({
+    required this.row,
+    required this.onTap,
+  });
+
+  final _OrganizeDayConfig row;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasRunning = row.running > 0;
+    final hasFailed = row.failed > 0;
+    final iconColor = hasRunning
+        ? const Color(0xFFB4740E)
+        : hasFailed && row.done == 0
+            ? const Color(0xFFE5484D)
+            : AppColors.accent;
+    final rightColor = row.jobs.isEmpty
+        ? AppColors.textTertiary
+        : hasRunning
+            ? const Color(0xFFF5A524)
+            : hasFailed && row.done == 0
+                ? const Color(0xFFE5484D)
+                : AppColors.accent;
+
+    return InkWell(
+      key: Key('organize-config-${row.config.id}'),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: rightColor.withValues(alpha: 0.11),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Icon(Icons.tune_rounded, size: 16, color: iconColor),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          row.config.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _OrganizeScheduleTag(
+                        label: _organizeScheduleLabel(row.config.schedule),
+                        active: row.config.schedule != 'manual',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    row.triggerLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.meta.copyWith(fontSize: 11.5),
+                  ),
+                  if (row.jobs.isNotEmpty) ...[
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        _OrganizeCountDot(
+                          label: '已完成 ${row.done}',
+                          color: AppColors.accent,
+                        ),
+                        const SizedBox(width: 9),
+                        _OrganizeCountDot(
+                          label: '进行中 ${row.running}',
+                          color: const Color(0xFFF5A524),
+                        ),
+                        const SizedBox(width: 9),
+                        _OrganizeCountDot(
+                          label: '失败 ${row.failed}',
+                          color: const Color(0xFFE5484D),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  row.jobs.isEmpty ? '—' : '${row.done}/${row.jobs.length}',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: rightColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  row.resultLabel,
+                  style: AppTextStyles.meta.copyWith(fontSize: 11),
+                ),
+                const SizedBox(height: 1),
+                const Icon(
+                  Icons.chevron_right,
+                  size: 17,
+                  color: Color(0xFFC6CBD4),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeInactiveConfigRow extends StatelessWidget {
+  const _OrganizeInactiveConfigRow({required this.row});
+
+  final _OrganizeDayConfig row;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F4F7),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: const Icon(
+              Icons.remove_circle_outline,
+              size: 16,
+              color: AppColors.textTertiary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        row.config.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textTertiary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _OrganizeScheduleTag(
+                      label: _organizeScheduleLabel(row.config.schedule),
+                      active: false,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _organizeInactiveReason(row.config),
+                  style: AppTextStyles.meta.copyWith(fontSize: 11.5),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrganizeScheduleTag extends StatelessWidget {
+  const _OrganizeScheduleTag({
+    required this.label,
+    required this.active,
+  });
+
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: active ? const Color(0xFFE7F7F3) : const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10.5,
+          height: 1,
+          color: active ? const Color(0xFF1A9C84) : AppColors.textTertiary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeCountDot extends StatelessWidget {
+  const _OrganizeCountDot({
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11.5,
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OrganizeReportCard extends StatelessWidget {
+  const _OrganizeReportCard({
+    required this.jobs,
+    required this.configs,
+    required this.onOpenJob,
+    required this.onRetry,
+  });
+
+  final List<_OrganizeJob> jobs;
+  final List<_OrganizeConfig> configs;
+  final void Function(_OrganizeJob job, _OrganizeConfig? config) onOpenJob;
+  final Future<void> Function(_OrganizeJob job) onRetry;
+
+  _OrganizeConfig? _configFor(_OrganizeJob job) {
+    for (final config in configs) {
+      if (config.id == job.configId) return config;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (jobs.isEmpty) {
+      return const _OrganizeEmptyState(
+        icon: Icons.layers_clear_outlined,
+        title: '这一天还没有产生整理任务',
+        message: '到点自动执行，或手动发起后就会出现在这里',
+      );
+    }
+
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        child: Column(
+          children: [
+            for (var index = 0; index < jobs.length; index++) ...[
+              _OrganizeReportRow(
+                job: jobs[index],
+                config: _configFor(jobs[index]),
+                onTap: () => onOpenJob(jobs[index], _configFor(jobs[index])),
+                onRetry: () => unawaited(onRetry(jobs[index])),
+              ),
+              if (index != jobs.length - 1)
+                const Divider(height: 1, color: AppColors.border),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeReportRow extends StatelessWidget {
+  const _OrganizeReportRow({
+    required this.job,
+    required this.config,
+    required this.onTap,
+    required this.onRetry,
+  });
+
+  final _OrganizeJob job;
+  final _OrganizeConfig? config;
+  final VoidCallback onTap;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final failed = _isOrganizeFailed(job);
+    final iconColor = job.statusColor;
+    final title = job.displayTitle.trim().isEmpty
+        ? (config?.name ?? '整理任务')
+        : job.displayTitle;
+    final summary = job.isActive
+        ? 'AI 正在整理你的记忆…${job.sourceMemoryCount > 0 ? '（${job.sourceMemoryCount} 条）' : ''}'
+        : failed
+            ? '${job.status.trim().toLowerCase() == 'canceled' ? '整理取消' : '整理失败'}：${job.errorMessage.trim().isEmpty ? job.displaySummary : job.errorMessage}'
+            : job.displaySummary;
+
+    return InkWell(
+      onTap: failed ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: job.statusBackground,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                failed
+                    ? Icons.error_outline
+                    : job.isActive
+                        ? Icons.schedule
+                        : Icons.description_outlined,
+                size: 18,
+                color: iconColor,
+              ),
+            ),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    summary,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.45,
+                      color: failed
+                          ? const Color(0xFFE5484D)
+                          : AppColors.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (job.isActive) ...[
+                    const SizedBox(height: 9),
+                    _OrganizeStageBar(job: job),
+                  ],
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      _OrganizeStatusTag(job: job),
+                      if (config != null)
+                        Text(
+                          config!.name,
+                          style: AppTextStyles.meta.copyWith(fontSize: 11.5),
+                        ),
+                      Text(
+                        _organizeTimeLabel(job.reportDateTime),
+                        style: AppTextStyles.meta.copyWith(fontSize: 11.5),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (failed)
+              TextButton(
+                onPressed: onRetry,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.textSecondary,
+                  minimumSize: const Size(0, 30),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: const Text('重试'),
+              )
+            else
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Icon(
+                  Icons.chevron_right,
+                  size: 17,
+                  color: Color(0xFFC6CBD4),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeStatusTag extends StatelessWidget {
+  const _OrganizeStatusTag({required this.job});
+
+  final _OrganizeJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: job.statusBackground,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        _organizeJobStatusLabel(job),
+        style: TextStyle(
+          fontSize: 10.5,
+          height: 1,
+          color: job.statusColor,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeStageBar extends StatelessWidget {
+  const _OrganizeStageBar({required this.job});
+
+  final _OrganizeJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = _organizeStageNumber(job);
+    return Row(
+      children: [
+        for (var index = 1; index <= 6; index++)
+          Expanded(
+            child: Container(
+              height: 4,
+              margin: const EdgeInsets.only(right: 3),
+              decoration: BoxDecoration(
+                color: index < current
+                    ? AppColors.accent
+                    : index == current
+                        ? const Color(0xFFF5A524)
+                        : const Color(0xFFEEF1F5),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _OrganizeEmptyState extends StatelessWidget {
+  const _OrganizeEmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 30, color: AppColors.textTertiary),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: AppTextStyles.body.copyWith(
+                color: AppColors.textTertiary,
+              ),
+            ),
+            if (actionLabel != null && onAction != null) ...[
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: onAction,
+                child: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeConfigReportsPage extends StatefulWidget {
+  const _OrganizeConfigReportsPage({
+    required this.initialConfig,
+    required this.authToken,
+    required this.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final _OrganizeConfig initialConfig;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<_OrganizeConfigReportsPage> createState() =>
+      _OrganizeConfigReportsPageState();
+}
+
+class _OrganizeConfigReportsPageState
+    extends State<_OrganizeConfigReportsPage> {
+  late _RuileApiClient _apiClient;
+  late _OrganizeConfig _config;
+  List<_OrganizeJob> _jobs = const [];
+  bool _loading = true;
+  bool _running = false;
+  String? _error;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _config = widget.initialConfig;
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent && mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final result = await Future.wait<dynamic>([
+        _apiClient.fetchOrganizeConfig(_config.id),
+        _apiClient.fetchOrganizeConfigJobs(_config.id, pageSize: 100),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _config = (result[0] as _OrganizeConfig?) ?? _config;
+        _jobs = result[1] as List<_OrganizeJob>;
+        _loading = false;
+        _error = null;
+      });
+      _scheduleRefresh();
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.message;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  void _scheduleRefresh() {
+    _refreshTimer?.cancel();
+    if (!_jobs.any(_isOrganizeRunning)) return;
+    _refreshTimer = Timer(
+      const Duration(seconds: 3),
+      () {
+        if (mounted) unawaited(_load(silent: true));
+      },
+    );
+  }
+
+  Future<void> _runNow() async {
+    if (_running) return;
+    setState(() {
+      _running = true;
+    });
+    try {
+      await _apiClient.runOrganizeConfig(_config.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('整理任务已创建'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      await _load(silent: true);
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('整理任务创建失败：${error.message}'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('整理任务创建失败：$error'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _running = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _retry(_OrganizeJob job) async {
+    try {
+      await _apiClient.retryOrganizeJob(job.id);
+      await _load(silent: true);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('任务重试失败：$error'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _openJob(_OrganizeJob job) {
+    if (job.outputId.trim().isNotEmpty && job.isFinished) {
+      unawaited(_openOutput(job.outputId));
+      return;
+    }
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _OrganizeJobDetailPage(
+          initialJob: job,
+          config: _config,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openOutput(String outputId) async {
+    try {
+      final output = await _apiClient.fetchOrganizeOutput(outputId);
+      if (!mounted || output == null) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (context) => _OrganizeOutputDetailPage(
+            initialOutput: output,
+            authToken: widget.authToken,
+            tenantId: widget.tenantId,
+            onAuthFailure: widget.onAuthFailure,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('整理结果加载失败：$error'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = <String, List<_OrganizeJob>>{};
+    for (final job in _jobs) {
+      groups
+          .putIfAbsent(_organizeDateKey(job.reportDateTime), () => [])
+          .add(job);
+    }
+    final groupEntries = groups.entries.toList()
+      ..sort((left, right) => right.key.compareTo(left.key));
+    final totalOutputs = _jobs.where((job) => job.isFinished).length;
+    final totalFailed = _jobs.where(_isOrganizeFailed).length;
+    final totalMemories = _jobs.fold<int>(
+      0,
+      (sum, job) => sum + job.memoryIds.length,
+    );
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _OrganizeSubpageBar(
+              title: '配置报告',
+              onBack: () => Navigator.maybePop(context),
+              action: IconButton(
+                tooltip: '立即整理',
+                onPressed: _running ? null : _runNow,
+                icon: _running
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.play_circle_outline),
+              ),
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? _OrganizeEmptyState(
+                          icon: Icons.error_outline,
+                          title: '配置报告加载失败',
+                          message: _error!,
+                          actionLabel: '重试',
+                          onAction: () => unawaited(_load()),
+                        )
+                      : RefreshIndicator(
+                          onRefresh: () => _load(silent: true),
+                          child: ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+                            children: [
+                              _OrganizeConfigSummaryCard(
+                                config: _config,
+                                totalJobs: _jobs.length,
+                                totalOutputs: totalOutputs,
+                                totalFailed: totalFailed,
+                                totalMemories: totalMemories,
+                              ),
+                              const SizedBox(height: 22),
+                              _OrganizeSectionHeader(
+                                title: '时间线',
+                                trailing: groupEntries.isEmpty
+                                    ? '暂无'
+                                    : '${groupEntries.length} 天 · ${_jobs.length} 次',
+                              ),
+                              const SizedBox(height: 10),
+                              if (groupEntries.isEmpty)
+                                const _OrganizeEmptyState(
+                                  icon: Icons.schedule_outlined,
+                                  title: '这个配置还没有生成过报告',
+                                  message: '自动执行到点后就会出现在这里',
+                                )
+                              else
+                                _OrganizeTimelineCard(
+                                  groups: groupEntries,
+                                  onOpenJob: _openJob,
+                                  onRetry: _retry,
+                                ),
+                            ],
+                          ),
+                        ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeSubpageBar extends StatelessWidget {
+  const _OrganizeSubpageBar({
+    required this.title,
+    required this.onBack,
+    this.action,
+  });
+
+  final String title;
+  final VoidCallback onBack;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: '返回',
+            onPressed: onBack,
+            icon: const Icon(Icons.chevron_left, size: 26),
+          ),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          if (action != null) action!,
+        ],
+      ),
+    );
+  }
+}
+
+class _OrganizeConfigSummaryCard extends StatelessWidget {
+  const _OrganizeConfigSummaryCard({
+    required this.config,
+    required this.totalJobs,
+    required this.totalOutputs,
+    required this.totalFailed,
+    required this.totalMemories,
+  });
+
+  final _OrganizeConfig config;
+  final int totalJobs;
+  final int totalOutputs;
+  final int totalFailed;
+  final int totalMemories;
+
+  @override
+  Widget build(BuildContext context) {
+    final template = [
+      if (config.templateName.trim().isNotEmpty) config.templateName,
+      if (config.templateVersion.trim().isNotEmpty) config.templateVersion,
+    ].join(' · ');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 15, 14, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE7F7F3),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.tune_rounded,
+                  size: 20,
+                  color: AppColors.accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            config.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: AppColors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        _OrganizeScheduleTag(
+                          label: _organizeScheduleLabel(config.schedule),
+                          active: config.status == 'active',
+                        ),
+                      ],
+                    ),
+                    if (template.isNotEmpty ||
+                        config.targetServiceId.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 5),
+                        child: Text(
+                          [
+                            if (template.isNotEmpty) template,
+                            if (config.targetServiceId.isNotEmpty)
+                              '归属服务 ${config.targetServiceId}',
+                          ].join(' · '),
+                          style: AppTextStyles.meta.copyWith(height: 1.45),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 13),
+            child: Divider(height: 1, color: AppColors.border),
+          ),
+          Row(
+            children: [
+              _OrganizeStatCell(value: totalJobs, label: '次整理'),
+              _OrganizeStatCell(value: totalOutputs, label: '份产物'),
+              _OrganizeStatCell(value: totalFailed, label: '次失败'),
+              _OrganizeStatCell(value: totalMemories, label: '条记忆'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrganizeStatCell extends StatelessWidget {
+  const _OrganizeStatCell({
+    required this.value,
+    required this.label,
+  });
+
+  final int value;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 12),
+        child: Column(
+          children: [
+            Text(
+              '$value',
+              style: const TextStyle(
+                fontSize: 15.5,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(label, style: AppTextStyles.meta.copyWith(fontSize: 10.5)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeTimelineCard extends StatelessWidget {
+  const _OrganizeTimelineCard({
+    required this.groups,
+    required this.onOpenJob,
+    required this.onRetry,
+  });
+
+  final List<MapEntry<String, List<_OrganizeJob>>> groups;
+  final ValueChanged<_OrganizeJob> onOpenJob;
+  final Future<void> Function(_OrganizeJob job) onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+      ),
+      child: Column(
+        children: [
+          for (var groupIndex = 0;
+              groupIndex < groups.length;
+              groupIndex++) ...[
+            _OrganizeTimelineHeader(
+              date: DateTime.parse(groups[groupIndex].key),
+              count: groups[groupIndex].value.length,
+            ),
+            for (final job in groups[groupIndex].value
+              ..sort(
+                (left, right) =>
+                    right.reportDateTime.compareTo(left.reportDateTime),
+              ))
+              _OrganizeTimelineRow(
+                job: job,
+                onTap: () => onOpenJob(job),
+                onRetry: () => unawaited(onRetry(job)),
+              ),
+            if (groupIndex != groups.length - 1) const SizedBox(height: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OrganizeTimelineHeader extends StatelessWidget {
+  const _OrganizeTimelineHeader({
+    required this.date,
+    required this.count,
+  });
+
+  final DateTime date;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final isToday = _sameOrganizeDate(date, DateTime.now());
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 4),
+      child: Row(
+        children: [
+          Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: AppColors.accent,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.accent.withValues(alpha: 0.16),
+                  spreadRadius: 3,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 9),
+          Text(
+            _organizeDateLabel(date),
+            style: const TextStyle(
+              fontSize: 13.5,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (isToday) ...[
+            const SizedBox(width: 6),
+            const _OrganizeScheduleTag(label: '今天', active: true),
+          ],
+          const Spacer(),
+          Text(
+            '$count 次',
+            style: AppTextStyles.meta.copyWith(fontSize: 11.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrganizeTimelineRow extends StatelessWidget {
+  const _OrganizeTimelineRow({
+    required this.job,
+    required this.onTap,
+    required this.onRetry,
+  });
+
+  final _OrganizeJob job;
+  final VoidCallback onTap;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = job.displayTitle.trim().isEmpty ? '本次整理' : job.displayTitle;
+    final subtitle = job.isActive
+        ? 'AI 正在整理你的记忆…'
+        : _isOrganizeFailed(job)
+            ? '${job.statusLabel}：${job.errorMessage.trim().isEmpty ? job.displaySummary : job.errorMessage}'
+            : job.displaySummary;
+    return InkWell(
+      onTap: _isOrganizeFailed(job) ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(left: 14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 38,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  _organizeTimeLabel(job.reportDateTime),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textTertiary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            Container(
+              width: 2,
+              height: 68,
+              margin: const EdgeInsets.only(right: 12),
+              color: AppColors.border,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _OrganizeStatusTag(job: job),
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        height: 1.45,
+                        color: _isOrganizeFailed(job)
+                            ? const Color(0xFFE5484D)
+                            : AppColors.textTertiary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_isOrganizeFailed(job))
+              TextButton(
+                onPressed: onRetry,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.accent,
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  minimumSize: const Size(32, 40),
+                ),
+                child: const Text('重试'),
+              )
+            else
+              const Padding(
+                padding: EdgeInsets.only(top: 12, left: 5),
+                child: Icon(
+                  Icons.chevron_right,
+                  size: 16,
+                  color: Color(0xFFC6CBD4),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeOutputDetailPage extends StatefulWidget {
+  const _OrganizeOutputDetailPage({
+    required this.initialOutput,
+    required this.authToken,
+    required this.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final _OrganizeOutput initialOutput;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<_OrganizeOutputDetailPage> createState() =>
+      _OrganizeOutputDetailPageState();
+}
+
+class _OrganizeOutputDetailPageState extends State<_OrganizeOutputDetailPage> {
+  late _OrganizeOutput _output;
+  late _RuileApiClient _apiClient;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _output = widget.initialOutput;
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    unawaited(_loadLatest());
+  }
+
+  Future<void> _loadLatest() async {
+    if (_output.id.trim().isEmpty ||
+        (!_apiClient.isConfigured && !_organizeUseMockData)) {
+      return;
+    }
+    setState(() {
+      _loading = true;
+    });
+    try {
+      final latest = await _apiClient.fetchOrganizeOutput(_output.id);
+      if (!mounted || latest == null) return;
+      setState(() {
+        _output = latest;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) widget.onAuthFailure();
+    } catch (_) {
+      // Keep the already loaded result visible when a background refresh fails.
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  List<MapEntry<String, String>> get _fields {
+    return _output.fields.entries
+        .map((entry) => MapEntry(entry.key, _organizeValueLabel(entry.value)))
+        .where((entry) => entry.key.trim().isNotEmpty && entry.value.isNotEmpty)
+        .toList();
+  }
+
+  List<Map<String, String>> get _citations {
+    final raw = _output.citations['memory_refs'];
+    if (raw is! List) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map)
+          {
+            'label': _readString(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+              const ['label', 'id'],
+            ),
+            'title': _readString(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+              const ['title', 'name'],
+              fallback: '关联记忆',
+            ),
+            'source': _readString(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+              const ['source'],
+            ),
+          },
+    ];
+  }
+
+  void _showActionSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  _output.displayTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              for (final item in const [
+                '重新整理',
+                '导出为 Word',
+                '追加到知识库',
+                '删除产物',
+              ])
+                ListTile(
+                  title: Text(
+                    item,
+                    style: TextStyle(
+                      color: item == '删除产物'
+                          ? const Color(0xFFE5484D)
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: Text('“$item”功能待接入'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final blocks = _output.content.trim().isEmpty
+        ? const <_SproutTextBlock>[]
+        : _sproutPreviewBlocks(_output.content);
+    final templateLabel = [
+      if (_output.templateKey.trim().isNotEmpty) _output.templateKey,
+      if (_output.templateVersion.trim().isNotEmpty) _output.templateVersion,
+    ].join(' · ');
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _OrganizeSubpageBar(
+              title: '整理产物',
+              onBack: () => Navigator.maybePop(context),
+              action: IconButton(
+                tooltip: '更多',
+                onPressed: _showActionSheet,
+                icon: const Icon(Icons.more_vert),
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _loadLatest,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 16, 18, 30),
+                  children: [
+                    if (_loading) const LinearProgressIndicator(minHeight: 2),
+                    Text(
+                      _output.displayTitle,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        height: 1.35,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (templateLabel.isNotEmpty)
+                          _OrganizeScheduleTag(
+                            label: templateLabel,
+                            active: true,
+                          ),
+                        Text(
+                          '${_formatRecordDateTime(_output.updatedAt)} · 来源 ${_output.memoryCount > 0 ? _output.memoryCount : _output.memoryIds.length} 条记忆',
+                          style: AppTextStyles.meta.copyWith(fontSize: 12.5),
+                        ),
+                      ],
+                    ),
+                    if (_fields.isNotEmpty) ...[
+                      const SizedBox(height: 22),
+                      _OrganizeOutputSection(
+                        title: '字段摘要',
+                        child: Column(
+                          children: [
+                            for (final field in _fields)
+                              _OrganizeFieldRow(
+                                label: field.key,
+                                value: field.value,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    _OrganizeOutputSection(
+                      title: '正文',
+                      child: blocks.isEmpty
+                          ? Text(
+                              _output.summary,
+                              style: AppTextStyles.body.copyWith(
+                                color: AppColors.textPrimary,
+                              ),
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (final block in blocks)
+                                  _SproutPreviewBlock(block: block),
+                              ],
+                            ),
+                    ),
+                    if (_citations.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      _OrganizeOutputSection(
+                        title: '引用来源',
+                        child: Column(
+                          children: [
+                            for (final citation in _citations)
+                              ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: Container(
+                                  width: 26,
+                                  height: 26,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE7F7F3),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    citation['label'] ?? 'M',
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: AppColors.accent,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                title: Text(citation['title'] ?? '关联记忆'),
+                                subtitle: (citation['source'] ?? '').isEmpty
+                                    ? null
+                                    : Text(citation['source']!),
+                                trailing: const Icon(
+                                  Icons.chevron_right,
+                                  size: 17,
+                                  color: AppColors.textTertiary,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 22),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('编辑产物正文功能待接入'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            ),
+                            icon: const Icon(Icons.edit_outlined, size: 18),
+                            label: const Text('编辑'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton.icon(
+                            onPressed: () =>
+                                ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('分享功能待接入'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            ),
+                            icon: const Icon(Icons.share_outlined, size: 18),
+                            label: const Text('分享'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeOutputSection extends StatelessWidget {
+  const _OrganizeOutputSection({
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 14,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 9),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadii.card),
+          ),
+          child: child,
+        ),
+      ],
+    );
+  }
+}
+
+class _OrganizeFieldRow extends StatelessWidget {
+  const _OrganizeFieldRow({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 78,
+            child: Text(
+              label,
+              style: AppTextStyles.meta.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTextStyles.body.copyWith(
+                height: 1.5,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrganizeJobDetailPage extends StatefulWidget {
+  const _OrganizeJobDetailPage({
+    required this.initialJob,
+    required this.config,
+    required this.authToken,
+    required this.tenantId,
+    required this.onAuthFailure,
+  });
+
+  final _OrganizeJob initialJob;
+  final _OrganizeConfig? config;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+
+  @override
+  State<_OrganizeJobDetailPage> createState() => _OrganizeJobDetailPageState();
+}
+
+class _OrganizeJobDetailPageState extends State<_OrganizeJobDetailPage> {
+  late _RuileApiClient _apiClient;
+  late _OrganizeJob _job;
+  Timer? _refreshTimer;
+  bool _working = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _job = widget.initialJob;
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _scheduleRefresh();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleRefresh() {
+    _refreshTimer?.cancel();
+    if (!_job.isActive) return;
+    _refreshTimer = Timer(
+      const Duration(seconds: 3),
+      () {
+        if (mounted) unawaited(_refreshJob());
+      },
+    );
+  }
+
+  Future<void> _refreshJob() async {
+    try {
+      final latest = await _apiClient.fetchOrganizeJob(_job.id);
+      if (!mounted || latest == null) return;
+      setState(() {
+        _job = latest;
+      });
+      _scheduleRefresh();
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) widget.onAuthFailure();
+    } catch (_) {
+      _scheduleRefresh();
+    }
+  }
+
+  Future<void> _retry() async {
+    if (_working) return;
+    setState(() {
+      _working = true;
+    });
+    try {
+      final next = await _apiClient.retryOrganizeJob(_job.id);
+      if (!mounted) return;
+      setState(() {
+        _job = next;
+      });
+      _scheduleRefresh();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('任务重试失败：$error'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _working = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _cancel() async {
+    if (_working || !_job.isActive) return;
+    setState(() {
+      _working = true;
+    });
+    try {
+      final next = await _apiClient.cancelOrganizeJob(_job.id);
+      if (!mounted) return;
+      setState(() {
+        _job = next;
+      });
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('任务取消失败：$error'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _working = false;
+        });
+      }
+    }
+  }
+
+  List<(String, String)> get _snapshotRows {
+    final rows = <(String, String)>[
+      (
+        '整理方案',
+        [
+          if (widget.config?.name.trim().isNotEmpty == true)
+            widget.config!.name,
+          if (_job.templateVersion.trim().isNotEmpty)
+            '(模板 ${_job.templateVersion})',
+        ].join(' '),
+      ),
+      if (_job.memoryIds.isNotEmpty) ('来源记忆', '${_job.memoryIds.length} 条'),
+    ];
+    for (final entry in _job.requirement.entries) {
+      if (entry.key == 'config_name' || entry.key == 'template_version') {
+        continue;
+      }
+      final value = _organizeValueLabel(entry.value);
+      if (value.isNotEmpty) rows.add((entry.key, value));
+    }
+    return rows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentStage = _organizeStageNumber(_job);
+    final title = widget.config?.name ?? _job.configName;
+    final stageLabel = _job.isActive
+        ? (_job.stage.trim().isEmpty ? '进行中' : _job.stage)
+        : _organizeJobStatusLabel(_job);
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _OrganizeSubpageBar(
+              title: '整理任务',
+              onBack: () => Navigator.maybePop(context),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refreshJob,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 28),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 15, 14, 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(AppRadii.card),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 34,
+                                height: 34,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF5E6),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(
+                                  Icons.schedule,
+                                  size: 18,
+                                  color: Color(0xFFB4740E),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: const TextStyle(
+                                        fontSize: 14.5,
+                                        color: AppColors.textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _job.isActive
+                                          ? 'AI 正在整理你的记忆…'
+                                          : _job.displaySummary,
+                                      style: AppTextStyles.meta.copyWith(
+                                        height: 1.45,
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _OrganizeStageBar(job: _job),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '$stageLabel · 第 $currentStage/6 阶段',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: _job.statusColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                '${_job.progress}%',
+                                style:
+                                    AppTextStyles.meta.copyWith(fontSize: 11.5),
+                              ),
+                            ],
+                          ),
+                          if (_job.isActive || _job.isRetryable) ...[
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                if (_job.isActive)
+                                  OutlinedButton(
+                                    onPressed: _working ? null : _cancel,
+                                    child: const Text('取消任务'),
+                                  ),
+                                if (_job.isRetryable) ...[
+                                  if (_job.isActive) const SizedBox(width: 8),
+                                  FilledButton.tonal(
+                                    onPressed: _working ? null : _retry,
+                                    child: const Text('重新执行'),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _OrganizeOutputSection(
+                      title: '要求快照（落定后不可变）',
+                      child: Column(
+                        children: [
+                          for (final row in _snapshotRows)
+                            _OrganizeFieldRow(label: row.$1, value: row.$2),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _OrganizeOutputSection(
+                      title: '本任务时间线',
+                      child: _OrganizeJobEventList(job: _job),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OrganizeJobEventList extends StatelessWidget {
+  const _OrganizeJobEventList({required this.job});
+
+  final _OrganizeJob job;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = _organizeStageNumber(job);
+    const labels = [
+      '已入队',
+      '落定要求',
+      '装配输入',
+      '渲染指令',
+      '调用模型',
+      '落库',
+    ];
+    final baseTime = job.startedAt ?? job.createdAt;
+    return Column(
+      children: [
+        for (var index = 0; index < labels.length; index++)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 7),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 26,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: index < current
+                        ? const Color(0xFFE7F7F3)
+                        : index == current
+                            ? const Color(0xFFFEF5E6)
+                            : const Color(0xFFF1F3F6),
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Text(
+                    index < current
+                        ? _organizeTimeLabel(baseTime)
+                        : index == current
+                            ? '…'
+                            : '—',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: index < current
+                          ? AppColors.accent
+                          : index == current
+                              ? const Color(0xFFB4740E)
+                              : AppColors.textTertiary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    labels[index],
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: index <= current
+                          ? AppColors.textPrimary
+                          : AppColors.textTertiary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Text(
+                  index < current
+                      ? '已完成'
+                      : index == current && job.isActive
+                          ? '进行中'
+                          : index == current
+                              ? _organizeJobStatusLabel(job)
+                              : '等待中',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: index == current && job.isActive
+                        ? const Color(0xFFB4740E)
+                        : AppColors.textTertiary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class _DailyReportPage extends StatelessWidget {
   _DailyReportPage({
     _DailyReport? report,
@@ -4402,7 +7582,7 @@ class _MainDock extends StatelessWidget {
     required this.onCaptureActionSelected,
   });
 
-  static const _dockWidth = 250.0;
+  static const _dockWidth = 326.0;
   static const _dockHeight = 62.0;
 
   static const _destinations = [
@@ -4410,6 +7590,11 @@ class _MainDock extends StatelessWidget {
       label: '记忆',
       icon: Icons.edit_note_outlined,
       selectedIcon: Icons.edit_note,
+    ),
+    _MainDockDestination(
+      label: '整理',
+      icon: Icons.inventory_2_outlined,
+      selectedIcon: Icons.inventory_2,
     ),
     _MainDockDestination(
       label: '发现',
@@ -4468,7 +7653,7 @@ class _MainDock extends StatelessWidget {
                     ),
                   ),
                   Positioned(
-                    left: 190,
+                    left: 258,
                     top: -3,
                     child: SizedBox(
                       width: 68,
@@ -4493,11 +7678,11 @@ class _MainDock extends StatelessWidget {
 class _MainDockBackgroundPainter extends CustomPainter {
   const _MainDockBackgroundPainter();
 
-  static const _leftWidth = 188.0;
+  static const _leftWidth = 258.0;
   static const _verticalInset = 5.0;
   static const _notchRadius = 17.0;
   static const _captureOuterRadius = 32.0;
-  static const _captureCenter = Offset(224, 31);
+  static const _captureCenter = Offset(292, 31);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -10266,6 +13451,7 @@ class _KnowledgeImageDetailPreview extends StatelessWidget {
 
 class _AudioDetailPreview extends StatefulWidget {
   const _AudioDetailPreview({
+    super.key,
     required this.fileName,
     required this.previewSourceUrl,
     required this.authToken,
@@ -15097,10 +18283,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
   late _RuileApiClient _apiClient;
   List<_OrganizeDiscoverTab> _tabs = _defaultTabs;
   List<_OrganizeOutput> _featuredOutputs = const [];
+  List<_OrganizeCourse> _featuredCourses = const [];
   List<_OrganizeOutput> _outputs = const [];
+  List<_OrganizeCourse> _courses = const [];
   String _selectedTab = 'recommended';
   String? _error;
+  String? _featuredCourseError;
+  String? _courseError;
   var _loading = false;
+  var _featuredCoursesLoading = false;
+  var _coursesLoading = false;
   var _refreshingFeatured = false;
   var _featuredOffset = 0;
   var _page = 1;
@@ -15119,6 +18311,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
     super.initState();
     _apiClient = _buildApiClient();
     unawaited(_loadDiscover());
+    unawaited(_loadFeaturedCourses());
+    unawaited(_loadCourses());
   }
 
   @override
@@ -15128,6 +18322,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
         oldWidget.tenantId != widget.tenantId) {
       _apiClient = _buildApiClient();
       unawaited(_loadDiscover());
+      unawaited(_loadFeaturedCourses());
+      unawaited(_loadCourses());
     }
   }
 
@@ -15213,7 +18409,93 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Future<void> _refresh() async {
-    await _loadDiscover(silent: true);
+    await Future.wait([
+      _loadDiscover(silent: true),
+      _loadFeaturedCourses(),
+      _loadCourses(),
+    ]);
+  }
+
+  Future<void> _loadCourses() async {
+    if (!_apiClient.isConfigured) return;
+    if (mounted) {
+      setState(() {
+        _coursesLoading = true;
+        _courseError = null;
+      });
+    }
+    try {
+      final courses = await _apiClient.fetchOrganizeCourses(
+        featured: false,
+        recommendable: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _courses = courses;
+        _courseError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _courseError = error.message;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _courseError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _coursesLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadFeaturedCourses() async {
+    if (!_apiClient.isConfigured) return;
+    if (mounted) {
+      setState(() {
+        _featuredCoursesLoading = true;
+        _featuredCourseError = null;
+      });
+    }
+    try {
+      final courses = await _apiClient.fetchOrganizeCourses(
+        pageSize: 4,
+        featured: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _featuredCourses = courses;
+        _featuredCourseError = null;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _featuredCourseError = error.message;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _featuredCourseError = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _featuredCoursesLoading = false;
+        });
+      }
+    }
   }
 
   void _selectTab(String value) {
@@ -15249,9 +18531,27 @@ class _DiscoverPageState extends State<DiscoverPage> {
     );
   }
 
+  Future<void> _openCourse(_OrganizeCourse course) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (context) => _OrganizeCourseDetailPage(
+          initialCourse: course,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final hasContent = _featuredOutputs.isNotEmpty || _outputs.isNotEmpty;
+    final hasContent = _featuredOutputs.isNotEmpty ||
+        _featuredCourses.isNotEmpty ||
+        _outputs.isNotEmpty ||
+        _courses.isNotEmpty ||
+        _featuredCoursesLoading ||
+        _coursesLoading;
 
     return SafeArea(
       child: ColoredBox(
@@ -15279,9 +18579,12 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       onRetry: () => unawaited(_loadDiscover()),
                     )
                   else ...[
-                    if (_featuredOutputs.isEmpty)
+                    if (_featuredOutputs.isEmpty &&
+                        _featuredCourses.isEmpty &&
+                        !_featuredCoursesLoading &&
+                        _featuredCourseError == null)
                       const _DiscoverEmpty(message: '暂无精选')
-                    else
+                    else ...[
                       for (final output in _featuredOutputs) ...[
                         _DiscoverOutputTile(
                           output: output,
@@ -15292,6 +18595,22 @@ class _DiscoverPageState extends State<DiscoverPage> {
                         ),
                         const SizedBox(height: 10),
                       ],
+                      if (_featuredCourses.isNotEmpty ||
+                          _featuredCoursesLoading ||
+                          _featuredCourseError != null) ...[
+                        const SizedBox(height: 4),
+                        _DiscoverCourseSection(
+                          title: '精选课程',
+                          courses: _featuredCourses,
+                          loading: _featuredCoursesLoading,
+                          error: _featuredCourseError,
+                          authToken: widget.authToken,
+                          tenantId: widget.tenantId,
+                          onRetry: () => unawaited(_loadFeaturedCourses()),
+                          onTap: (course) => unawaited(_openCourse(course)),
+                        ),
+                      ],
+                    ],
                     const SizedBox(height: 6),
                     _DiscoverTabsBar(
                       tabs: _tabs,
@@ -15299,6 +18618,22 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       onSelected: _selectTab,
                     ),
                     const SizedBox(height: 16),
+                    if (_selectedTab == 'recommended') ...[
+                      _DiscoverCourseSection(
+                        title: '系列课程',
+                        courses: _courses,
+                        loading: _coursesLoading,
+                        error: _courseError,
+                        authToken: widget.authToken,
+                        tenantId: widget.tenantId,
+                        onRetry: () => unawaited(_loadCourses()),
+                        onTap: (course) => unawaited(_openCourse(course)),
+                      ),
+                      if (_courses.isNotEmpty ||
+                          _coursesLoading ||
+                          _courseError != null)
+                        const SizedBox(height: 18),
+                    ],
                     _DiscoverFeedHeader(
                       label: _selectedTabLabel,
                       total: _total,
@@ -19138,6 +22473,17 @@ class _OrganizeOutput {
     required this.createdAt,
     required this.updatedAt,
     required this.coverUrl,
+    this.configId = '',
+    this.jobId = '',
+    this.templateKey = '',
+    this.templateVersion = '',
+    this.assignmentStatus = '',
+    this.assignmentReason = '',
+    this.fields = const {},
+    this.citations = const {},
+    this.featured = false,
+    this.recommendable = true,
+    this.sortOrder = 0,
   });
 
   factory _OrganizeOutput.fromApi(
@@ -19182,6 +22528,19 @@ class _OrganizeOutput {
         _readOutputCoverUrl(metadata),
         baseUrl: baseUrl,
       ),
+      configId: _readString(json, const ['config_id']),
+      jobId: _readString(json, const ['job_id']),
+      templateKey: _readString(json, const ['template_key']),
+      templateVersion: _readString(json, const ['template_version']),
+      assignmentStatus: _readString(json, const ['assignment_status']),
+      assignmentReason: _readString(json, const ['assignment_reason']),
+      fields: _readMap(json, const ['fields']),
+      citations: _readMap(json, const ['citations']),
+      featured: _readTruthy(json['featured']),
+      recommendable: json.containsKey('recommendable')
+          ? _readTruthy(json['recommendable'])
+          : true,
+      sortOrder: _readInt(json, const ['sort_order']) ?? 0,
     );
   }
 
@@ -19201,6 +22560,17 @@ class _OrganizeOutput {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String coverUrl;
+  final String configId;
+  final String jobId;
+  final String templateKey;
+  final String templateVersion;
+  final String assignmentStatus;
+  final String assignmentReason;
+  final Map<String, dynamic> fields;
+  final Map<String, dynamic> citations;
+  final bool featured;
+  final bool recommendable;
+  final int sortOrder;
 
   String get kind {
     final source = _normalizeSpaces(
@@ -19510,26 +22880,67 @@ class _OrganizeConfig {
   const _OrganizeConfig({
     required this.id,
     required this.name,
+    required this.templateKey,
+    required this.targetServiceId,
+    required this.instruction,
+    required this.schedule,
     required this.status,
+    required this.nextRunAt,
+    required this.lastRunAt,
+    required this.templateVersion,
+    required this.templateName,
+    required this.updatedAt,
+    required this.jobCount,
   });
 
   factory _OrganizeConfig.fromApi(Map<String, dynamic> json) {
+    final template = _readMap(json, const ['template']);
     return _OrganizeConfig(
       id: _readString(json, const ['id']),
       name: _readString(json, const ['name'], fallback: '整理配置'),
+      templateKey: _readString(json, const ['template_key']),
+      targetServiceId: _readString(json, const ['target_service_id']),
+      instruction: _readString(json, const ['instruction']),
+      schedule: _readString(json, const ['schedule'], fallback: 'manual'),
       status: _readString(json, const ['status'], fallback: 'active'),
+      nextRunAt: _readDateTime(json, const ['next_run_at']),
+      lastRunAt: _readDateTime(json, const ['last_run_at']),
+      templateVersion: _readString(
+        json,
+        const ['template_version', 'published_version'],
+        fallback: _readString(template, const ['published_version']),
+      ),
+      templateName: _readString(
+        json,
+        const ['template_name'],
+        fallback: _readString(template, const ['name']),
+      ),
+      updatedAt: _readDateTime(json, const ['updated_at']),
+      jobCount: _readInt(json, const ['job_count']) ?? 0,
     );
   }
 
   final String id;
   final String name;
+  final String templateKey;
+  final String targetServiceId;
+  final String instruction;
+  final String schedule;
   final String status;
+  final DateTime? nextRunAt;
+  final DateTime? lastRunAt;
+  final String templateVersion;
+  final String templateName;
+  final DateTime? updatedAt;
+  final int jobCount;
 }
 
 class _OrganizeJob {
   const _OrganizeJob({
     required this.id,
     required this.configId,
+    required this.templateKey,
+    required this.templateVersion,
     required this.status,
     required this.stage,
     required this.progress,
@@ -19538,6 +22949,10 @@ class _OrganizeJob {
     required this.summary,
     required this.errorMessage,
     required this.requirement,
+    required this.result,
+    required this.scheduledFor,
+    required this.startedAt,
+    required this.finishedAt,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -19550,6 +22965,8 @@ class _OrganizeJob {
     return _OrganizeJob(
       id: _readString(json, const ['id']),
       configId: _readString(json, const ['config_id']),
+      templateKey: _readString(json, const ['template_key']),
+      templateVersion: _readString(json, const ['template_version']),
       status: _readString(json, const ['status'], fallback: 'queued'),
       stage: _readString(json, const ['stage']),
       progress: _readInt(json, const ['progress']) ?? 0,
@@ -19558,6 +22975,10 @@ class _OrganizeJob {
       summary: _readString(json, const ['summary']),
       errorMessage: _readString(json, const ['error_message']),
       requirement: _readMap(json, const ['requirement']),
+      result: _readMap(json, const ['result']),
+      scheduledFor: _readDateTime(json, const ['scheduled_for']),
+      startedAt: _readDateTime(json, const ['started_at']),
+      finishedAt: _readDateTime(json, const ['finished_at']),
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
@@ -19565,6 +22986,8 @@ class _OrganizeJob {
 
   final String id;
   final String configId;
+  final String templateKey;
+  final String templateVersion;
   final String status;
   final String stage;
   final int progress;
@@ -19573,6 +22996,10 @@ class _OrganizeJob {
   final String summary;
   final String errorMessage;
   final Map<String, dynamic> requirement;
+  final Map<String, dynamic> result;
+  final DateTime? scheduledFor;
+  final DateTime? startedAt;
+  final DateTime? finishedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -19631,6 +23058,551 @@ class _OrganizeJob {
     final value = requirement['config_name'];
     final normalized = _normalizeSpaces(value?.toString() ?? '');
     return normalized.isEmpty ? '整理任务' : normalized;
+  }
+
+  DateTime get reportDateTime {
+    return (scheduledFor ?? startedAt ?? createdAt).toLocal();
+  }
+
+  String get displayTitle {
+    final title = _readString(
+      result,
+      const ['title', 'output_title', 'name'],
+    );
+    if (title.isNotEmpty) return title;
+    final requirementTitle = _readString(
+      requirement,
+      const ['title', 'config_name', 'template_name'],
+    );
+    return requirementTitle.isNotEmpty ? requirementTitle : configName;
+  }
+
+  int get sourceMemoryCount => memoryIds.length;
+
+  int get conclusionCount {
+    return _readInt(result, const ['conclusion_count', 'conclusions']) ?? 0;
+  }
+
+  int get todoCount {
+    return _readInt(result, const ['todo_count', 'todos']) ?? 0;
+  }
+
+  String get assignmentReason =>
+      _readString(result, const ['assignment_reason']);
+
+  bool get isRetryable {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'failed' || normalized == 'fallback';
+  }
+
+  Color get statusColor {
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'failed' || normalized == 'canceled') {
+      return const Color(0xFFE5484D);
+    }
+    if (isActive) return const Color(0xFFF5A524);
+    return AppColors.accent;
+  }
+
+  Color get statusBackground {
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'failed' || normalized == 'canceled') {
+      return const Color(0xFFFDECEC);
+    }
+    if (isActive) return const Color(0xFFFEF5E6);
+    return const Color(0xFFE7F7F3);
+  }
+}
+
+class _OrganizeMockStore {
+  static final DateTime _today = _organizeDateOnly(DateTime.now());
+
+  static final List<_OrganizeConfig> _configs = _buildConfigs();
+  static final List<_OrganizeJob> _jobs = _buildJobs();
+  static final Map<String, _OrganizeOutput> _outputs = _buildOutputs();
+
+  static Future<List<_OrganizeConfig>> fetchConfigs({
+    int page = 1,
+    int pageSize = 100,
+    String status = '',
+  }) async {
+    final normalizedStatus = status.trim().toLowerCase();
+    final filtered = _configs
+        .where(
+          (config) =>
+              normalizedStatus.isEmpty ||
+              config.status.trim().toLowerCase() == normalizedStatus,
+        )
+        .toList();
+    return _page(filtered, page: page, pageSize: pageSize);
+  }
+
+  static Future<_OrganizeConfig?> fetchConfig(String id) async {
+    for (final config in _configs) {
+      if (config.id == id) return config;
+    }
+    return null;
+  }
+
+  static Future<List<_OrganizeJob>> fetchJobs({
+    int page = 1,
+    int pageSize = 100,
+    String configId = '',
+    String status = '',
+  }) async {
+    final normalizedConfigId = configId.trim();
+    final normalizedStatus = status.trim().toLowerCase();
+    final filtered = _jobs
+        .where(
+          (job) =>
+              (normalizedConfigId.isEmpty ||
+                  job.configId == normalizedConfigId) &&
+              (normalizedStatus.isEmpty ||
+                  job.status.trim().toLowerCase() == normalizedStatus),
+        )
+        .toList()
+      ..sort((left, right) {
+        return right.reportDateTime.compareTo(left.reportDateTime);
+      });
+    return _page(filtered, page: page, pageSize: pageSize);
+  }
+
+  static Future<_OrganizeJob?> fetchJob(String id) async {
+    for (final job in _jobs) {
+      if (job.id == id) return job;
+    }
+    return null;
+  }
+
+  static Future<_OrganizeOutput?> fetchOutput(String id) async {
+    return _outputs[id];
+  }
+
+  static Future<_OrganizeJob> runConfig(String configId) async {
+    final config = _findConfig(configId);
+    if (config == null) {
+      throw const FormatException('整理配置不存在');
+    }
+    final now = DateTime.now();
+    final job = _OrganizeJob(
+      id: 'mock-job-${now.microsecondsSinceEpoch}',
+      configId: config.id,
+      templateKey: config.templateKey,
+      templateVersion: config.templateVersion,
+      status: 'running',
+      stage: '装配输入',
+      progress: 34,
+      memoryIds: const ['mock-memory-001', 'mock-memory-002'],
+      outputId: '',
+      summary: '已创建手动整理任务，正在准备输入记忆。',
+      errorMessage: '',
+      requirement: _requirementFor(config),
+      result: const {},
+      scheduledFor: null,
+      startedAt: now,
+      finishedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    );
+    _jobs.insert(0, job);
+    return job;
+  }
+
+  static Future<_OrganizeJob> retryJob(String jobId) async {
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index < 0) {
+      throw const FormatException('整理任务不存在');
+    }
+    final previous = _jobs[index];
+    final now = DateTime.now();
+    final next = _OrganizeJob(
+      id: previous.id,
+      configId: previous.configId,
+      templateKey: previous.templateKey,
+      templateVersion: previous.templateVersion,
+      status: 'running',
+      stage: '装配输入',
+      progress: 34,
+      memoryIds: previous.memoryIds.isEmpty
+          ? const ['mock-memory-001']
+          : previous.memoryIds,
+      outputId: '',
+      summary: '任务已重新创建，正在准备输入记忆。',
+      errorMessage: '',
+      requirement: previous.requirement,
+      result: const {},
+      scheduledFor: previous.scheduledFor,
+      startedAt: now,
+      finishedAt: null,
+      createdAt: previous.createdAt,
+      updatedAt: now,
+    );
+    _jobs[index] = next;
+    return next;
+  }
+
+  static Future<_OrganizeJob> cancelJob(String jobId) async {
+    final index = _jobs.indexWhere((job) => job.id == jobId);
+    if (index < 0) {
+      throw const FormatException('整理任务不存在');
+    }
+    final previous = _jobs[index];
+    final now = DateTime.now();
+    final next = _OrganizeJob(
+      id: previous.id,
+      configId: previous.configId,
+      templateKey: previous.templateKey,
+      templateVersion: previous.templateVersion,
+      status: 'canceled',
+      stage: '已取消',
+      progress: previous.progress,
+      memoryIds: previous.memoryIds,
+      outputId: '',
+      summary: '任务已取消，可重新执行。',
+      errorMessage: '已由用户取消',
+      requirement: previous.requirement,
+      result: previous.result,
+      scheduledFor: previous.scheduledFor,
+      startedAt: previous.startedAt,
+      finishedAt: now,
+      createdAt: previous.createdAt,
+      updatedAt: now,
+    );
+    _jobs[index] = next;
+    return next;
+  }
+
+  static List<T> _page<T>(
+    List<T> values, {
+    required int page,
+    required int pageSize,
+  }) {
+    final safePage = page < 1 ? 1 : page;
+    final safePageSize = pageSize < 1 ? 1 : pageSize;
+    final start = (safePage - 1) * safePageSize;
+    if (start >= values.length) return const [];
+    final end = (start + safePageSize).clamp(0, values.length);
+    return values.sublist(start, end);
+  }
+
+  static _OrganizeConfig? _findConfig(String id) {
+    for (final config in _configs) {
+      if (config.id == id) return config;
+    }
+    return null;
+  }
+
+  static Map<String, dynamic> _requirementFor(_OrganizeConfig config) {
+    return {
+      'config_name': config.name,
+      'template_name': config.templateName,
+      'template_version': config.templateVersion,
+      '时间范围': '最近 24 小时',
+      '输出语言': '中文',
+      '整理规则': config.instruction,
+    };
+  }
+
+  static List<_OrganizeConfig> _buildConfigs() {
+    return [
+      _OrganizeConfig(
+        id: 'mock-config-daily',
+        name: '客户沟通日报',
+        templateKey: 'customer-daily-report',
+        targetServiceId: 'customer-success',
+        instruction: '提取客户进展、风险和下一步行动。',
+        schedule: 'daily',
+        status: 'active',
+        nextRunAt: _today.add(const Duration(days: 1, hours: 8)),
+        lastRunAt: _today.add(const Duration(hours: 8, minutes: 12)),
+        templateVersion: 'v2.3',
+        templateName: '客户沟通日报模板',
+        updatedAt: _today.subtract(const Duration(days: 2)),
+        jobCount: 18,
+      ),
+      _OrganizeConfig(
+        id: 'mock-config-weekly',
+        name: '项目进展周报',
+        templateKey: 'project-weekly-report',
+        targetServiceId: 'project-delivery',
+        instruction: '汇总项目进展、阻塞项和本周重点安排。',
+        schedule: 'weekly',
+        status: 'active',
+        nextRunAt: _today.add(const Duration(days: 7, hours: 9)),
+        lastRunAt: _today.subtract(const Duration(days: 7, hours: -9)),
+        templateVersion: 'v1.8',
+        templateName: '项目进展周报模板',
+        updatedAt: _today.subtract(const Duration(days: 4)),
+        jobCount: 9,
+      ),
+      _OrganizeConfig(
+        id: 'mock-config-manual',
+        name: '会议录音重点整理',
+        templateKey: 'meeting-action-items',
+        targetServiceId: 'internal-collaboration',
+        instruction: '识别会议结论、负责人和待办截止时间。',
+        schedule: 'manual',
+        status: 'active',
+        nextRunAt: null,
+        lastRunAt: _today.subtract(const Duration(days: 1, hours: -16)),
+        templateVersion: 'v3.1',
+        templateName: '会议行动项模板',
+        updatedAt: _today.subtract(const Duration(days: 1)),
+        jobCount: 6,
+      ),
+      _OrganizeConfig(
+        id: 'mock-config-disabled',
+        name: '月度客户复盘',
+        templateKey: 'customer-monthly-review',
+        targetServiceId: 'customer-success',
+        instruction: '按客户维度生成月度复盘。',
+        schedule: 'monthly',
+        status: 'inactive',
+        nextRunAt: null,
+        lastRunAt: _today.subtract(const Duration(days: 35)),
+        templateVersion: 'v1.2',
+        templateName: '客户月度复盘模板',
+        updatedAt: _today.subtract(const Duration(days: 12)),
+        jobCount: 3,
+      ),
+    ];
+  }
+
+  static List<_OrganizeJob> _buildJobs() {
+    final daily = _configs[0];
+    final weekly = _configs[1];
+    final manual = _configs[2];
+    final now = DateTime.now();
+    return [
+      _OrganizeJob(
+        id: 'mock-job-daily-today',
+        configId: daily.id,
+        templateKey: daily.templateKey,
+        templateVersion: daily.templateVersion,
+        status: 'completed',
+        stage: '落库',
+        progress: 100,
+        memoryIds: const [
+          'mock-memory-001',
+          'mock-memory-002',
+          'mock-memory-003'
+        ],
+        outputId: 'mock-output-daily-today',
+        summary: '提炼 3 条客户沟通记忆，发现 2 个待跟进事项。',
+        errorMessage: '',
+        requirement: _requirementFor(daily),
+        result: const {
+          'title': '客户沟通日报 · 10月5日',
+          'conclusion_count': 4,
+          'todo_count': 2,
+          'assignment_reason': '发现明确的客户跟进动作',
+        },
+        scheduledFor: _today.add(const Duration(hours: 8)),
+        startedAt: _today.add(const Duration(hours: 8, minutes: 3)),
+        finishedAt: _today.add(const Duration(hours: 8, minutes: 12)),
+        createdAt: _today.add(const Duration(hours: 8)),
+        updatedAt: _today.add(const Duration(hours: 8, minutes: 12)),
+      ),
+      _OrganizeJob(
+        id: 'mock-job-weekly-today',
+        configId: weekly.id,
+        templateKey: weekly.templateKey,
+        templateVersion: weekly.templateVersion,
+        status: 'running',
+        stage: '调用模型',
+        progress: 68,
+        memoryIds: const ['mock-memory-004', 'mock-memory-005'],
+        outputId: '',
+        summary: '正在汇总本周项目进展和阻塞项。',
+        errorMessage: '',
+        requirement: _requirementFor(weekly),
+        result: const {},
+        scheduledFor: _today.add(const Duration(hours: 9)),
+        startedAt: _today.add(const Duration(hours: 9, minutes: 2)),
+        finishedAt: null,
+        createdAt: _today.add(const Duration(hours: 9)),
+        updatedAt: now,
+      ),
+      _OrganizeJob(
+        id: 'mock-job-manual-today',
+        configId: manual.id,
+        templateKey: manual.templateKey,
+        templateVersion: manual.templateVersion,
+        status: 'failed',
+        stage: '调用模型',
+        progress: 71,
+        memoryIds: const ['mock-memory-006'],
+        outputId: '',
+        summary: '模型服务暂时不可用，请稍后重试。',
+        errorMessage: '模型服务暂时不可用',
+        requirement: _requirementFor(manual),
+        result: const {},
+        scheduledFor: null,
+        startedAt: _today.add(const Duration(hours: 11)),
+        finishedAt: _today.add(const Duration(hours: 11, minutes: 1)),
+        createdAt: _today.add(const Duration(hours: 11)),
+        updatedAt: _today.add(const Duration(hours: 11, minutes: 1)),
+      ),
+      _OrganizeJob(
+        id: 'mock-job-daily-yesterday',
+        configId: daily.id,
+        templateKey: daily.templateKey,
+        templateVersion: daily.templateVersion,
+        status: 'completed',
+        stage: '落库',
+        progress: 100,
+        memoryIds: const ['mock-memory-007'],
+        outputId: 'mock-output-daily-yesterday',
+        summary: '完成昨日客户沟通摘要。',
+        errorMessage: '',
+        requirement: _requirementFor(daily),
+        result: const {
+          'title': '客户沟通日报 · 10月4日',
+          'conclusion_count': 3,
+          'todo_count': 1,
+        },
+        scheduledFor: _today.subtract(const Duration(days: 1, hours: -8)),
+        startedAt:
+            _today.subtract(const Duration(days: 1, hours: -8, minutes: -3)),
+        finishedAt:
+            _today.subtract(const Duration(days: 1, hours: -8, minutes: -12)),
+        createdAt: _today.subtract(const Duration(days: 1, hours: -8)),
+        updatedAt:
+            _today.subtract(const Duration(days: 1, hours: -8, minutes: -12)),
+      ),
+      _OrganizeJob(
+        id: 'mock-job-weekly-last',
+        configId: weekly.id,
+        templateKey: weekly.templateKey,
+        templateVersion: weekly.templateVersion,
+        status: 'fallback',
+        stage: '落库',
+        progress: 100,
+        memoryIds: const ['mock-memory-008', 'mock-memory-009'],
+        outputId: 'mock-output-weekly-last',
+        summary: '已生成基础结果，部分内容未完成深度归纳。',
+        errorMessage: '',
+        requirement: _requirementFor(weekly),
+        result: const {
+          'title': '项目进展周报 · 9月28日',
+          'conclusion_count': 5,
+          'todo_count': 4,
+        },
+        scheduledFor: _today.subtract(const Duration(days: 7, hours: -9)),
+        startedAt:
+            _today.subtract(const Duration(days: 7, hours: -9, minutes: -2)),
+        finishedAt:
+            _today.subtract(const Duration(days: 7, hours: -9, minutes: -15)),
+        createdAt: _today.subtract(const Duration(days: 7, hours: -9)),
+        updatedAt:
+            _today.subtract(const Duration(days: 7, hours: -9, minutes: -15)),
+      ),
+    ];
+  }
+
+  static Map<String, _OrganizeOutput> _buildOutputs() {
+    final daily = _configs[0];
+    final weekly = _configs[1];
+    return {
+      'mock-output-daily-today': _OrganizeOutput(
+        id: 'mock-output-daily-today',
+        title: '客户沟通日报 · 10月5日',
+        content: '# 今日结论\n\n'
+            '客户 A 已确认第二阶段方案，预计本周五完成评审。\n\n'
+            '## 待跟进\n\n'
+            '- 周三前补充报价单\n'
+            '- 约客户 A 进行上线前检查\n\n'
+            '## 风险提示\n\n'
+            '客户 B 的接口联调仍缺少测试账号。',
+        outputType: '日报',
+        sourceSummary: '从 3 条客户沟通记忆中提炼出 4 条结论和 2 项待办。',
+        status: 'ready',
+        icon: 'article',
+        creatorName: '整理助手',
+        creatorAvatar: '',
+        isSubscribed: false,
+        memoryCount: 3,
+        memoryIds: const [
+          'mock-memory-001',
+          'mock-memory-002',
+          'mock-memory-003'
+        ],
+        metadata: const {
+          'tags': ['客户', '日报', '待办']
+        },
+        createdAt: _today.add(const Duration(hours: 8, minutes: 12)),
+        updatedAt: _today.add(const Duration(hours: 8, minutes: 12)),
+        coverUrl: '',
+        configId: daily.id,
+        jobId: 'mock-job-daily-today',
+        templateKey: daily.templateKey,
+        templateVersion: daily.templateVersion,
+        assignmentStatus: 'assigned',
+        assignmentReason: '发现明确的客户跟进动作',
+        fields: const {
+          '客户': '客户 A、客户 B',
+          '时间范围': '2026年10月5日',
+          '结论数': '4',
+          '待办数': '2',
+        },
+        citations: const {
+          'memory_refs': [
+            {'label': 'M1', 'title': '客户 A 方案评审', 'source': '会议录音'},
+            {'label': 'M2', 'title': '客户 B 接口联调', 'source': '聊天记录'},
+            {'label': 'M3', 'title': '本周客户跟进安排', 'source': '手动记录'},
+          ],
+        },
+      ),
+      'mock-output-daily-yesterday': _OrganizeOutput(
+        id: 'mock-output-daily-yesterday',
+        title: '客户沟通日报 · 10月4日',
+        content: '昨日完成 3 条客户沟通记忆整理，重点是方案评审和上线准备。',
+        outputType: '日报',
+        sourceSummary: '昨日客户沟通摘要。',
+        status: 'ready',
+        icon: 'article',
+        creatorName: '整理助手',
+        creatorAvatar: '',
+        isSubscribed: false,
+        memoryCount: 1,
+        memoryIds: const ['mock-memory-007'],
+        metadata: const {},
+        createdAt:
+            _today.subtract(const Duration(days: 1, hours: -8, minutes: -12)),
+        updatedAt:
+            _today.subtract(const Duration(days: 1, hours: -8, minutes: -12)),
+        coverUrl: '',
+        configId: daily.id,
+        jobId: 'mock-job-daily-yesterday',
+        templateKey: daily.templateKey,
+        templateVersion: daily.templateVersion,
+        fields: const {'结论数': '3', '待办数': '1'},
+      ),
+      'mock-output-weekly-last': _OrganizeOutput(
+        id: 'mock-output-weekly-last',
+        title: '项目进展周报 · 9月28日',
+        content: '本周项目整体按计划推进，仍需关注接口联调和测试账号准备。',
+        outputType: '周报',
+        sourceSummary: '项目进展周报基础结果。',
+        status: 'fallback',
+        icon: 'article',
+        creatorName: '整理助手',
+        creatorAvatar: '',
+        isSubscribed: false,
+        memoryCount: 2,
+        memoryIds: const ['mock-memory-008', 'mock-memory-009'],
+        metadata: const {},
+        createdAt:
+            _today.subtract(const Duration(days: 7, hours: -9, minutes: -15)),
+        updatedAt:
+            _today.subtract(const Duration(days: 7, hours: -9, minutes: -15)),
+        coverUrl: '',
+        configId: weekly.id,
+        jobId: 'mock-job-weekly-last',
+        templateKey: weekly.templateKey,
+        templateVersion: weekly.templateVersion,
+      ),
+    };
   }
 }
 

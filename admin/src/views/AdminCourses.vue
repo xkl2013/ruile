@@ -56,6 +56,8 @@
               <t-tag theme="default" variant="light-outline" size="small">
                 {{ visibilityLabel(item.visibility_scope) }}
               </t-tag>
+              <t-tag v-if="item.featured" theme="warning" variant="light" size="small">精选</t-tag>
+              <t-tag v-if="item.recommendable" theme="success" variant="light-outline" size="small">参与推荐</t-tag>
             </div>
             <p>{{ item.summary || '暂无课程简介' }}</p>
             <div class="course-row__meta">
@@ -337,6 +339,28 @@
             </t-button>
           </div>
         </div>
+        <div class="course-detail__discovery">
+          <div class="course-detail__discovery-fields">
+            <t-checkbox v-model="detailFeatured">加入精选</t-checkbox>
+            <t-checkbox v-model="detailRecommendable">参与推荐</t-checkbox>
+            <label class="course-detail__sort-field">
+              <span>推荐排序</span>
+              <t-input-number v-model="detailSortOrder" :min="0" :max="9999" theme="normal" />
+            </label>
+          </div>
+          <div class="course-detail__discovery-footer">
+            <span>数值越小越靠前，0 表示按更新时间排序。</span>
+            <t-button
+              theme="primary"
+              variant="outline"
+              size="small"
+              :loading="savingDiscovery"
+              @click="saveDiscovery"
+            >
+              保存发现展示
+            </t-button>
+          </div>
+        </div>
         <div class="course-detail__lessons">
           <div class="course-detail__lessons-title">课程大纲（{{ detail.lessons?.length || 0 }} 讲）</div>
           <div v-for="(lesson, index) in detail.lessons || []" :key="lesson.id" class="course-preview-row course-detail__lesson-row">
@@ -412,6 +436,7 @@ import {
   listAdminCourses,
   offlineAdminCourse,
   publishAdminCourse,
+  updateAdminCourseDiscovery,
   updateAdminCourseVisibility,
   updateAdminCourseLesson,
   uploadAdminCourse,
@@ -476,6 +501,10 @@ const deletingLessonId = ref('')
 const detailVisibilityScope = ref<CourseVisibilityScope>('system')
 const detailSharedSpaceIds = ref<string[]>([])
 const savingVisibility = ref(false)
+const detailFeatured = ref(false)
+const detailRecommendable = ref(true)
+const detailSortOrder = ref(0)
+const savingDiscovery = ref(false)
 
 const stepOptions = [
   { title: '填写课程信息' },
@@ -633,9 +662,34 @@ async function openDetail(item: AdminCourse) {
     detail.value = response.data || null
     detailVisibilityScope.value = detail.value?.visibility_scope || 'system'
     detailSharedSpaceIds.value = [...(detail.value?.shared_space_ids || [])]
+    detailFeatured.value = Boolean(detail.value?.featured)
+    detailRecommendable.value = detail.value?.recommendable !== false
+    detailSortOrder.value = detail.value?.sort_order || 0
     detailVisible.value = true
   } catch (error: any) {
     MessagePlugin.error(error?.message || '加载课程详情失败')
+  }
+}
+
+async function saveDiscovery() {
+  if (!detail.value) return
+  savingDiscovery.value = true
+  try {
+    const response = await updateAdminCourseDiscovery(detail.value.id, {
+      featured: detailFeatured.value,
+      recommendable: detailRecommendable.value,
+      sortOrder: detailSortOrder.value,
+    })
+    detail.value = response.data || detail.value
+    detailFeatured.value = Boolean(detail.value.featured)
+    detailRecommendable.value = detail.value.recommendable !== false
+    detailSortOrder.value = detail.value.sort_order || 0
+    MessagePlugin.success('课程发现展示已保存')
+    await loadCourses()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '保存发现展示失败')
+  } finally {
+    savingDiscovery.value = false
   }
 }
 
@@ -1071,6 +1125,11 @@ onBeforeUnmount(() => {
 .course-detail__visibility-field { display: flex; align-items: center; gap: 12px; }
 .course-detail__visibility-field > span { flex: 0 0 64px; color: var(--td-text-color-secondary); font-size: 12px; }
 .course-detail__visibility-actions { display: flex; justify-content: flex-end; }
+.course-detail__discovery { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; padding: 12px; border: 1px solid var(--td-component-border); background: var(--td-bg-color-container-hover); }
+.course-detail__discovery-fields { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.course-detail__sort-field { display: inline-flex; align-items: center; gap: 8px; color: var(--td-text-color-secondary); font-size: 12px; }
+.course-detail__sort-field .t-input-number { width: 120px; }
+.course-detail__discovery-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--td-text-color-placeholder); font-size: 12px; }
 .course-detail__lessons-title { margin-bottom: 8px; color: var(--td-text-color-secondary); font-size: 13px; }
 .course-detail__lessons .course-preview-row { border: 1px solid var(--td-component-border); border-bottom: 0; }
 .course-detail__lessons .course-preview-row:last-child { border-bottom: 1px solid var(--td-component-border); }
@@ -1086,5 +1145,6 @@ onBeforeUnmount(() => {
   .course-row__actions { width: 100%; justify-content: flex-start; padding-left: 52px; }
   .course-form-grid { grid-template-columns: minmax(0, 1fr); }
   .course-detail__visibility-field { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .course-detail__discovery-footer { align-items: flex-start; flex-direction: column; }
 }
 </style>

@@ -60,6 +60,9 @@ type OrganizeCourse struct {
 	TeacherTitle    string         `json:"teacher_title" gorm:"type:varchar(128);not null;default:''"`
 	PublicStatus    string         `json:"public_status" gorm:"type:varchar(32);not null;default:'published';index"`
 	VisibilityScope string         `json:"visibility_scope" gorm:"type:varchar(32);not null;default:'system';index"`
+	Featured        bool           `json:"featured" gorm:"not null;default:false;index"`
+	Recommendable   bool           `json:"recommendable" gorm:"not null;default:true;index"`
+	SortOrder       int            `json:"sort_order" gorm:"not null;default:0"`
 	LessonCount     int            `json:"lesson_count" gorm:"not null;default:0"`
 	LearnerCount    int            `json:"learner_count" gorm:"not null;default:0"`
 	CreatedAt       time.Time      `json:"created_at"`
@@ -144,19 +147,22 @@ type OrganizeCourseLessonUpdateInput struct {
 // Tenant, user, output and storage fields deliberately do not cross this
 // boundary.
 type OrganizePublicCourse struct {
-	ID           string                        `json:"id"`
-	Source       string                        `json:"source"`
-	Title        string                        `json:"title"`
-	Summary      string                        `json:"summary"`
-	Category     string                        `json:"category"`
-	CoverURL     string                        `json:"cover_url"`
-	TeacherName  string                        `json:"teacher_name"`
-	TeacherTitle string                        `json:"teacher_title"`
-	LessonCount  int                           `json:"lesson_count"`
-	LearnerCount int                           `json:"learner_count"`
-	CreatedAt    time.Time                     `json:"created_at"`
-	UpdatedAt    time.Time                     `json:"updated_at"`
-	Lessons      []*OrganizePublicCourseLesson `json:"lessons,omitempty"`
+	ID            string                        `json:"id"`
+	Source        string                        `json:"source"`
+	Title         string                        `json:"title"`
+	Summary       string                        `json:"summary"`
+	Category      string                        `json:"category"`
+	CoverURL      string                        `json:"cover_url"`
+	TeacherName   string                        `json:"teacher_name"`
+	TeacherTitle  string                        `json:"teacher_title"`
+	LessonCount   int                           `json:"lesson_count"`
+	LearnerCount  int                           `json:"learner_count"`
+	Featured      bool                          `json:"featured"`
+	Recommendable bool                          `json:"recommendable"`
+	SortOrder     int                           `json:"sort_order"`
+	CreatedAt     time.Time                     `json:"created_at"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	Lessons       []*OrganizePublicCourseLesson `json:"lessons,omitempty"`
 }
 
 // OrganizePublicCourseLesson is the redacted lesson contract used by the
@@ -192,14 +198,16 @@ func (l *OrganizeCourseLesson) BeforeCreate(_ *gorm.DB) error {
 // OrganizeCourseQuery filters course list reads. TenantID/UserID scope the list
 // to the caller's workspace; empty filters mean "no constraint".
 type OrganizeCourseQuery struct {
-	TenantID     uint64
-	UserID       string
-	Keyword      string
-	Category     string
-	Source       string
-	PublicStatus string
-	Page         int
-	PageSize     int
+	TenantID      uint64
+	UserID        string
+	Keyword       string
+	Category      string
+	Source        string
+	PublicStatus  string
+	Featured      *bool
+	Recommendable *bool
+	Page          int
+	PageSize      int
 
 	// VisibilityFilter is set only for public published-course reads.
 	// Admin list reads intentionally remain platform-wide.
@@ -230,6 +238,9 @@ type OrganizeCourseUploadInput struct {
 	TeacherTitle       string
 	Source             string
 	PublicStatus       string
+	Featured           bool
+	Recommendable      bool
+	SortOrder          int
 	VisibilityScope    string
 	SharedSpaceIDs     []string
 	DirectoryName      string
@@ -238,6 +249,12 @@ type OrganizeCourseUploadInput struct {
 type OrganizeCourseVisibilityInput struct {
 	VisibilityScope string   `json:"visibility_scope"`
 	SharedSpaceIDs  []string `json:"shared_space_ids"`
+}
+
+type OrganizeCourseDiscoveryInput struct {
+	Featured      bool `json:"featured"`
+	Recommendable bool `json:"recommendable"`
+	SortOrder     int  `json:"sort_order"`
 }
 
 // OrganizeCourseUploadFile is one file picked from the uploaded folder.

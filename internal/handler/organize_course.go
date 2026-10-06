@@ -25,11 +25,13 @@ func (h *OrganizeHandler) ListCourses(c *gin.Context) {
 		return
 	}
 	courses, total, err := h.service.ListPublishedCourses(c.Request.Context(), types.OrganizeCourseQuery{
-		Keyword:  firstNonEmptyQuery(c, "q", "keyword"),
-		Category: strings.TrimSpace(c.Query("category")),
-		Source:   strings.TrimSpace(c.Query("source")),
-		Page:     page,
-		PageSize: pageSize,
+		Keyword:       firstNonEmptyQuery(c, "q", "keyword"),
+		Category:      strings.TrimSpace(c.Query("category")),
+		Source:        strings.TrimSpace(c.Query("source")),
+		Featured:      parseOptionalBoolQuery(c.Query("featured")),
+		Recommendable: parseOptionalBoolQuery(c.Query("recommendable")),
+		Page:          page,
+		PageSize:      pageSize,
 	})
 	if err != nil {
 		h.handleError(c, err)
@@ -125,7 +127,7 @@ func (h *OrganizeHandler) GetCourseCover(c *gin.Context) {
 }
 
 // GetCourseLessonMediaURL returns a short-lived/presigned URL after the course
-// visibility check. Native media elements use this URL for browser Range
+// visibility check. Native media elements use this URL to issue browser Range
 // requests, while the protected API remains available as a compatibility
 // fallback.
 func (h *OrganizeHandler) GetCourseLessonMediaURL(c *gin.Context) {
@@ -153,18 +155,21 @@ func redactOrganizeCourse(course *types.OrganizeCourse, includeLessons bool) *ty
 		return nil
 	}
 	result := &types.OrganizePublicCourse{
-		ID:           course.ID,
-		Source:       course.Source,
-		Title:        course.Title,
-		Summary:      course.Summary,
-		Category:     course.Category,
-		CoverURL:     publicCourseCoverURL(course),
-		TeacherName:  course.TeacherName,
-		TeacherTitle: course.TeacherTitle,
-		LessonCount:  course.LessonCount,
-		LearnerCount: course.LearnerCount,
-		CreatedAt:    course.CreatedAt,
-		UpdatedAt:    course.UpdatedAt,
+		ID:            course.ID,
+		Source:        course.Source,
+		Title:         course.Title,
+		Summary:       course.Summary,
+		Category:      course.Category,
+		CoverURL:      publicCourseCoverURL(course),
+		TeacherName:   course.TeacherName,
+		TeacherTitle:  course.TeacherTitle,
+		LessonCount:   course.LessonCount,
+		LearnerCount:  course.LearnerCount,
+		Featured:      course.Featured,
+		Recommendable: course.Recommendable,
+		SortOrder:     course.SortOrder,
+		CreatedAt:     course.CreatedAt,
+		UpdatedAt:     course.UpdatedAt,
 	}
 	if !includeLessons {
 		return result

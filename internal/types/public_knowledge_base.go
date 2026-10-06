@@ -34,6 +34,7 @@ type PublicKnowledgeBasePublication struct {
 	Category        string                               `json:"category" gorm:"type:varchar(64);not null;default:'';index"`
 	Status          PublicKnowledgeBasePublicationStatus `json:"status" gorm:"type:varchar(32);not null;default:'draft';index"`
 	Featured        bool                                 `json:"featured" gorm:"not null;default:false"`
+	Recommendable   bool                                 `json:"recommendable" gorm:"not null;default:true;index"`
 	SortOrder       int                                  `json:"sort_order" gorm:"not null;default:0"`
 	PublishedAt     *time.Time                           `json:"published_at,omitempty"`
 	OfflineAt       *time.Time                           `json:"offline_at,omitempty"`

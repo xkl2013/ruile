@@ -37,6 +37,9 @@ export interface AdminCourse {
   shared_space_ids?: string[]
   lesson_count: number
   learner_count: number
+  featured: boolean
+  recommendable: boolean
+  sort_order: number
   created_at: string
   updated_at: string
   lessons?: AdminCourseLesson[]
@@ -239,6 +242,20 @@ export function updateAdminCourseVisibility(
     {
       visibility_scope: data.visibilityScope,
       shared_space_ids: data.sharedSpaceIds || [],
+    },
+  )
+}
+
+export function updateAdminCourseDiscovery(
+  id: string,
+  data: { featured: boolean; recommendable: boolean; sortOrder?: number },
+) {
+  return put<{ success: boolean; data: AdminCourse }>(
+    `/api/v1/system/admin/courses/${encodeURIComponent(id)}/discovery`,
+    {
+      featured: data.featured,
+      recommendable: data.recommendable,
+      sort_order: Math.max(0, Math.round(Number(data.sortOrder) || 0)),
     },
   )
 }

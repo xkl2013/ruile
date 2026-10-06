@@ -159,6 +159,9 @@ export interface OrganizeOutput {
   is_subscribed?: boolean
   memory_count?: number
   memory_ids?: string[]
+  featured?: boolean
+  recommendable?: boolean
+  sort_order?: number
   fields?: Record<string, unknown>
   citations?: Record<string, unknown>
   metadata?: Record<string, unknown>
@@ -305,6 +308,9 @@ export interface OrganizeCourse {
   teacher_title: string
   lesson_count: number
   learner_count: number
+  featured: boolean
+  recommendable: boolean
+  sort_order: number
   created_at: string
   updated_at: string
   lessons?: OrganizeCourseLesson[]
@@ -596,7 +602,12 @@ export function confirmOrganizeRequirement(input: OrganizeRequirementInput) {
  * Loads the course cards shown inside 推荐. The pool is cross-tenant and
  * published-only, so no workspace scope is sent from the client.
  */
-export function getOrganizeCourses(params?: OrganizeListParams & { category?: string; source?: OrganizeCourseSource }) {
+export function getOrganizeCourses(params?: OrganizeListParams & {
+  category?: string
+  source?: OrganizeCourseSource
+  featured?: boolean
+  recommendable?: boolean
+}) {
   return get<OrganizeResponse<OrganizeListData<OrganizeCourse>>>(withQuery('/api/v1/organize/courses', params))
 }
 

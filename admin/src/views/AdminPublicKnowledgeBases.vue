@@ -44,6 +44,8 @@
             <div class="public-kb-row__title">
               <strong>{{ item.title }}</strong>
               <t-tag :theme="statusTheme(item.status)" variant="light" size="small">{{ statusLabel(item.status) }}</t-tag>
+              <t-tag v-if="item.featured" theme="warning" variant="light" size="small">精选</t-tag>
+              <t-tag v-if="item.recommendable" theme="success" variant="light-outline" size="small">参与推荐</t-tag>
             </div>
             <p>{{ item.description || '暂无描述' }}</p>
             <div class="public-kb-row__meta">
@@ -93,6 +95,16 @@
         <t-form-item label="简介">
           <t-textarea v-model="form.description" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="说明内容范围和适用场景" />
         </t-form-item>
+        <t-form-item label="发现展示">
+          <div class="curation-options">
+            <t-checkbox v-model="form.featured">加入精选</t-checkbox>
+            <t-checkbox v-model="form.recommendable">参与推荐</t-checkbox>
+          </div>
+        </t-form-item>
+        <t-form-item label="推荐排序">
+          <t-input-number v-model="form.sort_order" :min="0" :max="9999" theme="normal" />
+          <div class="form-help">数值越小越靠前，0 表示按更新时间排序。</div>
+        </t-form-item>
       </t-form>
     </t-dialog>
   </section>
@@ -129,7 +141,14 @@ const editorKbId = ref('')
 const pendingKnowledgeBaseId = ref('')
 const uploadTarget = ref<PublicKnowledgeBasePublication | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
-const form = ref({ title: '', category: '', description: '' })
+const form = ref({
+  title: '',
+  category: '',
+  description: '',
+  featured: false,
+  recommendable: true,
+  sort_order: 0,
+})
 
 const totalSubscribers = computed(() => publications.value.reduce((total, item) => total + (item.subscriber_count || 0), 0))
 
@@ -171,6 +190,9 @@ function openEditDialog(item: PublicKnowledgeBasePublication) {
     title: item.title,
     category: item.category || '',
     description: item.description || '',
+    featured: Boolean(item.featured),
+    recommendable: item.recommendable !== false,
+    sort_order: item.sort_order || 0,
   }
   dialogVisible.value = true
 }
@@ -200,6 +222,9 @@ async function handleKnowledgeBaseEditorSuccess(kbID: string) {
       title: kb.name || '',
       category: '',
       description: kb.description || '',
+      featured: false,
+      recommendable: true,
+      sort_order: 0,
     }
     dialogVisible.value = true
   } catch (error: any) {
@@ -219,6 +244,9 @@ async function saveDialog() {
         title: form.value.title.trim(),
         category: form.value.category.trim(),
         description: form.value.description.trim(),
+        featured: form.value.featured,
+        recommendable: form.value.recommendable,
+        sort_order: form.value.sort_order,
       })
       MessagePlugin.success('发布信息已保存')
     } else if (pendingKnowledgeBaseId.value) {
@@ -318,6 +346,8 @@ onMounted(() => {
 .public-kb-row__main { min-width: 0; flex: 1; }
 .public-kb-row__title { display: flex; align-items: center; gap: 8px; }
 .public-kb-row__title strong { color: var(--td-text-color-primary); font-size: 15px; }
+.curation-options { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.form-help { margin-top: 6px; color: var(--td-text-color-placeholder); font-size: 12px; }
 .public-kb-row__main p { margin: 6px 0; color: var(--td-text-color-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .public-kb-row__meta { display: flex; gap: 14px; color: var(--td-text-color-placeholder); font-size: 12px; }
 .public-kb-row__actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }

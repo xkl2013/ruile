@@ -153,7 +153,7 @@ const featuredOffset = ref(0)
 const FEATURED_PAGE_SIZE = 4
 
 const featuredItems = computed(() => items.value.filter((item) => item.featured))
-const recommendedItems = computed(() => items.value.filter((item) => !item.featured))
+const recommendedItems = computed(() => items.value.filter((item) => !item.featured && item.recommendable !== false))
 const visibleFeaturedItems = computed(() => {
   const list = featuredItems.value
   if (list.length <= FEATURED_PAGE_SIZE) return list

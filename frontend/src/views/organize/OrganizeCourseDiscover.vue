@@ -43,7 +43,7 @@
       </article>
     </div>
   </div>
-  <div v-else-if="props.variant === 'featured'" class="course-discover course-discover--empty">
+  <div v-else-if="props.variant === 'featured' && props.showEmpty" class="course-discover course-discover--empty">
     <t-icon name="book-open" />
     <span>暂无可推荐内容或课程</span>
   </div>
@@ -59,9 +59,11 @@ import { discoverCategoryLabel } from './discoverCategories'
 const props = withDefaults(defineProps<{
   variant?: 'feed' | 'featured'
   limit?: number
+  showEmpty?: boolean
 }>(), {
   variant: 'feed',
   limit: 6,
+  showEmpty: false,
 })
 
 const router = useRouter()
@@ -133,6 +135,8 @@ async function loadCourses() {
     const response = await getOrganizeCourses({
       page: 1,
       page_size: Math.max(1, props.limit),
+      featured: props.variant === 'featured',
+      recommendable: props.variant === 'feed' ? true : undefined,
     })
     if (!response.success || !response.data) {
       throw new Error(response.message || '课程加载失败')

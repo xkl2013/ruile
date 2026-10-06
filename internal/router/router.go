@@ -369,6 +369,7 @@ func RegisterPublicContentRoutes(
 		courses.POST("/upload", handler.UploadAdminCourse)
 		courses.GET("/:id", handler.GetAdminCourse)
 		courses.PUT("/:id/visibility", handler.UpdateAdminCourseVisibility)
+		courses.PUT("/:id/discovery", handler.UpdateAdminCourseDiscovery)
 		courses.PUT("/:id/lessons/:lesson_id", handler.UpdateAdminCourseLesson)
 		courses.DELETE("/:id/lessons/:lesson_id", handler.DeleteAdminCourseLesson)
 		courses.POST("/:id/publish", handler.PublishAdminCourse)

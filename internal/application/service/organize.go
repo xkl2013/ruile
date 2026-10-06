@@ -622,6 +622,15 @@ func (s *organizeService) UpdateAdminPublicContent(
 	current.SeriesTitle = trimMax(input.SeriesTitle, organizeMaxShortText)
 	current.SeriesOrder = max(0, input.SeriesOrder)
 	current.ReviewNote = trimMax(input.ReviewNote, 0)
+	if input.Featured != nil {
+		current.Featured = *input.Featured
+	}
+	if input.Recommendable != nil {
+		current.Recommendable = *input.Recommendable
+	}
+	if input.SortOrder != nil {
+		current.SortOrder = max(0, *input.SortOrder)
+	}
 	if input.Metadata != nil {
 		current.Metadata = normalizeJSONMap(input.Metadata)
 	}
@@ -834,6 +843,7 @@ func (s *organizeService) buildOutput(
 		Status:            status,
 		PublicContentType: normalizePublicContentType(input.PublicContentType),
 		PublicStatus:      normalizePublicContentStatus(input.PublicStatus, status),
+		Recommendable:     true,
 		SeriesID:          trimMax(input.SeriesID, 128),
 		SeriesTitle:       trimMax(input.SeriesTitle, organizeMaxShortText),
 		SeriesOrder:       max(0, input.SeriesOrder),
@@ -856,6 +866,9 @@ func (s *organizeService) normalizeDiscoverMetadataForService(
 	category := strings.TrimSpace(fmt.Sprint(normalized["discover_category"]))
 	categories, err := s.repo.ListDiscoverCategories(ctx)
 	if err == nil {
+		if len(categories) == 0 {
+			categories = fixedDiscoverCategoryRecords()
+		}
 		for _, candidate := range categories {
 			if candidate == nil {
 				continue

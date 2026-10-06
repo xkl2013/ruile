@@ -23,7 +23,7 @@ type PublicKnowledgeBaseService interface {
 	ListAdminPublications(ctx context.Context, status *types.PublicKnowledgeBasePublicationStatus, keyword string) ([]*types.PublicKnowledgeBasePublication, error)
 	CreatePublication(ctx context.Context, kbID, title, description, category string) (*types.PublicKnowledgeBasePublication, error)
 	GetAdminPublication(ctx context.Context, id string) (*types.PublicKnowledgeBasePublication, error)
-	UpdatePublication(ctx context.Context, id, title, description, category string, featured bool, sortOrder int) (*types.PublicKnowledgeBasePublication, error)
+	UpdatePublication(ctx context.Context, id, title, description, category string, featured, recommendable bool, sortOrder int) (*types.PublicKnowledgeBasePublication, error)
 	PublishPublication(ctx context.Context, id string) (*types.PublicKnowledgeBasePublication, error)
 	OfflinePublication(ctx context.Context, id string) (*types.PublicKnowledgeBasePublication, error)
 	ListPublications(ctx context.Context, userID, keyword, category string) ([]*types.PublicKnowledgeBasePublication, error)
