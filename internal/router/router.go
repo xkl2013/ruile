@@ -1220,6 +1220,7 @@ func RegisterOrganizeAdminRoutes(
 		admin.POST("/templates", h.CreateTemplate)
 		admin.GET("/templates/:key", h.GetTemplate)
 		admin.PUT("/templates/:key", h.UpdateTemplate)
+		admin.POST("/templates/compile", h.CompileTemplate)
 		admin.POST("/templates/:key/preview", h.PreviewTemplate)
 		admin.POST("/templates/:key/publish", h.PublishTemplate)
 		admin.POST("/templates/:key/disable", h.DisableTemplate)

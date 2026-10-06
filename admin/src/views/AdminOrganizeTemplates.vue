@@ -7,6 +7,10 @@
         <p>维护整理场景的指令、Markdown 报告预设和发布版本，所有用户使用已发布模板。</p>
       </div>
       <div class="organize-template-page__actions">
+        <t-button variant="outline" @click="openCompiler">
+          <template #icon><t-icon name="file-paste" /></template>
+          从 Markdown 生成
+        </t-button>
         <t-button variant="outline" :loading="loading" @click="loadTemplates">
           <template #icon><t-icon name="refresh" /></template>
           刷新
@@ -162,6 +166,70 @@
       </t-form>
     </t-dialog>
 
+    <t-dialog v-model:visible="compileVisible" header="从 Markdown 指令生成模板" width="920px" :footer="false" destroy-on-close>
+      <div class="organize-template-compiler">
+        <div class="organize-template-compiler__toolbar">
+          <p>导入包含角色、报告结构、输出规范和注意事项的 Markdown 指令，系统会自动生成可编辑的报告预设。</p>
+          <t-button variant="outline" size="small" @click="sourceFileInput?.click()">
+            <template #icon><t-icon name="upload-1" /></template>
+            导入 .md
+          </t-button>
+          <input
+            ref="sourceFileInput"
+            class="organize-template-file-input"
+            type="file"
+            accept=".md,.markdown,text/markdown,text/plain"
+            @change="readSourceFile"
+          />
+        </div>
+        <t-textarea
+          v-model="compileSource"
+          :autosize="{ minRows: 14, maxRows: 26 }"
+          placeholder="粘贴 Markdown 指令，例如：角色说明、工作流程、方案标准结构、输出规范、注意事项"
+        />
+        <div v-if="compileResult" class="organize-template-compiler__result">
+          <div class="organize-template-compiler__summary">
+            <div>
+              <span>识别模板</span>
+              <strong>{{ compileResult.name }}</strong>
+            </div>
+            <div>
+              <span>章节</span>
+              <strong>{{ compileResult.sections.length }} 个</strong>
+            </div>
+            <div>
+              <span>Key 建议</span>
+              <code>{{ compileResult.key }}</code>
+            </div>
+          </div>
+          <t-alert
+            v-if="compileResult.warnings.length"
+            theme="warning"
+            :message="compileResult.warnings.join('；')"
+          />
+          <div class="organize-template-compiler__preview">
+            <div class="organize-template-compiler__preview-head">
+              <strong>Markdown 报告预设</strong>
+              <span>发布前仍可编辑</span>
+            </div>
+            <pre>{{ compileResult.markdown_template }}</pre>
+          </div>
+          <div class="organize-template-compiler__actions">
+            <t-button variant="outline" @click="compileResult = null">重新生成</t-button>
+            <t-button theme="primary" @click="applyCompiledTemplate">应用为新模板</t-button>
+          </div>
+        </div>
+        <div v-else class="organize-template-compiler__empty">
+          <t-icon name="file-paste" />
+          <span>编译后会显示识别到的章节和 Markdown 预设</span>
+        </div>
+        <div v-if="!compileResult" class="organize-template-compiler__actions">
+          <t-button variant="outline" @click="compileVisible = false">取消</t-button>
+          <t-button theme="primary" :loading="compiling" @click="compileSourceTemplate">生成模板</t-button>
+        </div>
+      </div>
+    </t-dialog>
+
     <t-dialog v-model:visible="previewVisible" header="模板试跑" width="760px" :footer="false" destroy-on-close>
       <div v-if="previewData" class="organize-template-preview">
         <div class="organize-template-preview__meta">
@@ -201,6 +269,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import {
+  compileAdminOrganizeTemplate,
   createAdminOrganizeTemplate,
   disableAdminOrganizeTemplate,
   listAdminOrganizeTemplateVersions,
@@ -210,6 +279,7 @@ import {
   rollbackAdminOrganizeTemplate,
   updateAdminOrganizeTemplate,
   type AdminOrganizeTemplate,
+  type AdminOrganizeTemplateCompileResult,
   type AdminOrganizeTemplateVersion,
   type OrganizeTemplateStatus,
 } from '@admin/api/organize'
@@ -228,10 +298,16 @@ const editorVisible = ref(false)
 const editing = ref<AdminOrganizeTemplate | null>(null)
 const previewVisible = ref(false)
 const previewData = ref<{ template_key: string; version: string; prompt: string; markdown_template?: string; spec: Record<string, any>; errors: string[] } | null>(null)
+const compileVisible = ref(false)
+const compiling = ref(false)
+const compileSource = ref('')
+const compileResult = ref<AdminOrganizeTemplateCompileResult | null>(null)
+const sourceFileInput = ref<HTMLInputElement | null>(null)
 const versionsVisible = ref(false)
 const versionsLoading = ref(false)
 const selectedTemplate = ref<AdminOrganizeTemplate | null>(null)
 const versions = ref<AdminOrganizeTemplateVersion[]>([])
+const formSpec = ref<Record<string, any>>({})
 
 const form = reactive({
   key: '',
@@ -281,6 +357,7 @@ async function loadTemplates() {
 }
 
 function resetForm() {
+  formSpec.value = {}
   Object.assign(form, {
     key: '',
     name: '',
@@ -303,6 +380,7 @@ function openCreate() {
 
 function openEdit(template: AdminOrganizeTemplate) {
   editing.value = template
+  formSpec.value = template.spec || {}
   Object.assign(form, {
     key: template.key,
     name: template.name,
@@ -334,7 +412,7 @@ async function saveTemplate() {
       icon: form.icon.trim(),
       default_instruction: form.default_instruction.trim(),
       markdown_template: form.markdown_template.trim(),
-      spec: editing.value?.spec || {},
+      spec: formSpec.value,
       sort_order: form.sort_order || 0,
       change_note: form.change_note.trim(),
     }
@@ -351,6 +429,63 @@ async function saveTemplate() {
   } finally {
     saving.value = false
   }
+}
+
+function openCompiler() {
+  compileSource.value = ''
+  compileResult.value = null
+  compileVisible.value = true
+}
+
+async function readSourceFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    compileSource.value = await file.text()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '读取 Markdown 文件失败')
+  } finally {
+    input.value = ''
+  }
+}
+
+async function compileSourceTemplate() {
+  if (!compileSource.value.trim()) {
+    MessagePlugin.warning('请先粘贴或导入 Markdown 指令')
+    return
+  }
+  compiling.value = true
+  try {
+    const response = await compileAdminOrganizeTemplate(compileSource.value)
+    compileResult.value = response.data
+    MessagePlugin.success('已生成 Markdown 报告预设')
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || 'Markdown 指令编译失败')
+  } finally {
+    compiling.value = false
+  }
+}
+
+function applyCompiledTemplate() {
+  if (!compileResult.value) return
+  const compiled = compileResult.value
+  editing.value = null
+  formSpec.value = compiled.spec || {}
+  Object.assign(form, {
+    key: compiled.key,
+    name: compiled.name,
+    scene: compiled.scene,
+    description: compiled.description,
+    output_label: compiled.output_label,
+    icon: 'file-paste',
+    default_instruction: compiled.default_instruction,
+    markdown_template: compiled.markdown_template,
+    sort_order: 0,
+    change_note: '从 Markdown 指令自动生成',
+  })
+  compileVisible.value = false
+  editorVisible.value = true
 }
 
 async function preview(template: AdminOrganizeTemplate) {
@@ -457,6 +592,21 @@ function defaultMarkdownTemplate() {
 .organize-template-pagination { padding: 14px 18px; display: flex; justify-content: flex-end; border-top: 1px solid var(--td-component-border); }
 .organize-template-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .organize-template-form-help { margin: 8px 0 0; color: var(--td-text-color-secondary); font-size: 12px; line-height: 1.6; }
+.organize-template-compiler { display: grid; gap: 14px; }
+.organize-template-compiler__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.organize-template-compiler__toolbar p { margin: 0; color: var(--td-text-color-secondary); font-size: 13px; line-height: 1.6; }
+.organize-template-file-input { display: none; }
+.organize-template-compiler__result { display: grid; gap: 14px; }
+.organize-template-compiler__summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.organize-template-compiler__summary > div { display: grid; gap: 4px; padding: 10px 12px; background: var(--td-bg-color-secondarycontainer); border-radius: 6px; }
+.organize-template-compiler__summary span { color: var(--td-text-color-secondary); font-size: 12px; }
+.organize-template-compiler__summary strong, .organize-template-compiler__summary code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.organize-template-compiler__preview { border: 1px solid var(--td-component-border); border-radius: 6px; overflow: hidden; }
+.organize-template-compiler__preview-head { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--td-component-border); }
+.organize-template-compiler__preview-head span { color: var(--td-text-color-placeholder); font-size: 12px; }
+.organize-template-compiler__preview pre { max-height: 320px; overflow: auto; margin: 0; padding: 14px; white-space: pre-wrap; background: var(--td-bg-color-secondarycontainer); line-height: 1.65; font-size: 12px; }
+.organize-template-compiler__empty { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 110px; color: var(--td-text-color-placeholder); border: 1px dashed var(--td-component-border); border-radius: 6px; }
+.organize-template-compiler__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .organize-template-preview__meta { display: flex; gap: 20px; color: var(--td-text-color-secondary); font-size: 13px; margin-bottom: 14px; }
 .organize-template-preview pre { margin: 14px 0 0; padding: 16px; min-height: 180px; white-space: pre-wrap; background: var(--td-bg-color-secondarycontainer); border-radius: 6px; line-height: 1.7; }
 .organize-template-version-list { display: grid; gap: 10px; }
@@ -470,5 +620,7 @@ function defaultMarkdownTemplate() {
   .organize-template-row { flex-wrap: wrap; }
   .organize-template-row__actions { width: 100%; justify-content: flex-start; }
   .organize-template-form-grid { grid-template-columns: 1fr; gap: 0; }
+  .organize-template-compiler__toolbar { align-items: flex-start; flex-direction: column; }
+  .organize-template-compiler__summary { grid-template-columns: 1fr; }
 }
 </style>

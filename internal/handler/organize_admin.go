@@ -107,6 +107,20 @@ func (h *OrganizeAdminHandler) PreviewTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 
+func (h *OrganizeAdminHandler) CompileTemplate(c *gin.Context) {
+	var input types.OrganizeTemplateCompileInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := service.CompileOrganizeTemplateMarkdown(input)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
 func (h *OrganizeAdminHandler) PublishTemplate(c *gin.Context) {
 	var input struct {
 		ChangeNote string `json:"change_note"`
@@ -259,7 +273,8 @@ func (h *OrganizeAdminHandler) writeError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrOrganizeAdminTemplateVersionNeeded),
 		errors.Is(err, service.ErrOrganizeAdminTemplateInvalidSpec),
 		errors.Is(err, service.ErrOrganizeAdminTemplateKeyImmutable),
-		errors.Is(err, service.ErrOrganizeAdminTemplateNotPublishable):
+		errors.Is(err, service.ErrOrganizeAdminTemplateNotPublishable),
+		errors.Is(err, service.ErrOrganizeTemplateSourceRequired):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	case errors.Is(err, service.ErrOrganizeDiscoverCategoryNotFound):
 		c.Error(apperrors.NewNotFoundError(err.Error()))
