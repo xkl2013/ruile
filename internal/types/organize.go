@@ -205,6 +205,9 @@ type OrganizeOutput struct {
 	Status            string         `json:"status" gorm:"type:varchar(32);not null;default:'draft';index"`
 	PublicContentType string         `json:"public_content_type" gorm:"type:varchar(32);not null;default:'post';index"`
 	PublicStatus      string         `json:"public_status" gorm:"type:varchar(32);not null;default:'';index"`
+	Featured          bool           `json:"featured" gorm:"not null;default:false;index"`
+	Recommendable     bool           `json:"recommendable" gorm:"not null;default:true;index"`
+	SortOrder         int            `json:"sort_order" gorm:"not null;default:0"`
 	SeriesID          string         `json:"series_id,omitempty" gorm:"type:varchar(128);not null;default:'';index"`
 	SeriesTitle       string         `json:"series_title,omitempty" gorm:"type:varchar(255);not null;default:''"`
 	SeriesOrder       int            `json:"series_order,omitempty" gorm:"not null;default:0"`
@@ -352,6 +355,9 @@ type OrganizePublicContentQuery struct {
 	UserID            string
 	PublicStatus      string
 	PublicContentType string
+	Featured          *bool
+	Recommendable     *bool
+	ExcludeFeatured   bool
 	Page              int
 	PageSize          int
 	// ExcludeCourseLessons drops outputs that belong to a course in
@@ -439,6 +445,9 @@ type OrganizeOutputInput struct {
 	Status            string   `json:"status,omitempty"`
 	PublicContentType string   `json:"public_content_type,omitempty"`
 	PublicStatus      string   `json:"public_status,omitempty"`
+	Featured          *bool    `json:"featured,omitempty"`
+	Recommendable     *bool    `json:"recommendable,omitempty"`
+	SortOrder         *int     `json:"sort_order,omitempty"`
 	SeriesID          string   `json:"series_id,omitempty"`
 	SeriesTitle       string   `json:"series_title,omitempty"`
 	SeriesOrder       int      `json:"series_order,omitempty"`

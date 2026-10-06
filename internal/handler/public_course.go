@@ -40,6 +40,12 @@ type courseVisibilityUpdateRequest struct {
 	SharedSpaceIDs  []string `json:"shared_space_ids"`
 }
 
+type courseDiscoveryUpdateRequest struct {
+	Featured      bool `json:"featured"`
+	Recommendable bool `json:"recommendable"`
+	SortOrder     int  `json:"sort_order"`
+}
+
 func (h *PublicContentHandler) CreateAdminCourse(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
@@ -370,6 +376,28 @@ func (h *PublicContentHandler) UpdateAdminCourseVisibility(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": course})
 }
 
+func (h *PublicContentHandler) UpdateAdminCourseDiscovery(c *gin.Context) {
+	var req courseDiscoveryUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid course discovery request").WithDetails(err.Error()))
+		return
+	}
+	course, err := h.service.UpdateCourseDiscovery(
+		c.Request.Context(),
+		c.Param("id"),
+		types.OrganizeCourseDiscoveryInput{
+			Featured:      req.Featured,
+			Recommendable: req.Recommendable,
+			SortOrder:     req.SortOrder,
+		},
+	)
+	if err != nil {
+		h.writeCourseError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": course})
+}
+
 func (h *PublicContentHandler) PublishAdminCourse(c *gin.Context) {
 	h.moderateCourse(c, types.OrganizePublicContentStatusPublished)
 }
@@ -413,5 +441,18 @@ func (h *PublicContentHandler) writeCourseError(c *gin.Context, err error) {
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	default:
 		c.Error(apperrors.NewInternalServerError(err.Error()))
+	}
+}
+
+func parseOptionalBoolQuery(value string) *bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "1", "yes":
+		result := true
+		return &result
+	case "false", "0", "no":
+		result := false
+		return &result
+	default:
+		return nil
 	}
 }

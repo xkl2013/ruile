@@ -76,6 +76,7 @@ type OrganizeRepository interface {
 	DeleteCourseLesson(ctx context.Context, course *types.OrganizeCourse, lesson *types.OrganizeCourseLesson) error
 	GetCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
 	UpdateCourse(ctx context.Context, course *types.OrganizeCourse) error
+	UpdateCourseDiscovery(ctx context.Context, id string, input types.OrganizeCourseDiscoveryInput) (*types.OrganizeCourse, error)
 	UpdateCoursePublicStatus(ctx context.Context, id, status string) (*types.OrganizeCourse, error)
 	UpdateCourseVisibility(ctx context.Context, id, visibilityScope string, organizationIDs []string, createdBy string) (*types.OrganizeCourse, error)
 	ReplaceCourseSharedSpaces(ctx context.Context, courseID string, organizationIDs []string, createdBy string) error
@@ -192,6 +193,7 @@ type OrganizeService interface {
 	GetPublishedCourse(ctx context.Context, id string) (*types.OrganizeCourse, error)
 	ListCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
 	ListPublishedCourses(ctx context.Context, query types.OrganizeCourseQuery) ([]*types.OrganizeCourse, int64, error)
+	UpdateCourseDiscovery(ctx context.Context, id string, input types.OrganizeCourseDiscoveryInput) (*types.OrganizeCourse, error)
 	GetCourseStats(ctx context.Context, query types.OrganizeCourseQuery) (*types.OrganizeCourseStats, error)
 	OpenPublishedCourseLessonMedia(ctx context.Context, courseID, lessonID string) (io.ReadCloser, string, string, error)
 	OpenPublishedCourseCover(ctx context.Context, courseID string) (io.ReadCloser, string, string, error)

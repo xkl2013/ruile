@@ -355,6 +355,9 @@ func (r *organizeRepository) UpdatePublicContent(ctx context.Context, output *ty
 			"status",
 			"public_content_type",
 			"public_status",
+			"featured",
+			"recommendable",
+			"sort_order",
 			"series_id",
 			"series_title",
 			"series_order",
@@ -500,6 +503,15 @@ func (r *organizeRepository) ListPublicContents(
 	if query.PublicContentType != "" {
 		dbq = dbq.Where("public_content_type = ?", query.PublicContentType)
 	}
+	if query.Featured != nil {
+		dbq = dbq.Where("featured = ?", *query.Featured)
+	}
+	if query.Recommendable != nil {
+		dbq = dbq.Where("recommendable = ?", *query.Recommendable)
+	}
+	if query.ExcludeFeatured {
+		dbq = dbq.Where("featured = ?", false)
+	}
 	// A row whose series_id points at a real course is a lesson body, not a post.
 	// Matching on series_id rather than public_content_type keeps the legacy
 	// single "学习课程" posts (which carry the type but belong to no course) in
@@ -515,6 +527,8 @@ func (r *organizeRepository) ListPublicContents(
 	}
 	var outputs []*types.OrganizeOutput
 	if err := dbq.
+		Order("CASE WHEN sort_order = 0 THEN 1 ELSE 0 END ASC").
+		Order("sort_order ASC").
 		Order("updated_at DESC").
 		Order("created_at DESC").
 		Limit(query.PageSize).

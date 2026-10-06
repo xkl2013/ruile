@@ -65,6 +65,9 @@ type publicContentUpdateRequest struct {
 	SeriesTitle       string        `json:"series_title"`
 	SeriesOrder       int           `json:"series_order"`
 	ReviewNote        string        `json:"review_note"`
+	Featured          *bool         `json:"featured"`
+	Recommendable     *bool         `json:"recommendable"`
+	SortOrder         *int          `json:"sort_order"`
 	Metadata          types.JSONMap `json:"metadata"`
 }
 
@@ -122,6 +125,9 @@ func (h *PublicContentHandler) UpdateAdminContent(c *gin.Context) {
 		SeriesTitle:       req.SeriesTitle,
 		SeriesOrder:       req.SeriesOrder,
 		ReviewNote:        req.ReviewNote,
+		Featured:          req.Featured,
+		Recommendable:     req.Recommendable,
+		SortOrder:         req.SortOrder,
 		Metadata:          req.Metadata,
 	})
 	if err != nil {

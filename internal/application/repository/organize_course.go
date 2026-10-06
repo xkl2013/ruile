@@ -241,6 +241,42 @@ func (r *organizeRepository) UpdateCourse(ctx context.Context, course *types.Org
 		Updates(course).Error
 }
 
+func (r *organizeRepository) UpdateCourseDiscovery(
+	ctx context.Context,
+	id string,
+	input types.OrganizeCourseDiscoveryInput,
+) (*types.OrganizeCourse, error) {
+	var course types.OrganizeCourse
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ?", id).First(&course).Error; err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		if err := tx.Model(&types.OrganizeCourse{}).
+			Where("id = ?", id).
+			Updates(map[string]interface{}{
+				"featured":      input.Featured,
+				"recommendable": input.Recommendable,
+				"sort_order":    max(0, input.SortOrder),
+				"updated_at":    now,
+			}).Error; err != nil {
+			return err
+		}
+		course.Featured = input.Featured
+		course.Recommendable = input.Recommendable
+		course.SortOrder = max(0, input.SortOrder)
+		course.UpdatedAt = now
+		return nil
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &course, nil
+}
+
 func (r *organizeRepository) UpdateCourseVisibility(
 	ctx context.Context,
 	id string,
@@ -518,6 +554,12 @@ func (r *organizeRepository) ListCourses(
 	if query.Category != "" {
 		dbq = dbq.Where("category = ?", query.Category)
 	}
+	if query.Featured != nil {
+		dbq = dbq.Where("featured = ?", *query.Featured)
+	}
+	if query.Recommendable != nil {
+		dbq = dbq.Where("recommendable = ?", *query.Recommendable)
+	}
 	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "summary", "category", "teacher_name")
 
 	var total int64
@@ -525,7 +567,11 @@ func (r *organizeRepository) ListCourses(
 		return nil, 0, err
 	}
 
-	dbq = dbq.Order("updated_at DESC").Order("created_at DESC")
+	dbq = dbq.
+		Order("CASE WHEN sort_order = 0 THEN 1 ELSE 0 END ASC").
+		Order("sort_order ASC").
+		Order("updated_at DESC").
+		Order("created_at DESC")
 	if query.PageSize > 0 {
 		page := query.Page
 		if page < 1 {

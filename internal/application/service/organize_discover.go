@@ -26,6 +26,9 @@ func (s *organizeService) GetDiscover(
 		return nil, err
 	}
 	categoryDTOs := discoverCategoryDTOs(categories)
+	if len(categoryDTOs) == 0 {
+		categoryDTOs = types.OrganizeDiscoverCategories()
+	}
 	query.Tab = normalizeDiscoverTab(strings.TrimSpace(query.Tab), categoryDTOs)
 	if query.Page < 1 {
 		query.Page = 1
@@ -57,7 +60,11 @@ func (s *organizeService) GetDiscover(
 		query.Page = totalPages
 	}
 
-	featured := pickDiscoverFeaturedOutputs(filtered, query.FeaturedOffset)
+	featuredCandidates := filtered
+	if query.Tab == "" || query.Tab == "recommended" {
+		featuredCandidates = outputs
+	}
+	featured := pickDiscoverFeaturedOutputs(featuredCandidates, query.Keyword, query.FeaturedOffset)
 	return &types.OrganizeDiscover{
 		Tabs:            tabs,
 		FeaturedOutputs: featured,
@@ -73,9 +80,10 @@ func (s *organizeService) GetDiscover(
 // PageSize 1 keeps it a COUNT without dragging rows across.
 func (s *organizeService) countPublishedCourses(ctx context.Context) (int64, error) {
 	_, total, err := s.repo.ListCourses(ctx, types.OrganizeCourseQuery{
-		PublicStatus: types.OrganizePublicContentStatusPublished,
-		Page:         1,
-		PageSize:     1,
+		PublicStatus:  types.OrganizePublicContentStatusPublished,
+		Recommendable: boolPtr(true),
+		Page:          1,
+		PageSize:      1,
 	})
 	if err != nil {
 		return 0, err
@@ -117,6 +125,7 @@ func buildDiscoverTabs(
 ) []types.OrganizeDiscoverTab {
 	categoryCounts := make(map[string]int64)
 	var recommendedCount int64
+	explicitFeatured := hasExplicitFeatured(outputs)
 
 	for _, output := range outputs {
 		if output == nil {
@@ -125,9 +134,13 @@ func buildDiscoverTabs(
 		if isDiscoverCourseOutput(output) {
 			continue
 		}
-		recommendedCount++
-		if category := discoverOutputCategory(output, categories); category != "" {
-			categoryCounts[category]++
+		if output.Recommendable && (!explicitFeatured || !output.Featured) {
+			recommendedCount++
+		}
+		if output.Recommendable {
+			if category := discoverOutputCategory(output, categories); category != "" {
+				categoryCounts[category]++
+			}
 		}
 	}
 
@@ -176,10 +189,14 @@ func sortDiscoverOutputs(outputs []*types.OrganizeOutput) {
 			return left != nil
 		}
 
-		leftStatus := discoverStatusWeight(left.Status)
-		rightStatus := discoverStatusWeight(right.Status)
-		if leftStatus != rightStatus {
-			return leftStatus > rightStatus
+		if left.SortOrder != right.SortOrder {
+			if left.SortOrder == 0 {
+				return false
+			}
+			if right.SortOrder == 0 {
+				return true
+			}
+			return left.SortOrder < right.SortOrder
 		}
 
 		if left.MemoryCount != right.MemoryCount {
@@ -198,21 +215,36 @@ func sortDiscoverOutputs(outputs []*types.OrganizeOutput) {
 	})
 }
 
-func pickDiscoverFeaturedOutputs(outputs []*types.OrganizeOutput, offset int) []*types.OrganizeOutput {
+func pickDiscoverFeaturedOutputs(outputs []*types.OrganizeOutput, keyword string, offset int) []*types.OrganizeOutput {
 	if len(outputs) == 0 {
 		return []*types.OrganizeOutput{}
 	}
-	count := min(4, len(outputs))
+	candidates := make([]*types.OrganizeOutput, 0, len(outputs))
+	explicit := hasExplicitFeatured(outputs)
+	for _, output := range outputs {
+		if output == nil || isDiscoverCourseOutput(output) {
+			continue
+		}
+		if explicit && !output.Featured {
+			continue
+		}
+		if keyword != "" && !matchesDiscoverKeyword(output, keyword) {
+			continue
+		}
+		candidates = append(candidates, output)
+	}
+	sortDiscoverOutputs(candidates)
+	count := min(4, len(candidates))
 	if count == 0 {
 		return []*types.OrganizeOutput{}
 	}
-	start := offset % len(outputs)
+	start := offset % len(candidates)
 	if start < 0 {
 		start = 0
 	}
 	featured := make([]*types.OrganizeOutput, 0, count)
 	for i := 0; i < count; i++ {
-		featured = append(featured, outputs[(start+i)%len(outputs)])
+		featured = append(featured, candidates[(start+i)%len(candidates)])
 	}
 	return featured
 }
@@ -238,10 +270,13 @@ func paginateDiscoverOutputs(outputs []*types.OrganizeOutput, page, pageSize int
 func matchesDiscoverTab(output *types.OrganizeOutput, tab string, categories []types.OrganizeDiscoverCategory) bool {
 	normalizedTab := normalizeDiscoverTab(tab, categories)
 	isCourseOutput := isDiscoverCourseOutput(output)
+	if output == nil || !output.Recommendable {
+		return false
+	}
 
 	switch normalizedTab {
 	case "", "recommended":
-		return !isCourseOutput
+		return !isCourseOutput && !output.Featured
 	default:
 		return !isCourseOutput && discoverOutputCategory(output, categories) == normalizedTab
 	}
@@ -357,6 +392,19 @@ func discoverStatusWeight(status string) int {
 	default:
 		return 0
 	}
+}
+
+func hasExplicitFeatured(outputs []*types.OrganizeOutput) bool {
+	for _, output := range outputs {
+		if output != nil && output.Featured {
+			return true
+		}
+	}
+	return false
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func discoverOutputTags(metadata types.JSONMap) []string {

@@ -31,6 +31,7 @@ type publicKnowledgeBasePublicationRequest struct {
 	Description     string `json:"description"`
 	Category        string `json:"category"`
 	Featured        bool   `json:"featured"`
+	Recommendable   bool   `json:"recommendable"`
 	SortOrder       int    `json:"sort_order"`
 }
 
@@ -98,6 +99,7 @@ func (h *PublicKnowledgeBaseHandler) UpdateAdminPublication(c *gin.Context) {
 		req.Description,
 		req.Category,
 		req.Featured,
+		req.Recommendable,
 		req.SortOrder,
 	)
 	if err != nil {
@@ -202,6 +204,7 @@ func (h *PublicKnowledgeBaseHandler) publicResponse(c *gin.Context, row *types.P
 		"category":          row.Category,
 		"status":            row.Status,
 		"featured":          row.Featured,
+		"recommendable":     row.Recommendable,
 		"sort_order":        row.SortOrder,
 		"published_at":      row.PublishedAt,
 		"created_at":        row.CreatedAt,

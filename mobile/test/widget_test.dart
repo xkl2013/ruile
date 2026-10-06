@@ -145,6 +145,53 @@ void main() {
     expect(find.text('消息'), findsNothing);
   });
 
+  testWidgets('opens mock organize reports and output details', (tester) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    await tester.tap(find.byTooltip('整理'));
+    await _pumpTransition(tester);
+
+    expect(find.text('今日整理'), findsOneWidget);
+    expect(find.text('项目进展周报'), findsWidgets);
+    expect(find.text('整理报告'), findsOneWidget);
+    expect(find.text('整理失败：模型服务暂时不可用'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('重试'));
+    await tester.pump();
+    await tester.tap(find.text('重试'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.text('整理失败：模型服务暂时不可用'), findsNothing);
+
+    await tester.drag(
+      find.byType(ListView).last,
+      const Offset(0, 420),
+    );
+    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const Key('organize-config-mock-config-daily')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const Key('organize-config-mock-config-daily')),
+    );
+    await _pumpTransition(tester);
+    expect(find.text('配置报告'), findsOneWidget);
+    expect(find.text('时间线'), findsOneWidget);
+    expect(find.text('客户沟通日报 · 10月5日'), findsWidgets);
+
+    await tester.tap(find.text('客户沟通日报 · 10月5日').last);
+    await _pumpTransition(tester);
+    expect(find.text('整理产物'), findsOneWidget);
+    expect(find.text('今日结论'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('引用来源'),
+      360,
+      scrollable: find.byType(Scrollable).last,
+    );
+    expect(find.text('引用来源'), findsOneWidget);
+  });
+
   testWidgets('opens daily report and history from the drawer', (
     tester,
   ) async {

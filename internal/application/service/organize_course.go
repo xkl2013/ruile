@@ -164,6 +164,7 @@ func (s *organizeService) CreateCourseFromFolder(
 		TeacherTitle:    trimMax(strings.TrimSpace(input.TeacherTitle), organizeCourseMaxTeacherTitle),
 		PublicStatus:    publicStatus,
 		VisibilityScope: visibilityScope,
+		Recommendable:   true,
 		SharedSpaceIDs:  sharedSpaceIDs,
 	}
 	if err := s.repo.CreateCourse(ctx, course, lessons); err != nil {
@@ -250,6 +251,7 @@ func (s *organizeService) CreateCourse(
 		TeacherTitle:    trimMax(strings.TrimSpace(input.TeacherTitle), organizeCourseMaxTeacherTitle),
 		PublicStatus:    publicStatus,
 		VisibilityScope: visibilityScope,
+		Recommendable:   true,
 		SharedSpaceIDs:  sharedSpaceIDs,
 	}
 
@@ -921,6 +923,25 @@ func (s *organizeService) ListCourses(
 		}
 	}
 	return courses, total, nil
+}
+
+func (s *organizeService) UpdateCourseDiscovery(
+	ctx context.Context,
+	id string,
+	input types.OrganizeCourseDiscoveryInput,
+) (*types.OrganizeCourse, error) {
+	course, err := s.repo.UpdateCourseDiscovery(ctx, strings.TrimSpace(id), types.OrganizeCourseDiscoveryInput{
+		Featured:      input.Featured,
+		Recommendable: input.Recommendable,
+		SortOrder:     max(0, input.SortOrder),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if course == nil {
+		return nil, ErrOrganizeNotFound
+	}
+	return course, nil
 }
 
 func (s *organizeService) GetCourseStats(

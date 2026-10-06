@@ -101,13 +101,14 @@ func (r *publicKnowledgeBaseRepository) UpdatePublication(
 		Model(&types.PublicKnowledgeBasePublication{}).
 		Where("id = ?", publication.ID).
 		Updates(map[string]interface{}{
-			"title":       publication.Title,
-			"description": publication.Description,
-			"category":    publication.Category,
-			"featured":    publication.Featured,
-			"sort_order":  publication.SortOrder,
-			"updated_by":  publication.UpdatedBy,
-			"updated_at":  publication.UpdatedAt,
+			"title":         publication.Title,
+			"description":   publication.Description,
+			"category":      publication.Category,
+			"featured":      publication.Featured,
+			"recommendable": publication.Recommendable,
+			"sort_order":    publication.SortOrder,
+			"updated_by":    publication.UpdatedBy,
+			"updated_at":    publication.UpdatedAt,
 		}).Error
 }
 
