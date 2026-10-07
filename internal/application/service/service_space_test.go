@@ -94,10 +94,18 @@ func TestServiceSpaceSubjectsSupportGenericHierarchyAndIsolation(t *testing.T) {
 	require.Equal(t, "child", child.SubjectType)
 	require.Equal(t, parent.ID, *child.ParentSubjectID)
 
+	generated, err := svc.CreateSubject(ctx, 70, "owner", space.ID, types.ServiceSubjectCreateInput{
+		DisplayName: "自动编号对象",
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.ServiceSubjectTypeCustom, generated.SubjectType)
+	require.Equal(t, "自动编号对象", generated.DisplayName)
+	require.Regexp(t, `^subj_[0-9a-f]{8}$`, generated.SubjectKey)
+
 	subjects, total, err := svc.ListSubjects(ctx, 70, "owner", space.ID, "", 1, 20)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, total)
-	require.Len(t, subjects, 2)
+	require.EqualValues(t, 3, total)
+	require.Len(t, subjects, 3)
 
 	updatedMetadata := types.JSONMap{"level": "platinum", "renewal_risk": "low"}
 	updated, err := svc.UpdateSubject(ctx, 70, "owner", space.ID, parent.ID, types.ServiceSubjectUpdateInput{

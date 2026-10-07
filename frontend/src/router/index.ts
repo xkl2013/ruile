@@ -21,6 +21,10 @@ const organizeOutputDetailComponent = () => import("../views/organize/OrganizeOu
 const organizeCourseDetailComponent = () => import("../views/organize/OrganizeCourseDetail.vue")
 const organizeLessonDetailComponent = () => import("../views/organize/OrganizeLessonDetail.vue")
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
+const serviceHubComponent = () => import("../views/service/ServiceHub.vue")
+const serviceOverviewComponent = () => import("../views/service/ServiceOverviewView.vue")
+const serviceSubjectsComponent = () => import("../views/service/ServiceSubjectsView.vue")
+const serviceSettingsComponent = () => import("../views/service/ServiceSettingsView.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
 const toPlatformChildPath = (path: string) => path.replace(/^\/platform\//, '')
@@ -213,7 +217,13 @@ const router = createRouter({
         {
           path: "service",
           name: "serviceHub",
-          component: () => import("../views/service/ServiceHub.vue"),
+          component: serviceHubComponent,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/new",
+          name: "serviceCreate",
+          component: serviceHubComponent,
           meta: serviceRouteMeta,
         },
         {
@@ -234,6 +244,36 @@ const router = createRouter({
         {
           path: "service/review",
           redirect: "/platform/service",
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/:serviceId/sessions/:sessionId",
+          name: "serviceSession",
+          component: serviceHubComponent,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/:serviceId/overview",
+          name: "serviceOverview",
+          component: serviceOverviewComponent,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/:serviceId/subjects",
+          name: "serviceSubjects",
+          component: serviceSubjectsComponent,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/:serviceId/settings/:section?",
+          name: "serviceSettings",
+          component: serviceSettingsComponent,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/:serviceId",
+          name: "serviceWorkspace",
+          component: serviceHubComponent,
           meta: serviceRouteMeta,
         },
         {

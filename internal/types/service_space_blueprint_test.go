@@ -121,6 +121,20 @@ func TestServiceSpaceTemplateRejectsUnsafeAutoApply(t *testing.T) {
 		Name:           "项目跟进",
 		IdempotencyKey: "",
 	}).Validate())
+
+	require.Error(t, (ServiceSpaceTemplateApplyInput{
+		TemplateKey:    "project-follow-up",
+		Name:           "项目跟进",
+		SpaceType:      ServiceSpaceType("unsupported"),
+		IdempotencyKey: "template-apply-1",
+	}).Validate())
+
+	require.NoError(t, (ServiceSpaceTemplateApplyInput{
+		TemplateKey:    "project-follow-up",
+		Name:           "项目跟进",
+		SpaceType:      ServiceSpaceTypeOperations,
+		IdempotencyKey: "template-apply-2",
+	}).Validate())
 }
 
 func TestServiceSpaceTemplateAllowsPublishedManualRecommendation(t *testing.T) {

@@ -1,24 +1,26 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="displayMode === 'page'">
     <Transition name="service-create-dialog">
       <div
         v-if="visible"
         class="service-create-dialog-overlay"
+        :class="{ 'is-page': displayMode === 'page' }"
         role="presentation"
-        @click.self="close"
+        @click.self="displayMode === 'dialog' && close()"
       >
         <section
           class="service-create-dialog"
-          role="dialog"
-          aria-modal="true"
+          :class="{ 'is-page': displayMode === 'page' }"
+          :role="displayMode === 'dialog' ? 'dialog' : undefined"
+          :aria-modal="displayMode === 'dialog' ? 'true' : undefined"
           aria-labelledby="service-create-dialog-title"
           @keydown.esc="close"
         >
           <header class="service-create-dialog-header">
             <div>
-              <h2 id="service-create-dialog-title">{{ isCopyMode ? '复制配置创建服务' : '新建服务空间' }}</h2>
+              <h2 id="service-create-dialog-title">{{ isCopyMode ? '复制配置创建服务' : '新建服务' }}</h2>
               <p class="service-create-dialog-subtitle">
-                {{ selectedTemplate ? '已带入模板配置，可按需要调整' : '填写空间名称和工作指令' }}
+                {{ selectedTemplate ? '模板内容已带入，可按当前工作调整' : '写清要做什么，再选择一起工作的专家与资料' }}
               </p>
             </div>
             <button type="button" class="service-create-dialog-close" aria-label="关闭" @click="close">
@@ -35,32 +37,14 @@
                 </div>
                 <span class="service-create-auto-apply">
                   <t-icon name="check-circle" />
-                  {{ selectedTemplate.autoApply ? '命中后免确认' : '创建前确认' }}
+                  创建后仍可调整
                 </span>
               </div>
               <p class="service-create-preview-description">{{ selectedTemplate.description }}</p>
-              <div class="service-create-preview-meta">
-                <span><b>空间形态</b>{{ selectedTemplate.spaceTypeLabel || '客户服务' }}</span>
-                <span><b>服务主体</b>{{ selectedTemplate.subjectLabel || '当前服务主体' }}</span>
-              </div>
-              <div class="service-create-preview-columns">
-                <div>
-                  <span>档案字段</span>
-                  <div>
-                    <em v-for="field in selectedTemplate.profileFields || []" :key="field">{{ field }}</em>
-                  </div>
-                </div>
-                <div>
-                  <span>首页摘要</span>
-                  <div>
-                    <em v-for="section in selectedTemplate.summarySections || []" :key="section">{{ section }}</em>
-                  </div>
-                </div>
-              </div>
             </section>
 
             <div class="service-create-field">
-              <label for="service-create-name">空间名称</label>
+              <label for="service-create-name">服务名称</label>
               <t-input
                 id="service-create-name"
                 v-model="form.name"
@@ -73,16 +57,40 @@
             </div>
 
             <div class="service-create-field service-create-instruction-field">
-              <label for="service-create-instruction">指令</label>
+              <label for="service-create-instruction">工作指令</label>
               <t-textarea
                 id="service-create-instruction"
                 v-model="form.instruction"
                 class="service-create-instruction"
-                :placeholder="form.templateId ? '模板指令已填充，可按需要补充' : '描述服务目标、服务对象和首页最关注的信息'"
+                :placeholder="form.templateId ? '模板指令已填充，可按需要补充' : '例如：跟进秋季招生线索，重点记录家长顾虑与到访意向；涉及课程与价格时先查知识库'"
                 :maxlength="4000"
                 :autosize="{ minRows: 4, maxRows: 8 }"
               />
             </div>
+
+            <section class="service-create-type-section">
+              <div class="service-create-type-heading">
+                <strong>主要围绕谁工作</strong>
+                <span>用于预设服务的记录方式，创建后仍可调整</span>
+              </div>
+              <div class="service-create-type-options">
+                <button
+                  v-for="option in serviceTypeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="service-create-type-option"
+                  :class="{ selected: form.spaceType === option.value }"
+                  @click="form.spaceType = option.value"
+                >
+                  <t-icon :name="option.icon" />
+                  <span>
+                    <strong>{{ option.label }}</strong>
+                    <small>{{ option.description }}</small>
+                  </span>
+                  <t-icon v-if="form.spaceType === option.value" name="check-circle-filled" class="service-create-type-check" />
+                </button>
+              </div>
+            </section>
 
             <section class="service-create-option-section">
               <button
@@ -226,10 +234,7 @@
           />
 
           <footer class="service-create-dialog-footer">
-            <span v-if="selectedTemplate && selectedTemplate.autoApply">
-              已使用已审核模板，创建后无需再次确认空间结构
-            </span>
-            <span v-else>创建后可继续调整服务配置</span>
+            <span>创建后直接进入服务，可以马上开始一段工作</span>
             <div class="service-create-dialog-actions">
               <t-button variant="outline" size="medium" @click="close">取消</t-button>
               <t-button
@@ -239,7 +244,7 @@
                 :disabled="!form.name.trim()"
                 @click="submit"
               >
-                {{ selectedTemplate?.autoApply ? '直接创建空间' : '生成空间蓝图' }}
+                创建服务
               </t-button>
             </div>
           </footer>
@@ -266,6 +271,7 @@ import {
 } from './serviceHubState'
 
 type ServiceCreateSource = ServiceTemplate | ServiceRecord | null
+type ServiceSpaceType = 'customer_service' | 'operations' | 'research'
 type KnowledgeBaseOption = {
   id: string
   name: string
@@ -280,9 +286,13 @@ type KnowledgeBaseOption = {
 const props = withDefaults(defineProps<{
   visible: boolean
   source?: ServiceCreateSource
+  displayMode?: 'dialog' | 'page'
 }>(), {
   source: null,
+  displayMode: 'dialog',
 })
+const visible = computed(() => props.visible)
+const displayMode = computed(() => props.displayMode)
 
 const emit = defineEmits<{
   'update:visible': [visible: boolean]
@@ -293,6 +303,7 @@ const emit = defineEmits<{
     templateId: string
     expertIds: string[]
     knowledgeBaseIds: string[]
+    spaceType: ServiceSpaceType
   }]
 }>()
 
@@ -311,7 +322,34 @@ const form = reactive({
   templateId: '',
   expertIds: [] as string[],
   knowledgeBaseIds: [] as string[],
+  spaceType: 'customer_service' as ServiceSpaceType,
 })
+
+const serviceTypeOptions: Array<{
+  value: ServiceSpaceType
+  label: string
+  description: string
+  icon: string
+}> = [
+  {
+    value: 'customer_service',
+    label: '家长与学员',
+    description: '持续跟进家庭、学员、会员与招生线索',
+    icon: 'usergroup',
+  },
+  {
+    value: 'operations',
+    label: '园所日常运营',
+    description: '围绕活动、巡查、团队与跨岗位协作',
+    icon: 'task',
+  },
+  {
+    value: 'research',
+    label: '教研与备课',
+    description: '沉淀观察、课题、课程与可复用经验',
+    icon: 'book-open',
+  },
+]
 
 const isCopyMode = computed(() => Boolean(props.source && 'templateId' in props.source))
 const selectedTemplate = computed(() => serviceTemplates.find((template) => template.id === form.templateId))
@@ -349,6 +387,7 @@ const resetForm = () => {
     ? [...service.expertIds]
     : expertIdsForTemplate(template)
   form.knowledgeBaseIds = service?.knowledgeBaseIds ? [...service.knowledgeBaseIds] : []
+  form.spaceType = service?.spaceType || template?.spaceType || 'customer_service'
   formError.value = ''
   knowledgeBaseQuery.value = ''
   expertPickerVisible.value = false
@@ -386,15 +425,6 @@ const loadKnowledgeBases = async () => {
   } finally {
     knowledgeBasesLoading.value = false
   }
-}
-
-const selectTemplate = (template?: ServiceTemplate) => {
-  if (!template) return
-  form.templateId = template.id
-  form.name = template.name
-  form.description = template.description
-  form.instruction = template.instruction
-  form.expertIds = expertIdsForTemplate(template)
 }
 
 const toggleExpert = (expertId: string) => {
@@ -439,6 +469,7 @@ const submit = () => {
     templateId: form.templateId,
     expertIds: [...form.expertIds],
     knowledgeBaseIds: [...form.knowledgeBaseIds],
+    spaceType: form.spaceType,
   })
 }
 
@@ -474,6 +505,16 @@ watch(
   background: rgba(0, 0, 0, 0.42);
 }
 
+.service-create-dialog-overlay.is-page {
+  position: static;
+  z-index: auto;
+  display: block;
+  min-height: 100%;
+  padding: 20px 28px 32px;
+  overflow-y: auto;
+  background: var(--td-bg-color-container);
+}
+
 .service-create-dialog {
   display: flex;
   width: min(760px, calc(100vw - 40px));
@@ -487,6 +528,16 @@ watch(
   color: var(--td-text-color-primary);
 }
 
+.service-create-dialog.is-page {
+  width: min(920px, 100%);
+  max-height: none;
+  margin: 0 auto;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .service-create-dialog-header {
   display: flex;
   align-items: center;
@@ -495,11 +546,22 @@ watch(
   padding: 16px 24px 10px;
 }
 
+.service-create-dialog.is-page .service-create-dialog-header {
+  padding: 0 0 18px;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
 .service-create-dialog-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
   line-height: 26px;
+}
+
+.service-create-dialog.is-page .service-create-dialog-header h2 {
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 30px;
 }
 
 .service-create-dialog-subtitle {
@@ -534,6 +596,11 @@ watch(
   padding: 2px 24px 16px;
 }
 
+.service-create-dialog.is-page .service-create-dialog-body {
+  overflow: visible;
+  padding: 20px 0 24px;
+}
+
 .service-create-section-kicker {
   display: block;
   color: var(--td-text-color-placeholder);
@@ -555,9 +622,9 @@ watch(
 .service-create-template-preview {
   margin: 0 0 18px;
   padding: 13px 14px;
-  border: 1px solid rgba(0, 82, 217, 0.2);
-  border-radius: 10px;
-  background: rgba(0, 82, 217, 0.035);
+  border: 1px solid var(--td-brand-color-3);
+  border-radius: 8px;
+  background: var(--td-brand-color-1);
 }
 
 .service-create-preview-head {
@@ -578,7 +645,7 @@ watch(
 }
 
 .service-create-preview-description {
-  margin: 5px 0 11px;
+  margin: 5px 0 0;
   color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 18px;
@@ -663,6 +730,90 @@ watch(
   min-height: 112px;
   padding: 10px 12px;
   line-height: 1.55;
+}
+
+.service-create-type-section {
+  margin: 0 0 18px;
+}
+
+.service-create-type-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.service-create-type-heading strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.service-create-type-heading span {
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.service-create-type-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.service-create-type-option {
+  display: grid;
+  position: relative;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  min-height: 72px;
+  gap: 10px;
+  padding: 10px 32px 10px 12px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.service-create-type-option:hover,
+.service-create-type-option.selected {
+  border-color: var(--td-brand-color);
+  background: var(--td-brand-color-1);
+}
+
+.service-create-type-option > .t-icon:first-child {
+  color: var(--td-brand-color-7);
+  font-size: 20px;
+}
+
+.service-create-type-option > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.service-create-type-option strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.service-create-type-option small {
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.service-create-type-check {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  color: var(--td-brand-color);
 }
 
 .service-create-error {
@@ -978,6 +1129,13 @@ watch(
   border-top: 1px solid var(--td-component-stroke);
 }
 
+.service-create-dialog.is-page .service-create-dialog-footer {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0;
+  background: var(--td-bg-color-container);
+}
+
 .service-create-dialog-footer > span {
   color: var(--td-text-color-secondary);
   font-size: 11px;
@@ -1032,6 +1190,16 @@ watch(
     border-radius: 16px 16px 0 0;
   }
 
+  .service-create-dialog-overlay.is-page {
+    padding: 14px 16px 24px;
+  }
+
+  .service-create-dialog.is-page {
+    width: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+
   .service-create-dialog-header {
     padding: 16px 16px 8px;
   }
@@ -1052,6 +1220,16 @@ watch(
   .service-create-preview-columns {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .service-create-type-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .service-create-type-options {
+    grid-template-columns: 1fr;
   }
 
   .service-create-field > label {
@@ -1106,6 +1284,10 @@ watch(
     align-items: stretch;
     padding: 10px 16px 14px;
     flex-direction: column;
+  }
+
+  .service-create-dialog.is-page .service-create-dialog-footer {
+    padding: 10px 0 0;
   }
 
   .service-create-dialog-footer > span {

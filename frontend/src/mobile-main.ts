@@ -9,6 +9,9 @@ import { initTheme } from '@/composables/useTheme'
 import { initFont } from '@/composables/useFont'
 import i18n from './i18n'
 import ServiceHub from '@/views/service/ServiceHub.vue'
+import ServiceOverviewView from '@/views/service/ServiceOverviewView.vue'
+import ServiceSubjectsView from '@/views/service/ServiceSubjectsView.vue'
+import ServiceSettingsView from '@/views/service/ServiceSettingsView.vue'
 
 installTDesignIconOfflineGuard()
 initTheme()
@@ -31,6 +34,24 @@ const router = createRouter({
       path: '/mobile/service',
       name: 'mobileServiceHub',
       component: ServiceHub,
+      meta: mobileRouteMeta,
+    },
+    {
+      path: '/mobile/service/:serviceId/overview',
+      name: 'mobileServiceOverview',
+      component: ServiceOverviewView,
+      meta: mobileRouteMeta,
+    },
+    {
+      path: '/mobile/service/:serviceId/subjects',
+      name: 'mobileServiceSubjects',
+      component: ServiceSubjectsView,
+      meta: mobileRouteMeta,
+    },
+    {
+      path: '/mobile/service/:serviceId/settings/:section?',
+      name: 'mobileServiceSettings',
+      component: ServiceSettingsView,
       meta: mobileRouteMeta,
     },
     {

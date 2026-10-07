@@ -74,6 +74,19 @@ export interface ServiceExpertBinding {
   display_order?: number
 }
 
+export interface ServiceSpaceMember {
+  id: string
+  tenant_id: number
+  service_id: string
+  user_id: string
+  role: 'owner' | 'admin' | 'editor' | 'viewer'
+  status: 'active' | 'left'
+  joined_at?: string
+  left_at?: string
+  created_at?: string
+  updated_at?: string
+}
+
 export interface ServiceSubject {
   id: string
   tenant_id: number
@@ -405,6 +418,7 @@ export function applyServiceTemplate(
   templateKey: string,
   input: {
     name: string
+    space_type?: ServiceSpaceType
     description?: string
     instruction?: string
     template_key?: string
@@ -619,6 +633,39 @@ export function deleteServiceSession(serviceId: string, sessionId: string) {
   )
 }
 
+export function listServiceMembers(serviceId: string, status = 'active') {
+  return get<ServiceResponse<ServiceSpaceMember[]>>(
+    withQuery(`/api/v1/services/${encodeURIComponent(serviceId)}/members`, { status }),
+  )
+}
+
+export function addServiceMember(
+  serviceId: string,
+  input: { user_id: string; role: 'admin' | 'editor' | 'viewer' },
+) {
+  return post<ServiceResponse<ServiceSpaceMember>>(
+    `/api/v1/services/${encodeURIComponent(serviceId)}/members`,
+    input,
+  )
+}
+
+export function updateServiceMemberRole(
+  serviceId: string,
+  userId: string,
+  role: 'admin' | 'editor' | 'viewer',
+) {
+  return put<ServiceResponse<unknown>>(
+    `/api/v1/services/${encodeURIComponent(serviceId)}/members/${encodeURIComponent(userId)}`,
+    { role },
+  )
+}
+
+export function removeServiceMember(serviceId: string, userId: string) {
+  return del<ServiceResponse<unknown>>(
+    `/api/v1/services/${encodeURIComponent(serviceId)}/members/${encodeURIComponent(userId)}`,
+  )
+}
+
 export function listServiceExperts(serviceId: string) {
   return get<ServiceResponse<ServiceExpertBinding[]>>(
     `/api/v1/services/${encodeURIComponent(serviceId)}/experts`,
@@ -659,8 +706,8 @@ export function getServiceSubject(serviceId: string, subjectId: string) {
 export function createServiceSubject(
   serviceId: string,
   input: {
-    subject_type: string
-    subject_key: string
+    subject_type?: string
+    subject_key?: string
     display_name: string
     parent_subject_id?: string
     metadata?: Record<string, unknown>

@@ -263,6 +263,7 @@ type ServiceSpaceTemplateApplyInput struct {
 	TemplateKey      string                      `json:"template_key"`
 	TemplateVersion  int                         `json:"template_version,omitempty"`
 	Name             string                      `json:"name"`
+	SpaceType        ServiceSpaceType            `json:"space_type,omitempty"`
 	Description      string                      `json:"description,omitempty"`
 	Instruction      string                      `json:"instruction,omitempty"`
 	IdempotencyKey   string                      `json:"idempotency_key"`
@@ -279,6 +280,9 @@ func (i ServiceSpaceTemplateApplyInput) Validate() error {
 	}
 	if strings.TrimSpace(i.Name) == "" {
 		return fmt.Errorf("service space name is required")
+	}
+	if i.SpaceType != "" && !i.SpaceType.IsValid() {
+		return fmt.Errorf("invalid service space type")
 	}
 	if strings.TrimSpace(i.IdempotencyKey) == "" {
 		return fmt.Errorf("idempotency key is required")

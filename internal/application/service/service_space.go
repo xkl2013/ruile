@@ -17,6 +17,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/google/uuid"
 )
 
 var (
@@ -287,6 +288,9 @@ func (s *serviceSpaceService) ApplyTemplate(
 	blueprint.ProfileVersion = 1
 	blueprint.ProfileHash = profileHash(tenantID, userID)
 	blueprint.SourceInstruction = strings.TrimSpace(input.Instruction)
+	if input.SpaceType != "" {
+		blueprint.ProposedSpaceType = input.SpaceType
+	}
 	if blueprint.SourceInstruction == "" {
 		blueprint.SourceInstruction = strings.TrimSpace(template.Blueprint.SourceInstruction)
 	}
@@ -2886,7 +2890,10 @@ func (s *serviceSpaceService) CreateSubject(
 		return nil, ErrServiceSpaceSubjectInvalid
 	}
 	subjectKey := strings.TrimSpace(input.SubjectKey)
-	if subjectKey == "" || utf8.RuneCountInString(subjectKey) > types.ServiceSubjectKeyMaxLen {
+	if subjectKey == "" {
+		subjectKey = "subj_" + uuid.NewString()[:8]
+	}
+	if utf8.RuneCountInString(subjectKey) > types.ServiceSubjectKeyMaxLen {
 		return nil, ErrServiceSpaceSubjectInvalid
 	}
 	parentID, err := s.validateSubjectParent(ctx, tenantID, serviceID, "", input.ParentSubjectID)

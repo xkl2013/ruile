@@ -1,153 +1,90 @@
 <template>
   <div class="service-hub-page">
-    <ServiceCreateDialog
-      v-model:visible="createDialogVisible"
-      :source="createSource"
-      @submit="submitForm"
-    />
-
     <t-dialog
-      v-model:visible="blueprintConfirmVisible"
-      header="确认服务空间蓝图"
-      width="620px"
+      v-model:visible="serviceInfoDialogVisible"
+      :header="serviceInfoDialogMode === 'name' ? '修改服务名称' : '修改服务描述'"
+      width="520px"
       :confirm-btn="{
-        content: '确认并创建',
+        content: '保存',
         theme: 'primary',
-        loading: blueprintConfirming,
+        loading: serviceInfoSaving,
       }"
-      :cancel-btn="{ content: '返回修改' }"
-      :close-on-overlay-click="!blueprintConfirming"
-      :close-btn="!blueprintConfirming"
-      @confirm="confirmPendingBlueprint"
-      @cancel="cancelPendingBlueprint"
-      @close="cancelPendingBlueprint"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="saveServiceInfo"
     >
-      <div v-if="pendingBlueprint" class="service-blueprint-confirm">
-        <div class="service-blueprint-confirm-head">
-          <div>
-            <span class="service-blueprint-confirm-kicker">指令已解析</span>
-            <strong>{{ pendingPayload?.name }}</strong>
-          </div>
-          <span class="service-blueprint-confirm-status">待确认</span>
-        </div>
-        <p class="service-blueprint-confirm-copy">
-          系统将按下面的空间形态、服务主体、档案字段和首页摘要初始化服务。确认后才会启用空间。
+      <div class="service-info-dialog">
+        <t-input
+          v-if="serviceInfoDialogMode === 'name'"
+          v-model="serviceInfoNameDraft"
+          :maxlength="255"
+          placeholder="服务名称"
+        />
+        <t-textarea
+          v-else
+          v-model="serviceInfoDescriptionDraft"
+          :maxlength="500"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+          placeholder="说明这个服务负责什么、适合谁使用"
+        />
+        <p>
+          {{ serviceInfoDialogMode === 'name'
+            ? '名称会同步显示在服务列表与左侧导航。'
+            : '描述会显示在服务列表卡片上，帮助成员快速判断服务边界。' }}
         </p>
-        <div class="service-blueprint-confirm-grid">
-          <div>
-            <span>空间形态</span>
-            <strong>{{ spaceTypeLabel(pendingBlueprint.proposed_space_type) }}</strong>
-          </div>
-          <div>
-            <span>服务主体</span>
-            <strong>{{ subjectPolicyLabel(pendingBlueprint) }}</strong>
-          </div>
-          <div>
-            <span>档案字段</span>
-            <strong>{{ pendingBlueprint.profile_schema.length }} 个</strong>
-          </div>
-          <div>
-            <span>首页摘要</span>
-            <strong>{{ pendingBlueprint.summary_schema.length }} 个模块</strong>
-          </div>
-        </div>
-        <section class="service-blueprint-confirm-section">
-          <span>档案字段</span>
-          <div class="service-blueprint-confirm-tags">
-            <em v-for="field in pendingBlueprint.profile_schema" :key="field.key">{{ field.label }}</em>
-          </div>
-        </section>
-        <section class="service-blueprint-confirm-section">
-          <span>首页摘要</span>
-          <div class="service-blueprint-confirm-tags">
-            <em v-for="section in pendingBlueprint.summary_schema" :key="section.key">{{ section.label }}</em>
-          </div>
-        </section>
       </div>
     </t-dialog>
 
     <t-dialog
-      v-model:visible="reminderDetailVisible"
-      header="待办协作"
-      width="680px"
-      :confirm-btn="null"
-      :cancel-btn="null"
+      v-model:visible="shareDialogVisible"
+      header="分享服务"
+      width="520px"
+      :confirm-btn="{ content: '保存', theme: 'primary', loading: serviceInfoSaving }"
+      :cancel-btn="{ content: '取消' }"
+      @confirm="saveServiceVisibility"
     >
-      <div v-if="selectedReminder" class="service-reminder-collaboration">
-        <div class="service-reminder-collaboration-head">
-          <div>
-            <strong>{{ selectedReminder.title }}</strong>
-            <span>{{ reminderStatusLabel(selectedReminder.status) }} · {{ selectedReminder.depth || 0 }} 层</span>
-          </div>
-          <span v-if="selectedReminder.parent_reminder_id">已有上级待办</span>
-        </div>
-        <div v-if="reminderCollaborationLoading" class="service-hub-panel-empty">正在加载协作信息。</div>
-        <template v-else>
-          <section class="service-reminder-collaboration-section">
-            <div class="service-reminder-collaboration-section-head">
-              <strong>负责人</strong>
-              <button type="button" @click="saveReminderAssignees">保存</button>
-            </div>
-            <t-input v-model="reminderAssigneeDraft" placeholder="用户 ID，多个用逗号分隔" />
-            <div v-if="reminderAssignees.length" class="service-reminder-token-list">
-              <span v-for="assignee in reminderAssignees" :key="assignee.id">{{ assignee.user_id }}</span>
-            </div>
-          </section>
-          <section class="service-reminder-collaboration-section">
-            <strong>评论</strong>
-            <div v-if="reminderComments.length" class="service-reminder-comment-list">
-              <article v-for="comment in reminderComments" :key="comment.id">
-                <div><strong>{{ comment.user_id }}</strong><small>{{ formatSourceDate(comment.created_at) }}</small></div>
-                <p>{{ comment.content }}</p>
-              </article>
-            </div>
-            <div v-else class="service-hub-panel-empty">还没有评论。</div>
-            <div class="service-reminder-comment-compose">
-              <t-textarea v-model="reminderCommentDraft" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="记录处理意见或协作结果" />
-              <button type="button" :disabled="reminderCollaborationSaving" @click="submitReminderComment">添加评论</button>
-            </div>
-          </section>
-          <section class="service-reminder-collaboration-section">
-            <strong>操作历史</strong>
-            <div v-if="reminderHistory.length" class="service-reminder-history-list">
-              <div v-for="history in reminderHistory" :key="history.id">
-                <span>{{ history.action }}</span>
-                <small>{{ history.user_id }} · {{ formatSourceDate(history.created_at) }}</small>
-              </div>
-            </div>
-            <div v-else class="service-hub-panel-empty">暂无操作历史。</div>
-          </section>
-        </template>
+      <div class="service-share-dialog">
+        <button
+          v-for="option in shareOptions"
+          :key="option.value"
+          type="button"
+          :class="{ selected: shareVisibilityDraft === option.value }"
+          @click="shareVisibilityDraft = option.value"
+        >
+          <span>
+            <strong>{{ option.label }}</strong>
+            <small>{{ option.description }}</small>
+          </span>
+          <t-icon :name="shareVisibilityDraft === option.value ? 'check-circle-filled' : 'circle'" />
+        </button>
       </div>
     </t-dialog>
+
 
     <section v-if="view === 'list'" class="service-hub-list-view">
       <header class="service-hub-page-header">
         <div>
-          <h1>服务</h1>
+          <h1>{{ serviceHubState.mode === 'archived' ? '归档服务' : '服务' }}</h1>
           <p>每个服务一个空间，专家在里面干活</p>
         </div>
-        <div class="service-hub-header-art" aria-hidden="true">
-          <div class="service-hub-art-window">
-            <span></span><span></span><span></span>
-          </div>
-          <div class="service-hub-art-card">
-            <span></span><span></span>
-          </div>
-          <div class="service-hub-art-dot"></div>
-        </div>
-      </header>
-
-      <div class="service-hub-create-row">
-        <t-button theme="primary" class="service-hub-primary-button" @click="openCreate()">
+        <t-button
+          v-if="serviceHubState.mode !== 'archived'"
+          theme="primary"
+          class="service-hub-primary-button"
+          @click="openCreate()"
+        >
           <template #icon><t-icon name="add" /></template>
           新建服务
         </t-button>
-      </div>
+        <t-button v-else variant="text" theme="primary" @click="showActiveServices">
+          返回使用中的服务
+        </t-button>
+      </header>
 
       <div class="service-hub-list-main">
         <div class="service-hub-section-head">
-          <span class="service-hub-section-title">我的服务</span>
+          <span class="service-hub-section-title">
+            {{ serviceHubState.mode === 'archived' ? '已归档' : '我的服务' }}
+          </span>
           <div v-if="services.length > 0" class="service-hub-section-tools">
             <t-select v-model="sortMode" class="service-hub-sort" size="small" :options="sortOptions" />
             <t-input v-model="serviceQuery" class="service-hub-search" size="small" placeholder="搜索服务">
@@ -194,23 +131,30 @@
               </div>
             </article>
           </div>
-          <div v-else class="service-hub-no-result">没有找到匹配的服务</div>
+          <div v-else class="service-hub-no-result">
+            <span>没有匹配“{{ serviceQuery.trim() }}”的服务</span>
+            <button type="button" @click="serviceQuery = ''">清除筛选</button>
+          </div>
         </template>
         <div v-else class="service-hub-empty-state">
           <div>
-            <h2>还没有服务</h2>
-            <p>从下方模板开始，配置会自动带入；也可以新建空白服务。</p>
+            <h2>{{ serviceHubState.mode === 'archived' ? '还没有归档服务' : archivedServices.length ? '服务都已归档' : '还没有服务' }}</h2>
+            <p v-if="serviceHubState.mode === 'archived'">归档后的服务会保留历史内容，需要时可以恢复。</p>
+            <p v-else-if="archivedServices.length">归档服务不会出现在工作导航中，可以进入归档列表恢复。</p>
+            <p v-else>选一个模板开始，配置会自动带入；也可以从空白服务自己设置。</p>
           </div>
-          <t-button variant="outline" @click="openCreate()">从空白创建</t-button>
+          <t-button v-if="serviceHubState.mode === 'archived'" variant="outline" @click="showActiveServices">返回我的服务</t-button>
+          <t-button v-else-if="archivedServices.length" variant="outline" @click="showArchivedServices">查看归档服务</t-button>
+          <t-button v-else variant="outline" @click="openCreate()">从空白创建</t-button>
         </div>
 
-        <div class="service-hub-section-head service-hub-template-head">
+        <div v-if="serviceHubState.mode !== 'archived'" class="service-hub-section-head service-hub-template-head">
           <span class="service-hub-section-title">从模板创建</span>
           <t-input v-model="templateQuery" class="service-hub-search" size="small" placeholder="搜索模板">
             <template #prefix-icon><t-icon name="search" /></template>
           </t-input>
         </div>
-        <div class="service-hub-template-groups">
+        <div v-if="serviceHubState.mode !== 'archived'" class="service-hub-template-groups">
           <section v-for="group in filteredTemplateGroups" :key="group.type" class="service-hub-template-group">
             <div class="service-hub-template-group-label">{{ group.type }}</div>
             <div class="service-hub-grid">
@@ -234,19 +178,29 @@
       </div>
     </section>
 
+    <section v-else-if="view === 'create'" class="service-hub-create-view">
+      <ServiceCreateDialog
+        :visible="true"
+        display-mode="page"
+        :source="createSource"
+        @update:visible="cancelCreate"
+        @submit="submitForm"
+      />
+    </section>
+
     <section v-else class="service-hub-workspace-view">
       <header class="service-hub-space-head">
         <button type="button" class="service-hub-back-button" @click="backToList">
           <t-icon name="chevron-left" />
-          返回服务列表
+          返回
         </button>
         <span class="service-hub-space-identity">
           <span class="service-hub-space-icon" aria-hidden="true">
             <t-icon :name="templateFor(activeService)?.icon || 'folder'" />
           </span>
-          <span class="service-hub-space-name">{{ activeService?.name }}</span>
+          <span class="service-hub-space-name">{{ activeSession?.title || '新的会话' }}</span>
         </span>
-        <span class="service-hub-space-template">{{ templateFor(activeService)?.name || '自定义服务' }}</span>
+        <span class="service-hub-space-template">{{ activeService?.name }}</span>
         <div class="service-hub-space-actions">
           <button
             v-for="tool in headTools"
@@ -260,25 +214,47 @@
             <span>{{ tool.label }}</span>
             <small>{{ tool.count }}</small>
           </button>
-          <span class="service-hub-active-state">{{ serviceStateLabel(activeService?.state) }}</span>
-          <button type="button" class="service-hub-circle-button" title="新建会话" aria-label="新建会话" @click="startNewSession">＋</button>
-          <t-dropdown trigger="click" placement="bottom-right">
+          <span v-if="activeService?.state !== 'active'" class="service-hub-active-state">
+            {{ serviceStateLabel(activeService?.state) }}
+          </span>
+          <t-popup v-model="serviceMenuVisible" trigger="click" placement="bottom-right">
             <button type="button" class="service-hub-circle-button" title="更多操作" aria-label="更多操作">
               <t-icon name="more" />
             </button>
-            <template #dropdown>
-              <t-dropdown-menu>
-                <t-dropdown-item @click="openCreate(activeService)">复制配置创建</t-dropdown-item>
-                <t-dropdown-item @click="toggleActiveServicePause">
-                  {{ activeService?.state === 'paused' ? '恢复服务' : '暂停服务' }}
-                </t-dropdown-item>
-                <t-dropdown-item @click="archiveService(activeService)">
-                  {{ activeService?.state === 'archived' ? '恢复归档服务' : '归档服务' }}
-                </t-dropdown-item>
-                <t-dropdown-item theme="error" @click="deleteActiveService">删除服务</t-dropdown-item>
-              </t-dropdown-menu>
+            <template #content>
+              <div class="service-hub-space-menu">
+                <template v-if="serviceMenuLevel === 'primary'">
+                  <button type="button" @click="openServiceInfoDialog('name')">修改服务名称</button>
+                  <button type="button" @click="openServiceInfoDialog('description')">修改服务描述</button>
+                  <button type="button" @click="openShareDialog">分享服务</button>
+                  <span class="service-hub-space-menu-divider" />
+                  <button type="button" class="has-trailing" @click="serviceMenuLevel = 'more'">
+                    更多
+                    <t-icon name="chevron-right" />
+                  </button>
+                </template>
+                <template v-else>
+                  <button type="button" class="has-leading" @click="serviceMenuLevel = 'primary'">
+                    <t-icon name="chevron-left" />
+                    更多
+                  </button>
+                  <span class="service-hub-space-menu-divider" />
+                  <button type="button" @click="openServicePage('overview')">服务概览</button>
+                  <button type="button" @click="openServicePage('subjects')">服务对象</button>
+                  <button type="button" disabled>动态</button>
+                  <button type="button" @click="openServicePage('settings/basic')">服务设置</button>
+                  <span class="service-hub-space-menu-divider" />
+                  <button type="button" @click="toggleActiveServicePause">
+                    {{ activeService?.state === 'paused' ? '恢复服务' : '暂停服务' }}
+                  </button>
+                  <button type="button" @click="archiveService(activeService)">
+                    {{ activeService?.state === 'archived' ? '恢复归档服务' : '归档服务' }}
+                  </button>
+                  <button type="button" class="is-danger" @click="deleteActiveService">删除服务</button>
+                </template>
+              </div>
             </template>
-          </t-dropdown>
+          </t-popup>
         </div>
       </header>
 
@@ -327,107 +303,26 @@
             <aside v-if="panel" class="service-hub-side-panel">
               <header>
                 <strong>{{ panelTitle }}</strong>
-                <t-button
-                  v-if="panel === 'summary'"
-                  variant="text"
-                  size="small"
-                  :loading="planningDataLoading"
-                  @click="refreshActiveSummary"
-                >
-                  刷新
-                </t-button>
-                <t-button
-                  v-if="panel === 'settings'"
-                  theme="primary"
-                  size="small"
-                  :loading="settingsSaving"
-                  @click="saveServiceSettings"
-                >
-                  保存
-                </t-button>
                 <button type="button" class="service-hub-side-panel-close" aria-label="关闭面板" @click="panel = ''"><t-icon name="close" /></button>
               </header>
               <div class="service-hub-side-panel-body">
-                <div v-if="panel !== 'subjects' && panel !== 'context' && planningDataLoading" class="service-hub-panel-empty">正在加载空间结构。</div>
-                <div v-else-if="panel !== 'subjects' && panel !== 'context' && planningDataError" class="service-hub-panel-empty service-hub-panel-error">
-                  {{ planningDataError }}
-                </div>
-                <template v-else-if="panel === 'context'">
-                  <div v-if="contextSourcesLoading" class="service-hub-panel-empty">正在加载资料。</div>
-                  <div v-else-if="contextSourcesError" class="service-hub-panel-empty service-hub-panel-error">
-                    {{ contextSourcesError }}
-                  </div>
-                  <template v-else>
-                    <article
-                      v-for="source in contextSources"
-                      :key="source.id"
-                      class="service-hub-context-source"
-                      :class="{ 'is-highlighted': sourceMatchesRoute(source) }"
-                    >
-                      <div class="service-hub-context-source-head">
-                        <strong>{{ source.source_title || '未命名整理结果' }}</strong>
-                        <span v-if="sourceMatchesRoute(source)" class="service-hub-context-source-badge">刚带入</span>
-                        <button
-                          type="button"
-                          class="service-hub-context-source-remove"
-                          title="移除来源"
-                          aria-label="移除来源"
-                          @click="removeContextSource(source.id)"
-                        >
-                          <t-icon name="close" />
-                        </button>
-                      </div>
-                      <p>{{ source.source_summary || '整理结果已作为服务背景资料保存。' }}</p>
-                      <div class="service-hub-context-source-meta">
-                        <span>{{ source.memory_ids?.length || 0 }} 条记忆</span>
-                        <span>{{ formatSourceDate(source.created_at) }}</span>
-                      </div>
-                      <div class="service-hub-context-source-actions">
-                        <button type="button" @click="viewSourceOutput(source)">查看整理结果</button>
-                        <button
-                          v-if="source.memory_ids?.length"
-                          type="button"
-                          @click="viewSourceMemory(source.memory_ids[0])"
-                        >
-                          查看源记忆
-                        </button>
-                      </div>
-                    </article>
-                    <div v-if="!contextSources.length" class="service-hub-panel-empty">
-                      还没有带入整理结果。可从整理详情页将结果用于当前服务。
-                    </div>
-                  </template>
-                </template>
-                <template v-else-if="panel === 'reminders'">
+                <template v-if="panel === 'reminders'">
                   <div v-if="remindersLoading" class="service-hub-panel-empty">正在加载服务待办。</div>
                   <div v-else-if="remindersError" class="service-hub-panel-empty service-hub-panel-error">
                     {{ remindersError }}
                   </div>
                   <template v-else>
                     <form class="service-hub-reminder-form" @submit.prevent="createActiveReminder">
-                      <t-input v-model="reminderDraftTitle" size="small" placeholder="待办标题，例如：回访会员家庭 A" />
-                      <t-textarea
-                        v-model="reminderDraftSummary"
-                        size="small"
-                        :autosize="{ minRows: 2, maxRows: 4 }"
-                        placeholder="补充待办背景和处理目标"
-                      />
-                      <div class="service-hub-reminder-form-row">
-                        <t-select v-model="reminderDraftPriority" size="small" :options="reminderPriorityOptions" />
-                        <t-input v-model="reminderDraftDueText" size="small" placeholder="时间，例如：本周五前" />
-                      </div>
+                      <t-input v-model="reminderDraftTitle" size="small" placeholder="要跟进什么，例如：回访会员家庭 A" />
                       <t-select
-                        v-model="reminderDraftParentId"
-                        size="small"
-                        clearable
-                        :options="reminderParentOptions"
-                        placeholder="可选：归入上级待办"
-                      />
-                      <t-input
                         v-model="reminderDraftAssignees"
                         size="small"
-                        placeholder="负责人用户 ID，多个用逗号分隔"
+                        multiple
+                        clearable
+                        :options="reminderAssigneeOptions"
+                        placeholder="选择负责人"
                       />
+                      <t-input v-model="reminderDraftDueText" size="small" placeholder="时间，例如：本周五前" />
                       <t-button type="submit" block theme="primary" size="small" :loading="remindersSaving">
                         新建待办
                       </t-button>
@@ -447,78 +342,97 @@
                           <span v-if="reminder.parent_reminder_id">下级待办 · {{ reminder.depth || 1 }} 层</span>
                         </div>
                         <div class="service-hub-reminder-actions">
-                          <button type="button" @click="openReminderCollaboration(reminder)">协作</button>
-                          <button
-                            v-for="nextStatus in nextReminderStatuses(reminder)"
-                            :key="nextStatus.id"
-                            type="button"
-                            @click="changeReminderStatus(reminder, nextStatus.status_key)"
-                          >
-                            {{ nextStatus.label }}
+                          <button type="button" @click="openReminderCollaboration(reminder)">
+                            {{ selectedReminder?.id === reminder.id ? '收起详情' : '查看详情' }}
                           </button>
+                          <t-dropdown
+                            v-if="nextReminderStatuses(reminder).length"
+                            trigger="click"
+                            placement="bottom-left"
+                          >
+                            <button type="button">下一步 <t-icon name="chevron-down" /></button>
+                            <template #dropdown>
+                              <t-dropdown-menu>
+                                <t-dropdown-item
+                                  v-for="nextStatus in nextReminderStatuses(reminder)"
+                                  :key="nextStatus.id"
+                                  @click="changeReminderStatus(reminder, nextStatus.status_key)"
+                                >
+                                  {{ nextStatus.label }}
+                                </t-dropdown-item>
+                              </t-dropdown-menu>
+                            </template>
+                          </t-dropdown>
                           <button type="button" class="is-danger" @click="removeActiveReminder(reminder)">删除</button>
+                        </div>
+                        <div
+                          v-if="selectedReminder?.id === reminder.id"
+                          class="service-reminder-inline"
+                        >
+                          <div v-if="reminderCollaborationLoading" class="service-hub-panel-empty">
+                            正在加载待办详情
+                          </div>
+                          <template v-else>
+                            <section>
+                              <div class="service-reminder-inline-head">
+                                <strong>负责人</strong>
+                                <button type="button" :disabled="reminderCollaborationSaving" @click="saveReminderAssignees">
+                                  保存
+                                </button>
+                              </div>
+                              <t-select
+                                v-model="reminderAssigneeDraft"
+                                multiple
+                                clearable
+                                size="small"
+                                :options="reminderAssigneeOptions"
+                                placeholder="选择负责人"
+                              />
+                            </section>
+                            <section>
+                              <strong>评论</strong>
+                              <div v-if="reminderComments.length" class="service-reminder-comment-list">
+                                <article v-for="comment in reminderComments" :key="comment.id">
+                                  <div>
+                                    <strong>{{ serviceMemberName(comment.user_id) }}</strong>
+                                    <small>{{ formatSourceDate(comment.created_at) }}</small>
+                                  </div>
+                                  <p>{{ comment.content }}</p>
+                                </article>
+                              </div>
+                              <div v-else class="service-reminder-inline-empty">还没有评论</div>
+                              <div class="service-reminder-comment-compose">
+                                <t-textarea
+                                  v-model="reminderCommentDraft"
+                                  :autosize="{ minRows: 2, maxRows: 4 }"
+                                  placeholder="记录处理意见或协作结果"
+                                />
+                                <button type="button" :disabled="reminderCollaborationSaving" @click="submitReminderComment">
+                                  添加评论
+                                </button>
+                              </div>
+                            </section>
+                            <section>
+                              <strong>操作历史</strong>
+                              <div v-if="reminderHistory.length" class="service-reminder-history-list">
+                                <div v-for="history in reminderHistory" :key="history.id">
+                                  <span>{{ history.action }}</span>
+                                  <small>{{ serviceMemberName(history.user_id) }} · {{ formatSourceDate(history.created_at) }}</small>
+                                </div>
+                              </div>
+                              <div v-else class="service-reminder-inline-empty">暂无操作历史</div>
+                            </section>
+                          </template>
                         </div>
                       </article>
                     </div>
                     <div v-else class="service-hub-panel-empty">当前服务还没有待办。可以先记录一个需要跟进的动作。</div>
+                    <p class="service-reminder-status-note">
+                      待办按工作指令自动使用待处理、进行中、已完成和已取消等状态。
+                    </p>
                   </template>
                 </template>
-                <template v-else-if="panel === 'settings'">
-                  <div class="service-hub-settings-form">
-                    <label>
-                      <span>服务名称</span>
-                      <t-input v-model="settingsName" size="small" />
-                    </label>
-                    <label>
-                      <span>服务描述</span>
-                      <t-textarea v-model="settingsDescription" size="small" :autosize="{ minRows: 2, maxRows: 4 }" />
-                    </label>
-                    <label>
-                      <span>工作指令</span>
-                      <t-textarea v-model="settingsInstruction" size="small" :autosize="{ minRows: 5, maxRows: 10 }" />
-                    </label>
-                    <div class="service-hub-settings-divider">档案字段</div>
-                    <div v-if="settingsProfileSchema.length" class="service-hub-profile-field-list">
-                      <div v-for="field in settingsProfileSchema" :key="field.key" class="service-hub-profile-field-row">
-                        <t-input v-model="field.label" size="small" />
-                        <span>{{ field.key }}</span>
-                        <label class="service-hub-profile-field-required">
-                          <input v-model="field.required" type="checkbox" />
-                          必填
-                        </label>
-                        <button type="button" class="is-danger" @click="removeProfileField(field.key)">删除</button>
-                      </div>
-                    </div>
-                    <div v-else class="service-hub-panel-empty">暂无档案字段。</div>
-                    <div class="service-hub-profile-field-add">
-                      <t-input v-model="newProfileFieldKey" size="small" placeholder="字段 key，例如 member_level" />
-                      <t-input v-model="newProfileFieldLabel" size="small" placeholder="字段名称" />
-                      <button type="button" @click="addProfileField">添加字段</button>
-                    </div>
-                    <div class="service-hub-settings-divider">待办状态</div>
-                    <div v-if="reminderStatuses.length" class="service-hub-status-list">
-                      <div v-for="status in reminderStatuses" :key="status.id" class="service-hub-status-row">
-                        <t-input
-                          :model-value="status.label"
-                          size="small"
-                          @blur="updateStatusLabel(status, $event)"
-                        />
-                        <span :class="{ 'is-disabled': !status.enabled }">{{ status.status_key }}</span>
-                        <button type="button" @click="toggleReminderStatus(status)">
-                          {{ status.enabled ? '停用' : '启用' }}
-                        </button>
-                        <button v-if="!status.is_system" type="button" class="is-danger" @click="removeReminderStatus(status)">删除</button>
-                      </div>
-                    </div>
-                    <div class="service-hub-status-add">
-                      <t-input v-model="newStatusKey" size="small" placeholder="状态 key，例如 waiting_reply" />
-                      <t-input v-model="newStatusLabel" size="small" placeholder="显示名称" />
-                      <t-select v-model="newStatusCategory" size="small" :options="statusCategoryOptions" />
-                      <button type="button" @click="addReminderStatus">添加状态</button>
-                    </div>
-                  </div>
-                </template>
-                <template v-else-if="panel === 'artifacts'">
+                <template v-else>
                   <div v-if="artifactsLoading" class="service-hub-panel-empty">正在加载服务产物。</div>
                   <div v-else-if="artifactsError" class="service-hub-panel-empty service-hub-panel-error">{{ artifactsError }}</div>
                   <button
@@ -560,61 +474,6 @@
                     </div>
                   </div>
                 </template>
-                <template v-else-if="panel === 'profile'">
-                  <div v-if="serviceProfile?.schema?.length" class="service-hub-planning-list">
-                    <div v-for="field in serviceProfile.schema" :key="field.key" class="service-hub-planning-row">
-                      <span>{{ field.label }}</span>
-                      <strong>{{ displayPlanningValue(serviceProfile.values?.[field.key]) }}</strong>
-                    </div>
-                  </div>
-                  <div v-else class="service-hub-panel-empty">空间档案还没有生成字段。</div>
-                </template>
-                <template v-else-if="panel === 'subjects'">
-                  <div v-if="subjectsLoading" class="service-hub-panel-empty">正在加载服务主体。</div>
-                  <div v-else-if="subjectsError" class="service-hub-panel-empty service-hub-panel-error">
-                    {{ subjectsError }}
-                  </div>
-                  <template v-else>
-                    <div class="service-hub-subject-form">
-                      <t-input v-model="subjectDraftName" size="small" placeholder="主体名称，例如：会员家庭 A" />
-                      <div class="service-hub-subject-form-row">
-                        <t-input v-model="subjectDraftType" size="small" placeholder="主体类型，例如：member_family" />
-                        <t-input v-model="subjectDraftKey" size="small" placeholder="唯一标识，例如：member-001" />
-                      </div>
-                      <t-button
-                        block
-                        theme="primary"
-                        size="small"
-                        :loading="subjectsSaving"
-                        @click="createActiveSubject"
-                      >
-                        添加主体
-                      </t-button>
-                    </div>
-                    <div v-if="serviceSubjects.length" class="service-hub-subject-list">
-                      <article v-for="subject in serviceSubjects" :key="subject.id" class="service-hub-subject-item">
-                        <div class="service-hub-subject-item-head">
-                          <strong>{{ subject.display_name || subject.subject_key }}</strong>
-                          <span>{{ subject.subject_type }}</span>
-                        </div>
-                        <small>{{ subject.subject_key }}</small>
-                      </article>
-                    </div>
-                    <div v-else class="service-hub-panel-empty">当前服务还没有主体。</div>
-                  </template>
-                </template>
-                <template v-else>
-                  <div v-if="serviceSummary?.schema?.length" class="service-hub-planning-list">
-                    <div v-for="section in serviceSummary.schema" :key="section.key" class="service-hub-planning-section">
-                      <div>
-                        <strong>{{ section.label }}</strong>
-                        <span>{{ section.refresh_policy === 'on_fact_change' ? '事实变化后刷新' : '按需刷新' }}</span>
-                      </div>
-                      <p>{{ summarySectionText(serviceSummary.sections?.[section.key]) }}</p>
-                    </div>
-                  </div>
-                  <div v-else class="service-hub-panel-empty">首页摘要还没有生成模块。</div>
-                </template>
               </div>
             </aside>
           </div>
@@ -630,15 +489,12 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import ChatView from '@/views/chat/index.vue'
 import { BUILTIN_SMART_REASONING_ID } from '@/api/agent'
+import { fetchAllTenantMembers, type TenantMember } from '@/api/tenant/members'
+import { useAuthStore } from '@/stores/auth'
 import ServiceCreateDialog from './ServiceCreateDialog.vue'
 import {
   applyServiceTemplate,
-  confirmServiceBlueprint,
   createServiceSpace,
-  createServiceSubject,
-  deleteServiceContextSource,
-  getServiceProfile,
-  getServiceSummary,
   importServiceOrganizeOutput,
   createServiceReminder,
   deleteServiceReminder,
@@ -651,32 +507,19 @@ import {
   listServiceReminderStatuses,
   listServiceReminders,
   listServiceArtifacts,
+  listServiceMembers,
   updateServiceArtifactLifecycle,
   updateServiceSpace,
-  updateServiceProfile,
   deleteServiceSpace,
-  createServiceReminderStatus,
-  updateServiceReminderStatus,
-  deleteServiceReminderStatus,
   updateServiceReminder,
-  listServiceSubjects,
-  listServiceContextSources,
-  previewServiceBlueprint,
-  previewServiceBlueprintForService,
-  refreshServiceSummary,
   setServiceSpaceState,
-  type ServiceContextSource,
   type ServiceReminder,
   type ServiceReminderAssignee,
   type ServiceReminderComment,
   type ServiceReminderHistory,
   type ServiceReminderStatus,
   type ServiceReminderStatusTransition,
-  type ServiceSubject,
-  type ServiceSpaceBlueprint,
-  type ServiceSpaceProfile,
-  type ServiceSpaceProfileField,
-  type ServiceSpaceSummary,
+  type ServiceSpaceMember,
   type ServiceArtifact as ApiServiceArtifact,
 } from '@/api/service'
 import {
@@ -698,12 +541,13 @@ import {
   type ServiceTemplate,
 } from './serviceHubState'
 
-type HubView = 'list' | 'workspace'
-type HubPanel = '' | 'artifacts' | 'context' | 'reminders' | 'subjects' | 'profile' | 'summary' | 'settings'
+type HubView = 'list' | 'create' | 'workspace'
+type HubPanel = '' | 'artifacts' | 'reminders'
 type SortMode = 'recent' | 'created' | 'name'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 const serviceBasePath = computed(() => route.meta.mobileEntry ? '/mobile/service' : '/platform/service')
 const serviceChatAgentId = BUILTIN_SMART_REASONING_ID
 
@@ -711,23 +555,16 @@ const view = ref<HubView>('list')
 const serviceQuery = ref('')
 const templateQuery = ref('')
 const sortMode = ref<SortMode>('recent')
-const createDialogVisible = ref(false)
 const createSource = ref<ServiceTemplate | ServiceRecord | null>(null)
-const blueprintConfirmVisible = ref(false)
-const blueprintConfirming = ref(false)
-const pendingBlueprint = ref<ServiceSpaceBlueprint | null>(null)
-const pendingPayload = ref<{
-  name: string
-  description: string
-  instruction: string
-  templateId: string
-  expertIds: string[]
-  knowledgeBaseIds: string[]
-} | null>(null)
-const pendingServiceId = ref('')
 const pendingContextSourceId = ref('')
 const pendingContextSourceType = ref('')
-const contextSourceFocusId = ref('')
+const serviceInfoDialogVisible = ref(false)
+const serviceInfoDialogMode = ref<'name' | 'description'>('name')
+const serviceInfoNameDraft = ref('')
+const serviceInfoDescriptionDraft = ref('')
+const serviceInfoSaving = ref(false)
+const shareDialogVisible = ref(false)
+const shareVisibilityDraft = ref<'private' | 'tenant'>('private')
 const selectedArtifact = ref<ApiServiceArtifact | null>(null)
 const serviceArtifactsList = ref<ApiServiceArtifact[]>([])
 const artifactsLoading = ref(false)
@@ -739,21 +576,6 @@ type ServiceChatViewExpose = {
 const serviceChatViewRef = ref<ServiceChatViewExpose | null>(null)
 const activeChatSessionLoadingId = ref('')
 const activeChatSessionError = ref('')
-const serviceProfile = ref<ServiceSpaceProfile | null>(null)
-const serviceSummary = ref<ServiceSpaceSummary | null>(null)
-const planningDataLoading = ref(false)
-const planningDataError = ref('')
-const serviceSubjects = ref<ServiceSubject[]>([])
-const subjectsTotal = ref(0)
-const subjectsLoading = ref(false)
-const subjectsSaving = ref(false)
-const subjectsError = ref('')
-const subjectDraftName = ref('')
-const subjectDraftType = ref('service_subject')
-const subjectDraftKey = ref('')
-const contextSources = ref<ServiceContextSource[]>([])
-const contextSourcesLoading = ref(false)
-const contextSourcesError = ref('')
 const serviceReminders = ref<ServiceReminder[]>([])
 const reminderStatuses = ref<ServiceReminderStatus[]>([])
 const reminderTransitions = ref<ServiceReminderStatusTransition[]>([])
@@ -761,46 +583,37 @@ const remindersLoading = ref(false)
 const remindersSaving = ref(false)
 const remindersError = ref('')
 const reminderDraftTitle = ref('')
-const reminderDraftSummary = ref('')
-const reminderDraftPriority = ref<'high' | 'medium' | 'low'>('medium')
 const reminderDraftDueText = ref('')
-const reminderDraftParentId = ref('')
-const reminderDraftAssignees = ref('')
-const reminderDetailVisible = ref(false)
+const reminderDraftAssignees = ref<string[]>([])
+const serviceMembers = ref<ServiceSpaceMember[]>([])
+const tenantMembers = ref<TenantMember[]>([])
 const selectedReminder = ref<ServiceReminder | null>(null)
 const reminderAssignees = ref<ServiceReminderAssignee[]>([])
 const reminderComments = ref<ServiceReminderComment[]>([])
 const reminderHistory = ref<ServiceReminderHistory[]>([])
 const reminderCollaborationLoading = ref(false)
 const reminderCommentDraft = ref('')
-const reminderAssigneeDraft = ref('')
+const reminderAssigneeDraft = ref<string[]>([])
 const reminderCollaborationSaving = ref(false)
-const settingsSaving = ref(false)
-const settingsName = ref('')
-const settingsDescription = ref('')
-const settingsInstruction = ref('')
-const settingsProfileSchema = ref<ServiceSpaceProfileField[]>([])
-const newProfileFieldKey = ref('')
-const newProfileFieldLabel = ref('')
-const newStatusKey = ref('')
-const newStatusLabel = ref('')
-const newStatusCategory = ref<'open' | 'in_progress' | 'done' | 'dismissed'>('open')
+const serviceMenuVisible = ref(false)
+const serviceMenuLevel = ref<'primary' | 'more'>('primary')
 
 const sortOptions = [
   { label: '按最近活动', value: 'recent' },
   { label: '按创建时间', value: 'created' },
   { label: '按名称', value: 'name' },
 ]
-const reminderPriorityOptions = [
-  { label: '普通优先级', value: 'medium' },
-  { label: '高优先级', value: 'high' },
-  { label: '低优先级', value: 'low' },
-]
-const statusCategoryOptions = [
-  { label: '开放', value: 'open' },
-  { label: '处理中', value: 'in_progress' },
-  { label: '已完成', value: 'done' },
-  { label: '已关闭', value: 'dismissed' },
+const shareOptions = [
+  {
+    value: 'private' as const,
+    label: '仅自己可见',
+    description: '只有服务拥有者可以进入和查看内容',
+  },
+  {
+    value: 'tenant' as const,
+    label: '当前空间成员可见',
+    description: '当前工作空间内的成员都可以发现并访问这个服务',
+  },
 ]
 
 const activeService = computed(() => getService(serviceHubState.activeServiceId))
@@ -808,6 +621,9 @@ const activeSession = computed(() => getSession(serviceHubState.activeSessionId)
 const activeChatSessionId = computed(() => activeSession.value?.chatSessionId || '')
 const activeChatSessionLoading = computed(() => activeChatSessionLoadingId.value === activeSession.value?.id)
 const activeServiceKnowledgeBaseIds = computed(() => activeService.value?.knowledgeBaseIds || [])
+const archivedServices = computed(() =>
+  serviceHubState.services.filter((service) => service.state === 'archived'),
+)
 const services = computed(() => {
   if (serviceHubState.mode === 'archived') return serviceHubState.services.filter((service) => service.state === 'archived')
   return serviceHubState.services.filter((service) => service.state !== 'archived')
@@ -817,6 +633,7 @@ const filteredServices = computed(() => {
   const rows = services.value.filter((service) => `${service.name} ${service.description}`.toLowerCase().includes(query))
   return [...rows].sort((a, b) => {
     if (sortMode.value === 'name') return a.name.localeCompare(b.name, 'zh-CN')
+    if (sortMode.value === 'created') return b.createdAt - a.createdAt
     return b.updatedAt - a.updatedAt
   })
 })
@@ -835,58 +652,49 @@ const filteredTemplateGroups = computed(() => {
     })
   return Array.from(groups, ([type, items]) => ({ type, items }))
 })
-const serviceChatPrompts = [
-  '帮我整理本周需要优先推进的重点工作',
-  '把相关资料归纳成一份可执行的清单',
-]
+const serviceChatPrompts = computed(() => {
+  const service = activeService.value
+  const template = templateFor(service)
+  const subject = template?.subjectLabel || '当前工作'
+  const instructionFocus = (service?.instruction || '')
+    .split(/[。；\n]/)
+    .map((item) => item.trim())
+    .find((item) => item.length >= 6 && item.length <= 34)
+  return [
+    `先帮我梳理${subject}现在最需要推进的事项`,
+    instructionFocus
+      ? `按“${instructionFocus}”检查已有资料并给出下一步`
+      : '检查已有资料，指出风险、缺口和下一步动作',
+    '把这次工作整理成一份可以直接执行的清单',
+  ]
+})
 const activeArtifacts = computed(() => {
   return serviceArtifactsList.value
 })
 const reminderStatusMap = computed(() => new Map(reminderStatuses.value.map((item) => [item.id, item])))
 const reminderStatusByKey = computed(() => new Map(reminderStatuses.value.map((item) => [item.status_key, item])))
 const templateFor = (service: ServiceRecord | undefined) => getServiceTemplate(service)
-const panelTitle = computed(() => {
-  switch (panel.value) {
-    case 'profile':
-      return '空间档案'
-    case 'summary':
-      return '首页摘要'
-    case 'subjects':
-      return '服务主体'
-    case 'context':
-      return '资料'
-    case 'reminders':
-      return '服务待办'
-    case 'settings':
-      return '服务设置'
-    default:
-      return '产物'
-  }
-})
+const panelTitle = computed(() => panel.value === 'reminders' ? '服务待办' : '产物')
 const headTools = computed(() => [
   { key: 'artifacts' as const, label: '产物', icon: 'file', count: activeArtifacts.value.length },
-  ...(route.meta.mobileEntry
-    ? []
-    : [{ key: 'reminders' as const, label: '待办', icon: 'check-circle', count: serviceReminders.value.length }]),
-  ...(route.meta.mobileEntry
-      ? []
-      : [
-        { key: 'context' as const, label: '来源', icon: 'link', count: contextSources.value.length },
-        { key: 'subjects' as const, label: '主体', icon: 'usergroup', count: subjectsTotal.value },
-        { key: 'profile' as const, label: '档案', icon: 'user', count: serviceProfile.value?.schema?.length || 0 },
-        { key: 'summary' as const, label: '摘要', icon: 'view-list', count: serviceSummary.value?.schema?.length || 0 },
-        { key: 'settings' as const, label: '设置', icon: 'setting', count: 0 },
-      ]),
+  { key: 'reminders' as const, label: '待办', icon: 'check-circle', count: serviceReminders.value.length },
 ])
-const reminderParentOptions = computed(() =>
-  serviceReminders.value
-    .filter((reminder) => reminder.id !== selectedReminder.value?.id && (reminder.depth || 0) < 4)
-    .map((reminder) => ({
-      label: `${'　'.repeat(reminder.depth || 0)}${reminder.title}`,
-      value: reminder.id,
-    })),
-)
-
+const reminderAssigneeOptions = computed(() => {
+  const byUserId = new Map(tenantMembers.value.map((member) => [member.user_id, member]))
+  return serviceMembers.value
+    .filter((member) => member.status === 'active')
+    .map((member) => {
+      const directoryMember = byUserId.get(member.user_id)
+      return {
+        value: member.user_id,
+        label: directoryMember?.username || directoryMember?.email || '服务成员',
+      }
+    })
+})
+const serviceMemberName = (userId: string) => {
+  const member = tenantMembers.value.find((item) => item.user_id === userId)
+  return member?.username || member?.email || '服务成员'
+}
 const serviceStateLabel = (state?: ServiceRecord['state']) => {
   switch (state) {
     case 'active':
@@ -947,9 +755,122 @@ const changeArtifactLifecycle = async (
     MessagePlugin.error('产物状态更新失败，请稍后重试')
   }
 }
-const openCreate = (source?: ServiceTemplate | ServiceRecord | null) => {
+
+const closeServiceMenu = () => {
+  serviceMenuVisible.value = false
+  serviceMenuLevel.value = 'primary'
+}
+
+const openServicePage = async (suffix: 'overview' | 'subjects' | 'settings/basic') => {
+  const serviceId = activeService.value?.id
+  if (!serviceId) return
+  closeServiceMenu()
+  panel.value = ''
+  await router.push(`${serviceBasePath.value}/${encodeURIComponent(serviceId)}/${suffix}`)
+}
+
+const openServiceInfoDialog = (mode: 'name' | 'description') => {
+  const service = activeService.value
+  if (!service) return
+  closeServiceMenu()
+  serviceInfoDialogMode.value = mode
+  serviceInfoNameDraft.value = service.name
+  serviceInfoDescriptionDraft.value = service.description || ''
+  serviceInfoDialogVisible.value = true
+}
+
+const saveServiceInfo = async () => {
+  const service = activeService.value
+  if (!service || serviceInfoSaving.value) return
+  const name = serviceInfoNameDraft.value.trim()
+  if (serviceInfoDialogMode.value === 'name' && !name) {
+    MessagePlugin.warning('服务名称不能为空')
+    return
+  }
+  serviceInfoSaving.value = true
+  try {
+    const response = await updateServiceSpace(service.id, serviceInfoDialogMode.value === 'name'
+      ? { name }
+      : { description: serviceInfoDescriptionDraft.value.trim() })
+    if (response?.data) {
+      service.name = response.data.name
+      service.description = response.data.description || ''
+    }
+    serviceInfoDialogVisible.value = false
+    MessagePlugin.success('服务信息已更新')
+  } catch (error) {
+    console.error('[ServiceHub] Failed to update service info:', error)
+    MessagePlugin.error('服务信息保存失败')
+  } finally {
+    serviceInfoSaving.value = false
+  }
+}
+
+const openShareDialog = () => {
+  if (!activeService.value) return
+  closeServiceMenu()
+  shareVisibilityDraft.value = activeService.value.visibility || 'private'
+  shareDialogVisible.value = true
+}
+
+const saveServiceVisibility = async () => {
+  const service = activeService.value
+  if (!service || serviceInfoSaving.value) return
+  serviceInfoSaving.value = true
+  try {
+    const response = await updateServiceSpace(service.id, { visibility: shareVisibilityDraft.value })
+    service.visibility = response?.data?.visibility || shareVisibilityDraft.value
+    shareDialogVisible.value = false
+    MessagePlugin.success('分享范围已更新')
+  } catch (error) {
+    console.error('[ServiceHub] Failed to update service visibility:', error)
+    MessagePlugin.error('分享范围保存失败')
+  } finally {
+    serviceInfoSaving.value = false
+  }
+}
+
+const serviceWorkspacePath = (serviceId: string, sessionId?: string) => {
+  if (route.meta.mobileEntry) return serviceBasePath.value
+  const servicePath = `${serviceBasePath.value}/${encodeURIComponent(serviceId)}`
+  return sessionId
+    ? `${servicePath}/sessions/${encodeURIComponent(sessionId)}`
+    : servicePath
+}
+
+const openCreate = async (source?: ServiceTemplate | ServiceRecord | null) => {
   createSource.value = source || null
-  createDialogVisible.value = true
+  view.value = 'create'
+  if (route.meta.mobileEntry) {
+    await router.push({
+      path: serviceBasePath.value,
+      query: source
+        ? ('templateId' in source ? { copy: source.id } : { template: source.id })
+        : { create: '1' },
+    })
+    return
+  }
+  await router.push({
+    path: `${serviceBasePath.value}/new`,
+    query: source
+      ? ('templateId' in source ? { copy: source.id } : { template: source.id })
+      : {},
+  })
+}
+
+const cancelCreate = async () => {
+  createSource.value = null
+  await router.push(serviceBasePath.value)
+}
+
+const showArchivedServices = () => {
+  serviceHubState.mode = 'archived'
+  serviceQuery.value = ''
+}
+
+const showActiveServices = () => {
+  serviceHubState.mode = 'data'
+  serviceQuery.value = ''
 }
 
 const createIdempotencyKey = () => {
@@ -957,25 +878,6 @@ const createIdempotencyKey = () => {
     return crypto.randomUUID()
   }
   return `service-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-const spaceTypeLabel = (spaceType?: string) => {
-  switch (spaceType) {
-    case 'customer_service':
-      return '客户服务'
-    case 'operations':
-      return '运营管理'
-    case 'research':
-      return '研究沉淀'
-    default:
-      return '服务空间'
-  }
-}
-
-const subjectPolicyLabel = (blueprint: ServiceSpaceBlueprint) => {
-  const types = blueprint.subject_policy?.allowed_types || []
-  if (!blueprint.subject_policy?.required) return '可选业务主体'
-  return types.length ? types.join('、') : '动态业务主体'
 }
 
 const openWorkspace = async (serviceId: string, sessionId?: string) => {
@@ -991,92 +893,36 @@ const openWorkspace = async (serviceId: string, sessionId?: string) => {
   serviceHubState.activeSessionId = active.id
   view.value = 'workspace'
   await router.replace({
-    path: serviceBasePath.value,
-    query: { service: serviceHubState.activeServiceId, session: serviceHubState.activeSessionId },
+    path: serviceWorkspacePath(serviceHubState.activeServiceId, serviceHubState.activeSessionId),
+    query: route.meta.mobileEntry
+      ? { service: serviceHubState.activeServiceId, session: serviceHubState.activeSessionId }
+      : {},
   })
 }
 
-const displayPlanningValue = (value: unknown) => {
-  if (value === undefined || value === null || value === '') return '待补充事实'
-  if (Array.isArray(value)) return value.join('、')
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
-}
-
-const summarySectionText = (value: unknown) => {
-  if (!value || typeof value !== 'object') return '等待资料沉淀后生成摘要'
-  const section = value as Record<string, unknown>
-  if (typeof section.content === 'string' && section.content.trim()) return section.content
-  if (typeof section.status === 'string') return section.status
-  return '等待资料沉淀后生成摘要'
-}
-
-const loadPlanningData = async (serviceId: string) => {
-  planningDataLoading.value = true
-  planningDataError.value = ''
-  const [profileResult, summaryResult] = await Promise.allSettled([
-    getServiceProfile(serviceId),
-    getServiceSummary(serviceId),
-  ])
-  serviceProfile.value = profileResult.status === 'fulfilled' ? profileResult.value?.data || null : null
-  serviceSummary.value = summaryResult.status === 'fulfilled' ? summaryResult.value?.data || null : null
-  if (!serviceProfile.value && !serviceSummary.value) {
-    planningDataError.value = '空间档案和摘要暂不可用'
-  }
-  planningDataLoading.value = false
-}
-
-const loadSubjects = async (serviceId: string) => {
-  subjectsLoading.value = true
-  subjectsError.value = ''
-  try {
-    const response = await listServiceSubjects(serviceId, { page: 1, page_size: 100 })
-    serviceSubjects.value = response?.data?.items || []
-    subjectsTotal.value = response?.data?.total || serviceSubjects.value.length
-  } catch (error) {
-    console.error('[ServiceHub] Failed to load service subjects:', error)
-    serviceSubjects.value = []
-    subjectsTotal.value = 0
-    subjectsError.value = '服务主体暂不可用，请稍后重试'
-  } finally {
-    subjectsLoading.value = false
-  }
-}
-
-const loadContextSources = async (serviceId: string) => {
-  if (route.meta.mobileEntry) return
-  contextSourcesLoading.value = true
-  contextSourcesError.value = ''
-  try {
-    const response = await listServiceContextSources(serviceId)
-    contextSources.value = response?.data || []
-  } catch (error) {
-    console.error('[ServiceHub] Failed to load context sources:', error)
-    contextSources.value = []
-    contextSourcesError.value = '资料暂不可用，请稍后重试'
-  } finally {
-    contextSourcesLoading.value = false
-  }
-}
-
 const loadReminders = async (serviceId: string) => {
-  if (route.meta.mobileEntry) return
   remindersLoading.value = true
   remindersError.value = ''
   try {
-    const [reminderResponse, statusResponse, transitionResponse] = await Promise.all([
+    const [reminderResponse, statusResponse, transitionResponse, memberResponse] = await Promise.all([
       listServiceReminders(serviceId, { page: 1, page_size: 100 }),
       listServiceReminderStatuses(serviceId),
       listServiceReminderStatusTransitions(serviceId),
+      listServiceMembers(serviceId),
     ])
     serviceReminders.value = reminderResponse?.data?.items || []
     reminderStatuses.value = statusResponse?.data || []
     reminderTransitions.value = transitionResponse?.data || []
+    serviceMembers.value = memberResponse?.data || []
+    const tenantId = Number(authStore.currentTenantId || 0)
+    tenantMembers.value = tenantId > 0 ? await fetchAllTenantMembers(tenantId) : []
   } catch (error) {
     console.error('[ServiceHub] Failed to load service reminders:', error)
     serviceReminders.value = []
     reminderStatuses.value = []
     reminderTransitions.value = []
+    serviceMembers.value = []
+    tenantMembers.value = []
     remindersError.value = '服务待办暂不可用，请稍后重试'
   } finally {
     remindersLoading.value = false
@@ -1117,22 +963,15 @@ const createActiveReminder = async () => {
   try {
     const response = await createServiceReminder(serviceId, {
       title,
-      summary: reminderDraftSummary.value.trim(),
-      priority: reminderDraftPriority.value,
+      priority: 'medium',
       due_text: reminderDraftDueText.value.trim(),
-      parent_reminder_id: reminderDraftParentId.value || undefined,
-      assignee_user_ids: reminderDraftAssignees.value
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean),
+      assignee_user_ids: reminderDraftAssignees.value,
     })
     if (response?.data) {
       serviceReminders.value = [response.data, ...serviceReminders.value]
       reminderDraftTitle.value = ''
-      reminderDraftSummary.value = ''
       reminderDraftDueText.value = ''
-      reminderDraftParentId.value = ''
-      reminderDraftAssignees.value = ''
+      reminderDraftAssignees.value = []
       MessagePlugin.success('待办已创建')
     }
   } catch (error) {
@@ -1151,6 +990,7 @@ const changeReminderStatus = async (reminder: ServiceReminder, status: string) =
     if (response?.data) {
       const index = serviceReminders.value.findIndex((item) => item.id === reminder.id)
       if (index >= 0) serviceReminders.value[index] = response.data
+      if (selectedReminder.value?.id === reminder.id) selectedReminder.value = response.data
       MessagePlugin.success(`待办已更新为${reminderStatusLabel(status)}`)
     }
   } catch (error) {
@@ -1165,6 +1005,13 @@ const removeActiveReminder = async (reminder: ServiceReminder) => {
   try {
     await deleteServiceReminder(serviceId, reminder.id)
     serviceReminders.value = serviceReminders.value.filter((item) => item.id !== reminder.id)
+    if (selectedReminder.value?.id === reminder.id) {
+      selectedReminder.value = null
+      reminderAssignees.value = []
+      reminderComments.value = []
+      reminderHistory.value = []
+      reminderAssigneeDraft.value = []
+    }
     MessagePlugin.success('待办已删除')
   } catch (error) {
     console.error('[ServiceHub] Failed to delete service reminder:', error)
@@ -1175,8 +1022,16 @@ const removeActiveReminder = async (reminder: ServiceReminder) => {
 const openReminderCollaboration = async (reminder: ServiceReminder) => {
   const serviceId = activeService.value?.id
   if (!serviceId) return
+  if (selectedReminder.value?.id === reminder.id) {
+    selectedReminder.value = null
+    reminderAssignees.value = []
+    reminderComments.value = []
+    reminderHistory.value = []
+    reminderAssigneeDraft.value = []
+    reminderCommentDraft.value = ''
+    return
+  }
   selectedReminder.value = reminder
-  reminderDetailVisible.value = true
   reminderCollaborationLoading.value = true
   reminderCommentDraft.value = ''
   try {
@@ -1188,7 +1043,7 @@ const openReminderCollaboration = async (reminder: ServiceReminder) => {
     reminderAssignees.value = assignees?.data || []
     reminderComments.value = comments?.data || []
     reminderHistory.value = history?.data || []
-    reminderAssigneeDraft.value = reminderAssignees.value.map((item) => item.user_id).join(', ')
+    reminderAssigneeDraft.value = reminderAssignees.value.map((item) => item.user_id)
   } catch (error) {
     console.error('[ServiceHub] Failed to load reminder collaboration:', error)
     MessagePlugin.error('待办协作信息加载失败')
@@ -1206,7 +1061,7 @@ const saveReminderAssignees = async () => {
     const response = await replaceServiceReminderAssignees(
       serviceId,
       reminderId,
-      reminderAssigneeDraft.value.split(',').map((value) => value.trim()).filter(Boolean),
+      reminderAssigneeDraft.value,
     )
     reminderAssignees.value = response?.data || []
     MessagePlugin.success('负责人已更新')
@@ -1242,10 +1097,6 @@ const submitReminderComment = async () => {
   }
 }
 
-const sourceMatchesRoute = (source: ServiceContextSource) =>
-  Boolean(contextSourceFocusId.value)
-  && (source.source_id === contextSourceFocusId.value || source.id === contextSourceFocusId.value)
-
 const formatSourceDate = (value?: string) => {
   if (!value) return '刚刚带入'
   const date = new Date(value)
@@ -1258,218 +1109,10 @@ const formatSourceDate = (value?: string) => {
   }).format(date).replace('/', '-')
 }
 
-const viewSourceOutput = async (source: ServiceContextSource) => {
-  if (!source.source_id) return
-  await router.push({
-    path: `/platform/organize/outputs/${encodeURIComponent(source.source_id)}`,
-    query: { from: 'service' },
-  })
-}
-
-const viewSourceMemory = async (memoryId: string) => {
-  if (!memoryId) return
-  await router.push(`/platform/organize/editor/memory/${encodeURIComponent(memoryId)}`)
-}
-
-const removeContextSource = async (sourceId: string) => {
-  const serviceId = activeService.value?.id
-  if (!serviceId || !sourceId) return
-  try {
-    await deleteServiceContextSource(serviceId, sourceId)
-    contextSources.value = contextSources.value.filter((source) => source.id !== sourceId)
-    MessagePlugin.success('来源已从服务中移除')
-  } catch (error) {
-    console.error('[ServiceHub] Failed to remove context source:', error)
-    MessagePlugin.error('来源移除失败，请稍后重试')
-  }
-}
-
-const createActiveSubject = async () => {
-  const serviceId = activeService.value?.id
-  const displayName = subjectDraftName.value.trim()
-  const subjectType = subjectDraftType.value.trim()
-  const subjectKey = subjectDraftKey.value.trim() || displayName
-  if (!serviceId || !displayName || !subjectType || !subjectKey) {
-    MessagePlugin.warning('请填写主体名称、主体类型和唯一标识')
-    return
-  }
-  subjectsSaving.value = true
-  try {
-    const response = await createServiceSubject(serviceId, {
-      subject_type: subjectType,
-      subject_key: subjectKey,
-      display_name: displayName,
-      visibility_scope: 'private',
-    })
-    if (response?.data) {
-      serviceSubjects.value = [response.data, ...serviceSubjects.value]
-      subjectsTotal.value += 1
-      subjectDraftName.value = ''
-      subjectDraftKey.value = ''
-      MessagePlugin.success('主体已添加')
-    }
-  } catch (error) {
-    console.error('[ServiceHub] Failed to create service subject:', error)
-    MessagePlugin.error('主体添加失败，请检查类型和唯一标识')
-  } finally {
-    subjectsSaving.value = false
-  }
-}
-
-const refreshActiveSummary = async () => {
-  if (!activeService.value?.id || planningDataLoading.value) return
-  planningDataLoading.value = true
-  planningDataError.value = ''
-  try {
-    const response = await refreshServiceSummary(activeService.value.id)
-    serviceSummary.value = response?.data || null
-    MessagePlugin.success('首页摘要已刷新')
-  } catch (error) {
-    console.error('[ServiceHub] Failed to refresh service summary:', error)
-    planningDataError.value = '首页摘要刷新失败，请稍后重试'
-    MessagePlugin.error(planningDataError.value)
-  } finally {
-    planningDataLoading.value = false
-  }
-}
-
-const loadServiceSettings = async (serviceId: string) => {
-  const service = getService(serviceId)
-  if (!service) return
-  settingsName.value = service.name
-  settingsDescription.value = service.description || ''
-  settingsInstruction.value = service.instruction || ''
-  const [profileResult] = await Promise.allSettled([
-    getServiceProfile(serviceId),
-    reminderStatuses.value.length ? Promise.resolve() : loadReminders(serviceId),
-  ])
-  if (profileResult.status === 'fulfilled') {
-    settingsProfileSchema.value = (profileResult.value?.data?.schema || []).map((field) => ({ ...field }))
-  }
-}
-
-const saveServiceSettings = async () => {
-  const service = activeService.value
-  if (!service || !settingsName.value.trim()) {
-    MessagePlugin.warning('服务名称不能为空')
-    return
-  }
-  settingsSaving.value = true
-  try {
-    const response = await updateServiceSpace(service.id, {
-      name: settingsName.value.trim(),
-      description: settingsDescription.value.trim(),
-      instruction: settingsInstruction.value.trim(),
-    })
-    await updateServiceProfile(service.id, serviceProfile.value?.values || {}, settingsProfileSchema.value)
-    const updated = response?.data
-    if (updated) {
-      service.name = updated.name
-      service.description = updated.description || ''
-      service.instruction = updated.instruction || ''
-      MessagePlugin.success('服务设置已保存')
-    }
-  } catch (error) {
-    console.error('[ServiceHub] Failed to save service settings:', error)
-    MessagePlugin.error('服务设置保存失败')
-  } finally {
-    settingsSaving.value = false
-  }
-}
-
-const addProfileField = () => {
-  const key = newProfileFieldKey.value.trim()
-  const label = newProfileFieldLabel.value.trim()
-  if (!key || !label) {
-    MessagePlugin.warning('请填写字段 key 和字段名称')
-    return
-  }
-  if (settingsProfileSchema.value.some((field) => field.key === key)) {
-    MessagePlugin.warning('字段 key 不能重复')
-    return
-  }
-  settingsProfileSchema.value.push({
-    key,
-    label,
-    value_type: 'text',
-    source: 'manual',
-    required: false,
-    sensitive: false,
-    display_order: settingsProfileSchema.value.length + 1,
-  })
-  newProfileFieldKey.value = ''
-  newProfileFieldLabel.value = ''
-}
-
-const removeProfileField = (key: string) => {
-  settingsProfileSchema.value = settingsProfileSchema.value
-    .filter((field) => field.key !== key)
-    .map((field, index) => ({ ...field, display_order: index + 1 }))
-}
-
-const addReminderStatus = async () => {
-  const serviceId = activeService.value?.id
-  const statusKey = newStatusKey.value.trim()
-  const label = newStatusLabel.value.trim()
-  if (!serviceId || !statusKey || !label) {
-    MessagePlugin.warning('请填写状态 key 和显示名称')
-    return
-  }
-  try {
-    const response = await createServiceReminderStatus(serviceId, {
-      status_key: statusKey,
-      label,
-      category: newStatusCategory.value,
-      display_order: reminderStatuses.value.length + 1,
-    })
-    if (response?.data) reminderStatuses.value.push(response.data)
-    newStatusKey.value = ''
-    newStatusLabel.value = ''
-    MessagePlugin.success('待办状态已添加')
-  } catch (error) {
-    console.error('[ServiceHub] Failed to create reminder status:', error)
-    MessagePlugin.error('待办状态添加失败')
-  }
-}
-
-const updateStatusLabel = async (status: ServiceReminderStatus, payload: unknown) => {
-  const target = payload && typeof payload === 'object' ? (payload as { target?: { value?: unknown } }).target : null
-  const nextLabel = String(typeof payload === 'string' ? payload : target?.value || '').trim()
-  if (!nextLabel || nextLabel === status.label) return
-  try {
-    const response = await updateServiceReminderStatus(status.service_id, status.id, { label: nextLabel })
-    if (response?.data) Object.assign(status, response.data)
-    MessagePlugin.success('状态名称已更新')
-  } catch (error) {
-    console.error('[ServiceHub] Failed to update reminder status:', error)
-    MessagePlugin.error('状态名称更新失败')
-  }
-}
-
-const toggleReminderStatus = async (status: ServiceReminderStatus) => {
-  try {
-    const response = await updateServiceReminderStatus(status.service_id, status.id, { enabled: !status.enabled })
-    if (response?.data) Object.assign(status, response.data)
-  } catch (error) {
-    console.error('[ServiceHub] Failed to toggle reminder status:', error)
-    MessagePlugin.error('状态启停失败')
-  }
-}
-
-const removeReminderStatus = async (status: ServiceReminderStatus) => {
-  try {
-    await deleteServiceReminderStatus(status.service_id, status.id)
-    reminderStatuses.value = reminderStatuses.value.filter((item) => item.id !== status.id)
-    MessagePlugin.success('待办状态已删除')
-  } catch (error) {
-    console.error('[ServiceHub] Failed to delete reminder status:', error)
-    MessagePlugin.error('待办状态删除失败')
-  }
-}
-
 const toggleActiveServicePause = async () => {
   const service = activeService.value
   if (!service) return
+  closeServiceMenu()
   const nextState = service.state === 'paused' ? 'active' : 'paused'
   try {
     await setServiceSpaceState(service.id, nextState)
@@ -1484,6 +1127,7 @@ const toggleActiveServicePause = async () => {
 const deleteActiveService = async () => {
   const service = activeService.value
   if (!service) return
+  closeServiceMenu()
   try {
     await deleteServiceSpace(service.id)
     await loadServiceHub(true)
@@ -1496,39 +1140,42 @@ const deleteActiveService = async () => {
 }
 
 const backToList = async () => {
+  closeServiceMenu()
   view.value = 'list'
   panel.value = ''
   selectedArtifact.value = null
-  await router.replace(serviceBasePath.value)
+  serviceHubState.activeServiceId = ''
+  serviceHubState.activeSessionId = ''
+  await router.push(serviceBasePath.value)
 }
 
 const syncFromRoute = async () => {
-  await loadServiceHub()
-  const queryService = typeof route.query.service === 'string' ? route.query.service : ''
-  const querySession = typeof route.query.session === 'string' ? route.query.session : ''
-  const queryAction = typeof route.query.action === 'string' ? route.query.action : ''
+  const routeName = String(route.name || '')
+  const routeService = typeof route.params.serviceId === 'string' ? route.params.serviceId : ''
+  const routeSessionId = typeof route.params.sessionId === 'string' ? route.params.sessionId : ''
+  const queryService = routeService || (typeof route.query.service === 'string' ? route.query.service : '')
+  const querySession = routeSessionId || (typeof route.query.session === 'string' ? route.query.session : '')
   const queryCreate = route.query.create === '1'
+  const queryTemplate = typeof route.query.template === 'string' ? route.query.template : ''
+  const queryCopy = typeof route.query.copy === 'string' ? route.query.copy : ''
   const querySourceType = typeof route.query.source_type === 'string' ? route.query.source_type : ''
   const querySourceId = typeof route.query.source_id === 'string' ? route.query.source_id : ''
-  const queryContextSource = typeof route.query.context_source === 'string' ? route.query.context_source : ''
-  contextSourceFocusId.value = queryContextSource
-  if (!route.meta.mobileEntry && queryCreate && querySourceType === 'organize_output' && querySourceId) {
-    pendingContextSourceType.value = querySourceType
-    pendingContextSourceId.value = querySourceId
-    openCreate()
+  const isCreateRoute = routeName === 'serviceCreate' || queryCreate || Boolean(queryTemplate || queryCopy)
+  if (isCreateRoute) view.value = 'create'
+
+  await loadServiceHub()
+  if (isCreateRoute) {
+    createSource.value = queryCopy
+      ? getService(queryCopy) || null
+      : serviceTemplates.find((template) => template.id === queryTemplate) || null
+    if (querySourceType === 'organize_output' && querySourceId) {
+      pendingContextSourceType.value = querySourceType
+      pendingContextSourceId.value = querySourceId
+    }
     return
   }
   if (queryService && getService(queryService)) {
     serviceHubState.activeServiceId = queryService
-    const service = getService(queryService)
-    if (queryAction === 'copy' && service) {
-      openCreate(service)
-      return
-    }
-    if (queryAction === 'archive' && service) {
-      await archiveService(service, true)
-      return
-    }
     const routeSession = querySession ? getSession(querySession) : undefined
     const session = routeSession?.serviceId === queryService
       ? routeSession
@@ -1536,12 +1183,17 @@ const syncFromRoute = async () => {
     if (!session) return
     serviceHubState.activeSessionId = session.id
     view.value = 'workspace'
-    await loadContextSources(queryService)
-    if (queryContextSource) {
-      panel.value = 'context'
+    serviceHubState.expandedServices = Object.fromEntries(
+      serviceHubState.services.map((service) => [service.id, service.id === queryService]),
+    )
+    if (!route.meta.mobileEntry && !routeService) {
+      await router.replace({
+        path: serviceWorkspacePath(queryService, session.id),
+      })
     }
     return
   }
+  createSource.value = null
   view.value = 'list'
 }
 
@@ -1549,6 +1201,7 @@ type CreateServicePayload = {
   name: string
   description: string
   instruction: string
+  spaceType: 'customer_service' | 'operations' | 'research'
   templateId: string
   expertIds: string[]
   knowledgeBaseIds: string[]
@@ -1598,12 +1251,11 @@ const openCreatedService = async (serviceId: string, message = '服务已创建'
   await importPendingContextSource(serviceId)
   serviceHubState.activeServiceId = serviceId
   serviceHubState.activeSessionId = session.id
-  createDialogVisible.value = false
-  blueprintConfirmVisible.value = false
+  createSource.value = null
   view.value = 'workspace'
   await router.replace({
-    path: serviceBasePath.value,
-    query: { service: serviceId, session: session.id },
+    path: serviceWorkspacePath(serviceId, session.id),
+    query: route.meta.mobileEntry ? { service: serviceId, session: session.id } : {},
   })
   MessagePlugin.success(message)
 }
@@ -1611,6 +1263,7 @@ const openCreatedService = async (serviceId: string, message = '服务已创建'
 const createServiceDirectly = async (payload: CreateServicePayload) => {
   const response = await createServiceSpace({
     name: payload.name.trim(),
+    space_type: payload.spaceType,
     description: payload.description.trim(),
     instruction: payload.instruction.trim(),
     template_key: payload.templateId || undefined,
@@ -1640,6 +1293,7 @@ const persistService = async (payload: CreateServicePayload) => {
 
     const response = await applyServiceTemplate(selectedTemplate.id, {
       name,
+      space_type: payload.spaceType,
       description: payload.description.trim(),
       instruction: payload.instruction.trim(),
       template_version: 1,
@@ -1661,91 +1315,16 @@ const persistService = async (payload: CreateServicePayload) => {
   }
 }
 
-const confirmPendingBlueprint = async () => {
-  const payload = pendingPayload.value
-  if (!payload || !pendingBlueprint.value || blueprintConfirming.value) return
-  blueprintConfirming.value = true
-  try {
-    let serviceId = pendingServiceId.value
-    if (!serviceId) {
-      const response = await createServiceSpace({
-        name: payload.name.trim(),
-        description: payload.description.trim(),
-        instruction: payload.instruction.trim(),
-        knowledge_base_ids: payload.knowledgeBaseIds,
-        selected_skills: [],
-        activate: false,
-        experts: serviceExpertsForPayload(payload),
-      })
-      serviceId = response?.data?.id || ''
-      if (!serviceId) throw new Error('missing service id')
-      pendingServiceId.value = serviceId
-    }
-
-    const previewResponse = await previewServiceBlueprintForService(serviceId, {
-      instruction: payload.instruction.trim() || payload.description.trim() || payload.name.trim(),
-    })
-    const blueprint = previewResponse?.data
-    if (!blueprint?.id) throw new Error('missing blueprint id')
-    await confirmServiceBlueprint(serviceId, {
-      blueprint_id: blueprint.id,
-      expected_version: blueprint.version,
-      activate: true,
-      idempotency_key: createIdempotencyKey(),
-    })
-    pendingPayload.value = null
-    pendingBlueprint.value = null
-    pendingServiceId.value = ''
-    await openCreatedService(serviceId, '服务空间已按蓝图创建')
-  } catch (error) {
-    console.error('[ServiceHub] Failed to confirm service blueprint:', error)
-    const message = error && typeof error === 'object' && 'message' in error
-      ? String((error as { message?: unknown }).message || '')
-      : error instanceof Error
-        ? error.message
-        : ''
-    MessagePlugin.error(message ? `蓝图确认失败：${message}` : '蓝图确认失败，请稍后重试')
-  } finally {
-    blueprintConfirming.value = false
-  }
-}
-
-const cancelPendingBlueprint = () => {
-  if (blueprintConfirming.value) return
-  pendingBlueprint.value = null
-  pendingPayload.value = null
-  pendingServiceId.value = ''
-}
-
 const submitForm = async (payload: {
   name: string
   description: string
   instruction: string
+  spaceType: 'customer_service' | 'operations' | 'research'
   templateId: string
   expertIds: string[]
   knowledgeBaseIds: string[]
 }) => {
-  const normalizedPayload = payload as CreateServicePayload
-  if (!route.meta.mobileEntry && !normalizedPayload.templateId) {
-    try {
-      const response = await previewServiceBlueprint({
-        instruction: normalizedPayload.instruction.trim()
-          || normalizedPayload.description.trim()
-          || normalizedPayload.name.trim(),
-      })
-      if (!response?.data) throw new Error('missing blueprint')
-      pendingPayload.value = normalizedPayload
-      pendingBlueprint.value = response.data
-      createDialogVisible.value = false
-      blueprintConfirmVisible.value = true
-      return
-    } catch (error) {
-      console.error('[ServiceHub] Failed to preview service blueprint:', error)
-      MessagePlugin.error('空间蓝图生成失败，请补充指令后重试')
-      return
-    }
-  }
-  await persistService(normalizedPayload)
+  await persistService(payload as CreateServicePayload)
 }
 
 const serviceSessionRequests = new Map<string, Promise<ServiceSession>>()
@@ -1764,27 +1343,9 @@ const ensureServiceSession = async (serviceId: string) => {
   return request
 }
 
-const startNewSession = async () => {
-  if (!activeService.value) return
-  try {
-    const session = await createServiceSession(activeService.value.id, {
-      title: '开始一段新的工作',
-    })
-    serviceHubState.activeSessionId = session.id
-    panel.value = ''
-    selectedArtifact.value = null
-    await router.replace({
-      path: serviceBasePath.value,
-      query: { service: activeService.value.id, session: session.id },
-    })
-  } catch (error) {
-    console.error('[ServiceHub] Failed to create service session:', error)
-    MessagePlugin.error('新会话创建失败，请稍后重试')
-  }
-}
-
 const archiveService = async (service: ServiceRecord | undefined, navigate = view.value === 'workspace') => {
   if (!service) return
+  closeServiceMenu()
   const nextState = service.state === 'archived' ? 'active' : 'archived'
   try {
     await setServiceSpaceState(service.id, nextState)
@@ -1858,83 +1419,59 @@ const handleServiceSessionMutation = (event: Event) => {
   }
 }
 
-const handleServiceSpaceDataUpdated = (event: Event) => {
-  const detail = (event as CustomEvent<{ serviceId?: string }>).detail
-  const serviceId = activeService.value?.id
-  if (!serviceId || detail?.serviceId !== serviceId) return
-  void loadPlanningData(serviceId)
-}
-
 watch(panel, (value) => {
-  if ((value === 'profile' || value === 'summary') && activeService.value?.id) {
-    void loadPlanningData(activeService.value.id)
-  }
-  if (value === 'subjects' && activeService.value?.id) {
-    void loadSubjects(activeService.value.id)
-  }
   if (value === 'reminders' && activeService.value?.id) {
     void loadReminders(activeService.value.id)
   }
   if (value === 'artifacts' && activeService.value?.id) {
     void loadArtifacts(activeService.value.id)
   }
-  if (value === 'settings' && activeService.value?.id) {
-    void loadServiceSettings(activeService.value.id)
-  }
 })
 
 watch(
   () => activeService.value?.id,
   (serviceId) => {
-    serviceProfile.value = null
-    serviceSummary.value = null
-    planningDataError.value = ''
-    serviceSubjects.value = []
-    subjectsTotal.value = 0
-    subjectsError.value = ''
     serviceReminders.value = []
     reminderStatuses.value = []
     reminderTransitions.value = []
     remindersError.value = ''
+    selectedReminder.value = null
+    reminderAssignees.value = []
+    reminderComments.value = []
+    reminderHistory.value = []
+    reminderAssigneeDraft.value = []
+    reminderCommentDraft.value = ''
     serviceArtifactsList.value = []
     selectedArtifact.value = null
     artifactsError.value = ''
-    contextSources.value = []
-    contextSourcesError.value = ''
-    subjectDraftName.value = ''
-    subjectDraftKey.value = ''
     if (serviceId) {
-      void loadSubjects(serviceId)
-      void loadContextSources(serviceId)
       void loadReminders(serviceId)
       void loadArtifacts(serviceId)
-    }
-    if ((panel.value === 'profile' || panel.value === 'summary') && serviceId) {
-      void loadPlanningData(serviceId)
     }
   },
 )
 
 onMounted(async () => {
   window.addEventListener(SESSION_MUTATION_EVENT, handleServiceSessionMutation)
-  window.addEventListener('service-space-data-updated', handleServiceSpaceDataUpdated)
   await loadServiceHub()
   await syncFromRoute()
 })
 onUnmounted(() => {
   window.removeEventListener(SESSION_MUTATION_EVENT, handleServiceSessionMutation)
-  window.removeEventListener('service-space-data-updated', handleServiceSpaceDataUpdated)
 })
 
 watch(
   () => [
+    route.name,
+    route.params.serviceId,
+    route.params.sessionId,
     route.query.service,
     route.query.session,
-    route.query.action,
     route.query.create,
+    route.query.template,
+    route.query.copy,
     route.query.source_type,
     route.query.source_id,
-    route.query.context_source,
   ],
   () => syncFromRoute(),
   { immediate: true },
@@ -1947,6 +1484,10 @@ watch(
   },
   { immediate: true },
 )
+
+watch(serviceMenuVisible, (visible) => {
+  if (!visible) serviceMenuLevel.value = 'primary'
+})
 </script>
 
 <style scoped lang="less">
@@ -1982,6 +1523,68 @@ watch(
   padding-right: 28px;
 }
 
+.service-hub-create-view {
+  padding: 0;
+}
+
+.service-info-dialog > p {
+  margin: 10px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 19px;
+}
+
+.service-share-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.service-share-dialog > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.service-share-dialog > button:hover,
+.service-share-dialog > button.selected {
+  border-color: var(--td-brand-color);
+  background: var(--td-brand-color-1);
+}
+
+.service-share-dialog > button > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.service-share-dialog strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.service-share-dialog small {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.service-share-dialog .t-icon {
+  flex: none;
+  color: var(--td-brand-color);
+  font-size: 18px;
+}
+
 .service-hub-page-header {
   display: flex;
   align-items: flex-start;
@@ -2006,85 +1609,6 @@ watch(
     font-size: 13px;
     line-height: 20px;
   }
-}
-
-.service-hub-header-art {
-  position: relative;
-  flex: none;
-  width: 124px;
-  height: 54px;
-  opacity: 0.72;
-}
-
-.service-hub-art-window,
-.service-hub-art-card {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--td-component-border);
-  border-radius: 6px;
-}
-
-.service-hub-art-window {
-  top: 10px;
-  left: 2px;
-  width: 44px;
-  height: 32px;
-  padding: 0 8px;
-  flex-wrap: wrap;
-}
-
-.service-hub-art-window span {
-  width: 4px;
-  height: 4px;
-  border: 1px solid var(--td-component-border);
-  border-radius: 50%;
-}
-
-.service-hub-art-window span:nth-child(3) {
-  width: 21px;
-  height: 1px;
-  border: 0;
-  border-radius: 0;
-  background: var(--td-component-border);
-}
-
-.service-hub-art-card {
-  top: 13px;
-  left: 58px;
-  width: 42px;
-  height: 26px;
-  padding: 0 8px;
-  border-color: var(--td-brand-color);
-}
-
-.service-hub-art-card span {
-  display: block;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--td-brand-color);
-}
-
-.service-hub-art-card span:last-child {
-  width: 12px;
-  height: 1px;
-  border-radius: 0;
-}
-
-.service-hub-art-dot {
-  position: absolute;
-  top: 18px;
-  right: 3px;
-  width: 17px;
-  height: 17px;
-  border: 1px solid var(--td-component-border);
-  border-radius: 50%;
-}
-
-.service-hub-create-row {
-  margin-bottom: 24px;
 }
 
 .service-hub-primary-button {
@@ -2344,7 +1868,7 @@ watch(
 }
 
 .service-hub-create-view {
-  max-width: 1080px;
+  max-width: none;
 }
 
 .service-hub-create-header {
@@ -2730,8 +2254,8 @@ watch(
   min-height: 24px;
   padding: 2px 8px;
   border-radius: 12px;
-  background: var(--td-success-color-1);
-  color: var(--td-success-color-7);
+  background: var(--td-warning-color-1);
+  color: var(--td-warning-color-7);
   font-size: 11px;
   line-height: 18px;
   white-space: nowrap;
@@ -2766,6 +2290,65 @@ watch(
   border-color: var(--td-brand-color);
   background: var(--td-brand-color-1);
   color: var(--td-brand-color-7);
+}
+
+.service-hub-space-menu {
+  display: flex;
+  width: 184px;
+  padding: 6px;
+  flex-direction: column;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-container);
+  box-shadow: var(--td-shadow-2);
+}
+
+.service-hub-space-menu button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+
+.service-hub-space-menu button:hover {
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.service-hub-space-menu button:disabled {
+  color: var(--td-text-color-disabled);
+  cursor: not-allowed;
+}
+
+.service-hub-space-menu button:disabled:hover {
+  background: transparent;
+}
+
+.service-hub-space-menu button.is-danger {
+  color: var(--td-error-color);
+}
+
+.service-hub-space-menu button.has-trailing {
+  justify-content: space-between;
+}
+
+.service-hub-space-menu button.has-leading .t-icon {
+  flex: none;
+}
+
+.service-hub-space-menu-divider {
+  height: 1px;
+  margin: 5px 3px;
+  background: var(--td-component-stroke);
 }
 
 .service-hub-workspace-view > .service-hub-space-head + .service-hub-workbench {
@@ -2895,12 +2478,17 @@ watch(
 
 .service-hub-side-panel {
   display: flex;
-  width: min(360px, 36%);
+  position: absolute;
+  z-index: 12;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(360px, calc(100% - 24px));
   min-width: 280px;
-  flex: none;
   flex-direction: column;
   border-left: 1px solid var(--td-component-stroke);
   background: var(--td-bg-color-container);
+  box-shadow: -10px 0 24px rgba(0, 0, 0, 0.08);
 }
 
 .service-hub-side-panel > header {
@@ -3125,12 +2713,6 @@ watch(
   background: var(--td-bg-color-secondarycontainer);
 }
 
-.service-hub-reminder-form-row {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  gap: 8px;
-}
-
 .service-hub-reminder-list {
   display: flex;
   flex-direction: column;
@@ -3215,6 +2797,66 @@ watch(
 
 .service-hub-reminder-actions button.is-danger {
   color: var(--td-error-color);
+}
+
+.service-reminder-inline {
+  display: flex;
+  margin-top: 10px;
+  padding-top: 10px;
+  flex-direction: column;
+  gap: 14px;
+  border-top: 1px solid var(--td-component-stroke);
+}
+
+.service-reminder-inline > section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.service-reminder-inline > section > strong,
+.service-reminder-inline-head > strong {
+  color: var(--td-text-color-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.service-reminder-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.service-reminder-inline-head button,
+.service-reminder-comment-compose button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--td-brand-color);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.service-reminder-inline-head button:disabled,
+.service-reminder-comment-compose button:disabled {
+  color: var(--td-text-color-disabled);
+  cursor: not-allowed;
+}
+
+.service-reminder-inline-empty {
+  padding: 8px 0;
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+}
+
+.service-reminder-status-note {
+  margin: 12px 2px 0;
+  color: var(--td-text-color-placeholder);
+  font-size: 10px;
+  line-height: 16px;
 }
 
 .service-reminder-collaboration {
@@ -3681,108 +3323,6 @@ watch(
   animation: service-hub-spin 0.9s linear infinite;
 }
 
-.service-blueprint-confirm {
-  color: var(--td-text-color-primary);
-}
-
-.service-blueprint-confirm-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.service-blueprint-confirm-head > div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.service-blueprint-confirm-kicker,
-.service-blueprint-confirm-section > span,
-.service-blueprint-confirm-grid span {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
-.service-blueprint-confirm-head strong {
-  overflow: hidden;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 26px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-blueprint-confirm-status {
-  flex: none;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: var(--td-warning-color-1);
-  color: var(--td-warning-color-7);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.service-blueprint-confirm-copy {
-  margin: 14px 0 18px;
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-  line-height: 21px;
-}
-
-.service-blueprint-confirm-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 6px;
-  background: var(--td-bg-color-secondarycontainer);
-}
-
-.service-blueprint-confirm-grid > div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.service-blueprint-confirm-grid strong {
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-blueprint-confirm-section {
-  margin-top: 18px;
-}
-
-.service-blueprint-confirm-section > span {
-  display: block;
-  margin-bottom: 8px;
-}
-
-.service-blueprint-confirm-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.service-blueprint-confirm-tags em {
-  padding: 3px 8px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 4px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  font-style: normal;
-  line-height: 18px;
-}
-
 @keyframes service-hub-spin {
   to {
     transform: rotate(360deg);
@@ -3798,10 +3338,6 @@ watch(
 @media (max-width: 920px) {
   .service-hub-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .service-hub-header-art {
-    display: none;
   }
 
   .service-hub-space-head {
@@ -3821,9 +3357,12 @@ watch(
 
 @media (max-width: 680px) {
   .service-hub-list-view,
-  .service-hub-create-view,
   .service-hub-workspace-view {
     padding: 16px;
+  }
+
+  .service-hub-create-view {
+    padding: 0;
   }
 
   .service-hub-grid {
@@ -3853,6 +3392,17 @@ watch(
     line-height: 26px;
   }
 
+  .service-hub-side-panel {
+    top: auto;
+    left: 0;
+    width: 100%;
+    min-width: 0;
+    height: min(68vh, 560px);
+    border-top: 1px solid var(--td-component-stroke);
+    border-left: 0;
+    box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.1);
+  }
+
   .service-hub-section-head,
   .service-hub-section-tools,
   .service-hub-form-footer {
@@ -3867,10 +3417,6 @@ watch(
 
   .service-hub-form-footer > div {
     justify-content: flex-end;
-  }
-
-  .service-blueprint-confirm-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

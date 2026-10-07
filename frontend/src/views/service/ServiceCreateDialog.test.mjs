@@ -5,20 +5,36 @@ import test from 'node:test'
 const dialog = readFileSync(new URL('./ServiceCreateDialog.vue', import.meta.url), 'utf8')
 const hub = readFileSync(new URL('./ServiceHub.vue', import.meta.url), 'utf8')
 const hubState = readFileSync(new URL('./serviceHubState.ts', import.meta.url), 'utf8')
+const menu = readFileSync(new URL('../../components/ServiceHubMenu.vue', import.meta.url), 'utf8')
+const router = readFileSync(new URL('../../router/index.ts', import.meta.url), 'utf8')
+const mobileRouter = readFileSync(new URL('../../mobile-main.ts', import.meta.url), 'utf8')
+const overview = readFileSync(new URL('./ServiceOverviewView.vue', import.meta.url), 'utf8')
+const subjects = readFileSync(new URL('./ServiceSubjectsView.vue', import.meta.url), 'utf8')
+const settings = readFileSync(new URL('./ServiceSettingsView.vue', import.meta.url), 'utf8')
 
-test('service creation uses a modal and loads account-visible knowledge bases', () => {
-  assert.match(dialog, /<Teleport to="body">/)
-  assert.match(dialog, /role="dialog"/)
+test('service creation has a routed page mode and loads account-visible knowledge bases', () => {
+  assert.match(dialog, /:disabled="displayMode === 'page'"/)
+  assert.match(dialog, /class="service-create-dialog-overlay"/)
+  assert.match(hub, /view === 'create'/)
+  assert.match(hub, /display-mode="page"/)
+  assert.match(hub, /if \(isCreateRoute\) view\.value = 'create'\s+await loadServiceHub\(\)/)
   assert.match(dialog, /fetchMyKnowledgeBases\(true\)/)
   assert.match(dialog, /validAccountKnowledgeBases/)
   assert.match(dialog, /知识库/)
   assert.match(hub, /instruction: payload\.instruction/)
+  assert.match(hub, /space_type: payload\.spaceType/)
+  assert.match(router, /path: "service\/new"/)
+  assert.match(router, /name: "serviceCreate"/)
 })
 
-test('service creation modal does not expose skills', () => {
+test('service creation stays business-facing and does not expose skills or machine keys', () => {
   assert.doesNotMatch(dialog, /技能/)
   assert.doesNotMatch(hub, /serviceSkills/)
-  assert.doesNotMatch(hub, /view === 'create'/)
+  assert.doesNotMatch(dialog, /space_key|expert_ref|subject_ref/)
+  assert.match(dialog, /主要围绕谁工作/)
+  assert.match(dialog, /家长与学员/)
+  assert.match(dialog, /园所日常运营/)
+  assert.match(dialog, /教研与备课/)
 })
 
 test('service experts come from published system experts and use a searchable picker', () => {
@@ -49,35 +65,75 @@ test('templates live under my services and populate the creation dialog', () => 
   assert.doesNotMatch(dialog, /当前工作画像/)
   assert.doesNotMatch(dialog, /切换模板/)
   assert.match(dialog, /已带入模板/)
-  assert.match(dialog, /命中后免确认/)
-  assert.match(dialog, /直接创建空间/)
+  assert.match(dialog, /创建后仍可调整/)
+  assert.match(dialog, /创建服务/)
 })
 
-test('planned service flow confirms instruction-generated blueprints before activation', () => {
+test('planned service flow creates and activates without a blueprint confirmation step', () => {
   assert.match(hub, /applyServiceTemplate/)
-  assert.match(hub, /previewServiceBlueprint/)
-  assert.match(hub, /confirmServiceBlueprint/)
-  assert.match(hub, /确认服务空间蓝图/)
   assert.match(hub, /activate: true/)
-  assert.match(hub, /空间档案/)
-  assert.match(hub, /首页摘要/)
+  assert.doesNotMatch(hub, /previewServiceBlueprint/)
+  assert.doesNotMatch(hub, /confirmServiceBlueprint/)
+  assert.doesNotMatch(hub, /确认服务空间蓝图/)
+  assert.match(hub, /await openCreatedService\(serviceId\)/)
 })
 
-test('service workspace exposes generated profile and summary panels on web only', () => {
-  assert.match(hub, /getServiceProfile/)
-  assert.match(hub, /getServiceSummary/)
-  assert.match(hub, /refreshServiceSummary/)
-  assert.match(hub, /route\.meta\.mobileEntry/)
-  assert.match(hub, /serviceProfile\?\.schema/)
-  assert.match(hub, /serviceSummary\?\.schema/)
+test('service workspace keeps only artifacts and reminders as primary tools', () => {
+  assert.match(hub, /const headTools = computed/)
+  assert.match(hub, /key: 'artifacts'/)
+  assert.match(hub, /key: 'reminders'/)
+  assert.doesNotMatch(hub, /key: 'context'.*headTools/s)
+  assert.match(hub, /修改服务名称/)
+  assert.match(hub, /修改服务描述/)
+  assert.match(hub, /分享服务/)
 })
 
-test('service workspace refreshes and focuses imported organize sources from the route', () => {
-  assert.match(hub, /route\.query\.context_source/)
-  assert.match(hub, /await loadContextSources\(queryService\)/)
-  assert.match(hub, /panel\.value = 'context'/)
-  assert.match(hub, /sourceMatchesRoute\(source\)/)
-  assert.match(hub, /刚带入/)
+test('service routes support shareable service and session paths', () => {
+  assert.match(router, /path: "service\/:serviceId\/sessions\/:sessionId"/)
+  assert.match(router, /name: "serviceSession"/)
+  assert.match(router, /path: "service\/:serviceId"/)
+  assert.match(router, /name: "serviceWorkspace"/)
+  assert.match(hub, /route\.params\.serviceId/)
+  assert.match(hub, /route\.params\.sessionId/)
+})
+
+test('service sidebar creates sessions inline and limits the initial session list', () => {
+  assert.match(menu, /const SESSION_LIMIT = 8/)
+  assert.match(menu, /class="service-hub-session-count-action"/)
+  assert.match(menu, /startServiceSession\(service\.id\)/)
+  assert.match(menu, /还有 \{\{ hiddenSessionCount\(service\.id\) \}\} 个/)
+  assert.match(menu, /beginSessionRename/)
+  assert.match(menu, /toggleSessionPinned/)
+  assert.match(menu, /confirmRemoveSession/)
+  assert.doesNotMatch(menu, /service-hub-service-icon/)
+})
+
+test('service overview, subjects, and settings use shareable full-page routes', () => {
+  assert.match(router, /path: "service\/:serviceId\/overview"/)
+  assert.match(router, /path: "service\/:serviceId\/subjects"/)
+  assert.match(router, /path: "service\/:serviceId\/settings\/:section\?"/)
+  assert.match(mobileRouter, /path: '\/mobile\/service\/:serviceId\/overview'/)
+  assert.match(mobileRouter, /path: '\/mobile\/service\/:serviceId\/subjects'/)
+  assert.match(mobileRouter, /path: '\/mobile\/service\/:serviceId\/settings\/:section\?'/)
+  assert.match(overview, /getServiceProfile/)
+  assert.match(overview, /getServiceSummary/)
+  assert.match(overview, /refreshServiceSummary/)
+  assert.match(hub, /openServicePage\('overview'\)/)
+  assert.match(hub, /openServicePage\('subjects'\)/)
+  assert.match(hub, /openServicePage\('settings\/basic'\)/)
+})
+
+test('service settings and subjects stay business-facing without machine identifiers', () => {
+  assert.match(settings, /基本信息/)
+  assert.match(settings, /重点记录/)
+  assert.match(settings, /资料/)
+  assert.match(settings, /成员/)
+  assert.match(settings, /listServiceContextSources/)
+  assert.match(settings, /listServiceMembers/)
+  assert.match(settings, /const loading = ref\(true\)/)
+  assert.match(subjects, /createServiceSubject\(serviceId\.value, \{ display_name: displayName \}\)/)
+  assert.doesNotMatch(subjects, /subject_key|subject_type|唯一标识/)
+  assert.doesNotMatch(settings, /字段 key|状态 key|用户 ID/)
 })
 
 test('service workspace exposes service-scoped reminders and status actions', () => {
