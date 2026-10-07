@@ -113,6 +113,19 @@ func (r *organizeRepository) UpdateConfig(ctx context.Context, config *types.Org
 		Updates(config).Error
 }
 
+func (r *organizeRepository) UpdateConfigMetadata(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	id string,
+	metadata types.JSONMap,
+) error {
+	return r.db.WithContext(ctx).
+		Model(&types.OrganizeConfig{}).
+		Where("tenant_id = ? AND user_id = ? AND id = ?", tenantID, userID, id).
+		UpdateColumn("metadata", metadata).Error
+}
+
 func (r *organizeRepository) DeleteConfig(
 	ctx context.Context,
 	tenantID uint64,
@@ -405,6 +418,29 @@ func (r *organizeRepository) fillOrganizeConfigs(
 		}
 	}
 
+	type configOutputTimestamp struct {
+		ConfigID  string
+		CreatedAt time.Time
+	}
+	var outputTimestamps []configOutputTimestamp
+	if err := r.db.WithContext(ctx).
+		Model(&types.OrganizeOutput{}).
+		Select("config_id", "created_at").
+		Where("tenant_id = ? AND user_id = ? AND config_id IN ?", tenantID, userID, configIDs).
+		Order("created_at DESC").
+		Scan(&outputTimestamps).Error; err != nil {
+		return err
+	}
+	for _, output := range outputTimestamps {
+		config := byID[output.ConfigID]
+		if config == nil || config.HasUnreadOutput {
+			continue
+		}
+		if output.CreatedAt.After(organizeConfigLastViewedOutputAt(config)) {
+			config.HasUnreadOutput = true
+		}
+	}
+
 	if len(templateKeys) == 0 {
 		return nil
 	}
@@ -431,4 +467,16 @@ func (r *organizeRepository) fillOrganizeConfigs(
 		config.Template = templatesByKey[config.TemplateKey]
 	}
 	return nil
+}
+
+func organizeConfigLastViewedOutputAt(config *types.OrganizeConfig) time.Time {
+	if config == nil || config.Metadata == nil {
+		return time.Time{}
+	}
+	raw, _ := config.Metadata[types.OrganizeConfigMetadataLastViewedOutputAt].(string)
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }

@@ -200,6 +200,25 @@ func (h *OrganizeHandler) UpdateConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 
+func (h *OrganizeHandler) MarkConfigOutputRead(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	var req types.OrganizeConfigOutputReadInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid request body").WithDetails(err.Error()))
+		return
+	}
+	item, err := h.service.MarkConfigOutputRead(ctx, tenantID, userID, c.Param("id"), req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
 func (h *OrganizeHandler) DeleteConfig(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := organizeScope(c)

@@ -132,6 +132,7 @@ import {
   streamOrganizeJobEvents,
 } from '@/api/organize'
 import {
+  ORGANIZE_CONFIG_UNREAD_EVENT,
   toOrganizeConfig,
   toOrganizeJob,
   toOrganizeOutput,
@@ -201,6 +202,12 @@ const loadConfig = async (quiet = false) => {
         .map((output) => [output.jobId, output]),
     )
     config.value = mapped
+    window.dispatchEvent(new CustomEvent(ORGANIZE_CONFIG_UNREAD_EVENT, {
+      detail: {
+        configId: mapped.id,
+        hasUnreadOutput: mapped.hasUnreadOutput,
+      },
+    }))
   } catch (error: any) {
     config.value = null
     outputsByJobId.value = {}

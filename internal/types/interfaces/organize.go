@@ -28,6 +28,7 @@ type OrganizeRepository interface {
 	CreateConfig(ctx context.Context, config *types.OrganizeConfig) error
 	GetConfig(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeConfig, error)
 	UpdateConfig(ctx context.Context, config *types.OrganizeConfig) error
+	UpdateConfigMetadata(ctx context.Context, tenantID uint64, userID, id string, metadata types.JSONMap) error
 	DeleteConfig(ctx context.Context, tenantID uint64, userID, id string) error
 	ListConfigs(ctx context.Context, query types.OrganizeConfigQuery) ([]*types.OrganizeConfig, int64, error)
 	ListDueConfigs(ctx context.Context, now time.Time, limit int) ([]*types.OrganizeConfig, error)
@@ -120,6 +121,7 @@ type OrganizeService interface {
 	CreateConfig(ctx context.Context, tenantID uint64, userID string, input types.OrganizeConfigInput) (*types.OrganizeConfig, error)
 	GetConfig(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeConfig, error)
 	UpdateConfig(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeConfigInput) (*types.OrganizeConfig, error)
+	MarkConfigOutputRead(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeConfigOutputReadInput) (*types.OrganizeConfig, error)
 	DeleteConfig(ctx context.Context, tenantID uint64, userID, id string) error
 	ListConfigs(ctx context.Context, query types.OrganizeConfigQuery) ([]*types.OrganizeConfig, int64, error)
 	RunConfig(ctx context.Context, tenantID uint64, userID, id string, input types.OrganizeJobInput) (*types.OrganizeJob, error)

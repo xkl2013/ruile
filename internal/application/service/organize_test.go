@@ -240,6 +240,108 @@ func TestOrganizeWorkbenchCreatesDurableFallbackOutput(t *testing.T) {
 	require.Equal(t, job.ID, configs[0].LatestJob.ID)
 }
 
+func TestOrganizeConfigUnreadOutputTracksViewedReport(t *testing.T) {
+	ctx := context.Background()
+	svc, db := newOrganizeServiceWithDBForTest(t)
+	template := &types.OrganizeTemplate{
+		Scope:              types.OrganizeTemplateScopePlatform,
+		Key:                "lead_follow_up",
+		Name:               "线索跟进清单",
+		OutputLabel:        "跟进报告",
+		DefaultInstruction: "整理线索状态和下一步动作",
+		Status:             types.OrganizeTemplateStatusEnabled,
+		PublishedVersion:   "v1",
+	}
+	require.NoError(t, db.Create(template).Error)
+
+	config, err := svc.CreateConfig(ctx, 9, "user-a", types.OrganizeConfigInput{
+		Name:        "线索跟进清单整理",
+		TemplateKey: template.Key,
+		Schedule:    types.OrganizeScheduleManual,
+	})
+	require.NoError(t, err)
+
+	baseTime := time.Now().UTC().Add(-2 * time.Hour)
+	olderOutput := &types.OrganizeOutput{
+		TenantID:  config.TenantID,
+		UserID:    config.UserID,
+		ConfigID:  config.ID,
+		Title:     "较早报告",
+		CreatedAt: baseTime,
+		UpdatedAt: baseTime,
+	}
+	newerOutput := &types.OrganizeOutput{
+		TenantID:  config.TenantID,
+		UserID:    config.UserID,
+		ConfigID:  config.ID,
+		Title:     "最新报告",
+		CreatedAt: baseTime.Add(time.Hour),
+		UpdatedAt: baseTime.Add(time.Hour),
+	}
+	require.NoError(t, db.Create(olderOutput).Error)
+	require.NoError(t, db.Create(newerOutput).Error)
+
+	configs, _, err := svc.ListConfigs(ctx, types.OrganizeConfigQuery{
+		TenantID: config.TenantID,
+		UserID:   config.UserID,
+		Page:     1,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.True(t, configs[0].HasUnreadOutput)
+
+	readConfig, err := svc.MarkConfigOutputRead(ctx, config.TenantID, config.UserID, config.ID, types.OrganizeConfigOutputReadInput{
+		OutputID: olderOutput.ID,
+	})
+	require.NoError(t, err)
+	require.True(t, readConfig.HasUnreadOutput, "a newer report must remain unread")
+
+	readConfig, err = svc.MarkConfigOutputRead(ctx, config.TenantID, config.UserID, config.ID, types.OrganizeConfigOutputReadInput{
+		OutputID: newerOutput.ID,
+	})
+	require.NoError(t, err)
+	require.False(t, readConfig.HasUnreadOutput)
+	require.Equal(
+		t,
+		newerOutput.CreatedAt.Format(time.RFC3339Nano),
+		readConfig.Metadata[types.OrganizeConfigMetadataLastViewedOutputAt],
+	)
+
+	updatedConfig, err := svc.UpdateConfig(ctx, config.TenantID, config.UserID, config.ID, types.OrganizeConfigInput{
+		Name:        "线索跟进清单整理（新版）",
+		TemplateKey: template.Key,
+		Schedule:    types.OrganizeScheduleManual,
+		Metadata:    types.JSONMap{"owner": "招生组"},
+	})
+	require.NoError(t, err)
+	require.False(t, updatedConfig.HasUnreadOutput)
+	require.Equal(t, "招生组", updatedConfig.Metadata["owner"])
+	require.Equal(
+		t,
+		newerOutput.CreatedAt.Format(time.RFC3339Nano),
+		updatedConfig.Metadata[types.OrganizeConfigMetadataLastViewedOutputAt],
+	)
+
+	latestTime := baseTime.Add(90 * time.Minute)
+	latestOutput := &types.OrganizeOutput{
+		TenantID:  config.TenantID,
+		UserID:    config.UserID,
+		ConfigID:  config.ID,
+		Title:     "刚生成的报告",
+		CreatedAt: latestTime,
+		UpdatedAt: latestTime,
+	}
+	require.NoError(t, db.Create(latestOutput).Error)
+	configs, _, err = svc.ListConfigs(ctx, types.OrganizeConfigQuery{
+		TenantID: config.TenantID,
+		UserID:   config.UserID,
+		Page:     1,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.True(t, configs[0].HasUnreadOutput)
+}
+
 func TestOrganizeWorkbenchAutoAssignsReadyOutputToConfiguredService(t *testing.T) {
 	ctx := context.Background()
 	db := newAgentRunTestDB(t)

@@ -180,10 +180,59 @@ func (s *organizeService) UpdateConfig(
 	config.LastRunAt = current.LastRunAt
 	config.CreatedAt = current.CreatedAt
 	config.UpdatedAt = time.Now().UTC()
+	if viewedAt, ok := current.Metadata[types.OrganizeConfigMetadataLastViewedOutputAt]; ok {
+		if config.Metadata == nil {
+			config.Metadata = types.JSONMap{}
+		}
+		config.Metadata[types.OrganizeConfigMetadataLastViewedOutputAt] = viewedAt
+	}
 	if err := s.repo.UpdateConfig(ctx, config); err != nil {
 		return nil, err
 	}
 	return s.GetConfig(ctx, tenantID, userID, current.ID)
+}
+
+func (s *organizeService) MarkConfigOutputRead(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	id string,
+	input types.OrganizeConfigOutputReadInput,
+) (*types.OrganizeConfig, error) {
+	config, err := s.GetConfig(ctx, tenantID, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	output, err := s.GetOutput(ctx, tenantID, userID, strings.TrimSpace(input.OutputID))
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(output.ConfigID) != config.ID {
+		return nil, ErrOrganizeNotFound
+	}
+
+	viewedAt := output.CreatedAt
+	if viewedAt.IsZero() {
+		viewedAt = output.UpdatedAt
+	}
+	metadata := normalizeJSONMap(config.Metadata)
+	currentViewedAt := organizeConfigViewedOutputAt(metadata)
+	if viewedAt.After(currentViewedAt) {
+		metadata[types.OrganizeConfigMetadataLastViewedOutputAt] = viewedAt.UTC().Format(time.RFC3339Nano)
+		if err := s.repo.UpdateConfigMetadata(ctx, tenantID, userID, config.ID, metadata); err != nil {
+			return nil, err
+		}
+	}
+	return s.GetConfig(ctx, tenantID, userID, config.ID)
+}
+
+func organizeConfigViewedOutputAt(metadata types.JSONMap) time.Time {
+	raw, _ := metadata[types.OrganizeConfigMetadataLastViewedOutputAt].(string)
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }
 
 func (s *organizeService) DeleteConfig(

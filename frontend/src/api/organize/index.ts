@@ -116,6 +116,7 @@ export interface OrganizeConfig {
   template?: OrganizeTemplate
   latest_job?: OrganizeJob
   job_count?: number
+  has_unread_output?: boolean
   created_at: string
   updated_at: string
 }
@@ -484,6 +485,13 @@ export function getOrganizeConfig(id: string) {
 
 export function updateOrganizeConfig(id: string, input: OrganizeConfigInput) {
   return put<OrganizeResponse<OrganizeConfig>>(`/api/v1/organize/configs/${encodeURIComponent(id)}`, input)
+}
+
+export function markOrganizeConfigOutputRead(id: string, outputId: string) {
+  return post<OrganizeResponse<OrganizeConfig>>(
+    `/api/v1/organize/configs/${encodeURIComponent(id)}/read-output`,
+    { output_id: outputId },
+  )
 }
 
 export function deleteOrganizeConfig(id: string) {

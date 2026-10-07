@@ -109,9 +109,12 @@ import {
   getOrganizeOutputCitation,
   getOrganizeOutput,
   listOrganizeTemplates,
+  markOrganizeConfigOutputRead,
 } from '@/api/organize'
 import { listServiceSpaces, type ServiceSpace } from '@/api/service'
 import {
+  ORGANIZE_CONFIG_UNREAD_EVENT,
+  markOrganizeConfigOutputLocallyRead,
   toOrganizeOutput,
   toOrganizeTemplate,
   type OrganizeOutput,
@@ -140,6 +143,26 @@ const serviceError = ref('')
 const services = ref<ServiceSpace[]>([])
 const selectedServiceId = ref('')
 
+const markOutputRead = async (item: OrganizeOutput) => {
+  if (!item.configId) return
+  markOrganizeConfigOutputLocallyRead(item.configId, item.id)
+  const detail: {
+    configId: string
+    viewedOutputId: string
+    hasUnreadOutput?: boolean
+  } = {
+    configId: item.configId,
+    viewedOutputId: item.id,
+  }
+  try {
+    const response = await markOrganizeConfigOutputRead(item.configId, item.id)
+    detail.hasUnreadOutput = Boolean(response.data?.has_unread_output)
+  } catch {
+    // The local watermark keeps rolling frontend/backend deployments usable.
+  }
+  window.dispatchEvent(new CustomEvent(ORGANIZE_CONFIG_UNREAD_EVENT, { detail }))
+}
+
 const loadOutput = async () => {
   loading.value = true
   try {
@@ -148,7 +171,9 @@ const loadOutput = async () => {
       listOrganizeTemplates(),
     ])
     const templates = (templateResponse.data || []).map(toOrganizeTemplate)
-    output.value = toOrganizeOutput(outputResponse.data, templates)
+    const nextOutput = toOrganizeOutput(outputResponse.data, templates)
+    output.value = nextOutput
+    void markOutputRead(nextOutput)
   } catch (error: any) {
     output.value = null
     MessagePlugin.error(error?.message || '整理结果加载失败')

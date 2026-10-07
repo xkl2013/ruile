@@ -25,6 +25,13 @@
         @keydown.space.self.prevent="openConfig(config.id)">
         <t-icon :name="configIcon(config)" class="organize-menu-item-icon" />
         <span class="organize-menu-item-name" :title="config.name">{{ config.name }}</span>
+        <span
+          v-if="config.hasUnreadOutput"
+          class="organize-menu-item-unread"
+          role="status"
+          aria-label="有未读整理报告"
+          title="有未读整理报告"
+        />
         <span class="organize-menu-item-actions" @click.stop>
           <t-tooltip content="设置" placement="top">
             <button
@@ -70,6 +77,7 @@ import {
   ORGANIZE_ROUTE_NAMES,
 } from '@/views/organize/organizeRoutes'
 import {
+  ORGANIZE_CONFIG_UNREAD_EVENT,
   toOrganizeConfig,
   type OrganizeConfig,
 } from '@/views/organize/organizeWorkbenchState'
@@ -150,6 +158,24 @@ const handleConfigSaved = async (config: OrganizeConfig) => {
   await loadConfiguredItems()
 }
 
+const handleConfigOutputRead = (event: Event) => {
+  const detail = (event as CustomEvent<{
+    configId?: string
+    hasUnreadOutput?: boolean
+    viewedOutputId?: string
+  }>).detail
+  const configId = String(detail?.configId || '')
+  if (!configId) return
+  configuredOrganizeItems.value = configuredOrganizeItems.value.map((config) => {
+    if (config.id !== configId) return config
+    const latestOutputId = config.jobs.find((job) => job.outputId)?.outputId || ''
+    const hasUnreadOutput = typeof detail?.hasUnreadOutput === 'boolean'
+      ? detail.hasUnreadOutput
+      : Boolean(latestOutputId && latestOutputId !== detail?.viewedOutputId)
+    return { ...config, hasUnreadOutput }
+  })
+}
+
 const removeConfig = (config: OrganizeConfig) => {
   const dialog = DialogPlugin.confirm({
     header: '删除整理配置',
@@ -175,10 +201,12 @@ const removeConfig = (config: OrganizeConfig) => {
 onMounted(() => {
   void loadConfiguredItems()
   refreshTimer = window.setInterval(loadConfiguredItems, 30000)
+  window.addEventListener(ORGANIZE_CONFIG_UNREAD_EVENT, handleConfigOutputRead)
 })
 
 onBeforeUnmount(() => {
   if (refreshTimer) window.clearInterval(refreshTimer)
+  window.removeEventListener(ORGANIZE_CONFIG_UNREAD_EVENT, handleConfigOutputRead)
 })
 
 watch(
@@ -349,6 +377,19 @@ watch(
 .organize-menu-item-action--danger:hover {
   background: var(--td-error-color-light);
   color: var(--td-error-color);
+}
+
+.organize-menu-item-unread {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+  box-shadow: 0 0 0 2px var(--td-bg-color-container);
+}
+
+.organize-menu-item.active .organize-menu-item-unread {
+  box-shadow: 0 0 0 2px var(--td-bg-color-secondarycontainer);
 }
 
 </style>
