@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ruile_mobile/main.dart';
 
 const _testSession = AuthSession(token: '');
+const _organizeMockEnabled = bool.fromEnvironment('RUILE_ORGANIZE_MOCK');
 
 Future<void> _pumpTransition(WidgetTester tester) async {
   await tester.pump();
@@ -127,6 +128,35 @@ void main() {
     expect(find.text('全部记忆'), findsOneWidget);
   });
 
+  testWidgets('filters memories from the status overview', (tester) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    expect(
+      find.byKey(const Key('memory-status-unorganized')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('memory-status-processing')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('memory-status-organized')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('memory-status-processing')));
+    await tester.pump();
+
+    expect(find.text('整理中记忆'), findsOneWidget);
+    expect(find.text('当前筛选：整理中'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('memory-status-processing')));
+    await tester.pump();
+
+    expect(find.text('全部记忆'), findsOneWidget);
+    expect(find.text('当前筛选：整理中'), findsNothing);
+  });
+
   testWidgets('switches between the three primary tabs', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
@@ -157,6 +187,42 @@ void main() {
     expect(find.text('登录后可查看整理日报'), findsOneWidget);
     expect(find.text('今日整理'), findsNothing);
   });
+
+  testWidgets(
+    'clears the organize unread marker after opening its report',
+    (tester) async {
+      const session = AuthSession(token: 'mock-token');
+      await tester.pumpWidget(
+        const RuileMobileApp(initialSession: session),
+      );
+
+      await tester.tap(find.byTooltip('整理'));
+      await _pumpTransition(tester);
+      await tester.pump();
+
+      const unreadKey = Key('organize-config-unread-mock-config-daily');
+      expect(find.byKey(unreadKey), findsOneWidget);
+
+      final reportRow = find.byKey(
+        const Key('organize-report-mock-job-daily-today'),
+      );
+      await tester.ensureVisible(reportRow);
+      await tester.pump();
+      expect(reportRow.hitTestable(), findsOneWidget);
+      await tester.tap(reportRow.hitTestable());
+      await _pumpTransition(tester);
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('整理产物'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('返回').hitTestable());
+      await _pumpTransition(tester);
+      await tester.pump();
+
+      expect(find.byKey(unreadKey), findsNothing);
+    },
+    skip: !_organizeMockEnabled,
+  );
 
   testWidgets('opens daily report and history from the drawer', (
     tester,

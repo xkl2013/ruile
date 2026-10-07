@@ -206,6 +206,61 @@ class _AuthSessionStore {
   }
 }
 
+class _OrganizeOutputReadStore {
+  const _OrganizeOutputReadStore();
+
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _keyPrefix = 'ruile.organize.viewed_output';
+  static final Map<String, String> _sessionValues = <String, String>{};
+
+  String _key({
+    required String tenantId,
+    required String configId,
+  }) {
+    final scope = tenantId.trim().isEmpty ? 'default' : tenantId.trim();
+    return '$_keyPrefix.$scope.${configId.trim()}';
+  }
+
+  Future<String> read({
+    required String tenantId,
+    required String configId,
+  }) async {
+    final key = _key(tenantId: tenantId, configId: configId);
+    try {
+      final value = (await _storage.read(key: key))?.trim() ?? '';
+      if (value.isNotEmpty) _sessionValues[key] = value;
+      return value.isNotEmpty ? value : (_sessionValues[key] ?? '');
+    } catch (_) {
+      return _sessionValues[key] ?? '';
+    }
+  }
+
+  Future<void> markViewed({
+    required String tenantId,
+    required String configId,
+    required String outputId,
+  }) {
+    final normalizedOutputId = outputId.trim();
+    if (configId.trim().isEmpty || normalizedOutputId.isEmpty) {
+      return Future.value();
+    }
+    final key = _key(tenantId: tenantId, configId: configId);
+    _sessionValues[key] = normalizedOutputId;
+    unawaited(_persist(key, normalizedOutputId));
+    return Future.value();
+  }
+
+  Future<void> _persist(String key, String outputId) async {
+    try {
+      await _storage.write(key: key, value: outputId);
+    } catch (_) {
+      // The in-memory watermark still keeps the current session consistent.
+    }
+  }
+}
+
 class AppColors {
   static const background = Color(0xFFF5F6FA);
   static const surface = Colors.white;
@@ -308,6 +363,7 @@ class _RuileApiClient {
   final String authToken;
   final String tenantId;
   final VoidCallback? onAuthFailure;
+  static const _organizeOutputReadStore = _OrganizeOutputReadStore();
 
   bool get isConfigured => authToken.trim().isNotEmpty;
 
@@ -805,7 +861,7 @@ class _RuileApiClient {
       },
     ).query;
     final payload = await _getJson('/api/v1/organize/configs?$query');
-    return [
+    final configs = [
       for (final item in _extractList(payload))
         if (item is Map<String, dynamic>)
           _OrganizeConfig.fromApi(item)
@@ -814,6 +870,7 @@ class _RuileApiClient {
             item.map((key, value) => MapEntry(key.toString(), value)),
           ),
     ];
+    return Future.wait(configs.map(_resolveOrganizeConfigUnread));
   }
 
   Future<List<_OrganizeConfig>> fetchActiveOrganizeConfigs({
@@ -833,12 +890,72 @@ class _RuileApiClient {
     );
     final data = _unwrapData(payload);
     if (data is Map<String, dynamic>) {
-      return _OrganizeConfig.fromApi(data);
+      return _resolveOrganizeConfigUnread(_OrganizeConfig.fromApi(data));
     }
     if (data is Map) {
-      return _OrganizeConfig.fromApi(
-        data.map((key, value) => MapEntry(key.toString(), value)),
+      return _resolveOrganizeConfigUnread(
+        _OrganizeConfig.fromApi(
+          data.map((key, value) => MapEntry(key.toString(), value)),
+        ),
       );
+    }
+    return null;
+  }
+
+  Future<_OrganizeConfig> _resolveOrganizeConfigUnread(
+    _OrganizeConfig config,
+  ) async {
+    if (config.hasServerUnreadState || config.latestOutputId.isEmpty) {
+      return config;
+    }
+    final viewedOutputId = await _organizeOutputReadStore.read(
+      tenantId: tenantId,
+      configId: config.id,
+    );
+    return config.copyWith(
+      hasUnreadOutput: viewedOutputId != config.latestOutputId,
+    );
+  }
+
+  Future<_OrganizeConfig?> markOrganizeConfigOutputRead({
+    required String configId,
+    required String outputId,
+  }) async {
+    final normalizedConfigId = configId.trim();
+    final normalizedOutputId = outputId.trim();
+    if (normalizedConfigId.isEmpty || normalizedOutputId.isEmpty) return null;
+
+    await _organizeOutputReadStore.markViewed(
+      tenantId: tenantId,
+      configId: normalizedConfigId,
+      outputId: normalizedOutputId,
+    );
+    if (_organizeUseMockData) {
+      return _OrganizeMockStore.markConfigOutputRead(
+        normalizedConfigId,
+        normalizedOutputId,
+      );
+    }
+
+    try {
+      final payload = await _postJson(
+        '/api/v1/organize/configs/${Uri.encodeComponent(normalizedConfigId)}/read-output',
+        {'output_id': normalizedOutputId},
+      );
+      final data = _unwrapData(payload);
+      if (data is Map<String, dynamic>) {
+        return _OrganizeConfig.fromApi(data).copyWith(
+          hasUnreadOutput: false,
+        );
+      }
+      if (data is Map) {
+        return _OrganizeConfig.fromApi(
+          data.map((key, value) => MapEntry(key.toString(), value)),
+        ).copyWith(hasUnreadOutput: false);
+      }
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) rethrow;
+      // Local state keeps compatibility with servers still rolling out this API.
     }
     return null;
   }
@@ -4365,8 +4482,8 @@ class _OrganizePageState extends State<OrganizePage> {
     );
   }
 
-  void _openConfig(_OrganizeDayConfig row) {
-    Navigator.of(context).push<void>(
+  Future<void> _openConfig(_OrganizeDayConfig row) async {
+    await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (context) => _OrganizeConfigReportsPage(
           initialConfig: row.config,
@@ -4376,6 +4493,7 @@ class _OrganizePageState extends State<OrganizePage> {
         ),
       ),
     );
+    if (mounted) await _loadData(silent: true);
   }
 
   void _openJob(_OrganizeJob job, _OrganizeConfig? config) {
@@ -4400,6 +4518,11 @@ class _OrganizePageState extends State<OrganizePage> {
     try {
       final output = await _apiClient.fetchOrganizeOutput(outputId);
       if (!mounted || output == null) return;
+      await _apiClient.markOrganizeConfigOutputRead(
+        configId: output.configId,
+        outputId: output.id,
+      );
+      if (!mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (context) => _OrganizeOutputDetailPage(
@@ -4410,6 +4533,7 @@ class _OrganizePageState extends State<OrganizePage> {
           ),
         ),
       );
+      if (mounted) await _loadData(silent: true);
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
         widget.onAuthFailure();
@@ -4531,7 +4655,9 @@ class _OrganizePageState extends State<OrganizePage> {
                                     _showInactive = !_showInactive;
                                   });
                                 },
-                                onOpenConfig: _openConfig,
+                                onOpenConfig: (row) {
+                                  unawaited(_openConfig(row));
+                                },
                               ),
                               const SizedBox(height: 22),
                               _OrganizeSectionHeader(
@@ -4871,6 +4997,10 @@ class _OrganizeConfigRow extends StatelessWidget {
                         label: _organizeScheduleLabel(row.config.schedule),
                         active: row.config.schedule != 'manual',
                       ),
+                      if (row.config.hasUnreadOutput) ...[
+                        const SizedBox(width: 7),
+                        _OrganizeUnreadDot(configId: row.config.id),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -4984,6 +5114,10 @@ class _OrganizeInactiveConfigRow extends StatelessWidget {
                       label: _organizeScheduleLabel(row.config.schedule),
                       active: false,
                     ),
+                    if (row.config.hasUnreadOutput) ...[
+                      const SizedBox(width: 7),
+                      _OrganizeUnreadDot(configId: row.config.id),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -5059,6 +5193,28 @@ class _OrganizeCountDot extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _OrganizeUnreadDot extends StatelessWidget {
+  const _OrganizeUnreadDot({required this.configId});
+
+  final String configId;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '有未读整理报告',
+      child: Container(
+        key: Key('organize-config-unread-$configId'),
+        width: 7,
+        height: 7,
+        decoration: const BoxDecoration(
+          color: AppColors.accent,
+          shape: BoxShape.circle,
+        ),
+      ),
     );
   }
 }
@@ -5144,6 +5300,7 @@ class _OrganizeReportRow extends StatelessWidget {
             : job.displaySummary;
 
     return InkWell(
+      key: Key('organize-report-${job.id}'),
       onTap: failed ? null : onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 13),
@@ -5539,6 +5696,11 @@ class _OrganizeConfigReportsPageState
     try {
       final output = await _apiClient.fetchOrganizeOutput(outputId);
       if (!mounted || output == null) return;
+      await _apiClient.markOrganizeConfigOutputRead(
+        configId: output.configId,
+        outputId: output.id,
+      );
+      if (!mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (context) => _OrganizeOutputDetailPage(
@@ -5549,6 +5711,7 @@ class _OrganizeConfigReportsPageState
           ),
         ),
       );
+      if (mounted) await _load(silent: true);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -5764,6 +5927,10 @@ class _OrganizeConfigSummaryCard extends StatelessWidget {
                           label: _organizeScheduleLabel(config.schedule),
                           active: config.status == 'active',
                         ),
+                        if (config.hasUnreadOutput) ...[
+                          const SizedBox(width: 7),
+                          _OrganizeUnreadDot(configId: config.id),
+                        ],
                       ],
                     ),
                     if (template.isNotEmpty ||
@@ -6079,7 +6246,24 @@ class _OrganizeOutputDetailPageState extends State<_OrganizeOutputDetailPage> {
       tenantId: widget.tenantId,
       onAuthFailure: widget.onAuthFailure,
     );
+    unawaited(_markOutputRead());
     unawaited(_loadLatest());
+  }
+
+  Future<void> _markOutputRead() async {
+    final configId = _output.configId.trim();
+    final outputId = _output.id.trim();
+    if (configId.isEmpty || outputId.isEmpty || !_apiClient.isConfigured) {
+      return;
+    }
+    try {
+      await _apiClient.markOrganizeConfigOutputRead(
+        configId: configId,
+        outputId: outputId,
+      );
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) widget.onAuthFailure();
+    }
   }
 
   Future<void> _loadLatest() async {
@@ -6096,6 +6280,7 @@ class _OrganizeOutputDetailPageState extends State<_OrganizeOutputDetailPage> {
       setState(() {
         _output = latest;
       });
+      unawaited(_markOutputRead());
     } on _ApiException catch (error) {
       if (error.isAuthFailure) widget.onAuthFailure();
     } catch (_) {
@@ -7959,6 +8144,45 @@ class _CaptureMenuItem extends StatelessWidget {
 
 enum _MemoryStatusFilter { all, unorganized, processing, organized }
 
+String _memoryStatusLabel(_MemoryStatusFilter status) {
+  switch (status) {
+    case _MemoryStatusFilter.unorganized:
+      return '待整理';
+    case _MemoryStatusFilter.processing:
+      return '整理中';
+    case _MemoryStatusFilter.organized:
+      return '已整理';
+    case _MemoryStatusFilter.all:
+      return '全部记忆';
+  }
+}
+
+String _memoryStatusDescription(_MemoryStatusFilter status) {
+  switch (status) {
+    case _MemoryStatusFilter.unorganized:
+      return '尚未进入整理流程';
+    case _MemoryStatusFilter.processing:
+      return 'AI 正在生成结果';
+    case _MemoryStatusFilter.organized:
+      return '已生成整理产物';
+    case _MemoryStatusFilter.all:
+      return '';
+  }
+}
+
+IconData _memoryStatusIcon(_MemoryStatusFilter status) {
+  switch (status) {
+    case _MemoryStatusFilter.unorganized:
+      return Icons.edit_note_outlined;
+    case _MemoryStatusFilter.processing:
+      return Icons.autorenew_rounded;
+    case _MemoryStatusFilter.organized:
+      return Icons.check_circle_outline_rounded;
+    case _MemoryStatusFilter.all:
+      return Icons.folder_outlined;
+  }
+}
+
 class _MemoryFilterOption extends StatelessWidget {
   const _MemoryFilterOption({
     required this.label,
@@ -7981,6 +8205,145 @@ class _MemoryFilterOption extends StatelessWidget {
       ),
       title: Text(label),
       onTap: onTap,
+    );
+  }
+}
+
+class _MemoryStatusOverview extends StatelessWidget {
+  const _MemoryStatusOverview({
+    required this.selected,
+    required this.counts,
+    required this.onSelected,
+  });
+
+  final _MemoryStatusFilter selected;
+  final Map<_MemoryStatusFilter, int> counts;
+  final ValueChanged<_MemoryStatusFilter> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    const statuses = [
+      _MemoryStatusFilter.unorganized,
+      _MemoryStatusFilter.processing,
+      _MemoryStatusFilter.organized,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.folder_outlined,
+              size: 18,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              '记忆状态',
+              style: AppTextStyles.controlLabel.copyWith(
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            for (var index = 0; index < statuses.length; index++) ...[
+              Expanded(
+                child: _MemoryStatusOverviewItem(
+                  status: statuses[index],
+                  count: counts[statuses[index]] ?? 0,
+                  selected: selected == statuses[index],
+                  onTap: () => onSelected(statuses[index]),
+                ),
+              ),
+              if (index != statuses.length - 1) const SizedBox(width: 8),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _MemoryStatusOverviewItem extends StatelessWidget {
+  const _MemoryStatusOverviewItem({
+    required this.status,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _MemoryStatusFilter status;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = status == _MemoryStatusFilter.processing
+        ? const Color(0xFFB7791F)
+        : status == _MemoryStatusFilter.organized
+            ? AppColors.accent
+            : AppColors.control;
+    return Material(
+      color: selected ? accent.withValues(alpha: 0.09) : AppColors.surface,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        key: Key('memory-status-${status.name}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          height: 92,
+          padding: const EdgeInsets.fromLTRB(10, 10, 8, 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color:
+                  selected ? accent.withValues(alpha: 0.45) : AppColors.border,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(_memoryStatusIcon(status), size: 16, color: accent),
+                  const Spacer(),
+                  Text(
+                    '$count',
+                    style: TextStyle(
+                      fontSize: 18,
+                      height: 1,
+                      color: accent,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Text(
+                _memoryStatusLabel(status),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                _memoryStatusDescription(status),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTextStyles.meta.copyWith(fontSize: 9.5),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -8563,33 +8926,52 @@ class _NotesPageState extends State<NotesPage> {
     return _sortNewestFirst ? filtered : filtered.reversed.toList();
   }
 
+  Map<_MemoryStatusFilter, int> get _memoryStatusCounts {
+    return {
+      for (final status in const [
+        _MemoryStatusFilter.unorganized,
+        _MemoryStatusFilter.processing,
+        _MemoryStatusFilter.organized,
+      ])
+        status:
+            _notes.where((note) => _memoryStatusFor(note.id) == status).length,
+    };
+  }
+
   bool _matchesMemoryFilter(_NoteItem note) {
     if (_memoryStatusFilter == _MemoryStatusFilter.all) return true;
     return _memoryStatusFor(note.id) == _memoryStatusFilter;
   }
 
-  _MemoryStatusFilter _memoryStatusFor(String memoryId) {
+  List<_OrganizeJob> _linkedOrganizeJobs(String memoryId) {
     final normalizedID = memoryId.trim();
-    if (normalizedID.isEmpty) return _MemoryStatusFilter.unorganized;
-
-    final linkedJobs = _organizeJobs
+    if (normalizedID.isEmpty) return const [];
+    return _organizeJobs
         .where((job) => job.memoryIds.contains(normalizedID))
         .toList()
       ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+  }
+
+  _OrganizeJob? _latestOrganizeJob(String memoryId) {
+    final linkedJobs = _linkedOrganizeJobs(memoryId);
+    return linkedJobs.isEmpty ? null : linkedJobs.first;
+  }
+
+  _MemoryStatusFilter _memoryStatusFor(String memoryId) {
+    final linkedJobs = _linkedOrganizeJobs(memoryId);
     if (linkedJobs.isEmpty) return _MemoryStatusFilter.unorganized;
-    if (linkedJobs.first.isActive) return _MemoryStatusFilter.processing;
-    if (linkedJobs.first.isFinished) return _MemoryStatusFilter.organized;
+    if (linkedJobs.any((job) => job.isActive)) {
+      return _MemoryStatusFilter.processing;
+    }
+    if (linkedJobs.any((job) => job.isFinished)) {
+      return _MemoryStatusFilter.organized;
+    }
     return _MemoryStatusFilter.unorganized;
   }
 
   String _memoryFilterLabel() {
-    final status = switch (_memoryStatusFilter) {
-      _MemoryStatusFilter.all => '',
-      _MemoryStatusFilter.unorganized => '待整理',
-      _MemoryStatusFilter.processing => '整理中',
-      _MemoryStatusFilter.organized => '已整理',
-    };
-    return status;
+    if (_memoryStatusFilter == _MemoryStatusFilter.all) return '';
+    return _memoryStatusLabel(_memoryStatusFilter);
   }
 
   Future<void> _refreshRemoteContent() async {
@@ -8780,6 +9162,12 @@ class _NotesPageState extends State<NotesPage> {
       _showMessage('这条记忆正在整理中');
       return;
     }
+    final latestJob = _latestOrganizeJob(memoryID);
+    if (latestJob?.isFinished == true &&
+        latestJob!.outputId.trim().isNotEmpty) {
+      await _openNoteOrganizeResult(latestJob);
+      return;
+    }
 
     try {
       final configs = await _apiClient.fetchActiveOrganizeConfigs();
@@ -8812,6 +9200,42 @@ class _NotesPageState extends State<NotesPage> {
     } catch (error) {
       if (!mounted) return;
       _showMessage('整理失败：$error');
+    }
+  }
+
+  Future<void> _openNoteOrganizeResult(_OrganizeJob job) async {
+    final outputID = job.outputId.trim();
+    if (outputID.isEmpty) {
+      _showMessage('整理结果尚未生成');
+      return;
+    }
+    try {
+      final output = await _apiClient.fetchOrganizeOutput(outputID);
+      if (!mounted || output == null) return;
+      await _apiClient.markOrganizeConfigOutputRead(
+        configId: output.configId,
+        outputId: output.id,
+      );
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (context) => _DiscoverDetailPage(
+            initialOutput: output,
+            authToken: widget.authToken,
+            tenantId: widget.tenantId,
+            onAuthFailure: widget.onAuthFailure,
+          ),
+        ),
+      );
+      if (mounted) unawaited(_loadOrganizeJobs());
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+        return;
+      }
+      if (mounted) _showMessage('整理结果加载失败：${error.message}');
+    } catch (error) {
+      if (mounted) _showMessage('整理结果加载失败：$error');
     }
   }
 
@@ -8935,8 +9359,11 @@ class _NotesPageState extends State<NotesPage> {
 
   void _showNoteActions(_NoteItem note) {
     final extractingService = _isExtractingService(note);
-    final organizing =
-        _memoryStatusFor(note.id) == _MemoryStatusFilter.processing;
+    final organizationStatus = _memoryStatusFor(note.id);
+    final organizing = organizationStatus == _MemoryStatusFilter.processing;
+    final latestJob = _latestOrganizeJob(note.id);
+    final canOpenResult = organizationStatus == _MemoryStatusFilter.organized &&
+        latestJob?.outputId.trim().isNotEmpty == true;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -8962,7 +9389,13 @@ class _NotesPageState extends State<NotesPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.layers_outlined),
-                title: Text(organizing ? '整理中' : '整理'),
+                title: Text(
+                  organizing
+                      ? '整理中'
+                      : canOpenResult
+                          ? '查看整理结果'
+                          : '整理',
+                ),
                 onTap: organizing
                     ? null
                     : () {
@@ -9050,7 +9483,22 @@ class _NotesPageState extends State<NotesPage> {
                     ),
                   ],
                   const SizedBox(height: 26),
+                  _MemoryStatusOverview(
+                    selected: _memoryStatusFilter,
+                    counts: _memoryStatusCounts,
+                    onSelected: (status) {
+                      setState(() {
+                        _memoryStatusFilter = _memoryStatusFilter == status
+                            ? _MemoryStatusFilter.all
+                            : status;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 22),
                   _NotesToolbar(
+                    title: _memoryStatusFilter == _MemoryStatusFilter.all
+                        ? '全部记忆'
+                        : '${_memoryStatusLabel(_memoryStatusFilter)}记忆',
                     newestFirst: _sortNewestFirst,
                     filterActive: _memoryFilterLabel().isNotEmpty,
                     onFilterTap: _showMemoryFilters,
@@ -14497,12 +14945,14 @@ String _resolvePreviewImageUrl(String rawUrl) {
 
 class _NotesToolbar extends StatelessWidget {
   const _NotesToolbar({
+    required this.title,
     required this.newestFirst,
     required this.filterActive,
     required this.onFilterTap,
     required this.onTitleTap,
   });
 
+  final String title;
   final bool newestFirst;
   final bool filterActive;
   final VoidCallback onFilterTap;
@@ -14523,8 +14973,8 @@ class _NotesToolbar extends StatelessWidget {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      '全部记忆',
+                    Text(
+                      title,
                       style: AppTextStyles.sectionTitle,
                     ),
                     const SizedBox(width: 4),
@@ -15142,6 +15592,11 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
     try {
       final output = await _apiClient.fetchOrganizeOutput(outputID);
       if (!mounted || output == null) return;
+      await _apiClient.markOrganizeConfigOutputRead(
+        configId: output.configId,
+        outputId: output.id,
+      );
+      if (!mounted) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (context) => _DiscoverDetailPage(
@@ -19259,7 +19714,24 @@ class _DiscoverDetailPageState extends State<_DiscoverDetailPage> {
       tenantId: widget.tenantId,
       onAuthFailure: widget.onAuthFailure,
     );
+    unawaited(_markOutputRead());
     unawaited(_loadLatestOutput());
+  }
+
+  Future<void> _markOutputRead() async {
+    final configId = _output.configId.trim();
+    final outputId = _output.id.trim();
+    if (configId.isEmpty || outputId.isEmpty || !_apiClient.isConfigured) {
+      return;
+    }
+    try {
+      await _apiClient.markOrganizeConfigOutputRead(
+        configId: configId,
+        outputId: outputId,
+      );
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) widget.onAuthFailure();
+    }
   }
 
   Future<void> _loadLatestOutput() async {
@@ -19276,6 +19748,7 @@ class _DiscoverDetailPageState extends State<_DiscoverDetailPage> {
       setState(() {
         _output = latest;
       });
+      unawaited(_markOutputRead());
     } on _ApiException catch (error) {
       if (error.isAuthFailure) {
         widget.onAuthFailure();
@@ -22916,10 +23389,14 @@ class _OrganizeConfig {
     required this.templateName,
     required this.updatedAt,
     required this.jobCount,
+    this.hasUnreadOutput = false,
+    this.hasServerUnreadState = false,
+    this.latestOutputId = '',
   });
 
   factory _OrganizeConfig.fromApi(Map<String, dynamic> json) {
     final template = _readMap(json, const ['template']);
+    final latestJob = _readMap(json, const ['latest_job']);
     return _OrganizeConfig(
       id: _readString(json, const ['id']),
       name: _readString(json, const ['name'], fallback: '整理配置'),
@@ -22942,6 +23419,9 @@ class _OrganizeConfig {
       ),
       updatedAt: _readDateTime(json, const ['updated_at']),
       jobCount: _readInt(json, const ['job_count']) ?? 0,
+      hasUnreadOutput: _readTruthy(json['has_unread_output']),
+      hasServerUnreadState: json.containsKey('has_unread_output'),
+      latestOutputId: _readString(latestJob, const ['output_id']),
     );
   }
 
@@ -22958,6 +23438,34 @@ class _OrganizeConfig {
   final String templateName;
   final DateTime? updatedAt;
   final int jobCount;
+  final bool hasUnreadOutput;
+  final bool hasServerUnreadState;
+  final String latestOutputId;
+
+  _OrganizeConfig copyWith({
+    bool? hasUnreadOutput,
+    bool? hasServerUnreadState,
+    String? latestOutputId,
+  }) {
+    return _OrganizeConfig(
+      id: id,
+      name: name,
+      templateKey: templateKey,
+      targetServiceId: targetServiceId,
+      instruction: instruction,
+      schedule: schedule,
+      status: status,
+      nextRunAt: nextRunAt,
+      lastRunAt: lastRunAt,
+      templateVersion: templateVersion,
+      templateName: templateName,
+      updatedAt: updatedAt,
+      jobCount: jobCount,
+      hasUnreadOutput: hasUnreadOutput ?? this.hasUnreadOutput,
+      hasServerUnreadState: hasServerUnreadState ?? this.hasServerUnreadState,
+      latestOutputId: latestOutputId ?? this.latestOutputId,
+    );
+  }
 }
 
 class _OrganizeJob {
@@ -23169,6 +23677,22 @@ class _OrganizeMockStore {
     return null;
   }
 
+  static Future<_OrganizeConfig?> markConfigOutputRead(
+    String configId,
+    String outputId,
+  ) async {
+    final index = _configs.indexWhere((config) => config.id == configId);
+    if (index < 0) return null;
+    final current = _configs[index];
+    _configs[index] = current.copyWith(
+      hasUnreadOutput: false,
+      hasServerUnreadState: true,
+      latestOutputId:
+          current.latestOutputId.isEmpty ? outputId : current.latestOutputId,
+    );
+    return _configs[index];
+  }
+
   static Future<List<_OrganizeJob>> fetchJobs({
     int page = 1,
     int pageSize = 100,
@@ -23344,6 +23868,9 @@ class _OrganizeMockStore {
         templateName: '客户沟通日报模板',
         updatedAt: _today.subtract(const Duration(days: 2)),
         jobCount: 18,
+        hasUnreadOutput: true,
+        hasServerUnreadState: true,
+        latestOutputId: 'mock-output-daily-today',
       ),
       _OrganizeConfig(
         id: 'mock-config-weekly',
