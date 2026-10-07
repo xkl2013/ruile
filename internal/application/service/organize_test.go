@@ -36,6 +36,7 @@ func newOrganizeServiceWithDBForTest(t *testing.T) (*organizeService, *gorm.DB) 
 		&types.OrganizeTemplateVersion{},
 		&types.OrganizeConfig{},
 		&types.OrganizeJob{},
+		&types.OrganizeJobBatch{},
 		// GetDiscover counts published courses for 推荐, so the course tables
 		// have to exist even in tests that never create one.
 		&types.OrganizeCourse{},
@@ -136,6 +137,34 @@ func TestOrganizeServiceValidationAndOverview(t *testing.T) {
 	require.Equal(t, int64(1), overview.Tabs[2].Count)
 }
 
+func TestOrganizeServiceListOutputsFiltersByConfig(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeServiceForTest(t)
+
+	first, err := svc.CreateOutput(ctx, 7, "user-a", types.OrganizeOutputInput{
+		Title:    "配置一结果",
+		ConfigID: "config-a",
+	})
+	require.NoError(t, err)
+	_, err = svc.CreateOutput(ctx, 7, "user-a", types.OrganizeOutputInput{
+		Title:    "配置二结果",
+		ConfigID: "config-b",
+	})
+	require.NoError(t, err)
+
+	outputs, total, err := svc.ListOutputs(ctx, types.OrganizeListQuery{
+		TenantID: 7,
+		UserID:   "user-a",
+		ConfigID: "config-a",
+		Page:     1,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, outputs, 1)
+	require.Equal(t, first.ID, outputs[0].ID)
+}
+
 func TestOrganizeWorkbenchCreatesDurableFallbackOutput(t *testing.T) {
 	ctx := context.Background()
 	svc, db := newOrganizeServiceWithDBForTest(t)
@@ -223,6 +252,7 @@ func TestOrganizeWorkbenchAutoAssignsReadyOutputToConfiguredService(t *testing.T
 		&types.OrganizeTemplateVersion{},
 		&types.OrganizeConfig{},
 		&types.OrganizeJob{},
+		&types.OrganizeJobBatch{},
 		&types.OrganizeCourse{},
 		&types.OrganizeCourseLesson{},
 	))
@@ -305,6 +335,7 @@ func TestOrganizeWorkbenchAutoAssignmentFailureLeavesTraceablePendingOutput(t *t
 		&types.OrganizeTemplateVersion{},
 		&types.OrganizeConfig{},
 		&types.OrganizeJob{},
+		&types.OrganizeJobBatch{},
 	))
 
 	organizeRepo := repository.NewOrganizeRepository(db)

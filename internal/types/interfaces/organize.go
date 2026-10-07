@@ -14,6 +14,7 @@ type OrganizeRepository interface {
 	GetTemplate(ctx context.Context, tenantID uint64, userID, key string) (*types.OrganizeTemplate, error)
 	GetTemplateVersion(ctx context.Context, templateID, version string) (*types.OrganizeTemplateVersion, error)
 	ListAdminTemplates(ctx context.Context, query types.OrganizeTemplateAdminQuery) ([]*types.OrganizeTemplate, int64, error)
+	ListAdminTemplateScenes(ctx context.Context) ([]string, error)
 	GetAdminTemplate(ctx context.Context, key string) (*types.OrganizeTemplate, error)
 	CreateTemplate(ctx context.Context, template *types.OrganizeTemplate) error
 	UpdateTemplate(ctx context.Context, template *types.OrganizeTemplate) error
@@ -33,8 +34,12 @@ type OrganizeRepository interface {
 
 	CreateJob(ctx context.Context, job *types.OrganizeJob) error
 	GetJob(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeJob, error)
+	GetJobByInputFingerprint(ctx context.Context, tenantID uint64, userID, fingerprint string) (*types.OrganizeJob, error)
 	UpdateJob(ctx context.Context, job *types.OrganizeJob) error
 	ListJobs(ctx context.Context, query types.OrganizeJobQuery) ([]*types.OrganizeJob, int64, error)
+	CreateJobBatches(ctx context.Context, batches []*types.OrganizeJobBatch) error
+	ListJobBatches(ctx context.Context, tenantID uint64, userID, parentJobID string) ([]*types.OrganizeJobBatch, error)
+	UpdateJobBatch(ctx context.Context, batch *types.OrganizeJobBatch) error
 	ListMemoriesByIDs(ctx context.Context, tenantID uint64, userID string, ids []string) ([]*types.OrganizeMemory, error)
 
 	CreateMemory(ctx context.Context, memory *types.OrganizeMemory) error
@@ -51,6 +56,7 @@ type OrganizeRepository interface {
 	CountMemoriesByKind(ctx context.Context, tenantID uint64, userID string) (map[string]int64, error)
 	CountMemoriesByIDs(ctx context.Context, tenantID uint64, userID string, ids []string) (int64, error)
 	CountTenantMemoriesByIDs(ctx context.Context, tenantID uint64, ids []string) (int64, error)
+	CountOutputMemoryOverlap(ctx context.Context, tenantID uint64, userID string, ids []string) (int64, error)
 
 	CreateOutput(ctx context.Context, output *types.OrganizeOutput, memoryIDs []string) error
 	GetOutput(ctx context.Context, tenantID uint64, userID, id string) (*types.OrganizeOutput, error)
@@ -96,6 +102,7 @@ type OrganizeService interface {
 	GetTemplate(ctx context.Context, tenantID uint64, userID, key string) (*types.OrganizeTemplate, error)
 	ListExperts(ctx context.Context, tenantID uint64, userID string) ([]types.OrganizeExpert, error)
 	ListAdminTemplates(ctx context.Context, query types.OrganizeTemplateAdminQuery) ([]*types.OrganizeTemplate, int64, error)
+	ListAdminTemplateScenes(ctx context.Context) ([]string, error)
 	GetAdminTemplate(ctx context.Context, key string) (*types.OrganizeTemplate, error)
 	CreateAdminTemplate(ctx context.Context, actorID string, input types.OrganizeTemplateAdminInput) (*types.OrganizeTemplate, error)
 	UpdateAdminTemplate(ctx context.Context, key, actorID string, input types.OrganizeTemplateAdminInput) (*types.OrganizeTemplate, error)

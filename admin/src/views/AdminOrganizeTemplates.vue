@@ -27,7 +27,14 @@
         <t-input v-model="keyword" clearable placeholder="搜索模板名称、Key 或说明" @enter="loadTemplates">
           <template #prefix-icon><t-icon name="search" /></template>
         </t-input>
-        <t-input v-model="scene" clearable placeholder="按场景筛选" @enter="loadTemplates" />
+        <t-select
+          v-model="scene"
+          clearable
+          filterable
+          :options="sceneOptions"
+          placeholder="按模板分组筛选"
+          @change="loadTemplates"
+        />
         <t-select v-model="status" style="width: 140px" @change="loadTemplates">
           <t-option value="all" label="全部状态" />
           <t-option value="draft" label="草稿" />
@@ -59,7 +66,7 @@
             </div>
             <p>{{ template.description || '未填写模板说明' }}</p>
             <div class="organize-template-row__meta">
-              <span>{{ template.scene || '未分类场景' }}</span>
+              <span>{{ template.scene || '未分组' }}</span>
               <span>{{ template.markdown_template ? '已配置 Markdown 预设' : '使用系统默认预设' }}</span>
               <span>当前版本 {{ template.published_version || '未发布' }}</span>
               <span>更新于 {{ formatDate(template.updated_at) }}</span>
@@ -127,8 +134,15 @@
           </t-form-item>
         </div>
         <div class="organize-template-form-grid">
-          <t-form-item label="整理场景">
-            <t-input v-model="form.scene" placeholder="例如 教师成长、招生增长" />
+          <t-form-item label="模板分组">
+            <t-select
+              v-model="form.scene"
+              clearable
+              creatable
+              filterable
+              :options="sceneOptions"
+              placeholder="选择已有分组或输入新分组"
+            />
           </t-form-item>
           <t-form-item label="输出名称">
             <t-input v-model="form.output_label" placeholder="例如 提炼清单" />
@@ -230,14 +244,22 @@
       </div>
     </t-dialog>
 
-    <t-dialog v-model:visible="previewVisible" header="模板试跑" width="760px" :footer="false" destroy-on-close>
+    <t-dialog v-model:visible="previewVisible" header="模板试跑" width="860px" :footer="false" destroy-on-close>
       <div v-if="previewData" class="organize-template-preview">
         <div class="organize-template-preview__meta">
-          <span>模板：{{ previewData.template_key }}</span>
-          <span>版本：{{ previewData.version || '草稿' }}</span>
+          <t-tag theme="success" variant="light" size="small">示例成品</t-tag>
+          <span>{{ previewData.template_key }}</span>
+          <span>{{ previewData.version || '草稿' }}</span>
         </div>
         <t-alert v-if="previewData.errors?.length" theme="warning" :message="previewData.errors.join('；')" />
-        <pre>{{ previewData.prompt || '暂无可渲染指令' }}</pre>
+        <div class="organize-template-preview__paper">
+          <OrganizeMarkdownRenderer
+            v-if="previewData.preview_markdown"
+            :content="previewData.preview_markdown"
+            profile="report"
+          />
+          <div v-else class="organize-template-preview__empty">暂无可预览内容</div>
+        </div>
       </div>
     </t-dialog>
 
@@ -268,10 +290,12 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import OrganizeMarkdownRenderer from '@/views/organize/components/OrganizeMarkdownRenderer.vue'
 import {
   compileAdminOrganizeTemplate,
   createAdminOrganizeTemplate,
   disableAdminOrganizeTemplate,
+  listAdminOrganizeTemplateScenes,
   listAdminOrganizeTemplateVersions,
   listAdminOrganizeTemplates,
   previewAdminOrganizeTemplate,
@@ -290,6 +314,7 @@ const page = ref(1)
 const pageSize = 20
 const keyword = ref('')
 const scene = ref('')
+const sceneOptions = ref<Array<{ label: string; value: string }>>([])
 const status = ref<OrganizeTemplateStatus | 'all'>('all')
 const loading = ref(false)
 const saving = ref(false)
@@ -297,7 +322,15 @@ const busyKey = ref('')
 const editorVisible = ref(false)
 const editing = ref<AdminOrganizeTemplate | null>(null)
 const previewVisible = ref(false)
-const previewData = ref<{ template_key: string; version: string; prompt: string; markdown_template?: string; spec: Record<string, any>; errors: string[] } | null>(null)
+const previewData = ref<{
+  template_key: string
+  version: string
+  prompt: string
+  markdown_template?: string
+  preview_markdown: string
+  spec: Record<string, any>
+  errors: string[]
+} | null>(null)
 const compileVisible = ref(false)
 const compiling = ref(false)
 const compileSource = ref('')
@@ -356,6 +389,21 @@ async function loadTemplates() {
   }
 }
 
+async function loadTemplateScenes() {
+  try {
+    const response = await listAdminOrganizeTemplateScenes()
+    sceneOptions.value = (response.data || []).map((item) => ({ label: item, value: item }))
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '加载模板分组失败')
+  }
+}
+
+function includeSceneOption(value: string) {
+  const normalized = value.trim()
+  if (!normalized || sceneOptions.value.some((item) => item.value === normalized)) return
+  sceneOptions.value = [...sceneOptions.value, { label: normalized, value: normalized }]
+}
+
 function resetForm() {
   formSpec.value = {}
   Object.assign(form, {
@@ -380,6 +428,7 @@ function openCreate() {
 
 function openEdit(template: AdminOrganizeTemplate) {
   editing.value = template
+  includeSceneOption(template.scene || '')
   formSpec.value = template.spec || {}
   Object.assign(form, {
     key: template.key,
@@ -423,7 +472,7 @@ async function saveTemplate() {
     }
     MessagePlugin.success(editing.value ? '整理模板已保存' : '整理模板已创建')
     editorVisible.value = false
-    await loadTemplates()
+    await Promise.all([loadTemplates(), loadTemplateScenes()])
   } catch (error: any) {
     MessagePlugin.error(error?.message || '保存整理模板失败')
   } finally {
@@ -470,6 +519,7 @@ async function compileSourceTemplate() {
 function applyCompiledTemplate() {
   if (!compileResult.value) return
   const compiled = compileResult.value
+  includeSceneOption(compiled.scene || '')
   editing.value = null
   formSpec.value = compiled.spec || {}
   Object.assign(form, {
@@ -562,7 +612,9 @@ async function rollback(version: AdminOrganizeTemplateVersion) {
   }
 }
 
-onMounted(loadTemplates)
+onMounted(() => {
+  void Promise.all([loadTemplates(), loadTemplateScenes()])
+})
 
 function defaultMarkdownTemplate() {
   return '# {{title}}\n\n> {{summary}}\n\n## 核心发现\n\n{{section_1}}\n\n## 下一步\n\n- [ ] {{section_2}}\n\n### 依据\n\n{{citations}}\n\n**标签：** {{tags}}'
@@ -607,8 +659,13 @@ function defaultMarkdownTemplate() {
 .organize-template-compiler__preview pre { max-height: 320px; overflow: auto; margin: 0; padding: 14px; white-space: pre-wrap; background: var(--td-bg-color-secondarycontainer); line-height: 1.65; font-size: 12px; }
 .organize-template-compiler__empty { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 110px; color: var(--td-text-color-placeholder); border: 1px dashed var(--td-component-border); border-radius: 6px; }
 .organize-template-compiler__actions { display: flex; justify-content: flex-end; gap: 8px; }
-.organize-template-preview__meta { display: flex; gap: 20px; color: var(--td-text-color-secondary); font-size: 13px; margin-bottom: 14px; }
-.organize-template-preview pre { margin: 14px 0 0; padding: 16px; min-height: 180px; white-space: pre-wrap; background: var(--td-bg-color-secondarycontainer); border-radius: 6px; line-height: 1.7; }
+.organize-template-preview { display: grid; gap: 14px; }
+.organize-template-preview__meta { display: flex; align-items: center; gap: 10px; color: var(--td-text-color-secondary); font-size: 12px; }
+.organize-template-preview__meta span + span { padding-left: 10px; border-left: 1px solid var(--td-component-border); }
+.organize-template-preview__paper { min-height: 360px; max-height: 68vh; overflow: auto; padding: 26px 32px 34px; background: var(--td-bg-color-container); border: 1px solid var(--td-component-border); border-radius: 8px; box-shadow: 0 2px 10px color-mix(in srgb, var(--td-text-color-primary) 5%, transparent); }
+.organize-template-preview__paper :deep(.organize-markdown-renderer) { max-width: none; padding-top: 0; font-size: 14px; line-height: 1.7; }
+.organize-template-preview__paper :deep(h1:first-child) { margin-top: 0; }
+.organize-template-preview__empty { min-height: 300px; display: grid; place-items: center; color: var(--td-text-color-placeholder); }
 .organize-template-version-list { display: grid; gap: 10px; }
 .organize-template-version-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--td-component-border); }
 .organize-template-version-row:last-child { border-bottom: 0; }
@@ -622,5 +679,6 @@ function defaultMarkdownTemplate() {
   .organize-template-form-grid { grid-template-columns: 1fr; gap: 0; }
   .organize-template-compiler__toolbar { align-items: flex-start; flex-direction: column; }
   .organize-template-compiler__summary { grid-template-columns: 1fr; }
+  .organize-template-preview__paper { padding: 20px; }
 }
 </style>

@@ -140,6 +140,141 @@ func TestOrganizeServiceProcessMemoryAttachmentAggregatesPartialStatus(t *testin
 	assert.Equal(t, types.OrganizeMemoryAttachmentStatusFailed, updated.Attachments[1].Status)
 }
 
+func TestOrganizeServiceProcessMemoryAttachmentReusesProvidedTranscript(t *testing.T) {
+	ctx := context.Background()
+	fileName := "02_邀约到店_二次跟进锁定时段.m4a"
+	providedTranscript := "顾问：周三晚上八点半见。"
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		&organizeMemoryAudioFileService{fileData: []byte("fake-audio")},
+		&stubOrganizeDocumentReader{result: &types.ReadResult{MarkdownContent: fileName}},
+	)
+
+	item, err := svc.CreateMemoryFromUploads(
+		ctx,
+		9,
+		"user-a",
+		[]types.OrganizeMemoryUpload{
+			{FileName: fileName, MimeType: "audio/mp4", Data: []byte("fake-audio")},
+		},
+		types.OrganizeMemoryInput{
+			Title:    "邀约到店",
+			Metadata: types.JSONMap{"transcript": providedTranscript},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, item.Attachments, 1)
+
+	payload, err := json.Marshal(types.OrganizeMemoryTranscribeTaskPayload{
+		TenantID:     9,
+		MemoryID:     item.ID,
+		AttachmentID: item.Attachments[0].ID,
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.ProcessMemoryTranscribe(ctx, asynq.NewTask(types.TypeOrganizeMemoryTranscribe, payload)))
+
+	updated, err := svc.GetMemory(ctx, 9, "user-a", item.ID)
+	require.NoError(t, err)
+	require.Len(t, updated.Attachments, 1)
+	assert.Equal(t, types.OrganizeMemoryAttachmentStatusCompleted, updated.Attachments[0].Status)
+	assert.Equal(t, providedTranscript, updated.Attachments[0].Transcript)
+	assert.Equal(t, providedTranscript, updated.Attachments[0].Content)
+	assert.Equal(t, "provided_transcript", updated.Attachments[0].Metadata["parser_status"])
+}
+
+func TestOrganizeServiceParseMemoryAttachmentDoesNotUseAudioFilenameAsContent(t *testing.T) {
+	ctx := context.Background()
+	fileName := "recording.m4a"
+
+	t.Run("uses ASR after document reader returns filename", func(t *testing.T) {
+		svc := newOrganizeUploadServiceForTest(
+			t,
+			&stubOrganizeModelService{
+				models: []*types.Model{
+					{ID: "asr-1", Type: types.ModelTypeASR, Status: types.ModelStatusActive, IsDefault: true},
+				},
+				asrModel: &stubOrganizeASRModel{text: "真实转写正文"},
+			},
+			&stubOrganizeFileService{},
+			&stubOrganizeDocumentReader{result: &types.ReadResult{MarkdownContent: fileName}},
+		)
+
+		content, transcript, modelID, err := svc.parseOrganizeMemoryAttachment(
+			ctx,
+			"录音记忆",
+			fileName,
+			"audio/mp4",
+			[]byte("fake-audio"),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "真实转写正文", content)
+		assert.Equal(t, "真实转写正文", transcript)
+		assert.Equal(t, "asr-1", modelID)
+	})
+
+	t.Run("returns error when no transcript is available", func(t *testing.T) {
+		svc := newOrganizeUploadServiceForTest(
+			t,
+			&stubOrganizeModelService{},
+			&stubOrganizeFileService{},
+			&stubOrganizeDocumentReader{result: &types.ReadResult{MarkdownContent: fileName}},
+		)
+
+		content, transcript, _, err := svc.parseOrganizeMemoryAttachment(
+			ctx,
+			"录音记忆",
+			fileName,
+			"audio/mp4",
+			[]byte("fake-audio"),
+		)
+		require.Error(t, err)
+		assert.Empty(t, content)
+		assert.Empty(t, transcript)
+		assert.Contains(t, err.Error(), "no readable content")
+	})
+}
+
+func TestOrganizeServiceRetryMemoryAttachmentAllowsFilenamePlaceholder(t *testing.T) {
+	ctx := context.Background()
+	enqueuer := &recordingTaskEnqueuer{}
+	svc := newOrganizeUploadServiceForTest(
+		t,
+		&stubOrganizeModelService{},
+		&organizeMemoryAudioFileService{fileData: []byte("fake-audio")},
+		&stubOrganizeDocumentReader{},
+	)
+	svc.taskEnqueuer = enqueuer
+
+	item, err := svc.CreateMemoryFromUploads(
+		ctx,
+		9,
+		"user-a",
+		[]types.OrganizeMemoryUpload{
+			{FileName: "recording.m4a", MimeType: "audio/mp4", Data: []byte("fake-audio")},
+		},
+		types.OrganizeMemoryInput{Title: "录音记忆"},
+	)
+	require.NoError(t, err)
+	require.Len(t, item.Attachments, 1)
+
+	attachment := item.Attachments[0]
+	attachment.Status = types.OrganizeMemoryAttachmentStatusCompleted
+	attachment.Content = attachment.FileName
+	attachment.Transcript = ""
+	require.NoError(t, svc.repo.UpdateMemoryAttachment(ctx, attachment))
+	enqueuer.task = nil
+
+	updated, err := svc.RetryMemoryAttachment(ctx, 9, "user-a", item.ID, attachment.ID)
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.NotNil(t, enqueuer.task)
+	assert.Equal(t, types.TypeOrganizeMemoryTranscribe, enqueuer.task.Type())
+	require.Len(t, updated.Attachments, 1)
+	assert.Equal(t, types.OrganizeMemoryAttachmentStatusPending, updated.Attachments[0].Status)
+	assert.Empty(t, updated.Attachments[0].Content)
+}
+
 func TestOrganizeServiceCreateMemoryFromUpload_CleansInvalidUTF8Content(t *testing.T) {
 	ctx := context.Background()
 	svc := newOrganizeUploadServiceForTest(t, &stubOrganizeModelService{}, &stubOrganizeFileService{}, &stubOrganizeDocumentReader{})

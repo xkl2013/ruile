@@ -1218,6 +1218,7 @@ func RegisterOrganizeAdminRoutes(
 	admin := r.Group("/system/admin/organize", g.SystemAdmin())
 	{
 		admin.GET("/templates", h.ListTemplates)
+		admin.GET("/templates/scenes", h.ListTemplateScenes)
 		admin.POST("/templates", h.CreateTemplate)
 		admin.GET("/templates/:key", h.GetTemplate)
 		admin.PUT("/templates/:key", h.UpdateTemplate)

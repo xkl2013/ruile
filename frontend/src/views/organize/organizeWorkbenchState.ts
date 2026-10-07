@@ -33,6 +33,14 @@ export interface OrganizeJob {
   summary: string
   stage?: string
   progress?: number
+  jobMode: 'single' | 'batch'
+  selectedCount: number
+  readyCount: number
+  processedCount: number
+  failedCount: number
+  overlapCount: number
+  batchCount: number
+  coverageRatio: number
   conclusionCount?: number
   todoCount?: number
   outputId?: string
@@ -76,6 +84,8 @@ export interface OrganizeOutput {
   configId: string
   jobId: string
   title: string
+  preview: string
+  createdAt: string
   subject: string
   templateKey: string
   templateName: string
@@ -144,6 +154,35 @@ const formatFieldValue = (value: unknown): string => {
   return String(value)
 }
 
+const cleanOrganizeMarkdownPreview = (value: string) =>
+  value
+    .replace(/!\[[^\]]*]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)]\([^)]*\)/g, '$1')
+    .replace(/\[(?:M|S)\d+]/gi, '')
+    .replace(/[*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+export const organizeOutputPreview = (content: string, fallback = '') => {
+  const lines = String(content || '').split(/\r?\n/)
+  const quoted = lines
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('>'))
+    .map((line) => cleanOrganizeMarkdownPreview(line.replace(/^>\s*/, '')))
+    .filter(Boolean)
+  const bodyLine = lines
+    .map((line) => line.trim())
+    .find((line) =>
+      Boolean(line) &&
+      !/^#{1,6}\s/.test(line) &&
+      !/^\|/.test(line) &&
+      !/^[-:|\s]+$/.test(line),
+    )
+  const preview = cleanOrganizeMarkdownPreview(quoted.join(' ') || bodyLine || fallback)
+  if (preview.length <= 260) return preview
+  return `${preview.slice(0, 260).trim()}...`
+}
+
 export const toOrganizeTemplate = (template: ApiOrganizeTemplate): OrganizeTemplate => ({
   key: template.key,
   name: template.name,
@@ -160,15 +199,28 @@ export const toOrganizeTemplate = (template: ApiOrganizeTemplate): OrganizeTempl
 export const toOrganizeJob = (job: ApiOrganizeJob): OrganizeJob => {
   const timestamp = job.started_at || job.created_at
   const dateTime = formatDateTime(timestamp)
+  const selectedCount = job.selected_count ?? job.memory_ids?.length ?? 0
+  const processedCount = job.processed_count ?? toNumber(job.result?.processed_count)
+  const batchCount = job.batch_count ?? toNumber(job.result?.batch_count)
+  const resultCoverage = job.result?.coverage as Record<string, unknown> | undefined
+  const coverageRatio = Number(job.coverage?.ratio ?? resultCoverage?.ratio ?? 0)
   return {
     id: job.id,
     ...dateTime,
-    rangeLabel: `${job.memory_ids?.length || 0} 条记忆`,
+    rangeLabel: `${selectedCount} 条记忆${batchCount > 1 ? ` · ${batchCount} 批` : ''}`,
     templateVersion: job.template_version || '-',
     state: job.status,
     summary: job.summary || job.error_message || '等待执行',
     stage: job.stage,
     progress: job.progress,
+    jobMode: job.job_mode || (batchCount > 1 ? 'batch' : 'single'),
+    selectedCount,
+    readyCount: job.ready_count ?? selectedCount,
+    processedCount,
+    failedCount: job.failed_count ?? toNumber(job.result?.failed_count),
+    overlapCount: job.overlap_count ?? toNumber(job.result?.overlap_count),
+    batchCount,
+    coverageRatio: Number.isFinite(coverageRatio) ? coverageRatio : 0,
     conclusionCount: toNumber(job.result?.conclusion_count),
     todoCount: toNumber(job.result?.todo_count),
     outputId: job.output_id,
@@ -224,6 +276,8 @@ export const toOrganizeOutput = (
     configId: output.config_id || '',
     jobId: output.job_id || '',
     title: output.title,
+    preview: organizeOutputPreview(output.content, output.source_summary || output.output_type),
+    createdAt: output.created_at || output.updated_at || '',
     subject: output.source_summary || output.output_type || '整理结果',
     templateKey: output.template_key || '',
     templateName: output.template_key

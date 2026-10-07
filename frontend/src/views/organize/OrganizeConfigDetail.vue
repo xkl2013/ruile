@@ -14,73 +14,81 @@
       </header>
 
       <section class="organize-detail-section">
-        <div v-if="config.jobs.length" class="organize-timeline">
+        <div v-if="config.jobs.length" class="organize-result-list organize-timeline">
           <article
             v-for="job in config.jobs"
             :key="job.id"
-            class="organize-timeline-item"
+            class="organize-result-item organize-timeline-item"
             :class="[`is-${job.state}`, { 'is-highlighted': job.id === route.query.job }]"
           >
             <div class="organize-timeline-when">
               <strong>{{ job.dateLabel }}</strong>
               <span>{{ job.timeLabel }}</span>
             </div>
-            <div class="organize-timeline-node">
+            <div class="organize-timeline-node" aria-hidden="true">
               <span />
             </div>
-            <div class="organize-job-card">
-              <div class="organize-job-status-row">
-                <span class="organize-tag" :class="statusClass(job)">
-                  {{ statusLabel(job) }}
+            <div class="organize-timeline-content">
+              <button
+                v-if="outputForJob(job)"
+                type="button"
+                class="organize-result-card"
+                :aria-label="`查看整理结果 ${resultCardTitle(outputForJob(job)!)}`"
+                @click="openOutput(outputForJob(job)!.id, job.id)"
+              >
+                <span class="organize-result-card__body">
+                  <span class="organize-result-card__title-row">
+                    <strong>{{ resultCardTitle(outputForJob(job)!) }}</strong>
+                    <span v-if="job.state === 'fallback'" class="organize-tag organize-tag--muted">基础结果</span>
+                  </span>
+                  <span class="organize-result-card__preview">
+                    {{ outputForJob(job)!.preview || '整理结果已生成，点击查看完整内容。' }}
+                  </span>
+                  <span class="organize-result-card__footer">
+                    {{ outputCreatedLabel(outputForJob(job)!) }}
+                  </span>
                 </span>
-                <span v-if="job.id === route.query.job" class="organize-job-focus">深链定位 · {{ job.id }}</span>
-              </div>
-              <p>{{ job.summary }}</p>
-              <div v-if="job.assignmentReason" class="organize-job-assignment">
-                <span
-                  class="organize-tag"
-                  :class="job.assignmentStatus === 'assigned' ? 'organize-tag--success' : 'organize-tag--pending'"
-                >
-                  {{ job.assignmentStatus === 'assigned' ? '已自动归属' : '待手动分配' }}
-                </span>
-                <span>{{ job.assignmentReason }}</span>
-              </div>
-              <div class="organize-job-meta">
-                <span>{{ job.rangeLabel }}</span>
-                <i />
-                <span>模板版本 {{ job.templateVersion }}</span>
-                <i v-if="job.conclusionCount != null" />
-                <span v-if="job.conclusionCount != null">
-                  {{ job.conclusionCount }} 结论 · {{ job.todoCount }} 待办
-                </span>
-                <button
-                  v-if="job.outputId"
-                  type="button"
-                  class="organize-job-output-link"
-                  @click="openOutput(job.outputId)"
-                >
-                  查看产出
+                <span class="organize-result-card__arrow" aria-hidden="true">
                   <t-icon name="chevron-right" />
-                </button>
-                <button
-                  v-if="isRetryable(job)"
-                  type="button"
-                  class="organize-job-output-link"
-                  @click="retry(job.id)"
-                >
-                  重新执行
-                </button>
-                <button
-                  v-if="isActive(job)"
-                  type="button"
-                  class="organize-job-output-link"
-                  @click="cancel(job.id)"
-                >
-                  取消
-                </button>
-              </div>
-              <div v-if="isActive(job)" class="organize-job-progress">
-                <span :style="{ width: `${job.progress || 0}%` }" />
+                </span>
+              </button>
+
+              <div v-else class="organize-job-state-card">
+                <div class="organize-job-status-row">
+                  <span class="organize-tag" :class="statusClass(job)">{{ statusLabel(job) }}</span>
+                </div>
+                <strong>{{ config.name }}</strong>
+                <p>{{ job.summary }}</p>
+                <div class="organize-job-actions">
+                  <button
+                    v-if="job.outputId"
+                    type="button"
+                    class="organize-job-output-link"
+                    @click="openOutput(job.outputId, job.id)"
+                  >
+                    查看结果
+                    <t-icon name="chevron-right" />
+                  </button>
+                  <button
+                    v-if="isRetryable(job)"
+                    type="button"
+                    class="organize-job-output-link"
+                    @click="retry(job.id)"
+                  >
+                    重新执行
+                  </button>
+                  <button
+                    v-if="isActive(job)"
+                    type="button"
+                    class="organize-job-output-link"
+                    @click="cancel(job.id)"
+                  >
+                    取消
+                  </button>
+                </div>
+                <div v-if="isActive(job)" class="organize-job-progress">
+                  <span :style="{ width: `${job.progress || 0}%` }" />
+                </div>
               </div>
             </div>
           </article>
@@ -118,6 +126,7 @@ import {
   cancelOrganizeJob,
   getOrganizeConfig,
   listOrganizeConfigJobs,
+  listOrganizeOutputs,
   retryOrganizeJob,
   runOrganizeConfig,
   streamOrganizeJobEvents,
@@ -125,13 +134,16 @@ import {
 import {
   toOrganizeConfig,
   toOrganizeJob,
+  toOrganizeOutput,
   type OrganizeConfig,
   type OrganizeJob,
+  type OrganizeOutput,
 } from './organizeWorkbenchState'
 
 const route = useRoute()
 const router = useRouter()
 const config = ref<OrganizeConfig | null>(null)
+const outputsByJobId = ref<Record<string, OrganizeOutput>>({})
 const loading = ref(true)
 const running = ref(false)
 let eventController: AbortController | null = null
@@ -156,19 +168,42 @@ const statusClass = (job: OrganizeJob) => {
   return 'organize-tag--success'
 }
 
+const outputForJob = (job: OrganizeJob) => outputsByJobId.value[job.id]
+
+const resultCardTitle = (output: OrganizeOutput) =>
+  output.title.replace(/\s*·\s*\d{4}-\d{2}-\d{2}\s*$/, '').trim() || output.title
+
+const outputCreatedLabel = (output: OrganizeOutput) => {
+  const date = new Date(output.createdAt)
+  if (Number.isNaN(date.getTime())) return '整理结果已创建'
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${hours}:${minutes} 创建 ${month}月${day}日`
+}
+
 const loadConfig = async (quiet = false) => {
   if (!quiet) loading.value = true
   const configId = String(route.params.configId || '')
   try {
-    const [configResponse, jobResponse] = await Promise.all([
+    const [configResponse, jobResponse, outputResponse] = await Promise.all([
       getOrganizeConfig(configId),
       listOrganizeConfigJobs(configId, { page: 1, page_size: 100 }),
+      listOrganizeOutputs({ config_id: configId, page: 1, page_size: 100 }),
     ])
     const mapped = toOrganizeConfig(configResponse.data)
     mapped.jobs = (jobResponse.data?.items || []).map(toOrganizeJob)
+    outputsByJobId.value = Object.fromEntries(
+      (outputResponse.data?.items || [])
+        .map((item) => toOrganizeOutput(item))
+        .filter((output) => output.jobId)
+        .map((output) => [output.jobId, output]),
+    )
     config.value = mapped
   } catch (error: any) {
     config.value = null
+    outputsByJobId.value = {}
     if (!quiet) MessagePlugin.error(error?.message || '整理任务加载失败')
   } finally {
     loading.value = false
@@ -254,11 +289,11 @@ const cancel = async (jobId: string) => {
   }
 }
 
-const openOutput = async (outputId: string) => {
+const openOutput = async (outputId: string, jobId?: string) => {
   if (!config.value) return
   await router.push({
     path: `/platform/organize/outputs/${encodeURIComponent(outputId)}`,
-    query: { from: 'config', configId: config.value.id },
+    query: { from: 'config', configId: config.value.id, ...(jobId ? { job: jobId } : {}) },
   })
 }
 
@@ -290,6 +325,7 @@ watch(
   min-height: 0;
   flex-direction: column;
   background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
 }
 
 .organize-detail-scroll {
@@ -299,19 +335,12 @@ watch(
   align-self: stretch;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 28px 48px;
+  padding: 26px 32px 56px;
 }
 
-.organize-detail-head {
-  width: 100%;
-  max-width: none;
-  margin-right: auto;
-  margin-left: auto;
-}
-
+.organize-detail-head,
 .organize-detail-section {
-  width: min(100%, 1040px);
-  max-width: 1040px;
+  width: min(100%, 920px);
   margin-right: auto;
   margin-left: auto;
 }
@@ -319,9 +348,10 @@ watch(
 .organize-detail-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 24px;
-  min-height: 48px;
-  padding-bottom: 20px;
+  min-height: 40px;
+  padding-bottom: 18px;
   border-bottom: 1px solid var(--td-component-stroke);
 }
 
@@ -329,6 +359,16 @@ watch(
   display: flex;
   flex: none;
   justify-content: flex-end;
+}
+
+.organize-detail-actions :deep(.t-button) {
+  min-width: 104px;
+  height: 34px;
+  padding: 0 15px;
+  border-radius: 6px;
+  box-shadow: 0 2px 7px rgba(7, 192, 95, 0.16);
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .organize-detail-identity {
@@ -341,42 +381,53 @@ watch(
 .organize-detail-identity h2 {
   margin: 0;
   overflow: hidden;
-  font-size: 21px;
+  color: var(--td-text-color-primary);
+  font-family: var(--app-font-family);
+  font-size: 20px;
   font-weight: 600;
-  line-height: 29px;
+  line-height: 28px;
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .organize-detail-section {
-  padding-top: 24px;
+  padding-top: 16px;
 }
 
-.organize-timeline {
+.organize-result-list {
   display: flex;
   flex-direction: column;
+  gap: 0;
+}
+
+.organize-result-item {
+  min-width: 0;
 }
 
 .organize-timeline-item {
   display: grid;
-  grid-template-columns: 100px 24px minmax(0, 1fr);
-  min-height: 138px;
+  grid-template-columns: 76px 22px minmax(0, 1fr);
+  align-items: stretch;
 }
 
 .organize-timeline-when {
   display: flex;
-  padding-top: 16px;
-  flex-direction: column;
   align-items: flex-end;
-  gap: 2px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
+  padding-top: 10px;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+  line-height: 16px;
   text-align: right;
 }
 
 .organize-timeline-when strong {
-  color: var(--td-text-color-primary);
-  font-weight: 600;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
 }
 
 .organize-timeline-node {
@@ -387,8 +438,8 @@ watch(
 
 .organize-timeline-node::after {
   position: absolute;
-  top: 25px;
-  bottom: -10px;
+  top: 19px;
+  bottom: -1px;
   width: 1px;
   background: var(--td-component-stroke);
   content: '';
@@ -398,45 +449,143 @@ watch(
   display: none;
 }
 
-.organize-timeline-node span {
+.organize-timeline-node > span {
   position: relative;
   z-index: 1;
-  width: 9px;
-  height: 9px;
-  margin-top: 20px;
+  width: 8px;
+  height: 8px;
+  margin-top: 14px;
   border: 2px solid var(--td-brand-color);
   border-radius: 50%;
   background: var(--td-bg-color-container);
-}
-
-.organize-timeline-item.is-running .organize-timeline-node span,
-.organize-timeline-item.is-queued .organize-timeline-node span,
-.organize-timeline-item.is-repairing .organize-timeline-node span {
-  border-color: #d69a35;
-  box-shadow: 0 0 0 4px #fff3dd;
-}
-
-.organize-timeline-item.is-failed .organize-timeline-node span,
-.organize-timeline-item.is-canceled .organize-timeline-node span {
-  border-color: var(--td-text-color-placeholder);
-}
-
-.organize-job-card {
-  position: relative;
-  margin: 0 0 14px 12px;
-  padding: 15px 16px 14px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 9px;
-  background: var(--td-bg-color-container);
-}
-
-.organize-timeline-item.is-highlighted .organize-job-card {
-  border-color: var(--td-brand-color);
   box-shadow: 0 0 0 3px var(--td-brand-color-light);
 }
 
+.organize-timeline-item.is-running .organize-timeline-node > span,
+.organize-timeline-item.is-queued .organize-timeline-node > span,
+.organize-timeline-item.is-repairing .organize-timeline-node > span {
+  border-color: var(--td-warning-color);
+  box-shadow: 0 0 0 3px var(--td-warning-color-light);
+}
+
+.organize-timeline-item.is-failed .organize-timeline-node > span,
+.organize-timeline-item.is-canceled .organize-timeline-node > span {
+  border-color: var(--td-text-color-placeholder);
+  box-shadow: 0 0 0 3px var(--td-bg-color-secondarycontainer);
+}
+
+.organize-timeline-content {
+  min-width: 0;
+  padding-bottom: 8px;
+}
+
+.organize-result-card,
+.organize-job-state-card {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.025);
+}
+
+.organize-result-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 13px 13px 18px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.organize-result-card:hover {
+  border-color: var(--td-component-border);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.055);
+  transform: translateY(-1px);
+}
+
+.organize-result-card:focus-visible {
+  outline: 2px solid var(--td-brand-color);
+  outline-offset: 2px;
+}
+
+.organize-result-item.is-highlighted .organize-result-card,
+.organize-result-item.is-highlighted .organize-job-state-card {
+  border-color: var(--td-component-stroke);
+  box-shadow: inset 3px 0 0 var(--td-brand-color), 0 2px 8px rgba(0, 0, 0, 0.035);
+}
+
+.organize-result-card__body {
+  display: block;
+  min-width: 0;
+}
+
+.organize-result-card__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.organize-result-card__title-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.organize-result-card__preview {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.organize-result-card__footer {
+  display: block;
+  margin-top: 8px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.organize-result-card__arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--td-text-color-placeholder);
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.organize-result-card:hover .organize-result-card__arrow {
+  border-color: var(--td-component-stroke);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-brand-color);
+}
+
+.organize-job-state-card {
+  padding: 14px 18px;
+}
+
 .organize-job-status-row,
-.organize-job-meta {
+.organize-job-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -445,42 +594,29 @@ watch(
 
 .organize-job-status-row {
   justify-content: space-between;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 18px;
 }
 
-.organize-job-focus {
-  color: var(--td-brand-color);
-  font-size: 11px;
+.organize-job-state-card > strong {
+  display: block;
+  margin-top: 12px;
+  color: var(--td-text-color-primary);
+  font-size: 15px;
+  line-height: 22px;
 }
 
-.organize-job-card > p {
-  margin: 12px 0;
+.organize-job-state-card > p {
+  margin: 7px 0 0;
   color: var(--td-text-color-secondary);
   font-size: 13px;
   line-height: 20px;
 }
 
-.organize-job-assignment {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: -4px;
-  margin-bottom: 10px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.organize-job-meta {
-  color: var(--td-text-color-placeholder);
-  font-size: 11px;
-}
-
-.organize-job-meta i {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--td-text-color-placeholder);
+.organize-job-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 .organize-job-output-link {
@@ -561,7 +697,7 @@ watch(
 
 @media (max-width: 760px) {
   .organize-detail-scroll {
-    padding: 20px 16px 36px;
+    padding: 20px 16px 40px;
   }
 
   .organize-detail-head {
@@ -577,11 +713,30 @@ watch(
   }
 
   .organize-timeline-item {
-    grid-template-columns: 72px 18px minmax(0, 1fr);
+    grid-template-columns: 52px 18px minmax(0, 1fr);
   }
 
-  .organize-job-card {
-    margin-left: 7px;
+  .organize-timeline-when {
+    padding-top: 9px;
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  .organize-timeline-when strong {
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .organize-result-card {
+    grid-template-columns: minmax(0, 1fr) 26px;
+    gap: 10px;
+    padding: 14px 11px 13px 14px;
+  }
+
+  .organize-result-card__preview {
+    font-size: 13px;
+    line-height: 20px;
+    -webkit-line-clamp: 3;
   }
 }
 </style>

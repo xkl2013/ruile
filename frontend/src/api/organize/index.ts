@@ -18,6 +18,7 @@ export type OrganizeJobStatus =
   | 'fallback'
   | 'failed'
   | 'canceled'
+export type OrganizeJobMode = 'single' | 'batch'
 
 export type OrganizeMemoryAttachmentStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'skipped'
 export type OrganizeMemoryAttachmentAggregateStatus = 'pending' | 'processing' | 'partial' | 'completed' | 'failed'
@@ -63,7 +64,37 @@ export interface OrganizeJob {
   summary?: string
   result?: Record<string, unknown>
   error_message?: string
+  job_mode?: OrganizeJobMode
+  selection_snapshot?: Record<string, unknown>
+  input_fingerprint?: string
+  selected_count?: number
+  ready_count?: number
+  processed_count?: number
+  failed_count?: number
+  overlap_count?: number
+  batch_count?: number
+  coverage?: Record<string, unknown>
+  batches?: OrganizeJobBatch[]
   scheduled_for?: string
+  started_at?: string
+  finished_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface OrganizeJobBatch {
+  id: string
+  parent_job_id: string
+  batch_index: number
+  batch_count: number
+  status: 'queued' | 'running' | 'completed' | 'fallback' | 'failed' | 'canceled'
+  stage: string
+  progress: number
+  memory_ids?: string[]
+  input_chars: number
+  summary?: string
+  error_message?: string
+  retry_count: number
   started_at?: string
   finished_at?: string
   created_at: string
@@ -249,15 +280,34 @@ export interface OrganizeRequirementInput {
   confirmed?: boolean
 }
 
+export interface OrganizeMemoryQueryPlan {
+  time_field?: string
+  occurred_from?: string
+  occurred_to?: string
+  kinds?: string[]
+  keyword?: string
+  sources?: string[]
+  ready_only?: boolean
+  timezone?: string
+}
+
 export interface OrganizeRequirementPreview {
   config_id: string
   template_key: string
   template_name: string
   scene: string
   normalized_text: string
-  memory_ids: string[]
+  query_plan: OrganizeMemoryQueryPlan
+  memory_ids?: string[]
+  selected_count: number
+  ready_count: number
+  unready_count: number
+  overlap_count: number
+  estimated_batch_count: number
+  sample_memories?: OrganizeMemoryReference[]
   ambiguities?: string[]
   suggestions?: string[]
+  warnings?: string[]
   need_confirmation: boolean
 }
 
@@ -378,6 +428,9 @@ export interface OrganizeJobInput {
   model_id?: string
   requirement?: string
   allow_partial?: boolean
+  batch_policy?: string
+  force_rerun?: boolean
+  selection_snapshot?: Record<string, unknown>
 }
 
 export interface OrganizeSproutFromMemoryInput {
@@ -542,6 +595,7 @@ export function deleteOrganizeMemory(id: string) {
 
 export function listOrganizeOutputs(params?: OrganizeListParams & {
   status?: OrganizeOutputStatus
+  config_id?: string
   template_key?: string
   scene?: string
   field_filters?: Record<string, string>

@@ -1037,6 +1037,7 @@ func (h *OrganizeHandler) listQuery(c *gin.Context) (types.OrganizeListQuery, bo
 		TenantID:     tenantID,
 		UserID:       userID,
 		Keyword:      keyword,
+		ConfigID:     strings.TrimSpace(c.Query("config_id")),
 		TemplateKey:  strings.TrimSpace(c.Query("template_key")),
 		Scene:        strings.TrimSpace(c.Query("scene")),
 		FieldFilters: organizeFieldFilters(c),

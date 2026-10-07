@@ -50,6 +50,9 @@ func TestOrganizeAdminTemplateLifecycle(t *testing.T) {
 	require.Contains(t, preview.Prompt, "2")
 	require.Contains(t, preview.Prompt, "Markdown 报告预设")
 	require.Contains(t, preview.MarkdownTemplate, "##")
+	require.Contains(t, preview.PreviewMarkdown, "# 周复盘 V2")
+	require.Contains(t, preview.PreviewMarkdown, "示例记忆 1")
+	require.NotContains(t, preview.PreviewMarkdown, "{{")
 
 	published, err := svc.PublishAdminTemplate(ctx, created.Key, "admin-1", "首版发布")
 	require.NoError(t, err)
@@ -95,6 +98,42 @@ func TestOrganizeAdminTemplateLifecycle(t *testing.T) {
 		Spec: types.JSONMap{},
 	})
 	require.ErrorIs(t, err, ErrOrganizeAdminTemplateKeyImmutable)
+}
+
+func TestOrganizeAdminTemplateScenesComeFromStoredTemplates(t *testing.T) {
+	svc, _ := newOrganizeServiceWithDBForTest(t)
+	ctx := context.Background()
+
+	for _, input := range []types.OrganizeTemplateAdminInput{
+		{
+			Key:                "parent_followup",
+			Name:               "家长跟进",
+			Scene:              "家长服务",
+			DefaultInstruction: "整理家长跟进记录。",
+			SortOrder:          30,
+		},
+		{
+			Key:                "lead_review",
+			Name:               "线索复盘",
+			Scene:              "招生增长",
+			DefaultInstruction: "整理线索复盘记录。",
+			SortOrder:          10,
+		},
+		{
+			Key:                "channel_review",
+			Name:               "渠道复盘",
+			Scene:              "招生增长",
+			DefaultInstruction: "整理渠道复盘记录。",
+			SortOrder:          20,
+		},
+	} {
+		_, err := svc.CreateAdminTemplate(ctx, "admin-1", input)
+		require.NoError(t, err)
+	}
+
+	scenes, err := svc.ListAdminTemplateScenes(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"招生增长", "家长服务"}, scenes)
 }
 
 func TestOrganizeUserTemplateListHidesInternalRecipes(t *testing.T) {
@@ -259,16 +298,16 @@ func TestOrganizeRequirementPreviewRequiresConfirmationForImplicitScope(t *testi
 
 	preview, err := svc.PreviewOrganizeRequirement(ctx, 7, "user-a", types.OrganizeRequirementInput{
 		ConfigID: config.ID,
-		Text:     "整理本周重点事项",
+		Text:     "整理重点事项",
 	})
 	require.NoError(t, err)
 	require.Equal(t, template.Key, preview.TemplateKey)
 	require.True(t, preview.NeedConfirmation)
-	require.Contains(t, preview.Ambiguities, "没有指定记忆，将使用当前配置可见范围内的记忆")
+	require.Contains(t, preview.Ambiguities, "未识别到明确时间范围，将使用当前配置的默认记忆范围")
 
 	_, err = svc.ConfirmOrganizeRequirement(ctx, 7, "user-a", types.OrganizeRequirementInput{
 		ConfigID: config.ID,
-		Text:     "整理本周重点事项",
+		Text:     "整理重点事项",
 	})
 	require.ErrorIs(t, err, ErrOrganizeRequirementConfirmationNeeded)
 }

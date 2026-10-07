@@ -27,7 +27,10 @@ var (
 	ErrOrganizeAdminTemplateNotPublishable  = errors.New("organize template is not publishable")
 )
 
-var organizeAdminTemplateKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+var (
+	organizeAdminTemplateKeyPattern        = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	organizeAdminPreviewPlaceholderPattern = regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}`)
+)
 
 func (s *organizeService) ListAdminTemplates(
 	ctx context.Context,
@@ -45,6 +48,10 @@ func (s *organizeService) ListAdminTemplates(
 		hydrateOrganizeTemplateMarkdown(template)
 	}
 	return templates, total, nil
+}
+
+func (s *organizeService) ListAdminTemplateScenes(ctx context.Context) ([]string, error) {
+	return s.repo.ListAdminTemplateScenes(ctx)
 }
 
 func (s *organizeService) GetAdminTemplate(
@@ -322,7 +329,9 @@ func (s *organizeService) PreviewAdminTemplate(
 	for name, value := range input.Variables {
 		vars[name] = strings.TrimSpace(fmt.Sprint(value))
 	}
-	vars["memory_count"] = strconv.Itoa(len(input.MemoryIDs))
+	if len(input.MemoryIDs) > 0 || strings.TrimSpace(vars["memory_count"]) == "" {
+		vars["memory_count"] = strconv.Itoa(len(input.MemoryIDs))
+	}
 	vars["template_name"] = template.Name
 	prompt := renderOrganizeTemplateInstruction(template.DefaultInstruction, vars)
 	markdownTemplate := hydrateOrganizeTemplateMarkdown(template).MarkdownTemplate
@@ -336,9 +345,117 @@ func (s *organizeService) PreviewAdminTemplate(
 		Version:          template.PublishedVersion,
 		Prompt:           prompt,
 		MarkdownTemplate: markdownTemplate,
+		PreviewMarkdown:  renderOrganizeTemplatePreviewMarkdown(template, markdownTemplate, vars),
 		Spec:             template.Spec,
 		Errors:           errorsList,
 	}, nil
+}
+
+func renderOrganizeTemplatePreviewMarkdown(
+	template *types.OrganizeTemplate,
+	markdownTemplate string,
+	variables map[string]string,
+) string {
+	values := make(map[string]string, len(variables)+8)
+	for key, value := range variables {
+		values[key] = strings.TrimSpace(value)
+	}
+
+	title := emptyFallback(values["title"], strings.TrimSpace(template.Name))
+	if title == "" {
+		title = "整理结果示例"
+	}
+	values["title"] = title
+
+	summary := emptyFallback(values["summary"], strings.TrimSpace(template.Description))
+	if summary == "" {
+		summary = fmt.Sprintf(
+			"基于 %s 条示例记忆，已归纳关键事实、判断依据和后续行动。",
+			emptyFallback(values["memory_count"], "3"),
+		)
+	}
+	values["summary"] = strings.TrimSuffix(summary, "。") + "。"
+
+	sections := organizeTemplateStringList(
+		types.JSONMap{"template_spec": template.Spec},
+		"template_spec",
+		"sections",
+	)
+	for index, section := range sections {
+		key := fmt.Sprintf("section_%d", index+1)
+		if strings.TrimSpace(values[key]) == "" {
+			values[key] = organizeTemplatePreviewSectionContent(section)
+		}
+	}
+
+	if strings.TrimSpace(values["citations"]) == "" {
+		values["citations"] = "- [M1] 示例记忆 1：原始沟通与事实记录\n- [M2] 示例记忆 2：补充材料与行动记录"
+	}
+	if strings.TrimSpace(values["tags"]) == "" {
+		tags := organizeTemplateStringList(
+			types.JSONMap{"template_spec": template.Spec},
+			"template_spec",
+			"tags",
+		)
+		if len(tags) == 0 && strings.TrimSpace(template.Scene) != "" {
+			tags = []string{template.Scene}
+		}
+		if len(tags) == 0 {
+			tags = []string{"整理示例"}
+		}
+		for index, tag := range tags {
+			tag = strings.TrimSpace(strings.TrimPrefix(tag, "#"))
+			tags[index] = "#" + tag
+		}
+		values["tags"] = strings.Join(tags, " ")
+	}
+
+	preview := organizeAdminPreviewPlaceholderPattern.ReplaceAllStringFunc(
+		markdownTemplate,
+		func(placeholder string) string {
+			match := organizeAdminPreviewPlaceholderPattern.FindStringSubmatch(placeholder)
+			if len(match) != 2 {
+				return "示例内容"
+			}
+			key := strings.TrimSpace(match[1])
+			if value := strings.TrimSpace(values[key]); value != "" {
+				return value
+			}
+			return organizeTemplatePreviewPlaceholderContent(key)
+		},
+	)
+	return normalizeOrganizeGeneratedMarkdown(preview, markdownTemplate, title, template.Spec)
+}
+
+func organizeTemplatePreviewSectionContent(section string) string {
+	section = strings.TrimSpace(section)
+	switch {
+	case strings.Contains(section, "材料") || strings.Contains(section, "成本") || strings.Contains(section, "预算"):
+		return "优先复用现有材料，补充必要采购项，并同步记录数量、预算和替代方案。"
+	case strings.Contains(section, "实施") || strings.Contains(section, "行动") ||
+		strings.Contains(section, "下一步") || strings.Contains(section, "跟进") ||
+		strings.Contains(section, "待办"):
+		return "确认实施顺序、负责人和完成时间，并在执行后回写结果"
+	case strings.Contains(section, "动线") || strings.Contains(section, "安全"):
+		return "保留主要通行路径和观察视线，重点区域增加缓冲空间与安全检查。"
+	case strings.Contains(section, "现状") || strings.Contains(section, "背景"):
+		return "已汇总当前条件、核心需求和主要限制，关键问题及影响范围已形成统一记录。"
+	case strings.Contains(section, "依据") || strings.Contains(section, "证据"):
+		return "关键判断均保留对应记忆来源，方便后续复核和补充。"
+	default:
+		return fmt.Sprintf("围绕“%s”归纳了示例记忆中的关键事实、已有判断和需要继续确认的信息。", emptyFallback(section, "本章节"))
+	}
+}
+
+func organizeTemplatePreviewPlaceholderContent(key string) string {
+	label := strings.NewReplacer("_", " ", "-", " ", ".", " ").Replace(strings.TrimSpace(key))
+	if strings.HasSuffix(key, "_rows") {
+		return "示例项目 | 已整理 | 待确认"
+	}
+	if strings.Contains(key, "question") {
+		return "- 需要结合后续记录继续确认的信息"
+	}
+	return fmt.Sprintf("已根据示例记忆整理%s相关内容。", emptyFallback(label, "本栏目"))
 }
 
 func normalizeAdminTemplateInput(input types.OrganizeTemplateAdminInput) (*types.OrganizeTemplate, error) {

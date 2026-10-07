@@ -293,15 +293,30 @@ func (s *organizeService) processMemoryAttachment(
 	if attachment == nil {
 		return nil
 	}
-	if attachment.Status == types.OrganizeMemoryAttachmentStatusCompleted {
-		return nil
-	}
 	memory, err := s.repo.GetTenantMemory(ctx, payload.TenantID, strings.TrimSpace(payload.MemoryID))
 	if err != nil {
 		return err
 	}
 	if memory == nil || memory.ID != attachment.MemoryID {
 		return nil
+	}
+	if attachment.Status == types.OrganizeMemoryAttachmentStatusCompleted &&
+		!organizeMemoryAttachmentHasFilenamePlaceholder(attachment) {
+		return nil
+	}
+	if transcript := organizeMemoryAttachmentProvidedTranscript(memory, attachment); transcript != "" {
+		attachment.Content = transcript
+		attachment.Transcript = transcript
+		attachment.Status = types.OrganizeMemoryAttachmentStatusCompleted
+		attachment.ErrorStage = ""
+		attachment.ErrorMessage = ""
+		attachment.Metadata = normalizeJSONMap(attachment.Metadata)
+		attachment.Metadata["parser_status"] = "provided_transcript"
+		attachment.UpdatedAt = time.Now().UTC()
+		if err := s.repo.UpdateMemoryAttachment(ctx, attachment); err != nil {
+			return err
+		}
+		return s.refreshOrganizeMemoryAttachmentSummary(ctx, memory)
 	}
 
 	attachment.Status = types.OrganizeMemoryAttachmentStatusProcessing
@@ -382,12 +397,17 @@ func (s *organizeService) RetryMemoryAttachment(
 	if attachment.Status == types.OrganizeMemoryAttachmentStatusProcessing {
 		return nil, ErrOrganizeMemoryNotReady
 	}
-	if attachment.Status == types.OrganizeMemoryAttachmentStatusCompleted {
+	filenamePlaceholder := organizeMemoryAttachmentHasFilenamePlaceholder(attachment)
+	if attachment.Status == types.OrganizeMemoryAttachmentStatusCompleted && !filenamePlaceholder {
 		return memory, nil
 	}
 	attachment.Status = types.OrganizeMemoryAttachmentStatusPending
 	attachment.ErrorStage = ""
 	attachment.ErrorMessage = ""
+	if filenamePlaceholder {
+		attachment.Content = ""
+		attachment.Transcript = ""
+	}
 	attachment.UpdatedAt = time.Now().UTC()
 	if err := s.repo.UpdateMemoryAttachment(ctx, attachment); err != nil {
 		return nil, err
@@ -412,6 +432,7 @@ func (s *organizeService) parseOrganizeMemoryAttachment(
 	if shouldUseRawTextForOrganizeUpload(ext) {
 		return trimMax(string(data), 0), "", "", nil
 	}
+	isAudioVisual := organizeUploadIsAudioVisual(fileName, mimeType)
 
 	if s.documentReader != nil {
 		result, readErr := s.documentReader.Read(ctx, &types.ReadRequest{
@@ -431,15 +452,20 @@ func (s *organizeService) parseOrganizeMemoryAttachment(
 				if err != nil {
 					return "", "", asrModelID, err
 				}
-				content = transcript
+				if transcript != "" {
+					return transcript, transcript, asrModelID, nil
+				}
 			}
-			if content != "" {
+			if content != "" && !isAudioVisual {
 				return content, transcript, asrModelID, nil
+			}
+			if content != "" && !organizeMemoryAttachmentContentIsFilename(content, fileName) {
+				return content, content, asrModelID, nil
 			}
 		}
 	}
 
-	if organizeUploadIsAudioVisual(fileName, mimeType) {
+	if isAudioVisual {
 		transcript, asrModelID, err = s.transcribeOrganizeUploadAudio(ctx, fileName, data)
 		if err != nil {
 			return "", "", asrModelID, err
@@ -447,11 +473,46 @@ func (s *organizeService) parseOrganizeMemoryAttachment(
 		if transcript != "" {
 			return transcript, transcript, asrModelID, nil
 		}
-	}
-	if shouldUseRawTextForOrganizeUpload(ext) {
-		return trimMax(string(data), 0), "", "", nil
+		return "", "", asrModelID, fmt.Errorf("audio transcription produced no readable content")
 	}
 	return trimMax(fileName, 0), "", "", nil
+}
+
+func organizeMemoryAttachmentProvidedTranscript(
+	memory *types.OrganizeMemory,
+	attachment *types.OrganizeMemoryAttachment,
+) string {
+	if memory == nil || attachment == nil ||
+		!organizeUploadIsAudioVisual(attachment.FileName, attachment.MimeType) ||
+		len(memory.Attachments) != 1 ||
+		memory.Attachments[0] == nil ||
+		memory.Attachments[0].ID != attachment.ID {
+		return ""
+	}
+	for _, key := range []string{"raw_transcript", "transcript", "transcription"} {
+		if value, ok := memory.Metadata[key].(string); ok {
+			if transcript := trimMax(value, 0); transcript != "" {
+				return transcript
+			}
+		}
+	}
+	return ""
+}
+
+func organizeMemoryAttachmentHasFilenamePlaceholder(attachment *types.OrganizeMemoryAttachment) bool {
+	if attachment == nil ||
+		!organizeUploadIsAudioVisual(attachment.FileName, attachment.MimeType) ||
+		strings.TrimSpace(attachment.Transcript) != "" {
+		return false
+	}
+	return strings.TrimSpace(attachment.Content) == "" ||
+		organizeMemoryAttachmentContentIsFilename(attachment.Content, attachment.FileName)
+}
+
+func organizeMemoryAttachmentContentIsFilename(content, fileName string) bool {
+	content = strings.TrimSpace(content)
+	fileName = strings.TrimSpace(fileName)
+	return content != "" && fileName != "" && strings.EqualFold(content, fileName)
 }
 
 func (s *organizeService) failMemoryAttachment(

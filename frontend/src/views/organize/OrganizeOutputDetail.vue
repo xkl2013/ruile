@@ -17,31 +17,8 @@
 
       <article class="organize-output-document">
         <header class="organize-output-document-head">
-          <div>
-            <span class="organize-output-eyebrow">{{ output.templateName }} · {{ output.templateVersion }}</span>
-            <h2>{{ output.title }}</h2>
-            <p>{{ output.date }} · 来源 {{ output.sourceCount }} 条记忆</p>
-          </div>
-          <div class="organize-output-statuses">
-            <span class="organize-tag organize-tag--success">已完成</span>
-            <span
-              class="organize-tag"
-              :class="output.assignmentStatus === 'assigned' ? 'organize-tag--success' : 'organize-tag--pending'"
-            >
-              {{ output.assignmentStatus === 'assigned' ? '已归属服务' : '待归属' }}
-            </span>
-          </div>
+          <h2>{{ output.title }}</h2>
         </header>
-        <p v-if="output.assignmentReason" class="organize-output-assignment-reason">
-          {{ output.assignmentReason }}
-        </p>
-
-        <div v-if="output.fields.length" class="organize-output-fields">
-          <div v-for="field in output.fields" :key="field.label">
-            <span>{{ field.label }}</span>
-            <strong>{{ field.value }}</strong>
-          </div>
-        </div>
         <div v-if="output.citations.length" class="organize-output-citations">
           <button
             v-for="citation in output.citations"
@@ -429,82 +406,21 @@ watch(
 }
 
 .organize-output-document-head {
-	display: flex;
-	align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 22px;
-	border-bottom: 1px solid var(--td-component-stroke);
-}
-
-.organize-output-statuses {
-	display: flex;
-	flex-wrap: wrap;
-	justify-content: flex-end;
-	gap: 6px;
-}
-
-.organize-output-assignment-reason {
-  margin: -8px 0 18px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.organize-output-eyebrow {
-  color: var(--td-brand-color);
-  font-size: 12px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--td-component-stroke);
 }
 
 .organize-output-document-head h2 {
-  margin: 8px 0 5px;
+  margin: 0;
   font-size: 24px;
   line-height: 32px;
-}
-
-.organize-output-document-head p {
-  margin: 0;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
-.organize-output-fields {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 18px 0 22px;
-}
-
-.organize-output-fields > div {
-  min-height: 58px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--td-bg-color-secondarycontainer);
-}
-
-.organize-output-fields span,
-.organize-output-fields strong {
-  display: block;
-}
-
-.organize-output-fields span {
-  color: var(--td-text-color-secondary);
-  font-size: 11px;
-}
-
-.organize-output-fields strong {
-  margin-top: 5px;
-  color: var(--td-text-color-primary);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 18px;
 }
 
 .organize-output-citations {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 4px 0 14px;
+  padding: 16px 0 6px;
 }
 
 .organize-citation {
@@ -522,31 +438,6 @@ watch(
   font-size: 11px;
   line-height: 18px;
   vertical-align: 1px;
-}
-
-.organize-tag {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 5px;
-  background: var(--td-bg-color-secondarycontainer);
-  color: var(--td-text-color-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.organize-tag--success {
-	border-color: #b7e1cf;
-	background: #eef9f3;
-	color: #23805a;
-}
-
-.organize-tag--pending {
-	border-color: #f0d7a1;
-	background: #fff8e8;
-	color: #9a6a13;
 }
 
 .organize-detail-empty {
@@ -576,16 +467,6 @@ watch(
 
   .organize-output-document {
     padding: 22px 18px 30px;
-  }
-
-  .organize-output-fields {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 460px) {
-  .organize-output-fields {
-    grid-template-columns: 1fr;
   }
 }
 </style>

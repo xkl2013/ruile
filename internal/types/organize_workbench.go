@@ -31,6 +31,16 @@ const (
 	OrganizeJobStatusFallback  = "fallback"
 	OrganizeJobStatusFailed    = "failed"
 	OrganizeJobStatusCanceled  = "canceled"
+
+	OrganizeJobModeSingle = "single"
+	OrganizeJobModeBatch  = "batch"
+
+	OrganizeJobBatchStatusQueued    = "queued"
+	OrganizeJobBatchStatusRunning   = "running"
+	OrganizeJobBatchStatusCompleted = "completed"
+	OrganizeJobBatchStatusFallback  = "fallback"
+	OrganizeJobBatchStatusFailed    = "failed"
+	OrganizeJobBatchStatusCanceled  = "canceled"
 )
 
 func IsValidOrganizeSchedule(schedule string) bool {
@@ -183,31 +193,42 @@ func (c *OrganizeConfig) BeforeCreate(_ *gorm.DB) error {
 
 // OrganizeJob is the durable execution record for one organize run.
 type OrganizeJob struct {
-	ID              string         `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID        uint64         `json:"tenant_id" gorm:"not null;index"`
-	UserID          string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
-	ConfigID        string         `json:"config_id" gorm:"type:varchar(36);not null;index"`
-	TemplateKey     string         `json:"template_key" gorm:"type:varchar(64);not null;index"`
-	TemplateVersion string         `json:"template_version" gorm:"type:varchar(32);not null;default:''"`
-	TargetServiceID string         `json:"target_service_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
-	Status          string         `json:"status" gorm:"type:varchar(32);not null;default:'queued';index"`
-	Stage           string         `json:"stage" gorm:"type:varchar(64);not null;default:'queued'"`
-	Progress        int            `json:"progress" gorm:"not null;default:0"`
-	Requirement     JSONMap        `json:"requirement" gorm:"type:jsonb;not null;default:'{}'"`
-	MemoryIDs       StringArray    `json:"memory_ids" gorm:"type:jsonb;not null;default:'[]'"`
-	ModelID         string         `json:"model_id,omitempty" gorm:"type:varchar(64);not null;default:''"`
-	PromptHash      string         `json:"prompt_hash,omitempty" gorm:"type:varchar(64);not null;default:''"`
-	OutputID        string         `json:"output_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
-	Summary         string         `json:"summary,omitempty" gorm:"type:text;not null;default:''"`
-	Result          JSONMap        `json:"result,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
-	ErrorMessage    string         `json:"error_message,omitempty" gorm:"type:text;not null;default:''"`
-	DedupeKey       string         `json:"-" gorm:"type:varchar(255);not null;default:'';index"`
-	ScheduledFor    *time.Time     `json:"scheduled_for,omitempty"`
-	StartedAt       *time.Time     `json:"started_at,omitempty"`
-	FinishedAt      *time.Time     `json:"finished_at,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	DeletedAt       gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
+	ID                string              `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID          uint64              `json:"tenant_id" gorm:"not null;index"`
+	UserID            string              `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	ConfigID          string              `json:"config_id" gorm:"type:varchar(36);not null;index"`
+	TemplateKey       string              `json:"template_key" gorm:"type:varchar(64);not null;index"`
+	TemplateVersion   string              `json:"template_version" gorm:"type:varchar(32);not null;default:''"`
+	TargetServiceID   string              `json:"target_service_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	Status            string              `json:"status" gorm:"type:varchar(32);not null;default:'queued';index"`
+	Stage             string              `json:"stage" gorm:"type:varchar(64);not null;default:'queued'"`
+	Progress          int                 `json:"progress" gorm:"not null;default:0"`
+	Requirement       JSONMap             `json:"requirement" gorm:"type:jsonb;not null;default:'{}'"`
+	MemoryIDs         StringArray         `json:"memory_ids" gorm:"type:jsonb;not null;default:'[]'"`
+	ModelID           string              `json:"model_id,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	PromptHash        string              `json:"prompt_hash,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	OutputID          string              `json:"output_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	Summary           string              `json:"summary,omitempty" gorm:"type:text;not null;default:''"`
+	Result            JSONMap             `json:"result,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	ErrorMessage      string              `json:"error_message,omitempty" gorm:"type:text;not null;default:''"`
+	DedupeKey         string              `json:"-" gorm:"type:varchar(255);not null;default:'';index"`
+	JobMode           string              `json:"job_mode" gorm:"type:varchar(16);not null;default:'single'"`
+	SelectionSnapshot JSONMap             `json:"selection_snapshot,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	InputFingerprint  string              `json:"input_fingerprint,omitempty" gorm:"type:varchar(64);not null;default:'';index"`
+	SelectedCount     int                 `json:"selected_count" gorm:"not null;default:0"`
+	ReadyCount        int                 `json:"ready_count" gorm:"not null;default:0"`
+	ProcessedCount    int                 `json:"processed_count" gorm:"not null;default:0"`
+	FailedCount       int                 `json:"failed_count" gorm:"not null;default:0"`
+	OverlapCount      int                 `json:"overlap_count" gorm:"not null;default:0"`
+	BatchCount        int                 `json:"batch_count" gorm:"not null;default:0"`
+	Coverage          JSONMap             `json:"coverage,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	Batches           []*OrganizeJobBatch `json:"batches,omitempty" gorm:"-"`
+	ScheduledFor      *time.Time          `json:"scheduled_for,omitempty"`
+	StartedAt         *time.Time          `json:"started_at,omitempty"`
+	FinishedAt        *time.Time          `json:"finished_at,omitempty"`
+	CreatedAt         time.Time           `json:"created_at"`
+	UpdatedAt         time.Time           `json:"updated_at"`
+	DeletedAt         gorm.DeletedAt      `json:"deleted_at,omitempty" gorm:"index"`
 }
 
 func (OrganizeJob) TableName() string { return "organize_jobs" }
@@ -230,6 +251,65 @@ func (j *OrganizeJob) BeforeCreate(_ *gorm.DB) error {
 	}
 	if j.Result == nil {
 		j.Result = JSONMap{}
+	}
+	if j.JobMode == "" {
+		j.JobMode = OrganizeJobModeSingle
+	}
+	if j.SelectionSnapshot == nil {
+		j.SelectionSnapshot = JSONMap{}
+	}
+	if j.Coverage == nil {
+		j.Coverage = JSONMap{}
+	}
+	return nil
+}
+
+// OrganizeJobBatch is an internal execution unit of a batch organize job.
+type OrganizeJobBatch struct {
+	ID               string         `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID         uint64         `json:"tenant_id" gorm:"not null;index"`
+	UserID           string         `json:"user_id" gorm:"type:varchar(36);not null;index"`
+	ParentJobID      string         `json:"parent_job_id" gorm:"type:varchar(36);not null;index"`
+	BatchIndex       int            `json:"batch_index" gorm:"not null"`
+	BatchCount       int            `json:"batch_count" gorm:"not null"`
+	Status           string         `json:"status" gorm:"type:varchar(32);not null;default:'queued';index"`
+	Stage            string         `json:"stage" gorm:"type:varchar(64);not null;default:'queued'"`
+	Progress         int            `json:"progress" gorm:"not null;default:0"`
+	MemoryIDs        StringArray    `json:"memory_ids" gorm:"type:jsonb;not null;default:'[]'"`
+	InputChars       int            `json:"input_chars" gorm:"not null;default:0"`
+	PromptHash       string         `json:"prompt_hash,omitempty" gorm:"type:varchar(64);not null;default:''"`
+	Summary          string         `json:"summary,omitempty" gorm:"type:text;not null;default:''"`
+	StructuredResult JSONMap        `json:"structured_result,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	Citations        JSONMap        `json:"citations,omitempty" gorm:"type:jsonb;not null;default:'{}'"`
+	ErrorMessage     string         `json:"error_message,omitempty" gorm:"type:text;not null;default:''"`
+	RetryCount       int            `json:"retry_count" gorm:"not null;default:0"`
+	StartedAt        *time.Time     `json:"started_at,omitempty"`
+	FinishedAt       *time.Time     `json:"finished_at,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `json:"deleted_at,omitempty" gorm:"index"`
+}
+
+func (OrganizeJobBatch) TableName() string { return "organize_job_batches" }
+
+func (b *OrganizeJobBatch) BeforeCreate(_ *gorm.DB) error {
+	if b.ID == "" {
+		b.ID = uuid.NewString()
+	}
+	if b.Status == "" {
+		b.Status = OrganizeJobBatchStatusQueued
+	}
+	if b.Stage == "" {
+		b.Stage = OrganizeJobBatchStatusQueued
+	}
+	if b.MemoryIDs == nil {
+		b.MemoryIDs = StringArray{}
+	}
+	if b.StructuredResult == nil {
+		b.StructuredResult = JSONMap{}
+	}
+	if b.Citations == nil {
+		b.Citations = JSONMap{}
 	}
 	return nil
 }
@@ -291,6 +371,7 @@ type OrganizeTemplatePreview struct {
 	Version          string   `json:"version"`
 	Prompt           string   `json:"prompt"`
 	MarkdownTemplate string   `json:"markdown_template"`
+	PreviewMarkdown  string   `json:"preview_markdown"`
 	Spec             JSONMap  `json:"spec"`
 	Errors           []string `json:"errors"`
 }
@@ -329,11 +410,14 @@ type OrganizeConfigInput struct {
 }
 
 type OrganizeJobInput struct {
-	ConfigID     string      `json:"config_id,omitempty"`
-	MemoryIDs    StringArray `json:"memory_ids,omitempty"`
-	ModelID      string      `json:"model_id,omitempty"`
-	Requirement  string      `json:"requirement,omitempty"`
-	AllowPartial bool        `json:"allow_partial,omitempty"`
+	ConfigID          string      `json:"config_id,omitempty"`
+	MemoryIDs         StringArray `json:"memory_ids,omitempty"`
+	ModelID           string      `json:"model_id,omitempty"`
+	Requirement       string      `json:"requirement,omitempty"`
+	AllowPartial      bool        `json:"allow_partial,omitempty"`
+	BatchPolicy       string      `json:"batch_policy,omitempty"`
+	ForceRerun        bool        `json:"force_rerun,omitempty"`
+	SelectionSnapshot JSONMap     `json:"selection_snapshot,omitempty"`
 }
 
 type OrganizeRequirementInput struct {
@@ -347,15 +431,34 @@ type OrganizeRequirementInput struct {
 }
 
 type OrganizeRequirementPreview struct {
-	ConfigID         string      `json:"config_id"`
-	TemplateKey      string      `json:"template_key"`
-	TemplateName     string      `json:"template_name"`
-	Scene            string      `json:"scene"`
-	NormalizedText   string      `json:"normalized_text"`
-	MemoryIDs        StringArray `json:"memory_ids,omitempty"`
-	Ambiguities      []string    `json:"ambiguities,omitempty"`
-	Suggestions      []string    `json:"suggestions,omitempty"`
-	NeedConfirmation bool        `json:"need_confirmation"`
+	ConfigID            string                    `json:"config_id"`
+	TemplateKey         string                    `json:"template_key"`
+	TemplateName        string                    `json:"template_name"`
+	Scene               string                    `json:"scene"`
+	NormalizedText      string                    `json:"normalized_text"`
+	QueryPlan           OrganizeMemoryQueryPlan   `json:"query_plan"`
+	MemoryIDs           StringArray               `json:"memory_ids,omitempty"`
+	SelectedCount       int                       `json:"selected_count"`
+	ReadyCount          int                       `json:"ready_count"`
+	UnreadyCount        int                       `json:"unready_count"`
+	OverlapCount        int                       `json:"overlap_count"`
+	EstimatedBatchCount int                       `json:"estimated_batch_count"`
+	SampleMemories      []OrganizeMemoryReference `json:"sample_memories,omitempty"`
+	Ambiguities         []string                  `json:"ambiguities,omitempty"`
+	Suggestions         []string                  `json:"suggestions,omitempty"`
+	Warnings            []string                  `json:"warnings,omitempty"`
+	NeedConfirmation    bool                      `json:"need_confirmation"`
+}
+
+type OrganizeMemoryQueryPlan struct {
+	TimeField    string      `json:"time_field,omitempty"`
+	OccurredFrom string      `json:"occurred_from,omitempty"`
+	OccurredTo   string      `json:"occurred_to,omitempty"`
+	Kinds        StringArray `json:"kinds,omitempty"`
+	Keyword      string      `json:"keyword,omitempty"`
+	Sources      StringArray `json:"sources,omitempty"`
+	ReadyOnly    bool        `json:"ready_only,omitempty"`
+	Timezone     string      `json:"timezone,omitempty"`
 }
 
 type OrganizeJobTaskPayload struct {

@@ -104,16 +104,40 @@
               </select>
             </label>
 
-            <label class="organize-config-field">
-              <span>归属服务</span>
-              <select v-model="form.targetServiceId" class="organize-config-schedule">
-                <option value="">暂不指定，生成待归属任务</option>
-                <option v-for="service in services" :key="service.id" :value="service.id">
-                  {{ service.name }}
-                </option>
-              </select>
-              <small>指定服务后，整理完成会自动进入该服务；不确定时可稍后手动分配。</small>
-            </label>
+            <div class="organize-config-field organize-config-service-field">
+              <div class="organize-config-service-toggle">
+                <span>
+                  <strong>归属服务</strong>
+                  <small>开启后，整理结果会自动进入关联服务</small>
+                </span>
+                <t-switch
+                  v-model="form.assignToService"
+                  size="small"
+                  aria-label="启用归属服务"
+                />
+              </div>
+              <div v-if="form.assignToService" class="organize-config-service-picker">
+                <select
+                  v-model="form.targetServiceId"
+                  class="organize-config-schedule"
+                  :class="{ 'is-error': targetServiceError }"
+                  @change="targetServiceError = ''"
+                >
+                  <option value="" disabled>
+                    {{ services.length ? '请选择归属服务' : '暂无可用服务' }}
+                  </option>
+                  <option v-for="service in services" :key="service.id" :value="service.id">
+                    {{ service.name }}
+                  </option>
+                </select>
+                <small v-if="targetServiceError" class="organize-config-error">
+                  {{ targetServiceError }}
+                </small>
+                <small v-else>
+                  {{ services.length ? '开启后必须选择一个服务。' : '请先创建可用服务，再开启归属服务。' }}
+                </small>
+              </div>
+            </div>
           </div>
 
           <footer>
@@ -168,10 +192,12 @@ const form = reactive({
   instruction: '',
   expertIds: [] as string[],
   schedule: 'manual' as OrganizeScheduleKey,
+  assignToService: false,
   targetServiceId: '',
 })
 const nameError = ref('')
 const templateError = ref('')
+const targetServiceError = ref('')
 const expertPickerOpen = ref(false)
 const saving = ref(false)
 const templates = ref<OrganizeTemplate[]>([])
@@ -203,8 +229,10 @@ const resetForm = () => {
   form.expertIds = source ? [...source.expertIds] : [...(template?.expertIds || [])]
   form.schedule = source?.schedule || 'manual'
   form.targetServiceId = source?.targetServiceId || ''
+  form.assignToService = Boolean(form.targetServiceId)
   nameError.value = ''
   templateError.value = ''
+  targetServiceError.value = ''
   expertPickerOpen.value = false
 }
 
@@ -216,6 +244,15 @@ watch(
     resetForm()
   },
   { immediate: true },
+)
+
+watch(
+  () => form.assignToService,
+  (enabled) => {
+    if (enabled) return
+    form.targetServiceId = ''
+    targetServiceError.value = ''
+  },
 )
 
 const toggleExpert = (expertId: string) => {
@@ -252,6 +289,10 @@ const submit = async () => {
     templateError.value = '暂无可用整理方案，请稍后重试'
     return
   }
+  if (form.assignToService && !form.targetServiceId) {
+    targetServiceError.value = '开启归属服务后，请选择一个服务'
+    return
+  }
 
   saving.value = true
   try {
@@ -261,7 +302,7 @@ const submit = async () => {
       instruction: form.instruction.trim(),
       expert_ids: [...form.expertIds],
       schedule: form.schedule,
-      target_service_id: form.targetServiceId || undefined,
+      target_service_id: form.assignToService ? form.targetServiceId : '',
     }
     const response = props.config?.id
       ? await updateOrganizeConfig(props.config.id, input)
@@ -406,6 +447,52 @@ const submit = async () => {
 
 .organize-config-schedule {
   width: 100%;
+}
+
+.organize-config-schedule.is-error {
+  border-color: var(--td-error-color);
+}
+
+.organize-config-service-field {
+  gap: 10px;
+}
+
+.organize-config-service-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+}
+
+.organize-config-service-toggle > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.organize-config-service-toggle strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.organize-config-service-toggle small,
+.organize-config-service-picker small {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.organize-config-service-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.organize-config-service-picker .organize-config-error {
+  color: var(--td-error-color);
 }
 
 .organize-config-error {

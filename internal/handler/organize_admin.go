@@ -45,6 +45,15 @@ func (h *OrganizeAdminHandler) ListTemplates(c *gin.Context) {
 	})
 }
 
+func (h *OrganizeAdminHandler) ListTemplateScenes(c *gin.Context) {
+	items, err := h.service.ListAdminTemplateScenes(c.Request.Context())
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
+}
+
 func (h *OrganizeAdminHandler) GetTemplate(c *gin.Context) {
 	item, err := h.service.GetAdminTemplate(c.Request.Context(), c.Param("key"))
 	if err != nil {

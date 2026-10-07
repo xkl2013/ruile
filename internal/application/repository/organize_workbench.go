@@ -195,6 +195,27 @@ func (r *organizeRepository) GetJob(
 	return &job, err
 }
 
+func (r *organizeRepository) GetJobByInputFingerprint(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	fingerprint string,
+) (*types.OrganizeJob, error) {
+	fingerprint = strings.TrimSpace(fingerprint)
+	if fingerprint == "" {
+		return nil, nil
+	}
+	var job types.OrganizeJob
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND user_id = ? AND input_fingerprint = ?", tenantID, userID, fingerprint).
+		Order("created_at DESC").
+		First(&job).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &job, err
+}
+
 func (r *organizeRepository) UpdateJob(ctx context.Context, job *types.OrganizeJob) error {
 	return r.db.WithContext(ctx).
 		Model(&types.OrganizeJob{}).
@@ -213,6 +234,16 @@ func (r *organizeRepository) UpdateJob(ctx context.Context, job *types.OrganizeJ
 			"result",
 			"error_message",
 			"dedupe_key",
+			"job_mode",
+			"selection_snapshot",
+			"input_fingerprint",
+			"selected_count",
+			"ready_count",
+			"processed_count",
+			"failed_count",
+			"overlap_count",
+			"batch_count",
+			"coverage",
 			"scheduled_for",
 			"started_at",
 			"finished_at",
@@ -244,6 +275,62 @@ func (r *organizeRepository) ListJobs(
 		Offset((query.Page - 1) * query.PageSize).
 		Find(&jobs).Error
 	return jobs, total, err
+}
+
+func (r *organizeRepository) CreateJobBatches(
+	ctx context.Context,
+	batches []*types.OrganizeJobBatch,
+) error {
+	if len(batches) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Create(&batches).Error
+}
+
+func (r *organizeRepository) ListJobBatches(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	parentJobID string,
+) ([]*types.OrganizeJobBatch, error) {
+	var batches []*types.OrganizeJobBatch
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND user_id = ? AND parent_job_id = ?", tenantID, userID, parentJobID).
+		Order("batch_index ASC").
+		Find(&batches).Error
+	return batches, err
+}
+
+func (r *organizeRepository) UpdateJobBatch(
+	ctx context.Context,
+	batch *types.OrganizeJobBatch,
+) error {
+	return r.db.WithContext(ctx).
+		Model(&types.OrganizeJobBatch{}).
+		Where(
+			"tenant_id = ? AND user_id = ? AND parent_job_id = ? AND id = ?",
+			batch.TenantID,
+			batch.UserID,
+			batch.ParentJobID,
+			batch.ID,
+		).
+		Select(
+			"status",
+			"stage",
+			"progress",
+			"memory_ids",
+			"input_chars",
+			"prompt_hash",
+			"summary",
+			"structured_result",
+			"citations",
+			"error_message",
+			"retry_count",
+			"started_at",
+			"finished_at",
+			"updated_at",
+		).
+		Updates(batch).Error
 }
 
 func (r *organizeRepository) ListMemoriesByIDs(

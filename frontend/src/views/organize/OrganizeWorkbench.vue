@@ -18,62 +18,12 @@
           <template #icon><t-icon name="add" /></template>
           新建整理
         </t-button>
-        <t-button variant="outline" class="organize-requirement-button" @click="openRequirementDialog">
-          <template #icon><t-icon name="edit-1" /></template>
-          按要求整理
-        </t-button>
       </div>
 
       <div v-if="runningCount" class="organize-running-banner">
         <t-icon name="loading" />
         <span>有 {{ runningCount }} 条整理正在生成，完成后会出现在下面。</span>
       </div>
-
-      <section v-if="pendingLoading || pendingAssignments.length" class="organize-pending-section">
-        <header class="organize-section-head">
-          <div class="organize-pending-title">
-            <span class="organize-section-title">待归属</span>
-            <span class="organize-pending-count">{{ pendingTotal }}</span>
-          </div>
-          <button type="button" class="organize-pending-refresh" :disabled="pendingLoading" @click="loadPendingAssignments">
-            <t-icon name="refresh" />
-            刷新
-          </button>
-        </header>
-        <div v-if="pendingLoading && !pendingAssignments.length" class="organize-pending-loading">
-          <t-loading size="small" />
-          <span>正在加载待归属任务</span>
-        </div>
-        <div v-else class="organize-pending-list">
-          <article
-            v-for="output in pendingAssignments"
-            :key="output.id"
-            class="organize-pending-card"
-            role="button"
-            tabindex="0"
-            @click="openPendingAssignment(output.id)"
-            @keydown.enter.self.prevent="openPendingAssignment(output.id)"
-          >
-            <div class="organize-pending-card-main">
-              <div class="organize-pending-card-title">
-                <strong>{{ output.title }}</strong>
-                <span class="organize-tag organize-tag--pending">待归属</span>
-              </div>
-              <p>{{ output.assignmentReason || '暂未确定归属服务' }}</p>
-              <div class="organize-pending-card-meta">
-                <span>{{ output.date }}</span>
-                <span class="organize-output-separator" />
-                <span>来源 {{ output.sourceCount }} 条记忆</span>
-                <span v-if="output.templateName">{{ output.templateName }}</span>
-              </div>
-            </div>
-            <div class="organize-pending-card-action">
-              <span>查看并分配</span>
-              <t-icon name="chevron-right" />
-            </div>
-          </article>
-        </div>
-      </section>
 
       <section class="organize-board-section organize-list-main">
         <header class="organize-section-head">
@@ -141,7 +91,6 @@
             <h2>还没有整理</h2>
             <p>选一个模板开始，配置完成后可以随时调整。<br />也可以从空白配置创建整理。</p>
           </div>
-          <t-button variant="outline" @click="openCreateDialog()">从空白创建</t-button>
         </div>
       </section>
 
@@ -185,94 +134,25 @@
       :config="editingConfig"
       @saved="handleConfigSaved"
     />
-
-    <t-dialog
-      v-model:visible="requirementVisible"
-      header="按要求整理"
-      width="680px"
-      destroy-on-close
-    >
-      <t-form :data="requirementForm" label-align="top">
-        <t-form-item label="使用配置">
-          <t-select v-model="requirementForm.config_id" placeholder="选择一个已有整理配置">
-            <t-option
-              v-for="config in configs"
-              :key="config.id"
-              :value="config.id"
-              :label="config.name"
-            />
-          </t-select>
-        </t-form-item>
-        <t-form-item label="本次整理要求">
-          <t-textarea
-            v-model="requirementForm.text"
-            :autosize="{ minRows: 5, maxRows: 9 }"
-            placeholder="例如：只提取和家长沟通相关的待跟进事项，并按紧急程度排序"
-          />
-        </t-form-item>
-      </t-form>
-
-      <div v-if="requirementPreview" class="organize-requirement-preview">
-        <div class="organize-requirement-preview__head">
-          <strong>执行预览</strong>
-          <span>{{ requirementPreview.template_name }} · {{ requirementPreview.scene || '未分类场景' }}</span>
-        </div>
-        <p>{{ requirementPreview.normalized_text }}</p>
-        <t-alert
-          v-if="requirementPreview.ambiguities?.length"
-          theme="warning"
-          :message="requirementPreview.ambiguities?.join('；') || ''"
-        />
-        <div v-if="requirementPreview.suggestions?.length" class="organize-requirement-suggestions">
-          建议模板：{{ requirementPreview.suggestions?.join('、') }}
-        </div>
-        <t-checkbox v-if="requirementPreview.need_confirmation" v-model="requirementConfirmed">
-          我确认按以上模板和范围执行
-        </t-checkbox>
-      </div>
-
-      <template #footer>
-        <div class="organize-requirement-footer">
-          <t-button variant="outline" :loading="requirementPreviewing" @click="previewRequirement">
-            生成预览
-          </t-button>
-          <t-button variant="text" @click="requirementVisible = false">取消</t-button>
-          <t-button
-            theme="primary"
-            :loading="requirementConfirming"
-            :disabled="!requirementPreview || (requirementPreview.need_confirmation && !requirementConfirmed)"
-            @click="confirmRequirement"
-          >
-            {{ requirementPreview?.need_confirmation ? '确认并开始' : '开始整理' }}
-          </t-button>
-        </div>
-      </template>
-    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  confirmOrganizeRequirement,
   deleteOrganizeConfig,
-  listOrganizePendingAssignments,
   listOrganizeConfigs,
   listOrganizeTemplates,
-  previewOrganizeRequirement,
-  type OrganizeRequirementPreview,
 } from '@/api/organize'
 import OrganizeConfigDialog from './components/OrganizeConfigDialog.vue'
 import {
   organizeScheduleLabels,
   toOrganizeConfig,
-  toOrganizeOutput,
   toOrganizeTemplate,
   type OrganizeConfig,
   type OrganizeJob,
-  type OrganizeOutput,
   type OrganizeTemplate,
 } from './organizeWorkbenchState'
 
@@ -291,21 +171,9 @@ const sortMode = ref<SortMode>('time')
 const dialogVisible = ref(false)
 const dialogTemplateKey = ref('')
 const editingConfig = ref<OrganizeConfig | null>(null)
-const requirementVisible = ref(false)
-const requirementPreviewing = ref(false)
-const requirementConfirming = ref(false)
-const requirementConfirmed = ref(false)
-const requirementPreview = ref<OrganizeRequirementPreview | null>(null)
-const requirementForm = reactive({
-  config_id: '',
-  text: '',
-})
 const handledQuery = ref('')
 const configs = ref<OrganizeConfig[]>([])
 const organizeTemplates = ref<OrganizeTemplate[]>([])
-const pendingAssignments = ref<OrganizeOutput[]>([])
-const pendingTotal = ref(0)
-const pendingLoading = ref(false)
 let refreshTimer: number | undefined
 
 const runningCount = computed(() =>
@@ -332,13 +200,6 @@ const configDescription = (config: OrganizeConfig) => {
 }
 
 const scheduleLabel = (schedule: OrganizeConfig['schedule']) => organizeScheduleLabels[schedule]
-
-const openPendingAssignment = async (outputId: string) => {
-  await router.push({
-    path: `/platform/organize/outputs/${encodeURIComponent(outputId)}`,
-    query: { from: 'pending' },
-  })
-}
 
 const filteredConfigs = computed(() => {
   const query = configQuery.value.trim().toLowerCase()
@@ -370,9 +231,10 @@ const filteredTemplateGroups = computed(() => {
         .includes(query)
     })
     .forEach((template) => {
-      const group = groups.get(template.scene) || []
+      const scene = template.scene.trim() || '其他'
+      const group = groups.get(scene) || []
       group.push(template)
-      groups.set(template.scene, group)
+      groups.set(scene, group)
     })
   return Array.from(groups, ([scene, items]) => ({ scene, items }))
 })
@@ -381,67 +243,6 @@ const openCreateDialog = (templateKey = '') => {
   editingConfig.value = null
   dialogTemplateKey.value = templateKey
   dialogVisible.value = true
-}
-
-const openRequirementDialog = () => {
-  if (!configs.value.length) {
-    MessagePlugin.warning('请先创建一个整理配置')
-    return
-  }
-  requirementForm.config_id = configs.value[0].id
-  requirementForm.text = ''
-  requirementPreview.value = null
-  requirementConfirmed.value = false
-  requirementVisible.value = true
-}
-
-const previewRequirement = async () => {
-  if (!requirementForm.config_id || !requirementForm.text.trim()) {
-    MessagePlugin.warning('请选择整理配置并填写本次整理要求')
-    return
-  }
-  requirementPreviewing.value = true
-  try {
-    const response = await previewOrganizeRequirement({
-      config_id: requirementForm.config_id,
-      text: requirementForm.text.trim(),
-    })
-    if (!response.success || !response.data) {
-      throw new Error(response.message || '整理要求预览失败')
-    }
-    requirementPreview.value = response.data
-    requirementConfirmed.value = !response.data.need_confirmation
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || '整理要求预览失败')
-  } finally {
-    requirementPreviewing.value = false
-  }
-}
-
-const confirmRequirement = async () => {
-  if (!requirementPreview.value) {
-    await previewRequirement()
-    if (!requirementPreview.value) return
-  }
-  requirementConfirming.value = true
-  try {
-    const response = await confirmOrganizeRequirement({
-      config_id: requirementForm.config_id,
-      text: requirementForm.text.trim(),
-      confirmed: requirementConfirmed.value,
-    })
-    if (!response.success || !response.data) {
-      throw new Error(response.message || '整理任务创建失败')
-    }
-    requirementVisible.value = false
-    MessagePlugin.success('整理任务已创建')
-    await loadWorkbench()
-    await router.push(`/platform/organize/configs/${encodeURIComponent(response.data.config_id)}`)
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || '整理任务创建失败')
-  } finally {
-    requirementConfirming.value = false
-  }
 }
 
 const openEditDialog = (config: OrganizeConfig) => {
@@ -478,32 +279,14 @@ const handleConfigSaved = async (config: OrganizeConfig) => {
   await loadWorkbench()
 }
 
-const loadPendingAssignments = async () => {
-  pendingLoading.value = true
-  try {
-    const response = await listOrganizePendingAssignments({ page: 1, page_size: 20 })
-    pendingAssignments.value = (response.data?.items || []).map((item) => toOrganizeOutput(item))
-    pendingTotal.value = response.data?.total || pendingAssignments.value.length
-  } catch (error: any) {
-    MessagePlugin.error(error?.message || '待归属任务加载失败')
-  } finally {
-    pendingLoading.value = false
-  }
-}
-
 const loadWorkbench = async () => {
   try {
-    const [templateResponse, configResponse, pendingResponse] = await Promise.all([
+    const [templateResponse, configResponse] = await Promise.all([
       listOrganizeTemplates(),
       listOrganizeConfigs({ page: 1, page_size: 100 }),
-      listOrganizePendingAssignments({ page: 1, page_size: 20 }),
     ])
     organizeTemplates.value = (templateResponse.data || []).map(toOrganizeTemplate)
     configs.value = (configResponse.data?.items || []).map(toOrganizeConfig)
-    pendingAssignments.value = (pendingResponse.data?.items || []).map((item) =>
-      toOrganizeOutput(item, organizeTemplates.value),
-    )
-    pendingTotal.value = pendingResponse.data?.total || pendingAssignments.value.length
     if (route.query.config === 'edit' && typeof route.query.configId === 'string') {
       const config = configs.value.find((item) => item.id === route.query.configId)
       if (config && !dialogVisible.value) openEditDialog(config)
@@ -697,48 +480,6 @@ watch(dialogVisible, (visible) => {
   background: var(--td-brand-color-hover);
 }
 
-.organize-requirement-button {
-  color: var(--organize-text);
-}
-
-.organize-requirement-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 18px;
-  padding: 14px;
-  border: 1px solid var(--organize-border);
-  border-radius: 6px;
-  background: var(--td-bg-color-secondarycontainer);
-}
-
-.organize-requirement-preview__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.organize-requirement-preview__head span,
-.organize-requirement-suggestions {
-  color: var(--organize-secondary);
-  font-size: 12px;
-}
-
-.organize-requirement-preview p {
-  margin: 0;
-  color: var(--organize-text);
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-
-.organize-requirement-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  width: 100%;
-}
-
 .organize-running-banner {
   display: flex;
   align-items: center;
@@ -755,144 +496,6 @@ watch(dialogVisible, (visible) => {
 
 .organize-running-banner :deep(.t-icon) {
   animation: organize-spin 1.1s linear infinite;
-}
-
-.organize-pending-section {
-  max-width: 1040px;
-  margin: 0 auto 24px;
-  padding: 14px 16px 16px;
-  border: 1px solid #f0d99b;
-  border-radius: 8px;
-  background: #fffdf6;
-}
-
-.organize-pending-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.organize-pending-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 10px;
-  background: #f8e8bb;
-  color: #8c6316;
-  font-size: 11px;
-  line-height: 20px;
-}
-
-.organize-pending-refresh {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--organize-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-}
-
-.organize-pending-refresh:hover {
-  background: #fff4d6;
-  color: var(--organize-text);
-}
-
-.organize-pending-refresh:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.organize-pending-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.organize-pending-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  min-width: 0;
-  padding: 11px 12px;
-  border: 1px solid #f1e2bc;
-  border-radius: 6px;
-  background: var(--td-bg-color-container);
-  cursor: pointer;
-}
-
-.organize-pending-card:hover {
-  border-color: #ddb75d;
-  box-shadow: 0 3px 12px rgba(167, 119, 23, 0.08);
-}
-
-.organize-pending-card-main {
-  min-width: 0;
-}
-
-.organize-pending-card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.organize-pending-card-title strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--organize-text);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.organize-pending-card p {
-  margin: 3px 0 0;
-  overflow: hidden;
-  color: var(--organize-secondary);
-  font-size: 12px;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.organize-pending-card-meta {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 5px;
-  color: var(--organize-muted);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.organize-pending-card-action {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  gap: 4px;
-  color: var(--td-brand-color-7);
-  font-size: 12px;
-}
-
-.organize-pending-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0 4px;
-  color: var(--organize-secondary);
-  font-size: 12px;
 }
 
 .organize-board-section {

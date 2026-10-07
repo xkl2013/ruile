@@ -819,11 +819,25 @@ const memoryFileNoteStatusFromMetadata = (hasContent: boolean): MemoryFileNoteSt
 const memoryFileNotes = computed<MemoryFileNote[]>(() => {
   const attachments = memoryAttachments.value.map((attachment) => {
     const metadata = attachment.metadata || {}
-    const transcript = asTrimmedString(attachment.transcript)
-    const content = asTrimmedString(attachment.content)
-    const body = transcript || content
+    const fileName = attachment.file_name || '未命名文件'
+    const storedTranscript = asTrimmedString(attachment.transcript)
+    const storedContent = asTrimmedString(attachment.content)
     const attachmentFileType = fileExtension(attachment.file_name) || fileTypeFromMime(attachment.mime_type || '')
-    const isTranscript = Boolean(transcript) || ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'mp4', 'mov', 'webm'].includes(attachmentFileType)
+    const isTranscriptFile = ['mp3', 'wav', 'm4a', 'flac', 'ogg', 'mp4', 'mov', 'webm'].includes(attachmentFileType)
+    const filenamePlaceholder = isTranscriptFile &&
+      !storedTranscript &&
+      (!storedContent || storedContent.toLocaleLowerCase() === fileName.toLocaleLowerCase())
+    const inheritedTranscript = filenamePlaceholder && memoryAttachments.value.length === 1
+      ? memoryTranscriptText.value
+      : ''
+    const transcript = storedTranscript || inheritedTranscript
+    const content = filenamePlaceholder ? '' : storedContent
+    const body = transcript || content
+    const unresolvedPlaceholder = filenamePlaceholder && !transcript
+    const status = unresolvedPlaceholder && attachment.status === 'completed'
+      ? 'failed'
+      : attachment.status
+    const isTranscript = Boolean(transcript) || isTranscriptFile
     const summary = metadataText(metadata, ['summary', 'file_summary', 'summary_text', 'description']) ||
       (memoryAttachments.value.length === 1
         ? metadataText(memoryMetadata.value, ['summary', 'file_summary', 'summary_text'])
@@ -832,16 +846,18 @@ const memoryFileNotes = computed<MemoryFileNote[]>(() => {
 
     return {
       id: attachment.id,
-      fileName: attachment.file_name || '未命名文件',
+      fileName,
       mimeType: attachment.mime_type || '',
-      status: attachment.status,
+      status,
       content,
       transcript,
       summary,
       renderedContent: renderMemoryFileNoteContent(body),
       isTranscript,
-      canRetry: attachment.status === 'failed' || attachment.status === 'skipped',
-      errorMessage: attachment.error_message || '',
+      canRetry: status === 'failed' || status === 'skipped',
+      errorMessage: unresolvedPlaceholder
+        ? '音频未生成转写内容，请重新解析。'
+        : attachment.error_message || '',
       metadata,
     }
   })
@@ -2454,7 +2470,8 @@ watch(
 
 .memory-file-notes {
   margin-top: 16px;
-  padding: 24px 22px 34px;
+  padding: 20px 22px 28px;
+  border-top: 1px solid rgba(55, 53, 47, 0.14);
   border-radius: 0 0 8px 8px;
   background: #f1f1f1;
 }
@@ -2464,15 +2481,15 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 42px;
+  margin-bottom: 28px;
 }
 
 .memory-file-notes__header h2 {
   margin: 0;
   color: #37352f;
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .memory-file-notes__status {
@@ -2485,7 +2502,7 @@ watch(
 .memory-file-note-list {
   display: flex;
   flex-direction: column;
-  gap: 38px;
+  gap: 30px;
 }
 
 .memory-file-note {
@@ -2502,15 +2519,15 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .memory-file-note__header h3 {
   margin: 0;
   color: #37352f;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.35;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .memory-file-note__retry {
@@ -2530,28 +2547,28 @@ watch(
 }
 
 .memory-file-note__section + .memory-file-note__section {
-  margin-top: 26px;
+  margin-top: 20px;
 }
 
 .memory-file-note__section h4 {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   color: #37352f;
-  font-size: 24px;
-  font-weight: 700;
-  line-height: 1.35;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
 }
 
 .memory-file-note__section > p {
   margin: 0;
   color: rgba(55, 53, 47, 0.78);
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 .memory-file-note__content {
   color: rgba(55, 53, 47, 0.82);
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.7;
   overflow-wrap: anywhere;
 }
 
@@ -2566,16 +2583,16 @@ watch(
 }
 
 .memory-file-note__content :deep(h1) {
-  font-size: 22px;
+  font-size: 18px;
 }
 
 .memory-file-note__content :deep(h2) {
-  font-size: 20px;
+  font-size: 17px;
 }
 
 .memory-file-note__content :deep(h3),
 .memory-file-note__content :deep(h4) {
-  font-size: 18px;
+  font-size: 15px;
 }
 
 .memory-file-note__content :deep(p) {
@@ -2633,7 +2650,7 @@ watch(
 .memory-file-note__state {
   margin: 0;
   color: rgba(55, 53, 47, 0.52);
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1.7;
 }
 

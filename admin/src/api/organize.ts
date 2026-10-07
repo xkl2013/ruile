@@ -138,6 +138,12 @@ export function listAdminOrganizeTemplates(params?: {
   )
 }
 
+export function listAdminOrganizeTemplateScenes() {
+  return get<{ success: boolean; data: string[] }>(
+    '/api/v1/system/admin/organize/templates/scenes',
+  )
+}
+
 export function createAdminOrganizeTemplate(input: AdminOrganizeTemplateInput) {
   return post<{ success: boolean; data: AdminOrganizeTemplate }>(
     '/api/v1/system/admin/organize/templates',
@@ -160,6 +166,7 @@ export function previewAdminOrganizeTemplate(key: string, variables?: Record<str
       version: string
       prompt: string
       markdown_template: string
+      preview_markdown: string
       spec: Record<string, any>
       errors: string[]
     }

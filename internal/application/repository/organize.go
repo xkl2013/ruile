@@ -160,6 +160,41 @@ func (r *organizeRepository) ListMemories(ctx context.Context, query types.Organ
 	if query.Kind != "" {
 		dbq = dbq.Where("kind = ?", query.Kind)
 	}
+	if len(query.Kinds) > 0 {
+		dbq = dbq.Where("kind IN ?", query.Kinds)
+	}
+	if len(query.Sources) > 0 {
+		dbq = dbq.Where("source IN ?", query.Sources)
+	}
+	if query.OccurredFrom != nil {
+		dbq = dbq.Where("occurred_at >= ?", query.OccurredFrom.UTC())
+	}
+	if query.OccurredTo != nil {
+		dbq = dbq.Where("occurred_at < ?", query.OccurredTo.UTC())
+	}
+	if query.ReadyOnly {
+		pendingAttachmentStatuses := []string{
+			types.OrganizeMemoryAttachmentAggregatePending,
+			types.OrganizeMemoryAttachmentAggregateProcessing,
+			types.OrganizeMemoryAttachmentAggregateFailed,
+		}
+		pendingTranscriptionStatuses := []string{"pending", "transcribing", "failed"}
+		if r.db.Dialector.Name() == "postgres" {
+			dbq = dbq.Where(
+				"COALESCE(metadata->>'attachment_status', '') NOT IN ? AND "+
+					"COALESCE(metadata->>'transcription_status', '') NOT IN ?",
+				pendingAttachmentStatuses,
+				pendingTranscriptionStatuses,
+			)
+		} else {
+			dbq = dbq.Where(
+				"COALESCE(json_extract(metadata, '$.attachment_status'), '') NOT IN ? AND "+
+					"COALESCE(json_extract(metadata, '$.transcription_status'), '') NOT IN ?",
+				pendingAttachmentStatuses,
+				pendingTranscriptionStatuses,
+			)
+		}
+	}
 	dbq = applyOrganizeKeyword(dbq, query.Keyword, "title", "content", "source")
 
 	var total int64
@@ -180,6 +215,24 @@ func (r *organizeRepository) ListMemories(ctx context.Context, query types.Organ
 		return nil, 0, err
 	}
 	return memories, total, err
+}
+
+func (r *organizeRepository) CountOutputMemoryOverlap(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	ids []string,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&types.OrganizeOutputMemory{}).
+		Distinct("memory_id").
+		Where("tenant_id = ? AND user_id = ? AND memory_id IN ?", tenantID, userID, ids).
+		Count(&count).Error
+	return count, err
 }
 
 func (r *organizeRepository) fillMemoryAttachments(
@@ -391,6 +444,9 @@ func (r *organizeRepository) ListOutputs(ctx context.Context, query types.Organi
 	if query.AssignmentStatus != "" {
 		dbq = dbq.Where("assignment_status = ?", query.AssignmentStatus)
 	}
+	if query.ConfigID != "" {
+		dbq = dbq.Where("config_id = ?", query.ConfigID)
+	}
 	if query.TemplateKey != "" {
 		dbq = dbq.Where("template_key = ?", query.TemplateKey)
 	}
@@ -433,6 +489,9 @@ func (r *organizeRepository) ListOutputFacets(
 	}
 	if query.AssignmentStatus != "" {
 		dbq = dbq.Where("assignment_status = ?", query.AssignmentStatus)
+	}
+	if query.ConfigID != "" {
+		dbq = dbq.Where("config_id = ?", query.ConfigID)
 	}
 	if query.TemplateKey != "" {
 		dbq = dbq.Where("template_key = ?", query.TemplateKey)

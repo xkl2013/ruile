@@ -219,6 +219,38 @@ func (s *organizeService) RunConfig(
 	input types.OrganizeJobInput,
 ) (*types.OrganizeJob, error) {
 	input.ConfigID = strings.TrimSpace(id)
+	config, err := s.GetConfig(ctx, tenantID, userID, input.ConfigID)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.Requirement) == "" {
+		input.Requirement = config.Instruction
+	}
+	if len(input.MemoryIDs) == 0 {
+		queryPlan, _, _ := parseOrganizeMemoryQueryPlan(input.Requirement, time.Now())
+		if queryPlan.OccurredFrom != "" || queryPlan.OccurredTo != "" || len(queryPlan.Kinds) > 0 {
+			query, queryErr := organizeQueryPlanListQuery(tenantID, userID, queryPlan)
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			memories, _, queryErr := s.repo.ListMemories(ctx, query)
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			input.MemoryIDs = make(types.StringArray, 0, len(memories))
+			for _, memory := range memories {
+				input.MemoryIDs = append(input.MemoryIDs, memory.ID)
+			}
+			input.AllowPartial = true
+			input.BatchPolicy = "auto"
+			input.SelectionSnapshot = organizeSelectionSnapshot(
+				queryPlan,
+				input.Requirement,
+				memories,
+				time.Now(),
+			)
+		}
+	}
 	return s.CreateJob(ctx, tenantID, userID, input)
 }
 
@@ -248,10 +280,62 @@ func (s *organizeService) CreateJob(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureOrganizeMemoriesReady(ctx, tenantID, userID, memoryIDs, input.AllowPartial); err != nil {
+	memories, err := s.repo.ListMemoriesByIDs(ctx, tenantID, userID, memoryIDs)
+	if err != nil {
 		return nil, err
 	}
+	readyMemories, unreadyMemories := splitOrganizeMemoriesByReadiness(memories, input.AllowPartial)
+	if len(unreadyMemories) > 0 && !input.AllowPartial {
+		return nil, ErrOrganizeMemoryNotReady
+	}
+	if len(readyMemories) == 0 {
+		return nil, ErrOrganizeMemoryRequired
+	}
+	memoryIDs = make([]string, 0, len(readyMemories))
+	for _, memory := range readyMemories {
+		memoryIDs = append(memoryIDs, memory.ID)
+	}
 	experts, err := s.resolveOrganizeExpertSnapshots(ctx, tenantID, config.ExpertIDs)
+	if err != nil {
+		return nil, err
+	}
+	batchPlans := planOrganizeMemoryBatches(readyMemories)
+	jobMode := types.OrganizeJobModeSingle
+	if len(batchPlans) > 1 {
+		jobMode = types.OrganizeJobModeBatch
+	}
+	selectionSnapshot := normalizeJSONMap(input.SelectionSnapshot)
+	if len(selectionSnapshot) == 0 {
+		selectionSnapshot = organizeSelectionSnapshot(
+			types.OrganizeMemoryQueryPlan{Timezone: organizeScheduleLocation().String()},
+			input.Requirement,
+			readyMemories,
+			time.Now(),
+		)
+	}
+	inputFingerprint := organizeInputFingerprint(
+		tenantID,
+		userID,
+		config.ID,
+		template.Key,
+		template.PublishedVersion,
+		input.Requirement,
+		readyMemories,
+	)
+	if !input.ForceRerun {
+		existing, findErr := s.repo.GetJobByInputFingerprint(ctx, tenantID, userID, inputFingerprint)
+		if findErr != nil {
+			return nil, findErr
+		}
+		if existing != nil && (existing.Status == types.OrganizeJobStatusQueued ||
+			existing.Status == types.OrganizeJobStatusRunning ||
+			existing.Status == types.OrganizeJobStatusRepairing ||
+			existing.Status == types.OrganizeJobStatusCompleted ||
+			existing.Status == types.OrganizeJobStatusFallback) {
+			return s.GetJob(ctx, tenantID, userID, existing.ID)
+		}
+	}
+	overlapCount, err := s.repo.CountOutputMemoryOverlap(ctx, tenantID, userID, memoryIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -270,25 +354,61 @@ func (s *organizeService) CreateJob(
 		"template_spec":        template.Spec,
 		"requested_text":       strings.TrimSpace(input.Requirement),
 		"allow_partial":        input.AllowPartial,
+		"batch_policy":         strings.TrimSpace(input.BatchPolicy),
+		"selection_snapshot":   selectionSnapshot,
 		"created_at":           time.Now().UTC().Format(time.RFC3339),
 	}
 	job := &types.OrganizeJob{
-		TenantID:        tenantID,
-		UserID:          userID,
-		ConfigID:        config.ID,
-		TemplateKey:     template.Key,
-		TemplateVersion: template.PublishedVersion,
-		TargetServiceID: config.TargetServiceID,
-		Status:          types.OrganizeJobStatusQueued,
-		Stage:           "queued",
-		Progress:        5,
-		Requirement:     requirement,
-		MemoryIDs:       types.StringArray(memoryIDs),
-		ModelID:         strings.TrimSpace(input.ModelID),
-		Summary:         fmt.Sprintf("等待整理 %d 条记忆", len(memoryIDs)),
+		TenantID:          tenantID,
+		UserID:            userID,
+		ConfigID:          config.ID,
+		TemplateKey:       template.Key,
+		TemplateVersion:   template.PublishedVersion,
+		TargetServiceID:   config.TargetServiceID,
+		Status:            types.OrganizeJobStatusQueued,
+		Stage:             "queued",
+		Progress:          5,
+		Requirement:       requirement,
+		MemoryIDs:         types.StringArray(memoryIDs),
+		ModelID:           strings.TrimSpace(input.ModelID),
+		Summary:           fmt.Sprintf("等待整理 %d 条记忆", len(memoryIDs)),
+		JobMode:           jobMode,
+		SelectionSnapshot: selectionSnapshot,
+		InputFingerprint:  inputFingerprint,
+		SelectedCount:     len(memories),
+		ReadyCount:        len(readyMemories),
+		FailedCount:       len(unreadyMemories),
+		OverlapCount:      int(overlapCount),
+		BatchCount:        len(batchPlans),
+		Coverage: types.JSONMap{
+			"selected":  len(memories),
+			"ready":     len(readyMemories),
+			"unready":   len(unreadyMemories),
+			"processed": 0,
+		},
 	}
 	if err := s.repo.CreateJob(ctx, job); err != nil {
 		return nil, err
+	}
+	if job.JobMode == types.OrganizeJobModeBatch {
+		batches := make([]*types.OrganizeJobBatch, 0, len(batchPlans))
+		for index, plan := range batchPlans {
+			batches = append(batches, &types.OrganizeJobBatch{
+				TenantID:    tenantID,
+				UserID:      userID,
+				ParentJobID: job.ID,
+				BatchIndex:  index + 1,
+				BatchCount:  len(batchPlans),
+				Status:      types.OrganizeJobBatchStatusQueued,
+				Stage:       "queued",
+				Progress:    0,
+				MemoryIDs:   types.StringArray(plan.MemoryIDs),
+				InputChars:  plan.InputChars,
+			})
+		}
+		if err := s.repo.CreateJobBatches(ctx, batches); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.enqueueOrganizeJob(ctx, job); err != nil {
 		now := time.Now().UTC()
@@ -320,6 +440,11 @@ func (s *organizeService) GetJob(
 	if job == nil {
 		return nil, ErrOrganizeNotFound
 	}
+	batches, err := s.repo.ListJobBatches(ctx, tenantID, userID, job.ID)
+	if err != nil {
+		return nil, err
+	}
+	job.Batches = batches
 	return job, nil
 }
 
@@ -350,11 +475,16 @@ func (s *organizeService) RetryJob(
 		return nil, ErrOrganizeJobNotRetryable
 	}
 	requirement, _ := job.Requirement["requested_text"].(string)
+	allowPartial, _ := job.Requirement["allow_partial"].(bool)
 	return s.CreateJob(ctx, tenantID, userID, types.OrganizeJobInput{
-		ConfigID:    job.ConfigID,
-		MemoryIDs:   append(types.StringArray(nil), job.MemoryIDs...),
-		ModelID:     job.ModelID,
-		Requirement: requirement,
+		ConfigID:          job.ConfigID,
+		MemoryIDs:         append(types.StringArray(nil), job.MemoryIDs...),
+		ModelID:           job.ModelID,
+		Requirement:       requirement,
+		AllowPartial:      allowPartial,
+		BatchPolicy:       "auto",
+		ForceRerun:        true,
+		SelectionSnapshot: normalizeJSONMap(job.SelectionSnapshot),
 	})
 }
 
@@ -437,6 +567,13 @@ func (s *organizeService) ProcessOrganizeJob(ctx context.Context, task *asynq.Ta
 	job.Result = types.JSONMap{
 		"output_id":           output.ID,
 		"memory_count":        len(job.MemoryIDs),
+		"selected_count":      job.SelectedCount,
+		"ready_count":         job.ReadyCount,
+		"processed_count":     job.ProcessedCount,
+		"failed_count":        job.FailedCount,
+		"overlap_count":       job.OverlapCount,
+		"batch_count":         job.BatchCount,
+		"coverage":            job.Coverage,
 		"conclusion_count":    metadataInt(output.Metadata, "conclusion_count"),
 		"todo_count":          metadataInt(output.Metadata, "todo_count"),
 		"assignment_status":   output.AssignmentStatus,
@@ -585,11 +722,15 @@ func (s *organizeService) enqueueOrganizeJob(ctx context.Context, job *types.Org
 	if s.taskEnqueuer == nil {
 		return s.ProcessOrganizeJob(context.WithoutCancel(ctx), task)
 	}
+	timeout := 15 * time.Minute
+	if job.JobMode == types.OrganizeJobModeBatch {
+		timeout = 30 * time.Minute
+	}
 	_, err = s.taskEnqueuer.Enqueue(
 		task,
 		asynq.Queue(types.QueueAgent),
 		asynq.MaxRetry(2),
-		asynq.Timeout(15*time.Minute),
+		asynq.Timeout(timeout),
 		asynq.TaskID("organize-job:"+job.ID),
 	)
 	return err
@@ -599,6 +740,9 @@ func (s *organizeService) executeOrganizeJob(
 	ctx context.Context,
 	job *types.OrganizeJob,
 ) (*types.OrganizeOutput, bool, error) {
+	if job.JobMode == types.OrganizeJobModeBatch {
+		return s.executeBatchOrganizeJob(ctx, job)
+	}
 	memories, err := s.repo.ListMemoriesByIDs(ctx, job.TenantID, job.UserID, job.MemoryIDs)
 	if err != nil {
 		return nil, false, err
@@ -623,6 +767,19 @@ func (s *organizeService) executeOrganizeJob(
 		organizeJSONMapValue(job.Requirement["template_spec"]),
 	)
 	job.ModelID = modelID
+	job.ProcessedCount = len(memories)
+	job.Coverage = organizeJobCoverage(job)
+	return s.saveOrganizeJobOutput(ctx, job, memories, content, fallback)
+}
+
+func (s *organizeService) saveOrganizeJobOutput(
+	ctx context.Context,
+	job *types.OrganizeJob,
+	memories []*types.OrganizeMemory,
+	content string,
+	fallback bool,
+) (*types.OrganizeOutput, bool, error) {
+	configName := stringValue(job.Requirement, "config_name")
 	job.Stage = "saving_output"
 	job.Progress = 85
 	job.UpdatedAt = time.Now().UTC()
@@ -660,6 +817,14 @@ func (s *organizeService) executeOrganizeJob(
 		"tags":             organizeTemplateStringList(job.Requirement, "template_spec", "tags"),
 		"scene":            stringValue(job.Requirement, "template_scene"),
 		"expert_ids":       job.Requirement["expert_ids"],
+		"coverage":         job.Coverage,
+		"batch_count":      job.BatchCount,
+	}
+	outputMemoryIDs := make([]string, 0, len(memories))
+	for _, memory := range memories {
+		if memory != nil {
+			outputMemoryIDs = append(outputMemoryIDs, memory.ID)
+		}
 	}
 	targetServiceID := strings.TrimSpace(job.TargetServiceID)
 	assignmentStatus := types.OrganizeAssignmentStatusPending
@@ -689,7 +854,7 @@ func (s *organizeService) executeOrganizeJob(
 		Citations:        citations,
 		Metadata:         metadata,
 	}
-	if err := s.repo.CreateOutput(ctx, output, job.MemoryIDs); err != nil {
+	if err := s.repo.CreateOutput(ctx, output, outputMemoryIDs); err != nil {
 		return nil, false, err
 	}
 	if targetServiceID != "" && s.serviceSpaces != nil {
@@ -711,7 +876,7 @@ func (s *organizeService) executeOrganizeJob(
 			output.Metadata["assignment_reason"] = output.AssignmentReason
 			output.Metadata["assignment_error"] = organizeAssignmentFailureReason(assignErr)
 		}
-		if err := s.repo.UpdateOutput(ctx, output, job.MemoryIDs); err != nil {
+		if err := s.repo.UpdateOutput(ctx, output, outputMemoryIDs); err != nil {
 			return nil, false, err
 		}
 	}
@@ -798,7 +963,66 @@ func (s *organizeService) createScheduledOrganizeJob(
 	if err != nil {
 		return nil, err
 	}
-	memoryIDs, err := s.selectOrganizeJobMemoryIDs(ctx, config.TenantID, config.UserID, nil)
+	queryPlan, _, _ := parseOrganizeMemoryQueryPlan(config.Instruction, scheduledFor)
+	var memories []*types.OrganizeMemory
+	if queryPlan.OccurredFrom != "" || queryPlan.OccurredTo != "" || len(queryPlan.Kinds) > 0 {
+		query, queryErr := organizeQueryPlanListQuery(config.TenantID, config.UserID, queryPlan)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		memories, _, err = s.repo.ListMemories(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		memoryIDs, selectErr := s.selectOrganizeJobMemoryIDs(
+			ctx,
+			config.TenantID,
+			config.UserID,
+			nil,
+		)
+		if selectErr != nil {
+			return nil, selectErr
+		}
+		memories, err = s.repo.ListMemoriesByIDs(ctx, config.TenantID, config.UserID, memoryIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	readyMemories, unreadyMemories := splitOrganizeMemoriesByReadiness(memories, true)
+	if len(readyMemories) == 0 {
+		return nil, nil
+	}
+	memoryIDs := make(types.StringArray, 0, len(readyMemories))
+	for _, memory := range readyMemories {
+		memoryIDs = append(memoryIDs, memory.ID)
+	}
+	batchPlans := planOrganizeMemoryBatches(readyMemories)
+	jobMode := types.OrganizeJobModeSingle
+	if len(batchPlans) > 1 {
+		jobMode = types.OrganizeJobModeBatch
+	}
+	selectionSnapshot := organizeSelectionSnapshot(
+		queryPlan,
+		config.Instruction,
+		memories,
+		scheduledFor,
+	)
+	inputFingerprint := organizeInputFingerprint(
+		config.TenantID,
+		config.UserID,
+		config.ID,
+		template.Key,
+		template.PublishedVersion,
+		config.Instruction,
+		readyMemories,
+	)
+	overlapCount, err := s.repo.CountOutputMemoryOverlap(
+		ctx,
+		config.TenantID,
+		config.UserID,
+		memoryIDs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -829,12 +1053,30 @@ func (s *organizeService) createScheduledOrganizeJob(
 			"template_instruction": template.DefaultInstruction,
 			"template_markdown":    template.MarkdownTemplate,
 			"template_spec":        template.Spec,
+			"requested_text":       config.Instruction,
+			"allow_partial":        true,
+			"batch_policy":         "auto",
+			"selection_snapshot":   selectionSnapshot,
 			"scheduled":            true,
 		},
-		MemoryIDs:    types.StringArray(memoryIDs),
-		Summary:      fmt.Sprintf("周期任务等待整理 %d 条记忆", len(memoryIDs)),
-		DedupeKey:    fmt.Sprintf("scheduled:%s:%s", config.ID, scheduledFor.UTC().Format(time.RFC3339)),
-		ScheduledFor: &scheduledFor,
+		MemoryIDs:         memoryIDs,
+		Summary:           fmt.Sprintf("周期任务等待整理 %d 条记忆", len(memoryIDs)),
+		DedupeKey:         fmt.Sprintf("scheduled:%s:%s", config.ID, scheduledFor.UTC().Format(time.RFC3339)),
+		ScheduledFor:      &scheduledFor,
+		JobMode:           jobMode,
+		SelectionSnapshot: selectionSnapshot,
+		InputFingerprint:  inputFingerprint,
+		SelectedCount:     len(memories),
+		ReadyCount:        len(readyMemories),
+		FailedCount:       len(unreadyMemories),
+		OverlapCount:      int(overlapCount),
+		BatchCount:        len(batchPlans),
+		Coverage: types.JSONMap{
+			"selected":  len(memories),
+			"ready":     len(readyMemories),
+			"unready":   len(unreadyMemories),
+			"processed": 0,
+		},
 	}
 	if err := s.repo.CreateJob(ctx, job); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") ||
@@ -842,6 +1084,25 @@ func (s *organizeService) createScheduledOrganizeJob(
 			return nil, nil
 		}
 		return nil, err
+	}
+	if job.JobMode == types.OrganizeJobModeBatch {
+		batches := make([]*types.OrganizeJobBatch, 0, len(batchPlans))
+		for index, plan := range batchPlans {
+			batches = append(batches, &types.OrganizeJobBatch{
+				TenantID:    config.TenantID,
+				UserID:      config.UserID,
+				ParentJobID: job.ID,
+				BatchIndex:  index + 1,
+				BatchCount:  len(batchPlans),
+				Status:      types.OrganizeJobBatchStatusQueued,
+				Stage:       "queued",
+				MemoryIDs:   types.StringArray(plan.MemoryIDs),
+				InputChars:  plan.InputChars,
+			})
+		}
+		if err := s.repo.CreateJobBatches(ctx, batches); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.enqueueOrganizeJob(ctx, job); err != nil {
 		return nil, err

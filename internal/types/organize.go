@@ -322,10 +322,16 @@ type OrganizeListQuery struct {
 	UserID           string
 	Keyword          string
 	Kind             string
+	Kinds            []string
+	Sources          []string
+	OccurredFrom     *time.Time
+	OccurredTo       *time.Time
+	ReadyOnly        bool
 	Status           string
 	AssignmentStatus string
 	Stage            string
 	MemoryID         string
+	ConfigID         string
 	TemplateKey      string
 	Scene            string
 	FieldFilters     map[string]string

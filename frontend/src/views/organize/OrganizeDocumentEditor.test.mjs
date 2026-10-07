@@ -95,3 +95,23 @@ test('memory editor lets the page own mouse wheel scrolling', () => {
   assert.ok(source.includes('overflow: visible;'))
   assert.ok(source.includes('overscroll-behavior-y: auto;'))
 })
+
+test('attachment parsing notes use compact typography', () => {
+  assert.ok(source.includes('.memory-file-notes__header h2'))
+  assert.ok(source.includes('.memory-file-note__header h3'))
+  assert.ok(source.includes('.memory-file-note__section h4'))
+  assert.match(source, /\.memory-file-notes \{[\s\S]*?border-top: 1px solid rgba\(55, 53, 47, 0\.14\);/)
+  assert.match(source, /\.memory-file-notes__header h2 \{[\s\S]*?font-size: 20px;/)
+  assert.match(source, /\.memory-file-note__header h3 \{[\s\S]*?font-size: 16px;/)
+  assert.match(source, /\.memory-file-note__section h4 \{[\s\S]*?font-size: 15px;/)
+  assert.match(source, /\.memory-file-note__content \{[\s\S]*?font-size: 14px;/)
+})
+
+test('single audio attachment reuses the memory transcript instead of its filename placeholder', () => {
+  assert.ok(source.includes('const filenamePlaceholder = isTranscriptFile'))
+  assert.ok(source.includes('const inheritedTranscript = filenamePlaceholder && memoryAttachments.value.length === 1'))
+  assert.ok(source.includes('? memoryTranscriptText.value'))
+  assert.ok(source.includes("const content = filenamePlaceholder ? '' : storedContent"))
+  assert.ok(source.includes("unresolvedPlaceholder && attachment.status === 'completed'"))
+  assert.ok(source.includes("'音频未生成转写内容，请重新解析。'"))
+})

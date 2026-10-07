@@ -43,6 +43,37 @@ func (r *organizeRepository) ListAdminTemplates(
 	return templates, total, nil
 }
 
+func (r *organizeRepository) ListAdminTemplateScenes(ctx context.Context) ([]string, error) {
+	var scenes []string
+	err := r.db.WithContext(ctx).
+		Model(&types.OrganizeTemplate{}).
+		Where("tenant_id = ? AND owner_user_id = ? AND scope = ?", 0, "", types.OrganizeTemplateScopePlatform).
+		Where("key NOT IN ?", []string{"note_import_meta", "note_audio_transcribe", "output_card_meta"}).
+		Where("TRIM(scene) <> ''").
+		Group("scene").
+		Order("MIN(sort_order) ASC").
+		Order("scene ASC").
+		Pluck("scene", &scenes).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]string, 0, len(scenes))
+	seen := make(map[string]struct{}, len(scenes))
+	for _, scene := range scenes {
+		scene = strings.TrimSpace(scene)
+		if scene == "" {
+			continue
+		}
+		if _, exists := seen[scene]; exists {
+			continue
+		}
+		seen[scene] = struct{}{}
+		result = append(result, scene)
+	}
+	return result, nil
+}
+
 func (r *organizeRepository) GetAdminTemplate(ctx context.Context, key string) (*types.OrganizeTemplate, error) {
 	var template types.OrganizeTemplate
 	err := r.db.WithContext(ctx).
