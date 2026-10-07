@@ -48,6 +48,7 @@ import { knowledgeSpansPayloadHasTrace } from '@/utils/knowledgeTrace';
 import FAQEntryManager from './components/FAQEntryManager.vue';
 import DocumentListView from './components/DocumentListView.vue';
 import DocumentCardView from './components/DocumentCardView.vue';
+import DocumentFileFeed from './components/DocumentFileFeed.vue';
 import DocumentBatchBar from './components/DocumentBatchBar.vue';
 import KbUploadSourceDropdown from './components/KbUploadSourceDropdown.vue';
 import KnowledgeUploadProgressCard from './components/KnowledgeUploadProgressCard.vue';
@@ -91,6 +92,14 @@ const validTabs = ['documents', 'wiki', 'graph'] as const
 type KbTab = typeof validTabs[number]
 const initTab = validTabs.includes(route.query.tab as any) ? (route.query.tab as KbTab) : 'documents'
 const activeKbTab = ref<KbTab>(initTab);
+type KnowledgeViewMode = 'file' | 'vector';
+const getKnowledgeViewMode = (value: unknown): KnowledgeViewMode | null =>
+  value === 'file' || value === 'vector' ? value : null;
+const initKnowledgeViewMode = (): KnowledgeViewMode => {
+  const routeMode = getKnowledgeViewMode(route.query.mode);
+  return routeMode || 'file';
+};
+const knowledgeViewMode = ref<KnowledgeViewMode>(initKnowledgeViewMode());
 
 // Wiki 状态用于面包屑上的索引中指示。父组件自行拉取，避免依赖 WikiBrowser 挂载状态
 // （用户切到"文档" tab 时 WikiBrowser 会卸载，这里仍需持续反映后台索引进度）。
@@ -359,6 +368,7 @@ const onCardMoreVisibleChange = (visible: boolean, item: KnowledgeCard) => {
   }
 };
 let isCardDetails = ref(false);
+const docPreviewOnly = ref(false);
 let timeout: ReturnType<typeof setTimeout> | null = null;
 let knowledgeScroll = ref()
 let page = 1;
@@ -523,12 +533,23 @@ const parseStatusOptions = computed(() => [
   { label: t('knowledgeBase.parseStatusFinalizing'), value: 'finalizing' },
   { label: t('knowledgeBase.parseStatusDraft'), value: 'draft' },
 ]);
+const setKnowledgeViewMode = (mode: KnowledgeViewMode) => {
+  if (mode === knowledgeViewMode.value) return;
+  if (mode === 'file') {
+    selectedFileType.value = '';
+    selectedParseStatus.value = '';
+    clearSelection();
+    batchMode.value = false;
+  }
+  knowledgeViewMode.value = mode;
+  scrollDocumentListToTop();
+};
 const DIRECTORY_ROOT_PATH = '';
 const LEGACY_DIRECTORY_STORAGE_PREFIX = 'knowledge-document-directories';
-const DIRECTORY_TREE_INDENT_STEP = 14;
-const DIRECTORY_TREE_COMPACT_INDENT_STEP = 8;
+const DIRECTORY_TREE_INDENT_STEP = 6;
+const DIRECTORY_TREE_COMPACT_INDENT_STEP = 4;
 const DIRECTORY_TREE_COMPACT_AFTER_LEVEL = 4;
-const DIRECTORY_TREE_MAX_VISIBLE_INDENT = 96;
+const DIRECTORY_TREE_MAX_VISIBLE_INDENT = 72;
 const DIRECTORY_TREE_DEEP_MIN_NAME_WIDTH = 168;
 const DIRECTORY_TREE_ROW_CHROME_WIDTH = 168;
 const activeDirectoryPath = ref(DIRECTORY_ROOT_PATH);
@@ -648,7 +669,7 @@ const getDirectoryDisplayName = (path: string) => {
 };
 
 const getDirectoryTreeVisibleIndent = (depth: number) => {
-  const level = Math.max(0, depth + 1);
+  const level = Math.max(0, depth);
   const regularLevels = Math.min(level, DIRECTORY_TREE_COMPACT_AFTER_LEVEL);
   const compactLevels = Math.max(0, level - DIRECTORY_TREE_COMPACT_AFTER_LEVEL);
   const indent = regularLevels * DIRECTORY_TREE_INDENT_STEP
@@ -658,7 +679,7 @@ const getDirectoryTreeVisibleIndent = (depth: number) => {
 
 const getDirectoryTreeItemStyle = (directory: DirectoryNode) => {
   const indent = getDirectoryTreeVisibleIndent(directory.depth);
-  const level = Math.max(0, directory.depth + 1);
+  const level = Math.max(0, directory.depth);
   const rowMinWidth = level > DIRECTORY_TREE_COMPACT_AFTER_LEVEL
     ? indent + DIRECTORY_TREE_DEEP_MIN_NAME_WIDTH + DIRECTORY_TREE_ROW_CHROME_WIDTH
     : 0;
@@ -1167,6 +1188,28 @@ const activeDirectoryName = computed(() => {
   return getDirectoryVisibleName(activeDirectoryPath.value);
 });
 
+const fileModeProcessingCount = computed(() =>
+  visibleDocumentItems.value.filter(item =>
+    ['pending', 'processing', 'finalizing'].includes(String(item.parse_status || '')),
+  ).length,
+);
+
+const fileModeFailedCount = computed(() =>
+  visibleDocumentItems.value.filter(item =>
+    ['failed', 'cancelled'].includes(String(item.parse_status || '')),
+  ).length,
+);
+
+const showFileModeIssueBanner = computed(() =>
+  fileModeProcessingCount.value > 0 || fileModeFailedCount.value > 0,
+);
+
+const openVectorIssueView = () => {
+  selectedParseStatus.value = fileModeFailedCount.value > 0 ? 'failed' : 'processing';
+  knowledgeViewMode.value = 'vector';
+  scrollDocumentListToTop();
+};
+
 const showDirectorySidebar = computed(() => true);
 
 const activeDirectoryParentName = computed(() =>
@@ -1186,7 +1229,7 @@ const directoryNameDisabled = computed(() =>
 );
 
 const getDirectoryVisibleName = (path: string) => {
-  if (path === DIRECTORY_ROOT_PATH) return t('knowledgeBase.rootDirectory');
+  if (path === DIRECTORY_ROOT_PATH) return t('knowledgeBase.allDocuments');
   return documentDirectoryNodes.value.find(directory => directory.path === path)?.name
     || getDirectoryDisplayName(path);
 };
@@ -1243,6 +1286,11 @@ const selectDirectory = (path: string) => {
   if (kbId.value && !isFAQ.value) {
     void loadKnowledgeFiles(kbId.value);
   }
+};
+
+const handleDirectoryRowActivate = (path: string, hasChildren: boolean) => {
+  selectDirectory(path);
+  if (hasChildren) toggleDirectoryCollapsed(path);
 };
 
 const directoryPathExists = (path: string) => {
@@ -1602,6 +1650,11 @@ const handleTagFilterChange = (tagIds: string[]) => {
   resetPage();
 };
 
+const handleFileModeTagFilter = (tag: { id: string }) => {
+  tagFilterCleared.value = false;
+  handleTagFilterChange([String(tag.id)]);
+};
+
 const handleTagRowClick = (tagId: string) => {
   const next = new Set(selectedTagIds.value);
   if (next.has(tagId)) {
@@ -1698,6 +1751,18 @@ watch(activeKbTab, (tab) => {
   }
   router.replace({ query })
 })
+
+watch(knowledgeViewMode, (mode) => {
+  if (route.query.mode === mode) return;
+  router.replace({ query: { ...route.query, mode } });
+}, { immediate: true });
+
+watch(() => route.query.mode, (mode) => {
+  const nextMode = getKnowledgeViewMode(mode);
+  if (nextMode && nextMode !== knowledgeViewMode.value) {
+    setKnowledgeViewMode(nextMode);
+  }
+});
 
 watch(() => kbId.value, (newKbId, oldKbId) => {
   if (!newKbId) {
@@ -2006,16 +2071,17 @@ const updateStatus = (analyzeList: KnowledgeCard[]) => {
 
 const closeDoc = () => {
   isCardDetails.value = false;
+  docPreviewOnly.value = false;
 };
-const openCardDetails = (item: KnowledgeCard) => {
+const openCardDetails = (item: KnowledgeCard | { id: string }, previewOnly = false) => {
+  docPreviewOnly.value = previewOnly;
   isCardDetails.value = true;
   getCardDetails(item);
 };
 
 // Open source document preview from WikiBrowser
 const openSourceDoc = (knowledgeId: string) => {
-  isCardDetails.value = true;
-  getCardDetails({ id: knowledgeId });
+  openCardDetails({ id: knowledgeId }, false);
 };
 
 const closeCardMoreMenu = (index: number) => {
@@ -2813,14 +2879,15 @@ const isManualDraftKnowledge = (item: KnowledgeCard) =>
 
 const openKnowledgeItem = (item: KnowledgeCard) => {
   if (shouldSuppressDocClick()) return;
-  if (canEdit.value && isManualDraftKnowledge(item)) {
+  const previewOnly = knowledgeViewMode.value === 'file';
+  if (!previewOnly && canEdit.value && isManualDraftKnowledge(item)) {
     const index = cardList.value.findIndex((c) => c.id === item.id);
     if (index >= 0) {
       handleManualEdit(index, item);
       return;
     }
   }
-  openCardDetails(item);
+  openCardDetails(item, previewOnly);
 };
 
 const confirmBatchDelete = async () => {
@@ -3017,14 +3084,47 @@ async function createNewSession(value: string): Promise<void> {
             </div>
           </div>
         </div>
-        <div v-if="activeKbTab === 'documents' || !isWiki" class="document-header-search">
-          <t-input v-model.trim="docSearchKeyword" :placeholder="$t('knowledgeBase.docSearchPlaceholder')"
-            clearable class="doc-search-input" @clear="loadKnowledgeFiles(kbId)"
-            @enter="loadKnowledgeFiles(kbId)">
-            <template #prefix-icon>
-              <t-icon name="search" size="16px" />
-            </template>
-          </t-input>
+        <div v-if="activeKbTab === 'documents' || !isWiki" class="document-header-controls">
+          <div v-if="knowledgeViewMode === 'vector'" class="document-header-search">
+            <t-input v-model.trim="docSearchKeyword" :placeholder="$t('knowledgeBase.docSearchPlaceholder')"
+              clearable class="doc-search-input" @clear="loadKnowledgeFiles(kbId)"
+              @enter="loadKnowledgeFiles(kbId)">
+              <template #prefix-icon>
+                <t-icon name="search" size="16px" />
+              </template>
+            </t-input>
+          </div>
+          <KbUploadSourceDropdown v-if="canEdit && knowledgeViewMode === 'vector'" ref="uploadSourceRef"
+            :accept-file-types="acceptFileTypes"
+            :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="file-add"
+            trigger-class="content-bar-solid-btn" :trigger-text="t('knowledgeBase.addDocument')"
+            trigger-theme="primary" trigger-variant="base" data-guide="kb-detail-add-doc"
+            :tooltip="t('knowledgeBase.addDocument')" placement="bottom-left" :loading="uploading"
+            :disabled="uploading" @files="handleUploadSourceFiles"
+            @url="handleUploadSourceUrl" @manual="handleManualCreate" />
+          <div class="knowledge-view-segment" role="group" :aria-label="$t('knowledgeBase.knowledgeViewMode')">
+            <button
+              type="button"
+              class="knowledge-view-segment__button"
+              :class="{ active: knowledgeViewMode === 'file' }"
+              :aria-pressed="knowledgeViewMode === 'file'"
+              @click="setKnowledgeViewMode('file')"
+            >
+              <t-icon name="file" size="15px" />
+              <span>{{ $t('knowledgeBase.fileMode') }}</span>
+              <span class="knowledge-view-segment__default">{{ $t('knowledgeBase.defaultMode') }}</span>
+            </button>
+            <button
+              type="button"
+              class="knowledge-view-segment__button"
+              :class="{ active: knowledgeViewMode === 'vector' }"
+              :aria-pressed="knowledgeViewMode === 'vector'"
+              @click="setKnowledgeViewMode('vector')"
+            >
+              <t-icon name="chart-bubble" size="15px" />
+              <span>{{ $t('knowledgeBase.vectorMode') }}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -3038,26 +3138,20 @@ async function createNewSession(value: string): Promise<void> {
       <template v-if="activeKbTab === 'documents' || !isWiki">
         <div class="knowledge-main">
           <aside v-if="showDirectorySidebar" class="document-directory-sidebar">
+            <div class="directory-sidebar-heading">{{ $t('knowledgeBase.directory') }}</div>
             <div class="directory-tree">
               <div role="button" tabindex="0" class="directory-tree-item"
-                :class="{ active: activeDirectoryPath === DIRECTORY_ROOT_PATH, 'can-edit-directories': canEditKnowledgeBaseDirectories }"
-                :title="$t('knowledgeBase.rootDirectory')"
-                @click="selectDirectory(DIRECTORY_ROOT_PATH)"
-                @keydown.enter.prevent="selectDirectory(DIRECTORY_ROOT_PATH)"
-                @keydown.space.prevent="selectDirectory(DIRECTORY_ROOT_PATH)">
-                <button
-                  type="button"
-                  class="directory-tree-toggle"
-                  :class="{ 'is-placeholder': !rootHasChildren }"
-                  :aria-label="isDirectoryCollapsed(DIRECTORY_ROOT_PATH) ? $t('common.expand') : $t('common.collapse')"
-                  :disabled="!rootHasChildren"
-                  @click.stop="toggleDirectoryCollapsed(DIRECTORY_ROOT_PATH)"
-                >
-                  <t-icon v-if="rootHasChildren"
-                    :name="isDirectoryCollapsed(DIRECTORY_ROOT_PATH) ? 'chevron-right' : 'chevron-down'" size="14px" />
-                </button>
-                <t-icon name="folder" class="directory-tree-icon" />
-                <span class="directory-tree-name">{{ $t('knowledgeBase.rootDirectory') }}</span>
+                :class="{
+                  active: activeDirectoryPath === DIRECTORY_ROOT_PATH,
+                  'can-edit-directories': canEditKnowledgeBaseDirectories,
+                  'has-hover-actions': canEditKnowledgeBaseDirectories,
+                }"
+                :title="$t('knowledgeBase.allDocuments')"
+                :aria-expanded="rootHasChildren ? !isDirectoryCollapsed(DIRECTORY_ROOT_PATH) : undefined"
+                @click="handleDirectoryRowActivate(DIRECTORY_ROOT_PATH, rootHasChildren)"
+                @keydown.enter.prevent="handleDirectoryRowActivate(DIRECTORY_ROOT_PATH, rootHasChildren)"
+                @keydown.space.prevent="handleDirectoryRowActivate(DIRECTORY_ROOT_PATH, rootHasChildren)">
+                <span class="directory-tree-name">{{ $t('knowledgeBase.allDocuments') }}</span>
                 <span class="directory-tree-count">{{ rootDirectoryCount }}</span>
                 <span v-if="canEditKnowledgeBaseDirectories" class="directory-tree-actions">
                   <button
@@ -3078,22 +3172,13 @@ async function createNewSession(value: string): Promise<void> {
                 :class="{
                   active: activeDirectoryPath === directory.path,
                   'can-edit-directories': canEditKnowledgeBaseDirectories,
+                  'has-hover-actions': canEditKnowledgeBaseDirectories,
                 }"
                 :style="getDirectoryTreeItemStyle(directory)" :title="getDirectoryTitle(directory)"
-                @click="selectDirectory(directory.path)"
-                @keydown.enter.prevent="selectDirectory(directory.path)"
-                @keydown.space.prevent="selectDirectory(directory.path)">
-                <button
-                  type="button"
-                  class="directory-tree-toggle"
-                  :class="{ 'is-placeholder': !directory.hasChildren }"
-                  :aria-label="directory.collapsed ? $t('common.expand') : $t('common.collapse')"
-                  :disabled="!directory.hasChildren"
-                  @click.stop="toggleDirectoryCollapsed(directory.path)"
-                >
-                  <t-icon v-if="directory.hasChildren"
-                    :name="directory.collapsed ? 'chevron-right' : 'chevron-down'" size="14px" />
-                </button>
+                :aria-expanded="directory.hasChildren ? !directory.collapsed : undefined"
+                @click="handleDirectoryRowActivate(directory.path, directory.hasChildren)"
+                @keydown.enter.prevent="handleDirectoryRowActivate(directory.path, directory.hasChildren)"
+                @keydown.space.prevent="handleDirectoryRowActivate(directory.path, directory.hasChildren)">
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
                 <span v-if="canEditKnowledgeBaseDirectories" class="directory-tree-actions">
@@ -3107,9 +3192,10 @@ async function createNewSession(value: string): Promise<void> {
                     @keydown.enter.stop
                     @keydown.space.stop
                   >
-                    <t-icon name="chevron-up" size="14px" />
+                    <t-icon name="arrow-up" size="14px" />
                   </button>
                   <button
+                    v-if="canEditKnowledgeBaseDirectories"
                     type="button"
                     class="directory-tree-action"
                     :title="$t('knowledgeBase.editDirectory')"
@@ -3121,6 +3207,7 @@ async function createNewSession(value: string): Promise<void> {
                     <t-icon name="edit-1" size="14px" />
                   </button>
                   <button
+                    v-if="canEditKnowledgeBaseDirectories"
                     type="button"
                     class="directory-tree-action"
                     :title="$t('knowledgeBase.addSubdirectory')"
@@ -3132,7 +3219,7 @@ async function createNewSession(value: string): Promise<void> {
                     <t-icon name="folder-add" size="14px" />
                   </button>
                   <button
-                    v-if="directory.manual"
+                    v-if="canEditKnowledgeBaseDirectories && directory.manual"
                     type="button"
                     class="directory-tree-action directory-tree-action--danger"
                     :title="$t('knowledgeBase.deleteDirectory')"
@@ -3150,10 +3237,45 @@ async function createNewSession(value: string): Promise<void> {
           </aside>
           <div class="tag-content">
             <div class="doc-card-area">
-              <div class="doc-filter-bar">
-                <div class="doc-filter-bar__filters">
-                  <div v-if="canEdit" class="doc-filter-actions">
-                    <KbUploadSourceDropdown ref="uploadSourceRef" :accept-file-types="acceptFileTypes"
+              <div v-if="knowledgeViewMode === 'file'" class="file-mode-content">
+                <div
+                  v-if="showFileModeIssueBanner"
+                  class="file-mode-issue-banner"
+                  :class="{ 'has-error': fileModeFailedCount > 0 }"
+                >
+                  <span class="file-mode-issue-banner__dot"></span>
+                  <div class="file-mode-issue-banner__message">
+                    <strong v-if="fileModeFailedCount > 0">
+                      {{ $t('knowledgeBase.fileModeFailedCount', { count: fileModeFailedCount }) }}
+                    </strong>
+                    <span v-if="fileModeFailedCount > 0 && fileModeProcessingCount > 0"> · </span>
+                    <span v-if="fileModeProcessingCount > 0">
+                      {{ $t('knowledgeBase.fileModeProcessingCount', { count: fileModeProcessingCount }) }}
+                    </span>
+                  </div>
+                  <button type="button" @click="openVectorIssueView">
+                    {{ $t('knowledgeBase.goToVectorMode') }}
+                    <t-icon name="chevron-right" size="14px" />
+                  </button>
+                </div>
+
+                <div class="file-mode-toolbar">
+                  <strong :title="activeDirectoryName">{{ activeDirectoryName }}</strong>
+                  <span class="file-mode-toolbar__count">
+                    {{ $t('knowledgeBase.documentCount', { count: total }) }}
+                  </span>
+                  <div class="file-mode-toolbar__search">
+                    <t-input v-model.trim="docSearchKeyword" :placeholder="$t('knowledgeBase.docSearchPlaceholder')"
+                      clearable class="doc-search-input"
+                      @clear="loadKnowledgeFiles(kbId)" @enter="loadKnowledgeFiles(kbId)">
+                      <template #prefix-icon>
+                        <t-icon name="search" size="16px" />
+                      </template>
+                    </t-input>
+                  </div>
+                  <div class="file-mode-toolbar__actions">
+                    <KbUploadSourceDropdown v-if="canEdit" ref="uploadSourceRef"
+                      :accept-file-types="acceptFileTypes"
                       :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="file-add"
                       trigger-class="content-bar-solid-btn" :trigger-text="t('knowledgeBase.addDocument')"
                       trigger-theme="primary" trigger-variant="base" data-guide="kb-detail-add-doc"
@@ -3161,61 +3283,102 @@ async function createNewSession(value: string): Promise<void> {
                       :disabled="uploading" @files="handleUploadSourceFiles"
                       @url="handleUploadSourceUrl" @manual="handleManualCreate" />
                   </div>
-                <t-popup v-model:visible="tagFilterPanelVisible" trigger="click" placement="bottom-left"
-                  overlay-class-name="tag-filter-popup" :overlay-inner-style="{ padding: 0 }">
-                  <template #content>
-                    <div class="tag-filter-panel" @click.stop>
-                      <div class="tag-filter-panel__header">
-                        <div class="tag-filter-panel__title">
-                          <span>{{ $t('knowledgeBase.tagFilterTitle') }}</span>
-                          <span class="tag-filter-panel__count">({{ sidebarCategoryCount }})</span>
+                </div>
+
+                <div
+                  ref="knowledgeScroll"
+                  class="file-mode-scroll"
+                  :class="{ 'is-empty': !visibleDocumentItems.length && !docListLoading }"
+                  @scroll="handleScroll"
+                >
+                  <div v-if="docListLoading && cardList.length === 0" class="file-mode-skeleton">
+                    <div v-for="n in 8" :key="'file-mode-skel-' + n" class="file-mode-skeleton__row">
+                      <t-skeleton animation="gradient"
+                        :row-col="[[{ width: '30px', height: '30px', type: 'rect' }, { width: '72%', height: '18px' }], [{ width: '82%', height: '14px' }]]" />
+                    </div>
+                  </div>
+                  <DocumentFileFeed
+                    v-else-if="visibleDocumentItems.length"
+                    :items="visibleDocumentItems"
+                    :can-edit="canEdit"
+                    @open="(item: any) => openKnowledgeItem(item)"
+                    @tag-edit="(item: any) => openTagEditDialog(item)"
+                    @filter-tag="handleFileModeTagFilter"
+                  />
+                  <div v-else-if="!docListLoading" class="doc-empty-state">
+                    <EmptyKnowledge
+                      v-if="!cardList.length && activeDirectoryPath === DIRECTORY_ROOT_PATH"
+                      :read-only="!canEdit"
+                    />
+                    <div v-else class="directory-empty-state">
+                      <t-icon name="folder-open" />
+                      <strong>{{ activeDirectoryName }}</strong>
+                      <span>{{ $t('knowledgeBase.directoryEmpty') }}</span>
+                      <button type="button" @click="selectDirectory(DIRECTORY_ROOT_PATH)">
+                        {{ $t('knowledgeBase.rootDirectory') }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="knowledgeViewMode === 'vector'" class="doc-filter-bar">
+                <div class="doc-filter-bar__filters">
+                  <t-popup v-model:visible="tagFilterPanelVisible" trigger="click" placement="bottom-left"
+                    overlay-class-name="tag-filter-popup" :overlay-inner-style="{ padding: 0 }">
+                    <template #content>
+                      <div class="tag-filter-panel" @click.stop>
+                        <div class="tag-filter-panel__header">
+                          <div class="tag-filter-panel__title">
+                            <span>{{ $t('knowledgeBase.tagFilterTitle') }}</span>
+                            <span class="tag-filter-panel__count">({{ sidebarCategoryCount }})</span>
+                          </div>
+                        </div>
+                        <div class="tag-search-bar">
+                          <t-input v-model.trim="tagSearchQuery" size="small"
+                            :placeholder="$t('knowledgeBase.tagSearchPlaceholder')" clearable>
+                            <template #prefix-icon>
+                              <t-icon name="search" size="14px" />
+                            </template>
+                          </t-input>
+                        </div>
+                        <div class="tag-filter-panel__body">
+                          <template v-if="tagLoading && !sidebarTags.length">
+                            <div class="tag-filter-chips">
+                              <div v-for="n in 8" :key="'skel-tag-' + n" class="tag-filter-chip-skeleton">
+                                <t-skeleton animation="gradient"
+                                  :row-col="[{ width: '56px', height: '24px', type: 'rect' }]" />
+                              </div>
+                            </div>
+                          </template>
+                          <template v-else>
+                            <div class="tag-filter-chips">
+                              <button
+                                v-for="tag in sidebarTags"
+                                :key="tag.id"
+                                type="button"
+                                class="tag-filter-chip"
+                                :class="{ active: isTagFilterActive(tag.id) }"
+                                :title="`${tag.name} (${tag.knowledge_count || 0})`"
+                                @click="handleTagRowClick(tag.id)"
+                              >
+                                <span class="tag-filter-chip__label">{{ tag.name }}</span>
+                                <span class="tag-filter-chip__count">{{ tag.knowledge_count || 0 }}</span>
+                              </button>
+                            </div>
+                            <div v-if="!sidebarTags.length" class="tag-empty-state">
+                              {{ $t('knowledgeBase.tagEmptyResult') }}
+                            </div>
+                            <div v-if="tagHasMore" class="tag-load-more">
+                              <t-button variant="text" size="small" :loading="tagLoadingMore"
+                                @click.stop="kbId && loadTags(kbId)">
+                                {{ $t('tenant.loadMore') }}
+                              </t-button>
+                            </div>
+                          </template>
                         </div>
                       </div>
-                      <div class="tag-search-bar">
-                        <t-input v-model.trim="tagSearchQuery" size="small"
-                          :placeholder="$t('knowledgeBase.tagSearchPlaceholder')" clearable>
-                          <template #prefix-icon>
-                            <t-icon name="search" size="14px" />
-                          </template>
-                        </t-input>
-                      </div>
-                      <div class="tag-filter-panel__body">
-                        <template v-if="tagLoading && !sidebarTags.length">
-                          <div class="tag-filter-chips">
-                            <div v-for="n in 8" :key="'skel-tag-' + n" class="tag-filter-chip-skeleton">
-                              <t-skeleton animation="gradient"
-                                :row-col="[{ width: '56px', height: '24px', type: 'rect' }]" />
-                            </div>
-                          </div>
-                        </template>
-                        <template v-else>
-                          <div class="tag-filter-chips">
-                            <button
-                              v-for="tag in sidebarTags"
-                              :key="tag.id"
-                              type="button"
-                              class="tag-filter-chip"
-                              :class="{ active: isTagFilterActive(tag.id) }"
-                              :title="`${tag.name} (${tag.knowledge_count || 0})`"
-                              @click="handleTagRowClick(tag.id)"
-                            >
-                              <span class="tag-filter-chip__label">{{ tag.name }}</span>
-                              <span class="tag-filter-chip__count">{{ tag.knowledge_count || 0 }}</span>
-                            </button>
-                          </div>
-                          <div v-if="!sidebarTags.length" class="tag-empty-state">
-                            {{ $t('knowledgeBase.tagEmptyResult') }}
-                          </div>
-                          <div v-if="tagHasMore" class="tag-load-more">
-                            <t-button variant="text" size="small" :loading="tagLoadingMore"
-                              @click.stop="kbId && loadTags(kbId)">
-                              {{ $t('tenant.loadMore') }}
-                            </t-button>
-                          </div>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
+                    </template>
                   <div class="doc-filter-field">
                     <button type="button" class="doc-tag-filter-trigger doc-filter-field__control"
                       :class="{ open: tagFilterPanelVisible, 'is-placeholder': isTagFilterPlaceholder }"
@@ -3284,7 +3447,7 @@ async function createNewSession(value: string): Promise<void> {
                   </div>
                 </div>
               </div>
-              <div class="doc-scroll-container"
+              <div v-if="knowledgeViewMode === 'vector'" class="doc-scroll-container"
                 :class="{ 'is-empty': !visibleDocumentItems.length && !docListLoading, 'is-marquee-active': docMarqueeVisible }"
                 ref="knowledgeScroll" @scroll="handleScroll" @mousedown="onDocMarqueeMouseDown">
                 <div v-if="docMarqueeVisible" class="doc-marquee-box"
@@ -3375,7 +3538,8 @@ async function createNewSession(value: string): Promise<void> {
                 @resume="resumeKnowledgeUpload"
                 @cancel="cancelKnowledgeUpload"
               />
-              <div class="doc-batch-bar-anchor" v-show="batchMode || selectedIds.size > 0">
+              <div class="doc-batch-bar-anchor"
+                v-show="knowledgeViewMode === 'vector' && (batchMode || selectedIds.size > 0)">
                 <DocumentBatchBar :count="selectedIds.size" :delete-loading="batchDeleting"
                   :reparse-loading="batchReparsing" :visible="batchMode || selectedIds.size > 0"
                   @cancel="handleBatchCancel" @delete="confirmBatchDelete" @reparse="confirmBatchReparse" />
@@ -3387,6 +3551,7 @@ async function createNewSession(value: string): Promise<void> {
 
       <!-- DocContent drawer (shared by documents tab and wiki source refs) -->
       <DocContent ref="docContentRef" :visible="isCardDetails" :details="details" :canEditKB="canEdit" :kbId="kbId"
+        :preview-only="docPreviewOnly"
         @closeDoc="closeDoc" @getDoc="getDoc" @regenerateSummary="details.id && submitRegenerateSummary(details.id)">
       </DocContent>
     </div>
@@ -3528,7 +3693,7 @@ async function createNewSession(value: string): Promise<void> {
   display: flex;
   flex-direction: column;
   margin: 0 16px 0 4px;
-  gap: 20px;
+  gap: 14px;
   height: 100%;
   flex: 1;
   width: 100%;
@@ -3584,7 +3749,7 @@ async function createNewSession(value: string): Promise<void> {
 // 与列表页一致：浅灰底圆角区，左侧筛选为白底卡片
 .knowledge-main {
   display: flex;
-  gap: 12px;
+  gap: 0;
   flex: 1;
   min-height: 0;
   background: transparent;
@@ -3810,22 +3975,34 @@ async function createNewSession(value: string): Promise<void> {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 0;
+  padding: 0 0 0 16px;
   border: none;
   overflow: hidden;
   background: transparent;
 }
 
 .document-directory-sidebar {
-  --document-directory-sidebar-width: clamp(232px, 18vw, 288px);
+  --document-directory-sidebar-width: clamp(232px, 18vw, 252px);
   width: var(--document-directory-sidebar-width);
   flex: 0 0 var(--document-directory-sidebar-width);
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 12px 0 0;
+  padding: 8px 8px 0 0;
   border-right: 1px solid var(--td-component-stroke);
   overflow: hidden;
+}
+
+.directory-sidebar-heading {
+  height: 28px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .directory-tree {
@@ -3833,26 +4010,26 @@ async function createNewSession(value: string): Promise<void> {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   overflow-y: auto;
   overflow-x: auto;
-  padding: 2px 4px 10px 0;
+  padding: 2px 0 10px;
   scrollbar-width: thin;
 }
 
 .directory-tree-item {
   width: 100%;
   min-width: max(100%, var(--directory-row-min-width, 100%));
-  min-height: 32px;
+  min-height: 28px;
   box-sizing: border-box;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px 0 calc(8px + var(--directory-indent, 0px));
-  color: var(--td-text-color-secondary);
+  gap: 2px;
+  padding: 0 4px 0 calc(4px + var(--directory-indent, 0px));
+  color: var(--td-text-color-primary);
   font-family: var(--app-font-family);
   font-size: 13px;
   line-height: 20px;
@@ -3873,7 +4050,7 @@ async function createNewSession(value: string): Promise<void> {
       pointer-events: auto;
     }
 
-    &.can-edit-directories {
+    &.has-hover-actions {
       .directory-tree-count {
         opacity: 0;
       }
@@ -3881,43 +4058,10 @@ async function createNewSession(value: string): Promise<void> {
   }
 
   &.active {
-    background: color-mix(in srgb, var(--td-brand-color) 9%, transparent);
+    background: color-mix(in srgb, var(--td-brand-color) 8%, var(--td-bg-color-container));
     color: var(--td-brand-color);
     font-weight: 500;
   }
-
-}
-
-.directory-tree-toggle {
-  width: 16px;
-  height: 22px;
-  flex-shrink: 0;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--td-text-color-placeholder);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: color 0.15s ease;
-
-  &:hover:not(:disabled) {
-    color: var(--td-text-color-primary);
-  }
-
-  &:disabled {
-    cursor: default;
-  }
-
-  &.is-placeholder {
-    visibility: hidden;
-  }
-}
-
-.directory-tree-icon {
-  flex-shrink: 0;
-  font-size: 16px;
 }
 
 .directory-tree-name {
@@ -3939,13 +4083,13 @@ async function createNewSession(value: string): Promise<void> {
 
 .directory-tree-actions {
   position: absolute;
-  right: 4px;
+  right: 2px;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  height: 24px;
-  padding: 0 2px;
-  border-radius: 5px;
+  gap: 1px;
+  height: 22px;
+  padding: 0 1px;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--td-bg-color-container) 96%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--td-component-stroke) 60%, transparent);
   opacity: 0;
@@ -3954,8 +4098,8 @@ async function createNewSession(value: string): Promise<void> {
 }
 
 .directory-tree-action {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border: 0;
   border-radius: 4px;
   padding: 0;
@@ -4084,12 +4228,236 @@ async function createNewSession(value: string): Promise<void> {
     padding: 2px 0 4px;
   }
 
+  .directory-sidebar-heading {
+    padding-left: 0;
+  }
+
   .directory-tree-item {
     width: auto;
     min-width: 132px;
     padding-left: 8px;
   }
 
+  .tag-content {
+    padding-left: 0;
+    padding-top: 12px;
+  }
+
+}
+
+.knowledge-view-segment {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.knowledge-view-segment__button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  font-family: var(--app-font-family);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    color: var(--td-text-color-primary);
+  }
+
+  &.active {
+    background: var(--td-bg-color-container);
+    color: var(--td-text-color-primary);
+    font-weight: 500;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.knowledge-view-segment__default {
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--td-brand-color) 9%, var(--td-bg-color-container));
+  color: var(--td-brand-color);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 17px;
+}
+
+.file-mode-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-mode-issue-banner {
+  min-height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--td-warning-color) 28%, var(--td-component-stroke));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--td-warning-color) 7%, var(--td-bg-color-container));
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+
+  &.has-error {
+    border-color: color-mix(in srgb, var(--td-error-color) 24%, var(--td-component-stroke));
+    background: color-mix(in srgb, var(--td-error-color) 5%, var(--td-bg-color-container));
+
+    .file-mode-issue-banner__dot {
+      background: var(--td-error-color);
+    }
+  }
+
+  button {
+    margin-left: auto;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 4px;
+    border: 0;
+    background: transparent;
+    color: var(--td-brand-color);
+    font: inherit;
+    cursor: pointer;
+  }
+}
+
+.file-mode-issue-banner__dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--td-warning-color);
+}
+
+.file-mode-issue-banner__message {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  strong {
+    color: var(--td-text-color-primary);
+    font-weight: 600;
+  }
+}
+
+.file-mode-toolbar {
+  min-height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 8px;
+
+  strong {
+    min-width: 0;
+    max-width: min(420px, 55vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--td-text-color-primary);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+}
+
+.file-mode-toolbar__count {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+}
+
+.file-mode-toolbar__search {
+  width: min(240px, 28vw);
+  min-width: 180px;
+  flex: 0 1 240px;
+
+  :deep(.t-input) {
+    height: 30px;
+    border-radius: 8px;
+  }
+}
+
+.file-mode-toolbar__actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.file-mode-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+
+  &.is-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-y: hidden;
+  }
+}
+
+.file-mode-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.file-mode-skeleton__row {
+  min-height: 66px;
+  padding: 11px 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+}
+
+@media (max-width: 720px) {
+  .knowledge-view-segment {
+    align-self: flex-start;
+  }
+
+  .file-mode-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .file-mode-toolbar__search {
+    order: 3;
+    width: 100%;
+    min-width: 0;
+    flex-basis: 100%;
+  }
+
+  .file-mode-issue-banner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+
+    button {
+      width: 100%;
+      margin-left: 16px;
+      justify-content: flex-start;
+    }
+  }
 }
 
 .doc-filter-bar {
@@ -4362,11 +4730,14 @@ async function createNewSession(value: string): Promise<void> {
 // Header 样式（无底部分割线，留更多空间给下方内容区）
 .document-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 12px;
   flex-shrink: 0;
+  min-height: 44px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--td-component-stroke);
 
   .document-header-title {
     display: flex;
@@ -4441,14 +4812,35 @@ async function createNewSession(value: string): Promise<void> {
 
 }
 
+.document-header-controls {
+  min-width: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 .document-header-search {
-  width: min(360px, 38vw);
-  min-width: 260px;
+  width: min(300px, 28vw);
+  min-width: 200px;
   flex-shrink: 0;
 
   .doc-search-input {
     width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .document-header {
+    flex-wrap: wrap;
+  }
+
+  .document-header-controls {
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
   }
 }
 

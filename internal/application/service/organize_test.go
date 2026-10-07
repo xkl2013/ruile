@@ -448,23 +448,25 @@ func TestOrganizeServiceDiscover(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, discover.Page)
 	require.Equal(t, 30, discover.PageSize)
-	// 推荐 + the eight scenario categories.
-	require.Len(t, discover.Tabs, 9)
+	// 推荐 + 系列课程 + the eight scenario categories.
+	require.Len(t, discover.Tabs, 10)
 	require.Equal(t, "recommended", discover.Tabs[0].Value)
 	require.Equal(t, int64(1), discover.Tabs[0].Count)
-	require.Equal(t, types.OrganizeDiscoverCategoryAdmissionsGrowth, discover.Tabs[1].Value)
-	require.Equal(t, int64(1), discover.Tabs[1].Count)
+	require.Equal(t, types.OrganizeDiscoverTabCourse, discover.Tabs[1].Value)
+	require.Equal(t, int64(0), discover.Tabs[1].Count)
+	require.Equal(t, types.OrganizeDiscoverCategoryAdmissionsGrowth, discover.Tabs[2].Value)
+	require.Equal(t, int64(1), discover.Tabs[2].Count)
 
 	require.Len(t, discover.FeaturedOutputs, 1)
 	require.Equal(t, "电力行业相关企业分析及功率半导体产业链解读", discover.FeaturedOutputs[0].Title)
 
-	// The legacy course alias now resolves to 推荐 after courses moved into
-	// the recommendation stream.
+	// 系列课程 is a dedicated tab. Course cards are loaded from the course API,
+	// so the discover output list remains empty for this tab.
 	courseDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{
 		Tab: types.OrganizeDiscoverTabCourse,
 	})
 	require.NoError(t, err)
-	require.Len(t, courseDiscover.Items, 1)
+	require.Empty(t, courseDiscover.Items)
 
 	recommendedDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{Tab: "recommended"})
 	require.NoError(t, err)

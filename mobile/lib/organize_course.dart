@@ -184,6 +184,7 @@ class _OrganizeCourseLesson {
 class _DiscoverCourseSection extends StatelessWidget {
   const _DiscoverCourseSection({
     required this.title,
+    this.showTitle = true,
     required this.courses,
     required this.loading,
     required this.error,
@@ -194,6 +195,7 @@ class _DiscoverCourseSection extends StatelessWidget {
   });
 
   final String title;
+  final bool showTitle;
   final List<_OrganizeCourse> courses;
   final bool loading;
   final String? error;
@@ -210,30 +212,44 @@ class _DiscoverCourseSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(title, style: AppTextStyles.cardTitle),
-            ),
-            if (loading)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else if (error != null)
-              TextButton(
-                onPressed: onRetry,
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 30),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: const Text('重试'),
+        if (showTitle)
+          Row(
+            children: [
+              Expanded(
+                child: Text(title, style: AppTextStyles.cardTitle),
               ),
-          ],
-        ),
-        const SizedBox(height: 10),
+              if (loading)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (error != null)
+                TextButton(
+                  onPressed: onRetry,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 30),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('重试'),
+                ),
+            ],
+          ),
+        if (showTitle) const SizedBox(height: 10),
+        if (!showTitle && error != null)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onRetry,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 30),
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: const Text('重试'),
+            ),
+          ),
         if (error != null && courses.isEmpty)
           _DiscoverLoadError(message: error!, onRetry: onRetry)
         else if (loading && courses.isEmpty)

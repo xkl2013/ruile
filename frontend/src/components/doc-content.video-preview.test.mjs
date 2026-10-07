@@ -16,3 +16,12 @@ test('knowledge document preview exposes supported video file types', () => {
     );
   }
 });
+
+test('preview-only mode renders a full-height file preview without detail sections', () => {
+  assert.ok(source.includes('"previewOnly"'));
+  assert.ok(source.includes('v-if="previewOnly && details.id" class="doc-preview-only"'));
+  assert.ok(source.includes(':active="true" fill-height reading-mode'));
+  assert.ok(source.includes('v-if="!previewOnly" class="header-actions"'));
+  assert.ok(source.includes('v-if="!previewOnly && details.id" class="setting-drawer__section"'));
+  assert.ok(source.includes('v-if="!previewOnly" class="setting-drawer__section doc-content-section"'));
+});

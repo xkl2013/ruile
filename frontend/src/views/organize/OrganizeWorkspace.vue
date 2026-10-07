@@ -286,83 +286,85 @@
 
             <section class="discover-feed-section">
               <OrganizeCourseDiscover
-                v-if="discoverTab === 'recommended'"
+                v-if="discoverTab === 'course'"
                 ref="courseDiscoverRef"
               />
-              <div v-if="discoverFeedLoading" class="organize-loading discover-loading">
-                <t-loading size="medium" text="加载发现中" />
-              </div>
-              <div v-else-if="paginatedOutputs.length" class="discover-feed-grid">
-                <article
-                  v-for="item in paginatedOutputs"
-                  :key="item.id"
-                  class="output-card output-card--editable discover-card discover-card--feed"
-                  :class="`output-card--${item.kind}`"
-                  role="button"
-                  tabindex="0"
-                  @click="openOutputPreview(item)"
-                  @keydown.enter.self="openOutputPreview(item)"
-                >
-                  <div
-                    class="output-card-cover"
-                    :class="`output-card-cover--${item.kind}`"
-                    :style="outputCardCoverStyle(item)"
+              <template v-else>
+                <div v-if="discoverFeedLoading" class="organize-loading discover-loading">
+                  <t-loading size="medium" text="加载发现中" />
+                </div>
+                <div v-else-if="paginatedOutputs.length" class="discover-feed-grid">
+                  <article
+                    v-for="item in paginatedOutputs"
+                    :key="item.id"
+                    class="output-card output-card--editable discover-card discover-card--feed"
+                    :class="`output-card--${item.kind}`"
+                    role="button"
+                    tabindex="0"
+                    @click="openOutputPreview(item)"
+                    @keydown.enter.self="openOutputPreview(item)"
                   >
-                    <div class="output-card-cover-media">
-                      <template v-if="item.coverUrl">
-                        <img :src="item.coverUrl" :alt="item.title" />
-                      </template>
-                      <template v-else>
-                        <t-icon :name="item.icon" />
-                      </template>
+                    <div
+                      class="output-card-cover"
+                      :class="`output-card-cover--${item.kind}`"
+                      :style="outputCardCoverStyle(item)"
+                    >
+                      <div class="output-card-cover-media">
+                        <template v-if="item.coverUrl">
+                          <img :src="item.coverUrl" :alt="item.title" />
+                        </template>
+                        <template v-else>
+                          <t-icon :name="item.icon" />
+                        </template>
+                      </div>
+                      <span class="output-kind-label">{{ item.kindLabel }}</span>
                     </div>
-                    <span class="output-kind-label">{{ item.kindLabel }}</span>
-                  </div>
-                  <div class="output-card-body">
-                    <div class="output-card-head">
-                      <div class="output-card-actions" @click.stop>
-                        <t-dropdown
-                          v-if="canEditOutputItem(item)"
-                          :options="getOutputStatusMenuOptions(item.statusKey)"
-                          trigger="click"
-                          placement="bottom-right"
-                          attach="body"
-                          @click="(action: any) => handleOutputStatusMenuClick(item, action)"
-                        >
-                          <button
-                            type="button"
-                            class="icon-button icon-button--more"
-                            :aria-label="`更多操作 ${item.title}`"
-                            @click.stop
+                    <div class="output-card-body">
+                      <div class="output-card-head">
+                        <div class="output-card-actions" @click.stop>
+                          <t-dropdown
+                            v-if="canEditOutputItem(item)"
+                            :options="getOutputStatusMenuOptions(item.statusKey)"
+                            trigger="click"
+                            placement="bottom-right"
+                            attach="body"
+                            @click="(action: any) => handleOutputStatusMenuClick(item, action)"
                           >
-                            <t-icon name="ellipsis" />
-                          </button>
-                        </t-dropdown>
+                            <button
+                              type="button"
+                              class="icon-button icon-button--more"
+                              :aria-label="`更多操作 ${item.title}`"
+                              @click.stop
+                            >
+                              <t-icon name="ellipsis" />
+                            </button>
+                          </t-dropdown>
+                        </div>
+                      </div>
+                      <h2>{{ item.title }}</h2>
+                      <div class="output-card-category output-card-category--content">
+                        {{ item.contentTypeLabel }}<span v-if="item.seriesLabel"> · {{ item.seriesLabel }}</span>
+                      </div>
+                      <div v-if="item.categoryLabel" class="output-card-category">{{ item.categoryLabel }}</div>
+                      <p class="output-summary">{{ item.summary }}</p>
+                      <div class="output-card-footer">
+                        <div class="discover-card-meta">
+                          <span>{{ item.createdAtLabel }}</span>
+                          <span class="discover-card-meta-separator">|</span>
+                          <span>{{ '@' + outputCreatorDisplayName(item) }}</span>
+                        </div>
                       </div>
                     </div>
-                    <h2>{{ item.title }}</h2>
-                    <div class="output-card-category output-card-category--content">
-                      {{ item.contentTypeLabel }}<span v-if="item.seriesLabel"> · {{ item.seriesLabel }}</span>
-                    </div>
-                    <div v-if="item.categoryLabel" class="output-card-category">{{ item.categoryLabel }}</div>
-                    <p class="output-summary">{{ item.summary }}</p>
-                    <div class="output-card-footer">
-                      <div class="discover-card-meta">
-                        <span>{{ item.createdAtLabel }}</span>
-                        <span class="discover-card-meta-separator">|</span>
-                        <span>{{ '@' + outputCreatorDisplayName(item) }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              </div>
-              <div v-else class="output-empty">
-                {{ outputEmptyText }}
-              </div>
+                  </article>
+                </div>
+                <div v-else class="output-empty">
+                  {{ outputEmptyText }}
+                </div>
+              </template>
             </section>
 
             <div
-              v-if="!discoverFeedLoading && discoverTotal > OUTPUT_PAGE_SIZE"
+              v-if="discoverTab !== 'course' && !discoverFeedLoading && discoverTotal > OUTPUT_PAGE_SIZE"
               class="output-pagination"
               aria-label="发现分页"
             >
@@ -654,13 +656,14 @@ const outputUploadInitialKind = ref<OutputCreateKind>('article')
 const outputPreviewVisible = ref(false)
 const activeOutputPreview = ref<OutputItem | null>(null)
 const outputStatusSaving = ref(false)
-const initialDiscoverTab = typeof route.query.tab === 'string' && route.query.tab !== 'course'
+const initialDiscoverTab = typeof route.query.tab === 'string'
   ? route.query.tab
   : ''
 const discoverTab = ref(initialDiscoverTab || 'recommended')
 const discoverMode = ref<'content' | 'knowledge-base'>('content')
 const discoverTabs = ref<OrganizeDiscoverTab[]>([
   { label: '推荐', value: 'recommended' },
+  { label: '系列课程', value: 'course' },
   ...DISCOVER_CATEGORIES.map((category) => ({ label: category.label, value: category.key })),
 ])
 const featuredRotation = ref(0)
@@ -1460,7 +1463,7 @@ const refreshDiscoverData = (options?: { resetPage?: boolean }) => {
       page: options?.resetPage ? 1 : outputPage.value,
       resetPage: options?.resetPage,
     }),
-    discoverTab.value === 'recommended'
+    discoverTab.value === 'course'
       ? courseDiscoverRef.value?.reload?.() || Promise.resolve()
       : Promise.resolve(),
     featuredCourseDiscoverRef.value?.reload?.() || Promise.resolve(),

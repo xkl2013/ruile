@@ -33,8 +33,7 @@ const (
 	OrganizePublicContentStatusOffline       = "offline"
 	OrganizePublicContentStatusRejected      = "rejected"
 
-	// OrganizeDiscoverTabCourse is retained as a legacy query alias. Courses
-	// are now rendered inside 推荐 instead of a separate discover tab.
+	// OrganizeDiscoverTabCourse identifies the dedicated 系列课程 tab.
 	OrganizeDiscoverTabCourse = "course"
 
 	OrganizeSproutStageOrganizing = "organizing"

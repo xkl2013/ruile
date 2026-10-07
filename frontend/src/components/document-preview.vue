@@ -25,6 +25,7 @@ const props = defineProps<{
   fileName: string;
   active: boolean;
   fillHeight?: boolean;
+  readingMode?: boolean;
   sourceUrl?: string;
 }>();
 
@@ -383,7 +384,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="document-preview" :class="{ 'is-fullscreen': isFullscreen, 'fill-height': fillHeight }">
+  <div class="document-preview" :class="{
+    'is-fullscreen': isFullscreen,
+    'fill-height': fillHeight,
+    'reading-mode': readingMode,
+  }">
     <!-- Toolbar -->
     <div class="preview-toolbar" v-if="!loading && !error && previewType !== 'unsupported'">
       <t-space size="small">
@@ -568,6 +573,34 @@ onUnmounted(() => {
     .preview-markdown,
     .preview-text .code-preview {
       max-height: none;
+    }
+  }
+
+  &.reading-mode {
+    background: var(--td-bg-color-container);
+
+    .preview-docx,
+    .docx-container {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .docx-container {
+      overflow-x: hidden;
+    }
+
+    :deep(.docx-preview-wrapper-wrapper) {
+      align-items: stretch !important;
+      padding: 0 !important;
+      padding-bottom: 0 !important;
+      background: transparent !important;
+    }
+
+    :deep(.docx-preview-wrapper-wrapper > section.docx-preview-wrapper) {
+      padding: 32px 40px 40px !important;
+      margin: 0 auto 18px !important;
+      box-shadow: none !important;
     }
   }
 }

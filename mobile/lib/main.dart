@@ -27,7 +27,7 @@ const bool _launchJieliDebug = bool.fromEnvironment(
 
 const bool _organizeUseMockData = bool.fromEnvironment(
   'RUILE_ORGANIZE_MOCK',
-  defaultValue: true,
+  defaultValue: false,
 );
 
 Future<void> main() async {
@@ -18275,6 +18275,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   static const _pageSize = 30;
   static const _defaultTabs = [
     _OrganizeDiscoverTab(label: '推荐', value: 'recommended'),
+    _OrganizeDiscoverTab(label: '系列课程', value: 'course'),
     _OrganizeDiscoverTab(label: '图文类', value: 'article'),
     _OrganizeDiscoverTab(label: '视频类', value: 'video'),
     _OrganizeDiscoverTab(label: '音频类', value: 'audio'),
@@ -18425,10 +18426,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
       });
     }
     try {
-      final courses = await _apiClient.fetchOrganizeCourses(
-        featured: false,
-        recommendable: true,
-      );
+      final courses = await _apiClient.fetchOrganizeCourses();
       if (!mounted) return;
       setState(() {
         _courses = courses;
@@ -18565,7 +18563,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 padding: const EdgeInsets.fromLTRB(18, 58, 18, 118),
                 children: [
                   _DiscoverSectionHeader(
-                    title: '精选主题',
+                    title: '精选',
                     onRefreshTap:
                         _featuredOutputs.length > 1 ? _nextBatch : null,
                     refreshing: _refreshingFeatured,
@@ -18601,6 +18599,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                         const SizedBox(height: 4),
                         _DiscoverCourseSection(
                           title: '精选课程',
+                          showTitle: false,
                           courses: _featuredCourses,
                           loading: _featuredCoursesLoading,
                           error: _featuredCourseError,
@@ -18618,9 +18617,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       onSelected: _selectTab,
                     ),
                     const SizedBox(height: 16),
-                    if (_selectedTab == 'recommended') ...[
+                    if (_selectedTab == 'course')
                       _DiscoverCourseSection(
                         title: '系列课程',
+                        showTitle: false,
                         courses: _courses,
                         loading: _coursesLoading,
                         error: _courseError,
@@ -18628,36 +18628,37 @@ class _DiscoverPageState extends State<DiscoverPage> {
                         tenantId: widget.tenantId,
                         onRetry: () => unawaited(_loadCourses()),
                         onTap: (course) => unawaited(_openCourse(course)),
-                      ),
-                      if (_courses.isNotEmpty ||
-                          _coursesLoading ||
-                          _courseError != null)
-                        const SizedBox(height: 18),
-                    ],
-                    _DiscoverFeedHeader(
-                      label: _selectedTabLabel,
-                      total: _total,
-                      loading: _loading,
-                    ),
-                    const SizedBox(height: 10),
-                    if (_error != null)
-                      _DiscoverLoadError(
-                        message: _error!,
-                        onRetry: () => unawaited(_loadDiscover()),
                       )
-                    else if (_outputs.isEmpty)
-                      const _DiscoverEmpty(message: '暂无发现')
-                    else
-                      for (final output in _outputs) ...[
-                        _DiscoverOutputTile(
-                          output: output,
-                          authToken: widget.authToken,
-                          tenantId: widget.tenantId,
-                          onAuthFailure: widget.onAuthFailure,
-                          onTap: () => unawaited(_openOutput(output)),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
+                    else ...[
+                      _DiscoverFeedHeader(
+                        label: _selectedTabLabel,
+                        total: _total,
+                        loading: _loading,
+                      ),
+                      const SizedBox(height: 10),
+                      if (_error != null)
+                        _DiscoverLoadError(
+                          message: _error!,
+                          onRetry: () => unawaited(_loadDiscover()),
+                        )
+                      else if (_outputs.isEmpty)
+                        _DiscoverEmpty(
+                          message: _selectedTab == 'recommended'
+                              ? '暂无推荐内容'
+                              : '暂无$_selectedTabLabel内容',
+                        )
+                      else
+                        for (final output in _outputs) ...[
+                          _DiscoverOutputTile(
+                            output: output,
+                            authToken: widget.authToken,
+                            tenantId: widget.tenantId,
+                            onAuthFailure: widget.onAuthFailure,
+                            onTap: () => unawaited(_openOutput(output)),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                    ],
                   ],
                 ],
               ),
