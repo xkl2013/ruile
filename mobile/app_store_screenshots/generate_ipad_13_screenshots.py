@@ -240,7 +240,7 @@ def screen_topics() -> Image.Image:
     d = ImageDraw.Draw(img)
     status_bar(d)
     menu(d)
-    draw_text(d, (96, 365), "精选主题", 72, C.text, bold=True)
+    draw_text(d, (96, 365), "精选", 72, C.text, bold=True)
     icon_refresh(d, 1768, 405, C.green, 42)
     draw_text(d, (1826, 378), "换一批", 39, C.green, bold=True)
     topic_card(img, (96, 560, 1968, 842), "家长犹豫不报名？4 类顾虑逐个击破", "识别价格、信任、接送、家庭决策四类顾虑，自动生成针对性跟进策略。", "9月5日 11:21  @创作者", "招生", C.green_dark, (213, 238, 226))

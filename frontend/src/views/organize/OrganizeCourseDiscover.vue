@@ -135,8 +135,7 @@ async function loadCourses() {
     const response = await getOrganizeCourses({
       page: 1,
       page_size: Math.max(1, props.limit),
-      featured: props.variant === 'featured',
-      recommendable: props.variant === 'feed' ? true : undefined,
+      featured: props.variant === 'featured' ? true : undefined,
     })
     if (!response.success || !response.data) {
       throw new Error(response.message || '课程加载失败')

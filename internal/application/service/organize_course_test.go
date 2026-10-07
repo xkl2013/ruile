@@ -536,16 +536,16 @@ func TestOrganizeCourseCountsInRecommendedTabNotAsLesson(t *testing.T) {
 	discover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{})
 	require.NoError(t, err)
 
-	require.NotContains(t, discover.Tabs, types.OrganizeDiscoverTab{
+	require.Contains(t, discover.Tabs, types.OrganizeDiscoverTab{
 		Label: "系列课程",
 		Value: types.OrganizeDiscoverTabCourse,
 		Count: 1,
 	})
-	// One course holds one lesson here; 推荐 counts one course, not one post.
+	// The course has its own tab; 推荐 contains only public output cards.
 	require.Equal(t, "recommended", discover.Tabs[0].Value)
-	require.Equal(t, int64(1), discover.Tabs[0].Count)
+	require.Equal(t, int64(0), discover.Tabs[0].Count)
 
-	// The legacy course alias still must not serve the lesson as a single post.
+	// The course tab must not serve the lesson as a standalone post.
 	courseTabDiscover, err := svc.GetDiscover(ctx, 7, "user-a", types.OrganizeDiscoverQuery{
 		Tab: types.OrganizeDiscoverTabCourse,
 	})

@@ -43,9 +43,9 @@ func (s *organizeService) GetDiscover(
 		return nil, err
 	}
 
-	// Courses are shown in the recommendation stream, so their count belongs
-	// to the recommendation tab even though course lessons are excluded from
-	// the public output listing.
+	// Courses have their own tab. Their count is still calculated from the
+	// published course pool so the tab remains useful even when no curation
+	// flags have been configured yet.
 	courseCount, err := s.countPublishedCourses(ctx)
 	if err != nil {
 		return nil, err
@@ -80,10 +80,9 @@ func (s *organizeService) GetDiscover(
 // PageSize 1 keeps it a COUNT without dragging rows across.
 func (s *organizeService) countPublishedCourses(ctx context.Context) (int64, error) {
 	_, total, err := s.repo.ListCourses(ctx, types.OrganizeCourseQuery{
-		PublicStatus:  types.OrganizePublicContentStatusPublished,
-		Recommendable: boolPtr(true),
-		Page:          1,
-		PageSize:      1,
+		PublicStatus: types.OrganizePublicContentStatusPublished,
+		Page:         1,
+		PageSize:     1,
 	})
 	if err != nil {
 		return 0, err
@@ -125,7 +124,6 @@ func buildDiscoverTabs(
 ) []types.OrganizeDiscoverTab {
 	categoryCounts := make(map[string]int64)
 	var recommendedCount int64
-	explicitFeatured := hasExplicitFeatured(outputs)
 
 	for _, output := range outputs {
 		if output == nil {
@@ -134,9 +132,9 @@ func buildDiscoverTabs(
 		if isDiscoverCourseOutput(output) {
 			continue
 		}
-		if output.Recommendable && (!explicitFeatured || !output.Featured) {
-			recommendedCount++
-		}
+		// Recommendation is the default public feed. Curation flags affect
+		// featured/category placement, but must not make the first tab empty.
+		recommendedCount++
 		if output.Recommendable {
 			if category := discoverOutputCategory(output, categories); category != "" {
 				categoryCounts[category]++
@@ -147,7 +145,11 @@ func buildDiscoverTabs(
 	tabs := []types.OrganizeDiscoverTab{{
 		Label: "推荐",
 		Value: "recommended",
-		Count: recommendedCount + courseCount,
+		Count: recommendedCount,
+	}, {
+		Label: "系列课程",
+		Value: types.OrganizeDiscoverTabCourse,
+		Count: courseCount,
 	}}
 	for _, category := range categories {
 		tabs = append(tabs, types.OrganizeDiscoverTab{
@@ -274,14 +276,20 @@ func paginateDiscoverOutputs(outputs []*types.OrganizeOutput, page, pageSize int
 func matchesDiscoverTab(output *types.OrganizeOutput, tab string, categories []types.OrganizeDiscoverCategory) bool {
 	normalizedTab := normalizeDiscoverTab(tab, categories)
 	isCourseOutput := isDiscoverCourseOutput(output)
-	if output == nil || !output.Recommendable {
+	if output == nil {
 		return false
 	}
 
 	switch normalizedTab {
 	case "", "recommended":
-		return !isCourseOutput && !output.Featured
+		return !isCourseOutput
+	case types.OrganizeDiscoverTabCourse:
+		// Course cards come from /organize/courses, not organize_outputs.
+		return false
 	default:
+		if !output.Recommendable {
+			return false
+		}
 		return !isCourseOutput && discoverOutputCategory(output, categories) == normalizedTab
 	}
 }
@@ -481,8 +489,7 @@ func normalizeDiscoverTab(tab string, categories []types.OrganizeDiscoverCategor
 	case "推荐":
 		return "recommended"
 	case "系列课程", types.OrganizeDiscoverTabCourse:
-		// Keep old links working after courses moved into 推荐.
-		return "recommended"
+		return types.OrganizeDiscoverTabCourse
 	default:
 		for _, category := range categories {
 			if tab == category.Label {

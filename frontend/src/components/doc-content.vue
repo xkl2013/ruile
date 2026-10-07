@@ -87,7 +87,16 @@ mermaid.initialize({
     topPadding: 50
   }
 });
-const props = defineProps(["visible", "details", "knowledgeType", "sourceInfo", "canEditKB", "parse_status", "kbId"]);
+const props = defineProps([
+  "visible",
+  "details",
+  "knowledgeType",
+  "sourceInfo",
+  "canEditKB",
+  "parse_status",
+  "kbId",
+  "previewOnly",
+]);
 const emit = defineEmits(["closeDoc", "getDoc", "questionDeleted", "regenerateSummary"]);
 
 const hasTimelineSpans = ref(false);
@@ -1061,7 +1070,10 @@ const handleDetailsScroll = () => {
       </div>
     </teleport>
     <t-drawer :visible="visible" :zIndex="2000" :size="`${mainDrawerWidth}px`" attach="body" :closeBtn="true"
-      :footer="false" :class="['doc-main-drawer', { 'doc-main-drawer--resizing': mainDrawerResizing }]"
+      :footer="false" :class="['doc-main-drawer', {
+        'doc-main-drawer--resizing': mainDrawerResizing,
+        'doc-main-drawer--preview-only': previewOnly,
+      }]"
       @close="handleClose">
       <template #header>
         <div class="doc-drawer-header">
@@ -1071,7 +1083,7 @@ const handleDetailsScroll = () => {
           <div class="doc-drawer-header-text">
             <div class="doc-drawer-header-title">{{ getDisplayTitle() }}</div>
           </div>
-          <div class="header-actions">
+          <div v-if="!previewOnly" class="header-actions">
             <t-button v-if="details.id && hasTimelineSpans" class="header-action-btn trace-entry-btn" size="small"
               variant="text" shape="square" :theme="traceEntryTheme" :title="traceEntryTitle" @click="openTimeline">
               <template #icon>
@@ -1099,14 +1111,14 @@ const handleDetailsScroll = () => {
       <!-- Hidden mount: keeps the timeline fetching data so the header
            link's status dot / duration stays live even before the user
            opens the secondary drawer. -->
-      <div class="kp-trigger-shadow" aria-hidden="true">
+      <div v-if="!previewOnly" class="kp-trigger-shadow" aria-hidden="true">
         <KnowledgeProcessingTimeline v-if="details.id" :knowledge-id="details.id" :parse-status="details.parse_status"
           :compact="true" :grace-poll="false" @update:has-spans="hasTimelineSpans = $event"
           @update:summary="timelineSummary = $event" />
       </div>
 
       <!-- 二级抽屉：完整 Langfuse-style waterfall -->
-      <teleport to="body">
+      <teleport v-if="!previewOnly" to="body">
         <div v-if="timelineDrawerVisible" class="trace-drawer-resize-handle"
           :style="{ right: `${timelineDrawerWidth}px` }" role="separator" aria-orientation="vertical"
           :aria-label="$t('knowledgeStages.resizeDrawer')" :title="$t('knowledgeStages.resizeDrawer')"
@@ -1114,7 +1126,8 @@ const handleDetailsScroll = () => {
           <div class="trace-drawer-resize-line" />
         </div>
       </teleport>
-      <t-drawer :visible="timelineDrawerVisible" :zIndex="2100" :size="`${timelineDrawerWidth}px`" attach="body"
+      <t-drawer v-if="!previewOnly" :visible="timelineDrawerVisible" :zIndex="2100"
+        :size="`${timelineDrawerWidth}px`" attach="body"
         :closeBtn="false" :footer="false" :header="false" :showOverlay="true" :closeOnOverlayClick="true"
         placement="right" :class="['kp-secondary-drawer', { 'kp-secondary-drawer--resizing': timelineDrawerResizing }]"
         @close="closeTimeline">
@@ -1124,8 +1137,16 @@ const handleDetailsScroll = () => {
         </div>
       </t-drawer>
 
-      <div ref="docMarkdownRoot" class="doc-markdown-root doc-drawer-body setting-drawer__body">
-        <section v-if="details.id" class="setting-drawer__section">
+      <div ref="docMarkdownRoot"
+        :class="['doc-markdown-root', 'doc-drawer-body', 'setting-drawer__body', {
+          'doc-drawer-body--preview-only': previewOnly,
+        }]">
+        <div v-if="previewOnly && details.id" class="doc-preview-only">
+          <DocumentPreview :knowledgeId="details.id" :fileType="details.file_type" :fileName="details.title"
+            :active="true" fill-height reading-mode />
+        </div>
+
+        <section v-if="!previewOnly && details.id" class="setting-drawer__section">
           <h4 class="setting-drawer__section-title">{{ $t('knowledgeBase.detailSectionMeta') }}</h4>
           <div class="doc-detail-rows">
             <div v-if="details.time" class="doc-detail-row">
@@ -1161,7 +1182,7 @@ const handleDetailsScroll = () => {
           </div>
         </section>
 
-        <section v-if="details.type === 'url'" class="setting-drawer__section">
+        <section v-if="!previewOnly && details.type === 'url'" class="setting-drawer__section">
           <h4 class="setting-drawer__section-title">{{ $t('knowledgeBase.urlSource') }}</h4>
           <div class="url_link_box">
             <a :href="isValidURL(details.source) ? details.source : 'javascript:void(0)'"
@@ -1173,7 +1194,7 @@ const handleDetailsScroll = () => {
           </div>
         </section>
 
-        <section v-if="showSummarySection" class="setting-drawer__section">
+        <section v-if="!previewOnly && showSummarySection" class="setting-drawer__section">
           <h4 class="setting-drawer__section-title">{{ $t('knowledgeBase.documentSummary') }}</h4>
           <div v-if="details.description" class="summary_wrapper"
             :class="{ 'summary_clickable': summaryOverflow || summaryExpanded }"
@@ -1192,7 +1213,7 @@ const handleDetailsScroll = () => {
           </div>
         </section>
 
-        <section class="setting-drawer__section doc-content-section">
+        <section v-if="!previewOnly" class="setting-drawer__section doc-content-section">
           <div class="doc-content-section-head">
             <div class="doc-content-section-head-left">
               <h4 class="setting-drawer__section-title">{{ getContentLabel() }}</h4>
@@ -1397,6 +1418,19 @@ const handleDetailsScroll = () => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.doc-drawer-body--preview-only {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+}
+
+.doc-preview-only {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
 }
 
 .doc-drawer-body .setting-drawer__section {
@@ -1880,6 +1914,16 @@ const handleDetailsScroll = () => {
 
   .t-drawer__body {
     padding: 16px 18px;
+  }
+}
+
+.t-drawer.doc-main-drawer--preview-only {
+  .t-drawer__body {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 10px 10px;
+    overflow: hidden;
+    background: var(--td-bg-color-container);
   }
 }
 

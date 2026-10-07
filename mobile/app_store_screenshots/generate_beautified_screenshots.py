@@ -474,7 +474,7 @@ def screen_topics() -> Image.Image:
     d = ImageDraw.Draw(img)
     draw_status_bar(d)
     draw_menu(d)
-    draw_text(d, (56, 340), "精选主题", 56, C.text, bold=True)
+    draw_text(d, (56, 340), "精选", 56, C.text, bold=True)
     icon_refresh(d, 884, 372, C.green, 39)
     draw_text(d, (936, 345), "换一批", 36, C.green, bold=True)
 
