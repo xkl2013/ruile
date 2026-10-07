@@ -48,6 +48,14 @@ export interface RenderOrganizeMarkdownOptions {
   normalize?: OrganizeMarkdownNormalizer
 }
 
+/** 正文里的 [M1] 来源标记 → 可点击小徽章（样式见 OrganizeMarkdownRenderer）。 */
+const CITE_BADGE_PATTERN = /\[(M\d+)\](?!\()/g
+
+const withCiteBadges = (markdown: string) =>
+  markdown.replace(CITE_BADGE_PATTERN, (_match, id: string) =>
+    `<span class="organize-cite-ref" data-cite="${id}">${id}</span>`,
+  )
+
 /**
  * Render model-produced Markdown while keeping legacy HTML output readable and safe.
  * The optional normalizer is reserved for legacy content with known formatting noise.
@@ -65,7 +73,7 @@ export const renderOrganizeMarkdown = (
 
   configureMarked()
   const markdown = (options.normalize ? options.normalize(source) : source.replace(/\r\n?/g, '\n')).trim()
-  const html = marked.parse(safeMarkdownToHTML(markdown), {
+  const html = marked.parse(withCiteBadges(safeMarkdownToHTML(markdown)), {
     gfm: true,
     breaks: true,
     async: false,
