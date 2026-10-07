@@ -28,7 +28,7 @@
             :data-cite="citation.label"
             @click="showCitation(citation.id)"
           >
-            {{ citation.label }} · {{ citation.title }}
+            <span class="organize-citation-text">{{ citation.label }} · {{ citation.title }}</span>
           </button>
         </div>
 
@@ -438,10 +438,10 @@ watch(
   display: inline-flex;
   align-items: center;
   max-width: 380px;
+  min-width: 0;
   min-height: 20px;
   margin-left: 4px;
   padding: 0 5px;
-  overflow: hidden;
   border: 1px solid #d9d6f4;
   border-radius: 4px;
   background: #f4f2ff;
@@ -450,8 +450,13 @@ watch(
   font: inherit;
   font-size: 11px;
   line-height: 18px;
-  text-overflow: ellipsis;
   vertical-align: 1px;
+}
+
+.organize-citation-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
