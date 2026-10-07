@@ -142,6 +142,23 @@ test('saved organize configs and jobs are served by organize APIs', () => {
   assert.ok(configDetailSource.includes('cancelOrganizeJob'))
 })
 
+test('organize sidebar config items expose settings and delete actions on hover', () => {
+  assert.ok(organizeMenuSource.includes('class="organize-menu-item-actions"'))
+  assert.ok(organizeMenuSource.includes(':aria-label="`设置${config.name}`"'))
+  assert.ok(organizeMenuSource.includes(':aria-label="`删除${config.name}`"'))
+  assert.ok(organizeMenuSource.includes("t-icon name=\"setting\""))
+  assert.ok(organizeMenuSource.includes("t-icon name=\"delete\""))
+  assert.ok(organizeMenuSource.includes('<OrganizeConfigDialog'))
+  assert.ok(organizeMenuSource.includes('editingConfig.value = config'))
+  assert.ok(organizeMenuSource.includes('configDialogVisible.value = true'))
+  assert.ok(!organizeMenuSource.includes("config: 'edit'"))
+  assert.ok(organizeMenuSource.includes('deleteOrganizeConfig(config.id)'))
+  assert.ok(organizeMenuSource.includes('box-sizing: border-box'))
+  assert.ok(organizeMenuSource.includes('flex: 0 0 42px'))
+  assert.ok(organizeMenuSource.includes('.organize-menu-item:hover .organize-menu-item-actions'))
+  assert.ok(organizeMenuSource.includes('.organize-menu-item:focus-within .organize-menu-item-actions'))
+})
+
 test('completed job cards prioritize result title, preview, and created time', () => {
   assert.ok(stateSource.includes("jobMode: job.job_mode || (batchCount > 1 ? 'batch' : 'single')"))
   assert.ok(stateSource.includes('organizeOutputPreview'))

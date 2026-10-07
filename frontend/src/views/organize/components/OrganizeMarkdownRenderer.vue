@@ -108,4 +108,31 @@ const renderedHtml = computed(() => renderOrganizeMarkdown(props.content, render
   margin-right: 6px;
   accent-color: var(--td-brand-color);
 }
+
+/* [M1] 来源徽章：弱化为可点击小角标 */
+.organize-markdown-renderer--report :deep(.organize-cite-ref),
+.organize-markdown-renderer--checklist :deep(.organize-cite-ref) {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-7);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  vertical-align: 2px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 表格弱化：细边框 + 斑马纹 */
+.organize-markdown-renderer--report :deep(th),
+.organize-markdown-renderer--report :deep(td) {
+  border-color: var(--td-component-stroke);
+}
+
+.organize-markdown-renderer--report :deep(tbody tr:nth-child(even) td) {
+  background: var(--td-bg-color-secondarycontainer);
+}
 </style>

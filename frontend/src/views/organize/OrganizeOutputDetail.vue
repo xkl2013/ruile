@@ -15,7 +15,7 @@
         </div>
       </header>
 
-      <article class="organize-output-document">
+      <article class="organize-output-document" @click="handleDocumentClick">
         <header class="organize-output-document-head">
           <h2>{{ output.title }}</h2>
         </header>
@@ -25,9 +25,10 @@
             :key="citation.id"
             type="button"
             class="organize-citation"
+            :data-cite="citation.label"
             @click="showCitation(citation.id)"
           >
-            {{ citation.label }} · {{ citation.title }}
+            <span class="organize-citation-text">{{ citation.label }} · {{ citation.title }}</span>
           </button>
         </div>
 
@@ -125,6 +126,16 @@ const router = useRouter()
 const output = ref<OrganizeOutput | null>(null)
 const loading = ref(true)
 const fromConfig = computed(() => route.query.from === 'config')
+
+/** 点击正文里的 [M1] 徽章 → 滚动到顶部对应引用条目。 */
+const handleDocumentClick = (event: MouseEvent) => {
+  const badge = (event.target as HTMLElement | null)?.closest?.('.organize-cite-ref') as HTMLElement | null
+  const cite = badge?.dataset?.cite
+  if (!cite) return
+  document
+    .querySelector(`.organize-citation[data-cite="${CSS.escape(cite)}"]`)
+    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
 const serviceDialogVisible = ref(false)
 const serviceLoading = ref(false)
 const serviceImporting = ref(false)
@@ -451,6 +462,8 @@ watch(
 .organize-citation {
   display: inline-flex;
   align-items: center;
+  max-width: 380px;
+  min-width: 0;
   min-height: 20px;
   margin-left: 4px;
   padding: 0 5px;
@@ -463,6 +476,13 @@ watch(
   font-size: 11px;
   line-height: 18px;
   vertical-align: 1px;
+}
+
+.organize-citation-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .organize-detail-empty {

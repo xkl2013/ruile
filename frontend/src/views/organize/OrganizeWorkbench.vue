@@ -120,7 +120,7 @@
                   <strong>{{ template.name }}</strong>
                 </div>
                 <p>{{ template.description }}</p>
-                <span class="organize-template-card-meta">产出 {{ template.outputLabel }} · 创建后可调整</span>
+                <span class="organize-template-card-meta">产出 {{ template.outputLabel }}</span>
               </button>
             </div>
           </section>
@@ -696,8 +696,8 @@ watch(dialogVisible, (visible) => {
 
 .organize-template-group-label {
   margin-bottom: 6px;
-  color: var(--organize-secondary);
-  font-size: 12px;
+  color: var(--organize-text);
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -730,12 +730,12 @@ watch(dialogVisible, (visible) => {
 
 .organize-template-card p {
   display: -webkit-box;
-  min-height: 34px;
+  min-height: 36px;
   margin: 7px 0 0;
   overflow: hidden;
-  color: var(--organize-muted);
-  font-size: 11px;
-  line-height: 17px;
+  color: var(--organize-secondary);
+  font-size: 12px;
+  line-height: 18px;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }

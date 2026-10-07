@@ -16,12 +16,15 @@
     </div>
 
     <div v-show="isExpanded" :id="organizeMenuListId" class="organize-menu-list organize-menu-list--nested">
-      <button v-for="config in configuredOrganizeItems" :key="config.id" type="button"
+      <div v-for="config in configuredOrganizeItems" :key="config.id"
         class="organize-menu-item" :class="{ active: isConfigActive(config) }"
-        :title="config.name" :aria-current="isConfigActive(config) ? 'page' : undefined"
-        @click="openConfig(config.id)">
+        role="button" tabindex="0"
+        :aria-current="isConfigActive(config) ? 'page' : undefined"
+        @click="openConfig(config.id)"
+        @keydown.enter.self.prevent="openConfig(config.id)"
+        @keydown.space.self.prevent="openConfig(config.id)">
         <t-icon :name="configIcon(config)" class="organize-menu-item-icon" />
-        <span class="organize-menu-item-name">{{ config.name }}</span>
+        <span class="organize-menu-item-name" :title="config.name">{{ config.name }}</span>
         <span
           v-if="config.hasUnreadOutput"
           class="organize-menu-item-unread"
@@ -29,16 +32,46 @@
           aria-label="有未读整理报告"
           title="有未读整理报告"
         />
-      </button>
+        <span class="organize-menu-item-actions" @click.stop>
+          <t-tooltip content="设置" placement="top">
+            <button
+              type="button"
+              class="organize-menu-item-action"
+              :aria-label="`设置${config.name}`"
+              @click.stop="openConfigSettings(config)"
+            >
+              <t-icon name="setting" size="14px" />
+            </button>
+          </t-tooltip>
+          <t-tooltip content="删除" placement="top">
+            <button
+              type="button"
+              class="organize-menu-item-action organize-menu-item-action--danger"
+              :aria-label="`删除${config.name}`"
+              @click.stop="removeConfig(config)"
+            >
+              <t-icon name="delete" size="14px" />
+            </button>
+          </t-tooltip>
+        </span>
+      </div>
     </div>
+
+    <OrganizeConfigDialog
+      v-model:visible="configDialogVisible"
+      :config="editingConfig"
+      @saved="handleConfigSaved"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { listOrganizeConfigs } from '@/api/organize'
+import { deleteOrganizeConfig, listOrganizeConfigs } from '@/api/organize'
+import OrganizeConfigDialog from '@/views/organize/components/OrganizeConfigDialog.vue'
 import {
   ORGANIZE_ROUTE_BASE_PATH,
   ORGANIZE_ROUTE_NAMES,
@@ -57,6 +90,8 @@ const organizeMenuListId = 'organize-menu-list'
 const ORGANIZE_MENU_EXPANDED_STORAGE_KEY = 'sidebar-organize-menu-expanded'
 const organizeWorkbenchPath = `${ORGANIZE_ROUTE_BASE_PATH}/hub`
 const configuredOrganizeItems = ref<OrganizeConfig[]>([])
+const configDialogVisible = ref(false)
+const editingConfig = ref<OrganizeConfig | null>(null)
 let refreshTimer: number | undefined
 
 const loadExpandedState = () => {
@@ -113,6 +148,16 @@ const openConfig = async (configId: string) => {
   await openRoute(`${ORGANIZE_ROUTE_BASE_PATH}/configs/${encodeURIComponent(configId)}`)
 }
 
+const openConfigSettings = (config: OrganizeConfig) => {
+  editingConfig.value = config
+  configDialogVisible.value = true
+}
+
+const handleConfigSaved = async (config: OrganizeConfig) => {
+  MessagePlugin.success(`整理「${config.name}」已保存`)
+  await loadConfiguredItems()
+}
+
 const handleConfigOutputRead = (event: Event) => {
   const detail = (event as CustomEvent<{
     configId?: string
@@ -128,6 +173,28 @@ const handleConfigOutputRead = (event: Event) => {
       ? detail.hasUnreadOutput
       : Boolean(latestOutputId && latestOutputId !== detail?.viewedOutputId)
     return { ...config, hasUnreadOutput }
+  })
+}
+
+const removeConfig = (config: OrganizeConfig) => {
+  const dialog = DialogPlugin.confirm({
+    header: '删除整理配置',
+    body: `确认删除「${config.name}」？已生成的整理结果会继续保留。`,
+    confirmBtn: { content: '删除', theme: 'danger' },
+    cancelBtn: '取消',
+    onConfirm: async () => {
+      try {
+        await deleteOrganizeConfig(config.id)
+        configuredOrganizeItems.value = configuredOrganizeItems.value.filter((item) => item.id !== config.id)
+        if (isConfigActive(config)) {
+          await router.push(organizeWorkbenchPath)
+        }
+        MessagePlugin.success('整理配置已删除')
+        dialog.destroy()
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || '整理配置删除失败')
+      }
+    },
   })
 }
 
@@ -229,6 +296,7 @@ watch(
   display: flex;
   align-items: center;
   gap: 8px;
+  box-sizing: border-box;
   width: 100%;
   min-height: 30px;
   padding: 0 12px 0 calc(var(--sidebar-inset-x) + 12px);
@@ -267,6 +335,48 @@ watch(
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
+}
+
+.organize-menu-item-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  flex: 0 0 42px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.organize-menu-item:hover .organize-menu-item-actions,
+.organize-menu-item:focus-within .organize-menu-item-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.organize-menu-item-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.organize-menu-item-action:hover {
+  background: var(--td-bg-color-container-hover);
+  color: var(--td-text-color-primary);
+}
+
+.organize-menu-item-action--danger:hover {
+  background: var(--td-error-color-light);
+  color: var(--td-error-color);
 }
 
 .organize-menu-item-unread {

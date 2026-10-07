@@ -12,6 +12,7 @@ import 'package:record/record.dart';
 import 'package:video_player/video_player.dart';
 
 import 'audio/phone_recording_mp3_encoder.dart';
+import 'memory_attachment_presentation.dart';
 import 'recording_card/jieli_recording_card_native_api.dart';
 import 'recording_card/jieli_recording_card_page.dart';
 import 'recording_card/jieli_recording_card_runtime.dart';
@@ -15374,7 +15375,8 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   }
 
   Future<void> _retryAttachment(_OrganizeMemoryAttachment attachment) async {
-    if (!attachment.canRetry || attachment.id.trim().isEmpty) return;
+    final presentation = _note.attachmentPresentation(attachment);
+    if (!presentation.canRetry || attachment.id.trim().isEmpty) return;
     final memoryId = _note.id.trim();
     if (memoryId.isEmpty) return;
 
@@ -15412,6 +15414,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
       MaterialPageRoute<void>(
         builder: (context) => _MemoryAttachmentPreviewPage(
           attachment: attachment,
+          presentation: _note.attachmentPresentation(attachment),
           authToken: widget.authToken,
           tenantId: widget.tenantId,
           onAuthFailure: widget.onAuthFailure,
@@ -15789,6 +15792,7 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                 for (final attachment in note.attachments) ...[
                   _MemoryAttachmentCard(
                     attachment: attachment,
+                    presentation: note.attachmentPresentation(attachment),
                     onTap: () => unawaited(_openAttachmentPreview(attachment)),
                   ),
                   const SizedBox(height: 8),
@@ -15859,10 +15863,12 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
 class _MemoryAttachmentCard extends StatelessWidget {
   const _MemoryAttachmentCard({
     required this.attachment,
+    required this.presentation,
     required this.onTap,
   });
 
   final _OrganizeMemoryAttachment attachment;
+  final MemoryAttachmentPresentation presentation;
   final VoidCallback onTap;
 
   @override
@@ -15921,11 +15927,12 @@ class _MemoryAttachmentCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      attachment.statusLabel,
+                      attachment.statusLabelFor(presentation.status),
                       style: TextStyle(
                         fontSize: 11,
                         height: 1.2,
-                        color: _memoryAttachmentStatusColor(attachment.status),
+                        color:
+                            _memoryAttachmentStatusColor(presentation.status),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -15968,54 +15975,65 @@ class _MemoryFileNotes extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final aggregateLabel = note.transcriptionStatusLabel;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const Expanded(
-              child: Text(
-                '附件解析笔记',
-                style: TextStyle(
-                  fontSize: 17,
-                  height: 1.3,
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            if (aggregateLabel.isNotEmpty)
-              Text(
-                aggregateLabel,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: _memoryAttachmentStatusColor(
-                    note.attachmentStatus.isEmpty
-                        ? note.transcriptionStatus
-                        : note.attachmentStatus,
-                  ),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-          ],
+    final aggregateLabel = note.attachmentAggregateStatusLabel;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF1F1F1),
+        border: Border(
+          top: BorderSide(color: Color(0x2437352F)),
         ),
-        const SizedBox(height: 14),
-        if (note.attachments.isEmpty)
-          _MemoryLegacyFileNote(note: note)
-        else
-          for (var index = 0; index < note.attachments.length; index++) ...[
-            _MemoryFileNote(
-              attachment: note.attachments[index],
-              summaryOverride:
-                  note.attachments.length == 1 ? note.memorySummary : '',
-              onRetry: () => onRetry(note.attachments[index]),
-            ),
-            if (index != note.attachments.length - 1)
-              const SizedBox(height: 16),
-          ],
-      ],
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(8)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Expanded(
+                child: Text(
+                  '附件解析笔记',
+                  style: TextStyle(
+                    fontSize: 17,
+                    height: 1.4,
+                    color: AppColors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (aggregateLabel.isNotEmpty && aggregateLabel != '全部完成')
+                Text(
+                  aggregateLabel,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _memoryAttachmentStatusColor(
+                      note.attachmentAggregateStatus,
+                    ),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          if (note.attachments.isEmpty)
+            _MemoryLegacyFileNote(note: note)
+          else
+            for (var index = 0; index < note.attachments.length; index++) ...[
+              _MemoryFileNote(
+                attachment: note.attachments[index],
+                memoryTranscript: note.transcript,
+                attachmentCount: note.attachments.length,
+                summaryOverride:
+                    note.attachments.length == 1 ? note.memorySummary : '',
+                onRetry: () => onRetry(note.attachments[index]),
+              ),
+              if (index != note.attachments.length - 1)
+                const SizedBox(height: 24),
+            ],
+        ],
+      ),
     );
   }
 }
@@ -16078,115 +16096,119 @@ class _MemoryLegacyFileNote extends StatelessWidget {
 class _MemoryFileNote extends StatelessWidget {
   const _MemoryFileNote({
     required this.attachment,
+    required this.memoryTranscript,
+    required this.attachmentCount,
     this.summaryOverride = '',
     required this.onRetry,
   });
 
   final _OrganizeMemoryAttachment attachment;
+  final String memoryTranscript;
+  final int attachmentCount;
   final String summaryOverride;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
-    final body = attachment.displayContent.trim();
+    final presentation = attachment.presentation(
+      memoryTranscript: memoryTranscript,
+      attachmentCount: attachmentCount,
+    );
+    final body = presentation.body;
     final blocks =
         body.isEmpty ? const <_SproutTextBlock>[] : _sproutPreviewBlocks(body);
-    final isTranscript = attachment.transcript.trim().isNotEmpty ||
-        attachment.isAudio ||
-        attachment.isVideo;
     final summary = summaryOverride.trim().isNotEmpty
         ? summaryOverride.trim()
-        : attachment.summary;
+        : attachment.summaryFor(body);
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FB),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 13),
-        child: Column(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    '[${attachment.fileName}]',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      height: 1.35,
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (attachment.canRetry)
-                  TextButton(
-                    onPressed: onRetry,
-                    style: TextButton.styleFrom(
-                      minimumSize: Size.zero,
-                      padding: const EdgeInsets.fromLTRB(8, 2, 0, 2),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: const Text('重新解析'),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (attachment.status.trim().toLowerCase() == 'completed') ...[
-              if (summary.isNotEmpty) ...[
-                Text(
-                  isTranscript ? '转写摘要' : '文件摘要',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  summary,
-                  style: AppTextStyles.body.copyWith(height: 1.55),
-                ),
-                const SizedBox(height: 12),
-              ],
-              Text(
-                isTranscript ? '转写正文' : '正文内容',
+            Expanded(
+              child: Text(
+                '[${attachment.fileName}]',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 15,
+                  height: 1.5,
                   color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 5),
-              if (blocks.isEmpty) ...[
-                const Text(
-                  '该文件暂未生成可展示的解析内容。',
-                  style: AppTextStyles.body,
+            ),
+            if (presentation.canRetry)
+              TextButton(
+                onPressed: onRetry,
+                style: TextButton.styleFrom(
+                  minimumSize: Size.zero,
+                  padding: const EdgeInsets.fromLTRB(8, 2, 0, 2),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-              ] else ...[
-                for (final block in blocks)
-                  _SproutPreviewBlock(block: block, compact: true),
-              ],
-            ] else
-              Text(
-                attachment.errorMessage.trim().isNotEmpty
-                    ? attachment.errorMessage.trim()
-                    : '${attachment.statusLabel}，请稍候刷新。',
-                style: AppTextStyles.body.copyWith(
-                  color: attachment.canRetry
-                      ? const Color(0xFFC43A31)
-                      : AppColors.textSecondary,
+                child: const Text(
+                  '重新解析',
+                  style: TextStyle(fontSize: 12),
                 ),
               ),
           ],
         ),
-      ),
+        const SizedBox(height: 12),
+        if (presentation.status == 'completed') ...[
+          if (summary.isNotEmpty) ...[
+            Text(
+              presentation.isTranscript ? '转写摘要' : '文件摘要',
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              summary,
+              style: AppTextStyles.body.copyWith(height: 1.55),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Text(
+            presentation.isTranscript ? '转写正文' : '正文内容',
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.5,
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (blocks.isEmpty) ...[
+            Text(
+              '该文件暂未生成可展示的解析内容。',
+              style: AppTextStyles.body.copyWith(
+                fontSize: 13,
+                height: 1.7,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ] else ...[
+            for (final block in blocks)
+              _SproutPreviewBlock(block: block, compact: true),
+          ],
+        ] else
+          Text(
+            presentation.stateMessage,
+            style: AppTextStyles.body.copyWith(
+              fontSize: 13,
+              height: 1.7,
+              color: presentation.canRetry
+                  ? const Color(0xFFC43A31)
+                  : AppColors.textSecondary,
+            ),
+          ),
+      ],
     );
   }
 }
@@ -16208,12 +16230,14 @@ Color _memoryAttachmentStatusColor(String status) {
 class _MemoryAttachmentPreviewPage extends StatelessWidget {
   const _MemoryAttachmentPreviewPage({
     required this.attachment,
+    required this.presentation,
     required this.authToken,
     required this.tenantId,
     this.onAuthFailure,
   });
 
   final _OrganizeMemoryAttachment attachment;
+  final MemoryAttachmentPresentation presentation;
   final String authToken;
   final String tenantId;
   final VoidCallback? onAuthFailure;
@@ -16312,10 +16336,10 @@ class _MemoryAttachmentPreviewPage extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        attachment.statusLabel,
+                        attachment.statusLabelFor(presentation.status),
                         style: AppTextStyles.meta.copyWith(
                           color:
-                              _memoryAttachmentStatusColor(attachment.status),
+                              _memoryAttachmentStatusColor(presentation.status),
                         ),
                       ),
                     ],
@@ -24261,7 +24285,23 @@ class _OrganizeMemoryAttachment {
     return content;
   }
 
-  String get summary {
+  MemoryAttachmentPresentation presentation({
+    required String memoryTranscript,
+    required int attachmentCount,
+  }) {
+    return resolveMemoryAttachmentPresentation(
+      fileName: fileName,
+      fileType: fileType,
+      storedTranscript: transcript,
+      storedContent: content,
+      status: status,
+      errorMessage: errorMessage,
+      memoryTranscript: memoryTranscript,
+      attachmentCount: attachmentCount,
+    );
+  }
+
+  String summaryFor(String body) {
     for (final key in const [
       'summary',
       'file_summary',
@@ -24271,7 +24311,7 @@ class _OrganizeMemoryAttachment {
       final value = metadata[key]?.toString().trim() ?? '';
       if (value.isNotEmpty) return _normalizeSpaces(value);
     }
-    return _compactMemoryFileSummary(displayContent);
+    return _compactMemoryFileSummary(body);
   }
 
   bool get isAudio => const {
@@ -24324,7 +24364,11 @@ class _OrganizeMemoryAttachment {
   }
 
   String get statusLabel {
-    switch (status.trim().toLowerCase()) {
+    return statusLabelFor(status);
+  }
+
+  String statusLabelFor(String value) {
+    switch (value.trim().toLowerCase()) {
       case 'pending':
         return '等待解析';
       case 'processing':
@@ -24337,7 +24381,7 @@ class _OrganizeMemoryAttachment {
       case 'skipped':
         return '已跳过';
       default:
-        return status.trim().isEmpty ? '等待解析' : status.trim();
+        return value.trim().isEmpty ? '等待解析' : value.trim();
     }
   }
 }
@@ -24636,14 +24680,74 @@ class _NoteItem {
 
   bool get hasAttachments => attachments.isNotEmpty;
 
+  MemoryAttachmentPresentation attachmentPresentation(
+    _OrganizeMemoryAttachment attachment,
+  ) {
+    return attachment.presentation(
+      memoryTranscript: transcript,
+      attachmentCount: attachments.length,
+    );
+  }
+
+  Iterable<MemoryAttachmentPresentation> get _attachmentPresentations =>
+      attachments.map(attachmentPresentation);
+
   bool get hasAudioAttachment =>
       attachments.any((attachment) => attachment.isAudio);
 
-  bool get hasPendingAttachment =>
-      attachments.any((attachment) => attachment.isPendingOrProcessing);
+  bool get hasPendingAttachment => _attachmentPresentations.any(
+        (presentation) => const {
+          'pending',
+          'processing',
+          'transcribing',
+        }.contains(presentation.status),
+      );
 
   bool get hasFailedAttachment =>
-      attachments.any((attachment) => attachment.canRetry);
+      _attachmentPresentations.any((presentation) => presentation.canRetry);
+
+  String get attachmentAggregateStatus {
+    if (hasAttachments) {
+      final statuses = _attachmentPresentations
+          .map((presentation) => presentation.status)
+          .toSet();
+      if (statuses.contains('processing') ||
+          statuses.contains('transcribing')) {
+        return 'processing';
+      }
+      if (statuses.contains('pending')) return 'pending';
+      if (statuses.contains('failed') || statuses.contains('skipped')) {
+        return statuses.contains('completed') ? 'partial' : 'failed';
+      }
+      if (statuses.contains('completed')) return 'completed';
+    }
+
+    final aggregate = attachmentStatus.trim().toLowerCase();
+    if (aggregate == 'transcribing') return 'processing';
+    if (aggregate.isNotEmpty) return aggregate;
+    return transcriptionStatus.trim().toLowerCase();
+  }
+
+  String get attachmentAggregateStatusLabel {
+    switch (attachmentAggregateStatus) {
+      case 'pending':
+      case 'queued':
+        return '等待解析';
+      case 'processing':
+      case 'transcribing':
+        return '解析中';
+      case 'partial':
+        return '部分完成';
+      case 'completed':
+        return '全部完成';
+      case 'failed':
+      case 'skipped':
+      case 'queued_failed':
+        return '解析失败';
+      default:
+        return '';
+    }
+  }
 
   bool get hasAudioLink {
     if (audioUrl.trim().isEmpty) return false;
@@ -24692,8 +24796,8 @@ class _NoteItem {
 
   String get transcriptionStatusLabel {
     if (hasAttachments) {
-      final statuses = attachments
-          .map((attachment) => attachment.status.trim().toLowerCase())
+      final statuses = _attachmentPresentations
+          .map((presentation) => presentation.status)
           .toSet();
       if (statuses.contains('processing') ||
           statuses.contains('pending') ||
@@ -24731,8 +24835,8 @@ class _NoteItem {
   String get transcriptionStatusDetailText {
     final label = transcriptionStatusLabel;
     if (label != '转写失败' && label != '解析失败') return '';
-    final attachmentError = attachments
-        .map((attachment) => attachment.errorMessage.trim())
+    final attachmentError = _attachmentPresentations
+        .map((presentation) => presentation.errorMessage)
         .firstWhere((value) => value.isNotEmpty, orElse: () => '');
     if (attachmentError.isNotEmpty) return '原因：$attachmentError';
     final detail = _normalizeSpaces(transcriptionDetail);
@@ -24741,18 +24845,13 @@ class _NoteItem {
   }
 
   bool get _isTranscriptionSuccess {
-    return transcriptionStatus.trim().toLowerCase() == 'completed';
+    final label = transcriptionStatusLabel;
+    return label == '转写成功' || label == '解析完成';
   }
 
   bool get _isTranscriptionFailure {
-    switch (transcriptionStatus.trim().toLowerCase()) {
-      case 'failed':
-      case 'skipped':
-      case 'queued_failed':
-        return true;
-      default:
-        return false;
-    }
+    final label = transcriptionStatusLabel;
+    return label == '转写失败' || label == '解析失败';
   }
 
   Color get transcriptionStatusColor {
