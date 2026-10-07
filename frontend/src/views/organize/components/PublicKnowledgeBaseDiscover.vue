@@ -323,24 +323,27 @@ onMounted(() => {
 .public-kb-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
+  gap: 8px;
+  width: min(100%, 768px);
 }
 
 .public-kb-card {
   position: relative;
-  display: flex;
-  align-items: start;
-  gap: 12px;
+  display: grid;
+  width: 100%;
+  height: 91px;
+  min-height: 91px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  min-height: 90px;
-  height: auto;
   box-sizing: border-box;
   padding: 16px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 16px;
   background: var(--td-bg-color-container);
   cursor: default;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -364,7 +367,6 @@ onMounted(() => {
   justify-content: center;
   width: 56px;
   height: 56px;
-  flex: 0 0 56px;
   border-radius: 8px;
   background: var(--td-bg-color-secondarycontainer);
   overflow: hidden;
@@ -395,13 +397,13 @@ onMounted(() => {
   display: -webkit-box;
   flex: 0 0 auto;
   margin: 0 0 4px;
-  max-height: 18px;
+  max-height: 16px;
   padding-right: 34px;
   overflow: hidden;
   color: var(--td-text-color-primary);
   font-size: 14px;
   font-weight: 400;
-  line-height: 18px;
+  line-height: 16px;
   letter-spacing: 0;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
@@ -475,13 +477,13 @@ onMounted(() => {
 
 .output-summary {
   display: -webkit-box;
-  margin: 0 0 6px;
-  max-height: 18px;
+  margin: 4px 0 0;
+  max-height: 14px;
   overflow: hidden;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
+  color: rgba(0, 0, 0, 0.44);
+  font-size: 11px;
   font-weight: 400;
-  line-height: 18px;
+  line-height: 14px;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
 }
@@ -490,20 +492,20 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 6px;
-  margin-top: auto;
+  gap: 2px;
+  margin-top: 8px;
   min-width: 0;
 }
 
 .discover-card-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   min-width: 0;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
+  color: rgba(0, 0, 0, 0.44);
+  font-size: 11px;
   font-weight: 400;
-  line-height: 18px;
+  line-height: 14px;
   white-space: nowrap;
 }
 
@@ -531,25 +533,31 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .public-kb-grid {
-    grid-template-columns: 1fr;
+    width: 100%;
   }
 }
 
 @media (max-width: 560px) {
   .public-kb-card {
-    gap: 10px;
-    padding: 12px;
+    height: 132px;
+    min-height: 132px;
   }
 
   .public-kb-card__image {
-    width: 48px;
-    height: 48px;
-    flex-basis: 48px;
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
   }
 
   .public-kb-card__image :deep(.kb-icon--large) {
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
+    border-radius: 8px;
+  }
+
+  .public-kb-card__image :deep(.kb-icon--large .kb-icon-symbol),
+  .public-kb-card__image :deep(.kb-icon--large .kb-icon-emoji) {
+    font-size: 28px;
   }
 }
 </style>

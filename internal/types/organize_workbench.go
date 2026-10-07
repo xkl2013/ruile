@@ -295,6 +295,23 @@ type OrganizeTemplatePreview struct {
 	Errors           []string `json:"errors"`
 }
 
+type OrganizeTemplateCompileInput struct {
+	SourceMarkdown string `json:"source_markdown"`
+}
+
+type OrganizeTemplateCompileResult struct {
+	Key                string   `json:"key"`
+	Name               string   `json:"name"`
+	Scene              string   `json:"scene"`
+	Description        string   `json:"description"`
+	OutputLabel        string   `json:"output_label"`
+	DefaultInstruction string   `json:"default_instruction"`
+	MarkdownTemplate   string   `json:"markdown_template"`
+	Spec               JSONMap  `json:"spec"`
+	Sections           []string `json:"sections"`
+	Warnings           []string `json:"warnings"`
+}
+
 type OrganizeTemplateVersionQuery struct {
 	TemplateKey string
 	Page        int

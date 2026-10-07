@@ -2591,8 +2591,79 @@ button.asset-card {
 .discover-featured-grid,
 .discover-feed-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 768px);
+}
+
+.output-card.discover-card {
+  width: 100%;
+  height: 91px;
+  min-height: 91px;
+  box-sizing: border-box;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
   gap: 10px;
+  padding: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.output-card.discover-card .output-card-cover {
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0.5px solid rgba(0, 0, 0, 0.04);
+  border-radius: 8px;
+  overflow: hidden;
+  align-self: center;
+}
+
+.output-card.discover-card .output-card-cover-media {
+  width: 56px;
+  height: 56px;
+  flex-basis: 56px;
+  border-radius: 8px;
+  font-size: 20px;
+}
+
+.output-card.discover-card .output-kind-label,
+.output-card.discover-card .output-card-category {
+  display: none;
+}
+
+.output-card.discover-card .output-card-body {
+  justify-content: center;
+}
+
+.output-card.discover-card .output-card-body h2 {
+  margin: 0;
+  max-height: 16px;
+  padding-right: 26px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.output-card.discover-card .output-summary {
+  margin: 4px 0 0;
+  max-height: 14px;
+  color: rgba(0, 0, 0, 0.44);
+  font-size: 11px;
+  line-height: 14px;
+  -webkit-line-clamp: 1;
+}
+
+.output-card.discover-card .output-card-footer {
+  margin-top: 8px;
+}
+
+.output-card.discover-card .discover-card-meta {
+  gap: 2px;
+  color: rgba(0, 0, 0, 0.44);
+  font-size: 11px;
+  line-height: 14px;
 }
 
 .discover-tabs-bar {
@@ -3926,6 +3997,18 @@ button.asset-card {
 
   .output-grid {
     grid-template-columns: 1fr;
+  }
+
+  .discover-featured-grid,
+  .discover-feed-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .output-card.discover-card {
+    height: 132px;
+    min-height: 132px;
   }
 
   .timeline-group {

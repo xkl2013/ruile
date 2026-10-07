@@ -327,9 +327,9 @@ func (s *organizeService) PreviewAdminTemplate(
 	prompt := renderOrganizeTemplateInstruction(template.DefaultInstruction, vars)
 	markdownTemplate := hydrateOrganizeTemplateMarkdown(template).MarkdownTemplate
 	if prompt == "" {
-		prompt = organizeMarkdownTemplatePrompt(markdownTemplate)
+		prompt = organizeMarkdownTemplatePrompt(markdownTemplate, template.Spec)
 	} else {
-		prompt = prompt + "\n\n" + organizeMarkdownTemplatePrompt(markdownTemplate)
+		prompt = prompt + "\n\n" + organizeMarkdownTemplatePrompt(markdownTemplate, template.Spec)
 	}
 	return &types.OrganizeTemplatePreview{
 		TemplateKey:      template.Key,

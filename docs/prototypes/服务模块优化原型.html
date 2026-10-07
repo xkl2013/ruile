@@ -115,6 +115,11 @@
   .pservice.on .psi{color:var(--brand-6)}
   .pservice .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pservice .cnt{margin-left:auto;font-size:11px;color:var(--t4)}
+  /* v1.16：＋ 收进服务行——平时显示会话计数，悬停该行时计数换成 ＋（新建会话） */
+  .pservice .padd{display:none;margin-left:auto;width:20px;height:20px;border-radius:var(--r);border:1px solid var(--line);background:#fff;color:var(--t2);font-size:13px;line-height:1;align-items:center;justify-content:center;flex:none}
+  .pservice .padd:hover{border-color:var(--brand-5);color:var(--brand-6);background:var(--g1)}
+  .pservice:hover .cnt{display:none}
+  .pservice:hover .padd{display:inline-flex}
   .psessions{padding:1px 0 4px 22px}
   .psess{display:flex;align-items:center;gap:6px;width:100%;padding:5px 8px;border-radius:var(--r);color:var(--t3);font-size:12px;text-align:left}
   .psess:hover{background:var(--g1);color:var(--t1)}
@@ -366,6 +371,25 @@
   .srcrow .rsel{height:28px;padding:0 10px;border-radius:var(--r-round);border:1px solid var(--line);background:#fff;font-size:12px;color:var(--t2);flex:none}
   .srcrow .rsel:hover{border-color:var(--brand);color:var(--brand-6)}
   .rlock{font-size:12px;color:var(--t4);border:1px solid var(--line);border-radius:var(--r-round);padding:4px 11px;background:#fafafa;flex:none}
+  /* ── v1.15 动态时间线 ── */
+  .tlfilters{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:0 0 16px}
+  .tlchip{font-size:12px;color:var(--t2);background:#fff;border:1px solid var(--bd);border-radius:var(--r-round);padding:4px 11px;cursor:pointer}
+  .tlchip.on{color:var(--brand-6);background:var(--brand-1);border-color:#b9e8c9;font-weight:600}
+  .tlday{font-size:11.5px;color:var(--t3);font-weight:600;margin:18px 0 8px;letter-spacing:.3px}
+  .tlline{position:relative;padding-left:26px}
+  .tlline::before{content:'';position:absolute;left:7px;top:6px;bottom:6px;width:1px;background:var(--bd)}
+  .tlitem{position:relative;padding:0 0 16px}
+  .tlitem .tdot{position:absolute;left:-23px;top:4px;width:15px;height:15px;border-radius:var(--r-round);background:#fff;border:1.5px solid var(--bd2);display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--t3)}
+  .tlitem.sub .tdot{border-color:#b9e8c9;background:var(--brand-1);color:var(--brand-6)}
+  .tlitem.act .tdot{border-color:#c9ddfb;background:var(--info-1);color:var(--info)}
+  .tlitem .tmain{font-size:13px;color:var(--t1);line-height:1.7}
+  .tlitem .tmain b{font-weight:600}
+  .tlitem .tmeta{font-size:11.5px;color:var(--t3);margin-top:3px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .tlitem .tmeta .src{border:1px solid var(--bd);border-radius:var(--r-round);padding:1px 7px;background:#fafafa;color:var(--t2);cursor:pointer}
+  .tlitem .tmeta .src:hover{border-color:#b9e8c9;background:var(--brand-1);color:var(--brand-6)}
+  .tlval{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--g1);border-radius:4px;padding:1px 6px}
+  .tlfrom{color:var(--t4);text-decoration:line-through}
+  .tlnote{margin-top:22px;padding:11px 13px;border:1px dashed var(--bd2);border-radius:var(--r-l);font-size:11.5px;color:var(--t2);line-height:1.75;background:#fcfcfc}
   .ovadd .rsel{height:34px;padding:0 12px;border-radius:var(--r-m);border:1px solid var(--line);background:#fff;font-size:12.5px;color:var(--t2);flex:none}
   /* 预览卡 */
   .pvcard{border:1px solid var(--bd);border-radius:var(--r-l);background:#fff;overflow:hidden}
@@ -436,7 +460,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.14</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.19</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll"><div class="canvas" id="root"></div></div>
@@ -542,6 +566,7 @@ function productSidebar(active){
             <span class="psi">▦</span>
             <span class="nm">${esc(sv.name)}</span>
             ${sv.sessions.length ? `<span class="cnt">${sv.sessions.length}</span>` : ''}
+            <button class="padd" title="新建会话" data-newchat data-svc="${sv.id}">＋</button>
           </div>
           ${sv.id === active.service ? `
             <div class="psessions">
@@ -559,16 +584,22 @@ function productSidebar(active){
 
 /* ═══════════════════════════════════════════════════════
    服务头（优化后：3 个入口）
+   v1.18：标题跟随中间内容——聊天区显示**会话标题**（右侧灰字回落为服务名），
+   产物 / 待办面板是服务级视图，标题仍显示服务名；新会话态显示「新的会话」
    ═══════════════════════════════════════════════════════ */
 function serviceHead(active, panel, moreOpen){
   const svc = SERVICES.find(s => s.id === active.service) || SERVICES[0];
   const count = { artifacts: ARTIFACTS.length, reminders: REMINDERS.length };
+  const sess = svc.sessions.find(s => s.id === active.session) || svc.sessions[0];
+  const inChat = !panel;
+  const title = inChat ? (state.newChat ? '新的会话' : (sess ? sess.title : svc.name)) : svc.name;
+  const tag = inChat ? svc.name : svc.type;
   return `
   <header class="sphead">
     <button class="spback" title="返回服务列表" data-scene="list">‹</button>
     <span class="spico">▦</span>
-    <span class="spname">${esc(svc.name)}</span>
-    <span class="sptype">${esc(svc.type)}</span>
+    <span class="spname">${esc(title)}</span>
+    <span class="sptype">${esc(tag)}</span>
     ${svc.state !== 'active' ? `<span class="spstate">已暂停</span>` : ''}
     <div class="spactions">
       <button class="hbtn ${panel === 'artifacts' ? 'on' : ''}" data-panel="artifacts">
@@ -577,7 +608,6 @@ function serviceHead(active, panel, moreOpen){
       <button class="hbtn ${panel === 'reminders' ? 'on' : ''}" data-panel="reminders">
         <span class="ci">☑</span><span>待办</span><em>${count.reminders}</em>
       </button>
-      <button class="cbtn" title="新建会话" data-newchat>＋</button>
       <div class="morewrap">
         <button class="cbtn" title="更多" data-more>⋯</button>
         ${moreOpen ? `
@@ -590,6 +620,7 @@ function serviceHead(active, panel, moreOpen){
           <div class="msub">
             <button class="mi" data-scene="overview">服务概览<span class="mx">›</span></button>
             <button class="mi" data-scene="subjects">服务对象<span class="mx">›</span></button>
+            <button class="mi" data-scene="activity">动态<span class="mx">›</span></button>
             <button class="mi" data-scene="settings">服务设置<span class="mx">›</span></button>
           </div>
           <div class="msep"></div>
@@ -646,12 +677,12 @@ function chatColumn(){
   </div>`;
 }
 
-/* 空态对话区：mode='void' 无会话态（服务刚建）· mode='new' 新会话态（点服务头 ＋） */
+/* 空态对话区：mode='void' 无会话态（服务刚建）· mode='new' 新会话态（悬停服务行点 ＋）
+   v1.17：删掉顶部「新的会话 / 服务助理」标题条——空态本身已说明状态，正文 h3 就是标题 */
 function chatEmpty(mode){
   const isNew = mode === 'new';
   return `
   <div class="chatcol">
-    <div class="chathead"><strong>${isNew ? '新的会话' : '开始一段新的工作'}</strong><span class="expert">服务助理</span></div>
     <div class="chatbody">
       <div class="emptychat">
         <div class="ei">${isNew ? '＋' : '◌'}</div>
@@ -933,7 +964,7 @@ function createView(){
    ═══════════════════════════════════════════════════════ */
 function spaceView(panel, moreOpen, sel, collabOpen, empty){
   return `
-  <div class="annoline">方案 §4.3 + §3 支柱 4：服务头从 <b>9 个入口</b>收到 <b>3 个</b>（产物 / 待办 / ⋯）；「来源」<b>撤出服务头</b>（不做输入框 chip，v1.9 复核；输入框上方的「已带入」chip 已随之删除，v1.14），管理落点收进 <b>服务设置 › 资料</b>；「⋯」改为<b>两级</b>（服务本身 / 更多 ›）；状态徽标只在非进行中时显示。<b>v1.14 追加</b>：<b>＋ = 新建会话</b>（§4.3 定位"天天要点"所以常驻）——点击<b>不弹窗、不跳新增页</b>，直接把对话区切到<b>新会话空态</b>：3 条建议问题从<b>工作指令</b>生成（§4.4），输入框可用。</div>
+  <div class="annoline">方案 §4.3 + §3 支柱 4：服务头从 <b>9 个入口</b>收到 <b>3 个</b>（产物 / 待办 / ⋯）；「来源」<b>撤出服务头</b>（不做输入框 chip，v1.9 复核；输入框上方的「已带入」chip 已随之删除，v1.14），管理落点收进 <b>服务设置 › 资料</b>；「⋯」改为<b>两级</b>（服务本身 / 更多 ›）；状态徽标只在非进行中时显示。<b>v1.14 追加</b>：<b>＋ = 新建会话</b>（§4.3 定位"天天要点"）——点击<b>不弹窗、不跳新增页</b>，直接把对话区切到<b>新会话空态</b>：3 条建议问题从<b>工作指令</b>生成（§4.4），输入框可用。<b>v1.16 追加</b>：＋ 从服务头<b>移到左侧服务行</b>——平时该位置显示会话计数，<b>悬停服务行时计数换成 ＋</b>（聊天软件惯用交互）；服务头收敛为 产物 / 待办 / ⋯ 三个控件，从列表页悬停任意服务行也能直接开新会话。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
@@ -1166,6 +1197,30 @@ function membersSec(){
                 </div>`).join('')}
             </div>
           </div>
+
+          <div class="card" style="padding:15px 17px;margin-top:14px">
+            <div class="sechead" style="margin:0 0 10px">
+              <span class="st">最近动态</span>
+              <div class="tools"><button class="btn sm" data-scene="activity">查看全部 ›</button></div>
+            </div>
+            <div class="tlline">
+              <div class="tlitem sub">
+                <span class="tdot">●</span>
+                <div class="tmain"><b>果果家</b> · <b>家长关注点</b> <span class="tlfrom">时段冲突</span> → <span class="tlval">时段冲突、价格</span></div>
+                <div class="tmeta"><span>今天 10:12</span><span class="src" data-noop>依据：会话「跟进东苑分园意向家庭」</span></div>
+              </div>
+              <div class="tlitem sub">
+                <span class="tdot">●</span>
+                <div class="tmain"><b>果果家</b> · <b>到访次数</b> <span class="tlfrom">2 次</span> → <span class="tlval">3 次</span></div>
+                <div class="tmeta"><span>今天 09:47</span><span class="src" data-noop>依据：本周家长顾虑归纳</span></div>
+              </div>
+              <div class="tlitem act" style="padding-bottom:0">
+                <span class="tdot">＋</span>
+                <div class="tmain">新增服务对象 <b>乐乐妈妈</b></div>
+                <div class="tmeta"><span>昨天 18:20</span><span>李老师 加</span></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1212,6 +1267,93 @@ function subjectsView(){
 }
 
 /* ═══════════════════════════════════════════════════════
+   场景 6.5 · 服务动态（v1.15：时间线，收进 ⋯ → 更多；服务概览底部嵌 3 条）
+   ═══════════════════════════════════════════════════════ */
+function activityView(){
+  return `
+  <div class="annoline">方案 §3 支柱 2 + §6：<b>动态</b>用一条时间线统计这个空间里的变化——重点是<b>服务对象（主体）身上发生的变化</b>。数据源不是新表：主体字段变化读 append-only 的 <code>service_facts</code>（带 <code>subject_id</code> / <code>fact_key</code> / <code>evidence</code> / 可回链来源），空间级动作读审计 <code>audit_logs</code> 里已经在你写库时发出的 <code>service.*</code> 事件。入口收进 <b>⋯ → 更多</b>，服务概览底部嵌最近 3 条。<b>v1.19 追加</b>：待办<b>只把终态记进来</b>——「已完成 / 已取消」各出一条（如右，昨天那条）；「待处理 → 进行中」这类过程翻转<b>不记</b>，对回顾没价值、只会刷屏。数据源用真历史表 <code>service_reminder_history</code>（<code>service_id</code> 是一等索引列，比审计 JSONB 还干净；写入点 <code>service_reminder.go:110/134/224</code>），缺的只是<b>服务级 history 列表查询</b>——现有只有单条待办的 <code>GET /:reminder_id/history</code>（<code>router.go:1631</code>）。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, '', false)}
+      <div class="setbody" style="padding:22px 26px;overflow-y:auto">
+        <div style="max-width:760px">
+          <div class="sechead" style="margin:0 0 6px">
+            <div><h2 style="font-size:16px;margin:0 0 4px">动态</h2>
+              <p class="sub" style="margin:0">这个服务里发生过的变化，按时间倒序。<b>主体身上的变化</b>优先，其次是与这个空间有关的动作。</p></div>
+            <div class="tools"><button class="btn sm" data-noop>刷新</button></div>
+          </div>
+
+          <div class="tlfilters">
+            <span class="tlchip on" data-noop>全部</span>
+            <span class="tlchip" data-noop>只看主体变化</span>
+            <span class="tlchip" data-noop>只看空间动作</span>
+            <span style="font-size:11.5px;color:var(--t3);margin-left:2px">主体：</span>
+            <span class="tlchip on" data-noop>果果家</span>
+            <span class="tlchip" data-noop>乐乐妈妈</span>
+            <span class="tlchip" data-noop>东苑分园</span>
+            <span class="tlchip" data-noop>不限</span>
+          </div>
+
+          <div class="tlday">今天 · 10 月 6 日</div>
+          <div class="tlline">
+            <div class="tlitem sub">
+              <span class="tdot">●</span>
+              <div class="tmain"><b>果果家</b> · <b>家长关注点</b> <span class="tlfrom">时段冲突</span> → <span class="tlval">时段冲突、价格</span></div>
+              <div class="tmeta"><span>10:12</span><span class="src" data-noop>依据：会话「跟进东苑分园意向家庭」</span><span>招生顾问 记</span></div>
+            </div>
+            <div class="tlitem sub">
+              <span class="tdot">●</span>
+              <div class="tmain"><b>果果家</b> · <b>到访次数</b> <span class="tlfrom">2 次</span> → <span class="tlval">3 次</span></div>
+              <div class="tmeta"><span>09:47</span><span class="src" data-noop>依据：本周家长顾虑归纳</span><span>王园长 记</span></div>
+            </div>
+            <div class="tlitem act">
+              <span class="tdot">▤</span>
+              <div class="tmain">产物 <b>秋季招生线索跟进表.xlsx</b> 更新到 v2（16 条）</div>
+              <div class="tmeta"><span>09:40</span><span>招生顾问</span><span class="src" data-noop>查看产物</span></div>
+            </div>
+          </div>
+
+          <div class="tlday">昨天 · 10 月 5 日</div>
+          <div class="tlline">
+            <div class="tlitem sub">
+              <span class="tdot">＋</span>
+              <div class="tmain">新增服务对象 <b>乐乐妈妈</b>（家长与学员）</div>
+              <div class="tmeta"><span>18:20</span><span class="src" data-noop>来源：整理记录「9 月新签家庭盘点」</span><span>李老师 加</span></div>
+            </div>
+            <div class="tlitem act">
+              <span class="tdot">▤</span>
+              <div class="tmain">带入资料 <b>2026 秋季招生方案（草稿）</b></div>
+              <div class="tmeta"><span>15:05</span><span>王园长</span><span class="src" data-noop>去 设置 › 资料 撤销</span></div>
+            </div>
+            <div class="tlitem act">
+              <span class="tdot">☑</span>
+              <div class="tmain">待办 <b>回访东苑分园 5 位家长</b> <span class="tlval">已完成</span></div>
+              <div class="tmeta"><span>16:05</span><span>陈老师</span><span class="src" data-noop>看这条待办</span></div>
+            </div>
+          </div>
+
+          <div class="tlday">9 月 28 日</div>
+          <div class="tlline">
+            <div class="tlitem act">
+              <span class="tdot">◷</span>
+              <div class="tmain">服务 <b>秋季招生咨询</b> 由 王园长 创建</div>
+              <div class="tmeta"><span>09:02</span><span>王园长</span><span class="src" data-noop>创建时的工作指令</span></div>
+            </div>
+          </div>
+
+          <div class="tlnote">
+            <b>时间线怎么来的（代码依据）：</b>① <b>主体字段变化</b> = <code>service_facts</code>（append-only，<code>types/service_fact.go:24-37</code>：<code>subject_id</code> / <code>fact_key</code> / <code>value{value,confidence,evidence}</code> / <code>source_type</code> / <code>source_id</code> / <code>created_by</code> / <code>created_at</code>）；读取接口已有 <code>GET /:service_id/facts</code>，支持 <code>subject_id</code> / <code>fact_type</code> 过滤（<code>router.go:1610</code>、<code>handler/service_space.go:586-607</code>）。每写一条事实都会有 <code>subject_id</code>，因此"谁变了什么"是原生可查的。<br>
+            ② <b>空间级动作</b> = <code>audit_logs</code>，服务侧每次实质变更都已发出：<code>service.fact_append</code>（<code>service_space.go:1250</code>）、<code>service.update</code>（主体新增 <code>:2919</code>、服务信息 <code>:2396</code>）、<code>service.state_change</code>（<code>:2439</code> 暂停/归档）、<code>service.member_change</code>（<code>:2722</code>）、<code>service.artifact_lifecycle</code>（<code>:2067</code>）、<code>service.raw_material_assign</code>（<code>:1713</code>）/ <code>service.context_access</code>（撤销带入 <code>:1795</code>）；动作常量在 <code>types/audit_log.go:191-205</code>。<br>
+            <b>⚠️ 两个待补后端点：</b>① 审计查询 <code>AuditLogQuery</code>（<code>interfaces/audit_log.go:16-22</code>、<code>repository/audit_log.go:56-71</code>）<b>只支持 tenant + action（精确匹配）</b>，<b>没有按 service_id 过滤</b>——service_id 现在只躺在 <code>details</code> JSONB 里（<code>emitAudit</code>，<code>service_space.go:1952-1973</code>）。要按单个服务取动态，得给查询加一个 <code>service_id</code> 维度（PG 用 <code>details->>'service_id'</code>，SQLite 用 <code>json_extract</code>，两边都要测）。② <code>service.fact_append</code> 的审计细目只带了 <code>service_id / fact_type / source_type / source_id</code>，<b>没带 <code>subject_id</code> 与字段值</b>——所以时间线的正文必须回查 <code>service_facts</code>，光靠审计渲染不出"哪个主体、哪个字段、变成了什么"。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ═══════════════════════════════════════════════════════
    场景 6 · 改造对照
    ═══════════════════════════════════════════════════════ */
 function diffView(){
@@ -1231,7 +1373,8 @@ function diffView(){
     ['⑦ 生产代码里的种子数据', '<code>serviceHubState.ts</code> 三处硬编码（服务 / 会话 / 产物）', '<span class="pill drop">删除</span>', '改走真接口 + 设计过的空态'],
     ['⑧ 空态从未被设计', '因为总有假数据填充，空态只有一句"还没有服务"', '<span class="pill move">重做三分支</span>', '新用户 / 全归档 / 搜索无结果，文案与出口各不相同'],
     ['⑨ 双轨遗留', '<code>user_work_profiles</code> / <code>work_profile_agent_settings</code> 两张死表 + <code>profile_id</code> 兼容字段', '<span class="pill demote">P4 清理</span>', '代码已无引用，新增迁移 drop'],
-    ['⑩ 有接口没界面', '成员 / 专家的接口早就有，界面上没有入口', '<span class="pill keep">补入口</span>', '收进 服务设置 的对应分区']
+    ['⑩ 有接口没界面', '成员 / 专家的接口早就有，界面上没有入口', '<span class="pill keep">补入口</span>', '收进 服务设置 的对应分区'],
+    ['⑪ 看不到空间里发生过什么（v1.15）', '只有当前状态：档案是"现在长什么样"，没有"什么时候变成这样、谁改的、依据是什么"', '<span class="pill keep">新增 动态</span>', '⋯ → 更多 › 动态：按天分组的<b>主体变化</b>（旧值 → 新值 + 依据回链）+ 空间动作；概览底部嵌 3 条。<b>不建新表</b>——复用 append-only 的 <code>service_facts</code> 与审计里已在写的 <code>service.*</code> 事件']
   ];
   return `
   <div class="diff">
@@ -1334,8 +1477,9 @@ const SCENES = [
   { key:'artifacts',n:4, label:'服务空间 · 产物浮层',       path:'/platform/service/:serviceId  ▤ 产物 3' },
   { key:'reminders',n:5, label:'服务空间 · 待办浮层',       path:'/platform/service/:serviceId  ☑ 待办 3' },
   { key:'overview', n:6, label:'⋯ → 服务概览 / 服务对象',   path:'/platform/service/:serviceId/overview' },
-  { key:'settings', n:7, label:'服务设置 · 整页 4 分区',    path:'/platform/service/:serviceId/settings/fields' },
-  { key:'diff',     n:8, label:'改造对照 · 问题与概念收敛', path:'—' }
+  { key:'activity', n:7, label:'⋯ → 动态 · 时间线',        path:'/platform/service/:serviceId/activity' },
+  { key:'settings', n:8, label:'服务设置 · 整页 4 分区',    path:'/platform/service/:serviceId/settings/fields' },
+  { key:'diff',     n:9, label:'改造对照 · 问题与概念收敛', path:'—' }
 ];
 
 const state = {
@@ -1346,7 +1490,7 @@ const state = {
   sel: 'a2',
   collabOpen: '',
   emptyChat: false,
-  newChat: false, // v1.14：点服务头 ＋ 后的新会话空态（对话区切换，不新开页面）
+  newChat: false, // v1.14 新会话空态（对话区切换，不新开页面）；v1.16 起入口从服务头 ＋ 改为左侧服务行悬停 ＋
   sec: 'fields'   // 设置场景内的分区：basic / fields / sources / members（v1.13：「专家」并入基本信息，共 4 个分区）
 };
 
@@ -1357,6 +1501,7 @@ const RENDER = {
   artifacts: () => layout(spaceView('artifacts', false, state.sel, '', false), true),
   reminders: () => layout(spaceView('reminders', false, '', state.collabOpen, false), true),
   overview:  () => layout(overviewView(), true),
+  activity:  () => layout(activityView(), true),
   subjects:  () => layout(subjectsView(), true),
   settings:  () => layout(settingsView(), true),
   diff:      () => layout(diffView())
@@ -1379,7 +1524,7 @@ function render(){
     br.innerHTML = `
       <button class="chip ${state.emptyChat ? '' : 'on'}" data-empty="0">有会话</button>
       <button class="chip ${state.emptyChat ? 'on' : ''}" data-empty="1">空态</button>
-      <button class="chip ${state.newChat ? 'on' : ''}" data-newchat>新会话（点 ＋）</button>
+      <button class="chip ${state.newChat ? 'on' : ''}" data-newchat>新会话（悬停服务行点 ＋）</button>
       <button class="chip ${state.moreOpen ? 'on' : ''}" data-more>${state.moreOpen ? '收起 ⋯ 菜单' : '展开 ⋯ 菜单'}</button>`;
   } else br.innerHTML = '';
 }
@@ -1397,7 +1542,7 @@ document.addEventListener('click', e => {
   }
 
   const nc = hit('[data-newchat]');
-  if (nc) { state.newChat = true; state.emptyChat = false; state.panel = ''; state.moreOpen = false; render(); return; }
+  if (nc) { state.newChat = true; state.emptyChat = false; state.panel = ''; state.moreOpen = false; if (nc.dataset.svc) { state.scene = 'space'; } render(); return; }
 
   const sc = hit('[data-scene]');
   if (sc) {

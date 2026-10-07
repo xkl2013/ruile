@@ -64,6 +64,26 @@ export interface AdminOrganizeTemplateInput {
   change_note?: string
 }
 
+export interface AdminOrganizeTemplateCompileResult {
+  key: string
+  name: string
+  scene: string
+  description: string
+  output_label: string
+  default_instruction: string
+  markdown_template: string
+  spec: Record<string, any>
+  sections: string[]
+  warnings: string[]
+}
+
+export function compileAdminOrganizeTemplate(sourceMarkdown: string) {
+  return post<{ success: boolean; data: AdminOrganizeTemplateCompileResult }>(
+    '/api/v1/system/admin/organize/templates/compile',
+    { source_markdown: sourceMarkdown },
+  )
+}
+
 export type AdminOrganizeDiscoverCategoryStatus = 'enabled' | 'disabled'
 
 export interface AdminOrganizeDiscoverCategory {

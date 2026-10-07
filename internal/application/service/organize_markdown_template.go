@@ -80,8 +80,14 @@ func hydrateOrganizeTemplateMarkdown(template *types.OrganizeTemplate) *types.Or
 	return template
 }
 
-func organizeMarkdownTemplatePrompt(template string) string {
+func organizeMarkdownTemplatePrompt(template string, specs ...types.JSONMap) string {
 	template = strings.TrimSpace(template)
+	missingValue := "记录中未提供"
+	if len(specs) > 0 {
+		if value := organizeMarkdownMissingValue(specs[0]); value != "" {
+			missingValue = value
+		}
+	}
 	return fmt.Sprintf(`Markdown 报告预设：
 %s
 
@@ -89,20 +95,27 @@ func organizeMarkdownTemplatePrompt(template string) string {
 - 必须输出完整的中文 Markdown，不要输出 JSON，不要使用 Markdown 代码围栏包裹整篇结果。
 - 保留预设中的标题层级、章节名称和章节顺序；不要新增与输入无关的章节。
 - 将预设中的 {{...}} 占位符替换为实际内容，不得在最终结果中保留未替换占位符。
-- 只依据原始记忆生成内容；没有依据的栏目写“记录中未提供”，不得猜测、补造数据。
+- 只依据原始记忆生成内容；没有依据的栏目写“%s”，不得猜测、补造数据。
 - 关键事实和结论使用 [M1]、[M2] 等来源标记；待办内容使用 - [ ] 清单。
-- 如果一个章节没有足够内容，也必须保留章节并明确标注信息缺失。`, template)
+- 表格占位符必须展开为完整的 Markdown 行，不能把整张表格压缩成一句话。
+	- 如果一个章节没有足够内容，也必须保留章节并明确标注信息缺失。`, template, missingValue)
 }
 
-func normalizeOrganizeGeneratedMarkdown(content, preset, title string) string {
+func normalizeOrganizeGeneratedMarkdown(content, preset, title string, specs ...types.JSONMap) string {
 	content = strings.TrimSpace(content)
 	if match := organizeMarkdownCodeFencePattern.FindStringSubmatch(content); len(match) == 2 {
 		content = strings.TrimSpace(match[1])
 	}
 	content = strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\r", "\n")
-	content = organizeMarkdownPlaceholderPattern.ReplaceAllString(content, "记录中未提供")
+	missingValue := "记录中未提供"
+	if len(specs) > 0 {
+		if value := organizeMarkdownMissingValue(specs[0]); value != "" {
+			missingValue = value
+		}
+	}
+	content = organizeMarkdownPlaceholderPattern.ReplaceAllString(content, missingValue)
 	if content == "" {
-		content = fmt.Sprintf("# %s\n\n记录中未提供。", emptyFallback(strings.TrimSpace(title), "整理结果"))
+		content = fmt.Sprintf("# %s\n\n%s。", emptyFallback(strings.TrimSpace(title), "整理结果"), missingValue)
 	}
 
 	headings := markdownTemplateSectionHeadings(preset)
@@ -128,11 +141,34 @@ func normalizeOrganizeGeneratedMarkdown(content, preset, title string) string {
 		var builder strings.Builder
 		builder.WriteString(strings.TrimSpace(content))
 		for _, heading := range missing {
-			fmt.Fprintf(&builder, "\n\n## %s\n\n记录中未提供。", heading)
+			fmt.Fprintf(&builder, "\n\n## %s\n\n%s。", heading, missingValue)
 		}
 		content = builder.String()
 	}
 	return strings.TrimSpace(content)
+}
+
+func organizeMarkdownMissingValue(spec types.JSONMap) string {
+	contract := organizeJSONMapValue(spec["markdown_contract"])
+	if contract == nil {
+		return ""
+	}
+	value := strings.TrimSpace(fmt.Sprint(contract["missing_value"]))
+	if value == "" || strings.ContainsAny(value, "\r\n") {
+		return ""
+	}
+	return value
+}
+
+func organizeJSONMapValue(value any) types.JSONMap {
+	switch typed := value.(type) {
+	case types.JSONMap:
+		return typed
+	case map[string]any:
+		return types.JSONMap(typed)
+	default:
+		return nil
+	}
 }
 
 func markdownTemplateSectionHeadings(preset string) []string {

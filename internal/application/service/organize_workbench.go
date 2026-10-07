@@ -620,6 +620,7 @@ func (s *organizeService) executeOrganizeJob(
 		content,
 		stringValue(job.Requirement, "template_markdown"),
 		configName,
+		organizeJSONMapValue(job.Requirement["template_spec"]),
 	)
 	job.ModelID = modelID
 	job.Stage = "saving_output"
@@ -908,7 +909,10 @@ func buildOrganizeJobPrompt(job *types.OrganizeJob, memories []*types.OrganizeMe
 	fmt.Fprintf(&builder, "整理名称：%s\n", stringValue(job.Requirement, "config_name"))
 	fmt.Fprintf(&builder, "模板：%s（%s）\n", stringValue(job.Requirement, "template_name"), job.TemplateVersion)
 	fmt.Fprintf(&builder, "模板指令：\n%s\n\n", stringValue(job.Requirement, "template_instruction"))
-	builder.WriteString(organizeMarkdownTemplatePrompt(stringValue(job.Requirement, "template_markdown")))
+	builder.WriteString(organizeMarkdownTemplatePrompt(
+		stringValue(job.Requirement, "template_markdown"),
+		organizeJSONMapValue(job.Requirement["template_spec"]),
+	))
 	builder.WriteString("\n\n")
 	if len(experts) > 0 && string(experts) != "null" && string(experts) != "[]" {
 		fmt.Fprintf(&builder, "参与专家：%s\n\n", string(experts))
