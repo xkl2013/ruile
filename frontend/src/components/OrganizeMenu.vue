@@ -22,6 +22,13 @@
         @click="openConfig(config.id)">
         <t-icon :name="configIcon(config)" class="organize-menu-item-icon" />
         <span class="organize-menu-item-name">{{ config.name }}</span>
+        <span
+          v-if="config.hasUnreadOutput"
+          class="organize-menu-item-unread"
+          role="status"
+          aria-label="有未读整理报告"
+          title="有未读整理报告"
+        />
       </button>
     </div>
   </section>
@@ -37,6 +44,7 @@ import {
   ORGANIZE_ROUTE_NAMES,
 } from '@/views/organize/organizeRoutes'
 import {
+  ORGANIZE_CONFIG_UNREAD_EVENT,
   toOrganizeConfig,
   type OrganizeConfig,
 } from '@/views/organize/organizeWorkbenchState'
@@ -105,13 +113,33 @@ const openConfig = async (configId: string) => {
   await openRoute(`${ORGANIZE_ROUTE_BASE_PATH}/configs/${encodeURIComponent(configId)}`)
 }
 
+const handleConfigOutputRead = (event: Event) => {
+  const detail = (event as CustomEvent<{
+    configId?: string
+    hasUnreadOutput?: boolean
+    viewedOutputId?: string
+  }>).detail
+  const configId = String(detail?.configId || '')
+  if (!configId) return
+  configuredOrganizeItems.value = configuredOrganizeItems.value.map((config) => {
+    if (config.id !== configId) return config
+    const latestOutputId = config.jobs.find((job) => job.outputId)?.outputId || ''
+    const hasUnreadOutput = typeof detail?.hasUnreadOutput === 'boolean'
+      ? detail.hasUnreadOutput
+      : Boolean(latestOutputId && latestOutputId !== detail?.viewedOutputId)
+    return { ...config, hasUnreadOutput }
+  })
+}
+
 onMounted(() => {
   void loadConfiguredItems()
   refreshTimer = window.setInterval(loadConfiguredItems, 30000)
+  window.addEventListener(ORGANIZE_CONFIG_UNREAD_EVENT, handleConfigOutputRead)
 })
 
 onBeforeUnmount(() => {
   if (refreshTimer) window.clearInterval(refreshTimer)
+  window.removeEventListener(ORGANIZE_CONFIG_UNREAD_EVENT, handleConfigOutputRead)
 })
 
 watch(
@@ -239,6 +267,19 @@ watch(
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
+}
+
+.organize-menu-item-unread {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+  box-shadow: 0 0 0 2px var(--td-bg-color-container);
+}
+
+.organize-menu-item.active .organize-menu-item-unread {
+  box-shadow: 0 0 0 2px var(--td-bg-color-secondarycontainer);
 }
 
 </style>

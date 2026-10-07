@@ -62,8 +62,35 @@ export interface OrganizeConfig {
   status: 'active' | 'disabled'
   jobs: OrganizeJob[]
   jobCount: number
+  hasUnreadOutput: boolean
   updatedOrder: number
   template?: OrganizeTemplate
+}
+
+export const ORGANIZE_CONFIG_UNREAD_EVENT = 'organize-config-unread-change'
+const ORGANIZE_CONFIG_VIEWED_OUTPUT_STORAGE_PREFIX = 'organize-config-viewed-output:'
+
+const lastLocallyViewedOutputId = (configId: string) => {
+  if (typeof window === 'undefined' || !configId) return ''
+  try {
+    return window.localStorage.getItem(`${ORGANIZE_CONFIG_VIEWED_OUTPUT_STORAGE_PREFIX}${configId}`) || ''
+  } catch {
+    return ''
+  }
+}
+
+export const markOrganizeConfigOutputLocallyRead = (configId: string, outputId: string) => {
+  if (typeof window === 'undefined' || !configId || !outputId) return
+  try {
+    window.localStorage.setItem(`${ORGANIZE_CONFIG_VIEWED_OUTPUT_STORAGE_PREFIX}${configId}`, outputId)
+  } catch {
+    // Server-backed read state remains authoritative when local storage is unavailable.
+  }
+}
+
+const fallbackConfigHasUnreadOutput = (config: ApiOrganizeConfig) => {
+  const latestOutputId = String(config.latest_job?.output_id || '')
+  return Boolean(latestOutputId && latestOutputId !== lastLocallyViewedOutputId(config.id))
 }
 
 export interface OrganizeOutputField {
@@ -243,6 +270,9 @@ export const toOrganizeConfig = (config: ApiOrganizeConfig): OrganizeConfig => (
   status: config.status,
   jobs: config.latest_job ? [toOrganizeJob(config.latest_job)] : [],
   jobCount: config.job_count || 0,
+  hasUnreadOutput: typeof config.has_unread_output === 'boolean'
+    ? config.has_unread_output
+    : fallbackConfigHasUnreadOutput(config),
   updatedOrder: new Date(config.updated_at).getTime() || 0,
   template: config.template ? toOrganizeTemplate(config.template) : undefined,
 })

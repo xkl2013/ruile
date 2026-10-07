@@ -1513,6 +1513,7 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 		org.POST("/configs", g.Viewer(), h.CreateConfig)
 		org.GET("/configs/:id", g.Viewer(), h.GetConfig)
 		org.PUT("/configs/:id", g.Viewer(), h.UpdateConfig)
+		org.POST("/configs/:id/read-output", g.Viewer(), h.MarkConfigOutputRead)
 		org.DELETE("/configs/:id", g.Viewer(), h.DeleteConfig)
 		org.POST("/configs/:id/run", g.Viewer(), h.RunConfig)
 		org.GET("/configs/:id/jobs", g.Viewer(), h.ListConfigJobs)

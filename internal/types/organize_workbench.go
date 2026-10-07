@@ -35,6 +35,8 @@ const (
 	OrganizeJobModeSingle = "single"
 	OrganizeJobModeBatch  = "batch"
 
+	OrganizeConfigMetadataLastViewedOutputAt = "last_viewed_output_at"
+
 	OrganizeJobBatchStatusQueued    = "queued"
 	OrganizeJobBatchStatusRunning   = "running"
 	OrganizeJobBatchStatusCompleted = "completed"
@@ -165,6 +167,7 @@ type OrganizeConfig struct {
 	Template        *OrganizeTemplate `json:"template,omitempty" gorm:"-"`
 	LatestJob       *OrganizeJob      `json:"latest_job,omitempty" gorm:"-"`
 	JobCount        int64             `json:"job_count" gorm:"-"`
+	HasUnreadOutput bool              `json:"has_unread_output" gorm:"-"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 	DeletedAt       gorm.DeletedAt    `json:"deleted_at,omitempty" gorm:"index"`
@@ -407,6 +410,10 @@ type OrganizeConfigInput struct {
 	ExpertIDs       StringArray `json:"expert_ids,omitempty"`
 	Schedule        string      `json:"schedule,omitempty"`
 	Metadata        JSONMap     `json:"metadata,omitempty"`
+}
+
+type OrganizeConfigOutputReadInput struct {
+	OutputID string `json:"output_id"`
 }
 
 type OrganizeJobInput struct {
