@@ -598,6 +598,7 @@ onUnmounted(() => {
     }
 
     :deep(.docx-preview-wrapper-wrapper > section.docx-preview-wrapper) {
+      padding: 32px 40px 40px !important;
       margin: 0 auto 18px !important;
       box-shadow: none !important;
     }

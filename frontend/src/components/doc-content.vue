@@ -1921,7 +1921,7 @@ const handleDetailsScroll = () => {
   .t-drawer__body {
     display: flex;
     flex-direction: column;
-    padding: 8px 10px 10px;
+    padding: 4px 6px 6px;
     overflow: hidden;
     background: var(--td-bg-color-container);
   }
