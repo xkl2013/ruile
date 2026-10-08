@@ -1532,6 +1532,8 @@ func RegisterOrganizeRoutes(r *gin.RouterGroup, h *handler.OrganizeHandler, g *r
 		org.POST("/memories", g.Viewer(), h.CreateMemory)
 		org.POST("/memories/upload", g.Viewer(), h.UploadMemory)
 		org.GET("/memories/:id", g.Viewer(), h.GetMemory)
+		org.GET("/memories/:id/audio-url", g.Viewer(), h.GetMemoryAudioURL)
+		org.GET("/memories/:id/attachments/:attachment_id/preview-url", g.Viewer(), h.GetMemoryAttachmentPreviewURL)
 		org.POST("/memories/:id/attachments/:attachment_id/retry", g.Viewer(), h.RetryMemoryAttachment)
 		org.PUT("/memories/:id", g.Viewer(), h.UpdateMemory)
 		org.DELETE("/memories/:id", g.Viewer(), h.DeleteMemory)
@@ -2766,7 +2768,7 @@ func servePresignedPreview(r *gin.Engine, cfg *config.Config, storageResolver in
 				return
 			}
 
-			httpURL, err := fileSvc.GetFileURL(ctx, filePath)
+			httpURL, err := directFilePreviewURL(ctx, fileSvc, filePath)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":    err.Error(),
@@ -2793,6 +2795,17 @@ func servePresignedPreview(r *gin.Engine, cfg *config.Config, storageResolver in
 				"hint":      hint,
 			})
 		})
+}
+
+func directFilePreviewURL(
+	ctx context.Context,
+	fileSvc interfaces.FileService,
+	filePath string,
+) (string, error) {
+	if direct, ok := fileSvc.(interfaces.DirectFileURLService); ok {
+		return direct.GetDirectFileURL(ctx, filePath)
+	}
+	return fileSvc.GetFileURL(ctx, filePath)
 }
 
 // RegisterDataSourceRoutes 注册数据源相关的路由

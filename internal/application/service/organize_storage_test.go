@@ -143,6 +143,107 @@ func (s *recordingOrganizeMediaFileService) GetFile(ctx context.Context, filePat
 	return io.NopCloser(strings.NewReader("video-bytes")), nil
 }
 
+type directOrganizePreviewFileService struct {
+	stubOrganizeFileService
+	filePaths []string
+}
+
+func (s *directOrganizePreviewFileService) GetDirectFileURL(_ context.Context, filePath string) (string, error) {
+	s.filePaths = append(s.filePaths, filePath)
+	return "https://bucket.oss-cn-hangzhou.aliyuncs.com/memory.mp3?signature=test", nil
+}
+
+func TestOrganizeServiceMemoryPreviewUsesDirectStorageURL(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeServiceForTest(t)
+	fileService := &directOrganizePreviewFileService{}
+	svc.fileService = fileService
+
+	memory, err := svc.CreateMemory(ctx, 7, "user-a", types.OrganizeMemoryInput{
+		Kind:  types.OrganizeMemoryKindAudio,
+		Title: "家长沟通录音",
+	})
+	require.NoError(t, err)
+	attachment := &types.OrganizeMemoryAttachment{
+		TenantID:    7,
+		UserID:      "user-a",
+		MemoryID:    memory.ID,
+		FileName:    "memory.mp3",
+		MimeType:    "audio/mpeg",
+		StoragePath: "oss://bucket/memory.mp3",
+		Status:      types.OrganizeMemoryAttachmentStatusCompleted,
+	}
+	require.NoError(t, svc.repo.CreateMemoryAttachment(ctx, attachment))
+
+	fileURL, fileName, mimeType, err := svc.GetMemoryAudioURL(ctx, 7, "user-a", memory.ID)
+	require.NoError(t, err)
+	require.Contains(t, fileURL, "oss-cn-hangzhou.aliyuncs.com")
+	require.Equal(t, "memory.mp3", fileName)
+	require.Equal(t, "audio/mpeg", mimeType)
+	require.Equal(t, []string{attachment.StoragePath}, fileService.filePaths)
+
+	attachmentURL, _, _, err := svc.GetMemoryAttachmentPreviewURL(
+		ctx,
+		7,
+		"user-a",
+		memory.ID,
+		attachment.ID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, fileURL, attachmentURL)
+	require.Equal(t, []string{attachment.StoragePath, attachment.StoragePath}, fileService.filePaths)
+}
+
+func TestOrganizeServiceMemoryPreviewFallsBackToStableMetadataPath(t *testing.T) {
+	ctx := context.Background()
+	svc := newOrganizeServiceForTest(t)
+	fileService := &directOrganizePreviewFileService{}
+	svc.fileService = fileService
+
+	memory, err := svc.CreateMemory(ctx, 7, "user-a", types.OrganizeMemoryInput{
+		Kind:  types.OrganizeMemoryKindAudio,
+		Title: "历史录音",
+		Metadata: types.JSONMap{
+			"audio_file_path": "oss://bucket/stable-memory.mp3",
+			"audio_file_name": "stable-memory.mp3",
+			"audio_mime_type": "audio/mpeg",
+			"audio_url":       "https://bucket.oss-cn-hangzhou.aliyuncs.com/memory.mp3?Expires=1&Signature=expired",
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.repo.CreateMemoryAttachment(ctx, &types.OrganizeMemoryAttachment{
+		TenantID:   7,
+		UserID:     "user-a",
+		MemoryID:   memory.ID,
+		FileName:   "memory.mp3",
+		MimeType:   "audio/mpeg",
+		StorageURL: "https://bucket.oss-cn-hangzhou.aliyuncs.com/memory.mp3?Expires=1&Signature=expired",
+		Status:     types.OrganizeMemoryAttachmentStatusCompleted,
+	}))
+
+	fileURL, fileName, mimeType, err := svc.GetMemoryAudioURL(ctx, 7, "user-a", memory.ID)
+	require.NoError(t, err)
+	require.Contains(t, fileURL, "oss-cn-hangzhou.aliyuncs.com")
+	require.Equal(t, "stable-memory.mp3", fileName)
+	require.Equal(t, "audio/mpeg", mimeType)
+	require.Equal(t, []string{"oss://bucket/stable-memory.mp3"}, fileService.filePaths)
+}
+
+func TestOrganizePreviewRejectsApplicationFileProxy(t *testing.T) {
+	require.False(t, isDirectOrganizePreviewURL(
+		"https://api.example.test/files?file_path=oss%3A%2F%2Fbucket%2Fmemory.mp3",
+	))
+	require.False(t, isDirectOrganizePreviewURL(
+		"https://api.example.test/api/v1/files/presigned?file_path=oss%3A%2F%2Fbucket%2Fmemory.mp3",
+	))
+	require.False(t, isDirectOrganizePreviewURL(
+		"https://api.example.test/r/temporary-grant",
+	))
+	require.True(t, isDirectOrganizePreviewURL(
+		"https://bucket.oss-cn-hangzhou.aliyuncs.com/memory.mp3?signature=test",
+	))
+}
+
 func TestOrganizeServiceMediaReadUsesCourseOwnerTenant(t *testing.T) {
 	ownerTenantID := uint64(9)
 	viewerTenantID := uint64(42)

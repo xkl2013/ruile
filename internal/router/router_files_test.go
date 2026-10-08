@@ -21,7 +21,13 @@ import (
 var _ interfaces.FileService = (*stubFileService)(nil)
 
 type stubFileService struct {
-	getFile func(ctx context.Context, filePath string) (io.ReadCloser, error)
+	getFile    func(ctx context.Context, filePath string) (io.ReadCloser, error)
+	getFileURL func(ctx context.Context, filePath string) (string, error)
+}
+
+type stubDirectFileService struct {
+	*stubFileService
+	getDirectFileURL func(ctx context.Context, filePath string) (string, error)
 }
 
 type stubStorageBackendResolver struct {
@@ -113,7 +119,20 @@ func (s *stubFileService) GetFile(ctx context.Context, filePath string) (io.Read
 }
 
 func (s *stubFileService) GetFileURL(ctx context.Context, filePath string) (string, error) {
-	panic("unexpected call to GetFileURL")
+	if s.getFileURL == nil {
+		panic("unexpected call to GetFileURL")
+	}
+	return s.getFileURL(ctx, filePath)
+}
+
+func (s *stubDirectFileService) GetDirectFileURL(
+	ctx context.Context,
+	filePath string,
+) (string, error) {
+	if s.getDirectFileURL == nil {
+		panic("unexpected call to GetDirectFileURL")
+	}
+	return s.getDirectFileURL(ctx, filePath)
 }
 
 func (s *stubFileService) DeleteFile(ctx context.Context, filePath string) error {
@@ -152,6 +171,36 @@ func TestServeFilesFallsBackToGlobalFileService(t *testing.T) {
 	}
 	if body := recorder.Body.String(); body != "fallback-body" {
 		t.Fatalf("body = %q, want %q", body, "fallback-body")
+	}
+}
+
+func TestDirectFilePreviewURLPrefersProviderURL(t *testing.T) {
+	const (
+		path      = "resource://AbCdEfGhIjKlMnOpQrStUv"
+		directURL = "https://bucket.oss.example.com/audio.mp3?signature=abc"
+	)
+	service := &stubDirectFileService{
+		stubFileService: &stubFileService{
+			getFileURL: func(context.Context, string) (string, error) {
+				t.Fatal("GetFileURL should not be called when direct URLs are supported")
+				return "", nil
+			},
+		},
+		getDirectFileURL: func(_ context.Context, gotPath string) (string, error) {
+			if gotPath != path {
+				t.Fatalf("path = %q, want %q", gotPath, path)
+			}
+			return directURL, nil
+		},
+	}
+
+	got, err := directFilePreviewURL(context.Background(), service, path)
+
+	if err != nil {
+		t.Fatalf("directFilePreviewURL() error = %v", err)
+	}
+	if got != directURL {
+		t.Fatalf("directFilePreviewURL() = %q, want %q", got, directURL)
 	}
 }
 

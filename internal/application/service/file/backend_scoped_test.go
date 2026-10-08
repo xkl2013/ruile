@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -31,4 +33,32 @@ func TestBackendScopedLocalURLRetainsBackendID(t *testing.T) {
 	data, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	assert.Equal(t, "hello", string(data))
+}
+
+func TestBackendScopedDirectURLBypassesResourceGrant(t *testing.T) {
+	const (
+		ref      = "resource://AbCdEfGhIjKlMnOpQrStUv"
+		physical = "oss://private-bucket/42/audio.mp3"
+		direct   = "https://private-bucket.oss.example.com/42/audio.mp3?signature=abc"
+	)
+	inner := NewResourceCatalogFileService(
+		&physicalFileStub{fileURL: direct},
+		&catalogStub{
+			resource: &types.StoredResource{
+				TenantID:     42,
+				PhysicalPath: physical,
+			},
+		},
+	)
+	scoped := NewBackendScopedFileService("backend-oss-a", inner)
+	directService, ok := scoped.(interfaces.DirectFileURLService)
+	require.True(t, ok)
+
+	got, err := directService.GetDirectFileURL(
+		context.Background(),
+		types.BuildStorageBackendPath("backend-oss-a", ref),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, direct, got)
 }

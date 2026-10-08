@@ -12,6 +12,37 @@ Future<void> _pumpTransition(WidgetTester tester) async {
 }
 
 void main() {
+  test('only unauthorized responses expire the login session', () {
+    expect(isAuthenticationExpiredStatus(401), isTrue);
+    expect(isAuthenticationExpiredStatus(403), isFalse);
+  });
+
+  test('file previews only accept direct object storage URLs', () {
+    expect(
+      isDirectPreviewUrl(
+        'https://bucket.oss-cn-hangzhou.aliyuncs.com/audio.mp3?signature=test',
+      ),
+      isTrue,
+    );
+    expect(
+      isDirectPreviewUrl(
+        'https://api.example.com/files?file_path=resource%3A%2F%2Faudio',
+      ),
+      isFalse,
+    );
+    expect(
+      isDirectPreviewUrl(
+        'https://api.example.com/api/v1/files/presigned?file_path=oss%3A%2F%2Faudio',
+      ),
+      isFalse,
+    );
+    expect(
+      isDirectPreviewUrl('https://api.example.com/r/temporary-grant'),
+      isFalse,
+    );
+    expect(isDirectPreviewUrl('oss://bucket/audio.mp3'), isFalse);
+  });
+
   testWidgets('shows login page and validates fields', (tester) async {
     await tester.pumpWidget(
       const RuileMobileApp(restoreStoredSession: false),
@@ -74,9 +105,9 @@ void main() {
     expect(find.text('测试一下'), findsNothing);
     expect(find.text('金句名言'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsWidgets);
-    expect(find.text('全部记忆'), findsOneWidget);
-    expect(find.byTooltip('筛选'), findsOneWidget);
-    expect(find.byIcon(Icons.tune), findsOneWidget);
+    expect(find.text('全部记忆'), findsNothing);
+    expect(find.byTooltip('筛选'), findsNothing);
+    expect(find.byIcon(Icons.tune), findsNothing);
     expect(find.byTooltip('录入'), findsOneWidget);
     expect(find.byTooltip('录音记忆'), findsNothing);
     expect(find.byTooltip('文字记忆'), findsNothing);
@@ -86,18 +117,6 @@ void main() {
     expect(find.text('文字记忆'), findsNothing);
     expect(find.text('录音记忆'), findsNothing);
     expect(find.text('更多方式'), findsNothing);
-
-    await tester.tap(find.byTooltip('筛选'));
-    await tester.pump(const Duration(milliseconds: 350));
-
-    expect(find.text('类型'), findsNothing);
-    expect(find.text('整理状态'), findsOneWidget);
-    expect(find.text('笔记'), findsNothing);
-    expect(find.text('录音'), findsNothing);
-    expect(find.text('工牌'), findsNothing);
-
-    await tester.tapAt(const Offset(20, 20));
-    await tester.pump(const Duration(milliseconds: 350));
 
     final knowledgeBaseList = find.byWidgetPredicate(
       (widget) =>
@@ -125,7 +144,7 @@ void main() {
 
     expect(find.textContaining('燃气轮机'), findsNothing);
     expect(find.textContaining('任何人或事都有高光时刻'), findsNothing);
-    expect(find.text('全部记忆'), findsOneWidget);
+    expect(find.text('全部记忆'), findsNothing);
   });
 
   testWidgets('filters memories from the status overview', (tester) async {
@@ -144,27 +163,42 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const Key('memory-status-processing')));
+    final processingCard = find.byKey(const Key('memory-status-processing'));
+    final processingContainer = find.descendant(
+      of: processingCard,
+      matching: find.byType(Container),
+    );
+    final initialDecoration = tester
+        .widget<Container>(processingContainer.first)
+        .decoration! as BoxDecoration;
+    final initialBorderColor = (initialDecoration.border! as Border).top.color;
+
+    await tester.tap(processingCard);
     await tester.pump();
 
-    expect(find.text('整理中记忆'), findsOneWidget);
-    expect(find.text('当前筛选：整理中'), findsOneWidget);
+    final selectedDecoration = tester
+        .widget<Container>(processingContainer.first)
+        .decoration! as BoxDecoration;
+    final selectedBorderColor =
+        (selectedDecoration.border! as Border).top.color;
+    expect(selectedBorderColor, isNot(initialBorderColor));
+    expect(find.text('整理中记忆'), findsNothing);
+    expect(find.textContaining('当前筛选：'), findsNothing);
 
-    await tester.tap(find.byKey(const Key('memory-status-processing')));
+    await tester.tap(processingCard);
     await tester.pump();
 
-    expect(find.text('全部记忆'), findsOneWidget);
-    expect(find.text('当前筛选：整理中'), findsNothing);
+    final resetDecoration = tester
+        .widget<Container>(processingContainer.first)
+        .decoration! as BoxDecoration;
+    final resetBorderColor = (resetDecoration.border! as Border).top.color;
+    expect(resetBorderColor, initialBorderColor);
   });
 
   testWidgets('switches between the three primary tabs', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
-    await tester.tap(find.byTooltip('发现'));
-    await _pumpTransition(tester);
-    expect(find.text('精选'), findsOneWidget);
-    expect(find.text('换一批'), findsOneWidget);
-    expect(find.text('登录后可查看发现内容'), findsOneWidget);
+    expect(find.byTooltip('发现'), findsNothing);
 
     await tester.tap(find.byTooltip('服务'));
     await _pumpTransition(tester);
@@ -173,6 +207,40 @@ void main() {
     expect(find.byTooltip('清除搜索'), findsNothing);
     expect(find.text('找人'), findsNothing);
     expect(find.text('消息'), findsNothing);
+  });
+
+  testWidgets('opens discover below the daily report in the drawer', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    await tester.tap(find.byTooltip('菜单'));
+    await _pumpTransition(tester);
+
+    final drawer = find.byType(Drawer);
+    final dailyEntry = find.descendant(
+      of: drawer,
+      matching: find.text('睿乐日报'),
+    );
+    final discoverEntry = find.descendant(
+      of: drawer,
+      matching: find.text('发现'),
+    );
+
+    expect(dailyEntry, findsOneWidget);
+    expect(discoverEntry, findsOneWidget);
+    expect(
+      tester.getTopLeft(discoverEntry).dy,
+      greaterThan(tester.getTopLeft(dailyEntry).dy),
+    );
+
+    await tester.tap(discoverEntry);
+    await _pumpTransition(tester);
+    await _pumpTransition(tester);
+
+    expect(find.text('精选'), findsOneWidget);
+    expect(find.text('登录后可查看发现内容'), findsOneWidget);
+    expect(find.byTooltip('返回'), findsOneWidget);
   });
 
   testWidgets('requires an authenticated API session for organize data', (
@@ -214,6 +282,8 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
 
       expect(find.text('整理产物'), findsOneWidget);
+      expect(find.text('字段摘要'), findsNothing);
+      expect(find.text('重要信息'), findsOneWidget);
 
       await tester.tap(find.byTooltip('返回').hitTestable());
       await _pumpTransition(tester);
