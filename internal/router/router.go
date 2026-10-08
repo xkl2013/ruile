@@ -528,6 +528,7 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		k.POST("/:id/reparse", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.ReparseKnowledge)
 		k.POST("/:id/regenerate-summary", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.RegenerateKnowledgeSummary)
 		k.POST("/:id/cancel-parse", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.CancelKnowledgeParse)
+		k.POST("/:id/ignore-parse", g.Viewer(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.IgnoreKnowledgeParse)
 		// 原文件下载属于 KB 读取能力：创建者、共享 viewer+ 和仍然有效的
 		// 订阅入口都由 KBAccessRead 统一校验，不再额外要求当前空间 Admin。
 		kRead.GET("/:id/download", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.DownloadKnowledgeFile)

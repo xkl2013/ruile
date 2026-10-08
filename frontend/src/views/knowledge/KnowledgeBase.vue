@@ -32,6 +32,7 @@ import {
   reparseKnowledge,
   regenerateKnowledgeSummary,
   cancelKnowledgeParse,
+  ignoreKnowledgeParse,
   batchDeleteKnowledge,
   batchReparseKnowledge,
   listKnowledgeDirectoryCounts,
@@ -1302,11 +1303,6 @@ const selectDirectory = (path: string) => {
   if (kbId.value && !isFAQ.value) {
     void loadKnowledgeFiles(kbId.value);
   }
-};
-
-const handleDirectoryRowActivate = (path: string, hasChildren: boolean) => {
-  selectDirectory(path);
-  if (hasChildren) toggleDirectoryCollapsed(path);
 };
 
 const directoryPathExists = (path: string) => {
@@ -2958,9 +2954,34 @@ const confirmCancelParseKnowledge = async (item: KnowledgeCard) => {
   }
 };
 
+const confirmIgnoreParseKnowledge = async (item: KnowledgeCard) => {
+  if (!item?.id) return;
+  try {
+    const res: any = await ignoreKnowledgeParse(item.id);
+    const updated = res?.data || {};
+    const current = (cardList.value || []).find((candidate: KnowledgeCard) => candidate.id === item.id);
+    if (current) {
+      current.parse_status = updated.parse_status || 'unparsed';
+      current.summary_status = updated.summary_status || 'none';
+      current.description = updated.description || '';
+      current.error_message = updated.error_message || '';
+    }
+    if (details.id === item.id) {
+      details.parse_status = updated.parse_status || 'unparsed';
+      details.summary_status = updated.summary_status || 'none';
+      details.description = updated.description || '';
+      details.error_message = updated.error_message || '';
+    }
+    MessagePlugin.success(t('knowledgeBase.ignoreParseSubmitted'));
+    loadKnowledgeFiles(kbId.value);
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || t('knowledgeBase.ignoreParseFailed'));
+  }
+};
+
 // Bridge card-view actions back to existing per-card handlers.
 const handleCardAction = (
-  action: 'edit' | 'reparse' | 'regenerate-summary' | 'cancel-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
+  action: 'edit' | 'reparse' | 'regenerate-summary' | 'cancel-parse' | 'ignore-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
   item: KnowledgeCard,
 ) => {
   const idx = (cardList.value || []).findIndex((i: KnowledgeCard) => i.id === item.id);
@@ -2971,6 +2992,7 @@ const handleCardAction = (
   }
   if (action === 'regenerate-summary') return confirmRegenerateSummaryKnowledge(idx, item);
   if (action === 'cancel-parse') return confirmCancelParseKnowledge(item);
+  if (action === 'ignore-parse') return confirmIgnoreParseKnowledge(item);
   if (action === 'move') return handleMoveKnowledge(item);
   if (action === 'delete') return confirmDeleteKnowledge(idx, item);
   if (action === 'view-trace') return handleViewTrace(idx, item);
@@ -2979,7 +3001,7 @@ const handleCardAction = (
 
 // Bridge list-view actions back to existing per-card handlers.
 const handleListAction = (
-  action: 'edit' | 'reparse' | 'regenerate-summary' | 'cancel-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
+  action: 'edit' | 'reparse' | 'regenerate-summary' | 'cancel-parse' | 'ignore-parse' | 'move' | 'delete' | 'view-trace' | 'batch-manage',
   item: KnowledgeCard,
 ) => {
   const idx = (cardList.value || []).findIndex((i: KnowledgeCard) => i.id === item.id);
@@ -2987,6 +3009,7 @@ const handleListAction = (
   if (action === 'reparse') return confirmRebuildKnowledge(idx, item);
   if (action === 'regenerate-summary') return confirmRegenerateSummaryKnowledge(idx, item);
   if (action === 'cancel-parse') return confirmCancelParseKnowledge(item);
+  if (action === 'ignore-parse') return confirmIgnoreParseKnowledge(item);
   if (action === 'move') return handleMoveKnowledge(item);
   if (action === 'delete') return confirmDeleteKnowledge(idx, item);
   if (action === 'view-trace') return handleViewTrace(idx, item);
@@ -3171,10 +3194,26 @@ async function createNewSession(value: string): Promise<void> {
                   'has-hover-actions': canEditKnowledgeBaseDirectories,
                 }"
                 :title="$t('knowledgeBase.allDocuments')"
-                :aria-expanded="rootHasChildren ? !isDirectoryCollapsed(DIRECTORY_ROOT_PATH) : undefined"
-                @click="handleDirectoryRowActivate(DIRECTORY_ROOT_PATH, rootHasChildren)"
-                @keydown.enter.prevent="handleDirectoryRowActivate(DIRECTORY_ROOT_PATH, rootHasChildren)"
-                @keydown.space.prevent="handleDirectoryRowActivate(DIRECTORY_ROOT_PATH, rootHasChildren)">
+                @click="selectDirectory(DIRECTORY_ROOT_PATH)"
+                @keydown.enter.prevent="selectDirectory(DIRECTORY_ROOT_PATH)"
+                @keydown.space.prevent="selectDirectory(DIRECTORY_ROOT_PATH)">
+                <button
+                  v-if="rootHasChildren"
+                  type="button"
+                  class="directory-tree-leading-toggle"
+                  :title="$t(isDirectoryCollapsed(DIRECTORY_ROOT_PATH) ? 'common.expand' : 'common.collapse')"
+                  :aria-label="$t(isDirectoryCollapsed(DIRECTORY_ROOT_PATH) ? 'common.expand' : 'common.collapse')"
+                  :aria-expanded="!isDirectoryCollapsed(DIRECTORY_ROOT_PATH)"
+                  @click.stop="toggleDirectoryCollapsed(DIRECTORY_ROOT_PATH)"
+                  @keydown.enter.stop
+                  @keydown.space.stop
+                >
+                  <t-icon
+                    :name="isDirectoryCollapsed(DIRECTORY_ROOT_PATH) ? 'chevron-right' : 'chevron-down'"
+                    size="14px"
+                  />
+                </button>
+                <span v-else class="directory-tree-leading-toggle directory-tree-leading-toggle--placeholder" aria-hidden="true"></span>
                 <span class="directory-tree-name">{{ $t('knowledgeBase.allDocuments') }}</span>
                 <span class="directory-tree-count">{{ rootDirectoryCount }}</span>
                 <span v-if="canEditKnowledgeBaseDirectories" class="directory-tree-actions">
@@ -3199,10 +3238,23 @@ async function createNewSession(value: string): Promise<void> {
                   'has-hover-actions': canEditKnowledgeBaseDirectories,
                 }"
                 :style="getDirectoryTreeItemStyle(directory)" :title="getDirectoryTitle(directory)"
-                :aria-expanded="directory.hasChildren ? !directory.collapsed : undefined"
-                @click="handleDirectoryRowActivate(directory.path, directory.hasChildren)"
-                @keydown.enter.prevent="handleDirectoryRowActivate(directory.path, directory.hasChildren)"
-                @keydown.space.prevent="handleDirectoryRowActivate(directory.path, directory.hasChildren)">
+                @click="selectDirectory(directory.path)"
+                @keydown.enter.prevent="selectDirectory(directory.path)"
+                @keydown.space.prevent="selectDirectory(directory.path)">
+                <button
+                  v-if="directory.hasChildren"
+                  type="button"
+                  class="directory-tree-leading-toggle"
+                  :title="$t(directory.collapsed ? 'common.expand' : 'common.collapse')"
+                  :aria-label="$t(directory.collapsed ? 'common.expand' : 'common.collapse')"
+                  :aria-expanded="!directory.collapsed"
+                  @click.stop="toggleDirectoryCollapsed(directory.path)"
+                  @keydown.enter.stop
+                  @keydown.space.stop
+                >
+                  <t-icon :name="directory.collapsed ? 'chevron-right' : 'chevron-down'" size="14px" />
+                </button>
+                <span v-else class="directory-tree-leading-toggle directory-tree-leading-toggle--placeholder" aria-hidden="true"></span>
                 <span class="directory-tree-name">{{ directory.name }}</span>
                 <span class="directory-tree-count">{{ directory.count }}</span>
                 <span v-if="canEditKnowledgeBaseDirectories" class="directory-tree-actions">
@@ -4085,6 +4137,34 @@ async function createNewSession(value: string): Promise<void> {
     background: color-mix(in srgb, var(--td-brand-color) 8%, var(--td-bg-color-container));
     color: var(--td-brand-color);
     font-weight: 500;
+  }
+}
+
+.directory-tree-leading-toggle {
+  width: 18px;
+  height: 20px;
+  flex: 0 0 18px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--td-text-color-placeholder);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--td-brand-color);
+    background: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+    outline: none;
+  }
+
+  &--placeholder {
+    visibility: hidden;
+    pointer-events: none;
   }
 }
 

@@ -23,6 +23,7 @@ const emit = defineEmits<{
   (e: 'reparse'): void;
   (e: 'regenerate-summary'): void;
   (e: 'cancel-parse'): void;
+  (e: 'ignore-parse'): void;
   (e: 'move'): void;
   (e: 'batch-manage'): void;
   (e: 'delete'): void;
@@ -40,6 +41,9 @@ const isSummaryInFlight = computed(() =>
 );
 const canRegenerateSummary = computed(() =>
   props.item.parse_status !== 'unparsed' && !isParseInFlight.value && !isSummaryInFlight.value
+);
+const canIgnoreParse = computed(() =>
+  ['failed', 'cancelled'].includes(String(props.item.parse_status ?? ''))
 );
 
 const fileName = computed(() => props.item.file_name || props.item.title || props.item.id);
@@ -91,6 +95,18 @@ const fileName = computed(() => props.item.file_name || props.item.title || prop
     <div class="doc-action-menu-item danger" @click.stop>
       <t-icon class="icon" name="close-circle" />
       <span>{{ $t('knowledgeBase.cancelParse') }}</span>
+    </div>
+  </t-popconfirm>
+
+  <!-- 忽略解析 -->
+  <t-popconfirm v-if="canMutateKnowledge && canIgnoreParse" theme="warning"
+    :content="$t('knowledgeBase.ignoreParseConfirmBody', { title: fileName })"
+    :confirm-btn="{ content: $t('knowledgeBase.ignoreParse'), theme: 'primary' }"
+    :cancel-btn="{ content: $t('common.cancel') }" placement="left"
+    @confirm="emit('ignore-parse')">
+    <div class="doc-action-menu-item" @click.stop>
+      <t-icon class="icon" name="file" />
+      <span>{{ $t('knowledgeBase.ignoreParse') }}</span>
     </div>
   </t-popconfirm>
 
