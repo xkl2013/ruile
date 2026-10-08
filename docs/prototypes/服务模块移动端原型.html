@@ -309,7 +309,7 @@
     <div class="rail-foot">
       令牌取自真机 <code>AppColors</code>：accent #23B99D · 背景 #F5F6FA · 正文 #252B35<br>
       圆角 4 / 10 / 14 · 页边距 18 · 段落间距 24<br>
-      <b id="verstamp">v1.24</b>
+      <b id="verstamp">v1.26</b>
     </div>
   </aside>
 
@@ -317,7 +317,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.24</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.26</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll">
@@ -442,7 +442,7 @@ var state = {
   svcSheet: null,     // 列表卡片 ⋯ 打开的弹层（服务名）
   ovFrom: 'space',    // 服务概览的返回来源：list（列表点卡片进）| space（⋯ → 更多进）
   actFrom: 'space',   // 动态页的返回来源：list（卡片「最近」行进）| space（默认）
-  ovTab: 'home',      // 服务概览 tab：home | todo | act | res（v1.24 回退 v1.23：内容回到「概览」tab 内）
+  ovTab: 'todo',      // 服务概览 tab：todo | act | res（v1.25 恢复 v1.23 布局：摘要/记录/成员常驻 tab 上方，不再有「概览」tab）
   ttab: 'open',
   sub: 'list',        // list | detail
   cap: false
@@ -639,12 +639,12 @@ function vOverview(){
     '<div class="mt">家长与学员 · 5 位成员</div></div>' +
     '</div>';
 
-  var tabs = [['home','概览'],['todo','待办'],['act','动态'],['res','产物']];
+  var tabs = [['todo','待办'],['act','动态'],['res','产物']];
   var tabbar = '<div class="otabs" style="margin:18px -20px 0;padding:0 18px">' + tabs.map(function(t){
     return '<div class="ot' + (state.ovTab === t[0] ? ' on' : '') + '" data-otab="' + t[0] + '">' + t[1] + '</div>';
   }).join('') + '</div>';
 
-  /* 「概览」tab 的内容：进展摘要 + 重点记录 + 成员（v1.24 回退到 tab 内，与 v1.22 一致） */
+  /* 常驻内容区（tab 上方）：进展摘要 + 重点记录，无论切到哪个 tab 都可见（v1.25 恢复 v1.23；v1.26 起成员行先不展示） */
   var fixed =
       '<div class="aicard">' +
         '<div class="ah"><b>进展摘要</b><span class="tm">10:12 更新 · 刷新</span></div>' +
@@ -658,17 +658,10 @@ function vOverview(){
           '<div class="rv">' + f[1] + '</div>' +
           (f[2] ? '<div class="rs ' + f[4] + '">' + f[2] + '</div>' : '') +
           '</div>';
-      }).join('') + '</div>' +
-      '<div class="slim" style="margin-top:20px;display:flex;align-items:center;gap:11px">' +
-        '<span class="ava">王</span>' +
-        '<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:700;color:var(--t1)">服务成员</div>' +
-        '<div class="meta" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">王园长（主人）· 李老师 · 陈老师 · 赵老师</div></div>' +
-        '</div>';
+      }).join('') + '</div>';
 
   var content = '';
-  if (state.ovTab === 'home'){
-    content = '<div style="margin-top:16px">' + fixed + '</div>';
-  } else if (state.ovTab === 'todo'){
+  if (state.ovTab === 'todo'){
     content = '<div class="sechead" style="margin-top:16px"><span class="st">待办<small>5 条</small></span><span class="tt2" data-go="reminders">全部 ›</span></div>' +
       TODO.map(function(t){
         return '<div class="td" data-go="reminders"><span class="cc' + (t.p === '高' ? ' hi' : '') + '"></span>' +
@@ -693,13 +686,14 @@ function vOverview(){
   return sbx() + '<div class="viewport">' +
     ab({ back:true, backTo: state.ovFrom || 'space', title:'服务概览' }) +
     head +
-    '<div class="body" style="padding-top:2px">' + tabbar + content +
+    '<div class="body" style="padding-top:2px">' + fixed + tabbar + content +
       note(9, '<b>概览改用 tab 分类（v1.8，参照 WorkBuddy 移动端项目详情）。</b>v1.7 的六段长页（摘要 / 数字 / 待办 / 记录 / 动态 / 入口全堆一屏）信息密度过高、扫不到底。改为：头部一张<b>身份卡</b>（头像 + 名称 + 成员数，右上 ⚙ 进设置）+ 五个<b>下划线 tab</b>——概览 / 待办 / 重点记录 / 动态 / 产物，<b>一屏一件事</b>，各自完整、互不挤压。tab 用下划线式而非胶囊式，与设置页的分区胶囊在视觉上区分开。<b>底部原整宽绿色「进入会话」按钮改为 WorkBuddy 式会话输入条（v1.9）</b>：一个圆角输入条 + 麦克风 + 品牌色箭头（点任意处进入会话），与 WorkBuddy 项目详情底部的任务输入条同形，避免整屏两个大 CTA、也让「去对话」这件事看起来仍是一次输入。') +
       note(24, '<b>简洁原则（v1.10 清一遍）：同一条信息只出现一次。</b>① 产物既有 tab 又有「快捷入口」卡片 → 删卡片，产物只走 tab；② 待办数既在 KPI 又在 tab 角标 → tab 一律不带角标，数字只在<b>概览</b>出现一次；③ 身份卡原写「家长与学员 · 5 位成员 · 3 段工作」，后两项是后台口径 → 只留用户看得懂的两项；④ 成员不进 tab，用<b>一行只读</b>「服务成员 + 名单」代替原来的两个 tile——零配置后它不再带 ›，看一眼知道有谁就够。<b>v1.11 再清一层：本页不再有任何配置入口</b>（身份卡 ⚙、「重点记录」的「编辑」全部删除）。原则：每屏一个主线任务、一个主按钮；同一数字 / 入口不重复出现；能一行说完就不做卡片；<b>需要用户配的东西，不放在使用者面前</b>。') +
       note(25, '<b>重点记录并入概览（v1.17）。</b>重点记录只有 4 条、半屏都填不满，独立成 tab 后用户要多点一次才能看到最该看的「这个家庭处在什么状态」。现在<b>概览 tab 一屏讲完服务的全貌</b>：进展摘要 → 重点记录（AI 自动维护）→ 成员；tab 收成 4 个（概览 / 待办 / 动态 / 产物），每个 tab 都是满内容，不再有「为凑 tab 而存在」的页面。') +
       note(26, '<b>数字不单独做卡片（v1.19）。</b>原来摘要下面还有三格 KPI 卡（线索 16 / 明确意向 4 / 待处理 5），和摘要正文里的数字完全重复——数字离开语境没有意义，<b>摘要是它们天然的容器</b>。现在关键数字直接在摘要文字里高亮：一般进展用<b>品牌色</b>（16 条线索、4 条意向、3 个待回访），要紧的用<b>警示色</b>（9 位家长提到、5 条待处理），扫一眼颜色就知道哪些要紧；「5 条待处理」仍可点，页内切到待办 tab。这也符合 §0.5 的「同一信息只出现一次」与「能一行说完就不做卡片」。') +
       note(27, '<b>标签行删除（v1.22）。</b>卡片上原来的「家长与学员」分类徽标和「5 条待处理」橙色计数，对天天刷列表的园长来说都是<b>不关心的信息</b>：分类在建服务时已经选过、扫列表不会再看；待办压力已经由「新待办」增量行和概览摘要里的「5 条待处理」承载（同一信息只出现一次，§0.5）。删掉后卡片只剩用户语言：服务叫什么、最近怎么了、有没有新活、什么时候更新、点哪里进去。') +
-      note(28, '<b>概览内容回到「概览」tab 内（v1.24，回退 v1.23）。</b>v1.23 曾把进展摘要 + 重点记录 + 成员挪到 tab 上方常驻，一屏里既有摘要又有明细清单、页面被拉得很长，tab 也只管下半屏、存在感变弱。现在<b>回到 v1.22 的样式</b>：概览仍是第一个 tab，摘要 / 重点记录 / 成员都放在「概览」tab 内；tab 恢复四个——概览 / 待办 / 动态 / 产物，默认落在概览，从列表点卡片进来也是概览。摘要里的「5 条待处理」仍可点，页内切到待办清单。') +
+      note(28, '<b>概览内容回到 tab 上方（v1.25，恢复 v1.23 方案）。</b>v1.24 一度把它挪回「概览」tab 内，试用下来仍是「要多点一下才看得到」——摘要和重点记录是<b>这个服务最该被先看到的东西</b>，不该藏在 tab 后面。现在恢复 v1.23 的做法：<b>进展摘要 + 重点记录 + 成员常驻在 tab 上方的内容区</b>，切任何 tab 都不会把摘要滚没；tab 收成三个（待办 / 动态 / 产物），只负责切下面的明细清单。「概览」不再是一个 tab，而是页面本身——进来第一眼就是摘要。摘要里的「5 条待处理」仍可点，切到下方待办清单。') +
+      note(29, '<b>成员行先不展示（v1.26）。</b>常驻区原来第三块是「服务成员 + 名单」，但它对使用者是<b>零动作信息</b>——看了不需要做什么，成员配置又统一在电脑端（零配置，§0.5「同一条信息只出现一次」）。先删掉，让「进展摘要 → 重点记录」直接接 tab，常驻区更短、一屏更稳。成员数仍在身份卡保留一行（「家长与学员 · 5 位成员」），名单需要时再加回。') +
       note(23, '<b>点卡片先进概览，不先进对话（v1.5）：</b>列表的服务卡片<b>整卡可点</b>，落点是本页——服务概览就是服务的首页；底部<b>会话输入条</b>再下到对话区，返回键按来源回（从列表来回列表、从 ⋯ 进来回会话）。为什么不直接进对话：手机屏小，先把服务的全貌给出来，再决定聊什么；web 上对话区与浮层能并存，所以 web 不受此限。') +
     '</div>' +
     '<div class="foot cin"><div class="composer" data-go="space">' +
@@ -839,13 +833,13 @@ var SPECS = {
       '顶部三态分段：待处理 / 进行中 / 已完成，各带计数。'
     ],
     api:'默认四态由后端自动生成，key 后端生成、category 按 is_terminal 推导 —— 界面不设自定义状态入口。'},
-  overview: { goal:'移动端的服务首页（v1.24）：「概览」tab 内一屏讲完摘要 / 重点记录 / 成员，其余 tab 只切明细。',
+  overview: { goal:'移动端的服务首页（v1.26）：摘要 / 重点记录常驻 tab 上方，tab 只切下方明细；成员名单行先不展示。',
     pts:[
-      '<b>结构对标 WorkBuddy 移动端项目详情</b>：顶部导航（返回 + 标题）→ 一张<b>服务身份卡</b>（头像 + 名称 + 「家长与学员 · 5 位成员」）→ 一排<b>下划线 tab</b>（概览 / 待办 / 动态 / 产物）→ 当前 tab 明细。',
-      '<b>概览 tab 一屏讲完全貌（v1.24 回退到 v1.22 样式）</b>：进展摘要三段式（结论 / 需留意 / 下一步，可刷新）→ <b>重点记录 2×2 网格</b>（右上灰字「AI 自动维护」；v1.18 精细化：每格带状态色点、变化的记录带补充行）→ 一行<b>只读</b>「服务成员 + 名单」。摘要和记录放在 tab <b>内</b>，不常驻——切到待办 / 动态 / 产物时页面只讲一件事，不被摘要挤占。',
-      '<b>tab 只切明细</b>：待办 / 动态 / 产物，与概览并列；默认落在<b>概览</b>——从列表点卡片进来第一眼也是摘要，不是清单。tab 一律不带角标（数字只在摘要出现一次）。',
+      '<b>结构对标 WorkBuddy 移动端项目详情</b>：顶部导航（返回 + 标题）→ 一张<b>服务身份卡</b>（头像 + 名称 + 「家长与学员 · 5 位成员」）→ <b>常驻内容区</b> → 一排<b>下划线 tab</b> → 当前 tab 明细。',
+      '<b>概览内容在 tab 上方（v1.25 恢复 v1.23 方案）</b>：进展摘要三段式（结论 / 需留意 / 下一步，可刷新）→ <b>重点记录 2×2 网格</b>（右上灰字「AI 自动维护」；v1.18 精细化：每格带状态色点、变化的记录带补充行）→ 一行<b>只读</b>——这两块<b>常驻</b>，切任何 tab 都不会被滚走；「概览」不再是一个 tab，而是页面本身。<b>成员行先不展示（v1.26）</b>：名单是零动作信息，先删；成员数只在身份卡保留。',
+      '<b>三个 tab 只切明细：</b>待办 / 动态 / 产物，默认落在待办；tab 一律不带角标（数字只在摘要出现一次）。',
       '<b>数字不单独做卡片（v1.19）</b>：线索 / 明确意向 / 待处理等关键数字直接在摘要文字里<b>品牌色 / 警示色加粗高亮</b>（如「共进入 <code>16 条</code>线索」「还有 <code>5 条待处理</code>」），替代独立的三格 KPI 卡——数字离开语境没有意义，摘要是它们天然的容器；「5 条待处理」仍可点，切到下方待办明细。',
-      '<b>简洁做法</b>：产物不再重复出卡片（有独立 tab）；成员不进 tab，用一行代替两个 tile；身份卡不摆「3 段工作」这类后台口径。',
+      '<b>简洁做法</b>：产物不再重复出卡片（有独立 tab）；成员名单行不展示（v1.26，成员数只在身份卡保留一行）；身份卡不摆「3 段工作」这类后台口径。',
       '<b>零配置（v1.11）</b>：本页不含任何配置入口——身份卡无 ⚙、重点记录无「编辑」（改由 AI 自动维护，右上只写一行灰字说明）、成员行只读。使用者在这里只会做两件事：看结论、去聊天。',
       '<b>底部会话入口（v1.9）</b>：不用整宽绿色按钮，改成 WorkBuddy 式<b>会话输入条</b>——圆角条 + 「进入会话，接着说…」+ 麦克风 + 品牌色箭头，点任意处进入会话；一屏只留一个视觉锚点。',
       '<b>落点</b>（v1.5）：列表点卡片直接进本页；底部输入条再下到对话区；返回键按来源回（列表 / 会话）。'
@@ -916,7 +910,7 @@ function renderBar(){
       return '<button class="chip' + (state.smode === p[0] ? ' on' : '') + '" data-smode="' + p[0] + '">' + p[1] + '</button>';
     }).join('') + '<button class="chip' + (state.more ? ' on' : '') + '" data-more>' + (state.more ? '收起 ⋯' : '展开 ⋯') + '</button>';
   } else if (state.scene === 'overview'){
-    br.innerHTML = [['home','概览'],['todo','待办'],['act','动态'],['res','产物']].map(function(p){
+    br.innerHTML = [['todo','待办'],['act','动态'],['res','产物']].map(function(p){
       return '<button class="chip' + (state.ovTab === p[0] ? ' on' : '') + '" data-otab="' + p[0] + '">' + p[1] + '</button>';
     }).join('');
   } else if (state.scene === 'subjects'){
@@ -946,7 +940,7 @@ document.addEventListener('click', function(e){
     var g = t.getAttribute('data-go');
     if (g === 'overview'){
       state.ovFrom = t.getAttribute('data-ovfrom') || 'space';
-      state.ovTab = t.getAttribute('data-otab') || 'home';  /* v1.24：进概览默认落「概览」tab，只有增量行点名时才切 */
+      if (t.getAttribute('data-otab')) state.ovTab = t.getAttribute('data-otab');
     }
     if (g === 'activity') state.actFrom = t.getAttribute('data-actfrom') || 'space';
     state.scene = g; state.more = false; state.svcSheet = null;
