@@ -856,11 +856,7 @@ func (s *organizeService) GetPublishedCourseLessonMediaURL(
 		return "", "", "", err
 	}
 	ownerCtx := context.WithValue(ctx, types.TenantIDContextKey, course.TenantID)
-	fileService, err := s.resolveOrganizeFileService(ownerCtx, course.TenantID, filePath)
-	if err != nil {
-		return "", "", "", err
-	}
-	mediaURL, err := fileService.GetFileURL(ownerCtx, filePath)
+	mediaURL, err := s.organizePreviewURL(ownerCtx, course.TenantID, filePath)
 	if err != nil {
 		return "", "", "", err
 	}

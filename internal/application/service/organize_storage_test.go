@@ -133,14 +133,23 @@ func TestOrganizeServiceStorageResolverUsesExplicitOwnerTenant(t *testing.T) {
 
 type recordingOrganizeMediaFileService struct {
 	stubOrganizeFileService
-	contextTenantID uint64
-	filePath        string
+	contextTenantID       uint64
+	filePath              string
+	directContextTenantID uint64
+	directFilePath        string
+	directURL             string
 }
 
 func (s *recordingOrganizeMediaFileService) GetFile(ctx context.Context, filePath string) (io.ReadCloser, error) {
 	s.contextTenantID, _ = types.TenantIDFromContext(ctx)
 	s.filePath = filePath
 	return io.NopCloser(strings.NewReader("video-bytes")), nil
+}
+
+func (s *recordingOrganizeMediaFileService) GetDirectFileURL(ctx context.Context, filePath string) (string, error) {
+	s.directContextTenantID, _ = types.TenantIDFromContext(ctx)
+	s.directFilePath = filePath
+	return s.directURL, nil
 }
 
 type directOrganizePreviewFileService struct {
@@ -257,11 +266,25 @@ func TestOrganizeServiceMediaReadUsesCourseOwnerTenant(t *testing.T) {
 	svc := newOrganizeServiceForTest(t)
 	fileService := &recordingOrganizeMediaFileService{
 		stubOrganizeFileService: stubOrganizeFileService{
-			fileURL: "https://cdn.example.test/course.mp4",
+			fileURL: "https://api.example.test/r/application-proxy",
 		},
+		directURL: "https://course-bucket.oss-cn-beijing.aliyuncs.com/course.mp4?signature=test",
 	}
 	resolver := &recordingOrganizeStorageResolver{fileService: fileService}
 	svc.storageResolver = resolver
+	resourceCatalog, _ := newResourceCatalogForTest(t)
+	svc.resourceCatalog = resourceCatalog
+	resourceRef, err := resourceCatalog.Register(
+		ctx,
+		ownerTenantID,
+		"storage://course-oss/oss://course-bucket/course.mp4",
+		interfaces.ResourceRegistration{
+			Kind:         "video",
+			OriginalName: "course.mp4",
+			MimeType:     "video/mp4",
+		},
+	)
+	require.NoError(t, err)
 
 	courseID := types.NewOrganizeCourseID()
 	output := &types.OrganizeOutput{
@@ -271,7 +294,7 @@ func TestOrganizeServiceMediaReadUsesCourseOwnerTenant(t *testing.T) {
 		Status:            types.OrganizeOutputStatusReady,
 		PublicContentType: types.OrganizePublicContentTypeCourse,
 		Metadata: types.JSONMap{
-			"file_path": "oss://course-bucket/course.mp4",
+			"file_path": resourceRef,
 			"file_name": "course.mp4",
 			"mime_type": "video/mp4",
 		},
@@ -302,13 +325,17 @@ func TestOrganizeServiceMediaReadUsesCourseOwnerTenant(t *testing.T) {
 	require.Equal(t, "video/mp4", mimeType)
 	require.Equal(t, ownerTenantID, resolver.contextTenantID)
 	require.Equal(t, ownerTenantID, fileService.contextTenantID)
-	require.Equal(t, "oss://course-bucket/course.mp4", fileService.filePath)
+	require.Equal(t, "course-oss", resolver.backendID)
+	require.Equal(t, "oss", resolver.provider)
+	require.Equal(t, resourceRef, fileService.filePath)
 	require.NoError(t, reader.Close())
 
 	mediaURL, mediaName, mediaType, err := svc.GetPublishedCourseLessonMediaURL(ctx, courseID, lesson.ID)
 	require.NoError(t, err)
-	require.Equal(t, "https://cdn.example.test/course.mp4", mediaURL)
+	require.Equal(t, fileService.directURL, mediaURL)
 	require.Equal(t, "course.mp4", mediaName)
 	require.Equal(t, "video/mp4", mediaType)
 	require.Equal(t, ownerTenantID, resolver.contextTenantID)
+	require.Equal(t, ownerTenantID, fileService.directContextTenantID)
+	require.Equal(t, resourceRef, fileService.directFilePath)
 }

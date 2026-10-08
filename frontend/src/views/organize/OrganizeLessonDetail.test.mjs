@@ -4,14 +4,15 @@ import test from 'node:test'
 
 const source = readFileSync(new URL('./OrganizeLessonDetail.vue', import.meta.url), 'utf8')
 
-test('course lesson media is loaded through the authenticated request helper', () => {
-  assert.ok(source.includes("import { getDown } from '@/utils/request'"))
+test('course lesson media uses an OSS direct URL without a server blob fallback', () => {
+  assert.ok(!source.includes("import { getDown } from '@/utils/request'"))
   assert.ok(source.includes('getOrganizeCourseLessonMediaURL(courseId.value, lessonId.value, {'))
-  assert.ok(source.includes("const streamUrl = response.success ? response.data?.url || '' : ''"))
-  assert.ok(source.includes('mediaPlayerUrl.value = streamUrl'))
-  assert.ok(source.includes('const rawBlob = await getDown(sourceUrl, { timeout: 0, signal: controller.signal })'))
-  assert.ok(source.includes('URL.createObjectURL(blob)'))
-  assert.ok(source.includes('URL.revokeObjectURL(mediaObjectUrl)'))
+  assert.ok(source.includes("const directUrl = response.success ? response.data?.url || '' : ''"))
+  assert.ok(source.includes('isDirectMediaUrl(directUrl)'))
+  assert.ok(source.includes('mediaPlayerUrl.value = directUrl'))
+  assert.ok(!source.includes('getDown('))
+  assert.ok(!source.includes('URL.createObjectURL'))
+  assert.ok(!source.includes('URL.revokeObjectURL'))
   assert.ok(source.includes('const controller = new AbortController()'))
   assert.ok(source.includes('signal: controller.signal'))
   assert.ok(source.includes('courseAbortController?.abort()'))
@@ -26,6 +27,9 @@ test('course lesson media does not bind the protected API URL directly to the pl
   assert.ok(source.includes(':src="mediaPlayerUrl"'))
   assert.ok(!source.includes(':src="mediaUrl"'))
   assert.ok(source.includes('@error="handleMediaPlaybackError"'))
+  assert.ok(source.includes('mediaDirectRetryAttempted'))
+  assert.ok(source.includes('浏览器无法读取对象存储媒体文件'))
+  assert.ok(!source.includes('mediaEndpointUrl'))
   assert.ok(source.includes('aspect-ratio: 16 / 9'))
   assert.ok(source.includes('object-fit: contain'))
   assert.ok(source.includes('v-if="lecturerLabel"'))

@@ -119,7 +119,6 @@ import {
   type OrganizeCourse,
   type OrganizeCourseLesson,
 } from '@/api/organize'
-import { getDown } from '@/utils/request'
 
 const route = useRoute()
 const router = useRouter()
@@ -158,14 +157,12 @@ const durationLabel = computed(() => {
   return `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`
 })
 
-const mediaEndpointUrl = computed(() => currentLesson.value?.media_url || '')
 const mediaPlayerUrl = ref('')
 const mediaLoading = ref(false)
 const mediaError = ref('')
 const mediaElement = ref<HTMLMediaElement | null>(null)
-let mediaObjectUrl = ''
 let mediaRequestSeq = 0
-let mediaBlobFallbackAttempted = false
+let mediaDirectRetryAttempted = false
 let courseAbortController: AbortController | null = null
 let mediaAbortController: AbortController | null = null
 
@@ -185,12 +182,6 @@ function kindLabel(kind?: string) {
   return '图文'
 }
 
-function revokeMediaObjectUrl() {
-  if (!mediaObjectUrl) return
-  URL.revokeObjectURL(mediaObjectUrl)
-  mediaObjectUrl = ''
-}
-
 function cancelNativeMediaRequest() {
   const element = mediaElement.value
   if (!element) return
@@ -199,26 +190,42 @@ function cancelNativeMediaRequest() {
   element.load()
 }
 
-function isNativeMediaUrl(url: string) {
-  return /^https?:\/\//i.test(url) || url.startsWith('/')
+function isDirectMediaUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    const normalizedPath = `/${parsed.pathname.replace(/^\/+/, '')}`
+    return normalizedPath !== '/files'
+      && normalizedPath !== '/api/v1/files/presigned'
+      && !normalizedPath.startsWith('/r/')
+      && !(
+        normalizedPath.startsWith('/api/v1/organize/courses/')
+        && normalizedPath.endsWith('/media')
+      )
+  } catch {
+    return false
+  }
 }
 
 function isRequestCanceled(error: any) {
   return error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError' || error?.name === 'AbortError'
 }
 
-async function loadLessonMedia(forceBlob = false) {
+async function loadLessonMedia(isDirectRetry = false) {
   const requestSeq = ++mediaRequestSeq
-  const sourceUrl = mediaEndpointUrl.value
   mediaAbortController?.abort()
   const controller = new AbortController()
   mediaAbortController = controller
   cancelNativeMediaRequest()
-  revokeMediaObjectUrl()
   mediaPlayerUrl.value = ''
   mediaError.value = ''
-  mediaBlobFallbackAttempted = forceBlob
-  if (!sourceUrl) {
+  if (!isDirectRetry) {
+    mediaDirectRetryAttempted = false
+  }
+  if (
+    !currentLesson.value?.available
+    || !['video', 'audio'].includes(currentLesson.value.lesson_type)
+  ) {
     mediaLoading.value = false
     mediaAbortController = null
     return
@@ -226,38 +233,19 @@ async function loadLessonMedia(forceBlob = false) {
 
   mediaLoading.value = true
   try {
-    if (!forceBlob) {
-      try {
-        const response = await getOrganizeCourseLessonMediaURL(courseId.value, lessonId.value, {
-          timeout: 0,
-          signal: controller.signal,
-        })
-        const streamUrl = response.success ? response.data?.url || '' : ''
-        if (isNativeMediaUrl(streamUrl)) {
-          if (requestSeq !== mediaRequestSeq) return
-          mediaPlayerUrl.value = streamUrl
-          return
-        }
-      } catch (error) {
-        if (isRequestCanceled(error)) return
-        // Older deployments may not have the media-url endpoint yet. Fall
-        // back to the protected Blob path until the backend is upgraded.
-      }
-    }
-
-    // Compatibility path for storage backends that cannot produce a browser
-    // URL. It remains authenticated, but is no longer the primary player path.
-    const rawBlob = await getDown(sourceUrl, { timeout: 0, signal: controller.signal })
+    const response = await getOrganizeCourseLessonMediaURL(courseId.value, lessonId.value, {
+      timeout: 0,
+      signal: controller.signal,
+    })
     if (requestSeq !== mediaRequestSeq) return
-    mediaBlobFallbackAttempted = true
-    const blob = rawBlob.type
-      ? rawBlob
-      : new Blob([rawBlob], { type: isVideo.value ? 'video/mp4' : 'audio/mpeg' })
-    mediaObjectUrl = URL.createObjectURL(blob)
-    mediaPlayerUrl.value = mediaObjectUrl
+    const directUrl = response.success ? response.data?.url || '' : ''
+    if (!isDirectMediaUrl(directUrl)) {
+      throw new Error('对象存储未返回可用的媒体地址')
+    }
+    mediaPlayerUrl.value = directUrl
   } catch (error) {
     if (requestSeq !== mediaRequestSeq || isRequestCanceled(error)) return
-    mediaError.value = '媒体加载失败，请稍后重试'
+    mediaError.value = '媒体直连地址获取失败，请稍后重试'
   } finally {
     if (requestSeq === mediaRequestSeq) {
       mediaLoading.value = false
@@ -269,8 +257,15 @@ async function loadLessonMedia(forceBlob = false) {
 }
 
 function handleMediaPlaybackError() {
-  if (mediaBlobFallbackAttempted || !mediaEndpointUrl.value) return
-  void loadLessonMedia(true)
+  if (!mediaPlayerUrl.value) return
+  if (!mediaDirectRetryAttempted) {
+    mediaDirectRetryAttempted = true
+    void loadLessonMedia(true)
+    return
+  }
+  cancelNativeMediaRequest()
+  mediaPlayerUrl.value = ''
+  mediaError.value = '浏览器无法读取对象存储媒体文件，请检查 OSS 域名和跨域配置'
 }
 
 async function loadCourse() {
@@ -334,7 +329,6 @@ onBeforeUnmount(() => {
   mediaAbortController?.abort()
   courseAbortController = null
   mediaAbortController = null
-  revokeMediaObjectUrl()
 })
 </script>
 
