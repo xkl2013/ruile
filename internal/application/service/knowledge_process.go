@@ -2400,6 +2400,70 @@ func (s *knowledgeService) CancelKnowledgeParse(
 	return existing, nil
 }
 
+// IgnoreKnowledgeParse acknowledges a failed or cancelled parse without
+// deleting the original file. The row is reset to the same inactive state as
+// a file uploaded with parsing disabled, so it is excluded from retrieval but
+// can still be explicitly reparsed later.
+func (s *knowledgeService) IgnoreKnowledgeParse(
+	ctx context.Context, knowledgeID string,
+) (*types.Knowledge, error) {
+	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
+	existing, err := s.repo.GetKnowledgeByID(ctx, tenantID, knowledgeID)
+	if err != nil {
+		logger.Errorf(ctx, "IgnoreKnowledgeParse: failed to load knowledge: %v", err)
+		return nil, err
+	}
+	if existing == nil {
+		return nil, werrors.NewNotFoundError("knowledge not found")
+	}
+
+	switch existing.ParseStatus {
+	case types.ParseStatusUnparsed:
+		return existing, nil
+	case types.ParseStatusFailed, types.ParseStatusCancelled:
+		// Supported terminal states. Any partial chunks remain persisted but
+		// disabled, matching the existing cancellation behavior.
+	case types.ParseStatusPending, types.ParseStatusProcessing, types.ParseStatusFinalizing:
+		return nil, werrors.NewBadRequestError("知识仍在解析中，请先停止解析")
+	case types.ParseStatusCompleted:
+		return nil, werrors.NewBadRequestError("解析已完成，无法忽略")
+	case types.ParseStatusDeleting:
+		return nil, werrors.NewBadRequestError("知识正在删除中，无法忽略解析")
+	default:
+		return nil, werrors.NewBadRequestError("当前状态无法忽略解析")
+	}
+
+	now := time.Now()
+	if err := s.repo.UpdateKnowledgeColumns(ctx, existing.ID, map[string]interface{}{
+		"parse_status":           types.ParseStatusUnparsed,
+		"summary_status":         types.SummaryStatusNone,
+		"enable_status":          "disabled",
+		"description":            "",
+		"error_message":          "",
+		"pending_subtasks_count": 0,
+		"processed_at":           nil,
+		"updated_at":             now,
+	}); err != nil {
+		logger.Errorf(ctx, "IgnoreKnowledgeParse: failed to mark knowledge unparsed: %v", err)
+		return nil, err
+	}
+
+	existing.ParseStatus = types.ParseStatusUnparsed
+	existing.SummaryStatus = types.SummaryStatusNone
+	existing.EnableStatus = "disabled"
+	existing.Description = ""
+	existing.ErrorMessage = ""
+	existing.PendingSubtasksCount = 0
+	existing.ProcessedAt = nil
+	existing.UpdatedAt = now
+
+	// Defensive cleanup in case a failed task still has queued descendants.
+	s.dequeueKnowledgeTasks(ctx, knowledgeID)
+	s.scrubWikiPendingIngest(ctx, existing.KnowledgeBaseID, knowledgeID, "ignore")
+	logger.Infof(ctx, "Knowledge %s marked as unparsed by user", knowledgeID)
+	return existing, nil
+}
+
 // dequeueKnowledgeTasks asks the task inspector to remove any queued
 // tasks for this knowledge and signal active workers to stop. Safe to
 // call when the inspector is a no-op (Lite mode).

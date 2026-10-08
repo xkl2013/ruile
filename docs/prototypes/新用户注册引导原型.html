@@ -269,14 +269,7 @@ const SCENE_OPTS = [
 
 const ROLE_OPTS = [
   { name:'招生顾问',     dept:'招生与教务' },
-  { name:'教务主管',     dept:'教学与教务' },
-  { name:'班主任',       dept:'班级管理' },
-  { name:'带班老师',     dept:'教学' },
-  { name:'保育员',       dept:'保育' },
-  { name:'后勤主任',     dept:'后勤' },
-  { name:'会员服务顾问', dept:'会员服务' },
-  { name:'市场研究员',   dept:'市场' },
-  { name:'竞品分析师',   dept:'市场' }
+  { name:'班主任',       dept:'班级管理' }
 ];
 
 const ALL_ORG = [
@@ -328,20 +321,11 @@ const RECO = {
 
 const ROLE_BOOST = {
   '招生顾问':     ['lead_followup','channel_report','t1','t2'],
-  '教务主管':     ['parent_review','t6','t8'],
-  '班主任':       ['parent_review','t8'],
-  '带班老师':     ['teacher_research','lesson_review','case_observation','t3','t6'],
-  '保育员':       ['t3'],
-  '后勤主任':     ['t5'],
-  '会员服务顾问': ['t8'],
-  '市场研究员':   ['t7'],
-  '竞品分析师':   ['t7']
+  '班主任':       ['parent_review','t8']
 };
 
 const ROLE_DESC = {
-  '招生顾问':'线索跟进与转化','教务主管':'排课、教务与教学质量','班主任':'班级与家长沟通',
-  '带班老师':'日常教学与观察','保育员':'保育与生活照料','后勤主任':'物资、场地与活动支援',
-  '会员服务顾问':'会员权益与服务跟进','市场研究员':'市场调研与课题','竞品分析师':'竞品跟踪与对比'
+  '招生顾问':'线索跟进与转化','班主任':'班级与家长沟通'
 };
 
 const SCHED_LABEL = { daily:'每天 08:00', weekly:'每周一 09:00', monthly:'每月 1 日 09:00', manual:'手动触发' };
@@ -404,7 +388,7 @@ const TITLES = {
   3:'这些能力可以一键建好'
 };
 const SUBS = {
-  1:'可多选（最多 3 个）。我们会按你的选择推荐对应的整理模板与服务模板，第 3 步可以逐项取消。',
+  1:'可多选（最多 3 个）。我们会按你的选择定制 AI 工作新范式，第 3 步可以逐项取消。',
   2:'选一个最贴近你日常工作的岗位。岗位会决定推荐里优先出现哪几项，也会写进你的工作画像。',
   3:'下面是按你的选择和岗位匹配出来的能力。默认全勾选，不需要的取消即可，只创建留下的。'
 };
@@ -675,7 +659,7 @@ function notesView(){
     <thead><tr><th style="width:16%">步骤</th><th style="width:26%">采集</th><th>用途</th></tr></thead>
     <tbody>
       <tr><td class="a">① 工作场景</td><td>8 个发现分类（多选）</td><td class="b">决定推荐哪几个整理模板与服务模板</td></tr>
-      <tr><td class="a">② 岗位</td><td>9 个岗位（单选 + 部门）</td><td class="b">给推荐加权（优先出现哪些），并写进工作画像</td></tr>
+      <tr><td class="a">② 岗位</td><td>2 个岗位（单选 + 部门）</td><td class="b">给推荐加权（优先出现哪些），并写进工作画像</td></tr>
       <tr><td class="a">③ 确认能力</td><td>勾选清单</td><td class="b">默认全选，用户取消即不创建</td></tr>
     </tbody>
   </table>

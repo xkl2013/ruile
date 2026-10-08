@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const source = readFileSync(new URL('./KnowledgeBase.vue', import.meta.url), 'utf8')
+const actionMenuSource = readFileSync(new URL('./components/DocumentActionMenu.vue', import.meta.url), 'utf8')
+const listViewSource = readFileSync(new URL('./components/DocumentListView.vue', import.meta.url), 'utf8')
+const cardViewSource = readFileSync(new URL('./components/DocumentCardView.vue', import.meta.url), 'utf8')
+const knowledgeApiSource = readFileSync(new URL('../../api/knowledge-base/index.ts', import.meta.url), 'utf8')
 
 test('knowledge base directory move-up action is distinct from expand and collapse', () => {
   assert.ok(source.includes('moveDirectoryUp'))
@@ -17,18 +21,20 @@ test('knowledge base directory tree exposes manual directory delete action', () 
   assert.ok(source.includes('updateKnowledgeBaseDirectoryConfig'))
 })
 
-test('directory hierarchy uses compact indentation and row-based expansion', () => {
+test('directory hierarchy uses compact indentation and a leading expansion control', () => {
   assert.ok(source.includes('const DIRECTORY_TREE_INDENT_STEP = 6'))
   assert.ok(source.includes('const DIRECTORY_TREE_COMPACT_INDENT_STEP = 4'))
   assert.ok(source.includes('const level = Math.max(0, depth);'))
   assert.ok(source.includes('min-height: 28px;'))
   assert.ok(source.includes('padding: 0 4px 0 calc(4px + var(--directory-indent, 0px));'))
-  assert.ok(source.includes('const handleDirectoryRowActivate = (path: string, hasChildren: boolean) =>'))
-  assert.ok(source.includes('@click="handleDirectoryRowActivate(DIRECTORY_ROOT_PATH, rootHasChildren)"'))
-  assert.ok(source.includes('@click="handleDirectoryRowActivate(directory.path, directory.hasChildren)"'))
-  assert.ok(source.includes(':aria-expanded="directory.hasChildren ? !directory.collapsed : undefined"'))
+  assert.ok(source.includes('class="directory-tree-leading-toggle"'))
+  assert.ok(source.includes('directory-tree-leading-toggle--placeholder'))
+  assert.ok(source.includes('@click.stop="toggleDirectoryCollapsed(DIRECTORY_ROOT_PATH)"'))
+  assert.ok(source.includes('@click.stop="toggleDirectoryCollapsed(directory.path)"'))
+  assert.ok(source.includes("@click=\"selectDirectory(DIRECTORY_ROOT_PATH)\""))
+  assert.ok(source.includes('@click="selectDirectory(directory.path)"'))
+  assert.ok(source.includes(":name=\"directory.collapsed ? 'chevron-right' : 'chevron-down'\""))
   assert.ok(source.includes("'has-hover-actions': canEditKnowledgeBaseDirectories"))
-  assert.ok(!source.includes('directory-tree-leading-toggle'))
   assert.ok(!source.includes('directory-tree-action--toggle'))
   assert.ok(!source.includes('class="directory-tree-toggle"'))
   assert.ok(!source.includes('class="directory-tree-icon"'))
@@ -112,4 +118,15 @@ test('file mode opens documents in preview-only while vector mode keeps full det
   assert.ok(source.includes('openCardDetails(item, previewOnly)'))
   assert.ok(source.includes(':preview-only="docPreviewOnly"'))
   assert.ok(source.includes('if (!previewOnly && canEdit.value && isManualDraftKnowledge(item))'))
+})
+
+test('failed or cancelled documents can be marked as unparsed from both views', () => {
+  assert.ok(actionMenuSource.includes("['failed', 'cancelled'].includes"))
+  assert.ok(actionMenuSource.includes("emit('ignore-parse')"))
+  assert.ok(actionMenuSource.includes("knowledgeBase.ignoreParseConfirmBody"))
+  assert.ok(listViewSource.includes("@ignore-parse=\"handleAction('ignore-parse', item)\""))
+  assert.ok(cardViewSource.includes("@ignore-parse=\"handleAction('ignore-parse', item)\""))
+  assert.ok(source.includes('ignoreKnowledgeParse(item.id)'))
+  assert.ok(source.includes("current.parse_status = updated.parse_status || 'unparsed'"))
+  assert.ok(knowledgeApiSource.includes('/ignore-parse'))
 })

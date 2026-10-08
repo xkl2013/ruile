@@ -127,6 +127,10 @@ type KnowledgeService interface {
 	// is already cancelled. Returns an error when the knowledge is in a
 	// terminal state (completed / failed) or being deleted.
 	CancelKnowledgeParse(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
+	// IgnoreKnowledgeParse acknowledges a failed or cancelled parse and marks
+	// the knowledge as unparsed. The original file is kept, retrieval remains
+	// disabled, and the user can explicitly reparse it later.
+	IgnoreKnowledgeParse(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
 	// CloneKnowledgeBase clones knowledge to another knowledge base.
 	CloneKnowledgeBase(ctx context.Context, srcID, dstID string) error
 	// UpdateImageInfo updates image information for a knowledge chunk.
