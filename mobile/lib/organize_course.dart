@@ -1251,34 +1251,12 @@ class _OrganizeCourseVideoPlayerState
   Future<void> _prepare() async {
     VideoPlayerController? controller;
     try {
-      var streamUrl = '';
-      try {
-        streamUrl = await _apiClient.fetchOrganizeCourseLessonMediaUrl(
-          courseId: widget.courseId,
-          lessonId: widget.lessonId,
-        );
-      } catch (error) {
-        if (!mounted) return;
-        if (error is _ApiException && error.isAuthFailure) rethrow;
-        // Older deployments may not expose media-url yet. Continue with the
-        // authenticated download path only while this player is still alive.
-      }
+      final streamUrl = await _apiClient.fetchOrganizeCourseLessonMediaUrl(
+        courseId: widget.courseId,
+        lessonId: widget.lessonId,
+      );
       if (!mounted) return;
-      final streamUri = streamUrl.trim().isEmpty
-          ? null
-          : _apiClient.resolveResourceUrl(streamUrl);
-      if (streamUri != null &&
-          (streamUri.scheme == 'http' || streamUri.scheme == 'https')) {
-        controller = VideoPlayerController.networkUrl(streamUri);
-      } else {
-        // Keep the protected download path for older deployments that do not
-        // expose the presigned media-url endpoint yet.
-        final file = await _apiClient.downloadToTempFile(
-          widget.mediaUrl,
-          fileName: widget.fileName,
-        );
-        controller = VideoPlayerController.file(file);
-      }
+      controller = VideoPlayerController.networkUrl(Uri.parse(streamUrl));
       _initializingController = controller;
       await controller.initialize();
       _initializingController = null;

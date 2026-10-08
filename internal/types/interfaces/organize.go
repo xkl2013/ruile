@@ -212,3 +212,18 @@ type OrganizeService interface {
 	UpdateCourseVisibility(ctx context.Context, id string, input types.OrganizeCourseVisibilityInput) (*types.OrganizeCourse, error)
 	DeleteCourse(ctx context.Context, id string) error
 }
+
+// OrganizePreviewURLService exposes short-lived storage-provider URLs for
+// private memory sources. Authorization is still enforced before URL creation.
+type OrganizePreviewURLService interface {
+	GetMemoryAudioURL(
+		ctx context.Context,
+		tenantID uint64,
+		userID, memoryID string,
+	) (fileURL, fileName, mimeType string, err error)
+	GetMemoryAttachmentPreviewURL(
+		ctx context.Context,
+		tenantID uint64,
+		userID, memoryID, attachmentID string,
+	) (fileURL, fileName, mimeType string, err error)
+}

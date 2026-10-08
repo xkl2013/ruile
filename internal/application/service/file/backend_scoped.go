@@ -93,6 +93,16 @@ func (s *backendScopedFileService) GetFileURL(ctx context.Context, path string) 
 	}
 	return result, nil
 }
+func (s *backendScopedFileService) GetDirectFileURL(ctx context.Context, path string) (string, error) {
+	p, err := s.unwrap(path)
+	if err != nil {
+		return "", err
+	}
+	if direct, ok := s.inner.(interfaces.DirectFileURLService); ok {
+		return direct.GetDirectFileURL(ctx, p)
+	}
+	return s.GetFileURL(ctx, path)
+}
 func (s *backendScopedFileService) DeleteFile(ctx context.Context, path string) error {
 	p, err := s.unwrap(path)
 	if err != nil {
@@ -111,3 +121,5 @@ func (s *backendScopedFileService) CopyFile(ctx context.Context, path string, te
 	}
 	return s.wrap(result), nil
 }
+
+var _ interfaces.DirectFileURLService = (*backendScopedFileService)(nil)

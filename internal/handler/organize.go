@@ -553,6 +553,69 @@ func (h *OrganizeHandler) GetMemory(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
 }
 
+func (h *OrganizeHandler) GetMemoryAudioURL(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	previewService, ok := h.service.(interfaces.OrganizePreviewURLService)
+	if !ok {
+		c.Error(apperrors.NewInternalServerError("memory direct preview is not configured"))
+		return
+	}
+	fileURL, fileName, mimeType, err := previewService.GetMemoryAudioURL(
+		ctx,
+		tenantID,
+		userID,
+		c.Param("id"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"url":       fileURL,
+			"file_name": fileName,
+			"mime_type": mimeType,
+		},
+	})
+}
+
+func (h *OrganizeHandler) GetMemoryAttachmentPreviewURL(c *gin.Context) {
+	ctx := c.Request.Context()
+	tenantID, userID, ok := organizeScope(c)
+	if !ok {
+		return
+	}
+	previewService, ok := h.service.(interfaces.OrganizePreviewURLService)
+	if !ok {
+		c.Error(apperrors.NewInternalServerError("memory direct preview is not configured"))
+		return
+	}
+	fileURL, fileName, mimeType, err := previewService.GetMemoryAttachmentPreviewURL(
+		ctx,
+		tenantID,
+		userID,
+		c.Param("id"),
+		c.Param("attachment_id"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"url":       fileURL,
+			"file_name": fileName,
+			"mime_type": mimeType,
+		},
+	})
+}
+
 func (h *OrganizeHandler) RetryMemoryAttachment(c *gin.Context) {
 	ctx := c.Request.Context()
 	tenantID, userID, ok := organizeScope(c)

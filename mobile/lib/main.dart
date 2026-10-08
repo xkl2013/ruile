@@ -112,6 +112,153 @@ class AuthSession {
   final String tenantName;
 }
 
+class _DirectPreviewSource {
+  const _DirectPreviewSource({
+    required this.url,
+    this.fileName = '',
+    this.mimeType = '',
+  });
+
+  final String url;
+  final String fileName;
+  final String mimeType;
+}
+
+bool isDirectPreviewUrl(String rawUrl) {
+  final uri = Uri.tryParse(rawUrl.trim());
+  if (uri == null ||
+      !uri.hasAuthority ||
+      (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return false;
+  }
+  final path = uri.path.toLowerCase().replaceFirst(RegExp(r'/+$'), '');
+  if (path == '/files' ||
+      path == '/r' ||
+      path.startsWith('/r/') ||
+      path == '/api/v1/files' ||
+      path == '/api/v1/files/presigned' ||
+      (path.startsWith('/api/v1/knowledge/') && path.endsWith('/preview')) ||
+      (path.startsWith('/api/v1/organize/') && path.endsWith('/media'))) {
+    return false;
+  }
+  return true;
+}
+
+Future<File?> findCachedAudioFileForPreview({
+  required Directory root,
+  required String fileName,
+  DateTime? occurredAt,
+}) async {
+  final targetName =
+      fileName.trim().replaceAll('\\', '/').split('/').last.toLowerCase();
+  if (targetName.isEmpty || !await root.exists()) return null;
+
+  File? bestFile;
+  Duration? bestDistance;
+  DateTime? bestModifiedAt;
+  await for (final entity in root.list(recursive: true, followLinks: false)) {
+    if (entity is! File) continue;
+    final candidateName =
+        entity.path.replaceAll('\\', '/').split('/').last.toLowerCase();
+    if (candidateName != targetName &&
+        !candidateName.endsWith('-$targetName') &&
+        !candidateName.endsWith('_$targetName')) {
+      continue;
+    }
+
+    final stat = await entity.stat();
+    if (stat.size <= 0) continue;
+    if (occurredAt == null) {
+      if (bestModifiedAt == null || stat.modified.isAfter(bestModifiedAt)) {
+        bestFile = entity;
+        bestModifiedAt = stat.modified;
+      }
+      continue;
+    }
+
+    final rawDistance = stat.modified.difference(occurredAt);
+    final distance = rawDistance.isNegative ? -rawDistance : rawDistance;
+    if (distance > const Duration(days: 2)) continue;
+    if (bestDistance == null || distance < bestDistance) {
+      bestDistance = distance;
+      bestFile = entity;
+    }
+  }
+  return bestFile;
+}
+
+Future<File> streamDirectPreviewToFile({
+  required HttpClient httpClient,
+  required String directUrl,
+  required File destination,
+  Duration requestTimeout = const Duration(seconds: 8),
+  Duration idleTimeout = const Duration(seconds: 30),
+}) async {
+  if (!isDirectPreviewUrl(directUrl)) {
+    throw const FormatException('预览地址不是对象存储直连');
+  }
+
+  final request = await httpClient
+      .getUrl(Uri.parse(directUrl.trim()))
+      .timeout(requestTimeout);
+  request.headers.set(HttpHeaders.acceptHeader, '*/*');
+  final response = await request.close().timeout(idleTimeout);
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    final uri = Uri.parse(directUrl.trim());
+    final responseBody = await response.transform(utf8.decoder).join();
+    final errorCode = _readObjectStorageErrorField(responseBody, 'Code');
+    final errorMessage = _readObjectStorageErrorField(responseBody, 'Message');
+    final hasSignature = uri.queryParameters.keys.any((key) {
+      final normalized = key.toLowerCase();
+      return normalized.contains('signature') ||
+          normalized == 'authorization' ||
+          normalized == 'x-oss-credential' ||
+          normalized == 'ossaccesskeyid';
+    });
+    final details = <String>[
+      'host=${uri.host}',
+      'signed=$hasSignature',
+      if (errorCode.isNotEmpty) 'code=$errorCode',
+      if (errorMessage.isNotEmpty) 'message=$errorMessage',
+    ].join(', ');
+    throw HttpException(
+      'OSS GET failed with ${response.statusCode} ($details)',
+    );
+  }
+
+  await destination.parent.create(recursive: true);
+  try {
+    final sink = destination.openWrite();
+    try {
+      await sink.addStream(response.timeout(idleTimeout));
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+  } catch (_) {
+    if (await destination.exists()) {
+      await destination.delete();
+    }
+    rethrow;
+  }
+
+  if (!await destination.exists() || await destination.length() <= 0) {
+    if (await destination.exists()) {
+      await destination.delete();
+    }
+    throw const HttpException('OSS returned an empty file');
+  }
+  return destination;
+}
+
+String _readObjectStorageErrorField(String responseBody, String field) {
+  final match = RegExp(
+    '<$field>([^<]*)</$field>',
+    caseSensitive: false,
+  ).firstMatch(responseBody);
+  return match?.group(1)?.trim() ?? '';
+}
+
 class _ApiException extends HttpException {
   _ApiException(
     this.statusCode,
@@ -121,12 +268,12 @@ class _ApiException extends HttpException {
 
   final int statusCode;
 
-  bool get isAuthFailure => _isAuthFailureStatus(statusCode);
+  bool get isAuthFailure => isAuthenticationExpiredStatus(statusCode);
 }
 
-bool _isAuthFailureStatus(int statusCode) {
-  return statusCode == HttpStatus.unauthorized ||
-      statusCode == HttpStatus.forbidden;
+bool isAuthenticationExpiredStatus(int statusCode) {
+  // A forbidden resource does not mean the user's login session has expired.
+  return statusCode == HttpStatus.unauthorized;
 }
 
 String _serviceExtractionReasonMessage(String reason) {
@@ -145,7 +292,7 @@ String _serviceExtractionReasonMessage(String reason) {
 void _notifyImageAuthFailure(Object error, VoidCallback? onAuthFailure) {
   if (onAuthFailure == null) return;
   if (error is! NetworkImageLoadException) return;
-  if (!_isAuthFailureStatus(error.statusCode)) return;
+  if (!isAuthenticationExpiredStatus(error.statusCode)) return;
 
   WidgetsBinding.instance.addPostFrameCallback((_) {
     onAuthFailure();
@@ -1111,6 +1258,74 @@ class _RuileApiClient {
     return null;
   }
 
+  Future<_DirectPreviewSource> fetchKnowledgePreviewSource(
+    String knowledgeId,
+  ) async {
+    final id = knowledgeId.trim();
+    if (id.isEmpty) throw const FormatException('知识文件ID不能为空');
+    final payload = await _getJson(
+      '/api/v1/knowledge/${Uri.encodeComponent(id)}/preview-url',
+    );
+    return _parseDirectPreviewSource(payload);
+  }
+
+  Future<_DirectPreviewSource> fetchOrganizeMemoryAudioSource(
+    String memoryId,
+  ) async {
+    final id = memoryId.trim();
+    if (id.isEmpty) throw const FormatException('记忆ID不能为空');
+    final payload = await _getJson(
+      '/api/v1/organize/memories/${Uri.encodeComponent(id)}/audio-url',
+    );
+    return _parseDirectPreviewSource(payload);
+  }
+
+  Future<_DirectPreviewSource> fetchStoragePreviewSource(
+    String storagePath,
+  ) async {
+    final path = storagePath.trim();
+    if (path.isEmpty) throw const FormatException('文件存储路径不能为空');
+    final query = Uri(
+      queryParameters: {'file_path': path},
+    ).query;
+    final payload = await _getJson('/api/v1/files/presigned-preview?$query');
+    return _parseDirectPreviewSource(payload);
+  }
+
+  Future<_DirectPreviewSource> fetchOrganizeMemoryAttachmentPreviewSource({
+    required String memoryId,
+    required String attachmentId,
+  }) async {
+    final normalizedMemoryId = memoryId.trim();
+    final normalizedAttachmentId = attachmentId.trim();
+    if (normalizedMemoryId.isEmpty || normalizedAttachmentId.isEmpty) {
+      throw const FormatException('记忆附件参数不能为空');
+    }
+    final payload = await _getJson(
+      '/api/v1/organize/memories/${Uri.encodeComponent(normalizedMemoryId)}'
+      '/attachments/${Uri.encodeComponent(normalizedAttachmentId)}/preview-url',
+    );
+    return _parseDirectPreviewSource(payload);
+  }
+
+  _DirectPreviewSource _parseDirectPreviewSource(Object? payload) {
+    final data = _unwrapData(payload);
+    final map = data is Map<String, dynamic>
+        ? data
+        : data is Map
+            ? data.map((key, value) => MapEntry(key.toString(), value))
+            : const <String, dynamic>{};
+    final url = _readString(map, const ['url']);
+    if (!isDirectPreviewUrl(url)) {
+      throw const FormatException('服务端未返回对象存储直连地址');
+    }
+    return _DirectPreviewSource(
+      url: url,
+      fileName: _readString(map, const ['file_name', 'filename']),
+      mimeType: _readString(map, const ['mime_type', 'content_type']),
+    );
+  }
+
   Future<_OrganizeMemory> retryOrganizeMemoryAttachment({
     required String memoryId,
     required String attachmentId,
@@ -1272,16 +1487,21 @@ class _RuileApiClient {
       '/lessons/${Uri.encodeComponent(normalizedLessonId)}/media-url',
     );
     final data = _unwrapData(payload);
+    String url;
     if (data is Map<String, dynamic>) {
-      return _readString(data, const ['url']);
-    }
-    if (data is Map) {
-      return _readString(
+      url = _readString(data, const ['url']);
+    } else if (data is Map) {
+      url = _readString(
         data.map((key, value) => MapEntry(key.toString(), value)),
         const ['url'],
       );
+    } else {
+      url = '';
     }
-    return '';
+    if (!isDirectPreviewUrl(url)) {
+      throw const FormatException('课程媒体未返回对象存储直连地址');
+    }
+    return url;
   }
 
   Future<_OrganizeOutput?> fetchOrganizeOutput(String outputId) async {
@@ -1624,68 +1844,20 @@ class _RuileApiClient {
     return jsonDecode(responseBody);
   }
 
-  Future<Uint8List> fetchBytes(String pathOrUrl) async {
-    final request = await _httpClient
-        .getUrl(_resolveResource(pathOrUrl))
-        .timeout(const Duration(seconds: 8));
-    _applyCommonHeaders(request);
-    request.headers.set(HttpHeaders.acceptHeader, '*/*');
-
-    final response = await request.close().timeout(const Duration(seconds: 12));
-    final bytes = await response.fold<List<int>>(
-      <int>[],
-      (buffer, chunk) {
-        buffer.addAll(chunk);
-        return buffer;
-      },
-    );
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final body = utf8.decode(bytes, allowMalformed: true);
-      _throwApiException(
-        response.statusCode,
-        'GET $pathOrUrl failed with ${response.statusCode}: $body',
-        _resolveResource(pathOrUrl),
-      );
-    }
-    return Uint8List.fromList(bytes);
-  }
-
-  Future<File> downloadToTempFile(
-    String pathOrUrl, {
+  Future<File> downloadDirectToTempFile(
+    String directUrl, {
     required String fileName,
   }) async {
-    final bytes = await fetchBytes(pathOrUrl);
     final directory = await getTemporaryDirectory();
     final safeName = _sanitizeFileName(fileName);
     final file = File(
       '${directory.path}${Platform.pathSeparator}${DateTime.now().microsecondsSinceEpoch}-$safeName',
     );
-    await file.writeAsBytes(bytes, flush: true);
-    return file;
-  }
-
-  Future<File> downloadAuthenticatedFileToTempFile(
-    String filePath, {
-    required String fileName,
-  }) async {
-    final bytes = await fetchBytes(
-      Uri(
-        path: '/files',
-        queryParameters: {'file_path': filePath},
-      ).toString(),
+    return streamDirectPreviewToFile(
+      httpClient: _httpClient,
+      directUrl: directUrl,
+      destination: file,
     );
-    final directory = await getTemporaryDirectory();
-    final safeName = _sanitizeFileName(fileName);
-    final file = File(
-      '${directory.path}${Platform.pathSeparator}${DateTime.now().microsecondsSinceEpoch}-$safeName',
-    );
-    await file.writeAsBytes(bytes, flush: true);
-    return file;
-  }
-
-  Uri resolveResourceUrl(String pathOrUrl) {
-    return _resolveResource(pathOrUrl);
   }
 
   void close({bool force = true}) {
@@ -1719,18 +1891,6 @@ class _RuileApiClient {
     final normalizedBase = baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
     final normalizedPath = path.startsWith('/') ? path : '/$path';
     return Uri.parse('$normalizedBase$normalizedPath');
-  }
-
-  Uri _resolveResource(String pathOrUrl) {
-    final value = pathOrUrl.trim();
-    if (value.isEmpty) return _resolve('/');
-
-    final uri = Uri.tryParse(value);
-    if (uri != null && uri.hasScheme) {
-      return uri;
-    }
-    if (value.startsWith('//')) return Uri.parse('https:$value');
-    return _resolve(value);
   }
 
   String _sanitizeFileName(String value) {
@@ -2812,6 +2972,18 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  void _openDiscoverFromDrawer() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => DiscoverPage(
+          authToken: widget.session.token,
+          tenantId: widget.session.tenantId,
+          onAuthFailure: widget.onLogout,
+        ),
+      ),
+    );
+  }
+
   void _openUserSettingsFromDrawer() {
     if (!mounted) return;
     Navigator.of(context).push(
@@ -2848,11 +3020,6 @@ class _MainShellState extends State<MainShell> {
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
       ),
-      DiscoverPage(
-        authToken: widget.session.token,
-        tenantId: widget.session.tenantId,
-        onAuthFailure: widget.onLogout,
-      ),
       AssistantPage(
         authToken: widget.session.token,
         tenantId: widget.session.tenantId,
@@ -2872,6 +3039,7 @@ class _MainShellState extends State<MainShell> {
         onOpenUserSettings: _openUserSettingsFromDrawer,
         onOpenAvatarProfile: _openAvatarProfileFromDrawer,
         onOpenDaily: _openDailyReportFromDrawer,
+        onOpenDiscover: _openDiscoverFromDrawer,
       ),
       body: Stack(
         children: [
@@ -2905,6 +3073,7 @@ class _MainSideDrawer extends StatelessWidget {
     required this.onOpenUserSettings,
     required this.onOpenAvatarProfile,
     required this.onOpenDaily,
+    required this.onOpenDiscover,
     this.customerSpaceCount,
   });
 
@@ -2914,6 +3083,7 @@ class _MainSideDrawer extends StatelessWidget {
   final VoidCallback onOpenUserSettings;
   final VoidCallback onOpenAvatarProfile;
   final VoidCallback onOpenDaily;
+  final VoidCallback onOpenDiscover;
   final int? customerSpaceCount;
 
   void _closeAndRun(BuildContext context, VoidCallback action) {
@@ -2981,6 +3151,11 @@ class _MainSideDrawer extends StatelessWidget {
               title: '睿乐日报',
               showDot: true,
               onTap: () => _closeAndRun(context, onOpenDaily),
+            ),
+            _DrawerMenuItem(
+              icon: Icons.explore_outlined,
+              title: '发现',
+              onTap: () => _closeAndRun(context, onOpenDiscover),
             ),
           ],
         ),
@@ -6294,13 +6469,6 @@ class _OrganizeOutputDetailPageState extends State<_OrganizeOutputDetailPage> {
     }
   }
 
-  List<MapEntry<String, String>> get _fields {
-    return _output.fields.entries
-        .map((entry) => MapEntry(entry.key, _organizeValueLabel(entry.value)))
-        .where((entry) => entry.key.trim().isNotEmpty && entry.value.isNotEmpty)
-        .toList();
-  }
-
   List<Map<String, String>> get _citations {
     final raw = _output.citations['memory_refs'];
     if (raw is! List) return const [];
@@ -6431,24 +6599,9 @@ class _OrganizeOutputDetailPageState extends State<_OrganizeOutputDetailPage> {
                         ),
                       ],
                     ),
-                    if (_fields.isNotEmpty) ...[
-                      const SizedBox(height: 22),
-                      _OrganizeOutputSection(
-                        title: '字段摘要',
-                        child: Column(
-                          children: [
-                            for (final field in _fields)
-                              _OrganizeFieldRow(
-                                label: field.key,
-                                value: field.value,
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 22),
                     _OrganizeOutputSection(
-                      title: '正文',
+                      title: '重要信息',
                       child: blocks.isEmpty
                           ? Text(
                               _output.summary,
@@ -6505,38 +6658,6 @@ class _OrganizeOutputDetailPageState extends State<_OrganizeOutputDetailPage> {
                         ),
                       ),
                     ],
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () =>
-                                ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('编辑产物正文功能待接入'),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            ),
-                            icon: const Icon(Icons.edit_outlined, size: 18),
-                            label: const Text('编辑'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () =>
-                                ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('分享功能待接入'),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            ),
-                            icon: const Icon(Icons.share_outlined, size: 18),
-                            label: const Text('分享'),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ),
@@ -7768,7 +7889,7 @@ class _MainDock extends StatelessWidget {
     required this.onCaptureActionSelected,
   });
 
-  static const _dockWidth = 326.0;
+  static const _dockWidth = 276.0;
   static const _dockHeight = 62.0;
 
   static const _destinations = [
@@ -7781,11 +7902,6 @@ class _MainDock extends StatelessWidget {
       label: '整理',
       icon: Icons.inventory_2_outlined,
       selectedIcon: Icons.inventory_2,
-    ),
-    _MainDockDestination(
-      label: '发现',
-      icon: Icons.explore_outlined,
-      selectedIcon: Icons.explore,
     ),
     _MainDockDestination(
       label: '服务',
@@ -7839,7 +7955,7 @@ class _MainDock extends StatelessWidget {
                     ),
                   ),
                   Positioned(
-                    left: 258,
+                    left: 208,
                     top: -3,
                     child: SizedBox(
                       width: 68,
@@ -7864,11 +7980,11 @@ class _MainDock extends StatelessWidget {
 class _MainDockBackgroundPainter extends CustomPainter {
   const _MainDockBackgroundPainter();
 
-  static const _leftWidth = 258.0;
+  static const _leftWidth = 208.0;
   static const _verticalInset = 5.0;
   static const _notchRadius = 17.0;
   static const _captureOuterRadius = 32.0;
-  static const _captureCenter = Offset(292, 31);
+  static const _captureCenter = Offset(242, 31);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -8183,32 +8299,6 @@ IconData _memoryStatusIcon(_MemoryStatusFilter status) {
   }
 }
 
-class _MemoryFilterOption extends StatelessWidget {
-  const _MemoryFilterOption({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      dense: true,
-      leading: Icon(
-        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-        color: selected ? AppColors.accent : AppColors.textTertiary,
-      ),
-      title: Text(label),
-      onTap: onTap,
-    );
-  }
-}
-
 class _MemoryStatusOverview extends StatelessWidget {
   const _MemoryStatusOverview({
     required this.selected,
@@ -8295,8 +8385,8 @@ class _MemoryStatusOverviewItem extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          height: 92,
-          padding: const EdgeInsets.fromLTRB(10, 10, 8, 9),
+          height: 72,
+          padding: const EdgeInsets.fromLTRB(9, 8, 8, 7),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
@@ -8309,12 +8399,12 @@ class _MemoryStatusOverviewItem extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(_memoryStatusIcon(status), size: 16, color: accent),
+                  Icon(_memoryStatusIcon(status), size: 15, color: accent),
                   const Spacer(),
                   Text(
                     '$count',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       height: 1,
                       color: accent,
                       fontWeight: FontWeight.w700,
@@ -8328,12 +8418,12 @@ class _MemoryStatusOverviewItem extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 12.5,
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 2),
               Text(
                 _memoryStatusDescription(status),
                 maxLines: 1,
@@ -8379,7 +8469,6 @@ class _NotesPageState extends State<NotesPage> {
       const RecordingCardLocalStore();
   final List<Timer> _recordingCardMemoryRefreshTimers = <Timer>[];
   Future<void>? _recordingCardAutoConnectFuture;
-  var _sortNewestFirst = true;
   var _memoryStatusFilter = _MemoryStatusFilter.all;
   List<_KnowledgeBase> _knowledgeBases = const [];
   _RecordingCardPendingSummary _recordingCardPendingSummary =
@@ -8922,8 +9011,7 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   List<_NoteItem> get _visibleNotes {
-    final filtered = _notes.where(_matchesMemoryFilter).toList();
-    return _sortNewestFirst ? filtered : filtered.reversed.toList();
+    return _notes.where(_matchesMemoryFilter).toList();
   }
 
   Map<_MemoryStatusFilter, int> get _memoryStatusCounts {
@@ -8969,11 +9057,6 @@ class _NotesPageState extends State<NotesPage> {
     return _MemoryStatusFilter.unorganized;
   }
 
-  String _memoryFilterLabel() {
-    if (_memoryStatusFilter == _MemoryStatusFilter.all) return '';
-    return _memoryStatusLabel(_memoryStatusFilter);
-  }
-
   Future<void> _refreshRemoteContent() async {
     await Future.wait<void>([
       _loadRemoteKnowledgeBases(),
@@ -8991,89 +9074,6 @@ class _NotesPageState extends State<NotesPage> {
         behavior: SnackBarBehavior.floating,
         duration: const Duration(milliseconds: 1200),
       ),
-    );
-  }
-
-  Future<void> _showMemoryFilters() async {
-    var selectedStatus = _memoryStatusFilter;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '筛选记忆',
-                      style: AppTextStyles.sectionTitle,
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('整理状态', style: AppTextStyles.controlLabel),
-                    _MemoryFilterOption(
-                      label: '全部',
-                      selected: selectedStatus == _MemoryStatusFilter.all,
-                      onTap: () {
-                        setSheetState(() {
-                          selectedStatus = _MemoryStatusFilter.all;
-                        });
-                      },
-                    ),
-                    _MemoryFilterOption(
-                      label: '待整理',
-                      selected:
-                          selectedStatus == _MemoryStatusFilter.unorganized,
-                      onTap: () {
-                        setSheetState(() {
-                          selectedStatus = _MemoryStatusFilter.unorganized;
-                        });
-                      },
-                    ),
-                    _MemoryFilterOption(
-                      label: '整理中',
-                      selected:
-                          selectedStatus == _MemoryStatusFilter.processing,
-                      onTap: () {
-                        setSheetState(() {
-                          selectedStatus = _MemoryStatusFilter.processing;
-                        });
-                      },
-                    ),
-                    _MemoryFilterOption(
-                      label: '已整理',
-                      selected: selectedStatus == _MemoryStatusFilter.organized,
-                      onTap: () {
-                        setSheetState(() {
-                          selectedStatus = _MemoryStatusFilter.organized;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: () {
-                          setState(() {
-                            _memoryStatusFilter = selectedStatus;
-                          });
-                          Navigator.of(sheetContext).pop();
-                        },
-                        child: const Text('应用筛选'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
     );
   }
 
@@ -9494,28 +9494,7 @@ class _NotesPageState extends State<NotesPage> {
                       });
                     },
                   ),
-                  const SizedBox(height: 22),
-                  _NotesToolbar(
-                    title: _memoryStatusFilter == _MemoryStatusFilter.all
-                        ? '全部记忆'
-                        : '${_memoryStatusLabel(_memoryStatusFilter)}记忆',
-                    newestFirst: _sortNewestFirst,
-                    filterActive: _memoryFilterLabel().isNotEmpty,
-                    onFilterTap: _showMemoryFilters,
-                    onTitleTap: () {
-                      setState(() {
-                        _sortNewestFirst = !_sortNewestFirst;
-                      });
-                    },
-                  ),
-                  if (_memoryFilterLabel().isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '当前筛选：${_memoryFilterLabel()}',
-                      style: AppTextStyles.meta,
-                    ),
-                  ],
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
                   if (_notesError != null) ...[
                     _NotesLoadError(
                       message: _notesError!,
@@ -13500,7 +13479,7 @@ class _KnowledgeTreeFileRow extends StatelessWidget {
   }
 }
 
-class _KnowledgeFilePreview extends StatelessWidget {
+class _KnowledgeFilePreview extends StatefulWidget {
   const _KnowledgeFilePreview({
     required this.document,
     required this.fileName,
@@ -13516,57 +13495,67 @@ class _KnowledgeFilePreview extends StatelessWidget {
   final VoidCallback? onAuthFailure;
 
   @override
+  State<_KnowledgeFilePreview> createState() => _KnowledgeFilePreviewState();
+}
+
+class _KnowledgeFilePreviewState extends State<_KnowledgeFilePreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<String> _imageUrlFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _imageUrlFuture = _loadImageUrl();
+  }
+
+  Future<String> _loadImageUrl() async {
+    final document = widget.document;
+    if (document == null || !document.isImage) return '';
+    final embeddedUrl = document.previewImageUrl.trim();
+    if (isDirectPreviewUrl(embeddedUrl)) return embeddedUrl;
+    if (document.id.trim().isEmpty) return '';
+    final source = await _apiClient.fetchKnowledgePreviewSource(document.id);
+    return source.url;
+  }
+
+  @override
+  void dispose() {
+    _apiClient.close();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final imageUrl =
-        _resolvePreviewImageUrl(document?.bestPreviewImageUrl ?? '');
-    final typeLabel = document?.displayFileType ?? _fileTypeFromName(fileName);
+    final typeLabel =
+        widget.document?.displayFileType ?? _fileTypeFromName(widget.fileName);
 
-    if (imageUrl.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: SizedBox(
-          width: 74,
-          height: 86,
-          child: Image.network(
-            imageUrl,
-            headers: _imageHeaders,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) {
-              _notifyImageAuthFailure(error, onAuthFailure);
-              return _KnowledgeFilePreviewFallback(typeLabel: typeLabel);
-            },
+    return FutureBuilder<String>(
+      future: _imageUrlFuture,
+      builder: (context, snapshot) {
+        final imageUrl = snapshot.data?.trim() ?? '';
+        if (imageUrl.isEmpty) {
+          return _KnowledgeFilePreviewFallback(typeLabel: typeLabel);
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: 74,
+            height: 86,
+            child: Image.network(
+              imageUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  _KnowledgeFilePreviewFallback(typeLabel: typeLabel),
+            ),
           ),
-        ),
-      );
-    }
-
-    return _KnowledgeFilePreviewFallback(typeLabel: typeLabel);
-  }
-
-  Map<String, String>? get _imageHeaders {
-    final headers = <String, String>{};
-    if (authToken.trim().isNotEmpty) {
-      headers[HttpHeaders.authorizationHeader] = 'Bearer ${authToken.trim()}';
-    }
-    if (tenantId.trim().isNotEmpty) {
-      headers['X-Tenant-ID'] = tenantId.trim();
-    }
-    return headers.isEmpty ? null : headers;
-  }
-
-  String _resolvePreviewImageUrl(String rawUrl) {
-    final value = rawUrl.trim();
-    if (value.isEmpty) return '';
-    final uri = Uri.tryParse(value);
-    if (uri == null) return '';
-    if (uri.hasScheme) {
-      return uri.scheme == 'http' || uri.scheme == 'https' ? value : '';
-    }
-    if (value.startsWith('//')) return 'https:$value';
-
-    final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
-    final path = value.startsWith('/') ? value : '/$value';
-    return '$base$path';
+        );
+      },
+    );
   }
 
   String _fileTypeFromName(String name) {
@@ -13644,8 +13633,6 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final summary = document.summary.trim();
-    final previewKind = document.previewKind;
-    final previewSourceUrl = document.previewSourceUrl.trim();
 
     Widget preview;
     if (!document.isPreviewSupported) {
@@ -13653,48 +13640,13 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
         title: '暂不支持预览',
         message: '当前版本仅支持图片、音频、视频和 PDF 预览。',
       );
-    } else if (previewSourceUrl.isEmpty) {
-      preview = const _KnowledgePreviewUnavailable(
-        title: '暂无预览资源',
-        message: '该文件没有可用于预览的资源。',
-      );
     } else {
-      if (previewKind == _KnowledgeFilePreviewKind.image) {
-        preview = _KnowledgeImageDetailPreview(
-          previewSourceUrl: previewSourceUrl,
-          authToken: authToken,
-          tenantId: tenantId,
-          onAuthFailure: onAuthFailure,
-        );
-      } else if (previewKind == _KnowledgeFilePreviewKind.audio) {
-        preview = _AudioDetailPreview(
-          fileName: document.fileName,
-          previewSourceUrl: previewSourceUrl,
-          authToken: authToken,
-          tenantId: tenantId,
-          onAuthFailure: onAuthFailure,
-        );
-      } else if (previewKind == _KnowledgeFilePreviewKind.video) {
-        preview = _KnowledgeVideoDetailPreview(
-          document: document,
-          previewSourceUrl: previewSourceUrl,
-          authToken: authToken,
-          tenantId: tenantId,
-          onAuthFailure: onAuthFailure,
-        );
-      } else if (previewKind == _KnowledgeFilePreviewKind.pdf) {
-        preview = _KnowledgePdfDetailPreview(
-          previewSourceUrl: previewSourceUrl,
-          authToken: authToken,
-          tenantId: tenantId,
-          onAuthFailure: onAuthFailure,
-        );
-      } else {
-        preview = const _KnowledgePreviewUnavailable(
-          title: '暂不支持预览',
-          message: '当前版本仅支持图片、音频、视频和 PDF 预览。',
-        );
-      }
+      preview = _KnowledgeDirectPreview(
+        document: document,
+        authToken: authToken,
+        tenantId: tenantId,
+        onAuthFailure: onAuthFailure,
+      );
     }
 
     return Scaffold(
@@ -13778,6 +13730,115 @@ class _KnowledgeFileDetailPage extends StatelessWidget {
   }
 }
 
+class _KnowledgeDirectPreview extends StatefulWidget {
+  const _KnowledgeDirectPreview({
+    required this.document,
+    required this.authToken,
+    required this.tenantId,
+    this.onAuthFailure,
+  });
+
+  final _KnowledgeDocument document;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback? onAuthFailure;
+
+  @override
+  State<_KnowledgeDirectPreview> createState() =>
+      _KnowledgeDirectPreviewState();
+}
+
+class _KnowledgeDirectPreviewState extends State<_KnowledgeDirectPreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<_DirectPreviewSource> _sourceFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _sourceFuture = _loadSource();
+  }
+
+  Future<_DirectPreviewSource> _loadSource() {
+    final document = widget.document;
+    if (document.id.trim().isNotEmpty) {
+      return _apiClient.fetchKnowledgePreviewSource(document.id);
+    }
+    final embeddedUrl = document.previewImageUrl.trim();
+    if (document.isImage && isDirectPreviewUrl(embeddedUrl)) {
+      return Future.value(
+        _DirectPreviewSource(url: embeddedUrl, fileName: document.fileName),
+      );
+    }
+    return Future.error(
+      const FormatException('该文件没有可用于直连预览的资源'),
+    );
+  }
+
+  @override
+  void dispose() {
+    _apiClient.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_DirectPreviewSource>(
+      future: _sourceFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _KnowledgePreviewUnavailable(
+            title: '预览失败',
+            message: '对象存储直连地址获取失败。',
+          );
+        }
+        final source = snapshot.data;
+        if (source == null) return const _KnowledgePreviewLoading();
+
+        switch (widget.document.previewKind) {
+          case _KnowledgeFilePreviewKind.image:
+            return _KnowledgeImageDetailPreview(
+              previewSourceUrl: source.url,
+            );
+          case _KnowledgeFilePreviewKind.audio:
+            return _AudioDetailPreview(
+              fileName: source.fileName.trim().isNotEmpty
+                  ? source.fileName
+                  : widget.document.fileName,
+              previewSourceUrl: source.url,
+              authToken: widget.authToken,
+              tenantId: widget.tenantId,
+              onAuthFailure: widget.onAuthFailure,
+            );
+          case _KnowledgeFilePreviewKind.video:
+            return _KnowledgeVideoDetailPreview(
+              previewSourceUrl: source.url,
+            );
+          case _KnowledgeFilePreviewKind.pdf:
+            return _KnowledgePdfDetailPreview(
+              fileName: source.fileName.trim().isNotEmpty
+                  ? source.fileName
+                  : widget.document.fileName,
+              previewSourceUrl: source.url,
+              authToken: widget.authToken,
+              tenantId: widget.tenantId,
+              onAuthFailure: widget.onAuthFailure,
+            );
+          case null:
+            return const _KnowledgePreviewUnavailable(
+              title: '暂不支持预览',
+              message: '当前版本仅支持图片、音频、视频和 PDF 预览。',
+            );
+        }
+      },
+    );
+  }
+}
+
 class _KnowledgePreviewUnavailable extends StatelessWidget {
   const _KnowledgePreviewUnavailable({
     required this.title,
@@ -13855,15 +13916,9 @@ class _KnowledgePreviewLoading extends StatelessWidget {
 class _KnowledgeImageDetailPreview extends StatelessWidget {
   const _KnowledgeImageDetailPreview({
     required this.previewSourceUrl,
-    required this.authToken,
-    required this.tenantId,
-    this.onAuthFailure,
   });
 
   final String previewSourceUrl;
-  final String authToken;
-  final String tenantId;
-  final VoidCallback? onAuthFailure;
 
   @override
   Widget build(BuildContext context) {
@@ -13881,11 +13936,9 @@ class _KnowledgeImageDetailPreview extends StatelessWidget {
           minScale: 0.8,
           maxScale: 3.5,
           child: Image.network(
-            _resolvePreviewImageUrl(previewSourceUrl),
-            headers: _previewHeaders(authToken, tenantId),
+            previewSourceUrl,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
-              _notifyImageAuthFailure(error, onAuthFailure);
               return const _KnowledgePreviewUnavailable(
                 title: '预览失败',
                 message: '图片资源无法加载。',
@@ -13965,29 +14018,10 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
       }
     }
 
-    final uri = Uri.tryParse(source);
-    if (uri != null &&
-        uri.scheme.isNotEmpty &&
-        uri.scheme != 'http' &&
-        uri.scheme != 'https') {
-      return _apiClient.downloadAuthenticatedFileToTempFile(
-        source,
-        fileName: widget.fileName,
-      );
-    }
-    try {
-      return await _apiClient.downloadToTempFile(
-        source,
-        fileName: widget.fileName,
-      );
-    } catch (_) {
-      final filePath = _extractFilePathParameter(source);
-      if (filePath.isEmpty) rethrow;
-      return _apiClient.downloadAuthenticatedFileToTempFile(
-        filePath,
-        fileName: widget.fileName,
-      );
-    }
+    return _apiClient.downloadDirectToTempFile(
+      source,
+      fileName: widget.fileName,
+    );
   }
 
   Future<void> _preparePlayer() async {
@@ -14000,7 +14034,8 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
         _loadingSource = false;
         _sourceLoadFailed = false;
       });
-    } catch (_) {
+    } catch (error) {
+      debugPrint('[AudioPreview] Failed to prepare ${widget.fileName}: $error');
       if (!mounted) return;
       setState(() {
         _loadingSource = false;
@@ -14079,12 +14114,6 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
     return Duration.zero;
   }
 
-  String _extractFilePathParameter(String source) {
-    final uri = Uri.tryParse(source);
-    if (uri == null) return '';
-    return uri.queryParameters['file_path']?.trim() ?? '';
-  }
-
   String _formatPlayerDuration(Duration duration) {
     final totalSeconds = duration.inSeconds < 0 ? 0 : duration.inSeconds;
     final hours = totalSeconds ~/ 3600;
@@ -14100,6 +14129,7 @@ class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
     _playerStateSubscription?.cancel();
     _durationSubscription?.cancel();
     _positionSubscription?.cancel();
+    _apiClient.close();
     unawaited(_player.dispose());
     super.dispose();
   }
@@ -14449,18 +14479,10 @@ class _AudioSpeedButton extends StatelessWidget {
 
 class _KnowledgeVideoDetailPreview extends StatefulWidget {
   const _KnowledgeVideoDetailPreview({
-    required this.document,
     required this.previewSourceUrl,
-    required this.authToken,
-    required this.tenantId,
-    this.onAuthFailure,
   });
 
-  final _KnowledgeDocument document;
   final String previewSourceUrl;
-  final String authToken;
-  final String tenantId;
-  final VoidCallback? onAuthFailure;
 
   @override
   State<_KnowledgeVideoDetailPreview> createState() =>
@@ -14469,34 +14491,29 @@ class _KnowledgeVideoDetailPreview extends StatefulWidget {
 
 class _KnowledgeVideoDetailPreviewState
     extends State<_KnowledgeVideoDetailPreview> {
-  late final _RuileApiClient _apiClient;
-  late final Future<File> _videoFileFuture;
+  late final Future<Uri> _videoSourceFuture;
   VideoPlayerController? _controller;
   Object? _loadError;
 
   @override
   void initState() {
     super.initState();
-    _apiClient = _RuileApiClient(
-      authToken: widget.authToken,
-      tenantId: widget.tenantId,
-      onAuthFailure: widget.onAuthFailure,
-    );
-    _videoFileFuture = _loadVideoFile();
+    _videoSourceFuture = _loadVideoSource();
     _prepareController();
   }
 
-  Future<File> _loadVideoFile() {
-    return _apiClient.downloadToTempFile(
-      widget.previewSourceUrl,
-      fileName: widget.document.fileName,
-    );
+  Future<Uri> _loadVideoSource() async {
+    final source = widget.previewSourceUrl.trim();
+    if (!isDirectPreviewUrl(source)) {
+      throw const FormatException('视频预览地址不是对象存储直连');
+    }
+    return Uri.parse(source);
   }
 
   Future<void> _prepareController() async {
     try {
-      final file = await _videoFileFuture;
-      final controller = VideoPlayerController.file(file);
+      final source = await _videoSourceFuture;
+      final controller = VideoPlayerController.networkUrl(source);
       await controller.initialize();
       controller.addListener(_onControllerChanged);
       if (!mounted) {
@@ -14533,8 +14550,8 @@ class _KnowledgeVideoDetailPreviewState
       );
     }
 
-    return FutureBuilder<File>(
-      future: _videoFileFuture,
+    return FutureBuilder<Uri>(
+      future: _videoSourceFuture,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return const _KnowledgePreviewUnavailable(
@@ -14630,12 +14647,14 @@ class _KnowledgeVideoDetailPreviewState
 
 class _KnowledgePdfDetailPreview extends StatefulWidget {
   const _KnowledgePdfDetailPreview({
+    required this.fileName,
     required this.previewSourceUrl,
     required this.authToken,
     required this.tenantId,
     this.onAuthFailure,
   });
 
+  final String fileName;
   final String previewSourceUrl;
   final String authToken;
   final String tenantId;
@@ -14651,6 +14670,7 @@ class _KnowledgePdfDetailPreviewState
   late final _RuileApiClient _apiClient;
   late final Future<PdfDocument> _documentFuture;
   late final PdfControllerPinch _controller;
+  File? _downloadedFile;
 
   @override
   void initState() {
@@ -14665,13 +14685,36 @@ class _KnowledgePdfDetailPreviewState
   }
 
   Future<PdfDocument> _loadDocument() async {
-    final bytes = await _apiClient.fetchBytes(widget.previewSourceUrl);
-    return PdfDocument.openData(bytes);
+    try {
+      final file = await _apiClient.downloadDirectToTempFile(
+        widget.previewSourceUrl,
+        fileName: widget.fileName,
+      );
+      _downloadedFile = file;
+      return await PdfDocument.openFile(file.path);
+    } catch (error) {
+      debugPrint(
+        '[KnowledgePdfPreview] Failed to load ${widget.fileName}: '
+        '${error.runtimeType}',
+      );
+      rethrow;
+    }
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _apiClient.close();
+    final downloadedFile = _downloadedFile;
+    if (downloadedFile != null) {
+      unawaited(() async {
+        try {
+          await downloadedFile.delete();
+        } catch (_) {
+          // Temporary preview files are also reclaimed by the OS cache policy.
+        }
+      }());
+    }
     super.dispose();
   }
 
@@ -14693,9 +14736,9 @@ class _KnowledgePdfDetailPreviewState
             options: const DefaultBuilderOptions(),
             documentLoaderBuilder: (_) => const _KnowledgePreviewLoading(),
             pageLoaderBuilder: (_) => const _KnowledgePreviewLoading(),
-            errorBuilder: (_, error) => _KnowledgePreviewUnavailable(
+            errorBuilder: (_, __) => const _KnowledgePreviewUnavailable(
               title: '预览失败',
-              message: error.toString(),
+              message: 'PDF 文件无法加载。',
             ),
           ),
         ),
@@ -14840,7 +14883,7 @@ const _providerFileUrlSchemes = {
 };
 
 String _publicAudioUrl(String rawUrl) {
-  return _publicFileUrl(rawUrl, baseUrl: AppApiConfig.baseUrl);
+  return rawUrl.trim();
 }
 
 String _publicFileUrl(String rawUrl, {required String baseUrl}) {
@@ -14890,6 +14933,15 @@ String _readOrganizeMemoryAudioUrl(
   Map<String, dynamic> json,
   Map<String, dynamic> metadata,
 ) {
+  final directPath = _readString(json, const ['audio_file_path', 'file_path']);
+  if (directPath.isNotEmpty) return directPath;
+
+  final metadataPath = _readString(
+    metadata,
+    const ['audio_file_path', 'file_path'],
+  );
+  if (metadataPath.isNotEmpty) return metadataPath;
+
   final direct = _readString(json, const [
     'audio_url',
     'audioUrl',
@@ -14912,10 +14964,7 @@ String _readOrganizeMemoryAudioUrl(
   ]);
   if (metadataUrl.isNotEmpty) return metadataUrl;
 
-  final directPath = _readString(json, const ['file_path', 'audio_file_path']);
-  if (directPath.isNotEmpty) return directPath;
-
-  return _readString(metadata, const ['file_path', 'audio_file_path']);
+  return '';
 }
 
 String _readOrganizeMemoryText(
@@ -14926,101 +14975,6 @@ String _readOrganizeMemoryText(
   final direct = _readString(json, keys);
   if (direct.isNotEmpty) return direct;
   return _readString(metadata, keys);
-}
-
-String _resolvePreviewImageUrl(String rawUrl) {
-  final value = rawUrl.trim();
-  if (value.isEmpty) return '';
-  final uri = Uri.tryParse(value);
-  if (uri == null) return '';
-  if (uri.hasScheme) {
-    return uri.scheme == 'http' || uri.scheme == 'https' ? value : '';
-  }
-  if (value.startsWith('//')) return 'https:$value';
-
-  final base = AppApiConfig.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
-  final path = value.startsWith('/') ? value : '/$value';
-  return '$base$path';
-}
-
-class _NotesToolbar extends StatelessWidget {
-  const _NotesToolbar({
-    required this.title,
-    required this.newestFirst,
-    required this.filterActive,
-    required this.onFilterTap,
-    required this.onTitleTap,
-  });
-
-  final String title;
-  final bool newestFirst;
-  final bool filterActive;
-  final VoidCallback onFilterTap;
-  final VoidCallback onTitleTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onTitleTap,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: AppTextStyles.sectionTitle,
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      newestFirst
-                          ? Icons.keyboard_arrow_down
-                          : Icons.keyboard_arrow_up,
-                      color: AppColors.textPrimary,
-                      size: 22,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  width: 30,
-                  height: 4,
-                  margin: const EdgeInsets.only(left: 24),
-                  decoration: BoxDecoration(
-                    color: AppColors.textPrimary,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        Tooltip(
-          message: '筛选',
-          child: IconButton(
-            onPressed: onFilterTap,
-            style: IconButton.styleFrom(
-              backgroundColor:
-                  filterActive ? const Color(0xFFE9F8F3) : AppColors.surface,
-              foregroundColor:
-                  filterActive ? AppColors.accent : AppColors.textPrimary,
-              side: const BorderSide(color: AppColors.border),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            icon: const Icon(Icons.tune),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _NoteCard extends StatelessWidget {
@@ -15056,7 +15010,7 @@ class _NoteCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(AppRadii.card),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 10, 12),
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -15078,7 +15032,7 @@ class _NoteCard extends StatelessWidget {
                     ),
                   ),
                 ],
-                SizedBox(height: hasExcerpt ? 16 : 28),
+                SizedBox(height: hasExcerpt ? 2 : 6),
                 Row(
                   children: [
                     Expanded(
@@ -15097,11 +15051,11 @@ class _NoteCard extends StatelessWidget {
                       onPressed: onMoreTap,
                       padding: EdgeInsets.zero,
                       constraints:
-                          const BoxConstraints.tightFor(width: 34, height: 34),
+                          const BoxConstraints.tightFor(width: 30, height: 24),
                       icon: const Icon(
                         Icons.more_vert,
                         color: AppColors.textTertiary,
-                        size: 20,
+                        size: 18,
                       ),
                     ),
                   ],
@@ -15405,14 +15359,14 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   Future<void> _openAttachmentPreview(
     _OrganizeMemoryAttachment attachment,
   ) async {
-    final sourceUrl = attachment.sourceUrl.trim();
-    if (sourceUrl.isEmpty) {
+    if (!attachment.hasStoredSource) {
       _showMessage('暂无附件预览资源');
       return;
     }
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (context) => _MemoryAttachmentPreviewPage(
+          memoryId: _note.id,
           attachment: attachment,
           presentation: _note.attachmentPresentation(attachment),
           authToken: widget.authToken,
@@ -15690,10 +15644,12 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
   @override
   Widget build(BuildContext context) {
     final note = _note;
-    final audioUrl = _publicAudioUrl(note.audioUrl);
-    final audioFileName = note.audioFileName.trim().isNotEmpty
-        ? note.audioFileName.trim()
-        : _audioSourceFileName(audioUrl, fallback: note.title);
+    final audioAttachment = note.primaryPlayableAudioAttachment;
+    final audioFileName = audioAttachment?.fileName.trim().isNotEmpty == true
+        ? audioAttachment!.fileName.trim()
+        : note.audioFileName.trim().isNotEmpty
+            ? note.audioFileName.trim()
+            : note.title;
     final detailTabs = _detailTabs;
     final selectedTabIndex =
         _normalizeSelectedTabIndex(_selectedTabIndex, note);
@@ -15759,9 +15715,12 @@ class _MemoryDetailPageState extends State<_MemoryDetailPage> {
                   style: _metaStyle,
                 ),
                 const SizedBox(height: 8),
-                _AudioDetailPreview(
+                _MemoryAudioDirectPreview(
+                  memoryId: note.id,
                   fileName: audioFileName,
-                  previewSourceUrl: audioUrl,
+                  localSource: note.audioLocalPath,
+                  storagePath: audioAttachment?.storagePath ?? '',
+                  occurredAt: note.occurredAt,
                   authToken: widget.authToken,
                   tenantId: widget.tenantId,
                   onAuthFailure: widget.onAuthFailure,
@@ -15877,7 +15836,7 @@ class _MemoryAttachmentCard extends StatelessWidget {
         ? 'FILE'
         : attachment.fileType.toUpperCase();
     final accent = _fileTypeColor(typeLabel);
-    final canPreview = attachment.sourceUrl.trim().isNotEmpty;
+    final canPreview = attachment.hasStoredSource;
 
     return Material(
       color: const Color(0xFFF8F9FB),
@@ -16227,8 +16186,139 @@ Color _memoryAttachmentStatusColor(String status) {
   }
 }
 
+class _MemoryAudioDirectPreview extends StatefulWidget {
+  const _MemoryAudioDirectPreview({
+    required this.memoryId,
+    required this.fileName,
+    required this.localSource,
+    required this.storagePath,
+    required this.occurredAt,
+    required this.authToken,
+    required this.tenantId,
+    this.onAuthFailure,
+    this.durationSeconds = 0,
+  });
+
+  final String memoryId;
+  final String fileName;
+  final String localSource;
+  final String storagePath;
+  final DateTime? occurredAt;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback? onAuthFailure;
+  final int durationSeconds;
+
+  @override
+  State<_MemoryAudioDirectPreview> createState() =>
+      _MemoryAudioDirectPreviewState();
+}
+
+class _MemoryAudioDirectPreviewState extends State<_MemoryAudioDirectPreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<_DirectPreviewSource> _sourceFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _sourceFuture = _loadSource();
+  }
+
+  Future<_DirectPreviewSource> _loadSource() async {
+    final localFile = await _findCachedAudioFile();
+    if (localFile != null) {
+      return _DirectPreviewSource(
+        url: localFile.path,
+        fileName: widget.fileName,
+      );
+    }
+    try {
+      return await _apiClient.fetchOrganizeMemoryAudioSource(widget.memoryId);
+    } on _ApiException catch (error) {
+      debugPrint(
+        '[MemoryAudioPreview] Failed to fetch a fresh direct URL: $error',
+      );
+      final storagePath = widget.storagePath.trim();
+      if (error.statusCode != HttpStatus.notFound || storagePath.isEmpty) {
+        rethrow;
+      }
+      try {
+        final source = await _apiClient.fetchStoragePreviewSource(storagePath);
+        debugPrint(
+          '[MemoryAudioPreview] Using storage presigned URL compatibility fallback.',
+        );
+        return source;
+      } catch (fallbackError) {
+        debugPrint(
+          '[MemoryAudioPreview] Storage presigned URL fallback failed: '
+          '$fallbackError',
+        );
+        rethrow;
+      }
+    }
+  }
+
+  Future<File?> _findCachedAudioFile() async {
+    final localSource = widget.localSource.trim();
+    if (localSource.isNotEmpty) {
+      try {
+        final localFile = File(localSource);
+        if (await localFile.exists()) return localFile;
+      } catch (_) {
+        // Continue with cache lookup when historical local metadata is stale.
+      }
+    }
+
+    final root = await getTemporaryDirectory();
+    return findCachedAudioFileForPreview(
+      root: root,
+      fileName: widget.fileName,
+      occurredAt: widget.occurredAt,
+    );
+  }
+
+  @override
+  void dispose() {
+    _apiClient.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_DirectPreviewSource>(
+      future: _sourceFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _KnowledgePreviewUnavailable(
+            title: '预览失败',
+            message: '音频直连地址获取失败。',
+          );
+        }
+        final source = snapshot.data;
+        if (source == null) return const _AudioPlayerLoading();
+        return _AudioDetailPreview(
+          fileName: source.fileName.trim().isNotEmpty
+              ? source.fileName
+              : widget.fileName,
+          previewSourceUrl: source.url,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+          durationSeconds: widget.durationSeconds,
+        );
+      },
+    );
+  }
+}
+
 class _MemoryAttachmentPreviewPage extends StatelessWidget {
   const _MemoryAttachmentPreviewPage({
+    required this.memoryId,
     required this.attachment,
     required this.presentation,
     required this.authToken,
@@ -16236,6 +16326,7 @@ class _MemoryAttachmentPreviewPage extends StatelessWidget {
     this.onAuthFailure,
   });
 
+  final String memoryId;
   final _OrganizeMemoryAttachment attachment;
   final MemoryAttachmentPresentation presentation;
   final String authToken;
@@ -16244,41 +16335,16 @@ class _MemoryAttachmentPreviewPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sourceUrl = attachment.sourceUrl.trim();
     final fileType = attachment.fileType;
-    final document = _KnowledgeDocument(
-      path: attachment.fileName,
-      date: '',
-      fileType: fileType,
-    );
 
     Widget preview;
-    if (attachment.isImage) {
-      preview = _KnowledgeImageDetailPreview(
-        previewSourceUrl: sourceUrl,
-        authToken: authToken,
-        tenantId: tenantId,
-        onAuthFailure: onAuthFailure,
-      );
-    } else if (attachment.isAudio) {
-      preview = _AudioDetailPreview(
-        fileName: attachment.fileName,
-        previewSourceUrl: sourceUrl,
-        authToken: authToken,
-        tenantId: tenantId,
-        onAuthFailure: onAuthFailure,
-      );
-    } else if (attachment.isVideo) {
-      preview = _KnowledgeVideoDetailPreview(
-        document: document,
-        previewSourceUrl: sourceUrl,
-        authToken: authToken,
-        tenantId: tenantId,
-        onAuthFailure: onAuthFailure,
-      );
-    } else if (attachment.isPdf) {
-      preview = _KnowledgePdfDetailPreview(
-        previewSourceUrl: sourceUrl,
+    if (attachment.isImage ||
+        attachment.isAudio ||
+        attachment.isVideo ||
+        attachment.isPdf) {
+      preview = _MemoryAttachmentDirectPreview(
+        memoryId: memoryId,
+        attachment: attachment,
         authToken: authToken,
         tenantId: tenantId,
         onAuthFailure: onAuthFailure,
@@ -16356,32 +16422,109 @@ class _MemoryAttachmentPreviewPage extends StatelessWidget {
   }
 }
 
-String _audioSourceFileName(String sourceUrl, {required String fallback}) {
-  String extractFileName(String value) {
-    final uri = Uri.tryParse(value);
-    if (uri != null) {
-      final nested = uri.queryParameters['file_path']?.trim();
-      if (nested != null && nested.isNotEmpty) {
-        final nestedName = extractFileName(nested);
-        if (nestedName.isNotEmpty) return nestedName;
-      }
-      if (uri.pathSegments.isNotEmpty) {
-        final last = uri.pathSegments.last.trim();
-        if (last.isNotEmpty && last != 'files' && last != 'presigned') {
-          return last;
-        }
-      }
-    }
+class _MemoryAttachmentDirectPreview extends StatefulWidget {
+  const _MemoryAttachmentDirectPreview({
+    required this.memoryId,
+    required this.attachment,
+    required this.authToken,
+    required this.tenantId,
+    this.onAuthFailure,
+  });
 
-    final parts = value.replaceAll('\\', '/').split('?').first.split('/');
-    final last = parts.isNotEmpty ? parts.last.trim() : '';
-    return last;
+  final String memoryId;
+  final _OrganizeMemoryAttachment attachment;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback? onAuthFailure;
+
+  @override
+  State<_MemoryAttachmentDirectPreview> createState() =>
+      _MemoryAttachmentDirectPreviewState();
+}
+
+class _MemoryAttachmentDirectPreviewState
+    extends State<_MemoryAttachmentDirectPreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<_DirectPreviewSource> _sourceFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _sourceFuture = _loadSource();
   }
 
-  final source = sourceUrl.trim();
-  if (source.isEmpty) return fallback;
-  final fileName = extractFileName(source);
-  return fileName.isNotEmpty ? fileName : fallback;
+  Future<_DirectPreviewSource> _loadSource() async {
+    try {
+      return await _apiClient.fetchOrganizeMemoryAttachmentPreviewSource(
+        memoryId: widget.memoryId,
+        attachmentId: widget.attachment.id,
+      );
+    } on _ApiException catch (error) {
+      final storagePath = widget.attachment.storagePath.trim();
+      if (error.statusCode != HttpStatus.notFound || storagePath.isEmpty) {
+        rethrow;
+      }
+      return _apiClient.fetchStoragePreviewSource(storagePath);
+    }
+  }
+
+  @override
+  void dispose() {
+    _apiClient.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<_DirectPreviewSource>(
+      future: _sourceFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _KnowledgePreviewUnavailable(
+            title: '预览失败',
+            message: '附件直连地址获取失败。',
+          );
+        }
+        final source = snapshot.data;
+        if (source == null) return const _KnowledgePreviewLoading();
+
+        final attachment = widget.attachment;
+        if (attachment.isImage) {
+          return _KnowledgeImageDetailPreview(
+            previewSourceUrl: source.url,
+          );
+        }
+        if (attachment.isAudio) {
+          return _AudioDetailPreview(
+            fileName: source.fileName.trim().isNotEmpty
+                ? source.fileName
+                : attachment.fileName,
+            previewSourceUrl: source.url,
+            authToken: widget.authToken,
+            tenantId: widget.tenantId,
+            onAuthFailure: widget.onAuthFailure,
+          );
+        }
+        if (attachment.isVideo) {
+          return _KnowledgeVideoDetailPreview(
+            previewSourceUrl: source.url,
+          );
+        }
+        return _KnowledgePdfDetailPreview(
+          fileName: attachment.fileName,
+          previewSourceUrl: source.url,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+        );
+      },
+    );
+  }
 }
 
 Future<bool> _confirmDeleteNote(
@@ -19030,104 +19173,44 @@ class _DiscoverPageState extends State<DiscoverPage> {
         _featuredCoursesLoading ||
         _coursesLoading;
 
-    return SafeArea(
-      child: ColoredBox(
-        color: AppColors.background,
-        child: Stack(
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
           children: [
-            RefreshIndicator(
-              onRefresh: _refresh,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(18, 58, 18, 118),
-                children: [
-                  _DiscoverSectionHeader(
-                    title: '精选',
-                    onRefreshTap:
-                        _featuredOutputs.length > 1 ? _nextBatch : null,
-                    refreshing: _refreshingFeatured,
-                  ),
-                  const SizedBox(height: 12),
-                  if (_loading && !hasContent)
-                    const _DiscoverLoading()
-                  else if (_error != null && !hasContent)
-                    _DiscoverLoadError(
-                      message: _error!,
-                      onRetry: () => unawaited(_loadDiscover()),
-                    )
-                  else ...[
-                    if (_featuredOutputs.isEmpty &&
-                        _featuredCourses.isEmpty &&
-                        !_featuredCoursesLoading &&
-                        _featuredCourseError == null)
-                      const _DiscoverEmpty(message: '暂无精选')
-                    else ...[
-                      for (final output in _featuredOutputs) ...[
-                        _DiscoverOutputTile(
-                          output: output,
-                          authToken: widget.authToken,
-                          tenantId: widget.tenantId,
-                          onAuthFailure: widget.onAuthFailure,
-                          onTap: () => unawaited(_openOutput(output)),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                      if (_featuredCourses.isNotEmpty ||
-                          _featuredCoursesLoading ||
-                          _featuredCourseError != null) ...[
-                        const SizedBox(height: 4),
-                        _DiscoverCourseSection(
-                          title: '精选课程',
-                          showTitle: false,
-                          courses: _featuredCourses,
-                          loading: _featuredCoursesLoading,
-                          error: _featuredCourseError,
-                          authToken: widget.authToken,
-                          tenantId: widget.tenantId,
-                          onRetry: () => unawaited(_loadFeaturedCourses()),
-                          onTap: (course) => unawaited(_openCourse(course)),
-                        ),
-                      ],
-                    ],
-                    const SizedBox(height: 6),
-                    _DiscoverTabsBar(
-                      tabs: _tabs,
-                      selectedValue: _selectedTab,
-                      onSelected: _selectTab,
+            _OrganizeSubpageBar(
+              title: '发现',
+              onBack: () => Navigator.maybePop(context),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _refresh,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 32),
+                  children: [
+                    _DiscoverSectionHeader(
+                      title: '精选',
+                      onRefreshTap:
+                          _featuredOutputs.length > 1 ? _nextBatch : null,
+                      refreshing: _refreshingFeatured,
                     ),
-                    const SizedBox(height: 16),
-                    if (_selectedTab == 'course')
-                      _DiscoverCourseSection(
-                        title: '系列课程',
-                        showTitle: false,
-                        courses: _courses,
-                        loading: _coursesLoading,
-                        error: _courseError,
-                        authToken: widget.authToken,
-                        tenantId: widget.tenantId,
-                        onRetry: () => unawaited(_loadCourses()),
-                        onTap: (course) => unawaited(_openCourse(course)),
+                    const SizedBox(height: 12),
+                    if (_loading && !hasContent)
+                      const _DiscoverLoading()
+                    else if (_error != null && !hasContent)
+                      _DiscoverLoadError(
+                        message: _error!,
+                        onRetry: () => unawaited(_loadDiscover()),
                       )
                     else ...[
-                      _DiscoverFeedHeader(
-                        label: _selectedTabLabel,
-                        total: _total,
-                        loading: _loading,
-                      ),
-                      const SizedBox(height: 10),
-                      if (_error != null)
-                        _DiscoverLoadError(
-                          message: _error!,
-                          onRetry: () => unawaited(_loadDiscover()),
-                        )
-                      else if (_outputs.isEmpty)
-                        _DiscoverEmpty(
-                          message: _selectedTab == 'recommended'
-                              ? '暂无推荐内容'
-                              : '暂无$_selectedTabLabel内容',
-                        )
-                      else
-                        for (final output in _outputs) ...[
+                      if (_featuredOutputs.isEmpty &&
+                          _featuredCourses.isEmpty &&
+                          !_featuredCoursesLoading &&
+                          _featuredCourseError == null)
+                        const _DiscoverEmpty(message: '暂无精选')
+                      else ...[
+                        for (final output in _featuredOutputs) ...[
                           _DiscoverOutputTile(
                             output: output,
                             authToken: widget.authToken,
@@ -19137,9 +19220,75 @@ class _DiscoverPageState extends State<DiscoverPage> {
                           ),
                           const SizedBox(height: 10),
                         ],
+                        if (_featuredCourses.isNotEmpty ||
+                            _featuredCoursesLoading ||
+                            _featuredCourseError != null) ...[
+                          const SizedBox(height: 4),
+                          _DiscoverCourseSection(
+                            title: '精选课程',
+                            showTitle: false,
+                            courses: _featuredCourses,
+                            loading: _featuredCoursesLoading,
+                            error: _featuredCourseError,
+                            authToken: widget.authToken,
+                            tenantId: widget.tenantId,
+                            onRetry: () => unawaited(_loadFeaturedCourses()),
+                            onTap: (course) => unawaited(_openCourse(course)),
+                          ),
+                        ],
+                      ],
+                      const SizedBox(height: 6),
+                      _DiscoverTabsBar(
+                        tabs: _tabs,
+                        selectedValue: _selectedTab,
+                        onSelected: _selectTab,
+                      ),
+                      const SizedBox(height: 16),
+                      if (_selectedTab == 'course')
+                        _DiscoverCourseSection(
+                          title: '系列课程',
+                          showTitle: false,
+                          courses: _courses,
+                          loading: _coursesLoading,
+                          error: _courseError,
+                          authToken: widget.authToken,
+                          tenantId: widget.tenantId,
+                          onRetry: () => unawaited(_loadCourses()),
+                          onTap: (course) => unawaited(_openCourse(course)),
+                        )
+                      else ...[
+                        _DiscoverFeedHeader(
+                          label: _selectedTabLabel,
+                          total: _total,
+                          loading: _loading,
+                        ),
+                        const SizedBox(height: 10),
+                        if (_error != null)
+                          _DiscoverLoadError(
+                            message: _error!,
+                            onRetry: () => unawaited(_loadDiscover()),
+                          )
+                        else if (_outputs.isEmpty)
+                          _DiscoverEmpty(
+                            message: _selectedTab == 'recommended'
+                                ? '暂无推荐内容'
+                                : '暂无$_selectedTabLabel内容',
+                          )
+                        else
+                          for (final output in _outputs) ...[
+                            _DiscoverOutputTile(
+                              output: output,
+                              authToken: widget.authToken,
+                              tenantId: widget.tenantId,
+                              onAuthFailure: widget.onAuthFailure,
+                              onTap: () => unawaited(_openOutput(output)),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                      ],
                     ],
                   ],
-                ],
+                ),
               ),
             ),
           ],
@@ -21480,16 +21629,6 @@ class _KnowledgeDocument {
 
   bool get isPreviewSupported => previewKind != null;
 
-  String get previewSourceUrl {
-    final idValue = id.trim();
-    if (idValue.isNotEmpty) {
-      return '/api/v1/knowledge/${Uri.encodeComponent(idValue)}/preview';
-    }
-    final image = previewImageUrl.trim();
-    if (isImage && image.isNotEmpty) return image;
-    return '';
-  }
-
   String get displayFileType {
     final type = fileType.trim().replaceFirst(RegExp(r'^\.'), '');
     if (type.isNotEmpty) return type.toUpperCase();
@@ -21497,14 +21636,6 @@ class _KnowledgeDocument {
     final parts = name.split('.');
     if (parts.length > 1) return parts.last.toUpperCase();
     return 'FILE';
-  }
-
-  String get bestPreviewImageUrl {
-    if (previewImageUrl.trim().isNotEmpty) return previewImageUrl.trim();
-    if (isImage && id.trim().isNotEmpty) {
-      return previewSourceUrl;
-    }
-    return '';
   }
 
   static String _readDisplayPath(Map<String, dynamic> json) {
@@ -24275,9 +24406,12 @@ class _OrganizeMemoryAttachment {
   }
 
   String get sourceUrl {
-    final source = storagePath.trim().isNotEmpty ? storagePath : storageUrl;
-    return _publicFileUrl(source, baseUrl: AppApiConfig.baseUrl);
+    final source = storageUrl.trim();
+    return isDirectPreviewUrl(source) ? source : '';
   }
+
+  bool get hasStoredSource =>
+      storagePath.trim().isNotEmpty || storageUrl.trim().isNotEmpty;
 
   String get displayContent {
     final rawTranscript = transcript.trim();
@@ -24492,10 +24626,14 @@ class _OrganizeMemory {
       content: displayBody,
       source: source,
       audioUrl: audioUrl,
+      audioLocalPath: _organizeMemoryMetadataText(
+        const ['local_playable_path', 'local_audio_path', 'audio_local_path'],
+      ),
       audioFileName: _organizeMemoryMetadataText(
         const ['audio_file_name', 'file_name', 'recording_file_name'],
       ),
       durationSeconds: durationSeconds,
+      occurredAt: occurredAt,
       transcriptionStatus: transcriptionStatus,
       transcript: _organizeMemoryTranscriptText(),
       attachmentStatus: attachmentStatus,
@@ -24637,8 +24775,10 @@ class _NoteItem {
     this.content = '',
     this.source = '',
     this.audioUrl = '',
+    this.audioLocalPath = '',
     this.audioFileName = '',
     this.durationSeconds = 0,
+    this.occurredAt,
     this.transcriptionStatus = '',
     this.transcript = '',
     this.attachmentStatus = '',
@@ -24656,8 +24796,10 @@ class _NoteItem {
   final String content;
   final String source;
   final String audioUrl;
+  final String audioLocalPath;
   final String audioFileName;
   final int durationSeconds;
+  final DateTime? occurredAt;
   final String transcriptionStatus;
   final String transcript;
   final String attachmentStatus;
@@ -24694,6 +24836,15 @@ class _NoteItem {
 
   bool get hasAudioAttachment =>
       attachments.any((attachment) => attachment.isAudio);
+
+  _OrganizeMemoryAttachment? get primaryPlayableAudioAttachment {
+    for (final attachment in attachments) {
+      if (attachment.isAudio && attachment.hasStoredSource) {
+        return attachment;
+      }
+    }
+    return null;
+  }
 
   bool get hasPendingAttachment => _attachmentPresentations.any(
         (presentation) => const {
@@ -24750,8 +24901,8 @@ class _NoteItem {
   }
 
   bool get hasAudioLink {
+    if (hasAttachments) return primaryPlayableAudioAttachment != null;
     if (audioUrl.trim().isEmpty) return false;
-    if (hasAttachments) return hasAudioAttachment;
     final type = _fileExtension(audioFileName);
     if (const {'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi'}.contains(type)) {
       return false;
