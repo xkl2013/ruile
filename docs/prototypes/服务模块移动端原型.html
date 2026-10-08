@@ -15,6 +15,9 @@
     --bd:#E9EBF0; --control:#536071;
     --warn:#D87600; --warn-weak:#FDF3E6; --danger:#E5484D; --danger-weak:#FDECEE;
     --info:#2F7DE1; --info-weak:#EAF1FF;
+    /* 派生令牌（v1.28 精细化：描边 / 阴影 / 浅底上的数字色） */
+    --line-soft:#EDF0F4; --accent-ink:#0F9A75;
+    --sh-1:0 1px 2px rgba(16,24,40,.04),0 2px 6px rgba(16,24,40,.05);
     /* 真机 radius / spacing */
     --r-s:4px; --r-m:10px; --r-l:14px; --r-r:999px;
     /* 工作台外壳（沿用 web 原型家族语言） */
@@ -90,15 +93,15 @@
   .h2{font-size:18px;font-weight:700;color:var(--t1);margin:0}
   .sub{font-size:14px;line-height:1.58;font-weight:500;color:var(--t2);margin:6px 0 0}
   .meta{font-size:13px;font-weight:500;color:var(--t3)}
-  .sechead{display:flex;align-items:center;justify-content:space-between;margin:22px 0 12px}
-  .sechead .st{font-size:18px;font-weight:700;color:var(--t1)}
-  .sechead .st small{font-size:13px;font-weight:500;color:var(--t3);margin-left:6px}
-  .sechead .tt2{font-size:13px;font-weight:600;color:var(--accent-deep)}
+  .sechead{display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px}
+  .sechead .st{font-size:16.5px;font-weight:700;color:var(--t1);letter-spacing:.1px}
+  .sechead .st small{font-size:12px;font-weight:500;color:var(--t3);margin-left:6px}
+  .sechead .tt2{font-size:12.5px;font-weight:600;color:var(--accent-deep)}
 
   .card{background:var(--surface);border-radius:var(--r-l);padding:14px}
   .card.bd{border:1px solid var(--bd)}
   .card + .card{margin-top:12px}
-  .slim{background:var(--surface);border:1px solid var(--bd);border-radius:var(--r-m);padding:13px 14px}
+  .slim{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-m);padding:13px 14px;box-shadow:var(--sh-1)}
   .slim + .slim{margin-top:12px}
 
   .badge{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;font-size:11px;font-weight:600;background:#F1F3F8;color:var(--control)}
@@ -127,29 +130,30 @@
   .svc .lnk svg{width:15px;height:15px}
 
   /* 服务概览（v1.7） */
-  .aicard{background:var(--accent-weak);border:1px solid var(--accent-line);border-radius:var(--r-l);padding:14px}
+  .aicard{background:linear-gradient(170deg,#F1FAF6 0%,#E9F7F1 50%,#E3F4EC 100%);border:1px solid var(--accent-line);border-radius:16px;padding:15px 15px 14px;box-shadow:0 2px 8px rgba(16,24,40,.05)}
   .aicard .ah{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-  .aicard .ah b{font-size:14px;font-weight:800;color:var(--accent-deep);letter-spacing:.2px}
-  .aicard .ah .tm{font-size:11.5px;color:var(--t3);font-weight:600}
-  .aicard .ablock{font-size:13.5px;line-height:1.62;color:var(--t1);font-weight:500}
+  .aicard .ah b{font-size:13px;font-weight:700;color:var(--accent-deep);letter-spacing:.3px}
+  .aicard .ah .tm{font-size:11px;color:var(--t3);font-weight:400;opacity:.95}
+  .aicard .ablock{font-size:13.5px;line-height:1.72;color:var(--t1);font-weight:400}
   .aicard .ablock + .ablock{margin-top:10px;padding-top:10px;border-top:1px solid rgba(35,185,157,.18)}
-  .aflag{display:inline-flex;align-items:center;font-size:11px;font-weight:800;padding:2px 7px;border-radius:5px;margin-right:6px;vertical-align:1px}
+  .aflag{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:6px;margin-right:6px;vertical-align:1px;letter-spacing:.2px}
   .aflag.warn{background:var(--warn-weak);color:var(--warn)}
   .aflag.next{background:#fff;color:var(--accent-deep);border:1px solid var(--accent-line)}
-  .aicard .num{color:var(--accent-deep);font-weight:800}
-  .aicard .numw{color:var(--warn);font-weight:800}
-  .td{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--bd);border-radius:10px;padding:11px 12px}
+  .aicard .ablock.sub{background:rgba(255,255,255,.86);border-radius:10px;padding:10px 11px;margin-top:9px;border-top:0;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .aicard .num{color:var(--accent-ink);font-weight:700}
+  .aicard .numw{color:var(--warn);font-weight:700}
+  .td{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line-soft);border-radius:11px;padding:12px 13px;box-shadow:var(--sh-1)}
   .td + .td{margin-top:8px}
   .td .cc{width:18px;height:18px;flex:0 0 18px;border-radius:50%;border:1.8px solid var(--bd)}
-  .td .cc.hi{border-color:var(--warn);border-width:2.2px}
-  .td .tt3{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .td .cc.hi{border-color:var(--warn);border-width:2.2px;box-shadow:0 0 0 3px rgba(216,118,0,.10)}
+  .td .tt3{flex:1;min-width:0;font-size:14px;font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .td .mm{font-size:11.5px;color:var(--t3);font-weight:600;flex:0 0 auto}
   .reg{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-  .reg .it{background:var(--bg);border-radius:12px;padding:11px 13px 12px;min-width:0;display:flex;flex-direction:column;min-height:78px}
-  .reg .it .rl{font-size:11.5px;color:var(--t3);font-weight:600;display:flex;align-items:center;gap:6px;letter-spacing:.2px}
-  .reg .it .rdot{width:6px;height:6px;flex:0 0 6px;border-radius:50%}
-  .reg .it .rv{font-size:15.5px;color:var(--t1);font-weight:800;margin-top:7px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .reg .it .rs{font-size:11px;font-weight:600;margin-top:5px;display:flex;align-items:center;gap:4px}
+  .reg .it{background:#fff;border:1px solid var(--line-soft);border-radius:12px;padding:12px 13px;min-width:0;display:flex;flex-direction:column;min-height:82px;box-shadow:var(--sh-1)}
+  .reg .it .rl{font-size:11px;color:var(--t2);font-weight:600;display:flex;align-items:center;gap:6px;letter-spacing:.4px}
+  .reg .it .rdot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;box-shadow:0 0 0 3px rgba(20,26,30,.06)}
+  .reg .it .rv{font-size:16px;color:var(--t1);font-weight:700;margin-top:8px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .reg .it .rs{font-size:11px;font-weight:500;margin-top:6px;display:flex;align-items:center;gap:4px}
   .reg .it .rs.up{color:var(--accent-deep)}
   .reg .it .rs.warn{color:var(--warn)}
   .svc.tappable{cursor:pointer;transition:transform .12s,opacity .12s}
@@ -231,7 +235,7 @@
   .foot.cin{background:transparent;border-top:0;padding:8px 18px 16px}
   .composer{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--bd);border-radius:22px;padding:7px 8px 7px 16px;box-shadow:0 8px 22px rgba(20,26,30,.10)}
   .composer:active{background:#f7f8fa}
-  .composer .cph{flex:1;min-width:0;font-size:14.5px;color:var(--t3);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .composer .cph{flex:1;min-width:0;font-size:14px;color:var(--t3);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .composer .cbtn{width:36px;height:36px;flex:0 0 36px;border-radius:50%;background:var(--bg);color:var(--t2);display:flex;align-items:center;justify-content:center}
   .composer .cbtn.acc{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(35,185,157,.34)}
   .btn{width:100%;height:46px;border-radius:var(--r-m);background:var(--accent);color:#fff;font-size:15.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
@@ -259,13 +263,14 @@
 
   /* 服务概览（v1.8）：头部身份卡 + WorkBuddy 式下划线 tab */
   .ovhead{flex:0 0 auto;display:flex;align-items:center;gap:11px;padding:8px 18px 12px;background:var(--surface)}
-  .ovhead .thumb{width:46px;height:46px;flex:0 0 46px}
+  .ovhead .thumb{width:48px;height:48px;flex:0 0 48px;border-radius:14px;background:linear-gradient(135deg,#3FCDAF,#1FA98B);color:#fff;font-size:20px;box-shadow:0 4px 12px rgba(35,185,157,.28)}
   .ovhead .ovn{flex:1;min-width:0}
-  .ovhead .nm{font-size:18px;font-weight:800;color:var(--t1);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ovhead .mt{font-size:12px;color:var(--t3);font-weight:500;margin-top:3px}
-  .otabs{flex:0 0 auto;display:flex;gap:20px;padding:0 18px;background:var(--surface);border-bottom:1px solid var(--bd);overflow-x:auto}
-  .otabs .ot{flex:0 0 auto;display:flex;align-items:center;gap:5px;padding:9px 1px 10px;font-size:14.5px;font-weight:600;color:var(--t3);border-bottom:2.5px solid transparent}
-  .otabs .ot.on{color:var(--t1);font-weight:800;border-bottom-color:var(--accent)}
+  .ovhead .nm{font-size:19px;font-weight:700;color:var(--t1);line-height:1.28;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ovhead .mt{font-size:12.5px;color:var(--t2);font-weight:400;margin-top:4px}
+  /* v1.29：tab 移到身份卡行右侧（胶囊轻量式），省掉通宽 tab 条 */
+  .ovhead .htabs{margin-left:auto;display:flex;gap:5px;flex:0 0 auto}
+  .ovhead .htabs .ht{height:27px;padding:0 9px;border-radius:var(--r-r);font-size:12px;font-weight:600;color:var(--t2);background:var(--bg);display:flex;align-items:center}
+  .ovhead .htabs .ht.on{background:var(--accent-weak);color:var(--accent-deep);font-weight:700}
 
   /* ── 右侧规格面板 ── */
   .pside{width:392px;flex:0 0 392px;position:sticky;top:0}
@@ -309,7 +314,7 @@
     <div class="rail-foot">
       令牌取自真机 <code>AppColors</code>：accent #23B99D · 背景 #F5F6FA · 正文 #252B35<br>
       圆角 4 / 10 / 14 · 页边距 18 · 段落间距 24<br>
-      <b id="verstamp">v1.26</b>
+      <b id="verstamp">v1.29</b>
     </div>
   </aside>
 
@@ -317,7 +322,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.26</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.29</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll">
@@ -637,20 +642,18 @@ function vOverview(){
     '<span class="thumb">秋</span>' +
     '<div class="ovn"><div class="nm">秋季招生咨询</div>' +
     '<div class="mt">家长与学员 · 5 位成员</div></div>' +
+    '<div class="htabs">' + [['todo','待办'],['act','动态'],['res','产物']].map(function(t){
+      return '<div class="ht' + (state.ovTab === t[0] ? ' on' : '') + '" data-otab="' + t[0] + '">' + t[1] + '</div>';
+    }).join('') + '</div>' +
     '</div>';
-
-  var tabs = [['todo','待办'],['act','动态'],['res','产物']];
-  var tabbar = '<div class="otabs" style="margin:18px -20px 0;padding:0 18px">' + tabs.map(function(t){
-    return '<div class="ot' + (state.ovTab === t[0] ? ' on' : '') + '" data-otab="' + t[0] + '">' + t[1] + '</div>';
-  }).join('') + '</div>';
 
   /* 常驻内容区（tab 上方）：进展摘要 + 重点记录，无论切到哪个 tab 都可见（v1.25 恢复 v1.23；v1.26 起成员行先不展示） */
   var fixed =
       '<div class="aicard">' +
-        '<div class="ah"><b>进展摘要</b><span class="tm">10:12 更新 · 刷新</span></div>' +
+        '<div class="ah"><b>✦ 进展摘要</b><span class="tm">10:12 更新 · 刷新</span></div>' +
         '<div class="ablock">9 月共进入 <b class="num">16 条</b>线索，东苑分园 5 条；本周新增 <b class="num">4 条</b>明确意向，主要来自体验课后家长转介绍；目前还有 <b class="numw" data-otab="todo">5 条待处理</b>。</div>' +
-        '<div class="ablock"><span class="aflag warn">需留意</span>周三下午的时段冲突被 <b class="numw">9 位</b>家长提到，是当前最集中的顾虑。</div>' +
-        '<div class="ablock"><span class="aflag next">下一步</span>推进 <b class="num">3 个</b>待回访家庭 · 确认 10 月体验课排期 · 补一份时段备选方案</div>' +
+        '<div class="ablock sub"><span class="aflag warn">需留意</span>周三下午的时段冲突被 <b class="numw">9 位</b>家长提到，是当前最集中的顾虑。</div>' +
+        '<div class="ablock sub"><span class="aflag next">下一步</span>推进 <b class="num">3 个</b>待回访家庭 · 确认 10 月体验课排期 · 补一份时段备选方案</div>' +
         '</div>' + ann(8) +
       '<div class="sechead" style="margin-top:16px"><span class="st">重点记录</span><span class="meta">AI 自动维护</span></div>' +
       '<div class="reg" style="margin-top:0">' + reg.map(function(f){
@@ -686,7 +689,7 @@ function vOverview(){
   return sbx() + '<div class="viewport">' +
     ab({ back:true, backTo: state.ovFrom || 'space', title:'服务概览' }) +
     head +
-    '<div class="body" style="padding-top:2px">' + fixed + tabbar + content +
+    '<div class="body" style="padding-top:16px;background:var(--bg)">' + fixed + content +
       note(9, '<b>概览改用 tab 分类（v1.8，参照 WorkBuddy 移动端项目详情）。</b>v1.7 的六段长页（摘要 / 数字 / 待办 / 记录 / 动态 / 入口全堆一屏）信息密度过高、扫不到底。改为：头部一张<b>身份卡</b>（头像 + 名称 + 成员数，右上 ⚙ 进设置）+ 五个<b>下划线 tab</b>——概览 / 待办 / 重点记录 / 动态 / 产物，<b>一屏一件事</b>，各自完整、互不挤压。tab 用下划线式而非胶囊式，与设置页的分区胶囊在视觉上区分开。<b>底部原整宽绿色「进入会话」按钮改为 WorkBuddy 式会话输入条（v1.9）</b>：一个圆角输入条 + 麦克风 + 品牌色箭头（点任意处进入会话），与 WorkBuddy 项目详情底部的任务输入条同形，避免整屏两个大 CTA、也让「去对话」这件事看起来仍是一次输入。') +
       note(24, '<b>简洁原则（v1.10 清一遍）：同一条信息只出现一次。</b>① 产物既有 tab 又有「快捷入口」卡片 → 删卡片，产物只走 tab；② 待办数既在 KPI 又在 tab 角标 → tab 一律不带角标，数字只在<b>概览</b>出现一次；③ 身份卡原写「家长与学员 · 5 位成员 · 3 段工作」，后两项是后台口径 → 只留用户看得懂的两项；④ 成员不进 tab，用<b>一行只读</b>「服务成员 + 名单」代替原来的两个 tile——零配置后它不再带 ›，看一眼知道有谁就够。<b>v1.11 再清一层：本页不再有任何配置入口</b>（身份卡 ⚙、「重点记录」的「编辑」全部删除）。原则：每屏一个主线任务、一个主按钮；同一数字 / 入口不重复出现；能一行说完就不做卡片；<b>需要用户配的东西，不放在使用者面前</b>。') +
       note(25, '<b>重点记录并入概览（v1.17）。</b>重点记录只有 4 条、半屏都填不满，独立成 tab 后用户要多点一次才能看到最该看的「这个家庭处在什么状态」。现在<b>概览 tab 一屏讲完服务的全貌</b>：进展摘要 → 重点记录（AI 自动维护）→ 成员；tab 收成 4 个（概览 / 待办 / 动态 / 产物），每个 tab 都是满内容，不再有「为凑 tab 而存在」的页面。') +
@@ -694,6 +697,9 @@ function vOverview(){
       note(27, '<b>标签行删除（v1.22）。</b>卡片上原来的「家长与学员」分类徽标和「5 条待处理」橙色计数，对天天刷列表的园长来说都是<b>不关心的信息</b>：分类在建服务时已经选过、扫列表不会再看；待办压力已经由「新待办」增量行和概览摘要里的「5 条待处理」承载（同一信息只出现一次，§0.5）。删掉后卡片只剩用户语言：服务叫什么、最近怎么了、有没有新活、什么时候更新、点哪里进去。') +
       note(28, '<b>概览内容回到 tab 上方（v1.25，恢复 v1.23 方案）。</b>v1.24 一度把它挪回「概览」tab 内，试用下来仍是「要多点一下才看得到」——摘要和重点记录是<b>这个服务最该被先看到的东西</b>，不该藏在 tab 后面。现在恢复 v1.23 的做法：<b>进展摘要 + 重点记录 + 成员常驻在 tab 上方的内容区</b>，切任何 tab 都不会把摘要滚没；tab 收成三个（待办 / 动态 / 产物），只负责切下面的明细清单。「概览」不再是一个 tab，而是页面本身——进来第一眼就是摘要。摘要里的「5 条待处理」仍可点，切到下方待办清单。') +
       note(29, '<b>成员行先不展示（v1.26）。</b>常驻区原来第三块是「服务成员 + 名单」，但它对使用者是<b>零动作信息</b>——看了不需要做什么，成员配置又统一在电脑端（零配置，§0.5「同一条信息只出现一次」）。先删掉，让「进展摘要 → 重点记录」直接接 tab，常驻区更短、一屏更稳。成员数仍在身份卡保留一行（「家长与学员 · 5 位成员」），名单需要时再加回。') +
+      note(30, '<b>整页精细化（v1.27）。</b>信息结构不动，只做视觉打磨：身份卡头像改品牌渐变；摘要卡改<b>柔和渐变底 + 轻投影</b>，「需留意 / 下一步」两段改成<b>白色内嵌小卡</b>，与首段结论拉开层次；重点记录格改白卡、状态点加光环；待办行与 tab 统一轻投影与间距节奏。仍是「一眼知道怎么用」，只是从毛坯装成精装。') +
+      note(31, '<b>排版与色彩精细化（v1.28）。</b>把「粗糙感」拆成四件事逐项收掉：① <b>字号</b>——标题 19 / 区块 16.5 / 正文 13.5 / 元信息 12 / 标签 11，离散档位，不再 11.5、13.5、14.5 混着用；② <b>字重</b>——去掉中文下会发糊的 800，主标题与数值统一 700、正文回归 400、标签 600；③ <b>颜色</b>——次要文字由发虚的 t3 上提到 t2，t3 只留给时间戳；摘要里的数字改用派生色 <code>--accent-ink</code>（在浅绿底上更亮更实）；④ <b>背景</b>——内容区从纯白改浅灰 <code>--bg</code>，白卡与摘要卡这才真正「浮」起来（原先是白卡压白底，层次全靠一圈描边撑）。') +
+      note(32, '<b>tab 上移到身份卡右侧（v1.29）。</b>原来 tab 是通宽下划线条，独占一行——但「待办 / 动态 / 产物」三个词只占半屏，整行都是留白。现在<b>贴着服务名右侧</b>排成小胶囊（激活 = 品牌浅底实心），一整行 tab 条省掉，头部一行装下「这是谁 + 看哪块」，常驻摘要直接接在头部下面，页面更紧凑。服务名过长仍会截断（ellipsis），三个 tab 的宽度优先保住。') +
       note(23, '<b>点卡片先进概览，不先进对话（v1.5）：</b>列表的服务卡片<b>整卡可点</b>，落点是本页——服务概览就是服务的首页；底部<b>会话输入条</b>再下到对话区，返回键按来源回（从列表来回列表、从 ⋯ 进来回会话）。为什么不直接进对话：手机屏小，先把服务的全貌给出来，再决定聊什么；web 上对话区与浮层能并存，所以 web 不受此限。') +
     '</div>' +
     '<div class="foot cin"><div class="composer" data-go="space">' +
@@ -833,13 +839,15 @@ var SPECS = {
       '顶部三态分段：待处理 / 进行中 / 已完成，各带计数。'
     ],
     api:'默认四态由后端自动生成，key 后端生成、category 按 is_terminal 推导 —— 界面不设自定义状态入口。'},
-  overview: { goal:'移动端的服务首页（v1.26）：摘要 / 重点记录常驻 tab 上方，tab 只切下方明细；成员名单行先不展示。',
+  overview: { goal:'移动端的服务首页（v1.29）：tab 收进身份卡行右侧，摘要 / 重点记录常驻其下，tab 只切下方明细；成员名单行先不展示。',
     pts:[
-      '<b>结构对标 WorkBuddy 移动端项目详情</b>：顶部导航（返回 + 标题）→ 一张<b>服务身份卡</b>（头像 + 名称 + 「家长与学员 · 5 位成员」）→ <b>常驻内容区</b> → 一排<b>下划线 tab</b> → 当前 tab 明细。',
+      '<b>结构对标 WorkBuddy 移动端项目详情</b>：顶部导航（返回 + 标题）→ 一张<b>服务身份卡</b>（头像 + 名称 + 「家长与学员 · 5 位成员」，<b>行右侧即三个胶囊 tab</b>）→ <b>常驻内容区</b> → 当前 tab 明细——v1.29 起 tab 不再独占一行。',
       '<b>概览内容在 tab 上方（v1.25 恢复 v1.23 方案）</b>：进展摘要三段式（结论 / 需留意 / 下一步，可刷新）→ <b>重点记录 2×2 网格</b>（右上灰字「AI 自动维护」；v1.18 精细化：每格带状态色点、变化的记录带补充行）→ 一行<b>只读</b>——这两块<b>常驻</b>，切任何 tab 都不会被滚走；「概览」不再是一个 tab，而是页面本身。<b>成员行先不展示（v1.26）</b>：名单是零动作信息，先删；成员数只在身份卡保留。',
-      '<b>三个 tab 只切明细：</b>待办 / 动态 / 产物，默认落在待办；tab 一律不带角标（数字只在摘要出现一次）。',
+      '<b>三个 tab 只切明细：</b>待办 / 动态 / 产物（v1.29 胶囊轻量式：激活 = 品牌浅底实心、未激活灰底），默认落在待办；tab 一律不带角标（数字只在摘要出现一次）。',
       '<b>数字不单独做卡片（v1.19）</b>：线索 / 明确意向 / 待处理等关键数字直接在摘要文字里<b>品牌色 / 警示色加粗高亮</b>（如「共进入 <code>16 条</code>线索」「还有 <code>5 条待处理</code>」），替代独立的三格 KPI 卡——数字离开语境没有意义，摘要是它们天然的容器；「5 条待处理」仍可点，切到下方待办明细。',
       '<b>简洁做法</b>：产物不再重复出卡片（有独立 tab）；成员名单行不展示（v1.26，成员数只在身份卡保留一行）；身份卡不摆「3 段工作」这类后台口径。',
+      '<b>精细化（v1.27）</b>：摘要卡改柔和渐变底（需留意 / 下一步 = 白色内嵌小卡）、重点记录白卡化 + 状态点光环、待办行轻投影、身份卡头像品牌渐变——信息结构与层级不变，只提升质感。',
+      '<b>排版与色彩（v1.28）</b>：字号离散化（19 / 16.5 / 13.5 / 12 / 11），字重收敛（去 800，用 700 / 600 / 400），次要文字上提 t2、t3 只留时间戳；摘要数字用派生色 <code>--accent-ink</code>；内容区底色改 <code>--bg</code> 浅灰，白卡与摘要卡形成真实分层。',
       '<b>零配置（v1.11）</b>：本页不含任何配置入口——身份卡无 ⚙、重点记录无「编辑」（改由 AI 自动维护，右上只写一行灰字说明）、成员行只读。使用者在这里只会做两件事：看结论、去聊天。',
       '<b>底部会话入口（v1.9）</b>：不用整宽绿色按钮，改成 WorkBuddy 式<b>会话输入条</b>——圆角条 + 「进入会话，接着说…」+ 麦克风 + 品牌色箭头，点任意处进入会话；一屏只留一个视觉锚点。',
       '<b>落点</b>（v1.5）：列表点卡片直接进本页；底部输入条再下到对话区；返回键按来源回（列表 / 会话）。'
