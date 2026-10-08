@@ -994,12 +994,13 @@ class _OrganizeCourseLessonPageState extends State<_OrganizeCourseLessonPage> {
                 onAuthFailure: widget.onAuthFailure,
               )
             else if (lesson.isAudio && lesson.mediaUrl.isNotEmpty)
-              _AudioDetailPreview(
+              _OrganizeCourseAudioPreview(
                 key: ValueKey(lesson.id),
+                courseId: widget.course.id,
+                lessonId: lesson.id,
                 fileName: lesson.sourceFileName.isEmpty
                     ? '${lesson.title}.mp3'
                     : lesson.sourceFileName,
-                previewSourceUrl: lesson.mediaUrl,
                 authToken: widget.authToken,
                 tenantId: widget.tenantId,
                 onAuthFailure: widget.onAuthFailure,
@@ -1267,6 +1268,10 @@ class _OrganizeCourseVideoPlayerState
       }
       setState(() => _controller = controller);
     } catch (error) {
+      debugPrint(
+        '[CourseVideoPreview] Failed to prepare '
+        '${widget.courseId}/${widget.lessonId}: $error',
+      );
       if (!mounted) return;
       setState(() => _error = error);
     } finally {
@@ -1387,6 +1392,95 @@ class _OrganizeCourseVideoPlayerState
           ),
         ],
       ),
+    );
+  }
+}
+
+class _OrganizeCourseAudioPreview extends StatefulWidget {
+  const _OrganizeCourseAudioPreview({
+    super.key,
+    required this.courseId,
+    required this.lessonId,
+    required this.fileName,
+    required this.authToken,
+    required this.tenantId,
+    required this.onAuthFailure,
+    required this.durationSeconds,
+  });
+
+  final String courseId;
+  final String lessonId;
+  final String fileName;
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+  final int durationSeconds;
+
+  @override
+  State<_OrganizeCourseAudioPreview> createState() =>
+      _OrganizeCourseAudioPreviewState();
+}
+
+class _OrganizeCourseAudioPreviewState
+    extends State<_OrganizeCourseAudioPreview> {
+  late final _RuileApiClient _apiClient;
+  late final Future<String> _sourceFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    _sourceFuture = _loadSource();
+  }
+
+  Future<String> _loadSource() async {
+    try {
+      return await _apiClient.fetchOrganizeCourseLessonMediaUrl(
+        courseId: widget.courseId,
+        lessonId: widget.lessonId,
+      );
+    } catch (error) {
+      debugPrint(
+        '[CourseAudioPreview] Failed to load '
+        '${widget.courseId}/${widget.lessonId}: $error',
+      );
+      rethrow;
+    }
+  }
+
+  @override
+  void dispose() {
+    _apiClient.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: _sourceFuture,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const _KnowledgePreviewUnavailable(
+            title: '预览失败',
+            message: '课程音频直连地址获取失败。',
+          );
+        }
+        final source = snapshot.data?.trim() ?? '';
+        if (source.isEmpty) return const _AudioPlayerLoading();
+        return _AudioDetailPreview(
+          key: ValueKey('${widget.courseId}/${widget.lessonId}'),
+          fileName: widget.fileName,
+          previewSourceUrl: source,
+          authToken: widget.authToken,
+          tenantId: widget.tenantId,
+          onAuthFailure: widget.onAuthFailure,
+          durationSeconds: widget.durationSeconds,
+        );
+      },
     );
   }
 }

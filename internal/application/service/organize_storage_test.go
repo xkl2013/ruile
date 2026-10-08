@@ -135,12 +135,22 @@ type recordingOrganizeMediaFileService struct {
 	stubOrganizeFileService
 	contextTenantID uint64
 	filePath        string
+	directFilePath  string
 }
 
 func (s *recordingOrganizeMediaFileService) GetFile(ctx context.Context, filePath string) (io.ReadCloser, error) {
 	s.contextTenantID, _ = types.TenantIDFromContext(ctx)
 	s.filePath = filePath
 	return io.NopCloser(strings.NewReader("video-bytes")), nil
+}
+
+func (s *recordingOrganizeMediaFileService) GetDirectFileURL(
+	ctx context.Context,
+	filePath string,
+) (string, error) {
+	s.contextTenantID, _ = types.TenantIDFromContext(ctx)
+	s.directFilePath = filePath
+	return s.fileURL, nil
 }
 
 type directOrganizePreviewFileService struct {
@@ -311,4 +321,5 @@ func TestOrganizeServiceMediaReadUsesCourseOwnerTenant(t *testing.T) {
 	require.Equal(t, "course.mp4", mediaName)
 	require.Equal(t, "video/mp4", mediaType)
 	require.Equal(t, ownerTenantID, resolver.contextTenantID)
+	require.Equal(t, "oss://course-bucket/course.mp4", fileService.directFilePath)
 }
