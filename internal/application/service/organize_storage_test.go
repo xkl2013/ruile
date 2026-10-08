@@ -146,7 +146,10 @@ func (s *recordingOrganizeMediaFileService) GetFile(ctx context.Context, filePat
 	return io.NopCloser(strings.NewReader("video-bytes")), nil
 }
 
-func (s *recordingOrganizeMediaFileService) GetDirectFileURL(ctx context.Context, filePath string) (string, error) {
+func (s *recordingOrganizeMediaFileService) GetDirectFileURL(
+	ctx context.Context,
+	filePath string,
+) (string, error) {
 	s.directContextTenantID, _ = types.TenantIDFromContext(ctx)
 	s.directFilePath = filePath
 	return s.directURL, nil
