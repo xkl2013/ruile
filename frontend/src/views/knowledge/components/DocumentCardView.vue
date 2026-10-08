@@ -435,6 +435,10 @@ const handleAction = (action: 'edit' | 'view-trace' | 'reparse' | 'regenerate-su
             <t-icon name="chart-bar" />
           </button>
         </div>
+        <div v-else-if="item.parse_status === 'unparsed'" class="card-draft">
+          <t-tag size="small" theme="default" variant="light-outline">{{ $t('knowledgeBase.statusUnparsed') }}</t-tag>
+          <span class="card-draft-tip">{{ $t('knowledgeBase.unparsedTip') }}</span>
+        </div>
         <div v-else-if="item.parse_status === 'draft'" class="card-draft">
           <t-tag size="small" theme="warning" variant="light-outline">{{ $t('knowledgeBase.draft') }}</t-tag>
           <span class="card-draft-tip">{{ $t('knowledgeBase.draftTip') }}</span>
@@ -550,6 +554,9 @@ const handleAction = (action: 'edit' | 'view-trace' | 'reparse' | 'regenerate-su
             :auto-poll="false"
             :compact="true"
           />
+        </div>
+        <div v-else-if="hoveredCardItem.parse_status === 'unparsed'" class="card-popover-status draft">
+          {{ $t('knowledgeBase.unparsedTip') }}
         </div>
         <div v-else-if="hoveredCardItem.parse_status === 'draft'" class="card-popover-status draft">
           {{ $t('knowledgeBase.draft') }}

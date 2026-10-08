@@ -97,7 +97,25 @@
               </header>
 
               <div class="main-body">
-                <div v-if="activeSection === 'overview'" class="overview-list">
+                <div v-if="activeSection === 'overview'" class="overview-panel">
+                  <div v-if="mode === 'file'" class="parse-toggle-row">
+                    <div class="parse-toggle-info">
+                      <strong>{{ t('uploadConfirm.parseToggle') }}</strong>
+                      <span>{{ t('uploadConfirm.parseToggleDescription') }}</span>
+                    </div>
+                    <t-tooltip
+                      :disabled="localUrls.length === 0"
+                      :content="t('uploadConfirm.parseRequiredForUrl')"
+                      placement="top"
+                    >
+                      <t-switch v-model="parseEnabled" :disabled="localUrls.length > 0" size="medium" />
+                    </t-tooltip>
+                  </div>
+                  <div v-if="mode === 'file' && !parseEnabled" class="upload-only-notice">
+                    <t-icon name="info-circle" />
+                    <span>{{ t('uploadConfirm.uploadOnlyHint') }}</span>
+                  </div>
+                  <div v-if="parseEnabled" class="overview-list">
                     <button
                       v-for="line in overviewLines"
                       :key="line.key"
@@ -114,6 +132,7 @@
                       >{{ line.value }}</span>
                       <t-icon name="chevron-right" class="overview-chevron" />
                     </button>
+                  </div>
                 </div>
 
                 <div v-else class="edit-section edit-section--embedded">
@@ -340,6 +359,7 @@ const uiStore = useUIStore()
 const allModels = ref<any[]>([])
 const localFiles = ref<File[]>([])
 const localUrls = ref<string[]>([])
+const parseEnabled = ref(true)
 const activeSection = ref('overview')
 const uiState = ref<UploadUIState>(createDefaultUIState())
 
@@ -426,6 +446,7 @@ const dialogDesc = computed(() => {
 const confirmButtonText = computed(() => {
   if (props.mode === 'manual') return t('uploadConfirm.confirmManual')
   if (props.mode === 'reparse') return t('uploadConfirm.confirmReparse')
+  if (!parseEnabled.value) return t('uploadConfirm.confirmUploadOnly')
   return t('uploadConfirm.confirm')
 })
 
@@ -587,6 +608,7 @@ const showAsrModelError = computed(() => {
 
 const issueSectionKeys = computed(() => {
   const keys = new Set<string>()
+  if (!parseEnabled.value) return keys
   if (showMultimodalModelError.value) {
     keys.add('multimodal')
   }
@@ -603,6 +625,7 @@ const issueSectionKeys = computed(() => {
 const canConfirm = computed(() => {
   if (props.mode === 'file' && batchItemCount.value === 0) return false
   if (props.mode === 'manual' && !props.manualPreview?.content?.trim()) return false
+  if (props.mode === 'file' && !parseEnabled.value) return localUrls.value.length === 0
   if (hasAudiovisual.value) {
     if (!uiState.value.asrConfig.enabled || !uiState.value.asrConfig.modelId) {
       return false
@@ -847,6 +870,7 @@ watch(
     if (props.mode === 'reparse') {
       applyOverridesToState(props.reparsePreview?.processOverrides)
     }
+    parseEnabled.value = true
     activeSection.value = 'overview'
     loadModels()
   },
@@ -879,6 +903,10 @@ const appendUrl = (url: string) => {
   if (localUrls.value.includes(url)) {
     MessagePlugin.warning(t('uploadConfirm.urlDuplicate'))
     return
+  }
+  if (!parseEnabled.value) {
+    parseEnabled.value = true
+    MessagePlugin.info(t('uploadConfirm.parseRequiredForUrl'))
   }
   localUrls.value = [...localUrls.value, url]
   MessagePlugin.success(t('uploadConfirm.urlAdded'))
@@ -913,6 +941,13 @@ const handleNodeExtractUpdate = (config: UploadUIState['nodeExtractConfig']) => 
 }
 
 const validateBeforeConfirm = (): boolean => {
+  if (props.mode === 'file' && !parseEnabled.value) {
+    if (localUrls.value.length > 0) {
+      MessagePlugin.warning(t('uploadConfirm.parseRequiredForUrl'))
+      return false
+    }
+    return true
+  }
   if (showMultimodalModelError.value) {
     MessagePlugin.warning(t('uploadConfirm.vlmModelSelectRequired'))
     activeSection.value = 'multimodal'
@@ -947,12 +982,13 @@ const handleConfirm = () => {
 
   const processConfig = buildProcessOverrides()
   if (props.mode === 'manual' && props.manualPreview) {
-    emit('confirm', { processConfig, mode: 'manual', manual: { ...props.manualPreview } })
+    emit('confirm', { processConfig, parseEnabled: true, mode: 'manual', manual: { ...props.manualPreview } })
   } else if (props.mode === 'reparse' && props.reparsePreview) {
-    emit('confirm', { processConfig, mode: 'reparse', reparse: { ...props.reparsePreview } })
+    emit('confirm', { processConfig, parseEnabled: true, mode: 'reparse', reparse: { ...props.reparsePreview } })
   } else {
     emit('confirm', {
       processConfig,
+      parseEnabled: parseEnabled.value,
       mode: 'file',
       files: [...localFiles.value],
       urls: [...localUrls.value],
@@ -1140,6 +1176,60 @@ const handleConfirm = () => {
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
+}
+
+.overview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.parse-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-container);
+}
+
+.parse-toggle-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+
+  strong {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--td-text-color-primary);
+  }
+
+  span {
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--td-text-color-secondary);
+  }
+}
+
+.upload-only-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--td-warning-color-light);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--td-text-color-secondary);
+
+  :deep(.t-icon) {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--td-warning-color);
+  }
 }
 
 .main-header {

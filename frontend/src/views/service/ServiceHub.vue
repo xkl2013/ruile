@@ -1201,7 +1201,6 @@ type CreateServicePayload = {
   name: string
   description: string
   instruction: string
-  spaceType: 'customer_service' | 'operations' | 'research'
   templateId: string
   expertIds: string[]
   knowledgeBaseIds: string[]
@@ -1263,7 +1262,6 @@ const openCreatedService = async (serviceId: string, message = '服务已创建'
 const createServiceDirectly = async (payload: CreateServicePayload) => {
   const response = await createServiceSpace({
     name: payload.name.trim(),
-    space_type: payload.spaceType,
     description: payload.description.trim(),
     instruction: payload.instruction.trim(),
     template_key: payload.templateId || undefined,
@@ -1286,14 +1284,13 @@ const persistService = async (payload: CreateServicePayload) => {
   const normalizedPayload = { ...payload, name }
   try {
     const selectedTemplate = serviceTemplates.find((template) => template.id === payload.templateId)
-    if (route.meta.mobileEntry || !selectedTemplate?.autoApply) {
+    if (!selectedTemplate?.autoApply) {
       await createServiceDirectly(normalizedPayload)
       return
     }
 
     const response = await applyServiceTemplate(selectedTemplate.id, {
       name,
-      space_type: payload.spaceType,
       description: payload.description.trim(),
       instruction: payload.instruction.trim(),
       template_version: 1,
@@ -1319,7 +1316,6 @@ const submitForm = async (payload: {
   name: string
   description: string
   instruction: string
-  spaceType: 'customer_service' | 'operations' | 'research'
   templateId: string
   expertIds: string[]
   knowledgeBaseIds: string[]

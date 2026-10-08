@@ -35,6 +35,9 @@ const (
 
 // Knowledge parse status constants
 const (
+	// ParseStatusUnparsed indicates the original file is stored but no parsing,
+	// chunking, embedding, summary, or enrichment task has been scheduled.
+	ParseStatusUnparsed = "unparsed"
 	// ParseStatusPending indicates the knowledge is waiting to be processed
 	ParseStatusPending = "pending"
 	// ParseStatusProcessing indicates the knowledge is being processed

@@ -25,9 +25,10 @@ const (
 type ServiceSpaceBlueprintConfirmationMode string
 
 const (
-	ServiceSpaceBlueprintConfirmationPending   ServiceSpaceBlueprintConfirmationMode = "pending"
-	ServiceSpaceBlueprintConfirmationManual    ServiceSpaceBlueprintConfirmationMode = "manual"
-	ServiceSpaceBlueprintConfirmationAutoApply ServiceSpaceBlueprintConfirmationMode = "template_auto_apply"
+	ServiceSpaceBlueprintConfirmationPending              ServiceSpaceBlueprintConfirmationMode = "pending"
+	ServiceSpaceBlueprintConfirmationManual               ServiceSpaceBlueprintConfirmationMode = "manual"
+	ServiceSpaceBlueprintConfirmationAutoApply            ServiceSpaceBlueprintConfirmationMode = "template_auto_apply"
+	ServiceSpaceBlueprintConfirmationInstructionAutoApply ServiceSpaceBlueprintConfirmationMode = "instruction_auto_apply"
 )
 
 func (s ServiceSpaceBlueprintStatus) IsValid() bool {
@@ -55,7 +56,8 @@ func (m ServiceSpaceBlueprintConfirmationMode) IsValid() bool {
 	switch m {
 	case ServiceSpaceBlueprintConfirmationPending,
 		ServiceSpaceBlueprintConfirmationManual,
-		ServiceSpaceBlueprintConfirmationAutoApply:
+		ServiceSpaceBlueprintConfirmationAutoApply,
+		ServiceSpaceBlueprintConfirmationInstructionAutoApply:
 		return true
 	default:
 		return false

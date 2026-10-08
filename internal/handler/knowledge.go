@@ -345,6 +345,7 @@ func (h *KnowledgeHandler) enqueueKnowledgeListReparse(
 // @Param        fileName          formData  string  false  "自定义文件名"
 // @Param        metadata          formData  string  false  "元数据JSON"
 // @Param        enable_multimodel formData  bool    false  "启用多模态处理"
+// @Param        parse_enabled     formData  bool    false  "是否解析文件，默认 true；false 时仅保存原文件"
 // @Param        tag_ids       formData  string  false  "分类ID列表，逗号分隔"
 // @Param        process_config    formData  string  false  "处理配置JSON（KnowledgeProcessOverrides）"
 // @Success      200               {object}  map[string]interface{}  "创建的知识"
@@ -422,9 +423,20 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 		logger.Infof(ctx, "Received file metadata: %s", secutils.SanitizeForLog(fmt.Sprintf("%v", metadata)))
 	}
 
+	parseEnabled := true
+	if raw := strings.TrimSpace(c.PostForm("parse_enabled")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			logger.Error(ctx, "Failed to parse parse_enabled", err)
+			c.Error(errors.NewBadRequestError("Invalid parse_enabled format").WithDetails(err.Error()))
+			return
+		}
+		parseEnabled = parsed
+	}
+
 	enableMultimodelForm := c.PostForm("enable_multimodel")
 	var enableMultimodel *bool
-	if enableMultimodelForm != "" {
+	if parseEnabled && enableMultimodelForm != "" {
 		parseBool, err := strconv.ParseBool(enableMultimodelForm)
 		if err != nil {
 			logger.Error(ctx, "Failed to parse enable_multimodel", err)
@@ -435,7 +447,7 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 	}
 
 	var processOverrides *types.KnowledgeProcessOverrides
-	if raw := c.PostForm("process_config"); raw != "" {
+	if raw := c.PostForm("process_config"); parseEnabled && raw != "" {
 		processOverrides = &types.KnowledgeProcessOverrides{}
 		if err := json.Unmarshal([]byte(raw), processOverrides); err != nil {
 			logger.Error(ctx, "Failed to parse process_config", err)
@@ -443,7 +455,7 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 			return
 		}
 	}
-	if enableMultimodel != nil && (processOverrides == nil || processOverrides.EnableMultimodel == nil) {
+	if parseEnabled && enableMultimodel != nil && (processOverrides == nil || processOverrides.EnableMultimodel == nil) {
 		if processOverrides == nil {
 			processOverrides = &types.KnowledgeProcessOverrides{EnableMultimodel: enableMultimodel}
 		} else {
@@ -460,7 +472,7 @@ func (h *KnowledgeHandler) CreateKnowledgeFromFile(c *gin.Context) {
 	// if the browser disconnects while OSS multipart upload is still running.
 	uploadCtx, cancelUpload := context.WithTimeout(context.WithoutCancel(ctx), knowledgeFileUploadOperationTimeout)
 	defer cancelUpload()
-	knowledge, err := h.kgService.CreateKnowledgeFromFile(uploadCtx, kbID, file, metadata, enableMultimodel, customFileName, tagIDs, channel, processOverrides)
+	knowledge, err := h.kgService.CreateKnowledgeFromFile(uploadCtx, kbID, file, metadata, enableMultimodel, customFileName, tagIDs, channel, processOverrides, parseEnabled)
 	// Check for duplicate knowledge error
 	if err != nil {
 		if h.handleDuplicateKnowledgeError(c, err, knowledge, "file") {
@@ -1469,6 +1481,50 @@ func (h *KnowledgeHandler) PreviewKnowledgeFile(c *gin.Context) {
 			return false
 		}
 		return false
+	})
+}
+
+// GetKnowledgeFilePreviewURL godoc
+// @Summary      获取知识文件直连预览地址
+// @Description  返回对象存储签名地址，浏览器直接从存储服务读取原始文件
+// @Tags         知识管理
+// @Produce      json
+// @Param        id   path      string  true  "知识ID"
+// @Success      200  {object}  map[string]interface{}  "签名预览地址"
+// @Failure      400  {object}  errors.AppError
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge/{id}/preview-url [get]
+func (h *KnowledgeHandler) GetKnowledgeFilePreviewURL(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		c.Error(errors.NewBadRequestError("Knowledge ID cannot be empty"))
+		return
+	}
+
+	_, effCtx, err := h.resolveKnowledgeAndValidateKBAccess(c, id, types.OrgRoleViewer)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	fileURL, filename, err := h.kgService.GetKnowledgeFileURL(effCtx, id)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		c.Error(errors.NewInternalServerError("Failed to generate preview URL").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"url":       fileURL,
+			"file_name": filename,
+		},
 	})
 }
 

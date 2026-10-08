@@ -149,6 +149,17 @@ func (s *resourceCatalogFileService) GetFileURL(ctx context.Context, filePath st
 	return s.inner.GetFileURL(ctx, physical)
 }
 
+func (s *resourceCatalogFileService) GetDirectFileURL(ctx context.Context, filePath string) (string, error) {
+	physical, _, err := s.resolve(ctx, filePath)
+	if err != nil {
+		return "", err
+	}
+	if direct, ok := s.inner.(interfaces.DirectFileURLService); ok {
+		return direct.GetDirectFileURL(ctx, physical)
+	}
+	return s.inner.GetFileURL(ctx, physical)
+}
+
 func (s *resourceCatalogFileService) DeleteFile(ctx context.Context, filePath string) error {
 	physical, isResource, err := s.resolve(ctx, filePath)
 	if err != nil {
@@ -191,3 +202,4 @@ func (s *resourceCatalogFileService) CopyFile(
 }
 
 var _ interfaces.FileService = (*resourceCatalogFileService)(nil)
+var _ interfaces.DirectFileURLService = (*resourceCatalogFileService)(nil)

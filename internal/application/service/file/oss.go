@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -27,12 +28,24 @@ import (
 type ossFileService struct {
 	client         *oss.Client
 	tempClient     *oss.Client
+	publicClient   *oss.Client
 	pathPrefix     string
 	bucketName     string
 	tempBucketName string
 }
 
-const ossScheme = "oss://"
+const (
+	ossScheme                         = "oss://"
+	ossBrowserPreviewCORSMaxRules     = 10
+	ossBrowserPreviewCORSCacheSeconds = int64(3600)
+)
+
+type ossBrowserPreviewCORSState struct {
+	once sync.Once
+	err  error
+}
+
+var ossBrowserPreviewCORSChecks sync.Map
 
 // newOSSClient creates an OSS client using the official Aliyun SDK v2.
 func newOSSClient(endpoint, region, accessKey, secretKey string) (*oss.Client, error) {
@@ -44,6 +57,34 @@ func newOSSClient(endpoint, region, accessKey, secretKey string) (*oss.Client, e
 		WithEndpoint(endpoint)
 
 	return oss.NewClient(cfg), nil
+}
+
+func newOSSCNAMEClient(endpoint, region, accessKey, secretKey string) (*oss.Client, error) {
+	creds := credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
+
+	cfg := oss.LoadDefaultConfig().
+		WithCredentialsProvider(creds).
+		WithRegion(region).
+		WithEndpoint(endpoint).
+		WithUseCName(true)
+
+	return oss.NewClient(cfg), nil
+}
+
+func ossPublicEndpointForBucket(bucketName string) string {
+	endpoint := strings.TrimSpace(os.Getenv("OSS_PUBLIC_ENDPOINT"))
+	if endpoint == "" {
+		return ""
+	}
+
+	publicBucketName := strings.TrimSpace(os.Getenv("OSS_PUBLIC_BUCKET_NAME"))
+	if publicBucketName == "" {
+		publicBucketName = strings.TrimSpace(os.Getenv("OSS_BUCKET_NAME"))
+	}
+	if publicBucketName != "" && publicBucketName != bucketName {
+		return ""
+	}
+	return endpoint
 }
 
 // ossEnsureBucket checks if the bucket exists and creates it if missing.
@@ -110,6 +151,170 @@ func ossIsAuthenticationError(err error) bool {
 	}
 }
 
+func ossBrowserPreviewCORSEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("OSS_BROWSER_PREVIEW_CORS_ENABLED"))) {
+	case "0", "false", "off", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+func ossBrowserPreviewAllowedOrigins() []string {
+	raw := strings.TrimSpace(os.Getenv("OSS_BROWSER_PREVIEW_ALLOWED_ORIGINS"))
+	if raw == "" {
+		return []string{"*"}
+	}
+
+	seen := make(map[string]struct{})
+	origins := make([]string, 0)
+	for _, value := range strings.Split(raw, ",") {
+		origin := strings.TrimSpace(value)
+		if origin == "" {
+			continue
+		}
+		if _, ok := seen[origin]; ok {
+			continue
+		}
+		seen[origin] = struct{}{}
+		origins = append(origins, origin)
+	}
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
+}
+
+func ossCORSRuleAllowsBrowserRead(rule oss.CORSRule, origin string) bool {
+	allowsOrigin := false
+	for _, allowedOrigin := range rule.AllowedOrigins {
+		if allowedOrigin == "*" || strings.EqualFold(strings.TrimSpace(allowedOrigin), origin) {
+			allowsOrigin = true
+			break
+		}
+	}
+	if !allowsOrigin {
+		return false
+	}
+	for _, method := range rule.AllowedMethods {
+		if strings.EqualFold(strings.TrimSpace(method), http.MethodGet) {
+			return true
+		}
+	}
+	return false
+}
+
+func ossCORSAllowsBrowserPreview(config *oss.CORSConfiguration, origins []string) bool {
+	if config == nil {
+		return false
+	}
+	for _, origin := range origins {
+		allowed := false
+		for _, rule := range config.CORSRules {
+			if ossCORSRuleAllowsBrowserRead(rule, origin) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return false
+		}
+	}
+	return true
+}
+
+func appendOSSBrowserPreviewCORSRule(
+	config *oss.CORSConfiguration,
+	origins []string,
+) (*oss.CORSConfiguration, bool, error) {
+	if ossCORSAllowsBrowserPreview(config, origins) {
+		return config, false, nil
+	}
+
+	next := &oss.CORSConfiguration{}
+	if config != nil {
+		next.CORSRules = append(next.CORSRules, config.CORSRules...)
+		next.ResponseVary = config.ResponseVary
+	}
+	if len(next.CORSRules) >= ossBrowserPreviewCORSMaxRules {
+		return nil, false, fmt.Errorf(
+			"OSS bucket already has %d CORS rules; remove or merge a rule before enabling direct preview",
+			len(next.CORSRules),
+		)
+	}
+
+	next.CORSRules = append(next.CORSRules, oss.CORSRule{
+		AllowedOrigins: origins,
+		AllowedMethods: []string{http.MethodGet, http.MethodHead},
+		AllowedHeaders: []string{"*"},
+		ExposeHeaders: []string{
+			"Content-Length",
+			"Content-Range",
+			"Accept-Ranges",
+			"Content-Type",
+			"ETag",
+			"Last-Modified",
+		},
+		MaxAgeSeconds: oss.Ptr(ossBrowserPreviewCORSCacheSeconds),
+	})
+	return next, true, nil
+}
+
+func ensureOSSBrowserPreviewCORS(
+	ctx context.Context,
+	client *oss.Client,
+	bucketName string,
+	origins []string,
+) error {
+	result, err := client.GetBucketCors(ctx, &oss.GetBucketCorsRequest{
+		Bucket: oss.Ptr(bucketName),
+	})
+
+	var config *oss.CORSConfiguration
+	if err != nil {
+		var svcErr *oss.ServiceError
+		if !errors.As(err, &svcErr) || svcErr.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("get OSS bucket CORS: %w", err)
+		}
+	} else if result != nil {
+		config = result.CORSConfiguration
+	}
+
+	next, changed, err := appendOSSBrowserPreviewCORSRule(config, origins)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+
+	_, err = client.PutBucketCors(ctx, &oss.PutBucketCorsRequest{
+		Bucket:            oss.Ptr(bucketName),
+		CORSConfiguration: next,
+	})
+	if err != nil {
+		return fmt.Errorf("put OSS bucket CORS: %w", err)
+	}
+	return nil
+}
+
+func ensureOSSBrowserPreviewCORSOnce(
+	ctx context.Context,
+	client *oss.Client,
+	bucketName string,
+) error {
+	origins := ossBrowserPreviewAllowedOrigins()
+	cacheKey := bucketName + "|" + strings.Join(origins, ",")
+	value, _ := ossBrowserPreviewCORSChecks.LoadOrStore(cacheKey, &ossBrowserPreviewCORSState{})
+	state := value.(*ossBrowserPreviewCORSState)
+	state.once.Do(func() {
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		state.err = ensureOSSBrowserPreviewCORS(checkCtx, client, bucketName, origins)
+	})
+	return state.err
+}
+
 // NewOssFileService creates an Aliyun OSS file service.
 // It verifies that the bucket exists and creates it if missing.
 func NewOssFileService(endpoint, region, accessKey, secretKey, bucketName, pathPrefix string) (interfaces.FileService, error) {
@@ -141,6 +346,14 @@ func NewOssFileServiceWithTempBucket(endpoint, region, accessKey, secretKey, buc
 		}
 	}
 
+	var publicClient *oss.Client
+	if publicEndpoint := ossPublicEndpointForBucket(bucketName); publicEndpoint != "" {
+		publicClient, err = newOSSCNAMEClient(publicEndpoint, region, accessKey, secretKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize OSS public CNAME client: %w", err)
+		}
+	}
+
 	// Normalize pathPrefix: ensure it ends with '/' if not empty
 	if pathPrefix != "" && !strings.HasSuffix(pathPrefix, "/") {
 		pathPrefix += "/"
@@ -149,6 +362,7 @@ func NewOssFileServiceWithTempBucket(endpoint, region, accessKey, secretKey, buc
 	return &ossFileService{
 		client:         client,
 		tempClient:     tempClient,
+		publicClient:   publicClient,
 		pathPrefix:     pathPrefix,
 		bucketName:     bucketName,
 		tempBucketName: tempBucketName,
@@ -263,6 +477,11 @@ func CheckOssConnectivity(ctx context.Context, endpoint, region, accessKey, secr
 	if !exists {
 		return fmt.Errorf("bucket %q does not exist or is not accessible", bucketName)
 	}
+	if ossBrowserPreviewCORSEnabled() {
+		if err := ensureOSSBrowserPreviewCORS(ctx, client, bucketName, ossBrowserPreviewAllowedOrigins()); err != nil {
+			return fmt.Errorf("OSS direct browser preview CORS check failed: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -291,6 +510,11 @@ func (s *ossFileService) CheckConnectivity(ctx context.Context) error {
 	}
 	if !exists {
 		return fmt.Errorf("bucket %q does not exist", s.bucketName)
+	}
+	if ossBrowserPreviewCORSEnabled() {
+		if err := ensureOSSBrowserPreviewCORS(checkCtx, s.client, s.bucketName, ossBrowserPreviewAllowedOrigins()); err != nil {
+			return fmt.Errorf("OSS direct browser preview CORS check failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -478,16 +702,32 @@ func (s *ossFileService) GetFileURL(ctx context.Context, filePath string) (strin
 		return "", fmt.Errorf("invalid file path: %w", err)
 	}
 
-	// Determine which client to use
-	var client *oss.Client
+	// Bucket management and CORS checks always use the official storage client.
+	var storageClient *oss.Client
 	if bucketName == s.tempBucketName && s.tempClient != nil {
-		client = s.tempClient
+		storageClient = s.tempClient
 	} else {
-		client = s.client
+		storageClient = s.client
+	}
+
+	if ossBrowserPreviewCORSEnabled() {
+		if err := ensureOSSBrowserPreviewCORSOnce(ctx, storageClient, bucketName); err != nil {
+			logger.Warnf(
+				ctx,
+				"Failed to configure OSS CORS for direct browser preview: bucket=%s err=%v",
+				bucketName,
+				err,
+			)
+		}
+	}
+
+	signingClient := storageClient
+	if bucketName == s.bucketName && s.publicClient != nil {
+		signingClient = s.publicClient
 	}
 
 	// Generate presigned URL (valid for 24 hours)
-	result, err := client.Presign(ctx, &oss.GetObjectRequest{
+	result, err := signingClient.Presign(ctx, &oss.GetObjectRequest{
 		Bucket: oss.Ptr(bucketName),
 		Key:    oss.Ptr(objectName),
 	}, oss.PresignExpires(24*time.Hour))

@@ -29,3 +29,10 @@ type FileService interface {
 	// when srcPath belongs to a different storage provider than this service.
 	CopyFile(ctx context.Context, srcPath string, tenantID uint64, knowledgeID string) (string, error)
 }
+
+// DirectFileURLService optionally exposes the storage provider's own signed
+// URL. Decorators can implement this to bypass application-level file proxies
+// when the caller needs the browser to read directly from object storage.
+type DirectFileURLService interface {
+	GetDirectFileURL(ctx context.Context, filePath string) (string, error)
+}

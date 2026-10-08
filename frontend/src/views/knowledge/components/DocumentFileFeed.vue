@@ -45,6 +45,7 @@ const getFileTone = (item: KnowledgeItem) => {
 
 const getSummary = (item: KnowledgeItem) => {
   if (item.description?.trim()) return item.description.trim();
+  if (item.parse_status === 'unparsed') return t('knowledgeBase.unparsedTip');
   if (item.parse_status === 'failed' || item.parse_status === 'cancelled') {
     return item.error_message?.trim() || t('knowledgeBase.fileModeSummaryFailed');
   }

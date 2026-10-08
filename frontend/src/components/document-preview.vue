@@ -1,7 +1,7 @@
 // @ts-nocheck
 <script setup lang="ts">
 import { ref, shallowRef, watch, onUnmounted, nextTick, defineAsyncComponent } from 'vue';
-import { previewKnowledgeFile } from '@/api/knowledge-base/index';
+import { getKnowledgePreviewUrl } from '@/api/knowledge-base/index';
 import { previewTemporaryAttachment } from '@/api/chat/temporary-attachments';
 import { getDown } from '@/utils/request';
 import { MessagePlugin } from 'tdesign-vue-next';
@@ -42,6 +42,7 @@ const docxContainer = ref<HTMLElement | null>(null);
 const imageNaturalWidth = ref(0);
 const imageNaturalHeight = ref(0);
 let loadedForId = '';
+let blobUrlOwned = false;
 
 const isFullscreen = ref(false);
 
@@ -270,13 +271,36 @@ async function fetchPreviewBlob(): Promise<Blob> {
   if (props.sourceUrl) {
     return getDown(props.sourceUrl);
   }
-  if (props.knowledgeId) {
-    return previewKnowledgeFile(props.knowledgeId);
-  }
   if (props.sessionId && props.attachmentId) {
     return previewTemporaryAttachment(props.sessionId, props.attachmentId);
   }
   throw new Error('Missing preview source');
+}
+
+async function resolveKnowledgePreviewUrl(): Promise<string> {
+  if (!props.knowledgeId) return '';
+  const response: any = await getKnowledgePreviewUrl(props.knowledgeId);
+  const url = response?.data?.url || response?.url || '';
+  if (!url) {
+    throw new Error(t('preview.loadFailed'));
+  }
+  return url;
+}
+
+async function fetchDirectBlob(url: string): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'GET',
+      credentials: 'omit',
+    });
+  } catch {
+    throw new Error(t('preview.directStorageAccessFailed'));
+  }
+  if (!response.ok) {
+    throw new Error(`${t('preview.loadFailed')} (${response.status})`);
+  }
+  return response.blob();
 }
 
 async function loadPreview() {
@@ -296,7 +320,18 @@ async function loadPreview() {
   }
 
   try {
-    const rawBlob = await fetchPreviewBlob();
+    const directUrl = props.knowledgeId ? await resolveKnowledgePreviewUrl() : '';
+    const canUseNativeUrl = ['pdf', 'image', 'audio', 'video'].includes(previewType.value);
+    if (directUrl && canUseNativeUrl) {
+      loadedForId = sourceKey;
+      blobUrl.value = directUrl;
+      blobUrlOwned = false;
+      return;
+    }
+
+    const rawBlob = directUrl
+      ? await fetchDirectBlob(directUrl)
+      : await fetchPreviewBlob();
     const blob = ensureBlobType(rawBlob, ft);
     loadedForId = sourceKey;
 
@@ -306,10 +341,12 @@ async function loadPreview() {
     switch (previewType.value) {
       case 'pdf': {
         blobUrl.value = URL.createObjectURL(blob);
+        blobUrlOwned = true;
         break;
       }
       case 'image': {
         blobUrl.value = URL.createObjectURL(blob);
+        blobUrlOwned = true;
         break;
       }
       case 'docx': {
@@ -334,10 +371,12 @@ async function loadPreview() {
       }
       case 'audio': {
         blobUrl.value = URL.createObjectURL(blob);
+        blobUrlOwned = true;
         break;
       }
       case 'video': {
         blobUrl.value = URL.createObjectURL(blob);
+        blobUrlOwned = true;
         break;
       }
     }
@@ -350,10 +389,11 @@ async function loadPreview() {
 }
 
 function cleanup() {
-  if (blobUrl.value) {
+  if (blobUrl.value && blobUrlOwned) {
     URL.revokeObjectURL(blobUrl.value);
-    blobUrl.value = '';
   }
+  blobUrl.value = '';
+  blobUrlOwned = false;
   textContent.value = '';
   highlightedCode.value = '';
   markdownHtml.value = '';

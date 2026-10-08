@@ -20,6 +20,7 @@ export interface UploadConfirmReparseSource {
 
 export interface UploadConfirmResult {
   processConfig: KnowledgeProcessOverrides
+  parseEnabled: boolean
   mode: UploadConfirmMode
   files?: File[]
   urls?: string[]

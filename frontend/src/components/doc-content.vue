@@ -8,7 +8,7 @@ import hljs from "highlight.js";
 import "highlight.js/styles/github.css";
 import mermaid from "mermaid";
 import { onMounted, ref, nextTick, onUnmounted, watch, computed } from "vue";
-import { deleteGeneratedQuestion, getChunkByIdOnly, previewKnowledgeFile } from "@/api/knowledge-base/index";
+import { deleteGeneratedQuestion, getChunkByIdOnly, getKnowledgePreviewUrl } from "@/api/knowledge-base/index";
 import { MessagePlugin, DialogPlugin } from "tdesign-vue-next";
 import { sanitizeHTML, safeMarkdownToHTML, createSafeImage, isValidImageURL, hydrateProtectedFileImages, isValidURL } from '@/utils/security';
 import { normalizeSpuriousTablePrefixes } from '@/utils/markdownTableNormalize';
@@ -469,7 +469,7 @@ onUnmounted(() => {
   cleanupTraceDrawerResize();
   cleanupMainDrawerResize();
   unbindDrawerScroll();
-  if (audioBlobUrl.value) {
+  if (audioBlobUrl.value && audioBlobUrlOwned) {
     URL.revokeObjectURL(audioBlobUrl.value);
   }
 })
@@ -577,10 +577,11 @@ const canPreview = (): boolean => {
 // 当文档详情加载完成时，file 类型自动切换到「预览」；音频类型使用 merged + 播放器
 watch(() => props.details?.id, (newId) => {
   // 清理旧音频
-  if (audioBlobUrl.value) {
+  if (audioBlobUrl.value && audioBlobUrlOwned) {
     URL.revokeObjectURL(audioBlobUrl.value);
-    audioBlobUrl.value = '';
   }
+  audioBlobUrl.value = '';
+  audioBlobUrlOwned = false;
   if (!newId) return;
   if (isAudioFile(props.details?.file_type)) {
     viewMode.value = 'merged'; // 音频默认全文视图，播放器已内嵌
@@ -610,14 +611,20 @@ const isAudioFile = (fileType?: string): boolean => {
   return audioExtensions.has(fileType.toLowerCase());
 };
 const audioBlobUrl = ref('');
+let audioBlobUrlOwned = false;
 const audioLoading = ref(false);
 
 const loadAudioPreview = async () => {
   if (!props.details?.id || audioBlobUrl.value) return;
   audioLoading.value = true;
   try {
-    const blob = await previewKnowledgeFile(props.details.id);
-    audioBlobUrl.value = URL.createObjectURL(blob);
+    const response: any = await getKnowledgePreviewUrl(props.details.id);
+    const previewUrl = response?.data?.url || response?.url || '';
+    if (!previewUrl) {
+      throw new Error('Missing audio preview URL');
+    }
+    audioBlobUrl.value = previewUrl;
+    audioBlobUrlOwned = false;
   } catch (err) {
     console.error('Audio preview load failed:', err);
   } finally {

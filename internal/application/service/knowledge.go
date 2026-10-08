@@ -596,6 +596,35 @@ func (s *knowledgeService) GetKnowledgeFile(ctx context.Context, id string) (io.
 	return file, knowledge.FileName, nil
 }
 
+// GetKnowledgeFileURL returns a signed URL that lets the browser read the
+// original file directly from its storage provider.
+func (s *knowledgeService) GetKnowledgeFileURL(ctx context.Context, id string) (string, string, error) {
+	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
+	knowledge, err := s.repo.GetKnowledgeByID(ctx, tenantID, id)
+	if err != nil {
+		return "", "", err
+	}
+	if knowledge.IsManual() {
+		return "", "", werrors.NewBadRequestError("Manual knowledge has no stored source file")
+	}
+
+	kb, _ := s.kbService.GetKnowledgeBaseByID(ctx, knowledge.KnowledgeBaseID)
+	fileSvc := s.resolveFileServiceForPath(ctx, kb, knowledge.FilePath)
+	var fileURL string
+	if direct, ok := fileSvc.(interfaces.DirectFileURLService); ok {
+		fileURL, err = direct.GetDirectFileURL(ctx, knowledge.FilePath)
+	} else {
+		fileURL, err = fileSvc.GetFileURL(ctx, knowledge.FilePath)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if strings.TrimSpace(fileURL) == "" {
+		return "", "", fmt.Errorf("storage provider returned an empty file URL")
+	}
+	return fileURL, knowledge.FileName, nil
+}
+
 func (s *knowledgeService) UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) error {
 	record, err := s.repo.GetKnowledgeByID(ctx, ctx.Value(types.TenantIDContextKey).(uint64), knowledge.ID)
 	if err != nil {

@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="zh-CN" theme-mode="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>服务模块移动端原型 · 睿乐大脑</title>
+<style>
+  /* ═══ 令牌：取自 mobile 真机 AppColors / AppTextStyles / AppSpacing ═══ */
+  :root{
+    --font:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    /* 真机 AppColors */
+    --accent:#23B99D; --accent-weak:#EAF8F1; --accent-deep:#11835C; --accent-line:#BFE9DE;
+    --bg:#F5F6FA; --surface:#fff;
+    --t1:#252B35; --t2:#737A86; --t3:#A9AFBA;
+    --bd:#E9EBF0; --control:#536071;
+    --warn:#D87600; --warn-weak:#FDF3E6; --danger:#E5484D; --danger-weak:#FDECEE;
+    --info:#2F7DE1; --info-weak:#EAF1FF;
+    /* 真机 radius / spacing */
+    --r-s:4px; --r-m:10px; --r-l:14px; --r-r:999px;
+    /* 工作台外壳（沿用 web 原型家族语言） */
+    --shell-bg:#F3F5F4; --shell-bd:#E7E7E7; --shell-t1:rgba(0,0,0,.9); --shell-t2:rgba(0,0,0,.6); --shell-t3:rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--font);background:var(--shell-bg);color:var(--shell-t1);font-size:14px;-webkit-font-smoothing:antialiased}
+  button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0}
+  input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:#d0d4d2;border-radius:var(--r-r)}
+  ::-webkit-scrollbar-track{background:transparent}
+  .app{display:flex;height:100vh;overflow:hidden}
+
+  /* ── 左侧场景栏 ── */
+  .rail{width:248px;flex:0 0 248px;background:#fbfcfb;border-right:1px solid var(--shell-bd);display:flex;flex-direction:column}
+  .rail-head{padding:18px 18px 12px}
+  .rail-title{font-size:15px;font-weight:600;letter-spacing:.2px}
+  .rail-sub{font-size:12px;color:var(--shell-t3);margin-top:5px;line-height:1.62}
+  .rail-group{padding:6px 10px;overflow-y:auto;flex:1}
+  .rail-label{font-size:11px;color:rgba(0,0,0,.3);padding:12px 8px 6px;letter-spacing:.6px}
+  .rail-btn{display:flex;align-items:flex-start;gap:9px;width:100%;padding:8px 10px;border-radius:6px;color:var(--shell-t2);text-align:left;line-height:1.35;margin-bottom:2px;transition:background .14s,color .14s}
+  .rail-btn:hover{background:#f0f0f0;color:var(--shell-t1)}
+  .rail-btn.on{background:var(--accent-weak);color:var(--accent-deep);font-weight:600}
+  .rail-btn .idx{width:19px;height:19px;flex:0 0 19px;margin-top:1px;border-radius:var(--r-r);background:#e6e8e7;color:#767c7a;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:600}
+  .rail-btn.on .idx{background:var(--accent);color:#fff}
+  .rail-btn .lb{font-size:13px}
+  .rail-note{margin:10px;padding:10px 11px;border-radius:10px;background:var(--warn-weak);color:#8a4a12;font-size:11.5px;line-height:1.68}
+  .rail-note b{display:block;font-size:12px;margin-bottom:3px;color:#6f3a08}
+  .rail-foot{padding:12px 18px 16px;border-top:1px solid var(--shell-bd);font-size:11px;color:rgba(0,0,0,.32);line-height:1.75}
+
+  /* ── 舞台 ── */
+  .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--shell-bg)}
+  .bar{display:flex;align-items:center;gap:11px;padding:11px 20px;background:#fff;border-bottom:1px solid var(--shell-bd);flex-wrap:wrap;min-height:56px}
+  .bar h1{margin:0;font-size:16px;font-weight:600}
+  .bar .path{font-size:11.5px;color:var(--shell-t3);font-family:ui-monospace,Menlo,monospace;background:#f0f0f0;padding:3px 8px;border-radius:4px}
+  .verstamp{font-size:11px;font-family:ui-monospace,Menlo,monospace;color:var(--accent-deep);background:var(--accent-weak);border:1px solid var(--accent-line);padding:2px 7px;border-radius:var(--r-r);cursor:help}
+  .bar-right{margin-left:auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .chip{font-size:12px;padding:4px 11px;border-radius:var(--r-r);background:#f0f1f0;color:var(--shell-t2);border:1px solid transparent;transition:.14s}
+  .chip:hover{background:#e8eae9}
+  .chip.on{background:var(--accent);color:#fff}
+  .scroll{flex:1;overflow:auto;padding:22px 22px 60px;display:flex;gap:22px;align-items:flex-start;justify-content:center}
+
+  /* ── 手机框 ── */
+  .phone{position:relative;width:390px;flex:0 0 390px;height:844px;background:#141618;border-radius:52px;padding:11px;box-shadow:0 0 0 2px #2b2f33,0 26px 64px rgba(0,0,0,.28)}
+  .screen{position:relative;width:100%;height:100%;background:var(--bg);border-radius:42px;overflow:hidden;display:flex;flex-direction:column}
+  .notch{position:absolute;left:50%;top:8px;transform:translateX(-50%);width:112px;height:26px;background:#141618;border-radius:14px;z-index:40}
+  .sbx{flex:0 0 62px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--t1);background:var(--surface);position:relative;z-index:30}
+  .sbx .r{display:flex;gap:5px;align-items:center}
+  .viewport{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column}
+
+  /* ── 真机 AppBar ── */
+  .ab{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:6px 14px 10px;background:var(--surface)}
+  .ab .bk{width:34px;height:34px;flex:0 0 34px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--t1)}
+  .ab .bk:active{background:#f1f3f8}
+  .ab .tt{flex:1;min-width:0}
+  .ab .tt b{display:block;font-size:20px;font-weight:700;color:var(--t1);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ab .tt i{display:block;font-style:normal;font-size:12px;color:var(--t3);font-weight:500;margin-top:1px}
+  .ab .rt{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+  .iconbtn{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#F1F3F8;color:var(--t1)}
+  .iconbtn:active{background:#e6e9f0}
+  .iconbtn.acc{background:var(--accent-weak);color:var(--accent-deep)}
+
+  .body{flex:1;overflow-y:auto;padding:0 20px 152px;overscroll-behavior:contain}
+  .body.p0{padding-left:0;padding-right:0}
+  .sbar{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:2px 18px 12px;font-size:12px;color:var(--t2);background:var(--surface)}
+  .sbar .sp{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r-r);background:var(--bg);font-weight:600;color:var(--t2)}
+  .sbar .sp.on{background:var(--accent-weak);color:var(--accent-deep)}
+
+  /* ── 真机排版 ── */
+  .h1{font-size:20px;line-height:1.3;font-weight:700;color:var(--t1);margin:0}
+  .h2{font-size:18px;font-weight:700;color:var(--t1);margin:0}
+  .sub{font-size:14px;line-height:1.58;font-weight:500;color:var(--t2);margin:6px 0 0}
+  .meta{font-size:13px;font-weight:500;color:var(--t3)}
+  .sechead{display:flex;align-items:center;justify-content:space-between;margin:22px 0 12px}
+  .sechead .st{font-size:18px;font-weight:700;color:var(--t1)}
+  .sechead .st small{font-size:13px;font-weight:500;color:var(--t3);margin-left:6px}
+  .sechead .tt2{font-size:13px;font-weight:600;color:var(--accent-deep)}
+
+  .card{background:var(--surface);border-radius:var(--r-l);padding:14px}
+  .card.bd{border:1px solid var(--bd)}
+  .card + .card{margin-top:12px}
+  .slim{background:var(--surface);border:1px solid var(--bd);border-radius:var(--r-m);padding:13px 14px}
+  .slim + .slim{margin-top:12px}
+
+  .badge{display:inline-flex;align-items:center;height:20px;padding:0 7px;border-radius:5px;font-size:11px;font-weight:600;background:#F1F3F8;color:var(--control)}
+  .badge.acc{background:var(--accent-weak);color:var(--accent-deep)}
+  .badge.warn{background:var(--warn-weak);color:var(--warn)}
+  .badge.info{background:var(--info-weak);color:var(--info)}
+  .badge.dng{background:var(--danger-weak);color:var(--danger)}
+  .tags{display:flex;flex-wrap:wrap;gap:6px}
+
+  /* 服务卡片（列表） */
+  .svc{background:var(--surface);border-radius:var(--r-l);padding:14px}
+  .svc + .svc{margin-top:12px}
+  .svc .top{display:flex;align-items:center;gap:10px}
+  .thumb{width:44px;height:44px;flex:0 0 44px;border-radius:10px;background:var(--accent-weak);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:var(--accent-deep)}
+  .svc .nm{flex:1;min-width:0;font-size:17px;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .svc .dy{font-size:13.5px;line-height:1.6;color:var(--t1);font-weight:600;margin:9px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer}
+  .svc .dy .dyk{font-weight:700;color:var(--accent-deep);margin-right:2px}
+  .dots{width:32px;height:32px;flex:0 0 32px;border-radius:50%;background:#F1F3F8;display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:17px;letter-spacing:1px}
+  .dots:active{background:#e6e9f0}
+  .svc .ftrow{display:flex;align-items:center;gap:10px;margin-top:12px}
+  .svc .upat{flex:1;min-width:0;font-size:12px;color:var(--t3);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .svc .lnk{flex:0 0 auto;font-size:13.5px;font-weight:700;color:var(--accent);display:flex;align-items:center;gap:3px;cursor:pointer}
+  .svc .lnk svg{width:15px;height:15px}
+
+  /* 服务概览（v1.7） */
+  .aicard{background:var(--accent-weak);border:1px solid var(--accent-line);border-radius:var(--r-l);padding:14px}
+  .aicard .ah{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .aicard .ah b{font-size:14px;font-weight:800;color:var(--accent-deep);letter-spacing:.2px}
+  .aicard .ah .tm{font-size:11.5px;color:var(--t3);font-weight:600}
+  .aicard .ablock{font-size:13.5px;line-height:1.62;color:var(--t1);font-weight:500}
+  .aicard .ablock + .ablock{margin-top:10px;padding-top:10px;border-top:1px solid rgba(35,185,157,.18)}
+  .aflag{display:inline-flex;align-items:center;font-size:11px;font-weight:800;padding:2px 7px;border-radius:5px;margin-right:6px;vertical-align:1px}
+  .aflag.warn{background:var(--warn-weak);color:var(--warn)}
+  .aflag.next{background:#fff;color:var(--accent-deep);border:1px solid var(--accent-line)}
+  .kpis{display:flex;gap:8px;margin-top:12px}
+  .kpi{flex:1;min-width:0;background:var(--surface);border:1px solid var(--bd);border-radius:10px;padding:10px 11px;min-height:66px}
+  .kpi .kl{font-size:12px;color:var(--t3);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kpi .kv{font-size:22px;line-height:1.15;font-weight:800;color:var(--t1);margin-top:5px}
+  .kpi.acc{background:var(--accent-weak);border-color:var(--accent-line)}
+  .kpi.acc .kv{color:var(--accent-deep)}
+  .td{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--bd);border-radius:10px;padding:11px 12px}
+  .td + .td{margin-top:8px}
+  .td .cc{width:18px;height:18px;flex:0 0 18px;border-radius:50%;border:1.8px solid var(--bd)}
+  .td .cc.hi{border-color:var(--warn);border-width:2.2px}
+  .td .tt3{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .td .mm{font-size:11.5px;color:var(--t3);font-weight:600;flex:0 0 auto}
+  .reg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .reg .it{background:var(--surface);border:1px solid var(--bd);border-radius:10px;padding:10px 11px;min-width:0}
+  .reg .it .rl{font-size:11.5px;color:var(--t3);font-weight:600}
+  .reg .it .rv{font-size:14px;color:var(--t1);font-weight:700;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .svc.tappable{cursor:pointer;transition:transform .12s,opacity .12s}
+  .svc.tappable:active{transform:scale(.992);opacity:.92}
+
+  /* 对话区 */
+  .chat{flex:1;overflow-y:auto;padding:6px 16px 14px;display:flex;flex-direction:column;gap:14px}
+  .msg{max-width:82%;font-size:14px;line-height:1.62;padding:11px 13px;border-radius:14px}
+  .msg.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
+  .msg.ai{align-self:flex-start;background:var(--surface);color:var(--t1);border-bottom-left-radius:5px}
+  .msg.ai .who{font-size:11.5px;font-weight:700;color:var(--accent-deep);margin-bottom:5px;display:flex;align-items:center;gap:5px}
+  .msg.ai .cite{margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-size:11.5px;color:var(--t3)}
+  .inputbar{flex:0 0 auto;border-top:1px solid var(--bd);background:var(--surface);padding:10px 14px 14px}
+  .inputrow{display:flex;align-items:center;gap:9px}
+  .fakeinput{flex:1;height:40px;border-radius:20px;background:var(--bg);display:flex;align-items:center;padding:0 14px;font-size:14px;color:var(--t3)}
+  .mic{width:40px;height:40px;flex:0 0 40px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center}
+  .send{width:40px;height:40px;flex:0 0 40px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center}
+
+  /* 引语/空态 */
+  .emptyp{background:var(--surface);border-radius:var(--r-l);padding:22px 18px;text-align:center}
+  .emptyp .ei{width:52px;height:52px;margin:0 auto 12px;border-radius:16px;background:var(--accent-weak);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--accent-deep)}
+  .emptyp h3{margin:0;font-size:16px;font-weight:700;color:var(--t1)}
+  .emptyp p{font-size:13px;line-height:1.7;color:var(--t2);font-weight:500;margin:8px 0 0}
+  .sugg{display:flex;flex-direction:column;gap:9px;margin-top:14px}
+  .sugg .q{border:1px solid var(--bd);background:var(--surface);border-radius:var(--r-m);padding:12px 13px;font-size:13.5px;color:var(--t1);text-align:left;font-weight:500;line-height:1.5}
+  .sugg .q:active{background:var(--accent-weak);border-color:var(--accent-line)}
+
+  /* 底部浮动 dock（真机：326×62 胶囊 + 右侧凸起采集键） */
+  .dockwrap{position:absolute;left:0;right:0;bottom:0;padding:12px 21px 21px;display:flex;justify-content:center;pointer-events:none;z-index:30}
+  .dock{position:relative;width:100%;height:62px;background:#fff;border:1px solid var(--bd);border-radius:36px;box-shadow:0 10px 26px rgba(20,26,30,.10);display:flex;align-items:center;padding:4px;pointer-events:auto}
+  .dock .dt{flex:1;height:100%;border-radius:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:10px;font-weight:600;letter-spacing:.5px;color:var(--t3);transition:background .16s,color .16s}
+  .dock .dt svg{width:18px;height:18px}
+  .dock .dt span{display:block}
+  .dock .dt.on{background:var(--accent);color:#fff}
+  .dock .cap{position:absolute;right:0;bottom:74px;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 24px rgba(35,185,157,.42)}
+
+  /* 时间线 */
+  .tlday{font-size:12px;font-weight:700;color:var(--t3);margin:20px 0 10px}
+  .tl{position:relative;padding-left:20px}
+  .tl:before{content:"";position:absolute;left:5px;top:4px;bottom:2px;width:1px;background:var(--bd)}
+  .tli{position:relative;margin-bottom:14px}
+  .tli:before{content:"";position:absolute;left:-19px;top:5px;width:9px;height:9px;border-radius:50%;background:#fff;border:2px solid var(--accent)}
+  .tli.act:before{border-color:var(--t3)}
+  .tli .tm{font-size:13.5px;line-height:1.55;color:var(--t1);font-weight:500}
+  .tli .tm b{font-weight:700}
+  .tli .from{color:var(--t3);text-decoration:line-through}
+  .tli .to{color:var(--accent-deep);font-weight:700}
+  .tli .ti2{font-size:11.5px;color:var(--t3);margin-top:5px;display:flex;gap:9px;flex-wrap:wrap}
+  .tli .ti2 .lk{color:var(--info);font-weight:600}
+
+  /* 表单 */
+  .fld{margin-top:16px}
+  .fld > label{display:block;font-size:13px;font-weight:700;color:var(--t1);margin-bottom:7px}
+  .fld > label em{font-style:normal;font-weight:500;color:var(--t3);font-size:12px;margin-left:5px}
+  .inp{width:100%;height:44px;border:1px solid var(--bd);border-radius:var(--r-m);background:var(--surface);padding:0 13px;font-size:14.5px;color:var(--t1);outline:none}
+  textarea.inp{height:auto;min-height:96px;padding:11px 13px;line-height:1.6;resize:none}
+  .iph{color:var(--t3)}
+  .opt3{display:flex;flex-direction:column;gap:9px}
+  .opt3 .o{display:flex;align-items:center;gap:10px;border:1px solid var(--bd);background:var(--surface);border-radius:var(--r-m);padding:12px 13px;text-align:left}
+  .opt3 .o.on{border-color:var(--accent);background:var(--accent-weak)}
+  .opt3 .o .rd{width:19px;height:19px;flex:0 0 19px;border-radius:50%;border:2px solid #cfd4dd;display:flex;align-items:center;justify-content:center}
+  .opt3 .o.on .rd{border-color:var(--accent);background:var(--accent)}
+  .opt3 .o.on .rd:after{content:"";width:6px;height:6px;border-radius:50%;background:#fff}
+  .opt3 .o .tx b{display:block;font-size:14.5px;font-weight:600;color:var(--t1)}
+  .opt3 .o .tx i{display:block;font-style:normal;font-size:12px;color:var(--t3);margin-top:2px}
+
+  /* 行（成员/专家/资料） */
+  .rowl{display:flex;align-items:center;gap:11px;padding:11px 0}
+  .rowl + .rowl{border-top:1px solid var(--bd)}
+  .ava{width:38px;height:38px;flex:0 0 38px;border-radius:50%;background:#F1F3F8;color:var(--control);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700}
+  .rowl .rn{flex:1;min-width:0;font-size:14.5px;font-weight:600;color:var(--t1)}
+  .rowl .rn i{display:block;font-style:normal;font-size:12px;font-weight:500;color:var(--t3);margin-top:2px}
+  .sel{height:30px;padding:0 10px;border-radius:var(--r-r);background:var(--bg);font-size:12.5px;font-weight:600;color:var(--control);display:flex;align-items:center;gap:4px}
+  .rm{font-size:12.5px;font-weight:600;color:var(--danger);padding:6px 4px}
+  .lk-t{font-size:12.5px;font-weight:700;color:var(--accent-deep)}
+
+  /* 底部固定按钮 */
+  .foot{flex:0 0 auto;padding:10px 18px 16px;background:var(--surface);border-top:1px solid var(--bd)}
+  .foot.cin{background:transparent;border-top:0;padding:8px 18px 16px}
+  .composer{display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--bd);border-radius:22px;padding:7px 8px 7px 16px;box-shadow:0 8px 22px rgba(20,26,30,.10)}
+  .composer:active{background:#f7f8fa}
+  .composer .cph{flex:1;min-width:0;font-size:14.5px;color:var(--t3);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .composer .cbtn{width:36px;height:36px;flex:0 0 36px;border-radius:50%;background:var(--bg);color:var(--t2);display:flex;align-items:center;justify-content:center}
+  .composer .cbtn.acc{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(35,185,157,.34)}
+  .btn{width:100%;height:46px;border-radius:var(--r-m);background:var(--accent);color:#fff;font-size:15.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .btn.gh{background:var(--surface);border:1px solid var(--bd);color:var(--t1)}
+  .btnrow{display:flex;gap:10px}
+
+  /* 底部弹层（真机 showModalBottomSheet + drag handle） */
+  .ov{position:absolute;inset:0;background:rgba(16,20,24,.34);display:flex;align-items:flex-end;z-index:60}
+  .ov.t{background:transparent;pointer-events:none}
+  .sh{width:100%;background:var(--surface);border-radius:18px 18px 0 0;padding:9px 0 14px;max-height:78%;overflow-y:auto;pointer-events:auto;box-shadow:0 -8px 30px rgba(0,0,0,.14)}
+  .sh .dh{width:36px;height:4px;border-radius:2px;background:#d8dde5;margin:0 auto 10px}
+  .sh .shh{font-size:13px;font-weight:700;color:var(--t3);padding:6px 20px 8px}
+  .opt{display:flex;align-items:center;gap:12px;padding:14px 20px;font-size:15.5px;color:var(--t1);font-weight:500}
+  .opt:active{background:#f6f7f9}
+  .opt .oi{width:22px;flex:0 0 22px;display:flex;align-items:center;justify-content:center;color:var(--t2)}
+  .opt .mx{margin-left:auto;color:var(--t3);font-size:15px}
+  .opt.dng{color:var(--danger)}
+  .opt .osub{font-size:12px;color:var(--t3);font-weight:500;margin-top:3px}
+  .dvd{height:1px;background:var(--bd);margin:6px 20px}
+
+  /* segmented */
+  .seg{flex:0 0 auto;display:flex;gap:7px;padding:0 18px 12px;overflow-x:auto;background:var(--surface)}
+  .seg .s{flex:0 0 auto;height:32px;padding:0 14px;border-radius:var(--r-r);background:var(--bg);font-size:13.5px;font-weight:600;color:var(--t2);display:flex;align-items:center}
+  .seg .s.on{background:var(--accent);color:#fff}
+
+  /* 服务概览（v1.8）：头部身份卡 + WorkBuddy 式下划线 tab */
+  .ovhead{flex:0 0 auto;display:flex;align-items:center;gap:11px;padding:8px 18px 12px;background:var(--surface)}
+  .ovhead .thumb{width:46px;height:46px;flex:0 0 46px}
+  .ovhead .ovn{flex:1;min-width:0}
+  .ovhead .nm{font-size:18px;font-weight:800;color:var(--t1);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ovhead .mt{font-size:12px;color:var(--t3);font-weight:500;margin-top:3px}
+  .otabs{flex:0 0 auto;display:flex;gap:20px;padding:0 18px;background:var(--surface);border-bottom:1px solid var(--bd);overflow-x:auto}
+  .otabs .ot{flex:0 0 auto;display:flex;align-items:center;gap:5px;padding:9px 1px 10px;font-size:14.5px;font-weight:600;color:var(--t3);border-bottom:2.5px solid transparent}
+  .otabs .ot.on{color:var(--t1);font-weight:800;border-bottom-color:var(--accent)}
+
+  /* ── 右侧规格面板 ── */
+  .pside{width:392px;flex:0 0 392px;position:sticky;top:0}
+  .pcard{background:#fff;border:1px solid var(--shell-bd);border-radius:12px;padding:16px 17px;margin-bottom:14px}
+  .pcard h3{margin:0 0 4px;font-size:14px;font-weight:700}
+  .pcard .pgoal{font-size:12.5px;line-height:1.7;color:var(--shell-t2);margin:0 0 12px}
+  .pcard .plabel{font-size:11px;font-weight:700;letter-spacing:.5px;color:rgba(0,0,0,.32);margin:14px 0 7px}
+  .plist{list-style:none;margin:0;padding:0;font-size:12.5px;line-height:1.72;color:var(--shell-t2)}
+  .plist li{position:relative;padding-left:22px;margin-bottom:8px}
+  .plist li .n{position:absolute;left:0;top:1px;width:16px;height:16px;border-radius:50%;background:#F5C441;color:#5a4200;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .plist li b{color:var(--shell-t1);font-weight:700}
+  .plist li code{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:#f2f3f2;padding:1px 4px;border-radius:3px;color:#2a5d4c}
+  .pcard .pnote{margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--warn-weak);color:#8a4a12;font-size:12px;line-height:1.7}
+  .pcard .pnote b{display:block;font-size:12px;color:#6f3a08;margin-bottom:3px}
+  .pcard .papi{margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--accent-weak);color:#1c5b48;font-size:11.5px;line-height:1.75;font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+
+  /* 屏内批注角标 */
+  .ann{display:inline-flex;width:15px;height:15px;border-radius:50%;background:#F5C441;color:#5a4200;font-size:10px;font-weight:700;align-items:center;justify-content:center;vertical-align:1px;margin-left:5px}
+  .annw{display:flex;align-items:flex-start;gap:8px;background:#FFFAEB;border:1px solid #F3E2B0;border-radius:9px;padding:10px 12px;font-size:11.5px;line-height:1.7;color:#6b5312;margin-top:12px}
+  .annw .ann{margin:1px 0 0;flex:0 0 15px}
+  .annw b{color:#4d3b06}
+
+  /* 对照表 */
+  .dtbl{width:100%;border-collapse:collapse;font-size:12px}
+  .dtbl th{text-align:left;font-size:11px;font-weight:700;color:var(--t3);padding:8px 6px;border-bottom:1px solid var(--bd)}
+  .dtbl td{padding:10px 6px;border-bottom:1px solid var(--bd);vertical-align:top;line-height:1.6;color:var(--t1)}
+  .dtbl td.k{font-weight:700;white-space:nowrap}
+  .dtbl td.w{color:var(--danger);font-weight:600}
+  .dtbl td.m{color:var(--accent-deep);font-weight:700}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="rail-title">服务模块 · 移动端</div>
+      <div class="rail-sub">配套《服务模块优化方案》v2.1<br>形态参考 mobile 真机工程（Flutter）</div>
+    </div>
+    <div class="rail-group" id="rail"></div>
+    <div class="rail-note"><b>移动端边界与设计原则</b>① 没有 hover —— web 的「服务行悬停 ＋」必须换成触摸等效；② 视口只有 390px —— web 的 320px 右侧浮层放不下，全部转整页或底部弹层；③ <b>零配置</b> —— 使用者只需要会聊天：新建服务 / 从模板创建 / 服务设置 / 重点记录编辑 / 成员管理 / 新增对象<b>全部只在电脑端</b>，移动端只留「聊天 + 看」；④ 形体按 WorkBuddy 移动端规范：状态栏 62px · 胶囊 tab bar（h62/r36/1px 边）· 激活态实心填充 · FAB 悬浮于底栏之上；⑤ <b>简洁优先</b>：一屏一件事、一屏一个主按钮，同一条信息只出现一次，能一行说完就不做卡片 —— 目标是使用者一眼就知道怎么用。</div>
+    <div class="rail-foot">
+      令牌取自真机 <code>AppColors</code>：accent #23B99D · 背景 #F5F6FA · 正文 #252B35<br>
+      圆角 4 / 10 / 14 · 页边距 18 · 段落间距 24<br>
+      <b id="verstamp">v1.17</b>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <div class="bar">
+      <h1 id="barTitle"></h1>
+      <span class="path" id="barPath"></span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.17</span>
+      <div class="bar-right" id="barRight"></div>
+    </div>
+    <div class="scroll">
+      <div class="phone"><div class="notch"></div><div class="screen" id="phone"></div></div>
+      <aside class="pside" id="pside"></aside>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   数据（与 web 版《服务模块优化原型》同一批，便于对照）
+   ═══════════════════════════════════════════════════════ */
+var SERVICES = [
+  { name:'秋季招生咨询', type:'家长与学员', initial:'秋',
+    pending:5,
+    recent:'果果家 · 家长关注点 更新为「时段冲突、价格」', recentAt:'今天 10:12' },
+  { name:'会员续费跟进', type:'家长与学员', initial:'续',
+    pending:0,
+    recent:'新增待办「回访 3 个到期会员」', recentAt:'昨天 18:20' },
+  { name:'保育巡查', type:'园所日常运营', initial:'保',
+    pending:0, paused:true,
+    recent:'产物《周巡查汇总》更新到 v2', recentAt:'10-06 15:40' }
+];
+
+var SVC = { name:'秋季招生咨询', type:'家长与学员' };
+
+var OUT = [
+  { t:'秋季招生线索跟进表.xlsx', s:'跟进东苑分园意向家庭', v:'v2', n:'16 条', d:'今天 09:40' },
+  { t:'家长顾虑归纳（周三时段冲突）', s:'家长顾虑归纳', v:'v1', n:'9 条', d:'昨天 16:12' },
+  { t:'10 月体验课到访邀约话术', s:'10 月到访邀约话术', v:'v1', n:'1 份', d:'10-03 11:20' }
+];
+
+var TODO = [
+  { t:'回访东苑分园 5 位家长', s:'open',   p:'高', due:'今天到期', ev:'3 条证据', who:'陈老师' },
+  { t:'确认 10 月体验课排期', s:'doing',  p:'中', due:'10-09', ev:'1 条证据', who:'李老师' },
+  { t:'整理周三时段冲突清单', s:'open',   p:'中', due:'10-10', ev:'2 条证据', who:'王园长' },
+  { t:'补充素材：秋季招生方案终稿', s:'done', p:'低', due:'已完成 10-05', ev:'', who:'王园长' }
+];
+var TODO_S = { open:{l:'待处理',c:'warn'}, doing:{l:'进行中',c:'info'}, done:{l:'已完成',c:'acc'} };
+
+var ACT = [
+  { day:'今天 · 10 月 8 日', items:[
+    { k:'sub', t:'<b>果果家</b> · <b>家长关注点</b> <span class="from">时段冲突</span> → <span class="to">时段冲突、价格</span>', m:['10:12','依据：会话「跟进东苑分园意向家庭」','招生顾问 记'] },
+    { k:'sub', t:'<b>果果家</b> · <b>到访次数</b> <span class="from">2 次</span> → <span class="to">3 次</span>', m:['09:47','依据：本周家长顾虑归纳','王园长 记'] },
+    { k:'act', t:'产物 <b>秋季招生线索跟进表.xlsx</b> 更新到 v2（16 条）', m:['09:40','招生顾问','查看产物'] }
+  ]},
+  { day:'昨天 · 10 月 7 日', items:[
+    { k:'act', t:'新增服务对象 <b>乐乐妈妈</b>', m:['18:20','来源：整理记录「9 月新签家庭盘点」','李老师 加'] },
+    { k:'act', t:'带入资料 <b>2026 秋季招生方案（草稿）</b>', m:['15:05','王园长','去 设置 › 资料 撤销'] },
+    { k:'act', t:'待办 <b>补充素材：秋季招生方案终稿</b> <span class="to">已完成</span>', m:['16:05','王园长','看这条待办'] }
+  ]},
+  { day:'9 月 28 日', items:[
+    { k:'act', t:'服务 <b>秋季招生咨询</b> 由 王园长 创建', m:['09:02','王园长','创建时的工作指令'] }
+  ]}
+];
+
+var FIELD_SUG = ['在读园所','居住片区','报名渠道','主要联系人','接送安排'];
+
+/* ═══════════════════════════════════════════════════════
+   基础件
+   ═══════════════════════════════════════════════════════ */
+var $ = function(s, r){ return (r || document).querySelector(s); };
+
+function sbx(){
+  return '<div class="sbx"><span>9:41</span><span class="r">' +
+    '<svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="1" fill="#252B35"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="#252B35"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="#252B35"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="#252B35"/></svg>' +
+    '<svg width="16" height="11" viewBox="0 0 16 11"><path d="M8 9.6 1.3 4.2A10.4 10.4 0 0 1 8 1.6a10.4 10.4 0 0 1 6.7 2.6z" fill="none" stroke="#252B35" stroke-width="1.4"/></svg>' +
+    '<svg width="24" height="11" viewBox="0 0 24 11"><rect x="0.5" y="0.5" width="19" height="10" rx="3" fill="none" stroke="#252B35" stroke-opacity=".4"/><rect x="2" y="2" width="14" height="7" rx="1.6" fill="#252B35"/><path d="M21.4 4v3a2 2 0 0 0 0-3z" fill="#252B35" fill-opacity=".4"/></svg>' +
+    '</span></div>';
+}
+function ab(o){
+  o = o || {};
+  var right = (o.right || []).join('');
+  return '<div class="ab">' +
+    (o.back ? '<button class="bk" ' + (o.backSub ? 'data-submode="list"' : 'data-go="' + (o.backTo || 'list') + '"') + '><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5 7.5 12l7 7"/></svg></button>' : '') +
+    '<div class="tt"><b>' + (o.title || '') + '</b>' + (o.sub ? '<i>' + o.sub + '</i>' : '') + '</div>' +
+    '<div class="rt">' + right + '</div></div>';
+}
+function ic(name){
+  var d = {
+    plus:  '<path d="M12 5v14M5 12h14"/>',
+    dots:  '<circle cx="12" cy="5.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="18.5" r="1.7" fill="currentColor" stroke="none"/>',
+    box:   '<path d="M4 7.5 12 4l8 3.5v9L12 20l-8-3.5z"/><path d="M4 7.5 12 11l8-3.5M12 11v9"/>',
+    check: '<path d="M4.5 12.5 9.5 17.5 19.5 6.5"/>',
+    mic:   '<rect x="9.5" y="3" width="5" height="10" rx="2.5"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V21"/>',
+    arrow: '<path d="M5 12h13M13 6.5 18.5 12 13 17.5"/>',
+    doc:   '<path d="M5.5 3.5h8l5 5v12h-13z"/><path d="M13.5 3.5v5h5"/>',
+    user:  '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/>',
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.5l3.5 2"/>',
+    chart: '<path d="M5 19V11M12 19V5M19 19v-6"/>',
+    link:  '<path d="M10 14a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.7-5.7L11.3 7"/><path d="M14 10a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.7 5.7L12.7 17"/>',
+    gear:  '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/>'
+  }[name] || '';
+  return '<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+}
+function dock(active){
+  var tabs = [['记忆','list'],['整理','organize'],['发现','discover'],['服务','service']];
+  return '<div class="dockwrap"><div class="dock">' +
+    tabs.map(function(t, i){
+      var on = (t[0] === '服务');
+      return '<div class="dt' + (on ? ' on' : '') + '"><span>' + ic(['doc','box','chart','check'][i]) + '</span><span>' + t[0] + '</span></div>';
+    }).join('') +
+    '<div class="cap"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>' +
+    '</div></div>';
+}
+function ann(n){ return '<span class="ann">' + n + '</span>'; }
+function note(n, html){ return '<div class="annw"><span class="ann">' + n + '</span><div>' + html + '</div></div>'; }
+
+/* ═══════════════════════════════════════════════════════
+   场景
+   ═══════════════════════════════════════════════════════ */
+var state = {
+  scene: (location.hash || '').replace('#','') || 'list',
+  lmode: 'data',      // data | new | arch | none
+  smode: 'chat',      // chat | empty | new
+  more: false,
+  svcSheet: null,     // 列表卡片 ⋯ 打开的弹层（服务名）
+  ovFrom: 'space',    // 服务概览的返回来源：list（列表点卡片进）| space（⋯ → 更多进）
+  actFrom: 'space',   // 动态页的返回来源：list（卡片「最近」行进）| space（默认）
+  ovTab: 'home',      // 服务概览 tab：home | todo | act | res（重点记录已并入 home，v1.17）
+  ttab: 'open',
+  sub: 'list',        // list | detail
+  cap: false
+};
+
+/* ── 1 · 服务列表（v1.3：页头大标题 + 排序 chips 区整块删除，进页即是「我的服务」） ── */
+function vList(){
+  var body = '';
+  if (state.lmode === 'new'){
+    body = '<div class="emptyp" style="margin-top:18px"><div class="ei">▦</div><h3>先把第一个服务建起来</h3>' +
+      '<p>一个服务 = 一摊持续要做的事（比如秋季招生、会员续费、班级日常）。建好之后，专家就在这个空间里帮你干活。</p>' +
+      '<div style="margin-top:16px;padding:12px 14px;border:1px solid var(--accent-line);background:var(--accent-weak);border-radius:10px;font-size:13px;line-height:1.7;color:var(--t2)"><b style="color:var(--accent-deep)">服务在电脑端创建</b><br>用电脑浏览器打开「睿乐大脑 → 服务 → ＋ 新建」，创建好的服务会出现在这里。</div></div>';
+  } else if (state.lmode === 'arch'){
+    body = '<div class="emptyp" style="margin-top:18px"><div class="ei" style="background:#F1F3F8;color:var(--t3)">▤</div><h3>当前没有进行中的服务</h3>' +
+      '<p>有 3 个服务已归档。归档不会删数据，随时可以恢复。</p>' +
+      '<div style="margin-top:16px"><button class="btn">查看已归档的 3 个服务</button></div>' +
+      '<div style="margin-top:12px;font-size:13px;line-height:1.7;color:var(--t3)">要新建服务，请在电脑端「服务 → ＋ 新建」。</div></div>';
+  } else if (state.lmode === 'none'){
+    body = '<div class="sechead"><span class="st">我的服务</span></div>' +
+      '<div class="slim" style="display:flex;align-items:center;gap:9px;color:var(--t3)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg><span style="font-size:14px">暑期托管</span></div>' +
+      '<div class="emptyp" style="margin-top:14px;padding:26px 18px"><h3 style="font-size:15px">没有找到叫「暑期托管」的服务</h3>' +
+      '<p>换个词试试。搜索只匹配服务名称和描述。</p>' +
+      '<div style="margin-top:16px"><button class="btn gh" data-lmode="data">清空搜索</button></div></div>';
+  } else {
+    body = '<div class="sechead"><span class="st">我的服务<small>3 个</small></span><span class="tt2">排序 ▾</span></div>' +
+      SERVICES.map(function(s){
+        return '<div class="svc tappable" data-go="overview" data-ovfrom="list"><div class="top">' +
+          '<span class="thumb">' + s.initial + '</span>' +
+          '<span class="nm">' + s.name + '</span>' +
+          '<span class="dots" data-more-svc="' + s.name + '">⋯</span></div>' +
+          '<div class="tags" style="margin-top:9px"><span class="badge acc">' + s.type + '</span>' +
+          (s.paused ? '<span class="badge warn">已暂停</span>' : '') +
+          (s.pending ? '<span class="badge warn">' + s.pending + ' 条待处理</span>' : '') + '</div>' +
+          '<div class="dy" data-go="activity" data-actfrom="list"><span class="dyk">最新</span>' + s.recent + '</div>' +
+          '<div class="ftrow"><span class="upat">更新于 ' + s.recentAt + '</span>' +
+          '<span class="lnk" data-go="overview" data-ovfrom="list">进入服务<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 6 6 6-6 6"/></svg></span></div>' +
+          '</div>';
+      }).join('');
+  }
+
+  return sbx() + '<div class="viewport"><div class="body">' + body + '</div>' + dock() + (state.svcSheet ? svcSheet() : '') + '</div>';
+}
+
+/* 列表卡片 ⋯：只放「新建会话 / 归档」。创建类动作（新建服务 / 复制配置创建）只在 web 端 */
+function svcSheet(){
+  return '<div class="ov" data-ov>' +
+    '<div class="sh"><div class="dh"></div>' +
+      '<div class="shh">' + state.svcSheet + '</div>' +
+      '<div class="opt" data-ncnext><span class="oi">' + ic('plus') + '</span>新建会话<span class="osub" style="margin:0"></span></div>' +
+      '<div class="dvd"></div>' +
+      '<div class="opt dng">归档服务</div>' +
+    '</div></div>';
+}
+
+/* ── 2 · 服务空间（会话工作台） ── */
+function vSpace(){
+  var isNew = state.smode === 'new', isEmpty = state.smode === 'empty';
+  var title = isNew ? '新的会话' : '秋季招生线索跟进';
+  var sub = isNew ? '秋季招生咨询 · 选一句开始，或直接问' : '秋季招生咨询';
+
+  var head = ab({ back:true, title:title, sub:sub, right:[
+    '<button class="iconbtn acc" data-nc>' + ic('plus') + '</button>',
+    '<button class="iconbtn" data-more>' + ic('dots') + '</button>'
+  ]});
+
+  var sbar = '<div class="sbar">' +
+    '<span class="sp" data-go="artifacts">▤ 产物 3</span>' +
+    '<span class="sp" data-go="reminders">☑ 待办 3</span>' +
+    '<span style="font-size:12px;color:var(--t3);margin-left:2px">2 位成员</span></div>';
+
+  var inner;
+  if (isNew){
+    inner = '<div class="chat" style="justify-content:center">' +
+      '<div class="emptyp" style="background:transparent;padding:0 6px;text-align:left">' +
+        '<h3 style="font-size:20px">新的会话</h3>' +
+        '<p style="margin-top:8px">接着「秋季招生咨询」往下聊。这几句是常问的，点一下就发出去。</p>' +
+        '<div class="sugg">' +
+          '<button class="q">把刚才和家长的通话要点记下来</button>' +
+          '<button class="q">东苑分园这周还有哪些家长没回访？</button>' +
+          '<button class="q">整理一份本周招生线索跟进清单</button>' +
+        '</div>' +
+        note(5, '<b>新会话建议问题由服务的工作指令生成</b>（现状是写死的 2 条）。点 ＋ 不弹窗、不跳页，对话区直接切到空态，原会话自动收好。') +
+      '</div></div>';
+  } else if (isEmpty){
+    inner = '<div class="chat" style="justify-content:center">' +
+      '<div class="emptyp" style="background:transparent;padding:0 6px">' +
+        '<div class="ei" style="margin:0 auto 12px">◌</div>' +
+        '<h3>这个服务还没有会话</h3>' +
+        '<p>直接说一句就会开一段新会话；输入框一直可用，不用先找「新建」。</p>' +
+      '</div></div>';
+  } else {
+    inner = '<div class="chat">' +
+      '<div class="msg me">东苑分园今天来的那 3 位家长，帮我把要点记一下</div>' +
+      '<div class="msg ai"><div class="who">招生增长顾问</div>' +
+        '记好了。果果家最在意<b>周三下午的时段冲突</b>，到访次数从 2 次更新到 3 次；另两位主要问价格与午睡安排。<div class="cite">依据：本次会话 · 已写入「重点记录」</div></div>' +
+      '<div class="msg me">那给我列一下还没回访的</div>' +
+      '<div class="msg ai"><div class="who">招生增长顾问</div>' +
+        '还有 <b>3 位</b>没回访：乐乐妈妈、轩轩妈妈、以及东苑分园的果果家。已生成待办「回访东苑分园 5 位家长」。<div class="cite">依据：线索跟进表 v2 · 待办 3 条</div></div>' +
+      note(4, '<b>服务头从 9 个入口收到 2 个：产物 / 待办。</b>移动端 390px 放不下三个带计数的按钮，所以把「看」的东西（产物 N · 待办 N · 成员）压成标题下面一条信息条，把「做」的动作（＋ 新建会话 / ⋯ 菜单）留在右上角。这是对 web 服务头的移动端重排。') +
+      '</div>';
+  }
+
+  var input = '<div class="inputbar"><div class="inputrow">' +
+    '<div class="fakeinput">' + (isNew ? '想聊什么就说什么…' : '接着问点什么…') + '</div>' +
+    '<div class="mic">' + ic('mic') + '</div></div></div>';
+
+  var sheet = state.more ? moreSheet() : '';
+  return sbx() + '<div class="viewport">' + head + sbar + inner + input + sheet + '</div>';
+}
+
+/* ⋯ 菜单：一级 / 二级（移动端用两层底部弹层，等价 web 的两级下拉） */
+function moreSheet(){
+  return '<div class="ov" data-ov>' +
+    '<div class="sh"><div class="dh"></div>' +
+      '<div class="shh">秋季招生咨询</div>' +
+      '<div class="opt"><span class="oi">' + ic('link') + '</span>分享服务</div>' +
+      '<div class="dvd"></div>' +
+      '<div class="shh">更多' + ann(3) + '</div>' +
+      '<div class="opt" data-go="overview" data-ovfrom="space"><span class="oi">' + ic('chart') + '</span>服务概览<span class="mx">›</span></div>' +
+      '<div class="opt" data-go="subjects"><span class="oi">' + ic('user') + '</span>服务对象<span class="mx">›</span></div>' +
+      '<div class="opt" data-go="activity"><span class="oi">' + ic('clock') + '</span>动态<span class="mx">›</span></div>' +
+      '<div class="dvd"></div>' +
+      '<div class="shh">危险操作</div>' +
+      '<div class="opt dng">暂停服务</div>' +
+      '<div class="opt dng">归档服务</div>' +
+      '<div class="opt dng">删除服务</div>' +
+      note(25, '<b>移动端零配置（v1.11）：使用者只需要会聊天。</b>⋯ 菜单里原来的「修改名称 / 修改描述 / 服务设置」三项已删——点进去都是表单，与「聊一句就有结果」无关。现在这里只剩<b>查看类</b>（服务概览 / 服务对象 / 动态）、<b>分享</b>与<b>危险操作</b>。名称、工作指令、专家、资料、成员、重点记录字段这些配置，统一在电脑端完成（新建服务时一次配好，之后由 AI 自己维护）。') +
+    '</div></div>';
+}
+
+/* ── 3 · 产物 ── */
+function vArtifacts(){
+  var b = '<div class="sechead" style="margin-top:2px"><span class="st">全部产物<small>3 份</small></span><span class="tt2">最近更新 ▾</span></div>';
+  OUT.forEach(function(o){
+    b += '<div class="slim"><div style="display:flex;align-items:flex-start;gap:11px">' +
+      '<span style="width:36px;height:36px;flex:0 0 36px;border-radius:9px;background:var(--info-weak);color:var(--info);display:flex;align-items:center;justify-content:center">' + ic('doc') + '</span>' +
+      '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:15px;font-weight:700;color:var(--t1);line-height:1.4">' + o.t + '</div>' +
+      '<div class="meta" style="margin-top:5px">来源会话「' + o.s + '」</div>' +
+      '<div class="tags" style="margin-top:8px"><span class="badge acc">' + o.v + '</span><span class="badge">' + o.n + '</span><span class="badge">' + o.d + '</span></div>' +
+      '</div></div></div>';
+  });
+  b += note(6, '<b>产物不再做「右侧浮层 + 内联预览」，改两步：</b>一屏列表（本屏）→ 点开进详情预览。390px 下浮层挤压对话区只剩一半宽，列表化后每份产物的来源会话、版本、条数都能一屏放下。');
+  return sbx() + '<div class="viewport">' + ab({ back:true, backTo:'space', title:'产物', sub:'秋季招生咨询 · 3 份' }) +
+    '<div class="body">' + b + '</div>' +
+    '<div class="foot"><button class="btn gh" data-go="space">回到会话</button></div></div>';
+}
+
+/* ── 4 · 待办 ── */
+function vReminders(){
+  var tabs = [['open','待处理',2],['doing','进行中',1],['done','已完成',1]];
+  var list = TODO.filter(function(t){ return t.s === state.ttab; });
+  var b = '<div class="body" style="padding-top:0">';
+  if (!list.length){ b += '<div class="emptyp" style="margin-top:8px"><div class="ei">✓</div><h3>这一类暂时是空的</h3><p>换个分类看看，或者新建一条待办。</p></div>'; }
+  list.forEach(function(t){
+    var s = TODO_S[t.s];
+    b += '<div class="slim"><div style="display:flex;align-items:flex-start;gap:10px">' +
+      '<div style="flex:1;min-width:0">' +
+      '<div style="font-size:15px;font-weight:700;color:var(--t1);line-height:1.45">' + t.t + '</div>' +
+      '<div class="tags" style="margin-top:9px"><span class="badge ' + s.c + '">' + s.l + '</span>' +
+      '<span class="badge ' + (t.p === '高' ? 'dng' : '') + '">' + t.p + '优先</span>' +
+      '<span class="badge">' + t.due + '</span>' +
+      (t.ev ? '<span class="badge">' + t.ev + '</span>' : '') + '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-top:11px"><span class="ava" style="width:26px;height:26px;flex:0 0 26px;font-size:12px">' + t.who.charAt(0) + '</span><span class="meta">' + t.who + '</span>' +
+      '<span style="margin-left:auto" class="lk-t">' + (t.s === 'done' ? '已完成' : '下一步 ▾') + '</span></div>' +
+      '</div></div></div>';
+  });
+  b += note(7, '<b>创建待办从 6 个字段收到 3 个</b>（标题 / 时间 / 负责人）；负责人做成人选择器，不再填 user_id。状态流转从弹窗改成卡片里的「下一步 ▾」就地推进；协作改成卡内展开，不再开 680px 弹窗。') + '</div>';
+  var seg = '<div class="seg" style="padding-top:0">' + tabs.map(function(t){
+    return '<div class="s' + (state.ttab === t[0] ? ' on' : '') + '" data-ttab="' + t[0] + '">' + t[1] + ' ' + t[2] + '</div>';
+  }).join('') + '</div>';
+  return sbx() + '<div class="viewport">' +
+    ab({ back:true, backTo:'space', title:'待办', sub:'秋季招生咨询', right:['<button class="iconbtn acc" data-tnew>' + ic('plus') + '</button>'] }) +
+    seg + b +
+    '<div class="foot"><button class="btn" data-tnew>＋ 新建待办</button></div>' + '</div>';
+}
+
+/* ── 5 · 服务概览（v1.8 重做：头部身份卡 + tab 分类，参照 WorkBuddy 移动端项目详情） ── */
+function vOverview(){
+  var reg = [['学员等级','大班 · 在读 2 年'],['主班老师','陈老师'],['到访次数','3 次'],['家长关注点','时段冲突、价格']];
+
+  var head = '<div class="ovhead">' +
+    '<span class="thumb">秋</span>' +
+    '<div class="ovn"><div class="nm">秋季招生咨询</div>' +
+    '<div class="mt">家长与学员 · 5 位成员</div></div>' +
+    '</div>';
+
+  var tabs = [['home','概览'],['todo','待办'],['act','动态'],['res','产物']];
+  var tabbar = '<div class="otabs">' + tabs.map(function(t){
+    return '<div class="ot' + (state.ovTab === t[0] ? ' on' : '') + '" data-otab="' + t[0] + '">' + t[1] + '</div>';
+  }).join('') + '</div>';
+
+  var content = '';
+  if (state.ovTab === 'home'){
+    var kpis = [['线索','16',''],['明确意向','4',''],['待处理','5','acc']];
+    content =
+      '<div class="aicard">' +
+        '<div class="ah"><b>进展摘要</b><span class="tm">10:12 更新 · 刷新</span></div>' +
+        '<div class="ablock">9 月共进入 <b>16 条</b>线索，东苑分园 5 条；本周新增 <b>4 条明确意向</b>，主要来自体验课后家长转介绍。</div>' +
+        '<div class="ablock"><span class="aflag warn">需留意</span>周三下午的时段冲突被 9 位家长提到，是当前最集中的顾虑。</div>' +
+        '<div class="ablock"><span class="aflag next">下一步</span>推进 3 个待回访家庭 · 确认 10 月体验课排期 · 补一份时段备选方案</div>' +
+        '</div>' + ann(8) +
+      '<div class="kpis">' + kpis.map(function(k){
+        return '<div class="kpi ' + k[2] + '"' + (k[2] === 'acc' ? ' data-otab="todo"' : '') + '>' +
+          '<div class="kl">' + k[0] + '</div><div class="kv">' + k[1] + '</div></div>';
+      }).join('') + '</div>' +
+      '<div class="sechead" style="margin-top:20px"><span class="st">重点记录</span><span class="meta">AI 自动维护</span></div>' +
+      '<div class="reg" style="margin-top:0">' + reg.map(function(f){
+        return '<div class="it"><div class="rl">' + f[0] + '</div><div class="rv">' + f[1] + '</div></div>';
+      }).join('') + '</div>' +
+      '<div class="slim" style="margin-top:20px;display:flex;align-items:center;gap:11px">' +
+        '<span class="ava">王</span>' +
+        '<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:700;color:var(--t1)">服务成员</div>' +
+        '<div class="meta" style="margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">王园长（主人）· 李老师 · 陈老师 · 赵老师</div></div>' +
+        '</div>';
+  } else if (state.ovTab === 'todo'){
+    content = '<div class="sechead" style="margin-top:16px"><span class="st">待办<small>5 条</small></span><span class="tt2" data-go="reminders">全部 ›</span></div>' +
+      TODO.map(function(t){
+        return '<div class="td" data-go="reminders"><span class="cc' + (t.p === '高' ? ' hi' : '') + '"></span>' +
+          '<span class="tt3">' + t.t + '</span><span class="mm">' + t.due + ' · ' + t.p + '</span></div>';
+      }).join('');
+  } else if (state.ovTab === 'act'){
+    content = '<div class="sechead" style="margin-top:16px"><span class="st">最近动态</span><span class="tt2" data-go="activity">查看全部 ›</span></div>' +
+      '<div class="tl">' + ACT[0].items.concat(ACT[1].items.slice(0,1)).map(function(it){
+        return '<div class="tli ' + (it.k === 'sub' ? '' : 'act') + '"><div class="tm">' + it.t + '</div><div class="ti2"><span>' + it.m[0] + '</span><span>' + it.m[1] + '</span></div></div>';
+      }).join('') + '</div>';
+  } else {
+    content = '<div class="sechead" style="margin-top:16px"><span class="st">产物<small>3 份</small></span><span class="tt2" data-go="artifacts">全部 ›</span></div>' +
+      OUT.map(function(o){
+        return '<div class="slim" data-go="artifacts" style="display:flex;align-items:center;gap:11px">' +
+          '<span style="width:36px;height:36px;flex:0 0 36px;border-radius:9px;background:var(--info-weak);color:var(--info);display:flex;align-items:center;justify-content:center">' + ic('doc') + '</span>' +
+          '<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + o.t + '</div>' +
+          '<div class="meta" style="margin-top:3px">' + o.v + ' · ' + o.n + ' · ' + o.d + '</div></div>' +
+          '<span style="color:var(--t3)">›</span></div>';
+      }).join('');
+  }
+
+  return sbx() + '<div class="viewport">' +
+    ab({ back:true, backTo: state.ovFrom || 'space', title:'服务概览' }) +
+    head + tabbar +
+    '<div class="body" style="padding-top:2px">' + content +
+      note(9, '<b>概览改用 tab 分类（v1.8，参照 WorkBuddy 移动端项目详情）。</b>v1.7 的六段长页（摘要 / 数字 / 待办 / 记录 / 动态 / 入口全堆一屏）信息密度过高、扫不到底。改为：头部一张<b>身份卡</b>（头像 + 名称 + 成员数，右上 ⚙ 进设置）+ 五个<b>下划线 tab</b>——概览 / 待办 / 重点记录 / 动态 / 产物，<b>一屏一件事</b>，各自完整、互不挤压。tab 用下划线式而非胶囊式，与设置页的分区胶囊在视觉上区分开。<b>底部原整宽绿色「进入会话」按钮改为 WorkBuddy 式会话输入条（v1.9）</b>：一个圆角输入条 + 麦克风 + 品牌色箭头（点任意处进入会话），与 WorkBuddy 项目详情底部的任务输入条同形，避免整屏两个大 CTA、也让「去对话」这件事看起来仍是一次输入。') +
+      note(24, '<b>简洁原则（v1.10 清一遍）：同一条信息只出现一次。</b>① 产物既有 tab 又有「快捷入口」卡片 → 删卡片，产物只走 tab；② 待办数既在 KPI 又在 tab 角标 → tab 一律不带角标，数字只在<b>概览</b>出现一次；③ 身份卡原写「家长与学员 · 5 位成员 · 3 段工作」，后两项是后台口径 → 只留用户看得懂的两项；④ 成员不进 tab，用<b>一行只读</b>「服务成员 + 名单」代替原来的两个 tile——零配置后它不再带 ›，看一眼知道有谁就够。<b>v1.11 再清一层：本页不再有任何配置入口</b>（身份卡 ⚙、「重点记录」的「编辑」全部删除）。原则：每屏一个主线任务、一个主按钮；同一数字 / 入口不重复出现；能一行说完就不做卡片；<b>需要用户配的东西，不放在使用者面前</b>。') +
+      note(25, '<b>重点记录并入概览（v1.17）。</b>重点记录只有 4 条、半屏都填不满，独立成 tab 后用户要多点一次才能看到最该看的「这个家庭处在什么状态」。现在<b>概览 tab 一屏讲完服务的全貌</b>：进展摘要 → 关键数字 → 重点记录（AI 自动维护）→ 成员；tab 收成 4 个（概览 / 待办 / 动态 / 产物），每个 tab 都是满内容，不再有「为凑 tab 而存在」的页面。') +
+      note(23, '<b>点卡片先进概览，不先进对话（v1.5）：</b>列表的服务卡片<b>整卡可点</b>，落点是本页——服务概览就是服务的首页；底部<b>会话输入条</b>再下到对话区，返回键按来源回（从列表来回列表、从 ⋯ 进来回会话）。为什么不直接进对话：手机屏小，先把服务的全貌给出来，再决定聊什么；web 上对话区与浮层能并存，所以 web 不受此限。') +
+    '</div>' +
+    '<div class="foot cin"><div class="composer" data-go="space">' +
+      '<span class="cph">进入会话，接着说…</span>' +
+      '<span class="cbtn">' + ic('mic') + '</span>' +
+      '<span class="cbtn acc">' + ic('arrow') + '</span>' +
+    '</div></div>' +
+    '</div>';
+}
+
+/* ── 6 · 服务对象 ── */
+function vSubjects(){
+  if (state.sub === 'detail'){
+    return sbx() + '<div class="viewport">' +
+      ab({ back:true, backSub:'list', title:'果果家' }) +
+      '<div class="body">' +
+        '<div class="card bd"><div class="meta">记录</div><div style="font-size:15px;font-weight:700;color:var(--t1);margin-top:5px">家长关注点：时段冲突、价格</div>' +
+        '<div style="font-size:13.5px;line-height:1.65;color:var(--t2);margin-top:7px">到访次数：3 次 · 学员等级：大班 · 在读 2 年</div></div>' +
+        '<div class="sechead"><span class="st">这个对象的变化</span></div>' +
+        '<div class="tl">' + ACT[0].items.slice(0,2).map(function(it){
+          return '<div class="tli"><div class="tm">' + it.t + '</div><div class="ti2"><span>' + it.m[0] + '</span><span class="lk">' + it.m[1] + '</span></div></div>';
+        }).join('') + '</div>' +
+        note(12, '<b>服务对象不需要用户维护（v1.11 零配置）：</b>对象从对话里自动识别并沉淀（「果果家」「乐乐妈妈」都是聊出来的），<code>subject_type</code> 后端默认 <code>custom</code>、<code>subject_key</code> 后端生成，界面永不出现 <code>member-001</code> 这类值。原来的「归到某个对象下」与「引用编号」两个维护动作已删——层级和编号是机器的事，不需要用户点。') +
+      '</div></div>';
+  }
+  var objs = [['果果家','家长与学员','家长关注点：时段冲突、价格','2 条变化'],['乐乐妈妈','家长与学员','到访意向：明确','1 条变化'],['东苑分园','园所','本周新增 5 条线索','1 条变化']];
+  var b = '<div class="sechead" style="margin-top:2px"><span class="st">全部服务对象<small>3 个</small></span></div>' +
+    objs.map(function(o){
+      return '<div class="slim" data-sub="detail" style="display:flex;align-items:center;gap:11px">' +
+        '<span class="ava">' + o[1].charAt(0) + '</span>' +
+        '<div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;color:var(--t1)">' + o[0] + '</div>' +
+        '<div class="meta" style="margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + o[2] + '</div></div>' +
+        '<span class="badge acc">' + o[3] + '</span><span style="color:var(--t3)">›</span></div>';
+    }).join('') + ann(10) +
+    note(3, '名字从 web 的「服务主体」改成「<b>服务对象</b>」；用户只填名称，两个机器键（<code>subject_type</code> / <code>subject_key</code>）由后端生成，界面完全不出现。');
+  return sbx() + '<div class="viewport">' +
+    ab({ back:true, backTo:'space', title:'服务对象', sub:'秋季招生咨询' }) +
+    '<div class="body">' + b + '</div></div>';
+}
+
+/* ── 7 · 动态 · 时间线 ── */
+function vActivity(){
+  var f = ['全部','只看主体变化','只看空间动作'];
+  var subj = ['果果家','乐乐妈妈','东苑分园','不限'];
+  var b = '<div style="display:flex;gap:8px;overflow-x:auto;padding:4px 0 2px;margin-bottom:4px">' +
+    f.map(function(x, i){ return '<span class="badge ' + (i === 0 ? 'acc' : '') + '" style="flex:0 0 auto;height:28px;padding:0 12px;font-size:12.5px">' + x + '</span>'; }).join('') + '</div>' +
+    '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px"><span class="meta" style="flex:0 0 auto;line-height:28px">主体</span>' +
+    subj.map(function(x, i){ return '<span class="badge ' + (i === 0 ? 'acc' : '') + '" style="flex:0 0 auto;height:28px;padding:0 12px;font-size:12.5px">' + x + '</span>'; }).join('') + '</div>';
+  ACT.forEach(function(d){
+    b += '<div class="tlday">' + d.day + '</div><div class="tl">' + d.items.map(function(it){
+      return '<div class="tli ' + (it.k === 'sub' ? '' : 'act') + '"><div class="tm">' + it.t + '</div>' +
+        '<div class="ti2"><span>' + it.m[0] + '</span>' + (it.m[1] ? '<span class="lk">' + it.m[1] + '</span>' : '') + (it.m[2] ? '<span>' + it.m[2] + '</span>' : '') + '</div></div>';
+    }).join('') + '</div>';
+  });
+  b += note(13, '<b>待办只把终态记进来</b>：「已完成 / 已取消」各出一条；「待处理 → 进行中」这类过程翻转不记，否则时间线会被刷屏。主体变化行带「旧值 → 新值」和依据回链，这是回顾时真正有用的部分。') +
+    note(14, '<b>真源不是新表：</b>主体变化读 append-only 的 <code>service_facts</code>（已带 <code>subject_id</code>），空间动作读审计里已经在写的 <code>service.*</code> 事件。后端要补的是<b>服务级 reminder-history 聚合端点</b>与审计的 <code>service_id</code> 查询维度。');
+  return sbx() + '<div class="viewport">' +
+    ab({ back:true, backTo: state.actFrom || 'space', title:'动态', sub:'秋季招生咨询' }) +
+    '<div class="body">' + b + '</div></div>';
+}
+
+/* ── 8 · 移动端适配对照 ── */
+function vDiff(){
+  var rows = [
+    ['服务头 9 个入口', '产物 / 待办 / ⋯ 三个常驻（320px 浮层）', '信息条 + 右上 ＋ ⋯', '390px 放不下三个带计数按钮'],
+    ['新建会话 ＋', '左侧服务行<b>悬停</b>出现', '卡片 ⋯ 菜单 / 空间右上 ＋', '<b>触摸没有 hover</b>'],
+    ['右侧浮层（产物 / 待办）', '320px 浮层，看 + 配混在一起', '整页列表 → 点开详情', '浮层会挤掉对话区一半宽度'],
+    ['⋯ 两级下拉菜单', '点击展开二级', '两层底部弹层', '弹出层在移动端是原生习惯'],
+    ['服务设置（4 分区）', '设置整页：基本信息 / 重点记录 / 资料 / 成员', '<b>移动端不提供</b> → 配置只在电脑端', '移动端只做「聊天 + 看」：名称、工作指令、专家、资料、成员都是机构运营侧的一次性配置，手机端留着这些入口只会让人以为必须先配一遍'],
+    ['需要配置的按钮（修改名称 / 修改描述 / 重点记录「编辑」/ 成员管理 / 新增对象）', '⋯ 菜单与各页面都有入口', '<b>全部删除</b>（v1.11 零配置）', '点进去都是表单，与「聊一句就出结果」无关；删掉后移动端只剩查看类入口 + 分享 / 危险操作'],
+    ['新建服务 / 从模板创建', '整页表单 + 模板卡选择', '<b>移动端不提供</b> → 电脑端创建', '创建要填 4 组字段、选专家与知识库，手机端体验差；模板本身是机构运营侧的配置动作'],
+    ['服务卡片的点击落点', '点卡片直接进服务空间（对话区）', '先进<b>服务概览</b> → 再「进入会话」', '手机屏小，先给服务全貌（进展 / 重点记录 / 动态）再决定聊什么；web 的对话与浮层能并存，移动端二选一'],
+    ['服务列表卡片', '描述 + 元信息 + 行内按钮', '内容区放<b>最新动态 + 更新于 ××</b>，落点用<b>主题色文字链</b>不用按钮', '天天刷列表的人要的是「最近发生了什么」，不是建服务时看一次就够的描述；一屏三张卡塞三个色块按钮太重，文字链保留品牌色就够了'],
+    ['待办状态流转', '下拉 + 弹窗改协作', '卡片内「下一步 ▾」', '减少层级、不打断上下文']
+  ];
+  var b = '<div style="font-size:12.5px;line-height:1.7;color:var(--t2);font-weight:500;margin-bottom:14px">web 版的交互有几条<b>在手机上无法照搬</b>。每张卡自上而下是：能力 · web 做法 · 移动端做法 · 为什么必须改。</div>' +
+    rows.map(function(r){
+      return '<div class="slim" style="padding:12px 14px">' +
+        '<div style="font-size:15px;font-weight:700;color:var(--t1)">' + r[0] + '</div>' +
+        '<div class="meta" style="margin-top:7px;line-height:1.6"><b style="color:var(--t3);font-weight:700">web</b>　' + r[1] + '</div>' +
+        '<div style="font-size:13.5px;line-height:1.6;color:var(--accent-deep);font-weight:700;margin-top:5px">→ ' + r[2] + '</div>' +
+        '<div style="font-size:12.5px;line-height:1.6;color:var(--danger);font-weight:600;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">为什么：' + r[3] + '</div>' +
+        '</div>';
+    }).join('') +
+    note(20, '<b>真机现状与本次口径的差异（开工前要对齐）：</b>真机底部「服务」tab 现在是<b>服务提醒（待办）聚合页</b>，而「客户空间」（＝服务空间列表）藏在左侧抽屉里。若按本原型落地，需要把底部 tab「服务」改成服务模块入口（列表 + 待办聚合），抽屉里的「客户空间」保留为快捷入口——这一步涉及真机导航调整，建议与 P3 一起排。') +
+    note(21, '<b>移动端的职责边界（2026-10-08 拍板）：</b>移动端只做「用服务」，<b>不做创建</b>——新建服务、从模板创建、复制配置创建三项都只在 web 端。理由：创建要填 4 组字段并挑专家 / 知识库，手机端体验差；模板与配置是机构运营侧动作，天然在电脑上完成。移动端列表页的「＋ 新建」与空态里的新建按钮因此全部撤掉，改为一句指向电脑端的提示。') +
+    note(22, '<b>形体依据 · WorkBuddy 移动端规范（v1.4 起套用）：</b>① 状态栏固定 <b>62px</b> 且内容垂直居中，不自定义假状态栏；② 底部用<b>胶囊式 tab bar</b>——容器整宽、内容居中、内边距 <b>12/21px</b>，胶囊高 <b>62px</b>、圆角 <b>36px</b>、1px 描边、内边距 4px，tab 项圆角 26px、图标 <b>18px</b>、文字 <b>10px/600</b>；③ 激活项用<b>实心填充</b>（不是只换文字颜色），一眼能看出在哪一屏；④ 采集键按规范改成<b>悬浮在 tab bar 之上</b>的 FAB —— 规范明确「CTA 不得压在底栏上」，因此内容底部统一预留 152px 内边距；⑤ 标题字号<b>全站统一 20px</b>（页标题与导航栏标题一致）。品牌色仍用真机 AppColors 的 accent（#23B99D），仅形体与交互规范取自 WorkBuddy。');
+  return sbx() + '<div class="viewport">' +
+    ab({ back:true, backTo:'list', title:'移动端适配对照', sub:'web 交互 → 触摸等效' }) +
+    '<div class="body">' + b + '</div></div>';
+}
+
+/* ═══════════════════════════════════════════════════════
+   场景表 / 规格面板
+   ═══════════════════════════════════════════════════════ */
+var SCENES = [
+  { key:'list',      n:1,  label:'服务列表 · 含空态三分支',   path:'tab 服务 → /platform/service',      render:vList },
+  { key:'space',     n:2,  label:'服务空间 · 会话工作台',     path:'/platform/service/:id/sessions/:sid', render:vSpace },
+  { key:'artifacts', n:3,  label:'产物 · 整页列表',           path:'服务空间 → 产物 3',                  render:vArtifacts },
+  { key:'reminders', n:4,  label:'待办 · 整页 + 三态',        path:'服务空间 → 待办 3',                  render:vReminders },
+  { key:'overview',  n:5,  label:'服务概览 · tab 分类（WorkBuddy 式）', path:'列表点卡片 / ⋯ → 更多 → 服务概览',   render:vOverview },
+  { key:'subjects',  n:6,  label:'服务对象 · 列表与详情',     path:'⋯ → 更多 → 服务对象',                render:vSubjects },
+  { key:'activity',  n:7,  label:'动态 · 时间线',             path:'⋯ → 更多 → 动态',                    render:vActivity },
+  { key:'diff',      n:8,  label:'移动端适配对照',            path:'—',                                 render:vDiff }
+];
+
+var SPECS = {
+  list: { goal:'服务模块的落地页。移动端它既是底部 tab，也是服务空间的入口。',
+    pts:[
+      '进页即是「我的服务」——<b>页头大标题、副标题与排序 chips 区整块删除</b>（v1.3，2026-10-08）；排序入口保留在分区头右侧「排序 ▾」。',
+      '<b>卡片：</b>缩略字块 + 名称 + 类型标签；<b>内容区 = 最新动态</b>（v1.13）——原来的服务描述删掉，换成动态时间线的最新一条（可点直达动态页）；底部「更新于 ××」+ <b>主题色文字链「进入服务 ›」</b>（v1.16：不用按钮——按钮在卡片里太重，一屏三张卡就是三个色块；文字链保留品牌色，视觉重量降一档）；无分割线、无成员数（v1.15）；带待办的服务多一个橙色「N 条待处理」。',
+      '<b>空态三分支：</b>右上 chip 切换——完全新用户 / 有归档无在用 / 搜索无结果，三种给不同出口。现状把后两种混进第一种。',
+      '排序三项保留。<b>移动端不提供任何创建入口</b>（2026-10-08 口径）：<b>新建服务 / 从模板创建 / 复制配置创建一律只在 web 端</b>。移动端只做「用服务」——看列表 → 进空间 → 会话 / 产物 / 待办 / 设置；页头不再有「＋ 新建」，三个空态都指向电脑端创建。',
+      '<b>卡片整卡可点 → 服务概览</b>（v1.5）：服务的默认落点是<b>概览</b>、不是对话页——先看全貌（进展 / 重点记录 / 最近动态）再聊；点 ⋯ 只开菜单、不跳转。',
+      '<b>按钮缩小、信息前置</b>（v1.6）：整宽大按钮缩成右下小按钮——整卡可点后按钮只是强化入口，不必占 1/3 卡片高度。<b>内容区 = 最新动态</b>（v1.13）：服务描述从卡片删掉（描述在建服务时看一次就够了，天天刷列表的人要的是「最近发生了什么」），原位置放动态时间线的最新一条 + 「更新于 ××」，与动态页同一真源（<code>service_facts</code> / <code>service_reminder_history</code>）；点动态文字直达「动态」页，返回键按来源回列表。'
+    ]},
+  space: { goal:'日常待得最久的一屏。改动集中在服务头与新建会话。',
+    pts:[
+      '<b>服务头收口：</b>9 个入口 → 产物 / 待办 / ⋯。移动端把「产物 N · 待办 N · 成员」压成标题下一条<b>信息条</b>，右上只留 ＋ 与 ⋯。',
+      '<b>标题跟随中间内容：</b>聊天区显示会话标题（下方灰字回落服务名），点 ＋ 后显示「新的会话」。',
+      '<b>＋ 新建会话：</b>点一下对话区直接切空态，不弹窗、不跳「新增页」，原会话自动收好。',
+      '<b>无会话态不是空白：</b>输入框保持可用 + 示例引导。'
+    ],
+    mobile:'<b>这里是全案移动端改动最大的一屏：</b>web 的「左侧服务行悬停 ＋」在触摸设备上无对应交互（没有 hover），本原型把它拆成两处——服务卡片 ⋯ 菜单里的「新建会话」，以及服务空间右上角的 ＋。上一版的实现方式见场景 9 第 2 行。'},
+  artifacts: { goal:'「看」的东西，移动端一律整页，不再用被挤压的浮层。',
+    pts:[
+      '列表每项展示：产物名 + <b>来源会话</b> + 版本 / 条数 / 时间。',
+      '点开进详情预览，返回键回到同一位置。',
+      '现状的「列表 + 内联预览」两个视图在 390px 下都放不下，拆成两跳更清楚。'
+    ]},
+  reminders: { goal:'保留浮层级的核心能力，但把「配」的部分做薄。',
+    pts:[
+      '<b>创建从 6 个字段收到 3 个：</b>标题 / 时间 / 负责人；负责人是<b>人选择器</b>，不填 user_id。',
+      '<b>状态流转</b>改成卡片里的「下一步 ▾」就地推进，不再开弹窗。',
+      '<b>协作</b>改成卡内展开；「归入上级待办」移进详情。',
+      '顶部三态分段：待处理 / 进行中 / 已完成，各带计数。'
+    ],
+    api:'默认四态由后端自动生成，key 后端生成、category 按 is_terminal 推导 —— 界面不设自定义状态入口。'},
+  overview: { goal:'移动端的服务首页（v1.8 tab 分类；v1.17 重点记录并入概览）：头部身份卡 + 四个 tab，一屏一件事。',
+    pts:[
+      '<b>结构对标 WorkBuddy 移动端项目详情</b>：顶部导航（返回 + 标题）→ 一张<b>服务身份卡</b>（头像 + 名称 + 「家长与学员 · 5 位成员」）→ 一排<b>下划线 tab</b> → 当前 tab 内容。',
+      '<b>四个 tab：</b>概览 / 待办 / 动态 / 产物。<b>重点记录已并入概览 tab</b>（v1.17）——4 条记录半屏都填不满，独立 tab 让用户多点一次才看到最该看的家庭状态；tab 一律不带角标（数字只在概览出现一次）。',
+      '<b>tab 用下划线式</b>（激活项加粗 + 品牌色下划线）；4 个 tab 在 390px 内一排放得下，不需要横滚。',
+      '<b>概览 tab 一屏讲完全貌</b>：进展摘要三段式（结论 / 需留意 / 下一步，可刷新）→ 关键数字三格（「待处理」点一下<b>页内切到待办 tab</b>）→ <b>重点记录 2×2 网格</b>（右上灰字「AI 自动维护」）→ 一行<b>只读</b>「服务成员 + 名单」。',
+      '<b>简洁做法</b>：产物不再重复出卡片（有独立 tab）；成员不进 tab，用一行代替两个 tile；身份卡不摆「3 段工作」这类后台口径。',
+      '<b>零配置（v1.11）</b>：本页不含任何配置入口——身份卡无 ⚙、重点记录无「编辑」（改由 AI 自动维护，右上只写一行灰字说明）、成员行只读。使用者在这里只会做两件事：看结论、去聊天。',
+      '<b>底部会话入口（v1.9）</b>：不用整宽绿色按钮，改成 WorkBuddy 式<b>会话输入条</b>——圆角条 + 「进入会话，接着说…」+ 麦克风 + 品牌色箭头，点任意处进入会话；一屏只留一个视觉锚点。',
+      '<b>落点</b>（v1.5）：列表点卡片直接进本页；底部输入条再下到对话区；返回键按来源回（列表 / 会话）。'
+    ]},
+  subjects: { goal:'名字改成「服务对象」；对象由对话自动沉淀，移动端只读。',
+    pts:[
+      '列表每个对象显示：名称 + 类型 + 最近一条变化 + 变化条数。',
+      '<b>零配置（v1.11）</b>：对象不是用户建的，也不是用户维护的——从对话里自动识别沉淀；页头「＋ 新增对象」与详情里的「归到某个对象下」「引用编号」已全部删除。',
+      '<code>subject_type</code> 默认 <code>custom</code>、<code>subject_key</code> 后端生成；界面不出现 <code>member-001</code> 这类值。'
+    ],
+    api:'创建只传名称即可 —— 后端收 <code>{name}</code> 就该能建，缺省在服务端补全；移动端不提供创建入口。'},
+  activity: { goal:'新能力：按时间倒序统计这个空间里的变化，主体变化优先。',
+    pts:[
+      '<b>筛选</b>：全部 / 只看主体变化 / 只看空间动作，以及按对象筛；按天分组。',
+      '<b>主体变化行</b>：对象名 · 字段 · <span style="text-decoration:line-through">旧值</span> → 新值 · 依据回链 · 谁记的。',
+      '<b>空间动作行</b>：新增/改名对象、带入/撤销资料、产物更新、成员变更、服务暂停归档、<b>待办终态</b>。',
+      '<b>待办只记终态</b>：已完成 / 已取消各出一条；过程翻转（待处理→进行中）不记。'
+    ],
+    api:'不建新表。主体变化读 <code>service_facts</code>（append-only、带 <code>subject_id</code>）；空间动作读审计里已在写的 <code>service.*</code> 事件；待办终态读 <code>service_reminder_history</code>。需补：审计的 <code>service_id</code> 查询维度、<code>fact_append</code> 细目补 <code>subject_id</code>/字段值、服务级 history 聚合端点。'},
+  diff: { goal:'把「手机上和 web 不一样」的地方一次讲清楚，避免研发照搬 web 交互。',
+    pts:[
+      '每一行都写明<b>为什么必须改</b>——是设备约束（无 hover、390px），不是设计偏好。',
+      '最后一条是<b>开工前要对齐的导航口径</b>：真机底部「服务」tab 现状是待办聚合页，客户空间在抽屉里。',
+      '若按本原型落地，底部 tab 要改成服务模块入口，抽屉里的客户空间保留为快捷入口。'
+    ],
+    mobile:'这一屏不需要开发，是给产品与研发对齐用的。'}
+};
+
+var RENDER = {};
+SCENES.forEach(function(s){ RENDER[s.key] = s.render; });
+
+function layout(){
+  var s = SCENES.filter(function(x){ return x.key === state.scene; })[0] || SCENES[0];
+  state.scene = s.key;
+  $('#barTitle').textContent = s.label;
+  $('#barPath').textContent = s.path;
+  $('#phone').innerHTML = RENDER[s.key]();
+  $('#rail').innerHTML = SCENES.map(function(x){
+    return '<button class="rail-btn' + (x.key === s.key ? ' on' : '') + '" data-scene="' + x.key + '">' +
+      '<span class="idx">' + x.n + '</span><span class="lb">' + x.label + '</span></button>';
+  }).join('');
+  renderSide();
+  renderBar();
+}
+
+function renderSide(){
+  var sp = SPECS[state.scene] || { goal:'', pts:[] };
+  var h = '<div class="pcard"><h3>' + (SCENES.filter(function(x){ return x.key === state.scene; })[0] || {}).label + '</h3>' +
+    '<p class="pgoal">' + sp.goal + '</p><div class="plabel">设计要点</div><ul class="plist">' +
+    sp.pts.map(function(p, i){ return '<li><span class="n">' + (i + 1) + '</span>' + p + '</li>'; }).join('') +
+    '</ul>' +
+    (sp.mobile ? '<div class="pnote"><b>移动端适配</b>' + sp.mobile + '</div>' : '') +
+    (sp.api ? '<div class="papi">' + sp.api + '</div>' : '') +
+    '</div>';
+  $('#pside').innerHTML = h;
+}
+
+function renderBar(){
+  var br = $('#barRight');
+  if (state.scene === 'list'){
+    br.innerHTML = ['data|有服务','new|新用户','arch|全部已归档','none|搜索无结果'].map(function(x){
+      var p = x.split('|');
+      return '<button class="chip' + (state.lmode === p[0] ? ' on' : '') + '" data-lmode="' + p[0] + '">' + p[1] + '</button>';
+    }).join('');
+  } else if (state.scene === 'space'){
+    br.innerHTML = ['chat|有会话','empty|空态','new|新会话'].map(function(x){
+      var p = x.split('|');
+      return '<button class="chip' + (state.smode === p[0] ? ' on' : '') + '" data-smode="' + p[0] + '">' + p[1] + '</button>';
+    }).join('') + '<button class="chip' + (state.more ? ' on' : '') + '" data-more>' + (state.more ? '收起 ⋯' : '展开 ⋯') + '</button>';
+  } else if (state.scene === 'overview'){
+    br.innerHTML = [['home','概览'],['todo','待办'],['act','动态'],['res','产物']].map(function(p){
+      return '<button class="chip' + (state.ovTab === p[0] ? ' on' : '') + '" data-otab="' + p[0] + '">' + p[1] + '</button>';
+    }).join('');
+  } else if (state.scene === 'subjects'){
+    br.innerHTML = ['list|列表','detail|详情'].map(function(x){
+      var p = x.split('|');
+      return '<button class="chip' + (state.sub === p[0] ? ' on' : '') + '" data-submode="' + p[0] + '">' + p[1] + '</button>';
+    }).join('');
+  } else if (state.scene === 'reminders'){
+    br.innerHTML = [['open','待处理'],['doing','进行中'],['done','已完成']].map(function(p){
+      return '<button class="chip' + (state.ttab === p[0] ? ' on' : '') + '" data-ttab="' + p[0] + '">' + p[1] + '</button>';
+    }).join('');
+  } else br.innerHTML = '';
+}
+
+/* ═══════════════════════════════════════════════════════
+   交互（事件委托）
+   ═══════════════════════════════════════════════════════ */
+document.addEventListener('click', function(e){
+  /* 只有点到灰色遮罩本身才关闭弹层；点弹层内部不关 */
+  if (e.target.classList && e.target.classList.contains('ov')){
+    state.more = false; state.svcSheet = null; return layout();
+  }
+  var t = e.target.closest('[data-scene],[data-go],[data-lmode],[data-smode],[data-submode],[data-ttab],[data-otab],[data-more],[data-nc],[data-ncnext],[data-sub],[data-ov],[data-tnew],[data-more-svc]');
+  if (!t) return;
+  if (t.hasAttribute('data-scene')){ state.scene = t.getAttribute('data-scene'); state.more = false; state.svcSheet = null; history.replaceState(null,'','#'+state.scene); return layout(); }
+  if (t.hasAttribute('data-go')){
+    var g = t.getAttribute('data-go');
+    if (g === 'overview') state.ovFrom = t.getAttribute('data-ovfrom') || 'space';
+    if (g === 'activity') state.actFrom = t.getAttribute('data-actfrom') || 'space';
+    state.scene = g; state.more = false; state.svcSheet = null;
+    history.replaceState(null,'','#'+state.scene); return layout();
+  }
+  if (t.hasAttribute('data-lmode')){ state.lmode = t.getAttribute('data-lmode'); return layout(); }
+  if (t.hasAttribute('data-smode')){ state.smode = t.getAttribute('data-smode'); state.more = false; return layout(); }
+  if (t.hasAttribute('data-submode')){ state.sub = t.getAttribute('data-submode'); return layout(); }
+  if (t.hasAttribute('data-ttab')){ state.ttab = t.getAttribute('data-ttab'); return layout(); }
+  if (t.hasAttribute('data-otab')){ state.ovTab = t.getAttribute('data-otab'); return layout(); }
+  if (t.hasAttribute('data-sub')){ state.sub = 'detail'; return layout(); }
+  if (t.hasAttribute('data-more')){ state.more = !state.more; return layout(); }
+  if (t.hasAttribute('data-nc')){ state.smode = 'new'; state.more = false; return layout(); }
+  if (t.hasAttribute('data-ncnext')){ state.scene = 'space'; state.smode = 'new'; state.svcSheet = null; history.replaceState(null,'','#space'); return layout(); }
+  if (t.hasAttribute('data-more-svc')){ state.svcSheet = t.getAttribute('data-more-svc'); return layout(); }
+  return; /* 弹层内部未接线的项：保持弹层不关，等实现接线 */
+});
+window.addEventListener('hashchange', function(){
+  var k = (location.hash||'').replace('#','');
+  if (k && k !== state.scene){ state.scene = k; layout(); }
+});
+layout();
+</script>
+</body>
+</html>

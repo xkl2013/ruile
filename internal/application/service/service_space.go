@@ -132,6 +132,16 @@ func (s *serviceSpaceService) Create(
 	userID string,
 	input types.ServiceSpaceCreateInput,
 ) (*types.ServiceSpaceView, error) {
+	return s.create(ctx, tenantID, userID, input, true)
+}
+
+func (s *serviceSpaceService) create(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	input types.ServiceSpaceCreateInput,
+	autoConfigure bool,
+) (*types.ServiceSpaceView, error) {
 	if err := validateServiceSpaceScope(tenantID, userID); err != nil {
 		return nil, err
 	}
@@ -143,12 +153,23 @@ func (s *serviceSpaceService) Create(
 	if utf8.RuneCountInString(instruction) > types.MaxCustomPromptInstructionsLength {
 		return nil, fmt.Errorf("service instruction exceeds %d characters", types.MaxCustomPromptInstructionsLength)
 	}
+	var instructionBlueprint *types.ServiceSpaceBlueprint
+	if instruction != "" {
+		blueprint := buildInstructionBlueprint(instruction)
+		instructionBlueprint = &blueprint
+	}
 	spaceType := types.ServiceSpaceType(strings.TrimSpace(input.SpaceType))
+	if spaceType == "" && instructionBlueprint != nil {
+		spaceType = instructionBlueprint.ProposedSpaceType
+	}
 	if spaceType == "" {
 		spaceType = types.ServiceSpaceTypeCustomerService
 	}
 	if !spaceType.IsValid() {
 		return nil, ErrServiceSpaceInvalidType
+	}
+	if instructionBlueprint != nil {
+		instructionBlueprint.ProposedSpaceType = spaceType
 	}
 	experts, err := buildServiceExperts(tenantID, userID, "", input.Experts)
 	if err != nil {
@@ -187,6 +208,11 @@ func (s *serviceSpaceService) Create(
 	if err := s.repo.Create(ctx, service, owner, experts); err != nil {
 		return nil, err
 	}
+	if autoConfigure && instructionBlueprint != nil {
+		if err := s.persistInstructionBlueprint(ctx, tenantID, userID, service.ID, *instructionBlueprint); err != nil {
+			return nil, err
+		}
+	}
 	view, err := s.Get(ctx, tenantID, userID, service.ID)
 	if err != nil {
 		return nil, err
@@ -198,6 +224,50 @@ func (s *serviceSpaceService) Create(
 		"space_type": service.SpaceType,
 	})
 	return view, nil
+}
+
+func (s *serviceSpaceService) persistInstructionBlueprint(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	blueprint types.ServiceSpaceBlueprint,
+) error {
+	now := time.Now().UTC()
+	blueprint.TenantID = tenantID
+	blueprint.ServiceID = serviceID
+	blueprint.SourceType = types.ServiceSpaceBlueprintSourceInstruction
+	blueprint.Status = types.ServiceSpaceBlueprintStatusConfirmed
+	blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationInstructionAutoApply
+	blueprint.Version = 1
+	blueprint.ProfileVersion = 1
+	blueprint.ProfileHash = profileHash(tenantID, userID)
+	blueprint.ConfirmedBy = userID
+	blueprint.ConfirmedAt = &now
+	if err := blueprint.Validate(); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(blueprint)
+	if err != nil {
+		return err
+	}
+	record := &types.ServiceSpaceBlueprintRecord{
+		TenantID:          tenantID,
+		ServiceID:         serviceID,
+		Version:           blueprint.Version,
+		SourceType:        string(blueprint.SourceType),
+		SourceInstruction: blueprint.SourceInstruction,
+		Blueprint:         types.JSON(encoded),
+		Status:            string(blueprint.Status),
+		ConfirmationMode:  string(blueprint.ConfirmationMode),
+		ProfileVersion:    blueprint.ProfileVersion,
+		ProfileHash:       blueprint.ProfileHash,
+		ConfirmedBy:       blueprint.ConfirmedBy,
+		ConfirmedAt:       blueprint.ConfirmedAt,
+	}
+	if err := s.repo.CreateBlueprint(ctx, record); err != nil {
+		return err
+	}
+	return s.initializeProfileAndSummary(ctx, tenantID, serviceID, blueprint)
 }
 
 func (s *serviceSpaceService) ListTemplates(
@@ -315,7 +385,7 @@ func (s *serviceSpaceService) ApplyTemplate(
 	if description == "" {
 		description = template.Name
 	}
-	service, err := s.Create(ctx, tenantID, userID, types.ServiceSpaceCreateInput{
+	service, err := s.create(ctx, tenantID, userID, types.ServiceSpaceCreateInput{
 		Name:             input.Name,
 		SpaceType:        string(blueprint.ProposedSpaceType),
 		Description:      description,
@@ -324,7 +394,7 @@ func (s *serviceSpaceService) ApplyTemplate(
 		TemplateKey:      template.Key,
 		Experts:          expertInputs,
 		Activate:         template.AutoActivate,
-	})
+	}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -2153,10 +2223,10 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 	subjectRequired := true
 	allowedTypes := []string{"service_subject"}
 	switch {
-	case strings.Contains(text, "调研") || strings.Contains(text, "竞品") || strings.Contains(text, "研究") || strings.Contains(text, "课题"):
+	case instructionContainsAny(text, "调研", "竞品", "研究", "课题", "教研", "备课"):
 		spaceType = types.ServiceSpaceTypeResearch
 		allowedTypes = []string{"research_subject"}
-	case strings.Contains(text, "巡查") || strings.Contains(text, "运营") || strings.Contains(text, "活动") || strings.Contains(text, "排期"):
+	case instructionContainsAny(text, "巡查", "运营", "园务", "活动执行", "排期", "排班"):
 		spaceType = types.ServiceSpaceTypeOperations
 		subjectRequired = false
 		allowedTypes = nil
@@ -2164,18 +2234,27 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 	profileSchema := []types.ServiceSpaceProfileField{
 		{
 			Key: "current_status", Label: "当前状态", ValueType: "text", Source: "facts",
+			Aliases:        []string{"当前阶段", "服务阶段"},
 			ExtractionHint: "提取明确描述的当前状态、阶段或处理结果",
 			DisplayOrder:   1,
 		},
 		{
 			Key: "key_focus", Label: "重点关注", ValueType: "text", Source: "facts",
+			Aliases:        []string{"核心诉求", "需求", "顾虑"},
 			ExtractionHint: "提取明确表达的重点关注、需求或顾虑",
 			DisplayOrder:   2,
 		},
 		{
-			Key: "next_actions", Label: "下一步动作", ValueType: "text", Source: "facts",
-			ExtractionHint: "只提取已明确约定的下一步动作，不从建议中推断",
+			Key: "risks", Label: "风险信号", ValueType: "text", Source: "facts",
+			Aliases:        []string{"风险", "卡点"},
+			ExtractionHint: "只提取明确出现的风险、异议或阻碍",
 			DisplayOrder:   3,
+		},
+		{
+			Key: "next_actions", Label: "下一步动作", ValueType: "text", Source: "facts",
+			Aliases:        []string{"下一步", "待跟进"},
+			ExtractionHint: "只提取已明确约定的下一步动作，不从建议中推断",
+			DisplayOrder:   4,
 		},
 	}
 	summarySchema := []types.ServiceSpaceSummarySection{
@@ -2183,7 +2262,37 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 		{Key: "risks", Label: "风险与卡点", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
 		{Key: "next_actions", Label: "下一步动作", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
 	}
-	if strings.Contains(text, "会员") || strings.Contains(text, "家长") || strings.Contains(text, "续费") || strings.Contains(text, "孩子") {
+	switch spaceType {
+	case types.ServiceSpaceTypeOperations:
+		profileSchema = []types.ServiceSpaceProfileField{
+			{Key: "current_status", Label: "当前进展", ValueType: "text", Source: "facts", Aliases: []string{"当前状态", "进展"}, ExtractionHint: "提取明确描述的执行进展或完成情况", ConfidenceThreshold: 0.8, DisplayOrder: 1},
+			{Key: "owner", Label: "负责人", ValueType: "text", Source: "facts", Aliases: []string{"责任人", "执行人"}, ExtractionHint: "提取明确指定的负责人或协作人", ConfidenceThreshold: 0.8, DisplayOrder: 2},
+			{Key: "risks", Label: "风险与卡点", ValueType: "text", Source: "facts", Aliases: []string{"风险", "问题", "阻碍"}, ExtractionHint: "只提取明确出现的风险、问题或阻碍", ConfidenceThreshold: 0.8, DisplayOrder: 3},
+			{Key: "next_actions", Label: "下一步动作", ValueType: "text", Source: "facts", Aliases: []string{"下一步", "待办"}, ExtractionHint: "只提取已明确约定的下一步动作", ConfidenceThreshold: 0.8, DisplayOrder: 4},
+			{Key: "deadline", Label: "完成时间", ValueType: "text", Source: "facts", Aliases: []string{"截止时间", "完成日期"}, ExtractionHint: "提取明确约定的完成时间或截止日期", ConfidenceThreshold: 0.8, DisplayOrder: 5},
+		}
+		summarySchema = []types.ServiceSpaceSummarySection{
+			{Key: "progress", Label: "执行进展", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+			{Key: "owners", Label: "分工与负责人", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+			{Key: "risks", Label: "风险与卡点", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+			{Key: "next_actions", Label: "下一步动作", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
+		}
+	case types.ServiceSpaceTypeResearch:
+		profileSchema = []types.ServiceSpaceProfileField{
+			{Key: "research_question", Label: "研究问题", ValueType: "text", Source: "facts", Aliases: []string{"调研课题", "研究主题", "课题"}, ExtractionHint: "提取本次研究需要回答的核心问题", ConfidenceThreshold: 0.8, AskWhenMissing: true, DisplayOrder: 1},
+			{Key: "key_findings", Label: "关键发现", ValueType: "text", Source: "facts", Aliases: []string{"发现", "观察"}, ExtractionHint: "提取已经获得支持的关键发现或观察", ConfidenceThreshold: 0.8, DisplayOrder: 2},
+			{Key: "evidence", Label: "事实依据", ValueType: "text", Source: "facts", Aliases: []string{"证据", "数据", "依据"}, ExtractionHint: "提取支持发现的事实、数据或来源", ConfidenceThreshold: 0.8, DisplayOrder: 3},
+			{Key: "conclusion", Label: "阶段结论", ValueType: "text", Source: "facts", Aliases: []string{"结论", "判断"}, ExtractionHint: "提取已明确形成的阶段结论，并与建议区分", ConfidenceThreshold: 0.8, DisplayOrder: 4},
+			{Key: "next_actions", Label: "下一步验证", ValueType: "text", Source: "facts", Aliases: []string{"下一步", "待验证"}, ExtractionHint: "提取下一步需要验证的问题或行动", ConfidenceThreshold: 0.8, DisplayOrder: 5},
+		}
+		summarySchema = []types.ServiceSpaceSummarySection{
+			{Key: "question", Label: "研究问题", SourceScopes: []string{"facts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 1},
+			{Key: "findings", Label: "关键发现与依据", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 2},
+			{Key: "conclusion", Label: "阶段结论", SourceScopes: []string{"facts", "artifacts"}, RefreshPolicy: "on_fact_change", DisplayOrder: 3},
+			{Key: "next_validation", Label: "下一步验证", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
+		}
+	}
+	if spaceType == types.ServiceSpaceTypeCustomerService && instructionContainsAny(text, "会员", "家长", "续费", "孩子", "学员") {
 		allowedTypes = []string{"member_family"}
 		profileSchema = []types.ServiceSpaceProfileField{
 			{Key: "member_status", Label: "会员状态", ValueType: "text", Source: "facts", Aliases: []string{"会员状态", "会员情况"}, ExtractionHint: "提取会员当前状态或服务阶段", ConfidenceThreshold: 0.8, DisplayOrder: 1},
@@ -2211,6 +2320,15 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 		ConfirmationMode: types.ServiceSpaceBlueprintConfirmationPending,
 		Version:          1,
 	}
+}
+
+func instructionContainsAny(instruction string, keywords ...string) bool {
+	for _, keyword := range keywords {
+		if strings.Contains(instruction, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func builtinServiceTemplates() []*types.ServiceSpaceTemplate {

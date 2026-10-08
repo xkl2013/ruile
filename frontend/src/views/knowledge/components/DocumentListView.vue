@@ -113,6 +113,9 @@ interface StatusInfo {
   spin?: boolean;
 }
 const computeStatus = (item: KnowledgeItem): StatusInfo => {
+  if (item.parse_status === 'unparsed') {
+    return { label: t('knowledgeBase.statusUnparsed'), theme: 'default', icon: 'file' };
+  }
   if (item.parse_status === 'pending' || item.parse_status === 'processing') {
     return { label: t('knowledgeBase.statusProcessing'), theme: 'primary', icon: 'loading', spin: true };
   }

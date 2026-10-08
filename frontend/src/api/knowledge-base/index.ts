@@ -373,6 +373,7 @@ export function uploadKnowledgeFile(
     file: File
     tag_ids?: string[]
     fileName?: string
+    parse_enabled?: boolean
     process_config?: KnowledgeProcessOverrides | string
     [key: string]: any
   } = { file: new File([], '') },
@@ -508,6 +509,10 @@ export function downKnowledgeDetails(id: string) {
 
 export function previewKnowledgeFile(id: string) {
   return getDown(`/api/v1/knowledge/${id}/preview`);
+}
+
+export function getKnowledgePreviewUrl(id: string) {
+  return get(`/api/v1/knowledge/${id}/preview-url`);
 }
 
 /** @param idsQueryString - query string with ids (e.g. ids=xxx&ids=yyy) */

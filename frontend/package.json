@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
-    "test": "tsx --test"
+    "test": "tsx --test",
+    "postinstall": "node scripts/patch-vue-office-pptx.mjs"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^7.0.1",

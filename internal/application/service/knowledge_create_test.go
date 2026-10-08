@@ -22,6 +22,7 @@ type createKnowledgeFileRepoStub struct {
 	createCalls      int
 	createErr        error
 	createdKnowledge *types.Knowledge
+	knowledgeByID    *types.Knowledge
 }
 
 func (r *createKnowledgeFileRepoStub) CheckKnowledgeExists(
@@ -38,6 +39,14 @@ func (r *createKnowledgeFileRepoStub) CreateKnowledge(ctx context.Context, knowl
 	copied := *knowledge
 	r.createdKnowledge = &copied
 	return r.createErr
+}
+
+func (r *createKnowledgeFileRepoStub) GetKnowledgeByID(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (*types.Knowledge, error) {
+	return r.knowledgeByID, nil
 }
 
 // GetKnowledgeTags is invoked by setAndAttachKnowledgeTags after create even
@@ -68,6 +77,7 @@ type createKnowledgeFileServiceStub struct {
 	savedWithKnowledgeID string
 	deleteCalls          int
 	deletedPath          string
+	fileURL              string
 }
 
 func (s *createKnowledgeFileServiceStub) CheckConnectivity(ctx context.Context) error {
@@ -103,6 +113,9 @@ func (s *createKnowledgeFileServiceStub) GetFile(ctx context.Context, filePath s
 }
 
 func (s *createKnowledgeFileServiceStub) GetFileURL(ctx context.Context, filePath string) (string, error) {
+	if s.fileURL != "" {
+		return s.fileURL, nil
+	}
 	return "", errors.New("not implemented")
 }
 
@@ -151,6 +164,7 @@ func TestCreateKnowledgeFromFileDoesNotPersistWhenStorageSaveFails(t *testing.T)
 		nil,
 		"",
 		nil,
+		true,
 	)
 
 	require.Error(t, err)
@@ -182,6 +196,7 @@ func TestCreateKnowledgeFromFilePersistsStoredFilePathOnCreate(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 
 	require.NoError(t, err)
@@ -193,6 +208,72 @@ func TestCreateKnowledgeFromFilePersistsStoredFilePathOnCreate(t *testing.T) {
 	require.NotNil(t, repo.createdKnowledge)
 	require.Equal(t, "stored/"+knowledge.ID, repo.createdKnowledge.FilePath)
 	require.Equal(t, 1, task.calls)
+}
+
+func TestCreateKnowledgeFromFileStoresUnparsedFileWithoutTask(t *testing.T) {
+	t.Parallel()
+
+	repo := &createKnowledgeFileRepoStub{}
+	fileSvc := &createKnowledgeFileServiceStub{}
+	task := &createKnowledgeTaskEnqueuerStub{}
+	svc := &knowledgeService{
+		repo:      repo,
+		kbService: &createKnowledgeFileKBServiceStub{kb: &types.KnowledgeBase{ID: "kb-1"}},
+		fileSvc:   fileSvc,
+		task:      task,
+	}
+
+	knowledge, err := svc.CreateKnowledgeFromFile(
+		newCreateKnowledgeFileContext(),
+		"kb-1",
+		newMultipartFileHeader(t, "recording.mp3", "fake audio bytes"),
+		nil,
+		nil,
+		"",
+		nil,
+		"",
+		&types.KnowledgeProcessOverrides{
+			ASRConfig: &types.ASRConfig{Enabled: true},
+		},
+		false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, knowledge)
+	require.Equal(t, types.ParseStatusUnparsed, knowledge.ParseStatus)
+	require.Equal(t, "disabled", knowledge.EnableStatus)
+	require.Equal(t, 1, fileSvc.saveCalls)
+	require.Equal(t, 1, repo.createCalls)
+	require.Zero(t, task.calls)
+	overrides, err := knowledge.ProcessOverrides()
+	require.NoError(t, err)
+	require.Nil(t, overrides)
+}
+
+func TestGetKnowledgeFileURLReturnsStorageProviderURL(t *testing.T) {
+	t.Parallel()
+
+	const signedURL = "https://bucket.oss.example.com/document.pdf?signature=abc"
+	repo := &createKnowledgeFileRepoStub{
+		knowledgeByID: &types.Knowledge{
+			ID:              "knowledge-1",
+			KnowledgeBaseID: "kb-1",
+			Type:            "file",
+			FileName:        "document.pdf",
+			FilePath:        "stored/document.pdf",
+		},
+	}
+	svc := &knowledgeService{
+		repo:      repo,
+		kbService: &createKnowledgeFileKBServiceStub{kb: &types.KnowledgeBase{ID: "kb-1"}},
+		fileSvc:   &createKnowledgeFileServiceStub{fileURL: signedURL},
+	}
+
+	fileURL, filename, err := svc.GetKnowledgeFileURL(newCreateKnowledgeFileContext(), "knowledge-1")
+
+	require.NoError(t, err)
+	require.Equal(t, signedURL, fileURL)
+	require.Equal(t, "document.pdf", filename)
 }
 
 func TestCreateKnowledgeFromFileUsesExplicitStorageBackend(t *testing.T) {
@@ -238,6 +319,7 @@ func TestCreateKnowledgeFromFileUsesExplicitStorageBackend(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 
 	require.NoError(t, err)
@@ -267,6 +349,7 @@ func TestCreateKnowledgeFromFileDeletesStoredFileWhenCreateFails(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 
 	require.EqualError(t, err, "database unavailable")
@@ -305,6 +388,7 @@ func TestCreateKnowledgeFromFile_PersistsProcessOverrides(t *testing.T) {
 		nil,
 		"",
 		overrides,
+		true,
 	)
 
 	require.NoError(t, err)
@@ -346,6 +430,7 @@ func TestCreateKnowledgeFromFile_AllowsImageWithoutVLM(t *testing.T) {
 		nil,
 		"",
 		nil,
+		true,
 	)
 
 	require.NoError(t, err)
@@ -381,6 +466,7 @@ func TestCreateKnowledgeFromFile_ImageDefaultsMultimodalOffWhenKBHasVLM(t *testi
 		nil,
 		"",
 		nil,
+		true,
 	)
 
 	require.NoError(t, err)
@@ -420,6 +506,7 @@ func TestCreateKnowledgeFromFile_ImageUsesExplicitMultimodal(t *testing.T) {
 		nil,
 		"",
 		overrides,
+		true,
 	)
 
 	require.NoError(t, err)
@@ -457,6 +544,7 @@ func TestCreateKnowledgeFromFile_RejectsImageWhenMultimodalEnabledWithoutVLM(t *
 		nil,
 		"",
 		overrides,
+		true,
 	)
 
 	require.Error(t, err)

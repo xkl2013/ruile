@@ -58,6 +58,8 @@ func (c *catalogStub) ResolveAccessGrant(context.Context, string) (*types.Stored
 type physicalFileStub struct {
 	savedPath string
 	readPath  string
+	urlPath   string
+	fileURL   string
 }
 
 func (s *physicalFileStub) CheckConnectivity(context.Context) error { return nil }
@@ -73,8 +75,11 @@ func (s *physicalFileStub) GetFile(_ context.Context, path string) (io.ReadClose
 	s.readPath = path
 	return io.NopCloser(strings.NewReader("body")), nil
 }
-func (s *physicalFileStub) GetFileURL(context.Context, string) (string, error) { return "", nil }
-func (s *physicalFileStub) DeleteFile(context.Context, string) error           { return nil }
+func (s *physicalFileStub) GetFileURL(_ context.Context, path string) (string, error) {
+	s.urlPath = path
+	return s.fileURL, nil
+}
+func (s *physicalFileStub) DeleteFile(context.Context, string) error { return nil }
 func (s *physicalFileStub) CopyFile(context.Context, string, uint64, string) (string, error) {
 	return "", nil
 }
@@ -104,4 +109,23 @@ func TestResourceCatalogFileServiceReturnsShortExternalGrantURL(t *testing.T) {
 	externalURL, err := svc.GetFileURL(context.Background(), ref)
 	require.NoError(t, err)
 	require.Equal(t, "https://weknora.example.com/r/GrantTokenAbCdEfGhIjKl", externalURL)
+}
+
+func TestResourceCatalogFileServiceReturnsProviderDirectURL(t *testing.T) {
+	t.Setenv("APP_EXTERNAL_URL", "https://weknora.example.com/")
+	inner := &physicalFileStub{
+		savedPath: "oss://bucket/tenant/doc.pdf",
+		fileURL:   "https://bucket.oss.example.com/tenant/doc.pdf?signature=abc",
+	}
+	catalog := &catalogStub{}
+	svc := NewResourceCatalogFileService(inner, catalog)
+
+	ref, err := svc.SaveBytes(context.Background(), []byte("pdf"), 7, "doc.pdf", false)
+	require.NoError(t, err)
+	directSvc, ok := svc.(interfaces.DirectFileURLService)
+	require.True(t, ok)
+	directURL, err := directSvc.GetDirectFileURL(context.Background(), ref)
+	require.NoError(t, err)
+	require.Equal(t, inner.fileURL, directURL)
+	require.Equal(t, inner.savedPath, inner.urlPath)
 }

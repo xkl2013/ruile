@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
 const dialog = readFileSync(new URL('./ServiceCreateDialog.vue', import.meta.url), 'utf8')
+const knowledgeBasePicker = readFileSync(new URL('./ServiceKnowledgeBasePickerDialog.vue', import.meta.url), 'utf8')
 const hub = readFileSync(new URL('./ServiceHub.vue', import.meta.url), 'utf8')
 const hubState = readFileSync(new URL('./serviceHubState.ts', import.meta.url), 'utf8')
 const menu = readFileSync(new URL('../../components/ServiceHubMenu.vue', import.meta.url), 'utf8')
@@ -20,21 +21,38 @@ test('service creation has a routed page mode and loads account-visible knowledg
   assert.match(hub, /if \(isCreateRoute\) view\.value = 'create'\s+await loadServiceHub\(\)/)
   assert.match(dialog, /fetchMyKnowledgeBases\(true\)/)
   assert.match(dialog, /validAccountKnowledgeBases/)
+  assert.match(dialog, /ServiceKnowledgeBasePickerDialog/)
+  assert.match(dialog, /v-model:visible="knowledgeBasePickerVisible"/)
   assert.match(dialog, /知识库/)
   assert.match(hub, /instruction: payload\.instruction/)
-  assert.match(hub, /space_type: payload\.spaceType/)
+  assert.doesNotMatch(hub, /space_type: payload\.spaceType/)
   assert.match(router, /path: "service\/new"/)
   assert.match(router, /name: "serviceCreate"/)
+})
+
+test('knowledge-base add action opens a searchable permission-scoped multi-select dialog', () => {
+  assert.doesNotMatch(dialog, /knowledgeBasePickerOpen/)
+  assert.match(dialog, /@click="knowledgeBasePickerVisible = true"/)
+  assert.match(knowledgeBasePicker, /当前账号有权访问的全部知识库/)
+  assert.match(knowledgeBasePicker, /filteredKnowledgeBases/)
+  assert.match(knowledgeBasePicker, /draftSelectedIds/)
+  assert.match(knowledgeBasePicker, /accessSourceLabel/)
+  assert.match(knowledgeBasePicker, /permissionLabel/)
+  assert.match(knowledgeBasePicker, /case 'created'/)
+  assert.match(knowledgeBasePicker, /case 'shared_space'/)
+  assert.match(knowledgeBasePicker, /case 'subscription'/)
+  assert.match(knowledgeBasePicker, /confirm: \[ids: string\[\]\]/)
 })
 
 test('service creation stays business-facing and does not expose skills or machine keys', () => {
   assert.doesNotMatch(dialog, /技能/)
   assert.doesNotMatch(hub, /serviceSkills/)
   assert.doesNotMatch(dialog, /space_key|expert_ref|subject_ref/)
-  assert.match(dialog, /主要围绕谁工作/)
-  assert.match(dialog, /家长与学员/)
-  assert.match(dialog, /园所日常运营/)
-  assert.match(dialog, /教研与备课/)
+  assert.doesNotMatch(dialog, /主要围绕谁工作/)
+  assert.doesNotMatch(dialog, /serviceTypeOptions|spaceType/)
+  assert.match(dialog, /系统会根据工作指令生成重点记录/)
+  assert.match(dialog, /请描述这个服务要完成的工作/)
+  assert.match(dialog, /!form\.name\.trim\(\) \|\| !form\.instruction\.trim\(\)/)
 })
 
 test('service experts come from published system experts and use a searchable picker', () => {
@@ -72,6 +90,7 @@ test('templates live under my services and populate the creation dialog', () => 
 test('planned service flow creates and activates without a blueprint confirmation step', () => {
   assert.match(hub, /applyServiceTemplate/)
   assert.match(hub, /activate: true/)
+  assert.match(hub, /if \(!selectedTemplate\?\.autoApply\)/)
   assert.doesNotMatch(hub, /previewServiceBlueprint/)
   assert.doesNotMatch(hub, /confirmServiceBlueprint/)
   assert.doesNotMatch(hub, /确认服务空间蓝图/)

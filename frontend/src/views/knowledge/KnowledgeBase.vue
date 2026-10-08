@@ -525,6 +525,7 @@ const fileTypeOptions = computed(() => [
 const selectedParseStatus = ref('');
 const parseStatusOptions = computed(() => [
   { label: t('knowledgeBase.allParseStatuses'), value: '' },
+  { label: t('knowledgeBase.parseStatusUnparsed'), value: 'unparsed' },
   { label: t('knowledgeBase.parseStatusPending'), value: 'pending' },
   { label: t('knowledgeBase.parseStatusProcessing'), value: 'processing' },
   { label: t('knowledgeBase.parseStatusCompleted'), value: 'completed' },
@@ -616,6 +617,7 @@ const directoryForm = reactive({
   description: '',
 });
 const collapsedDirectoryPaths = ref<Set<string>>(new Set());
+const directoryExpansionCustomized = ref(false);
 const directorySaving = ref(false);
 const directoryCountsByPath = ref<Record<string, number>>({});
 const directoryRootTotal = ref(0);
@@ -1019,6 +1021,7 @@ const toggleDirectoryCollapsed = (path: string) => {
     next.add(path);
   }
   collapsedDirectoryPaths.value = next;
+  directoryExpansionCustomized.value = true;
 };
 
 const expandDirectoryAncestors = (path: string) => {
@@ -1030,6 +1033,19 @@ const expandDirectoryAncestors = (path: string) => {
     next.delete(parts.slice(0, index).join('/'));
   }
   collapsedDirectoryPaths.value = next;
+  directoryExpansionCustomized.value = true;
+};
+
+const getDefaultCollapsedDirectoryPaths = (directories: DirectoryNode[]) => {
+  const availablePaths = new Set(directories.map(directory => directory.path));
+  const parentPaths = new Set<string>();
+  for (const directory of directories) {
+    const parentPath = getDirectoryParentPath(directory.path);
+    if (parentPath && availablePaths.has(parentPath)) {
+      parentPaths.add(parentPath);
+    }
+  }
+  return parentPaths;
 };
 
 const visibleDirectoryTreeRows = computed<DirectoryTreeRow[]>(() => {
@@ -1452,6 +1468,7 @@ const getDirectoryTitle = (directory: DirectoryNode) => {
 watch(kbId, () => {
   activeDirectoryPath.value = DIRECTORY_ROOT_PATH;
   collapsedDirectoryPaths.value = new Set();
+  directoryExpansionCustomized.value = false;
   clearDirectoryCounts();
   applyDirectoryState({ rootDescription: '', directories: [], directoryOrders: [] });
 }, { immediate: true });
@@ -1464,6 +1481,10 @@ watch([documentDirectoryNodes, rootDirectoryCount], () => {
 
 watch(documentDirectoryNodes, (directories) => {
   const availablePaths = new Set(directories.map(directory => directory.path));
+  if (!directoryExpansionCustomized.value) {
+    collapsedDirectoryPaths.value = getDefaultCollapsedDirectoryPaths(directories);
+    return;
+  }
   const next = new Set([...collapsedDirectoryPaths.value].filter(path => availablePaths.has(path)));
   if (next.size !== collapsedDirectoryPaths.value.size) {
     collapsedDirectoryPaths.value = next;
@@ -2358,7 +2379,7 @@ const cancelKnowledgeUpload = () => {
 
 const executeUploadBatch = async (
   files: File[],
-  options: { processConfig?: KnowledgeProcessOverrides } = {},
+  options: { processConfig?: KnowledgeProcessOverrides; parseEnabled?: boolean } = {},
 ) => {
   const targetKbId = kbId.value;
   if (!targetKbId || files.length === 0) {
@@ -2409,6 +2430,7 @@ const executeUploadBatch = async (
         file: File
         tag_ids?: string[]
         fileName?: string
+        parse_enabled?: boolean
         process_config?: KnowledgeProcessOverrides
       } = { file, tag_ids: tagIdsToUpload };
 
@@ -2417,7 +2439,8 @@ const executeUploadBatch = async (
         activeDirectoryPath.value,
         (file as File & { webkitRelativePath?: string }).webkitRelativePath,
       );
-      if (options.processConfig) {
+      uploadData.parse_enabled = options.parseEnabled ?? true;
+      if (uploadData.parse_enabled && options.processConfig) {
         uploadData.process_config = options.processConfig;
       }
 
@@ -2557,7 +2580,8 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
 
   const files = result.files || [];
   const urls = result.urls || [];
-  const processConfig = result.processConfig;
+  const parseEnabled = result.parseEnabled !== false;
+  const processConfig = parseEnabled ? result.processConfig : undefined;
 
   if (files.length === 0 && urls.length === 0) return;
   if (uploading.value) return;
@@ -2573,7 +2597,7 @@ const handleUploadConfirmResult = async (result: UploadConfirmResult) => {
       if (hasFolderPaths) {
         MessagePlugin.info(t('knowledgeBase.uploadingFolder', { total: files.length }));
       }
-      await executeUploadBatch(files, { processConfig });
+      await executeUploadBatch(files, { processConfig, parseEnabled });
     }
 
     if (!uploadCancelled.value) {

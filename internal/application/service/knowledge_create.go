@@ -26,6 +26,7 @@ import (
 func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 	kbID string, file *multipart.FileHeader, metadata map[string]string, enableMultimodel *bool, customFileName string, tagIDs []string, channel string,
 	processOverrides *types.KnowledgeProcessOverrides,
+	parseEnabled bool,
 ) (*types.Knowledge, error) {
 	logger.Info(ctx, "Start creating knowledge from file")
 
@@ -119,34 +120,41 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 	}
 
 	fileType := getFileType(safeFilename)
-	eff := ResolveProcessConfig(kb, processOverrides)
-	if enableMultimodel != nil && (processOverrides == nil || processOverrides.EnableMultimodel == nil) {
-		eff.EnableMultimodel = *enableMultimodel
-	}
-	eff = applyImageUploadMultimodalDefault(eff, []string{fileType}, processOverrides, enableMultimodel)
-
-	if processOverrides != nil {
-		if err := ValidateProcessOverrides(ctx, kb, processOverrides, []string{fileType}); err != nil {
-			return nil, err
+	var eff types.EffectiveProcessConfig
+	if parseEnabled {
+		eff = ResolveProcessConfig(kb, processOverrides)
+		if enableMultimodel != nil && (processOverrides == nil || processOverrides.EnableMultimodel == nil) {
+			eff.EnableMultimodel = *enableMultimodel
 		}
-	} else {
-		if IsImageType(fileType) {
-			if err := validateImageStorageConfig(ctx, kb); err != nil {
+		eff = applyImageUploadMultimodalDefault(eff, []string{fileType}, processOverrides, enableMultimodel)
+
+		if processOverrides != nil {
+			if err := ValidateProcessOverrides(ctx, kb, processOverrides, []string{fileType}); err != nil {
 				return nil, err
 			}
-			if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() && !eff.OCRConfig.IsEnabled() {
-				return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM或OCR模型")
+		} else {
+			if IsImageType(fileType) {
+				if err := validateImageStorageConfig(ctx, kb); err != nil {
+					return nil, err
+				}
+				if eff.EnableMultimodel && !eff.VLMConfig.IsEnabled() && !eff.OCRConfig.IsEnabled() {
+					return nil, werrors.NewBadRequestError("上传图片文件需要设置VLM或OCR模型")
+				}
 			}
-		}
 
-		if IsAudiovisualType(fileType) && !kb.ASRConfig.IsASREnabled() {
-			logger.Error(ctx, "ASR model is not configured")
-			return nil, werrors.NewBadRequestError("上传音视频文件需要设置ASR语音识别模型")
+			if IsAudiovisualType(fileType) && !kb.ASRConfig.IsASREnabled() {
+				logger.Error(ctx, "ASR model is not configured")
+				return nil, werrors.NewBadRequestError("上传音视频文件需要设置ASR语音识别模型")
+			}
 		}
 	}
 
 	// Prepare knowledge record
 	logger.Info(ctx, "Preparing knowledge record")
+	parseStatus := types.ParseStatusPending
+	if !parseEnabled {
+		parseStatus = types.ParseStatusUnparsed
+	}
 	knowledge := &types.Knowledge{
 		ID:               uuid.New().String(),
 		TenantID:         tenantID,
@@ -158,7 +166,7 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		FileType:         fileType,
 		FileSize:         file.Size,
 		FileHash:         hash,
-		ParseStatus:      "pending",
+		ParseStatus:      parseStatus,
 		EnableStatus:     "disabled",
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
@@ -166,7 +174,7 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 		Metadata:         metadataJSON,
 	}
 
-	if processOverrides != nil {
+	if parseEnabled && processOverrides != nil {
 		if err := knowledge.SetProcessOverrides(processOverrides); err != nil {
 			logger.Errorf(ctx, "Failed to set process overrides: %v", err)
 			return nil, err
@@ -197,6 +205,11 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 	if err := s.setAndAttachKnowledgeTags(ctx, tenantID, kbID, knowledge, tagIDs); err != nil {
 		logger.Errorf(ctx, "Failed to set knowledge tags, knowledge ID: %s, error: %v", knowledge.ID, err)
 		return nil, err
+	}
+
+	if !parseEnabled {
+		logger.Infof(ctx, "Knowledge file stored without parsing, ID: %s", knowledge.ID)
+		return knowledge, nil
 	}
 
 	// Enqueue document processing task to Asynq

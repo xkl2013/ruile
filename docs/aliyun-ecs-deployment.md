@@ -293,6 +293,10 @@ set_env OSS_ACCESS_KEY "your-access-key-id"
 set_env OSS_SECRET_KEY "your-access-key-secret"
 set_env OSS_BUCKET_NAME "your-bucket-name"
 set_env OSS_PATH_PREFIX "weknora/"
+set_env OSS_PUBLIC_ENDPOINT "https://files.example.com"
+set_env OSS_PUBLIC_BUCKET_NAME "your-bucket-name"
+set_env OSS_BROWSER_PREVIEW_CORS_ENABLED "true"
+set_env OSS_BROWSER_PREVIEW_ALLOWED_ORIGINS "*"
 
 docker compose up -d app
 ```
@@ -301,6 +305,9 @@ docker compose up -d app
 
 - Bucket 与 ECS 使用同一地域。
 - AccessKey 使用最小权限 RAM 用户，不要使用主账号 AK。
+- `OSS_PUBLIC_ENDPOINT` 填写已绑定到 Bucket 的 OSS CNAME，仅用于生成浏览器直连签名 URL；上传和 Bucket 管理仍走 `OSS_ENDPOINT`。
+- `APP_EXTERNAL_URL` 必须填写 WeKnora 应用本身的公网地址，不要填写 OSS CNAME。
+- 确认实际应用域名后，可将 `OSS_BROWSER_PREVIEW_ALLOWED_ORIGINS` 从 `*` 收紧为一个或多个应用 Origin（逗号分隔）。
 - 面向飞书、企微、Slack 等 IM 渠道时，文件链接必须从公网可达；使用 OSS 比本地存储更适合这类场景。
 
 ## 9. 启动服务

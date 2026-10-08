@@ -38,6 +38,9 @@ const isParseInFlight = computed(() =>
 const isSummaryInFlight = computed(() =>
   ['pending', 'processing'].includes(String(props.item.summary_status ?? ''))
 );
+const canRegenerateSummary = computed(() =>
+  props.item.parse_status !== 'unparsed' && !isParseInFlight.value && !isSummaryInFlight.value
+);
 
 const fileName = computed(() => props.item.file_name || props.item.title || props.item.id);
 </script>
@@ -74,7 +77,7 @@ const fileName = computed(() => props.item.file_name || props.item.title || prop
   </t-popconfirm>
 
   <!-- 重新生成摘要 -->
-  <div v-if="canMutateKnowledge && !isParseInFlight && !isSummaryInFlight" class="doc-action-menu-item" @click.stop="emit('regenerate-summary')">
+  <div v-if="canMutateKnowledge && canRegenerateSummary" class="doc-action-menu-item" @click.stop="emit('regenerate-summary')">
     <t-icon class="icon" name="refresh" />
     <span>{{ $t('knowledgeBase.regenerateSummary') }}</span>
   </div>

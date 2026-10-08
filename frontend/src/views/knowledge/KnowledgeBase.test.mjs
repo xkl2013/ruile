@@ -34,6 +34,14 @@ test('directory hierarchy uses compact indentation and row-based expansion', () 
   assert.ok(!source.includes('class="directory-tree-icon"'))
 })
 
+test('directory tree defaults to showing only first-level directories', () => {
+  assert.ok(source.includes('const directoryExpansionCustomized = ref(false)'))
+  assert.ok(source.includes('const getDefaultCollapsedDirectoryPaths = (directories: DirectoryNode[]) =>'))
+  assert.ok(source.includes('collapsedDirectoryPaths.value = getDefaultCollapsedDirectoryPaths(directories)'))
+  assert.ok(source.includes('directoryExpansionCustomized.value = true'))
+  assert.ok(source.includes('directoryExpansionCustomized.value = false'))
+})
+
 test('knowledge base write controls use the authoritative access projection', () => {
   assert.ok(source.includes('canWriteKnowledgeBase'))
   assert.ok(source.includes('orgStore.getSharedKnowledgeBase(kbId.value)'))

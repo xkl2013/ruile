@@ -50,10 +50,10 @@
                 v-model="form.name"
                 size="medium"
                 placeholder="例如：秋季招生咨询"
-                :status="formError ? 'error' : undefined"
-                @input="formError = ''"
+                :status="nameError ? 'error' : undefined"
+                @input="nameError = ''"
               />
-              <small v-if="formError" class="service-create-error">{{ formError }}</small>
+              <small v-if="nameError" class="service-create-error">{{ nameError }}</small>
             </div>
 
             <div class="service-create-field service-create-instruction-field">
@@ -65,32 +65,14 @@
                 :placeholder="form.templateId ? '模板指令已填充，可按需要补充' : '例如：跟进秋季招生线索，重点记录家长顾虑与到访意向；涉及课程与价格时先查知识库'"
                 :maxlength="4000"
                 :autosize="{ minRows: 4, maxRows: 8 }"
+                :status="instructionError ? 'error' : undefined"
+                @input="instructionError = ''"
               />
+              <small v-if="instructionError" class="service-create-error">{{ instructionError }}</small>
+              <small v-else class="service-create-field-hint">
+                系统会根据工作指令生成重点记录，创建后可在服务设置中调整
+              </small>
             </div>
-
-            <section class="service-create-type-section">
-              <div class="service-create-type-heading">
-                <strong>主要围绕谁工作</strong>
-                <span>用于预设服务的记录方式，创建后仍可调整</span>
-              </div>
-              <div class="service-create-type-options">
-                <button
-                  v-for="option in serviceTypeOptions"
-                  :key="option.value"
-                  type="button"
-                  class="service-create-type-option"
-                  :class="{ selected: form.spaceType === option.value }"
-                  @click="form.spaceType = option.value"
-                >
-                  <t-icon :name="option.icon" />
-                  <span>
-                    <strong>{{ option.label }}</strong>
-                    <small>{{ option.description }}</small>
-                  </span>
-                  <t-icon v-if="form.spaceType === option.value" name="check-circle-filled" class="service-create-type-check" />
-                </button>
-              </div>
-            </section>
 
             <section class="service-create-option-section">
               <button
@@ -139,9 +121,9 @@
               <button
                 type="button"
                 class="service-create-option-row"
-                :class="{ expanded: knowledgeBasePickerOpen }"
-                :aria-expanded="knowledgeBasePickerOpen"
-                @click="knowledgeBasePickerOpen = !knowledgeBasePickerOpen"
+                :class="{ expanded: form.knowledgeBaseIds.length > 0 }"
+                :aria-expanded="knowledgeBasePickerVisible"
+                @click="knowledgeBasePickerVisible = true"
               >
                 <span class="service-create-option-title">
                   <strong>知识库</strong>
@@ -151,56 +133,9 @@
                   </span>
                 </span>
                 <span class="service-create-option-action">
-                  {{ knowledgeBasePickerOpen ? '收起' : '+ 添加' }}
+                  {{ form.knowledgeBaseIds.length ? '调整' : '+ 添加' }}
                 </span>
               </button>
-
-              <div v-if="knowledgeBasePickerOpen" class="service-create-picker service-create-kb-picker">
-                <div class="service-create-kb-toolbar">
-                  <t-input v-model="knowledgeBaseQuery" size="small" placeholder="搜索知识库">
-                    <template #prefix-icon><t-icon name="search" /></template>
-                  </t-input>
-                  <span v-if="knowledgeBasesLoading" class="service-create-kb-status">正在加载</span>
-                </div>
-
-                <div v-if="knowledgeBasesLoading" class="service-create-picker-empty">
-                  <t-icon name="loading" class="service-create-loading-icon" />
-                  正在加载权限内的知识库
-                </div>
-                <div v-else-if="knowledgeBasesError" class="service-create-picker-empty service-create-picker-error">
-                  {{ knowledgeBasesError }}
-                  <button type="button" @click="loadKnowledgeBases">重试</button>
-                </div>
-                <div v-else-if="filteredKnowledgeBases.length" class="service-create-kb-list">
-                  <button
-                    v-for="knowledgeBase in filteredKnowledgeBases"
-                    :key="knowledgeBase.id"
-                    type="button"
-                    class="service-create-picker-option"
-                    :class="{ selected: form.knowledgeBaseIds.includes(String(knowledgeBase.id)) }"
-                    @click="toggleKnowledgeBase(String(knowledgeBase.id))"
-                  >
-                    <span class="service-create-picker-copy">
-                      <span class="service-create-kb-name-line">
-                        <KnowledgeBaseIcon
-                          :icon="knowledgeBase.icon"
-                          :icon-url="knowledgeBase.icon_url"
-                          :type="knowledgeBase.type"
-                          size="small"
-                        />
-                        <strong>{{ knowledgeBase.name }}</strong>
-                      </span>
-                      <small>{{ knowledgeBaseMeta(knowledgeBase) }}</small>
-                    </span>
-                    <span class="service-create-picker-check">
-                      <t-icon :name="form.knowledgeBaseIds.includes(String(knowledgeBase.id)) ? 'check' : 'add'" />
-                    </span>
-                  </button>
-                </div>
-                <div v-else class="service-create-picker-empty">
-                  {{ knowledgeBaseQuery ? '没有找到匹配的知识库' : '当前没有可用的知识库' }}
-                </div>
-              </div>
 
               <div v-if="selectedKnowledgeBases.length" class="service-create-selected-list">
                 <span
@@ -233,6 +168,16 @@
             @retry="loadExperts"
           />
 
+          <ServiceKnowledgeBasePickerDialog
+            v-model:visible="knowledgeBasePickerVisible"
+            :knowledge-bases="knowledgeBases"
+            :selected-ids="form.knowledgeBaseIds"
+            :loading="knowledgeBasesLoading"
+            :error="knowledgeBasesError"
+            @confirm="setSelectedKnowledgeBases"
+            @retry="loadKnowledgeBases"
+          />
+
           <footer class="service-create-dialog-footer">
             <span>创建后直接进入服务，可以马上开始一段工作</span>
             <div class="service-create-dialog-actions">
@@ -241,7 +186,7 @@
                 theme="primary"
                 size="medium"
                 class="service-create-confirm"
-                :disabled="!form.name.trim()"
+                :disabled="!form.name.trim() || !form.instruction.trim()"
                 @click="submit"
               >
                 创建服务
@@ -260,6 +205,7 @@ import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
 import AgentAvatar from '@/components/AgentAvatar.vue'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import ServiceExpertPickerDialog from './ServiceExpertPickerDialog.vue'
+import ServiceKnowledgeBasePickerDialog from './ServiceKnowledgeBasePickerDialog.vue'
 import {
   loadServiceExperts,
   serviceExperts,
@@ -271,7 +217,6 @@ import {
 } from './serviceHubState'
 
 type ServiceCreateSource = ServiceTemplate | ServiceRecord | null
-type ServiceSpaceType = 'customer_service' | 'operations' | 'research'
 type KnowledgeBaseOption = {
   id: string
   name: string
@@ -303,7 +248,6 @@ const emit = defineEmits<{
     templateId: string
     expertIds: string[]
     knowledgeBaseIds: string[]
-    spaceType: ServiceSpaceType
   }]
 }>()
 
@@ -311,10 +255,10 @@ const chatResources = useChatResourcesStore()
 const knowledgeBases = computed<KnowledgeBaseOption[]>(() => chatResources.validAccountKnowledgeBases as KnowledgeBaseOption[])
 const knowledgeBasesLoading = ref(false)
 const knowledgeBasesError = ref('')
-const knowledgeBaseQuery = ref('')
 const expertPickerVisible = ref(false)
-const knowledgeBasePickerOpen = ref(false)
-const formError = ref('')
+const knowledgeBasePickerVisible = ref(false)
+const nameError = ref('')
+const instructionError = ref('')
 const form = reactive({
   name: '',
   description: '',
@@ -322,34 +266,7 @@ const form = reactive({
   templateId: '',
   expertIds: [] as string[],
   knowledgeBaseIds: [] as string[],
-  spaceType: 'customer_service' as ServiceSpaceType,
 })
-
-const serviceTypeOptions: Array<{
-  value: ServiceSpaceType
-  label: string
-  description: string
-  icon: string
-}> = [
-  {
-    value: 'customer_service',
-    label: '家长与学员',
-    description: '持续跟进家庭、学员、会员与招生线索',
-    icon: 'usergroup',
-  },
-  {
-    value: 'operations',
-    label: '园所日常运营',
-    description: '围绕活动、巡查、团队与跨岗位协作',
-    icon: 'task',
-  },
-  {
-    value: 'research',
-    label: '教研与备课',
-    description: '沉淀观察、课题、课程与可复用经验',
-    icon: 'book-open',
-  },
-]
 
 const isCopyMode = computed(() => Boolean(props.source && 'templateId' in props.source))
 const selectedTemplate = computed(() => serviceTemplates.find((template) => template.id === form.templateId))
@@ -359,11 +276,6 @@ const selectedExperts = computed(() => form.expertIds
 const selectedKnowledgeBases = computed(() => form.knowledgeBaseIds
   .map((id) => knowledgeBases.value.find((knowledgeBase) => String(knowledgeBase.id) === id))
   .filter((knowledgeBase): knowledgeBase is KnowledgeBaseOption => Boolean(knowledgeBase)))
-const filteredKnowledgeBases = computed(() => {
-  const query = knowledgeBaseQuery.value.trim().toLowerCase()
-  if (!query) return knowledgeBases.value
-  return knowledgeBases.value.filter((knowledgeBase) => knowledgeBase.name.toLowerCase().includes(query))
-})
 
 const sourceTemplate = (source: ServiceCreateSource) => {
   if (!source) return undefined
@@ -387,11 +299,10 @@ const resetForm = () => {
     ? [...service.expertIds]
     : expertIdsForTemplate(template)
   form.knowledgeBaseIds = service?.knowledgeBaseIds ? [...service.knowledgeBaseIds] : []
-  form.spaceType = service?.spaceType || template?.spaceType || 'customer_service'
-  formError.value = ''
-  knowledgeBaseQuery.value = ''
+  nameError.value = ''
+  instructionError.value = ''
   expertPickerVisible.value = false
-  knowledgeBasePickerOpen.value = false
+  knowledgeBasePickerVisible.value = false
 }
 
 const loadExperts = async () => {
@@ -404,6 +315,10 @@ const loadExperts = async () => {
 
 const setSelectedExperts = (expertIds: string[]) => {
   form.expertIds = [...expertIds]
+}
+
+const setSelectedKnowledgeBases = (knowledgeBaseIds: string[]) => {
+  form.knowledgeBaseIds = [...knowledgeBaseIds]
 }
 
 const syncTemplateExperts = () => {
@@ -439,19 +354,6 @@ const toggleKnowledgeBase = (knowledgeBaseId: string) => {
     : [...form.knowledgeBaseIds, knowledgeBaseId]
 }
 
-const knowledgeBaseMeta = (knowledgeBase: KnowledgeBaseOption) => {
-  const count = knowledgeBase.type === 'faq'
-    ? knowledgeBase.chunk_count || 0
-    : knowledgeBase.knowledge_count || 0
-  return `${count} 条内容${knowledgeBase.updated_at ? ` · 更新于 ${formatDate(knowledgeBase.updated_at)}` : ''}`
-}
-
-const formatDate = (value: string) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return `${date.getMonth() + 1}-${String(date.getDate()).padStart(2, '0')}`
-}
-
 const close = () => {
   emit('update:visible', false)
 }
@@ -459,17 +361,21 @@ const close = () => {
 const submit = () => {
   const name = form.name.trim()
   if (!name) {
-    formError.value = '请输入服务名称'
+    nameError.value = '请输入服务名称'
+    return
+  }
+  const instruction = form.instruction.trim()
+  if (!instruction) {
+    instructionError.value = '请描述这个服务要完成的工作'
     return
   }
   emit('submit', {
     name,
     description: form.description.trim(),
-    instruction: form.instruction.trim(),
+    instruction,
     templateId: form.templateId,
     expertIds: [...form.expertIds],
     knowledgeBaseIds: [...form.knowledgeBaseIds],
-    spaceType: form.spaceType,
   })
 }
 
@@ -732,95 +638,19 @@ watch(
   line-height: 1.55;
 }
 
-.service-create-type-section {
-  margin: 0 0 18px;
-}
-
-.service-create-type-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.service-create-type-heading strong {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 20px;
-}
-
-.service-create-type-heading span {
-  color: var(--td-text-color-placeholder);
-  font-size: 11px;
-  line-height: 18px;
-}
-
-.service-create-type-options {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.service-create-type-option {
-  display: grid;
-  position: relative;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  min-height: 72px;
-  gap: 10px;
-  padding: 10px 32px 10px 12px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-  background: var(--td-bg-color-container);
-  color: var(--td-text-color-primary);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-
-.service-create-type-option:hover,
-.service-create-type-option.selected {
-  border-color: var(--td-brand-color);
-  background: var(--td-brand-color-1);
-}
-
-.service-create-type-option > .t-icon:first-child {
-  color: var(--td-brand-color-7);
-  font-size: 20px;
-}
-
-.service-create-type-option > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.service-create-type-option strong {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 20px;
-}
-
-.service-create-type-option small {
-  color: var(--td-text-color-secondary);
-  font-size: 11px;
-  line-height: 17px;
-}
-
-.service-create-type-check {
-  position: absolute;
-  top: 9px;
-  right: 9px;
-  color: var(--td-brand-color);
-}
-
 .service-create-error {
   display: block;
   margin-top: 7px;
   color: var(--td-error-color);
   font-size: 13px;
+}
+
+.service-create-field-hint {
+  display: block;
+  margin-top: 7px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .service-create-option-section {
@@ -882,14 +712,6 @@ watch(
   font-weight: 500;
 }
 
-.service-create-picker {
-  margin: 0 14px 12px;
-  padding: 6px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: 8px;
-  background: var(--td-bg-color-secondarycontainer);
-}
-
 .service-create-expert-list {
   display: grid;
   gap: 1px;
@@ -945,27 +767,6 @@ watch(
   font-size: 12px;
 }
 
-.service-create-picker-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  gap: 12px;
-  padding: 10px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--td-text-color-primary);
-  cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-}
-
-.service-create-picker-option:hover,
-.service-create-picker-option.selected {
-  background: var(--td-bg-color-container);
-}
-
 .service-create-picker-copy {
   display: flex;
   min-width: 0;
@@ -985,90 +786,6 @@ watch(
   line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.service-create-picker-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  flex: none;
-  color: var(--td-text-color-placeholder);
-}
-
-.service-create-picker-option.selected .service-create-picker-check {
-  color: var(--td-brand-color);
-}
-
-.service-create-kb-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-  padding: 0 2px 2px;
-}
-
-.service-create-kb-toolbar :deep(.t-input) {
-  flex: 1;
-}
-
-.service-create-kb-status {
-  flex: none;
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
-.service-create-kb-list {
-  max-height: 150px;
-  overflow-y: auto;
-}
-
-.service-create-kb-name-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.service-create-kb-name-line strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-create-picker-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 56px;
-  gap: 8px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  text-align: center;
-}
-
-.service-create-picker-empty button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--td-brand-color-7);
-  cursor: pointer;
-  font: inherit;
-}
-
-.service-create-picker-error {
-  flex-direction: column;
-}
-
-.service-create-loading-icon {
-  animation: service-create-spin 0.9s linear infinite;
-}
-
-@keyframes service-create-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .service-create-selected-list {
@@ -1220,16 +937,6 @@ watch(
   .service-create-preview-columns {
     grid-template-columns: 1fr;
     gap: 10px;
-  }
-
-  .service-create-type-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .service-create-type-options {
-    grid-template-columns: 1fr;
   }
 
   .service-create-field > label {

@@ -39,15 +39,16 @@ type sharedWriteKnowledgeServiceStub struct {
 	interfaces.KnowledgeService
 	knowledgeByID map[string]*types.Knowledge
 
-	uploadCalled      bool
-	uploadTenantID    uint64
-	uploadKBID        string
-	uploadFilename    string
-	uploadContextErr  error
-	uploadDoneClosed  bool
-	lastBatchCalled   bool
-	lastBatchTenantID uint64
-	lastBatchIDs      []string
+	uploadCalled       bool
+	uploadTenantID     uint64
+	uploadKBID         string
+	uploadFilename     string
+	uploadParseEnabled bool
+	uploadContextErr   error
+	uploadDoneClosed   bool
+	lastBatchCalled    bool
+	lastBatchTenantID  uint64
+	lastBatchIDs       []string
 }
 
 func (s *sharedWriteKnowledgeServiceStub) CreateKnowledgeFromFile(
@@ -60,10 +61,12 @@ func (s *sharedWriteKnowledgeServiceStub) CreateKnowledgeFromFile(
 	_ []string,
 	_ string,
 	_ *types.KnowledgeProcessOverrides,
+	parseEnabled bool,
 ) (*types.Knowledge, error) {
 	s.uploadCalled = true
 	s.uploadKBID = kbID
 	s.uploadFilename = file.Filename
+	s.uploadParseEnabled = parseEnabled
 	s.uploadTenantID, _ = types.TenantIDFromContext(ctx)
 	s.uploadContextErr = ctx.Err()
 	select {
@@ -266,6 +269,14 @@ func (h *sharedWriteHarness) serve(req *http.Request) *httptest.ResponseRecorder
 }
 
 func multipartFileRequest(t *testing.T, method, path, filename, content string) *http.Request {
+	return multipartFileRequestWithFields(t, method, path, filename, content, nil)
+}
+
+func multipartFileRequestWithFields(
+	t *testing.T,
+	method, path, filename, content string,
+	fields map[string]string,
+) *http.Request {
 	t.Helper()
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
@@ -275,6 +286,11 @@ func multipartFileRequest(t *testing.T, method, path, filename, content string) 
 	}
 	if _, err := part.Write([]byte(content)); err != nil {
 		t.Fatalf("write multipart file: %v", err)
+	}
+	for key, value := range fields {
+		if err := w.WriteField(key, value); err != nil {
+			t.Fatalf("write multipart field %s: %v", key, err)
+		}
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("close multipart writer: %v", err)
@@ -328,10 +344,37 @@ func TestSharedKnowledgeFileUploadPermission(t *testing.T) {
 				if got, want := h.kg.uploadFilename, "demo.txt"; got != want {
 					t.Fatalf("upload filename = %q, want %q", got, want)
 				}
+				if !h.kg.uploadParseEnabled {
+					t.Fatal("upload should parse by default")
+				}
 			} else if h.kg.uploadCalled {
 				t.Fatal("upload service should not run for read-only shared members")
 			}
 		})
+	}
+}
+
+func TestKnowledgeFileUploadCanDisableParsing(t *testing.T) {
+	h := newSharedWriteHarness(t, types.TenantRoleContributor, types.OrgRoleEditor)
+	req := multipartFileRequestWithFields(
+		t,
+		http.MethodPost,
+		"/api/v1/knowledge-bases/kb-shared/knowledge/file",
+		"demo.txt",
+		"hello",
+		map[string]string{"parse_enabled": "false"},
+	)
+
+	rec := h.serve(req)
+
+	if got := rec.Code; got != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", got, http.StatusOK, rec.Body.String())
+	}
+	if !h.kg.uploadCalled {
+		t.Fatal("upload service was not called")
+	}
+	if h.kg.uploadParseEnabled {
+		t.Fatal("upload parse flag = true, want false")
 	}
 }
 
