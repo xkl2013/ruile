@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/foundation.dart';
+import 'package:ruile_mobile/recording_card/jieli_recording_card_sync_support.dart';
 import 'package:ruile_mobile/recording_card/recording_card_support.dart';
 
 void main() {
@@ -54,6 +57,109 @@ void main() {
     expect(decoded!.address, 1);
     expect(decoded.headerChecksumValid, isTrue);
     expect(decoded.audioChecksumValid, isTrue);
+  });
+
+  test('matches quick sync events by storage and cluster', () {
+    expect(
+      matchesJieliFileOperationEvent(
+        const {
+          'storage_index': 1,
+          'cluster': 42,
+          'name': 'other.mp3',
+          'task_id': 'task-1',
+        },
+        storageIndex: 1,
+        cluster: 42,
+        fileName: 'recording.mp3',
+        taskId: 'task-1',
+      ),
+      isTrue,
+    );
+  });
+
+  test('matches quick sync events by file name fallback', () {
+    expect(
+      matchesJieliFileOperationEvent(
+        const {'name': 'recording.mp3'},
+        storageIndex: 1,
+        cluster: 42,
+        fileName: 'recording.mp3',
+      ),
+      isTrue,
+    );
+  });
+
+  test('rejects quick sync events from another task', () {
+    expect(
+      matchesJieliFileOperationEvent(
+        const {
+          'storage_index': 1,
+          'cluster': 42,
+          'name': 'recording.mp3',
+          'task_id': 'task-2',
+        },
+        storageIndex: 1,
+        cluster: 42,
+        fileName: 'recording.mp3',
+        taskId: 'task-1',
+      ),
+      isFalse,
+    );
+  });
+
+  test('waits for the downloaded file to contain stable bytes', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'jieli-download-ready-',
+    );
+    try {
+      final file = File('${directory.path}/REC0000.MP3');
+      await file.create();
+      final writeFuture = Future<void>.delayed(
+        const Duration(milliseconds: 40),
+        () => file.writeAsBytes(const [1, 2, 3, 4], flush: true),
+      );
+
+      final bytes = await waitForJieliDownloadedFileReady(
+        file,
+        expectedBytes: 4,
+        timeout: const Duration(seconds: 1),
+        pollInterval: const Duration(milliseconds: 20),
+        stableSampleCount: 1,
+      );
+
+      await writeFuture;
+      expect(bytes, 4);
+    } finally {
+      await directory.delete(recursive: true);
+    }
+  });
+
+  test('finds a recoverable non-empty SDK cache recording', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'jieli-cache-recovery-',
+    );
+    try {
+      final cacheDirectory = Directory(
+        '${directory.path}${Platform.pathSeparator}jieli_recordings',
+      );
+      await cacheDirectory.create();
+      final recording = File(
+        '${cacheDirectory.path}${Platform.pathSeparator}1_7_REC0000.MP3',
+      );
+      await recording.writeAsBytes(const [1, 2, 3], flush: true);
+      final now = DateTime.now();
+
+      final recovered = await findRecoverableJieliCachedAudio(
+        cacheRoot: directory,
+        fileNameNoExt: 'REC0000',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      expect(recovered?.path, recording.path);
+    } finally {
+      await directory.delete(recursive: true);
+    }
   });
 }
 

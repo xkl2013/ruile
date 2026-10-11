@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'recording_card_support.dart';
 
@@ -29,6 +30,126 @@ bool isJieliRecordingAudioFileName(String name) {
 
 bool isJieliRecordingSidecarFileName(String name) {
   return name.trim().toLowerCase().endsWith('.txt');
+}
+
+bool matchesJieliFileOperationEvent(
+  Map<String, Object?> payload, {
+  required int storageIndex,
+  required int cluster,
+  required String fileName,
+  String taskId = '',
+}) {
+  final payloadTaskId = payload['task_id']?.toString().trim() ?? '';
+  if (taskId.isNotEmpty &&
+      payloadTaskId.isNotEmpty &&
+      payloadTaskId != taskId) {
+    return false;
+  }
+
+  final payloadStorageIndex = _readOperationInt(payload['storage_index']);
+  final payloadCluster = _readOperationInt(payload['cluster']);
+  if (payloadStorageIndex >= 0 &&
+      payloadCluster >= 0 &&
+      payloadStorageIndex == storageIndex &&
+      payloadCluster == cluster) {
+    return true;
+  }
+
+  final payloadName = payload['name']?.toString().trim() ?? '';
+  return payloadName.isNotEmpty && payloadName == fileName.trim();
+}
+
+int _readOperationInt(Object? value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString().trim() ?? '') ?? -1;
+}
+
+int jieliFileOperationByteCount(Map<String, Object?> payload) {
+  return _readOperationInt(payload['bytes']).clamp(0, 1 << 62).toInt();
+}
+
+Future<int> waitForJieliDownloadedFileReady(
+  File file, {
+  int expectedBytes = 0,
+  Duration timeout = const Duration(seconds: 8),
+  Duration pollInterval = const Duration(milliseconds: 200),
+  int stableSampleCount = 2,
+}) async {
+  final minimumBytes = expectedBytes > 0 ? expectedBytes : 1;
+  final deadline = DateTime.now().add(timeout);
+  var previousBytes = -1;
+  var stableSamples = 0;
+  var currentBytes = 0;
+
+  while (DateTime.now().isBefore(deadline)) {
+    if (await file.exists()) {
+      currentBytes = await file.length();
+      if (currentBytes > 0 && currentBytes == previousBytes) {
+        stableSamples += 1;
+      } else {
+        stableSamples = 0;
+      }
+      previousBytes = currentBytes;
+      if (currentBytes >= minimumBytes && stableSamples >= stableSampleCount) {
+        return currentBytes;
+      }
+    }
+    await Future<void>.delayed(pollInterval);
+  }
+
+  if (await file.exists()) {
+    currentBytes = await file.length();
+    if (currentBytes >= minimumBytes) return currentBytes;
+  }
+  throw StateError('下载文件为空或尚未完成写入');
+}
+
+Future<File?> findRecoverableJieliCachedAudio({
+  required Directory cacheRoot,
+  required String fileNameNoExt,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Duration maximumTimeDistance = const Duration(hours: 24),
+}) async {
+  final normalizedName = jieliFileNameNoExtension(fileNameNoExt).toLowerCase();
+  if (normalizedName.isEmpty) return null;
+
+  final cacheDirectory = Directory(
+    '${cacheRoot.path}${Platform.pathSeparator}jieli_recordings',
+  );
+  if (!await cacheDirectory.exists()) return null;
+
+  final expectedName = '$normalizedName.mp3';
+  final candidates = <({File file, DateTime modifiedAt, int bytes})>[];
+  await for (final entity in cacheDirectory.list(followLinks: false)) {
+    if (entity is! File) continue;
+    final name =
+        entity.path.split(Platform.pathSeparator).last.trim().toLowerCase();
+    if (name != expectedName && !name.endsWith('_$expectedName')) continue;
+
+    final stat = await entity.stat();
+    if (stat.size <= 0) continue;
+    final createdDistance = stat.modified.difference(createdAt).abs();
+    final updatedDistance = stat.modified.difference(updatedAt).abs();
+    if (createdDistance > maximumTimeDistance &&
+        updatedDistance > maximumTimeDistance) {
+      continue;
+    }
+    candidates.add((
+      file: entity,
+      modifiedAt: stat.modified,
+      bytes: stat.size,
+    ));
+  }
+  if (candidates.isEmpty) return null;
+
+  candidates.sort((a, b) {
+    final modifiedOrder = b.modifiedAt.compareTo(a.modifiedAt);
+    if (modifiedOrder != 0) return modifiedOrder;
+    return b.bytes.compareTo(a.bytes);
+  });
+  return candidates.first.file;
 }
 
 String jieliFileNameNoExtension(String name) {

@@ -1352,6 +1352,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _markActiveReadFailed('SDK 下载文件不存在');
         return;
       }
+      await waitForJieliDownloadedFileReady(
+        sourceFile,
+        expectedBytes: jieliFileOperationByteCount(payload),
+      );
       final deviceId = entry.deviceId;
       final localPath = await _localStore.sourceAudioFilePath(
         deviceId,
@@ -1363,6 +1367,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         await sourceFile.copy(targetFile.path);
       }
       final bytes = await targetFile.length();
+      if (bytes <= 0) {
+        throw StateError('下载文件为空，请重试');
+      }
       debugPrint(
         '[JieliRead] complete local copy target=${targetFile.path} '
         'bytes=$bytes',
@@ -1585,6 +1592,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _markActiveSidecarReadFailed('SDK 下载 TXT 不存在');
         return;
       }
+      await waitForJieliDownloadedFileReady(
+        sourceFile,
+        expectedBytes: jieliFileOperationByteCount(payload),
+      );
       final localPath = await _localStore.sourceAudioFilePath(
         entry.deviceId,
         ref.file.name,

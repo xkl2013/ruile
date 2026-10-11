@@ -1,7 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:video_player/video_player.dart';
 
 import 'package:ruile_mobile/main.dart';
+import 'package:ruile_mobile/recording_card/jieli_recording_card_page.dart';
+import 'package:ruile_mobile/recording_card/recording_card_support.dart';
 
 const _testSession = AuthSession(token: '');
 const _organizeMockEnabled = bool.fromEnvironment('RUILE_ORGANIZE_MOCK');
@@ -9,6 +13,11 @@ const _organizeMockEnabled = bool.fromEnvironment('RUILE_ORGANIZE_MOCK');
 Future<void> _pumpTransition(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 350));
+}
+
+Future<void> _openMemoryTab(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('记忆'));
+  await _pumpTransition(tester);
 }
 
 void main() {
@@ -41,6 +50,19 @@ void main() {
       isFalse,
     );
     expect(isDirectPreviewUrl('oss://bucket/audio.mp3'), isFalse);
+  });
+
+  test('mobile video previews use a native platform surface', () {
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    expect(previewVideoViewType, VideoViewType.platformView);
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    expect(previewVideoViewType, VideoViewType.platformView);
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    expect(previewVideoViewType, VideoViewType.textureView);
   });
 
   testWidgets('shows login page and validates fields', (tester) async {
@@ -99,6 +121,7 @@ void main() {
 
   testWidgets('shows the notes home screen', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await _openMemoryTab(tester);
 
     expect(find.text('搜索记忆'), findsNothing);
     expect(find.text('知识库'), findsOneWidget);
@@ -141,6 +164,7 @@ void main() {
 
   testWidgets('keeps memory content empty without remote data', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await _openMemoryTab(tester);
 
     expect(find.textContaining('燃气轮机'), findsNothing);
     expect(find.textContaining('任何人或事都有高光时刻'), findsNothing);
@@ -149,6 +173,7 @@ void main() {
 
   testWidgets('filters memories from the status overview', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await _openMemoryTab(tester);
 
     expect(
       find.byKey(const Key('memory-status-unorganized')),
@@ -195,18 +220,122 @@ void main() {
     expect(resetBorderColor, initialBorderColor);
   });
 
-  testWidgets('switches between the three primary tabs', (tester) async {
+  testWidgets('switches between the four primary tabs', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
     expect(find.byTooltip('发现'), findsNothing);
+    expect(find.text('小睿来啦'), findsOneWidget);
+    expect(find.byTooltip('小睿'), findsOneWidget);
+    expect(find.byKey(const Key('main-page-header-小睿')), findsOneWidget);
+    expect(find.byTooltip('菜单'), findsOneWidget);
+    expect(
+      find.byKey(const Key('main-header-recording-card-prompt-小睿')),
+      findsOneWidget,
+    );
 
-    await tester.tap(find.byTooltip('服务'));
+    await tester.tap(find.byTooltip('记忆'));
     await _pumpTransition(tester);
+    expect(find.byKey(const Key('main-page-header-记忆')), findsOneWidget);
+    expect(find.byTooltip('菜单'), findsOneWidget);
+    final memoryTitle = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('main-page-header-记忆')),
+        matching: find.text('记忆'),
+      ),
+    );
+    expect(memoryTitle.style?.fontSize, 20);
+
+    await tester.tap(find.byTooltip('整理'));
+    await _pumpTransition(tester);
+    expect(find.byKey(const Key('main-page-header-整理')), findsOneWidget);
+    expect(find.byTooltip('菜单'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('提醒'));
+    await _pumpTransition(tester);
+    expect(find.byKey(const Key('main-page-header-服务提醒')), findsOneWidget);
+    expect(find.byTooltip('菜单'), findsOneWidget);
     expect(find.text('服务提醒'), findsOneWidget);
     expect(find.text('搜索服务提醒'), findsNothing);
     expect(find.byTooltip('清除搜索'), findsNothing);
     expect(find.text('找人'), findsNothing);
     expect(find.text('消息'), findsNothing);
+  });
+
+  testWidgets('opens the recording card from the disconnected header prompt', (
+    tester,
+  ) async {
+    RecordingCardConnectionStatusBus.clear();
+    addTearDown(RecordingCardConnectionStatusBus.clear);
+
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await _openMemoryTab(tester);
+
+    const promptKey = Key('main-header-recording-card-prompt-记忆');
+    expect(find.byKey(promptKey), findsOneWidget);
+
+    RecordingCardConnectionStatusBus.publish(
+      const RecordingCardConnectionStatus(
+        connected: true,
+        deviceName: 'X9',
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(promptKey), findsNothing);
+
+    RecordingCardConnectionStatusBus.clear();
+    await tester.pump();
+    await tester.tap(find.byKey(promptKey));
+    await _pumpTransition(tester);
+
+    expect(find.byType(JieliRecordingCardPage), findsOneWidget);
+  });
+
+  testWidgets('distributes the primary dock tabs evenly', (tester) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    final navigationRect = tester.getRect(
+      find.byKey(const Key('main-dock-navigation')),
+    );
+    const horizontalInset = 8.0;
+    final slotWidth = (navigationRect.width - horizontalInset * 2) / 4;
+    final centers = [
+      tester.getCenter(find.byTooltip('小睿')),
+      tester.getCenter(find.byTooltip('记忆')),
+      tester.getCenter(find.byTooltip('整理')),
+      tester.getCenter(find.byTooltip('提醒')),
+    ];
+
+    for (var index = 0; index < centers.length; index++) {
+      expect(
+        centers[index].dx,
+        closeTo(
+          navigationRect.left + horizontalInset + slotWidth * (index + 0.5),
+          1,
+        ),
+      );
+    }
+  });
+
+  testWidgets('shared main header fits a compact mobile viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await _openMemoryTab(tester);
+    expect(find.byKey(const Key('main-page-header-记忆')), findsOneWidget);
+
+    await tester.tap(find.byTooltip('提醒'));
+    await _pumpTransition(tester);
+
+    expect(find.byKey(const Key('main-page-header-服务提醒')), findsOneWidget);
+    expect(find.byTooltip('菜单'), findsOneWidget);
+    expect(find.byTooltip('客户空间'), findsOneWidget);
+    expect(find.byTooltip('刷新服务提醒'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('opens discover below the daily report in the drawer', (
@@ -440,6 +569,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await _openMemoryTab(tester);
 
     await tester.tap(find.widgetWithText(OutlinedButton, '更多'));
     await _pumpTransition(tester);
@@ -458,6 +588,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await _openMemoryTab(tester);
 
     expect(find.text('金句名言'), findsNothing);
     expect(find.text('罗胖60秒·十年合集'), findsNothing);

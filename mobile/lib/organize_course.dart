@@ -169,7 +169,7 @@ class _OrganizeCourseLesson {
 
   Color get typeColor {
     if (isVideo) return AppColors.accent;
-    if (isAudio) return const Color(0xFFD87600);
+    if (isAudio) return AppColors.warning;
     return AppColors.control;
   }
 
@@ -565,7 +565,7 @@ class _OrganizeCourseDetailPageState extends State<_OrganizeCourseDetailPage> {
                   _KnowledgeRoundButton(
                     tooltip: '返回',
                     icon: Icons.chevron_left,
-                    backgroundColor: const Color(0xFFF4F5F8),
+                    backgroundColor: AppColors.xiaoSoft,
                     size: 40,
                     iconSize: 24,
                     onTap: () => Navigator.maybePop(context),
@@ -738,7 +738,7 @@ class _CourseLessonRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final enabled = lesson.available;
     return Material(
-      color: enabled ? AppColors.surface : const Color(0xFFF7F8FB),
+      color: enabled ? AppColors.surface : AppColors.xiaoSoft,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: enabled ? onTap : null,
@@ -931,7 +931,7 @@ class _OrganizeCourseLessonPageState extends State<_OrganizeCourseLessonPage> {
                 _KnowledgeRoundButton(
                   tooltip: '返回',
                   icon: Icons.chevron_left,
-                  backgroundColor: const Color(0xFFF4F5F8),
+                  backgroundColor: AppColors.xiaoSoft,
                   size: 40,
                   iconSize: 24,
                   onTap: () => Navigator.maybePop(context),
@@ -1257,7 +1257,10 @@ class _OrganizeCourseVideoPlayerState
         lessonId: widget.lessonId,
       );
       if (!mounted) return;
-      controller = VideoPlayerController.networkUrl(Uri.parse(streamUrl));
+      controller = VideoPlayerController.networkUrl(
+        Uri.parse(streamUrl),
+        viewType: previewVideoViewType,
+      );
       _initializingController = controller;
       await controller.initialize();
       _initializingController = null;

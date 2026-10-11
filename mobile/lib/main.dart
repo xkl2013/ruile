@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -59,7 +61,7 @@ class RuileMobileApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const brandColor = AppColors.control;
+    const brandColor = AppColors.xiaoPrimary;
 
     return MaterialApp(
       title: '睿乐大脑',
@@ -112,6 +114,16 @@ class AuthSession {
   final String tenantName;
 }
 
+class _AuthConfig {
+  const _AuthConfig({
+    required this.smsLoginEnabled,
+    required this.smsCooldownSeconds,
+  });
+
+  final bool smsLoginEnabled;
+  final int smsCooldownSeconds;
+}
+
 class _DirectPreviewSource {
   const _DirectPreviewSource({
     required this.url,
@@ -142,6 +154,19 @@ bool isDirectPreviewUrl(String rawUrl) {
     return false;
   }
   return true;
+}
+
+VideoViewType get previewVideoViewType {
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android:
+    case TargetPlatform.iOS:
+      return VideoViewType.platformView;
+    case TargetPlatform.fuchsia:
+    case TargetPlatform.linux:
+    case TargetPlatform.macOS:
+    case TargetPlatform.windows:
+      return VideoViewType.textureView;
+  }
 }
 
 Future<File?> findCachedAudioFileForPreview({
@@ -409,14 +434,31 @@ class _OrganizeOutputReadStore {
 }
 
 class AppColors {
-  static const background = Color(0xFFF5F6FA);
-  static const surface = Colors.white;
-  static const textPrimary = Color(0xFF252B35);
-  static const textSecondary = Color(0xFF737A86);
-  static const textTertiary = Color(0xFFA9AFBA);
-  static const border = Color(0xFFE9EBF0);
-  static const accent = Color(0xFF23B99D);
-  static const control = Color(0xFF536071);
+  static const background = Color(0xFFF6F4FC);
+  static const xiaoBackground = Color(0xFFF6F4FC);
+  static const xiaoSurface = Color(0xFFFFFFFF);
+  static const xiaoPrimary = Color(0xFF534AB7);
+  static const xiaoDeep = Color(0xFF26215C);
+  static const xiaoSoft = Color(0xFFEEEDFE);
+  static const xiaoBorder = Color(0xFFCECBF6);
+  static const surface = xiaoSurface;
+  static const textPrimary = xiaoDeep;
+  static const textSecondary = Color(0xFF77728F);
+  static const textTertiary = Color(0xFF9A96B5);
+  static const border = xiaoBorder;
+  static const accent = xiaoPrimary;
+  static const control = xiaoDeep;
+  static const success = Color(0xFF1D9E75);
+  static const successSoft = Color(0xFFE4F4EC);
+  static const successBorder = Color(0xFFCDEFE4);
+  static const info = Color(0xFF7A70D8);
+  static const infoSoft = xiaoSoft;
+  static const infoBorder = xiaoBorder;
+  static const warning = Color(0xFFD87600);
+  static const warningSoft = Color(0xFFFEF5E6);
+  static const danger = Color(0xFFC43A31);
+  static const dangerSoft = Color(0xFFFFF0EE);
+  static const dangerBorder = Color(0xFFFFD1CB);
 
   const AppColors._();
 }
@@ -425,6 +467,12 @@ class AppTextStyles {
   static const pageTitle = TextStyle(
     fontSize: 24,
     height: 1.28,
+    color: AppColors.textPrimary,
+    fontWeight: FontWeight.w700,
+  );
+  static const mainHeaderTitle = TextStyle(
+    fontSize: 20,
+    height: 1.2,
     color: AppColors.textPrimary,
     fontWeight: FontWeight.w700,
   );
@@ -551,13 +599,54 @@ class _RuileApiClient {
       throw const FormatException('登录响应格式无效');
     }
 
-    final data = payload['data'] is Map<String, dynamic>
-        ? payload['data'] as Map<String, dynamic>
-        : payload;
-    final success = payload['success'] != false && data['success'] != false;
+    return _parseAuthSession(payload);
+  }
+
+  Future<_AuthConfig> fetchAuthConfig() async {
+    final payload = await _getJson('/api/v1/auth/config');
+    final data = _asMap(_unwrapData(payload));
+    return _AuthConfig(
+      smsLoginEnabled: data['sms_login_enabled'] == true,
+      smsCooldownSeconds:
+          _readInt(data, const ['sms_send_cooldown_seconds']) ?? 60,
+    );
+  }
+
+  Future<void> sendLoginCode({
+    required String phone,
+  }) async {
+    final payload = await _postJson('/api/v1/auth/sms/send-code', {
+      'phone': phone.trim(),
+    });
+    final root = _asMap(payload);
+    final data = _asMap(_unwrapData(payload));
+    final success = root['success'] != false && data['success'] != false;
     if (!success) {
       throw HttpException(
-          _readString(data, const ['message'], fallback: '登录失败'));
+        _readString(data, const ['message'], fallback: '验证码发送失败'),
+      );
+    }
+  }
+
+  Future<AuthSession> loginWithCode({
+    required String phone,
+    required String code,
+  }) async {
+    final payload = await _postJson('/api/v1/auth/sms/login', {
+      'phone': phone.trim(),
+      'code': code.trim(),
+    });
+    return _parseAuthSession(payload);
+  }
+
+  AuthSession _parseAuthSession(Object? payload) {
+    final root = _asMap(payload);
+    final data = _asMap(_unwrapData(payload));
+    final success = root['success'] != false && data['success'] != false;
+    if (!success) {
+      throw HttpException(
+        _readString(data, const ['message'], fallback: '登录失败'),
+      );
     }
 
     final token = _readString(data, const ['token', 'access_token']);
@@ -2149,24 +2238,63 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   static const _legalConsentError = '请先阅读并同意《服务协议》和《隐私政策》';
   static final _phonePattern = RegExp(r'^1[3-9]\d{9}$');
+  static final _codePattern = RegExp(r'^\d{4,8}$');
   static final _letterPattern = RegExp(r'[a-zA-Z]');
   static final _numberPattern = RegExp(r'\d');
 
   final _formKey = GlobalKey<FormState>();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _codeController = TextEditingController();
   final _apiClient = _RuileApiClient(authToken: '');
 
   var _loading = false;
+  var _smsSending = false;
+  var _smsLoginEnabled = false;
+  var _smsLoginMode = false;
+  var _smsCooldown = 0;
+  var _smsCooldownSeconds = 60;
   var _obscurePassword = true;
   var _acceptedLegal = false;
   String? _submitError;
+  Timer? _smsCooldownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadAuthConfig());
+  }
 
   @override
   void dispose() {
+    _smsCooldownTimer?.cancel();
     _phoneController.dispose();
     _passwordController.dispose();
+    _codeController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadAuthConfig() async {
+    try {
+      final config = await _apiClient.fetchAuthConfig();
+      if (!mounted) return;
+      setState(() {
+        _smsLoginEnabled = config.smsLoginEnabled;
+        _smsCooldownSeconds =
+            config.smsCooldownSeconds > 0 ? config.smsCooldownSeconds : 60;
+        if (!_smsLoginEnabled) {
+          _smsLoginMode = false;
+          _codeController.clear();
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _smsLoginEnabled = false;
+        _smsLoginMode = false;
+        _codeController.clear();
+      });
+    }
   }
 
   String? _validatePhone(String? value) {
@@ -2184,6 +2312,87 @@ class _LoginPageState extends State<LoginPage> {
     if (!_letterPattern.hasMatch(password)) return '密码必须包含字母';
     if (!_numberPattern.hasMatch(password)) return '密码必须包含数字';
     return null;
+  }
+
+  String? _validateCode(String? value) {
+    final code = value?.trim() ?? '';
+    if (code.isEmpty) return '请输入验证码';
+    if (!_codePattern.hasMatch(code)) return '请输入4-8位数字验证码';
+    return null;
+  }
+
+  void _toggleLoginMode() {
+    if (!_smsLoginEnabled || _loading) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _smsLoginMode = !_smsLoginMode;
+      _submitError = null;
+      if (_smsLoginMode) {
+        _passwordController.clear();
+      } else {
+        _codeController.clear();
+      }
+    });
+  }
+
+  Future<void> _sendLoginCode() async {
+    FocusScope.of(context).unfocus();
+    final phoneError = _validatePhone(_phoneController.text);
+    if (phoneError != null) {
+      setState(() {
+        _submitError = phoneError;
+      });
+      return;
+    }
+    if (_smsSending || _smsCooldown > 0) return;
+
+    setState(() {
+      _submitError = null;
+      _smsSending = true;
+    });
+
+    try {
+      await _apiClient.sendLoginCode(phone: _phoneController.text);
+      if (!mounted) return;
+      _startSmsCooldown();
+      setState(() {
+        _submitError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _submitError = _normalizeLoginError(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _smsSending = false;
+        });
+      }
+    }
+  }
+
+  void _startSmsCooldown() {
+    _smsCooldownTimer?.cancel();
+    setState(() {
+      _smsCooldown = _smsCooldownSeconds;
+    });
+    _smsCooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_smsCooldown <= 1) {
+        timer.cancel();
+        setState(() {
+          _smsCooldown = 0;
+        });
+        return;
+      }
+      setState(() {
+        _smsCooldown -= 1;
+      });
+    });
   }
 
   Future<void> _submit() async {
@@ -2204,10 +2413,15 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      final session = await _apiClient.login(
-        phone: _phoneController.text,
-        password: _passwordController.text,
-      );
+      final session = _smsLoginMode
+          ? await _apiClient.loginWithCode(
+              phone: _phoneController.text,
+              code: _codeController.text,
+            )
+          : await _apiClient.login(
+              phone: _phoneController.text,
+              password: _passwordController.text,
+            );
       if (!mounted) return;
       widget.onLoginSuccess(session);
     } catch (error) {
@@ -2229,7 +2443,7 @@ class _LoginPageState extends State<LoginPage> {
       return error.message;
     }
     if (error is TimeoutException) return '登录超时，请稍后重试';
-    return '登录错误，请检查手机号或密码';
+    return _smsLoginMode ? '登录错误，请检查手机号或验证码' : '登录错误，请检查手机号或密码';
   }
 
   void _setAcceptedLegal(bool? value) {
@@ -2314,34 +2528,69 @@ class _LoginPageState extends State<LoginPage> {
                                 validator: _validatePhone,
                               ),
                               const SizedBox(height: 18),
-                              _LoginTextField(
-                                controller: _passwordController,
-                                label: '密码',
-                                hintText: '输入密码',
-                                helperText: '8-32个字符，包含字母和数字',
-                                obscureText: _obscurePassword,
-                                textInputAction: TextInputAction.done,
-                                enabled: !_loading,
-                                validator: _validatePassword,
-                                onFieldSubmitted: (_) => _submit(),
-                                suffixIcon: IconButton(
-                                  tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
-                                  onPressed: _loading
-                                      ? null
-                                      : () {
-                                          setState(() {
-                                            _obscurePassword =
-                                                !_obscurePassword;
-                                          });
-                                        },
-                                  icon: Icon(
-                                    _obscurePassword
-                                        ? Icons.visibility_off_outlined
-                                        : Icons.visibility_outlined,
-                                    size: 20,
+                              if (_smsLoginMode)
+                                _LoginTextField(
+                                  controller: _codeController,
+                                  label: '验证码',
+                                  hintText: '输入短信验证码',
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.done,
+                                  enabled: !_loading,
+                                  validator: _validateCode,
+                                  onFieldSubmitted: (_) => _submit(),
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                    LengthLimitingTextInputFormatter(8),
+                                  ],
+                                  suffixIcon: TextButton(
+                                    onPressed: _loading ||
+                                            _smsSending ||
+                                            _smsCooldown > 0
+                                        ? null
+                                        : _sendLoginCode,
+                                    child: Text(
+                                      _smsSending
+                                          ? '发送中'
+                                          : _smsCooldown > 0
+                                              ? '${_smsCooldown}s 后重发'
+                                              : '获取验证码',
+                                      style: const TextStyle(
+                                        color: Color(0xFF07C05F),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              else
+                                _LoginTextField(
+                                  controller: _passwordController,
+                                  label: '密码',
+                                  hintText: '输入密码',
+                                  helperText: '8-32个字符，包含字母和数字',
+                                  obscureText: _obscurePassword,
+                                  textInputAction: TextInputAction.done,
+                                  enabled: !_loading,
+                                  validator: _validatePassword,
+                                  onFieldSubmitted: (_) => _submit(),
+                                  suffixIcon: IconButton(
+                                    tooltip: _obscurePassword ? '显示密码' : '隐藏密码',
+                                    onPressed: _loading
+                                        ? null
+                                        : () {
+                                            setState(() {
+                                              _obscurePassword =
+                                                  !_obscurePassword;
+                                            });
+                                          },
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.visibility_outlined,
+                                      size: 20,
+                                    ),
                                   ),
                                 ),
-                              ),
                               if (_submitError != null) ...[
                                 const SizedBox(height: 14),
                                 Text(
@@ -2383,6 +2632,20 @@ class _LoginPageState extends State<LoginPage> {
                                         ),
                                 ),
                               ),
+                              if (_smsLoginEnabled) ...[
+                                const SizedBox(height: 12),
+                                TextButton(
+                                  onPressed: _loading ? null : _toggleLoginMode,
+                                  child: Text(
+                                    _smsLoginMode ? '使用密码登录' : '使用验证码登录',
+                                    style: const TextStyle(
+                                      color: AppColors.control,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 16),
                               _LegalConsentRow(
                                 accepted: _acceptedLegal,
@@ -2654,6 +2917,7 @@ class _LoginTextField extends StatelessWidget {
     this.validator,
     this.onFieldSubmitted,
     this.suffixIcon,
+    this.inputFormatters,
   });
 
   final TextEditingController controller;
@@ -2667,6 +2931,7 @@ class _LoginTextField extends StatelessWidget {
   final FormFieldValidator<String>? validator;
   final ValueChanged<String>? onFieldSubmitted;
   final Widget? suffixIcon;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -2690,6 +2955,7 @@ class _LoginTextField extends StatelessWidget {
           obscureText: obscureText,
           validator: validator,
           onFieldSubmitted: onFieldSubmitted,
+          inputFormatters: inputFormatters,
           style: const TextStyle(
             fontSize: 15,
             color: AppColors.textPrimary,
@@ -2906,7 +3172,7 @@ class _MainShellState extends State<MainShell> {
     );
     if (!mounted || saved != true) return;
     setState(() {
-      _selectedIndex = 0;
+      _selectedIndex = 1;
     });
   }
 
@@ -2926,7 +3192,7 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _openCustomerSpaceListFromDrawer() {
-    _selectTab(0);
+    _selectTab(1);
     unawaited(Navigator.of(context)
         .push(
           MaterialPageRoute<void>(
@@ -2949,7 +3215,7 @@ class _MainShellState extends State<MainShell> {
             onAuthFailure: widget.onLogout,
             onReturnHome: () {
               if (!mounted) return;
-              _selectTab(0);
+              _selectTab(1);
               Navigator.of(context, rootNavigator: true).popUntil(
                 (route) => route.isFirst,
               );
@@ -2984,6 +3250,10 @@ class _MainShellState extends State<MainShell> {
     );
   }
 
+  void _openXiaoRui() {
+    _selectTab(0);
+  }
+
   void _openUserSettingsFromDrawer() {
     if (!mounted) return;
     Navigator.of(context).push(
@@ -3009,21 +3279,38 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
+      _XiaoRuiPage(
+        authToken: widget.session.token,
+        tenantId: widget.session.tenantId,
+        onAuthFailure: widget.onLogout,
+        onMenuTap: _openSideDrawer,
+        onOpenRecordingCard: _openRecordingCardFromDrawer,
+        onOpenReminders: () => _selectTab(3),
+        onOpenCustomerSpaces: _openCustomerSpaceListFromDrawer,
+      ),
       NotesPage(
         authToken: widget.session.token,
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
         onOpenRecordingCard: _openRecordingCardFromDrawer,
+        onMenuTap: _openSideDrawer,
+        onStartRecording: () => _handleCaptureAction(_CaptureAction.record),
+        onWriteNote: () => _handleCaptureAction(_CaptureAction.text),
       ),
       OrganizePage(
         authToken: widget.session.token,
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
+        onOpenRecordingCard: _openRecordingCardFromDrawer,
+        onMenuTap: _openSideDrawer,
       ),
       AssistantPage(
         authToken: widget.session.token,
         tenantId: widget.session.tenantId,
         onAuthFailure: widget.onLogout,
+        onOpenRecordingCard: _openRecordingCardFromDrawer,
+        onMenuTap: _openSideDrawer,
+        onOpenXiaoRui: _openXiaoRui,
       ),
     ];
 
@@ -3054,12 +3341,240 @@ class _MainShellState extends State<MainShell> {
             child: _MainDock(
               selectedIndex: _selectedIndex,
               onTabSelected: _selectTab,
-              onCaptureActionSelected: _handleCaptureAction,
             ),
           ),
-          if (_selectedIndex == 0)
-            _HomeFloatingMenu(onMenuTap: _openSideDrawer),
         ],
+      ),
+    );
+  }
+}
+
+class _MainPageHeader extends StatelessWidget {
+  const _MainPageHeader({
+    required this.title,
+    required this.onMenuTap,
+    required this.onRecordingCardTap,
+    this.subtitle,
+    this.actions = const [],
+    this.showRecordingCardPrompt = true,
+  });
+
+  final String title;
+  final String? subtitle;
+  final VoidCallback onMenuTap;
+  final VoidCallback onRecordingCardTap;
+  final List<Widget> actions;
+  final bool showRecordingCardPrompt;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedSubtitle = subtitle?.trim() ?? '';
+
+    return Padding(
+      key: Key('main-page-header-$title'),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.pageX,
+        4,
+        AppSpacing.pageX,
+        6,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ValueListenableBuilder<RecordingCardConnectionStatus>(
+            valueListenable: RecordingCardConnectionStatusBus.notifier,
+            builder: (context, status, child) {
+              return _MainHeaderIconButton(
+                tooltip: status.connected ? '菜单，记忆卡已连接' : '菜单',
+                icon: Icons.menu_rounded,
+                showBadge: status.connected,
+                onTap: onMenuTap,
+              );
+            },
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: AppTextStyles.mainHeaderTitle),
+                  if (showRecordingCardPrompt)
+                    ValueListenableBuilder<RecordingCardConnectionStatus>(
+                      valueListenable:
+                          RecordingCardConnectionStatusBus.notifier,
+                      builder: (context, status, child) {
+                        if (status.connected) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: _MainHeaderRecordingCardPrompt(
+                            key: Key(
+                              'main-header-recording-card-prompt-$title',
+                            ),
+                            onTap: onRecordingCardTap,
+                          ),
+                        );
+                      },
+                    ),
+                  if (normalizedSubtitle.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      normalizedSubtitle,
+                      style: AppTextStyles.body.copyWith(
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: actions,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MainHeaderRecordingCardPrompt extends StatelessWidget {
+  const _MainHeaderRecordingCardPrompt({
+    super.key,
+    required this.onTap,
+  });
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: '打开记忆卡详情',
+      child: Semantics(
+        button: true,
+        label: '记忆卡未连接，打开详情',
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: onTap,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.link_off_rounded,
+                    size: 14,
+                    color: AppColors.accent,
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    '记忆卡未连接',
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.2,
+                      color: AppColors.accent,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  SizedBox(width: 2),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 14,
+                    color: AppColors.accent,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MainHeaderIconButton extends StatelessWidget {
+  const _MainHeaderIconButton({
+    required this.tooltip,
+    required this.icon,
+    this.showBadge = false,
+    this.onTap,
+  });
+
+  static const size = 38.0;
+  static const iconSize = 21.0;
+
+  final String tooltip;
+  final IconData icon;
+  final bool showBadge;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x0A000000),
+                blurRadius: 12,
+                offset: Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(
+                      icon,
+                      size: iconSize,
+                      color: AppColors.textPrimary,
+                    ),
+                    if (showBadge)
+                      Positioned(
+                        right: 7,
+                        top: 7,
+                        child: Container(
+                          width: 9,
+                          height: 9,
+                          decoration: BoxDecoration(
+                            color: AppColors.accent,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppColors.surface,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -4389,11 +4904,15 @@ class OrganizePage extends StatefulWidget {
     this.authToken = AppApiConfig.authToken,
     this.tenantId = AppApiConfig.tenantId,
     required this.onAuthFailure,
+    required this.onOpenRecordingCard,
+    required this.onMenuTap,
   });
 
   final String authToken;
   final String tenantId;
   final VoidCallback onAuthFailure;
+  final VoidCallback onOpenRecordingCard;
+  final VoidCallback onMenuTap;
 
   @override
   State<OrganizePage> createState() => _OrganizePageState();
@@ -4777,12 +5296,10 @@ class _OrganizePageState extends State<OrganizePage> {
         bottom: false,
         child: Column(
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(18, 12, 18, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text('整理', style: AppTextStyles.pageTitle),
-              ),
+            _MainPageHeader(
+              title: '整理',
+              onMenuTap: widget.onMenuTap,
+              onRecordingCardTap: widget.onOpenRecordingCard,
             ),
             _OrganizeDateStrip(
               controller: _dateScrollController,
@@ -7886,13 +8403,14 @@ class _MainDock extends StatelessWidget {
   const _MainDock({
     required this.selectedIndex,
     required this.onTabSelected,
-    required this.onCaptureActionSelected,
   });
 
-  static const _dockWidth = 276.0;
-  static const _dockHeight = 62.0;
-
   static const _destinations = [
+    _MainDockDestination(
+      label: '小睿',
+      icon: Icons.auto_awesome_outlined,
+      selectedIcon: Icons.auto_awesome,
+    ),
     _MainDockDestination(
       label: '记忆',
       icon: Icons.edit_note_outlined,
@@ -7904,7 +8422,7 @@ class _MainDock extends StatelessWidget {
       selectedIcon: Icons.inventory_2,
     ),
     _MainDockDestination(
-      label: '服务',
+      label: '提醒',
       icon: Icons.notifications_none_outlined,
       selectedIcon: Icons.notifications,
     ),
@@ -7912,132 +8430,50 @@ class _MainDock extends StatelessWidget {
 
   final int selectedIndex;
   final ValueChanged<int> onTabSelected;
-  final ValueChanged<_CaptureAction> onCaptureActionSelected;
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
 
-    return ColoredBox(
-      color: Colors.transparent,
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(18, 0, 18, bottomInset + 10),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: _dockWidth,
-              height: _dockHeight,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  const Positioned.fill(
-                    child: CustomPaint(painter: _MainDockBackgroundPainter()),
-                  ),
-                  Positioned(
-                    left: 9,
-                    top: 10,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (var index = 0;
-                            index < _destinations.length;
-                            index++) ...[
-                          _MainDockTabButton(
-                            destination: _destinations[index],
-                            selected: selectedIndex == index,
-                            onTap: () => onTabSelected(index),
-                          ),
-                          if (index != _destinations.length - 1)
-                            const SizedBox(width: 8),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    left: 208,
-                    top: -3,
-                    child: SizedBox(
-                      width: 68,
-                      height: 68,
-                      child: Center(
-                        child: _CaptureMenuButton(
-                          onSelected: onCaptureActionSelected,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(14, 0, 14, bottomInset + 10),
+      child: Align(
+        alignment: Alignment.center,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Container(
+            key: const Key('main-dock-navigation'),
+            height: 70,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.surface.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: const Color(0x12000000)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x18000000),
+                  blurRadius: 18,
+                  offset: Offset(0, 7),
+                ),
+              ],
             ),
-          ],
+            child: Row(
+              children: [
+                for (var index = 0; index < _destinations.length; index++)
+                  Expanded(
+                    child: _MainDockTabButton(
+                      destination: _destinations[index],
+                      selected: selectedIndex == index,
+                      onTap: () => onTabSelected(index),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
-}
-
-class _MainDockBackgroundPainter extends CustomPainter {
-  const _MainDockBackgroundPainter();
-
-  static const _leftWidth = 208.0;
-  static const _verticalInset = 5.0;
-  static const _notchRadius = 17.0;
-  static const _captureOuterRadius = 32.0;
-  static const _captureCenter = Offset(242, 31);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    const pillRect = Rect.fromLTWH(
-      0,
-      _verticalInset,
-      _leftWidth,
-      52,
-    );
-    final notchCircle = Rect.fromCircle(
-      center: Offset(_leftWidth, _captureCenter.dy),
-      radius: _notchRadius,
-    );
-    final captureCircle = Rect.fromCircle(
-      center: _captureCenter,
-      radius: _captureOuterRadius,
-    );
-
-    final leftPath = Path.combine(
-      PathOperation.difference,
-      Path()
-        ..addRRect(
-          RRect.fromRectAndRadius(pillRect, const Radius.circular(26)),
-        ),
-      Path()..addOval(notchCircle),
-    );
-    final capturePath = Path()..addOval(captureCircle);
-    final fillPaint = Paint()..color = AppColors.surface;
-    final borderPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..color = const Color(0x0F000000);
-
-    canvas.drawShadow(leftPath, const Color(0x1C000000), 10, false);
-    canvas.drawShadow(capturePath, const Color(0x2439E77B), 18, false);
-    canvas.drawPath(leftPath, fillPaint);
-    canvas.drawPath(capturePath, fillPaint);
-    canvas.drawPath(leftPath, borderPaint);
-    canvas.drawPath(capturePath, borderPaint);
-
-    final dividerPaint = Paint()
-      ..strokeWidth = 1
-      ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFFEFF3F4);
-    canvas.drawLine(
-      const Offset(_leftWidth + 1.5, 21),
-      const Offset(_leftWidth + 1.5, 41),
-      dividerPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _MainDockBackgroundPainter oldDelegate) => false;
 }
 
 class _MainDockTabButton extends StatelessWidget {
@@ -8054,6 +8490,8 @@ class _MainDockTabButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final icon = selected ? destination.selectedIcon : destination.icon;
+    final selectedColor =
+        destination.label == '小睿' ? AppColors.xiaoPrimary : AppColors.accent;
 
     return Tooltip(
       message: destination.label,
@@ -8062,171 +8500,46 @@ class _MainDockTabButton extends StatelessWidget {
         selected: selected,
         label: destination.label,
         child: Material(
-          color: selected ? Colors.black : const Color(0xFFF9FBFB),
-          shape: const CircleBorder(),
+          color: Colors.transparent,
           child: InkWell(
-            customBorder: const CircleBorder(),
+            borderRadius: BorderRadius.circular(20),
             onTap: onTap,
-            child: SizedBox(
-              width: 42,
-              height: 42,
-              child: Icon(
-                icon,
-                size: 20,
-                color: selected ? AppColors.surface : AppColors.textPrimary,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: selected
+                    ? selectedColor.withValues(alpha: 0.12)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(18),
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CaptureMenuButton extends StatelessWidget {
-  const _CaptureMenuButton({required this.onSelected});
-
-  final ValueChanged<_CaptureAction> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<_CaptureAction>(
-      tooltip: '录入',
-      padding: EdgeInsets.zero,
-      offset: const Offset(0, -72),
-      position: PopupMenuPosition.over,
-      color: AppColors.surface,
-      surfaceTintColor: AppColors.surface,
-      elevation: 12,
-      shadowColor: const Color(0x24000000),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      onSelected: onSelected,
-      itemBuilder: (context) => const [
-        PopupMenuItem(
-          value: _CaptureAction.record,
-          child: _CaptureMenuItem(
-            icon: Icons.mic_none,
-            label: '开始录音',
-          ),
-        ),
-        PopupMenuItem(
-          value: _CaptureAction.text,
-          child: _CaptureMenuItem(
-            icon: Icons.edit_outlined,
-            label: '编写笔记',
-          ),
-        ),
-      ],
-      child: const DecoratedBox(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF9DF7C0),
-              Color(0xFF31D977),
-            ],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Color(0x7339E77B),
-              blurRadius: 20,
-              spreadRadius: 2,
-            ),
-            BoxShadow(
-              color: Color(0x3323B99D),
-              blurRadius: 28,
-              spreadRadius: 4,
-            ),
-          ],
-        ),
-        child: SizedBox(
-          width: 54,
-          height: 54,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CustomPaint(painter: _CaptureMicPainter()),
-                ),
-              ),
-              Positioned(
-                left: 8,
-                bottom: 9,
-                child: Icon(
-                  Icons.auto_awesome,
-                  size: 8,
-                  color: AppColors.surface,
-                ),
-              ),
-              Positioned(
-                right: 11,
-                top: 12,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.surface,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 23,
+                    color: selected ? selectedColor : AppColors.textSecondary,
                   ),
-                  child: SizedBox(width: 4, height: 4),
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    destination.label,
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.1,
+                      color: selected ? selectedColor : AppColors.textSecondary,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
-}
-
-class _CaptureMicPainter extends CustomPainter {
-  const _CaptureMicPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    final strokePaint = Paint()
-      ..color = AppColors.surface
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final micRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: Offset(centerX, centerY - 3.4),
-        width: 8.0,
-        height: 13.8,
-      ),
-      const Radius.circular(4.8),
-    );
-    canvas.drawRRect(micRect, strokePaint);
-
-    final arcRect = Rect.fromCenter(
-      center: Offset(centerX, centerY + 1.0),
-      width: 18.2,
-      height: 15.8,
-    );
-    canvas.drawArc(arcRect, 0.18, 2.78, false, strokePaint);
-
-    canvas.drawLine(
-      Offset(centerX, 20.2),
-      Offset(centerX, 22.4),
-      strokePaint,
-    );
-    canvas.drawLine(
-      Offset(centerX - 5.0, 22.4),
-      Offset(centerX + 5.0, 22.4),
-      strokePaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _CaptureMicPainter oldDelegate) => false;
 }
 
 class _CaptureMenuItem extends StatelessWidget {
@@ -8254,6 +8567,59 @@ class _CaptureMenuItem extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MemoryCaptureButton extends StatelessWidget {
+  const _MemoryCaptureButton({required this.onSelected});
+
+  final ValueChanged<_CaptureAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_CaptureAction>(
+      tooltip: '录入',
+      padding: EdgeInsets.zero,
+      offset: const Offset(0, -128),
+      position: PopupMenuPosition.over,
+      color: AppColors.surface,
+      surfaceTintColor: AppColors.surface,
+      elevation: 12,
+      shadowColor: const Color(0x24000000),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: onSelected,
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: _CaptureAction.record,
+          child: _CaptureMenuItem(
+            icon: Icons.mic_none,
+            label: '开始录音',
+          ),
+        ),
+        PopupMenuItem(
+          value: _CaptureAction.text,
+          child: _CaptureMenuItem(
+            icon: Icons.edit_outlined,
+            label: '编写笔记',
+          ),
+        ),
+      ],
+      child: const Material(
+        color: AppColors.accent,
+        shape: CircleBorder(),
+        elevation: 6,
+        shadowColor: Color(0x55534AB7),
+        child: SizedBox(
+          width: 58,
+          height: 58,
+          child: Icon(
+            Icons.add_rounded,
+            size: 30,
+            color: AppColors.surface,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -8445,12 +8811,18 @@ class NotesPage extends StatefulWidget {
     this.tenantId = AppApiConfig.tenantId,
     required this.onAuthFailure,
     required this.onOpenRecordingCard,
+    required this.onMenuTap,
+    required this.onStartRecording,
+    required this.onWriteNote,
   });
 
   final String authToken;
   final String tenantId;
   final VoidCallback onAuthFailure;
   final VoidCallback onOpenRecordingCard;
+  final VoidCallback onMenuTap;
+  final VoidCallback onStartRecording;
+  final VoidCallback onWriteNote;
 
   @override
   State<NotesPage> createState() => _NotesPageState();
@@ -8474,6 +8846,10 @@ class _NotesPageState extends State<NotesPage> {
   _RecordingCardPendingSummary _recordingCardPendingSummary =
       _RecordingCardPendingSummary.empty;
   int _recordingCardDevicePendingCount = 0;
+  bool _recordingCardQuickSyncing = false;
+  String _recordingCardQuickSyncMessage = '';
+  bool _recordingCardLocalQuickSyncing = false;
+  String _recordingCardLocalQuickSyncMessage = '';
   String _pendingRemoteMemoryId = '';
   bool _loadingKnowledgeBases = true;
   List<_NoteItem> _notes = [];
@@ -8909,10 +9285,6 @@ class _NotesPageState extends State<NotesPage> {
     return RecordingCardConnectionStatusBus.notifier.value;
   }
 
-  void _openRecordingCardDevicePending() {
-    widget.onOpenRecordingCard();
-  }
-
   void _openRecordingCardLocalPending() {
     Navigator.of(context)
         .push<void>(
@@ -8925,23 +9297,513 @@ class _NotesPageState extends State<NotesPage> {
     )
         .then((_) {
       unawaited(_loadRecordingCardPendingSummary());
+      unawaited(_refreshRemoteContent());
     });
   }
 
+  Future<void> _syncRecordingCardDevicePending() async {
+    if (_recordingCardQuickSyncing || _recordingCardLocalQuickSyncing) return;
+    setState(() {
+      _recordingCardQuickSyncing = true;
+      _recordingCardQuickSyncMessage = '正在连接记忆卡';
+    });
+
+    final runtime = JieliRecordingCardRuntime.instance;
+    var operationStarted = false;
+    var discoveredCount = 0;
+    var downloadedCount = 0;
+    var uploadedCount = 0;
+    var failedCount = 0;
+
+    try {
+      await runtime.runHomeFileOperation(() async {
+        operationStarted = true;
+        final status = await _ensureRecordingCardConnectedForHome();
+        final state = runtime.connectionState;
+        if (!status.connected || !state.connected || !state.rcspReady) {
+          throw StateError('记忆卡未连接，请靠近设备后重试');
+        }
+
+        _setRecordingCardQuickSyncMessage('正在读取卡内录音');
+        final files = await _readConnectedJieliAudioFiles();
+        discoveredCount = files.length;
+        if (files.isEmpty) return;
+
+        for (var index = 0; index < files.length; index++) {
+          final ref = files[index];
+          try {
+            _setRecordingCardQuickSyncMessage(
+              '正在下载 ${index + 1}/${files.length}',
+            );
+            final entry = await _downloadRecordingCardFileForHome(
+              ref: ref,
+              state: state,
+              status: status,
+            );
+            downloadedCount += 1;
+            if (entry.lastError.trim() == '设备文件待删除') {
+              throw StateError('${ref.file.name} 已保存到手机，等待删除卡内源文件');
+            }
+
+            _setRecordingCardQuickSyncMessage(
+              '正在生成记忆 ${index + 1}/${files.length}',
+            );
+            if (await _uploadRecordingCardEntryFromHome(entry)) {
+              uploadedCount += 1;
+            }
+          } catch (error) {
+            failedCount += 1;
+            debugPrint(
+              '[HomeJieli] quick sync failed for ${ref.file.name}: $error',
+            );
+          }
+        }
+      });
+
+      if (!operationStarted) {
+        throw StateError('记忆卡详情正在使用，请稍后重试');
+      }
+
+      _setRecordingCardQuickSyncMessage('正在刷新当前页面');
+      await _refreshRemoteContent();
+      if (!mounted) return;
+
+      if (discoveredCount == 0) {
+        _showMessage('卡内没有待同步音频');
+      } else if (failedCount > 0) {
+        _showMessage('已生成 $uploadedCount 条记忆，$failedCount 条待重试');
+      } else if (uploadedCount < downloadedCount) {
+        _showMessage('已下载 $downloadedCount 条，待网络恢复后继续生成记忆');
+      } else {
+        _showMessage('已同步 $uploadedCount 条音频');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst('Bad state: ', '').trim();
+      _showMessage(message.isEmpty ? '同步失败，请稍后重试' : message);
+      await _refreshRemoteContent();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _recordingCardQuickSyncing = false;
+          _recordingCardQuickSyncMessage = '';
+        });
+      }
+    }
+  }
+
+  void _setRecordingCardQuickSyncMessage(String message) {
+    if (!mounted) return;
+    setState(() {
+      _recordingCardQuickSyncMessage = message;
+    });
+  }
+
+  Future<RecordingCardFileEntry> _downloadRecordingCardFileForHome({
+    required _HomeJieliAudioFileRef ref,
+    required JieliRecordingCardConnectionState state,
+    required RecordingCardConnectionStatus status,
+  }) async {
+    final fileNameNoExt = jieliFileNameNoExtension(ref.file.name);
+    if (fileNameNoExt.isEmpty) {
+      throw StateError('录音文件名无效');
+    }
+
+    final existing = await _recordingCardStore.loadFile(
+      state.address,
+      fileNameNoExt,
+    );
+    if (existing != null && existing.hasLocalAudio) {
+      final localPath = existing.localSbcPath.trim().isNotEmpty
+          ? existing.localSbcPath.trim()
+          : existing.localPlayablePath.trim();
+      final localFile = File(localPath);
+      if (localPath.isNotEmpty &&
+          await localFile.exists() &&
+          await localFile.length() > 0) {
+        final deleted = await _deleteConnectedJieliFile(ref);
+        final resumed = existing.copyWith(
+          transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+          lastError: deleted ? '' : '设备文件待删除',
+          updatedAt: DateTime.now(),
+        );
+        await _recordingCardStore.saveFile(resumed);
+        RecordingCardFileQueueBus.notifyChanged();
+        return resumed;
+      }
+    }
+
+    final now = DateTime.now();
+    final downloading = RecordingCardFileEntry(
+      deviceId: state.address,
+      fileNameNoExt: fileNameNoExt,
+      fileSizeBytes: 0,
+      deviceMac: state.address,
+      deviceName: status.deviceName.trim().isEmpty
+          ? (state.name.trim().isEmpty ? 'X9' : state.name.trim())
+          : status.deviceName.trim(),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      transferStatus: RecordingCardFileTransferStatus.downloading,
+    );
+    await _recordingCardStore.saveFile(downloading);
+    RecordingCardFileQueueBus.notifyChanged();
+
+    try {
+      final payload = await _readConnectedJieliFile(ref);
+      final sourcePath = payload['path']?.toString().trim() ?? '';
+      if (sourcePath.isEmpty) {
+        throw StateError('设备未返回下载文件路径');
+      }
+      final sourceFile = File(sourcePath);
+      await waitForJieliDownloadedFileReady(
+        sourceFile,
+        expectedBytes: jieliFileOperationByteCount(payload),
+      );
+
+      final localPath = await _recordingCardStore.sourceAudioFilePath(
+        state.address,
+        ref.file.name,
+      );
+      final targetFile = File(localPath);
+      await targetFile.parent.create(recursive: true);
+      if (sourceFile.path != targetFile.path) {
+        await sourceFile.copy(targetFile.path);
+      }
+      final bytes = await targetFile.length();
+      if (bytes <= 0) {
+        throw StateError('下载文件为空，请重试');
+      }
+      final downloaded = downloading.copyWith(
+        fileSizeBytes: bytes,
+        localSbcPath: targetFile.path,
+        localPlayablePath: targetFile.path,
+        syncedBytes: bytes,
+        transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+        lastError: '',
+        updatedAt: DateTime.now(),
+      );
+      await _recordingCardStore.saveFile(downloaded);
+      RecordingCardFileQueueBus.notifyChanged();
+
+      final deleted = await _deleteConnectedJieliFile(ref);
+      if (deleted) return downloaded;
+
+      final pendingDelete = downloaded.copyWith(
+        lastError: '设备文件待删除',
+        updatedAt: DateTime.now(),
+      );
+      await _recordingCardStore.saveFile(pendingDelete);
+      RecordingCardFileQueueBus.notifyChanged();
+      return pendingDelete;
+    } catch (error) {
+      final failed = downloading.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.failed,
+        lastError: error.toString(),
+        updatedAt: DateTime.now(),
+      );
+      await _recordingCardStore.saveFile(failed);
+      RecordingCardFileQueueBus.notifyChanged();
+      rethrow;
+    }
+  }
+
+  Future<Map<String, Object?>> _readConnectedJieliFile(
+    _HomeJieliAudioFileRef ref,
+  ) async {
+    final runtime = JieliRecordingCardRuntime.instance;
+    final completer = Completer<Map<String, Object?>>();
+    var taskId = '';
+    late final StreamSubscription<JieliRecordingCardSdkEvent> subscription;
+    subscription = runtime.events.listen((event) {
+      if (!matchesJieliFileOperationEvent(
+        event.payload,
+        storageIndex: ref.storage.index,
+        cluster: ref.file.cluster,
+        fileName: ref.file.name,
+        taskId: taskId,
+      )) {
+        return;
+      }
+      if (event.type == JieliRecordingCardNativeEventType.fileReadComplete) {
+        if (!completer.isCompleted) completer.complete(event.payload);
+      } else if (event.type ==
+              JieliRecordingCardNativeEventType.fileReadFailed ||
+          event.type == JieliRecordingCardNativeEventType.fileReadCancelled) {
+        final message = event.payload['message']?.toString().trim() ?? '文件下载失败';
+        if (!completer.isCompleted) {
+          completer.completeError(StateError(message));
+        }
+      }
+    });
+
+    try {
+      final result = await runtime.sdk.readFile(
+        storageIndex: ref.storage.index,
+        cluster: ref.file.cluster,
+        name: ref.file.name,
+      );
+      if (!result.success) {
+        throw StateError(
+          result.message.trim().isEmpty ? '下载启动失败' : result.message.trim(),
+        );
+      }
+      taskId = result.taskId.trim();
+      if (result.path.trim().isNotEmpty) {
+        return <String, Object?>{
+          'path': result.path,
+          'name': ref.file.name,
+          'storage_index': ref.storage.index,
+          'cluster': ref.file.cluster,
+          'task_id': taskId,
+          'bytes': result.bytes,
+        };
+      }
+      return await completer.future.timeout(const Duration(seconds: 90));
+    } on TimeoutException {
+      unawaited(runtime.sdk.cancelReadFile());
+      throw StateError('${ref.file.name} 下载超时');
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  Future<bool> _deleteConnectedJieliFile(
+    _HomeJieliAudioFileRef ref,
+  ) async {
+    final runtime = JieliRecordingCardRuntime.instance;
+    final completer = Completer<bool>();
+    var taskId = '';
+    late final StreamSubscription<JieliRecordingCardSdkEvent> subscription;
+    subscription = runtime.events.listen((event) {
+      if (!matchesJieliFileOperationEvent(
+        event.payload,
+        storageIndex: ref.storage.index,
+        cluster: ref.file.cluster,
+        fileName: ref.file.name,
+        taskId: taskId,
+      )) {
+        return;
+      }
+      if (event.type == JieliRecordingCardNativeEventType.fileDeleted) {
+        if (!completer.isCompleted) completer.complete(true);
+      } else if (event.type ==
+          JieliRecordingCardNativeEventType.fileDeleteFailed) {
+        if (!completer.isCompleted) completer.complete(false);
+      }
+    });
+
+    try {
+      final result = await runtime.sdk.deleteFile(
+        storageIndex: ref.storage.index,
+        cluster: ref.file.cluster,
+        name: ref.file.name,
+      );
+      if (!result.success) return false;
+      taskId = result.taskId.trim();
+      return await completer.future.timeout(
+        const Duration(seconds: 20),
+        onTimeout: () => false,
+      );
+    } catch (error) {
+      debugPrint('[HomeJieli] delete ${ref.file.name} failed: $error');
+      return false;
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  Future<bool> _uploadRecordingCardEntryFromHome(
+    RecordingCardFileEntry entry,
+  ) async {
+    if (!_apiClient.isConfigured) return false;
+    final prepared = await _prepareRecordingCardUpload(
+      store: _recordingCardStore,
+      entry: entry,
+    );
+    if (prepared == null) {
+      final failed = entry.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
+        lastError: '本地音频文件不存在或为空',
+        updatedAt: DateTime.now(),
+      );
+      await _recordingCardStore.saveFile(failed);
+      RecordingCardFileQueueBus.notifyChanged();
+      return false;
+    }
+    final localPath = prepared.file.path;
+
+    final syncing = prepared.entry.copyWith(
+      transferStatus: RecordingCardFileTransferStatus.cloudSyncing,
+      lastError: '',
+      updatedAt: DateTime.now(),
+    );
+    await _recordingCardStore.saveFile(syncing);
+    RecordingCardFileQueueBus.notifyChanged();
+
+    try {
+      final result = await _apiClient.uploadOrganizeMemoryAudio(
+        filePath: localPath,
+        fileName: localPath.split(Platform.pathSeparator).last,
+        kind: 'audio_card',
+        title: _recordingCardUploadTitle(syncing),
+        content: _recordingCardUploadContent(syncing),
+        source: '记忆卡',
+        occurredAt: syncing.createdAtFromDevice ?? syncing.createdAt,
+        durationSeconds: syncing.durationSeconds ?? 0,
+        metadata: {
+          'sync_source': 'recording_card',
+          'device_name': syncing.deviceName,
+          'device_mac': syncing.deviceMac,
+          'recording_file_name': syncing.fileNameNoExt,
+          'audio_file_name': localPath.split(Platform.pathSeparator).last,
+          'audio_codec': _recordingCardAudioCodec(localPath),
+          'file_size_bytes': syncing.fileSizeBytes,
+          'mobile_local_id': syncing.id,
+          'source_label': '来自记忆卡',
+          'transcription_status': 'pending',
+        },
+      ).timeout(const Duration(seconds: 75));
+      final synced = syncing.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.synced,
+        cloudMemoryId: result.id,
+        lastError: '',
+        updatedAt: DateTime.now(),
+      );
+      await _recordingCardStore.saveFile(synced);
+      RecordingCardAppSyncBus.notifyChanged(memoryId: result.id);
+      try {
+        await _deleteRecordingCardUploadedSource(localPath);
+        await _recordingCardStore.deleteFile(
+          synced.deviceId,
+          synced.fileNameNoExt,
+        );
+      } catch (error) {
+        debugPrint(
+          '[HomeJieli] uploaded local cleanup failed for ${synced.id}: $error',
+        );
+      }
+      return true;
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+      }
+      final failed = syncing.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
+        lastError: _friendlyRecordingCardUploadError(error),
+        updatedAt: DateTime.now(),
+      );
+      await _recordingCardStore.saveFile(failed);
+      RecordingCardFileQueueBus.notifyChanged();
+      return false;
+    } catch (error) {
+      final failed = syncing.copyWith(
+        transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
+        lastError: _friendlyRecordingCardUploadError(error),
+        updatedAt: DateTime.now(),
+      );
+      await _recordingCardStore.saveFile(failed);
+      RecordingCardFileQueueBus.notifyChanged();
+      return false;
+    }
+  }
+
+  Future<void> _syncRecordingCardLocalPending() async {
+    if (_recordingCardQuickSyncing || _recordingCardLocalQuickSyncing) return;
+    setState(() {
+      _recordingCardLocalQuickSyncing = true;
+      _recordingCardLocalQuickSyncMessage = '正在读取本地音频';
+    });
+
+    var pendingCount = 0;
+    var sourceDeletePendingCount = 0;
+    var uploadedCount = 0;
+    try {
+      final entries = await _recordingCardStore.loadAllFiles();
+      sourceDeletePendingCount = entries
+          .where(
+            (entry) =>
+                entry.hasLocalAudio && entry.lastError.trim() == '设备文件待删除',
+          )
+          .length;
+      final pendingEntries = entries
+          .where(
+            (entry) =>
+                entry.hasLocalAudio &&
+                entry.lastError.trim() != '设备文件待删除' &&
+                entry.transferStatus !=
+                    RecordingCardFileTransferStatus.synced &&
+                entry.transferStatus !=
+                    RecordingCardFileTransferStatus.deletedOnDevice,
+          )
+          .toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      pendingCount = pendingEntries.length;
+
+      for (var index = 0; index < pendingEntries.length; index++) {
+        if (!mounted) return;
+        setState(() {
+          _recordingCardLocalQuickSyncMessage =
+              '正在上传 ${index + 1}/${pendingEntries.length}';
+        });
+        if (await _uploadRecordingCardEntryFromHome(pendingEntries[index])) {
+          uploadedCount += 1;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _recordingCardLocalQuickSyncMessage = '正在刷新当前页面';
+      });
+      await _refreshRemoteContent();
+      if (!mounted) return;
+
+      if (pendingCount == 0) {
+        if (sourceDeletePendingCount > 0) {
+          _showMessage('有 $sourceDeletePendingCount 条录音待删除卡内源文件，请连接记忆卡后重试');
+        } else {
+          _showMessage('没有本地待同步音频');
+        }
+      } else if (uploadedCount == pendingCount) {
+        _showMessage('已同步 $uploadedCount 条本地音频');
+      } else {
+        _showMessage(
+          '已同步 $uploadedCount 条，${pendingCount - uploadedCount} 条待重试',
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _showMessage('本地音频同步失败，请稍后重试');
+      await _refreshRemoteContent();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _recordingCardLocalQuickSyncing = false;
+          _recordingCardLocalQuickSyncMessage = '';
+        });
+      }
+    }
+  }
+
   Future<int> _readConnectedJieliAudioCount() async {
+    final files = await _readConnectedJieliAudioFiles();
+    return files.length;
+  }
+
+  Future<List<_HomeJieliAudioFileRef>> _readConnectedJieliAudioFiles() async {
     final runtime = JieliRecordingCardRuntime.instance;
     final state = await runtime.sdk.getConnectionState();
     if (!state.connected || !state.rcspReady) {
       debugPrint(
         '[HomeJieli] skip card count: connected=${state.connected} rcspReady=${state.rcspReady}',
       );
-      return 0;
+      return const [];
     }
     final storages = await runtime.sdk.listStorages();
     final storage = _homePreferredRecordingStorage(storages);
     if (storage == null) {
       debugPrint('[HomeJieli] skip card count: no storage');
-      return 0;
+      return const [];
     }
 
     await runtime.sdk.refreshFileBrowse(storageIndex: storage.index);
@@ -8970,13 +9832,21 @@ class _NotesPageState extends State<NotesPage> {
       debugPrint(
         '[HomeJieli] skip card count: snapshot path=${folder.path} name=${folder.name}',
       );
-      return 0;
+      return const [];
     }
-    final count = folder.files
+    final files = folder.files
         .where((file) => file.file && isJieliRecordingAudioFileName(file.name))
-        .length;
-    debugPrint('[HomeJieli] recording files=${folder.files.length} mp3=$count');
-    return count;
+        .map(
+          (file) => _HomeJieliAudioFileRef(
+            storage: storage,
+            file: file,
+          ),
+        )
+        .toList(growable: false);
+    debugPrint(
+      '[HomeJieli] recording files=${folder.files.length} mp3=${files.length}',
+    );
+    return files;
   }
 
   Future<JieliRecordingCardFolderSnapshot> _waitForJieliSnapshot({
@@ -9441,96 +10311,135 @@ class _NotesPageState extends State<NotesPage> {
     final screenWidth = MediaQuery.sizeOf(context).width;
 
     return SafeArea(
-      child: Listener(
-        onPointerDown: (event) => _handlePointerDown(event, screenWidth),
-        onPointerMove: _handlePointerMove,
-        onPointerUp: (_) => _resetEdgeSwipe(),
-        onPointerCancel: (_) => _resetEdgeSwipe(),
-        child: Stack(
-          children: [
-            RefreshIndicator(
-              onRefresh: _refreshRemoteContent,
-              child: ListView(
-                controller: _notesScrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(18, 58, 18, 128),
-                children: [
-                  _SectionHeader(
-                    title: '知识库',
-                    actionText: '更多',
-                    onActionTap: _openKnowledgeBaseList,
-                  ),
-                  const SizedBox(height: 14),
-                  _KnowledgeGrid(
-                    knowledgeBases: _knowledgeBases,
-                    loading: _loadingKnowledgeBases,
-                    onTap: _openKnowledgeBase,
-                  ),
-                  if (_recordingCardDevicePendingCount > 0) ...[
-                    const SizedBox(height: 16),
-                    _RecordingCardDevicePendingSyncCard(
-                      devicePendingCount: _recordingCardDevicePendingCount,
-                      onTap: _openRecordingCardDevicePending,
-                      onLongPress: _openRecordingCardDevicePending,
-                    ),
-                  ],
-                  if (_recordingCardPendingSummary.hasPending) ...[
-                    const SizedBox(height: 16),
-                    _RecordingCardLocalPendingSyncCard(
-                      summary: _recordingCardPendingSummary,
-                      onTap: _openRecordingCardLocalPending,
-                      onLongPress: _openRecordingCardLocalPending,
-                    ),
-                  ],
-                  const SizedBox(height: 26),
-                  _MemoryStatusOverview(
-                    selected: _memoryStatusFilter,
-                    counts: _memoryStatusCounts,
-                    onSelected: (status) {
-                      setState(() {
-                        _memoryStatusFilter = _memoryStatusFilter == status
-                            ? _MemoryStatusFilter.all
-                            : status;
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  if (_notesError != null) ...[
-                    _NotesLoadError(
-                      message: _notesError!,
-                      onRetry: () => unawaited(_loadRemoteMemories()),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
-                  if (_loadingNotes && notes.isEmpty)
-                    const _NotesLoading()
-                  else if (notes.isEmpty)
-                    const _EmptyNotes()
-                  else
-                    for (var index = 0; index < notes.length; index++) ...[
-                      _NoteCard(
-                        note: notes[index],
-                        onTap: () => unawaited(_openNote(notes[index])),
-                        onMoreTap: () => _showNoteActions(notes[index]),
-                      ),
-                      if (index != notes.length - 1)
-                        const SizedBox(height: AppSpacing.itemGap),
-                    ],
-                  if (_loadingMoreNotes) ...[
-                    const SizedBox(height: AppSpacing.itemGap),
-                    const _NotesLoading(),
-                  ] else if (_notesMoreError != null) ...[
-                    const SizedBox(height: AppSpacing.itemGap),
-                    _NotesLoadMoreError(
-                      message: _notesMoreError!,
-                      onRetry: () => unawaited(_loadMoreRemoteMemories()),
-                    ),
-                  ],
-                ],
+      bottom: false,
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              _MainPageHeader(
+                title: '记忆',
+                onMenuTap: widget.onMenuTap,
+                onRecordingCardTap: widget.onOpenRecordingCard,
               ),
+              Expanded(
+                child: Listener(
+                  onPointerDown: (event) =>
+                      _handlePointerDown(event, screenWidth),
+                  onPointerMove: _handlePointerMove,
+                  onPointerUp: (_) => _resetEdgeSwipe(),
+                  onPointerCancel: (_) => _resetEdgeSwipe(),
+                  child: RefreshIndicator(
+                    onRefresh: _refreshRemoteContent,
+                    child: ListView(
+                      controller: _notesScrollController,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(18, 8, 18, 128),
+                      children: [
+                        _SectionHeader(
+                          title: '知识库',
+                          actionText: '更多',
+                          onActionTap: _openKnowledgeBaseList,
+                        ),
+                        const SizedBox(height: 14),
+                        _KnowledgeGrid(
+                          knowledgeBases: _knowledgeBases,
+                          loading: _loadingKnowledgeBases,
+                          onTap: _openKnowledgeBase,
+                        ),
+                        if (_recordingCardDevicePendingCount > 0) ...[
+                          const SizedBox(height: 16),
+                          _RecordingCardDevicePendingSyncCard(
+                            devicePendingCount:
+                                _recordingCardDevicePendingCount,
+                            syncing: _recordingCardQuickSyncing,
+                            enabled: !_recordingCardLocalQuickSyncing,
+                            progressText: _recordingCardQuickSyncMessage,
+                            onOpenList: widget.onOpenRecordingCard,
+                            onSync: _syncRecordingCardDevicePending,
+                          ),
+                        ],
+                        if (_recordingCardPendingSummary.hasPending) ...[
+                          const SizedBox(height: 16),
+                          _RecordingCardLocalPendingSyncCard(
+                            summary: _recordingCardPendingSummary,
+                            syncing: _recordingCardLocalQuickSyncing,
+                            enabled: !_recordingCardQuickSyncing,
+                            progressText: _recordingCardLocalQuickSyncMessage,
+                            onOpenList: _openRecordingCardLocalPending,
+                            onSync: _syncRecordingCardLocalPending,
+                          ),
+                        ],
+                        const SizedBox(height: 26),
+                        _MemoryStatusOverview(
+                          selected: _memoryStatusFilter,
+                          counts: _memoryStatusCounts,
+                          onSelected: (status) {
+                            setState(() {
+                              _memoryStatusFilter =
+                                  _memoryStatusFilter == status
+                                      ? _MemoryStatusFilter.all
+                                      : status;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 14),
+                        if (_notesError != null) ...[
+                          _NotesLoadError(
+                            message: _notesError!,
+                            onRetry: () => unawaited(_loadRemoteMemories()),
+                          ),
+                          const SizedBox(height: 14),
+                        ],
+                        if (_loadingNotes && notes.isEmpty)
+                          const _NotesLoading()
+                        else if (notes.isEmpty)
+                          const _EmptyNotes()
+                        else
+                          for (var index = 0;
+                              index < notes.length;
+                              index++) ...[
+                            _NoteCard(
+                              note: notes[index],
+                              onTap: () => unawaited(_openNote(notes[index])),
+                              onMoreTap: () => _showNoteActions(notes[index]),
+                            ),
+                            if (index != notes.length - 1)
+                              const SizedBox(height: AppSpacing.itemGap),
+                          ],
+                        if (_loadingMoreNotes) ...[
+                          const SizedBox(height: AppSpacing.itemGap),
+                          const _NotesLoading(),
+                        ] else if (_notesMoreError != null) ...[
+                          const SizedBox(height: AppSpacing.itemGap),
+                          _NotesLoadMoreError(
+                            message: _notesMoreError!,
+                            onRetry: () => unawaited(_loadMoreRemoteMemories()),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Positioned(
+            right: 18,
+            bottom: 88,
+            child: _MemoryCaptureButton(
+              onSelected: (action) {
+                switch (action) {
+                  case _CaptureAction.record:
+                    widget.onStartRecording();
+                    break;
+                  case _CaptureAction.text:
+                    widget.onWriteNote();
+                    break;
+                }
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -9613,13 +10522,14 @@ class _RecordingCardLocalAudioListPageState
   }
 
   Future<void> _uploadEntry(RecordingCardFileEntry entry) async {
-    final localPath = entry.localSbcPath.trim().isNotEmpty
-        ? entry.localSbcPath.trim()
-        : entry.localPlayablePath.trim();
-    if (localPath.isEmpty || !await File(localPath).exists()) {
+    final prepared = await _prepareRecordingCardUpload(
+      store: widget.store,
+      entry: entry,
+    );
+    if (prepared == null) {
       final failed = entry.copyWith(
         transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
-        lastError: '本地音频文件不存在',
+        lastError: '本地音频文件不存在或为空',
       );
       await widget.store.saveFile(failed);
       if (!mounted) return;
@@ -9630,6 +10540,8 @@ class _RecordingCardLocalAudioListPageState
       });
       return;
     }
+    final localPath = prepared.file.path;
+    entry = prepared.entry;
 
     _uploadingIds.add(entry.id);
     final syncing = entry.copyWith(
@@ -9674,8 +10586,16 @@ class _RecordingCardLocalAudioListPageState
         lastError: '',
       );
       await widget.store.saveFile(synced);
-      await widget.store.deleteFile(synced.deviceId, synced.fileNameNoExt);
       RecordingCardAppSyncBus.notifyChanged(memoryId: result.id);
+      try {
+        await _deleteRecordingCardUploadedSource(localPath);
+        await widget.store.deleteFile(synced.deviceId, synced.fileNameNoExt);
+      } catch (error) {
+        debugPrint(
+          '[RecordingCardList] uploaded local cleanup failed for '
+          '${synced.id}: $error',
+        );
+      }
       if (!mounted) return;
       setState(() {
         _entries = _entries
@@ -10014,13 +10934,19 @@ class _RecordingCardPendingSummary {
 class _RecordingCardDevicePendingSyncCard extends StatelessWidget {
   const _RecordingCardDevicePendingSyncCard({
     required this.devicePendingCount,
-    required this.onTap,
-    required this.onLongPress,
+    required this.syncing,
+    required this.enabled,
+    required this.progressText,
+    required this.onOpenList,
+    required this.onSync,
   });
 
   final int devicePendingCount;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  final bool syncing;
+  final bool enabled;
+  final String progressText;
+  final VoidCallback onOpenList;
+  final VoidCallback onSync;
 
   @override
   Widget build(BuildContext context) {
@@ -10030,7 +10956,11 @@ class _RecordingCardDevicePendingSyncCard extends StatelessWidget {
         final deviceName =
             status.deviceName.trim().isEmpty ? '记忆卡' : status.deviceName.trim();
         final title = '$deviceName 有 $devicePendingCount 条音频待同步';
-        final subtitle = status.connected ? '点击进入记忆卡下载到手机' : '连接记忆卡后继续同步';
+        final subtitle = syncing && progressText.trim().isNotEmpty
+            ? progressText.trim()
+            : status.connected
+                ? '可直接同步到记忆列表'
+                : '连接记忆卡后可一键同步';
 
         return DecoratedBox(
           decoration: BoxDecoration(
@@ -10046,72 +10976,78 @@ class _RecordingCardDevicePendingSyncCard extends StatelessWidget {
           child: Material(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(AppRadii.card),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadii.card),
-              onTap: onTap,
-              onLongPress: onLongPress,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 15, 12, 14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 15, 12, 14),
+              child: Column(
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.memory_outlined,
+                          size: 20,
+                          color: AppColors.accent,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.memory_outlined,
-                        size: 20,
+                      const SizedBox(width: 13),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.cardTitle.copyWith(
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.meta.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _RecordingCardPendingChip(
+                        label: '卡内待传 $devicePendingCount',
                         color: AppColors.accent,
                       ),
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.cardTitle.copyWith(
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.meta.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              _RecordingCardPendingChip(
-                                label: '卡内待传 $devicePendingCount',
-                                color: AppColors.accent,
-                              ),
-                            ],
-                          ),
-                        ],
+                      const Spacer(),
+                      _RecordingCardQuickSyncButton(
+                        key: const Key('recording-card-device-sync-button'),
+                        syncing: syncing,
+                        enabled: status.connected && enabled,
+                        color: AppColors.accent,
+                        onPressed: onSync,
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.chevron_right,
-                      size: 22,
-                      color: AppColors.textTertiary,
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 4),
+                      _RecordingCardListButton(
+                        key: const Key('recording-card-device-list-button'),
+                        enabled: enabled && !syncing,
+                        color: AppColors.accent,
+                        onPressed: onOpenList,
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
@@ -10124,131 +11060,222 @@ class _RecordingCardDevicePendingSyncCard extends StatelessWidget {
 class _RecordingCardLocalPendingSyncCard extends StatelessWidget {
   const _RecordingCardLocalPendingSyncCard({
     required this.summary,
-    required this.onTap,
-    required this.onLongPress,
+    required this.syncing,
+    required this.enabled,
+    required this.progressText,
+    required this.onOpenList,
+    required this.onSync,
   });
 
   final _RecordingCardPendingSummary summary;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  final bool syncing;
+  final bool enabled;
+  final String progressText;
+  final VoidCallback onOpenList;
+  final VoidCallback onSync;
 
   @override
   Widget build(BuildContext context) {
     final sizeText = summary.bluetoothPendingBytes <= 0
         ? ''
         : ' · 待传 ${RecordingCardProtocol.formatFileSize(summary.bluetoothPendingBytes)}';
-    return ValueListenableBuilder<RecordingCardConnectionStatus>(
-      valueListenable: RecordingCardConnectionStatusBus.notifier,
-      builder: (context, status, child) {
-        final deviceName =
-            status.deviceName.trim().isEmpty ? '记忆卡' : status.deviceName.trim();
-        final connectionText = summary.cloudPendingCount > 0
-            ? '点击查看手机本地待上传音频'
-            : status.connected
-                ? '已连接 $deviceName'
-                : '连接记忆卡后继续同步';
+    final subtitle = syncing && progressText.trim().isNotEmpty
+        ? progressText.trim()
+        : '可直接同步到云端并生成记忆$sizeText';
 
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppRadii.card),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x05000000),
-                blurRadius: 14,
-                offset: Offset(0, 8),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x05000000),
+            blurRadius: 14,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 15, 12, 14),
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.control.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.cloud_upload_outlined,
+                      size: 20,
+                      color: AppColors.control,
+                    ),
+                  ),
+                  const SizedBox(width: 13),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '记忆卡有 ${summary.pendingCount} 条本地音频待处理',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.cardTitle.copyWith(
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTextStyles.meta.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        if (summary.bluetoothPendingCount > 0)
+                          _RecordingCardPendingChip(
+                            label: '待蓝牙 ${summary.bluetoothPendingCount}',
+                            color: AppColors.control,
+                          ),
+                        if (summary.cloudPendingCount > 0)
+                          _RecordingCardPendingChip(
+                            label: '待生成 ${summary.cloudPendingCount}',
+                            color: const Color(0xFF1F6FE5),
+                          ),
+                        if (summary.pausedCount > 0)
+                          _RecordingCardPendingChip(
+                            label: '已暂停 ${summary.pausedCount}',
+                            color: const Color(0xFFB7791F),
+                          ),
+                        if (summary.failedCount > 0)
+                          _RecordingCardPendingChip(
+                            label: '失败 ${summary.failedCount}',
+                            color: const Color(0xFFB42318),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  _RecordingCardQuickSyncButton(
+                    key: const Key('recording-card-local-sync-button'),
+                    syncing: syncing,
+                    enabled: enabled,
+                    color: AppColors.control,
+                    onPressed: onSync,
+                  ),
+                  const SizedBox(width: 4),
+                  _RecordingCardListButton(
+                    key: const Key('recording-card-local-list-button'),
+                    enabled: enabled && !syncing,
+                    color: AppColors.control,
+                    onPressed: onOpenList,
+                  ),
+                ],
               ),
             ],
           ),
-          child: Material(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppRadii.card),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(AppRadii.card),
-              onTap: onTap,
-              onLongPress: onLongPress,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 15, 12, 14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: AppColors.control.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.cloud_upload_outlined,
-                        size: 20,
-                        color: AppColors.control,
-                      ),
-                    ),
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '记忆卡有 ${summary.pendingCount} 条本地音频待处理',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.cardTitle.copyWith(
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '$connectionText$sizeText',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTextStyles.meta.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              if (summary.bluetoothPendingCount > 0)
-                                _RecordingCardPendingChip(
-                                  label: '待蓝牙 ${summary.bluetoothPendingCount}',
-                                  color: AppColors.control,
-                                ),
-                              if (summary.cloudPendingCount > 0)
-                                _RecordingCardPendingChip(
-                                  label: '待生成 ${summary.cloudPendingCount}',
-                                  color: const Color(0xFF1F6FE5),
-                                ),
-                              if (summary.pausedCount > 0)
-                                _RecordingCardPendingChip(
-                                  label: '已暂停 ${summary.pausedCount}',
-                                  color: const Color(0xFFB7791F),
-                                ),
-                              if (summary.failedCount > 0)
-                                _RecordingCardPendingChip(
-                                  label: '失败 ${summary.failedCount}',
-                                  color: const Color(0xFFB42318),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.chevron_right,
-                      size: 22,
-                      color: AppColors.textTertiary,
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RecordingCardListButton extends StatelessWidget {
+  const _RecordingCardListButton({
+    super.key,
+    required this.enabled,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final bool enabled;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: '查看同步列表',
+      onPressed: enabled ? onPressed : null,
+      style: IconButton.styleFrom(
+        minimumSize: const Size(36, 36),
+        maximumSize: const Size(36, 36),
+        padding: EdgeInsets.zero,
+        foregroundColor: color,
+        disabledForegroundColor: color.withValues(alpha: 0.32),
+      ),
+      icon: const Icon(Icons.chevron_right_rounded, size: 24),
+    );
+  }
+}
+
+class _RecordingCardQuickSyncButton extends StatelessWidget {
+  const _RecordingCardQuickSyncButton({
+    super.key,
+    required this.syncing,
+    required this.enabled,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final bool syncing;
+  final bool enabled;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: syncing ? '正在同步' : '一键同步',
+      child: FilledButton.icon(
+        onPressed: enabled && !syncing ? onPressed : null,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(96, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          backgroundColor: color,
+          foregroundColor: AppColors.surface,
+          disabledBackgroundColor: color.withValues(alpha: 0.12),
+          disabledForegroundColor: color.withValues(alpha: 0.55),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadii.compact),
           ),
-        );
-      },
+          textStyle: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        icon: syncing
+            ? SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: color,
+                ),
+              )
+            : const Icon(Icons.sync_rounded, size: 17),
+        label: Text(syncing ? '同步中' : '一键同步'),
+      ),
     );
   }
 }
@@ -10865,6 +11892,100 @@ class _CustomerSpaceListPageState extends State<CustomerSpaceListPage> {
   }
 }
 
+class _HomeJieliAudioFileRef {
+  const _HomeJieliAudioFileRef({
+    required this.storage,
+    required this.file,
+  });
+
+  final JieliRecordingCardStorage storage;
+  final JieliRecordingCardFile file;
+}
+
+class _PreparedRecordingCardUpload {
+  const _PreparedRecordingCardUpload({
+    required this.entry,
+    required this.file,
+  });
+
+  final RecordingCardFileEntry entry;
+  final File file;
+}
+
+Future<_PreparedRecordingCardUpload?> _prepareRecordingCardUpload({
+  required RecordingCardLocalStore store,
+  required RecordingCardFileEntry entry,
+}) async {
+  final directPaths = <String>{
+    entry.localSbcPath.trim(),
+    entry.localPlayablePath.trim(),
+  }..removeWhere((path) => path.isEmpty);
+
+  for (final path in directPaths) {
+    final file = File(path);
+    if (!await file.exists()) continue;
+    final bytes = await file.length();
+    if (bytes <= 0) continue;
+    final preparedEntry = entry.copyWith(
+      fileSizeBytes: bytes,
+      syncedBytes: bytes,
+      updatedAt: DateTime.now(),
+    );
+    if (preparedEntry.fileSizeBytes != entry.fileSizeBytes ||
+        preparedEntry.syncedBytes != entry.syncedBytes) {
+      await store.saveFile(preparedEntry);
+      RecordingCardFileQueueBus.notifyChanged();
+    }
+    return _PreparedRecordingCardUpload(
+      entry: preparedEntry,
+      file: file,
+    );
+  }
+
+  final cacheRoot = await getTemporaryDirectory();
+  final cachedFile = await findRecoverableJieliCachedAudio(
+    cacheRoot: cacheRoot,
+    fileNameNoExt: entry.fileNameNoExt,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+  );
+  if (cachedFile == null) return null;
+
+  final localPath = await store.sourceAudioFilePath(
+    entry.deviceId,
+    '${entry.fileNameNoExt}.MP3',
+  );
+  final localFile = File(localPath);
+  await localFile.parent.create(recursive: true);
+  if (cachedFile.path != localFile.path) {
+    await cachedFile.copy(localFile.path);
+  }
+  final bytes = await localFile.length();
+  if (bytes <= 0) return null;
+
+  final recovered = entry.copyWith(
+    fileSizeBytes: bytes,
+    localSbcPath: localFile.path,
+    localPlayablePath: localFile.path,
+    syncedBytes: bytes,
+    transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+    lastError: '',
+    updatedAt: DateTime.now(),
+  );
+  await store.saveFile(recovered);
+  RecordingCardFileQueueBus.notifyChanged();
+  return _PreparedRecordingCardUpload(entry: recovered, file: localFile);
+}
+
+Future<void> _deleteRecordingCardUploadedSource(String path) async {
+  final normalized = path.trim();
+  if (normalized.isEmpty) return;
+  final file = File(normalized);
+  if (await file.exists()) {
+    await file.delete();
+  }
+}
+
 JieliRecordingCardStorage? _homePreferredRecordingStorage(
   List<JieliRecordingCardStorage> storages,
 ) {
@@ -11138,7 +12259,7 @@ class _AvatarProfileSummaryCard extends StatelessWidget {
                 height: 46,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF8F1),
+                  color: AppColors.successSoft,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -11348,7 +12469,7 @@ class _CustomerSpaceListTile extends StatelessWidget {
                         const SizedBox(width: 8),
                         _CustomerSpaceTinyBadge(
                           label: '${item.openReminderCount} 待处理',
-                          color: const Color(0xFFD87600),
+                          color: AppColors.warning,
                         ),
                       ],
                     ],
@@ -11414,7 +12535,7 @@ class _CustomerSpaceListThumbnail extends StatelessWidget {
       width: 62,
       height: 62,
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF8F1),
+        color: AppColors.successSoft,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Stack(
@@ -11425,7 +12546,7 @@ class _CustomerSpaceListThumbnail extends StatelessWidget {
             maxLines: 1,
             style: const TextStyle(
               fontSize: 24,
-              color: Color(0xFF11835C),
+              color: AppColors.success,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -11656,7 +12777,7 @@ class _CustomerSpaceDetailSummary extends StatelessWidget {
               for (final chip in chips.take(5))
                 _CustomerSpaceTinyBadge(
                   label: chip,
-                  color: const Color(0xFF536071),
+                  color: AppColors.control,
                 ),
             ],
           ),
@@ -11829,7 +12950,7 @@ class _CustomerWorkDocRow extends StatelessWidget {
                 width: 58,
                 height: 66,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF4F7FB),
+                  color: AppColors.xiaoBackground,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppColors.border),
                 ),
@@ -11949,12 +13070,12 @@ class _CustomerReminderCard extends StatelessWidget {
               ),
               _CustomerSpaceTinyBadge(
                 label: reminder.dueLabel,
-                color: const Color(0xFF536071),
+                color: AppColors.control,
               ),
               if (reminder.sourceMemoryCount > 0)
                 _CustomerSpaceTinyBadge(
                   label: '${reminder.sourceMemoryCount} 条证据',
-                  color: const Color(0xFF536071),
+                  color: AppColors.control,
                 ),
             ],
           ),
@@ -11986,7 +13107,7 @@ class _CustomerEvidenceCard extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: const Color(0xFFF4F7FB),
+              color: AppColors.xiaoBackground,
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Icon(
@@ -12094,7 +13215,7 @@ class _CustomerWorkDocDetailPage extends StatelessWidget {
                       if (doc.sourceMemoryIds.isNotEmpty)
                         _CustomerSpaceTinyBadge(
                           label: '${doc.sourceMemoryIds.length} 条记忆',
-                          color: const Color(0xFF536071),
+                          color: AppColors.control,
                         ),
                     ],
                   ),
@@ -12265,15 +13386,15 @@ Color _customerSpaceStatusColor(String status) {
     case 'completed':
     case 'confirmed':
     case 'current':
-      return const Color(0xFF11835C);
+      return AppColors.success;
     case 'ignored':
     case 'archived':
       return AppColors.textTertiary;
     case 'stale':
     case 'recompute_required':
-      return const Color(0xFFD87600);
+      return AppColors.warning;
     default:
-      return const Color(0xFFD87600);
+      return AppColors.warning;
   }
 }
 
@@ -13578,7 +14699,7 @@ class _KnowledgeFilePreviewFallback extends StatelessWidget {
       width: 74,
       height: 86,
       decoration: BoxDecoration(
-        color: const Color(0xFFF4F7FB),
+        color: AppColors.xiaoBackground,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFFE8ECF2)),
       ),
@@ -13975,7 +15096,7 @@ class _AudioDetailPreview extends StatefulWidget {
 
 class _AudioDetailPreviewState extends State<_AudioDetailPreview> {
   static const _playbackRates = [1.0, 1.25, 1.5, 2.0];
-  static const _playerBackground = Color(0xFFF6F7FB);
+  static const _playerBackground = AppColors.xiaoBackground;
   static const _timeLabelWidth = 64.0;
 
   late final _RuileApiClient _apiClient;
@@ -14513,7 +15634,10 @@ class _KnowledgeVideoDetailPreviewState
   Future<void> _prepareController() async {
     try {
       final source = await _videoSourceFuture;
-      final controller = VideoPlayerController.networkUrl(source);
+      final controller = VideoPlayerController.networkUrl(
+        source,
+        viewType: previewVideoViewType,
+      );
       await controller.initialize();
       controller.addListener(_onControllerChanged);
       if (!mounted) {
@@ -14814,7 +15938,7 @@ Color _fileTypeColor(String rawType) {
   }
   if (const {'doc', 'docx'}.contains(type)) return const Color(0xFF3D72D9);
   if (const {'md', 'markdown', 'txt'}.contains(type)) {
-    return const Color(0xFF536071);
+    return AppColors.control;
   }
   if (const {'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'svg'}
       .contains(type)) {
@@ -15132,7 +16256,7 @@ class _MemoryDetailPage extends StatefulWidget {
 }
 
 class _MemoryDetailPageState extends State<_MemoryDetailPage> {
-  static const _buttonColor = Color(0xFFF4F5F8);
+  static const _buttonColor = AppColors.xiaoSoft;
   static const _titleStyle = TextStyle(
     fontSize: 20,
     height: 1.25,
@@ -16163,7 +17287,7 @@ class _MemoryFileNote extends StatelessWidget {
               fontSize: 13,
               height: 1.7,
               color: presentation.canRetry
-                  ? const Color(0xFFC43A31)
+                  ? AppColors.danger
                   : AppColors.textSecondary,
             ),
           ),
@@ -16176,13 +17300,13 @@ Color _memoryAttachmentStatusColor(String status) {
   switch (status.trim().toLowerCase()) {
     case 'completed':
     case 'partial':
-      return const Color(0xFF11835C);
+      return AppColors.success;
     case 'failed':
     case 'skipped':
     case 'queued_failed':
-      return const Color(0xFFC43A31);
+      return AppColors.danger;
     default:
-      return const Color(0xFF4966D9);
+      return AppColors.info;
   }
 }
 
@@ -16572,7 +17696,7 @@ class _MemoryTagButton extends StatelessWidget {
     return Align(
       alignment: Alignment.centerLeft,
       child: Material(
-        color: const Color(0xFFF6F7FB),
+        color: AppColors.xiaoBackground,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: const BorderSide(color: Color(0xFFE3E7EF)),
@@ -16750,7 +17874,7 @@ class _OrganizePanelState extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FB),
+        color: AppColors.xiaoSoft,
         borderRadius: BorderRadius.circular(AppRadii.card),
         border: Border.all(color: AppColors.border),
       ),
@@ -16807,15 +17931,15 @@ class _OrganizeJobCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = job.isFinished
-        ? const Color(0xFF11835C)
+        ? AppColors.success
         : job.isActive
-            ? const Color(0xFF4966D9)
-            : const Color(0xFFC43A31);
+            ? AppColors.info
+            : AppColors.danger;
     final statusBackground = job.isFinished
-        ? const Color(0xFFEAF8F1)
+        ? AppColors.successSoft
         : job.isActive
-            ? const Color(0xFFEEF2FF)
-            : const Color(0xFFFFF0EE);
+            ? AppColors.infoSoft
+            : AppColors.dangerSoft;
 
     return Material(
       color: Colors.white,
@@ -16844,7 +17968,7 @@ class _OrganizeJobCard extends StatelessWidget {
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF8F1),
+                  color: AppColors.successSoft,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -16955,7 +18079,7 @@ class _SproutPreviewBlock extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
           decoration: BoxDecoration(
-            color: const Color(0xFFF6F7FB),
+            color: AppColors.xiaoBackground,
             borderRadius: BorderRadius.circular(8),
             border: const Border(
               left: BorderSide(color: AppColors.accent, width: 3),
@@ -18512,9 +19636,8 @@ class _TextDraftSubmitButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = saving ? const Color(0xFFEAF8F1) : AppColors.accent;
-    final foregroundColor =
-        saving ? const Color(0xFF11835C) : AppColors.surface;
+    final backgroundColor = saving ? AppColors.successSoft : AppColors.accent;
+    final foregroundColor = saving ? AppColors.success : AppColors.surface;
 
     return Material(
       color: Colors.transparent,
@@ -18531,13 +19654,13 @@ class _TextDraftSubmitButton extends StatelessWidget {
             color: backgroundColor,
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: saving ? const Color(0xFFCDEFE4) : AppColors.accent,
+              color: saving ? AppColors.successBorder : AppColors.accent,
             ),
             boxShadow: saving
                 ? null
                 : const [
                     BoxShadow(
-                      color: Color(0x3323B99D),
+                      color: Color(0x33534AB7),
                       blurRadius: 10,
                       offset: Offset(0, 4),
                     ),
@@ -19298,117 +20421,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 }
 
-class _HomeFloatingMenu extends StatelessWidget {
-  const _HomeFloatingMenu({
-    this.onMenuTap,
-  });
-
-  final VoidCallback? onMenuTap;
-  static const _leftInset = 18.0;
-  static const _topInset = 8.0;
-
-  @override
-  Widget build(BuildContext context) {
-    final topInset = MediaQuery.paddingOf(context).top;
-
-    return Positioned(
-      left: _leftInset,
-      top: topInset + _topInset,
-      child: ValueListenableBuilder<RecordingCardConnectionStatus>(
-        valueListenable: RecordingCardConnectionStatusBus.notifier,
-        builder: (context, status, child) {
-          return _HomeTopIconButton(
-            tooltip: status.connected ? '菜单，记忆卡已连接' : '菜单',
-            icon: Icons.menu_rounded,
-            showBadge: status.connected,
-            onTap: onMenuTap,
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _HomeTopIconButton extends StatelessWidget {
-  const _HomeTopIconButton({
-    required this.tooltip,
-    required this.icon,
-    this.showBadge = false,
-    this.onTap,
-  });
-
-  static const size = 44.0;
-  static const iconSize = 24.0;
-
-  final String tooltip;
-  final IconData icon;
-  final bool showBadge;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Semantics(
-        button: true,
-        label: tooltip,
-        child: DecoratedBox(
-          decoration: const BoxDecoration(
-            color: AppColors.surface,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Color(0x0A000000),
-                blurRadius: 12,
-                offset: Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onTap,
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    Icon(
-                      icon,
-                      size: iconSize,
-                      color: AppColors.textPrimary,
-                    ),
-                    if (showBadge)
-                      Positioned(
-                        right: 9,
-                        top: 9,
-                        child: Container(
-                          width: 9,
-                          height: 9,
-                          decoration: BoxDecoration(
-                            color: AppColors.accent,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: AppColors.surface,
-                              width: 1.5,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _DiscoverSectionHeader extends StatelessWidget {
   const _DiscoverSectionHeader({
     required this.title,
@@ -19513,9 +20525,8 @@ class _DiscoverTabsBar extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12,
                     height: 1.1,
-                    color: selected
-                        ? const Color(0xFF11835C)
-                        : AppColors.textSecondary,
+                    color:
+                        selected ? AppColors.success : AppColors.textSecondary,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
                   ),
                 ),
@@ -19789,7 +20800,7 @@ class _DiscoverLoadError extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const Icon(Icons.error_outline, color: Color(0xFFC43A31)),
+          const Icon(Icons.error_outline, color: AppColors.danger),
           const SizedBox(height: 8),
           Text(
             message,
@@ -19818,7 +20829,7 @@ class _DiscoverEmpty extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 30),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FB),
+        color: AppColors.xiaoSoft,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
@@ -19940,7 +20951,7 @@ class _DiscoverDetailPageState extends State<_DiscoverDetailPage> {
                 _KnowledgeRoundButton(
                   tooltip: '返回',
                   icon: Icons.chevron_left,
-                  backgroundColor: const Color(0xFFF4F5F8),
+                  backgroundColor: AppColors.xiaoSoft,
                   size: 40,
                   iconSize: 24,
                   onTap: () => Navigator.maybePop(context),
@@ -19979,7 +20990,7 @@ class _DiscoverDetailPageState extends State<_DiscoverDetailPage> {
                 Text(
                   '详情刷新失败：$_error',
                   style: AppTextStyles.meta.copyWith(
-                    color: const Color(0xFFC43A31),
+                    color: AppColors.danger,
                   ),
                 ),
             ],
@@ -20134,7 +21145,7 @@ class _DiscoverTagChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F7FB),
+        color: AppColors.xiaoBackground,
         borderRadius: BorderRadius.circular(AppRadii.pill),
         border: Border.all(color: AppColors.border),
       ),
@@ -20193,7 +21204,7 @@ class _DiscoverSourceFileCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FB),
+        color: AppColors.xiaoSoft,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: AppColors.border),
       ),
@@ -20218,17 +21229,809 @@ class _DiscoverSourceFileCard extends StatelessWidget {
   }
 }
 
+class _XiaoRuiPage extends StatefulWidget {
+  const _XiaoRuiPage({
+    this.authToken = AppApiConfig.authToken,
+    this.tenantId = AppApiConfig.tenantId,
+    required this.onAuthFailure,
+    required this.onMenuTap,
+    required this.onOpenRecordingCard,
+    required this.onOpenReminders,
+    required this.onOpenCustomerSpaces,
+  });
+
+  final String authToken;
+  final String tenantId;
+  final VoidCallback onAuthFailure;
+  final VoidCallback onMenuTap;
+  final VoidCallback onOpenRecordingCard;
+  final VoidCallback onOpenReminders;
+  final VoidCallback onOpenCustomerSpaces;
+
+  @override
+  State<_XiaoRuiPage> createState() => _XiaoRuiPageState();
+}
+
+class _XiaoRuiPageState extends State<_XiaoRuiPage> {
+  late _RuileApiClient _apiClient;
+  var _openReminderCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiClient = _RuileApiClient(
+      authToken: widget.authToken,
+      tenantId: widget.tenantId,
+      onAuthFailure: widget.onAuthFailure,
+    );
+    unawaited(_loadReminderCount());
+  }
+
+  @override
+  void didUpdateWidget(covariant _XiaoRuiPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.authToken != widget.authToken ||
+        oldWidget.tenantId != widget.tenantId) {
+      _apiClient = _RuileApiClient(
+        authToken: widget.authToken,
+        tenantId: widget.tenantId,
+        onAuthFailure: widget.onAuthFailure,
+      );
+      unawaited(_loadReminderCount());
+    }
+  }
+
+  Future<void> _loadReminderCount() async {
+    if (!_apiClient.isConfigured) return;
+    try {
+      final result = await _apiClient.fetchServiceBootstrap();
+      final openCount = result.reminders.where((item) => item.isOpen).length;
+      final statsCount = const [
+        'candidate',
+        'pending',
+        'generated',
+        'snoozed',
+        'recompute_required',
+      ].fold<int>(0, (sum, key) => sum + (result.stats[key] ?? 0));
+      if (!mounted) return;
+      setState(() {
+        _openReminderCount = openCount > 0 ? openCount : statsCount;
+      });
+    } on _ApiException catch (error) {
+      if (error.isAuthFailure) {
+        widget.onAuthFailure();
+      }
+    } catch (error) {
+      debugPrint('Failed to load Xiao Rui reminder count: $error');
+    }
+  }
+
+  void _showComingSoon(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 86),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: AppColors.xiaoBackground),
+      child: SafeArea(
+        bottom: false,
+        child: Stack(
+          children: [
+            Column(
+              children: [
+                _MainPageHeader(
+                  title: '小睿',
+                  onMenuTap: widget.onMenuTap,
+                  onRecordingCardTap: widget.onOpenRecordingCard,
+                  actions: [
+                    _MainHeaderIconButton(
+                      tooltip: '新任务',
+                      icon: Icons.edit_outlined,
+                      onTap: () => _showComingSoon('新任务入口即将开放'),
+                    ),
+                    const SizedBox(width: 8),
+                    _MainHeaderIconButton(
+                      tooltip: '小睿设置',
+                      icon: Icons.add_circle_outline_rounded,
+                      onTap: () => _showComingSoon('小睿设置即将开放'),
+                    ),
+                  ],
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 112),
+                    children: [
+                      _XiaoReminderBanner(
+                        openCount: _openReminderCount,
+                        onTap: widget.onOpenReminders,
+                      ),
+                      const SizedBox(height: 68),
+                      _XiaoGreetingCard(
+                        onQuickAction: (title) =>
+                            _showComingSoon('$title功能即将开放'),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _XiaoEntryCard(
+                              icon: Icons.auto_awesome,
+                              color: const Color(0xFF7A70D8),
+                              title: '专家广场',
+                              subtitle: '按岗位选专家',
+                              onTap: () => _showComingSoon('专家广场即将开放'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _XiaoEntryCard(
+                              icon: Icons.folder_shared_outlined,
+                              color: const Color(0xFF1D9E75),
+                              title: '客户空间',
+                              subtitle: '档案 · 时间线 · 待办',
+                              onTap: widget.onOpenCustomerSpaces,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _XiaoReminderBanner extends StatelessWidget {
+  const _XiaoReminderBanner({
+    required this.openCount,
+    required this.onTap,
+  });
+
+  final int openCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.xiaoSurface,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE7E5FF),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: AppColors.xiaoPrimary,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '秋季招生冲刺',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: AppColors.xiaoDeep,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '今天 $openCount 条服务提醒待处理',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF77728F),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Text(
+                '去处理',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.xiaoPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.arrow_forward_rounded,
+                color: AppColors.xiaoPrimary,
+                size: 18,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _XiaoGreetingCard extends StatelessWidget {
+  const _XiaoGreetingCard({required this.onQuickAction});
+
+  final ValueChanged<String> onQuickAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(18, 70, 18, 18),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEDECFC),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: const Color(0xFFDCD9F6)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Hi',
+                style: TextStyle(
+                  fontSize: 31,
+                  height: 1,
+                  color: AppColors.xiaoPrimary,
+                  fontStyle: FontStyle.italic,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '小睿来啦',
+                style: TextStyle(
+                  fontSize: 24,
+                  color: AppColors.xiaoDeep,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                '该联系谁我来提醒，发什么我来写——每次都给你能直接发出去的成稿。',
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.55,
+                  color: Color(0xFF3E3A67),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 18),
+              GridView.count(
+                crossAxisCount: 2,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 2.1,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  _XiaoQuickActionButton(
+                    title: '家校反馈',
+                    onTap: onQuickAction,
+                    child: const _XiaoQuickAction(
+                      icon: Icons.forum_outlined,
+                      color: Color(0xFF397CEB),
+                      title: '家校反馈',
+                      subtitle: '课堂观察 · 在家配合',
+                    ),
+                  ),
+                  _XiaoQuickActionButton(
+                    title: '到访跟进',
+                    onTap: onQuickAction,
+                    child: const _XiaoQuickAction(
+                      icon: Icons.track_changes_outlined,
+                      color: Color(0xFF7A70D8),
+                      title: '到访跟进',
+                      subtitle: '72 小时内不冷场',
+                    ),
+                  ),
+                  _XiaoQuickActionButton(
+                    title: '补课通知',
+                    onTap: onQuickAction,
+                    child: const _XiaoQuickAction(
+                      icon: Icons.event_repeat_outlined,
+                      color: Color(0xFF1D9E75),
+                      title: '补课通知',
+                      subtitle: '调课 · 请假 · 课消',
+                    ),
+                  ),
+                  _XiaoQuickActionButton(
+                    title: '招生文案',
+                    onTap: onQuickAction,
+                    child: const _XiaoQuickAction(
+                      icon: Icons.campaign_outlined,
+                      color: Color(0xFFE28A35),
+                      title: '招生文案',
+                      subtitle: '朋友圈 · 活动海报',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          top: -52,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: _XiaoRuiAvatar(date: now),
+          ),
+        ),
+        Positioned(
+          top: 18,
+          right: 16,
+          child: _XiaoDateChip(date: now),
+        ),
+      ],
+    );
+  }
+}
+
+class _XiaoQuickAction extends StatelessWidget {
+  const _XiaoQuickAction({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.xiaoSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFDAD8EE)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 21),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.xiaoDeep,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    color: Color(0xFF827D9B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _XiaoQuickActionButton extends StatelessWidget {
+  const _XiaoQuickActionButton({
+    required this.title,
+    required this.onTap,
+    required this.child,
+  });
+
+  final String title;
+  final ValueChanged<String> onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: title,
+      child: GestureDetector(
+        onTap: () => onTap(title),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _XiaoEntryCard extends StatelessWidget {
+  const _XiaoEntryCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.xiaoSurface,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 21),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.xiaoDeep,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF827D9B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: Color(0xFF9A96B5),
+                size: 18,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _XiaoDateChip extends StatelessWidget {
+  const _XiaoDateChip({required this.date});
+
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.xiaoSurface,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x16000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: const BoxDecoration(
+              color: AppColors.xiaoPrimary,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Text(
+              '${date.month}月',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.xiaoSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+            child: Text(
+              '${date.day}',
+              style: const TextStyle(
+                fontSize: 23,
+                height: 1,
+                color: AppColors.xiaoDeep,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _XiaoRuiAvatar extends StatelessWidget {
+  const _XiaoRuiAvatar({required this.date});
+
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 124,
+      height: 124,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CustomPaint(
+            size: const Size.square(124),
+            painter: _XiaoRuiAvatarPainter(seed: date.day),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: const Color(0xFFD4D0F7),
+                width: 3,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x18000000),
+                  blurRadius: 8,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: ClipOval(
+              child: SizedBox(
+                width: 84,
+                height: 84,
+                child: Image.asset(
+                  'assets/shizi.gif',
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _XiaoRuiAvatarPainter extends CustomPainter {
+  const _XiaoRuiAvatarPainter({required this.seed});
+
+  final int seed;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final ringPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = const Color(0xFFB8B3ED);
+    final outerPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..color = const Color(0xFFC8C4F2);
+    final fillPaint = Paint()..color = AppColors.xiaoSurface;
+    final facePaint = Paint()..color = const Color(0xFFF4C6A7);
+    final hairPaint = Paint()..color = const Color(0xFF201C37);
+
+    final hexagon = Path();
+    for (var index = 0; index < 6; index++) {
+      final angle = -math.pi / 2 + index * math.pi / 3;
+      final point = center + Offset(math.cos(angle), math.sin(angle)) * 50;
+      if (index == 0) {
+        hexagon.moveTo(point.dx, point.dy);
+      } else {
+        hexagon.lineTo(point.dx, point.dy);
+      }
+    }
+    hexagon.close();
+    canvas.drawPath(hexagon, fillPaint);
+    canvas.drawPath(hexagon, ringPaint);
+
+    final outerHexagon = Path();
+    for (var index = 0; index < 6; index++) {
+      final angle = -math.pi / 2 + index * math.pi / 3;
+      final point = center + Offset(math.cos(angle), math.sin(angle)) * 59;
+      if (index == 0) {
+        outerHexagon.moveTo(point.dx, point.dy);
+      } else {
+        outerHexagon.lineTo(point.dx, point.dy);
+      }
+    }
+    outerHexagon.close();
+    canvas.drawPath(outerHexagon, outerPaint);
+
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: center + const Offset(0, 8),
+        width: 51,
+        height: 59,
+      ),
+      facePaint,
+    );
+    final hairPath = Path()
+      ..moveTo(center.dx - 27, center.dy + 4)
+      ..quadraticBezierTo(
+        center.dx - 20,
+        center.dy - 30,
+        center.dx + 6,
+        center.dy - 27,
+      )
+      ..quadraticBezierTo(
+        center.dx + 27,
+        center.dy - 25,
+        center.dx + 28,
+        center.dy + 2,
+      )
+      ..quadraticBezierTo(
+        center.dx + 12,
+        center.dy - 9,
+        center.dx - 4,
+        center.dy - 20,
+      )
+      ..quadraticBezierTo(
+        center.dx - 13,
+        center.dy - 4,
+        center.dx - 27,
+        center.dy + 4,
+      )
+      ..close();
+    canvas.drawPath(hairPath, hairPaint);
+
+    final glassesPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..color = const Color(0xFF3F3857);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: center + const Offset(-10, 8),
+          width: 17,
+          height: 12,
+        ),
+        const Radius.circular(4),
+      ),
+      glassesPaint,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: center + const Offset(10, 8),
+          width: 17,
+          height: 12,
+        ),
+        const Radius.circular(4),
+      ),
+      glassesPaint,
+    );
+    canvas.drawLine(
+      center + const Offset(-1, 8),
+      center + const Offset(1, 8),
+      glassesPaint,
+    );
+
+    final eyePaint = Paint()..color = const Color(0xFF29243C);
+    canvas.drawCircle(center + const Offset(-10, 8), 2.2, eyePaint);
+    canvas.drawCircle(center + const Offset(10, 8), 2.2, eyePaint);
+    final smilePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round
+      ..color = const Color(0xFFB55D58);
+    canvas.drawArc(
+      Rect.fromCenter(
+        center: center + const Offset(0, 18),
+        width: 13,
+        height: 8,
+      ),
+      0.15,
+      math.pi - 0.3,
+      false,
+      smilePaint,
+    );
+
+    final accent = Paint()
+      ..color = seed.isEven ? const Color(0xFF7A70D8) : const Color(0xFF5D9DEB);
+    canvas.drawCircle(
+      center + const Offset(-47, 42),
+      3,
+      accent,
+    );
+    canvas.drawCircle(
+      center + const Offset(48, -40),
+      3,
+      accent,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _XiaoRuiAvatarPainter oldDelegate) {
+    return oldDelegate.seed != seed;
+  }
+}
+
 class AssistantPage extends StatefulWidget {
   const AssistantPage({
     super.key,
     this.authToken = AppApiConfig.authToken,
     this.tenantId = AppApiConfig.tenantId,
     required this.onAuthFailure,
+    required this.onOpenRecordingCard,
+    required this.onMenuTap,
+    required this.onOpenXiaoRui,
   });
 
   final String authToken;
   final String tenantId;
   final VoidCallback onAuthFailure;
+  final VoidCallback onOpenRecordingCard;
+  final VoidCallback onMenuTap;
+  final VoidCallback onOpenXiaoRui;
 
   @override
   State<AssistantPage> createState() => _AssistantPageState();
@@ -20454,85 +22257,82 @@ class _AssistantPageState extends State<AssistantPage> {
     return DecoratedBox(
       decoration: const BoxDecoration(color: AppColors.background),
       child: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: () => _loadServiceReminders(refresh: true),
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(18, 24, 18, 132),
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('服务提醒', style: AppTextStyles.pageTitle),
-                        SizedBox(height: 6),
-                        Text(
-                          '从记忆笔记整理今天要服务谁、为什么提醒和下一步动作。',
-                          style: AppTextStyles.body,
-                        ),
-                      ],
-                    ),
+        bottom: false,
+        child: Column(
+          children: [
+            _MainPageHeader(
+              title: '服务提醒',
+              subtitle: '今天要服务谁',
+              onMenuTap: widget.onMenuTap,
+              onRecordingCardTap: widget.onOpenRecordingCard,
+              showRecordingCardPrompt: false,
+              actions: [
+                Tooltip(
+                  message: '客户空间',
+                  child: IconButton(
+                    onPressed: _openCustomerSpaces,
+                    icon: const Icon(Icons.folder_shared_outlined),
+                    color: AppColors.textSecondary,
                   ),
-                  const SizedBox(width: 10),
-                  Tooltip(
-                    message: '客户空间',
-                    child: IconButton(
-                      onPressed: _openCustomerSpaces,
-                      icon: const Icon(Icons.folder_shared_outlined),
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  Tooltip(
-                    message: '刷新服务提醒',
-                    child: IconButton(
-                      onPressed: _refreshing
-                          ? null
-                          : () => unawaited(
-                                _loadServiceReminders(refresh: true),
-                              ),
-                      icon: _refreshing
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.refresh),
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              _ServiceOverview(
-                openCount: openCount,
-                completedCount: completedCount,
-                totalCount: totalCount,
-              ),
-              const SizedBox(height: 18),
-              if (_loading && _reminders.isEmpty)
-                const _KnowledgeListLoading()
-              else if (_loadError != null)
-                _CustomerSpaceEmptyCard(
-                  icon: Icons.error_outline,
-                  title: _loadError!,
-                  message: '下拉或点击刷新服务提醒后重试。',
-                )
-              else if (_visibleReminders.isEmpty && _loaded)
-                _CustomerSpaceEmptyCard(
-                  icon: Icons.notifications_none_outlined,
-                  title: '暂无服务提醒',
-                  message: _emptyMessage,
-                )
-              else
-                _ServiceReminderListCard(
-                  reminders: visibleReminders,
-                  onTap: (reminder) => unawaited(_openReminder(reminder)),
                 ),
-            ],
-          ),
+                Tooltip(
+                  message: '刷新服务提醒',
+                  child: IconButton(
+                    onPressed: _refreshing
+                        ? null
+                        : () => unawaited(
+                              _loadServiceReminders(refresh: true),
+                            ),
+                    icon: _refreshing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => _loadServiceReminders(refresh: true),
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 132),
+                  children: [
+                    _ServiceOverview(
+                      openCount: openCount,
+                      completedCount: completedCount,
+                      totalCount: totalCount,
+                    ),
+                    const SizedBox(height: 18),
+                    if (_loading && _reminders.isEmpty)
+                      const _KnowledgeListLoading()
+                    else if (_loadError != null)
+                      _CustomerSpaceEmptyCard(
+                        icon: Icons.error_outline,
+                        title: _loadError!,
+                        message: '下拉或点击刷新服务提醒后重试。',
+                      )
+                    else if (_visibleReminders.isEmpty && _loaded)
+                      _CustomerSpaceEmptyCard(
+                        icon: Icons.notifications_none_outlined,
+                        title: '暂无服务提醒',
+                        message: _emptyMessage,
+                      )
+                    else
+                      _ServiceReminderListCard(
+                        reminders: visibleReminders,
+                        onTap: (reminder) => unawaited(_openReminder(reminder)),
+                        onWrite: widget.onOpenXiaoRui,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -20552,43 +22352,43 @@ class _ServiceOverview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+    final items = [
+      (
+        label: '待处理',
+        value: openCount,
+        icon: Icons.notifications_active_outlined,
+        active: true,
       ),
-      child: Row(
-        children: [
+      (
+        label: '已完成',
+        value: completedCount,
+        icon: Icons.check_circle_outline,
+        active: false,
+      ),
+      (
+        label: '全部',
+        value: totalCount,
+        icon: Icons.inbox_outlined,
+        active: false,
+      ),
+    ];
+    return Row(
+      children: [
+        for (var index = 0; index < items.length; index++) ...[
+          if (index > 0) const SizedBox(width: 8),
           Expanded(
             child: _ServiceOverviewMetric(
-              icon: Icons.notifications_active_outlined,
-              label: '待处理',
-              value: '$openCount',
-              color: const Color(0xFFD87600),
-            ),
-          ),
-          _ServiceOverviewDivider(),
-          Expanded(
-            child: _ServiceOverviewMetric(
-              icon: Icons.check_circle_outline,
-              label: '已完成',
-              value: '$completedCount',
-              color: AppColors.accent,
-            ),
-          ),
-          _ServiceOverviewDivider(),
-          Expanded(
-            child: _ServiceOverviewMetric(
-              icon: Icons.inbox_outlined,
-              label: '全部',
-              value: '$totalCount',
-              color: AppColors.control,
+              icon: items[index].icon,
+              label: items[index].label,
+              value: '${items[index].value}',
+              color: items[index].active
+                  ? AppColors.xiaoPrimary
+                  : AppColors.textSecondary,
+              active: items[index].active,
             ),
           ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -20599,42 +22399,56 @@ class _ServiceOverviewMetric extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    required this.active,
   });
 
   final IconData icon;
   final String label;
   final String value;
   final Color color;
+  final bool active;
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Icon(icon, size: 20, color: color),
-        const SizedBox(height: 5),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 20,
-            height: 1.1,
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(label, style: AppTextStyles.meta.copyWith(fontSize: 12)),
-      ],
-    );
-  }
-}
-
-class _ServiceOverviewDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 1,
-      height: 46,
-      color: AppColors.border,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      decoration: BoxDecoration(
+        color: active ? AppColors.xiaoPrimary : AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: active ? AppColors.xiaoPrimary : AppColors.border,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            size: 19,
+            color: active ? AppColors.surface : color,
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              height: 1.1,
+              color: active ? AppColors.surface : AppColors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: active
+                  ? AppColors.surface.withValues(alpha: 0.90)
+                  : AppColors.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -20643,22 +22457,56 @@ class _ServiceReminderListCard extends StatelessWidget {
   const _ServiceReminderListCard({
     required this.reminders,
     required this.onTap,
+    required this.onWrite,
   });
 
   final List<_ServiceReminder> reminders;
   final ValueChanged<_ServiceReminder> onTap;
+  final VoidCallback onWrite;
 
   @override
   Widget build(BuildContext context) {
+    final grouped = <String, List<_ServiceReminder>>{};
+    for (final reminder in reminders) {
+      grouped.putIfAbsent(reminder.sourceGroupKey, () => []).add(reminder);
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (var index = 0; index < reminders.length; index++) ...[
-          _ServiceReminderListTile(
-            reminder: reminders[index],
-            onTap: () => onTap(reminders[index]),
+        for (final entry in grouped.entries) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 8),
+            child: Row(
+              children: [
+                Text(
+                  entry.value.first.sourceGroupLabel,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${entry.value.length} 条',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textTertiary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
-          if (index != reminders.length - 1) const SizedBox(height: 10),
+          for (var index = 0; index < entry.value.length; index++) ...[
+            _ServiceReminderListTile(
+              reminder: entry.value[index],
+              onTap: () => onTap(entry.value[index]),
+              onWrite: onWrite,
+            ),
+            if (index != entry.value.length - 1) const SizedBox(height: 10),
+          ],
+          if (entry.key != grouped.keys.last) const SizedBox(height: 18),
         ],
       ],
     );
@@ -20669,107 +22517,190 @@ class _ServiceReminderListTile extends StatelessWidget {
   const _ServiceReminderListTile({
     required this.reminder,
     required this.onTap,
+    required this.onWrite,
   });
 
   final _ServiceReminder reminder;
   final VoidCallback onTap;
+  final VoidCallback onWrite;
 
   @override
   Widget build(BuildContext context) {
-    final statusColor = _customerSpaceStatusColor(reminder.status);
-    final title = reminder.displayTitle;
-    final summaryText = reminder.summaryText;
-    final nextActionText = reminder.nextActionText;
-    final stageText = reminder.stageText;
-    final riskText = _normalizeSpaces(reminder.riskLabel);
+    final borderColor = reminder.sourceGroupKey == 'customer_space'
+        ? const Color(0xFFD9D5F7)
+        : const Color(0xFFE6E7EF);
+    final cardColor =
+        reminder.isCompleted ? const Color(0xFFF5F6F8) : AppColors.surface;
+    final stageText = reminder.stageText.isEmpty ? '待跟进' : reminder.stageText;
+    final reason = reminder.assistReasonText;
     final metaParts = [
-      reminder.customerName,
       reminder.displayDueLabel,
-      if (stageText.isNotEmpty) stageText,
-      if (riskText.isNotEmpty) riskText,
-      reminder.priorityLabel,
-      if (reminder.sourceMemoryCount > 0) '${reminder.sourceMemoryCount} 条记忆',
+      if (reminder.sourceMemoryCount > 0) '${reminder.sourceMemoryCount} 条证据',
+      if (reminder.confidenceLabel.isNotEmpty) reminder.confidenceLabel,
     ].map(_normalizeSpaces).where((item) => item.isNotEmpty).toList();
 
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFEEF1F5)),
-        color: const Color(0xFFFEFFFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+        color: cardColor,
         boxShadow: const [
           BoxShadow(
-            color: Color(0x05000000),
-            blurRadius: 10,
+            color: Color(0x08000000),
+            blurRadius: 12,
             offset: Offset(0, 4),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(18),
         child: InkWell(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(18),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
+                    Container(
+                      width: 40,
+                      height: 40,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: reminder.isCompleted
+                            ? const Color(0xFFE1E4E9)
+                            : const Color(0xFFE7E5FF),
+                        shape: BoxShape.circle,
+                      ),
                       child: Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          height: 1.3,
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w700,
+                        reminder.avatarText,
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: reminder.isCompleted
+                              ? AppColors.textSecondary
+                              : AppColors.xiaoPrimary,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
                     ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            reminder.customerName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: reminder.isCompleted
+                                  ? AppColors.textSecondary
+                                  : AppColors.textPrimary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${reminder.studentName} · $stageText',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppColors.textTertiary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(width: 8),
-                    Text(
-                      reminder.statusLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        height: 1.2,
-                        color: statusColor,
-                        fontWeight: FontWeight.w600,
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: reminder.isCompleted
+                            ? const Color(0xFFE6E8EC)
+                            : const Color(0xFFF1F0FF),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
+                        child: Text(
+                          reminder.typeLabel,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: reminder.isCompleted
+                                ? AppColors.textSecondary
+                                : AppColors.xiaoPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 7),
                 Text(
-                  summaryText,
-                  maxLines: 2,
+                  reason,
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    height: 1.42,
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  '下一步：$nextActionText',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    height: 1.42,
-                    color: AppColors.control,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: reminder.isCompleted
+                        ? AppColors.textSecondary
+                        : AppColors.textPrimary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 10),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: reminder.isCompleted
+                        ? const Color(0xFFEFF1F3)
+                        : const Color(0xFFF7F7FB),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 16,
+                          color: reminder.isCompleted
+                              ? AppColors.textTertiary
+                              : AppColors.xiaoPrimary,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            reminder.nextActionText,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.35,
+                              color: reminder.isCompleted
+                                  ? AppColors.textSecondary
+                                  : AppColors.control,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -20785,14 +22716,85 @@ class _ServiceReminderListTile extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.chevron_right,
-                      size: 16,
-                      color: AppColors.textTertiary,
-                    ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                if (reminder.isCompleted)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE4F4EC),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          size: 17,
+                          color: AppColors.accent,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          '已完成',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.success,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: onWrite,
+                          icon: const Icon(Icons.auto_awesome, size: 16),
+                          label: const Text('让小睿写'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.xiaoPrimary,
+                            foregroundColor: AppColors.surface,
+                            minimumSize: const Size.fromHeight(38),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            textStyle: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (reminder.sourceGroupKey == 'customer_space') ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: onTap,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.accent,
+                              side: const BorderSide(color: AppColors.accent),
+                              minimumSize: const Size.fromHeight(38),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            child: const Text('发送通知'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
               ],
             ),
           ),
@@ -22825,6 +24827,57 @@ class _ServiceReminder {
     return '确认客户状态并补一条下一步记忆';
   }
 
+  String get sourceGroupKey {
+    final source = _readString(
+      metadata,
+      const [
+        'source',
+        'origin',
+        'source_type',
+        'sourceType',
+        'source_group',
+        'sourceGroup',
+      ],
+    ).toLowerCase();
+    final channelText = channel.toLowerCase();
+    if (source.contains('customer') ||
+        source.contains('space') ||
+        source.contains('客户') ||
+        source.contains('空间') ||
+        channelText.contains('customer') ||
+        channelText.contains('客户')) {
+      return 'customer_space';
+    }
+    return 'organize';
+  }
+
+  String get sourceGroupLabel {
+    return sourceGroupKey == 'customer_space' ? '来自客户空间' : '整理产出 · 今日 08:00 复盘';
+  }
+
+  String get typeLabel {
+    final text = '$title $summary $nextAction $agentDomain'.toLowerCase();
+    if (text.contains('招生') ||
+        text.contains('到访') ||
+        text.contains('意向') ||
+        text.contains('跟进')) {
+      return '商机跟进';
+    }
+    if (text.contains('课堂') ||
+        text.contains('学情') ||
+        text.contains('家校') ||
+        text.contains('作业')) {
+      return '学情关怀';
+    }
+    if (text.contains('补课') ||
+        text.contains('调课') ||
+        text.contains('请假') ||
+        text.contains('课消')) {
+      return '教务事务';
+    }
+    return '服务跟进';
+  }
+
   String get avatarText {
     final normalized = customerName.trim();
     if (normalized.isEmpty) return '客';
@@ -22834,10 +24887,10 @@ class _ServiceReminder {
   Color get riskColor {
     final text = '$riskLabel $title $summary'.toLowerCase();
     if (text.contains('高') || text.contains('风险') || text.contains('投诉')) {
-      return const Color(0xFFC43A31);
+      return AppColors.danger;
     }
     if (text.contains('待') || text.contains('顾虑') || text.contains('需')) {
-      return const Color(0xFFD87600);
+      return AppColors.warning;
     }
     return AppColors.control;
   }
@@ -22950,11 +25003,11 @@ class _ServiceReminder {
   Color get priorityColor {
     switch (priority.trim().toLowerCase()) {
       case 'high':
-        return const Color(0xFFC43A31);
+        return AppColors.danger;
       case 'medium':
-        return const Color(0xFFD87600);
+        return AppColors.warning;
       default:
-        return const Color(0xFF11835C);
+        return AppColors.success;
     }
   }
 }
@@ -23241,9 +25294,9 @@ class _OrganizeOutput {
       case 'video':
         return const Color(0xFF2459D9);
       case 'audio':
-        return const Color(0xFFD87600);
+        return AppColors.warning;
       default:
-        return const Color(0xFF0F8F52);
+        return AppColors.success;
     }
   }
 
@@ -25006,21 +27059,21 @@ class _NoteItem {
   }
 
   Color get transcriptionStatusColor {
-    if (_isTranscriptionSuccess) return const Color(0xFF11835C);
-    if (_isTranscriptionFailure) return const Color(0xFFC43A31);
-    return const Color(0xFF4966D9);
+    if (_isTranscriptionSuccess) return AppColors.success;
+    if (_isTranscriptionFailure) return AppColors.danger;
+    return AppColors.info;
   }
 
   Color get transcriptionStatusBackgroundColor {
-    if (_isTranscriptionSuccess) return const Color(0xFFEAF8F1);
-    if (_isTranscriptionFailure) return const Color(0xFFFFF0EE);
-    return const Color(0xFFEEF2FF);
+    if (_isTranscriptionSuccess) return AppColors.successSoft;
+    if (_isTranscriptionFailure) return AppColors.dangerSoft;
+    return AppColors.infoSoft;
   }
 
   Color get transcriptionStatusBorderColor {
     if (_isTranscriptionSuccess) return const Color(0xFFCDEEDF);
-    if (_isTranscriptionFailure) return const Color(0xFFFFD1CB);
-    return const Color(0xFFD8DFFF);
+    if (_isTranscriptionFailure) return AppColors.dangerBorder;
+    return AppColors.infoBorder;
   }
 
   IconData get transcriptionStatusIcon {
@@ -25198,6 +27251,14 @@ String _readString(
     if (text.isNotEmpty) return text;
   }
   return fallback;
+}
+
+Map<String, dynamic> _asMap(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) {
+    return value.map((key, value) => MapEntry(key.toString(), value));
+  }
+  return const {};
 }
 
 List<String> _readStringList(Map<String, dynamic> json, List<String> keys) {
