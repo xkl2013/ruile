@@ -3354,13 +3354,11 @@ class _MainPageHeader extends StatelessWidget {
     required this.title,
     required this.onMenuTap,
     required this.onRecordingCardTap,
-    this.subtitle,
     this.actions = const [],
     this.showRecordingCardPrompt = true,
   });
 
   final String title;
-  final String? subtitle;
   final VoidCallback onMenuTap;
   final VoidCallback onRecordingCardTap;
   final List<Widget> actions;
@@ -3368,8 +3366,6 @@ class _MainPageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final normalizedSubtitle = subtitle?.trim() ?? '';
-
     return Padding(
       key: Key('main-page-header-$title'),
       padding: const EdgeInsets.fromLTRB(
@@ -3417,16 +3413,6 @@ class _MainPageHeader extends StatelessWidget {
                         );
                       },
                     ),
-                  if (normalizedSubtitle.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      normalizedSubtitle,
-                      style: AppTextStyles.body.copyWith(
-                        fontSize: 12,
-                        height: 1.25,
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -22038,192 +22024,8 @@ class AssistantPage extends StatefulWidget {
 }
 
 class _AssistantPageState extends State<AssistantPage> {
-  late _RuileApiClient _apiClient;
-  List<_ServiceReminder> _reminders = const [];
-  var _openReminderCount = 0;
-  var _completedReminderCount = 0;
-  var _totalReminderCount = 0;
-  var _loading = true;
-  var _loaded = false;
-  var _refreshing = false;
-  String? _loadError;
-
-  @override
-  void initState() {
-    super.initState();
-    _apiClient = _buildApiClient();
-    unawaited(_loadServiceReminders());
-  }
-
-  @override
-  void didUpdateWidget(covariant AssistantPage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.authToken != widget.authToken ||
-        oldWidget.tenantId != widget.tenantId) {
-      _apiClient = _buildApiClient();
-      unawaited(_loadServiceReminders());
-    }
-  }
-
-  _RuileApiClient _buildApiClient() {
-    return _RuileApiClient(
-      authToken: widget.authToken,
-      tenantId: widget.tenantId,
-      onAuthFailure: widget.onAuthFailure,
-    );
-  }
-
-  Future<void> _loadServiceReminders({bool refresh = false}) async {
-    if (refresh && _refreshing) return;
-    if (refresh) {
-      setState(() {
-        _refreshing = true;
-        _loadError = null;
-      });
-    } else if (mounted) {
-      setState(() {
-        _loading = true;
-        _loadError = null;
-      });
-    }
-
-    if (!_apiClient.isConfigured) {
-      if (!mounted) return;
-      setState(() {
-        _reminders = const [];
-        _openReminderCount = 0;
-        _completedReminderCount = 0;
-        _totalReminderCount = 0;
-        _loading = false;
-        _refreshing = false;
-        _loaded = true;
-      });
-      return;
-    }
-
-    try {
-      final result = await _apiClient.fetchServiceBootstrap(refresh: refresh);
-      var reminders = result.reminders;
-      if (reminders.isEmpty && result.total > 0) {
-        try {
-          reminders = await _apiClient.fetchServiceReminders(
-            pageSize: result.total > 100 ? 100 : result.total,
-          );
-        } catch (error) {
-          debugPrint('Failed to load service reminder list fallback: $error');
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _reminders = reminders;
-        _openReminderCount = _openReminderCountFor(reminders, result.stats);
-        _completedReminderCount =
-            _completedReminderCountFor(reminders, result.stats);
-        _totalReminderCount = _totalReminderCountFor(reminders, result);
-        _loading = false;
-        _refreshing = false;
-        _loaded = true;
-        _loadError = null;
-      });
-    } on _ApiException catch (error) {
-      if (error.isAuthFailure) {
-        widget.onAuthFailure();
-        return;
-      }
-      debugPrint('Failed to load service reminders: $error');
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _loaded = true;
-        _loadError = '服务提醒读取失败';
-      });
-    } catch (error) {
-      debugPrint('Failed to load service reminders: $error');
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _refreshing = false;
-        _loaded = true;
-        _loadError = '服务提醒读取失败';
-      });
-    }
-  }
-
-  List<_ServiceReminder> get _visibleReminders {
-    final items = List<_ServiceReminder>.of(_reminders);
-
-    items.sort((a, b) {
-      final statusCompare =
-          a.isCompleted == b.isCompleted ? 0 : (a.isCompleted ? 1 : -1);
-      if (statusCompare != 0) return statusCompare;
-      final priorityCompare = b.priorityWeight.compareTo(a.priorityWeight);
-      if (priorityCompare != 0) return priorityCompare;
-      return a.dueLabel.compareTo(b.dueLabel);
-    });
-    return items;
-  }
-
-  int _openReminderCountFor(
-    List<_ServiceReminder> reminders,
-    Map<String, int> stats,
-  ) {
-    if (stats.isNotEmpty) {
-      return _sumReminderStats(stats, const [
-        'candidate',
-        'pending',
-        'generated',
-        'snoozed',
-        'recompute_required',
-      ]);
-    }
-    return reminders.where((item) => item.isOpen).length;
-  }
-
-  int _completedReminderCountFor(
-    List<_ServiceReminder> reminders,
-    Map<String, int> stats,
-  ) {
-    if (stats.isNotEmpty) {
-      return _sumReminderStats(stats, const ['confirmed', 'completed']);
-    }
-    return reminders.where((item) => item.isCompleted).length;
-  }
-
-  int _totalReminderCountFor(
-    List<_ServiceReminder> reminders,
-    _ServiceBootstrapResult result,
-  ) {
-    if (result.total > 0) return result.total;
-    final statsTotal = result.stats.values.fold<int>(
-      0,
-      (sum, value) => sum + value,
-    );
-    return statsTotal > 0 ? statsTotal : reminders.length;
-  }
-
-  int _sumReminderStats(Map<String, int> stats, List<String> statuses) {
-    return statuses.fold<int>(0, (sum, status) => sum + (stats[status] ?? 0));
-  }
-
-  int _countWhere(bool Function(_ServiceReminder) test) {
-    return _reminders.where(test).length;
-  }
-
-  Future<void> _openReminder(_ServiceReminder reminder) async {
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        builder: (context) => _ServiceReminderDetailPage(
-          reminder: reminder,
-          authToken: widget.authToken,
-          tenantId: widget.tenantId,
-          onAuthFailure: widget.onAuthFailure,
-        ),
-      ),
-    );
-    if (!mounted || changed != true) return;
-    unawaited(_loadServiceReminders());
-  }
+  var _selectedCustomerId = 'all';
+  var _selectedFilter = _ReminderMockFilter.pending;
 
   void _openCustomerSpaces() {
     Navigator.of(context).push(
@@ -22237,32 +22039,16 @@ class _AssistantPageState extends State<AssistantPage> {
     );
   }
 
-  String get _emptyMessage {
-    if (!_apiClient.isConfigured) return '登录后可查看服务提醒';
-    return '还没有收集到可生成提醒的客户服务记忆。';
-  }
-
   @override
   Widget build(BuildContext context) {
-    final visibleReminders = _visibleReminders;
-    final openCount = _totalReminderCount > 0
-        ? _openReminderCount
-        : _countWhere((item) => item.isOpen);
-    final completedCount = _totalReminderCount > 0
-        ? _completedReminderCount
-        : _countWhere((item) => item.isCompleted);
-    final totalCount =
-        _totalReminderCount > 0 ? _totalReminderCount : _reminders.length;
-
     return DecoratedBox(
-      decoration: const BoxDecoration(color: AppColors.background),
+      decoration: const BoxDecoration(color: AppColors.xiaoBackground),
       child: SafeArea(
         bottom: false,
         child: Column(
           children: [
             _MainPageHeader(
               title: '服务提醒',
-              subtitle: '今天要服务谁',
               onMenuTap: widget.onMenuTap,
               onRecordingCardTap: widget.onOpenRecordingCard,
               showRecordingCardPrompt: false,
@@ -22278,58 +22064,44 @@ class _AssistantPageState extends State<AssistantPage> {
                 Tooltip(
                   message: '刷新服务提醒',
                   child: IconButton(
-                    onPressed: _refreshing
-                        ? null
-                        : () => unawaited(
-                              _loadServiceReminders(refresh: true),
-                            ),
-                    icon: _refreshing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.refresh),
+                    onPressed: () => _showMockMessage('提醒数据为本版本 mock 展示'),
+                    icon: const Icon(Icons.refresh),
                     color: AppColors.textSecondary,
                   ),
                 ),
               ],
             ),
             Expanded(
-              child: RefreshIndicator(
-                onRefresh: () => _loadServiceReminders(refresh: true),
-                child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(18, 8, 18, 132),
-                  children: [
-                    _ServiceOverview(
-                      openCount: openCount,
-                      completedCount: completedCount,
-                      totalCount: totalCount,
-                    ),
-                    const SizedBox(height: 18),
-                    if (_loading && _reminders.isEmpty)
-                      const _KnowledgeListLoading()
-                    else if (_loadError != null)
-                      _CustomerSpaceEmptyCard(
-                        icon: Icons.error_outline,
-                        title: _loadError!,
-                        message: '下拉或点击刷新服务提醒后重试。',
-                      )
-                    else if (_visibleReminders.isEmpty && _loaded)
-                      _CustomerSpaceEmptyCard(
-                        icon: Icons.notifications_none_outlined,
-                        title: '暂无服务提醒',
-                        message: _emptyMessage,
-                      )
-                    else
-                      _ServiceReminderListCard(
-                        reminders: visibleReminders,
-                        onTap: (reminder) => unawaited(_openReminder(reminder)),
-                        onWrite: widget.onOpenXiaoRui,
-                      ),
-                  ],
-                ),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 124),
+                children: [
+                  _ReminderMockCustomerStrip(
+                    customers: _reminderMockCustomers,
+                    selectedCustomerId: _selectedCustomerId,
+                    onSelected: (customerId) {
+                      setState(() {
+                        _selectedCustomerId = customerId;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  _ReminderMockSectionHeader(
+                    filter: _selectedFilter,
+                    onFilterSelected: (filter) {
+                      setState(() {
+                        _selectedFilter = filter;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _ReminderMockGroupList(
+                    items: _visibleMockReminders,
+                    onWrite: widget.onOpenXiaoRui,
+                    onTap: (item) =>
+                        _showMockMessage('${item.customerName}提醒已打开'),
+                  ),
+                ],
               ),
             ),
           ],
@@ -22337,8 +22109,801 @@ class _AssistantPageState extends State<AssistantPage> {
       ),
     );
   }
+
+  List<_ReminderMockItem> get _visibleMockReminders {
+    return _reminderMockItems
+        .where(
+          (item) =>
+              _selectedCustomerId == 'all' ||
+              item.customerId == _selectedCustomerId,
+        )
+        .where(
+          (item) =>
+              _selectedFilter == _ReminderMockFilter.all ||
+              (_selectedFilter == _ReminderMockFilter.pending &&
+                  !item.completed) ||
+              (_selectedFilter == _ReminderMockFilter.completed &&
+                  item.completed),
+        )
+        .toList();
+  }
+
+  void _showMockMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 86),
+          duration: const Duration(milliseconds: 1200),
+        ),
+      );
+  }
 }
 
+enum _ReminderMockFilter { pending, all, completed }
+
+class _ReminderMockCustomer {
+  const _ReminderMockCustomer({
+    required this.id,
+    required this.name,
+    required this.subtitle,
+    required this.initial,
+    required this.reminderCount,
+  });
+
+  final String id;
+  final String name;
+  final String subtitle;
+  final String initial;
+  final int reminderCount;
+}
+
+const _reminderMockCustomers = <_ReminderMockCustomer>[
+  _ReminderMockCustomer(
+    id: 'all',
+    name: '全部',
+    subtitle: '5 位客户',
+    initial: '全',
+    reminderCount: 3,
+  ),
+  _ReminderMockCustomer(
+    id: 'wang',
+    name: '王女士',
+    subtitle: '豆豆 · 5 岁',
+    initial: '王',
+    reminderCount: 1,
+  ),
+  _ReminderMockCustomer(
+    id: 'zhang',
+    name: '张女士',
+    subtitle: '未报名 · 意向高',
+    initial: '张',
+    reminderCount: 1,
+  ),
+  _ReminderMockCustomer(
+    id: 'li',
+    name: '李女士',
+    subtitle: '果果 · 6 岁',
+    initial: '李',
+    reminderCount: 1,
+  ),
+  _ReminderMockCustomer(
+    id: 'chen',
+    name: '陈先生',
+    subtitle: '小宇 · 待沟通',
+    initial: '陈',
+    reminderCount: 0,
+  ),
+];
+
+class _ReminderMockItem {
+  const _ReminderMockItem({
+    required this.id,
+    required this.customerId,
+    required this.customerName,
+    required this.statusLabel,
+    required this.touchpointLabel,
+    required this.typeLabel,
+    required this.reason,
+    required this.focusPoints,
+    required this.nextAction,
+    required this.groupLabel,
+    this.completed = false,
+  });
+
+  final String id;
+  final String customerId;
+  final String customerName;
+  final String statusLabel;
+  final String touchpointLabel;
+  final String typeLabel;
+  final String reason;
+  final List<String> focusPoints;
+  final String nextAction;
+  final String groupLabel;
+  final bool completed;
+
+  String get initial {
+    final value = customerName.trim();
+    return value.isEmpty ? '客' : String.fromCharCode(value.runes.first);
+  }
+}
+
+const _reminderMockItems = <_ReminderMockItem>[
+  _ReminderMockItem(
+    id: 'reminder-zhang',
+    customerId: 'zhang',
+    customerName: '张女士',
+    statusLabel: '未报名',
+    touchpointLabel: '上周到访 · 意向高',
+    typeLabel: '商机跟进',
+    reason: '到访后 5 天未跟进，前台记录家长关注“班型人数”和“外教资质”。',
+    focusPoints: ['班型人数', '外教资质'],
+    nextAction: '发一段试听课反馈 + 班型说明，避免承诺性表述。',
+    groupLabel: '整理产出 · 今日 08:00 复盘',
+  ),
+  _ReminderMockItem(
+    id: 'reminder-wang',
+    customerId: 'wang',
+    customerName: '王女士',
+    statusLabel: '待确认',
+    touchpointLabel: '昨日沟通 · 关注续费',
+    typeLabel: '学情关怀',
+    reason: '孩子近期作业完成度下降，家长希望先了解课堂反馈再决定续费。',
+    focusPoints: ['课堂表现', '续费顾虑'],
+    nextAction: '同步一条具体课堂观察，并邀请家长约 10 分钟沟通。',
+    groupLabel: '整理产出 · 今日 08:00 复盘',
+  ),
+  _ReminderMockItem(
+    id: 'reminder-li',
+    customerId: 'li',
+    customerName: '李女士',
+    statusLabel: '待联系',
+    touchpointLabel: '3 天前 · 补课咨询',
+    typeLabel: '教务事务',
+    reason: '家长咨询补课安排后还未收到明确回复，可能影响后续课消体验。',
+    focusPoints: ['补课时间', '课消规则'],
+    nextAction: '确认可选时间段，并发送一版清晰的补课安排。',
+    groupLabel: '整理产出 · 昨日 18:20 回顾',
+  ),
+  _ReminderMockItem(
+    id: 'reminder-chen',
+    customerId: 'chen',
+    customerName: '陈先生',
+    statusLabel: '已完成',
+    touchpointLabel: '昨日已跟进',
+    typeLabel: '服务跟进',
+    reason: '已完成试听反馈发送，家长暂时没有新的问题。',
+    focusPoints: ['试听反馈'],
+    nextAction: '等待家长回复，避免重复打扰。',
+    groupLabel: '已完成 · 今日 09:30',
+    completed: true,
+  ),
+];
+
+class _ReminderMockCustomerStrip extends StatelessWidget {
+  const _ReminderMockCustomerStrip({
+    required this.customers,
+    required this.selectedCustomerId,
+    required this.onSelected,
+  });
+
+  final List<_ReminderMockCustomer> customers;
+  final String selectedCustomerId;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text(
+              '客户',
+              style: TextStyle(
+                fontSize: 16,
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              '点客户，只看他的提醒',
+              style: AppTextStyles.meta.copyWith(fontSize: 11),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+        SizedBox(
+          height: 98,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: customers.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final customer = customers[index];
+              return _ReminderMockCustomerCard(
+                customer: customer,
+                selected: customer.id == selectedCustomerId,
+                onTap: () => onSelected(customer.id),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReminderMockCustomerCard extends StatelessWidget {
+  const _ReminderMockCustomerCard({
+    required this.customer,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _ReminderMockCustomer customer;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final circleColor = selected ? AppColors.xiaoPrimary : AppColors.xiaoSoft;
+    final circleTextColor =
+        selected ? AppColors.surface : AppColors.xiaoPrimary;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: customer.name,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            width: 102,
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 7),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.xiaoSurface : AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected ? AppColors.xiaoPrimary : AppColors.border,
+                width: selected ? 1.2 : 1,
+              ),
+            ),
+            child: Stack(
+              children: [
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: circleColor,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        customer.initial,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: circleTextColor,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      customer.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      customer.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textTertiary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                if (customer.reminderCount > 0)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 18),
+                      height: 18,
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: const BoxDecoration(
+                        color: AppColors.success,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${customer.reminderCount}',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: AppColors.surface,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReminderMockSectionHeader extends StatelessWidget {
+  const _ReminderMockSectionHeader({
+    required this.filter,
+    required this.onFilterSelected,
+  });
+
+  final _ReminderMockFilter filter;
+  final ValueChanged<_ReminderMockFilter> onFilterSelected;
+
+  String get _filterLabel {
+    switch (filter) {
+      case _ReminderMockFilter.pending:
+        return '待处理';
+      case _ReminderMockFilter.all:
+        return '全部';
+      case _ReminderMockFilter.completed:
+        return '已完成';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Text(
+          '待办提醒',
+          style: TextStyle(
+            fontSize: 16,
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const Spacer(),
+        PopupMenuButton<_ReminderMockFilter>(
+          tooltip: '筛选提醒状态',
+          onSelected: onFilterSelected,
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: _ReminderMockFilter.pending,
+              child: Text('待处理'),
+            ),
+            PopupMenuItem(
+              value: _ReminderMockFilter.all,
+              child: Text('全部'),
+            ),
+            PopupMenuItem(
+              value: _ReminderMockFilter.completed,
+              child: Text('已完成'),
+            ),
+          ],
+          child: Container(
+            height: 32,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.xiaoBorder),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.filter_alt_outlined,
+                  size: 15,
+                  color: AppColors.xiaoDeep,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _filterLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.xiaoDeep,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReminderMockGroupList extends StatelessWidget {
+  const _ReminderMockGroupList({
+    required this.items,
+    required this.onWrite,
+    required this.onTap,
+  });
+
+  final List<_ReminderMockItem> items;
+  final VoidCallback onWrite;
+  final ValueChanged<_ReminderMockItem> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 30),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: const Column(
+          children: [
+            Icon(
+              Icons.notifications_none_outlined,
+              size: 30,
+              color: AppColors.textTertiary,
+            ),
+            SizedBox(height: 8),
+            Text(
+              '当前筛选暂无提醒',
+              style: TextStyle(
+                fontSize: 14,
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final groups = <String, List<_ReminderMockItem>>{};
+    for (final item in items) {
+      groups.putIfAbsent(item.groupLabel, () => []).add(item);
+    }
+
+    return Column(
+      children: [
+        for (final entry in groups.entries) ...[
+          Row(
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
+                  color: AppColors.success,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  entry.key,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.xiaoSoft,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${entry.value.length} 条',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.xiaoPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          for (var index = 0; index < entry.value.length; index++) ...[
+            _ReminderMockCard(
+              item: entry.value[index],
+              onWrite: onWrite,
+              onTap: () => onTap(entry.value[index]),
+            ),
+            if (index != entry.value.length - 1) const SizedBox(height: 10),
+          ],
+          if (entry.key != groups.keys.last) const SizedBox(height: 18),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReminderMockCard extends StatelessWidget {
+  const _ReminderMockCard({
+    required this.item,
+    required this.onWrite,
+    required this.onTap,
+  });
+
+  final _ReminderMockItem item;
+  final VoidCallback onWrite;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = item.completed;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+          decoration: BoxDecoration(
+            color: muted ? AppColors.xiaoSoft : AppColors.surface,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: muted ? AppColors.border : AppColors.xiaoBorder,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: AppColors.xiaoSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      item.initial,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        color: AppColors.xiaoPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.customerName,
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: muted
+                                ? AppColors.textSecondary
+                                : AppColors.textPrimary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 5,
+                          runSpacing: 4,
+                          children: [
+                            _ReminderMockTag(
+                              label: item.statusLabel,
+                              color: muted
+                                  ? AppColors.textSecondary
+                                  : AppColors.success,
+                              backgroundColor: muted
+                                  ? AppColors.surface
+                                  : AppColors.successSoft,
+                            ),
+                            Text(
+                              item.touchpointLabel,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textTertiary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            _ReminderMockTag(
+                              label: item.typeLabel,
+                              color: muted
+                                  ? AppColors.textSecondary
+                                  : AppColors.warning,
+                              backgroundColor: muted
+                                  ? AppColors.surface
+                                  : AppColors.warningSoft,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '为什么提醒：${item.reason}',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.55,
+                  color:
+                      muted ? AppColors.textSecondary : AppColors.textPrimary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+                decoration: BoxDecoration(
+                  color: muted ? AppColors.surface : AppColors.xiaoBackground,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 5,
+                  runSpacing: 5,
+                  children: [
+                    const Text(
+                      '家长关注点：',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    for (final point in item.focusPoints)
+                      _ReminderMockTag(
+                        label: point,
+                        color: AppColors.textSecondary,
+                        backgroundColor: AppColors.surface,
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+                decoration: BoxDecoration(
+                  color: muted ? AppColors.surface : AppColors.xiaoSoft,
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      const TextSpan(
+                        text: '下一步：',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      TextSpan(
+                        text: item.nextAction,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.45,
+                          color: muted
+                              ? AppColors.textSecondary
+                              : AppColors.xiaoDeep,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 11),
+              if (item.completed)
+                Container(
+                  width: double.infinity,
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: const Text(
+                    '已完成',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.success,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                )
+              else
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: onWrite,
+                    icon: const Icon(Icons.edit_outlined, size: 16),
+                    label: const Text('让小睿写'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(42),
+                      backgroundColor: AppColors.xiaoPrimary,
+                      foregroundColor: AppColors.surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReminderMockTag extends StatelessWidget {
+  const _ReminderMockTag({
+    required this.label,
+    required this.color,
+    required this.backgroundColor,
+  });
+
+  final String label;
+  final Color color;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+// ignore: unused_element
 class _ServiceOverview extends StatelessWidget {
   const _ServiceOverview({
     required this.openCount,
@@ -22453,6 +23018,7 @@ class _ServiceOverviewMetric extends StatelessWidget {
   }
 }
 
+// ignore: unused_element
 class _ServiceReminderListCard extends StatelessWidget {
   const _ServiceReminderListCard({
     required this.reminders,
