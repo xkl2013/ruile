@@ -1134,6 +1134,46 @@
                       </div>
                     </div>
 
+                    <!-- 主理人动态调度配置 -->
+                    <div class="setting-row setting-row-vertical orchestration-settings">
+                      <div class="setting-info">
+                        <label>{{ $t('agentEditor.orchestration.label') }}</label>
+                        <p class="desc">{{ $t('agentEditor.orchestration.desc') }}</p>
+                      </div>
+                      <div class="setting-control setting-control-full">
+                        <div class="orchestration-toggle">
+                          <t-switch v-model="formData.config.orchestration_enabled" />
+                          <span>{{ $t('agentEditor.orchestration.enable') }}</span>
+                        </div>
+                        <p class="orchestration-hint">{{ $t('agentEditor.orchestration.enableDesc') }}</p>
+
+                        <template v-if="formData.config.orchestration_enabled">
+                          <div class="orchestration-field">
+                            <label>{{ $t('agentEditor.orchestration.members') }}</label>
+                            <p class="desc">{{ $t('agentEditor.orchestration.membersDesc') }}</p>
+                            <t-select
+                              v-model="formData.config.member_agent_ids"
+                              multiple
+                              filterable
+                              clearable
+                              :options="memberAgentOptions"
+                              :placeholder="$t('agentEditor.orchestration.membersPlaceholder')"
+                            />
+                          </div>
+                          <div class="orchestration-field orchestration-field--compact">
+                            <label>{{ $t('agentEditor.orchestration.maxParallel') }}</label>
+                            <p class="desc">{{ $t('agentEditor.orchestration.maxParallelDesc') }}</p>
+                            <t-input-number
+                              v-model="formData.config.max_parallel_members"
+                              :min="1"
+                              :max="8"
+                              theme="column"
+                            />
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+
                     <!-- 有效工具预览：所见即所得 -->
                     <div class="setting-row setting-row-vertical">
                       <div class="setting-info">
@@ -1627,6 +1667,7 @@ import { useI18n } from 'vue-i18n';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   createAgent,
+  listAgents,
   updateAgent,
   type CustomAgent,
   type PlaceholderDefinition,
@@ -1827,6 +1868,7 @@ onBeforeUnmount(() => {
 
 const saving = ref(false);
 const allModels = ref<ModelConfig[]>([]);
+const memberAgents = ref<CustomAgent[]>([]);
 const kbOptions = ref<{ label: string; value: string; type?: 'document' | 'faq'; count?: number; shared?: boolean; orgName?: string; ragEnabled?: boolean; wikiEnabled?: boolean; capabilities?: KBCapabilities }[]>([]);
 
 // 智能体类型预设（仅 smart-reasoning 模式下展示）
@@ -1876,6 +1918,34 @@ const mcpOptions = computed<McpSelectOption[]>(() => {
 const showMcpServiceSelect = computed(() =>
   mcpOptions.value.length > 0 || (formData.value.config.mcp_services?.length ?? 0) > 0,
 );
+const memberAgentOptions = computed(() => {
+  const currentID = editorAgent.value?.id || '';
+  const selectedIDs = new Set<string>(
+    Array.isArray(formData.value.config.member_agent_ids)
+      ? formData.value.config.member_agent_ids.filter((id: unknown): id is string => typeof id === 'string')
+      : [],
+  );
+  const available: Array<{ label: string; value: string; disabled?: boolean }> = memberAgents.value
+    .filter(agent => !agent.is_builtin && agent.id !== currentID)
+    .map(agent => ({
+      label: agent.name,
+      value: agent.id,
+    }));
+  const availableIDs = new Set(available.map(option => option.value));
+
+  // Keep inaccessible or deleted selections visible so editing an old config
+  // does not silently drop IDs before the user explicitly changes them.
+  for (const id of selectedIDs) {
+    if (!availableIDs.has(id)) {
+      available.push({
+        label: `${id} (${t('agentEditor.orchestration.unavailable')})`,
+        value: id,
+        disabled: true,
+      });
+    }
+  }
+  return available;
+});
 const webSearchProviderList = ref<WebSearchProviderEntity[]>([]);
 const skillOptions = ref<{ name: string; description: string }[]>([]);
 // 是否允许启用 Skills（取决于后端沙箱是否启用，disabled 时为 false；未请求前为 false 避免闪显）
@@ -1944,6 +2014,8 @@ const allTools = computed(() => [
   // 基础思考类
   { value: 'thinking', label: t('agentEditor.tools.thinking'), description: t('agentEditor.tools.thinkingDesc'), group: 'base' },
   { value: 'todo_write', label: t('agentEditor.tools.todoWrite'), description: t('agentEditor.tools.todoWriteDesc'), group: 'base' },
+  { value: 'local_browser', label: t('agentEditor.tools.localBrowser'), description: t('agentEditor.tools.localBrowserDesc'), group: 'base' },
+  { value: 'delegate_agent', label: t('agentEditor.tools.delegateAgent'), description: t('agentEditor.tools.delegateAgentDesc'), group: 'base' },
   // 知识库语义/关键词检索
   { value: 'grep_chunks', label: t('agentEditor.tools.grepChunks'), description: t('agentEditor.tools.grepChunksDesc'), group: 'rag' },
   { value: 'knowledge_search', label: t('agentEditor.tools.knowledgeSearch'), description: t('agentEditor.tools.knowledgeSearchDesc'), group: 'rag' },
@@ -2303,6 +2375,9 @@ const defaultFormData = {
     max_iterations: 10,
     llm_call_timeout: 120,  // 120 seconds
     allowed_tools: [] as string[],
+    orchestration_enabled: false,
+    member_agent_ids: [] as string[],
+    max_parallel_members: 3,
     reflection_enabled: false,
     // MCP 服务设置
     mcp_selection_mode: 'none' as 'all' | 'selected' | 'none',
@@ -3141,6 +3216,24 @@ watch(skillsSelectionMode, (mode) => {
   // selected 模式保持 selected_skills 不变
 });
 
+// Keep the orchestration flag and the explicit tool allowlist aligned.
+watch(
+  () => formData.value.config.orchestration_enabled,
+  (enabled) => {
+    const tools: string[] = Array.isArray(formData.value.config.allowed_tools)
+      ? formData.value.config.allowed_tools.filter((tool: unknown): tool is string => typeof tool === 'string')
+      : [];
+    if (enabled) {
+      if (!tools.includes('delegate_agent')) {
+        formData.value.config.allowed_tools = [...tools, 'delegate_agent'];
+      }
+    } else if (tools.includes('delegate_agent')) {
+      formData.value.config.allowed_tools = tools.filter(tool => tool !== 'delegate_agent');
+    }
+  },
+  { immediate: true },
+);
+
 // 监听模式变化，自动调整配置
 watch(agentMode, (val, _oldVal) => {
   if (val === 'smart-reasoning') {
@@ -3177,6 +3270,9 @@ watch(agentMode, (val, _oldVal) => {
   } else {
     // 切换到普通模式，清空工具
     formData.value.config.allowed_tools = [];
+    formData.value.config.orchestration_enabled = false;
+    formData.value.config.member_agent_ids = [];
+    formData.value.config.max_parallel_members = 3;
     formData.value.config.max_iterations = 1; // 设置为1表示单轮 RAG
     // 切换到快速问答模式时，如果系统提示词是 Agent 的默认值或为空，替换为快速问答默认提示词
     if (defaultNormalSystemPrompt.value) {
@@ -3355,6 +3451,18 @@ const loadDependencies = async () => {
     if (rc?.vector_threshold !== undefined) defaultVectorThreshold.value = rc.vector_threshold;
     if (rc?.rerank_top_k) defaultRerankTopK.value = rc.rerank_top_k;
     if (rc?.rerank_threshold !== undefined) defaultRerankThreshold.value = rc.rerank_threshold;
+
+    try {
+      const tenantId = Number(authStore.effectiveTenantId || 0);
+      const response = await listAgents(
+        undefined,
+        tenantId > 0 ? { tenantId } : undefined,
+      );
+      memberAgents.value = Array.isArray(response?.data) ? response.data : [];
+    } catch (error) {
+      memberAgents.value = [];
+      console.warn('Failed to load member agents for orchestration settings', error);
+    }
   } catch (e) {
     console.error('Failed to load dependencies', e);
   }
@@ -4229,6 +4337,27 @@ const handleSave = async () => {
     MessagePlugin.error(t('agent.editor.modelRequired'));
     currentSection.value = 'model';
     return;
+  }
+
+  if (isAgentMode.value && formData.value.config.orchestration_enabled) {
+    const memberIDs = (formData.value.config.member_agent_ids || [])
+      .filter((id: unknown): id is string => typeof id === 'string' && id.trim() !== '');
+    const currentID = editorAgent.value?.id || formData.value.id;
+    if (memberIDs.length === 0) {
+      MessagePlugin.error(t('agentEditor.orchestration.membersRequired'));
+      currentSection.value = 'tools';
+      return;
+    }
+    if (currentID && memberIDs.includes(currentID)) {
+      MessagePlugin.error(t('agentEditor.orchestration.selfMember'));
+      currentSection.value = 'tools';
+      return;
+    }
+    formData.value.config.member_agent_ids = [...new Set(memberIDs)];
+    formData.value.config.max_parallel_members = Math.min(
+      8,
+      Math.max(1, Number(formData.value.config.max_parallel_members) || 3),
+    );
   }
 
   // 校验 VLM 模型（当图片上传启用时必填）
@@ -5895,6 +6024,58 @@ const handleSave = async () => {
 .tag-wiki {
   color: #00b42a;
   background: rgba(0, 180, 42, 0.1);
+}
+
+.orchestration-settings {
+  border-top: 1px solid var(--td-border-level-1-color);
+  padding-top: 20px;
+}
+
+.orchestration-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.orchestration-hint {
+  margin: 6px 0 16px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.orchestration-field {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.35fr) minmax(0, 1fr);
+  gap: 4px 16px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.orchestration-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--td-text-color-primary);
+}
+
+.orchestration-field .desc {
+  grid-column: 1;
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.orchestration-field .t-select,
+.orchestration-field .t-input-number {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  width: 100%;
+}
+
+.orchestration-field--compact {
+  max-width: 520px;
 }
 
 </style>

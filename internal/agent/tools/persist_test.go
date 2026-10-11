@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestShouldOmitRawToolOutput(t *testing.T) {
@@ -86,4 +87,30 @@ func TestSanitizeToolResultForClient_omitsOutput(t *testing.T) {
 	if meta["fetched_chunks"] != 1 {
 		t.Fatalf("summary metadata should remain, got %#v", meta["fetched_chunks"])
 	}
+}
+
+func TestSanitizeToolResultForClientIncludesImages(t *testing.T) {
+	meta := SanitizeToolResultForClient(ToolLocalBrowser, &types.ToolResult{
+		Success: true,
+		Data: map[string]interface{}{
+			"display_type": "browser_screenshot",
+			"size_bytes":   12,
+		},
+		Images: []string{"data:image/png;base64,AAAA"},
+	})
+	require.Equal(t, []string{"data:image/png;base64,AAAA"}, meta["images"])
+}
+
+func TestSanitizeAgentStepsForStorageStripsImages(t *testing.T) {
+	steps := []types.AgentStep{{
+		ToolCalls: []types.ToolCall{{
+			Name: ToolLocalBrowser,
+			Result: &types.ToolResult{
+				Success: true,
+				Images:  []string{"data:image/png;base64,AAAA"},
+			},
+		}},
+	}}
+	sanitized := SanitizeAgentStepsForStorage(steps)
+	require.Empty(t, sanitized[0].ToolCalls[0].Result.Images)
 }

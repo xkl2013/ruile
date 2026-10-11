@@ -17,6 +17,7 @@ type Manager struct {
 	// Configuration
 	skillDirs     []string
 	allowedSkills []string // Empty means all skills are allowed
+	skillEnvs     map[string]map[string]string
 	enabled       bool
 
 	// Cache
@@ -28,7 +29,8 @@ type Manager struct {
 type ManagerConfig struct {
 	SkillDirs     []string // Directories to search for skills
 	AllowedSkills []string // Skill names whitelist (empty = allow all)
-	Enabled       bool     // Whether skills are enabled
+	SkillEnvs     map[string]map[string]string
+	Enabled       bool // Whether skills are enabled
 }
 
 // NewManager creates a new skill manager with the given configuration
@@ -44,6 +46,7 @@ func NewManager(config *ManagerConfig, sandboxMgr sandbox.Manager) *Manager {
 		sandboxMgr:    sandboxMgr,
 		skillDirs:     config.SkillDirs,
 		allowedSkills: config.AllowedSkills,
+		skillEnvs:     cloneSkillEnvs(config.SkillEnvs),
 		enabled:       config.Enabled,
 	}
 }
@@ -208,10 +211,33 @@ func (m *Manager) ExecuteScript(ctx context.Context, skillName, scriptPath strin
 		Args:    args,
 		WorkDir: basePath,
 		Stdin:   stdin,
+		Env:     cloneSkillEnv(m.skillEnvs[skillName]),
 	}
 
 	// Execute in sandbox
 	return m.sandboxMgr.Execute(ctx, config)
+}
+
+func cloneSkillEnv(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func cloneSkillEnvs(input map[string]map[string]string) map[string]map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make(map[string]map[string]string, len(input))
+	for skill, env := range input {
+		output[skill] = cloneSkillEnv(env)
+	}
+	return output
 }
 
 // GetSkillInfo returns detailed information about a skill

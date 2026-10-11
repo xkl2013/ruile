@@ -93,6 +93,8 @@ type RouterParams struct {
 	AgentRunHandler              *handler.AgentRunHandler
 	ServiceSpaceHandler          *handler.ServiceSpaceHandler
 	SkillHandler                 *handler.SkillHandler
+	SkillSnapshotHandler         *handler.SkillSnapshotHandler
+	SandboxConfigHandler         *handler.SandboxConfigHandler
 	OrganizationHandler          *handler.OrganizationHandler
 	IMHandler                    *handler.IMHandler
 	EmbedChannelHandler          *handler.EmbedChannelHandler
@@ -285,6 +287,8 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterAgentRunRoutes(v1, params.AgentRunHandler, rbacGuards)
 		RegisterServiceSpaceRoutes(v1, params.ServiceSpaceHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
+		RegisterSkillSnapshotRoutes(v1, params.SkillSnapshotHandler, rbacGuards)
+		RegisterSandboxConfigRoutes(v1, params.SandboxConfigHandler, rbacGuards)
 		RegisterGlobalSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterOrganizationRoutes(v1, params.OrganizationHandler, rbacGuards)
 		RegisterIMChannelRoutes(v1, params.IMHandler, rbacGuards)
@@ -301,6 +305,32 @@ func NewRouter(params RouterParams) *gin.Engine {
 	}
 
 	return r
+}
+
+// RegisterSandboxConfigRoutes exposes tenant-scoped sandbox policies. Read
+// access is available to workspace members; mutations require workspace admin.
+func RegisterSandboxConfigRoutes(r *gin.RouterGroup, sandboxHandler *handler.SandboxConfigHandler, g *rbacGuards) {
+	configs := r.Group("/sandbox/configs")
+	{
+		configs.GET("", g.Viewer(), sandboxHandler.List)
+		configs.POST("", g.Admin(), sandboxHandler.Create)
+		configs.PUT("/:id", g.Admin(), sandboxHandler.Update)
+		configs.POST("/:id/activate", g.Admin(), sandboxHandler.Activate)
+	}
+}
+
+// RegisterSkillSnapshotRoutes exposes tenant Skill manifest snapshots. Snapshot
+// creation and activation are admin-only because they change future runtime
+// materialization; listing and verification are read-only.
+func RegisterSkillSnapshotRoutes(r *gin.RouterGroup, snapshotHandler *handler.SkillSnapshotHandler, g *rbacGuards) {
+	snapshots := r.Group("/skills/snapshots")
+	{
+		snapshots.GET("", g.Viewer(), snapshotHandler.List)
+		snapshots.POST("", g.Admin(), snapshotHandler.Create)
+		snapshots.POST("/:id/activate", g.Admin(), snapshotHandler.Activate)
+		snapshots.POST("/:id/rollback", g.Admin(), snapshotHandler.Rollback)
+		snapshots.GET("/:id/verify", g.Viewer(), snapshotHandler.Verify)
+	}
 }
 
 // RegisterPublicKnowledgeBaseRoutes exposes platform-public knowledge-base
@@ -1665,6 +1695,14 @@ func RegisterSkillRoutes(r *gin.RouterGroup, skillHandler *handler.SkillHandler,
 		skills.GET("", g.Viewer(), skillHandler.ListSkills)
 		skills.GET("/catalog", g.Viewer(), skillHandler.ListTenantSkills)
 		skills.POST("/catalog", g.Admin(), skillHandler.UploadTenantSkill)
+		skills.POST("/catalog/source", g.Admin(), skillHandler.UploadTenantSkillFromSource)
+		skills.POST("/catalog/install-jobs", g.Admin(), skillHandler.StartTenantSkillSourceInstall)
+		skills.GET("/catalog/install-jobs", g.Admin(), skillHandler.ListTenantSkillInstallJobs)
+		skills.GET("/catalog/install-jobs/:job_id", g.Admin(), skillHandler.GetTenantSkillInstallJob)
+		skills.POST("/catalog/install-jobs/:job_id/cancel", g.Admin(), skillHandler.CancelTenantSkillInstall)
+		skills.POST("/catalog/install-jobs/:job_id/retry", g.Admin(), skillHandler.RetryTenantSkillInstall)
+		skills.GET("/catalog/:id/env", g.Admin(), skillHandler.GetTenantSkillEnvVars)
+		skills.PUT("/catalog/:id/env", g.Admin(), skillHandler.SetTenantSkillEnvVars)
 		skills.PATCH("/catalog/:id", g.Admin(), skillHandler.SetTenantSkillEnabled)
 		skills.DELETE("/catalog/:id", g.Admin(), skillHandler.DeleteTenantSkill)
 		skills.GET("/catalog/:id/files", g.Viewer(), skillHandler.ListTenantSkillFiles)
@@ -1680,6 +1718,14 @@ func RegisterGlobalSkillRoutes(r *gin.RouterGroup, skillHandler *handler.SkillHa
 	{
 		skills.GET("/catalog", skillHandler.ListGlobalSkills)
 		skills.POST("/catalog", skillHandler.UploadGlobalSkill)
+		skills.POST("/catalog/source", skillHandler.UploadGlobalSkillFromSource)
+		skills.POST("/catalog/install-jobs", skillHandler.StartGlobalSkillSourceInstall)
+		skills.GET("/catalog/install-jobs", skillHandler.ListGlobalSkillInstallJobs)
+		skills.GET("/catalog/install-jobs/:job_id", skillHandler.GetGlobalSkillInstallJob)
+		skills.POST("/catalog/install-jobs/:job_id/cancel", skillHandler.CancelGlobalSkillInstall)
+		skills.POST("/catalog/install-jobs/:job_id/retry", skillHandler.RetryGlobalSkillInstall)
+		skills.GET("/catalog/:id/env", skillHandler.GetGlobalSkillEnvVars)
+		skills.PUT("/catalog/:id/env", skillHandler.SetGlobalSkillEnvVars)
 		skills.PATCH("/catalog/:id", skillHandler.SetGlobalSkillEnabled)
 		skills.DELETE("/catalog/:id", skillHandler.DeleteGlobalSkill)
 		skills.GET("/catalog/:id/files", skillHandler.ListGlobalSkillFiles)

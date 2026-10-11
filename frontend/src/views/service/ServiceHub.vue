@@ -66,15 +66,19 @@
           <h1>{{ serviceHubState.mode === 'archived' ? '归档服务' : '服务' }}</h1>
           <p>每个服务一个空间，专家在里面干活</p>
         </div>
-        <t-button
-          v-if="serviceHubState.mode !== 'archived'"
-          theme="primary"
-          class="service-hub-primary-button"
-          @click="openCreate()"
-        >
-          <template #icon><t-icon name="add" /></template>
-          新建服务
-        </t-button>
+        <div v-if="serviceHubState.mode !== 'archived'" class="service-hub-page-actions">
+          <t-button variant="outline" @click="showArchivedServices">
+            查看归档服务
+          </t-button>
+          <t-button
+            theme="primary"
+            class="service-hub-primary-button"
+            @click="openCreate()"
+          >
+            <template #icon><t-icon name="add" /></template>
+            新建服务
+          </t-button>
+        </div>
         <t-button v-else variant="text" theme="primary" @click="showActiveServices">
           返回使用中的服务
         </t-button>
@@ -164,7 +168,6 @@
             <p v-else>创建服务后，客户信息与工作方式由后台配置并自动带入。</p>
           </div>
           <t-button v-if="serviceHubState.mode === 'archived'" variant="outline" @click="showActiveServices">返回我的服务</t-button>
-          <t-button v-else-if="archivedServices.length" variant="outline" @click="showArchivedServices">查看归档服务</t-button>
           <t-button v-else variant="outline" @click="openCreate()">从空白创建</t-button>
         </div>
 
@@ -1224,7 +1227,6 @@ const syncFromRoute = async () => {
 
 type CreateServicePayload = {
   name: string
-  description: string
 }
 
 const importPendingContextSource = async (serviceId: string) => {
@@ -1265,7 +1267,6 @@ const openCreatedService = async (serviceId: string, message = '服务已创建'
 const createServiceDirectly = async (payload: CreateServicePayload) => {
   const response = await createServiceSpace({
     name: payload.name.trim(),
-    description: payload.description.trim(),
     activate: true,
   })
   const serviceId = response?.data?.id
@@ -1295,7 +1296,6 @@ const persistService = async (payload: CreateServicePayload) => {
 
 const submitForm = async (payload: {
   name: string
-  description: string
 }) => {
   await persistService(payload)
 }
@@ -1589,6 +1589,13 @@ watch(serviceMenuVisible, (visible) => {
   color: var(--td-text-color-anti);
 }
 
+.service-hub-page-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .service-hub-primary-button:hover {
   background: var(--td-brand-color-hover);
 }
@@ -1622,7 +1629,7 @@ watch(serviceMenuVisible, (visible) => {
 }
 
 .service-hub-search {
-  width: 180px;
+  width: 140px;
 }
 
 .service-hub-template-head {

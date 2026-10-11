@@ -252,6 +252,9 @@ func (s *sessionService) buildAgentConfig(
 		RetrieveKBOnlyWhenMentioned: customAgent.Config.RetrieveKBOnlyWhenMentioned,
 		LLMCallTimeout:              customAgent.Config.LLMCallTimeout,
 		RetainRetrievalHistory:      customAgent.Config.RetainRetrievalHistory,
+		OrchestrationEnabled:        customAgent.Config.OrchestrationEnabled,
+		MemberAgentIDs:              customAgent.Config.MemberAgentIDs,
+		MaxParallelMembers:          customAgent.Config.MaxParallelMembers,
 	}
 
 	// Falls back to global configuration if no specific timeout is set for the agent.

@@ -11,6 +11,7 @@ type execCtxKey struct{}
 
 // ToolExecContext is attached to context during agent tool execution (per tool call).
 type ToolExecContext struct {
+	TenantID           uint64
 	SessionID          string
 	AssistantMessageID string
 	RequestID          string

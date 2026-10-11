@@ -5,14 +5,18 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/agent/skills"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -27,18 +31,35 @@ const (
 	maxTenantSkillExpandedBytes  = 100 << 20
 	maxTenantSkillFileBytes      = 10 << 20
 	maxTenantSkillArchiveEntries = 500
+	tenantSkillInstallStaleAfter = 10 * time.Minute
+	maxTenantSkillEnvVars        = 50
+	maxTenantSkillEnvValueBytes  = 8 << 10
 )
+
+var tenantSkillEnvNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
+
+var tenantSkillReservedEnvNames = map[string]struct{}{
+	"PATH": {}, "HOME": {}, "USER": {}, "SHELL": {},
+	"LD_PRELOAD": {}, "LD_LIBRARY_PATH": {},
+	"PYTHONPATH": {}, "PYTHONHOME": {}, "NODE_OPTIONS": {},
+}
 
 type tenantSkillService struct {
 	repo        interfaces.TenantSkillRepository
 	fileService interfaces.FileService
+	installMu   sync.Mutex
+	installStop map[string]context.CancelFunc
 }
 
 func NewTenantSkillService(
 	repo interfaces.TenantSkillRepository,
 	fileService interfaces.FileService,
 ) interfaces.TenantSkillService {
-	return &tenantSkillService{repo: repo, fileService: fileService}
+	return &tenantSkillService{
+		repo:        repo,
+		fileService: fileService,
+		installStop: make(map[string]context.CancelFunc),
+	}
 }
 
 func (s *tenantSkillService) ListTenantSkills(ctx context.Context, tenantID uint64) ([]*types.TenantSkill, error) {
@@ -57,8 +78,65 @@ func (s *tenantSkillService) UploadGlobalSkill(
 	return s.UploadTenantSkill(ctx, types.SystemSkillTenantID, userID, file)
 }
 
+func (s *tenantSkillService) UploadGlobalSkillFromSource(
+	ctx context.Context,
+	userID, source string,
+) (*types.TenantSkill, error) {
+	return s.UploadTenantSkillFromSource(ctx, types.SystemSkillTenantID, userID, source)
+}
+
+func (s *tenantSkillService) StartGlobalSkillSourceInstall(
+	ctx context.Context,
+	userID, source string,
+) (*types.TenantSkillInstallJob, error) {
+	return s.StartTenantSkillSourceInstall(ctx, types.SystemSkillTenantID, userID, source)
+}
+
+func (s *tenantSkillService) ListGlobalSkillInstallJobs(
+	ctx context.Context,
+	limit int,
+) ([]*types.TenantSkillInstallJob, error) {
+	return s.ListTenantSkillInstallJobs(ctx, types.SystemSkillTenantID, limit)
+}
+
+func (s *tenantSkillService) GetGlobalSkillInstallJob(
+	ctx context.Context,
+	id string,
+) (*types.TenantSkillInstallJob, error) {
+	return s.GetTenantSkillInstallJob(ctx, types.SystemSkillTenantID, id)
+}
+
+func (s *tenantSkillService) CancelGlobalSkillInstall(
+	ctx context.Context,
+	id string,
+) (*types.TenantSkillInstallJob, error) {
+	return s.CancelTenantSkillInstall(ctx, types.SystemSkillTenantID, id)
+}
+
+func (s *tenantSkillService) RetryGlobalSkillInstall(
+	ctx context.Context,
+	id string,
+) (*types.TenantSkillInstallJob, error) {
+	return s.RetryTenantSkillInstall(ctx, types.SystemSkillTenantID, id)
+}
+
 func (s *tenantSkillService) SetGlobalSkillEnabled(ctx context.Context, id string, enabled bool) error {
 	return s.SetTenantSkillEnabled(ctx, types.SystemSkillTenantID, id, enabled)
+}
+
+func (s *tenantSkillService) SetGlobalSkillEnvVars(
+	ctx context.Context,
+	id string,
+	envVars map[string]string,
+) error {
+	return s.SetTenantSkillEnvVars(ctx, types.SystemSkillTenantID, id, envVars)
+}
+
+func (s *tenantSkillService) GetGlobalSkillEnvVars(
+	ctx context.Context,
+	id string,
+) (map[string]string, error) {
+	return s.GetTenantSkillEnvVars(ctx, types.SystemSkillTenantID, id)
 }
 
 func (s *tenantSkillService) DeleteGlobalSkill(ctx context.Context, id string) error {
@@ -107,12 +185,276 @@ func (s *tenantSkillService) UploadTenantSkill(
 	if err != nil {
 		return nil, err
 	}
+	return s.storeTenantSkillArchive(ctx, tenantID, userID, data, metadata, types.TenantSkillSourceUpload, "")
+}
+
+func (s *tenantSkillService) UploadTenantSkillFromSource(
+	ctx context.Context,
+	tenantID uint64,
+	userID, source string,
+) (*types.TenantSkill, error) {
+	parsed, err := parseTenantSkillSource(source)
+	if err != nil {
+		return nil, err
+	}
+	data, err := fetchTenantSkillSource(ctx, parsed, nil)
+	if err != nil {
+		return nil, err
+	}
+	metadata, _, err := inspectTenantSkillArchive(data)
+	if err != nil {
+		return nil, err
+	}
+	return s.storeTenantSkillArchive(ctx, tenantID, userID, data, metadata, parsed.Kind, parsed.Ref)
+}
+
+func (s *tenantSkillService) StartTenantSkillSourceInstall(
+	ctx context.Context,
+	tenantID uint64,
+	userID, source string,
+) (*types.TenantSkillInstallJob, error) {
+	parsed, err := parseTenantSkillSource(source)
+	if err != nil {
+		return nil, err
+	}
+	job := &types.TenantSkillInstallJob{
+		TenantID:   tenantID,
+		CreatedBy:  userID,
+		SourceType: parsed.Kind,
+		SourceRef:  parsed.Ref,
+		Status:     types.TenantSkillInstallStatusPending,
+		Attempt:    1,
+	}
+	if err := s.repo.CreateInstallJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("create skill install job: %w", err)
+	}
+	s.launchTenantSkillInstall(job, parsed)
+	return job, nil
+}
+
+func (s *tenantSkillService) ListTenantSkillInstallJobs(
+	ctx context.Context,
+	tenantID uint64,
+	limit int,
+) ([]*types.TenantSkillInstallJob, error) {
+	return s.repo.ListInstallJobs(ctx, tenantID, limit)
+}
+
+func (s *tenantSkillService) GetTenantSkillInstallJob(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (*types.TenantSkillInstallJob, error) {
+	job, err := s.repo.GetInstallJob(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if job == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return job, nil
+}
+
+func (s *tenantSkillService) CancelTenantSkillInstall(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (*types.TenantSkillInstallJob, error) {
+	job, err := s.GetTenantSkillInstallJob(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if isTenantSkillInstallTerminal(job.Status) {
+		return job, nil
+	}
+	job.CancelRequested = true
+	job.Status = types.TenantSkillInstallStatusCancelling
+	job.UpdatedAt = time.Now().UTC()
+	if err := s.repo.UpdateInstallJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("cancel skill install job: %w", err)
+	}
+	s.installMu.Lock()
+	cancel := s.installStop[job.ID]
+	s.installMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return job, nil
+}
+
+func (s *tenantSkillService) RetryTenantSkillInstall(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (*types.TenantSkillInstallJob, error) {
+	job, err := s.GetTenantSkillInstallJob(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	retryable := job.Status == types.TenantSkillInstallStatusFailed ||
+		job.Status == types.TenantSkillInstallStatusCancelled
+	if !retryable && time.Since(job.UpdatedAt) >= tenantSkillInstallStaleAfter &&
+		!s.hasActiveTenantSkillInstall(job.ID) {
+		retryable = job.Status == types.TenantSkillInstallStatusPending ||
+			job.Status == types.TenantSkillInstallStatusRunning ||
+			job.Status == types.TenantSkillInstallStatusCancelling
+	}
+	if !retryable {
+		return nil, fmt.Errorf("skill install job can only retry from failed/cancelled or stale inactive state")
+	}
+	parsed, err := parseTenantSkillSource(job.SourceRef)
+	if err != nil {
+		return nil, err
+	}
+	job.SourceType = parsed.Kind
+	job.Status = types.TenantSkillInstallStatusPending
+	job.Error = ""
+	job.CancelRequested = false
+	job.SkillID = ""
+	job.StartedAt = nil
+	job.FinishedAt = nil
+	job.Attempt++
+	job.UpdatedAt = time.Now().UTC()
+	if err := s.repo.UpdateInstallJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("retry skill install job: %w", err)
+	}
+	s.launchTenantSkillInstall(job, parsed)
+	return job, nil
+}
+
+func (s *tenantSkillService) launchTenantSkillInstall(
+	job *types.TenantSkillInstallJob,
+	parsed tenantSkillSource,
+) {
+	workerJob := *job
+	if job.StartedAt != nil {
+		startedAt := *job.StartedAt
+		workerJob.StartedAt = &startedAt
+	}
+	if job.FinishedAt != nil {
+		finishedAt := *job.FinishedAt
+		workerJob.FinishedAt = &finishedAt
+	}
+	runCtx, cancel := context.WithCancel(context.Background())
+	s.installMu.Lock()
+	s.installStop[job.ID] = cancel
+	s.installMu.Unlock()
+	go func() {
+		defer func() {
+			s.installMu.Lock()
+			delete(s.installStop, job.ID)
+			s.installMu.Unlock()
+		}()
+		s.runTenantSkillInstall(runCtx, &workerJob, parsed)
+	}()
+}
+
+func (s *tenantSkillService) runTenantSkillInstall(
+	ctx context.Context,
+	job *types.TenantSkillInstallJob,
+	parsed tenantSkillSource,
+) {
+	now := time.Now().UTC()
+	job.Status = types.TenantSkillInstallStatusRunning
+	job.StartedAt = &now
+	job.UpdatedAt = now
+	if err := s.repo.UpdateInstallJob(context.Background(), job); err != nil {
+		return
+	}
+
+	if s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
+		s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusCancelled, "")
+		return
+	}
+	data, err := fetchTenantSkillSource(ctx, parsed, nil)
+	if err == nil && ctx.Err() == nil && !s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
+		var metadata *skills.Skill
+		metadata, _, err = inspectTenantSkillArchive(data)
+		if err == nil {
+			var skill *types.TenantSkill
+			skill, err = s.storeTenantSkillArchive(ctx, job.TenantID, job.CreatedBy, data, metadata, parsed.Kind, parsed.Ref)
+			if err == nil {
+				job.SkillID = skill.ID
+			}
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil ||
+			s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
+			s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusCancelled, "")
+			return
+		}
+		s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusFailed, truncateTenantSkillError(err.Error()))
+		return
+	}
+	s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusSucceeded, "")
+}
+
+func (s *tenantSkillService) tenantSkillInstallCancelled(id string, tenantID uint64) bool {
+	job, err := s.repo.GetInstallJob(context.Background(), tenantID, id)
+	return err == nil && job != nil && job.CancelRequested
+}
+
+func (s *tenantSkillService) hasActiveTenantSkillInstall(id string) bool {
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	_, ok := s.installStop[id]
+	return ok
+}
+
+func (s *tenantSkillService) finishTenantSkillInstall(
+	job *types.TenantSkillInstallJob,
+	status, message string,
+) {
+	now := time.Now().UTC()
+	job.Status = status
+	job.Error = message
+	job.FinishedAt = &now
+	job.UpdatedAt = now
+	_ = s.repo.UpdateInstallJob(context.Background(), job)
+}
+
+func isTenantSkillInstallTerminal(status string) bool {
+	switch status {
+	case types.TenantSkillInstallStatusSucceeded,
+		types.TenantSkillInstallStatusFailed,
+		types.TenantSkillInstallStatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *tenantSkillService) storeTenantSkillArchive(
+	ctx context.Context,
+	tenantID uint64,
+	userID string,
+	data []byte,
+	metadata *skills.Skill,
+	sourceType, sourceRef string,
+) (*types.TenantSkill, error) {
+	if metadata == nil {
+		return nil, fmt.Errorf("skill metadata is required")
+	}
+	sum := sha256.Sum256(data)
+	bundleSHA := fmt.Sprintf("%x", sum[:])
 	existing, err := s.repo.GetByName(ctx, tenantID, metadata.Name)
 	if err != nil {
 		return nil, fmt.Errorf("check existing skill: %w", err)
 	}
-	if existing != nil {
-		return nil, fmt.Errorf("skill %q already exists", metadata.Name)
+
+	if existing != nil && existing.BundleSHA == bundleSHA {
+		existing.Description = metadata.Description
+		existing.Version = skillVersion(metadata)
+		existing.SourceType = sourceType
+		existing.SourceRef = sourceRef
+		existing.Status = types.TenantSkillStatusReady
+		existing.UpdatedAt = time.Now().UTC()
+		if err := s.repo.Update(ctx, existing); err != nil {
+			return nil, fmt.Errorf("update skill metadata: %w", err)
+		}
+		return existing, nil
 	}
 
 	bundlePath, err := s.fileService.SaveBytes(
@@ -126,25 +468,47 @@ func (s *tenantSkillService) UploadTenantSkill(
 		return nil, fmt.Errorf("save skill archive: %w", err)
 	}
 
-	sum := sha256.Sum256(data)
-	skill := &types.TenantSkill{
-		TenantID:    tenantID,
-		CreatedBy:   userID,
-		Name:        metadata.Name,
-		Description: metadata.Description,
-		Version:     skillVersion(metadata),
-		BundlePath:  bundlePath,
-		BundleSHA:   fmt.Sprintf("%x", sum[:]),
-		Enabled:     true,
-	}
-	if err := s.repo.Create(ctx, skill); err != nil {
-		_ = s.fileService.DeleteFile(ctx, bundlePath)
-		if errorsIsUnique(err) {
-			return nil, fmt.Errorf("skill %q already exists", metadata.Name)
+	if existing == nil {
+		skill := &types.TenantSkill{
+			TenantID:    tenantID,
+			CreatedBy:   userID,
+			Name:        metadata.Name,
+			Description: metadata.Description,
+			Version:     skillVersion(metadata),
+			BundlePath:  bundlePath,
+			BundleSHA:   bundleSHA,
+			SourceType:  sourceType,
+			SourceRef:   sourceRef,
+			Status:      types.TenantSkillStatusReady,
+			Enabled:     true,
 		}
-		return nil, fmt.Errorf("save skill metadata: %w", err)
+		if err := s.repo.Create(ctx, skill); err != nil {
+			_ = s.fileService.DeleteFile(ctx, bundlePath)
+			if errorsIsUnique(err) {
+				return nil, fmt.Errorf("skill %q already exists", metadata.Name)
+			}
+			return nil, fmt.Errorf("save skill metadata: %w", err)
+		}
+		return skill, nil
 	}
-	return skill, nil
+
+	previousBundlePath := existing.BundlePath
+	existing.Description = metadata.Description
+	existing.Version = skillVersion(metadata)
+	existing.BundlePath = bundlePath
+	existing.BundleSHA = bundleSHA
+	existing.SourceType = sourceType
+	existing.SourceRef = sourceRef
+	existing.Status = types.TenantSkillStatusReady
+	existing.UpdatedAt = time.Now().UTC()
+	if err := s.repo.Update(ctx, existing); err != nil {
+		_ = s.fileService.DeleteFile(ctx, bundlePath)
+		return nil, fmt.Errorf("update skill metadata: %w", err)
+	}
+	if previousBundlePath != "" && previousBundlePath != bundlePath {
+		_ = s.fileService.DeleteFile(ctx, previousBundlePath)
+	}
+	return existing, nil
 }
 
 func (s *tenantSkillService) SetTenantSkillEnabled(ctx context.Context, tenantID uint64, id string, enabled bool) error {
@@ -156,6 +520,70 @@ func (s *tenantSkillService) SetTenantSkillEnabled(ctx context.Context, tenantID
 		return gorm.ErrRecordNotFound
 	}
 	return s.repo.SetEnabled(ctx, tenantID, id, enabled)
+}
+
+func (s *tenantSkillService) SetTenantSkillEnvVars(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+	envVars map[string]string,
+) error {
+	skill, err := s.repo.GetByID(ctx, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if skill == nil {
+		return gorm.ErrRecordNotFound
+	}
+	validated, err := validateTenantSkillEnvVars(envVars)
+	if err != nil {
+		return err
+	}
+	return s.repo.SetEnvVars(ctx, tenantID, id, validated)
+}
+
+func (s *tenantSkillService) GetTenantSkillEnvVars(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (map[string]string, error) {
+	skill, err := s.repo.GetByID(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if skill == nil {
+		return nil, gorm.ErrRecordNotFound
+	}
+	values := make(map[string]string, len(skill.EnvVars))
+	for name, value := range skill.EnvVars {
+		values[name] = value
+	}
+	return values, nil
+}
+
+func validateTenantSkillEnvVars(input map[string]string) (types.TenantSkillEnvVars, error) {
+	if len(input) > maxTenantSkillEnvVars {
+		return nil, fmt.Errorf("a skill can configure at most %d environment variables", maxTenantSkillEnvVars)
+	}
+	out := make(types.TenantSkillEnvVars, len(input))
+	for rawName, rawValue := range input {
+		name := strings.TrimSpace(rawName)
+		if !tenantSkillEnvNamePattern.MatchString(name) {
+			return nil, fmt.Errorf("environment variable name %q must be UPPER_SNAKE_CASE", rawName)
+		}
+		if _, reserved := tenantSkillReservedEnvNames[name]; reserved ||
+			strings.HasPrefix(name, "WEKNORA_SKILL_") {
+			return nil, fmt.Errorf("environment variable name %q is reserved by the sandbox", name)
+		}
+		if strings.IndexByte(rawValue, 0) >= 0 {
+			return nil, fmt.Errorf("environment variable %q contains a NUL byte", name)
+		}
+		if len([]byte(rawValue)) > maxTenantSkillEnvValueBytes {
+			return nil, fmt.Errorf("environment variable %q exceeds %d bytes", name, maxTenantSkillEnvValueBytes)
+		}
+		out[name] = rawValue
+	}
+	return out, nil
 }
 
 func (s *tenantSkillService) DeleteTenantSkill(ctx context.Context, tenantID uint64, id string) error {

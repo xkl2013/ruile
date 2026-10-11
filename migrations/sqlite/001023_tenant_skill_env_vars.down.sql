@@ -1,0 +1,1 @@
+-- SQLite keeps additive columns on rollback for compatibility.

@@ -10,6 +10,22 @@
           <template #icon><t-icon name="refresh" /></template>
           刷新
         </t-button>
+        <t-input
+          v-model="sourceRef"
+          class="skill-source-input"
+          clearable
+          placeholder="公开 ZIP 或 SKILL.md URL"
+          @enter="handleSourceInstall"
+        />
+        <t-button
+          variant="outline"
+          :loading="sourceInstalling"
+          :disabled="!sourceRef.trim()"
+          @click="handleSourceInstall"
+        >
+          <template #icon><t-icon name="download" /></template>
+          来源安装
+        </t-button>
         <label class="skill-upload" :class="{ 'skill-upload--disabled': uploading }">
           <t-icon name="add" />
           <span>导入 ZIP</span>
@@ -52,7 +68,10 @@
               </t-tag>
             </div>
             <p>{{ skill.description || '未填写描述' }}</p>
-            <small>更新于 {{ formatDate(skill.updated_at) }}</small>
+            <small>
+              {{ skill.source_type && skill.source_type !== 'upload' ? `来源：${skill.source_type}` : '本地导入' }}
+              · 更新于 {{ formatDate(skill.updated_at) }}
+            </small>
           </div>
           <div class="skill-row__actions">
             <t-switch
@@ -60,6 +79,10 @@
               :loading="updatingId === skill.id"
               @change="(value: boolean) => toggleSkill(skill, value)"
             />
+            <t-button variant="text" size="small" @click="openEnv(skill)">
+              <template #icon><t-icon name="setting" /></template>
+              环境变量
+            </t-button>
             <t-button variant="text" size="small" @click="openFiles(skill)">
               <template #icon><t-icon name="file-paste" /></template>
               文件
@@ -72,6 +95,33 @@
         </article>
       </div>
     </section>
+
+    <t-dialog
+      v-model:visible="envVisible"
+      header="Skill 环境变量"
+      width="680px"
+      destroy-on-close
+      :confirm-btn="{ content: '保存', loading: envSaving }"
+      @confirm="saveEnv"
+    >
+      <div class="env-editor">
+        <p class="env-editor__hint">变量值只注入该 Skill 的一次脚本执行，不会修改服务进程环境。</p>
+        <div v-if="envRows.length === 0" class="env-editor__empty">
+          暂未配置环境变量
+        </div>
+        <div v-for="(row, index) in envRows" :key="row.id" class="env-row">
+          <t-input v-model="row.name" placeholder="变量名，例如 API_TOKEN" />
+          <t-input v-model="row.value" type="password" clearable placeholder="变量值" />
+          <t-button theme="danger" variant="text" @click="removeEnvRow(index)">
+            <template #icon><t-icon name="delete" /></template>
+          </t-button>
+        </div>
+        <t-button variant="outline" @click="addEnvRow">
+          <template #icon><t-icon name="add" /></template>
+          添加变量
+        </t-button>
+      </div>
+    </t-dialog>
 
     <t-dialog
       v-model:visible="filesVisible"
@@ -104,10 +154,14 @@ import { onMounted, ref } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import {
   deleteGlobalSkill,
+  getGlobalSkillEnvVars,
+  getGlobalSkillInstallJob,
   listGlobalSkillFiles,
   listGlobalSkills,
   readGlobalSkillFile,
   setGlobalSkillEnabled,
+  setGlobalSkillEnvVars,
+  startGlobalSkillSourceInstall,
   uploadGlobalSkill,
   type GlobalSkill,
 } from '@admin/api/skill'
@@ -115,6 +169,8 @@ import {
 const skills = ref<GlobalSkill[]>([])
 const loading = ref(false)
 const uploading = ref(false)
+const sourceInstalling = ref(false)
+const sourceRef = ref('')
 const updatingId = ref('')
 const errorMessage = ref('')
 const filesVisible = ref(false)
@@ -122,6 +178,11 @@ const selectedSkill = ref<GlobalSkill | null>(null)
 const files = ref<string[]>([])
 const selectedFile = ref('')
 const fileContent = ref<string | null>(null)
+const envVisible = ref(false)
+const envSaving = ref(false)
+const envSkill = ref<GlobalSkill | null>(null)
+const envRows = ref<Array<{ id: number; name: string; value: string }>>([])
+let envRowID = 0
 
 async function loadSkills() {
   if (loading.value) return
@@ -159,6 +220,40 @@ async function handleUpload(event: Event) {
   }
 }
 
+async function handleSourceInstall() {
+  const source = sourceRef.value.trim()
+  if (!source || sourceInstalling.value) return
+  sourceInstalling.value = true
+  try {
+    const response = await startGlobalSkillSourceInstall(source)
+    const jobId = response?.data?.id
+    if (!jobId) throw new Error('安装任务创建失败')
+    await waitForGlobalSkillInstall(jobId)
+    sourceRef.value = ''
+    MessagePlugin.success('来源 Skill 安装成功')
+    await loadSkills()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '来源 Skill 安装失败')
+  } finally {
+    sourceInstalling.value = false
+  }
+}
+
+async function waitForGlobalSkillInstall(jobId: string) {
+  const deadline = Date.now() + 5 * 60 * 1000
+  while (Date.now() < deadline) {
+    const response = await getGlobalSkillInstallJob(jobId)
+    const job = response?.data
+    if (!job) throw new Error('安装任务状态为空')
+    if (job.status === 'succeeded') return job
+    if (job.status === 'failed' || job.status === 'cancelled') {
+      throw new Error(job.error || `安装任务${job.status === 'failed' ? '失败' : '已取消'}`)
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 500))
+  }
+  throw new Error('安装任务等待超时，请刷新列表后重试')
+}
+
 async function toggleSkill(skill: GlobalSkill, enabled: boolean) {
   updatingId.value = skill.id
   try {
@@ -169,6 +264,52 @@ async function toggleSkill(skill: GlobalSkill, enabled: boolean) {
     MessagePlugin.error(error?.message || 'Skill 状态更新失败')
   } finally {
     updatingId.value = ''
+  }
+}
+
+async function openEnv(skill: GlobalSkill) {
+  envSkill.value = skill
+  envVisible.value = true
+  envRows.value = []
+  try {
+    const response = await getGlobalSkillEnvVars(skill.id)
+    envRows.value = Object.entries(response?.data || {}).map(([name, value]) => ({
+      id: ++envRowID,
+      name,
+      value,
+    }))
+  } catch (error: any) {
+    envVisible.value = false
+    MessagePlugin.error(error?.message || 'Skill 环境变量读取失败')
+  }
+}
+
+function addEnvRow() {
+  envRows.value.push({ id: ++envRowID, name: '', value: '' })
+}
+
+function removeEnvRow(index: number) {
+  envRows.value.splice(index, 1)
+}
+
+async function saveEnv() {
+  if (!envSkill.value || envSaving.value) return
+  const envVars: Record<string, string> = {}
+  for (const row of envRows.value) {
+    const name = row.name.trim()
+    if (!name) continue
+    envVars[name] = row.value
+  }
+  envSaving.value = true
+  try {
+    await setGlobalSkillEnvVars(envSkill.value.id, envVars)
+    envSkill.value.env_var_names = Object.keys(envVars).sort()
+    envVisible.value = false
+    MessagePlugin.success('Skill 环境变量已保存')
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || 'Skill 环境变量保存失败')
+  } finally {
+    envSaving.value = false
   }
 }
 
@@ -258,8 +399,13 @@ onMounted(() => {
 
 .skill-admin__actions {
   display: flex;
+  align-items: center;
   flex-shrink: 0;
   gap: 8px;
+}
+
+.skill-source-input {
+  width: 260px;
 }
 
 .skill-upload {
@@ -283,6 +429,26 @@ onMounted(() => {
   cursor: not-allowed;
   opacity: 0.6;
   pointer-events: none;
+}
+
+.env-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.env-editor__hint,
+.env-editor__empty {
+  margin: 0;
+  color: var(--admin-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) 32px;
+  align-items: center;
+  gap: 8px;
 }
 
 .skill-admin__panel {
@@ -412,6 +578,11 @@ onMounted(() => {
   .skill-admin__actions,
   .skill-row__actions {
     flex-wrap: wrap;
+  }
+
+  .skill-source-input {
+    flex: 1 1 220px;
+    width: auto;
   }
 
   .file-viewer {

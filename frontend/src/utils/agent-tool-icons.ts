@@ -21,6 +21,12 @@ export function getAgentToolIconName(
   if (toolName === 'web_search') {
     return 'internet'
   }
+  if (toolName === 'local_browser') {
+    return 'internet'
+  }
+  if (toolName === 'delegate_agent') {
+    return 'share'
+  }
   if (toolName === 'get_document_info' || toolName === 'list_knowledge_chunks') {
     return 'file-search'
   }

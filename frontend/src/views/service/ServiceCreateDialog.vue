@@ -20,7 +20,7 @@
             <div>
               <h2 id="service-create-dialog-title">{{ isCopyMode ? '复制配置创建服务' : '新建服务' }}</h2>
               <p class="service-create-dialog-subtitle">
-                填写服务名称和一句话说明，客户与工作方式由后台配置。
+                填写服务名称即可。
               </p>
             </div>
             <button type="button" class="service-create-dialog-close" aria-label="关闭" @click="close">
@@ -41,24 +41,10 @@
               />
               <small v-if="nameError" class="service-create-error">{{ nameError }}</small>
             </div>
-
-            <div class="service-create-field service-create-description-field">
-              <label for="service-create-description">一句话说明 <em>（选填）</em></label>
-              <t-textarea
-                id="service-create-description"
-                v-model="form.description"
-                placeholder="例如：跟进秋季招生咨询，记录家长顾虑和下一步安排"
-                :maxlength="500"
-                :autosize="{ minRows: 3, maxRows: 6 }"
-              />
-              <small class="service-create-field-hint">
-                客户信息和工作方式已经在后台配置好，创建后可以直接进入服务。
-              </small>
-            </div>
           </div>
 
           <footer class="service-create-dialog-footer">
-            <span>创建后直接进入服务，可以马上开始一段工作</span>
+            <span>创建后进入服务</span>
             <div class="service-create-dialog-actions">
               <t-button variant="outline" size="medium" @click="close">取消</t-button>
               <t-button
@@ -99,14 +85,12 @@ const emit = defineEmits<{
   'update:visible': [visible: boolean]
   submit: [payload: {
     name: string
-    description: string
   }]
 }>()
 
 const nameError = ref('')
 const form = reactive({
   name: '',
-  description: '',
 })
 
 const isCopyMode = computed(() => Boolean(props.source))
@@ -114,7 +98,6 @@ const isCopyMode = computed(() => Boolean(props.source))
 const resetForm = () => {
   const source = props.source
   form.name = source ? `${source.name}（副本）` : ''
-  form.description = source?.description || ''
   nameError.value = ''
 }
 
@@ -130,7 +113,6 @@ const submit = () => {
   }
   emit('submit', {
     name,
-    description: form.description.trim(),
   })
 }
 

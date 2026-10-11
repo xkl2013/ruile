@@ -253,6 +253,7 @@ func (h *AgentStreamHandler) handleToolResult(ctx context.Context, evt event.Eve
 		Output:  data.Output,
 		Error:   data.Error,
 		Data:    data.Data,
+		Images:  data.Images,
 	})
 	for k, v := range clientData {
 		metadata[k] = v

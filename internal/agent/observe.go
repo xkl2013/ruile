@@ -692,6 +692,14 @@ func (e *AgentEngine) appendToolResults(
 	messages []chat.Message,
 	step types.AgentStep,
 ) []chat.Message {
+	return e.appendToolResultsWithContext(context.Background(), messages, step)
+}
+
+func (e *AgentEngine) appendToolResultsWithContext(
+	ctx context.Context,
+	messages []chat.Message,
+	step types.AgentStep,
+) []chat.Message {
 	if e.config.RetrievedImagesEnabled() && stepContainsMarkdownImage(step) {
 		// Keep the requirement at system priority even when a custom Agent prompt
 		// replaces the built-in template. Appending it once, when image-bearing
@@ -732,6 +740,14 @@ func (e *AgentEngine) appendToolResults(
 	// Add tool result messages (role: "tool", following OpenAI format)
 	for _, toolCall := range step.ToolCalls {
 		resultContent := e.sourceRefs.ModelOutput(toolCall.Result)
+		if toolCall.Result != nil && len(toolCall.Result.Images) > 0 {
+			descriptions := e.describeImages(ctx, toolCall.Result.Images)
+			if len(descriptions) > 0 {
+				resultContent += "\n\n<tool_image_descriptions>\n" +
+					strings.Join(descriptions, "\n") +
+					"\n</tool_image_descriptions>"
+			}
+		}
 
 		toolMsg := chat.Message{
 			Role:       "tool",

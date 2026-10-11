@@ -56,6 +56,9 @@ export interface CustomAgentConfig {
   llm_call_timeout?: number;        // LLM调用超时时间（秒）
   allowed_tools?: string[];         // 允许的工具
   reflection_enabled?: boolean;     // 是否启用反思
+  orchestration_enabled?: boolean;  // 是否允许主 Agent 调度成员 Agent
+  member_agent_ids?: string[];      // 可调度的成员 Agent ID
+  max_parallel_members?: number;    // 单次调度的最大并发成员数
   // MCP服务选择模式：all=全部启用的MCP服务, selected=指定服务, none=不使用MCP
   mcp_selection_mode?: 'all' | 'selected' | 'none';
   mcp_services?: string[];          // 选择的MCP服务ID列表

@@ -180,8 +180,6 @@ import {
     promoteSteerSession,
     removeSteerSession,
     steerSession,
-    type SteerDelivery,
-    type SteerQueueItem,
 } from '@/api/chat/steer';
 import { makeSteerClientId } from '@/utils/steerId';
 import {
@@ -336,7 +334,7 @@ const emitMessageStateChange = () => {
     });
 };
 const isReplying = ref(false);
-const steerQueue = ref<SteerQueueItem[]>([]);
+const steerQueue = ref([]);
 const currentAssistantMessageId = ref(''); // 当前正在生成的 assistant message ID
 const activeExpertArtifact = ref(null);
 const activeExpertArtifactRunId = ref('');
@@ -630,10 +628,10 @@ const fetchMessageList = (data) => getMessageList({
     service_id: props.serviceId || undefined,
 });
 
-const handleSteerMsg = async (value, mentionedItems = [], delivery: SteerDelivery = 'after') => {
+const handleSteerMsg = async (value, mentionedItems = [], delivery = 'after') => {
     if (!session_id.value || !isAgentStreamSession()) return;
     const steerId = makeSteerClientId();
-    const item: SteerQueueItem = {
+    const item = {
         steer_id: steerId,
         client_id: steerId,
         content: value,
@@ -687,7 +685,7 @@ const handleSteerMsg = async (value, mentionedItems = [], delivery: SteerDeliver
     }
 };
 
-const handlePromoteSteer = async (steerId: string) => {
+const handlePromoteSteer = async (steerId) => {
     const item = steerQueue.value.find(entry =>
         entry.steer_id === steerId || entry.client_id === steerId,
     );
@@ -725,7 +723,7 @@ const handlePromoteSteer = async (steerId: string) => {
     }
 };
 
-const handleRemoveSteer = async (steerId: string) => {
+const handleRemoveSteer = async (steerId) => {
     try {
         const response = await removeSteerSession(session_id.value, steerId);
         const status = response?.status || response?.data?.status;
@@ -743,7 +741,7 @@ const handleRemoveSteer = async (steerId: string) => {
     discardSteerPreview(messagesList, steerId);
 };
 
-const handleRetrySteer = async (steerId: string) => {
+const handleRetrySteer = async (steerId) => {
     const item = steerQueue.value.find(entry =>
         entry.steer_id === steerId || entry.client_id === steerId,
     );

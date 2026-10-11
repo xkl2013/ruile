@@ -127,6 +127,8 @@ var toolDisplayNames = map[string]string{
 	agenttools.ToolDataSchema:          "查看数据结构",
 	agenttools.ToolWebSearch:           "搜索网页",
 	agenttools.ToolWebFetch:            "获取网页",
+	agenttools.ToolLocalBrowser:        "浏览器操作与截图",
+	agenttools.ToolDelegateAgent:       "调度成员 Agent",
 	agenttools.ToolExecuteSkillScript:  "执行技能脚本",
 	agenttools.ToolReadSkill:           "读取技能",
 }
@@ -234,6 +236,7 @@ func (e *AgentEngine) executeToolCallsParallel(
 				Duration:   toolCall.Duration,
 				Iteration:  iteration,
 				Data:       result.Data,
+				Images:     result.Images,
 			},
 		})
 
@@ -280,6 +283,7 @@ func (e *AgentEngine) executeSingleToolCall(
 			Duration:   toolCall.Duration,
 			Iteration:  iteration,
 			Data:       result.Data,
+			Images:     result.Images,
 		},
 	})
 
@@ -393,7 +397,9 @@ func (e *AgentEngine) runToolCall(
 	})
 
 	principal, _ := types.PrincipalFromContext(ctx)
+	tenantID, _ := types.TenantIDFromContext(ctx)
 	toolExecCtx := agenttools.WithToolExecContext(toolCtx, &agenttools.ToolExecContext{
+		TenantID:           tenantID,
 		SessionID:          sessionID,
 		AssistantMessageID: assistantMessageID,
 		EventBus:           e.eventBus,

@@ -51,6 +51,9 @@ func SanitizeToolResultForClient(_ string, result *types.ToolResult) map[string]
 			meta[k] = v
 		}
 	}
+	if len(result.Images) > 0 {
+		meta["images"] = append([]string(nil), result.Images...)
+	}
 	if !ShouldOmitRawToolOutput("", result.Data) && result.Output != "" {
 		meta["output"] = result.Output
 	}
@@ -86,6 +89,9 @@ func SanitizeAgentStepsForStorage(steps []types.AgentStep) []types.AgentStep {
 				continue
 			}
 			result := *tc.Result
+			// Image data is delivered to the active turn and stream. Do not
+			// duplicate multi-megabyte base64 payloads into durable history.
+			result.Images = nil
 			if ShouldOmitRawToolOutput(tc.Name, result.Data) {
 				result.Output = compactToolSummary(result.Success, result.Error, result.Data)
 				result.Data = SanitizeToolDataForPersist(result.Data)

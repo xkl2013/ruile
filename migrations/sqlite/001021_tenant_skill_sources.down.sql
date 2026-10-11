@@ -1,0 +1,2 @@
+-- SQLite does not support dropping columns consistently across supported
+-- versions. The additive columns remain harmless on rollback.

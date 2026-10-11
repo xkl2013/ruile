@@ -46,6 +46,10 @@
       v-else-if="displayType === 'wiki_write_page' || displayType === 'wiki_replace_text' || displayType === 'wiki_rename_page' || displayType === 'wiki_delete_page'"
       :data="toolData as WikiEditData" />
 
+    <BrowserScreenshot
+      v-else-if="displayType === 'browser_screenshot'"
+      :data="toolData as BrowserScreenshotData" />
+
     <!-- Fallback: Display raw output -->
     <div v-else class="fallback-output">
       <div class="fallback-header">
@@ -75,7 +79,8 @@ import type {
   WebFetchResultsData,
   GrepResultsData,
   KnowledgeChunksListData,
-  WikiEditData
+  WikiEditData,
+  BrowserScreenshotData
 } from '@/types/tool-results';
 
 import SearchResults from './tool-results/SearchResults.vue';
@@ -92,6 +97,7 @@ import WebFetchResults from './tool-results/WebFetchResults.vue';
 import GrepResults from './tool-results/GrepResults.vue';
 import KnowledgeChunksList from './tool-results/KnowledgeChunksList.vue';
 import WikiEditResult from './tool-results/WikiEditResult.vue';
+import BrowserScreenshot from './tool-results/BrowserScreenshot.vue';
 
 interface Props {
   displayType?: DisplayType;

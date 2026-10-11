@@ -25,7 +25,21 @@ export type DisplayType =
     | 'wiki_write_page'
     | 'wiki_replace_text'
     | 'wiki_rename_page'
-    | 'wiki_delete_page';
+    | 'wiki_delete_page'
+    | 'browser_screenshot'
+    | 'browser_snapshot'
+    | 'browser_observe'
+    | 'browser_action';
+
+export interface BrowserScreenshotData {
+    display_type: 'browser_screenshot';
+    action?: string;
+    url?: string;
+    title?: string;
+    images?: string[];
+    mime_type?: string;
+    size_bytes?: number;
+}
 
 // Search result item
 export interface SearchResultItem {

@@ -154,6 +154,11 @@ type CustomAgentConfig struct {
 	// authorization before skipping. <=0 uses the gate's configured timeout.
 	MCPAuthWaitTimeout int `yaml:"mcp_auth_wait_timeout,omitempty" json:"mcp_auth_wait_timeout,omitempty"`
 
+	// ===== Multi-agent Orchestration Settings =====
+	OrchestrationEnabled bool     `yaml:"orchestration_enabled,omitempty" json:"orchestration_enabled,omitempty"`
+	MemberAgentIDs       []string `yaml:"member_agent_ids,omitempty" json:"member_agent_ids,omitempty"`
+	MaxParallelMembers   int      `yaml:"max_parallel_members,omitempty" json:"max_parallel_members,omitempty"`
+
 	// ===== Skills Settings (only for smart-reasoning mode) =====
 	// Skills selection mode: "all" = all preloaded skills, "selected" = specific skills, "none" = no skills
 	SkillsSelectionMode string `yaml:"skills_selection_mode" json:"skills_selection_mode"`

@@ -81,6 +81,14 @@ type AgentConfig struct {
 	// When enabled and the LLM returns multiple tool calls, they run concurrently via errgroup.
 	ParallelToolCalls bool `json:"parallel_tool_calls,omitempty"`
 
+	// OrchestrationEnabled allows this agent to delegate bounded subtasks to
+	// configured member agents through the delegate_agent tool.
+	OrchestrationEnabled bool `json:"orchestration_enabled,omitempty"`
+	// MemberAgentIDs is the allowlist of custom agents this agent may invoke.
+	MemberAgentIDs []string `json:"member_agent_ids,omitempty"`
+	// MaxParallelMembers caps one delegate_agent call. Zero uses the runtime default.
+	MaxParallelMembers int `json:"max_parallel_members,omitempty"`
+
 	// BusinessInstructions are appended after the system-owned prompt sections.
 	// This is runtime-only so service-space and future expert instructions never
 	// replace the configured system prompt or get persisted as agent settings.

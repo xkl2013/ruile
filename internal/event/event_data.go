@@ -174,6 +174,7 @@ type AgentToolResultData struct {
 	Duration   int64                  `json:"duration_ms,omitempty"`
 	Iteration  int                    `json:"iteration"`
 	Data       map[string]interface{} `json:"data,omitempty"` // Structured data from tool result (e.g., display_type, formatted results)
+	Images     []string               `json:"images,omitempty"`
 }
 
 // AgentReferencesData represents knowledge references data

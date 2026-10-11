@@ -407,8 +407,6 @@ type ServiceSpaceTemplateAdminInput struct {
 	KnowledgeBaseIDs  []string                                `json:"knowledge_base_ids,omitempty"`
 	SelectedSkills    []string                                `json:"selected_skills,omitempty"`
 	MatchRules        ServiceSpaceTemplateMatchRules          `json:"match_rules"`
-	AutoApply         bool                                    `json:"auto_apply"`
-	AutoActivate      bool                                    `json:"auto_activate"`
 	RiskLevel         ServiceSpaceTemplateRiskLevel           `json:"risk_level"`
 }
 

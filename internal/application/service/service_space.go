@@ -497,21 +497,16 @@ func buildAdminServiceTemplate(
 	blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationManual
 	blueprint.ProfileVersion = 1
 	blueprint.Version = version
-	if input.AutoApply {
-		blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationAutoApply
-	}
 	template := &types.ServiceSpaceTemplate{
-		TenantID:     tenantID,
-		Key:          key,
-		Name:         name,
-		Description:  strings.TrimSpace(input.Description),
-		Version:      version,
-		Status:       types.ServiceSpaceTemplateStatusDraft,
-		MatchRules:   input.MatchRules,
-		Blueprint:    blueprint,
-		AutoApply:    input.AutoApply,
-		AutoActivate: input.AutoActivate,
-		RiskLevel:    riskLevel,
+		TenantID:    tenantID,
+		Key:         key,
+		Name:        name,
+		Description: strings.TrimSpace(input.Description),
+		Version:     version,
+		Status:      types.ServiceSpaceTemplateStatusDraft,
+		MatchRules:  input.MatchRules,
+		Blueprint:   blueprint,
+		RiskLevel:   riskLevel,
 	}
 	if err := template.Validate(); err != nil {
 		return nil, nil, err
@@ -620,7 +615,6 @@ func (s *serviceSpaceService) ApplyTemplate(
 		return nil, err
 	}
 	if template.Status != types.ServiceSpaceTemplateStatusPublished ||
-		!template.AutoApply ||
 		template.RiskLevel != types.ServiceSpaceTemplateRiskLow {
 		return nil, ErrServiceSpaceTemplateNotAllowed
 	}
@@ -680,7 +674,7 @@ func (s *serviceSpaceService) ApplyTemplate(
 		SelectedSkills:   selectedSkills,
 		TemplateKey:      template.Key,
 		Experts:          expertInputs,
-		Activate:         template.AutoActivate,
+		Activate:         true,
 	}, false)
 	if err != nil {
 		return nil, err

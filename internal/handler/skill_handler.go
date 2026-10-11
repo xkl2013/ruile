@@ -4,6 +4,8 @@ import (
 	stderrors "errors"
 	"net/http"
 	"os"
+	"sort"
+	"strconv"
 
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -105,27 +107,86 @@ func (h *SkillHandler) ListSkills(c *gin.Context) {
 }
 
 type tenantSkillResponse struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Version     string `json:"version"`
-	Status      string `json:"status"`
-	Enabled     bool   `json:"enabled"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Version     string   `json:"version"`
+	SourceType  string   `json:"source_type"`
+	SourceRef   string   `json:"source_ref"`
+	EnvVarNames []string `json:"env_var_names,omitempty"`
+	Status      string   `json:"status"`
+	Enabled     bool     `json:"enabled"`
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at"`
+}
+
+type tenantSkillInstallJobResponse struct {
+	ID              string `json:"id"`
+	SourceType      string `json:"source_type"`
+	SourceRef       string `json:"source_ref"`
+	SkillID         string `json:"skill_id"`
+	Status          string `json:"status"`
+	Error           string `json:"error"`
+	Attempt         int    `json:"attempt"`
+	CancelRequested bool   `json:"cancel_requested"`
+	StartedAt       string `json:"started_at,omitempty"`
+	FinishedAt      string `json:"finished_at,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+func toTenantSkillInstallJobResponse(job *types.TenantSkillInstallJob) tenantSkillInstallJobResponse {
+	response := tenantSkillInstallJobResponse{
+		ID:              job.ID,
+		SourceType:      job.SourceType,
+		SourceRef:       job.SourceRef,
+		SkillID:         job.SkillID,
+		Status:          job.Status,
+		Error:           job.Error,
+		Attempt:         job.Attempt,
+		CancelRequested: job.CancelRequested,
+		CreatedAt:       job.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:       job.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+	}
+	if job.StartedAt != nil {
+		response.StartedAt = job.StartedAt.UTC().Format("2006-01-02T15:04:05Z")
+	}
+	if job.FinishedAt != nil {
+		response.FinishedAt = job.FinishedAt.UTC().Format("2006-01-02T15:04:05Z")
+	}
+	return response
 }
 
 func toTenantSkillResponse(skill *types.TenantSkill) tenantSkillResponse {
+	envNames := make([]string, 0, len(skill.EnvVars))
+	for name := range skill.EnvVars {
+		envNames = append(envNames, name)
+	}
+	sort.Strings(envNames)
 	return tenantSkillResponse{
 		ID:          skill.ID,
 		Name:        skill.Name,
 		Description: skill.Description,
 		Version:     skill.Version,
+		SourceType:  skill.SourceType,
+		SourceRef:   skill.SourceRef,
+		EnvVarNames: envNames,
 		Status:      skill.Status,
 		Enabled:     skill.Enabled,
 		CreatedAt:   skill.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:   skill.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
+}
+
+func parseTenantSkillEnvVars(c *gin.Context) (map[string]string, bool) {
+	var input struct {
+		EnvVars map[string]string `json:"env_vars"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || input.EnvVars == nil {
+		c.Error(errors.NewBadRequestError("env_vars is required"))
+		return nil, false
+	}
+	return input.EnvVars, true
 }
 
 func (h *SkillHandler) ListTenantSkills(c *gin.Context) {
@@ -164,6 +225,151 @@ func (h *SkillHandler) UploadTenantSkill(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"success": true, "data": toTenantSkillResponse(skill)})
 }
 
+func (h *SkillHandler) UploadTenantSkillFromSource(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input struct {
+		Source string `json:"source"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || input.Source == "" {
+		c.Error(errors.NewBadRequestError("source is required"))
+		return
+	}
+	skill, err := h.tenantSkillService.UploadTenantSkillFromSource(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		input.Source,
+	)
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": toTenantSkillResponse(skill)})
+}
+
+func (h *SkillHandler) StartTenantSkillSourceInstall(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input struct {
+		Source string `json:"source"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || input.Source == "" {
+		c.Error(errors.NewBadRequestError("source is required"))
+		return
+	}
+	job, err := h.tenantSkillService.StartTenantSkillSourceInstall(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		input.Source,
+	)
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
+func installJobLimit(c *gin.Context) int {
+	limit, err := strconv.Atoi(c.Query("limit"))
+	if err != nil || limit <= 0 {
+		return 50
+	}
+	if limit > 200 {
+		return 200
+	}
+	return limit
+}
+
+func (h *SkillHandler) ListTenantSkillInstallJobs(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	jobs, err := h.tenantSkillService.ListTenantSkillInstallJobs(
+		c.Request.Context(),
+		tenantID,
+		installJobLimit(c),
+	)
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to list skill install jobs").WithDetails(err.Error()))
+		return
+	}
+	data := make([]tenantSkillInstallJobResponse, 0, len(jobs))
+	for _, job := range jobs {
+		data = append(data, toTenantSkillInstallJobResponse(job))
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}
+
+func (h *SkillHandler) GetTenantSkillInstallJob(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	job, err := h.tenantSkillService.GetTenantSkillInstallJob(
+		c.Request.Context(),
+		tenantID,
+		c.Param("job_id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("skill install job not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to get skill install job").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
+func (h *SkillHandler) CancelTenantSkillInstall(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	job, err := h.tenantSkillService.CancelTenantSkillInstall(
+		c.Request.Context(),
+		tenantID,
+		c.Param("job_id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("skill install job not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
+func (h *SkillHandler) RetryTenantSkillInstall(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	job, err := h.tenantSkillService.RetryTenantSkillInstall(
+		c.Request.Context(),
+		tenantID,
+		c.Param("job_id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("skill install job not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
 func (h *SkillHandler) SetTenantSkillEnabled(c *gin.Context) {
 	tenantID, _, ok := serviceScope(c)
 	if !ok {
@@ -191,6 +397,53 @@ func (h *SkillHandler) SetTenantSkillEnabled(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *SkillHandler) SetTenantSkillEnvVars(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	envVars, ok := parseTenantSkillEnvVars(c)
+	if !ok {
+		return
+	}
+	err := h.tenantSkillService.SetTenantSkillEnvVars(
+		c.Request.Context(),
+		tenantID,
+		c.Param("id"),
+		envVars,
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("tenant skill not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *SkillHandler) GetTenantSkillEnvVars(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	envVars, err := h.tenantSkillService.GetTenantSkillEnvVars(
+		c.Request.Context(),
+		tenantID,
+		c.Param("id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("tenant skill not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to read tenant skill environment").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": envVars})
 }
 
 func (h *SkillHandler) DeleteTenantSkill(c *gin.Context) {
@@ -288,6 +541,120 @@ func (h *SkillHandler) UploadGlobalSkill(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"success": true, "data": toTenantSkillResponse(skill)})
 }
 
+func (h *SkillHandler) UploadGlobalSkillFromSource(c *gin.Context) {
+	actorID := c.GetString(types.UserIDContextKey.String())
+	if actorID == "" {
+		c.Error(errors.NewUnauthorizedError("user ID not found"))
+		return
+	}
+	var input struct {
+		Source string `json:"source"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || input.Source == "" {
+		c.Error(errors.NewBadRequestError("source is required"))
+		return
+	}
+	skill, err := h.tenantSkillService.UploadGlobalSkillFromSource(
+		c.Request.Context(),
+		actorID,
+		input.Source,
+	)
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": toTenantSkillResponse(skill)})
+}
+
+func (h *SkillHandler) StartGlobalSkillSourceInstall(c *gin.Context) {
+	actorID := c.GetString(types.UserIDContextKey.String())
+	if actorID == "" {
+		c.Error(errors.NewUnauthorizedError("user ID not found"))
+		return
+	}
+	var input struct {
+		Source string `json:"source"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil || input.Source == "" {
+		c.Error(errors.NewBadRequestError("source is required"))
+		return
+	}
+	job, err := h.tenantSkillService.StartGlobalSkillSourceInstall(
+		c.Request.Context(),
+		actorID,
+		input.Source,
+	)
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
+func (h *SkillHandler) ListGlobalSkillInstallJobs(c *gin.Context) {
+	jobs, err := h.tenantSkillService.ListGlobalSkillInstallJobs(
+		c.Request.Context(),
+		installJobLimit(c),
+	)
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to list global skill install jobs").WithDetails(err.Error()))
+		return
+	}
+	data := make([]tenantSkillInstallJobResponse, 0, len(jobs))
+	for _, job := range jobs {
+		data = append(data, toTenantSkillInstallJobResponse(job))
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}
+
+func (h *SkillHandler) GetGlobalSkillInstallJob(c *gin.Context) {
+	job, err := h.tenantSkillService.GetGlobalSkillInstallJob(
+		c.Request.Context(),
+		c.Param("job_id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("global skill install job not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to get global skill install job").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
+func (h *SkillHandler) CancelGlobalSkillInstall(c *gin.Context) {
+	job, err := h.tenantSkillService.CancelGlobalSkillInstall(
+		c.Request.Context(),
+		c.Param("job_id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("global skill install job not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
+func (h *SkillHandler) RetryGlobalSkillInstall(c *gin.Context) {
+	job, err := h.tenantSkillService.RetryGlobalSkillInstall(
+		c.Request.Context(),
+		c.Param("job_id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("global skill install job not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"success": true, "data": toTenantSkillInstallJobResponse(job)})
+}
+
 func (h *SkillHandler) SetGlobalSkillEnabled(c *gin.Context) {
 	var input struct {
 		Enabled *bool `json:"enabled"`
@@ -310,6 +677,43 @@ func (h *SkillHandler) SetGlobalSkillEnabled(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *SkillHandler) SetGlobalSkillEnvVars(c *gin.Context) {
+	envVars, ok := parseTenantSkillEnvVars(c)
+	if !ok {
+		return
+	}
+	err := h.tenantSkillService.SetGlobalSkillEnvVars(
+		c.Request.Context(),
+		c.Param("id"),
+		envVars,
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("global skill not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *SkillHandler) GetGlobalSkillEnvVars(c *gin.Context) {
+	envVars, err := h.tenantSkillService.GetGlobalSkillEnvVars(
+		c.Request.Context(),
+		c.Param("id"),
+	)
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		c.Error(errors.NewNotFoundError("global skill not found"))
+		return
+	}
+	if err != nil {
+		c.Error(errors.NewInternalServerError("failed to read global skill environment").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": envVars})
 }
 
 func (h *SkillHandler) DeleteGlobalSkill(c *gin.Context) {

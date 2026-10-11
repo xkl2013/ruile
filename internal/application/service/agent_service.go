@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/agent"
 	"github.com/Tencent/WeKnora/internal/agent/approval"
@@ -87,25 +87,27 @@ func knowledgeBaseIDsForPrompt(config *types.AgentConfig) []string {
 
 // agentService implements agent-related business logic
 type agentService struct {
-	cfg                   *config.Config
-	modelService          interfaces.ModelService
-	mcpServiceService     interfaces.MCPServiceService
-	mcpManager            *mcp.MCPManager
-	eventBus              *event.EventBus
-	db                    *gorm.DB
-	webSearchService      interfaces.WebSearchService
-	knowledgeBaseService  interfaces.KnowledgeBaseService
-	knowledgeService      interfaces.KnowledgeService
-	fileService           interfaces.FileService
-	chunkService          interfaces.ChunkService
-	duckdb                *sql.DB
-	webSearchStateService interfaces.WebSearchStateService
-	wikiPageService       interfaces.WikiPageService
-	tenantService         interfaces.TenantService
-	storageResolver       interfaces.StorageBackendResolver
-	toolApprovalGate      approval.MCPApproval
-	usageBilling          interfaces.UsageBillingService
-	tenantSkillService    interfaces.TenantSkillService
+	cfg                        *config.Config
+	modelService               interfaces.ModelService
+	mcpServiceService          interfaces.MCPServiceService
+	mcpManager                 *mcp.MCPManager
+	eventBus                   *event.EventBus
+	db                         *gorm.DB
+	webSearchService           interfaces.WebSearchService
+	knowledgeBaseService       interfaces.KnowledgeBaseService
+	knowledgeService           interfaces.KnowledgeService
+	fileService                interfaces.FileService
+	chunkService               interfaces.ChunkService
+	duckdb                     *sql.DB
+	webSearchStateService      interfaces.WebSearchStateService
+	wikiPageService            interfaces.WikiPageService
+	tenantService              interfaces.TenantService
+	storageResolver            interfaces.StorageBackendResolver
+	toolApprovalGate           approval.MCPApproval
+	usageBilling               interfaces.UsageBillingService
+	tenantSkillService         interfaces.TenantSkillService
+	tenantSandboxConfigService interfaces.TenantSandboxConfigService
+	customAgentService         interfaces.CustomAgentService
 }
 
 // NewAgentService creates a new agent service
@@ -129,27 +131,31 @@ func NewAgentService(
 	toolApprovalGate approval.MCPApproval,
 	usageBilling interfaces.UsageBillingService,
 	tenantSkillService interfaces.TenantSkillService,
+	tenantSandboxConfigService interfaces.TenantSandboxConfigService,
+	customAgentService interfaces.CustomAgentService,
 ) interfaces.AgentService {
 	return &agentService{
-		cfg:                   cfg,
-		modelService:          modelService,
-		knowledgeBaseService:  knowledgeBaseService,
-		knowledgeService:      knowledgeService,
-		fileService:           fileService,
-		chunkService:          chunkService,
-		mcpServiceService:     mcpServiceService,
-		mcpManager:            mcpManager,
-		eventBus:              eventBus,
-		db:                    db,
-		webSearchService:      webSearchService,
-		duckdb:                duckdb,
-		webSearchStateService: webSearchStateService,
-		wikiPageService:       wikiPageService,
-		tenantService:         tenantService,
-		storageResolver:       storageResolver,
-		toolApprovalGate:      toolApprovalGate,
-		usageBilling:          usageBilling,
-		tenantSkillService:    tenantSkillService,
+		cfg:                        cfg,
+		modelService:               modelService,
+		knowledgeBaseService:       knowledgeBaseService,
+		knowledgeService:           knowledgeService,
+		fileService:                fileService,
+		chunkService:               chunkService,
+		mcpServiceService:          mcpServiceService,
+		mcpManager:                 mcpManager,
+		eventBus:                   eventBus,
+		db:                         db,
+		webSearchService:           webSearchService,
+		duckdb:                     duckdb,
+		webSearchStateService:      webSearchStateService,
+		wikiPageService:            wikiPageService,
+		tenantService:              tenantService,
+		storageResolver:            storageResolver,
+		toolApprovalGate:           toolApprovalGate,
+		usageBilling:               usageBilling,
+		tenantSkillService:         tenantSkillService,
+		tenantSandboxConfigService: tenantSandboxConfigService,
+		customAgentService:         customAgentService,
 	}
 }
 
@@ -182,6 +188,7 @@ func (s *agentService) CreateAgentEngine(
 	if err := s.registerTools(ctx, toolRegistry, config, rerankModel, chatModel, sessionID); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
+	s.registerDelegationTool(ctx, toolRegistry, config, chatModel, rerankModel, sessionID, assistantMessageID)
 	s.registerMCPTools(ctx, toolRegistry, config, eventBus, sessionID, assistantMessageID)
 
 	// 3. Resolve knowledge base and selected document metadata
@@ -235,6 +242,124 @@ func (s *agentService) CreateAgentEngine(
 	}
 
 	return engine, nil
+}
+
+type agentDelegationDepthKey struct{}
+
+func agentDelegationDepth(ctx context.Context) int {
+	value, _ := ctx.Value(agentDelegationDepthKey{}).(int)
+	return value
+}
+
+func (s *agentService) registerDelegationTool(
+	ctx context.Context,
+	registry *tools.ToolRegistry,
+	config *types.AgentConfig,
+	parentChatModel chat.Chat,
+	parentRerankModel rerank.Reranker,
+	sessionID, assistantMessageID string,
+) {
+	if config == nil || !config.OrchestrationEnabled || len(config.MemberAgentIDs) == 0 {
+		return
+	}
+	if agentDelegationDepth(ctx) > 0 || s.customAgentService == nil {
+		return
+	}
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	if tenantID == 0 {
+		return
+	}
+	registry.RegisterTool(tools.NewDelegateAgentTool(
+		config.MemberAgentIDs,
+		config.MaxParallelMembers,
+		func(delegateCtx context.Context, agentID, task string) (string, error) {
+			member, err := s.customAgentService.GetAgentByIDAndTenant(delegateCtx, agentID, tenantID)
+			if err != nil || member == nil {
+				if err == nil {
+					err = fmt.Errorf("member agent %q not found", agentID)
+				}
+				return "", err
+			}
+			childConfig := deriveDelegatedAgentConfig(config, member)
+			childChatModel := parentChatModel
+			if member.Config.ModelID != "" {
+				childChatModel, err = s.modelService.GetChatModel(delegateCtx, member.Config.ModelID)
+				if err != nil {
+					return "", fmt.Errorf("load member agent model: %w", err)
+				}
+			}
+			childRerankModel := parentRerankModel
+			if member.Config.RerankModelID != "" {
+				childRerankModel, err = s.modelService.GetRerankModel(delegateCtx, member.Config.RerankModelID)
+				if err != nil {
+					return "", fmt.Errorf("load member agent rerank model: %w", err)
+				}
+			}
+			childCtx := context.WithValue(delegateCtx, agentDelegationDepthKey{}, agentDelegationDepth(delegateCtx)+1)
+			childSessionID := sessionID + "::member:" + agentID
+			childEngine, err := s.CreateAgentEngine(
+				childCtx,
+				childConfig,
+				childChatModel,
+				childRerankModel,
+				event.NewEventBus(),
+				childSessionID,
+				assistantMessageID,
+			)
+			if err != nil {
+				return "", err
+			}
+			state, err := childEngine.Execute(childCtx, childSessionID, assistantMessageID, task, nil)
+			if err != nil {
+				return "", err
+			}
+			if state == nil || strings.TrimSpace(state.FinalAnswer) == "" {
+				return "", errors.New("member agent returned an empty answer")
+			}
+			return state.FinalAnswer, nil
+		},
+	))
+	logger.Infof(ctx, "Registered delegate_agent for %d member agent(s)", len(config.MemberAgentIDs))
+}
+
+func deriveDelegatedAgentConfig(parent *types.AgentConfig, member *types.CustomAgent) *types.AgentConfig {
+	child := *parent
+	child.OrchestrationEnabled = false
+	child.MemberAgentIDs = nil
+	child.MaxParallelMembers = 0
+	child.SystemPrompt = member.Config.SystemPrompt
+	child.UseCustomSystemPrompt = member.Config.SystemPrompt != ""
+	child.AllowedTools = append([]string(nil), member.Config.AllowedTools...)
+	if len(child.AllowedTools) == 0 {
+		child.AllowedTools = tools.DefaultAllowedTools()
+	}
+	if member.Config.MaxIterations > 0 {
+		child.MaxIterations = member.Config.MaxIterations
+	}
+	if member.Config.MaxCompletionTokens > 0 {
+		child.MaxCompletionTokens = member.Config.MaxCompletionTokens
+	}
+	if member.Config.Temperature != 0 {
+		child.Temperature = member.Config.Temperature
+	}
+	child.WebSearchEnabled = member.Config.WebSearchEnabled && parent.WebSearchEnabled
+	child.WebSearchMaxResults = member.Config.WebSearchMaxResults
+	child.WebSearchProviderID = member.Config.WebSearchProviderID
+	child.MCPSelectionMode = member.Config.MCPSelectionMode
+	child.MCPServices = append([]string(nil), member.Config.MCPServices...)
+	child.MCPAuthWaitTimeout = member.Config.MCPAuthWaitTimeout
+	child.Thinking = member.Config.Thinking
+	child.CitationEnabled = member.Config.CitationEnabled
+	child.IncludeRetrievedImages = member.Config.IncludeRetrievedImages
+	child.RetrieveKBOnlyWhenMentioned = member.Config.RetrieveKBOnlyWhenMentioned
+	child.RetainRetrievalHistory = member.Config.RetainRetrievalHistory
+	child.VLMModelID = member.Config.VLMModelID
+	if member.Config.LLMCallTimeout > 0 {
+		child.LLMCallTimeout = member.Config.LLMCallTimeout
+	}
+	child.SkillsEnabled = member.Config.SkillsSelectionMode != "none" && parent.SkillsEnabled
+	child.AllowedSkills = append([]string(nil), member.Config.SelectedSkills...)
+	return &child
 }
 
 // registerMCPTools registers MCP tools from enabled services for this tenant.
@@ -356,38 +481,34 @@ func (s *agentService) initializeSkillsManager(
 	config *types.AgentConfig,
 	toolRegistry *tools.ToolRegistry,
 ) (*skills.Manager, error) {
-	// Initialize sandbox manager based on environment variables
-	// WEKNORA_SANDBOX_MODE: "docker", "local", "disabled" (default: "disabled")
-	// WEKNORA_SANDBOX_TIMEOUT: timeout in seconds (default: 60)
-	// WEKNORA_SANDBOX_DOCKER_IMAGE: custom Docker image (default: wechatopenai/weknora-sandbox:latest)
+	// Initialize sandbox manager from the active tenant policy when present.
+	// Deployment environment variables remain the compatibility fallback.
 	var sandboxMgr sandbox.Manager
 	var err error
 
-	sandboxMode := os.Getenv("WEKNORA_SANDBOX_MODE")
-	if sandboxMode == "" {
-		sandboxMode = "disabled"
-	}
-	dockerImage := os.Getenv("WEKNORA_SANDBOX_DOCKER_IMAGE")
-	if dockerImage == "" {
-		dockerImage = sandbox.DefaultDockerImage
-	}
-	sandboxTimeoutStr := os.Getenv("WEKNORA_SANDBOX_TIMEOUT")
-	sandboxTimeout := 60
-	if sandboxTimeoutStr != "" {
-		if v, err := strconv.Atoi(sandboxTimeoutStr); err == nil && v > 0 {
-			sandboxTimeout = v
-		}
-	}
+	tenantID, _ := types.TenantIDFromContext(ctx)
+	sandboxMode, sandboxFallback, sandboxTimeout, dockerImage :=
+		ResolveTenantSandboxRuntimeConfig(ctx, s.tenantSandboxConfigService, tenantID)
 
 	switch sandboxMode {
 	case "docker":
-		sandboxMgr, err = sandbox.NewManagerFromType("docker", true, dockerImage) // Enable fallback to local
+		sandboxMgr, err = newTenantSandboxManager(
+			sandbox.SandboxTypeDocker,
+			sandboxFallback,
+			sandboxTimeout,
+			dockerImage,
+		)
 		if err != nil {
 			logger.Warnf(ctx, "Failed to initialize Docker sandbox, falling back to disabled: %v", err)
 			sandboxMgr = sandbox.NewDisabledManager()
 		}
 	case "local":
-		sandboxMgr, err = sandbox.NewManagerFromType("local", false, "")
+		sandboxMgr, err = newTenantSandboxManager(
+			sandbox.SandboxTypeLocal,
+			sandboxFallback,
+			sandboxTimeout,
+			"",
+		)
 		if err != nil {
 			logger.Warnf(ctx, "Failed to initialize local sandbox: %v", err)
 			sandboxMgr = sandbox.NewDisabledManager()
@@ -398,6 +519,7 @@ func (s *agentService) initializeSkillsManager(
 	logger.Infof(ctx, "Sandbox configured: mode=%s, timeout=%ds, image=%s", sandboxMode, sandboxTimeout, dockerImage)
 
 	skillDirs := append([]string(nil), config.SkillDirs...)
+	skillEnvs := make(map[string]map[string]string)
 	if s.tenantSkillService != nil {
 		if tenantID, ok := types.TenantIDFromContext(ctx); ok {
 			tenantDirs, materializeErr := s.tenantSkillService.MaterializeTenantSkillDirs(ctx, tenantID)
@@ -406,6 +528,20 @@ func (s *agentService) initializeSkillsManager(
 			} else {
 				skillDirs = append(skillDirs, tenantDirs...)
 			}
+			if tenantSkills, tenantErr := s.tenantSkillService.ListTenantSkills(ctx, tenantID); tenantErr == nil {
+				for _, skill := range tenantSkills {
+					if skill != nil && skill.Enabled && skill.Status == types.TenantSkillStatusReady {
+						skillEnvs[skill.Name] = map[string]string(skill.EnvVars)
+					}
+				}
+			}
+			if globalSkills, globalErr := s.tenantSkillService.ListGlobalSkills(ctx); globalErr == nil {
+				for _, skill := range globalSkills {
+					if skill != nil && skill.Enabled && skill.Status == types.TenantSkillStatusReady {
+						skillEnvs[skill.Name] = map[string]string(skill.EnvVars)
+					}
+				}
+			}
 		}
 	}
 
@@ -413,6 +549,7 @@ func (s *agentService) initializeSkillsManager(
 	skillsConfig := &skills.ManagerConfig{
 		SkillDirs:     skillDirs,
 		AllowedSkills: config.AllowedSkills,
+		SkillEnvs:     skillEnvs,
 		Enabled:       config.SkillsEnabled,
 	}
 
@@ -439,6 +576,24 @@ func (s *agentService) initializeSkillsManager(
 	}
 
 	return skillsManager, nil
+}
+
+func newTenantSandboxManager(
+	sandboxType sandbox.SandboxType,
+	fallbackEnabled bool,
+	timeoutSeconds int,
+	dockerImage string,
+) (sandbox.Manager, error) {
+	config := sandbox.DefaultConfig()
+	config.Type = sandboxType
+	config.FallbackEnabled = fallbackEnabled
+	if timeoutSeconds > 0 {
+		config.DefaultTimeout = time.Duration(timeoutSeconds) * time.Second
+	}
+	if dockerImage != "" {
+		config.DockerImage = dockerImage
+	}
+	return sandbox.NewManager(config)
 }
 
 // registerTools registers tools based on the agent configuration
@@ -654,6 +809,10 @@ func (s *agentService) registerTools(
 		case tools.ToolWebFetch:
 			toolToRegister = tools.NewWebFetchTool(chatModel)
 			logger.Infof(ctx, "Registered web_fetch tool for session: %s", sessionID)
+
+		case tools.ToolLocalBrowser:
+			toolToRegister = tools.NewLocalBrowserTool()
+			logger.Infof(ctx, "Registered local_browser tool for session: %s", sessionID)
 
 		case tools.ToolDataAnalysis:
 			toolToRegister = tools.NewDataAnalysisTool(s.knowledgeBaseService, s.knowledgeService, s.tenantService, s.fileService, s.duckdb, sessionID, s.storageResolver)

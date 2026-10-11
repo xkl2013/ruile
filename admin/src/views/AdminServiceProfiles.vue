@@ -157,22 +157,6 @@
               placeholder="写清楚服务目标、关注信息、事实边界和下一步工作方式"
             />
           </t-form-item>
-          <div class="service-template-switches">
-            <label>
-              <t-switch v-model="form.auto_apply" />
-              <span>
-                <strong>允许自动应用</strong>
-                <small>仅低风险模板可自动应用。</small>
-              </span>
-            </label>
-            <label>
-              <t-switch v-model="form.auto_activate" :disabled="!form.auto_apply" />
-              <span>
-                <strong>应用后自动启用</strong>
-                <small>需要模板至少配置一个专家。</small>
-              </span>
-            </label>
-          </div>
         </section>
 
         <section class="service-template-form-section">
@@ -251,8 +235,6 @@ interface ServiceTemplateForm {
   description: string
   space_type: ServiceTemplateSpaceType
   instruction: string
-  auto_apply: boolean
-  auto_activate: boolean
   expert_suggestions: Array<ServiceTemplateExpertSuggestion>
   knowledge_base_ids: string[]
   selected_skills: string[]
@@ -286,8 +268,6 @@ function createEmptyForm(): ServiceTemplateForm {
     description: '',
     space_type: 'customer_service',
     instruction: '',
-    auto_apply: false,
-    auto_activate: false,
     expert_suggestions: [],
     knowledge_base_ids: [],
     selected_skills: [],
@@ -317,8 +297,6 @@ function applyTemplateToForm(template?: AdminServiceTemplate) {
     next.description = template.description || ''
     next.space_type = template.blueprint?.proposed_space_type || 'customer_service'
     next.instruction = template.blueprint?.source_instruction || ''
-    next.auto_apply = template.auto_apply
-    next.auto_activate = template.auto_activate
     next.expert_suggestions = (template.blueprint?.expert_suggestions || []).map((expert) => ({ ...expert }))
     next.knowledge_base_ids = [...(template.blueprint?.knowledge_base_ids || [])]
     next.selected_skills = [...(template.blueprint?.selected_skills || [])]
@@ -369,8 +347,6 @@ function toPayload(): AdminServiceTemplateInput {
     match_rules: {
       min_confidence_pct: 0,
     },
-    auto_apply: form.auto_apply,
-    auto_activate: form.auto_activate && form.auto_apply,
   }
 }
 
@@ -688,35 +664,6 @@ onMounted(() => {
   color: var(--admin-text-secondary);
   font-size: 12px;
   line-height: 1.45;
-}
-
-.service-template-switches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px 28px;
-  padding-top: 4px;
-}
-
-.service-template-switches label {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
-  cursor: pointer;
-}
-
-.service-template-switches label > span {
-  display: grid;
-  gap: 3px;
-}
-
-.service-template-switches strong {
-  color: var(--admin-text);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.service-template-switches small {
-  margin: 0;
 }
 
 .service-template-repeater {

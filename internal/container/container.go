@@ -172,6 +172,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewAgentRunRepository))
 	must(container.Provide(repository.NewExpertPackageRepository))
 	must(container.Provide(repository.NewTenantSkillRepository))
+	must(container.Provide(repository.NewTenantSkillSnapshotRepository))
+	must(container.Provide(repository.NewTenantSandboxConfigRepository))
 	must(container.Provide(service.NewWebSearchStateService))
 	must(container.Provide(repository.NewDataSourceRepository))
 	must(container.Provide(repository.NewSyncLogRepository))
@@ -216,6 +218,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewExpertPackageService))
 	must(container.Provide(service.NewKnowledgeBaseDefaultsService))
 	must(container.Provide(service.NewTenantSkillService))
+	must(container.Provide(service.NewTenantSkillSnapshotService))
+	must(container.Provide(service.NewTenantSandboxConfigService))
 
 	// Extract services - register individual extracters with names
 	must(container.Provide(service.NewChunkExtractService, dig.Name("chunkExtractor")))
@@ -401,6 +405,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewExpertPackageHandler))
 	must(container.Provide(service.NewSkillService))
 	must(container.Provide(handler.NewSkillHandler))
+	must(container.Provide(handler.NewSkillSnapshotHandler))
+	must(container.Provide(handler.NewSandboxConfigHandler))
 	must(container.Provide(handler.NewOrganizationHandler))
 
 	// Data source handler

@@ -216,6 +216,33 @@ func TestAppendToolResults_SkipsDynamicImageRequirementWhenDisabled(t *testing.T
 	assert.Contains(t, out[2].Content, "![流程图](resource://AbCdEfGhIjKlMnOpQrStUv)")
 }
 
+func TestAppendToolResults_DescribesToolImages(t *testing.T) {
+	engine := newTestEngine(t, &mockChat{})
+	engine.imageDescriber = func(ctx context.Context, imgBytes []byte, prompt string) (string, error) {
+		require.Equal(t, []byte{1, 2, 3}, imgBytes)
+		require.Contains(t, prompt, "Describe the content")
+		return "The screenshot shows a login form.", nil
+	}
+	step := types.AgentStep{
+		ToolCalls: []types.ToolCall{{
+			ID:   "call-browser",
+			Name: agenttools.ToolLocalBrowser,
+			Result: &types.ToolResult{
+				Success: true,
+				Output:  "browser screenshot captured",
+				Images:  []string{"data:image/png;base64,AQID"},
+			},
+		}},
+	}
+
+	out := engine.appendToolResults(nil, step)
+	require.Len(t, out, 2)
+	assert.Equal(t, "tool", out[1].Role)
+	assert.Contains(t, out[1].Content, "browser screenshot captured")
+	assert.Contains(t, out[1].Content, "The screenshot shows a login form.")
+	assert.Empty(t, out[1].Images)
+}
+
 func TestBuildRuntimeContextBlock_PinnedDocuments(t *testing.T) {
 	block := buildRuntimeContextBlock(
 		"sess-1",

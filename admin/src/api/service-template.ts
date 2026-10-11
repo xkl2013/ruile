@@ -65,8 +65,6 @@ export interface AdminServiceTemplate {
     min_confidence_pct?: number
   }
   blueprint: ServiceTemplateBlueprint
-  auto_apply: boolean
-  auto_activate: boolean
   risk_level: ServiceTemplateRiskLevel
   published_by?: string
   published_at?: string
@@ -89,8 +87,6 @@ export interface AdminServiceTemplateInput {
   knowledge_base_ids: string[]
   selected_skills: string[]
   match_rules: AdminServiceTemplate['match_rules']
-  auto_apply: boolean
-  auto_activate: boolean
 }
 
 const basePath = '/api/v1/services/admin/templates'
