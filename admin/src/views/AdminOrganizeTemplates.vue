@@ -68,6 +68,7 @@
             <div class="organize-template-row__meta">
               <span>{{ template.scene || '未分组' }}</span>
               <span>{{ template.markdown_template ? '已配置 Markdown 预设' : '使用系统默认预设' }}</span>
+              <span>{{ scheduleLabel(template.schedule, template.schedule_time) }}</span>
               <span>当前版本 {{ template.published_version || '未发布' }}</span>
               <span>更新于 {{ formatDate(template.updated_at) }}</span>
             </div>
@@ -146,6 +147,23 @@
           </t-form-item>
           <t-form-item label="输出名称">
             <t-input v-model="form.output_label" placeholder="例如 提炼清单" />
+          </t-form-item>
+        </div>
+        <div class="organize-template-form-grid">
+          <t-form-item label="默认执行周期">
+            <t-select v-model="form.schedule">
+              <t-option
+                v-for="option in scheduleOptions"
+                :key="option.value"
+                :value="option.value"
+                :label="option.label"
+              />
+            </t-select>
+            <p class="organize-template-form-help">用户从该模板新建整理时会默认使用此周期和时间，之后仍可自行调整。</p>
+          </t-form-item>
+          <t-form-item v-if="form.schedule !== 'manual'" label="默认执行时间">
+            <input v-model="form.schedule_time" class="organize-template-time" type="time" step="60" />
+            <p class="organize-template-form-help">按北京时间执行。</p>
           </t-form-item>
         </div>
         <t-form-item label="模板说明">
@@ -288,7 +306,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import OrganizeMarkdownRenderer from '@/views/organize/components/OrganizeMarkdownRenderer.vue'
 import {
@@ -305,6 +323,7 @@ import {
   type AdminOrganizeTemplate,
   type AdminOrganizeTemplateCompileResult,
   type AdminOrganizeTemplateVersion,
+  type OrganizeScheduleKey,
   type OrganizeTemplateStatus,
 } from '@admin/api/organize'
 
@@ -351,9 +370,46 @@ const form = reactive({
   icon: 'file-paste',
   default_instruction: '',
   markdown_template: '',
+  schedule: 'manual' as OrganizeScheduleKey,
+  schedule_time: '',
   sort_order: 0,
   change_note: '',
 })
+
+const scheduleOptions: Array<{ value: OrganizeScheduleKey; label: string }> = [
+  { value: 'manual', label: '手动触发' },
+  { value: 'daily', label: '每天' },
+  { value: 'weekly', label: '每周一' },
+  { value: 'monthly', label: '每月 1 日' },
+]
+
+const scheduleDefaultTimes: Record<OrganizeScheduleKey, string> = {
+  manual: '',
+  daily: '08:00',
+  weekly: '09:00',
+  monthly: '09:00',
+}
+
+function scheduleLabel(value?: OrganizeScheduleKey, scheduleTime?: string) {
+  const schedule = value || 'manual'
+  const label = scheduleOptions.find((option) => option.value === schedule)?.label || '手动触发'
+  if (schedule === 'manual') return label
+  return `${label} ${scheduleTime || scheduleDefaultTimes[schedule]}`
+}
+
+watch(
+  () => form.schedule,
+  (schedule, previousSchedule) => {
+    const previousDefault = scheduleDefaultTimes[previousSchedule || 'manual']
+    if (schedule === 'manual') {
+      form.schedule_time = ''
+      return
+    }
+    if (!form.schedule_time || form.schedule_time === previousDefault) {
+      form.schedule_time = scheduleDefaultTimes[schedule]
+    }
+  },
+)
 
 function statusLabel(value: OrganizeTemplateStatus) {
   return ({ draft: '草稿', enabled: '已发布', disabled: '已停用' } as Record<OrganizeTemplateStatus, string>)[value] || value
@@ -415,6 +471,8 @@ function resetForm() {
     icon: 'file-paste',
     default_instruction: '',
     markdown_template: defaultMarkdownTemplate(),
+    schedule: 'manual',
+    schedule_time: '',
     sort_order: 0,
     change_note: '',
   })
@@ -439,6 +497,8 @@ function openEdit(template: AdminOrganizeTemplate) {
     icon: template.icon || 'file-paste',
     default_instruction: template.default_instruction || '',
     markdown_template: template.markdown_template || defaultMarkdownTemplate(),
+    schedule: template.schedule || 'manual',
+    schedule_time: template.schedule_time || scheduleDefaultTimes[template.schedule || 'manual'],
     sort_order: template.sort_order || 0,
     change_note: '',
   })
@@ -461,6 +521,8 @@ async function saveTemplate() {
       icon: form.icon.trim(),
       default_instruction: form.default_instruction.trim(),
       markdown_template: form.markdown_template.trim(),
+      schedule: form.schedule,
+      schedule_time: form.schedule === 'manual' ? '' : form.schedule_time,
       spec: formSpec.value,
       sort_order: form.sort_order || 0,
       change_note: form.change_note.trim(),
@@ -531,6 +593,8 @@ function applyCompiledTemplate() {
     icon: 'file-paste',
     default_instruction: compiled.default_instruction,
     markdown_template: compiled.markdown_template,
+    schedule: 'manual',
+    schedule_time: '',
     sort_order: 0,
     change_note: '从 Markdown 指令自动生成',
   })
@@ -644,6 +708,7 @@ function defaultMarkdownTemplate() {
 .organize-template-pagination { padding: 14px 18px; display: flex; justify-content: flex-end; border-top: 1px solid var(--td-component-border); }
 .organize-template-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .organize-template-form-help { margin: 8px 0 0; color: var(--td-text-color-secondary); font-size: 12px; line-height: 1.6; }
+.organize-template-time { width: 100%; min-height: 36px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--td-component-border); border-radius: 6px; background: var(--td-bg-color-container); color: var(--td-text-color-primary); font: inherit; }
 .organize-template-compiler { display: grid; gap: 14px; }
 .organize-template-compiler__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .organize-template-compiler__toolbar p { margin: 0; color: var(--td-text-color-secondary); font-size: 13px; line-height: 1.6; }

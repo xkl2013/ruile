@@ -72,6 +72,105 @@ func (r *serviceSpaceRepository) GetTemplate(
 	return &template, nil
 }
 
+func (r *serviceSpaceRepository) ListAdminTemplates(
+	ctx context.Context,
+	tenantID uint64,
+) ([]*types.ServiceSpaceTemplate, error) {
+	var records []*types.ServiceSpaceTemplateRecord
+	if err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND deleted_at IS NULL", tenantID).
+		Order("key ASC, version DESC").
+		Find(&records).Error; err != nil {
+		return nil, err
+	}
+	latest := make(map[string]*types.ServiceSpaceTemplate)
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		template, err := record.ToTemplate()
+		if err != nil {
+			return nil, err
+		}
+		if existing, ok := latest[template.Key]; !ok || template.Version > existing.Version {
+			copy := template
+			latest[template.Key] = &copy
+		}
+	}
+	result := make([]*types.ServiceSpaceTemplate, 0, len(latest))
+	for _, template := range latest {
+		result = append(result, template)
+	}
+	return result, nil
+}
+
+func (r *serviceSpaceRepository) GetAdminTemplate(
+	ctx context.Context,
+	tenantID uint64,
+	key string,
+) (*types.ServiceSpaceTemplate, error) {
+	var record types.ServiceSpaceTemplateRecord
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND key = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(key)).
+		Order("version DESC").
+		First(&record).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	template, err := record.ToTemplate()
+	if err != nil {
+		return nil, err
+	}
+	return &template, nil
+}
+
+func (r *serviceSpaceRepository) CreateTemplate(
+	ctx context.Context,
+	record *types.ServiceSpaceTemplateRecord,
+) error {
+	return r.db.WithContext(ctx).Create(record).Error
+}
+
+func (r *serviceSpaceRepository) UpdateTemplate(
+	ctx context.Context,
+	record *types.ServiceSpaceTemplateRecord,
+) error {
+	return r.db.WithContext(ctx).Save(record).Error
+}
+
+func (r *serviceSpaceRepository) SetTemplateStatus(
+	ctx context.Context,
+	tenantID uint64,
+	key, status string,
+) error {
+	return r.db.WithContext(ctx).Model(&types.ServiceSpaceTemplateRecord{}).
+		Where("tenant_id = ? AND key = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(key)).
+		Updates(map[string]any{
+			"status":       status,
+			"updated_at":   time.Now().UTC(),
+			"published_at": nil,
+		}).Error
+}
+
+func (r *serviceSpaceRepository) SetTemplateStatusExcept(
+	ctx context.Context,
+	tenantID uint64,
+	key, status, exceptID string,
+) error {
+	query := r.db.WithContext(ctx).Model(&types.ServiceSpaceTemplateRecord{}).
+		Where("tenant_id = ? AND key = ? AND deleted_at IS NULL", tenantID, strings.TrimSpace(key))
+	if strings.TrimSpace(exceptID) != "" {
+		query = query.Where("id <> ?", strings.TrimSpace(exceptID))
+	}
+	return query.Updates(map[string]any{
+		"status":     status,
+		"updated_at": time.Now().UTC(),
+	}).Error
+}
+
 func (r *serviceSpaceRepository) CreateBlueprint(
 	ctx context.Context,
 	record *types.ServiceSpaceBlueprintRecord,

@@ -10,6 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNextOrganizeRunUsesConfiguredScheduleTime(t *testing.T) {
+	location := organizeScheduleLocation()
+	from := time.Date(2026, 10, 9, 19, 30, 0, 0, location)
+
+	next := nextOrganizeRun(types.OrganizeScheduleDaily, "20:00", from)
+
+	require.NotNil(t, next)
+	require.Equal(t, time.Date(2026, 10, 9, 20, 0, 0, 0, location).UTC(), *next)
+}
+
 func TestParseOrganizeMemoryQueryPlanToday(t *testing.T) {
 	now := time.Date(2026, 10, 7, 15, 30, 0, 0, time.FixedZone("CST", 8*60*60))
 	plan, ambiguities, warnings := parseOrganizeMemoryQueryPlan("整理今日记忆中的线索", now)

@@ -102,6 +102,25 @@ export interface ServiceSubject {
   updated_at?: string
 }
 
+export interface ServiceSubjectProfile extends ServiceSpaceProfile {
+  subject_id: string
+}
+
+export interface ServiceFact {
+  id: string
+  tenant_id: number
+  service_id: string
+  subject_id?: string
+  fact_type: string
+  fact_key?: string
+  value: Record<string, unknown>
+  source_type: string
+  source_id: string
+  source_version?: string
+  created_by?: string
+  created_at?: string
+}
+
 export type ServiceReminderStatusCategory = 'open' | 'in_progress' | 'done' | 'dismissed'
 
 export interface ServiceReminderStatus {
@@ -218,6 +237,7 @@ export interface ServiceSpaceTemplate {
   tenant_id: number
   key: string
   name: string
+  description?: string
   version: number
   status: string
   match_rules?: Record<string, unknown>
@@ -268,6 +288,8 @@ export interface ServiceSpaceBlueprint {
     expert_name: string
     reason?: string
   }>
+  knowledge_base_ids?: string[]
+  selected_skills?: string[]
   generation_meta?: Record<string, unknown>
   status: 'draft' | 'confirmed' | 'rejected' | 'expired'
   confirmation_mode?: 'pending' | 'manual' | 'template_auto_apply'
@@ -424,6 +446,7 @@ export function applyServiceTemplate(
     template_key?: string
     template_version?: number
     knowledge_base_ids?: string[]
+    selected_skills?: string[]
     experts?: Array<{
       expert_ref: string
       expert_name: string
@@ -481,6 +504,28 @@ export function confirmServiceBlueprint(
 export function getServiceProfile(serviceId: string) {
   return get<ServiceResponse<ServiceSpaceProfile>>(
     `/api/v1/services/${encodeURIComponent(serviceId)}/profile`,
+  )
+}
+
+export function getServiceSubjectProfile(serviceId: string, subjectId: string) {
+  return get<ServiceResponse<ServiceSubjectProfile>>(
+    `/api/v1/services/${encodeURIComponent(serviceId)}/subjects/${encodeURIComponent(subjectId)}/profile`,
+  )
+}
+
+export function listServiceFacts(
+  serviceId: string,
+  params?: {
+    page?: number
+    page_size?: number
+    subject_id?: string
+    fact_type?: string
+    source_type?: string
+    source_id?: string
+  },
+) {
+  return get<ServiceResponse<ServicePage<ServiceFact>>>(
+    withQuery(`/api/v1/services/${encodeURIComponent(serviceId)}/facts`, params),
   )
 }
 

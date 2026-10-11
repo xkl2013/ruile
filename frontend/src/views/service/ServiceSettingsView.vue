@@ -1,15 +1,5 @@
 <template>
   <main class="service-settings-page">
-    <ServiceExpertPickerDialog
-      v-model:visible="expertPickerVisible"
-      :experts="serviceExperts"
-      :selected-ids="selectedExpertIds"
-      :loading="serviceExpertsLoading"
-      :error="serviceExpertsError"
-      @confirm="selectedExpertIds = $event"
-      @retry="loadServiceExperts(true)"
-    />
-
     <header class="service-settings-header">
       <button type="button" class="service-settings-back" @click="backToWorkspace">
         <t-icon name="chevron-left" />
@@ -40,7 +30,7 @@
           <header class="service-settings-section-head">
             <div>
               <h2>基本信息</h2>
-              <p>名称和说明帮助成员识别服务，工作指令决定专家如何开展工作。</p>
+              <p>名称和一句话说明帮助成员识别服务，客户信息由后台维护。</p>
             </div>
             <t-button theme="primary" :loading="saving" :disabled="!canManage" @click="saveBasic">
               保存
@@ -61,35 +51,20 @@
                 :autosize="{ minRows: 3, maxRows: 6 }"
               />
             </label>
-            <label>
-              <span>工作指令</span>
-              <t-textarea
-                v-model="instructionDraft"
-                :disabled="!canManage"
-                :maxlength="4000"
-                :autosize="{ minRows: 6, maxRows: 12 }"
-              />
-            </label>
           </div>
 
-          <div class="service-settings-experts">
+          <div class="service-settings-customer">
             <div class="service-settings-subhead">
               <div>
-                <strong>专家</strong>
-                <small>服务中的会话会从这些专家中选择合适的能力。</small>
+                <strong>家长与学员</strong>
+                <small>客户绑定与重点信息由后台配置，这里只读。</small>
               </div>
-              <t-button v-if="canManage" variant="outline" size="small" @click="expertPickerVisible = true">
-                调整专家
-              </t-button>
             </div>
-            <div class="service-settings-expert-list">
-              <article v-for="expert in selectedExperts" :key="expert.id">
-                <AgentAvatar :name="expert.name" :avatar="expert.avatar" size="small" />
-                <div>
-                  <strong>{{ expert.name }}</strong>
-                  <small>{{ expert.description || '服务专家' }}</small>
-                </div>
-              </article>
+            <div class="service-settings-customer-grid">
+              <div><span>家庭</span><strong>{{ customerInfo.familyName }}</strong></div>
+              <div><span>学员</span><strong>{{ customerInfo.student }}</strong></div>
+              <div><span>班级</span><strong>{{ customerInfo.className }}</strong></div>
+              <div><span>主班老师</span><strong>{{ customerInfo.teacher }}</strong></div>
             </div>
           </div>
         </template>
@@ -98,7 +73,7 @@
           <header class="service-settings-section-head">
             <div>
               <h2>重点记录</h2>
-              <p>选择这个服务需要持续关注的信息。名称会直接影响专家识别和归纳。</p>
+              <p>选择这个服务需要持续关注的信息，名称会直接影响服务摘要和归纳。</p>
             </div>
             <t-button theme="primary" :loading="saving" :disabled="!canEdit" @click="saveRecords">
               保存
@@ -131,8 +106,8 @@
               <div v-if="!recordSchema.length" class="service-settings-state">还没有重点记录，可以从上方推荐中添加。</div>
             </div>
             <aside class="service-record-preview">
-              <span>服务对象预览</span>
-              <strong>{{ previewSubjectName }}</strong>
+              <span>家长与学员预览</span>
+              <strong>{{ customerInfo.familyName }}</strong>
               <div v-for="item in recordSchema.slice(0, 6)" :key="item.key">
                 <span>{{ item.label }}</span>
                 <em>待记录</em>
@@ -227,10 +202,8 @@ import {
   deleteServiceContextSource,
   getServiceProfile,
   listServiceContextSources,
-  listServiceExperts as listBoundServiceExperts,
   listServiceMembers,
   removeServiceMember,
-  replaceServiceExperts,
   updateServiceMemberRole,
   updateServiceProfile,
   updateServiceSpace,
@@ -239,17 +212,12 @@ import {
   type ServiceSpaceProfile,
   type ServiceSpaceProfileField,
 } from '@/api/service'
-import ServiceExpertPickerDialog from './ServiceExpertPickerDialog.vue'
 import {
   getFirstServiceSession,
   getService,
-  getServiceExpert,
-  loadServiceExperts,
   loadServiceHub,
-  serviceExperts,
-  serviceExpertsError,
-  serviceExpertsLoading,
 } from './serviceHubState'
+import { buildCustomerInfo } from './servicePresentation'
 
 type SettingsSection = 'basic' | 'records' | 'sources' | 'members'
 type EditableMemberRole = 'admin' | 'editor' | 'viewer'
@@ -274,9 +242,6 @@ const saving = ref(false)
 const error = ref('')
 const nameDraft = ref('')
 const descriptionDraft = ref('')
-const instructionDraft = ref('')
-const expertPickerVisible = ref(false)
-const selectedExpertIds = ref<string[]>([])
 const profile = ref<ServiceSpaceProfile | null>(null)
 const recordSchema = ref<ServiceSpaceProfileField[]>([])
 const contextSources = ref<ServiceContextSource[]>([])
@@ -292,14 +257,8 @@ const memberRoleOptions = [
   { label: '只看', value: 'viewer' },
 ]
 
-const selectedExperts = computed(() =>
-  selectedExpertIds.value.map((id) => getServiceExpert(id) || {
-    id,
-    name: '服务专家',
-    description: '已加入当前服务',
-    domain: '',
-    skills: [],
-  }))
+const customerInfo = computed(() =>
+  service.value?.customer || buildCustomerInfo(null, null, service.value?.name || '当前家庭'))
 
 const recordRecommendations = computed(() => {
   switch (service.value?.spaceType) {
@@ -311,17 +270,6 @@ const recordRecommendations = computed(() => {
       return ['当前阶段', '核心诉求', '沟通记录', '风险信号', '下一步动作']
   }
 })
-const previewSubjectName = computed(() => {
-  switch (service.value?.spaceType) {
-    case 'operations':
-      return '示例运营事项'
-    case 'research':
-      return '示例研究课题'
-    default:
-      return '示例服务对象'
-  }
-})
-
 const memberDirectory = computed(() =>
   new Map(tenantMembers.value.map((member) => [member.user_id, member])))
 
@@ -346,23 +294,20 @@ const loadSettings = async () => {
   loading.value = true
   error.value = ''
   try {
-    await Promise.all([loadServiceHub(), loadServiceExperts()])
+    await loadServiceHub()
     const currentService = getService(serviceId.value)
     if (!currentService) throw new Error('service not found')
     nameDraft.value = currentService.name
     descriptionDraft.value = currentService.description || ''
-    instructionDraft.value = currentService.instruction || ''
-    const [profileResult, sourceResult, memberResult, expertResult] = await Promise.all([
+    const [profileResult, sourceResult, memberResult] = await Promise.all([
       getServiceProfile(serviceId.value),
       listServiceContextSources(serviceId.value),
       listServiceMembers(serviceId.value),
-      listBoundServiceExperts(serviceId.value),
     ])
     profile.value = profileResult?.data || null
     recordSchema.value = (profile.value?.schema || []).map((item) => ({ ...item }))
     contextSources.value = sourceResult?.data || []
     serviceMembers.value = memberResult?.data || []
-    selectedExpertIds.value = (expertResult?.data || []).map((item) => item.expert_ref)
     const tenantId = Number(authStore.currentTenantId || 0)
     tenantMembers.value = tenantId > 0 ? await fetchAllTenantMembers(tenantId) : []
   } catch (loadError) {
@@ -402,28 +347,13 @@ const saveBasic = async () => {
   }
   saving.value = true
   try {
-    const [serviceResponse] = await Promise.all([
-      updateServiceSpace(serviceId.value, {
-        name,
-        description: descriptionDraft.value.trim(),
-        instruction: instructionDraft.value.trim(),
-      }),
-      replaceServiceExperts(serviceId.value, selectedExpertIds.value.map((id, index) => {
-        const expert = getServiceExpert(id)
-        return {
-          expert_ref: id,
-          expert_name: expert?.name || '服务专家',
-          expert_domain: expert?.domain,
-          enabled: true,
-          display_order: index,
-        }
-      })),
-    ])
+    const serviceResponse = await updateServiceSpace(serviceId.value, {
+      name,
+      description: descriptionDraft.value.trim(),
+    })
     if (serviceResponse?.data) {
       currentService.name = serviceResponse.data.name
       currentService.description = serviceResponse.data.description || ''
-      currentService.instruction = serviceResponse.data.instruction || ''
-      currentService.expertIds = [...selectedExpertIds.value]
     }
     MessagePlugin.success('基本信息已保存')
   } catch (saveError) {
@@ -695,6 +625,45 @@ onMounted(loadSettings)
   max-width: 720px;
   padding-top: 18px;
   border-top: 1px solid var(--td-component-stroke);
+}
+
+.service-settings-customer {
+  max-width: 720px;
+  padding-top: 18px;
+  border-top: 1px solid var(--td-component-stroke);
+}
+
+.service-settings-customer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 7px;
+  background: var(--td-component-stroke);
+}
+
+.service-settings-customer-grid > div {
+  display: grid;
+  min-height: 58px;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--td-bg-color-container);
+}
+
+.service-settings-customer-grid span {
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+}
+
+.service-settings-customer-grid strong {
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-settings-subhead {
@@ -976,6 +945,10 @@ onMounted(loadSettings)
 
   .service-record-layout,
   .service-settings-expert-list {
+    grid-template-columns: 1fr;
+  }
+
+  .service-settings-customer-grid {
     grid-template-columns: 1fr;
   }
 

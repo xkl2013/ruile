@@ -20,7 +20,7 @@
             <div>
               <h2 id="service-create-dialog-title">{{ isCopyMode ? '复制配置创建服务' : '新建服务' }}</h2>
               <p class="service-create-dialog-subtitle">
-                {{ selectedTemplate ? '模板内容已带入，可按当前工作调整' : '写清要做什么，再选择一起工作的专家与资料' }}
+                填写服务名称和一句话说明，客户与工作方式由后台配置。
               </p>
             </div>
             <button type="button" class="service-create-dialog-close" aria-label="关闭" @click="close">
@@ -29,20 +29,6 @@
           </header>
 
           <div class="service-create-dialog-body">
-            <section v-if="selectedTemplate" class="service-create-template-preview">
-              <div class="service-create-preview-head">
-                <div>
-                  <span class="service-create-section-kicker">已带入模板</span>
-                  <h3>{{ selectedTemplate.name }}</h3>
-                </div>
-                <span class="service-create-auto-apply">
-                  <t-icon name="check-circle" />
-                  创建后仍可调整
-                </span>
-              </div>
-              <p class="service-create-preview-description">{{ selectedTemplate.description }}</p>
-            </section>
-
             <div class="service-create-field">
               <label for="service-create-name">服务名称</label>
               <t-input
@@ -56,127 +42,20 @@
               <small v-if="nameError" class="service-create-error">{{ nameError }}</small>
             </div>
 
-            <div class="service-create-field service-create-instruction-field">
-              <label for="service-create-instruction">工作指令</label>
+            <div class="service-create-field service-create-description-field">
+              <label for="service-create-description">一句话说明 <em>（选填）</em></label>
               <t-textarea
-                id="service-create-instruction"
-                v-model="form.instruction"
-                class="service-create-instruction"
-                :placeholder="form.templateId ? '模板指令已填充，可按需要补充' : '例如：跟进秋季招生线索，重点记录家长顾虑与到访意向；涉及课程与价格时先查知识库'"
-                :maxlength="4000"
-                :autosize="{ minRows: 4, maxRows: 8 }"
-                :status="instructionError ? 'error' : undefined"
-                @input="instructionError = ''"
+                id="service-create-description"
+                v-model="form.description"
+                placeholder="例如：跟进秋季招生咨询，记录家长顾虑和下一步安排"
+                :maxlength="500"
+                :autosize="{ minRows: 3, maxRows: 6 }"
               />
-              <small v-if="instructionError" class="service-create-error">{{ instructionError }}</small>
-              <small v-else class="service-create-field-hint">
-                系统会根据工作指令生成重点记录，创建后可在服务设置中调整
+              <small class="service-create-field-hint">
+                客户信息和工作方式已经在后台配置好，创建后可以直接进入服务。
               </small>
             </div>
-
-            <section class="service-create-option-section">
-              <button
-                type="button"
-                class="service-create-option-row"
-                :class="{ expanded: selectedExperts.length > 0 }"
-                :aria-expanded="selectedExperts.length > 0"
-                @click="expertPickerVisible = true"
-              >
-                <span class="service-create-option-title">
-                  <strong>专家</strong>
-                  <em>（可选）</em>
-                  <span v-if="form.expertIds.length" class="service-create-selected-count">
-                    {{ form.expertIds.length }} 个
-                  </span>
-                </span>
-                <span class="service-create-option-action">
-                  {{ form.expertIds.length ? '调整' : '+ 添加' }}
-                </span>
-              </button>
-
-              <div v-if="selectedExperts.length" class="service-create-expert-list">
-                <button
-                  v-for="expert in selectedExperts"
-                  :key="expert.id"
-                  type="button"
-                  class="service-create-expert-row"
-                  @click="toggleExpert(expert.id)"
-                >
-                  <AgentAvatar :name="expert.name" :avatar="expert.avatar" size="small" />
-                  <span class="service-create-picker-copy">
-                    <strong>{{ expert.name }}</strong>
-                    <small>{{ expert.description }}</small>
-                  </span>
-                  <span class="service-create-expert-remove" :aria-label="`移除${expert.name}`">
-                    <t-icon name="close" />
-                  </span>
-                </button>
-              </div>
-              <div v-else class="service-create-option-empty">
-                从系统专家列表中选择要加入这个服务空间的专家
-              </div>
-            </section>
-
-            <section class="service-create-option-section">
-              <button
-                type="button"
-                class="service-create-option-row"
-                :class="{ expanded: form.knowledgeBaseIds.length > 0 }"
-                :aria-expanded="knowledgeBasePickerVisible"
-                @click="knowledgeBasePickerVisible = true"
-              >
-                <span class="service-create-option-title">
-                  <strong>知识库</strong>
-                  <em>（可选）</em>
-                  <span v-if="form.knowledgeBaseIds.length" class="service-create-selected-count">
-                    {{ form.knowledgeBaseIds.length }} 个
-                  </span>
-                </span>
-                <span class="service-create-option-action">
-                  {{ form.knowledgeBaseIds.length ? '调整' : '+ 添加' }}
-                </span>
-              </button>
-
-              <div v-if="selectedKnowledgeBases.length" class="service-create-selected-list">
-                <span
-                  v-for="knowledgeBase in selectedKnowledgeBases"
-                  :key="knowledgeBase.id"
-                  class="service-create-selected-item service-create-selected-kb"
-                >
-                  <KnowledgeBaseIcon
-                    :icon="knowledgeBase.icon"
-                    :icon-url="knowledgeBase.icon_url"
-                    :type="knowledgeBase.type"
-                    size="small"
-                  />
-                  <span>{{ knowledgeBase.name }}</span>
-                  <button type="button" :aria-label="`移除${knowledgeBase.name}`" @click="toggleKnowledgeBase(String(knowledgeBase.id))">
-                    <t-icon name="close" />
-                  </button>
-                </span>
-              </div>
-            </section>
           </div>
-
-          <ServiceExpertPickerDialog
-            v-model:visible="expertPickerVisible"
-            :experts="serviceExperts"
-            :selected-ids="form.expertIds"
-            :loading="serviceExpertsLoading"
-            :error="serviceExpertsError"
-            @confirm="setSelectedExperts"
-            @retry="loadExperts"
-          />
-
-          <ServiceKnowledgeBasePickerDialog
-            v-model:visible="knowledgeBasePickerVisible"
-            :knowledge-bases="knowledgeBases"
-            :selected-ids="form.knowledgeBaseIds"
-            :loading="knowledgeBasesLoading"
-            :error="knowledgeBasesError"
-            @confirm="setSelectedKnowledgeBases"
-            @retry="loadKnowledgeBases"
-          />
 
           <footer class="service-create-dialog-footer">
             <span>创建后直接进入服务，可以马上开始一段工作</span>
@@ -186,7 +65,7 @@
                 theme="primary"
                 size="medium"
                 class="service-create-confirm"
-                :disabled="!form.name.trim() || !form.instruction.trim()"
+                :disabled="!form.name.trim()"
                 @click="submit"
               >
                 创建服务
@@ -201,32 +80,9 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import KnowledgeBaseIcon from '@/components/KnowledgeBaseIcon.vue'
-import AgentAvatar from '@/components/AgentAvatar.vue'
-import { useChatResourcesStore } from '@/stores/chatResources'
-import ServiceExpertPickerDialog from './ServiceExpertPickerDialog.vue'
-import ServiceKnowledgeBasePickerDialog from './ServiceKnowledgeBasePickerDialog.vue'
-import {
-  loadServiceExperts,
-  serviceExperts,
-  serviceExpertsError,
-  serviceExpertsLoading,
-  serviceTemplates,
-  type ServiceRecord,
-  type ServiceTemplate,
-} from './serviceHubState'
+import type { ServiceRecord } from './serviceHubState'
 
-type ServiceCreateSource = ServiceTemplate | ServiceRecord | null
-type KnowledgeBaseOption = {
-  id: string
-  name: string
-  icon?: string
-  icon_url?: string
-  type?: string
-  knowledge_count?: number
-  chunk_count?: number
-  updated_at?: string
-}
+type ServiceCreateSource = ServiceRecord | null
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -244,114 +100,22 @@ const emit = defineEmits<{
   submit: [payload: {
     name: string
     description: string
-    instruction: string
-    templateId: string
-    expertIds: string[]
-    knowledgeBaseIds: string[]
   }]
 }>()
 
-const chatResources = useChatResourcesStore()
-const knowledgeBases = computed<KnowledgeBaseOption[]>(() => chatResources.validAccountKnowledgeBases as KnowledgeBaseOption[])
-const knowledgeBasesLoading = ref(false)
-const knowledgeBasesError = ref('')
-const expertPickerVisible = ref(false)
-const knowledgeBasePickerVisible = ref(false)
 const nameError = ref('')
-const instructionError = ref('')
 const form = reactive({
   name: '',
   description: '',
-  instruction: '',
-  templateId: '',
-  expertIds: [] as string[],
-  knowledgeBaseIds: [] as string[],
 })
 
-const isCopyMode = computed(() => Boolean(props.source && 'templateId' in props.source))
-const selectedTemplate = computed(() => serviceTemplates.find((template) => template.id === form.templateId))
-const selectedExperts = computed(() => form.expertIds
-  .map((id) => serviceExperts.find((expert) => expert.id === id))
-  .filter((expert): expert is (typeof serviceExperts)[number] => Boolean(expert)))
-const selectedKnowledgeBases = computed(() => form.knowledgeBaseIds
-  .map((id) => knowledgeBases.value.find((knowledgeBase) => String(knowledgeBase.id) === id))
-  .filter((knowledgeBase): knowledgeBase is KnowledgeBaseOption => Boolean(knowledgeBase)))
-
-const sourceTemplate = (source: ServiceCreateSource) => {
-  if (!source) return undefined
-  if ('templateId' in source) return serviceTemplates.find((template) => template.id === source.templateId)
-  return source
-}
-
-const expertIdsForTemplate = (template?: ServiceTemplate) => template?.experts
-  .map((name) => serviceExperts.find((expert) => expert.name === name)?.id)
-  .filter((id): id is string => Boolean(id)) || []
+const isCopyMode = computed(() => Boolean(props.source))
 
 const resetForm = () => {
   const source = props.source
-  const template = sourceTemplate(source)
-  const service = source && 'templateId' in source ? source : null
-  form.name = service ? `${service.name}（副本）` : template?.name || ''
-  form.description = service?.description || template?.description || ''
-  form.instruction = service?.instruction || template?.instruction || ''
-  form.templateId = template?.id || ''
-  form.expertIds = service?.expertIds?.length
-    ? [...service.expertIds]
-    : expertIdsForTemplate(template)
-  form.knowledgeBaseIds = service?.knowledgeBaseIds ? [...service.knowledgeBaseIds] : []
+  form.name = source ? `${source.name}（副本）` : ''
+  form.description = source?.description || ''
   nameError.value = ''
-  instructionError.value = ''
-  expertPickerVisible.value = false
-  knowledgeBasePickerVisible.value = false
-}
-
-const loadExperts = async () => {
-  try {
-    await loadServiceExperts()
-  } catch (error) {
-    console.error('[ServiceCreateDialog] Failed to load published experts:', error)
-  }
-}
-
-const setSelectedExperts = (expertIds: string[]) => {
-  form.expertIds = [...expertIds]
-}
-
-const setSelectedKnowledgeBases = (knowledgeBaseIds: string[]) => {
-  form.knowledgeBaseIds = [...knowledgeBaseIds]
-}
-
-const syncTemplateExperts = () => {
-  const source = props.source
-  const service = source && 'templateId' in source ? source : null
-  if (service?.expertIds?.length || form.expertIds.length) return
-  const ids = expertIdsForTemplate(sourceTemplate(source))
-  if (ids.length) form.expertIds = ids
-}
-
-const loadKnowledgeBases = async () => {
-  knowledgeBasesLoading.value = true
-  knowledgeBasesError.value = ''
-  try {
-    await chatResources.fetchMyKnowledgeBases(true)
-  } catch (error) {
-    console.error('[ServiceCreateDialog] Failed to load account-visible knowledge bases:', error)
-    knowledgeBasesError.value = '知识库加载失败，请重试'
-  } finally {
-    knowledgeBasesLoading.value = false
-  }
-}
-
-const toggleExpert = (expertId: string) => {
-  form.expertIds = form.expertIds.includes(expertId)
-    ? form.expertIds.filter((id) => id !== expertId)
-    : [...form.expertIds, expertId]
-}
-
-const toggleKnowledgeBase = (knowledgeBaseId: string) => {
-  form.knowledgeBaseIds = form.knowledgeBaseIds.includes(knowledgeBaseId)
-    ? form.knowledgeBaseIds.filter((id) => id !== knowledgeBaseId)
-    : [...form.knowledgeBaseIds, knowledgeBaseId]
 }
 
 const close = () => {
@@ -364,18 +128,9 @@ const submit = () => {
     nameError.value = '请输入服务名称'
     return
   }
-  const instruction = form.instruction.trim()
-  if (!instruction) {
-    instructionError.value = '请描述这个服务要完成的工作'
-    return
-  }
   emit('submit', {
     name,
     description: form.description.trim(),
-    instruction,
-    templateId: form.templateId,
-    expertIds: [...form.expertIds],
-    knowledgeBaseIds: [...form.knowledgeBaseIds],
   })
 }
 
@@ -384,10 +139,6 @@ watch(
   (visible) => {
     if (!visible) return
     resetForm()
-    void loadKnowledgeBases()
-    void loadExperts().then(() => {
-      if (props.visible) syncTemplateExperts()
-    })
   },
 )
 

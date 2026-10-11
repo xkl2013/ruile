@@ -291,14 +291,21 @@ const moduleRoutes: RouteRecordRaw[] = [
     },
   },
   {
-    path: 'service/profiles',
-    name: 'adminServiceProfiles',
+    path: 'service/templates',
+    name: 'adminServiceTemplates',
     component: () => import('@admin/views/AdminServiceProfiles.vue'),
     meta: {
-      navKey: 'service-config',
-      title: '服务配置',
-      description: '基于员工分身描述管理服务能力。',
+      navKey: 'service-templates',
+      title: '服务模板管理',
+      description: '维护服务场景、工作指令与运行能力模板。',
       minRole: 'admin',
+    },
+  },
+  {
+    path: 'service/profiles',
+    redirect: { name: 'adminServiceTemplates' },
+    meta: {
+      requiresTenant: false,
     },
   },
   {

@@ -73,6 +73,12 @@ type ServiceSpaceRepository interface {
 
 	ListTemplates(ctx context.Context, tenantID uint64) ([]*types.ServiceSpaceTemplate, error)
 	GetTemplate(ctx context.Context, tenantID uint64, key string, version int) (*types.ServiceSpaceTemplate, error)
+	ListAdminTemplates(ctx context.Context, tenantID uint64) ([]*types.ServiceSpaceTemplate, error)
+	GetAdminTemplate(ctx context.Context, tenantID uint64, key string) (*types.ServiceSpaceTemplate, error)
+	CreateTemplate(ctx context.Context, record *types.ServiceSpaceTemplateRecord) error
+	UpdateTemplate(ctx context.Context, record *types.ServiceSpaceTemplateRecord) error
+	SetTemplateStatus(ctx context.Context, tenantID uint64, key, status string) error
+	SetTemplateStatusExcept(ctx context.Context, tenantID uint64, key, status, exceptID string) error
 	CreateBlueprint(ctx context.Context, record *types.ServiceSpaceBlueprintRecord) error
 	GetLatestBlueprint(ctx context.Context, tenantID uint64, serviceID string) (*types.ServiceSpaceBlueprintRecord, error)
 	GetBlueprintByID(ctx context.Context, tenantID uint64, serviceID, blueprintID string) (*types.ServiceSpaceBlueprintRecord, error)
@@ -154,6 +160,12 @@ type ServiceSpaceService interface {
 
 	ListTemplates(ctx context.Context, tenantID uint64, userID string) ([]*types.ServiceSpaceTemplate, error)
 	ApplyTemplate(ctx context.Context, tenantID uint64, userID string, input types.ServiceSpaceTemplateApplyInput) (*types.ServiceSpaceView, error)
+	ListAdminTemplates(ctx context.Context, tenantID uint64) ([]*types.ServiceSpaceTemplate, error)
+	GetAdminTemplate(ctx context.Context, tenantID uint64, key string) (*types.ServiceSpaceTemplate, error)
+	CreateAdminTemplate(ctx context.Context, tenantID uint64, actorID string, input types.ServiceSpaceTemplateAdminInput) (*types.ServiceSpaceTemplate, error)
+	UpdateAdminTemplate(ctx context.Context, tenantID uint64, actorID, key string, input types.ServiceSpaceTemplateAdminInput) (*types.ServiceSpaceTemplate, error)
+	PublishAdminTemplate(ctx context.Context, tenantID uint64, actorID, key string) (*types.ServiceSpaceTemplate, error)
+	DisableAdminTemplate(ctx context.Context, tenantID uint64, actorID, key string) (*types.ServiceSpaceTemplate, error)
 	PreviewBlueprint(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceSpaceBlueprintPreviewInput) (*types.ServiceSpaceBlueprint, error)
 	GetBlueprint(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceSpaceBlueprint, error)
 	ConfirmBlueprint(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceSpaceBlueprintConfirmInput) (*types.ServiceSpaceView, error)

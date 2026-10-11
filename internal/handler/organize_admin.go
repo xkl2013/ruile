@@ -281,6 +281,8 @@ func (h *OrganizeAdminHandler) writeError(c *gin.Context, err error) {
 		errors.Is(err, service.ErrOrganizeAdminTemplateNameRequired),
 		errors.Is(err, service.ErrOrganizeAdminTemplateVersionNeeded),
 		errors.Is(err, service.ErrOrganizeAdminTemplateInvalidSpec),
+		errors.Is(err, service.ErrOrganizeAdminTemplateInvalidSchedule),
+		errors.Is(err, service.ErrOrganizeAdminTemplateInvalidScheduleTime),
 		errors.Is(err, service.ErrOrganizeAdminTemplateKeyImmutable),
 		errors.Is(err, service.ErrOrganizeAdminTemplateNotPublishable),
 		errors.Is(err, service.ErrOrganizeTemplateSourceRequired):

@@ -1,6 +1,7 @@
 import { get, post, put } from '@/utils/request'
 
 export type OrganizeTemplateStatus = 'draft' | 'enabled' | 'disabled'
+export type OrganizeScheduleKey = 'manual' | 'daily' | 'weekly' | 'monthly'
 
 export interface AdminOrganizeTemplate {
   id: string
@@ -14,6 +15,8 @@ export interface AdminOrganizeTemplate {
   markdown_template: string
   expert_ids: string[]
   spec: Record<string, any>
+  schedule: OrganizeScheduleKey
+  schedule_time?: string
   status: OrganizeTemplateStatus
   published_version: string
   published_at?: string
@@ -60,6 +63,8 @@ export interface AdminOrganizeTemplateInput {
   markdown_template?: string
   expert_ids?: string[]
   spec?: Record<string, any>
+  schedule?: OrganizeScheduleKey
+  schedule_time?: string
   sort_order?: number
   change_note?: string
 }

@@ -1169,6 +1169,7 @@ func (h *OrganizeHandler) handleError(c *gin.Context, err error) {
 		stderrors.Is(err, service.ErrOrganizeTemplateDisabled),
 		stderrors.Is(err, service.ErrOrganizeConfigRequired),
 		stderrors.Is(err, service.ErrOrganizeInvalidSchedule),
+		stderrors.Is(err, service.ErrOrganizeInvalidScheduleTime),
 		stderrors.Is(err, service.ErrOrganizeInvalidExpert),
 		stderrors.Is(err, service.ErrOrganizeJobNotRetryable),
 		stderrors.Is(err, service.ErrOrganizeJobNotCancelable),

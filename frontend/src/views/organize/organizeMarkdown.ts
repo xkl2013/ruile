@@ -48,13 +48,24 @@ export interface RenderOrganizeMarkdownOptions {
   normalize?: OrganizeMarkdownNormalizer
 }
 
-/** 正文里的 [M1] 来源标记 → 可点击小徽章（样式见 OrganizeMarkdownRenderer）。 */
-const CITE_BADGE_PATTERN = /\[(M\d+)\](?!\()/g
+/**
+ * 正文里的来源标记 → 可点击小徽章（样式见 OrganizeMarkdownRenderer）。
+ * 批次合并会产生 [M1-批次1] 这类带批次后缀的标记，同一句常连着出现好几个，
+ * 这里统一归一成 [M1] 徽章并去掉重复，避免正文里留一串标记乱码。
+ */
+const CITE_RUN_PATTERN = /(?:\[M\d+(?:-[^\]\s]+)?\](?!\()[ \t]*){2,}/g
+const CITE_PATTERN = /\[(M\d+)(?:-[^\]\s]+)?\](?!\()/g
+
+const citeBadge = (id: string) =>
+  `<span class="organize-cite-ref" data-cite="${id}">${id}</span>`
 
 const withCiteBadges = (markdown: string) =>
-  markdown.replace(CITE_BADGE_PATTERN, (_match, id: string) =>
-    `<span class="organize-cite-ref" data-cite="${id}">${id}</span>`,
-  )
+  markdown
+    .replace(CITE_RUN_PATTERN, (run) => {
+      const ids = [...new Set([...run.matchAll(/\[(M\d+)/g)].map((match) => match[1]))]
+      return ids.map(citeBadge).join('')
+    })
+    .replace(CITE_PATTERN, (_match, id: string) => citeBadge(id))
 
 /**
  * Render model-produced Markdown while keeping legacy HTML output readable and safe.

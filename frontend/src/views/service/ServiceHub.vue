@@ -103,16 +103,18 @@
             >
               <div class="service-hub-card-top">
                 <div class="service-hub-card-icon">
-                  <t-icon :name="templateFor(service)?.icon || 'folder'" />
+                  <t-icon name="folder" />
                 </div>
-                <strong>{{ service.name }}</strong>
+                <strong>{{ service.customer?.familyName || service.name }}</strong>
+                <span v-if="service.state !== 'active'" class="service-hub-card-state">
+                  {{ serviceStateLabel(service.state) }}
+                </span>
                 <t-dropdown trigger="click" placement="bottom-right" @click.stop>
                   <button type="button" class="service-hub-more" aria-label="更多操作" @click.stop>
                     <t-icon name="more" />
                   </button>
                   <template #dropdown>
                     <t-dropdown-menu>
-                      <t-dropdown-item @click="openCreate(service)">复制配置创建</t-dropdown-item>
                       <t-dropdown-item @click="archiveService(service)">
                         {{ service.state === 'archived' ? '恢复服务' : '归档服务' }}
                       </t-dropdown-item>
@@ -120,14 +122,32 @@
                   </template>
                 </t-dropdown>
               </div>
-              <div class="service-hub-card-tags">
-                <span class="service-hub-tag">{{ templateFor(service)?.name || '自定义服务' }}</span>
-                <span class="service-hub-role">{{ service.role }}</span>
+              <div class="service-hub-card-customer">
+                学员 {{ service.customer?.student || '待补充' }}
+                · {{ service.customer?.className || '班级待补充' }}
+                · 主班 {{ service.customer?.teacher || '待补充' }}
               </div>
-              <p class="service-hub-card-description">{{ service.description || '还没有填写服务描述' }}</p>
+              <button
+                v-if="service.recentActivity?.[0]"
+                type="button"
+                class="service-hub-card-activity"
+                @click.stop="openServicePageFromList(service.id, 'activity')"
+              >
+                <span>最近动态</span>
+                <strong>{{ service.recentActivity[0].title }}</strong>
+              </button>
+              <button
+                v-if="service.recentActivity?.find((item) => item.kind === 'reminder')"
+                type="button"
+                class="service-hub-card-activity is-reminder"
+                @click.stop="openServicePageFromList(service.id, 'reminders')"
+              >
+                <span>新待办</span>
+                <strong>{{ service.recentActivity.find((item) => item.kind === 'reminder')?.title }}</strong>
+              </button>
               <div class="service-hub-card-meta">
-                <span>{{ service.updatedLabel }}</span>
-                <span>{{ service.members }} 位成员</span>
+                <span>更新于 {{ service.updatedLabel }}</span>
+                <button type="button" @click.stop="openWorkspace(service.id)">进入服务 <t-icon name="chevron-right" /></button>
               </div>
             </article>
           </div>
@@ -141,40 +161,13 @@
             <h2>{{ serviceHubState.mode === 'archived' ? '还没有归档服务' : archivedServices.length ? '服务都已归档' : '还没有服务' }}</h2>
             <p v-if="serviceHubState.mode === 'archived'">归档后的服务会保留历史内容，需要时可以恢复。</p>
             <p v-else-if="archivedServices.length">归档服务不会出现在工作导航中，可以进入归档列表恢复。</p>
-            <p v-else>选一个模板开始，配置会自动带入；也可以从空白服务自己设置。</p>
+            <p v-else>创建服务后，客户信息与工作方式由后台配置并自动带入。</p>
           </div>
           <t-button v-if="serviceHubState.mode === 'archived'" variant="outline" @click="showActiveServices">返回我的服务</t-button>
           <t-button v-else-if="archivedServices.length" variant="outline" @click="showArchivedServices">查看归档服务</t-button>
           <t-button v-else variant="outline" @click="openCreate()">从空白创建</t-button>
         </div>
 
-        <div v-if="serviceHubState.mode !== 'archived'" class="service-hub-section-head service-hub-template-head">
-          <span class="service-hub-section-title">从模板创建</span>
-          <t-input v-model="templateQuery" class="service-hub-search" size="small" placeholder="搜索模板">
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
-        </div>
-        <div v-if="serviceHubState.mode !== 'archived'" class="service-hub-template-groups">
-          <section v-for="group in filteredTemplateGroups" :key="group.type" class="service-hub-template-group">
-            <div class="service-hub-template-group-label">{{ group.type }}</div>
-            <div class="service-hub-grid">
-              <button
-                v-for="template in group.items"
-                :key="template.id"
-                type="button"
-                class="service-hub-template-card"
-                @click="openCreate(template)"
-              >
-                <div class="service-hub-template-top">
-                  <div class="service-hub-template-icon"><t-icon :name="template.icon" /></div>
-                  <strong>{{ template.name }}</strong>
-                </div>
-                <p>{{ template.description }}</p>
-                <span>{{ template.subjectLabel || '服务主体' }} · 创建后可调整</span>
-              </button>
-            </div>
-          </section>
-        </div>
       </div>
     </section>
 
@@ -196,12 +189,46 @@
         </button>
         <span class="service-hub-space-identity">
           <span class="service-hub-space-icon" aria-hidden="true">
-            <t-icon :name="templateFor(activeService)?.icon || 'folder'" />
+            <t-icon name="folder" />
           </span>
-          <span class="service-hub-space-name">{{ activeSession?.title || '新的会话' }}</span>
+          <span class="service-hub-space-name">{{ activeSession?.title || activeService?.name || '服务' }}</span>
         </span>
-        <span class="service-hub-space-template">{{ activeService?.name }}</span>
+        <span class="service-hub-space-template">{{ activeService?.customer?.familyName || activeService?.name }}</span>
         <div class="service-hub-space-actions">
+          <t-popup v-model:visible="historyVisible" trigger="click" placement="bottom-left">
+            <button
+              type="button"
+              class="service-hub-history-button"
+              :class="{ active: historyVisible }"
+              title="历史会话"
+              aria-label="历史会话"
+              @click="closeWorkspaceMenus('history')"
+            >
+              <span aria-hidden="true">◷</span>
+            </button>
+            <template #content>
+              <div class="service-hub-history-menu">
+                <div class="service-hub-history-title">历史会话</div>
+                <div v-if="activeServiceSessions.length" class="service-hub-history-list">
+                  <button
+                    v-for="session in activeServiceSessions"
+                    :key="session.id"
+                    type="button"
+                    :class="{ active: session.id === activeSession?.id }"
+                    @click="openHistorySession(session)"
+                  >
+                    <span class="service-hub-history-pin">{{ session.pinned ? '●' : '' }}</span>
+                    <span class="service-hub-history-copy">
+                      <strong>{{ session.title }}</strong>
+                      <small>{{ session.updatedLabel }}</small>
+                    </span>
+                    <t-icon v-if="session.id === activeSession?.id" name="check" />
+                  </button>
+                </div>
+                <div v-else class="service-hub-history-empty">还没有历史会话</div>
+              </div>
+            </template>
+          </t-popup>
           <button
             v-for="tool in headTools"
             :key="tool.key"
@@ -240,8 +267,7 @@
                   </button>
                   <span class="service-hub-space-menu-divider" />
                   <button type="button" @click="openServicePage('overview')">服务概览</button>
-                  <button type="button" @click="openServicePage('subjects')">服务对象</button>
-                  <button type="button" disabled>动态</button>
+                  <button type="button" @click="openServicePage('activity')">动态</button>
                   <button type="button" @click="openServicePage('settings/basic')">服务设置</button>
                   <span class="service-hub-space-menu-divider" />
                   <button type="button" @click="toggleActiveServicePause">
@@ -261,7 +287,7 @@
       <div class="service-hub-workbench">
         <article class="service-hub-chat">
           <header class="service-hub-chat-head">
-            <strong>{{ activeSession?.title || '开始一段新的工作' }}</strong>
+            <strong>{{ activeSession?.title || activeService?.name || '服务' }}</strong>
             <span>{{ activeSession?.expert || '服务助理' }}</span>
           </header>
           <div class="service-hub-chat-body">
@@ -278,17 +304,10 @@
               hosted-mode
             >
               <template #empty-suggestions>
-                <div class="service-hub-chat-prompts">
-                  <strong>从一段工作开始</strong>
-                  <p>把要整理、分析或推进的事情告诉专家，工作过程与产物会持续沉淀在服务空间。</p>
-                  <button
-                    v-for="prompt in serviceChatPrompts"
-                    :key="prompt"
-                    type="button"
-                    @click="sendServiceChatPrompt(prompt)"
-                  >
-                    {{ prompt }}
-                  </button>
+                <div class="service-hub-progress-card">
+                  <span>当前进展</span>
+                  <strong>{{ activeService?.recentActivity?.[0]?.title || '这个服务还没有新的进展' }}</strong>
+                  <p>{{ activeService?.recentActivity?.[0]?.detail || '从输入框开始一段工作，重点记录和下一步动作会自动沉淀在这里。' }}</p>
                 </div>
               </template>
             </ChatView>
@@ -428,12 +447,12 @@
                     </div>
                     <div v-else class="service-hub-panel-empty">当前服务还没有待办。可以先记录一个需要跟进的动作。</div>
                     <p class="service-reminder-status-note">
-                      待办按工作指令自动使用待处理、进行中、已完成和已取消等状态。
+                      待办按服务配置自动使用待处理、进行中、已完成和已取消等状态。
                     </p>
                   </template>
                 </template>
                 <template v-else>
-                  <div v-if="artifactsLoading" class="service-hub-panel-empty">正在加载服务产物。</div>
+                  <div v-if="artifactsLoading" class="service-hub-panel-empty">正在加载服务文件。</div>
                   <div v-else-if="artifactsError" class="service-hub-panel-empty service-hub-panel-error">{{ artifactsError }}</div>
                   <button
                     v-for="artifact in activeArtifacts"
@@ -445,14 +464,14 @@
                   >
                     <span class="service-hub-artifact-icon">{{ artifact.format || artifact.kind }}</span>
                     <span>
-                      <strong>{{ artifact.title || artifact.original_name || '未命名产物' }}</strong>
+                      <strong>{{ artifact.title || artifact.original_name || '未命名文件' }}</strong>
                       <small>v{{ artifact.version }} · {{ artifact.lifecycle }}</small>
                     </span>
                   </button>
-                  <div v-if="!activeArtifacts.length && !artifactsLoading" class="service-hub-panel-empty">当前服务还没有产物。</div>
+                  <div v-if="!activeArtifacts.length && !artifactsLoading" class="service-hub-panel-empty">当前服务还没有文件。</div>
                   <div v-if="selectedArtifact" class="service-hub-artifact-detail">
-                    <strong>{{ selectedArtifact.title || selectedArtifact.original_name || '未命名产物' }}</strong>
-                    <p>{{ selectedArtifact.summary || '该产物暂无摘要。' }}</p>
+                    <strong>{{ selectedArtifact.title || selectedArtifact.original_name || '未命名文件' }}</strong>
+                    <p>{{ selectedArtifact.summary || '该文件暂无摘要。' }}</p>
                     <div class="service-hub-artifact-links">
                       <a :href="artifactStreamUrl(selectedArtifact, 'preview')" target="_blank" rel="noreferrer">预览</a>
                       <a v-if="selectedArtifact.downloadable" :href="artifactStreamUrl(selectedArtifact, 'download')" target="_blank" rel="noreferrer">下载</a>
@@ -478,6 +497,11 @@
             </aside>
           </div>
         </article>
+        <ServiceInfoRail
+          :service-id="activeService?.id || ''"
+          :fallback-name="activeService?.name"
+          @open-activity="openServicePage('activity')"
+        />
       </div>
     </section>
   </div>
@@ -492,8 +516,8 @@ import { BUILTIN_SMART_REASONING_ID } from '@/api/agent'
 import { fetchAllTenantMembers, type TenantMember } from '@/api/tenant/members'
 import { useAuthStore } from '@/stores/auth'
 import ServiceCreateDialog from './ServiceCreateDialog.vue'
+import ServiceInfoRail from './ServiceInfoRail.vue'
 import {
-  applyServiceTemplate,
   createServiceSpace,
   importServiceOrganizeOutput,
   createServiceReminder,
@@ -530,15 +554,12 @@ import {
   createServiceSession,
   getFirstServiceSession,
   getService,
-  getServiceExpert,
-  getServiceTemplate,
+  getServiceSessions,
   getSession,
   loadServiceHub,
   serviceHubState,
-  serviceTemplates,
   type ServiceRecord,
   type ServiceSession,
-  type ServiceTemplate,
 } from './serviceHubState'
 
 type HubView = 'list' | 'create' | 'workspace'
@@ -553,9 +574,8 @@ const serviceChatAgentId = BUILTIN_SMART_REASONING_ID
 
 const view = ref<HubView>('list')
 const serviceQuery = ref('')
-const templateQuery = ref('')
 const sortMode = ref<SortMode>('recent')
-const createSource = ref<ServiceTemplate | ServiceRecord | null>(null)
+const createSource = ref<ServiceRecord | null>(null)
 const pendingContextSourceId = ref('')
 const pendingContextSourceType = ref('')
 const serviceInfoDialogVisible = ref(false)
@@ -597,6 +617,7 @@ const reminderAssigneeDraft = ref<string[]>([])
 const reminderCollaborationSaving = ref(false)
 const serviceMenuVisible = ref(false)
 const serviceMenuLevel = ref<'primary' | 'more'>('primary')
+const historyVisible = ref(false)
 
 const sortOptions = [
   { label: '按最近活动', value: 'recent' },
@@ -637,46 +658,20 @@ const filteredServices = computed(() => {
     return b.updatedAt - a.updatedAt
   })
 })
-const filteredTemplateGroups = computed(() => {
-  const query = templateQuery.value.trim().toLowerCase()
-  const groups = new Map<string, ServiceTemplate[]>()
-  serviceTemplates
-    .filter((template) => `${template.name} ${template.description} ${template.spaceTypeLabel || ''} ${template.subjectLabel || ''}`
-      .toLowerCase()
-      .includes(query))
-    .forEach((template) => {
-      const type = template.spaceTypeLabel || '其他'
-      const items = groups.get(type) || []
-      items.push(template)
-      groups.set(type, items)
-    })
-  return Array.from(groups, ([type, items]) => ({ type, items }))
-})
-const serviceChatPrompts = computed(() => {
-  const service = activeService.value
-  const template = templateFor(service)
-  const subject = template?.subjectLabel || '当前工作'
-  const instructionFocus = (service?.instruction || '')
-    .split(/[。；\n]/)
-    .map((item) => item.trim())
-    .find((item) => item.length >= 6 && item.length <= 34)
-  return [
-    `先帮我梳理${subject}现在最需要推进的事项`,
-    instructionFocus
-      ? `按“${instructionFocus}”检查已有资料并给出下一步`
-      : '检查已有资料，指出风险、缺口和下一步动作',
-    '把这次工作整理成一份可以直接执行的清单',
-  ]
-})
 const activeArtifacts = computed(() => {
   return serviceArtifactsList.value
 })
 const reminderStatusMap = computed(() => new Map(reminderStatuses.value.map((item) => [item.id, item])))
 const reminderStatusByKey = computed(() => new Map(reminderStatuses.value.map((item) => [item.status_key, item])))
-const templateFor = (service: ServiceRecord | undefined) => getServiceTemplate(service)
-const panelTitle = computed(() => panel.value === 'reminders' ? '服务待办' : '产物')
+const activeServiceSessions = computed(() =>
+  getServiceSessions(activeService.value?.id || '').sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    return (b.updatedAt || 0) - (a.updatedAt || 0)
+  }),
+)
+const panelTitle = computed(() => panel.value === 'reminders' ? '服务待办' : '文件')
 const headTools = computed(() => [
-  { key: 'artifacts' as const, label: '产物', icon: 'file', count: activeArtifacts.value.length },
+  { key: 'artifacts' as const, label: '文件', icon: 'file', count: activeArtifacts.value.length },
   { key: 'reminders' as const, label: '待办', icon: 'check-circle', count: serviceReminders.value.length },
 ])
 const reminderAssigneeOptions = computed(() => {
@@ -729,7 +724,7 @@ const loadArtifacts = async (serviceId: string) => {
     console.error('[ServiceHub] Failed to load service artifacts:', error)
     serviceArtifactsList.value = []
     selectedArtifact.value = null
-    artifactsError.value = '服务产物暂不可用，请稍后重试'
+    artifactsError.value = '服务文件暂不可用，请稍后重试'
   } finally {
     artifactsLoading.value = false
   }
@@ -748,11 +743,11 @@ const changeArtifactLifecycle = async (
       const index = serviceArtifactsList.value.findIndex((item) => item.id === response.data.id)
       if (index >= 0) serviceArtifactsList.value[index] = response.data
       selectedArtifact.value = response.data
-      MessagePlugin.success(lifecycle === 'archived' ? '产物已归档' : '产物已保存')
+      MessagePlugin.success(lifecycle === 'archived' ? '文件已归档' : '文件已保存')
     }
   } catch (error) {
     console.error('[ServiceHub] Failed to update artifact lifecycle:', error)
-    MessagePlugin.error('产物状态更新失败，请稍后重试')
+    MessagePlugin.error('文件状态更新失败，请稍后重试')
   }
 }
 
@@ -761,12 +756,59 @@ const closeServiceMenu = () => {
   serviceMenuLevel.value = 'primary'
 }
 
-const openServicePage = async (suffix: 'overview' | 'subjects' | 'settings/basic') => {
+const closeWorkspaceMenus = (source: 'history' | 'service' = 'service') => {
+  panel.value = ''
+  if (source === 'history') {
+    serviceMenuVisible.value = false
+    serviceMenuLevel.value = 'primary'
+  } else {
+    historyVisible.value = false
+  }
+}
+
+const openHistorySession = async (session: ServiceSession) => {
+  const serviceId = activeService.value?.id
+  if (!serviceId) return
+  closeWorkspaceMenus('history')
+  historyVisible.value = false
+  serviceHubState.activeServiceId = serviceId
+  serviceHubState.activeSessionId = session.id
+  await router.push(serviceWorkspacePath(serviceId, session.id))
+}
+
+const startNewSession = async (serviceId = activeService.value?.id) => {
+  if (!serviceId) return
+  closeWorkspaceMenus()
+  try {
+    const session = await createServiceSession(serviceId, { title: '新的会话' })
+    serviceHubState.activeServiceId = serviceId
+    serviceHubState.activeSessionId = session.id
+    view.value = 'workspace'
+    await router.push(serviceWorkspacePath(serviceId, session.id))
+  } catch (error) {
+    console.error('[ServiceHub] Failed to create service session:', error)
+    MessagePlugin.error('新会话创建失败，请稍后重试')
+  }
+}
+
+const openServicePage = async (suffix: 'overview' | 'activity' | 'settings/basic') => {
   const serviceId = activeService.value?.id
   if (!serviceId) return
   closeServiceMenu()
   panel.value = ''
   await router.push(`${serviceBasePath.value}/${encodeURIComponent(serviceId)}/${suffix}`)
+}
+
+const openServicePageFromList = async (
+  serviceId: string,
+  suffix: 'activity' | 'reminders',
+) => {
+  if (suffix === 'reminders') {
+    await openWorkspace(serviceId)
+    panel.value = 'reminders'
+    return
+  }
+  await router.push(`${serviceBasePath.value}/${encodeURIComponent(serviceId)}/activity`)
 }
 
 const openServiceInfoDialog = (mode: 'name' | 'description') => {
@@ -838,23 +880,19 @@ const serviceWorkspacePath = (serviceId: string, sessionId?: string) => {
     : servicePath
 }
 
-const openCreate = async (source?: ServiceTemplate | ServiceRecord | null) => {
+const openCreate = async (source?: ServiceRecord | null) => {
   createSource.value = source || null
   view.value = 'create'
   if (route.meta.mobileEntry) {
     await router.push({
       path: serviceBasePath.value,
-      query: source
-        ? ('templateId' in source ? { copy: source.id } : { template: source.id })
-        : { create: '1' },
+      query: source ? { copy: source.id } : { create: '1' },
     })
     return
   }
   await router.push({
     path: `${serviceBasePath.value}/new`,
-    query: source
-      ? ('templateId' in source ? { copy: source.id } : { template: source.id })
-      : {},
+    query: source ? { copy: source.id } : {},
   })
 }
 
@@ -871,13 +909,6 @@ const showArchivedServices = () => {
 const showActiveServices = () => {
   serviceHubState.mode = 'data'
   serviceQuery.value = ''
-}
-
-const createIdempotencyKey = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID()
-  }
-  return `service-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 const openWorkspace = async (serviceId: string, sessionId?: string) => {
@@ -1156,18 +1187,15 @@ const syncFromRoute = async () => {
   const queryService = routeService || (typeof route.query.service === 'string' ? route.query.service : '')
   const querySession = routeSessionId || (typeof route.query.session === 'string' ? route.query.session : '')
   const queryCreate = route.query.create === '1'
-  const queryTemplate = typeof route.query.template === 'string' ? route.query.template : ''
   const queryCopy = typeof route.query.copy === 'string' ? route.query.copy : ''
   const querySourceType = typeof route.query.source_type === 'string' ? route.query.source_type : ''
   const querySourceId = typeof route.query.source_id === 'string' ? route.query.source_id : ''
-  const isCreateRoute = routeName === 'serviceCreate' || queryCreate || Boolean(queryTemplate || queryCopy)
+  const isCreateRoute = routeName === 'serviceCreate' || queryCreate || Boolean(queryCopy)
   if (isCreateRoute) view.value = 'create'
 
   await loadServiceHub()
   if (isCreateRoute) {
-    createSource.value = queryCopy
-      ? getService(queryCopy) || null
-      : serviceTemplates.find((template) => template.id === queryTemplate) || null
+    createSource.value = queryCopy ? getService(queryCopy) || null : null
     if (querySourceType === 'organize_output' && querySourceId) {
       pendingContextSourceType.value = querySourceType
       pendingContextSourceId.value = querySourceId
@@ -1183,9 +1211,6 @@ const syncFromRoute = async () => {
     if (!session) return
     serviceHubState.activeSessionId = session.id
     view.value = 'workspace'
-    serviceHubState.expandedServices = Object.fromEntries(
-      serviceHubState.services.map((service) => [service.id, service.id === queryService]),
-    )
     if (!route.meta.mobileEntry && !routeService) {
       await router.replace({
         path: serviceWorkspacePath(queryService, session.id),
@@ -1200,29 +1225,7 @@ const syncFromRoute = async () => {
 type CreateServicePayload = {
   name: string
   description: string
-  instruction: string
-  templateId: string
-  expertIds: string[]
-  knowledgeBaseIds: string[]
 }
-
-const serviceExpertsForPayload = (payload: CreateServicePayload) => payload.expertIds.length
-  ? payload.expertIds.map((expertId, index) => {
-      const expert = getServiceExpert(expertId)
-      return {
-        expert_ref: expertId,
-        expert_name: expert?.name || expertId,
-        expert_domain: expert?.domain,
-        display_order: index,
-        enabled: true,
-      }
-    })
-  : [{
-      expert_ref: BUILTIN_SMART_REASONING_ID,
-      expert_name: '服务助理',
-      display_order: 0,
-      enabled: true,
-    }]
 
 const importPendingContextSource = async (serviceId: string) => {
   if (
@@ -1263,12 +1266,7 @@ const createServiceDirectly = async (payload: CreateServicePayload) => {
   const response = await createServiceSpace({
     name: payload.name.trim(),
     description: payload.description.trim(),
-    instruction: payload.instruction.trim(),
-    template_key: payload.templateId || undefined,
-    knowledge_base_ids: payload.knowledgeBaseIds,
-    selected_skills: [],
     activate: true,
-    experts: serviceExpertsForPayload(payload),
   })
   const serviceId = response?.data?.id
   if (!serviceId) throw new Error('missing service id')
@@ -1283,24 +1281,7 @@ const persistService = async (payload: CreateServicePayload) => {
   }
   const normalizedPayload = { ...payload, name }
   try {
-    const selectedTemplate = serviceTemplates.find((template) => template.id === payload.templateId)
-    if (!selectedTemplate?.autoApply) {
-      await createServiceDirectly(normalizedPayload)
-      return
-    }
-
-    const response = await applyServiceTemplate(selectedTemplate.id, {
-      name,
-      description: payload.description.trim(),
-      instruction: payload.instruction.trim(),
-      template_version: 1,
-      knowledge_base_ids: payload.knowledgeBaseIds,
-      experts: serviceExpertsForPayload(payload),
-      idempotency_key: createIdempotencyKey(),
-    })
-    const serviceId = response?.data?.id
-    if (!serviceId) throw new Error('missing service id')
-    await openCreatedService(serviceId, '已按审核模板创建服务')
+    await createServiceDirectly(normalizedPayload)
   } catch (error) {
     console.error('[ServiceHub] Failed to create service:', error)
     const message = error && typeof error === 'object' && 'message' in error
@@ -1315,12 +1296,8 @@ const persistService = async (payload: CreateServicePayload) => {
 const submitForm = async (payload: {
   name: string
   description: string
-  instruction: string
-  templateId: string
-  expertIds: string[]
-  knowledgeBaseIds: string[]
 }) => {
-  await persistService(payload as CreateServicePayload)
+  await persistService(payload)
 }
 
 const serviceSessionRequests = new Map<string, Promise<ServiceSession>>()
@@ -1331,7 +1308,7 @@ const ensureServiceSession = async (serviceId: string) => {
   const pending = serviceSessionRequests.get(serviceId)
   if (pending) return pending
   const request = createServiceSession(serviceId, {
-    title: '开始一段新的工作',
+    title: '新的会话',
   }).finally(() => {
     serviceSessionRequests.delete(serviceId)
   })
@@ -1464,7 +1441,6 @@ watch(
     route.query.service,
     route.query.session,
     route.query.create,
-    route.query.template,
     route.query.copy,
     route.query.source_type,
     route.query.source_id,
@@ -1683,7 +1659,7 @@ watch(serviceMenuVisible, (visible) => {
 }
 
 .service-hub-card {
-  min-height: 137px;
+  min-height: 162px;
   padding: 10px 11px;
 }
 
@@ -1755,6 +1731,64 @@ watch(serviceMenuVisible, (visible) => {
   color: var(--td-text-color-primary);
 }
 
+.service-hub-card-state {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--td-warning-color-1);
+  color: var(--td-warning-color-7);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.service-hub-card-customer {
+  margin-top: 9px;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-hub-card-activity {
+  display: grid;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  gap: 2px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.service-hub-card-activity:hover {
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color-7);
+}
+
+.service-hub-card-activity span {
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.service-hub-card-activity strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-hub-card-activity.is-reminder {
+  background: var(--td-warning-color-1);
+}
+
 .service-hub-card-tags {
   display: flex;
   align-items: center;
@@ -1804,6 +1838,18 @@ watch(serviceMenuVisible, (visible) => {
   color: var(--td-text-color-placeholder);
   font-size: 11px;
   line-height: 16px;
+}
+
+.service-hub-card-meta button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--td-brand-color);
+  cursor: pointer;
+  font: inherit;
 }
 
 .service-hub-template-card {
@@ -2201,6 +2247,97 @@ watch(serviceMenuVisible, (visible) => {
   gap: 6px;
 }
 
+.service-hub-history-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.service-hub-history-button:hover,
+.service-hub-history-button.active {
+  border-color: var(--td-component-stroke);
+  background: var(--td-bg-color-secondarycontainer);
+  color: var(--td-brand-color-7);
+}
+
+.service-hub-history-menu {
+  width: 280px;
+  padding: 8px;
+}
+
+.service-hub-history-title {
+  padding: 4px 8px 8px;
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+}
+
+.service-hub-history-list {
+  display: grid;
+  gap: 2px;
+}
+
+.service-hub-history-list > button {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 16px;
+  align-items: center;
+  width: 100%;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--td-text-color-primary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.service-hub-history-list > button:hover,
+.service-hub-history-list > button.active {
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.service-hub-history-pin {
+  color: var(--td-warning-color);
+  font-size: 9px;
+}
+
+.service-hub-history-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.service-hub-history-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-hub-history-copy small {
+  color: var(--td-text-color-placeholder);
+  font-size: 10px;
+}
+
+.service-hub-history-empty {
+  padding: 18px 8px;
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
+  text-align: center;
+}
+
 .service-hub-head-tool {
   display: inline-flex;
   align-items: center;
@@ -2406,6 +2543,36 @@ watch(serviceMenuVisible, (visible) => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.service-hub-progress-card {
+  max-width: 520px;
+  margin: 92px auto 0;
+  padding: 18px 20px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.service-hub-progress-card > span {
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
+}
+
+.service-hub-progress-card strong {
+  display: block;
+  margin-top: 7px;
+  color: var(--td-text-color-primary);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.service-hub-progress-card p {
+  margin: 7px 0 0;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 21px;
 }
 
 .service-hub-chat-prompts {
@@ -3381,6 +3548,10 @@ watch(serviceMenuVisible, (visible) => {
 
   .service-hub-chat-prompts {
     margin-top: 48px;
+  }
+
+  .service-hub-progress-card {
+    margin: 48px 16px 0;
   }
 
   .service-hub-chat-prompts > strong {

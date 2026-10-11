@@ -76,3 +76,22 @@ func TestServiceSpaceCreateKeepsExplicitTypeForLegacyClients(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.ServiceSpaceTypeOperations, space.SpaceType)
 }
+
+func TestBuildAdminServiceTemplateDerivesProfileSchemaFromInstruction(t *testing.T) {
+	template, _, err := buildAdminServiceTemplate(1, types.ServiceSpaceTemplateAdminInput{
+		Name:        "招生跟进服务",
+		SpaceType:   types.ServiceSpaceTypeCustomerService,
+		Instruction: "跟进家长到访与报名，重点记录家长顾虑与到访意向。",
+		SubjectPolicy: types.ServiceSubjectPolicy{
+			Required:     true,
+			AllowedTypes: []string{"member_family"},
+		},
+	}, 1)
+	require.NoError(t, err)
+	require.Len(t, template.Blueprint.ProfileSchema, 2)
+	require.Equal(t, "家长顾虑", template.Blueprint.ProfileSchema[0].Label)
+	require.Equal(t, "到访意向", template.Blueprint.ProfileSchema[1].Label)
+	require.Equal(t, "facts", template.Blueprint.ProfileSchema[0].Source)
+	require.NotEmpty(t, template.Blueprint.ProfileSchema[0].Key)
+	require.NotEmpty(t, template.Blueprint.SummarySchema)
+}

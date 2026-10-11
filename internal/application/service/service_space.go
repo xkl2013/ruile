@@ -9,6 +9,7 @@ import (
 	"io"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,52 +22,58 @@ import (
 )
 
 var (
-	ErrServiceSpaceInvalidScope          = errors.New("invalid service scope")
-	ErrServiceSpaceNotFound              = errors.New("service not found")
-	ErrServiceSpaceForbidden             = errors.New("service access forbidden")
-	ErrServiceSpaceNameRequired          = errors.New("service name is required")
-	ErrServiceSpaceInvalidType           = errors.New("invalid service space type")
-	ErrServiceSpaceInvalidState          = errors.New("invalid service state")
-	ErrServiceSpaceNotActive             = errors.New("service is not active")
-	ErrServiceSpaceArchived              = errors.New("service is archived")
-	ErrServiceSpaceExpertRequired        = errors.New("at least one enabled expert is required")
-	ErrServiceSpaceInvalidRole           = errors.New("invalid service member role")
-	ErrServiceSpaceOwnerImmutable        = errors.New("service owner cannot be removed or downgraded")
-	ErrServiceSpaceMemberLimit           = errors.New("service member limit reached")
-	ErrServiceSpaceSessionNotFound       = errors.New("service session not found")
-	ErrServiceSpaceArtifactNotFound      = errors.New("service artifact not found")
-	ErrServiceSpaceDuplicateExpertRef    = errors.New("duplicate expert_ref")
-	ErrServiceSpaceBlueprintNotFound     = errors.New("service blueprint not found")
-	ErrServiceSpaceBlueprintConflict     = errors.New("service blueprint version conflict")
-	ErrServiceSpaceTemplateNotFound      = errors.New("service template not found")
-	ErrServiceSpaceTemplateNotAllowed    = errors.New("service template cannot be auto-applied")
-	ErrServiceSpaceInvalidLifecycle      = errors.New("invalid artifact lifecycle transition")
-	ErrServiceSpaceKBOutOfScope          = errors.New("SERVICE_KB_OUT_OF_SCOPE")
-	ErrServiceSpaceSubjectNotFound       = errors.New("service subject not found")
-	ErrServiceSpaceSubjectInvalid        = errors.New("invalid service subject")
-	ErrServiceSpaceSubjectParent         = errors.New("service subject parent must belong to the same service")
-	ErrServiceSpaceStatusNotFound        = errors.New("service reminder status not found")
-	ErrServiceSpaceStatusInvalid         = errors.New("invalid service reminder status")
-	ErrServiceSpaceStatusInUse           = errors.New("service reminder status is in use")
-	ErrServiceSpaceLastStatus            = errors.New("service reminder status cannot leave the service without an initial status")
-	ErrServiceSpaceDuplicateStatusKey    = errors.New("duplicate service reminder status key")
-	ErrServiceSpaceTransitionInvalid     = errors.New("invalid service reminder status transition")
-	ErrServiceSpaceContextSourceNotFound = errors.New("service context source not found")
-	ErrServiceSpaceContextSourceInvalid  = errors.New("invalid service context source")
-	ErrServiceSpaceContextSourceNotReady = errors.New("organize output is not ready")
-	ErrServiceSpaceContextSourceAssigned = errors.New("organize output is already assigned to another service")
-	ErrServiceSpaceReminderNotFound      = errors.New("service reminder not found")
-	ErrServiceSpaceReminderInvalid       = errors.New("invalid service reminder")
-	ErrServiceSpaceReminderTransition    = errors.New("service reminder status transition is not allowed")
-	ErrServiceSpaceReminderParent        = errors.New("invalid service reminder parent")
-	ErrServiceSpaceReminderDepth         = errors.New("service reminder nesting exceeds five levels")
-	ErrServiceSpaceProfileSchemaInvalid  = errors.New("invalid service profile schema")
-	ErrServiceSpaceFactInvalid           = errors.New("invalid service fact")
-	ErrServiceSpaceFactSourceRequired    = errors.New("service fact source is required")
-	ErrServiceSpaceFactProposalNotFound  = errors.New("service fact proposal not found")
-	ErrServiceSpaceFactProposalInvalid   = errors.New("invalid service fact proposal")
-	ErrServiceSpaceFactProposalSubject   = errors.New("service fact proposal subject is required")
+	ErrServiceSpaceInvalidScope                = errors.New("invalid service scope")
+	ErrServiceSpaceNotFound                    = errors.New("service not found")
+	ErrServiceSpaceForbidden                   = errors.New("service access forbidden")
+	ErrServiceSpaceNameRequired                = errors.New("service name is required")
+	ErrServiceSpaceInvalidType                 = errors.New("invalid service space type")
+	ErrServiceSpaceInvalidState                = errors.New("invalid service state")
+	ErrServiceSpaceNotActive                   = errors.New("service is not active")
+	ErrServiceSpaceArchived                    = errors.New("service is archived")
+	ErrServiceSpaceExpertRequired              = errors.New("at least one enabled expert is required")
+	ErrServiceSpaceInvalidRole                 = errors.New("invalid service member role")
+	ErrServiceSpaceOwnerImmutable              = errors.New("service owner cannot be removed or downgraded")
+	ErrServiceSpaceMemberLimit                 = errors.New("service member limit reached")
+	ErrServiceSpaceSessionNotFound             = errors.New("service session not found")
+	ErrServiceSpaceArtifactNotFound            = errors.New("service artifact not found")
+	ErrServiceSpaceDuplicateExpertRef          = errors.New("duplicate expert_ref")
+	ErrServiceSpaceBlueprintNotFound           = errors.New("service blueprint not found")
+	ErrServiceSpaceBlueprintConflict           = errors.New("service blueprint version conflict")
+	ErrServiceSpaceTemplateNotFound            = errors.New("service template not found")
+	ErrServiceSpaceTemplateNotAllowed          = errors.New("service template cannot be auto-applied")
+	ErrServiceSpaceTemplateKeyInvalid          = errors.New("service template key is invalid")
+	ErrServiceSpaceTemplateNameRequired        = errors.New("service template name is required")
+	ErrServiceSpaceTemplateInstructionRequired = errors.New("service template instruction is required")
+	ErrServiceSpaceTemplateConflict            = errors.New("service template already exists")
+	ErrServiceSpaceInvalidLifecycle            = errors.New("invalid artifact lifecycle transition")
+	ErrServiceSpaceKBOutOfScope                = errors.New("SERVICE_KB_OUT_OF_SCOPE")
+	ErrServiceSpaceSubjectNotFound             = errors.New("service subject not found")
+	ErrServiceSpaceSubjectInvalid              = errors.New("invalid service subject")
+	ErrServiceSpaceSubjectParent               = errors.New("service subject parent must belong to the same service")
+	ErrServiceSpaceStatusNotFound              = errors.New("service reminder status not found")
+	ErrServiceSpaceStatusInvalid               = errors.New("invalid service reminder status")
+	ErrServiceSpaceStatusInUse                 = errors.New("service reminder status is in use")
+	ErrServiceSpaceLastStatus                  = errors.New("service reminder status cannot leave the service without an initial status")
+	ErrServiceSpaceDuplicateStatusKey          = errors.New("duplicate service reminder status key")
+	ErrServiceSpaceTransitionInvalid           = errors.New("invalid service reminder status transition")
+	ErrServiceSpaceContextSourceNotFound       = errors.New("service context source not found")
+	ErrServiceSpaceContextSourceInvalid        = errors.New("invalid service context source")
+	ErrServiceSpaceContextSourceNotReady       = errors.New("organize output is not ready")
+	ErrServiceSpaceContextSourceAssigned       = errors.New("organize output is already assigned to another service")
+	ErrServiceSpaceReminderNotFound            = errors.New("service reminder not found")
+	ErrServiceSpaceReminderInvalid             = errors.New("invalid service reminder")
+	ErrServiceSpaceReminderTransition          = errors.New("service reminder status transition is not allowed")
+	ErrServiceSpaceReminderParent              = errors.New("invalid service reminder parent")
+	ErrServiceSpaceReminderDepth               = errors.New("service reminder nesting exceeds five levels")
+	ErrServiceSpaceProfileSchemaInvalid        = errors.New("invalid service profile schema")
+	ErrServiceSpaceFactInvalid                 = errors.New("invalid service fact")
+	ErrServiceSpaceFactSourceRequired          = errors.New("service fact source is required")
+	ErrServiceSpaceFactProposalNotFound        = errors.New("service fact proposal not found")
+	ErrServiceSpaceFactProposalInvalid         = errors.New("invalid service fact proposal")
+	ErrServiceSpaceFactProposalSubject         = errors.New("service fact proposal subject is required")
 )
+
+var serviceSpaceTemplateKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 
 const (
 	serviceSpaceMaxNameRunes          = 255
@@ -304,6 +311,277 @@ func (s *serviceSpaceService) ListTemplates(
 	return result, nil
 }
 
+func (s *serviceSpaceService) ListAdminTemplates(
+	ctx context.Context,
+	tenantID uint64,
+) ([]*types.ServiceSpaceTemplate, error) {
+	return s.repo.ListAdminTemplates(ctx, tenantID)
+}
+
+func (s *serviceSpaceService) GetAdminTemplate(
+	ctx context.Context,
+	tenantID uint64,
+	key string,
+) (*types.ServiceSpaceTemplate, error) {
+	template, err := s.repo.GetAdminTemplate(ctx, tenantID, strings.TrimSpace(key))
+	if err != nil {
+		return nil, err
+	}
+	if template == nil {
+		return nil, ErrServiceSpaceTemplateNotFound
+	}
+	return template, nil
+}
+
+func (s *serviceSpaceService) CreateAdminTemplate(
+	ctx context.Context,
+	tenantID uint64,
+	actorID string,
+	input types.ServiceSpaceTemplateAdminInput,
+) (*types.ServiceSpaceTemplate, error) {
+	template, record, err := buildAdminServiceTemplate(tenantID, input, 1)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := s.repo.GetAdminTemplate(ctx, tenantID, template.Key)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, ErrServiceSpaceTemplateConflict
+	}
+	record.PublishedBy = strings.TrimSpace(actorID)
+	if err := s.repo.CreateTemplate(ctx, record); err != nil {
+		return nil, err
+	}
+	template.ID = record.ID
+	template.CreatedAt = record.CreatedAt
+	template.UpdatedAt = record.UpdatedAt
+	return template, nil
+}
+
+func (s *serviceSpaceService) UpdateAdminTemplate(
+	ctx context.Context,
+	tenantID uint64,
+	actorID, key string,
+	input types.ServiceSpaceTemplateAdminInput,
+) (*types.ServiceSpaceTemplate, error) {
+	current, err := s.GetAdminTemplate(ctx, tenantID, key)
+	if err != nil {
+		return nil, err
+	}
+	input.Key = current.Key
+	template, record, err := buildAdminServiceTemplate(tenantID, input, current.Version+1)
+	if err != nil {
+		return nil, err
+	}
+	record.ID = current.ID
+	record.CreatedAt = current.CreatedAt
+	record.PublishedBy = strings.TrimSpace(actorID)
+	if err := s.repo.UpdateTemplate(ctx, record); err != nil {
+		return nil, err
+	}
+	template.ID = record.ID
+	template.CreatedAt = record.CreatedAt
+	template.UpdatedAt = record.UpdatedAt
+	return template, nil
+}
+
+func (s *serviceSpaceService) PublishAdminTemplate(
+	ctx context.Context,
+	tenantID uint64,
+	actorID, key string,
+) (*types.ServiceSpaceTemplate, error) {
+	current, err := s.GetAdminTemplate(ctx, tenantID, key)
+	if err != nil {
+		return nil, err
+	}
+	if err := current.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrServiceSpaceTemplateNotAllowed, err)
+	}
+	record, err := serviceTemplateRecordFromModel(current)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	record.Status = string(types.ServiceSpaceTemplateStatusPublished)
+	record.PublishedBy = strings.TrimSpace(actorID)
+	record.PublishedAt = &now
+	record.UpdatedAt = now
+	if err := s.repo.UpdateTemplate(ctx, record); err != nil {
+		return nil, err
+	}
+	template, err := record.ToTemplate()
+	if err != nil {
+		return nil, err
+	}
+	return &template, nil
+}
+
+func (s *serviceSpaceService) DisableAdminTemplate(
+	ctx context.Context,
+	tenantID uint64,
+	actorID, key string,
+) (*types.ServiceSpaceTemplate, error) {
+	current, err := s.GetAdminTemplate(ctx, tenantID, key)
+	if err != nil {
+		return nil, err
+	}
+	record, err := serviceTemplateRecordFromModel(current)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	record.Status = string(types.ServiceSpaceTemplateStatusDisabled)
+	record.PublishedBy = strings.TrimSpace(actorID)
+	record.PublishedAt = nil
+	record.UpdatedAt = now
+	if err := s.repo.UpdateTemplate(ctx, record); err != nil {
+		return nil, err
+	}
+	template, err := record.ToTemplate()
+	if err != nil {
+		return nil, err
+	}
+	return &template, nil
+}
+
+func buildAdminServiceTemplate(
+	tenantID uint64,
+	input types.ServiceSpaceTemplateAdminInput,
+	version int,
+) (*types.ServiceSpaceTemplate, *types.ServiceSpaceTemplateRecord, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return nil, nil, ErrServiceSpaceTemplateNameRequired
+	}
+	key := strings.TrimSpace(input.Key)
+	if key == "" {
+		key = generateServiceSpaceTemplateKey(name)
+	}
+	if !serviceSpaceTemplateKeyPattern.MatchString(key) {
+		return nil, nil, ErrServiceSpaceTemplateKeyInvalid
+	}
+	instruction := strings.TrimSpace(input.Instruction)
+	if instruction == "" {
+		return nil, nil, ErrServiceSpaceTemplateInstructionRequired
+	}
+	spaceType := input.SpaceType
+	if spaceType == "" {
+		spaceType = types.ServiceSpaceTypeCustomerService
+	}
+	if !spaceType.IsValid() {
+		return nil, nil, ErrServiceSpaceInvalidType
+	}
+	riskLevel := input.RiskLevel
+	if riskLevel == "" {
+		riskLevel = types.ServiceSpaceTemplateRiskLow
+	}
+	if !riskLevel.IsValid() {
+		return nil, nil, fmt.Errorf("invalid service template risk level")
+	}
+
+	blueprint := buildInstructionBlueprint(instruction)
+	blueprint.TenantID = tenantID
+	blueprint.SourceType = types.ServiceSpaceBlueprintSourceTemplate
+	blueprint.ProposedSpaceType = spaceType
+	blueprint.ProposedTemplateKey = key
+	blueprint.TemplateVersion = version
+	if input.SubjectPolicy.Required || len(input.SubjectPolicy.AllowedTypes) > 0 || input.SubjectPolicy.AllowHierarchy {
+		blueprint.SubjectPolicy = input.SubjectPolicy
+	}
+	blueprint.ExpertSuggestions = input.ExpertSuggestions
+	blueprint.KnowledgeBaseIDs = []string(normalizeServiceStrings(input.KnowledgeBaseIDs))
+	blueprint.SelectedSkills = []string(normalizeServiceStrings(input.SelectedSkills))
+	blueprint.Status = types.ServiceSpaceBlueprintStatusConfirmed
+	blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationManual
+	blueprint.ProfileVersion = 1
+	blueprint.Version = version
+	if input.AutoApply {
+		blueprint.ConfirmationMode = types.ServiceSpaceBlueprintConfirmationAutoApply
+	}
+	template := &types.ServiceSpaceTemplate{
+		TenantID:     tenantID,
+		Key:          key,
+		Name:         name,
+		Description:  strings.TrimSpace(input.Description),
+		Version:      version,
+		Status:       types.ServiceSpaceTemplateStatusDraft,
+		MatchRules:   input.MatchRules,
+		Blueprint:    blueprint,
+		AutoApply:    input.AutoApply,
+		AutoActivate: input.AutoActivate,
+		RiskLevel:    riskLevel,
+	}
+	if err := template.Validate(); err != nil {
+		return nil, nil, err
+	}
+	record, err := serviceTemplateRecordFromModel(template)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now().UTC()
+	record.ID = uuid.NewString()
+	record.CreatedAt = now
+	record.UpdatedAt = now
+	return template, record, nil
+}
+
+func generateServiceSpaceTemplateKey(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	var builder strings.Builder
+	separator := false
+	for _, char := range normalized {
+		switch {
+		case char >= 'a' && char <= 'z', char >= '0' && char <= '9':
+			builder.WriteRune(char)
+			separator = false
+		case builder.Len() > 0 && !separator:
+			builder.WriteByte('_')
+			separator = true
+		}
+	}
+	base := strings.Trim(builder.String(), "_")
+	if base == "" {
+		base = "service_template"
+	}
+	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")[:8]
+	maxBaseLength := 64 - len(suffix) - 1
+	if len(base) > maxBaseLength {
+		base = strings.Trim(base[:maxBaseLength], "_")
+	}
+	return fmt.Sprintf("%s_%s", base, suffix)
+}
+
+func serviceTemplateRecordFromModel(template *types.ServiceSpaceTemplate) (*types.ServiceSpaceTemplateRecord, error) {
+	matchRulesJSON, err := json.Marshal(template.MatchRules)
+	if err != nil {
+		return nil, err
+	}
+	blueprintJSON, err := json.Marshal(template.Blueprint)
+	if err != nil {
+		return nil, err
+	}
+	return &types.ServiceSpaceTemplateRecord{
+		ID:           template.ID,
+		TenantID:     template.TenantID,
+		Key:          template.Key,
+		Name:         template.Name,
+		Description:  template.Description,
+		Version:      template.Version,
+		Status:       string(template.Status),
+		MatchRules:   types.JSON(matchRulesJSON),
+		Blueprint:    types.JSON(blueprintJSON),
+		AutoApply:    template.AutoApply,
+		AutoActivate: template.AutoActivate,
+		RiskLevel:    string(template.RiskLevel),
+		PublishedBy:  template.PublishedBy,
+		PublishedAt:  template.PublishedAt,
+		CreatedAt:    template.CreatedAt,
+		UpdatedAt:    template.UpdatedAt,
+	}, nil
+}
+
 func (s *serviceSpaceService) ApplyTemplate(
 	ctx context.Context,
 	tenantID uint64,
@@ -364,6 +642,14 @@ func (s *serviceSpaceService) ApplyTemplate(
 	if blueprint.SourceInstruction == "" {
 		blueprint.SourceInstruction = strings.TrimSpace(template.Blueprint.SourceInstruction)
 	}
+	knowledgeBaseIDs := input.KnowledgeBaseIDs
+	if len(knowledgeBaseIDs) == 0 {
+		knowledgeBaseIDs = types.StringArray(append([]string(nil), blueprint.KnowledgeBaseIDs...))
+	}
+	selectedSkills := input.SelectedSkills
+	if len(selectedSkills) == 0 {
+		selectedSkills = types.StringArray(append([]string(nil), blueprint.SelectedSkills...))
+	}
 
 	expertInputs := append([]types.ServiceExpertBindingInput(nil), input.Experts...)
 	if len(expertInputs) == 0 {
@@ -390,7 +676,8 @@ func (s *serviceSpaceService) ApplyTemplate(
 		SpaceType:        string(blueprint.ProposedSpaceType),
 		Description:      description,
 		Instruction:      blueprint.SourceInstruction,
-		KnowledgeBaseIDs: input.KnowledgeBaseIDs,
+		KnowledgeBaseIDs: knowledgeBaseIDs,
+		SelectedSkills:   selectedSkills,
 		TemplateKey:      template.Key,
 		Experts:          expertInputs,
 		Activate:         template.AutoActivate,
@@ -2308,6 +2595,9 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 			{Key: "follow_up", Label: "待跟进", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
 		}
 	}
+	if extractedFields := extractInstructionProfileFields(text); len(extractedFields) > 0 {
+		profileSchema = extractedFields
+	}
 	return types.ServiceSpaceBlueprint{
 		SourceType:        types.ServiceSpaceBlueprintSourceInstruction,
 		SourceInstruction: text, ProposedSpaceType: spaceType,
@@ -2320,6 +2610,63 @@ func buildInstructionBlueprint(instruction string) types.ServiceSpaceBlueprint {
 		ConfirmationMode: types.ServiceSpaceBlueprintConfirmationPending,
 		Version:          1,
 	}
+}
+
+func extractInstructionProfileFields(instruction string) []types.ServiceSpaceProfileField {
+	text := strings.TrimSpace(instruction)
+	fragment := ""
+	for _, marker := range []string{"重点记录", "重点关注"} {
+		index := strings.Index(text, marker)
+		if index < 0 {
+			continue
+		}
+		fragment = text[index+len(marker):]
+		break
+	}
+	if fragment == "" {
+		return nil
+	}
+	fragment = strings.TrimSpace(strings.TrimLeft(fragment, " ：:，,、"))
+	if boundary := strings.IndexAny(fragment, "。；;\n"); boundary >= 0 {
+		fragment = fragment[:boundary]
+	}
+	for _, separator := range []string{"以及", "和", "与", "及"} {
+		fragment = strings.ReplaceAll(fragment, separator, "、")
+	}
+
+	labels := strings.FieldsFunc(fragment, func(r rune) bool {
+		return strings.ContainsRune("、，,/", r)
+	})
+	fields := make([]types.ServiceSpaceProfileField, 0, len(labels))
+	seen := make(map[string]struct{}, len(labels))
+	for _, rawLabel := range labels {
+		label := strings.TrimSpace(strings.Trim(rawLabel, "“”\"'：:"))
+		label = strings.TrimSuffix(label, "相关信息")
+		label = strings.TrimSuffix(label, "信息")
+		label = strings.TrimSuffix(label, "等")
+		if label == "" || len([]rune(label)) > 64 || strings.Contains(label, "语气") || strings.Contains(label, "口吻") {
+			continue
+		}
+		if _, exists := seen[label]; exists {
+			continue
+		}
+		seen[label] = struct{}{}
+		digest := sha256.Sum256([]byte(label))
+		fields = append(fields, types.ServiceSpaceProfileField{
+			Key:                 fmt.Sprintf("instruction_%x", digest[:4]),
+			Label:               label,
+			ValueType:           "text",
+			Source:              "facts",
+			Aliases:             []string{label},
+			ExtractionHint:      fmt.Sprintf("提取与“%s”相关的明确事实", label),
+			ConfidenceThreshold: 0.8,
+			DisplayOrder:        len(fields) + 1,
+		})
+		if len(fields) >= 8 {
+			break
+		}
+	}
+	return fields
 }
 
 func instructionContainsAny(instruction string, keywords ...string) bool {

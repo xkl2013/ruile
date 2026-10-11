@@ -16,6 +16,7 @@ type ServiceSpaceTemplateRecord struct {
 	TenantID     uint64         `json:"tenant_id" gorm:"not null;index"`
 	Key          string         `json:"key" gorm:"type:varchar(128);not null;index"`
 	Name         string         `json:"name" gorm:"type:varchar(255);not null"`
+	Description  string         `json:"description" gorm:"type:text;not null;default:''"`
 	Version      int            `json:"version" gorm:"not null;default:1"`
 	Status       string         `json:"status" gorm:"type:varchar(32);not null;default:'published';index"`
 	MatchRules   JSON           `json:"match_rules" gorm:"type:jsonb;not null;default:'{}'"`
@@ -59,7 +60,7 @@ func (r ServiceSpaceTemplateRecord) ToTemplate() (ServiceSpaceTemplate, error) {
 	}
 	publishedAt := r.PublishedAt
 	return ServiceSpaceTemplate{
-		ID: r.ID, TenantID: r.TenantID, Key: r.Key, Name: r.Name,
+		ID: r.ID, TenantID: r.TenantID, Key: r.Key, Name: r.Name, Description: r.Description,
 		Version: r.Version, Status: ServiceSpaceTemplateStatus(r.Status),
 		MatchRules: rules, Blueprint: blueprint, AutoApply: r.AutoApply,
 		AutoActivate: r.AutoActivate, RiskLevel: ServiceSpaceTemplateRiskLevel(r.RiskLevel),

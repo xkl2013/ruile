@@ -18,13 +18,14 @@ import (
 )
 
 var (
-	ErrOrganizeTemplateRequired = errors.New("template_key is required")
-	ErrOrganizeTemplateDisabled = errors.New("organize template is unavailable")
-	ErrOrganizeConfigRequired   = errors.New("config_id is required")
-	ErrOrganizeInvalidSchedule  = errors.New("invalid organize schedule")
-	ErrOrganizeInvalidExpert    = errors.New("organize expert is unavailable")
-	ErrOrganizeJobNotRetryable  = errors.New("organize job is not retryable")
-	ErrOrganizeJobNotCancelable = errors.New("organize job is not cancelable")
+	ErrOrganizeTemplateRequired    = errors.New("template_key is required")
+	ErrOrganizeTemplateDisabled    = errors.New("organize template is unavailable")
+	ErrOrganizeConfigRequired      = errors.New("config_id is required")
+	ErrOrganizeInvalidSchedule     = errors.New("invalid organize schedule")
+	ErrOrganizeInvalidScheduleTime = errors.New("invalid organize schedule time")
+	ErrOrganizeInvalidExpert       = errors.New("organize expert is unavailable")
+	ErrOrganizeJobNotRetryable     = errors.New("organize job is not retryable")
+	ErrOrganizeJobNotCancelable    = errors.New("organize job is not cancelable")
 )
 
 const (
@@ -171,6 +172,12 @@ func (s *organizeService) UpdateConfig(
 	current, err := s.GetConfig(ctx, tenantID, userID, id)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(input.Schedule) == "" {
+		input.Schedule = current.Schedule
+	}
+	if strings.TrimSpace(input.ScheduleTime) == "" {
+		input.ScheduleTime = current.ScheduleTime
 	}
 	config, err := s.buildOrganizeConfig(ctx, tenantID, userID, current.ID, input)
 	if err != nil {
@@ -653,7 +660,7 @@ func (s *organizeService) RunDueConfigs(ctx context.Context, now time.Time) erro
 	var joined error
 	for _, config := range configs {
 		scheduledFor := config.NextRunAt
-		nextRunAt := nextOrganizeRun(config.Schedule, now)
+		nextRunAt := nextOrganizeRun(config.Schedule, config.ScheduleTime, now)
 		config.NextRunAt = nextRunAt
 		config.UpdatedAt = now.UTC()
 		if err := s.repo.UpdateConfig(ctx, config); err != nil {
@@ -694,10 +701,25 @@ func (s *organizeService) buildOrganizeConfig(
 	}
 	schedule := strings.TrimSpace(input.Schedule)
 	if schedule == "" {
+		schedule = strings.TrimSpace(template.Schedule)
+	}
+	if schedule == "" {
 		schedule = types.OrganizeScheduleManual
 	}
 	if !types.IsValidOrganizeSchedule(schedule) {
 		return nil, ErrOrganizeInvalidSchedule
+	}
+	scheduleTime := strings.TrimSpace(input.ScheduleTime)
+	if scheduleTime == "" {
+		scheduleTime = strings.TrimSpace(template.ScheduleTime)
+	}
+	if schedule == types.OrganizeScheduleManual {
+		scheduleTime = ""
+	} else if scheduleTime == "" {
+		scheduleTime = types.DefaultOrganizeScheduleTime(schedule)
+	}
+	if !types.IsValidOrganizeScheduleTime(scheduleTime) {
+		return nil, ErrOrganizeInvalidScheduleTime
 	}
 	instruction := strings.TrimSpace(input.Instruction)
 	if instruction == "" {
@@ -727,8 +749,9 @@ func (s *organizeService) buildOrganizeConfig(
 		Instruction:     instruction,
 		ExpertIDs:       expertIDs,
 		Schedule:        schedule,
+		ScheduleTime:    scheduleTime,
 		Status:          types.OrganizeConfigStatusActive,
-		NextRunAt:       nextOrganizeRun(schedule, time.Now()),
+		NextRunAt:       nextOrganizeRun(schedule, scheduleTime, time.Now()),
 		Metadata:        normalizeJSONMap(input.Metadata),
 	}, nil
 }
@@ -1172,27 +1195,34 @@ func normalizeOrganizePage(page, pageSize int) (int, int) {
 	return page, pageSize
 }
 
-func nextOrganizeRun(schedule string, from time.Time) *time.Time {
+func nextOrganizeRun(schedule, scheduleTime string, from time.Time) *time.Time {
 	if schedule == "" || schedule == types.OrganizeScheduleManual {
 		return nil
 	}
 	location := organizeScheduleLocation()
 	local := from.In(location)
+	hour, minute := 9, 0
+	if schedule == types.OrganizeScheduleDaily {
+		hour, minute = 8, 0
+	}
+	if parsed, err := time.Parse("15:04", strings.TrimSpace(scheduleTime)); err == nil {
+		hour, minute = parsed.Hour(), parsed.Minute()
+	}
 	var next time.Time
 	switch schedule {
 	case types.OrganizeScheduleDaily:
-		next = time.Date(local.Year(), local.Month(), local.Day(), 8, 0, 0, 0, location)
+		next = time.Date(local.Year(), local.Month(), local.Day(), hour, minute, 0, 0, location)
 		if !next.After(local) {
 			next = next.AddDate(0, 0, 1)
 		}
 	case types.OrganizeScheduleWeekly:
 		days := (int(time.Monday) - int(local.Weekday()) + 7) % 7
-		next = time.Date(local.Year(), local.Month(), local.Day()+days, 9, 0, 0, 0, location)
+		next = time.Date(local.Year(), local.Month(), local.Day()+days, hour, minute, 0, 0, location)
 		if !next.After(local) {
 			next = next.AddDate(0, 0, 7)
 		}
 	case types.OrganizeScheduleMonthly:
-		next = time.Date(local.Year(), local.Month(), 1, 9, 0, 0, 0, location)
+		next = time.Date(local.Year(), local.Month(), 1, hour, minute, 0, 0, location)
 		if !next.After(local) {
 			next = next.AddDate(0, 1, 0)
 		}

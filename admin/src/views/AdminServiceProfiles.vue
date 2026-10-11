@@ -1,181 +1,454 @@
 <template>
-  <section class="service-config-page">
-    <div class="service-config-page__header">
+  <section class="service-template-page">
+    <div class="service-template-page__header">
       <div>
-        <h2>服务配置</h2>
-        <p>查看当前工作区的服务空间及其运行状态。专家、知识库和 Skill 在具体服务空间中配置。</p>
+        <div class="service-template-eyebrow">服务交付 · 场景能力</div>
+        <h2>服务模板管理</h2>
+        <p>维护服务场景、工作指令和运行能力。Web 端创建服务时只填写名称和描述，已发布模板负责提供默认配置。</p>
       </div>
-      <t-button variant="outline" :loading="loading" @click="loadServiceSpaces">
-        <template #icon><t-icon name="refresh" /></template>
-        刷新
-      </t-button>
+      <div class="service-template-page__actions">
+        <t-button variant="outline" :loading="loading" @click="loadTemplates">
+          <template #icon><t-icon name="refresh" /></template>
+          刷新
+        </t-button>
+        <t-button theme="primary" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建服务模板
+        </t-button>
+      </div>
     </div>
 
-    <t-alert v-if="errorMessage" theme="error" :message="errorMessage">
-      <template #operation>
-        <t-button size="small" variant="outline" @click="loadServiceSpaces">重试</t-button>
-      </template>
-    </t-alert>
-
-    <div class="service-config-summary">
+    <div class="service-template-summary">
       <article>
-        <span>服务空间</span>
-        <strong>{{ services.length }}</strong>
+        <span>模板总数</span>
+        <strong>{{ templates.length }}</strong>
         <em>当前工作区</em>
       </article>
       <article>
-        <span>运行中</span>
-        <strong>{{ activeCount }}</strong>
-        <em>已启用服务</em>
+        <span>已发布</span>
+        <strong>{{ publishedCount }}</strong>
+        <em>Web 可使用</em>
       </article>
       <article>
-        <span>暂停或草稿</span>
-        <strong>{{ pausedOrDraftCount }}</strong>
-        <em>待配置服务</em>
+        <span>待处理</span>
+        <strong>{{ draftCount + disabledCount }}</strong>
+        <em>草稿或已停用</em>
       </article>
     </div>
 
-    <section class="service-config-panel">
-      <div class="panel-title">
-        <span>
-          <strong>服务空间</strong>
-          <em>每个空间独立保存会话、专家配置和产出物。</em>
-        </span>
+    <section class="service-template-panel">
+      <div class="service-template-toolbar">
+        <t-input v-model="keyword" clearable placeholder="搜索模板名称、Key 或说明">
+          <template #prefix-icon><t-icon name="search" /></template>
+        </t-input>
+        <t-select v-model="statusFilter" style="width: 150px">
+          <t-option value="all" label="全部状态" />
+          <t-option value="draft" label="草稿" />
+          <t-option value="published" label="已发布" />
+          <t-option value="disabled" label="已停用" />
+        </t-select>
       </div>
 
-      <div v-if="loading && services.length === 0" class="service-empty">
+      <div v-if="loading && !templates.length" class="service-template-state">
         <t-loading size="small" />
-        <span>正在读取服务空间...</span>
+        <span>正在加载服务模板...</span>
       </div>
-      <div v-else-if="services.length === 0" class="service-empty">
-        <t-icon name="info-circle" />
-        <span>暂无服务空间</span>
+      <div v-else-if="!filteredTemplates.length" class="service-template-state">
+        <t-icon name="service" />
+        <span>{{ templates.length ? '没有符合条件的服务模板' : '暂无服务模板' }}</span>
+        <t-button v-if="!templates.length" theme="primary" variant="outline" size="small" @click="openCreate">
+          新建第一个模板
+        </t-button>
       </div>
-      <div v-else class="service-list">
-        <article v-for="service in services" :key="service.id" class="service-card">
-          <div class="service-card__head">
-            <span class="service-card__icon">
-              <t-icon name="service" />
-            </span>
-            <span class="service-card__title">
-              <strong>{{ service.name }}</strong>
-              <em>{{ service.template_key || '自定义服务' }}</em>
-            </span>
-            <t-tag :theme="stateTheme(service.state)" variant="light">
-              {{ stateLabel(service.state) }}
-            </t-tag>
+      <div v-else class="service-template-list">
+        <article v-for="template in filteredTemplates" :key="template.id || template.key" class="service-template-row">
+          <div class="service-template-row__icon">
+            <t-icon name="service" />
           </div>
-
-          <p>{{ service.description || '未填写服务描述' }}</p>
-
-          <dl>
-            <div>
-              <dt>专家</dt>
-              <dd>在服务空间中配置</dd>
+          <div class="service-template-row__main">
+            <div class="service-template-row__title">
+              <strong>{{ template.name }}</strong>
+              <code>{{ template.key }}</code>
+              <t-tag :theme="statusTheme(template.status)" variant="light" size="small">
+                {{ statusLabel(template.status) }}
+              </t-tag>
             </div>
-            <div>
-              <dt>知识库</dt>
-              <dd>{{ service.knowledge_base_ids?.length || 0 }} 个</dd>
+            <p>{{ template.description || '未填写模板说明' }}</p>
+            <div class="service-template-row__meta">
+              <span>{{ spaceTypeLabel(template.blueprint?.proposed_space_type) }}</span>
+              <span>{{ template.blueprint?.expert_suggestions?.length || 0 }} 个专家</span>
+              <span>{{ template.blueprint?.knowledge_base_ids?.length || 0 }} 个知识库</span>
+              <span>{{ template.blueprint?.profile_schema?.length || 0 }} 条重点记录</span>
+              <span>版本 {{ template.version }}</span>
+              <span>更新于 {{ formatDate(template.updated_at) }}</span>
             </div>
-            <div>
-              <dt>更新时间</dt>
-              <dd>{{ formatDate(service.updated_at || service.created_at) }}</dd>
-            </div>
-          </dl>
-
-          <div class="service-card__actions">
-            <t-button
-              v-if="service.state === 'active'"
-              size="small"
-              variant="outline"
-              :loading="updatingId === service.id"
-              @click="changeState(service, 'paused')"
-            >
-              暂停
+          </div>
+          <div class="service-template-row__actions">
+            <t-button variant="text" size="small" @click="openEdit(template)">
+              <template #icon><t-icon name="edit" /></template>
+              编辑
             </t-button>
             <t-button
-              v-else-if="service.state === 'paused'"
-              size="small"
+              v-if="template.status !== 'published'"
               theme="primary"
               variant="outline"
-              :loading="updatingId === service.id"
-              @click="changeState(service, 'active')"
+              size="small"
+              :loading="busyKey === template.key"
+              @click="publish(template)"
             >
-              启用
+              发布
+            </t-button>
+            <t-button
+              v-else
+              theme="warning"
+              variant="outline"
+              size="small"
+              :loading="busyKey === template.key"
+              @click="disable(template)"
+            >
+              停用
             </t-button>
           </div>
         </article>
       </div>
     </section>
+
+    <t-dialog
+      v-model:visible="editorVisible"
+      :header="editing ? '编辑服务模板' : '新建服务模板'"
+      width="1040px"
+      :confirm-btn="{ content: '保存草稿', loading: saving }"
+      destroy-on-close
+      @confirm="saveTemplate"
+    >
+      <t-form :data="form" label-align="top" class="service-template-form">
+        <section class="service-template-form-section">
+          <div class="service-template-form-section__header">
+            <div>
+              <strong>基本信息</strong>
+              <span>定义这个模板服务什么场景，以及 Web 创建时会显示的能力说明。</span>
+            </div>
+          </div>
+          <div class="service-template-form-grid">
+            <t-form-item label="模板名称" required>
+              <t-input v-model="form.name" placeholder="例如 招生跟进服务" />
+            </t-form-item>
+          </div>
+          <t-form-item label="服务场景">
+            <t-select v-model="form.space_type">
+              <t-option value="customer_service" label="家长与学员" />
+              <t-option value="operations" label="园所日常运营" />
+              <t-option value="research" label="教研与备课" />
+            </t-select>
+          </t-form-item>
+          <t-form-item label="模板说明">
+            <t-textarea
+              v-model="form.description"
+              :maxlength="500"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="说明这个服务模板解决什么问题，以及适合什么工作场景"
+            />
+          </t-form-item>
+          <t-form-item label="工作指令">
+            <t-textarea
+              v-model="form.instruction"
+              :maxlength="12000"
+              :autosize="{ minRows: 6, maxRows: 14 }"
+              placeholder="写清楚服务目标、关注信息、事实边界和下一步工作方式"
+            />
+          </t-form-item>
+          <div class="service-template-switches">
+            <label>
+              <t-switch v-model="form.auto_apply" />
+              <span>
+                <strong>允许自动应用</strong>
+                <small>仅低风险模板可自动应用。</small>
+              </span>
+            </label>
+            <label>
+              <t-switch v-model="form.auto_activate" :disabled="!form.auto_apply" />
+              <span>
+                <strong>应用后自动启用</strong>
+                <small>需要模板至少配置一个专家。</small>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section class="service-template-form-section">
+          <div class="service-template-form-section__header">
+            <div>
+              <strong>运行能力</strong>
+              <span>这些配置会随模板带入服务实例，Web 端不再让用户逐项选择。</span>
+            </div>
+          </div>
+          <div class="service-template-form-subheader">
+            <strong>专家建议</strong>
+            <t-button size="small" variant="outline" @click="addExpert">
+              <template #icon><t-icon name="add" /></template>
+              添加专家
+            </t-button>
+          </div>
+          <div v-if="!form.expert_suggestions.length" class="service-template-inline-empty">
+            尚未配置专家。自动启用模板前至少添加一个专家。
+          </div>
+          <div v-for="(expert, index) in form.expert_suggestions" :key="`expert-${index}`" class="service-template-repeater">
+            <t-input v-model="expert.expert_ref" placeholder="专家引用，例如 enrollment-advisor" />
+            <t-input v-model="expert.expert_name" placeholder="专家名称" />
+            <t-input v-model="expert.reason" placeholder="为什么适合这个场景" />
+            <t-button
+              variant="text"
+              shape="square"
+              aria-label="删除专家"
+              @click="removeExpert(index)"
+            >
+              <t-icon name="delete" />
+            </t-button>
+          </div>
+
+          <div class="service-template-form-grid">
+            <t-form-item label="知识库">
+              <t-tag-input
+                v-model="form.knowledge_base_ids"
+                clearable
+                placeholder="输入知识库 ID 后回车"
+              />
+              <small>填写模板运行时允许读取的知识库 ID。</small>
+            </t-form-item>
+            <t-form-item label="Skill">
+              <t-tag-input
+                v-model="form.selected_skills"
+                clearable
+                placeholder="输入 Skill 标识后回车"
+              />
+              <small>填写需要随服务启用的 Skill 标识。</small>
+            </t-form-item>
+          </div>
+        </section>
+
+      </t-form>
+    </t-dialog>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import {
-  listServiceSpaces,
-  setServiceSpaceState,
-  type ServiceSpace,
-  type ServiceSpaceState,
-} from '@/api/service'
+  createAdminServiceTemplate,
+  disableAdminServiceTemplate,
+  listAdminServiceTemplates,
+  publishAdminServiceTemplate,
+  updateAdminServiceTemplate,
+  type AdminServiceTemplate,
+  type AdminServiceTemplateInput,
+  type ServiceTemplateExpertSuggestion,
+  type ServiceTemplateSpaceType,
+} from '@admin/api/service-template'
 
-const services = ref<ServiceSpace[]>([])
+interface ServiceTemplateForm {
+  name: string
+  description: string
+  space_type: ServiceTemplateSpaceType
+  instruction: string
+  auto_apply: boolean
+  auto_activate: boolean
+  expert_suggestions: Array<ServiceTemplateExpertSuggestion>
+  knowledge_base_ids: string[]
+  selected_skills: string[]
+}
+
+const templates = ref<AdminServiceTemplate[]>([])
 const loading = ref(false)
-const updatingId = ref('')
-const errorMessage = ref('')
+const saving = ref(false)
+const busyKey = ref('')
+const keyword = ref('')
+const statusFilter = ref<'all' | AdminServiceTemplate['status']>('all')
+const editorVisible = ref(false)
+const editing = ref<AdminServiceTemplate | null>(null)
 
-const activeCount = computed(() => services.value.filter((service) => service.state === 'active').length)
-const pausedOrDraftCount = computed(() => (
-  services.value.filter((service) => service.state === 'paused' || service.state === 'draft').length
-))
+const publishedCount = computed(() => templates.value.filter((template) => template.status === 'published').length)
+const draftCount = computed(() => templates.value.filter((template) => template.status === 'draft').length)
+const disabledCount = computed(() => templates.value.filter((template) => template.status === 'disabled').length)
+const filteredTemplates = computed(() => {
+  const needle = keyword.value.trim().toLowerCase()
+  return templates.value.filter((template) => {
+    const matchesStatus = statusFilter.value === 'all' || template.status === statusFilter.value
+    const matchesKeyword = !needle
+      || [template.key, template.name, template.description].some((value) => value?.toLowerCase().includes(needle))
+    return matchesStatus && matchesKeyword
+  })
+})
 
-async function loadServiceSpaces() {
+function createEmptyForm(): ServiceTemplateForm {
+  return {
+    name: '',
+    description: '',
+    space_type: 'customer_service',
+    instruction: '',
+    auto_apply: false,
+    auto_activate: false,
+    expert_suggestions: [],
+    knowledge_base_ids: [],
+    selected_skills: [],
+  }
+}
+
+const form = reactive<ServiceTemplateForm>(createEmptyForm())
+
+async function loadTemplates() {
   if (loading.value) return
   loading.value = true
-  errorMessage.value = ''
   try {
-    const response = await listServiceSpaces({ include_archived: false })
-    services.value = response?.data || []
+    const response = await listAdminServiceTemplates()
+    templates.value = response?.data || []
   } catch (error: any) {
-    console.warn('[AdminServiceProfiles] Failed to load service spaces:', error)
-    errorMessage.value = error?.message || '服务空间读取失败'
-    services.value = []
+    MessagePlugin.error(error?.message || '服务模板加载失败')
+    templates.value = []
   } finally {
     loading.value = false
   }
 }
 
-async function changeState(service: ServiceSpace, state: ServiceSpaceState) {
-  updatingId.value = service.id
+function applyTemplateToForm(template?: AdminServiceTemplate) {
+  const next = createEmptyForm()
+  if (template) {
+    next.name = template.name
+    next.description = template.description || ''
+    next.space_type = template.blueprint?.proposed_space_type || 'customer_service'
+    next.instruction = template.blueprint?.source_instruction || ''
+    next.auto_apply = template.auto_apply
+    next.auto_activate = template.auto_activate
+    next.expert_suggestions = (template.blueprint?.expert_suggestions || []).map((expert) => ({ ...expert }))
+    next.knowledge_base_ids = [...(template.blueprint?.knowledge_base_ids || [])]
+    next.selected_skills = [...(template.blueprint?.selected_skills || [])]
+  }
+  Object.assign(form, next)
+}
+
+function openCreate() {
+  editing.value = null
+  applyTemplateToForm()
+  editorVisible.value = true
+}
+
+function openEdit(template: AdminServiceTemplate) {
+  editing.value = template
+  applyTemplateToForm(template)
+  editorVisible.value = true
+}
+
+function addExpert() {
+  form.expert_suggestions.push({ expert_ref: '', expert_name: '', reason: '' })
+}
+
+function removeExpert(index: number) {
+  form.expert_suggestions.splice(index, 1)
+}
+
+function toPayload(): AdminServiceTemplateInput {
+  return {
+    name: form.name.trim(),
+    description: form.description.trim(),
+    space_type: form.space_type,
+    instruction: form.instruction.trim(),
+    subject_policy: {
+      required: true,
+      allowed_types: ['member_family'],
+      allow_hierarchy: false,
+    },
+    expert_suggestions: form.expert_suggestions
+      .map((expert) => ({
+        expert_ref: expert.expert_ref.trim(),
+        expert_name: expert.expert_name.trim(),
+        reason: expert.reason?.trim() || '',
+      }))
+      .filter((expert) => expert.expert_ref || expert.expert_name),
+    knowledge_base_ids: form.knowledge_base_ids.map((value) => value.trim()).filter(Boolean),
+    selected_skills: form.selected_skills.map((value) => value.trim()).filter(Boolean),
+    match_rules: {
+      min_confidence_pct: 0,
+    },
+    auto_apply: form.auto_apply,
+    auto_activate: form.auto_activate && form.auto_apply,
+  }
+}
+
+async function saveTemplate() {
+  if (!form.name.trim() || !form.instruction.trim()) {
+    MessagePlugin.warning('请填写模板名称和工作指令')
+    return
+  }
+  saving.value = true
   try {
-    const response = await setServiceSpaceState(service.id, state)
-    if (response?.data) {
-      services.value = services.value.map((item) => item.id === service.id ? response.data : item)
+    const payload = toPayload()
+    if (editing.value) {
+      await updateAdminServiceTemplate(editing.value.key, payload)
+      MessagePlugin.success('服务模板草稿已保存')
+    } else {
+      await createAdminServiceTemplate(payload)
+      MessagePlugin.success('服务模板草稿已创建')
     }
-    MessagePlugin.success(state === 'active' ? '服务空间已启用' : '服务空间已暂停')
+    editorVisible.value = false
+    await loadTemplates()
   } catch (error: any) {
-    MessagePlugin.error(error?.message || '服务空间状态更新失败')
+    MessagePlugin.error(error?.message || '服务模板保存失败')
   } finally {
-    updatingId.value = ''
+    saving.value = false
   }
 }
 
-function stateLabel(state: ServiceSpaceState) {
-  const labels: Record<ServiceSpaceState, string> = {
-    draft: '草稿',
-    active: '运行中',
-    paused: '已暂停',
-    archived: '已归档',
+async function publish(template: AdminServiceTemplate) {
+  busyKey.value = template.key
+  try {
+    await publishAdminServiceTemplate(template.key)
+    MessagePlugin.success('服务模板已发布')
+    await loadTemplates()
+  } catch (error: any) {
+    MessagePlugin.error(error?.message || '服务模板发布失败')
+  } finally {
+    busyKey.value = ''
   }
-  return labels[state] || state
 }
 
-function stateTheme(state: ServiceSpaceState) {
-  if (state === 'active') return 'success'
-  if (state === 'paused') return 'warning'
-  if (state === 'archived') return 'default'
+function disable(template: AdminServiceTemplate) {
+  const instance = DialogPlugin.confirm({
+    header: '停用服务模板',
+    body: `停用后，Web 端不能再使用“${template.name}”创建新的服务实例。`,
+    confirmBtn: '停用',
+    onConfirm: async () => {
+      busyKey.value = template.key
+      try {
+        await disableAdminServiceTemplate(template.key)
+        MessagePlugin.success('服务模板已停用')
+        await loadTemplates()
+        instance.destroy()
+      } catch (error: any) {
+        MessagePlugin.error(error?.message || '服务模板停用失败')
+      } finally {
+        busyKey.value = ''
+      }
+    },
+  })
+}
+
+function statusLabel(value: AdminServiceTemplate['status']) {
+  return ({ draft: '草稿', published: '已发布', disabled: '已停用', archived: '已归档' } as Record<string, string>)[value] || value
+}
+
+function statusTheme(value: AdminServiceTemplate['status']) {
+  if (value === 'published') return 'success'
+  if (value === 'disabled') return 'warning'
+  if (value === 'archived') return 'default'
   return 'primary'
+}
+
+function spaceTypeLabel(value?: ServiceTemplateSpaceType) {
+  return ({
+    customer_service: '家长与学员',
+    operations: '园所日常运营',
+    research: '教研与备课',
+  } as Record<string, string>)[value || ''] || '未设置场景'
 }
 
 function formatDate(value?: string) {
@@ -186,239 +459,326 @@ function formatDate(value?: string) {
 }
 
 onMounted(() => {
-  void loadServiceSpaces()
+  void loadTemplates()
 })
 </script>
 
 <style scoped>
-.service-config-page {
+.service-template-page {
   display: grid;
   gap: 18px;
-  width: min(100%, 1280px);
+  width: min(100%, 1320px);
 }
 
-.service-config-page__header {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-  padding: 18px;
+.service-template-page__header,
+.service-template-panel,
+.service-template-summary article {
   border: 1px solid var(--admin-border);
   border-radius: 8px;
   background: var(--admin-surface);
   box-shadow: var(--admin-shadow-sm);
 }
 
-.service-config-page__header h2 {
+.service-template-page__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+  padding: 20px;
+}
+
+.service-template-eyebrow {
+  margin-bottom: 5px;
+  color: var(--admin-text-secondary);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.service-template-page__header h2 {
   margin: 0 0 6px;
   color: var(--admin-text);
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 650;
   line-height: 1.35;
 }
 
-.service-config-page__header p {
-  max-width: 760px;
+.service-template-page__header p {
+  max-width: 820px;
   margin: 0;
   color: var(--admin-text-secondary);
   font-size: 14px;
   line-height: 1.65;
 }
 
-.service-config-summary {
+.service-template-page__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.service-template-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-.service-config-summary article {
+.service-template-summary article {
   display: grid;
   gap: 5px;
-  min-width: 0;
   padding: 15px 16px;
-  border: 1px solid var(--admin-border);
-  border-radius: 8px;
-  background: var(--admin-surface);
-  box-shadow: var(--admin-shadow-sm);
 }
 
-.service-config-summary span,
-.service-config-summary em {
+.service-template-summary span,
+.service-template-summary em {
   color: var(--admin-text-secondary);
   font-size: 12px;
   font-style: normal;
 }
 
-.service-config-summary strong {
+.service-template-summary strong {
   color: var(--admin-text);
-  font-size: 19px;
+  font-size: 21px;
   font-weight: 650;
 }
 
-.service-config-panel {
-  min-width: 0;
+.service-template-panel {
   overflow: hidden;
-  border: 1px solid var(--admin-border);
-  border-radius: 8px;
-  background: var(--admin-surface);
-  box-shadow: var(--admin-shadow-sm);
 }
 
-.panel-title {
+.service-template-toolbar {
   display: flex;
-  padding: 17px 18px;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--admin-border);
 }
 
-.panel-title span {
-  display: grid;
-  gap: 4px;
+.service-template-toolbar .t-input {
+  width: min(100%, 420px);
 }
 
-.panel-title strong {
-  color: var(--admin-text);
-  font-size: 16px;
-  font-weight: 650;
-}
-
-.panel-title em {
-  color: var(--admin-text-secondary);
-  font-size: 13px;
-  font-style: normal;
-}
-
-.service-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding: 18px;
-}
-
-.service-card {
-  display: grid;
-  gap: 13px;
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--admin-border);
-  border-radius: 8px;
-  background: var(--admin-surface-soft);
-}
-
-.service-card__head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 11px;
+.service-template-state {
+  display: flex;
+  min-height: 220px;
+  gap: 10px;
   align-items: center;
+  justify-content: center;
+  color: var(--admin-text-secondary);
+  font-size: 14px;
 }
 
-.service-card__icon {
+.service-template-list {
+  display: grid;
+}
+
+.service-template-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.service-template-row:last-child {
+  border-bottom: 0;
+}
+
+.service-template-row__icon {
   display: grid;
   width: 38px;
   height: 38px;
   place-items: center;
-  border: 1px solid rgba(15, 122, 92, 0.16);
+  border: 1px solid var(--admin-border);
   border-radius: 8px;
-  background: var(--admin-brand-soft);
-  color: var(--admin-brand);
+  color: var(--admin-primary);
+  background: var(--admin-surface-subtle);
+  font-size: 19px;
 }
 
-.service-card__title {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
+.service-template-row__title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
-.service-card__title strong,
-.service-card__title em {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-card__title strong {
+.service-template-row__title strong {
   color: var(--admin-text);
-  font-size: 15px;
-  font-weight: 650;
+  font-size: 16px;
 }
 
-.service-card__title em {
+.service-template-row__title code {
   color: var(--admin-text-secondary);
   font-size: 12px;
-  font-style: normal;
 }
 
-.service-card p {
-  min-height: 42px;
-  margin: 0;
+.service-template-row__main p {
+  margin: 7px 0 10px;
   color: var(--admin-text-secondary);
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.55;
 }
 
-.service-card dl {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid rgba(219, 228, 231, 0.88);
-  border-radius: 8px;
-  background: var(--admin-surface);
-}
-
-.service-card dl div {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 10px;
-  padding: 8px 10px;
-  border-top: 1px solid rgba(219, 228, 231, 0.72);
-}
-
-.service-card dl div:first-child {
-  border-top: 0;
-}
-
-.service-card dt,
-.service-card dd {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.service-card dt {
-  color: var(--admin-text-muted);
-}
-
-.service-card dd {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--admin-text);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.service-card__actions {
+.service-template-row__meta {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  color: var(--admin-text-secondary);
+  font-size: 12px;
 }
 
-.service-empty {
+.service-template-row__actions {
   display: flex;
-  min-height: 180px;
+  gap: 4px;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--admin-text-secondary);
-  font-size: 13px;
 }
 
-@media (max-width: 900px) {
-  .service-config-page__header {
-    display: grid;
+.service-template-form {
+  display: grid;
+  gap: 16px;
+  max-height: 70vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.service-template-form-section {
+  padding: 16px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-surface-subtle);
+}
+
+.service-template-form-section__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.service-template-form-section__header div {
+  display: grid;
+  gap: 4px;
+}
+
+.service-template-form-section__header strong {
+  color: var(--admin-text);
+  font-size: 14px;
+}
+
+.service-template-form-section__header span {
+  color: var(--admin-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.service-template-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.service-template-form :deep(.t-form__item) {
+  margin-bottom: 12px;
+}
+
+.service-template-form small {
+  display: block;
+  margin-top: 5px;
+  color: var(--admin-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.service-template-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 28px;
+  padding-top: 4px;
+}
+
+.service-template-switches label {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.service-template-switches label > span {
+  display: grid;
+  gap: 3px;
+}
+
+.service-template-switches strong {
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.service-template-switches small {
+  margin: 0;
+}
+
+.service-template-repeater {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.service-template-repeater {
+  grid-template-columns: minmax(150px, 0.8fr) minmax(140px, 0.7fr) minmax(220px, 1fr) 32px;
+}
+
+@media (max-width: 860px) {
+  .service-template-page__header {
+    flex-direction: column;
   }
 
-  .service-config-summary,
-  .service-list {
+  .service-template-page__actions {
+    width: 100%;
+  }
+
+  .service-template-page__actions .t-button {
+    flex: 1;
+  }
+
+  .service-template-row {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .service-template-row__actions {
+    grid-column: 2;
+  }
+
+  .service-template-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .service-template-repeater {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .service-template-repeater .t-button {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 560px) {
+  .service-template-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .service-template-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .service-template-toolbar .t-input {
+    width: 100%;
+  }
+
+  .service-template-repeater {
     grid-template-columns: 1fr;
   }
 }

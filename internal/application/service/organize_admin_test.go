@@ -17,6 +17,8 @@ func TestOrganizeAdminTemplateLifecycle(t *testing.T) {
 		Name:               "周复盘",
 		Scene:              "教师成长",
 		DefaultInstruction: "整理 {{memory_count}} 条记忆。",
+		Schedule:           types.OrganizeScheduleWeekly,
+		ScheduleTime:       "20:00",
 		Spec: types.JSONMap{
 			"fields": []any{
 				map[string]any{"key": "status", "label": "状态"},
@@ -27,6 +29,8 @@ func TestOrganizeAdminTemplateLifecycle(t *testing.T) {
 	require.Equal(t, types.OrganizeTemplateStatusDraft, created.Status)
 	require.Equal(t, uint64(0), created.TenantID)
 	require.Equal(t, types.OrganizeTemplateScopePlatform, created.Scope)
+	require.Equal(t, types.OrganizeScheduleWeekly, created.Schedule)
+	require.Equal(t, "20:00", created.ScheduleTime)
 	require.Contains(t, created.MarkdownTemplate, "# {{title}}")
 
 	updated, err := svc.UpdateAdminTemplate(ctx, created.Key, "admin-1", types.OrganizeTemplateAdminInput{
@@ -42,6 +46,8 @@ func TestOrganizeAdminTemplateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "周复盘 V2", updated.Name)
 	require.Equal(t, created.Key, updated.Key)
+	require.Equal(t, types.OrganizeScheduleWeekly, updated.Schedule)
+	require.Equal(t, "20:00", updated.ScheduleTime)
 
 	preview, err := svc.PreviewAdminTemplate(ctx, created.Key, types.OrganizeTemplatePreviewInput{
 		MemoryIDs: []string{"m1", "m2"},
@@ -78,6 +84,8 @@ func TestOrganizeAdminTemplateLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "v3", rolledBack.PublishedVersion)
 	require.Equal(t, "周复盘 V2", rolledBack.Name)
+	require.Equal(t, types.OrganizeScheduleWeekly, rolledBack.Schedule)
+	require.Equal(t, "20:00", rolledBack.ScheduleTime)
 
 	versions, total, err := svc.ListAdminTemplateVersions(ctx, types.OrganizeTemplateVersionQuery{
 		TemplateKey: created.Key,
@@ -98,6 +106,32 @@ func TestOrganizeAdminTemplateLifecycle(t *testing.T) {
 		Spec: types.JSONMap{},
 	})
 	require.ErrorIs(t, err, ErrOrganizeAdminTemplateKeyImmutable)
+}
+
+func TestOrganizeConfigInheritsTemplateScheduleTime(t *testing.T) {
+	svc, db := newOrganizeServiceWithDBForTest(t)
+	ctx := context.Background()
+	template := &types.OrganizeTemplate{
+		Scope:              types.OrganizeTemplateScopePlatform,
+		Key:                "visit_review",
+		Name:               "到访谈单复盘",
+		Scene:              "招生增长",
+		DefaultInstruction: "整理昨日到访面谈的沟通记录，逐家写清。",
+		Schedule:           types.OrganizeScheduleDaily,
+		ScheduleTime:       "20:00",
+		Status:             types.OrganizeTemplateStatusEnabled,
+		PublishedVersion:   "v1",
+	}
+	require.NoError(t, db.Create(template).Error)
+
+	config, err := svc.CreateConfig(ctx, 7, "user-a", types.OrganizeConfigInput{
+		Name:        "到访谈单复盘",
+		TemplateKey: template.Key,
+	})
+	require.NoError(t, err)
+	require.Equal(t, types.OrganizeScheduleDaily, config.Schedule)
+	require.Equal(t, "20:00", config.ScheduleTime)
+	require.NotNil(t, config.NextRunAt)
 }
 
 func TestOrganizeAdminTemplateScenesComeFromStoredTemplates(t *testing.T) {

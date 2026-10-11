@@ -1568,6 +1568,12 @@ func RegisterServiceSpaceRoutes(r *gin.RouterGroup, h *handler.ServiceSpaceHandl
 	{
 		svc.GET("", g.Viewer(), h.List)
 		svc.POST("", g.Viewer(), h.Create)
+		svc.GET("/admin/templates", g.Admin(), h.ListAdminTemplates)
+		svc.POST("/admin/templates", g.Admin(), h.CreateAdminTemplate)
+		svc.GET("/admin/templates/:template_key", g.Admin(), h.GetAdminTemplate)
+		svc.PUT("/admin/templates/:template_key", g.Admin(), h.UpdateAdminTemplate)
+		svc.POST("/admin/templates/:template_key/publish", g.Admin(), h.PublishAdminTemplate)
+		svc.POST("/admin/templates/:template_key/disable", g.Admin(), h.DisableAdminTemplate)
 		svc.GET("/templates", g.Viewer(), h.ListTemplates)
 		svc.POST("/templates/:template_key/apply", g.Viewer(), h.ApplyTemplate)
 		svc.POST("/blueprint/preview", g.Viewer(), h.PreviewStandaloneBlueprint)

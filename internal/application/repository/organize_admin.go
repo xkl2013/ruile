@@ -118,6 +118,8 @@ func (r *organizeRepository) UpdateTemplate(ctx context.Context, template *types
 			"markdown_template",
 			"expert_ids",
 			"spec",
+			"schedule",
+			"schedule_time",
 			"status",
 			"published_version",
 			"published_at",

@@ -120,14 +120,7 @@
   .pservice .padd:hover{border-color:var(--brand-5);color:var(--brand-6);background:var(--g1)}
   .pservice:hover .cnt{display:none}
   .pservice:hover .padd{display:inline-flex}
-  .psessions{padding:1px 0 4px 22px}
-  .psess{display:flex;align-items:center;gap:6px;width:100%;padding:5px 8px;border-radius:var(--r);color:var(--t3);font-size:12px;text-align:left}
-  .psess:hover{background:var(--g1);color:var(--t1)}
-  .psess.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
-  .psess .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .psess .pin{margin-left:auto;color:var(--brand);font-size:8px}
-  .psess-more{display:block;width:100%;padding:5px 8px;color:var(--t4);font-size:11.5px;text-align:left}
-  .psess-more:hover{color:var(--brand-6)}
+  /* v1.28：边栏会话列表（.psessions / .psess / .psess-more）已删——会话记录收进服务头「历史会话」菜单 */
   .pmain{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-card)}
 
   /* ── 服务头 ─────────────────────────────────────────── */
@@ -145,6 +138,10 @@
   .hbtn .ci{font-size:13px}
   .hbtn em{font-style:normal;font-size:11px;min-width:16px;height:16px;padding:0 4px;border-radius:var(--r-round);background:var(--g2);color:var(--t2);display:inline-flex;align-items:center;justify-content:center}
   .hbtn.on em{background:var(--brand);color:#fff}
+  .hbtn.hic{width:30px;padding:0;justify-content:center}
+  .hbtn.hic .ci{font-size:15px}
+  .moremenu .mi .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .moremenu .mi .hpin{color:var(--brand);font-size:8px;flex:0 0 auto}
   .cbtn{width:30px;height:30px;flex:0 0 30px;border-radius:var(--r-round);border:1px solid var(--bd2);background:#fff;color:var(--t2);display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;transition:all .14s}
   .cbtn:hover{border-color:var(--brand);color:var(--brand-6)}
   .morewrap{position:relative}
@@ -161,11 +158,7 @@
   /* ── 对话区 ─────────────────────────────────────────── */
   .workbench{flex:1;min-height:0;display:flex;position:relative}
   .chatcol{flex:1;min-width:0;display:flex;flex-direction:column}
-  .chathead{display:flex;align-items:center;gap:9px;padding:10px 20px;border-bottom:1px solid var(--bd);flex:0 0 auto}
-  .chathead strong{font-size:13px;font-weight:600}
-  .chathead .expert{font-size:11px;color:var(--brand-6);background:var(--brand-1);padding:2px 7px;border-radius:var(--r)}
-  .chathead .time{margin-left:auto;font-size:11px;color:var(--t4)}
-  .chatbody{flex:1;min-height:0;overflow-y:auto;padding:20px 20px 12px}
+    .chatbody{flex:1;min-height:0;overflow-y:auto;padding:20px 20px 12px}
   .msg{max-width:720px;margin:0 auto 18px}
   .msg.me{display:flex;justify-content:flex-end}
   .msg.me .bubble{background:var(--brand-1);color:var(--t1);border-radius:var(--r-l) var(--r-l) var(--r-s) var(--r-l);padding:10px 14px;max-width:76%;line-height:1.72;font-size:13.5px}
@@ -201,18 +194,32 @@
   .expick:hover{border-color:var(--brand);color:var(--brand-6)}
   .expick .av{width:16px;height:16px;border-radius:var(--r-round);background:var(--brand-1);color:var(--brand-6);font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:700}
   .expick .cw{color:var(--t4);font-size:9px}
+  .expwrap{position:relative}
+  .expmenu{position:absolute;left:0;bottom:34px;z-index:40;width:192px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-l);box-shadow:var(--sh2);padding:5px;font-size:12.5px}
+  .expmenu .mi{padding:7px 10px}
+  .expmenu .mi .ck{margin-left:auto;color:var(--brand-6);font-size:11px;font-weight:600}
   .sendbtn{width:32px;height:32px;border-radius:var(--r-round);background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px}
   .suggest{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .suggest button{height:28px;padding:0 12px;border-radius:var(--r-round);border:1px dashed var(--bd2);color:var(--t2);font-size:12px;background:#fff}
   .suggest button:hover{border-color:var(--brand);border-style:solid;color:var(--brand-6)}
   .emptychat{max-width:720px;margin:0 auto;padding-top:34px;text-align:center}
+  /* v1.31 空会话=服务概览：内容区直接铺概览三卡 */
+  .ovstack{display:flex;flex-direction:column;gap:14px}
+  .chatbody .ovstack{max-width:720px;margin:0 auto;width:100%;padding-top:20px}
   .emptychat .ei{width:46px;height:46px;margin:0 auto 12px;border-radius:var(--r-round);background:var(--brand-1);color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:20px}
   .emptychat h3{margin:0 0 6px;font-size:15px;font-weight:600}
   .emptychat p{margin:0;font-size:12.5px;color:var(--t3);line-height:1.75}
   .emptychat .suggest{justify-content:center;margin-top:14px}
 
   /* ── 右侧浮层 ───────────────────────────────────────── */
-  .sidepanel{position:absolute;right:12px;top:0;bottom:78px;width:330px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);box-shadow:var(--sh2);display:flex;flex-direction:column;overflow:hidden;z-index:20}
+  .sidepanel{position:absolute;right:340px;top:0;bottom:78px;width:330px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);box-shadow:var(--sh2);display:flex;flex-direction:column;overflow:hidden;z-index:20}
+  /* v1.32：右侧常驻信息栏——用户信息（家长与学员）+ 动态信息（最近动态）一直显示，不再是按需弹层 */
+  .inforail{flex:0 0 324px;min-width:0;border-left:1px solid var(--line-soft,var(--bd));background:var(--bg,#fafafa);overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:12px}
+    .inforail .card{padding:13px 14px}
+    .inforail .fgrid.f2 .frow{grid-template-columns:76px 1fr}
+    .inforail .sechead .tools span{display:none}
+    .inforail .sechead .st{font-size:13px}
+    .inforail .tools .btn.sm{font-size:11px;padding:2px 8px}
   .sp-head{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--bd);flex:0 0 auto}
   .sp-head strong{font-size:13px;font-weight:600}
   .sp-head .x{margin-left:auto;width:24px;height:24px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:13px}
@@ -273,21 +280,22 @@
   .scard .ic{width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-m);background:var(--brand-1);color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:14px}
   .scard .nm{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .scard .dots{margin-left:auto;color:var(--t4);font-size:13px;padding:0 3px}
-  .scard .tags{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
-  .scard .desc{font-size:12.5px;color:var(--t2);line-height:1.65;min-height:38px;margin:0 0 11px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    /* v1.29：卡片内容区 = 客户重要信息（学员 · 班级 · 主班老师）+ 最新动态（绿）/ 新待办（橙）；描述撤下（建服务时看一次的信息） */
+    .scard .kinfo{font-size:12.5px;color:var(--t2);line-height:1.6;margin:0 0 9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .scard .dyn{display:flex;align-items:center;gap:7px;margin:0 0 6px;font-size:12px;line-height:1.5}
+    .scard .dyn:last-of-type{margin-bottom:0}
+    .scard .dyn .dot{width:6px;height:6px;flex:0 0 6px;border-radius:999px;background:var(--t4)}
+    .scard .dyn .dt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t3)}
+    .scard .dyn.g .dot{background:var(--brand)}
+    .scard .dyn.g .dt{color:var(--brand-6)}
+    .scard .dyn.o .dot{background:#E8890C}
+    .scard .dyn.o .dt{color:#9A5B06}
+    .scard .nm .pz{margin-left:6px;font-size:10.5px;font-weight:400;color:var(--t3);background:var(--g2);border-radius:var(--r-round);padding:1px 6px;vertical-align:1px}
   .scard .mt{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--t4);padding-top:10px;border-top:1px solid var(--bd)}
-  .tgroups{margin-top:22px}
-  .tgroup{margin-bottom:20px}
+    .tgroup{margin-bottom:20px}
   .tglabel{font-size:12px;color:var(--t3);font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:7px}
   .tglabel:after{content:'';flex:1;height:1px;background:var(--bd)}
-  .tcard{background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);padding:15px 16px;box-shadow:var(--sh1);transition:all .16s;cursor:pointer;text-align:left;width:100%;display:block}
-  .tcard:hover{border-color:var(--brand);box-shadow:var(--sh2)}
-  .tcard .top{display:flex;align-items:center;gap:9px;margin-bottom:9px}
-  .tcard .ic{width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-m);background:var(--info-1);color:#2258a8;display:flex;align-items:center;justify-content:center;font-size:14px}
-  .tcard .nm{font-size:13.5px;font-weight:600}
-  .tcard p{margin:0 0 9px;font-size:12px;color:var(--t2);line-height:1.65;min-height:38px}
-  .tcard .ft{font-size:11px;color:var(--t4);display:flex;align-items:center;gap:6px}
-
+  
   /* ── 空态 ───────────────────────────────────────────── */
   .emptywrap{background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);padding:44px 26px;text-align:center;box-shadow:var(--sh1)}
   .emptywrap .ei{width:56px;height:56px;margin:0 auto 16px;border-radius:18px;background:var(--brand-1);color:var(--brand-6);display:flex;align-items:center;justify-content:center;font-size:24px}
@@ -328,6 +336,7 @@
   .setbody h2{margin:0 0 6px;font-size:15px;font-weight:600}
   .setbody .sub{font-size:12px;color:var(--t3);margin:0 0 18px;line-height:1.7}
   .fgrid{border:1px solid var(--bd);border-radius:var(--r-l);overflow:hidden}
+  .fgrid.f2 .frow{grid-template-columns:150px 1fr}
   .frow{display:grid;grid-template-columns:1fr 96px 66px;gap:12px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--bd);background:#fff}
   .frow:last-child{border-bottom:none}
   .frow.head{background:#fbfcfb;font-size:11.5px;color:var(--t3);font-weight:600}
@@ -447,7 +456,7 @@
   <aside class="rail">
     <div class="rail-head">
       <div class="rail-title">服务模块 · 优化后原型</div>
-      <div class="rail-sub">v1.20 · 9 个场景 · 4 个设置分区<br/>配套《服务模块优化方案》</div>
+      <div class="rail-sub">v1.32 · 9 个场景 · 4 个设置分区<br/>配套《服务模块开发方案》v2.0</div>
     </div>
     <div class="rail-group" id="rail"></div>
     <div class="rail-note">
@@ -460,7 +469,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.20</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.32</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll"><div class="canvas" id="root"></div></div>
@@ -490,25 +499,19 @@ const av = n => `<span class="av">${esc(A[n] || String(n||'?').slice(0,1))}</spa
 /* ═══════════════════════════════════════════════════════
    数据
    ═══════════════════════════════════════════════════════ */
+/* v1.24 一服务一客户（§0.6）：一个服务绑定一个家长 / 学员家庭；type = 场景三选一 */
 const SERVICES = [
-  { id:'s1', name:'秋季招生咨询', type:'家长与学员', desc:'从线索进入、跟进到转化，覆盖 2026 秋季招生全流程。', members:5, updated:'2 小时前', state:'active', role:'管理员', sessions:[
-      { id:'c1', title:'秋季招生线索跟进', pinned:true },
+  { id:'s1', name:'果果家', type:'招生跟进', stu:'果果 · 中班插班', desc:'跟进果果家从首访到成交：到访记录、顾虑处理、体验课邀约。', members:2, updated:'2 小时前', state:'active', role:'管理员', keyinfo:'果果 · 中班插班 · 主班 李老师', dyn:{ c:'g', t:'到访意向从「考虑中」变为「明确意向」', to:'activity' }, todo:{ t:'回访东苑分园 4 位意向家长 · 本周五前', to:'reminders' }, sessions:[
+      { id:'c1', title:'与果果妈妈聊周三时段', pinned:true },
       { id:'c2', title:'家长顾虑归纳', pinned:false },
       { id:'c3', title:'10 月到访邀约话术', pinned:false }
     ] },
-  { id:'s2', name:'会员续费跟进', type:'家长与学员', desc:'跟踪到期会员、记录续费意向与家长反馈。', members:3, updated:'昨天', state:'active', role:'成员', sessions:[
-      { id:'c4', title:'本月到期名单梳理', pinned:false }
+  { id:'s2', name:'朵朵家', type:'家长沟通与服务', stu:'朵朵 · 小二班', desc:'朵朵家的日常沟通记录、家长会与家访安排。', members:2, updated:'昨天', state:'active', role:'成员', keyinfo:'朵朵 · 小二班 · 主班 王老师', dyn:{ c:'g', t:'面谈已约定：周三下午 4 点 · 园内', to:'activity' }, todo:null, sessions:[
+      { id:'c4', title:'约朵朵妈妈周三面谈', pinned:false }
     ] },
-  { id:'s3', name:'保育巡查', type:'园所日常运营', desc:'晨检异常、午睡巡查与家长通知的日常记录。', members:4, updated:'3 天前', state:'paused', role:'成员', sessions:[] }
+  { id:'s3', name:'小宇家', type:'新生入园适应', stu:'小宇 · 新生', desc:'小宇的入园适应期跟进：分离焦虑观察与家长反馈。', members:3, updated:'3 天前', state:'paused', role:'成员', keyinfo:'小宇 · 新生 · 主班 陈老师', dyn:{ t:'已暂停 · 恢复后继续跟进', to:'' }, todo:null, sessions:[] }
 ];
-const TEMPLATES = [
-  { name:'招生旺季跟进', type:'家长与学员', icon:'◎', desc:'围绕线索与到访意向推进，内置招生顾问专家。', sub:'服务对象：家长与学员' },
-  { name:'会员续费运营', type:'家长与学员', icon:'◈', desc:'到期提醒、续费意向记录与个性化沟通话术。', sub:'服务对象：家长与学员' },
-  { name:'班级日常运营', type:'园所日常运营', icon:'▤', desc:'晨检、出勤、家长通知的统一记录与汇总。', sub:'服务对象：园所日常运营' },
-  { name:'主题活动策划', type:'园所日常运营', icon:'▦', desc:'从方案到执行清单再到复盘，全程留痕。', sub:'服务对象：园所日常运营' },
-  { name:'教研与备课', type:'教研与备课', icon:'▥', desc:'课题资料沉淀、活动设计共创与教研记录。', sub:'服务对象：教研与备课' }
-];
-const ARTIFACTS = [
+/* 模板创建已在 v1.27 下线：场景模板由后台 › 服务配置维护（§3.2），前端的模板数据与模板卡片渲染已整体移除 */const ARTIFACTS = [
   { id:'a2', t:'秋季招生线索跟进表.xlsx', f:'XLSX', v:'v2', m:'表格 · v2（已更新）· 16 条 · 22 KB', prev:'秋季招生线索跟进表（v2）\n\n姓名　　意向　　状态\n乐乐　　明确　　待跟进\n朵朵　　待观察　已沟通\n小宝　　明确　　待跟进\n东苑 · 果果　明确　　待跟进\n东苑 · 米米　待观察　待跟进\n\n共 16 条线索，其中 5 条来自东苑分园' },
   { id:'a3', t:'家长顾虑归纳.md', f:'MD', v:'v1', m:'文档 · v1 · 3 KB', prev:'本周家长顾虑归纳\n\n1. 上课时间冲突 —— 9 条\n2. 价格与优惠 —— 7 条\n3. 接送距离 —— 4 条\n4. 其他 —— 3 条\n\n建议：时间冲突集中在周三下午，可考虑增设一个时段。' },
   { id:'a4', t:'到期未续费家长清单.xlsx', f:'XLSX', v:'v1', m:'表格 · v1 · 9 条 · 14 KB', prev:'本月到期未续费家长清单\n\n姓名　　到期日　联系情况\n阳阳　　9/18　　已联系\n糖糖　　9/20　　未联系\n豆豆　　9/25　　未联系\n\n共 9 条，其中 3 条已联系' }
@@ -568,15 +571,7 @@ function productSidebar(active){
             ${sv.sessions.length ? `<span class="cnt">${sv.sessions.length}</span>` : ''}
             <button class="padd" title="新建会话" data-newchat data-svc="${sv.id}">＋</button>
           </div>
-          ${sv.id === active.service ? `
-            <div class="psessions">
-              ${sv.sessions.slice(0,3).map(ss => `
-                <button class="psess ${ss.id === active.session ? 'on' : ''}" data-noop>
-                  <span class="nm">${esc(ss.title)}</span>${ss.pinned ? '<span class="pin">●</span>' : ''}
-                </button>`).join('')}
-              <button class="psess-more" data-noop>还有 3 个 ›</button>
-            </div>` : ''}
-        `).join('')}
+          `).join('')}
       </div>
     </div>
   </aside>`;
@@ -584,15 +579,18 @@ function productSidebar(active){
 
 /* ═══════════════════════════════════════════════════════
    服务头（优化后：3 个入口）
+   v1.28：左侧产品边栏不再展示会话记录（会话列表收进服务头「历史会话」）；服务头「文件」左侧新增历史会话 icon（◷），点击弹出本服务的历史会话菜单，点选切换会话、当前会话打 ✓。
+   v1.23：输入条专家选择器可点（expPicker）——向上弹出服务内专家（招生顾问 / 服务助理），点选切换并打 ✓；切面板 / 切场景 / 新会话时收起。
+   v1.22：删对话区顶部会话头（chathead）——v1.18 起服务头标题即会话标题，会话头把同一标题再说一遍，专家标签在输入条可见、时间属于消息级信息；对话区直接以消息流开始。
    v1.18：标题跟随中间内容——聊天区显示**会话标题**（右侧灰字回落为服务名），
-   产物 / 待办面板是服务级视图，标题仍显示服务名；新会话态显示「新的会话」
+   文件 / 待办面板是服务级视图，标题仍显示服务名；新会话态显示「新的会话」
    ═══════════════════════════════════════════════════════ */
 function serviceHead(active, panel, moreOpen){
   const svc = SERVICES.find(s => s.id === active.service) || SERVICES[0];
   const count = { artifacts: ARTIFACTS.length, reminders: REMINDERS.length };
-  const sess = svc.sessions.find(s => s.id === active.session) || svc.sessions[0];
+  const sess = svc.sessions.find(s => s.id === (state.curSession || active.session)) || svc.sessions[0];
   const inChat = !panel;
-  const title = inChat ? (state.newChat ? '新的会话' : (sess ? sess.title : svc.name)) : svc.name;
+  const title = inChat ? (state.newChat ? '新的会话' : (state.emptyChat ? svc.name : (sess ? sess.title : svc.name))) : svc.name;
   const tag = inChat ? svc.name : svc.type;
   return `
   <header class="sphead">
@@ -602,8 +600,21 @@ function serviceHead(active, panel, moreOpen){
     <span class="sptype">${esc(tag)}</span>
     ${svc.state !== 'active' ? `<span class="spstate">已暂停</span>` : ''}
     <div class="spactions">
+      <div class="morewrap">
+        <button class="hbtn hic ${state.histOpen ? 'on' : ''}" data-hist title="历史会话"><span class="ci">◷</span></button>
+        ${state.histOpen ? `
+        <div class="moremenu">
+          ${svc.sessions.length ? svc.sessions.map(ss => `
+            <button class="mi" data-sess="${ss.id}">
+              <span class="nm">${esc(ss.title)}</span>
+              ${ss.pinned ? '<span class="hpin">●</span>' : ''}
+              ${!state.newChat && sess && ss.id === sess.id ? '<span class="mx" style="color:var(--brand-6);font-weight:600">✓</span>' : ''}
+            </button>`).join('')
+          : '<div class="mi" style="color:var(--t4);cursor:default">还没有历史会话</div>'}
+        </div>` : ''}
+      </div>
       <button class="hbtn ${panel === 'artifacts' ? 'on' : ''}" data-panel="artifacts">
-        <span class="ci">▤</span><span>产物</span><em>${count.artifacts}</em>
+        <span class="ci">▤</span><span>文件</span><em>${count.artifacts}</em>
       </button>
       <button class="hbtn ${panel === 'reminders' ? 'on' : ''}" data-panel="reminders">
         <span class="ci">☑</span><span>待办</span><em>${count.reminders}</em>
@@ -619,8 +630,7 @@ function serviceHead(active, panel, moreOpen){
           <div class="mgroup">更多 ›</div>
           <div class="msub">
             <button class="mi" data-scene="overview">服务概览<span class="mx">›</span></button>
-            <button class="mi" data-scene="subjects">服务对象<span class="mx">›</span></button>
-            <button class="mi" data-scene="activity">动态<span class="mx">›</span></button>
+                  <button class="mi" data-scene="activity">动态<span class="mx">›</span></button>
             <button class="mi" data-scene="settings">服务设置<span class="mx">›</span></button>
           </div>
           <div class="msep"></div>
@@ -636,14 +646,19 @@ function serviceHead(active, panel, moreOpen){
 /* ═══════════════════════════════════════════════════════
    对话区
    ═══════════════════════════════════════════════════════ */
+/* v1.23 专家选择器：输入条左下角可点，向上弹出服务内可切换的专家 */
+const SVC_EXPERTS = [['招生顾问','招'], ['服务助理','服']];
+function expPicker(){
+  return `<div class="expwrap">
+    <button class="expick" data-expick title="切换专家"><span class="av">${state.curExp[0]}</span>${esc(state.curExp)}<span class="cw">⌄</span></button>
+    ${state.expOpen ? `<div class="expmenu">
+      ${SVC_EXPERTS.map(x => `<button class="mi" data-exp="${x[0]}"><span class="av" style="width:16px;height:16px;border-radius:999px;background:var(--brand-1);color:var(--brand-6);font-size:9px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px">${x[1]}</span>${x[0]}${x[0] === state.curExp ? '<span class="ck">✓</span>' : ''}</button>`).join('')}
+    </div>` : ''}
+  </div>`;
+}
 function chatColumn(){
   return `
   <div class="chatcol">
-    <div class="chathead">
-      <strong>秋季招生线索跟进</strong>
-      <span class="expert">招生顾问</span>
-      <span class="time">2 小时前</span>
-    </div>
     <div class="chatbody">
       <div class="msg me"><div class="bubble">把 9 月秋季招生线索按到访意向排个序，列成表。东苑分园那几条如果还没进来，也一起并进去。</div></div>
       <div class="msg ai">
@@ -667,7 +682,7 @@ function chatColumn(){
         <div class="box">
           <textarea placeholder="说点什么…"></textarea>
           <div class="boxfoot">
-            <button class="expick"><span class="av">招</span>招生顾问<span class="cw">⌄</span></button>
+            ${expPicker()}
             <span class="spacer"></span>
             <button class="sendbtn" data-noop>↑</button>
           </div>
@@ -678,22 +693,15 @@ function chatColumn(){
 }
 
 /* 空态对话区：mode='void' 无会话态（服务刚建）· mode='new' 新会话态（悬停服务行点 ＋）
-   v1.17：删掉顶部「新的会话 / 服务助理」标题条——空态本身已说明状态，正文 h3 就是标题 */
+   v1.32：用户信息（家长与学员）与动态信息（最近动态）移到<b>右侧常驻栏</b>（一直显示，不再是按钮/弹层），
+   空会话内容区只留「当前进展」；v1.31 曾把三卡铺在内容区、发起会话后收进 ◫ 按钮，本版取消该机制 */
 function chatEmpty(mode){
   const isNew = mode === 'new';
   return `
   <div class="chatcol">
     <div class="chatbody">
-      <div class="emptychat">
-        <div class="ei">${isNew ? '＋' : '◌'}</div>
-        <h3>${isNew ? '新的会话' : '这个服务还没有会话'}</h3>
-        <p>${isNew ? '上一段对话已经收好。直接说下一步要做什么，过程和产物会继续沉淀进「秋季招生咨询」。' : '直接说要在「秋季招生咨询」里做什么，工作过程和产物会持续沉淀在这里。'}</p>
-        <div class="suggest">
-          <button data-noop>帮我整理本周需要优先推进的招生工作</button>
-          <button data-noop>本月哪些家长该做回访？</button>
-          <button data-noop>把家长提到的顾虑归纳成一份清单</button>
-        </div>
-        ${isNew ? '<div class="hint" style="margin-top:10px">这 3 条建议来自这个服务的工作指令，每次新建会话都会按最新指令生成。</div>' : ''}
+      <div class="ovstack">
+        ${progressCard()}
       </div>
     </div>
     <div class="composer">
@@ -701,9 +709,9 @@ function chatEmpty(mode){
         <div class="box">
           <textarea placeholder="说点什么…"></textarea>
           <div class="boxfoot">
-            <button class="expick"><span class="av">服</span>服务助理<span class="cw">⌄</span></button>
+            ${expPicker()}
             <span class="spacer"></span>
-            <button class="sendbtn" data-noop>↑</button>
+            <button class="sendbtn" data-start title="发起会话">↑</button>
           </div>
         </div>
       </div>
@@ -712,13 +720,13 @@ function chatEmpty(mode){
 }
 
 /* ═══════════════════════════════════════════════════════
-   右侧浮层：产物 / 待办
+   右侧浮层：文件 / 待办
    ═══════════════════════════════════════════════════════ */
 function artifactPanel(sel){
   const cur = ARTIFACTS.find(a => a.id === sel) || ARTIFACTS[0];
   return `
   <aside class="sidepanel">
-    <div class="sp-head"><strong>产物</strong><button class="x" data-panel="artifacts">✕</button></div>
+    <div class="sp-head"><strong>文件</strong><button class="x" data-panel="artifacts">✕</button></div>
     <div class="sp-body">
       ${ARTIFACTS.map(a => `
         <button class="artitem ${a.id === cur.id ? 'on' : ''}" data-art="${a.id}">
@@ -800,16 +808,11 @@ function listView(mode){
     <div class="emptywrap">
       <div class="ei">▦</div>
       <h2>先把第一个服务建起来</h2>
-      <p>一个服务 = 一摊持续要做的事（比如秋季招生、会员续费、班级日常）。建好之后，专家就在这个空间里帮你干活，聊天记录和产物都会留在这里。</p>
+      <p>一个服务 = 一摊持续要做的事（比如秋季招生、会员续费、班级日常）。建好之后，专家就在这个空间里帮你干活，聊天记录和文件都会留在这里。</p>
       <div class="acts">
         <button class="btn pri" data-scene="create">新建服务</button>
-        <button class="btn" data-noop>看看有哪些模板</button>
       </div>
-      <div class="hint" style="margin-top:18px">不确定选哪个？「招生旺季跟进」是最常用的起点。</div>
-    </div>
-    <div class="tgroups">
-      <div class="tglabel">推荐模板</div>
-      <div class="grid">${TEMPLATES.slice(0,3).map(t => tplCard(t)).join('')}</div>
+      <div class="hint" style="margin-top:18px">建好第一个服务后，场景、专家与知识库都可以在服务设置里继续调整。</div>
     </div>`;
   }
   if (mode === 'archived') {
@@ -852,6 +855,7 @@ function listView(mode){
 
   return `
   ${modeChips}
+  <div class="annoline"><b>v1.29 卡片内容升级</b>：卡片改为<b>客户重要信息 + 最新动态</b>——重要信息一行（学员 · 班级 · 主班老师，§0.6 客户口径），下面跟<b>最新动态</b>（品牌绿，点行直达动态页）与<b>新待办</b>（警示橙，点行直达待办）各取最新一条；服务描述撤下（建服务时看一次的信息，移动端 v1.8 同口径）。<b>v1.26 精简（客户卡片字段）</b>：删掉标签行（场景、我的角色、已暂停徽标）与元信息行的「学员 ×× · N 段会话」。场景等配置已在后台维护（创建表单 v1.25 同口径）。<b>v1.27 追加</b>：「从模板创建」整体删除——场景模板由<b>后台 › 服务配置</b>维护（建服务时绑定），前端不再提供模板创建入口。</div>
   <div class="listhead">
     <div><h1>服务</h1><p>每个服务一个空间，专家在里面干活</p></div>
     <div class="act"><button class="btn pri" data-scene="create">＋ 新建服务</button></div>
@@ -869,81 +873,36 @@ function listView(mode){
         <button class="scard" data-scene="space">
           <div class="top">
             <span class="ic">▦</span>
-            <span class="nm">${esc(s.name)}</span>
+            <span class="nm">${esc(s.name)}${s.state !== 'active' ? '<span class="pz">已暂停</span>' : ''}</span>
             <span class="dots" data-noop>⋯</span>
           </div>
-          <div class="tags">
-            <span class="tag brand">${esc(s.type)}</span>
-            <span class="tag">${esc(s.role)}</span>
-            ${s.state === 'paused' ? '<span class="tag warn">已暂停</span>' : ''}
-          </div>
-          <p class="desc">${esc(s.desc)}</p>
-          <div class="mt"><span>${esc(s.updated)}</span><span>${s.members} 位成员</span><span>${s.sessions.length} 段工作</span></div>
+          <p class="kinfo">${esc(s.keyinfo)}</p>
+          <p class="dyn ${s.dyn.c || ''}" ${s.dyn.to ? `data-scene="${s.dyn.to}"` : 'data-noop'}><span class="dot"></span><span class="dt">${esc(s.dyn.t)}</span></p>
+          ${s.todo ? `<p class="dyn o" ${s.todo.to ? `data-scene="${s.todo.to}"` : 'data-noop'}><span class="dot"></span><span class="dt">${esc(s.todo.t)}</span></p>` : ''}
+          <div class="mt"><span>更新于 ${esc(s.updated)}</span></div>
         </button>`).join('')}
     </div>
 
-    <div class="tgroups">
-      <div class="tglabel">从模板创建</div>
-      <div class="grid">${TEMPLATES.map(t => tplCard(t)).join('')}</div>
-    </div>
   </div>`;
 }
-function tplCard(t){
-  return `
-  <button class="tcard" data-scene="create">
-    <div class="top"><span class="ic">${t.icon}</span><span class="nm">${esc(t.name)}</span></div>
-    <p>${esc(t.desc)}</p>
-    <div class="ft">${esc(t.sub)}</div>
-  </button>`;
-}
-
 /* ═══════════════════════════════════════════════════════
    场景 2 · 创建服务
    ═══════════════════════════════════════════════════════ */
 function createView(){
   return `
-  <div class="annoline">方案 §4.2：创建表单从<b>弹窗</b>改为<b>整页</b>；<b>删掉创建后的「确认服务空间蓝图」弹窗</b>；增加一组「服务类型」三选项（替代蓝图里的 <code>space_type</code> 枚举）。<b>v1.5 追加</b>：工作指令不只是给 AI 看的——指令里点名「重点记录 X / Y」，X、Y 会<b>解析成「重点记录」的字段</b>（见设置场景「来自你的工作指令」）。<b>2026-10-08 追加</b>：创建动作<b>只在 web 端提供</b>——移动端不设「新建服务 / 从模板创建 / 复制配置创建」入口（见移动端原型 v1.2），本场景是全产品唯一的创建入口。</div>
+  <div class="annoline"><b>v1.25 简化（后台承接配置）</b>：创建服务只需要填<b>服务名称 + 描述</b>——客户、场景、专家、知识库、工作指令都在<b>后台配置好</b>（§0.6：客户 / 场景在后台建服务时绑定，前端不再让园长选），前端创建从 6 组字段收敛到 2 个。<br/><b>v1.24 追加（§0.6 一服务一客户）</b>：表单新增<b>「客户」必填项</b>——一个服务只围着一个家长 / 学员家庭转；「主要围着谁转」三选项改为「<b>场景</b>」三选项（招生跟进 / 家长沟通与服务 / 新生入园适应与班级保教）。方案 §4.2：创建表单从<b>弹窗</b>改为<b>整页</b>；<b>删掉创建后的「确认服务空间蓝图」弹窗</b>；增加一组「服务类型」三选项（替代蓝图里的 <code>space_type</code> 枚举）。<b>v1.5 追加</b>：工作指令不只是给 AI 看的——指令里点名「重点记录 X / Y」，X、Y 会<b>解析成「重点记录」的字段</b>（见设置场景「来自你的工作指令」）。<b>2026-10-08 追加</b>：创建动作<b>只在 web 端提供</b>——移动端不设「新建服务 / 从模板创建 / 复制配置创建」入口（见移动端原型 v1.2），本场景是全产品唯一的创建入口。</div>
   <div class="formwrap">
     <div class="card formcard">
       <div class="fgroup">
         <label class="lbl">服务名称<span class="req">*</span></label>
-        <input class="field" value="秋季招生咨询" />
-        <div class="hint">一句话说清这摊事是什么，例如"秋季招生咨询"、"会员续费跟进"。</div>
+        <input class="field" value="果果家" />
+        <div class="hint">服务名就是园长在列表里看到的名字。</div>
       </div>
 
       <div class="fgroup">
-        <label class="lbl">这个服务主要围着谁转<span class="req">*</span></label>
-        <div class="radiogroup">
-          <div class="radio on"><span class="rt">家长与学员</span><span class="rd">招生、续费、回访、家长沟通</span></div>
-          <div class="radio"><span class="rt">园所日常运营</span><span class="rd">晨检、出勤、安全、后勤事务</span></div>
-          <div class="radio"><span class="rt">教研与备课</span><span class="rd">课题、活动设计、教研沉淀</span></div>
-        </div>
-        <div class="hint">这一项决定了首页概览看哪些栏目、预置哪些专家。<b>选完就直接生效，不需要再确认一次。</b></div>
-      </div>
-
-      <div class="fgroup">
-        <label class="lbl">工作指令<span class="opt">选填</span></label>
-        <textarea class="field" style="min-height:86px">跟进 2026 秋季招生线索，语气亲切，重点记录家长顾虑与到访意向。</textarea>
-        <div class="hint">用大白话写你要什么。写了「重点记录什么」，那几项就会直接进入这个服务的<b>重点记录</b>——不用再逐个配置。</div>
-      </div>
-
-      <div class="fgroup">
-        <label class="lbl">专家<span class="opt">选填 · 可以后面再加</span></label>
-        <div class="picker">
-          <span class="pickchip"><span class="av">招</span>招生顾问<button class="x" data-noop>✕</button></span>
-          <span class="pickchip"><span class="av">教</span>教务主管<button class="x" data-noop>✕</button></span>
-          <button class="addchip" data-noop>＋ 添加专家</button>
-        </div>
-      </div>
-
-      <div class="fgroup">
-        <label class="lbl">知识库<span class="opt">选填 · 服务内所有专家共享</span></label>
-        <div class="picker">
-          <span class="pickchip"><span class="av">园</span>园所制度手册<button class="x" data-noop>✕</button></span>
-          <span class="pickchip"><span class="av">招</span>招生话术库<button class="x" data-noop>✕</button></span>
-          <button class="addchip" data-noop>＋ 选择知识库</button>
-        </div>
-        <div class="hint">这里选一次，服务里所有专家都能用；不用给每个专家各配一遍。</div>
+        <label class="lbl">描述<span class="opt">选填</span></label>
+        <textarea class="field" style="min-height:86px">跟进果果家的到访与报名，语气亲切，重点记录家长顾虑与到访意向。</textarea>
+        <div class="hint">一句话说这个服务是干什么的。<b>客户、场景、专家、知识库都已在后台配置好</b>（方案 §0.6），这里不用再选；要调整找管理员。</div>
       </div>
     </div>
 
@@ -955,7 +914,7 @@ function createView(){
         <button class="btn pri" data-scene="space">创建服务</button>
       </div>
     </div>
-    <div class="note brand" style="margin-top:4px">点「创建服务」后<b>直接进入服务空间</b>开始工作 —— 不再弹蓝图确认。</div>
+    <div class="note brand" style="margin-top:4px">点「创建服务」后<b>直接进入服务空间</b>开始工作 —— 不再弹蓝图确认。场景模板、专家与知识库的绑定在<b>后台 › 服务配置</b>维护。</div>
   </div>`;
 }
 
@@ -964,13 +923,14 @@ function createView(){
    ═══════════════════════════════════════════════════════ */
 function spaceView(panel, moreOpen, sel, collabOpen, empty){
   return `
-  <div class="annoline">方案 §4.3 + §3 支柱 4：服务头从 <b>9 个入口</b>收到 <b>3 个</b>（产物 / 待办 / ⋯）；「来源」<b>撤出服务头</b>（不做输入框 chip，v1.9 复核；输入框上方的「已带入」chip 已随之删除，v1.14），管理落点收进 <b>服务设置 › 资料</b>；「⋯」改为<b>两级</b>（服务本身 / 更多 ›）；状态徽标只在非进行中时显示。<b>v1.14 追加</b>：<b>＋ = 新建会话</b>（§4.3 定位"天天要点"）——点击<b>不弹窗、不跳新增页</b>，直接把对话区切到<b>新会话空态</b>：3 条建议问题从<b>工作指令</b>生成（§4.4），输入框可用。<b>v1.16 追加</b>：＋ 从服务头<b>移到左侧服务行</b>——平时该位置显示会话计数，<b>悬停服务行时计数换成 ＋</b>（聊天软件惯用交互）；服务头收敛为 产物 / 待办 / ⋯ 三个控件，从列表页悬停任意服务行也能直接开新会话。</div>
+  <div class="annoline">方案 §4.3 + §3 支柱 4：服务头从 <b>9 个入口</b>收到 <b>3 个</b>（文件 / 待办 / ⋯）；「来源」<b>撤出服务头</b>（不做输入框 chip，v1.9 复核；输入框上方的「已带入」chip 已随之删除，v1.14），管理落点收进 <b>服务设置 › 资料</b>；「⋯」改为<b>两级</b>（服务本身 / 更多 ›）；状态徽标只在非进行中时显示。<b>v1.14 追加</b>：<b>＋ = 新建会话</b>（§4.3 定位"天天要点"）——点击<b>不弹窗、不跳新增页</b>，直接把对话区切到<b>新会话空态</b>：3 条建议问题从<b>工作指令</b>生成（§4.4），输入框可用。<b>v1.16 追加</b>：＋ 从服务头<b>移到左侧服务行</b>——平时该位置显示会话计数，<b>悬停服务行时计数换成 ＋</b>（聊天软件惯用交互）；服务头收敛为 文件 / 待办 / ⋯ 三个控件，从列表页悬停任意服务行也能直接开新会话。<b>v1.28 追加</b>：左侧产品边栏<b>不再展示会话记录</b>（原来服务行下面的会话列表与「还有 3 个 ›」删除）；会话列表收进服务头——「文件」左侧新增<b>历史会话 icon（◷）</b>，点击弹出本服务的历史会话菜单，点选切换会话、当前会话打 ✓。<b>v1.31 追加</b>：<b>空会话内容区 = 服务概览</b>——无会话 / 新会话态不再显示占位空态与建议问题，直接铺概览三卡（当前进展 / 家长与学员 / 最近动态），先让人看到「这一家现在怎么样」再开口；<b>用户发出第一句话后概览隐藏，收进服务头右上角「概览」按钮（◫ 浮层，与 文件 / 待办 同机制）</b>；整页（设置 / 概览 / 动态）服务头标题回落为服务名。<b>v1.32 追加（本版）</b>：<b>用户信息（家长与学员）与动态信息（最近动态）改到右侧常驻栏，一直显示</b>——不再是「收进按钮、按需点开」；◫ 概览按钮与概览浮层随之删除，空会话内容区只留「当前进展」（信息只出现一次），文件 / 待办浮层左移避让。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
       ${serviceHead({ service:'s1' }, panel, moreOpen)}
       <div class="workbench">
         ${empty ? chatEmpty('void') : state.newChat ? chatEmpty('new') : chatColumn()}
+        ${inforail()}
         ${panel === 'artifacts' ? artifactPanel(sel) : ''}
         ${panel === 'reminders' ? reminderPanel(collabOpen) : ''}
       </div>
@@ -983,11 +943,11 @@ function spaceView(panel, moreOpen, sel, collabOpen, empty){
    ═══════════════════════════════════════════════════════ */
 function settingsView(){
   return `
-  <div class="annoline">方案 §4.5 + §3 支柱 3：设置从 <b>320px 浮层里塞 3 段</b>改为<b>整页分区</b>（v1.10 删掉运行记录 / 高级、v1.13 专家并入基本信息后为 <b>4 分区</b>）；配置项<b>不再要求填 key</b>；补齐基本信息 / 成员 / 专家三个<b>有接口没界面</b>的分区（v1.11 补成员、v1.12 补基本信息与专家）。<b>v1.3 追加</b>：原「概览字段」（界面已改叫<b>「重点记录」</b>——"字段"是数据库词汇，园所老师不这么说话）从「名称 + 必填 + 删除」表格改为<b>场景化推荐 chips + 标签管理 + 右侧实时预览</b>——「必填」是后端零消费的死控件，直接删；名字决定 AI 抽取命中率，推荐项按家长原话起名。<b>v1.7 追加</b>：「资料」从导航占位做成<b>真面板</b>（左侧可点击切换）——承接撤销带入的唯一落点。<b>v1.11 追加</b>：<b>「成员」也做成真面板</b>（加人做成人选择器，不出现 user_id）。<b>v1.8 追加</b>：「待办配置」分区<b>整体撤下</b>——待办是通用概念，状态不需要配置：<b>AI 自动生成</b>（默认 4 态：待处理 / 进行中 / 已完成 / 已取消；工作指令点名的阶段由 AI 补充，与「重点记录」同一条派生链路）；状态流转的说明收进<b>待办浮层底部</b>。后端依据：迁移 000113 的默认状态机有 <b>9 态 + 流转表</b>，把 AI 提案生命周期（候选 / 已生成 / 待重算）混进了用户待办——需收窄到 4 个用户态。<b>v1.10 追加</b>：「<b>运行记录</b>」「<b>高级</b>」两个分区<b>整体删除</b>（含 ⋯ → 更多 里的运行记录入口）——运行记录只有单条 <code>/:run_id</code> 路由、没有列表接口；高级里真正有内容的只有"自定义待办状态"；<b>更正（2026-10-06）</b>：<code>service_reminder_statuses</code> 的 CRUD 接口其实是<b>齐的</b>（<code>router.go:1615-1620</code>，含 transitions），不做入口是<b>产品取舍</b>、不是后端撑不住。蓝图重生成随之不设界面入口，改结构走「改工作指令 → 按新指令重新推荐」。<b>v1.12 追加</b>：「<b>基本信息</b>」「<b>专家</b>」也做成<b>真面板</b>，不再有"点了没反应"的分区；同时顶栏加<b>版本戳</b>，用来一眼判断页面是不是缓存的旧文件。<b>v1.13 追加</b>：「<b>专家</b>」不再单列导航项，<b>并入「基本信息」</b>（两者都是"这个服务是什么"的属性，一次保存说完）——至此为 <b>4 分区</b>：设置〔基本信息〕· 工作方式〔重点记录 / 资料〕· 共享〔成员〕。</div>
+  <div class="annoline">方案 §4.5 + §3 支柱 3：设置从 <b>320px 浮层里塞 3 段</b>改为<b>整页分区</b>（v1.10 删掉运行记录 / 高级、v1.13 专家并入基本信息后为 <b>4 分区</b>）；配置项<b>不再要求填 key</b>；补齐基本信息 / 成员 / 专家三个<b>有接口没界面</b>的分区（v1.11 补成员、v1.12 补基本信息与专家）。<b>v1.30 追加</b>：基本信息<b>精简为「名称 + 一句话说明」可编辑 + 「客户信息」只读</b>——「工作指令」与「专家」移出服务设置、归<b>后台 › 服务配置</b>统一维护（创建表单 v1.25 同口径）。<b>v1.3 追加</b>：原「概览字段」（界面已改叫<b>「重点记录」</b>——"字段"是数据库词汇，园所老师不这么说话）从「名称 + 必填 + 删除」表格改为<b>场景化推荐 chips + 标签管理 + 右侧实时预览</b>——「必填」是后端零消费的死控件，直接删；名字决定 AI 抽取命中率，推荐项按家长原话起名。<b>v1.7 追加</b>：「资料」从导航占位做成<b>真面板</b>（左侧可点击切换）——承接撤销带入的唯一落点。<b>v1.11 追加</b>：<b>「成员」也做成真面板</b>（加人做成人选择器，不出现 user_id）。<b>v1.8 追加</b>：「待办配置」分区<b>整体撤下</b>——待办是通用概念，状态不需要配置：<b>AI 自动生成</b>（默认 4 态：待处理 / 进行中 / 已完成 / 已取消；工作指令点名的阶段由 AI 补充，与「重点记录」同一条派生链路）；状态流转的说明收进<b>待办浮层底部</b>。后端依据：迁移 000113 的默认状态机有 <b>9 态 + 流转表</b>，把 AI 提案生命周期（候选 / 已生成 / 待重算）混进了用户待办——需收窄到 4 个用户态。<b>v1.10 追加</b>：「<b>运行记录</b>」「<b>高级</b>」两个分区<b>整体删除</b>（含 ⋯ → 更多 里的运行记录入口）——运行记录只有单条 <code>/:run_id</code> 路由、没有列表接口；高级里真正有内容的只有"自定义待办状态"；<b>更正（2026-10-06）</b>：<code>service_reminder_statuses</code> 的 CRUD 接口其实是<b>齐的</b>（<code>router.go:1615-1620</code>，含 transitions），不做入口是<b>产品取舍</b>、不是后端撑不住。蓝图重生成随之不设界面入口，改结构走「改工作指令 → 按新指令重新推荐」。<b>v1.12 追加</b>：「<b>基本信息</b>」「<b>专家</b>」也做成<b>真面板</b>，不再有"点了没反应"的分区；同时顶栏加<b>版本戳</b>，用来一眼判断页面是不是缓存的旧文件。<b>v1.13 追加</b>：「<b>专家</b>」不再单列导航项，<b>并入「基本信息」</b>（两者都是"这个服务是什么"的属性，一次保存说完）——至此为 <b>4 分区</b>：设置〔基本信息〕· 工作方式〔重点记录 / 资料〕· 共享〔成员〕。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
-      ${serviceHead({ service:'s1' }, '', false)}
+      ${serviceHead({ service:'s1' }, 'page', false)}
       <div class="settings">
         <nav class="setnav">
           <div class="sngroup">设置</div>
@@ -1078,42 +1038,29 @@ function sourcesSec(){
           </div>`;
 }
 
-/* ── 设置 › 基本信息（v1.12 新增、v1.13 并入「专家」）：名称 / 说明 / 工作指令 + 专家 ── */
+/* ── 设置 › 基本信息（v1.12 新增、v1.13 并入「专家」、v1.30 精简）：名称 / 说明可编辑 + 客户信息只读；工作指令 / 专家移后台 › 服务配置 ── */
 function basicSec(){
   return `
           <h2>基本信息</h2>
-          <p class="sub">这个服务叫什么、干什么用的、谁在里面干活。改完点保存，之后的对话就按新的来。</p>
+          <p class="sub">这个服务叫什么、干什么用的。改完点保存，之后的对话就按新的来。</p>
           <div class="ovbox">
             <div class="ovsec">服务名称</div>
-            <input class="field" value="果果家 2026 秋季招生" />
+            <input class="field" value="果果家" />
+            <div class="hint" style="margin-top:5px">服务名就是这个家庭的名字，列表卡片、会话标题都用它。</div>
             <div class="ovsec">一句话说明</div>
             <input class="field" value="跟进到访意向家庭，把顾虑与进展记下来" />
-            <div class="ovsec">工作指令</div>
-            <textarea class="field" style="min-height:92px">跟进 2026 秋季招生线索，语气亲切，重点记录家长顾虑与到访意向。</textarea>
-            <div class="hint">指令里点名「重点记录 X」时，X 会成为 重点记录 里的项（带「指令」角标）。<b>改指令不会自动重算已配好的项</b>——要重算，去 重点记录 点「↻ 按新指令重新推荐」。</div>
           </div>
           <div class="ovbox" style="margin-top:14px">
-            <div class="ovsec">专家 · 已绑定 2 位（来自园所专家库）</div>
+            <div class="ovsec">客户信息 · 后台维护</div>
             <div class="srcrow">
-              <span class="mavatar">招</span>
-              <span class="meta"><b>招生增长顾问</b><small>招生增长</small></span>
-              <button class="rm" data-noop>移出</button>
+              <span class="mavatar">果</span>
+              <span class="meta"><b>果果家</b><small>果果 · 中班插班 · 主班 李老师</small></span>
             </div>
-            <div class="srcrow">
-              <span class="mavatar">家</span>
-              <span class="meta"><b>家长沟通教练</b><small>家长服务</small></span>
-              <button class="rm" data-noop>移出</button>
-            </div>
-            <div class="ovsec">从园所专家库加</div>
-            <div class="ovadd">
-              <input class="field" placeholder="搜索专家名称或领域" />
-              <button class="btn sm" data-noop>加入</button>
-            </div>
-            <div class="hint" style="margin:10px 0 0">加进来的专家会出现在 <b>服务对象</b> 的专家标签里，产出也按各自擅长的领域归口。</div>
+            <div class="hint" style="margin:9px 0 0">客户绑定与重要信息（学员 · 班级 · 主班老师）由管理员在<b>后台 › 服务配置</b>维护，这里只读；列表卡片与概览展示的就是这行信息。</div>
           </div>
-          <div class="ovadd" style="margin-top:14px"><button class="btn sm" data-noop>保存</button><span class="hint" style="margin:6px 0 0">两部分一起保存；改完立即生效，不改动已有的会话记录</span></div>
+          <div class="ovadd" style="margin-top:14px"><button class="btn sm" data-noop>保存</button><span class="hint" style="margin:6px 0 0">改完立即生效，不改动已有的会话记录</span></div>
           <div class="annoline" style="margin-top:14px">
-            <b>v1.13 · 基本信息（并入「专家」）：</b>「专家」原先是独立导航项（v1.12 补做），现<b>并入基本信息</b>——两者都是"这个服务是什么"的属性，一次说完更顺手。这一屏对应<b>两个</b>接口：① <code>PUT /:service_id</code>（<code>router.go:1566-1567</code>）管名称 / 说明 / 工作指令，入参 <code>ServiceSpaceUpdateInput</code>（<code>types/service_space.go:283-293</code>）全是<b>可选指针字段</b>——<code>Name / Description / Instruction / KnowledgeBaseIDs / SelectedSkills / CampusScope / CourseScope / Visibility / MemberLimit</code>，只传要改的（原型只演示前三项）；② <code>GET / PUT /:service_id/experts</code>（<code>router.go:1600-1601</code>）管专家绑定。注意<b>专家这个 PUT 是整体替换</b>：handler 名 <code>ReplaceExperts</code>（<code>handler/service_space.go:437-455</code>），入参 <code>{experts:[...]}</code>，提交的必须是"改完之后的完整列表"，<b>不是增量追加</b>——实现时最容易踩。绑定实体 <code>ServiceExpertBinding</code>（<code>types/service_space.go:158-177</code>）除 <code>expert_ref / expert_name / expert_domain</code> 外还有 <code>enabled</code>（可单独关掉，不必移出）、<code>display_order</code>、<code>instruction_override</code>、<code>work_doc_directory</code>、<code>output_policy</code>、<code>memory_filter</code>——<b>后 4 项即方案 §4.5 说的"收窄配置"，原型不展开</b>；候选来自园所专家库 <code>org.GET("/experts")</code>（<code>router.go:1507</code>）。工作指令是这个服务里<b>唯一影响 AI 行为的自由文本</b>，也是 重点记录 与待办状态的派生源（<code>buildInstructionBlueprint</code>，<code>service_space.go:2146</code>）。<b>界面不出现 expert_ref</b>——与成员不出现 user_id 一致（支柱 3：机器键撤出界面）。
+            <b>v1.30 · 基本信息精简：</b>「工作指令」与「专家」两块<b>移出服务设置</b>，归<b>后台 › 服务配置</b>统一维护（创建表单 v1.25 同口径：前端只管"叫什么、干什么用"）；新增<b>「客户信息」只读块</b>（学员 · 班级 · 主班老师，§0.6 客户口径，与列表卡片展示同源）。<b>v1.13 · 基本信息（并入「专家」）：</b>「专家」原先是独立导航项（v1.12 补做），曾并入基本信息——两者都是"这个服务是什么"的属性。接口对应关系保留备查：① <code>PUT /:service_id</code>（<code>router.go:1566-1567</code>）管名称 / 说明 / 工作指令，入参 <code>ServiceSpaceUpdateInput</code>（<code>types/service_space.go:283-293</code>）全是<b>可选指针字段</b>——<code>Name / Description / Instruction / KnowledgeBaseIDs / SelectedSkills / CampusScope / CourseScope / Visibility / MemberLimit</code>，只传要改的；② <code>GET / PUT /:service_id/experts</code>（<code>router.go:1600-1601</code>）管专家绑定，<b>PUT 是整体替换</b>（handler 名 <code>ReplaceExperts</code>，<code>handler/service_space.go:437-455</code>），提交的必须是"改完之后的完整列表"。工作指令是这个服务里<b>唯一影响 AI 行为的自由文本</b>，也是 重点记录 与待办状态的派生源（<code>buildInstructionBlueprint</code>，<code>service_space.go:2146</code>）——指令与专家改动收口到后台后，前端该分区不再提交这两个字段。<b>界面不出现 expert_ref</b>——与成员不出现 user_id 一致（支柱 3：机器键撤出界面）。
           </div>`;
 }
 
@@ -1151,7 +1098,7 @@ function membersSec(){
               <button class="rsel" data-noop>可编辑 ▾</button>
               <button class="btn sm" data-noop>加入</button>
             </div>
-            <div class="hint" style="margin:10px 0 0">四种角色：<b>主人</b>——创建者，唯一，不能改也不能移出；<b>管理员</b>——能加人、能改这个服务的设置；<b>可编辑</b>——能干活（发消息、建会话、出产物），不能改设置；<b>只看</b>——只能看，不能动手。</div>
+            <div class="hint" style="margin:10px 0 0">四种角色：<b>主人</b>——创建者，唯一，不能改也不能移出；<b>管理员</b>——能加人、能改这个服务的设置；<b>可编辑</b>——能干活（发消息、建会话、出文件），不能改设置；<b>只看</b>——只能看，不能动手。</div>
           </div>
           <div class="annoline" style="margin-top:14px">
             <b>v1.11 · 成员面板（每一条都有代码依据）：</b>接口早就齐了，只是界面上一直没有入口——<code>GET / POST / PUT / DELETE /:service_id/members</code>（<code>router.go:1595-1598</code>）。三条必须遵守的规矩来自后端：① <b>主人不可改、不可移</b>——<code>UpdateMemberRole</code> 对 owner 直接返回 <code>ErrServiceSpaceOwnerImmutable</code>（<code>service_space.go:2739</code>），<code>AddMember</code> 也禁止把谁加成 owner（<code>:2695</code>），所以主人那行是<b>只读标签</b>而不是选择器；② <b>加人、改角色要「管理员」以上</b>（<code>:2690</code> / <code>:2730</code> 走 <code>Authorize(..., Admin, true)</code>）——可编辑 / 只看的人进这一页应当是<b>只读</b>；③ <b>人数有上限</b>：<code>service.MemberLimit</code> 默认 20（<code>types/service_space.go:70</code>），超限报 <code>ErrServiceSpaceMemberLimit</code>（<code>:2700-2703</code>），所以标题带 <code>4 / 20</code>。角色四值与先后由建表 CHECK 与排序函数定死：<code>owner / admin / editor / viewer</code>（迁移 <code>000105</code> 的 <code>chk_service_members_role</code>），权限按 <code>ServiceMemberRoleRank</code> 4&gt;3&gt;2&gt;1 比较（<code>types/service_space.go:341</code>）。<b>关键取舍：界面不出现 user_id</b>——后端入参是 <code>ServiceMemberInput{UserID, Role}</code>（<code>types/service_space.go:309</code>），但界面必须做成人选择器，候选取自园所成员（<code>GET /api/v1/tenants/:id/members</code>，<code>api/tenant/members.ts:200</code>），这是支柱 3「机器键撤出界面」在成员上的落点。另：<code>ListMembers</code> 支持 <code>status=left</code>（<code>service_space.go:2667</code>），已退出的人可查历史，本面板默认不展示。
@@ -1159,46 +1106,41 @@ function membersSec(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   场景 5 · 服务概览 / 服务对象（⋯ → 更多 的两个落点）
-   ═══════════════════════════════════════════════════════ */function overviewView(){
+   场景 5 · 服务概览（⋯ → 更多；「服务对象」整页在 v1.24 删除，见 §0.6）
+   ═══════════════════════════════════════════════════════ *//* v1.32：概览卡拆成三个独立组件 + overviewCards() 组合，复用点——服务概览整页、空会话内容区、右侧常驻栏（家长与学员 + 最近动态） */
+function progressCard(){
   return `
-  <div class="annoline warn">方案 §3 支柱 2：原来的「档案 × 摘要」两个常驻入口合并为<b>一个服务概览</b>，收进 <b>⋯ → 更多</b>。摘要用<b>自然语言</b>说，不再展示 <code>refresh_policy</code> 这类字段。</div>
-  <div class="product">
-    ${productSidebar({ service:'s1', session:'c1' })}
-    <div class="pmain">
-      ${serviceHead({ service:'s1' }, '', false)}
-      <div class="setbody" style="padding:22px 26px;overflow-y:auto">
-        <div style="max-width:720px">
-          <h2 style="font-size:16px;margin:0 0 4px">服务概览</h2>
-          <p class="sub" style="margin-bottom:18px">按你说的，我把这个服务的重点放在<b>进展、风险、下一步动作</b>上。</p>
-
-          <div class="card" style="padding:15px 17px;margin-bottom:14px">
+          <div class="card" style="padding:15px 17px">
             <div class="sechead" style="margin:0 0 10px">
               <span class="st">当前进展</span>
               <div class="tools"><button class="btn sm" data-noop>刷新</button></div>
             </div>
             <div style="font-size:13px;line-height:1.85;color:var(--t1)">
-              <p style="margin:0 0 9px">9 月共进入 <b>16 条</b>招生线索，其中东苑分园 5 条。本周新增 <b>4 条明确意向</b>，主要来自体验课后家长转介绍。</p>
-              <p style="margin:0 0 9px"><b>需要留意：</b>周三下午的时段冲突被 9 位家长提到，是当前最集中的顾虑；另有时段已满 2 位家长在等位。</p>
-              <p style="margin:0">下一步：推进 3 个待回访家庭，并确认 10 月体验课排期。</p>
+              <p style="margin:0 0 9px">果果家 9 月 12 日首次到访，到现在已经到访 <b>3 次</b>，意向从「考虑中」变为<b>明确意向</b>，妈妈最在意周三下午的时段安排。目前还有 <b>2 条待处理</b>。</p>
+              <p style="margin:0 0 9px"><b>需要留意：</b>周三下午的时段冲突在 2 次面谈里都被提到，是这一家最大的顾虑；价格问题已经用园所补贴口径回应过一次。</p>
+              <p style="margin:0">下一步：回访确认周三时段能否调整，并邀约 10 月体验课。</p>
             </div>
-          </div>
-
+          </div>`;
+}
+function familyCard(){
+  return `
           <div class="card" style="padding:15px 17px">
             <div class="sechead" style="margin:0 0 12px">
-              <span class="st">服务对象档案</span>
+              <span class="st">家长与学员（果果家）</span>
               <div class="tools"><span style="font-size:11.5px;color:var(--t3)">要重点记哪些，在 服务设置 › 重点记录 里配</span></div>
             </div>
-            <div class="fgrid" style="border-radius:var(--r-l)">
-              ${FIELDS.map(f => `
-                <div class="frow" style="grid-template-columns:150px 1fr;cursor:pointer">
-                  <span style="font-size:12.5px;color:var(--t3)">${esc(f.label)}${f.req ? '<span style="color:var(--error)">*</span>' : ''}</span>
-                  <span style="font-size:13px;color:var(--t1)">${esc({'学员等级':'大班 · 在读 2 年','主班老师':'陈老师','到访次数':'3 次','家长关注点':'时段冲突、价格'}[f.label] || '—')}</span>
+            <div class="fgrid f2" style="border-radius:var(--r-l)">
+              ${[['学员','果果 · 中班插班'],['主班老师','陈老师'],['到访次数','3 次'],['家长关注点','时段冲突、价格']].map(p => `
+                <div class="frow">
+                  <span style="font-size:12.5px;color:var(--t3)">${p[0]}</span>
+                  <span style="font-size:13px;color:var(--t1)">${esc(p[1])}</span>
                 </div>`).join('')}
             </div>
-          </div>
-
-          <div class="card" style="padding:15px 17px;margin-top:14px">
+          </div>`;
+}
+function activityCard(){
+  return `
+          <div class="card" style="padding:15px 17px">
             <div class="sechead" style="margin:0 0 10px">
               <span class="st">最近动态</span>
               <div class="tools"><button class="btn sm" data-scene="activity">查看全部 ›</button></div>
@@ -1206,111 +1148,97 @@ function membersSec(){
             <div class="tlline">
               <div class="tlitem sub">
                 <span class="tdot">●</span>
-                <div class="tmain"><b>果果家</b> · <b>家长关注点</b> <span class="tlfrom">时段冲突</span> → <span class="tlval">时段冲突、价格</span></div>
-                <div class="tmeta"><span>今天 10:12</span><span class="src" data-noop>依据：会话「跟进东苑分园意向家庭」</span></div>
+                <div class="tmain"><b>家长关注点</b> <span class="tlfrom">时段冲突</span> → <span class="tlval">时段冲突、价格</span></div>
+                <div class="tmeta"><span>今天 10:12</span><span class="src" data-noop>依据：会话「与果果妈妈聊周三时段」</span></div>
               </div>
               <div class="tlitem sub">
                 <span class="tdot">●</span>
-                <div class="tmain"><b>果果家</b> · <b>到访次数</b> <span class="tlfrom">2 次</span> → <span class="tlval">3 次</span></div>
-                <div class="tmeta"><span>今天 09:47</span><span class="src" data-noop>依据：本周家长顾虑归纳</span></div>
+                <div class="tmain"><b>到访次数</b> <span class="tlfrom">2 次</span> → <span class="tlval">3 次</span></div>
+                <div class="tmeta"><span>今天 09:47</span><span class="src" data-noop>依据：家长顾虑归纳（果果家）</span></div>
               </div>
               <div class="tlitem act" style="padding-bottom:0">
                 <span class="tdot">＋</span>
-                <div class="tmain">新增服务对象 <b>乐乐妈妈</b></div>
-                <div class="tmeta"><span>昨天 18:20</span><span>李老师 加</span></div>
+                <div class="tmain"><b>意向等级</b> <span class="tlfrom">考虑中</span> → <span class="tlval">明确意向</span></div>
+                <div class="tmeta"><span>昨天 18:20</span><span>李老师 记</span></div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>`;
+          </div>`;
+}
+function overviewCards(){
+  return progressCard() + familyCard() + activityCard();
+}
+/* v1.32：右侧常驻信息栏——用户信息（家长与学员）+ 动态信息（最近动态）一直显示 */
+function inforail(){
+  return `
+      <aside class="inforail">
+        ${familyCard()}
+        ${activityCard()}
+      </aside>`;
 }
 
-function subjectsView(){
+function overviewView(){
   return `
-  <div class="annoline">方案 §3 支柱 3：「服务主体」改名<b>服务对象</b>，从常驻入口降为 <b>⋯ → 更多</b>；创建时<b>只填名称</b> —— <code>subject_type</code> 默认 <code>custom</code>、<code>subject_key</code> 由后端生成，界面不出现。</div>
+  <div class="annoline warn">方案 §3 支柱 2：原来的「档案 × 摘要」两个常驻入口合并为<b>一个服务概览</b>，收进 <b>⋯ → 更多</b>。摘要用<b>自然语言</b>说，不再展示 <code>refresh_policy</code> 这类字段。<b>v1.24（§0.6 一服务一客户）</b>：概览就是「这一家」的全貌——「服务对象档案」改为<b>客户信息</b>（学员 / 班级 / 主班老师），动态行不再重复家庭名。<b>v1.31 追加</b>：概览三卡抽成 <code>overviewCards()</code>，同一份内容三处复用——本整页、<b>空会话内容区</b>、会话态右上角<b>「概览」浮层</b>。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
-      ${serviceHead({ service:'s1' }, '', false)}
+      ${serviceHead({ service:'s1' }, 'page', false)}
       <div class="setbody" style="padding:22px 26px;overflow-y:auto">
         <div style="max-width:720px">
-          <div class="sechead">
-            <span class="st" style="font-size:16px">服务对象</span>
-            <div class="tools"><button class="btn pri sm" data-noop>＋ 添加对象</button></div>
-          </div>
-          <p class="sub">这个服务正在围着谁开展工作。可以是家庭、班级、园区，按你的习惯建就行。</p>
+          <h2 style="font-size:16px;margin:0 0 4px">服务概览</h2>
+          <p class="sub" style="margin-bottom:18px">按你说的，我把这个服务的重点放在<b>进展、风险、下一步动作</b>上。</p>
 
-          <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(216px,1fr))">
-            ${[
-              ['果果家','大班 · 在读 2 年','3 次到访'],
-              ['朵朵家','中班 · 在读 1 年','1 次到访'],
-              ['小宝家','新生 · 待入园','2 次到访'],
-              ['东苑 · 米米家','大班 · 在读 2 年','1 次到访'],
-              ['东苑 · 乐乐家','中班 · 在读 1 年','2 次到访']
-            ].map(([n,m,x]) => `
-              <div class="scard" style="cursor:pointer">
-                <div class="top"><span class="ic">◍</span><span class="nm">${esc(n)}</span><span class="dots" data-noop>⋯</span></div>
-                <div class="tags"><span class="tag">${esc(m)}</span></div>
-                <div class="mt" style="border-top:none;padding-top:2px"><span>${esc(x)}</span><span>2 个待办</span></div>
-              </div>`).join('')}
-          </div>
-
-          <div class="note gray" style="margin-top:18px">
-            <b>对比现状：</b>现在的「主体」表单要填<b>主体类型</b>（示例 <code>member_family</code>）和<b>唯一标识</b>（示例 <code>member-001</code>）三个输入框，等于要求园长先理解表设计。优化后只需要一个"叫什么"。
+          <div class="ovstack">
+          ${overviewCards()}
           </div>
         </div>
       </div>
     </div>
   </div>`;
 }
+
+/* 「服务对象」整页已在 v1.24 删除（§0.6 一服务一客户）：客户与服务的绑定在后台配置（v1.25 起前端创建不选客户），一个服务只服务一个家庭。 */
 
 /* ═══════════════════════════════════════════════════════
    场景 6.5 · 服务动态（v1.15：时间线，收进 ⋯ → 更多；服务概览底部嵌 3 条）
    ═══════════════════════════════════════════════════════ */
 function activityView(){
   return `
-  <div class="annoline">方案 §3 支柱 2 + §6：<b>动态</b>用一条时间线统计这个空间里的变化——重点是<b>服务对象（主体）身上发生的变化</b>。数据源不是新表：主体字段变化读 append-only 的 <code>service_facts</code>（带 <code>subject_id</code> / <code>fact_key</code> / <code>evidence</code> / 可回链来源），空间级动作读审计 <code>audit_logs</code> 里已经在你写库时发出的 <code>service.*</code> 事件。入口收进 <b>⋯ → 更多</b>，服务概览底部嵌最近 3 条。<b>v1.19 追加</b>：待办<b>只把终态记进来</b>——「已完成 / 已取消」各出一条（如右，昨天那条）；「待处理 → 进行中」这类过程翻转<b>不记</b>，对回顾没价值、只会刷屏。数据源用真历史表 <code>service_reminder_history</code>（<code>service_id</code> 是一等索引列，比审计 JSONB 还干净；写入点 <code>service_reminder.go:110/134/224</code>），缺的只是<b>服务级 history 列表查询</b>——现有只有单条待办的 <code>GET /:reminder_id/history</code>（<code>router.go:1631</code>）。</div>
+  <div class="annoline">方案 §3 支柱 2 + §6：<b>动态</b>用一条时间线统计这个空间里的变化——重点是<b>客户（这一家）身上发生的变化</b>（v1.24 一服务一客户，服务本身就是这一家，不再有"按对象筛"）。数据源不是新表：主体字段变化读 append-only 的 <code>service_facts</code>（带 <code>subject_id</code> / <code>fact_key</code> / <code>evidence</code> / 可回链来源），空间级动作读审计 <code>audit_logs</code> 里已经在你写库时发出的 <code>service.*</code> 事件。入口收进 <b>⋯ → 更多</b>，服务概览底部嵌最近 3 条。<b>v1.19 追加</b>：待办<b>只把终态记进来</b>——「已完成 / 已取消」各出一条（如右，昨天那条）；「待处理 → 进行中」这类过程翻转<b>不记</b>，对回顾没价值、只会刷屏。数据源用真历史表 <code>service_reminder_history</code>（<code>service_id</code> 是一等索引列，比审计 JSONB 还干净；写入点 <code>service_reminder.go:110/134/224</code>），缺的只是<b>服务级 history 列表查询</b>——现有只有单条待办的 <code>GET /:reminder_id/history</code>（<code>router.go:1631</code>）。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
-      ${serviceHead({ service:'s1' }, '', false)}
+      ${serviceHead({ service:'s1' }, 'page', false)}
       <div class="setbody" style="padding:22px 26px;overflow-y:auto">
         <div style="max-width:760px">
           <div class="sechead" style="margin:0 0 6px">
             <div><h2 style="font-size:16px;margin:0 0 4px">动态</h2>
-              <p class="sub" style="margin:0">这个服务里发生过的变化，按时间倒序。<b>主体身上的变化</b>优先，其次是与这个空间有关的动作。</p></div>
+              <p class="sub" style="margin:0">这个服务里发生过的变化，按时间倒序。<b>这一家身上的变化</b>优先，其次是与这个空间有关的动作。</p></div>
             <div class="tools"><button class="btn sm" data-noop>刷新</button></div>
           </div>
 
           <div class="tlfilters">
             <span class="tlchip on" data-noop>全部</span>
-            <span class="tlchip" data-noop>只看主体变化</span>
+            <span class="tlchip" data-noop>只看这一家的变化</span>
             <span class="tlchip" data-noop>只看空间动作</span>
-            <span style="font-size:11.5px;color:var(--t3);margin-left:2px">主体：</span>
-            <span class="tlchip on" data-noop>果果家</span>
-            <span class="tlchip" data-noop>乐乐妈妈</span>
-            <span class="tlchip" data-noop>东苑分园</span>
-            <span class="tlchip" data-noop>不限</span>
           </div>
 
           <div class="tlday">今天 · 10 月 6 日</div>
           <div class="tlline">
             <div class="tlitem sub">
               <span class="tdot">●</span>
-              <div class="tmain"><b>果果家</b> · <b>家长关注点</b> <span class="tlfrom">时段冲突</span> → <span class="tlval">时段冲突、价格</span></div>
-              <div class="tmeta"><span>10:12</span><span class="src" data-noop>依据：会话「跟进东苑分园意向家庭」</span><span>招生顾问 记</span></div>
+              <div class="tmain"><b>家长关注点</b> <span class="tlfrom">时段冲突</span> → <span class="tlval">时段冲突、价格</span></div>
+              <div class="tmeta"><span>10:12</span><span class="src" data-noop>依据：会话「与果果妈妈聊周三时段」</span><span>招生顾问 记</span></div>
             </div>
             <div class="tlitem sub">
               <span class="tdot">●</span>
-              <div class="tmain"><b>果果家</b> · <b>到访次数</b> <span class="tlfrom">2 次</span> → <span class="tlval">3 次</span></div>
-              <div class="tmeta"><span>09:47</span><span class="src" data-noop>依据：本周家长顾虑归纳</span><span>王园长 记</span></div>
+              <div class="tmain"><b>到访次数</b> <span class="tlfrom">2 次</span> → <span class="tlval">3 次</span></div>
+              <div class="tmeta"><span>09:47</span><span class="src" data-noop>依据：家长顾虑归纳（果果家）</span><span>王园长 记</span></div>
             </div>
             <div class="tlitem act">
               <span class="tdot">▤</span>
-              <div class="tmain">产物 <b>秋季招生线索跟进表.xlsx</b> 更新到 v2（16 条）</div>
-              <div class="tmeta"><span>09:40</span><span>招生顾问</span><span class="src" data-noop>查看产物</span></div>
+              <div class="tmain">文件 <b>到访谈单复盘（第 3 次到访）</b> 更新到 v2（3 次到访）</div>
+              <div class="tmeta"><span>09:40</span><span>招生顾问</span><span class="src" data-noop>查看文件</span></div>
             </div>
           </div>
 
@@ -1318,8 +1246,8 @@ function activityView(){
           <div class="tlline">
             <div class="tlitem sub">
               <span class="tdot">＋</span>
-              <div class="tmain">新增服务对象 <b>乐乐妈妈</b>（家长与学员）</div>
-              <div class="tmeta"><span>18:20</span><span class="src" data-noop>来源：整理记录「9 月新签家庭盘点」</span><span>李老师 加</span></div>
+              <div class="tmain"><b>意向等级</b> <span class="tlfrom">考虑中</span> → <span class="tlval">明确意向</span></div>
+              <div class="tmeta"><span>18:20</span><span class="src" data-noop>来源：整理记录「9 月家长盘点」</span><span>李老师 记</span></div>
             </div>
             <div class="tlitem act">
               <span class="tdot">▤</span>
@@ -1328,7 +1256,7 @@ function activityView(){
             </div>
             <div class="tlitem act">
               <span class="tdot">☑</span>
-              <div class="tmain">待办 <b>回访东苑分园 5 位家长</b> <span class="tlval">已完成</span></div>
+              <div class="tmain">待办 <b>发送秋季招生方案给果果妈妈</b> <span class="tlval">已完成</span></div>
               <div class="tmeta"><span>16:05</span><span>陈老师</span><span class="src" data-noop>看这条待办</span></div>
             </div>
           </div>
@@ -1365,12 +1293,12 @@ function diffView(){
   ];
   const rows = [
     ['① 创建后强制弹「确认服务空间蓝图」', '620px 对话框，要求用户确认空间形态 / 主体策略 / 档案字段 N 个 / 首页摘要 N 个模块', '<span class="pill drop">撤出界面</span> 静默生成，蓝图收回后端（v1.10：高级分区已删，界面不设入口）', '跑完只写草稿记录，界面不出现"蓝图"二字'],
-    ['② 服务头 7 个带计数入口', '产物 / 待办 / 来源 / 主体 / 档案 / 摘要 / 设置 并排，同权重', '<span class="pill keep">保留 2</span><span class="pill demote">降级 3</span><span class="pill move">改位置 1</span>', '常驻只剩 产物 / 待办；其余进 ⋯ → 更多'],
+    ['② 服务头 7 个带计数入口', '文件 / 待办 / 来源 / 主体 / 档案 / 摘要 / 设置 并排，同权重', '<span class="pill keep">保留 2</span><span class="pill demote">降级 3</span><span class="pill move">改位置 1</span>', '常驻只剩 文件 / 待办；其余进 ⋯ → 更多'],
     ['③ 320px 浮层装 8 种内容', '设置类表单（字段 key + 名称 + 必填 + 删除 四列）挤在 320px 里', '<span class="pill drop">移出 5 种</span>', '浮层只留"看"的内容；"配"的内容走整页'],
     ['④ 机器键当字段', '<code>subject_type</code>、<code>subject_key</code>、字段 <code>key</code>、状态 <code>key</code>、负责人 <code>user_id</code>', '<span class="pill drop">4 处撤出</span>', '后端按名称生成 key；负责人改成员选择器'],
     ['⑤ 一个组件一条路由', '<code>ServiceHub.vue</code> 3876 行；导航靠 7 个 query 参数', '<span class="pill move">拆 8 个组件 / 6 条路由</span>', '删掉 <code>?action=archive</code> 这类带写副作用的 URL'],
     ['⑥ 面板状态与"换服务要重置 16 个 ref"', 'panel 不进 URL 刷新即丢；切服务人工清 16 个状态', '<span class="pill keep">由组件生命周期承担</span>', '拆组件后自然消失'],
-    ['⑦ 生产代码里的种子数据', '<code>serviceHubState.ts</code> 三处硬编码（服务 / 会话 / 产物）', '<span class="pill drop">删除</span>', '改走真接口 + 设计过的空态'],
+    ['⑦ 生产代码里的种子数据', '<code>serviceHubState.ts</code> 三处硬编码（服务 / 会话 / 文件）', '<span class="pill drop">删除</span>', '改走真接口 + 设计过的空态'],
     ['⑧ 空态从未被设计', '因为总有假数据填充，空态只有一句"还没有服务"', '<span class="pill move">重做三分支</span>', '新用户 / 全归档 / 搜索无结果，文案与出口各不相同'],
     ['⑨ 双轨遗留', '<code>user_work_profiles</code> / <code>work_profile_agent_settings</code> 两张死表 + <code>profile_id</code> 兼容字段', '<span class="pill demote">P4 清理</span>', '代码已无引用，新增迁移 drop'],
     ['⑩ 有接口没界面', '成员 / 专家的接口早就有，界面上没有入口', '<span class="pill keep">补入口</span>', '收进 服务设置 的对应分区'],
@@ -1379,7 +1307,8 @@ function diffView(){
   return `
   <div class="diff">
     <h2>改造对照</h2>
-    <p class="lead">左侧栏的 6 个场景是"改后长什么样"，这一页回答"改了什么、为什么"。逐条对应《服务模块优化方案》§1.3 的五个根因。</p>
+    <p class="lead">左侧栏的 9 个场景是"改后长什么样"，这一页回答"改了什么、为什么"。逐条对应《服务模块开发方案》§1.2 的五个根因（其中蓝图、机器键、入口平铺三个已消解）。</p>
+    <p class="lead" style="color:#9A5B06"><b>口径说明</b>：下表「改前」是<b>本轮优化前</b>的状态。其中蓝图弹窗、服务头 7 个入口、8 种浮层、机器键、业务种子数据等<b>已由 2026-10-06 / 10-07 的提交落地</b>——当前代码的实测口径以《服务模块开发方案》v2.0 的 §1 与 §7 的 ✅ 为准。</p>
 
     <div class="kpis">
       ${kpis.map(([n, b, a, u]) => `
@@ -1418,10 +1347,10 @@ function diffView(){
         <div class="pbox new">
           <ul>
             <li>1. 服务列表 →「＋ 新建服务」</li>
-            <li>2. 填表单：名称 / <b>主要围着谁转（3 选 1）</b> / 指令 / 专家 / 知识库</li>
+            <li>2. 填表单：<b>服务名称 + 描述</b>（v1.25 简化——客户 / 场景 / 专家 / 知识库都在后台配置好）</li>
             <li>3. 点「创建服务」→ <b>直接进服务空间</b>，没有第二个弹窗</li>
-            <li>4. 服务头只有 <b>产物 N · 待办 N · ⋯</b> —— 进来就是在对话里干活</li>
-            <li>5. 想加一个要跟进的家庭 → <b>⋯ → 服务对象 → 只填"叫什么"</b></li>
+            <li>4. 服务头只有 <b>文件 N · 待办 N · ⋯</b> —— 进来就是在对话里干活</li>
+            <li>5. 又来一个要跟进的家庭 → <b>后台配好客户与场景 → 前端建服务只填名称</b>——一服务一客户（v1.24，§0.6）</li>
             <li>6. 想加一个待办 → 点「待办」→ <b>3 个字段，负责人从成员里点选</b></li>
             <li>7. 想让状态贴合业务 → <b>⋯ → 服务设置 → 只填名称，key 自动生成</b></li>
           </ul>
@@ -1435,14 +1364,14 @@ function diffView(){
       <thead><tr><th style="width:26%">概念</th><th style="width:30%">现状在哪</th><th style="width:16%">处理</th><th style="width:28%">改后在哪</th></tr></thead>
       <tbody>
         ${[
-          ['服务 / 指令 / 专家 / 知识库 / 会话 / 产物 / 待办 / 模板','列表页、创建表单、服务头、侧栏','<span class="pill keep">保留</span>','原位'],
+          ['服务 / 指令 / 专家 / 知识库 / 会话 / 文件 / 待办 / 模板','列表页、创建表单、服务头、侧栏','<span class="pill keep">保留</span>','原位'],
           ['服务提醒','已被「待办」吸收','<span class="pill keep">已收敛</span>','—'],
           ['空间蓝图','创建后强制确认弹窗','<span class="pill demote">内部化</span>','无（静默）'],
-          ['空间形态（3 值枚举）','蓝图弹窗','<span class="pill demote">内部化</span>','并入「主要围着谁转」三选项'],
+          ['空间形态（3 值枚举）','蓝图弹窗','<span class="pill demote">内部化</span>','并入「场景」三选项（v1.24：招生跟进 / 家长沟通与服务 / 新生入园适应与班级保教）'],
           ['服务主体策略','蓝图弹窗','<span class="pill demote">内部化</span>','无'],
           ['档案字段 schema / 首页摘要 schema','蓝图弹窗 + 常驻入口','<span class="pill move">改呈现</span>','服务概览里一段「重点记录」/ 一段自然语言'],
           ['空间档案 / 首页摘要','服务头「档案 6」「摘要 4」','<span class="pill demote">降级</span>','⋯ → 服务概览'],
-          ['服务主体','服务头「主体 5」','<span class="pill demote">降级 + 改名</span>','⋯ → 服务对象'],
+          ['服务主体 / 服务对象','服务头「主体 5」、⋯ → 服务对象','<span class="pill drop">删除</span>','<b>v1.24 一服务一客户</b>：客户与服务的绑定在后台配置（v1.25 起前端创建不再选客户），身份卡显示绑定家庭'],
           ['资料','服务头「来源 2」','<span class="pill move">改位置</span>','设置 › 资料（可查可删；<b>不做输入框 chip</b>，v5.3 复核）'],
           ['待办状态机','设置浮层里配 9 态 + 流转表','<span class="pill demote">自动化</span>','<b>零配置</b>：AI 自动生成默认 4 态；说明收进待办浮层底部（v1.8）；<b>不提供自定义</b>（v1.10）'],
           ['待办协作（负责人 / 评论 / 历史）','680px 弹窗','<span class="pill move">改呈现</span>','待办卡片内联展开'],
@@ -1474,9 +1403,9 @@ const SCENES = [
   { key:'list',     n:1, label:'服务列表页 · 含空态三分支', path:'/platform/service' },
   { key:'create',   n:2, label:'创建服务 · 整页表单',       path:'/platform/service/new' },
   { key:'space',    n:3, label:'服务空间 · 优化后服务头',   path:'/platform/service/:serviceId/sessions/:sessionId' },
-  { key:'artifacts',n:4, label:'服务空间 · 产物浮层',       path:'/platform/service/:serviceId  ▤ 产物 3' },
+  { key:'artifacts',n:4, label:'服务空间 · 文件浮层',       path:'/platform/service/:serviceId  ▤ 文件 3' },
   { key:'reminders',n:5, label:'服务空间 · 待办浮层',       path:'/platform/service/:serviceId  ☑ 待办 3' },
-  { key:'overview', n:6, label:'⋯ → 服务概览 / 服务对象',   path:'/platform/service/:serviceId/overview' },
+  { key:'overview', n:6, label:'⋯ → 服务概览',               path:'/platform/service/:serviceId/overview' },
   { key:'activity', n:7, label:'⋯ → 动态 · 时间线',        path:'/platform/service/:serviceId/activity' },
   { key:'settings', n:8, label:'服务设置 · 整页 4 分区',    path:'/platform/service/:serviceId/settings/fields' },
   { key:'diff',     n:9, label:'改造对照 · 问题与概念收敛', path:'—' }
@@ -1487,11 +1416,15 @@ const state = {
   lmode: 'data',
   panel: '',
   moreOpen: false,
+  histOpen: false,  // v1.28 服务头「历史会话」菜单展开态
+  curSession: 'c1', // v1.28 当前打开的会话（历史会话菜单里打 ✓）
+  expOpen: false,   // v1.23 专家选择器展开态
+  curExp: '招生顾问', // v1.23 当前对话使用的专家
   sel: 'a2',
   collabOpen: '',
   emptyChat: false,
   newChat: false, // v1.14 新会话空态（对话区切换，不新开页面）；v1.16 起入口从服务头 ＋ 改为左侧服务行悬停 ＋
-  sec: 'fields'   // 设置场景内的分区：basic / fields / sources / members（v1.13：「专家」并入基本信息，共 4 个分区）
+  sec: 'fields'   // 设置场景内的分区：basic / fields / sources / members（v1.13「专家」并入基本信息、v1.30 基本信息精简为名称+说明+客户信息只读，仍 4 个分区）
 };
 
 const RENDER = {
@@ -1502,7 +1435,6 @@ const RENDER = {
   reminders: () => layout(spaceView('reminders', false, '', state.collabOpen, false), true),
   overview:  () => layout(overviewView(), true),
   activity:  () => layout(activityView(), true),
-  subjects:  () => layout(subjectsView(), true),
   settings:  () => layout(settingsView(), true),
   diff:      () => layout(diffView())
 };
@@ -1525,7 +1457,8 @@ function render(){
       <button class="chip ${state.emptyChat ? '' : 'on'}" data-empty="0">有会话</button>
       <button class="chip ${state.emptyChat ? 'on' : ''}" data-empty="1">空态</button>
       <button class="chip ${state.newChat ? 'on' : ''}" data-newchat>新会话（悬停服务行点 ＋）</button>
-      <button class="chip ${state.moreOpen ? 'on' : ''}" data-more>${state.moreOpen ? '收起 ⋯ 菜单' : '展开 ⋯ 菜单'}</button>`;
+      <button class="chip ${state.moreOpen ? 'on' : ''}" data-more>${state.moreOpen ? '收起 ⋯ 菜单' : '展开 ⋯ 菜单'}</button>
+      <button class="chip ${state.histOpen ? 'on' : ''}" data-hist>${state.histOpen ? '收起历史会话' : '展开历史会话'}</button>`;
   } else br.innerHTML = '';
 }
 
@@ -1535,20 +1468,30 @@ function render(){
 document.addEventListener('click', e => {
   const hit = s => e.target.closest(s);
 
+  /* v1.31：空会话态发出第一句话 → 进入会话，概览收进右上角「概览」按钮 */
+  const st = hit('[data-start]');
+  if (st) {
+    state.newChat = false; state.emptyChat = false; state.panel = '';
+    state.moreOpen = false; state.histOpen = false; state.expOpen = false;
+    render();
+    toast('已开始会话 · 服务概览收进右上角「概览」');
+    return;
+  }
+
   const noop = hit('[data-noop]');
-  if (noop && !hit('[data-scene]') && !hit('[data-panel]') && !hit('[data-art]') && !hit('[data-more]') && !hit('[data-lmode]') && !hit('[data-empty]') && !hit('[data-collab]') && !hit('[data-newchat]')) {
+  if (noop && !hit('[data-scene]') && !hit('[data-panel]') && !hit('[data-art]') && !hit('[data-more]') && !hit('[data-hist]') && !hit('[data-lmode]') && !hit('[data-empty]') && !hit('[data-collab]') && !hit('[data-newchat]')) {
     toast('这是原型，仅演示布局与信息层级');
     return;
   }
 
   const nc = hit('[data-newchat]');
-  if (nc) { state.newChat = true; state.emptyChat = false; state.panel = ''; state.moreOpen = false; if (nc.dataset.svc) { state.scene = 'space'; } render(); return; }
+  if (nc) { state.newChat = true; state.emptyChat = false; state.panel = ''; state.moreOpen = false; state.histOpen = false; state.expOpen = false; if (nc.dataset.svc) { state.scene = 'space'; } render(); return; }
 
   const sc = hit('[data-scene]');
   if (sc) {
     const k = sc.dataset.scene;
     state.scene = k;
-    if (k === 'space') { state.panel = ''; state.moreOpen = false; state.emptyChat = false; state.newChat = false; }
+    if (k === 'space') { state.panel = ''; state.moreOpen = false; state.histOpen = false; state.expOpen = false; state.emptyChat = false; state.newChat = false; }
     history.replaceState(null, '', '#' + k);
     render();
     $('.scroll').scrollTop = 0;
@@ -1564,14 +1507,35 @@ document.addEventListener('click', e => {
   const em = hit('[data-empty]');
   if (em) { state.emptyChat = em.dataset.empty === '1'; state.newChat = false; render(); return; }
 
+  const ep = hit('[data-expick]');
+  if (ep) { state.expOpen = !state.expOpen; state.histOpen = false; render(); return; }
+
+  const ex = hit('[data-exp]');
+  if (ex) { state.curExp = ex.dataset.exp; state.expOpen = false; render(); toast('已切换专家：' + ex.dataset.exp); return; }
+
   const more = hit('[data-more]');
-  if (more) { state.moreOpen = !state.moreOpen; render(); return; }
+  if (more) { state.moreOpen = !state.moreOpen; state.histOpen = false; render(); return; }
+
+  const hist = hit('[data-hist]');
+  if (hist) { state.histOpen = !state.histOpen; state.moreOpen = false; state.expOpen = false; render(); return; }
+
+  const ses = hit('[data-sess]');
+  if (ses) {
+    const svc = SERVICES.find(s => s.id === 's1');
+    const ss = svc && svc.sessions.find(x => x.id === ses.dataset.sess);
+    state.curSession = ses.dataset.sess;
+    state.histOpen = false;
+    state.newChat = false; state.emptyChat = false; state.panel = ''; state.moreOpen = false; state.expOpen = false;
+    render();
+    if (ss) toast('已打开历史会话：' + ss.title);
+    return;
+  }
 
   const pl = hit('[data-panel]');
   if (pl) {
     const k = pl.dataset.panel;
     state.panel = (state.panel === k) ? '' : k;
-    state.moreOpen = false;
+    state.moreOpen = false; state.histOpen = false; state.expOpen = false;
     render();
     return;
   }
@@ -1586,7 +1550,7 @@ document.addEventListener('click', e => {
 render();
 window.addEventListener('hashchange', () => {
   state.scene = (location.hash || '').replace('#', '') || 'list';
-  state.panel = ''; state.moreOpen = false;
+  state.panel = ''; state.moreOpen = false; state.histOpen = false; state.expOpen = false;
   render();
 });
 </script>

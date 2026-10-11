@@ -982,6 +982,110 @@ func (h *ServiceSpaceHandler) ListTemplates(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": templates})
 }
 
+func (h *ServiceSpaceHandler) ListAdminTemplates(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	templates, err := h.service.ListAdminTemplates(c.Request.Context(), tenantID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": templates})
+}
+
+func (h *ServiceSpaceHandler) GetAdminTemplate(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	template, err := h.service.GetAdminTemplate(c.Request.Context(), tenantID, c.Param("template_key"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": template})
+}
+
+func (h *ServiceSpaceHandler) CreateAdminTemplate(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ServiceSpaceTemplateAdminInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid service template request").WithDetails(err.Error()))
+		return
+	}
+	template, err := h.service.CreateAdminTemplate(c.Request.Context(), tenantID, userID, input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"success": true, "data": template})
+}
+
+func (h *ServiceSpaceHandler) UpdateAdminTemplate(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ServiceSpaceTemplateAdminInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid service template request").WithDetails(err.Error()))
+		return
+	}
+	template, err := h.service.UpdateAdminTemplate(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("template_key"),
+		input,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": template})
+}
+
+func (h *ServiceSpaceHandler) PublishAdminTemplate(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	template, err := h.service.PublishAdminTemplate(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("template_key"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": template})
+}
+
+func (h *ServiceSpaceHandler) DisableAdminTemplate(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	template, err := h.service.DisableAdminTemplate(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("template_key"),
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": template})
+}
+
 func (h *ServiceSpaceHandler) ApplyTemplate(c *gin.Context) {
 	tenantID, userID, ok := serviceScope(c)
 	if !ok {

@@ -54,6 +54,25 @@ func IsValidOrganizeSchedule(schedule string) bool {
 	}
 }
 
+func DefaultOrganizeScheduleTime(schedule string) string {
+	switch schedule {
+	case OrganizeScheduleDaily:
+		return "08:00"
+	case OrganizeScheduleWeekly, OrganizeScheduleMonthly:
+		return "09:00"
+	default:
+		return ""
+	}
+}
+
+func IsValidOrganizeScheduleTime(scheduleTime string) bool {
+	if scheduleTime == "" {
+		return true
+	}
+	_, err := time.Parse("15:04", scheduleTime)
+	return err == nil
+}
+
 func IsTerminalOrganizeJobStatus(status string) bool {
 	switch status {
 	case OrganizeJobStatusCompleted, OrganizeJobStatusFallback, OrganizeJobStatusFailed, OrganizeJobStatusCanceled:
@@ -79,6 +98,8 @@ type OrganizeTemplate struct {
 	MarkdownTemplate   string         `json:"markdown_template" gorm:"type:text;not null;default:''"`
 	ExpertIDs          StringArray    `json:"expert_ids" gorm:"type:jsonb;not null;default:'[]'"`
 	Spec               JSONMap        `json:"spec" gorm:"type:jsonb;not null;default:'{}'"`
+	Schedule           string         `json:"schedule" gorm:"type:varchar(32);not null;default:'manual'"`
+	ScheduleTime       string         `json:"schedule_time,omitempty" gorm:"type:varchar(5);not null;default:''"`
 	Status             string         `json:"status" gorm:"type:varchar(32);not null;default:'draft';index"`
 	PublishedVersion   string         `json:"published_version" gorm:"type:varchar(32);not null;default:''"`
 	PublishedAt        *time.Time     `json:"published_at,omitempty"`
@@ -107,6 +128,12 @@ func (t *OrganizeTemplate) BeforeCreate(_ *gorm.DB) error {
 	}
 	if t.Spec == nil {
 		t.Spec = JSONMap{}
+	}
+	if t.Schedule == "" {
+		t.Schedule = OrganizeScheduleManual
+	}
+	if t.ScheduleTime == "" {
+		t.ScheduleTime = DefaultOrganizeScheduleTime(t.Schedule)
 	}
 	if t.ValidationResult == nil {
 		t.ValidationResult = JSONMap{}
@@ -160,6 +187,7 @@ type OrganizeConfig struct {
 	Instruction     string            `json:"instruction" gorm:"type:text;not null;default:''"`
 	ExpertIDs       StringArray       `json:"expert_ids" gorm:"type:jsonb;not null;default:'[]'"`
 	Schedule        string            `json:"schedule" gorm:"type:varchar(32);not null;default:'manual';index"`
+	ScheduleTime    string            `json:"schedule_time,omitempty" gorm:"type:varchar(5);not null;default:''"`
 	Status          string            `json:"status" gorm:"type:varchar(32);not null;default:'active';index"`
 	NextRunAt       *time.Time        `json:"next_run_at,omitempty" gorm:"index"`
 	LastRunAt       *time.Time        `json:"last_run_at,omitempty"`
@@ -181,6 +209,9 @@ func (c *OrganizeConfig) BeforeCreate(_ *gorm.DB) error {
 	}
 	if c.Schedule == "" {
 		c.Schedule = OrganizeScheduleManual
+	}
+	if c.ScheduleTime == "" {
+		c.ScheduleTime = DefaultOrganizeScheduleTime(c.Schedule)
 	}
 	if c.Status == "" {
 		c.Status = OrganizeConfigStatusActive
@@ -360,6 +391,8 @@ type OrganizeTemplateAdminInput struct {
 	MarkdownTemplate   string      `json:"markdown_template"`
 	ExpertIDs          StringArray `json:"expert_ids"`
 	Spec               JSONMap     `json:"spec"`
+	Schedule           string      `json:"schedule"`
+	ScheduleTime       string      `json:"schedule_time"`
 	SortOrder          int         `json:"sort_order"`
 	ChangeNote         string      `json:"change_note"`
 }
@@ -409,6 +442,7 @@ type OrganizeConfigInput struct {
 	Instruction     string      `json:"instruction,omitempty"`
 	ExpertIDs       StringArray `json:"expert_ids,omitempty"`
 	Schedule        string      `json:"schedule,omitempty"`
+	ScheduleTime    string      `json:"schedule_time,omitempty"`
 	Metadata        JSONMap     `json:"metadata,omitempty"`
 }
 

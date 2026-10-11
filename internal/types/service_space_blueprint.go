@@ -201,6 +201,7 @@ type ServiceSpaceTemplate struct {
 	TenantID     uint64                         `json:"tenant_id"`
 	Key          string                         `json:"key"`
 	Name         string                         `json:"name"`
+	Description  string                         `json:"description"`
 	Version      int                            `json:"version"`
 	Status       ServiceSpaceTemplateStatus     `json:"status"`
 	MatchRules   ServiceSpaceTemplateMatchRules `json:"match_rules"`
@@ -270,6 +271,7 @@ type ServiceSpaceTemplateApplyInput struct {
 	Instruction      string                      `json:"instruction,omitempty"`
 	IdempotencyKey   string                      `json:"idempotency_key"`
 	KnowledgeBaseIDs StringArray                 `json:"knowledge_base_ids,omitempty"`
+	SelectedSkills   StringArray                 `json:"selected_skills,omitempty"`
 	Experts          []ServiceExpertBindingInput `json:"experts,omitempty"`
 }
 
@@ -331,6 +333,8 @@ type ServiceSpaceBlueprint struct {
 	ProfileSchema             []ServiceSpaceProfileField              `json:"profile_schema"`
 	SummarySchema             []ServiceSpaceSummarySection            `json:"summary_schema"`
 	ExpertSuggestions         []ServiceSpaceBlueprintExpertSuggestion `json:"expert_suggestions,omitempty"`
+	KnowledgeBaseIDs          []string                                `json:"knowledge_base_ids,omitempty"`
+	SelectedSkills            []string                                `json:"selected_skills,omitempty"`
 	KnowledgeScopeSuggestions JSONMap                                 `json:"knowledge_scope_suggestions,omitempty"`
 	GenerationMeta            JSONMap                                 `json:"generation_meta,omitempty"`
 	Status                    ServiceSpaceBlueprintStatus             `json:"status"`
@@ -388,6 +392,24 @@ func (b *ServiceSpaceBlueprint) Validate() error {
 		return fmt.Errorf("summary schema: %w", err)
 	}
 	return nil
+}
+
+type ServiceSpaceTemplateAdminInput struct {
+	Key               string                                  `json:"key,omitempty"`
+	Name              string                                  `json:"name"`
+	Description       string                                  `json:"description,omitempty"`
+	SpaceType         ServiceSpaceType                        `json:"space_type"`
+	Instruction       string                                  `json:"instruction"`
+	SubjectPolicy     ServiceSubjectPolicy                    `json:"subject_policy"`
+	ProfileSchema     []ServiceSpaceProfileField              `json:"profile_schema,omitempty"`
+	SummarySchema     []ServiceSpaceSummarySection            `json:"summary_schema,omitempty"`
+	ExpertSuggestions []ServiceSpaceBlueprintExpertSuggestion `json:"expert_suggestions,omitempty"`
+	KnowledgeBaseIDs  []string                                `json:"knowledge_base_ids,omitempty"`
+	SelectedSkills    []string                                `json:"selected_skills,omitempty"`
+	MatchRules        ServiceSpaceTemplateMatchRules          `json:"match_rules"`
+	AutoApply         bool                                    `json:"auto_apply"`
+	AutoActivate      bool                                    `json:"auto_activate"`
+	RiskLevel         ServiceSpaceTemplateRiskLevel           `json:"risk_level"`
 }
 
 func validateBlueprintFields(fields []ServiceSpaceProfileField) error {

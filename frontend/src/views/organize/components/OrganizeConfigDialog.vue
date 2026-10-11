@@ -97,11 +97,22 @@
 
             <label class="organize-config-field">
               <span>执行周期</span>
-              <select v-model="form.schedule" class="organize-config-schedule">
-                <option v-for="option in scheduleOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
+              <div class="organize-config-schedule-row">
+                <select v-model="form.schedule" class="organize-config-schedule">
+                  <option v-for="option in scheduleOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
+                </select>
+                <input
+                  v-if="form.schedule !== 'manual'"
+                  v-model="form.scheduleTime"
+                  class="organize-config-time"
+                  type="time"
+                  step="60"
+                  aria-label="执行时间"
+                />
+              </div>
+              <small v-if="form.schedule !== 'manual'">按北京时间执行。</small>
             </label>
 
             <div class="organize-config-field organize-config-service-field">
@@ -163,6 +174,7 @@ import {
 } from '@/api/organize'
 import { listServiceSpaces, type ServiceSpace } from '@/api/service'
 import {
+  organizeScheduleDefaultTimes,
   organizeScheduleLabels,
   toOrganizeConfig,
   toOrganizeTemplate,
@@ -192,6 +204,7 @@ const form = reactive({
   instruction: '',
   expertIds: [] as string[],
   schedule: 'manual' as OrganizeScheduleKey,
+  scheduleTime: '',
   assignToService: false,
   targetServiceId: '',
 })
@@ -227,7 +240,10 @@ const resetForm = () => {
   form.templateKey = initialTemplateKey
   form.instruction = source?.instruction || template?.defaultInstruction || ''
   form.expertIds = source ? [...source.expertIds] : [...(template?.expertIds || [])]
-  form.schedule = source?.schedule || 'manual'
+  form.schedule = source?.schedule || template?.schedule || 'manual'
+  form.scheduleTime = source?.scheduleTime
+    || template?.scheduleTime
+    || organizeScheduleDefaultTimes[form.schedule]
   form.targetServiceId = source?.targetServiceId || ''
   form.assignToService = Boolean(form.targetServiceId)
   nameError.value = ''
@@ -252,6 +268,20 @@ watch(
     if (enabled) return
     form.targetServiceId = ''
     targetServiceError.value = ''
+  },
+)
+
+watch(
+  () => form.schedule,
+  (schedule, previousSchedule) => {
+    const previousDefault = organizeScheduleDefaultTimes[previousSchedule || 'manual']
+    if (schedule === 'manual') {
+      form.scheduleTime = ''
+      return
+    }
+    if (!form.scheduleTime || form.scheduleTime === previousDefault) {
+      form.scheduleTime = organizeScheduleDefaultTimes[schedule]
+    }
   },
 )
 
@@ -302,6 +332,7 @@ const submit = async () => {
       instruction: form.instruction.trim(),
       expert_ids: [...form.expertIds],
       schedule: form.schedule,
+      schedule_time: form.schedule === 'manual' ? '' : form.scheduleTime,
       target_service_id: form.assignToService ? form.targetServiceId : '',
     }
     const response = props.config?.id
@@ -426,6 +457,24 @@ const submit = async () => {
 .organize-config-schedule {
   min-height: 36px;
   padding: 0 34px 0 12px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.organize-config-schedule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+}
+
+.organize-config-time {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
   background: var(--td-bg-color-container);

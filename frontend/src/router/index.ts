@@ -23,7 +23,7 @@ const organizeLessonDetailComponent = () => import("../views/organize/OrganizeLe
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
 const serviceHubComponent = () => import("../views/service/ServiceHub.vue")
 const serviceOverviewComponent = () => import("../views/service/ServiceOverviewView.vue")
-const serviceSubjectsComponent = () => import("../views/service/ServiceSubjectsView.vue")
+const serviceActivityComponent = () => import("../views/service/ServiceActivityView.vue")
 const serviceSettingsComponent = () => import("../views/service/ServiceSettingsView.vue")
 const organizeRouteMeta = { requiresInit: true, requiresAuth: true }
 const serviceRouteMeta = { requiresInit: true, requiresAuth: true }
@@ -260,8 +260,13 @@ const router = createRouter({
         },
         {
           path: "service/:serviceId/subjects",
-          name: "serviceSubjects",
-          component: serviceSubjectsComponent,
+          redirect: (to) => `/platform/service/${encodeURIComponent(String(to.params.serviceId || ''))}`,
+          meta: serviceRouteMeta,
+        },
+        {
+          path: "service/:serviceId/activity",
+          name: "serviceActivity",
+          component: serviceActivityComponent,
           meta: serviceRouteMeta,
         },
         {

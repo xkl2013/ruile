@@ -71,14 +71,14 @@
   .viewport{flex:1;position:relative;overflow:hidden;display:flex;flex-direction:column}
 
   /* ── 真机 AppBar ── */
-  .ab{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:6px 14px 10px;background:var(--surface)}
+  .ab{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:6px 12px 10px;background:var(--surface)}
   .ab .bk{width:34px;height:34px;flex:0 0 34px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--t1)}
   .ab .bk:active{background:#f1f3f8}
   .ab .tt{flex:1;min-width:0}
   .ab .tt b{display:block;font-size:20px;font-weight:700;color:var(--t1);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ab .tt i{display:block;font-style:normal;font-size:12px;color:var(--t3);font-weight:500;margin-top:1px}
-  .ab .rt{display:flex;align-items:center;gap:6px;flex:0 0 auto}
-  .iconbtn{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#F1F3F8;color:var(--t1)}
+  .ab .rt{display:flex;align-items:center;gap:5px;flex:0 0 auto}
+  .iconbtn{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#F1F3F8;color:var(--t1)}
   .iconbtn:active{background:#e6e9f0}
   .iconbtn.acc{background:var(--accent-weak);color:var(--accent-deep)}
 
@@ -112,12 +112,14 @@
   .tags{display:flex;flex-wrap:wrap;gap:6px}
 
   /* 服务卡片（列表） */
-  .svc{background:var(--surface);border-radius:var(--r-l);padding:14px}
+  .svc{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-l);padding:15px 14px 13px;box-shadow:var(--sh-1)}
   .svc + .svc{margin-top:12px}
   .svc .top{display:flex;align-items:center;gap:10px}
-  .thumb{width:44px;height:44px;flex:0 0 44px;border-radius:10px;background:var(--accent-weak);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:var(--accent-deep)}
-  .svc .nm{flex:1;min-width:0;font-size:17px;font-weight:800;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .svc .dy{margin:9px 0 0;display:flex;flex-direction:column;gap:6px}
+  .thumb{width:44px;height:44px;flex:0 0 44px;border-radius:11px;background:linear-gradient(135deg,#3FCDAF,#1FA98B);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:700;color:#fff;box-shadow:0 4px 11px rgba(35,185,157,.26)}
+  .svc .nm{flex:1;min-width:0;font-size:17px;font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* v1.38：客户重要信息一行（学员 · 班级 · 主班老师）——与 web v1.29 列表卡片同口径，先认出「这是谁家」 */
+  .svc .kinfo{margin-top:7px;font-size:12.5px;font-weight:500;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .svc .dy{margin:11px 0 0;padding-top:11px;border-top:1px solid var(--line-soft);display:flex;flex-direction:column;gap:6px}
   .svc .dyrow{font-size:12.5px;line-height:1.5;color:var(--t1);font-weight:500;display:flex;align-items:flex-start;gap:6px;min-width:0;cursor:pointer}
   .svc .dyrow .dyk{flex:0 0 auto;font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px;margin-top:1px}
   .svc .dyk.dyn{background:var(--accent-weak);color:var(--accent-deep)}
@@ -162,8 +164,8 @@
   /* 对话区 */
   .chat{flex:1;overflow-y:auto;padding:6px 16px 14px;display:flex;flex-direction:column;gap:14px}
   .msg{max-width:82%;font-size:14px;line-height:1.62;padding:11px 13px;border-radius:14px}
-  .msg.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
-  .msg.ai{align-self:flex-start;background:var(--surface);color:var(--t1);border-bottom-left-radius:5px}
+  .msg.me{align-self:flex-end;background:linear-gradient(135deg,#2EC5A8,#1FA98B);color:#fff;border-bottom-right-radius:5px;box-shadow:0 4px 12px rgba(35,185,157,.22)}
+  .msg.ai{align-self:flex-start;background:var(--surface);color:var(--t1);border-bottom-left-radius:5px;border:1px solid var(--line-soft);box-shadow:var(--sh-1)}
   .msg.ai .who{font-size:11.5px;font-weight:700;color:var(--accent-deep);margin-bottom:5px;display:flex;align-items:center;gap:5px}
   .msg.ai .cite{margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-size:11.5px;color:var(--t3)}
   .inputbar{flex:0 0 auto;border-top:1px solid var(--bd);background:var(--surface);padding:10px 14px 14px}
@@ -173,7 +175,7 @@
   .send{width:40px;height:40px;flex:0 0 40px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center}
 
   /* 引语/空态 */
-  .emptyp{background:var(--surface);border-radius:var(--r-l);padding:22px 18px;text-align:center}
+  .emptyp{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--r-l);padding:22px 18px;text-align:center;box-shadow:var(--sh-1)}
   .emptyp .ei{width:52px;height:52px;margin:0 auto 12px;border-radius:16px;background:var(--accent-weak);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--accent-deep)}
   .emptyp h3{margin:0;font-size:16px;font-weight:700;color:var(--t1)}
   .emptyp p{font-size:13px;line-height:1.7;color:var(--t2);font-weight:500;margin:8px 0 0}
@@ -267,10 +269,10 @@
   .ovhead .ovn{flex:1;min-width:0}
   .ovhead .nm{font-size:19px;font-weight:700;color:var(--t1);line-height:1.28;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ovhead .mt{font-size:12.5px;color:var(--t2);font-weight:400;margin-top:4px}
-  /* v1.29：tab 移到身份卡行右侧（胶囊轻量式），省掉通宽 tab 条 */
-  .ovhead .htabs{margin-left:auto;display:flex;gap:5px;flex:0 0 auto}
-  .ovhead .htabs .ht{height:27px;padding:0 9px;border-radius:var(--r-r);font-size:12px;font-weight:600;color:var(--t2);background:var(--bg);display:flex;align-items:center}
-  .ovhead .htabs .ht.on{background:var(--accent-weak);color:var(--accent-deep);font-weight:700}
+  /* v1.31：tab 条移到身份卡正下方、滚动区之外——真正固定不随内容滚动（v1.30 的 sticky 吸顶方案回退） */
+  .otabs{flex:0 0 auto;display:flex;gap:20px;padding:12px 18px 0;background:var(--surface);border-bottom:1px solid var(--line-soft)}
+  .otabs .ot{flex:0 0 auto;display:flex;align-items:center;gap:5px;padding:0 1px 10px;font-size:13.5px;font-weight:600;color:var(--t2);border-bottom:2.5px solid transparent}
+  .otabs .ot.on{color:var(--t1);font-weight:700;border-bottom-color:var(--accent)}
 
   /* ── 右侧规格面板 ── */
   .pside{width:392px;flex:0 0 392px;position:sticky;top:0}
@@ -307,14 +309,14 @@
   <aside class="rail">
     <div class="rail-head">
       <div class="rail-title">服务模块 · 移动端</div>
-      <div class="rail-sub">配套《服务模块优化方案》v2.1<br>形态参考 mobile 真机工程（Flutter）</div>
+      <div class="rail-sub">配套《服务模块开发方案》v2.0（代码校准）<br>形态参考 mobile 真机工程（Flutter）</div>
     </div>
     <div class="rail-group" id="rail"></div>
     <div class="rail-note"><b>移动端边界与设计原则</b>① 没有 hover —— web 的「服务行悬停 ＋」必须换成触摸等效；② 视口只有 390px —— web 的 320px 右侧浮层放不下，全部转整页或底部弹层；③ <b>零配置</b> —— 使用者只需要会聊天：新建服务 / 从模板创建 / 服务设置 / 重点记录编辑 / 成员管理 / 新增对象<b>全部只在电脑端</b>，移动端只留「聊天 + 看」；④ 形体按 WorkBuddy 移动端规范：状态栏 62px · 胶囊 tab bar（h62/r36/1px 边）· 激活态实心填充 · FAB 悬浮于底栏之上；⑤ <b>简洁优先</b>：一屏一件事、一屏一个主按钮，同一条信息只出现一次，能一行说完就不做卡片 —— 目标是使用者一眼就知道怎么用。</div>
     <div class="rail-foot">
       令牌取自真机 <code>AppColors</code>：accent #23B99D · 背景 #F5F6FA · 正文 #252B35<br>
       圆角 4 / 10 / 14 · 页边距 18 · 段落间距 24<br>
-      <b id="verstamp">v1.29</b>
+      <b id="verstamp">v1.38</b>
     </div>
   </aside>
 
@@ -322,7 +324,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.29</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.38</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll">
@@ -337,50 +339,56 @@
    数据（与 web 版《服务模块优化原型》同一批，便于对照）
    ═══════════════════════════════════════════════════════ */
 var SERVICES = [
-  { name:'秋季招生咨询', initial:'秋',
-        feed:[ ['dyn','果果家 · 家长关注点 更新为「时段冲突、价格」'],
-           ['todo','回访东苑分园的 5 个新线索'] ],
+  { name:'果果家', initial:'果', keyinfo:'学员 果果 · 中班插班 · 主班 陈老师',
+        feed:[ ['dyn','家长关注点 更新为「时段冲突、价格」'],
+           ['todo','回访：确认周三时段能否调整'] ],
     recentAt:'今天 10:12' },
-  { name:'会员续费跟进', initial:'续',
-
-    feed:[ ['todo','回访 3 个到期会员'],
-           ['dyn','李果果家 · 续费意向升级为「明确意向」'] ],
+  { name:'朵朵家', initial:'朵', keyinfo:'学员 朵朵 · 小二班 · 主班 王老师',
+    feed:[ ['todo','把家长会邀请发给朵朵妈妈'],
+           ['dyn','沟通记录 更新为「已约周三面谈」'] ],
     recentAt:'昨天 18:20' },
-  { name:'保育巡查', initial:'保',
+  { name:'小宇家', initial:'宇', keyinfo:'学员 小宇 · 新生 · 主班 陈老师',
  paused:true,
-    feed:[ ['dyn','周巡查记录 更新为「本周无异常 · 已巡 5 天」'] ],
+    feed:[ ['dyn','适应期记录 更新为「第 3 周 · 分离焦虑缓解」'] ],
     recentAt:'10-06 15:40' }
 ];
 
-var SVC = { name:'秋季招生咨询', type:'家长与学员' };
+var SVC = { name:'果果家', type:'招生跟进' };
+
+/* v1.38：本服务的历史会话（服务头 ◷ 入口，底部弹层选择；当前会话打 ✓） */
+var SESSIONS = [
+  { id:'c1', t:'与果果妈妈聊周三时段', at:'今天 10:12' },
+  { id:'c2', t:'家长顾虑归纳（果果家）', at:'昨天 16:12' },
+  { id:'c3', t:'10 月到访邀约话术', at:'10-03 11:20' }
+];
 
 var OUT = [
-  { t:'秋季招生线索跟进表.xlsx', s:'跟进东苑分园意向家庭', v:'v2', n:'16 条', d:'今天 09:40' },
-  { t:'家长顾虑归纳（周三时段冲突）', s:'家长顾虑归纳', v:'v1', n:'9 条', d:'昨天 16:12' },
-  { t:'10 月体验课到访邀约话术', s:'10 月到访邀约话术', v:'v1', n:'1 份', d:'10-03 11:20' }
+  { t:'到访谈单复盘（第 3 次到访）', s:'与果果妈妈聊周三时段', v:'v2', n:'3 次到访', d:'今天 09:40' },
+  { t:'家长顾虑归纳（果果家）', s:'家长顾虑归纳', v:'v1', n:'2 条', d:'昨天 16:12' },
+  { t:'秋季招生方案（给果果妈妈）', s:'10 月到访邀约话术', v:'v1', n:'1 份', d:'10-03 11:20' }
 ];
 
 var TODO = [
-  { t:'回访东苑分园 5 位家长', s:'open',   p:'高', due:'今天到期', ev:'3 条证据', who:'陈老师' },
-  { t:'确认 10 月体验课排期', s:'doing',  p:'中', due:'10-09', ev:'1 条证据', who:'李老师' },
-  { t:'整理周三时段冲突清单', s:'open',   p:'中', due:'10-10', ev:'2 条证据', who:'王园长' },
-  { t:'补充素材：秋季招生方案终稿', s:'done', p:'低', due:'已完成 10-05', ev:'', who:'王园长' }
+  { t:'回访：确认周三时段能否调整', s:'open',   p:'高', due:'今天到期', ev:'3 条证据', who:'陈老师' },
+  { t:'邀约果果家参加 10 月体验课', s:'doing',  p:'中', due:'10-09', ev:'1 条证据', who:'李老师' },
+  { t:'整理果果家 3 次到访记录', s:'open',   p:'中', due:'10-10', ev:'2 条证据', who:'王园长' },
+  { t:'发送秋季招生方案给果果妈妈', s:'done', p:'低', due:'已完成 10-05', ev:'', who:'王园长' }
 ];
 var TODO_S = { open:{l:'待处理',c:'warn'}, doing:{l:'进行中',c:'info'}, done:{l:'已完成',c:'acc'} };
 
 var ACT = [
   { day:'今天 · 10 月 8 日', items:[
-    { k:'sub', t:'<b>果果家</b> · <b>家长关注点</b> <span class="from">时段冲突</span> → <span class="to">时段冲突、价格</span>', m:['10:12','依据：会话「跟进东苑分园意向家庭」','招生顾问 记'] },
-    { k:'sub', t:'<b>果果家</b> · <b>到访次数</b> <span class="from">2 次</span> → <span class="to">3 次</span>', m:['09:47','依据：本周家长顾虑归纳','王园长 记'] },
-    { k:'act', t:'产物 <b>秋季招生线索跟进表.xlsx</b> 更新到 v2（16 条）', m:['09:40','招生顾问','查看产物'] }
+    { k:'sub', t:'<b>家长关注点</b> <span class="from">时段冲突</span> → <span class="to">时段冲突、价格</span>', m:['10:12','依据：会话「与果果妈妈聊周三时段」','招生顾问 记'] },
+    { k:'sub', t:'<b>到访次数</b> <span class="from">2 次</span> → <span class="to">3 次</span>', m:['09:47','依据：家长顾虑归纳（果果家）','王园长 记'] },
+    { k:'act', t:'文件 <b>到访谈单复盘（第 3 次到访）</b> 更新到 v2（3 次到访）', m:['09:40','招生顾问','查看文件'] }
   ]},
   { day:'昨天 · 10 月 7 日', items:[
-    { k:'act', t:'新增服务对象 <b>乐乐妈妈</b>', m:['18:20','来源：整理记录「9 月新签家庭盘点」','李老师 加'] },
+    { k:'act', t:'<b>意向等级</b> <span class="from">考虑中</span> → <span class="to">明确意向</span>', m:['18:20','依据：整理记录「9 月家长盘点」','李老师 记'] },
     { k:'act', t:'带入资料 <b>2026 秋季招生方案（草稿）</b>', m:['15:05','王园长','去 设置 › 资料 撤销'] },
-    { k:'act', t:'待办 <b>补充素材：秋季招生方案终稿</b> <span class="to">已完成</span>', m:['16:05','王园长','看这条待办'] }
+    { k:'act', t:'待办 <b>发送秋季招生方案给果果妈妈</b> <span class="to">已完成</span>', m:['16:05','王园长','看这条待办'] }
   ]},
   { day:'9 月 28 日', items:[
-    { k:'act', t:'服务 <b>秋季招生咨询</b> 由 王园长 创建', m:['09:02','王园长','创建时的工作指令'] }
+    { k:'act', t:'服务 <b>果果家</b> 由 王园长 创建', m:['09:02','王园长','创建时的工作指令'] }
   ]}
 ];
 
@@ -417,6 +425,7 @@ function ic(name){
     doc:   '<path d="M5.5 3.5h8l5 5v12h-13z"/><path d="M13.5 3.5v5h5"/>',
     user:  '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c0-3.6 3.1-5.6 7-5.6s7 2 7 5.6"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.5l3.5 2"/>',
+    hist:  '<path d="M3.6 12a8.4 8.4 0 1 0 2.6-6.1"/><path d="M3.6 4.6v3.7h3.7"/><path d="M12 7.6V12l3 1.8"/>',
     chart: '<path d="M5 19V11M12 19V5M19 19v-6"/>',
     link:  '<path d="M10 14a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.7-5.7L11.3 7"/><path d="M14 10a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.7 5.7L12.7 17"/>',
     gear:  '<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/>'
@@ -444,10 +453,12 @@ var state = {
   lmode: 'data',      // data | new | arch | none
   smode: 'chat',      // chat | empty | new
   more: false,
+  hist: false,        // v1.38：服务头 ◷ 历史会话弹层
+  curSess: 'c1',      // v1.38：当前会话 id（与 SESSIONS 对应）
   svcSheet: null,     // 列表卡片 ⋯ 打开的弹层（服务名）
   ovFrom: 'space',    // 服务概览的返回来源：list（列表点卡片进）| space（⋯ → 更多进）
   actFrom: 'space',   // 动态页的返回来源：list（卡片「最近」行进）| space（默认）
-  ovTab: 'todo',      // 服务概览 tab：todo | act | res（v1.25 恢复 v1.23 布局：摘要/记录/成员常驻 tab 上方，不再有「概览」tab）
+  ovTab: 'sum',       // 服务概览 tab：sum | todo | act | res（v1.32 增加「摘要」tab 并设为默认：摘要/重点记录收进该 tab）
   ttab: 'open',
   sub: 'list',        // list | detail
   cap: false
@@ -479,6 +490,7 @@ function vList(){
           '<span class="nm">' + s.name + '</span>' +
           (s.paused ? '<span class="badge warn" style="flex:0 0 auto">已暂停</span>' : '') +
           '<span class="dots" data-more-svc="' + s.name + '">⋯</span></div>' +
+          '<div class="kinfo">' + s.keyinfo + '</div>' +
           '<div class="dy">' + s.feed.map(function(f){
             var tgt = f[0] === 'dyn'
               ? ' data-go="activity" data-actfrom="list"'
@@ -509,29 +521,31 @@ function svcSheet(){
 /* ── 2 · 服务空间（会话工作台） ── */
 function vSpace(){
   var isNew = state.smode === 'new', isEmpty = state.smode === 'empty';
-  var title = isNew ? '新的会话' : '秋季招生线索跟进';
-  var sub = isNew ? '秋季招生咨询 · 选一句开始，或直接问' : '秋季招生咨询';
+  var cur = SESSIONS.filter(function(s){ return s.id === state.curSess; })[0] || SESSIONS[0];
+  var title = isNew ? '新的会话' : cur.t;
+  var sub = isNew ? '果果家 · 选一句开始，或直接问' : '果果家 · 招生跟进';
 
   var head = ab({ back:true, title:title, sub:sub, right:[
+    '<button class="iconbtn" data-hist title="历史会话">' + ic('hist') + '</button>',
     '<button class="iconbtn acc" data-nc>' + ic('plus') + '</button>',
     '<button class="iconbtn" data-more>' + ic('dots') + '</button>'
   ]});
 
   var sbar = '<div class="sbar">' +
-    '<span class="sp" data-go="artifacts">▤ 产物 3</span>' +
+    '<span class="sp" data-go="artifacts">▤ 文件 3</span>' +
     '<span class="sp" data-go="reminders">☑ 待办 3</span>' +
-    '<span style="font-size:12px;color:var(--t3);margin-left:2px">2 位成员</span></div>';
+    '<span style="font-size:12px;color:var(--t3);margin-left:2px">学员 果果 · 中班插班</span></div>';
 
   var inner;
   if (isNew){
     inner = '<div class="chat" style="justify-content:center">' +
       '<div class="emptyp" style="background:transparent;padding:0 6px;text-align:left">' +
         '<h3 style="font-size:20px">新的会话</h3>' +
-        '<p style="margin-top:8px">接着「秋季招生咨询」往下聊。这几句是常问的，点一下就发出去。</p>' +
+        '<p style="margin-top:8px">接着「果果家」往下聊。这几句是常问的，点一下就发出去。</p>' +
         '<div class="sugg">' +
-          '<button class="q">把刚才和家长的通话要点记下来</button>' +
-          '<button class="q">东苑分园这周还有哪些家长没回访？</button>' +
-          '<button class="q">整理一份本周招生线索跟进清单</button>' +
+          '<button class="q">把刚才和果果妈妈的通话要点记下来</button>' +
+          '<button class="q">果果家这周的跟进还差什么？</button>' +
+          '<button class="q">整理果果家的 3 次到访记录</button>' +
         '</div>' +
         note(5, '<b>新会话建议问题由服务的工作指令生成</b>（现状是写死的 2 条）。点 ＋ 不弹窗、不跳页，对话区直接切到空态，原会话自动收好。') +
       '</div></div>';
@@ -544,13 +558,13 @@ function vSpace(){
       '</div></div>';
   } else {
     inner = '<div class="chat">' +
-      '<div class="msg me">东苑分园今天来的那 3 位家长，帮我把要点记一下</div>' +
+      '<div class="msg me">果果妈妈今天来面谈，帮我把要点记一下</div>' +
       '<div class="msg ai"><div class="who">招生增长顾问</div>' +
-        '记好了。果果家最在意<b>周三下午的时段冲突</b>，到访次数从 2 次更新到 3 次；另两位主要问价格与午睡安排。<div class="cite">依据：本次会话 · 已写入「重点记录」</div></div>' +
-      '<div class="msg me">那给我列一下还没回访的</div>' +
+        '记好了。果果家最在意<b>周三下午的时段冲突</b>，到访次数从 2 次更新到 3 次；另外问到了价格与午睡安排。<div class="cite">依据：本次会话 · 已写入「重点记录」</div></div>' +
+      '<div class="msg me">那接下来还差什么？</div>' +
       '<div class="msg ai"><div class="who">招生增长顾问</div>' +
-        '还有 <b>3 位</b>没回访：乐乐妈妈、轩轩妈妈、以及东苑分园的果果家。已生成待办「回访东苑分园 5 位家长」。<div class="cite">依据：线索跟进表 v2 · 待办 3 条</div></div>' +
-      note(4, '<b>服务头从 9 个入口收到 2 个：产物 / 待办。</b>移动端 390px 放不下三个带计数的按钮，所以把「看」的东西（产物 N · 待办 N · 成员）压成标题下面一条信息条，把「做」的动作（＋ 新建会话 / ⋯ 菜单）留在右上角。这是对 web 服务头的移动端重排。') +
+        '还差 <b>3 件</b>：回访确认周三时段能否调整、邀约 10 月体验课、把 3 次到访整理成复盘。已生成待办。<div class="cite">依据：到访谈单 · 待办 3 条</div></div>' +
+      note(4, '<b>服务头从 9 个入口收到 3 个动作：◷ / ＋ / ⋯（v1.38）。</b>移动端 390px 放不下 web 那排带计数的按钮，就把「看」的东西（文件 N · 待办 N）与客户信息（学员 + 班级）压成标题下面一条信息条；右上角只留动作——<b>◷ 切历史会话、＋ 开新会话、⋯ 低频菜单</b>。这是对 web 服务头（◷ / 文件 / 待办 / ⋯）的移动端重排。') +
       '</div>';
   }
 
@@ -558,33 +572,50 @@ function vSpace(){
     '<div class="fakeinput">' + (isNew ? '想聊什么就说什么…' : '接着问点什么…') + '</div>' +
     '<div class="mic">' + ic('mic') + '</div></div></div>';
 
-  var sheet = state.more ? moreSheet() : '';
+  var sheet = state.more ? moreSheet() : (state.hist ? histSheet() : '');
   return sbx() + '<div class="viewport">' + head + sbar + inner + input + sheet + '</div>';
+}
+
+/* 服务头 ◷ 历史会话：底部弹层列出本服务全部会话，点选切换、当前打 ✓（v1.38，对齐 web v1.28 的 ◷ 菜单） */
+function histSheet(){
+  return '<div class="ov" data-ov>' +
+    '<div class="sh"><div class="dh"></div>' +
+      '<div class="shh">历史会话 · 果果家<small style="font-weight:500">（' + SESSIONS.length + ' 段）</small></div>' +
+      SESSIONS.map(function(s){
+        var on = s.id === state.curSess;
+        return '<div class="opt" data-sess="' + s.id + '">' +
+          '<span class="oi">' + (on ? ic('check') : ic('clock')) + '</span>' +
+          '<span style="flex:1;min-width:0"><span style="display:block;font-weight:' + (on ? '700' : '500') + ';color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + s.t + '</span>' +
+          '<span style="display:block;font-size:12px;color:var(--t3);margin-top:3px">' + s.at + '</span></span>' +
+          (on ? '<span class="mx" style="color:var(--accent-deep);font-size:12px;font-weight:700">当前</span>' : '') +
+        '</div>';
+      }).join('') +
+      note(40, '<b>历史会话入口（v1.38）。</b>web 端会话列表收进服务头 ◷ 菜单（v1.28）后，移动端也要能切换会话：390px 放不下侧列，改为服务头右上 <b>◷ + ＋ + ⋯</b>，◷ 打开底部弹层列出本服务全部会话——<b>点选即切换</b>（标题与下方信息条跟着变）、<b>当前会话打 ✓ 并标「当前」</b>。会话记录不平铺在列表页，与 web 口径一致。') +
+    '</div></div>';
 }
 
 /* ⋯ 菜单：一级 / 二级（移动端用两层底部弹层，等价 web 的两级下拉） */
 function moreSheet(){
   return '<div class="ov" data-ov>' +
     '<div class="sh"><div class="dh"></div>' +
-      '<div class="shh">秋季招生咨询</div>' +
+      '<div class="shh">果果家</div>' +
       '<div class="opt"><span class="oi">' + ic('link') + '</span>分享服务</div>' +
       '<div class="dvd"></div>' +
       '<div class="shh">更多' + ann(3) + '</div>' +
       '<div class="opt" data-go="overview" data-ovfrom="space"><span class="oi">' + ic('chart') + '</span>服务概览<span class="mx">›</span></div>' +
-      '<div class="opt" data-go="subjects"><span class="oi">' + ic('user') + '</span>服务对象<span class="mx">›</span></div>' +
       '<div class="opt" data-go="activity"><span class="oi">' + ic('clock') + '</span>动态<span class="mx">›</span></div>' +
       '<div class="dvd"></div>' +
       '<div class="shh">危险操作</div>' +
       '<div class="opt dng">暂停服务</div>' +
       '<div class="opt dng">归档服务</div>' +
       '<div class="opt dng">删除服务</div>' +
-      note(25, '<b>移动端零配置（v1.11）：使用者只需要会聊天。</b>⋯ 菜单里原来的「修改名称 / 修改描述 / 服务设置」三项已删——点进去都是表单，与「聊一句就有结果」无关。现在这里只剩<b>查看类</b>（服务概览 / 服务对象 / 动态）、<b>分享</b>与<b>危险操作</b>。名称、工作指令、专家、资料、成员、重点记录字段这些配置，统一在电脑端完成（新建服务时一次配好，之后由 AI 自己维护）。') +
+      note(25, '<b>移动端零配置（v1.11）：使用者只需要会聊天。</b>⋯ 菜单里原来的「修改名称 / 修改描述 / 服务设置」三项已删——点进去都是表单，与「聊一句就有结果」无关。现在这里只剩<b>查看类</b>（服务概览 / 动态）、<b>分享</b>与<b>危险操作</b>。名称、工作指令、专家、资料、成员、重点记录字段这些配置，统一在电脑端完成（新建服务时一次配好，之后由 AI 自己维护）。') +
     '</div></div>';
 }
 
-/* ── 3 · 产物 ── */
+/* ── 3 · 文件 ── */
 function vArtifacts(){
-  var b = '<div class="sechead" style="margin-top:2px"><span class="st">全部产物<small>3 份</small></span><span class="tt2">最近更新 ▾</span></div>';
+  var b = '<div class="sechead" style="margin-top:2px"><span class="st">全部文件<small>3 份</small></span><span class="tt2">最近更新 ▾</span></div>';
   OUT.forEach(function(o){
     b += '<div class="slim"><div style="display:flex;align-items:flex-start;gap:11px">' +
       '<span style="width:36px;height:36px;flex:0 0 36px;border-radius:9px;background:var(--info-weak);color:var(--info);display:flex;align-items:center;justify-content:center">' + ic('doc') + '</span>' +
@@ -594,8 +625,8 @@ function vArtifacts(){
       '<div class="tags" style="margin-top:8px"><span class="badge acc">' + o.v + '</span><span class="badge">' + o.n + '</span><span class="badge">' + o.d + '</span></div>' +
       '</div></div></div>';
   });
-  b += note(6, '<b>产物不再做「右侧浮层 + 内联预览」，改两步：</b>一屏列表（本屏）→ 点开进详情预览。390px 下浮层挤压对话区只剩一半宽，列表化后每份产物的来源会话、版本、条数都能一屏放下。');
-  return sbx() + '<div class="viewport">' + ab({ back:true, backTo:'space', title:'产物', sub:'秋季招生咨询 · 3 份' }) +
+  b += note(6, '<b>文件不再做「右侧浮层 + 内联预览」，改两步：</b>一屏列表（本屏）→ 点开进详情预览。390px 下浮层挤压对话区只剩一半宽，列表化后每份文件的来源会话、版本、条数都能一屏放下。');
+  return sbx() + '<div class="viewport">' + ab({ back:true, backTo:'space', title:'文件', sub:'果果家 · 3 份' }) +
     '<div class="body">' + b + '</div>' +
     '<div class="foot"><button class="btn gh" data-go="space">回到会话</button></div></div>';
 }
@@ -624,7 +655,7 @@ function vReminders(){
     return '<div class="s' + (state.ttab === t[0] ? ' on' : '') + '" data-ttab="' + t[0] + '">' + t[1] + ' ' + t[2] + '</div>';
   }).join('') + '</div>';
   return sbx() + '<div class="viewport">' +
-    ab({ back:true, backTo:'space', title:'待办', sub:'秋季招生咨询', right:['<button class="iconbtn acc" data-tnew>' + ic('plus') + '</button>'] }) +
+    ab({ back:true, backTo:'space', title:'待办', sub:'果果家', right:['<button class="iconbtn acc" data-tnew>' + ic('plus') + '</button>'] }) +
     seg + b +
     '<div class="foot"><button class="btn" data-tnew>＋ 新建待办</button></div>' + '</div>';
 }
@@ -632,28 +663,30 @@ function vReminders(){
 /* ── 5 · 服务概览（v1.8 重做：头部身份卡 + tab 分类，参照 WorkBuddy 移动端项目详情） ── */
 function vOverview(){
   var reg = [
-    ['学员等级','大班 · 在读 2 年','','#C9CED8',''],
+    ['学员','果果 · 中班插班','意向：明确','#C9CED8',''],
     ['主班老师','陈老师','','#C9CED8',''],
     ['到访次数','3 次','最近 +1 · 上周 2 次','var(--accent)','up'],
-    ['家长关注点','时段冲突、价格','9 位家长提到','var(--warn)','warn']
+    ['家长关注点','时段冲突、价格','2 次面谈都提到','var(--warn)','warn']
   ];
 
   var head = '<div class="ovhead">' +
-    '<span class="thumb">秋</span>' +
-    '<div class="ovn"><div class="nm">秋季招生咨询</div>' +
-    '<div class="mt">家长与学员 · 5 位成员</div></div>' +
-    '<div class="htabs">' + [['todo','待办'],['act','动态'],['res','产物']].map(function(t){
-      return '<div class="ht' + (state.ovTab === t[0] ? ' on' : '') + '" data-otab="' + t[0] + '">' + t[1] + '</div>';
-    }).join('') + '</div>' +
+    '<span class="thumb">果</span>' +
+    '<div class="ovn"><div class="nm">果果家</div>' +
+    '<div class="mt">招生跟进 · 学员 果果（中班插班）· 主班 陈老师</div></div>' +
     '</div>';
 
-  /* 常驻内容区（tab 上方）：进展摘要 + 重点记录，无论切到哪个 tab 都可见（v1.25 恢复 v1.23；v1.26 起成员行先不展示） */
-  var fixed =
+  /* tab 条（v1.31）：独立一行、固定在身份卡正下方（滚动区之外），只切下方明细清单 */
+  var tabbar = '<div class="otabs">' + [['sum','摘要'],['todo','待办'],['act','动态'],['res','文件']].map(function(t){
+    return '<div class="ot' + (state.ovTab === t[0] ? ' on' : '') + '" data-otab="' + t[0] + '">' + t[1] + '</div>';
+  }).join('') + '</div>';
+
+  /* 摘要 tab（v1.32）：进展摘要 + 重点记录——原先常驻在 tab 下方的内容收进「摘要」tab，默认落在这里；成员名单行先不展示（v1.26） */
+  var summary =
       '<div class="aicard">' +
         '<div class="ah"><b>✦ 进展摘要</b><span class="tm">10:12 更新 · 刷新</span></div>' +
-        '<div class="ablock">9 月共进入 <b class="num">16 条</b>线索，东苑分园 5 条；本周新增 <b class="num">4 条</b>明确意向，主要来自体验课后家长转介绍；目前还有 <b class="numw" data-otab="todo">5 条待处理</b>。</div>' +
-        '<div class="ablock sub"><span class="aflag warn">需留意</span>周三下午的时段冲突被 <b class="numw">9 位</b>家长提到，是当前最集中的顾虑。</div>' +
-        '<div class="ablock sub"><span class="aflag next">下一步</span>推进 <b class="num">3 个</b>待回访家庭 · 确认 10 月体验课排期 · 补一份时段备选方案</div>' +
+        '<div class="ablock">果果家 9 月 12 日首次到访，到现在已经到访 <b class="num">3 次</b>，意向从「考虑中」变为 <b class="num">明确意向</b>，妈妈最在意周三下午的时段安排；目前还有 <b class="numw" data-otab="todo">2 条待处理</b>。</div>' +
+        '<div class="ablock sub"><span class="aflag warn">需留意</span>周三下午的时段冲突在 <b class="numw">2 次</b>面谈里都被提到，是这一家最大的顾虑。</div>' +
+        '<div class="ablock sub"><span class="aflag next">下一步</span>回访确认周三时段 · 邀约 <b class="num">10 月</b>体验课 · 整理 3 次到访复盘</div>' +
         '</div>' + ann(8) +
       '<div class="sechead" style="margin-top:16px"><span class="st">重点记录</span><span class="meta">AI 自动维护</span></div>' +
       '<div class="reg" style="margin-top:0">' + reg.map(function(f){
@@ -664,20 +697,19 @@ function vOverview(){
       }).join('') + '</div>';
 
   var content = '';
-  if (state.ovTab === 'todo'){
-    content = '<div class="sechead" style="margin-top:16px"><span class="st">待办<small>5 条</small></span><span class="tt2" data-go="reminders">全部 ›</span></div>' +
-      TODO.map(function(t){
+  if (state.ovTab === 'sum'){
+    content = summary;
+  } else if (state.ovTab === 'todo'){
+    content = TODO.map(function(t){
         return '<div class="td" data-go="reminders"><span class="cc' + (t.p === '高' ? ' hi' : '') + '"></span>' +
           '<span class="tt3">' + t.t + '</span><span class="mm">' + t.due + ' · ' + t.p + '</span></div>';
       }).join('');
   } else if (state.ovTab === 'act'){
-    content = '<div class="sechead" style="margin-top:16px"><span class="st">最近动态</span><span class="tt2" data-go="activity">查看全部 ›</span></div>' +
-      '<div class="tl">' + ACT[0].items.concat(ACT[1].items.slice(0,1)).map(function(it){
+    content = '<div class="tl">' + ACT[0].items.concat(ACT[1].items.slice(0,1)).map(function(it){
         return '<div class="tli ' + (it.k === 'sub' ? '' : 'act') + '"><div class="tm">' + it.t + '</div><div class="ti2"><span>' + it.m[0] + '</span><span>' + it.m[1] + '</span></div></div>';
       }).join('') + '</div>';
   } else {
-    content = '<div class="sechead" style="margin-top:16px"><span class="st">产物<small>3 份</small></span><span class="tt2" data-go="artifacts">全部 ›</span></div>' +
-      OUT.map(function(o){
+    content = OUT.map(function(o){
         return '<div class="slim" data-go="artifacts" style="display:flex;align-items:center;gap:11px">' +
           '<span style="width:36px;height:36px;flex:0 0 36px;border-radius:9px;background:var(--info-weak);color:var(--info);display:flex;align-items:center;justify-content:center">' + ic('doc') + '</span>' +
           '<div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:700;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + o.t + '</div>' +
@@ -688,18 +720,25 @@ function vOverview(){
 
   return sbx() + '<div class="viewport">' +
     ab({ back:true, backTo: state.ovFrom || 'space', title:'服务概览' }) +
-    head +
-    '<div class="body" style="padding-top:16px;background:var(--bg)">' + fixed + content +
-      note(9, '<b>概览改用 tab 分类（v1.8，参照 WorkBuddy 移动端项目详情）。</b>v1.7 的六段长页（摘要 / 数字 / 待办 / 记录 / 动态 / 入口全堆一屏）信息密度过高、扫不到底。改为：头部一张<b>身份卡</b>（头像 + 名称 + 成员数，右上 ⚙ 进设置）+ 五个<b>下划线 tab</b>——概览 / 待办 / 重点记录 / 动态 / 产物，<b>一屏一件事</b>，各自完整、互不挤压。tab 用下划线式而非胶囊式，与设置页的分区胶囊在视觉上区分开。<b>底部原整宽绿色「进入会话」按钮改为 WorkBuddy 式会话输入条（v1.9）</b>：一个圆角输入条 + 麦克风 + 品牌色箭头（点任意处进入会话），与 WorkBuddy 项目详情底部的任务输入条同形，避免整屏两个大 CTA、也让「去对话」这件事看起来仍是一次输入。') +
-      note(24, '<b>简洁原则（v1.10 清一遍）：同一条信息只出现一次。</b>① 产物既有 tab 又有「快捷入口」卡片 → 删卡片，产物只走 tab；② 待办数既在 KPI 又在 tab 角标 → tab 一律不带角标，数字只在<b>概览</b>出现一次；③ 身份卡原写「家长与学员 · 5 位成员 · 3 段工作」，后两项是后台口径 → 只留用户看得懂的两项；④ 成员不进 tab，用<b>一行只读</b>「服务成员 + 名单」代替原来的两个 tile——零配置后它不再带 ›，看一眼知道有谁就够。<b>v1.11 再清一层：本页不再有任何配置入口</b>（身份卡 ⚙、「重点记录」的「编辑」全部删除）。原则：每屏一个主线任务、一个主按钮；同一数字 / 入口不重复出现；能一行说完就不做卡片；<b>需要用户配的东西，不放在使用者面前</b>。') +
-      note(25, '<b>重点记录并入概览（v1.17）。</b>重点记录只有 4 条、半屏都填不满，独立成 tab 后用户要多点一次才能看到最该看的「这个家庭处在什么状态」。现在<b>概览 tab 一屏讲完服务的全貌</b>：进展摘要 → 重点记录（AI 自动维护）→ 成员；tab 收成 4 个（概览 / 待办 / 动态 / 产物），每个 tab 都是满内容，不再有「为凑 tab 而存在」的页面。') +
+    head + tabbar +
+    '<div class="body" style="padding-top:16px;background:var(--bg)">' + content +
+      note(9, '<b>概览改用 tab 分类（v1.8，参照 WorkBuddy 移动端项目详情）。</b>v1.7 的六段长页（摘要 / 数字 / 待办 / 记录 / 动态 / 入口全堆一屏）信息密度过高、扫不到底。改为：头部一张<b>身份卡</b>（头像 + 名称 + 成员数，右上 ⚙ 进设置）+ 五个<b>下划线 tab</b>——概览 / 待办 / 重点记录 / 动态 / 文件，<b>一屏一件事</b>，各自完整、互不挤压。tab 用下划线式而非胶囊式，与设置页的分区胶囊在视觉上区分开。<b>底部原整宽绿色「进入会话」按钮改为 WorkBuddy 式会话输入条（v1.9）</b>：一个圆角输入条 + 麦克风 + 品牌色箭头（点任意处进入会话），与 WorkBuddy 项目详情底部的任务输入条同形，避免整屏两个大 CTA、也让「去对话」这件事看起来仍是一次输入。') +
+      note(24, '<b>简洁原则（v1.10 清一遍）：同一条信息只出现一次。</b>① 文件既有 tab 又有「快捷入口」卡片 → 删卡片，文件只走 tab；② 待办数既在 KPI 又在 tab 角标 → tab 一律不带角标，数字只在<b>概览</b>出现一次；③ 身份卡原写「家长与学员 · 5 位成员 · 3 段工作」，后两项是后台口径 → 只留用户看得懂的两项；④ 成员不进 tab，用<b>一行只读</b>「服务成员 + 名单」代替原来的两个 tile——零配置后它不再带 ›，看一眼知道有谁就够。<b>v1.11 再清一层：本页不再有任何配置入口</b>（身份卡 ⚙、「重点记录」的「编辑」全部删除）。原则：每屏一个主线任务、一个主按钮；同一数字 / 入口不重复出现；能一行说完就不做卡片；<b>需要用户配的东西，不放在使用者面前</b>。') +
+      note(25, '<b>重点记录并入概览（v1.17）。</b>重点记录只有 4 条、半屏都填不满，独立成 tab 后用户要多点一次才能看到最该看的「这个家庭处在什么状态」。现在<b>概览 tab 一屏讲完服务的全貌</b>：进展摘要 → 重点记录（AI 自动维护）→ 成员；tab 收成 4 个（概览 / 待办 / 动态 / 文件），每个 tab 都是满内容，不再有「为凑 tab 而存在」的页面。') +
       note(26, '<b>数字不单独做卡片（v1.19）。</b>原来摘要下面还有三格 KPI 卡（线索 16 / 明确意向 4 / 待处理 5），和摘要正文里的数字完全重复——数字离开语境没有意义，<b>摘要是它们天然的容器</b>。现在关键数字直接在摘要文字里高亮：一般进展用<b>品牌色</b>（16 条线索、4 条意向、3 个待回访），要紧的用<b>警示色</b>（9 位家长提到、5 条待处理），扫一眼颜色就知道哪些要紧；「5 条待处理」仍可点，页内切到待办 tab。这也符合 §0.5 的「同一信息只出现一次」与「能一行说完就不做卡片」。') +
       note(27, '<b>标签行删除（v1.22）。</b>卡片上原来的「家长与学员」分类徽标和「5 条待处理」橙色计数，对天天刷列表的园长来说都是<b>不关心的信息</b>：分类在建服务时已经选过、扫列表不会再看；待办压力已经由「新待办」增量行和概览摘要里的「5 条待处理」承载（同一信息只出现一次，§0.5）。删掉后卡片只剩用户语言：服务叫什么、最近怎么了、有没有新活、什么时候更新、点哪里进去。') +
-      note(28, '<b>概览内容回到 tab 上方（v1.25，恢复 v1.23 方案）。</b>v1.24 一度把它挪回「概览」tab 内，试用下来仍是「要多点一下才看得到」——摘要和重点记录是<b>这个服务最该被先看到的东西</b>，不该藏在 tab 后面。现在恢复 v1.23 的做法：<b>进展摘要 + 重点记录 + 成员常驻在 tab 上方的内容区</b>，切任何 tab 都不会把摘要滚没；tab 收成三个（待办 / 动态 / 产物），只负责切下面的明细清单。「概览」不再是一个 tab，而是页面本身——进来第一眼就是摘要。摘要里的「5 条待处理」仍可点，切到下方待办清单。') +
-      note(29, '<b>成员行先不展示（v1.26）。</b>常驻区原来第三块是「服务成员 + 名单」，但它对使用者是<b>零动作信息</b>——看了不需要做什么，成员配置又统一在电脑端（零配置，§0.5「同一条信息只出现一次」）。先删掉，让「进展摘要 → 重点记录」直接接 tab，常驻区更短、一屏更稳。成员数仍在身份卡保留一行（「家长与学员 · 5 位成员」），名单需要时再加回。') +
+      note(28, '<b>概览内容回到 tab 上方（v1.25，恢复 v1.23 方案）。</b>v1.24 一度把它挪回「概览」tab 内，试用下来仍是「要多点一下才看得到」——摘要和重点记录是<b>这个服务最该被先看到的东西</b>，不该藏在 tab 后面。现在恢复 v1.23 的做法：<b>进展摘要 + 重点记录 + 成员常驻在 tab 上方的内容区</b>，切任何 tab 都不会把摘要滚没；tab 收成三个（待办 / 动态 / 文件），只负责切下面的明细清单。「概览」不再是一个 tab，而是页面本身——进来第一眼就是摘要。摘要里的「5 条待处理」仍可点，切到下方待办清单。') +
+      note(29, '<b>成员行先不展示（v1.26）。</b>常驻区原来第三块是「服务成员 + 名单」，但它对使用者是<b>零动作信息</b>——看了不需要做什么，成员配置又统一在电脑端（零配置，§0.5「同一条信息只出现一次」）。先删掉，让「进展摘要 → 重点记录」直接接 tab，常驻区更短、一屏更稳。成员数当时在身份卡保留了一行；<b>v1.37 起这一行也删了</b>——一服务一客户，身份卡改显示这一个客户（「招生跟进 · 学员 果果（中班插班）· 主班 陈老师」）。') +
       note(30, '<b>整页精细化（v1.27）。</b>信息结构不动，只做视觉打磨：身份卡头像改品牌渐变；摘要卡改<b>柔和渐变底 + 轻投影</b>，「需留意 / 下一步」两段改成<b>白色内嵌小卡</b>，与首段结论拉开层次；重点记录格改白卡、状态点加光环；待办行与 tab 统一轻投影与间距节奏。仍是「一眼知道怎么用」，只是从毛坯装成精装。') +
       note(31, '<b>排版与色彩精细化（v1.28）。</b>把「粗糙感」拆成四件事逐项收掉：① <b>字号</b>——标题 19 / 区块 16.5 / 正文 13.5 / 元信息 12 / 标签 11，离散档位，不再 11.5、13.5、14.5 混着用；② <b>字重</b>——去掉中文下会发糊的 800，主标题与数值统一 700、正文回归 400、标签 600；③ <b>颜色</b>——次要文字由发虚的 t3 上提到 t2，t3 只留给时间戳；摘要里的数字改用派生色 <code>--accent-ink</code>（在浅绿底上更亮更实）；④ <b>背景</b>——内容区从纯白改浅灰 <code>--bg</code>，白卡与摘要卡这才真正「浮」起来（原先是白卡压白底，层次全靠一圈描边撑）。') +
-      note(32, '<b>tab 上移到身份卡右侧（v1.29）。</b>原来 tab 是通宽下划线条，独占一行——但「待办 / 动态 / 产物」三个词只占半屏，整行都是留白。现在<b>贴着服务名右侧</b>排成小胶囊（激活 = 品牌浅底实心），一整行 tab 条省掉，头部一行装下「这是谁 + 看哪块」，常驻摘要直接接在头部下面，页面更紧凑。服务名过长仍会截断（ellipsis），三个 tab 的宽度优先保住。') +
+      note(32, '<b>tab 上移到身份卡右侧（v1.29）。</b>原来 tab 是通宽下划线条，独占一行——但「待办 / 动态 / 文件」三个词只占半屏，整行都是留白。现在<b>贴着服务名右侧</b>排成小胶囊（激活 = 品牌浅底实心），一整行 tab 条省掉，头部一行装下「这是谁 + 看哪块」，常驻摘要直接接在头部下面，页面更紧凑。服务名过长仍会截断（ellipsis），三个 tab 的宽度优先保住。') +
+      note(33, '<b>tab 独立一行，固定在身份卡正下方（v1.31，迭代 v1.30）。</b>v1.29 曾把三个 tab 收进身份卡行右侧的小胶囊（太小、像标签不像导航）被否；v1.30 改回独立下划线 tab 并用 sticky 吸顶，但 tab 压在摘要 / 重点记录<b>下面</b>，要往下滚才出现。v1.31 定稿：<b>tab 条放在身份卡正下方、滚动区之外</b>——进页面第一眼「这是谁 → 看哪块」，tab 真正固定、不随内容滚动；进展摘要 / 重点记录挪到 tab 下方的内容区，切任何 tab 都完整保留。<b>激活 = 深色字 + 品牌色下划线</b>，默认落在待办。') +
+      note(34, '<b>增加「摘要」tab（v1.32）。</b>tab 固定到身份卡下方后，摘要 / 重点记录仍占着 tab 下面一大块，切到待办 / 动态 / 文件时它们不动、明细被推得很靠下。现在把这块内容<b>收进独立的「摘要」tab</b>：tab 变成四个——<b>摘要 / 待办 / 动态 / 文件</b>，<b>默认落在「摘要」</b>——进页面第一眼仍是结论与重点记录，切走即收起，一屏一件事（§0.5）。摘要里的「5 条待处理」仍可点，跳到待办 tab。') +
+      note(35, '<b>术语统一：「产物」改为「文件」（v1.33）。</b>「产物」是研发从 <code>organize_outputs</code> 直译来的词，园长和家长看不懂；他们理解的是「<b>文件</b>」——一份表、一份记录、一份报告。界面词全部改为「文件」：服务头信息条「▤ 文件 N」、概览 tab「文件」、整页标题「全部文件」。<b>代码标识符与数据表名一律不动</b>（<code>artifacts</code> / <code>organize_outputs</code> / <code>data-go="artifacts"</code>），研发改动量为零。') +
+      note(36, '<b>待办 tab 删标题行（v1.34）。</b>「待办 5 条 · 全部 ›」整行删掉：tab 名本身就是「待办」，标题行把同一个词又说一遍；「5 条」在摘要里已经出现过；「全部 ›」与点待办行进整页是同一个去处。现在进入待办 tab 直接看到清单，少一层壳。') +
+      note(37, '<b>动态 tab 删标题行（v1.35）。</b>「最近动态 · 查看全部 ›」同样删掉，与待办 tab（v1.34）一致：tab 名即标题，进入直接看时间线；动态整页的入口走<b>列表卡片的动态行</b>，概览内不再放「查看全部」。') +
+      note(38, '<b>文件 tab 删标题行（v1.36）。</b>「文件 3 份 · 全部 ›」同样删掉——待办 / 动态 / 文件三个 tab 口径统一：tab 名即标题，进入直接看清单；文件整页的入口走<b>点文件行</b>。') +
+      note(39, '<b>一服务一客户（v1.37，模型简化）。</b>第一版固定：<b>一个服务绑定一个家长 / 学员家庭</b>（如「果果家」），服务名就是这一家的名字，身份卡下面是这一家的关键信息（学员 / 班级 / 主班老师）；不再有「服务对象列表」「N 位成员」「把对象归到上级」——那些是"一个服务装多个对象"的旧模型留下的概念（方案 §0.6）。连带删除：左栏「服务对象」整页（8 → 7 个场景）、⋯ 菜单里的「服务对象」入口。重点记录 / 动态 / 待办 / 文件天然就是"这一家"的视角：动态里的变化行不再重复家庭名（服务本身就是这一家），筛选也没有"按对象筛"了。') +
       note(23, '<b>点卡片先进概览，不先进对话（v1.5）：</b>列表的服务卡片<b>整卡可点</b>，落点是本页——服务概览就是服务的首页；底部<b>会话输入条</b>再下到对话区，返回键按来源回（从列表来回列表、从 ⋯ 进来回会话）。为什么不直接进对话：手机屏小，先把服务的全貌给出来，再决定聊什么；web 上对话区与浮层能并存，所以 web 不受此限。') +
     '</div>' +
     '<div class="foot cin"><div class="composer" data-go="space">' +
@@ -710,44 +749,11 @@ function vOverview(){
     '</div>';
 }
 
-/* ── 6 · 服务对象 ── */
-function vSubjects(){
-  if (state.sub === 'detail'){
-    return sbx() + '<div class="viewport">' +
-      ab({ back:true, backSub:'list', title:'果果家' }) +
-      '<div class="body">' +
-        '<div class="card bd"><div class="meta">记录</div><div style="font-size:15px;font-weight:700;color:var(--t1);margin-top:5px">家长关注点：时段冲突、价格</div>' +
-        '<div style="font-size:13.5px;line-height:1.65;color:var(--t2);margin-top:7px">到访次数：3 次 · 学员等级：大班 · 在读 2 年</div></div>' +
-        '<div class="sechead"><span class="st">这个对象的变化</span></div>' +
-        '<div class="tl">' + ACT[0].items.slice(0,2).map(function(it){
-          return '<div class="tli"><div class="tm">' + it.t + '</div><div class="ti2"><span>' + it.m[0] + '</span><span class="lk">' + it.m[1] + '</span></div></div>';
-        }).join('') + '</div>' +
-        note(12, '<b>服务对象不需要用户维护（v1.11 零配置）：</b>对象从对话里自动识别并沉淀（「果果家」「乐乐妈妈」都是聊出来的），<code>subject_type</code> 后端默认 <code>custom</code>、<code>subject_key</code> 后端生成，界面永不出现 <code>member-001</code> 这类值。原来的「归到某个对象下」与「引用编号」两个维护动作已删——层级和编号是机器的事，不需要用户点。') +
-      '</div></div>';
-  }
-  var objs = [['果果家','家长与学员','家长关注点：时段冲突、价格','2 条变化'],['乐乐妈妈','家长与学员','到访意向：明确','1 条变化'],['东苑分园','园所','本周新增 5 条线索','1 条变化']];
-  var b = '<div class="sechead" style="margin-top:2px"><span class="st">全部服务对象<small>3 个</small></span></div>' +
-    objs.map(function(o){
-      return '<div class="slim" data-sub="detail" style="display:flex;align-items:center;gap:11px">' +
-        '<span class="ava">' + o[1].charAt(0) + '</span>' +
-        '<div style="flex:1;min-width:0"><div style="font-size:15.5px;font-weight:700;color:var(--t1)">' + o[0] + '</div>' +
-        '<div class="meta" style="margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + o[2] + '</div></div>' +
-        '<span class="badge acc">' + o[3] + '</span><span style="color:var(--t3)">›</span></div>';
-    }).join('') + ann(10) +
-    note(3, '名字从 web 的「服务主体」改成「<b>服务对象</b>」；用户只填名称，两个机器键（<code>subject_type</code> / <code>subject_key</code>）由后端生成，界面完全不出现。');
-  return sbx() + '<div class="viewport">' +
-    ab({ back:true, backTo:'space', title:'服务对象', sub:'秋季招生咨询' }) +
-    '<div class="body">' + b + '</div></div>';
-}
-
-/* ── 7 · 动态 · 时间线 ── */
+/* ── 6 · 动态 · 时间线（原「服务对象」整页已在 v1.37 删除，见 §0.6 一服务一客户） ── */
 function vActivity(){
-  var f = ['全部','只看主体变化','只看空间动作'];
-  var subj = ['果果家','乐乐妈妈','东苑分园','不限'];
+  var f = ['全部','只看这一家的变化','只看空间动作'];
   var b = '<div style="display:flex;gap:8px;overflow-x:auto;padding:4px 0 2px;margin-bottom:4px">' +
-    f.map(function(x, i){ return '<span class="badge ' + (i === 0 ? 'acc' : '') + '" style="flex:0 0 auto;height:28px;padding:0 12px;font-size:12.5px">' + x + '</span>'; }).join('') + '</div>' +
-    '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:6px"><span class="meta" style="flex:0 0 auto;line-height:28px">主体</span>' +
-    subj.map(function(x, i){ return '<span class="badge ' + (i === 0 ? 'acc' : '') + '" style="flex:0 0 auto;height:28px;padding:0 12px;font-size:12.5px">' + x + '</span>'; }).join('') + '</div>';
+    f.map(function(x, i){ return '<span class="badge ' + (i === 0 ? 'acc' : '') + '" style="flex:0 0 auto;height:28px;padding:0 12px;font-size:12.5px">' + x + '</span>'; }).join('') + '</div>';
   ACT.forEach(function(d){
     b += '<div class="tlday">' + d.day + '</div><div class="tl">' + d.items.map(function(it){
       return '<div class="tli ' + (it.k === 'sub' ? '' : 'act') + '"><div class="tm">' + it.t + '</div>' +
@@ -757,22 +763,23 @@ function vActivity(){
   b += note(13, '<b>待办只把终态记进来</b>：「已完成 / 已取消」各出一条；「待处理 → 进行中」这类过程翻转不记，否则时间线会被刷屏。主体变化行带「旧值 → 新值」和依据回链，这是回顾时真正有用的部分。') +
     note(14, '<b>真源不是新表：</b>主体变化读 append-only 的 <code>service_facts</code>（已带 <code>subject_id</code>），空间动作读审计里已经在写的 <code>service.*</code> 事件。后端要补的是<b>服务级 reminder-history 聚合端点</b>与审计的 <code>service_id</code> 查询维度。');
   return sbx() + '<div class="viewport">' +
-    ab({ back:true, backTo: state.actFrom || 'space', title:'动态', sub:'秋季招生咨询' }) +
+    ab({ back:true, backTo: state.actFrom || 'space', title:'动态', sub:'果果家 · 招生跟进' }) +
     '<div class="body">' + b + '</div></div>';
 }
 
-/* ── 8 · 移动端适配对照 ── */
+/* ── 7 · 移动端适配对照 ── */
 function vDiff(){
   var rows = [
-    ['服务头 9 个入口', '产物 / 待办 / ⋯ 三个常驻（320px 浮层）', '信息条 + 右上 ＋ ⋯', '390px 放不下三个带计数按钮'],
+    ['服务头 9 个入口', '文件 / 待办 / ⋯ 三个常驻（320px 浮层）', '信息条 + 右上 <b>◷ ＋ ⋯</b>', '390px 放不下三个带计数按钮'],
+    ['会话切换', '服务头 <b>◷ 历史会话</b>下拉菜单（左侧边栏不再平铺会话）', '<b>◷ 打开底部弹层</b>列会话，点选即切换、当前打 ✓', '下拉菜单在 390px 上贴边易误触；移动端会话切换是原生底部弹层习惯'],
     ['新建会话 ＋', '左侧服务行<b>悬停</b>出现', '卡片 ⋯ 菜单 / 空间右上 ＋', '<b>触摸没有 hover</b>'],
-    ['右侧浮层（产物 / 待办）', '320px 浮层，看 + 配混在一起', '整页列表 → 点开详情', '浮层会挤掉对话区一半宽度'],
+    ['右侧浮层（文件 / 待办）', '320px 浮层，看 + 配混在一起', '整页列表 → 点开详情', '浮层会挤掉对话区一半宽度'],
     ['⋯ 两级下拉菜单', '点击展开二级', '两层底部弹层', '弹出层在移动端是原生习惯'],
     ['服务设置（4 分区）', '设置整页：基本信息 / 重点记录 / 资料 / 成员', '<b>移动端不提供</b> → 配置只在电脑端', '移动端只做「聊天 + 看」：名称、工作指令、专家、资料、成员都是机构运营侧的一次性配置，手机端留着这些入口只会让人以为必须先配一遍'],
     ['需要配置的按钮（修改名称 / 修改描述 / 重点记录「编辑」/ 成员管理 / 新增对象）', '⋯ 菜单与各页面都有入口', '<b>全部删除</b>（v1.11 零配置）', '点进去都是表单，与「聊一句就出结果」无关；删掉后移动端只剩查看类入口 + 分享 / 危险操作'],
     ['新建服务 / 从模板创建', '整页表单 + 模板卡选择', '<b>移动端不提供</b> → 电脑端创建', '创建要填 4 组字段、选专家与知识库，手机端体验差；模板本身是机构运营侧的配置动作'],
     ['服务卡片的点击落点', '点卡片直接进服务空间（对话区）', '先进<b>服务概览</b> → 再「进入会话」', '手机屏小，先给服务全貌（进展 / 重点记录 / 动态）再决定聊什么；web 的对话与浮层能并存，移动端二选一'],
-    ['服务列表卡片', '描述 + 元信息 + 行内按钮', '内容区放<b>最新动态 / 新待办</b>两类增量 + 更新于 ××，落点用<b>主题色文字链</b>不用按钮', '天天刷列表的人要的是「最近发生了什么、多了什么活」——动态与待办两类增量各一条，语义色区分；产物不必上卡片（产物是结果清单，进服务后在产物 tab 看更合适）；一屏三张卡塞三个色块按钮太重，文字链保留品牌色就够了'],
+    ['服务列表卡片', '描述 + 元信息 + 行内按钮', '<b>家庭名 + 客户信息（学员 / 班级 / 主班老师）</b> + 最新动态 / 新待办两类增量 + 更新于 ××，落点用<b>主题色文字链</b>不用按钮', '天天刷列表的人要的是「这是谁家、最近发生了什么、多了什么活」——家庭名与客户信息一行先认人，动态与待办两类增量各一条、语义色区分；文件不必上卡片（进服务后在文件 tab 看更合适）；一屏三张卡塞三个色块按钮太重，文字链保留品牌色就够了'],
     ['待办状态流转', '下拉 + 弹窗改协作', '卡片内「下一步 ▾」', '减少层级、不打断上下文']
   ];
   var b = '<div style="font-size:12.5px;line-height:1.7;color:var(--t2);font-weight:500;margin-bottom:14px">web 版的交互有几条<b>在手机上无法照搬</b>。每张卡自上而下是：能力 · web 做法 · 移动端做法 · 为什么必须改。</div>' +
@@ -798,12 +805,11 @@ function vDiff(){
 var SCENES = [
   { key:'list',      n:1,  label:'服务列表 · 含空态三分支',   path:'tab 服务 → /platform/service',      render:vList },
   { key:'space',     n:2,  label:'服务空间 · 会话工作台',     path:'/platform/service/:id/sessions/:sid', render:vSpace },
-  { key:'artifacts', n:3,  label:'产物 · 整页列表',           path:'服务空间 → 产物 3',                  render:vArtifacts },
+  { key:'artifacts', n:3,  label:'文件 · 整页列表',           path:'服务空间 → 文件 3',                  render:vArtifacts },
   { key:'reminders', n:4,  label:'待办 · 整页 + 三态',        path:'服务空间 → 待办 3',                  render:vReminders },
   { key:'overview',  n:5,  label:'服务概览 · tab 分类（WorkBuddy 式）', path:'列表点卡片 / ⋯ → 更多 → 服务概览',   render:vOverview },
-  { key:'subjects',  n:6,  label:'服务对象 · 列表与详情',     path:'⋯ → 更多 → 服务对象',                render:vSubjects },
-  { key:'activity',  n:7,  label:'动态 · 时间线',             path:'⋯ → 更多 → 动态',                    render:vActivity },
-  { key:'diff',      n:8,  label:'移动端适配对照',            path:'—',                                 render:vDiff }
+  { key:'activity',  n:6,  label:'动态 · 时间线',             path:'⋯ → 更多 → 动态',                    render:vActivity },
+  { key:'diff',      n:7,  label:'移动端适配对照',            path:'—',                                 render:vDiff }
 ];
 
 var SPECS = {
@@ -811,15 +817,17 @@ var SPECS = {
     pts:[
       '进页即是「我的服务」——<b>页头大标题、副标题与排序 chips 区整块删除</b>（v1.3，2026-10-08）；排序入口保留在分区头右侧「排序 ▾」。',
       '<b>卡片：</b>缩略字块 + 名称（暂停中的服务在名称旁带橙色「已暂停」小徽标）；<b>内容区 = 服务增量</b>（v1.22，最多两行小字）：最新动态（绿）+ 新待办（橙），各带语义色小标签，一眼看清「这个服务最近动了什么、多了什么活」；每行独立可点（动态行→动态页，待办行→概览待办 tab）；底部「更新于 ××」+ <b>主题色文字链「进入服务 ›」</b>（v1.16）。',
-      '<b>标签行整体删除（v1.22）</b>：「家长与学员」分类、「N 条待处理」计数都不再上卡片——分类是建服务时的归档信息，扫列表用不上；待办压力由「新待办」增量行与概览摘要承载，同一信息不出现两次。卡片最终五行：头像+名称 / 最新动态 / 新待办 / 更新于 / 进入服务。',
+      '<b>标签行整体删除（v1.22）</b>：「家长与学员」分类、「N 条待处理」计数都不再上卡片——分类是建服务时的归档信息，扫列表用不上；待办压力由「新待办」增量行与概览摘要承载，同一信息不出现两次。',
+      '<b>客户信息行 + 层级重排（v1.38）：</b>名称下补一行<b>客户重要信息</b>「学员 果果 · 中班插班 · 主班 陈老师」——与 web v1.29 列表卡片<b>同口径</b>（开发方案 M3），先认出「这是谁家」再看动态。卡片重排成三段：<b>① 身份</b>（头像 + 家庭名 + 已暂停徽标 / 客户信息行）<b>② 动静</b>（最新动态 / 新待办 各一条，带语义色小标签，行独立可点）<b>③ 页脚</b>（更新于 ×× + 主题色文字链「进入服务 ›」）——身份与动静之间用一条浅分隔线拉开层级，一屏扫过去先认人、再看事。',
       '<b>空态三分支：</b>右上 chip 切换——完全新用户 / 有归档无在用 / 搜索无结果，三种给不同出口。现状把后两种混进第一种。',
-      '排序三项保留。<b>移动端不提供任何创建入口</b>（2026-10-08 口径）：<b>新建服务 / 从模板创建 / 复制配置创建一律只在 web 端</b>。移动端只做「用服务」——看列表 → 进空间 → 会话 / 产物 / 待办 / 设置；页头不再有「＋ 新建」，三个空态都指向电脑端创建。',
+      '排序三项保留。<b>移动端不提供任何创建入口</b>（2026-10-08 口径）：<b>新建服务 / 从模板创建 / 复制配置创建一律只在 web 端</b>。移动端只做「用服务」——看列表 → 进空间 → 会话 / 文件 / 待办 / 设置；页头不再有「＋ 新建」，三个空态都指向电脑端创建。',
       '<b>卡片整卡可点 → 服务概览</b>（v1.5）：服务的默认落点是<b>概览</b>、不是对话页——先看全貌（进展 / 重点记录 / 最近动态）再聊；点 ⋯ 只开菜单、不跳转。',
       '<b>内容区 = 服务增量</b>（v1.13→v1.21）：服务描述从卡片删掉（描述在建服务时看一次就够了，天天刷列表的人要的是「最近发生了什么」）；v1.21 起最多两行——<b>最新动态 / 新待办</b>两类增量各取最新一条，带语义色小标签；每行独立可点，直达动态页或概览待办 tab；数据真源：动态=<code>service_facts</code>、待办=<code>service_reminders</code>（各取最近一条即可，无需新接口）+「更新于 ××」。'
     ]},
   space: { goal:'日常待得最久的一屏。改动集中在服务头与新建会话。',
     pts:[
-      '<b>服务头收口：</b>9 个入口 → 产物 / 待办 / ⋯。移动端把「产物 N · 待办 N · 成员」压成标题下一条<b>信息条</b>，右上只留 ＋ 与 ⋯。',
+      '<b>服务头收口：</b>9 个入口 → 文件 / 待办 / ⋯。移动端把「文件 N · 待办 N · 成员」压成标题下一条<b>信息条</b>，右上留 <b>◷ 历史会话 / ＋ / ⋯</b>（v1.38）。',
+      '<b>历史会话 ◷（v1.38）：</b>与 web v1.28 的口径一致——会话记录不平铺，服务头右上 ◷ 打开底部弹层列出本服务全部会话，点选即切换（标题跟着变）、当前打 ✓ 标「当前」。390px 放不下 web 的 ◷ 下拉菜单，改用移动端原生的底部弹层。',
       '<b>标题跟随中间内容：</b>聊天区显示会话标题（下方灰字回落服务名），点 ＋ 后显示「新的会话」。',
       '<b>＋ 新建会话：</b>点一下对话区直接切空态，不弹窗、不跳「新增页」，原会话自动收好。',
       '<b>无会话态不是空白：</b>输入框保持可用 + 示例引导。'
@@ -827,7 +835,7 @@ var SPECS = {
     mobile:'<b>这里是全案移动端改动最大的一屏：</b>web 的「左侧服务行悬停 ＋」在触摸设备上无对应交互（没有 hover），本原型把它拆成两处——服务卡片 ⋯ 菜单里的「新建会话」，以及服务空间右上角的 ＋。上一版的实现方式见场景 9 第 2 行。'},
   artifacts: { goal:'「看」的东西，移动端一律整页，不再用被挤压的浮层。',
     pts:[
-      '列表每项展示：产物名 + <b>来源会话</b> + 版本 / 条数 / 时间。',
+      '列表每项展示：文件名 + <b>来源会话</b> + 版本 / 条数 / 时间。',
       '点开进详情预览，返回键回到同一位置。',
       '现状的「列表 + 内联预览」两个视图在 390px 下都放不下，拆成两跳更清楚。'
     ]},
@@ -839,31 +847,26 @@ var SPECS = {
       '顶部三态分段：待处理 / 进行中 / 已完成，各带计数。'
     ],
     api:'默认四态由后端自动生成，key 后端生成、category 按 is_terminal 推导 —— 界面不设自定义状态入口。'},
-  overview: { goal:'移动端的服务首页（v1.29）：tab 收进身份卡行右侧，摘要 / 重点记录常驻其下，tab 只切下方明细；成员名单行先不展示。',
+  overview: { goal:'移动端的服务首页（v1.37）：tab 独立一行、固定在身份卡正下方（滚动区之外），四个 tab —— 摘要 / 待办 / 动态 / 文件，默认落在「摘要」（结论 + 重点记录）；成员名单行先不展示。',
     pts:[
-      '<b>结构对标 WorkBuddy 移动端项目详情</b>：顶部导航（返回 + 标题）→ 一张<b>服务身份卡</b>（头像 + 名称 + 「家长与学员 · 5 位成员」，<b>行右侧即三个胶囊 tab</b>）→ <b>常驻内容区</b> → 当前 tab 明细——v1.29 起 tab 不再独占一行。',
-      '<b>概览内容在 tab 上方（v1.25 恢复 v1.23 方案）</b>：进展摘要三段式（结论 / 需留意 / 下一步，可刷新）→ <b>重点记录 2×2 网格</b>（右上灰字「AI 自动维护」；v1.18 精细化：每格带状态色点、变化的记录带补充行）→ 一行<b>只读</b>——这两块<b>常驻</b>，切任何 tab 都不会被滚走；「概览」不再是一个 tab，而是页面本身。<b>成员行先不展示（v1.26）</b>：名单是零动作信息，先删；成员数只在身份卡保留。',
-      '<b>三个 tab 只切明细：</b>待办 / 动态 / 产物（v1.29 胶囊轻量式：激活 = 品牌浅底实心、未激活灰底），默认落在待办；tab 一律不带角标（数字只在摘要出现一次）。',
-      '<b>数字不单独做卡片（v1.19）</b>：线索 / 明确意向 / 待处理等关键数字直接在摘要文字里<b>品牌色 / 警示色加粗高亮</b>（如「共进入 <code>16 条</code>线索」「还有 <code>5 条待处理</code>」），替代独立的三格 KPI 卡——数字离开语境没有意义，摘要是它们天然的容器；「5 条待处理」仍可点，切到下方待办明细。',
-      '<b>简洁做法</b>：产物不再重复出卡片（有独立 tab）；成员名单行不展示（v1.26，成员数只在身份卡保留一行）；身份卡不摆「3 段工作」这类后台口径。',
+      '<b>结构对标 WorkBuddy 移动端项目详情</b>：顶部导航（返回 + 标题）→ 一张<b>服务身份卡</b>（头像 + <b>家庭名</b> + 「招生跟进 · 学员 果果（中班插班）· 主班 陈老师」——一服务一客户，v1.37）→ <b>tab 条（独立一行，滚动区之外）</b> → 当前 tab 内容——tab 固定在身份卡正下方，进页面第一眼就是「这是谁 → 看哪块」；默认落在「摘要」。',
+      '<b>概览内容在 tab 上方（v1.25 恢复 v1.23 方案）</b>：进展摘要三段式（结论 / 需留意 / 下一步，可刷新）→ <b>重点记录 2×2 网格</b>（右上灰字「AI 自动维护」；v1.18 精细化：每格带状态色点、变化的记录带补充行）→ 一行<b>只读</b>——这两块<b>常驻</b>，切任何 tab 都不会被滚走；「概览」不再是一个 tab，而是页面本身。<b>成员行先不展示（v1.26）</b>：名单是零动作信息，先删；<b>v1.37 起身份卡也不再显示成员数</b>——一服务一客户，这里显示的是这一个客户（学员 / 班级 / 主班老师）。',
+      '<b>四个 tab（v1.32）：</b>摘要 / 待办 / 动态 / 文件，<b>独立一行的下划线式 tab</b>（激活 = 深色字 + 品牌色下划线），<b>默认落在「摘要」</b>；tab 条放在<b>滚动区之外</b>，无论滚多远都固定在身份卡正下方；tab 一律不带角标（数字只在摘要出现一次）；<b>待办 / 动态 / 文件 tab 删标题行（v1.34~v1.36）</b>——tab 名即标题，进入直接看清单，不再重复「待办 5 条 · 全部 ›」「最近动态 · 查看全部 ›」「文件 3 份 · 全部 ›」。',
+      '<b>「摘要」tab 承载结论（v1.32）：</b>进展摘要三段式（结论 / 需留意 / 下一步，可刷新）+ <b>重点记录 2×2</b>（AI 自动维护）都放进这个 tab——原先是常驻在 tab 下方，切别的 tab 时明细被推得很靠下；收进 tab 后「切走即收起」，一屏一件事（§0.5）。「2 条待处理」仍可点，跳到待办 tab。',
+      '<b>tab 位置的取舍（v1.29 → v1.32）：</b>v1.29 收进身份卡行右侧的小胶囊（太小、像标签不像导航）被否；v1.30 独立一行 + sticky 吸顶，但 tab 压在摘要下面、要往下滚才出现；v1.31 定为<b>身份卡正下方、滚动区之外</b>；v1.32 在 tab 里补上<b>「摘要」</b>并把内容收进去。',
+      '<b>数字不单独做卡片（v1.19）</b>：线索 / 明确意向 / 待处理等关键数字直接在摘要文字里<b>品牌色 / 警示色加粗高亮</b>（如「已经到访 <code>3 次</code>」「还有 <code>2 条待处理</code>」），替代独立的三格 KPI 卡——数字离开语境没有意义，摘要是它们天然的容器；「2 条待处理」仍可点，切到下方待办明细。',
+      '<b>简洁做法</b>：文件不再重复出卡片（有独立 tab）；成员名单行不展示（v1.26，成员数只在身份卡保留一行）；身份卡不摆「3 段工作」这类后台口径。',
       '<b>精细化（v1.27）</b>：摘要卡改柔和渐变底（需留意 / 下一步 = 白色内嵌小卡）、重点记录白卡化 + 状态点光环、待办行轻投影、身份卡头像品牌渐变——信息结构与层级不变，只提升质感。',
       '<b>排版与色彩（v1.28）</b>：字号离散化（19 / 16.5 / 13.5 / 12 / 11），字重收敛（去 800，用 700 / 600 / 400），次要文字上提 t2、t3 只留时间戳；摘要数字用派生色 <code>--accent-ink</code>；内容区底色改 <code>--bg</code> 浅灰，白卡与摘要卡形成真实分层。',
       '<b>零配置（v1.11）</b>：本页不含任何配置入口——身份卡无 ⚙、重点记录无「编辑」（改由 AI 自动维护，右上只写一行灰字说明）、成员行只读。使用者在这里只会做两件事：看结论、去聊天。',
       '<b>底部会话入口（v1.9）</b>：不用整宽绿色按钮，改成 WorkBuddy 式<b>会话输入条</b>——圆角条 + 「进入会话，接着说…」+ 麦克风 + 品牌色箭头，点任意处进入会话；一屏只留一个视觉锚点。',
       '<b>落点</b>（v1.5）：列表点卡片直接进本页；底部输入条再下到对话区；返回键按来源回（列表 / 会话）。'
     ]},
-  subjects: { goal:'名字改成「服务对象」；对象由对话自动沉淀，移动端只读。',
+  activity: { goal:'新能力：按时间倒序统计这个空间里的变化，客户（这一家）的变化优先。',
     pts:[
-      '列表每个对象显示：名称 + 类型 + 最近一条变化 + 变化条数。',
-      '<b>零配置（v1.11）</b>：对象不是用户建的，也不是用户维护的——从对话里自动识别沉淀；页头「＋ 新增对象」与详情里的「归到某个对象下」「引用编号」已全部删除。',
-      '<code>subject_type</code> 默认 <code>custom</code>、<code>subject_key</code> 后端生成；界面不出现 <code>member-001</code> 这类值。'
-    ],
-    api:'创建只传名称即可 —— 后端收 <code>{name}</code> 就该能建，缺省在服务端补全；移动端不提供创建入口。'},
-  activity: { goal:'新能力：按时间倒序统计这个空间里的变化，主体变化优先。',
-    pts:[
-      '<b>筛选</b>：全部 / 只看主体变化 / 只看空间动作，以及按对象筛；按天分组。',
-      '<b>主体变化行</b>：对象名 · 字段 · <span style="text-decoration:line-through">旧值</span> → 新值 · 依据回链 · 谁记的。',
-      '<b>空间动作行</b>：新增/改名对象、带入/撤销资料、产物更新、成员变更、服务暂停归档、<b>待办终态</b>。',
+      '<b>筛选</b>：全部 / 只看这一家的变化 / 只看空间动作；按天分组。<b>v1.37 起没有"按对象筛"</b>——一服务一客户（§0.6），主体就是这一家。',
+      '<b>客户变化行</b>：字段 · <span style="text-decoration:line-through">旧值</span> → 新值 · 依据回链 · 谁记的（不再重复家庭名，服务本身就是这一家）。',
+      '<b>空间动作行</b>：带入/撤销资料、文件更新、成员变更、服务暂停归档、<b>待办终态</b>。',
       '<b>待办只记终态</b>：已完成 / 已取消各出一条；过程翻转（待处理→进行中）不记。'
     ],
     api:'不建新表。主体变化读 <code>service_facts</code>（append-only、带 <code>subject_id</code>）；空间动作读审计里已在写的 <code>service.*</code> 事件；待办终态读 <code>service_reminder_history</code>。需补：审计的 <code>service_id</code> 查询维度、<code>fact_append</code> 细目补 <code>subject_id</code>/字段值、服务级 history 聚合端点。'},
@@ -918,13 +921,8 @@ function renderBar(){
       return '<button class="chip' + (state.smode === p[0] ? ' on' : '') + '" data-smode="' + p[0] + '">' + p[1] + '</button>';
     }).join('') + '<button class="chip' + (state.more ? ' on' : '') + '" data-more>' + (state.more ? '收起 ⋯' : '展开 ⋯') + '</button>';
   } else if (state.scene === 'overview'){
-    br.innerHTML = [['todo','待办'],['act','动态'],['res','产物']].map(function(p){
+    br.innerHTML = [['sum','摘要'],['todo','待办'],['act','动态'],['res','文件']].map(function(p){
       return '<button class="chip' + (state.ovTab === p[0] ? ' on' : '') + '" data-otab="' + p[0] + '">' + p[1] + '</button>';
-    }).join('');
-  } else if (state.scene === 'subjects'){
-    br.innerHTML = ['list|列表','detail|详情'].map(function(x){
-      var p = x.split('|');
-      return '<button class="chip' + (state.sub === p[0] ? ' on' : '') + '" data-submode="' + p[0] + '">' + p[1] + '</button>';
     }).join('');
   } else if (state.scene === 'reminders'){
     br.innerHTML = [['open','待处理'],['doing','进行中'],['done','已完成']].map(function(p){
@@ -939,11 +937,11 @@ function renderBar(){
 document.addEventListener('click', function(e){
   /* 只有点到灰色遮罩本身才关闭弹层；点弹层内部不关 */
   if (e.target.classList && e.target.classList.contains('ov')){
-    state.more = false; state.svcSheet = null; return layout();
+    state.more = false; state.svcSheet = null; state.hist = false; return layout();
   }
-  var t = e.target.closest('[data-scene],[data-go],[data-lmode],[data-smode],[data-submode],[data-ttab],[data-otab],[data-more],[data-nc],[data-ncnext],[data-sub],[data-ov],[data-tnew],[data-more-svc]');
+  var t = e.target.closest('[data-scene],[data-go],[data-lmode],[data-smode],[data-submode],[data-ttab],[data-otab],[data-more],[data-nc],[data-ncnext],[data-sub],[data-ov],[data-tnew],[data-more-svc],[data-hist],[data-sess]');
   if (!t) return;
-  if (t.hasAttribute('data-scene')){ state.scene = t.getAttribute('data-scene'); state.more = false; state.svcSheet = null; history.replaceState(null,'','#'+state.scene); return layout(); }
+  if (t.hasAttribute('data-scene')){ state.scene = t.getAttribute('data-scene'); state.more = false; state.svcSheet = null; state.hist = false; history.replaceState(null,'','#'+state.scene); return layout(); }
   if (t.hasAttribute('data-go')){
     var g = t.getAttribute('data-go');
     if (g === 'overview'){
@@ -951,18 +949,20 @@ document.addEventListener('click', function(e){
       if (t.getAttribute('data-otab')) state.ovTab = t.getAttribute('data-otab');
     }
     if (g === 'activity') state.actFrom = t.getAttribute('data-actfrom') || 'space';
-    state.scene = g; state.more = false; state.svcSheet = null;
+    state.scene = g; state.more = false; state.svcSheet = null; state.hist = false;
     history.replaceState(null,'','#'+state.scene); return layout();
   }
   if (t.hasAttribute('data-lmode')){ state.lmode = t.getAttribute('data-lmode'); return layout(); }
-  if (t.hasAttribute('data-smode')){ state.smode = t.getAttribute('data-smode'); state.more = false; return layout(); }
+  if (t.hasAttribute('data-smode')){ state.smode = t.getAttribute('data-smode'); state.more = false; state.hist = false; return layout(); }
   if (t.hasAttribute('data-submode')){ state.sub = t.getAttribute('data-submode'); return layout(); }
   if (t.hasAttribute('data-ttab')){ state.ttab = t.getAttribute('data-ttab'); return layout(); }
   if (t.hasAttribute('data-otab')){ state.ovTab = t.getAttribute('data-otab'); return layout(); }
   if (t.hasAttribute('data-sub')){ state.sub = 'detail'; return layout(); }
-  if (t.hasAttribute('data-more')){ state.more = !state.more; return layout(); }
-  if (t.hasAttribute('data-nc')){ state.smode = 'new'; state.more = false; return layout(); }
-  if (t.hasAttribute('data-ncnext')){ state.scene = 'space'; state.smode = 'new'; state.svcSheet = null; history.replaceState(null,'','#space'); return layout(); }
+  if (t.hasAttribute('data-more')){ state.more = !state.more; state.hist = false; return layout(); }
+  if (t.hasAttribute('data-hist')){ state.hist = !state.hist; state.more = false; return layout(); }
+  if (t.hasAttribute('data-sess')){ state.curSess = t.getAttribute('data-sess'); state.hist = false; state.smode = 'chat'; return layout(); }
+  if (t.hasAttribute('data-nc')){ state.smode = 'new'; state.more = false; state.hist = false; return layout(); }
+  if (t.hasAttribute('data-ncnext')){ state.scene = 'space'; state.smode = 'new'; state.svcSheet = null; state.hist = false; history.replaceState(null,'','#space'); return layout(); }
   if (t.hasAttribute('data-more-svc')){ state.svcSheet = t.getAttribute('data-more-svc'); return layout(); }
   return; /* 弹层内部未接线的项：保持弹层不关，等实现接线 */
 });

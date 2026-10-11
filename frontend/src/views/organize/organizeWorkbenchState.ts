@@ -20,6 +20,8 @@ export interface OrganizeTemplate {
   defaultInstruction: string
   markdownTemplate: string
   expertIds: string[]
+  schedule: OrganizeScheduleKey
+  scheduleTime: string
   publishedVersion: string
 }
 
@@ -59,6 +61,7 @@ export interface OrganizeConfig {
   instruction: string
   expertIds: string[]
   schedule: OrganizeScheduleKey
+  scheduleTime: string
   status: 'active' | 'disabled'
   jobs: OrganizeJob[]
   jobCount: number
@@ -133,9 +136,25 @@ export interface OrganizeOutput {
 
 export const organizeScheduleLabels: Record<OrganizeScheduleKey, string> = {
   manual: '手动触发',
-  daily: '每天 08:00',
-  weekly: '每周一 09:00',
-  monthly: '每月 1 日 09:00',
+  daily: '每天',
+  weekly: '每周一',
+  monthly: '每月 1 日',
+}
+
+export const organizeScheduleDefaultTimes: Record<OrganizeScheduleKey, string> = {
+  manual: '',
+  daily: '08:00',
+  weekly: '09:00',
+  monthly: '09:00',
+}
+
+export const organizeScheduleLabel = (
+  schedule: OrganizeScheduleKey,
+  scheduleTime = '',
+) => {
+  const label = organizeScheduleLabels[schedule] || organizeScheduleLabels.manual
+  if (schedule === 'manual') return label
+  return `${label} ${scheduleTime || organizeScheduleDefaultTimes[schedule]}`
 }
 
 const toNumber = (value: unknown) => {
@@ -220,6 +239,9 @@ export const toOrganizeTemplate = (template: ApiOrganizeTemplate): OrganizeTempl
   defaultInstruction: template.default_instruction,
   markdownTemplate: template.markdown_template || '',
   expertIds: [...(template.expert_ids || [])],
+  schedule: template.schedule || 'manual',
+  scheduleTime: template.schedule_time
+    || organizeScheduleDefaultTimes[template.schedule || 'manual'],
   publishedVersion: template.published_version,
 })
 
@@ -266,7 +288,9 @@ export const toOrganizeConfig = (config: ApiOrganizeConfig): OrganizeConfig => (
   targetServiceId: config.target_service_id || '',
   instruction: config.instruction,
   expertIds: [...(config.expert_ids || [])],
-  schedule: config.schedule,
+  schedule: config.schedule || 'manual',
+  scheduleTime: config.schedule_time
+    || organizeScheduleDefaultTimes[config.schedule || 'manual'],
   status: config.status,
   jobs: config.latest_job ? [toOrganizeJob(config.latest_job)] : [],
   jobCount: config.job_count || 0,

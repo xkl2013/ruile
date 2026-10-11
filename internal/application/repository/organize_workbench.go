@@ -104,6 +104,7 @@ func (r *organizeRepository) UpdateConfig(ctx context.Context, config *types.Org
 			"instruction",
 			"expert_ids",
 			"schedule",
+			"schedule_time",
 			"status",
 			"next_run_at",
 			"last_run_at",

@@ -34,6 +34,8 @@ export interface OrganizeTemplate {
   default_instruction: string
   markdown_template: string
   expert_ids: string[]
+  schedule: OrganizeScheduleKey
+  schedule_time?: string
   spec?: Record<string, unknown>
   status: 'draft' | 'enabled' | 'disabled'
   published_version: string
@@ -109,6 +111,7 @@ export interface OrganizeConfig {
   instruction: string
   expert_ids: string[]
   schedule: OrganizeScheduleKey
+  schedule_time?: string
   status: 'active' | 'disabled'
   next_run_at?: string
   last_run_at?: string
@@ -420,6 +423,7 @@ export interface OrganizeConfigInput {
   instruction?: string
   expert_ids?: string[]
   schedule?: OrganizeScheduleKey
+  schedule_time?: string
   metadata?: Record<string, unknown>
 }
 

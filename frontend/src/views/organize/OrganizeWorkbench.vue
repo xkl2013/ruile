@@ -68,7 +68,7 @@
 
             <div class="organize-card-tags">
               <span class="organize-tag organize-tag--accent">{{ templateFor(config)?.name || '历史内容' }}</span>
-              <span class="organize-tag">{{ scheduleLabel(config.schedule) }}</span>
+              <span class="organize-tag">{{ scheduleLabel(config.schedule, config.scheduleTime) }}</span>
               <span v-if="config.targetServiceId" class="organize-tag organize-tag--success">自动归属服务</span>
               <span v-else class="organize-tag organize-tag--pending">生成后待归属</span>
               <span v-if="isActiveJob(latestJob(config))" class="organize-tag organize-tag--progress">
@@ -148,7 +148,7 @@ import {
 } from '@/api/organize'
 import OrganizeConfigDialog from './components/OrganizeConfigDialog.vue'
 import {
-  organizeScheduleLabels,
+  organizeScheduleLabel,
   toOrganizeConfig,
   toOrganizeTemplate,
   type OrganizeConfig,
@@ -199,7 +199,10 @@ const configDescription = (config: OrganizeConfig) => {
   return config.instruction || job?.summary || '尚未执行过，可手动发起或等待周期触发'
 }
 
-const scheduleLabel = (schedule: OrganizeConfig['schedule']) => organizeScheduleLabels[schedule]
+const scheduleLabel = (
+  schedule: OrganizeConfig['schedule'],
+  scheduleTime: OrganizeConfig['scheduleTime'],
+) => organizeScheduleLabel(schedule, scheduleTime)
 
 const filteredConfigs = computed(() => {
   const query = configQuery.value.trim().toLowerCase()

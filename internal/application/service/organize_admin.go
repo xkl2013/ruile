@@ -15,16 +15,18 @@ import (
 )
 
 var (
-	ErrOrganizeAdminTemplateKeyRequired     = errors.New("template key is required")
-	ErrOrganizeAdminTemplateKeyInvalid      = errors.New("template key must contain only lowercase letters, numbers, hyphens, or underscores")
-	ErrOrganizeAdminTemplateKeyReserved     = errors.New("template key is reserved for non-organize processing")
-	ErrOrganizeAdminTemplateNameRequired    = errors.New("template name is required")
-	ErrOrganizeAdminTemplateVersionNeeded   = errors.New("template version is required")
-	ErrOrganizeAdminTemplateInvalidSpec     = errors.New("template spec is invalid")
-	ErrOrganizeAdminTemplateInvalidMarkdown = errors.New("template markdown preset is invalid")
-	ErrOrganizeAdminTemplateNotFound        = errors.New("organize template not found")
-	ErrOrganizeAdminTemplateKeyImmutable    = errors.New("template key cannot be changed")
-	ErrOrganizeAdminTemplateNotPublishable  = errors.New("organize template is not publishable")
+	ErrOrganizeAdminTemplateKeyRequired         = errors.New("template key is required")
+	ErrOrganizeAdminTemplateKeyInvalid          = errors.New("template key must contain only lowercase letters, numbers, hyphens, or underscores")
+	ErrOrganizeAdminTemplateKeyReserved         = errors.New("template key is reserved for non-organize processing")
+	ErrOrganizeAdminTemplateNameRequired        = errors.New("template name is required")
+	ErrOrganizeAdminTemplateVersionNeeded       = errors.New("template version is required")
+	ErrOrganizeAdminTemplateInvalidSpec         = errors.New("template spec is invalid")
+	ErrOrganizeAdminTemplateInvalidMarkdown     = errors.New("template markdown preset is invalid")
+	ErrOrganizeAdminTemplateNotFound            = errors.New("organize template not found")
+	ErrOrganizeAdminTemplateKeyImmutable        = errors.New("template key cannot be changed")
+	ErrOrganizeAdminTemplateNotPublishable      = errors.New("organize template is not publishable")
+	ErrOrganizeAdminTemplateInvalidSchedule     = errors.New("organize template schedule is invalid")
+	ErrOrganizeAdminTemplateInvalidScheduleTime = errors.New("organize template schedule time is invalid")
 )
 
 var (
@@ -117,6 +119,12 @@ func (s *organizeService) UpdateAdminTemplate(
 	}
 	if strings.TrimSpace(input.Key) == "" {
 		input.Key = current.Key
+	}
+	if strings.TrimSpace(input.Schedule) == "" {
+		input.Schedule = current.Schedule
+	}
+	if strings.TrimSpace(input.ScheduleTime) == "" {
+		input.ScheduleTime = current.ScheduleTime
 	}
 	updated, err := normalizeAdminTemplateInput(input)
 	if err != nil {
@@ -485,6 +493,22 @@ func normalizeAdminTemplateInput(input types.OrganizeTemplateAdminInput) (*types
 	if expertIDs == nil {
 		expertIDs = types.StringArray{}
 	}
+	schedule := strings.TrimSpace(input.Schedule)
+	if schedule == "" {
+		schedule = types.OrganizeScheduleManual
+	}
+	if !types.IsValidOrganizeSchedule(schedule) {
+		return nil, ErrOrganizeAdminTemplateInvalidSchedule
+	}
+	scheduleTime := strings.TrimSpace(input.ScheduleTime)
+	if schedule == types.OrganizeScheduleManual {
+		scheduleTime = ""
+	} else if scheduleTime == "" {
+		scheduleTime = types.DefaultOrganizeScheduleTime(schedule)
+	}
+	if !types.IsValidOrganizeScheduleTime(scheduleTime) {
+		return nil, ErrOrganizeAdminTemplateInvalidScheduleTime
+	}
 	return &types.OrganizeTemplate{
 		Key:                key,
 		Name:               name,
@@ -496,6 +520,8 @@ func normalizeAdminTemplateInput(input types.OrganizeTemplateAdminInput) (*types
 		MarkdownTemplate:   markdownTemplate,
 		ExpertIDs:          expertIDs,
 		Spec:               spec,
+		Schedule:           schedule,
+		ScheduleTime:       scheduleTime,
 		SortOrder:          input.SortOrder,
 	}, nil
 }
@@ -553,6 +579,8 @@ func organizeTemplateSnapshot(template *types.OrganizeTemplate) types.JSONMap {
 		"markdown_template":   template.MarkdownTemplate,
 		"expert_ids":          append([]string(nil), template.ExpertIDs...),
 		"spec":                normalizeJSONMap(template.Spec),
+		"schedule":            template.Schedule,
+		"schedule_time":       template.ScheduleTime,
 		"sort_order":          template.SortOrder,
 	}
 }
@@ -572,6 +600,8 @@ func adminTemplateFromSnapshot(snapshot types.JSONMap) (*types.OrganizeTemplate,
 		MarkdownTemplate   string            `json:"markdown_template"`
 		ExpertIDs          types.StringArray `json:"expert_ids"`
 		Spec               types.JSONMap     `json:"spec"`
+		Schedule           string            `json:"schedule"`
+		ScheduleTime       string            `json:"schedule_time"`
 		SortOrder          int               `json:"sort_order"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil {
@@ -587,6 +617,8 @@ func adminTemplateFromSnapshot(snapshot types.JSONMap) (*types.OrganizeTemplate,
 		MarkdownTemplate:   data.MarkdownTemplate,
 		ExpertIDs:          data.ExpertIDs,
 		Spec:               data.Spec,
+		Schedule:           data.Schedule,
+		ScheduleTime:       data.ScheduleTime,
 		SortOrder:          data.SortOrder,
 	}
 	normalized, err := normalizeAdminTemplateInput(types.OrganizeTemplateAdminInput{
@@ -600,6 +632,8 @@ func adminTemplateFromSnapshot(snapshot types.JSONMap) (*types.OrganizeTemplate,
 		MarkdownTemplate:   template.MarkdownTemplate,
 		ExpertIDs:          template.ExpertIDs,
 		Spec:               template.Spec,
+		Schedule:           template.Schedule,
+		ScheduleTime:       template.ScheduleTime,
 		SortOrder:          template.SortOrder,
 	})
 	if err != nil {

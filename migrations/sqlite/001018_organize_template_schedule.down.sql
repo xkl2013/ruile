@@ -1,0 +1,2 @@
+-- SQLite does not support dropping a column on all supported versions.
+-- The schedule column is retained on rollback.

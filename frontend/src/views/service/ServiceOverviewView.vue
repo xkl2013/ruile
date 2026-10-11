@@ -35,6 +35,45 @@
         <div v-else class="service-overview-empty">服务开展后，这里会根据真实工作资料生成进展摘要。</div>
       </section>
 
+      <aside class="service-overview-side">
+        <section class="service-overview-customer">
+          <div class="service-detail-section-heading">
+            <div>
+              <span>家长与学员</span>
+              <h2>{{ customer.familyName }}</h2>
+            </div>
+          </div>
+          <dl>
+            <div><dt>学员</dt><dd>{{ customer.student }}</dd></div>
+            <div><dt>班级</dt><dd>{{ customer.className }}</dd></div>
+            <div><dt>主班老师</dt><dd>{{ customer.teacher }}</dd></div>
+          </dl>
+        </section>
+
+        <section class="service-overview-activity">
+          <div class="service-detail-section-heading">
+            <div>
+              <span>最近动态</span>
+              <h2>这一家的变化</h2>
+            </div>
+            <button type="button" @click="router.push(`${serviceBasePath}/${encodeURIComponent(serviceId)}/activity`)">
+              查看全部
+            </button>
+          </div>
+          <div v-if="recentActivity.length" class="service-overview-activity-list">
+            <article v-for="item in recentActivity.slice(0, 4)" :key="item.id">
+              <span :class="`service-overview-activity-dot is-${item.kind}`" />
+              <div>
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.detail }}</p>
+                <small>{{ displayActivityDate(item.createdAt) }}</small>
+              </div>
+            </article>
+          </div>
+          <div v-else class="service-overview-empty">还没有新的服务动态。</div>
+        </section>
+      </aside>
+
       <section class="service-overview-records">
         <div class="service-detail-section-heading">
           <div>
@@ -71,6 +110,10 @@ import {
   getService,
   loadServiceHub,
 } from './serviceHubState'
+import {
+  buildCustomerInfo,
+  displayActivityDate,
+} from './servicePresentation'
 
 const route = useRoute()
 const router = useRouter()
@@ -81,6 +124,9 @@ const summary = ref<ServiceSpaceSummary | null>(null)
 const serviceId = computed(() => String(route.params.serviceId || ''))
 const service = computed(() => getService(serviceId.value))
 const serviceBasePath = computed(() => route.meta.mobileEntry ? '/mobile/service' : '/platform/service')
+const customer = computed(() =>
+  service.value?.customer || buildCustomerInfo(null, null, service.value?.name || '当前家庭'))
+const recentActivity = computed(() => service.value?.recentActivity || [])
 
 const summaryLead = computed(() => {
   const labels = summary.value?.schema?.map((item) => item.label).filter(Boolean).slice(0, 3) || []
@@ -223,6 +269,8 @@ onMounted(loadOverview)
 }
 
 .service-overview-summary,
+.service-overview-customer,
+.service-overview-activity,
 .service-overview-records {
   border: 1px solid var(--td-component-stroke);
   border-radius: 8px;
@@ -270,7 +318,103 @@ onMounted(loadOverview)
 }
 
 .service-overview-records {
+  grid-column: 1 / -1;
   padding: 18px;
+}
+
+.service-overview-side {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.service-overview-customer,
+.service-overview-activity {
+  padding: 18px;
+}
+
+.service-overview-customer .service-detail-section-heading h2,
+.service-overview-activity .service-detail-section-heading h2 {
+  margin-top: 4px;
+}
+
+.service-overview-customer dl {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.service-overview-customer dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-overview-customer dt {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.service-overview-customer dd {
+  max-width: 180px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-overview-activity-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.service-overview-activity-list article {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.service-overview-activity-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--td-brand-color);
+}
+
+.service-overview-activity-dot.is-reminder {
+  background: var(--td-warning-color);
+}
+
+.service-overview-activity-list strong {
+  display: block;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-overview-activity-list p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-overview-activity-list small {
+  display: block;
+  margin-top: 3px;
+  color: var(--td-text-color-placeholder);
+  font-size: 11px;
 }
 
 .service-detail-section-heading {
@@ -345,6 +489,10 @@ onMounted(loadOverview)
 
   .service-overview-layout {
     grid-template-columns: 1fr;
+  }
+
+  .service-overview-records {
+    grid-column: auto;
   }
 
   .service-detail-header {

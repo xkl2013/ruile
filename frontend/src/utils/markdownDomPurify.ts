@@ -1,4 +1,4 @@
-export const domPurifyForbidTags = ['script', 'style', 'object', 'embed', 'form', 'input'] as const;
+export const domPurifyForbidTags = ['script', 'style', 'object', 'embed', 'form'] as const;
 export const domPurifyForbidAttr = ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'] as const;
 
 export const domPurifyAllowedUriRegexp =
@@ -74,12 +74,12 @@ export const markdownDomPurifyConfig = {
     'clippath', 'lineargradient', 'radialgradient', 'stop', 'pattern',
     'image', 'foreignobject', 'desc', 'title', 'switch', 'symbol', 'mask',
     'math', 'annotation', 'semantics', 'mo', 'mi', 'mn', 'msup', 'mrow', 'mfrac', 'msqrt', 'mroot', 'mstyle',
-    'button',
+    'button', 'input',
   ],
   ALLOWED_ATTR: [
     'href', 'title', 'target', 'rel', 'data-tooltip', 'data-url', 'data-kb-id',
     'data-chunk-id', 'data-doc', 'data-slug', 'class', 'role', 'tabindex', 'src', 'alt', 'data-protected-src', 'data-img-loading',
-    'width', 'height', 'style', 'id', 'type', 'aria-label', 'data-mermaid', 'disabled',
+    'width', 'height', 'style', 'id', 'type', 'aria-label', 'data-mermaid', 'disabled', 'checked',
     'd', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
     'stroke-dasharray', 'stroke-dashoffset', 'stroke-miterlimit', 'stroke-opacity',
     'fill-opacity', 'opacity', 'transform', 'viewbox', 'preserveaspectratio',
