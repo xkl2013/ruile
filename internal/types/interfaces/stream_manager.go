@@ -29,4 +29,17 @@ type StreamManager interface {
 	// Uses Redis LRange for incremental reads
 	// Returns: events slice, next offset for subsequent reads, error
 	GetEvents(ctx context.Context, sessionID, messageID string, fromOffset int) ([]StreamEvent, int, error)
+
+	// Steer events are stored separately from the visible SSE stream.
+	AppendSteerEvents(ctx context.Context, sessionID, messageID string, events []StreamEvent) error
+	GetSteerEvents(ctx context.Context, sessionID, messageID string, fromOffset int) ([]StreamEvent, int, error)
+	UpdateSteerEventData(ctx context.Context, sessionID, messageID, eventID string, data map[string]interface{}) (bool, error)
+	DeleteSteerEvent(ctx context.Context, sessionID, messageID, eventID string) (bool, error)
+
+	// Live-run markers route steer requests to the assistant message that is
+	// currently being generated, including across API replicas.
+	SetLiveRun(ctx context.Context, sessionID, assistantMessageID, requestID string) error
+	ClaimLiveRun(ctx context.Context, sessionID, assistantMessageID, requestID string) error
+	GetLiveRun(ctx context.Context, sessionID string) (assistantMessageID, requestID string, err error)
+	ClearLiveRun(ctx context.Context, sessionID, assistantMessageID string) error
 }

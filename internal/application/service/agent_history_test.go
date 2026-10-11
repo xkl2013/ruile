@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	agenttools "github.com/Tencent/WeKnora/internal/agent/tools"
 	"github.com/Tencent/WeKnora/internal/models/chat"
@@ -273,4 +274,46 @@ func TestBuildAssistantHistoryMessages_ReplaysReasoningContent(t *testing.T) {
 	// Tool message and final answer message must NOT carry reasoning_content.
 	assert.Empty(t, got[1].ReasoningContent)
 	assert.Empty(t, got[2].ReasoningContent)
+}
+
+func TestBuildTurnBodyMessages_ReplaysSteerAtRecordedBoundary(t *testing.T) {
+	base := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC)
+	steer := &types.Message{
+		ID:        "steer-user",
+		Role:      "user",
+		Content:   "请补充风险说明",
+		CreatedAt: base.Add(2 * time.Minute),
+	}
+	assistant := &types.Message{
+		Role:    "assistant",
+		Content: "最终答案",
+		AgentSteps: types.AgentSteps{
+			{
+				Thought: "先搜索资料",
+				ToolCalls: []types.ToolCall{{
+					ID:     "call-1",
+					Name:   agenttools.ToolKnowledgeSearch,
+					Args:   map[string]interface{}{"query": "风险"},
+					Result: &types.ToolResult{Success: true, Output: "资料"},
+				}},
+				Timestamp: base.Add(1 * time.Minute),
+			},
+			{
+				UserMessagesBefore: []string{"steer-user"},
+				IntermediateAnswer: true,
+				Thought:            "收到补充要求",
+				Timestamp:          base.Add(3 * time.Minute),
+			},
+		},
+	}
+
+	got := buildTurnBodyMessages(assistant, []*types.Message{steer})
+	require.Len(t, got, 5)
+	assert.Equal(t, "assistant", got[0].Role)
+	assert.Equal(t, "tool", got[1].Role)
+	assert.Equal(t, "user", got[2].Role)
+	assert.Contains(t, got[2].Content, "<steer_message>")
+	assert.Equal(t, "assistant", got[3].Role)
+	assert.Equal(t, "收到补充要求", got[3].Content)
+	assert.Equal(t, "最终答案", got[4].Content)
 }

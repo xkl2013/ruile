@@ -71,6 +71,10 @@ const (
 	// replaced by a structured summary.
 	EventContextCompacted EventType = "context_compacted"
 
+	// EventUserMessageInjected is emitted after a steer message has been
+	// persisted and appended to the running agent context.
+	EventUserMessageInjected EventType = "user_message_injected"
+
 	// Error events
 	EventError EventType = "error" // 错误事件
 

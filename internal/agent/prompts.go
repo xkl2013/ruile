@@ -294,7 +294,17 @@ func renderPromptPlaceholdersWithStatus(
 }
 
 // BuildSystemPromptOptions contains optional parameters for BuildSystemPrompt
+// SystemPromptSection identifies the source of one effective prompt fragment.
+// Runtime policy belongs in code, while editable templates remain the base
+// section.
+type SystemPromptSection struct {
+	Name    string
+	Content string
+}
+
 type BuildSystemPromptOptions struct {
+	SelectedTools  []string
+	Instructions   []SystemPromptSection
 	SkillsMetadata []*skills.SkillMetadata
 	Language       string         // User language name for {{language}} placeholder (e.g. "Chinese (Simplified)")
 	Config         *config.Config // Config for reading prompt templates; nil falls back to hardcoded defaults
@@ -317,6 +327,34 @@ func BuildSystemPromptWithOptions(
 	options *BuildSystemPromptOptions,
 	systemPromptTemplate ...string,
 ) string {
+	return renderSystemPromptSections(BuildSystemPromptSections(
+		knowledgeBases,
+		webSearchEnabled,
+		options,
+		systemPromptTemplate...,
+	))
+}
+
+// renderSystemPromptSections renders non-empty sections in their declared order.
+func renderSystemPromptSections(sections []SystemPromptSection) string {
+	contents := make([]string, 0, len(sections))
+	for _, section := range sections {
+		if content := strings.TrimSpace(section.Content); content != "" {
+			contents = append(contents, content)
+		}
+	}
+	return strings.Join(contents, "\n\n")
+}
+
+// BuildSystemPromptSections is the single prompt assembly path. Custom
+// templates replace only the base section; grounding, tool guidance and
+// runtime business instructions remain system-owned additions.
+func BuildSystemPromptSections(
+	knowledgeBases []*KnowledgeBaseInfo,
+	webSearchEnabled bool,
+	options *BuildSystemPromptOptions,
+	systemPromptTemplate ...string,
+) []SystemPromptSection {
 	var basePrompt string
 	var template string
 
@@ -349,7 +387,31 @@ func BuildSystemPromptWithOptions(
 		basePrompt += formatSkillsMetadata(options.SkillsMetadata)
 	}
 
-	return basePrompt
+	var selectedTools []string
+	if options != nil {
+		selectedTools = options.SelectedTools
+	}
+	sections := []SystemPromptSection{
+		{Name: "base", Content: basePrompt},
+		{Name: "grounding", Content: formatGroundingGuidance(selectedTools)},
+	}
+	if options != nil {
+		for _, instruction := range options.Instructions {
+			content := strings.TrimSpace(instruction.Content)
+			if content == "" {
+				continue
+			}
+			label := strings.TrimSpace(instruction.Name)
+			if label == "" {
+				label = "custom"
+			}
+			sections = append(sections, SystemPromptSection{
+				Name:    label,
+				Content: types.AppendCustomPromptInstructions("", content, label),
+			})
+		}
+	}
+	return sections
 }
 
 // GetPureAgentSystemPrompt returns the Pure Agent system prompt from config templates.

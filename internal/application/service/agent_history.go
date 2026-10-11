@@ -71,7 +71,7 @@ func LoadAgentHistory(
 	}
 
 	type pair struct {
-		user      *types.Message
+		users     []*types.Message
 		assistant *types.Message
 		createdAt time.Time
 	}
@@ -84,7 +84,7 @@ func LoadAgentHistory(
 		}
 		switch msg.Role {
 		case "user":
-			p.user = msg
+			p.users = append(p.users, msg)
 			if p.createdAt.IsZero() || msg.CreatedAt.Before(p.createdAt) {
 				p.createdAt = msg.CreatedAt
 			}
@@ -95,7 +95,10 @@ func LoadAgentHistory(
 
 	completePairs := make([]*pair, 0, len(pairs))
 	for _, p := range pairs {
-		if p.user != nil && p.assistant != nil && p.assistant.IsCompleted {
+		if len(p.users) > 0 && p.assistant != nil && p.assistant.IsCompleted {
+			sort.SliceStable(p.users, func(i, j int) bool {
+				return p.users[i].CreatedAt.Before(p.users[j].CreatedAt)
+			})
 			completePairs = append(completePairs, p)
 		}
 	}
@@ -110,8 +113,8 @@ func LoadAgentHistory(
 
 	out := make([]chat.Message, 0, len(completePairs)*4)
 	for _, p := range completePairs {
-		out = append(out, buildUserHistoryMessage(p.user))
-		out = append(out, buildAssistantHistoryMessages(p.assistant)...)
+		out = append(out, buildUserHistoryMessage(p.users[0]))
+		out = append(out, buildTurnBodyMessages(p.assistant, p.users[1:])...)
 	}
 	return out, nil
 }
@@ -144,43 +147,117 @@ func buildUserHistoryMessage(m *types.Message) chat.Message {
 func buildAssistantHistoryMessages(m *types.Message) []chat.Message {
 	msgs := make([]chat.Message, 0, len(m.AgentSteps)*2+1)
 	for _, step := range m.AgentSteps {
-		nonTerminalCalls := filterNonTerminalToolCalls(step.ToolCalls)
-		if len(nonTerminalCalls) == 0 {
-			continue
-		}
-		assistantMsg := chat.Message{
-			Role:             "assistant",
-			Content:          step.Thought,
-			ReasoningContent: step.ReasoningContent,
-			ToolCalls:        make([]chat.ToolCall, 0, len(nonTerminalCalls)),
-		}
-		for _, tc := range nonTerminalCalls {
-			argsJSON, _ := json.Marshal(tc.Args)
-			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, chat.ToolCall{
-				ID:               tc.ID,
-				Type:             "function",
-				ProviderMetadata: tc.ProviderMetadata,
-				Function: chat.FunctionCall{
-					Name:      tc.Name,
-					Arguments: string(argsJSON),
-				},
-			})
-		}
-		msgs = append(msgs, assistantMsg)
-		for _, tc := range nonTerminalCalls {
-			msgs = append(msgs, chat.Message{
-				Role:       "tool",
-				Content:    toolCallOutput(tc),
-				ToolCallID: tc.ID,
-				Name:       tc.Name,
-			})
-		}
+		msgs = append(msgs, buildAgentStepMessages(step)...)
 	}
 
 	finalContent := agentHistoryThinkTagRegex.ReplaceAllString(m.Content, "")
 	finalContent = strings.TrimSpace(finalContent)
 	if finalContent != "" {
 		msgs = append(msgs, chat.Message{Role: "assistant", Content: finalContent})
+	}
+	return msgs
+}
+
+// buildTurnBodyMessages replays one completed turn with steer messages placed
+// at the round boundary where the running agent consumed them. This keeps the
+// next turn's context faithful to what the model actually saw.
+func buildTurnBodyMessages(assistant *types.Message, midRunUsers []*types.Message) []chat.Message {
+	if len(midRunUsers) == 0 {
+		return buildAssistantHistoryMessages(assistant)
+	}
+
+	out := make([]chat.Message, 0, len(assistant.AgentSteps)*2+len(midRunUsers)+1)
+	usersByID := make(map[string]*types.Message, len(midRunUsers))
+	for _, user := range midRunUsers {
+		usersByID[user.ID] = user
+	}
+
+	hasBoundaries := false
+	for _, step := range assistant.AgentSteps {
+		if len(step.UserMessagesBefore) > 0 {
+			hasBoundaries = true
+			break
+		}
+	}
+
+	appendSteerUser := func(user *types.Message) {
+		msg := buildUserHistoryMessage(user)
+		msg.Content = types.SteerMessageContent(msg.Content)
+		out = append(out, msg)
+		delete(usersByID, user.ID)
+	}
+
+	nextByTime := 0
+	for _, step := range assistant.AgentSteps {
+		for _, id := range step.UserMessagesBefore {
+			if user := usersByID[id]; user != nil {
+				appendSteerUser(user)
+			}
+		}
+		for !hasBoundaries && nextByTime < len(midRunUsers) &&
+			!step.Timestamp.IsZero() &&
+			midRunUsers[nextByTime].CreatedAt.Before(step.Timestamp) {
+			appendSteerUser(midRunUsers[nextByTime])
+			nextByTime++
+		}
+		out = append(out, buildAgentStepMessages(step)...)
+	}
+	for _, user := range midRunUsers {
+		if usersByID[user.ID] != nil {
+			appendSteerUser(user)
+		}
+	}
+
+	finalContent := agentHistoryThinkTagRegex.ReplaceAllString(assistant.Content, "")
+	if finalContent = strings.TrimSpace(finalContent); finalContent != "" {
+		out = append(out, chat.Message{Role: "assistant", Content: finalContent})
+	}
+	return out
+}
+
+// buildAgentStepMessages expands a persisted ReAct step into the assistant
+// tool-call message and its paired tool result messages.
+func buildAgentStepMessages(step types.AgentStep) []chat.Message {
+	nonTerminalCalls := filterNonTerminalToolCalls(step.ToolCalls)
+	if len(nonTerminalCalls) == 0 {
+		if step.IntermediateAnswer && strings.TrimSpace(step.Thought) != "" {
+			return []chat.Message{{
+				Role:             "assistant",
+				Content:          step.Thought,
+				ReasoningContent: step.ReasoningContent,
+			}}
+		}
+		return nil
+	}
+
+	assistantMsg := chat.Message{
+		Role:             "assistant",
+		Content:          step.Thought,
+		ReasoningContent: step.ReasoningContent,
+		ToolCalls:        make([]chat.ToolCall, 0, len(nonTerminalCalls)),
+	}
+	for _, tc := range nonTerminalCalls {
+		argsJSON, _ := json.Marshal(tc.Args)
+		assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, chat.ToolCall{
+			ID:               tc.ID,
+			Type:             "function",
+			ProviderMetadata: tc.ProviderMetadata,
+			Function: chat.FunctionCall{
+				Name:      tc.Name,
+				Arguments: string(argsJSON),
+			},
+		})
+	}
+
+	msgs := make([]chat.Message, 0, len(nonTerminalCalls)+1)
+	msgs = append(msgs, assistantMsg)
+	for _, tc := range nonTerminalCalls {
+		msgs = append(msgs, chat.Message{
+			Role:       "tool",
+			Content:    toolCallOutput(tc),
+			ToolCallID: tc.ID,
+			Name:       tc.Name,
+		})
 	}
 	return msgs
 }

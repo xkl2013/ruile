@@ -182,6 +182,13 @@ func (e *AgentEngine) emitCompletionEvent(
 	ctx context.Context, state *types.AgentState, sessionID, messageID string, startTime time.Time,
 ) {
 	// Convert knowledge refs to interface{} slice for event data
+	steps := state.RoundSteps
+	if len(state.PendingSteerMessages) > 0 {
+		steps = append(append([]types.AgentStep(nil), steps...), types.AgentStep{
+			Iteration:          state.CurrentRound,
+			UserMessagesBefore: append([]string(nil), state.PendingSteerMessages...),
+		})
+	}
 	knowledgeRefsInterface := make([]interface{}, 0, len(state.KnowledgeRefs))
 	for _, ref := range state.KnowledgeRefs {
 		knowledgeRefsInterface = append(knowledgeRefsInterface, ref)
@@ -194,8 +201,8 @@ func (e *AgentEngine) emitCompletionEvent(
 		Data: event.AgentCompleteData{
 			FinalAnswer:     state.FinalAnswer,
 			KnowledgeRefs:   knowledgeRefsInterface,
-			AgentSteps:      state.RoundSteps, // Include detailed execution steps for message storage
-			TotalSteps:      len(state.RoundSteps),
+			AgentSteps:      steps, // Include detailed execution steps for message storage
+			TotalSteps:      len(steps),
 			TotalDurationMs: time.Since(startTime).Milliseconds(),
 			MessageID:       messageID, // Include message ID for proper message update
 		},

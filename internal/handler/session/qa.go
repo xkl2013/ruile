@@ -52,6 +52,7 @@ type qaRequestContext struct {
 	attachmentMetas       types.MessageAttachments // Metadata-only view of attachmentIDs for the persisted user message
 	suggestionAttribution *types.SuggestionAttribution
 	quotedContext         string // Additional prompt-only context; user message content remains reqCtx.query
+	steerSink             *steerSink
 
 	// Snapshot of the request fields needed to persist the input-bar state
 	// for session restoration. Kept verbatim from the request so we record
@@ -81,6 +82,7 @@ func (rc *qaRequestContext) buildQARequest() *types.QARequest {
 		WebSearchEnabled:   rc.webSearchEnabled,
 		Attachments:        rc.attachments,
 		QuotedContext:      rc.quotedContext,
+		SteerSink:          rc.steerSink,
 	}
 }
 
@@ -543,10 +545,11 @@ type sseStreamContext struct {
 	asyncCtx         context.Context
 	cancel           context.CancelFunc
 	assistantMessage *types.Message
+	steerSink        *steerSink
 }
 
 // setupSSEStream sets up the SSE streaming context
-func (h *Handler) setupSSEStream(reqCtx *qaRequestContext, generateTitle bool) *sseStreamContext {
+func (h *Handler) setupSSEStream(reqCtx *qaRequestContext, generateTitle bool, mode qaMode) *sseStreamContext {
 	// Set SSE headers
 	setSSEHeaders(reqCtx.c)
 
@@ -571,6 +574,17 @@ func (h *Handler) setupSSEStream(reqCtx *qaRequestContext, generateTitle bool) *
 		asyncCtx:         asyncCtx,
 		cancel:           cancel,
 		assistantMessage: reqCtx.assistantMessage,
+	}
+	if mode == qaModeAgent {
+		streamCtx.steerSink = newSteerSink(
+			asyncCtx,
+			reqCtx.sessionID,
+			reqCtx.requestID,
+			reqCtx.assistantMessage,
+			h.messageService,
+			h.streamManager,
+		)
+		reqCtx.steerSink = streamCtx.steerSink
 	}
 
 	// Setup stop event handler
@@ -837,6 +851,21 @@ func (h *Handler) executeQA(reqCtx *qaRequestContext, mode qaMode, generateTitle
 	}
 	reqCtx.assistantMessage = assistantMessagePtr
 
+	liveRunHeld := false
+	if mode == qaModeAgent {
+		if err := h.streamManager.SetLiveRun(
+			ctx, sessionID, reqCtx.assistantMessage.ID, reqCtx.requestID,
+		); err != nil {
+			logger.Warnf(ctx, "Agent turn already running for session %s: %v", sessionID, err)
+			reqCtx.c.JSON(http.StatusConflict, gin.H{
+				"success": false,
+				"error":   "another agent turn is already running",
+			})
+			return
+		}
+		liveRunHeld = true
+	}
+
 	if mode == qaModeNormal {
 		logger.Infof(ctx, "Using knowledge bases: %v", reqCtx.knowledgeBaseIDs)
 	} else {
@@ -844,7 +873,7 @@ func (h *Handler) executeQA(reqCtx *qaRequestContext, mode qaMode, generateTitle
 	}
 
 	// Setup SSE stream
-	streamCtx := h.setupSSEStream(reqCtx, generateTitle)
+	streamCtx := h.setupSSEStream(reqCtx, generateTitle, mode)
 	go h.emitServiceFactProposal(streamCtx, reqCtx, userMsg.ID)
 
 	// Normal mode: register completion handler on EventAgentFinalAnswer
@@ -896,6 +925,13 @@ func (h *Handler) executeQA(reqCtx *qaRequestContext, mode qaMode, generateTitle
 	// Execute QA asynchronously
 	go func() {
 		defer func() {
+			if liveRunHeld {
+				if err := h.streamManager.ClearLiveRun(
+					context.WithoutCancel(streamCtx.asyncCtx), sessionID, streamCtx.assistantMessage.ID,
+				); err != nil {
+					logger.Warnf(streamCtx.asyncCtx, "Failed to clear live agent run: %v", err)
+				}
+			}
 			if r := recover(); r != nil {
 				buf := make([]byte, 10240)
 				runtime.Stack(buf, true)

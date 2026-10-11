@@ -9,6 +9,13 @@ import (
 // These fields are intentionally much smaller than full prompt templates.
 const MaxCustomPromptInstructionsLength = 4000
 
+// PromptInstruction carries business guidance that must be appended to a
+// system-owned prompt. It never replaces the template.
+type PromptInstruction struct {
+	Label   string `json:"label"`
+	Content string `json:"content"`
+}
+
 // AppendCustomPromptInstructions appends user-authored business guidance to a
 // system-owned prompt. Stable output, safety and citation rules always win.
 func AppendCustomPromptInstructions(prompt, instructions, label string) string {
@@ -71,10 +78,10 @@ func ValidateKnowledgeBasePromptInstructions(kb *KnowledgeBase) error {
 // merged per-upload effective config.
 func ValidateEffectiveProcessPromptInstructions(eff EffectiveProcessConfig) error {
 	fields := map[string]string{
-		"table metadata instructions":       eff.ChunkingConfig.TableMetadataInstructions,
-		"image instructions":                eff.VLMConfig.CustomInstructions,
-		"question generation instructions":  eff.QuestionGenerationConfig.CustomInstructions,
-		"graph extraction instructions":     eff.ExtractConfig.CustomInstructions,
+		"table metadata instructions":      eff.ChunkingConfig.TableMetadataInstructions,
+		"image instructions":               eff.VLMConfig.CustomInstructions,
+		"question generation instructions": eff.QuestionGenerationConfig.CustomInstructions,
+		"graph extraction instructions":    eff.ExtractConfig.CustomInstructions,
 	}
 	return validatePromptInstructionFields(fields)
 }

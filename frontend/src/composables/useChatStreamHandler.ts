@@ -1,6 +1,13 @@
 import { markRaw, nextTick, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ensureRagPipelineHistoryStream } from '@/utils/rag-pipeline-history'
+import {
+  expandSteerForksInHistory,
+  forkAfterInjectedUser,
+  previewSteerMessage,
+  resetSteerTurnForReplay,
+  steerStepEvents,
+} from '@/utils/steerStreamFork'
 
 export type ChatMessage = Record<string, unknown>
 
@@ -29,6 +36,7 @@ export interface UseChatStreamHandlerOptions {
   onMessageUpdated?: (message: ChatMessage, payload?: ChatMessage) => void
   onAgentAnswerDone?: (message: ChatMessage) => void
   onAgentChunkBound?: (message: ChatMessage, created: boolean) => void
+  onUserMessageInjected?: (data: ChatMessage, message: ChatMessage) => void
   debug?: boolean
 }
 
@@ -54,6 +62,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     onMessageUpdated,
     onAgentAnswerDone,
     onAgentChunkBound,
+    onUserMessageInjected,
     debug = false,
   } = options
 
@@ -71,8 +80,10 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
 
   /** Incomplete assistant row for the current turn (must be the list tail). */
   const getTrailingIncompleteAssistant = () => {
-    const last = messagesList[messagesList.length - 1]
-    if (last?.role === 'assistant' && !last.is_completed) return last
+    for (let i = messagesList.length - 1; i >= 0; i--) {
+      const item = messagesList[i]
+      if (item?.role === 'assistant' && !item.is_completed) return item
+    }
     return undefined
   }
 
@@ -263,6 +274,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     if (agentSteps && Array.isArray(agentSteps) && agentSteps.length > 0) {
       agentSteps.forEach((rawStep) => {
         const step = rawStep as ChatMessage
+        events.push(...steerStepEvents(step))
         const stepTimestamp = step.timestamp ? new Date(String(step.timestamp)).getTime() : 0
         const toolCalls = step.tool_calls
         const hasToolCalls = toolCalls && Array.isArray(toolCalls) && toolCalls.length > 0
@@ -283,6 +295,16 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           })
         }
         const preambleText = step.thought && String(step.thought).trim() ? String(step.thought) : ''
+        if (preambleText && step.intermediate_answer) {
+          events.push({
+            type: 'answer',
+            event_id: `step-${step.iteration}-answer`,
+            content: preambleText,
+            done: true,
+            intermediate_answer: true,
+            timestamp: stepTimestamp || undefined,
+          })
+        }
         if (preambleText && hasToolCalls) {
           events.push({
             type: 'answer',
@@ -417,8 +439,10 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
         for (let i = processed.length - 1; i >= 0; i--) {
           messagesList.unshift(processed[i])
         }
+        const expanded = expandSteerForksInHistory([...messagesList])
+        messagesList.splice(0, messagesList.length, ...expanded)
       } else {
-        messagesList.push(...processed)
+        messagesList.push(...expandSteerForksInHistory(processed))
       }
     }
 
@@ -471,6 +495,31 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
   }
 
   const handleAgentChunk = (data: ChatMessage) => {
+    if (data.response_type === 'user_message_injected') {
+      const source = resolveActiveAssistantMessage(data)
+      if (!source) return
+      const payload = (data.data as ChatMessage | undefined) || {}
+      const steerId = String(payload.steer_id || '')
+      const persistedUserId = String(payload.user_message_id || '')
+      let userMessage = messagesList.find((item) =>
+        item.role === 'user' &&
+        ((persistedUserId && item.id === persistedUserId) || (steerId && item.steer_id === steerId)),
+      )
+      if (!userMessage) {
+        userMessage = previewSteerMessage(messagesList, {
+          steer_id: steerId,
+          content: String(payload.content || data.content || ''),
+        })
+      }
+      const continuation = forkAfterInjectedUser(messagesList, source, userMessage, steerId)
+      ensureAgentMessageShell(continuation, continuation.request_id as string | undefined)
+      onUserMessageInjected?.(data, userMessage)
+      currentAssistantMessageId.value = String(
+        continuation.assistant_message_id || currentAssistantMessageId.value || '',
+      )
+      scrollToBottom()
+      return
+    }
     const dataId = data.id as string | undefined
     let message = findLastMessage(
       (item) => item.request_id === dataId || item.id === dataId,
@@ -820,9 +869,6 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           answerEvent.done = true
           onAgentAnswerDone?.(message)
           loading.value = false
-          isReplying.value = false
-          fullContent.value = ''
-          currentAssistantMessageId.value = ''
         }
         break
       }
@@ -877,6 +923,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
     })
 
     if (data.response_type === 'agent_query') {
+      const replay = resetSteerTurnForReplay(messagesList, String(data.id || ''))
       if (data.id) {
         const earlyMsg = getTrailingIncompleteAssistant()
         if (earlyMsg) earlyMsg.request_id = data.id
@@ -892,7 +939,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
         request_id: (data.data as ChatMessage | undefined)?.request_id,
       })
 
-      let existingMessage = findLastMessage(
+      let existingMessage = replay || findLastMessage(
         (item) => item.id === data.id || item.request_id === data.id,
       )
       const created = !existingMessage
@@ -929,6 +976,7 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
       data.response_type === 'tool_call' ||
       data.response_type === 'tool_result' ||
       data.response_type === 'reflection' ||
+      data.response_type === 'user_message_injected' ||
       data.response_type === 'service_update_proposal'
 
     const lastMessage = messagesList[messagesList.length - 1]

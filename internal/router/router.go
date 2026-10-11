@@ -755,6 +755,10 @@ func RegisterSessionRoutes(
 		sessions.GET("/:id/attachments/:attachment_id/preview", handler.PreviewTemporaryDocument)
 		sessions.DELETE("/:id/attachments/:attachment_id", handler.DeleteTemporaryDocument)
 		sessions.POST("/:session_id/stop", handler.StopSession)
+		sessions.POST("/:session_id/steer", handler.SteerMessage)
+		sessions.POST("/:session_id/steer/:steer_id/inject", handler.PromoteSteerMessage)
+		sessions.GET("/:id/steer", handler.ListSteerMessages)
+		sessions.DELETE("/:id/steer/:steer_id", handler.DeleteSteerMessage)
 		// POST and DELETE share this path but gin maintains a separate radix tree
 		// per HTTP verb, and the existing trees use different wildcard names
 		// (POST uses :session_id, DELETE uses :id). Use whatever matches each

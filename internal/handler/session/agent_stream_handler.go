@@ -112,6 +112,7 @@ func (h *AgentStreamHandler) Subscribe() {
 	h.eventBus.On(event.EventToolApprovalResolved, h.handleToolApprovalResolved)
 	h.eventBus.On(event.EventMCPOAuthRequired, h.handleMCPOAuthRequired)
 	h.eventBus.On(event.EventMCPOAuthResolved, h.handleMCPOAuthResolved)
+	h.eventBus.On(event.EventUserMessageInjected, h.handleUserMessageInjected)
 }
 
 // handleThought handles agent thought events
@@ -530,6 +531,31 @@ func (h *AgentStreamHandler) handleReflection(ctx context.Context, evt event.Eve
 		logger.GetLogger(h.ctx).Error("Append reflection event to stream failed", "error", err)
 	}
 
+	return nil
+}
+
+// handleUserMessageInjected forwards a mid-run steer confirmation to the
+// visible stream so the frontend can move its optimistic queue item into the
+// transcript and correlate it with the persisted user row.
+func (h *AgentStreamHandler) handleUserMessageInjected(_ context.Context, evt event.Event) error {
+	data, ok := evt.Data.(event.UserMessageInjectedData)
+	if !ok {
+		return nil
+	}
+	if err := h.streamManager.AppendEvent(h.ctx, h.sessionID, h.assistantMessageID, interfaces.StreamEvent{
+		ID:        evt.ID,
+		Type:      types.ResponseTypeUserMessageInjected,
+		Done:      true,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"steer_id":        data.SteerID,
+			"message_id":      data.MessageID,
+			"content":         data.Content,
+			"user_message_id": data.UserMessageID,
+		},
+	}); err != nil {
+		logger.GetLogger(h.ctx).Error("Append user message injected event failed", "error", err)
+	}
 	return nil
 }
 

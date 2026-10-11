@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -11,21 +12,31 @@ import (
 // memoryStreamData holds stream events in memory
 type memoryStreamData struct {
 	events      []interfaces.StreamEvent
+	steerEvents []interfaces.StreamEvent
 	lastUpdated time.Time
 	mu          sync.RWMutex
+}
+
+var ErrLiveRunExists = errors.New("session already has a live run")
+
+type liveRunMarker struct {
+	assistantMessageID string
+	requestID          string
 }
 
 // MemoryStreamManager implements StreamManager using in-memory storage
 type MemoryStreamManager struct {
 	// Map: sessionID -> messageID -> stream data
-	streams map[string]map[string]*memoryStreamData
-	mu      sync.RWMutex
+	streams  map[string]map[string]*memoryStreamData
+	liveRuns map[string]liveRunMarker
+	mu       sync.RWMutex
 }
 
 // NewMemoryStreamManager creates a new in-memory stream manager
 func NewMemoryStreamManager() *MemoryStreamManager {
 	return &MemoryStreamManager{
-		streams: make(map[string]map[string]*memoryStreamData),
+		streams:  make(map[string]map[string]*memoryStreamData),
+		liveRuns: make(map[string]liveRunMarker),
 	}
 }
 
@@ -112,6 +123,143 @@ func (m *MemoryStreamManager) GetEvents(
 	copy(eventsCopy, events)
 
 	return eventsCopy, nextOffset, nil
+}
+
+func (m *MemoryStreamManager) AppendSteerEvents(
+	_ context.Context, sessionID, messageID string, events []interfaces.StreamEvent,
+) error {
+	stream := m.getOrCreateStream(sessionID, messageID)
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+
+	seen := make(map[string]struct{}, len(stream.steerEvents))
+	for _, existing := range stream.steerEvents {
+		seen[existing.ID] = struct{}{}
+	}
+	for _, event := range events {
+		if event.ID != "" {
+			if _, ok := seen[event.ID]; ok {
+				continue
+			}
+			seen[event.ID] = struct{}{}
+		}
+		if event.Timestamp.IsZero() {
+			event.Timestamp = time.Now()
+		}
+		stream.steerEvents = append(stream.steerEvents, event)
+	}
+	stream.lastUpdated = time.Now()
+	return nil
+}
+
+func (m *MemoryStreamManager) GetSteerEvents(
+	_ context.Context, sessionID, messageID string, fromOffset int,
+) ([]interfaces.StreamEvent, int, error) {
+	stream := m.getStream(sessionID, messageID)
+	if stream == nil {
+		return []interfaces.StreamEvent{}, fromOffset, nil
+	}
+	stream.mu.RLock()
+	defer stream.mu.RUnlock()
+	if fromOffset >= len(stream.steerEvents) {
+		return []interfaces.StreamEvent{}, fromOffset, nil
+	}
+	events := append([]interfaces.StreamEvent(nil), stream.steerEvents[fromOffset:]...)
+	return events, len(stream.steerEvents), nil
+}
+
+func (m *MemoryStreamManager) UpdateSteerEventData(
+	_ context.Context, sessionID, messageID, eventID string, data map[string]interface{},
+) (bool, error) {
+	stream := m.getStream(sessionID, messageID)
+	if stream == nil {
+		return false, nil
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	for i := range stream.steerEvents {
+		if stream.steerEvents[i].ID != eventID {
+			continue
+		}
+		merged := make(map[string]interface{}, len(stream.steerEvents[i].Data)+len(data))
+		for key, value := range stream.steerEvents[i].Data {
+			merged[key] = value
+		}
+		for key, value := range data {
+			merged[key] = value
+		}
+		stream.steerEvents[i].Data = merged
+		stream.lastUpdated = time.Now()
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m *MemoryStreamManager) DeleteSteerEvent(
+	_ context.Context, sessionID, messageID, eventID string,
+) (bool, error) {
+	stream := m.getStream(sessionID, messageID)
+	if stream == nil {
+		return false, nil
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	for i := range stream.steerEvents {
+		if stream.steerEvents[i].ID != eventID {
+			continue
+		}
+		if consumed, _ := stream.steerEvents[i].Data["consumed"].(bool); consumed {
+			return false, nil
+		}
+		stream.steerEvents = append(stream.steerEvents[:i], stream.steerEvents[i+1:]...)
+		stream.lastUpdated = time.Now()
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m *MemoryStreamManager) SetLiveRun(
+	_ context.Context, sessionID, assistantMessageID, requestID string,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing, ok := m.liveRuns[sessionID]; ok && existing.assistantMessageID != assistantMessageID {
+		return ErrLiveRunExists
+	}
+	m.liveRuns[sessionID] = liveRunMarker{assistantMessageID: assistantMessageID, requestID: requestID}
+	return nil
+}
+
+func (m *MemoryStreamManager) ClaimLiveRun(
+	_ context.Context, sessionID, assistantMessageID, requestID string,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.liveRuns[sessionID] = liveRunMarker{assistantMessageID: assistantMessageID, requestID: requestID}
+	return nil
+}
+
+func (m *MemoryStreamManager) GetLiveRun(
+	_ context.Context, sessionID string,
+) (string, string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	marker, ok := m.liveRuns[sessionID]
+	if !ok {
+		return "", "", nil
+	}
+	return marker.assistantMessageID, marker.requestID, nil
+}
+
+func (m *MemoryStreamManager) ClearLiveRun(
+	_ context.Context, sessionID, assistantMessageID string,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if marker, ok := m.liveRuns[sessionID]; ok && marker.assistantMessageID == assistantMessageID {
+		delete(m.liveRuns, sessionID)
+	}
+	return nil
 }
 
 // Ensure MemoryStreamManager implements StreamManager interface

@@ -162,6 +162,9 @@ func (s *sessionService) AgentQA(
 		logger.Errorf(ctx, "Failed to create agent engine: %v", err)
 		return err
 	}
+	if req.SteerSink != nil {
+		engine.SetSteerSink(req.SteerSink)
+	}
 
 	// Route image data based on agent model's vision capability
 	var agentModelSupportsVision bool
@@ -289,13 +292,14 @@ func (s *sessionService) buildAgentConfig(
 		agentConfig.UseCustomSystemPrompt = true
 		agentConfig.SystemPrompt = customAgent.Config.SystemPrompt
 	}
+	// Keep service-space instructions as a runtime section. Writing them into
+	// SystemPrompt would replace the system-owned grounding and citation guidance.
 	if req.ServiceRuntimeInstruction != "" {
-		agentConfig.UseCustomSystemPrompt = true
-		agentConfig.SystemPrompt = types.AppendCustomPromptInstructions(
-			agentConfig.SystemPrompt,
-			req.ServiceRuntimeInstruction,
-			"service_space",
-		)
+		agentConfig.BusinessInstructions = append(agentConfig.BusinessInstructions,
+			types.PromptInstruction{
+				Label:   "service_space",
+				Content: req.ServiceRuntimeInstruction,
+			})
 	}
 
 	logger.Infof(ctx, "Custom agent config applied: MaxIterations=%d, Temperature=%.2f, AllowedTools=%v, WebSearchEnabled=%v",

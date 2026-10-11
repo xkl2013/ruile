@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from "vue";
+import type { PropType } from "vue";
 import { storeToRefs } from 'pinia';
 import { useRoute, useRouter } from 'vue-router';
 import { onBeforeRouteUpdate } from 'vue-router';
@@ -44,6 +45,8 @@ import {
 } from '@/utils/agent-readiness';
 import { formatLocalizedList } from '@/utils/format-list';
 import type { MentionItem, MentionItemType, MentionRequestItem } from '@/types/mention';
+import type { SteerQueueItem } from '@/api/chat/steer';
+import { chatSubmitShortcut } from '@/utils/chatSubmitShortcut';
 
 const route = useRoute();
 const router = useRouter();
@@ -171,6 +174,14 @@ const props = defineProps({
     default: false
   },
   hostedMode: {
+    type: Boolean,
+    default: false
+  },
+  queuedSteers: {
+    type: Array as PropType<SteerQueueItem[]>,
+    default: () => []
+  },
+  canSteer: {
     type: Boolean,
     default: false
   }
@@ -1923,15 +1934,40 @@ const emit = defineEmits<{
   (e: 'send-msg', query: string, modelId: string, mentionedItems: MentionRequestItem[], imageFiles: File[], attachmentFiles: AttachmentFile[], responseTier: ResponseTier): void;
   (e: 'send-published-expert', query: string, modelId: string, expert: PublishedExpert | null, routeMode: 'auto' | 'manual'): void;
   (e: 'stop-generation'): void;
+  (e: 'steer-msg', query: string, mentionedItems: MentionRequestItem[], delivery: 'inject' | 'after'): void;
+  (e: 'promote-steer', steerId: string): void;
+  (e: 'remove-steer', steerId: string): void;
+  (e: 'retry-steer', steerId: string): void;
 }>();
 
-const createSession = async (val: string) => {
+const createSession = async (val: string, delivery: 'inject' | 'after' = 'after') => {
   if (!val.trim()) {
     MessagePlugin.info(t('input.messages.enterContent'));
     return;
   }
   if (props.isReplying) {
-    return MessagePlugin.error(t('input.messages.replying'));
+    if (!props.canSteer) {
+      return MessagePlugin.error(t('input.messages.replying'));
+    }
+    if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0) {
+      return MessagePlugin.info(t('input.steerHasAttachments'));
+    }
+    const mentionedItems: MentionRequestItem[] = allSelectedItems.value.map(item => {
+      const raw = item as any;
+      return {
+        id: raw.id,
+        name: raw.name,
+        type: raw.type,
+        kb_type: raw.kbType,
+        kb_id: raw.kb_id || raw.kbId,
+        kb_name: raw.kb_name || raw.kbName,
+        service_id: raw.service_id || raw.serviceId,
+        skill_name: raw.skill_name || raw.skillName,
+      };
+    });
+    emit('steer-msg', val.trim(), mentionedItems, delivery);
+    clearvalue();
+    return;
   }
   // Only block while the file is still uploading (no document ID yet). Once
   // uploaded, sending is allowed even if parsing is still in progress: the
@@ -2300,7 +2336,30 @@ const clearPendingUploads = () => {
   uploadedAttachments.value = [];
 }
 
-const onKeydown = (val: string, event: { e: { preventDefault(): unknown; keyCode: number; shiftKey: any; ctrlKey: any; }; }) => {
+const steerShortcutLabel = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ Enter' : 'Alt+Enter';
+const firstQueuedSteer = computed(() => props.queuedSteers.find(item =>
+  item.delivery === 'after' && !item.pending && !item.promoting && !item.failed,
+));
+const injectCurrentInput = () => {
+  if (!props.isReplying || !props.canSteer) return;
+  if (query.value.trim()) {
+    void createSession(query.value, 'inject');
+  } else if (firstQueuedSteer.value) {
+    emit('promote-steer', firstQueuedSteer.value.steer_id);
+  }
+};
+
+const onKeydown = (
+  val: string,
+  event: {
+    e: Pick<
+      KeyboardEvent,
+      'key' | 'keyCode' | 'isComposing' | 'shiftKey' | 'ctrlKey' | 'altKey' | 'metaKey'
+      | 'preventDefault'
+    >;
+  },
+) => {
+  if (event.e.isComposing || event.e.keyCode === 229) return;
   if (showMention.value) {
     if (event.e.keyCode === 38) { // Up
       event.e.preventDefault();
@@ -2340,12 +2399,14 @@ const onKeydown = (val: string, event: { e: { preventDefault(): unknown; keyCode
     }
   }
 
-  if ((event.e.keyCode == 13 && event.e.shiftKey) || (event.e.keyCode == 13 && event.e.ctrlKey)) {
-    return;
-  }
-  if (event.e.keyCode == 13) {
+  const delivery = chatSubmitShortcut(event.e, props.isReplying && props.canSteer);
+  if (delivery) {
     event.e.preventDefault();
-    createSession(val)
+    if (delivery === 'inject' && props.isReplying && props.canSteer) {
+      injectCurrentInput();
+    } else {
+      void createSession(val, delivery);
+    }
   }
 }
 
@@ -2509,6 +2570,32 @@ defineExpose({
     <!-- Hidden file input for image upload -->
     <input ref="imageInputRef" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple
       style="display:none" @change="handleImageSelect" />
+    <div v-if="queuedSteers.length" class="steer-queue" role="list" :aria-label="$t('input.steerQueueWaiting')">
+      <div v-for="item in queuedSteers" :key="item.steer_id" class="steer-queue-item" role="listitem">
+        <t-tooltip :content="$t('input.steerQueueWaiting')">
+          <t-icon name="time" class="steer-queue-icon" :aria-label="$t('input.steerQueueWaiting')" />
+        </t-tooltip>
+        <span class="steer-queue-text" :title="item.content">{{ item.content }}</span>
+        <div class="steer-queue-actions">
+          <button v-if="item.failed" type="button" class="steer-queue-action"
+            :aria-label="$t('input.steerRetry')" @click="emit('retry-steer', item.steer_id)">
+            <t-icon name="refresh" />
+          </button>
+          <t-icon v-else-if="item.pending" name="loading" class="steer-sending" />
+          <t-tooltip v-else :content="`${$t('input.steerQueueSendNow')} · ${item.steer_id === firstQueuedSteer?.steer_id ? steerShortcutLabel : ''}`">
+            <button type="button" class="steer-queue-action"
+              :aria-label="$t('input.steerQueueSendNow')" :disabled="item.promoting || item.pending"
+              @click="emit('promote-steer', item.steer_id)">
+              <t-icon name="arrow-up" />
+            </button>
+          </t-tooltip>
+          <button type="button" class="steer-queue-action steer-queue-remove"
+            :aria-label="$t('common.remove')" @click="emit('remove-steer', item.steer_id)">
+            <t-icon name="close" />
+          </button>
+        </div>
+      </div>
+    </div>
     <!-- 富文本输入框容器 -->
     <div class="rich-input-container" data-guide="chat-input">
       <!-- 图片预览区域 -->
@@ -2733,8 +2820,13 @@ defineExpose({
 
         <!-- 右侧控制按钮组 -->
         <div class="control-right">
-          <!-- 停止按钮（仅在回复中时显示） -->
-          <t-tooltip v-if="isReplying" :content="$t('input.stopGeneration')" placement="top">
+          <!-- 正在生成时，输入文字发送为 steer；空输入仍显示停止 -->
+          <t-tooltip v-if="isReplying && canSteer && query.trim()" :content="$t('input.steerCurrent')" placement="top">
+            <div @click="createSession(query, 'after')" class="control-btn send-btn">
+              <img src="../assets/img/sending-aircraft.svg" :alt="$t('input.steerCurrent')" />
+            </div>
+          </t-tooltip>
+          <t-tooltip v-else-if="isReplying" :content="$t('input.stopGeneration')" placement="top">
             <div @click="handleStop" class="control-btn stop-btn">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <rect x="5" y="5" width="6" height="6" rx="1" />
@@ -2793,6 +2885,79 @@ const getImgSrc = (url: string) => {
       max-width: 100%;
     }
   }
+}
+
+.steer-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto 8px;
+}
+
+.steer-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid #d9e2ec;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #334155;
+}
+
+.steer-queue-icon {
+  flex: 0 0 auto;
+  color: #64748b;
+}
+
+.steer-queue-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.steer-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.steer-queue-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+}
+
+.steer-queue-action:hover {
+  background: #e2e8f0;
+}
+
+.steer-queue-remove:hover {
+  color: #dc2626;
+}
+
+.steer-sending {
+  color: #64748b;
+  animation: steer-queue-spin 1s linear infinite;
+}
+
+@keyframes steer-queue-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* 富文本输入框容器 */

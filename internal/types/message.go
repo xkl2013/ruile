@@ -35,6 +35,59 @@ type MentionedItem struct {
 	SkillName string `json:"skill_name"` // Preloaded agent skill name
 }
 
+// MapString reads a string from a JSON-decoded map.
+func MapString(m map[string]interface{}, key string) string {
+	if value, ok := m[key].(string); ok {
+		return value
+	}
+	return ""
+}
+
+// MentionedItemsFromRaw rebuilds typed mentions from a JSON-safe value.
+func MentionedItemsFromRaw(raw interface{}) MentionedItems {
+	items, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make(MentionedItems, 0, len(items))
+	for _, item := range items {
+		values, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		out = append(out, MentionedItem{
+			ID:        MapString(values, "id"),
+			Name:      MapString(values, "name"),
+			Type:      MapString(values, "type"),
+			KBType:    MapString(values, "kb_type"),
+			KBID:      MapString(values, "kb_id"),
+			KBName:    MapString(values, "kb_name"),
+			ServiceID: MapString(values, "service_id"),
+			SkillName: MapString(values, "skill_name"),
+		})
+	}
+	return out
+}
+
+// MentionedItemsToRaw converts typed mentions into values safe for JSON and
+// Redis round-trips.
+func MentionedItemsToRaw(items MentionedItems) []interface{} {
+	out := make([]interface{}, 0, len(items))
+	for _, item := range items {
+		out = append(out, map[string]interface{}{
+			"id":         item.ID,
+			"name":       item.Name,
+			"type":       item.Type,
+			"kb_type":    item.KBType,
+			"kb_id":      item.KBID,
+			"kb_name":    item.KBName,
+			"service_id": item.ServiceID,
+			"skill_name": item.SkillName,
+		})
+	}
+	return out
+}
+
 // MessageImage represents an image attached to a chat message
 type MessageImage struct {
 	URL     string `json:"url"`

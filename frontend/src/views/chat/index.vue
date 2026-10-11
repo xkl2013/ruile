@@ -149,7 +149,10 @@
                 @stop-generation="handleStopGeneration" :isReplying="isReplying" :sessionId="session_id"
                 :assistantMessageId="currentAssistantMessageId" :agent-id="agentId"
                 :placeholder="embeddedInputPlaceholder" :embeddedMode="embeddedMode"
-                :hostedMode="hostedMode"></InputField>
+                :hostedMode="hostedMode" :queuedSteers="steerQueue.filter(item => item.delivery === 'after')"
+                :canSteer="isAgentStreamSession()"
+                @steer-msg="handleSteerMsg" @promote-steer="handlePromoteSteer"
+                @remove-steer="handleRemoveSteer" @retry-steer="handleRetrySteer"></InputField>
         </div>
     </div>
     <ChatReferencesDrawer />
@@ -172,6 +175,22 @@ import PublishedExpertRouteChoiceMessage from './components/PublishedExpertRoute
 import ExpertArtifactPanel from './components/ExpertArtifactPanel.vue';
 import ExpertRunDiffPanel from './components/ExpertRunDiffPanel.vue';
 import { getMessageList, getSession } from "@/api/chat/index";
+import {
+    listSteerSession,
+    promoteSteerSession,
+    removeSteerSession,
+    steerSession,
+    type SteerDelivery,
+    type SteerQueueItem,
+} from '@/api/chat/steer';
+import { makeSteerClientId } from '@/utils/steerId';
+import {
+    discardSteerPreview,
+    forkAfterInjectedUser,
+    previewSteerMessage,
+    expandSteerForksInHistory,
+    reconcileSteerMessageId,
+} from '@/utils/steerStreamFork';
 import { getSuggestedQuestions } from "@/api/agent/index";
 import { deleteTemporaryAttachment, uploadTemporaryAttachment } from '@/api/chat/temporary-attachments';
 import { useStream } from '../../api/chat/streame'
@@ -317,6 +336,7 @@ const emitMessageStateChange = () => {
     });
 };
 const isReplying = ref(false);
+const steerQueue = ref<SteerQueueItem[]>([]);
 const currentAssistantMessageId = ref(''); // 当前正在生成的 assistant message ID
 const activeExpertArtifact = ref(null);
 const activeExpertArtifactRunId = ref('');
@@ -516,6 +536,7 @@ watch([() => route.params], async (newvalue) => {
             scrollLock.value = false;
         }
         messagesList.splice(0);
+        steerQueue.value = [];
         session_id.value = newvalue[0].chatid;
         currentSession.value = null;
         clearCitationChunkCache();
@@ -541,6 +562,7 @@ watch([() => route.params], async (newvalue) => {
             limit: limit.value
         }
         await getmsgList(data);
+        await loadSteerQueue();
         await restorePublishedExpertRuns();
     }
 });
@@ -607,6 +629,218 @@ const fetchMessageList = (data) => getMessageList({
     ...data,
     service_id: props.serviceId || undefined,
 });
+
+const handleSteerMsg = async (value, mentionedItems = [], delivery: SteerDelivery = 'after') => {
+    if (!session_id.value || !isAgentStreamSession()) return;
+    const steerId = makeSteerClientId();
+    const item: SteerQueueItem = {
+        steer_id: steerId,
+        client_id: steerId,
+        content: value,
+        mentioned_items: mentionedItems,
+        delivery,
+        pending: true,
+        expected_assistant_message_id: currentAssistantMessageId.value || undefined,
+    };
+    steerQueue.value.push(item);
+    if (delivery === 'inject') {
+        previewSteerMessage(messagesList, item);
+    }
+    try {
+        const response = await steerSession(
+            session_id.value,
+            value,
+            mentionedItems,
+            delivery,
+            currentAssistantMessageId.value || undefined,
+            steerId,
+        );
+        const status = response?.status || response?.data?.status;
+        if (status === 'already_injected') {
+            steerQueue.value = steerQueue.value.filter(entry =>
+                entry.steer_id !== steerId && entry.client_id !== steerId,
+            );
+            const injected = messagesList.find(message => message.steer_id === steerId);
+            if (injected) delete injected._steerPending;
+            return;
+        }
+        if (status === 'new_run') {
+            steerQueue.value = steerQueue.value.filter(entry =>
+                entry.steer_id !== steerId && entry.client_id !== steerId,
+            );
+            discardSteerPreview(messagesList, steerId);
+            await sendMsg(value, '', mentionedItems);
+            return;
+        }
+        const serverSteerId = response?.steer_id || response?.data?.steer_id || steerId;
+        reconcileSteerMessageId(messagesList, steerId, serverSteerId);
+        item.pending = false;
+        item.steer_id = serverSteerId;
+    } catch (error) {
+        if (delivery === 'inject') {
+            item.delivery = 'after';
+            discardSteerPreview(messagesList, item.steer_id);
+        }
+        item.pending = false;
+        item.failed = true;
+        MessagePlugin.error(error?.message || t('input.steerFailed'));
+    }
+};
+
+const handlePromoteSteer = async (steerId: string) => {
+    const item = steerQueue.value.find(entry =>
+        entry.steer_id === steerId || entry.client_id === steerId,
+    );
+    if (!item || item.pending) return;
+    item.promoting = true;
+    try {
+        const response = await promoteSteerSession(session_id.value, item.steer_id);
+        const status = response?.status || response?.data?.status;
+        if (status === 'already_injected') {
+            steerQueue.value = steerQueue.value.filter(entry =>
+                entry.steer_id !== item.steer_id && entry.client_id !== item.steer_id,
+            );
+            const injected = messagesList.find(message => message.steer_id === item.steer_id);
+            if (injected) delete injected._steerPending;
+            return;
+        }
+        if (status === 'new_run') {
+            await removeSteerSession(session_id.value, item.steer_id).catch(() => undefined);
+            steerQueue.value = steerQueue.value.filter(entry =>
+                entry.steer_id !== steerId && entry.client_id !== steerId,
+            );
+            discardSteerPreview(messagesList, item.steer_id);
+            await sendMsg(item.content, '', item.mentioned_items || []);
+            return;
+        }
+        item.delivery = 'inject';
+        previewSteerMessage(messagesList, item);
+        scrollToBottom(true);
+        item.promoting = false;
+    } catch (error) {
+        item.delivery = 'after';
+        discardSteerPreview(messagesList, item.steer_id);
+        item.promoting = false;
+        MessagePlugin.error(error?.message || t('input.steerPromoteFailed'));
+    }
+};
+
+const handleRemoveSteer = async (steerId: string) => {
+    try {
+        const response = await removeSteerSession(session_id.value, steerId);
+        const status = response?.status || response?.data?.status;
+        if (status === 'already_injected') {
+            const injected = messagesList.find(message => message.steer_id === steerId);
+            if (injected) delete injected._steerPending;
+        }
+    } catch (error) {
+        MessagePlugin.error(error?.message || t('input.steerRemoveFailed'));
+        return;
+    }
+    steerQueue.value = steerQueue.value.filter(entry =>
+        entry.steer_id !== steerId && entry.client_id !== steerId,
+    );
+    discardSteerPreview(messagesList, steerId);
+};
+
+const handleRetrySteer = async (steerId: string) => {
+    const item = steerQueue.value.find(entry =>
+        entry.steer_id === steerId || entry.client_id === steerId,
+    );
+    if (!item) return;
+    item.failed = false;
+    item.pending = true;
+    try {
+        const response = await steerSession(
+            session_id.value,
+            item.content,
+            item.mentioned_items || [],
+            item.delivery,
+            currentAssistantMessageId.value || undefined,
+            item.steer_id,
+        );
+        const status = response?.status || response?.data?.status;
+        if (status === 'already_injected') {
+            steerQueue.value = steerQueue.value.filter(entry =>
+                entry.steer_id !== steerId && entry.client_id !== steerId,
+            );
+            const injected = messagesList.find(message => message.steer_id === item.steer_id);
+            if (injected) delete injected._steerPending;
+            return;
+        }
+        if (status === 'new_run') {
+            await removeSteerSession(session_id.value, steerId).catch(() => undefined);
+            steerQueue.value = steerQueue.value.filter(entry =>
+                entry.steer_id !== steerId && entry.client_id !== steerId,
+            );
+            discardSteerPreview(messagesList, steerId);
+            await sendMsg(item.content, '', item.mentioned_items || []);
+            return;
+        }
+        item.pending = false;
+    } catch (error) {
+        item.pending = false;
+        item.failed = true;
+        MessagePlugin.error(error?.message || t('input.steerFailed'));
+    }
+};
+
+const flushAfterSteerQueue = async () => {
+    if (isReplying.value) return;
+    const nextItem = steerQueue.value.find(entry =>
+        entry.delivery === 'after' && !entry.pending && !entry.failed,
+    );
+    if (!nextItem) return;
+    await removeSteerSession(session_id.value, nextItem.steer_id).catch(() => undefined);
+    steerQueue.value = steerQueue.value.filter(entry => entry.steer_id !== nextItem.steer_id);
+    discardSteerPreview(messagesList, nextItem.steer_id);
+    await sendMsg(nextItem.content, '', nextItem.mentioned_items || []);
+    await flushAfterSteerQueue();
+};
+
+const loadSteerQueue = async () => {
+    if (!session_id.value || !isAgentStreamSession()) {
+        steerQueue.value = [];
+        return;
+    }
+    try {
+        const response = await listSteerSession(session_id.value);
+        const items = response?.items || response?.data?.items || [];
+        steerQueue.value = Array.isArray(items) ? items.map((item) => ({
+            steer_id: item.steer_id,
+            content: item.content,
+            delivery: item.delivery || 'after',
+            mentioned_items: item.mentioned_items || [],
+            pending: false,
+        })) : [];
+        for (const item of steerQueue.value) {
+            if (item.delivery === 'inject') {
+                previewSteerMessage(messagesList, item);
+            }
+        }
+        const assistantId = response?.assistant_message_id || response?.data?.assistant_message_id;
+        if (assistantId && !currentAssistantMessageId.value) {
+            currentAssistantMessageId.value = assistantId;
+        }
+        const active = response?.active ?? response?.data?.active ?? Boolean(assistantId && isReplying.value);
+        if (!active && steerQueue.value.length > 0 && !isReplying.value) {
+            void flushIdleSteerQueue();
+        }
+    } catch (error) {
+        console.warn('[Steer] Failed to restore queue:', error);
+    }
+};
+
+const flushIdleSteerQueue = async () => {
+    if (isReplying.value) return;
+    const nextItem = steerQueue.value.find(entry => !entry.pending && !entry.failed);
+    if (!nextItem) return;
+    await removeSteerSession(session_id.value, nextItem.steer_id).catch(() => undefined);
+    steerQueue.value = steerQueue.value.filter(entry => entry.steer_id !== nextItem.steer_id);
+    discardSteerPreview(messagesList, nextItem.steer_id);
+    await sendMsg(nextItem.content, '', nextItem.mentioned_items || []);
+    await flushIdleSteerQueue();
+};
 
 const {
     findLastMessage,
@@ -677,8 +911,17 @@ const {
         attachStreamDebugToMessage(message);
         pendingStreamDebug.value = null;
     },
+    onUserMessageInjected: (_data, message) => {
+        const steerId = message.steer_id;
+        if (steerId) {
+            steerQueue.value = steerQueue.value.filter(entry =>
+                entry.steer_id !== steerId && entry.client_id !== steerId,
+            );
+        }
+    },
     onTurnComplete: (message) => {
         void loadFollowUpSuggestions(message, true);
+        void flushAfterSteerQueue();
     },
 });
 
@@ -1834,6 +2077,7 @@ onMounted(async () => {
             limit: limit.value
         }
         await getmsgList(data)
+        await loadSteerQueue()
         await restorePublishedExpertRuns()
     }
 })

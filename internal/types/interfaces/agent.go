@@ -28,6 +28,9 @@ type AgentEngine interface {
 		llmContext []chat.Message,
 		imageURLs ...[]string,
 	) (*types.AgentState, error)
+
+	// SetSteerSink enables mid-run user message injection for this execution.
+	SetSteerSink(sink types.SteerSink)
 }
 
 // AgentService defines the interface for agent-related operations

@@ -189,6 +189,15 @@ type AgentFinalAnswerData struct {
 	IsFallback bool   `json:"is_fallback,omitempty"` // True when response is a fallback (no knowledge base match)
 }
 
+// UserMessageInjectedData correlates an optimistic frontend steer item with
+// the persisted user row and running assistant message.
+type UserMessageInjectedData struct {
+	SteerID       string `json:"steer_id"`
+	Content       string `json:"content"`
+	MessageID     string `json:"message_id"`
+	UserMessageID string `json:"user_message_id"`
+}
+
 // ContextCompactedData reports that older conversation history was summarized.
 type ContextCompactedData struct {
 	Reason         string `json:"reason"`

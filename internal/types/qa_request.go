@@ -25,4 +25,5 @@ type QARequest struct {
 	ServiceRuntimeInstruction string             // Server-resolved service-space instruction, injected at the system layer
 	ServiceRuntimeContext     string             // Server-resolved service-space sources, injected as background context
 	ServiceRuntimeContextHash string             // Runtime context version used for this turn
+	SteerSink                 SteerSink          // Optional mid-run steer queue for AgentQA
 }

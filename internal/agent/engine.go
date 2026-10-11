@@ -55,6 +55,9 @@ type AgentEngine struct {
 	compactionExhaustedAt int                     // Message count where compaction last made no progress
 	resourceRefs          *llmresource.Registry   // request-local aliases for durable resource references
 	sourceRefs            *llmreference.Registry  // request-local chunk/document/web aliases and citations
+	steerSink             types.SteerSink         // optional mid-run user-message queue
+	allowSteerOverrun     bool                    // permits one boundary round after a late inject
+	steerOverruns         int
 }
 
 // ImageDescriberFunc generates a text description of an image.
@@ -118,8 +121,20 @@ func (e *AgentEngine) systemPromptOptions(ctx context.Context) *BuildSystemPromp
 		Language: types.LanguageNameFromContext(ctx),
 		Config:   e.appConfig,
 	}
+	if e.toolRegistry != nil {
+		opts.SelectedTools = e.toolRegistry.ListTools()
+	}
 	if e.skillsManager != nil && e.skillsManager.IsEnabled() {
 		opts.SkillsMetadata = e.skillsManager.GetAllMetadata()
+	}
+	if e.config != nil && len(e.config.BusinessInstructions) > 0 {
+		opts.Instructions = make([]SystemPromptSection, 0, len(e.config.BusinessInstructions))
+		for _, instruction := range e.config.BusinessInstructions {
+			opts.Instructions = append(opts.Instructions, SystemPromptSection{
+				Name:    instruction.Label,
+				Content: instruction.Content,
+			})
+		}
 	}
 	return opts
 }
@@ -393,7 +408,8 @@ func (e *AgentEngine) executeLoop(
 	consecutiveSameContent := 0
 	lastResponseContent := ""
 loop:
-	for state.CurrentRound < e.config.MaxIterations {
+	for state.CurrentRound < e.config.MaxIterations || e.allowSteerOverrun {
+		e.allowSteerOverrun = false
 		// Check for context cancellation (request timeout, user cancel, etc.)
 		select {
 		case <-ctx.Done():
@@ -536,6 +552,10 @@ func (e *AgentEngine) runReActIteration(
 		currentTokens = e.tokenEstimator.EstimateMessages(*messagesPtr)
 	}
 
+	// Inject queued messages after context compression so they remain in the
+	// protected recent tail and are visible to the next model call.
+	e.drainSteerMessages(ctx, state, messagesPtr, sessionID, assistantMessageID)
+
 	logger.Infof(ctx, "[Agent][Round-%d/%d] Starting: %d messages, %d tools, est_tokens=%d",
 		round, e.config.MaxIterations, len(*messagesPtr), len(tools), currentTokens)
 	common.PipelineInfo(ctx, "Agent", "round_start", map[string]interface{}{
@@ -602,12 +622,14 @@ func (e *AgentEngine) runReActIteration(
 
 	// Create agent step
 	step := types.AgentStep{
-		Iteration:        state.CurrentRound,
-		Thought:          response.Content,
-		ReasoningContent: response.ReasoningContent,
-		ToolCalls:        make([]types.ToolCall, 0),
-		Timestamp:        time.Now(),
+		UserMessagesBefore: append([]string(nil), state.PendingSteerMessages...),
+		Iteration:          state.CurrentRound,
+		Thought:            response.Content,
+		ReasoningContent:   response.ReasoningContent,
+		ToolCalls:          make([]types.ToolCall, 0),
+		Timestamp:          time.Now(),
 	}
+	state.PendingSteerMessages = nil
 
 	// If the request was cancelled while the LLM was streaming (e.g. the
 	// user pressed "stop"), the stream driver still returns a usable
@@ -622,7 +644,7 @@ func (e *AgentEngine) runReActIteration(
 	if ctx.Err() != nil {
 		logger.Warnf(ctx, "[Agent][Round-%d] Context cancelled during LLM call; preserving partial step",
 			round)
-		if step.Thought != "" || len(step.ToolCalls) > 0 {
+		if step.Thought != "" || len(step.ToolCalls) > 0 || len(step.UserMessagesBefore) > 0 {
 			state.RoundSteps = append(state.RoundSteps, step)
 		}
 		return iterOutcomeBreak, nil
@@ -637,6 +659,7 @@ func (e *AgentEngine) runReActIteration(
 		if verdict.emptyContent {
 			*emptyRetries++
 			if *emptyRetries <= maxEmptyResponseRetries {
+				state.PendingSteerMessages = append([]string(nil), step.UserMessagesBefore...)
 				logger.Warnf(ctx, "[Agent][Round-%d] Empty content with stop - retrying (%d/%d)",
 					round, *emptyRetries, maxEmptyResponseRetries)
 				*messagesPtr = append(*messagesPtr, chat.Message{
@@ -652,6 +675,29 @@ func (e *AgentEngine) runReActIteration(
 			state.IsComplete = true
 			state.RoundSteps = append(state.RoundSteps, verdict.step)
 			return iterOutcomeBreak, nil
+		}
+		// A steer can arrive while the final answer is being streamed. Keep
+		// the answer in context and continue once so the intervention is not
+		// stranded after the run has already decided to stop.
+		nextRound := state.CurrentRound + 1
+		if response.FinishReason != "content_filter" &&
+			(nextRound < e.config.MaxIterations || e.steerOverruns < 1) {
+			*messagesPtr = append(*messagesPtr, chat.Message{
+				Role:    "assistant",
+				Content: verdict.finalAnswer,
+			})
+			if injected := e.drainSteerMessages(ctx, state, messagesPtr, sessionID, assistantMessageID); injected > 0 {
+				verdict.step.IntermediateAnswer = true
+				state.RoundSteps = append(state.RoundSteps, verdict.step)
+				if nextRound >= e.config.MaxIterations {
+					e.steerOverruns++
+					e.allowSteerOverrun = true
+				}
+				return iterOutcomeNext, nil
+			}
+			// No late steer was found; remove the synthetic assistant context
+			// before completing so the normal history shape is preserved.
+			*messagesPtr = (*messagesPtr)[:len(*messagesPtr)-1]
 		}
 		state.FinalAnswer = verdict.finalAnswer
 		state.IsComplete = true

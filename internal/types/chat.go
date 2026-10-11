@@ -109,6 +109,12 @@ const (
 	ResponseTypeAgentQuery ResponseType = "agent_query"
 	// Complete response type (agent complete)
 	ResponseTypeComplete ResponseType = "complete"
+	// ResponseTypeSteer is kept in the control-plane stream and is not exposed
+	// through the user-visible SSE stream.
+	ResponseTypeSteer ResponseType = "steer"
+	// ResponseTypeUserMessageInjected confirms a steer message was accepted by
+	// the running agent and persisted as a normal user message.
+	ResponseTypeUserMessageInjected ResponseType = "user_message_injected"
 	// ToolApprovalRequired: MCP tool marked dangerous — UI must collect user approval before execution continues
 	ResponseTypeToolApprovalRequired ResponseType = "tool_approval_required"
 	// ToolApprovalResolved: user approved/rejected (or timeout); informational for UI replay
