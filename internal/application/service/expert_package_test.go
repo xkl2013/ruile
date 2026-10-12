@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -107,6 +108,7 @@ output_contract: agent_result_v1
 基于已知事实提出可执行建议。`,
 			},
 			{Path: "skills/evidence-analysis/SKILL.md", Content: "# 证据分析\n"},
+			{Path: "skills/evidence-analysis/references/checklist.md", Content: "# 检查清单\n"},
 		},
 	})
 	require.NoError(t, err)
@@ -118,7 +120,14 @@ output_contract: agent_result_v1
 	require.NoError(t, err)
 	require.Len(t, snapshots, 1)
 	require.Equal(t, "evidence-analysis", snapshots[0].Name)
+	require.Equal(t, "skills/evidence-analysis/SKILL.md", snapshots[0].Path)
 	require.Equal(t, "# 证据分析\n", snapshots[0].Content)
+	var snapshotFiles []map[string]any
+	rawSnapshots, err := json.Marshal(version.Definitions[0].CompiledConfig["skill_snapshots"])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(rawSnapshots, &snapshotFiles))
+	require.Len(t, snapshotFiles, 2)
+	require.Equal(t, "skills/evidence-analysis/references/checklist.md", snapshotFiles[1]["path"])
 
 	packages, err := svc.ListPackages(ctx, tenantID)
 	require.NoError(t, err)
@@ -134,6 +143,63 @@ output_contract: agent_result_v1
 	require.Equal(t, "咨询顾问", published[0].DisplayName)
 	require.Empty(t, published[0].Capabilities["system_prompt"])
 
+}
+
+func TestPublishedExpertIsMaterializedAsCustomAgent(t *testing.T) {
+	ctx := context.WithValue(context.Background(), types.SystemAdminContextKey, true)
+	db, err := gorm.Open(sqlite.Open("file:expert-agent-sync-"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&types.CustomAgent{},
+		&types.ExpertPackage{},
+		&types.ExpertPackageVersion{},
+		&types.AgentDefinitionVersion{},
+	))
+	svc := NewExpertPackageServiceWithAgentRepository(
+		repository.NewExpertPackageRepository(db),
+		nil,
+		repository.NewCustomAgentRepository(db),
+	)
+
+	version, err := svc.ImportPackage(ctx, 11, "admin-1", types.ExpertPackageImportInput{
+		SourceFormat: types.ExpertPackageSourceWorkBuddy,
+		PackageKey:   "sync-test",
+		Version:      "1.0.0",
+		DisplayName:  "同步测试专家包",
+		Files: []types.ExpertPackageFileInput{{
+			Path: "agents/researcher.md",
+			Content: `---
+id: researcher
+version: 1.0.0
+display_name: 研究专家
+capabilities:
+  required:
+    - knowledge.read
+---
+
+请基于证据完成研究。`,
+		}, {
+			Path:    "skills/researcher/SKILL.md",
+			Content: "---\nname: researcher\ndescription: 研究技能\n---\n\n# 研究\n",
+		}},
+	})
+	require.NoError(t, err)
+	packages, err := svc.ListPackages(ctx, 11)
+	require.NoError(t, err)
+	require.Len(t, packages, 1)
+
+	require.NoError(t, svc.PublishVersion(ctx, 11, "admin-1", packages[0].ID, version.ID))
+	agents, err := repository.NewCustomAgentRepository(db).ListAgentsByTenantID(ctx, 11)
+	require.NoError(t, err)
+	require.Len(t, agents, 1)
+	require.Equal(t, "研究专家", agents[0].Name)
+	require.True(t, agents[0].IsBuiltin)
+	require.Equal(t, types.SystemAgentTenantID, agents[0].TenantID)
+	require.Equal(t, types.AgentModeSmartReasoning, agents[0].Config.AgentMode)
+	require.Equal(t, "请基于证据完成研究。", agents[0].Config.SystemPrompt)
+	require.Contains(t, agents[0].Config.AllowedTools, "knowledge_search")
+	require.Len(t, agents[0].Config.SkillSnapshots, 1)
+	require.Equal(t, "researcher", agents[0].Config.SkillSnapshots[0].Name)
 }
 
 func TestExpertPackageImportRejectsUnsafePath(t *testing.T) {
@@ -211,6 +277,22 @@ func TestExpertPackageImportWorkBuddyArchive(t *testing.T) {
 	require.Len(t, published, 1)
 	require.Equal(t, packages[0].Avatar, published[0].Avatar)
 	require.Equal(t, "Kindergarten activity planning expert.", published[0].Description)
+}
+
+func TestExpertArchiveSkillRelativePathStripsPackageRoot(t *testing.T) {
+	path, ok := expertArchiveSkillRelativePath(
+		"life-code-analyst/skills/life-code-analysis/references/01-rules.md",
+		"life-code-analyst",
+	)
+	require.True(t, ok)
+	require.Equal(t, "skills/life-code-analysis/references/01-rules.md", path)
+
+	path, ok = expertArchiveSkillRelativePath(
+		"skills/life-code-analysis/SKILL.md",
+		"",
+	)
+	require.True(t, ok)
+	require.Equal(t, "skills/life-code-analysis/SKILL.md", path)
 }
 
 func TestExpertPackageImportWorkBuddyArchiveIsIdempotentForSameContent(t *testing.T) {

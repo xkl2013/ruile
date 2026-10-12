@@ -107,12 +107,26 @@ export function mergeBucketPage(
   total: number,
   page: number,
 ): SidebarSessionBucket {
-  const seen = new Set(bucket.items.map((s) => s.id))
-  const merged = [...bucket.items]
+  const itemIndexes = new Map(bucket.items.map((item, index) => [item.id, index]))
+  const merged = bucket.items.map((item) => ({ ...item }))
   for (const row of rows) {
-    if (seen.has(row.id)) continue
-    seen.add(row.id)
-    merged.push(row)
+    const existingIndex = itemIndexes.get(row.id)
+    if (existingIndex === undefined) {
+      itemIndexes.set(row.id, merged.length)
+      merged.push(row)
+      continue
+    }
+
+    const existing = merged[existingIndex]
+    const knownTitle = existing.title?.trim()
+    const incomingTitle = row.title?.trim()
+    const keepKnownTitle = !!knownTitle && !incomingTitle
+    merged[existingIndex] = {
+      ...existing,
+      ...row,
+      ...(keepKnownTitle ? { title: existing.title, isNoTitle: false } : {}),
+      ...(incomingTitle ? { isNoTitle: false } : {}),
+    }
   }
   return {
     ...bucket,

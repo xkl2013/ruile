@@ -53,15 +53,19 @@ func beginDecoratedModelUsage(
 		source = "worker"
 	}
 	source = types.BillingSourceFromContext(ctx, source)
+	attribution, _ := types.AgentDelegationAttributionFromContext(ctx)
 	return billing.BeginModelUsage(ctx, types.BillingUsageStartRequest{
-		TenantID:       tenantID,
-		ActorUserID:    actorUserID,
-		RefNo:          fmt.Sprintf("%s:%d:%s", serviceCode, tenantID, uuid.NewString()),
-		Source:         source,
-		ServiceCode:    serviceCode,
-		ModelID:        modelID,
-		ModelKey:       modelKey,
-		EstimatedUsage: usage,
+		TenantID:        tenantID,
+		ActorUserID:     actorUserID,
+		DelegationRunID: attribution.RunID,
+		AgentID:         attribution.AgentID,
+		RefNo:           fmt.Sprintf("%s:%d:%s", serviceCode, tenantID, uuid.NewString()),
+		Source:          source,
+		SessionID:       attribution.ParentSessionID,
+		ServiceCode:     serviceCode,
+		ModelID:         modelID,
+		ModelKey:        modelKey,
+		EstimatedUsage:  usage,
 	})
 }
 

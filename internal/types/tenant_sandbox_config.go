@@ -35,6 +35,14 @@ type TenantSandboxConfig struct {
 	DeletedAt       gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
+type TenantSandboxCheck struct {
+	ConfigID      string `json:"config_id"`
+	Mode          string `json:"mode"`
+	Available     bool   `json:"available"`
+	EffectiveMode string `json:"effective_mode"`
+	Message       string `json:"message,omitempty"`
+}
+
 func (TenantSandboxConfig) TableName() string { return "tenant_sandbox_configs" }
 
 func (c *TenantSandboxConfig) BeforeCreate(_ *gorm.DB) error {
@@ -84,4 +92,5 @@ var (
 	ErrTenantSandboxConfigNameRequired   = errors.New("sandbox config name is required")
 	ErrTenantSandboxConfigModeInvalid    = errors.New("sandbox config mode is invalid")
 	ErrTenantSandboxConfigTimeoutInvalid = errors.New("sandbox config timeout is invalid")
+	ErrTenantSandboxConfigActive         = errors.New("active sandbox config cannot be deleted")
 )

@@ -92,6 +92,18 @@ func (h *ExpertPackageHandler) ListPublished(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": experts})
 }
 
+func (h *ExpertPackageHandler) SyncAgents(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	if err := h.service.SyncPublishedAgents(c.Request.Context(), tenantID, userID); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 func (h *ExpertPackageHandler) RoutePublished(c *gin.Context) {
 	tenantID, _, ok := serviceScope(c)
 	if !ok {

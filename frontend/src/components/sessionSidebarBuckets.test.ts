@@ -5,9 +5,17 @@ import {
   applyBucketCountProbe,
   bucketVisible,
   createEmptyBucket,
+  mergeBucketPage,
   prependSessionToWebBucket,
   type BucketDefinition,
 } from './sessionSidebarBuckets.ts'
+
+const webDef: BucketDefinition = {
+  key: 'web',
+  apiSource: 'web',
+  label: 'Chats',
+  kind: 'web',
+}
 
 const imDef: BucketDefinition = {
   key: 'im:feishu',
@@ -32,13 +40,30 @@ test('bucketVisible shows channel buckets with sessions after probe', () => {
   assert.equal(bucketVisible(bucket), true)
 })
 
-test('prependSessionToWebBucket inserts new session at front and bumps total', () => {
-  const webDef: BucketDefinition = {
-    key: 'web',
-    apiSource: 'web',
-    label: 'Chats',
-    kind: 'web',
+test('mergeBucketPage preserves a generated title when a stale API row has no title', () => {
+  const bucket = {
+    ...createEmptyBucket(webDef),
+    items: [{
+      id: 'session-1',
+      title: '生成后的标题',
+      isNoTitle: false,
+      updated_at: '2026-10-12T10:00:00.000Z',
+    }],
   }
+
+  const next = mergeBucketPage(bucket, [{
+    id: 'session-1',
+    title: '',
+    isNoTitle: true,
+    updated_at: '2026-10-12T10:01:00.000Z',
+  }], 1, 1)
+
+  assert.equal(next.items[0].title, '生成后的标题')
+  assert.equal((next.items[0] as typeof bucket.items[number]).isNoTitle, false)
+  assert.equal(next.items[0].updated_at, '2026-10-12T10:01:00.000Z')
+})
+
+test('prependSessionToWebBucket inserts new session at front and bumps total', () => {
   const bucket = { ...createEmptyBucket(webDef), total: 2, items: [{ id: 'a' }] }
   const next = prependSessionToWebBucket(bucket, { id: 'b', title: 'New' })
   assert.deepEqual(next.items.map((s) => s.id), ['b', 'a'])
@@ -46,12 +71,6 @@ test('prependSessionToWebBucket inserts new session at front and bumps total', (
 })
 
 test('prependSessionToWebBucket is idempotent for existing session', () => {
-  const webDef: BucketDefinition = {
-    key: 'web',
-    apiSource: 'web',
-    label: 'Chats',
-    kind: 'web',
-  }
   const bucket = { ...createEmptyBucket(webDef), total: 1, items: [{ id: 'a' }] }
   const next = prependSessionToWebBucket(bucket, { id: 'a', title: 'Same' })
   assert.equal(next, bucket)

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"gopkg.in/yaml.v3"
@@ -557,16 +558,40 @@ func expertSkillSnapshotsFromArchive(
 	files map[string]*zip.File,
 	skills []string,
 ) ([]map[string]any, error) {
-	snapshots := make([]map[string]any, 0, len(skills))
+	allowed := make(map[string]struct{}, len(skills))
 	for _, skill := range skills {
-		skillPath := path.Join("skills", skill, "SKILL.md")
-		entry := files[skillPath]
-		if entry == nil {
+		allowed[strings.TrimSpace(skill)] = struct{}{}
+	}
+	paths := make([]string, 0, len(files))
+	for filePath := range files {
+		paths = append(paths, filePath)
+	}
+	sort.Strings(paths)
+
+	snapshots := make([]map[string]any, 0, len(paths))
+	for _, filePath := range paths {
+		cleanPath := path.Clean(filePath)
+		if !strings.HasPrefix(cleanPath, "skills/") {
+			continue
+		}
+		parts := strings.Split(cleanPath, "/")
+		if len(parts) < 3 {
+			continue
+		}
+		skill := parts[1]
+		if _, ok := allowed[skill]; !ok {
+			continue
+		}
+		entry := files[filePath]
+		if entry == nil || entry.FileInfo().IsDir() {
 			continue
 		}
 		content, err := readExpertArchiveFile(entry, expertPackageMaxManifestContentBytes)
 		if err != nil {
-			return nil, fmt.Errorf("%w: cannot read %s: %v", ErrExpertPackageInvalidInput, skillPath, err)
+			return nil, fmt.Errorf("%w: cannot read %s: %v", ErrExpertPackageInvalidInput, cleanPath, err)
+		}
+		if !utf8.Valid(content) {
+			continue
 		}
 		runes := []rune(string(content))
 		if len(runes) > expertPackageMaxSkillSnapshotRunes {
@@ -575,7 +600,7 @@ func expertSkillSnapshotsFromArchive(
 		text := string(runes)
 		snapshots = append(snapshots, map[string]any{
 			"name":    skill,
-			"path":    skillPath,
+			"path":    cleanPath,
 			"content": text,
 			"sha256":  expertStringHash(text),
 		})

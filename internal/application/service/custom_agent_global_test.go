@@ -15,6 +15,8 @@ type globalBuiltinAgentRepoStub struct {
 	agent             *types.CustomAgent
 	requestedTenantID uint64
 	saved             *types.CustomAgent
+	deletedID         string
+	deletedTenantID   uint64
 }
 
 func (r *globalBuiltinAgentRepoStub) GetAgentByID(
@@ -33,6 +35,18 @@ func (r *globalBuiltinAgentRepoStub) GetAgentByID(
 func (r *globalBuiltinAgentRepoStub) UpdateAgent(_ context.Context, agent *types.CustomAgent) error {
 	copy := *agent
 	r.saved = &copy
+	return nil
+}
+
+func (r *globalBuiltinAgentRepoStub) CreateAgent(_ context.Context, agent *types.CustomAgent) error {
+	copy := *agent
+	r.agent = &copy
+	return nil
+}
+
+func (r *globalBuiltinAgentRepoStub) DeleteAgent(_ context.Context, id string, tenantID uint64) error {
+	r.deletedID = id
+	r.deletedTenantID = tenantID
 	return nil
 }
 
@@ -90,6 +104,57 @@ func TestUpdateBuiltinAgentRequiresSystemAdminAndSavesGlobally(t *testing.T) {
 	require.Equal(t, types.SystemAgentTenantID, repo.saved.TenantID)
 	require.Equal(t, "system-chat", repo.saved.Config.ModelID)
 	require.Equal(t, uint64(10003), agent.TenantID)
+}
+
+func TestPlatformAgentCanBeCreatedOnlyBySystemAdmin(t *testing.T) {
+	repo := &globalBuiltinAgentRepoStub{}
+	svc := NewCustomAgentService(repo, nil, nil, nil, nil, nil, nil)
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10003))
+	agent := &types.CustomAgent{
+		Name:      "平台专家",
+		IsBuiltin: true,
+	}
+
+	_, err := svc.CreateAgent(ctx, agent)
+	require.ErrorIs(t, err, ErrPlatformAgentRequiresSystemAdmin)
+
+	ctx = context.WithValue(ctx, types.SystemAdminContextKey, true)
+	created, err := svc.CreateAgent(ctx, agent)
+	require.NoError(t, err)
+	require.Equal(t, types.SystemAgentTenantID, created.TenantID)
+	require.True(t, created.IsBuiltin)
+	require.Equal(t, types.SystemAgentTenantID, repo.agent.TenantID)
+}
+
+func TestPlatformAgentIsProjectedIntoEveryWorkspaceAndCanBeUpdatedOrDeletedBySystemAdmin(t *testing.T) {
+	repo := &globalBuiltinAgentRepoStub{
+		agent: &types.CustomAgent{
+			ID:        "platform-agent",
+			Name:      "平台专家",
+			IsBuiltin: true,
+			TenantID:  types.SystemAgentTenantID,
+		},
+	}
+	svc := NewCustomAgentService(repo, nil, nil, nil, nil, nil, nil)
+	ctx := context.WithValue(context.Background(), types.TenantIDContextKey, uint64(10003))
+
+	projected, err := svc.GetAgentByID(ctx, "platform-agent")
+	require.NoError(t, err)
+	require.Equal(t, uint64(10003), projected.TenantID)
+	require.True(t, projected.IsBuiltin)
+
+	ctx = context.WithValue(ctx, types.SystemAdminContextKey, true)
+	updated, err := svc.UpdateAgent(ctx, &types.CustomAgent{
+		ID:   "platform-agent",
+		Name: "平台专家新版",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "平台专家新版", repo.saved.Name)
+	require.Equal(t, uint64(10003), updated.TenantID)
+
+	require.NoError(t, svc.DeleteAgent(ctx, "platform-agent"))
+	require.Equal(t, "platform-agent", repo.deletedID)
+	require.Equal(t, types.SystemAgentTenantID, repo.deletedTenantID)
 }
 
 func withQuickAnswerBuiltin(t *testing.T) {

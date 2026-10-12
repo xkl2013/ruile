@@ -127,6 +127,7 @@ func (r *tenantSkillRepository) UpdateInstallJob(ctx context.Context, job *types
 			"source_type":      job.SourceType,
 			"source_ref":       job.SourceRef,
 			"skill_id":         job.SkillID,
+			"task_id":          job.TaskID,
 			"status":           job.Status,
 			"error":            job.Error,
 			"attempt":          job.Attempt,
@@ -170,6 +171,29 @@ func (r *tenantSkillRepository) ListInstallJobs(
 	err := r.db.WithContext(ctx).
 		Where("tenant_id = ?", tenantID).
 		Order("created_at DESC").
+		Limit(limit).
+		Find(&jobs).Error
+	return jobs, err
+}
+
+func (r *tenantSkillRepository) ListInstallJobsByStatus(
+	ctx context.Context,
+	statuses []string,
+	limit int,
+) ([]*types.TenantSkillInstallJob, error) {
+	if len(statuses) == 0 {
+		return []*types.TenantSkillInstallJob{}, nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	var jobs []*types.TenantSkillInstallJob
+	err := r.db.WithContext(ctx).
+		Where("status IN ?", statuses).
+		Order("updated_at ASC").
 		Limit(limit).
 		Find(&jobs).Error
 	return jobs, err

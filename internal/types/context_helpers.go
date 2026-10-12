@@ -9,6 +9,15 @@ import (
 type usageBillingBypassContextKey struct{}
 type billingServiceCodeContextKey struct{}
 type billingSourceContextKey struct{}
+type agentDelegationAttributionContextKey struct{}
+
+// AgentDelegationAttribution identifies the member Agent responsible for a
+// model call. It is request-scoped and is copied into usage ledgers.
+type AgentDelegationAttribution struct {
+	RunID           string
+	AgentID         string
+	ParentSessionID string
+}
 
 // EnvLanguage returns the WEKNORA_LANGUAGE environment variable value, or empty string if unset.
 func EnvLanguage() string {
@@ -206,6 +215,24 @@ func BillingSourceFromContext(ctx context.Context, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+func WithAgentDelegationAttribution(
+	ctx context.Context,
+	attribution AgentDelegationAttribution,
+) context.Context {
+	return context.WithValue(ctx, agentDelegationAttributionContextKey{}, attribution)
+}
+
+func AgentDelegationAttributionFromContext(ctx context.Context) (AgentDelegationAttribution, bool) {
+	if ctx == nil {
+		return AgentDelegationAttribution{}, false
+	}
+	value, ok := ctx.Value(agentDelegationAttributionContextKey{}).(AgentDelegationAttribution)
+	if !ok || value.RunID == "" {
+		return AgentDelegationAttribution{}, false
+	}
+	return value, true
 }
 
 // LanguageFromContext extracts the language locale string from ctx (e.g. "zh-CN", "en-US").

@@ -2,9 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -108,6 +113,7 @@ type agentService struct {
 	tenantSkillService         interfaces.TenantSkillService
 	tenantSandboxConfigService interfaces.TenantSandboxConfigService
 	customAgentService         interfaces.CustomAgentService
+	delegationRunService       interfaces.AgentDelegationRunService
 }
 
 // NewAgentService creates a new agent service
@@ -133,6 +139,7 @@ func NewAgentService(
 	tenantSkillService interfaces.TenantSkillService,
 	tenantSandboxConfigService interfaces.TenantSandboxConfigService,
 	customAgentService interfaces.CustomAgentService,
+	delegationRunService interfaces.AgentDelegationRunService,
 ) interfaces.AgentService {
 	return &agentService{
 		cfg:                        cfg,
@@ -156,6 +163,7 @@ func NewAgentService(
 		tenantSkillService:         tenantSkillService,
 		tenantSandboxConfigService: tenantSandboxConfigService,
 		customAgentService:         customAgentService,
+		delegationRunService:       delegationRunService,
 	}
 }
 
@@ -188,7 +196,7 @@ func (s *agentService) CreateAgentEngine(
 	if err := s.registerTools(ctx, toolRegistry, config, rerankModel, chatModel, sessionID); err != nil {
 		return nil, fmt.Errorf("failed to register tools: %w", err)
 	}
-	s.registerDelegationTool(ctx, toolRegistry, config, chatModel, rerankModel, sessionID, assistantMessageID)
+	s.registerDelegationTool(ctx, toolRegistry, config, chatModel, rerankModel, eventBus, sessionID, assistantMessageID)
 	s.registerMCPTools(ctx, toolRegistry, config, eventBus, sessionID, assistantMessageID)
 
 	// 3. Resolve knowledge base and selected document metadata
@@ -257,6 +265,7 @@ func (s *agentService) registerDelegationTool(
 	config *types.AgentConfig,
 	parentChatModel chat.Chat,
 	parentRerankModel rerank.Reranker,
+	parentEventBus *event.EventBus,
 	sessionID, assistantMessageID string,
 ) {
 	if config == nil || !config.OrchestrationEnabled || len(config.MemberAgentIDs) == 0 {
@@ -269,15 +278,57 @@ func (s *agentService) registerDelegationTool(
 	if tenantID == 0 {
 		return
 	}
-	registry.RegisterTool(tools.NewDelegateAgentTool(
+	timeout := time.Duration(config.DelegationTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	registry.RegisterTool(tools.NewDelegateAgentToolWithTimeout(
 		config.MemberAgentIDs,
 		config.MaxParallelMembers,
+		timeout,
 		func(delegateCtx context.Context, agentID, task string) (string, error) {
+			var (
+				delegationRun *types.AgentDelegationRun
+				childState    *types.AgentState
+				runErr        error
+				output        string
+				err           error
+			)
+			if s.delegationRunService != nil {
+				delegationRun, err = s.delegationRunService.Start(delegateCtx, types.AgentDelegationRunStartInput{
+					TenantID:        tenantID,
+					ParentSessionID: sessionID,
+					ParentMessageID: assistantMessageID,
+					MemberAgentID:   agentID,
+					Task:            task,
+				})
+				if err != nil {
+					logger.Warnf(delegateCtx, "failed to create delegated Agent run record: %v", err)
+					delegationRun = nil
+				}
+			}
+			defer func() {
+				if delegationRun == nil || s.delegationRunService == nil {
+					return
+				}
+				if _, finishErr := s.delegationRunService.Finish(
+					context.WithoutCancel(delegateCtx),
+					tenantID,
+					delegationRun.ID,
+					childState,
+					output,
+					runErr,
+				); finishErr != nil {
+					logger.Warnf(delegateCtx, "failed to finalize delegated Agent run %s: %v", delegationRun.ID, finishErr)
+				}
+			}()
+
 			member, err := s.customAgentService.GetAgentByIDAndTenant(delegateCtx, agentID, tenantID)
 			if err != nil || member == nil {
 				if err == nil {
 					err = fmt.Errorf("member agent %q not found", agentID)
 				}
+				runErr = err
 				return "", err
 			}
 			childConfig := deriveDelegatedAgentConfig(config, member)
@@ -285,41 +336,101 @@ func (s *agentService) registerDelegationTool(
 			if member.Config.ModelID != "" {
 				childChatModel, err = s.modelService.GetChatModel(delegateCtx, member.Config.ModelID)
 				if err != nil {
-					return "", fmt.Errorf("load member agent model: %w", err)
+					runErr = fmt.Errorf("load member agent model: %w", err)
+					return "", runErr
 				}
 			}
 			childRerankModel := parentRerankModel
 			if member.Config.RerankModelID != "" {
 				childRerankModel, err = s.modelService.GetRerankModel(delegateCtx, member.Config.RerankModelID)
 				if err != nil {
-					return "", fmt.Errorf("load member agent rerank model: %w", err)
+					runErr = fmt.Errorf("load member agent rerank model: %w", err)
+					return "", runErr
 				}
 			}
 			childCtx := context.WithValue(delegateCtx, agentDelegationDepthKey{}, agentDelegationDepth(delegateCtx)+1)
 			childSessionID := sessionID + "::member:" + agentID
+			if delegationRun != nil {
+				childCtx = types.WithAgentDelegationAttribution(childCtx, types.AgentDelegationAttribution{
+					RunID:           delegationRun.ID,
+					AgentID:         agentID,
+					ParentSessionID: sessionID,
+				})
+			}
+			childEventBus := event.NewEventBus()
+			bridgeDelegatedAgentEvents(childEventBus, parentEventBus, sessionID, childSessionID, agentID)
 			childEngine, err := s.CreateAgentEngine(
 				childCtx,
 				childConfig,
 				childChatModel,
 				childRerankModel,
-				event.NewEventBus(),
+				childEventBus,
 				childSessionID,
 				assistantMessageID,
 			)
 			if err != nil {
-				return "", err
+				runErr = err
+				return "", runErr
 			}
-			state, err := childEngine.Execute(childCtx, childSessionID, assistantMessageID, task, nil)
+			childState, err = childEngine.Execute(childCtx, childSessionID, assistantMessageID, task, nil)
 			if err != nil {
-				return "", err
+				runErr = err
+				return "", runErr
 			}
-			if state == nil || strings.TrimSpace(state.FinalAnswer) == "" {
-				return "", errors.New("member agent returned an empty answer")
+			if childState == nil || strings.TrimSpace(childState.FinalAnswer) == "" {
+				runErr = errors.New("member agent returned an empty answer")
+				return "", runErr
 			}
-			return state.FinalAnswer, nil
+			output = childState.FinalAnswer
+			return output, nil
 		},
 	))
 	logger.Infof(ctx, "Registered delegate_agent for %d member agent(s)", len(config.MemberAgentIDs))
+}
+
+// bridgeDelegatedAgentEvents keeps member execution isolated from the parent
+// completion lifecycle while still exposing useful progress to the parent
+// stream. In particular, member final_answer/complete events must not be
+// forwarded because the parent handler uses them to finalize the assistant
+// message.
+func bridgeDelegatedAgentEvents(
+	childBus, parentBus *event.EventBus,
+	parentSessionID, childSessionID, memberAgentID string,
+) {
+	if childBus == nil || parentBus == nil {
+		return
+	}
+	forwardedTypes := []event.EventType{
+		event.EventAgentThought,
+		event.EventAgentToolCall,
+		event.EventAgentToolResult,
+		event.EventAgentReferences,
+		event.EventAgentReflection,
+		event.EventToolApprovalRequired,
+		event.EventToolApprovalResolved,
+		event.EventMCPOAuthRequired,
+		event.EventMCPOAuthResolved,
+	}
+	for _, eventType := range forwardedTypes {
+		eventType := eventType
+		childBus.On(eventType, func(ctx context.Context, evt event.Event) error {
+			metadata := make(map[string]interface{}, len(evt.Metadata)+3)
+			for key, value := range evt.Metadata {
+				metadata[key] = value
+			}
+			metadata["delegated"] = true
+			metadata["delegated_agent_id"] = memberAgentID
+			metadata["delegated_session_id"] = childSessionID
+			return parentBus.Emit(ctx, event.Event{
+				ID:        evt.ID,
+				Type:      eventType,
+				SessionID: parentSessionID,
+				Data:      evt.Data,
+				Metadata:  metadata,
+				RequestID: evt.RequestID,
+			})
+		})
+	}
 }
 
 func deriveDelegatedAgentConfig(parent *types.AgentConfig, member *types.CustomAgent) *types.AgentConfig {
@@ -327,6 +438,7 @@ func deriveDelegatedAgentConfig(parent *types.AgentConfig, member *types.CustomA
 	child.OrchestrationEnabled = false
 	child.MemberAgentIDs = nil
 	child.MaxParallelMembers = 0
+	child.DelegationTimeoutSeconds = 0
 	child.SystemPrompt = member.Config.SystemPrompt
 	child.UseCustomSystemPrompt = member.Config.SystemPrompt != ""
 	child.AllowedTools = append([]string(nil), member.Config.AllowedTools...)
@@ -359,7 +471,84 @@ func deriveDelegatedAgentConfig(parent *types.AgentConfig, member *types.CustomA
 	}
 	child.SkillsEnabled = member.Config.SkillsSelectionMode != "none" && parent.SkillsEnabled
 	child.AllowedSkills = append([]string(nil), member.Config.SelectedSkills...)
+	child.SkillSnapshots = append([]types.CustomAgentSkillSnapshot(nil), member.Config.SkillSnapshots...)
+	switch member.Config.KBSelectionMode {
+	case "none":
+		child.KnowledgeBases = nil
+		child.KnowledgeIDs = nil
+		child.SearchTargets = nil
+	case "selected":
+		child.KnowledgeBases = append([]string(nil), member.Config.KnowledgeBases...)
+		child.KnowledgeIDs = nil
+		child.SearchTargets = filterDelegatedSearchTargets(parent.SearchTargets, child.KnowledgeBases, nil)
+	case "all":
+		child.KnowledgeBases = nil
+		child.KnowledgeIDs = nil
+		child.SearchTargets = cloneSearchTargets(parent.SearchTargets)
+	default:
+		child.SearchTargets = cloneSearchTargets(parent.SearchTargets)
+	}
 	return &child
+}
+
+func cloneSearchTargets(targets types.SearchTargets) types.SearchTargets {
+	if len(targets) == 0 {
+		return nil
+	}
+	cloned := make(types.SearchTargets, 0, len(targets))
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		copyTarget := *target
+		copyTarget.KnowledgeIDs = append([]string(nil), target.KnowledgeIDs...)
+		copyTarget.TagIDs = append([]string(nil), target.TagIDs...)
+		copyTarget.ScopeTagIDs = append([]string(nil), target.ScopeTagIDs...)
+		cloned = append(cloned, &copyTarget)
+	}
+	return cloned
+}
+
+func filterDelegatedSearchTargets(
+	targets types.SearchTargets,
+	knowledgeBaseIDs, knowledgeIDs []string,
+) types.SearchTargets {
+	allowedKBs := make(map[string]struct{}, len(knowledgeBaseIDs))
+	for _, id := range knowledgeBaseIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			allowedKBs[id] = struct{}{}
+		}
+	}
+	allowedDocs := make(map[string]struct{}, len(knowledgeIDs))
+	for _, id := range knowledgeIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			allowedDocs[id] = struct{}{}
+		}
+	}
+	filtered := make(types.SearchTargets, 0, len(targets))
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		if _, ok := allowedKBs[target.KnowledgeBaseID]; !ok {
+			continue
+		}
+		copyTarget := cloneSearchTargets(types.SearchTargets{target})[0]
+		if len(allowedDocs) > 0 && len(copyTarget.KnowledgeIDs) > 0 {
+			ids := copyTarget.KnowledgeIDs[:0]
+			for _, id := range copyTarget.KnowledgeIDs {
+				if _, ok := allowedDocs[id]; ok {
+					ids = append(ids, id)
+				}
+			}
+			copyTarget.KnowledgeIDs = ids
+			if copyTarget.Type == types.SearchTargetTypeKnowledge && len(ids) == 0 {
+				continue
+			}
+		}
+		filtered = append(filtered, copyTarget)
+	}
+	return filtered
 }
 
 // registerMCPTools registers MCP tools from enabled services for this tenant.
@@ -519,6 +708,13 @@ func (s *agentService) initializeSkillsManager(
 	logger.Infof(ctx, "Sandbox configured: mode=%s, timeout=%ds, image=%s", sandboxMode, sandboxTimeout, dockerImage)
 
 	skillDirs := append([]string(nil), config.SkillDirs...)
+	if snapshotDir, snapshotErr := materializeAgentSkillSnapshots(config.SkillSnapshots); snapshotErr != nil {
+		logger.Warnf(ctx, "Failed to materialize embedded Agent Skills: %v", snapshotErr)
+	} else if snapshotDir != "" {
+		// Append embedded expert files after normal directories so a published
+		// package pins its own Skill version when names overlap.
+		skillDirs = append(skillDirs, snapshotDir)
+	}
 	skillEnvs := make(map[string]map[string]string)
 	if s.tenantSkillService != nil {
 		if tenantID, ok := types.TenantIDFromContext(ctx); ok {
@@ -528,19 +724,14 @@ func (s *agentService) initializeSkillsManager(
 			} else {
 				skillDirs = append(skillDirs, tenantDirs...)
 			}
-			if tenantSkills, tenantErr := s.tenantSkillService.ListTenantSkills(ctx, tenantID); tenantErr == nil {
-				for _, skill := range tenantSkills {
+			if runtimeSkills, runtimeErr := s.tenantSkillService.ListRuntimeTenantSkills(ctx, tenantID); runtimeErr == nil {
+				for _, skill := range runtimeSkills {
 					if skill != nil && skill.Enabled && skill.Status == types.TenantSkillStatusReady {
 						skillEnvs[skill.Name] = map[string]string(skill.EnvVars)
 					}
 				}
-			}
-			if globalSkills, globalErr := s.tenantSkillService.ListGlobalSkills(ctx); globalErr == nil {
-				for _, skill := range globalSkills {
-					if skill != nil && skill.Enabled && skill.Status == types.TenantSkillStatusReady {
-						skillEnvs[skill.Name] = map[string]string(skill.EnvVars)
-					}
-				}
+			} else {
+				logger.Warnf(ctx, "Failed to resolve runtime tenant skills: %v", runtimeErr)
 			}
 		}
 	}
@@ -576,6 +767,75 @@ func (s *agentService) initializeSkillsManager(
 	}
 
 	return skillsManager, nil
+}
+
+func materializeAgentSkillSnapshots(snapshots []types.CustomAgentSkillSnapshot) (string, error) {
+	if len(snapshots) == 0 {
+		return "", nil
+	}
+
+	snapshots = append([]types.CustomAgentSkillSnapshot(nil), snapshots...)
+	sort.Slice(snapshots, func(i, j int) bool {
+		if snapshots[i].Name != snapshots[j].Name {
+			return snapshots[i].Name < snapshots[j].Name
+		}
+		return snapshots[i].Path < snapshots[j].Path
+	})
+
+	hasher := sha256.New()
+	for _, snapshot := range snapshots {
+		_, _ = fmt.Fprintf(hasher, "%s\x00%s\x00%s\x00", snapshot.Name, snapshot.Path, snapshot.Content)
+	}
+	rootHash := fmt.Sprintf("%x", hasher.Sum(nil))
+	root := filepath.Join(os.TempDir(), "weknora-agent-skill-snapshots", rootHash)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", fmt.Errorf("create embedded Skill directory: %w", err)
+	}
+
+	written := 0
+	for _, snapshot := range snapshots {
+		name := strings.TrimSpace(snapshot.Name)
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+			return "", fmt.Errorf("invalid embedded Skill name %q", snapshot.Name)
+		}
+		if strings.TrimSpace(snapshot.Content) == "" {
+			continue
+		}
+
+		relativePath := embeddedSkillRelativePath(name, snapshot.Path)
+		if relativePath == "" {
+			relativePath = skills.SkillFileName
+		}
+		cleanPath := path.Clean(filepath.ToSlash(relativePath))
+		if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") || strings.HasPrefix(cleanPath, "/") {
+			return "", fmt.Errorf("invalid embedded Skill file path %q", snapshot.Path)
+		}
+
+		filePath := filepath.Join(root, name, filepath.FromSlash(cleanPath))
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+			return "", fmt.Errorf("create embedded Skill file directory: %w", err)
+		}
+		if err := os.WriteFile(filePath, []byte(snapshot.Content), 0o644); err != nil {
+			return "", fmt.Errorf("write embedded Skill file %q: %w", snapshot.Path, err)
+		}
+		written++
+	}
+	if written == 0 {
+		return "", nil
+	}
+	return root, nil
+}
+
+func embeddedSkillRelativePath(skillName, snapshotPath string) string {
+	cleanPath := path.Clean(filepath.ToSlash(strings.TrimSpace(snapshotPath)))
+	prefix := "skills/" + skillName + "/"
+	if strings.HasPrefix(cleanPath, prefix) {
+		return strings.TrimPrefix(cleanPath, prefix)
+	}
+	if cleanPath == "skills/"+skillName {
+		return skills.SkillFileName
+	}
+	return filepath.Base(cleanPath)
 }
 
 func newTenantSandboxManager(

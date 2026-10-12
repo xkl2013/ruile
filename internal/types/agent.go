@@ -53,6 +53,8 @@ type AgentConfig struct {
 	SkillsEnabled bool     `json:"skills_enabled"` // Whether skills are enabled (default: false)
 	SkillDirs     []string `json:"skill_dirs"`     // Directories to search for skills
 	AllowedSkills []string `json:"allowed_skills"` // Skill names whitelist (empty = allow all)
+	// SkillSnapshots are runtime-only files embedded in an imported expert.
+	SkillSnapshots []CustomAgentSkillSnapshot `json:"-"`
 
 	// Runtime-only fields (not persisted)
 	VLMModelID string `json:"-"` // VLM model ID for tool result image analysis (set from CustomAgent config)
@@ -88,6 +90,9 @@ type AgentConfig struct {
 	MemberAgentIDs []string `json:"member_agent_ids,omitempty"`
 	// MaxParallelMembers caps one delegate_agent call. Zero uses the runtime default.
 	MaxParallelMembers int `json:"max_parallel_members,omitempty"`
+	// DelegationTimeoutSeconds bounds each delegated member execution. Zero uses
+	// the runtime default and keeps the parent request context as the ceiling.
+	DelegationTimeoutSeconds int `json:"delegation_timeout_seconds,omitempty"`
 
 	// BusinessInstructions are appended after the system-owned prompt sections.
 	// This is runtime-only so service-space and future expert instructions never

@@ -16,6 +16,7 @@ export interface GlobalSkill {
 
 export interface SkillInstallJob {
   id: string
+  task_id?: string
   source_type: string
   source_ref: string
   skill_id?: string

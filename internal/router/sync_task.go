@@ -178,6 +178,8 @@ type SyncTaskParams struct {
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	OrganizeService      interfaces.OrganizeService
 	AgentRunService      interfaces.AgentRunService
+	TenantSkillService   interfaces.TenantSkillService
+	TenantSkillInstall   interfaces.TaskHandler `name:"tenantSkillInstall"`
 }
 
 // RegisterSyncHandlers registers all task handlers on the SyncTaskExecutor.
@@ -205,5 +207,9 @@ func RegisterSyncHandlers(params SyncTaskParams) {
 	params.Executor.RegisterHandler(types.TypeWikiIngest, params.WikiIngest.Handle)
 	params.Executor.RegisterHandler(types.TypeWikiFinalize, params.WikiIngest.Handle)
 	params.Executor.RegisterHandler(types.TypeAgentRunExecute, params.AgentRunService.ProcessAgentRun)
+	params.Executor.RegisterHandler(types.TypeTenantSkillInstall, params.TenantSkillInstall.Handle)
+	if err := params.TenantSkillService.RecoverPendingTenantSkillInstalls(context.Background()); err != nil {
+		logger.Warnf(context.Background(), "[SyncTask] failed to recover pending tenant skill installs: %v", err)
+	}
 	logger.Infof(context.Background(), "[SyncTask] All task handlers registered (Lite mode, no Redis)")
 }

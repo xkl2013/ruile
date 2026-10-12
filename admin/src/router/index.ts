@@ -184,7 +184,7 @@ const moduleRoutes: RouteRecordRaw[] = [
     meta: {
       navKey: 'agents',
       title: '智能体',
-      description: '统一维护平台内置智能体；各工作区自动继承配置。',
+      description: '统一维护平台级智能体；各工作区自动继承配置。',
       requiresSystemAdmin: true,
     },
   },
@@ -209,6 +209,18 @@ const moduleRoutes: RouteRecordRaw[] = [
       description: '管理所有工作空间和用户可使用的自定义 Skill。',
       requiresSystemAdmin: true,
       requiresTenant: false,
+    },
+  },
+  {
+    path: 'agent-runtime',
+    name: 'adminAgentRuntime',
+    component: () => import('@admin/views/AdminAgentRuntime.vue'),
+    meta: {
+      navKey: 'agent-runtime',
+      title: 'Agent 运行时',
+      description: '管理当前工作区的 Sandbox 策略和 Skill 快照。',
+      minRole: 'admin',
+      requiresTenant: true,
     },
   },
   {

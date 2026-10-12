@@ -27,6 +27,7 @@ export interface TenantSkill {
 
 export interface SkillInstallJob {
   id: string;
+  task_id?: string;
   source_type: string;
   source_ref: string;
   skill_id?: string;
@@ -38,6 +39,87 @@ export interface SkillInstallJob {
   finished_at?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface TenantSandboxConfig {
+  id: string;
+  name: string;
+  mode: 'docker' | 'local' | 'disabled' | string;
+  enabled: boolean;
+  active: boolean;
+  fallback_enabled: boolean;
+  timeout_seconds: number;
+  docker_image?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface TenantSandboxCheck {
+  config_id: string;
+  mode: string;
+  available: boolean;
+  effective_mode: string;
+  message?: string;
+}
+
+export interface TenantSkillSnapshot {
+  id: string;
+  generation: number;
+  parent_snapshot_id?: string;
+  state: string;
+  manifest_sha256: string;
+  manifest?: Record<string, unknown>;
+  created_at?: string;
+  activated_at?: string;
+  superseded_at?: string;
+}
+
+export function listTenantSandboxConfigs() {
+  return get<{ data: TenantSandboxConfig[] }>('/api/v1/sandbox/configs');
+}
+
+export function createTenantSandboxConfig(input: Partial<TenantSandboxConfig>) {
+  return post<{ data: TenantSandboxConfig }>('/api/v1/sandbox/configs', input);
+}
+
+export function updateTenantSandboxConfig(id: string, input: Partial<TenantSandboxConfig>) {
+  return put<{ data: TenantSandboxConfig }>(`/api/v1/sandbox/configs/${encodeURIComponent(id)}`, input);
+}
+
+export function activateTenantSandboxConfig(id: string) {
+  return post<{ data: TenantSandboxConfig }>(`/api/v1/sandbox/configs/${encodeURIComponent(id)}/activate`, {});
+}
+
+export function deactivateTenantSandboxConfig(id: string) {
+  return post<{ data: TenantSandboxConfig }>(`/api/v1/sandbox/configs/${encodeURIComponent(id)}/deactivate`, {});
+}
+
+export function checkTenantSandboxConfig(id: string) {
+  return post<{ data: TenantSandboxCheck }>(`/api/v1/sandbox/configs/${encodeURIComponent(id)}/check`, {});
+}
+
+export function deleteTenantSandboxConfig(id: string) {
+  return del<void>(`/api/v1/sandbox/configs/${encodeURIComponent(id)}`);
+}
+
+export function listTenantSkillSnapshots() {
+  return get<{ data: TenantSkillSnapshot[] }>('/api/v1/skills/snapshots');
+}
+
+export function createTenantSkillSnapshot() {
+  return post<{ data: TenantSkillSnapshot }>('/api/v1/skills/snapshots', {});
+}
+
+export function activateTenantSkillSnapshot(id: string) {
+  return post<{ data: TenantSkillSnapshot }>(`/api/v1/skills/snapshots/${encodeURIComponent(id)}/activate`, {});
+}
+
+export function rollbackTenantSkillSnapshot(id: string) {
+  return post<{ data: TenantSkillSnapshot }>(`/api/v1/skills/snapshots/${encodeURIComponent(id)}/rollback`, {});
+}
+
+export function verifyTenantSkillSnapshot(id: string) {
+  return get<{ data: { valid: boolean } }>(`/api/v1/skills/snapshots/${encodeURIComponent(id)}/verify`);
 }
 
 export function listTenantSkills() {

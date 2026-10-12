@@ -47,6 +47,8 @@ type AsynqTaskParams struct {
 	TemporaryDocument    interfaces.TemporaryDocumentService
 	OrganizeService      interfaces.OrganizeService
 	AgentRunService      interfaces.AgentRunService
+	TenantSkillService   interfaces.TenantSkillService
+	TenantSkillInstall   interfaces.TaskHandler `name:"tenantSkillInstall"`
 	DeadLetterRepo       interfaces.TaskDeadLetterRepository
 	SpanTracker          service.SpanTracker
 }
@@ -328,6 +330,11 @@ func RunAsynqServer(params AsynqTaskParams) *asynq.ServeMux {
 	// Agent runs resolve their durable record before dispatching to a domain
 	// service, so retries and result state survive worker restarts.
 	mux.HandleFunc(types.TypeAgentRunExecute, params.AgentRunService.ProcessAgentRun)
+	mux.HandleFunc(types.TypeTenantSkillInstall, params.TenantSkillInstall.Handle)
+
+	if err := params.TenantSkillService.RecoverPendingTenantSkillInstalls(context.Background()); err != nil {
+		logger.Warnf(context.Background(), "failed to recover pending tenant skill installs: %v", err)
+	}
 
 	// Run the same mux on every pool. Shared and dedicated servers intentionally
 	// overlap, but Redis dequeue is atomic, so each task still executes once.

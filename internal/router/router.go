@@ -91,6 +91,7 @@ type RouterParams struct {
 	OrganizeHandler              *handler.OrganizeHandler
 	OrganizeAdminHandler         *handler.OrganizeAdminHandler
 	AgentRunHandler              *handler.AgentRunHandler
+	AgentDelegationRunHandler    *handler.AgentDelegationRunHandler
 	ServiceSpaceHandler          *handler.ServiceSpaceHandler
 	SkillHandler                 *handler.SkillHandler
 	SkillSnapshotHandler         *handler.SkillSnapshotHandler
@@ -285,6 +286,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterUserFavoriteRoutes(v1, params.UserFavoriteHandler, rbacGuards)
 		RegisterOrganizeRoutes(v1, params.OrganizeHandler, rbacGuards)
 		RegisterAgentRunRoutes(v1, params.AgentRunHandler, rbacGuards)
+		RegisterAgentDelegationRunRoutes(v1, params.AgentDelegationRunHandler, rbacGuards)
 		RegisterServiceSpaceRoutes(v1, params.ServiceSpaceHandler, rbacGuards)
 		RegisterSkillRoutes(v1, params.SkillHandler, rbacGuards)
 		RegisterSkillSnapshotRoutes(v1, params.SkillSnapshotHandler, rbacGuards)
@@ -316,6 +318,9 @@ func RegisterSandboxConfigRoutes(r *gin.RouterGroup, sandboxHandler *handler.San
 		configs.POST("", g.Admin(), sandboxHandler.Create)
 		configs.PUT("/:id", g.Admin(), sandboxHandler.Update)
 		configs.POST("/:id/activate", g.Admin(), sandboxHandler.Activate)
+		configs.POST("/:id/deactivate", g.Admin(), sandboxHandler.Deactivate)
+		configs.POST("/:id/check", g.Admin(), sandboxHandler.Check)
+		configs.DELETE("/:id", g.Admin(), sandboxHandler.Delete)
 	}
 }
 
@@ -1435,8 +1440,9 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 		agentsRead.GET("/placeholders", g.Viewer(), agentHandler.GetPlaceholders)
 		// List smart-reasoning agent type presets (rag-qa / wiki-qa / hybrid / custom) — Viewer+
 		agentsRead.GET("/type-presets", g.Viewer(), agentHandler.GetAgentTypePresets)
-		// Create custom agent — Admin+
-		agentsWrite.POST("", g.Admin(), agentHandler.CreateAgent)
+		// Create custom agent — Admin+; SystemAdmin may create a
+		// platform-managed agent visible in every workspace.
+		agentsWrite.POST("", g.AdminOrSystemAdmin(), agentHandler.CreateAgent)
 		// List all agents (including built-in) — Viewer+
 		agentsRead.GET("", g.Viewer(), agentHandler.ListAgents)
 		// Get agent by ID — Viewer+
@@ -1444,8 +1450,9 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 		// Update custom agent — Admin+; update platform built-in — SystemAdmin.
 		// The handler distinguishes the resource type after route binding.
 		agentsWrite.PUT("/:id", g.AdminOrSystemAdmin(), agentHandler.UpdateAgent)
-		// Delete agent — Admin+
-		agentsWrite.DELETE("/:id", g.Admin(), agentHandler.DeleteAgent)
+		// Delete agent — Admin+; SystemAdmin may delete platform-managed
+		// agents stored in the global tenant.
+		agentsWrite.DELETE("/:id", g.AdminOrSystemAdmin(), agentHandler.DeleteAgent)
 		// Copy agent — Admin+
 		agentsWrite.POST("/:id/copy", g.Admin(), agentHandler.CopyAgent)
 	}
@@ -1470,12 +1477,13 @@ func RegisterExpertPackageRoutes(r *gin.RouterGroup, h *handler.ExpertPackageHan
 	}
 	packages := g.apiKeyGroup(r.Group("/admin/expert-packages"), apiKeyManageAgents(apiKeyFullAccess()))
 	{
-		packages.POST("/import", g.Admin(), h.ImportArchive)
-		packages.POST("/import-json", g.Admin(), h.Import)
-		packages.GET("", g.Admin(), h.List)
-		packages.GET("/:id", g.Admin(), h.Get)
-		packages.POST("/:id/versions/:version_id/publish", g.Admin(), h.Publish)
-		packages.POST("/:id/definitions/:definition_id/test-runs", g.Admin(), h.TestRun)
+		packages.POST("/import", g.AdminOrSystemAdmin(), h.ImportArchive)
+		packages.POST("/import-json", g.AdminOrSystemAdmin(), h.Import)
+		packages.POST("/sync-agents", g.AdminOrSystemAdmin(), h.SyncAgents)
+		packages.GET("", g.AdminOrSystemAdmin(), h.List)
+		packages.GET("/:id", g.AdminOrSystemAdmin(), h.Get)
+		packages.POST("/:id/versions/:version_id/publish", g.AdminOrSystemAdmin(), h.Publish)
+		packages.POST("/:id/definitions/:definition_id/test-runs", g.AdminOrSystemAdmin(), h.TestRun)
 	}
 }
 
@@ -1496,6 +1504,23 @@ func RegisterAgentRunRoutes(r *gin.RouterGroup, h *handler.AgentRunHandler, g *r
 		runs.POST("/:id/cancel", g.Viewer(), h.Cancel)
 		runs.GET("/:id/artifacts/:artifact_id/preview", g.Viewer(), h.PreviewArtifact)
 		runs.GET("/:id/artifacts/:artifact_id/download", g.Viewer(), h.DownloadArtifact)
+	}
+}
+
+// RegisterAgentDelegationRunRoutes exposes member Agent execution records and
+// their aggregated Token/cost attribution within the current workspace.
+func RegisterAgentDelegationRunRoutes(
+	r *gin.RouterGroup,
+	h *handler.AgentDelegationRunHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	runs := g.apiKeyGroup(r.Group("/agent/delegation-runs"), apiKeyChat(apiKeyFullAccess()))
+	{
+		runs.GET("", g.Viewer(), h.List)
+		runs.GET("/:id", g.Viewer(), h.Get)
 	}
 }
 

@@ -106,6 +106,12 @@ func (s *tenantSandboxConfigService) Update(
 	if err := s.repo.Update(ctx, stored); err != nil {
 		return nil, fmt.Errorf("update tenant sandbox config: %w", err)
 	}
+	if stored.Active && !stored.Enabled {
+		if err := s.repo.SetInactive(ctx, tenantID, stored.ID); err != nil {
+			return nil, fmt.Errorf("deactivate disabled tenant sandbox config: %w", err)
+		}
+		stored.Active = false
+	}
 	return stored, nil
 }
 
@@ -129,6 +135,85 @@ func (s *tenantSandboxConfigService) Activate(
 	}
 	config.Active = true
 	return config, nil
+}
+
+func (s *tenantSandboxConfigService) Deactivate(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (*types.TenantSandboxConfig, error) {
+	config, err := s.Get(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.SetInactive(ctx, tenantID, id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrTenantSandboxConfigNotFound
+		}
+		return nil, fmt.Errorf("deactivate tenant sandbox config: %w", err)
+	}
+	config.Active = false
+	return config, nil
+}
+
+func (s *tenantSandboxConfigService) Delete(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) error {
+	config, err := s.Get(ctx, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if config.Active {
+		return types.ErrTenantSandboxConfigActive
+	}
+	if err := s.repo.Delete(ctx, tenantID, id); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrTenantSandboxConfigNotFound
+		}
+		return fmt.Errorf("delete tenant sandbox config: %w", err)
+	}
+	return nil
+}
+
+func (s *tenantSandboxConfigService) Check(
+	ctx context.Context,
+	tenantID uint64,
+	id string,
+) (*types.TenantSandboxCheck, error) {
+	config, err := s.Get(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if !config.Enabled {
+		return &types.TenantSandboxCheck{
+			ConfigID:      config.ID,
+			Mode:          config.Mode,
+			Available:     false,
+			EffectiveMode: types.TenantSandboxModeDisabled,
+			Message:       "sandbox config is disabled",
+		}, nil
+	}
+	manager, err := sandbox.NewManagerFromType(config.Mode, config.FallbackEnabled, config.DockerImage)
+	if err != nil {
+		return nil, fmt.Errorf("initialize sandbox manager: %w", err)
+	}
+	defer manager.Cleanup(ctx)
+	active := manager.GetSandbox()
+	available := active != nil && active.IsAvailable(ctx)
+	effectiveMode := string(manager.GetType())
+	message := ""
+	if !available {
+		message = "sandbox backend is unavailable"
+	}
+	return &types.TenantSandboxCheck{
+		ConfigID:      config.ID,
+		Mode:          config.Mode,
+		Available:     available,
+		EffectiveMode: effectiveMode,
+		Message:       message,
+	}, nil
 }
 
 func (s *tenantSandboxConfigService) Resolve(

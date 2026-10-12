@@ -125,6 +125,7 @@ type tenantSkillInstallJobResponse struct {
 	SourceType      string `json:"source_type"`
 	SourceRef       string `json:"source_ref"`
 	SkillID         string `json:"skill_id"`
+	TaskID          string `json:"task_id,omitempty"`
 	Status          string `json:"status"`
 	Error           string `json:"error"`
 	Attempt         int    `json:"attempt"`
@@ -141,6 +142,7 @@ func toTenantSkillInstallJobResponse(job *types.TenantSkillInstallJob) tenantSki
 		SourceType:      job.SourceType,
 		SourceRef:       job.SourceRef,
 		SkillID:         job.SkillID,
+		TaskID:          job.TaskID,
 		Status:          job.Status,
 		Error:           job.Error,
 		Attempt:         job.Attempt,

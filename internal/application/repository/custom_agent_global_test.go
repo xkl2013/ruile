@@ -40,6 +40,12 @@ func TestCustomAgentRepositoryListsGlobalBuiltinForEveryWorkspace(t *testing.T) 
 			TenantID: 10003,
 		},
 		{
+			ID:        "platform-agent",
+			Name:      "Platform Agent",
+			IsBuiltin: true,
+			TenantID:  types.SystemAgentTenantID,
+		},
+		{
 			ID:       "other-agent",
 			Name:     "Other Agent",
 			TenantID: 10004,
@@ -51,7 +57,7 @@ func TestCustomAgentRepositoryListsGlobalBuiltinForEveryWorkspace(t *testing.T) 
 
 	got, err := repo.ListAgentsByTenantID(ctx, 10003)
 	require.NoError(t, err)
-	require.Len(t, got, 2)
+	require.Len(t, got, 3)
 
 	byID := make(map[string]*types.CustomAgent, len(got))
 	for _, agent := range got {
@@ -60,6 +66,7 @@ func TestCustomAgentRepositoryListsGlobalBuiltinForEveryWorkspace(t *testing.T) 
 	require.Equal(t, "Global Quick Answer", byID[types.BuiltinQuickAnswerID].Name)
 	require.Equal(t, types.SystemAgentTenantID, byID[types.BuiltinQuickAnswerID].TenantID)
 	require.Equal(t, uint64(10003), byID["workspace-agent"].TenantID)
+	require.Equal(t, types.SystemAgentTenantID, byID["platform-agent"].TenantID)
 	require.NotContains(t, byID, "other-agent")
 }
 

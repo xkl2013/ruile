@@ -84,6 +84,7 @@ var queueDefinitions = []QueueDefinition{
 	{Name: QueueMaintenance, Pool: WorkerPoolMaintenance, Weight: 1, TaskTypes: []string{
 		TypeFAQImport, TypeKBClone, TypeIndexDelete, TypeKBDelete,
 		TypeKnowledgeListDelete, TypeKnowledgeListReparse, TypeKnowledgeMove,
+		TypeTenantSkillInstall,
 	}},
 	{Name: QueueWiki, Pool: WorkerPoolWiki, Weight: 1, TaskTypes: []string{TypeWikiIngest, TypeWikiFinalize}},
 	{Name: QueueAgent, Pool: WorkerPoolAgent, Weight: 1, TaskTypes: []string{
@@ -261,6 +262,7 @@ const (
 	TypeOrganizeMemoryTranscribe = "organize_memory:transcribe" // 录音记忆异步转写任务
 	TypeOrganizeJobRun           = "organize_job:run"           // 整理工作台任务
 	TypeAgentRunExecute          = "agent_run:execute"          // Agent 执行队列任务
+	TypeTenantSkillInstall       = "tenant_skill:install"       // Skill 来源安装任务
 )
 
 // AgentRunTaskPayload identifies a durable agent run. TenantID is duplicated
@@ -268,6 +270,12 @@ const (
 type AgentRunTaskPayload struct {
 	TenantID uint64 `json:"tenant_id"`
 	RunID    string `json:"run_id"`
+}
+
+// TenantSkillInstallTaskPayload identifies a durable Skill source installation.
+type TenantSkillInstallTaskPayload struct {
+	TenantID uint64 `json:"tenant_id"`
+	JobID    string `json:"job_id"`
 }
 
 // ExtractChunkPayload represents the extract chunk task payload

@@ -21,6 +21,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/Tencent/WeKnora/internal/utils"
+	"github.com/hibiken/asynq"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -390,6 +391,48 @@ func TestTenantSkillSourceInstallJobCanBeCancelled(t *testing.T) {
 	require.Equal(t, types.TenantSkillInstallStatusCancelled, final.Status)
 }
 
+func TestTenantSkillSourceInstallUsesDurableTaskWhenConfigured(t *testing.T) {
+	withTenantSkillSourceTestSSRFWhitelist(t)
+	archive := buildSkillArchive(t, map[string]string{
+		"durable-demo/SKILL.md": "---\nname: durable-demo\ndescription: Durable demo\n---\n\nRun it.",
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write(archive)
+	}))
+	defer server.Close()
+
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.TenantSkill{}, &types.TenantSkillInstallJob{}))
+	repo := repository.NewTenantSkillRepository(db)
+	queue := &capturingTenantSkillTaskEnqueuer{}
+	svc := NewTenantSkillServiceWithTasks(
+		repo,
+		newTenantSkillFileStub(),
+		queue,
+		nil,
+		nil,
+	).(*tenantSkillService)
+
+	job, err := svc.StartTenantSkillSourceInstall(
+		context.Background(),
+		42,
+		"admin-1",
+		server.URL+"/durable.zip",
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, job.TaskID)
+	require.Len(t, queue.tasks, 1)
+	require.Equal(t, types.TypeTenantSkillInstall, queue.tasks[0].Type())
+
+	require.NoError(t, svc.Handle(context.Background(), queue.tasks[0]))
+	final, err := repo.GetInstallJob(context.Background(), 42, job.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.TenantSkillInstallStatusSucceeded, final.Status)
+	require.NotEmpty(t, final.SkillID)
+}
+
 func TestStoreTenantSkillArchiveUpgradesSameNameWithoutLosingState(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
@@ -437,7 +480,7 @@ func TestStoreTenantSkillArchiveUpgradesSameNameWithoutLosingState(t *testing.T)
 	require.Equal(t, "https://github.com/acme/demo/archive/refs/heads/main.zip", second.SourceRef)
 	require.False(t, second.Enabled)
 	require.NotEqual(t, first.BundlePath, second.BundlePath)
-	require.Contains(t, files.deleted, first.BundlePath)
+	require.NotContains(t, files.deleted, first.BundlePath)
 
 	stored, err := repo.GetByID(context.Background(), 42, first.ID)
 	require.NoError(t, err)
@@ -449,6 +492,15 @@ type tenantSkillFileStub struct {
 	files   map[string][]byte
 	counter int
 	deleted []string
+}
+
+type capturingTenantSkillTaskEnqueuer struct {
+	tasks []*asynq.Task
+}
+
+func (e *capturingTenantSkillTaskEnqueuer) Enqueue(task *asynq.Task, _ ...asynq.Option) (*asynq.TaskInfo, error) {
+	e.tasks = append(e.tasks, task)
+	return &asynq.TaskInfo{ID: "captured-task", Type: task.Type()}, nil
 }
 
 func withTenantSkillSourceTestSSRFWhitelist(t *testing.T) {

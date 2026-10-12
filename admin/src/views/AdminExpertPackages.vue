@@ -520,6 +520,7 @@ import {
   importExpertPackageArchive,
   listExpertPackages,
   publishExpertPackageVersion,
+  syncPublishedExpertAgents,
   testExpertPackageAgent,
   type AgentDefinitionVersion,
   type ExpertPackage,
@@ -711,6 +712,9 @@ async function loadPackages() {
     if (!selectedPackageId.value || !packages.value.some((pkg) => pkg.id === selectedPackageId.value)) {
       selectedPackageId.value = packages.value[0]?.id || ''
     }
+    // Reconcile already-published WorkBuddy experts created before platform
+    // scope existed. The endpoint is idempotent and also handles new publishes.
+    await syncPublishedExpertAgents()
   } catch (error: any) {
     console.warn('[AdminExpertPackages] Failed to load expert packages:', error)
     errorMessage.value = error?.message || '专家包读取失败'

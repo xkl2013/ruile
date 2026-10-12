@@ -470,11 +470,13 @@ func TestModelPriceVersionsAndUsageSettlementAreIdempotent(t *testing.T) {
 	}
 	handle := &types.BillingUsageHandle{
 		Request: types.BillingUsageStartRequest{
-			TenantID:    tenant.ID,
-			ActorUserID: "user-88",
-			RefNo:       "chat:88:message-1:test-model",
-			ModelID:     "model-88",
-			ModelKey:    "test-model",
+			TenantID:        tenant.ID,
+			ActorUserID:     "user-88",
+			DelegationRunID: "delegation-run-88",
+			AgentID:         "member-agent-88",
+			RefNo:           "chat:88:message-1:test-model",
+			ModelID:         "model-88",
+			ModelKey:        "test-model",
 		},
 		Mode:         "enforce",
 		UsageScope:   "personal_usage",
@@ -502,6 +504,8 @@ func TestModelPriceVersionsAndUsageSettlementAreIdempotent(t *testing.T) {
 		ID:                  "ledger-88",
 		TenantID:            tenant.ID,
 		ActorUserID:         "user-88",
+		DelegationRunID:     "delegation-run-88",
+		AgentID:             "member-agent-88",
 		UsageScope:          "personal_usage",
 		RefNo:               handle.Request.RefNo,
 		ModelID:             handle.Request.ModelID,
@@ -526,6 +530,21 @@ func TestModelPriceVersionsAndUsageSettlementAreIdempotent(t *testing.T) {
 		first.PeriodCoveredPointMicros != 10*types.PointMicrosPerPoint ||
 		first.BalanceChargedPointMicros != 5*types.PointMicrosPerPoint {
 		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+	if first.DelegationRunID != "delegation-run-88" || first.AgentID != "member-agent-88" {
+		t.Fatalf("ledger attribution=%+v", first)
+	}
+	ledgers, err := repo.ListUsageLedgersByDelegationRun(
+		context.Background(),
+		tenant.ID,
+		"delegation-run-88",
+		10,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ledgers) != 1 || ledgers[0].ID != ledger.ID || ledgers[0].AgentID != "member-agent-88" {
+		t.Fatalf("delegation ledgers=%+v", ledgers)
 	}
 	account, err := repo.GetCreditAccount(context.Background(), tenant.ID)
 	if err != nil {

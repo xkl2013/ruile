@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/utils"
@@ -32,12 +33,22 @@ type DelegateAgentTool struct {
 	BaseTool
 	allowedIDs  map[string]struct{}
 	maxParallel int
+	taskTimeout time.Duration
 	run         DelegateAgentRunner
 }
 
 func NewDelegateAgentTool(
 	allowedIDs []string,
 	maxParallel int,
+	run DelegateAgentRunner,
+) *DelegateAgentTool {
+	return NewDelegateAgentToolWithTimeout(allowedIDs, maxParallel, 0, run)
+}
+
+func NewDelegateAgentToolWithTimeout(
+	allowedIDs []string,
+	maxParallel int,
+	taskTimeout time.Duration,
 	run DelegateAgentRunner,
 ) *DelegateAgentTool {
 	if maxParallel <= 0 {
@@ -60,6 +71,7 @@ func NewDelegateAgentTool(
 		),
 		allowedIDs:  allowed,
 		maxParallel: maxParallel,
+		taskTimeout: taskTimeout,
 		run:         run,
 	}
 }
@@ -103,7 +115,13 @@ func (t *DelegateAgentTool) Execute(ctx context.Context, args json.RawMessage) (
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			output, err := t.run(ctx, item.AgentID, item.Task)
+			runCtx := ctx
+			cancel := func() {}
+			if t.taskTimeout > 0 {
+				runCtx, cancel = context.WithTimeout(ctx, t.taskTimeout)
+			}
+			defer cancel()
+			output, err := t.run(runCtx, item.AgentID, item.Task)
 			result := map[string]any{"agent_id": item.AgentID, "success": err == nil, "output": output}
 			if err != nil {
 				result["error"] = err.Error()

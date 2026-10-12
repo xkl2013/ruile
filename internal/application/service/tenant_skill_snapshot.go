@@ -68,7 +68,12 @@ func (s *tenantSkillSnapshotService) Create(
 	if err != nil {
 		return nil, fmt.Errorf("list skills for snapshot: %w", err)
 	}
-	manifest := buildTenantSkillSnapshotManifest(skills)
+	globalSkills, err := s.skills.ListGlobalSkills(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list global skills for snapshot: %w", err)
+	}
+	manifestSkills := append(append([]*types.TenantSkill{}, skills...), globalSkills...)
+	manifest := buildTenantSkillSnapshotManifest(manifestSkills)
 	manifestHash, err := hashTenantSkillSnapshotManifest(manifest)
 	if err != nil {
 		return nil, fmt.Errorf("hash skill snapshot manifest: %w", err)
@@ -112,6 +117,11 @@ func (s *tenantSkillSnapshotService) Activate(
 	if err != nil {
 		return nil, err
 	}
+	if s.skills != nil {
+		if err := s.skills.ValidateSkillSnapshot(ctx, tenantID, snapshot.Manifest); err != nil {
+			return nil, fmt.Errorf("validate skill snapshot before activation: %w", err)
+		}
+	}
 	now := s.now().UTC()
 	if err := s.repo.Activate(ctx, tenantID, snapshot.ID, now, now); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -145,7 +155,15 @@ func (s *tenantSkillSnapshotService) Verify(
 	if err != nil {
 		return false, fmt.Errorf("hash stored skill snapshot manifest: %w", err)
 	}
-	return hash == snapshot.ManifestSHA256, nil
+	if hash != snapshot.ManifestSHA256 {
+		return false, nil
+	}
+	if s.skills != nil {
+		if err := s.skills.ValidateSkillSnapshot(ctx, tenantID, snapshot.Manifest); err != nil {
+			return false, fmt.Errorf("validate skill snapshot: %w", err)
+		}
+	}
+	return true, nil
 }
 
 func buildTenantSkillSnapshotManifest(skills []*types.TenantSkill) types.JSONMap {
@@ -159,6 +177,7 @@ func buildTenantSkillSnapshotManifest(skills []*types.TenantSkill) types.JSONMap
 			"name":          skill.Name,
 			"version":       skill.Version,
 			"bundle_sha256": skill.BundleSHA,
+			"bundle_path":   skill.BundlePath,
 			"source_type":   skill.SourceType,
 		})
 	}
@@ -166,7 +185,7 @@ func buildTenantSkillSnapshotManifest(skills []*types.TenantSkill) types.JSONMap
 		return items[i]["name"].(string) < items[j]["name"].(string)
 	})
 	return types.JSONMap{
-		"schema_version": "tenant_skill_snapshot_v1",
+		"schema_version": "tenant_skill_snapshot_v2",
 		"skills":         items,
 	}
 }

@@ -140,6 +140,83 @@ Sandbox 相关配置通过环境变量设置：
 | `local` | 本地进程执行（基础安全限制） |
 | `disabled` | 禁用脚本执行 |
 
+### 工作区级 Sandbox 策略
+
+除环境变量外，系统支持在工作区内持久化 Sandbox 策略。策略包含执行模式、Docker 镜像、超时时间、是否启用以及不可用时是否允许降级。工作区策略优先于进程级默认值，只有激活策略才会影响后续 Agent 运行。
+
+管理端路由：
+
+| 操作 | API |
+|------|-----|
+| 列表 | `GET /api/v1/sandbox/configs` |
+| 新建 | `POST /api/v1/sandbox/configs` |
+| 更新 | `PUT /api/v1/sandbox/configs/:id` |
+| 激活/停用 | `POST /api/v1/sandbox/configs/:id/activate`、`POST /api/v1/sandbox/configs/:id/deactivate` |
+| 可用性检查 | `POST /api/v1/sandbox/configs/:id/check` |
+| 删除 | `DELETE /api/v1/sandbox/configs/:id` |
+
+激活前应执行可用性检查。激活中的策略不能直接删除，必须先停用；这样可以避免正在运行的 Agent 失去可解释的运行时配置。
+
+## Skill 安装任务
+
+来源 Skill 安装使用持久化任务队列执行。安装任务会记录 `task_id`、尝试次数、取消状态和错误信息，服务重启后会重新扫描 `pending`、`running`、`cancelling` 状态并恢复未完成任务。
+
+安装任务使用维护队列，默认最多重试 3 次，单次执行超时 20 分钟。管理端应以安装任务状态为准：
+
+- `pending`：已创建，等待队列执行
+- `running`：正在下载、校验或落盘
+- `succeeded`：已生成或更新 Skill
+- `failed`：本次任务最终失败，可调用重试
+- `cancelling` / `cancelled`：取消请求已提交或已完成
+
+旧版未注入任务队列的测试或本地构造仍保留进程内回退路径，但生产容器由任务路由统一注册 `tenant_skill:install` 处理器。
+
+## Skill 运行时快照
+
+Skill 快照用于把一次 Agent 运行所使用的 Skill bundle 固定到具体路径和 SHA-256。快照 manifest v2 同时记录租户 Skill 与全局 Skill，并在激活、校验和 Agent 启动时验证 bundle 是否存在且内容匹配。
+
+管理端路由：
+
+| 操作 | API |
+|------|-----|
+| 列表 | `GET /api/v1/skills/snapshots` |
+| 创建并激活 | `POST /api/v1/skills/snapshots` |
+| 激活 | `POST /api/v1/skills/snapshots/:id/activate` |
+| 回滚 | `POST /api/v1/skills/snapshots/:id/rollback` |
+| 校验 | `GET /api/v1/skills/snapshots/:id/verify` |
+
+安装新版本时，旧 bundle 会保留，直到对应快照不再需要。快照校验失败时不能激活；删除 Skill 数据或 bundle 会使引用它的快照进入不可恢复状态，因此生产环境应先停用或替换相关快照。
+
+## 多 Agent 调度治理
+
+主 Agent 通过 `delegate_agent` 调度成员 Agent。成员使用隔离的事件总线，并将思考、工具、引用和授权进度桥接到父会话；成员的最终答案和完成事件不会直接结束父会话，成员结果由 `delegate_agent` 作为工具结果交给主 Agent 综合。每个成员仍使用独立的成员会话 ID。成员调用默认超时 5 分钟，可在 Agent 配置中通过 `delegation_timeout_seconds` 调整，范围为 10 到 900 秒。
+
+成员 Agent 的知识库范围按成员配置计算：
+
+- `none`：不挂载知识库，也不创建搜索目标
+- `selected`：只挂载成员选择的知识库，并过滤父 Agent 的搜索目标
+- `all` 或未设置：继承父 Agent 的知识库和搜索目标
+
+每次成员 Agent 调用都会创建一条独立运行记录。运行记录会记录父会话、父消息、成员 Agent、任务、运行状态、耗时、结果摘要和失败信息；成员执行期间产生的模型账单会通过 `delegation_run_id` 和 `agent_id` 归因到该运行记录。
+
+管理端可在 Agent 运行时页面查看最近的成员 Agent 运行记录。服务端查询接口如下：
+
+| 操作 | API |
+|------|-----|
+| 查询运行记录 | `GET /api/v1/agent/delegation-runs?limit=50` |
+| 按父会话筛选 | `GET /api/v1/agent/delegation-runs?parent_session_id=<session_id>` |
+| 按成员 Agent 筛选 | `GET /api/v1/agent/delegation-runs?member_agent_id=<agent_id>` |
+| 查询单条记录 | `GET /api/v1/agent/delegation-runs/:id` |
+
+运行记录中的 Token 汇总和费用字段来自关联账单流水，而不是仅使用 Agent 状态中的估算值：
+
+- `input_tokens`、`cached_tokens`、`output_tokens`、`reasoning_tokens`：关联模型账单的实际用量汇总
+- `call_count`、`usage_ledger_count`：成员执行产生的模型调用次数和账单流水数
+- `base_cost_nanousd`、`rated_cost_nanousd`：原始成本和计价成本，单位为 nano-USD
+- `billed_point_micros`：实际计费积分，单位为百万分之一积分
+
+该能力依赖迁移 `001027_agent_delegation_usage`。历史账单没有成员归因字段时会保持为空，不会被错误归入某个成员 Agent。
+
 ## Agent 工具
 
 Skills 功能通过两个工具与 Agent 交互：

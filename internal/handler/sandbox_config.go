@@ -82,6 +82,44 @@ func (h *SandboxConfigHandler) Activate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": config})
 }
 
+func (h *SandboxConfigHandler) Deactivate(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	config, err := h.service.Deactivate(c.Request.Context(), tenantID, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": config})
+}
+
+func (h *SandboxConfigHandler) Delete(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	if err := h.service.Delete(c.Request.Context(), tenantID, c.Param("id")); err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *SandboxConfigHandler) Check(c *gin.Context) {
+	tenantID, _, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	check, err := h.service.Check(c.Request.Context(), tenantID, c.Param("id"))
+	if err != nil {
+		h.writeServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": check})
+}
+
 func (h *SandboxConfigHandler) writeServiceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, appservice.ErrTenantSandboxConfigNotFound),
@@ -91,7 +129,8 @@ func (h *SandboxConfigHandler) writeServiceError(c *gin.Context, err error) {
 		c.Error(apperrors.NewBadRequestError("sandbox config is disabled"))
 	case errors.Is(err, types.ErrTenantSandboxConfigNameRequired),
 		errors.Is(err, types.ErrTenantSandboxConfigModeInvalid),
-		errors.Is(err, types.ErrTenantSandboxConfigTimeoutInvalid):
+		errors.Is(err, types.ErrTenantSandboxConfigTimeoutInvalid),
+		errors.Is(err, types.ErrTenantSandboxConfigActive):
 		c.Error(apperrors.NewBadRequestError(err.Error()))
 	default:
 		c.Error(apperrors.NewInternalServerError("sandbox config operation failed").WithDetails(err.Error()))

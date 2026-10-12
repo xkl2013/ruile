@@ -945,6 +945,14 @@ func loadExpertSkillSnapshots(definition *types.AgentDefinitionVersion) ([]exper
 		if snapshot.SHA256 == "" || snapshot.SHA256 != expertStringHash(snapshot.Content) {
 			return nil, fmt.Errorf("expert skill snapshot hash mismatch: %s", snapshot.Name)
 		}
+		// The published expert workflow uses the main SKILL.md as its
+		// prompt-level snapshot. Reference files remain available to the
+		// regular read_skill runtime and must not replace the main file here.
+		if existing, ok := byName[snapshot.Name]; ok &&
+			!strings.HasSuffix(strings.TrimSpace(snapshot.Path), "/SKILL.md") &&
+			strings.HasSuffix(strings.TrimSpace(existing.Path), "/SKILL.md") {
+			continue
+		}
 		byName[snapshot.Name] = snapshot
 	}
 	result := make([]expertSkillSnapshot, 0, len(definition.Skills))

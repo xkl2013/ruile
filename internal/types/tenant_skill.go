@@ -113,6 +113,7 @@ type TenantSkillInstallJob struct {
 	SourceType      string     `json:"source_type" gorm:"type:varchar(32);not null"`
 	SourceRef       string     `json:"source_ref" gorm:"type:text;not null"`
 	SkillID         string     `json:"skill_id" gorm:"type:varchar(36);not null;default:'';index"`
+	TaskID          string     `json:"task_id,omitempty" gorm:"type:varchar(160);not null;default:'';index"`
 	Status          string     `json:"status" gorm:"type:varchar(32);not null;index"`
 	Error           string     `json:"error" gorm:"type:text;not null;default:''"`
 	Attempt         int        `json:"attempt" gorm:"not null;default:1"`

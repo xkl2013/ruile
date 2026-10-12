@@ -170,6 +170,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewOrganizeRepository))
 	must(container.Provide(repository.NewServiceSpaceRepository))
 	must(container.Provide(repository.NewAgentRunRepository))
+	must(container.Provide(repository.NewAgentDelegationRunRepository))
 	must(container.Provide(repository.NewExpertPackageRepository))
 	must(container.Provide(repository.NewTenantSkillRepository))
 	must(container.Provide(repository.NewTenantSkillSnapshotRepository))
@@ -215,9 +216,16 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewUserService))
 	must(container.Provide(service.NewAliyunSMSService))
 	must(container.Provide(service.NewSystemSettingService))
-	must(container.Provide(service.NewExpertPackageService))
+	must(container.Provide(service.NewExpertPackageServiceWithAgentRepository))
 	must(container.Provide(service.NewKnowledgeBaseDefaultsService))
-	must(container.Provide(service.NewTenantSkillService))
+	must(container.Provide(service.NewTenantSkillServiceWithTasks))
+	must(container.Provide(func(s interfaces.TenantSkillService) (interfaces.TaskHandler, error) {
+		handler, ok := s.(interfaces.TaskHandler)
+		if !ok {
+			return nil, fmt.Errorf("tenant skill service does not implement task handler")
+		}
+		return handler, nil
+	}, dig.Name("tenantSkillInstall")))
 	must(container.Provide(service.NewTenantSkillSnapshotService))
 	must(container.Provide(service.NewTenantSandboxConfigService))
 
@@ -236,6 +244,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewOrganizeService))
 	must(container.Provide(service.NewServiceSpaceServiceWithDependencies))
 	must(container.Provide(service.NewAgentRunService))
+	must(container.Provide(service.NewAgentDelegationRunService))
 	must(container.Provide(service.NewWikiPageService))
 	must(container.Provide(service.NewWikiLogEntryService))
 	must(container.Provide(service.NewWikiIngestService, dig.Name("wikiIngest")))
@@ -401,6 +410,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewOrganizeHandler))
 	must(container.Provide(handler.NewOrganizeAdminHandler))
 	must(container.Provide(handler.NewAgentRunHandler))
+	must(container.Provide(handler.NewAgentDelegationRunHandler))
 	must(container.Provide(handler.NewServiceSpaceHandler))
 	must(container.Provide(handler.NewExpertPackageHandler))
 	must(container.Provide(service.NewSkillService))

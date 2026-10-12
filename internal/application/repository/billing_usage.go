@@ -1377,6 +1377,8 @@ func (r *billingRepository) CreateUsageReservation(
 			ID:                         uuid.NewString(),
 			TenantID:                   handle.Request.TenantID,
 			ActorUserID:                handle.Request.ActorUserID,
+			DelegationRunID:            handle.Request.DelegationRunID,
+			AgentID:                    handle.Request.AgentID,
 			UsageScope:                 handle.UsageScope,
 			AllocationID:               handle.AllocationID,
 			RefNo:                      handle.Request.RefNo,
@@ -1693,6 +1695,34 @@ func (r *billingRepository) ListUsageLedgersByActor(
 	limit int,
 ) ([]*types.BillingUsageLedgerSummary, error) {
 	return r.listUsageLedgers(ctx, tenantID, strings.TrimSpace(actorUserID), limit)
+}
+
+func (r *billingRepository) ListUsageLedgersByDelegationRun(
+	ctx context.Context,
+	tenantID uint64,
+	delegationRunID string,
+	limit int,
+) ([]*types.BillingUsageLedgerSummary, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	var rows []*types.BillingUsageLedgerSummary
+	err := r.db.WithContext(ctx).
+		Table("tenant_usage_ledgers").
+		Select("tenant_usage_ledgers.*, tenants.name AS tenant_name").
+		Joins("JOIN tenants ON tenants.id = tenant_usage_ledgers.tenant_id AND tenants.deleted_at IS NULL").
+		Where(
+			"tenant_usage_ledgers.tenant_id = ? AND tenant_usage_ledgers.delegation_run_id = ?",
+			tenantID,
+			strings.TrimSpace(delegationRunID),
+		).
+		Order("tenant_usage_ledgers.created_at DESC").
+		Limit(limit).
+		Scan(&rows).Error
+	return rows, err
 }
 
 func (r *billingRepository) listUsageLedgers(

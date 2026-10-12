@@ -1170,6 +1170,16 @@
                               theme="column"
                             />
                           </div>
+                          <div class="orchestration-field orchestration-field--compact">
+                            <label>{{ $t('agentEditor.orchestration.timeout') }}</label>
+                            <p class="desc">{{ $t('agentEditor.orchestration.timeoutDesc') }}</p>
+                            <t-input-number
+                              v-model="formData.config.delegation_timeout_seconds"
+                              :min="10"
+                              :max="900"
+                              theme="column"
+                            />
+                          </div>
                         </template>
                       </div>
                     </div>
@@ -1676,6 +1686,7 @@ import {
   type AgentTypeKBFilter,
   type KBCapabilities,
 } from '@/api/agent';
+import { syncPublishedExpertAgents } from '@/api/expert-package';
 import { type ModelConfig } from '@/api/model';
 import { type AgentNotReadyReasonKey, agentRequiresRerankModel } from '@/utils/agent-readiness';
 import { type SkillInfo } from '@/api/skill';
@@ -2378,6 +2389,7 @@ const defaultFormData = {
     orchestration_enabled: false,
     member_agent_ids: [] as string[],
     max_parallel_members: 3,
+    delegation_timeout_seconds: 300,
     reflection_enabled: false,
     // MCP 服务设置
     mcp_selection_mode: 'none' as 'all' | 'selected' | 'none',
@@ -3273,6 +3285,7 @@ watch(agentMode, (val, _oldVal) => {
     formData.value.config.orchestration_enabled = false;
     formData.value.config.member_agent_ids = [];
     formData.value.config.max_parallel_members = 3;
+    formData.value.config.delegation_timeout_seconds = 300;
     formData.value.config.max_iterations = 1; // 设置为1表示单轮 RAG
     // 切换到快速问答模式时，如果系统提示词是 Agent 的默认值或为空，替换为快速问答默认提示词
     if (defaultNormalSystemPrompt.value) {
@@ -3453,6 +3466,13 @@ const loadDependencies = async () => {
     if (rc?.rerank_threshold !== undefined) defaultRerankThreshold.value = rc.rerank_threshold;
 
     try {
+      // Backfill existing published WorkBuddy definitions before loading
+      // member options. New versions are synced during publication.
+      try {
+        await syncPublishedExpertAgents();
+      } catch (error) {
+        console.warn('Failed to sync published WorkBuddy experts', error);
+      }
       const tenantId = Number(authStore.effectiveTenantId || 0);
       const response = await listAgents(
         undefined,
@@ -4358,6 +4378,10 @@ const handleSave = async () => {
       8,
       Math.max(1, Number(formData.value.config.max_parallel_members) || 3),
     );
+    formData.value.config.delegation_timeout_seconds = Math.min(
+      900,
+      Math.max(10, Number(formData.value.config.delegation_timeout_seconds) || 300),
+    );
   }
 
   // 校验 VLM 模型（当图片上传启用时必填）
@@ -4382,7 +4406,10 @@ const handleSave = async () => {
   saving.value = true;
   try {
     if (editorMode.value === 'create') {
-      const result: any = await createAgent(formData.value);
+      const result: any = await createAgent({
+        ...formData.value,
+        ...(isAdminRuntime() && authStore.isSystemAdmin ? { platform_managed: true } : {}),
+      });
       const created = result?.data as CustomAgent | undefined;
       if (!created?.id) {
         throw new Error(result?.message || t('agent.messages.saveFailed'));

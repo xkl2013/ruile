@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/hibiken/asynq"
 )
 
 type TenantSkillRepository interface {
@@ -21,6 +22,7 @@ type TenantSkillRepository interface {
 	UpdateInstallJob(ctx context.Context, job *types.TenantSkillInstallJob) error
 	GetInstallJob(ctx context.Context, tenantID uint64, id string) (*types.TenantSkillInstallJob, error)
 	ListInstallJobs(ctx context.Context, tenantID uint64, limit int) ([]*types.TenantSkillInstallJob, error)
+	ListInstallJobsByStatus(ctx context.Context, statuses []string, limit int) ([]*types.TenantSkillInstallJob, error)
 }
 
 // TenantSkillService manages tenant-owned skill bundles and exposes the
@@ -55,4 +57,8 @@ type TenantSkillService interface {
 	ListGlobalSkillFiles(ctx context.Context, id string) ([]string, error)
 	ReadGlobalSkillFile(ctx context.Context, id, path string) (io.ReadCloser, error)
 	MaterializeTenantSkillDirs(ctx context.Context, tenantID uint64) ([]string, error)
+	ListRuntimeTenantSkills(ctx context.Context, tenantID uint64) ([]*types.TenantSkill, error)
+	ValidateSkillSnapshot(ctx context.Context, tenantID uint64, manifest types.JSONMap) error
+	RecoverPendingTenantSkillInstalls(ctx context.Context) error
+	Handle(ctx context.Context, task *asynq.Task) error
 }

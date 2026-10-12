@@ -255,6 +255,7 @@ func (s *sessionService) buildAgentConfig(
 		OrchestrationEnabled:        customAgent.Config.OrchestrationEnabled,
 		MemberAgentIDs:              customAgent.Config.MemberAgentIDs,
 		MaxParallelMembers:          customAgent.Config.MaxParallelMembers,
+		DelegationTimeoutSeconds:    customAgent.Config.DelegationTimeoutSeconds,
 	}
 
 	// Falls back to global configuration if no specific timeout is set for the agent.
@@ -563,6 +564,7 @@ func (s *sessionService) configureSkillsFromAgent(
 		agentConfig.SkillsEnabled = true
 		agentConfig.SkillDirs = []string{dir}
 		agentConfig.AllowedSkills = nil // Empty means all skills allowed
+		agentConfig.SkillSnapshots = append([]types.CustomAgentSkillSnapshot(nil), customAgent.Config.SkillSnapshots...)
 		logger.Infof(ctx, "SkillsSelectionMode=all: enabled preloaded and tenant skills")
 	case "selected":
 		// Enable only selected skills
@@ -570,6 +572,7 @@ func (s *sessionService) configureSkillsFromAgent(
 			agentConfig.SkillsEnabled = true
 			agentConfig.SkillDirs = []string{dir}
 			agentConfig.AllowedSkills = customAgent.Config.SelectedSkills
+			agentConfig.SkillSnapshots = append([]types.CustomAgentSkillSnapshot(nil), customAgent.Config.SkillSnapshots...)
 			logger.Infof(ctx, "SkillsSelectionMode=selected: enabled %d selected skills: %v",
 				len(customAgent.Config.SelectedSkills), customAgent.Config.SelectedSkills)
 		} else {

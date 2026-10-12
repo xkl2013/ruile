@@ -177,6 +177,10 @@ export function listPublishedExperts() {
   return get<ExpertPackageResponse<PublishedExpert[]>>('/api/v1/expert-packages/published')
 }
 
+export function syncPublishedExpertAgents() {
+  return post<ExpertPackageResponse<null>>('/api/v1/admin/expert-packages/sync-agents')
+}
+
 export function routePublishedExpert(prompt: string, modelId?: string) {
   return post<ExpertPackageResponse<PublishedExpertRouteDecision>>(
     '/api/v1/expert-packages/published/route',

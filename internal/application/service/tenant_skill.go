@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
 	"gorm.io/gorm"
 )
 
@@ -45,10 +47,13 @@ var tenantSkillReservedEnvNames = map[string]struct{}{
 }
 
 type tenantSkillService struct {
-	repo        interfaces.TenantSkillRepository
-	fileService interfaces.FileService
-	installMu   sync.Mutex
-	installStop map[string]context.CancelFunc
+	repo         interfaces.TenantSkillRepository
+	fileService  interfaces.FileService
+	task         interfaces.TaskEnqueuer
+	canceller    interfaces.TaskCanceller
+	snapshotRepo interfaces.TenantSkillSnapshotRepository
+	installMu    sync.Mutex
+	installStop  map[string]context.CancelFunc
 }
 
 func NewTenantSkillService(
@@ -59,6 +64,26 @@ func NewTenantSkillService(
 		repo:        repo,
 		fileService: fileService,
 		installStop: make(map[string]context.CancelFunc),
+	}
+}
+
+// NewTenantSkillServiceWithTasks wires Skill installation into the shared
+// Asynq/Lite task abstraction. The two-argument constructor remains available
+// for focused service tests and local callers that need the legacy fallback.
+func NewTenantSkillServiceWithTasks(
+	repo interfaces.TenantSkillRepository,
+	fileService interfaces.FileService,
+	task interfaces.TaskEnqueuer,
+	canceller interfaces.TaskCanceller,
+	snapshotRepo interfaces.TenantSkillSnapshotRepository,
+) interfaces.TenantSkillService {
+	return &tenantSkillService{
+		repo:         repo,
+		fileService:  fileService,
+		task:         task,
+		canceller:    canceller,
+		snapshotRepo: snapshotRepo,
+		installStop:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -228,7 +253,19 @@ func (s *tenantSkillService) StartTenantSkillSourceInstall(
 	if err := s.repo.CreateInstallJob(ctx, job); err != nil {
 		return nil, fmt.Errorf("create skill install job: %w", err)
 	}
-	s.launchTenantSkillInstall(job, parsed)
+	if s.task != nil {
+		if err := s.enqueueTenantSkillInstall(ctx, job); err != nil {
+			now := time.Now().UTC()
+			job.Status = types.TenantSkillInstallStatusFailed
+			job.Error = truncateTenantSkillError(err.Error())
+			job.FinishedAt = &now
+			job.UpdatedAt = now
+			_ = s.repo.UpdateInstallJob(ctx, job)
+			return nil, fmt.Errorf("enqueue skill install job: %w", err)
+		}
+	} else {
+		s.launchTenantSkillInstall(job, parsed)
+	}
 	return job, nil
 }
 
@@ -279,6 +316,25 @@ func (s *tenantSkillService) CancelTenantSkillInstall(
 	if cancel != nil {
 		cancel()
 	}
+	if s.canceller != nil && job.TaskID != "" {
+		cancelled, cancelErr := s.canceller.CancelTask(
+			ctx,
+			types.QueueMaintenance,
+			job.TaskID,
+		)
+		if cancelErr != nil {
+			return nil, fmt.Errorf("cancel skill install task: %w", cancelErr)
+		}
+		if cancelled && job.StartedAt == nil {
+			now := time.Now().UTC()
+			job.Status = types.TenantSkillInstallStatusCancelled
+			job.FinishedAt = &now
+			job.UpdatedAt = now
+			if err := s.repo.UpdateInstallJob(ctx, job); err != nil {
+				return nil, fmt.Errorf("finish cancelled skill install job: %w", err)
+			}
+		}
+	}
 	return job, nil
 }
 
@@ -318,8 +374,51 @@ func (s *tenantSkillService) RetryTenantSkillInstall(
 	if err := s.repo.UpdateInstallJob(ctx, job); err != nil {
 		return nil, fmt.Errorf("retry skill install job: %w", err)
 	}
-	s.launchTenantSkillInstall(job, parsed)
+	if s.task != nil {
+		if err := s.enqueueTenantSkillInstall(ctx, job); err != nil {
+			return nil, fmt.Errorf("enqueue retried skill install job: %w", err)
+		}
+	} else {
+		s.launchTenantSkillInstall(job, parsed)
+	}
 	return job, nil
+}
+
+func (s *tenantSkillService) enqueueTenantSkillInstall(
+	ctx context.Context,
+	job *types.TenantSkillInstallJob,
+) error {
+	if s.task == nil {
+		return errors.New("skill install task enqueuer is not configured")
+	}
+	payload, err := json.Marshal(types.TenantSkillInstallTaskPayload{
+		TenantID: job.TenantID,
+		JobID:    job.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("encode skill install task: %w", err)
+	}
+	taskID := fmt.Sprintf("tenant-skill-install-%s-%d", job.ID, job.Attempt)
+	job.TaskID = taskID
+	job.UpdatedAt = time.Now().UTC()
+	if err := s.repo.UpdateInstallJob(ctx, job); err != nil {
+		return fmt.Errorf("save skill install task id: %w", err)
+	}
+	queue, ok := types.QueueForTaskType(types.TypeTenantSkillInstall)
+	if !ok {
+		return errors.New("skill install queue is not configured")
+	}
+	_, err = s.task.Enqueue(
+		asynq.NewTask(types.TypeTenantSkillInstall, payload),
+		asynq.TaskID(taskID),
+		asynq.Queue(queue),
+		asynq.MaxRetry(3),
+		asynq.Timeout(20*time.Minute),
+	)
+	if err != nil && !errors.Is(err, asynq.ErrTaskIDConflict) {
+		return err
+	}
+	return nil
 }
 
 func (s *tenantSkillService) launchTenantSkillInstall(
@@ -354,17 +453,77 @@ func (s *tenantSkillService) runTenantSkillInstall(
 	job *types.TenantSkillInstallJob,
 	parsed tenantSkillSource,
 ) {
+	if err := s.executeTenantSkillInstall(ctx, job, parsed); err != nil {
+		s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusFailed, truncateTenantSkillError(err.Error()))
+	}
+}
+
+// Handle implements interfaces.TaskHandler for both the Redis-backed Asynq
+// worker and the Lite-mode synchronous executor. Transient failures are
+// returned to the queue until the configured retry budget is exhausted.
+func (s *tenantSkillService) Handle(ctx context.Context, task *asynq.Task) error {
+	if task == nil {
+		return errors.New("skill install task is required")
+	}
+	var payload types.TenantSkillInstallTaskPayload
+	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
+		return fmt.Errorf("decode skill install task: %w", err)
+	}
+	if payload.JobID == "" {
+		return errors.New("skill install job id is required")
+	}
+	job, err := s.repo.GetInstallJob(ctx, payload.TenantID, payload.JobID)
+	if err != nil {
+		return fmt.Errorf("load skill install job: %w", err)
+	}
+	if job == nil {
+		return gorm.ErrRecordNotFound
+	}
+	if isTenantSkillInstallTerminal(job.Status) {
+		return nil
+	}
+	parsed, err := parseTenantSkillSource(job.SourceRef)
+	if err != nil {
+		s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusFailed, truncateTenantSkillError(err.Error()))
+		return nil
+	}
+	if err := s.executeTenantSkillInstall(ctx, job, parsed); err != nil {
+		retryCount, retryCountOK := asynq.GetRetryCount(ctx)
+		maxRetry, maxRetryOK := asynq.GetMaxRetry(ctx)
+		if retryCountOK && maxRetryOK && retryCount < maxRetry &&
+			ctx.Err() == nil &&
+			!s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
+			job.Error = truncateTenantSkillError(err.Error())
+			job.UpdatedAt = time.Now().UTC()
+			_ = s.repo.UpdateInstallJob(context.Background(), job)
+			return err
+		}
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil ||
+			s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
+			s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusCancelled, "")
+			return nil
+		}
+		s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusFailed, truncateTenantSkillError(err.Error()))
+	}
+	return nil
+}
+
+func (s *tenantSkillService) executeTenantSkillInstall(
+	ctx context.Context,
+	job *types.TenantSkillInstallJob,
+	parsed tenantSkillSource,
+) error {
 	now := time.Now().UTC()
 	job.Status = types.TenantSkillInstallStatusRunning
 	job.StartedAt = &now
 	job.UpdatedAt = now
-	if err := s.repo.UpdateInstallJob(context.Background(), job); err != nil {
-		return
+	if err := s.repo.UpdateInstallJob(ctx, job); err != nil {
+		return err
 	}
 
 	if s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
 		s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusCancelled, "")
-		return
+		return nil
 	}
 	data, err := fetchTenantSkillSource(ctx, parsed, nil)
 	if err == nil && ctx.Err() == nil && !s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
@@ -383,12 +542,58 @@ func (s *tenantSkillService) runTenantSkillInstall(
 		if errors.Is(err, context.Canceled) || ctx.Err() != nil ||
 			s.tenantSkillInstallCancelled(job.ID, job.TenantID) {
 			s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusCancelled, "")
-			return
+			return nil
 		}
-		s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusFailed, truncateTenantSkillError(err.Error()))
-		return
+		return err
 	}
 	s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusSucceeded, "")
+	return nil
+}
+
+// RecoverPendingTenantSkillInstalls re-enqueues work left in a non-terminal
+// state after a process restart. Running jobs are only recovered after the
+// stale threshold so a second application instance does not steal active work.
+func (s *tenantSkillService) RecoverPendingTenantSkillInstalls(ctx context.Context) error {
+	jobs, err := s.repo.ListInstallJobsByStatus(ctx, []string{
+		types.TenantSkillInstallStatusPending,
+		types.TenantSkillInstallStatusRunning,
+		types.TenantSkillInstallStatusCancelling,
+	}, 1000)
+	if err != nil {
+		return fmt.Errorf("list recoverable skill install jobs: %w", err)
+	}
+	now := time.Now().UTC()
+	for _, job := range jobs {
+		if job == nil {
+			continue
+		}
+		if job.Status != types.TenantSkillInstallStatusPending &&
+			now.Sub(job.UpdatedAt) < tenantSkillInstallStaleAfter {
+			continue
+		}
+		parsed, parseErr := parseTenantSkillSource(job.SourceRef)
+		if parseErr != nil {
+			s.finishTenantSkillInstall(job, types.TenantSkillInstallStatusFailed, truncateTenantSkillError(parseErr.Error()))
+			continue
+		}
+		job.Status = types.TenantSkillInstallStatusPending
+		job.Error = ""
+		job.CancelRequested = false
+		job.StartedAt = nil
+		job.FinishedAt = nil
+		job.UpdatedAt = now
+		if err := s.repo.UpdateInstallJob(ctx, job); err != nil {
+			return fmt.Errorf("reset stale skill install job %s: %w", job.ID, err)
+		}
+		if s.task != nil {
+			if err := s.enqueueTenantSkillInstall(ctx, job); err != nil {
+				return fmt.Errorf("requeue skill install job %s: %w", job.ID, err)
+			}
+		} else {
+			s.launchTenantSkillInstall(job, parsed)
+		}
+	}
+	return nil
 }
 
 func (s *tenantSkillService) tenantSkillInstallCancelled(id string, tenantID uint64) bool {
@@ -505,9 +710,11 @@ func (s *tenantSkillService) storeTenantSkillArchive(
 		_ = s.fileService.DeleteFile(ctx, bundlePath)
 		return nil, fmt.Errorf("update skill metadata: %w", err)
 	}
-	if previousBundlePath != "" && previousBundlePath != bundlePath {
-		_ = s.fileService.DeleteFile(ctx, previousBundlePath)
-	}
+	// Keep the previous archive. v2 Skill snapshots pin BundlePath, so
+	// deleting it here would make an older snapshot impossible to activate.
+	// A later retention job can remove unreferenced bundles once snapshot
+	// garbage collection is implemented.
+	_ = previousBundlePath
 	return existing, nil
 }
 
@@ -658,7 +865,15 @@ func (s *tenantSkillService) ReadTenantSkillFile(
 	return &cleanupReadCloser{ReadCloser: file, cleanup: cleanup}, nil
 }
 
-func (s *tenantSkillService) MaterializeTenantSkillDirs(ctx context.Context, tenantID uint64) ([]string, error) {
+// ListRuntimeTenantSkills returns the enabled catalog when no v2 snapshot is
+// active. Once a v2 snapshot is active, the manifest becomes the runtime
+// source of truth: it pins both the selected Skill IDs and their bundle paths,
+// so a rollback can use the previous archive instead of the current catalog
+// row.
+func (s *tenantSkillService) ListRuntimeTenantSkills(
+	ctx context.Context,
+	tenantID uint64,
+) ([]*types.TenantSkill, error) {
 	globalSkills, err := s.ListGlobalSkills(ctx)
 	if err != nil {
 		return nil, err
@@ -667,25 +882,114 @@ func (s *tenantSkillService) MaterializeTenantSkillDirs(ctx context.Context, ten
 	if err != nil {
 		return nil, err
 	}
+	all := append(append([]*types.TenantSkill{}, tenantSkills...), globalSkills...)
+	if s.snapshotRepo == nil {
+		return runtimeEnabledSkills(all), nil
+	}
+	active, err := s.snapshotRepo.GetActive(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if active == nil || snapshotManifestSchema(active.Manifest) != "tenant_skill_snapshot_v2" {
+		return runtimeEnabledSkills(all), nil
+	}
+
+	entries, err := snapshotManifestEntries(active.Manifest)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ValidateSkillSnapshot(ctx, tenantID, active.Manifest); err != nil {
+		return nil, err
+	}
+	byID := make(map[string]*types.TenantSkill, len(all))
+	for _, skill := range all {
+		if skill != nil {
+			byID[skill.ID] = skill
+		}
+	}
+	result := make([]*types.TenantSkill, 0, len(entries))
+	for _, entry := range entries {
+		skill := byID[entry.ID]
+		if skill == nil {
+			return nil, fmt.Errorf("active skill snapshot references missing skill %q", entry.ID)
+		}
+		if entry.BundlePath == "" || entry.BundleSHA == "" {
+			return nil, fmt.Errorf("active skill snapshot entry %q is incomplete", entry.ID)
+		}
+		pinned := *skill
+		pinned.BundlePath = entry.BundlePath
+		pinned.BundleSHA = entry.BundleSHA
+		pinned.Version = entry.Version
+		pinned.Enabled = true
+		pinned.Status = types.TenantSkillStatusReady
+		result = append(result, &pinned)
+	}
+	return result, nil
+}
+
+func (s *tenantSkillService) ValidateSkillSnapshot(
+	ctx context.Context,
+	tenantID uint64,
+	manifest types.JSONMap,
+) error {
+	if snapshotManifestSchema(manifest) != "tenant_skill_snapshot_v2" {
+		return nil
+	}
+	entries, err := snapshotManifestEntries(manifest)
+	if err != nil {
+		return err
+	}
+	globalSkills, err := s.ListGlobalSkills(ctx)
+	if err != nil {
+		return err
+	}
+	tenantSkills, err := s.ListTenantSkills(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	byID := make(map[string]*types.TenantSkill, len(globalSkills)+len(tenantSkills))
+	for _, skill := range append(append([]*types.TenantSkill{}, tenantSkills...), globalSkills...) {
+		if skill != nil {
+			byID[skill.ID] = skill
+		}
+	}
+	for _, entry := range entries {
+		skill := byID[entry.ID]
+		if skill == nil {
+			return fmt.Errorf("skill snapshot references missing skill %q", entry.ID)
+		}
+		if entry.BundlePath == "" || entry.BundleSHA == "" {
+			return fmt.Errorf("skill snapshot entry %q is incomplete", entry.ID)
+		}
+		pinned := *skill
+		pinned.BundlePath = entry.BundlePath
+		pinned.BundleSHA = entry.BundleSHA
+		if _, err := s.readBundle(ctx, &pinned); err != nil {
+			return fmt.Errorf("skill snapshot bundle %q is unavailable: %w", entry.ID, err)
+		}
+	}
+	return nil
+}
+
+func (s *tenantSkillService) MaterializeTenantSkillDirs(ctx context.Context, tenantID uint64) ([]string, error) {
+	skillsList, err := s.ListRuntimeTenantSkills(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
 	// Keep legacy tenant-owned Skills usable while making system Skills
 	// available to every workspace. A global Skill with the same name wins.
-	skillsByName := make(map[string]*types.TenantSkill, len(globalSkills)+len(tenantSkills))
-	for _, skill := range tenantSkills {
+	skillsByName := make(map[string]*types.TenantSkill, len(skillsList))
+	for _, skill := range skillsList {
 		if skill != nil {
 			skillsByName[skill.Name] = skill
 		}
 	}
-	for _, skill := range globalSkills {
-		if skill != nil {
-			skillsByName[skill.Name] = skill
-		}
-	}
-	skillsList := make([]*types.TenantSkill, 0, len(skillsByName))
+	uniqueSkills := make([]*types.TenantSkill, 0, len(skillsByName))
 	for _, skill := range skillsByName {
-		skillsList = append(skillsList, skill)
+		uniqueSkills = append(uniqueSkills, skill)
 	}
-	sort.Slice(skillsList, func(i, j int) bool {
-		return skillsList[i].Name < skillsList[j].Name
+	sort.Slice(uniqueSkills, func(i, j int) bool {
+		return uniqueSkills[i].Name < uniqueSkills[j].Name
 	})
 	root := tenantSkillCacheRoot(tenantID)
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -697,7 +1001,7 @@ func (s *tenantSkillService) MaterializeTenantSkillDirs(ctx context.Context, ten
 	}
 
 	materialized := 0
-	for _, skill := range skillsList {
+	for _, skill := range uniqueSkills {
 		if skill == nil || !skill.Enabled || skill.Status != types.TenantSkillStatusReady {
 			continue
 		}
@@ -722,6 +1026,62 @@ func (s *tenantSkillService) MaterializeTenantSkillDirs(ctx context.Context, ten
 		return nil, nil
 	}
 	return []string{runtimeRoot}, nil
+}
+
+type tenantSkillSnapshotEntry struct {
+	ID         string
+	Name       string
+	Version    string
+	BundleSHA  string
+	BundlePath string
+}
+
+func runtimeEnabledSkills(skills []*types.TenantSkill) []*types.TenantSkill {
+	result := make([]*types.TenantSkill, 0, len(skills))
+	for _, skill := range skills {
+		if skill != nil && skill.Enabled && skill.Status == types.TenantSkillStatusReady {
+			result = append(result, skill)
+		}
+	}
+	return result
+}
+
+func snapshotManifestSchema(manifest types.JSONMap) string {
+	if manifest == nil {
+		return ""
+	}
+	schema, _ := manifest["schema_version"].(string)
+	return schema
+}
+
+func snapshotManifestEntries(manifest types.JSONMap) ([]tenantSkillSnapshotEntry, error) {
+	raw, ok := manifest["skills"].([]any)
+	if !ok {
+		return nil, errors.New("skill snapshot manifest skills must be an array")
+	}
+	entries := make([]tenantSkillSnapshotEntry, 0, len(raw))
+	for _, item := range raw {
+		values, ok := item.(map[string]any)
+		if !ok {
+			return nil, errors.New("skill snapshot manifest entry is invalid")
+		}
+		id, _ := values["id"].(string)
+		name, _ := values["name"].(string)
+		version, _ := values["version"].(string)
+		bundleSHA, _ := values["bundle_sha256"].(string)
+		bundlePath, _ := values["bundle_path"].(string)
+		if id == "" || name == "" {
+			return nil, errors.New("skill snapshot manifest entry is incomplete")
+		}
+		entries = append(entries, tenantSkillSnapshotEntry{
+			ID:         id,
+			Name:       name,
+			Version:    version,
+			BundleSHA:  bundleSHA,
+			BundlePath: bundlePath,
+		})
+	}
+	return entries, nil
 }
 
 func (s *tenantSkillService) materializeOne(ctx context.Context, tenantID uint64, id string) (string, func(), error) {

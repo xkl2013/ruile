@@ -359,6 +359,8 @@ type TenantUsageReservation struct {
 	ID                         string     `gorm:"type:varchar(36);primaryKey" json:"id"`
 	TenantID                   uint64     `gorm:"not null;uniqueIndex:uq_tenant_usage_reservation_ref" json:"tenant_id"`
 	ActorUserID                string     `gorm:"type:varchar(64);not null;default:''" json:"actor_user_id"`
+	DelegationRunID            string     `gorm:"type:varchar(36);not null;default:'';index" json:"delegation_run_id"`
+	AgentID                    string     `gorm:"type:varchar(128);not null;default:'';index" json:"agent_id"`
 	UsageScope                 string     `gorm:"type:varchar(32);not null" json:"usage_scope"`
 	AllocationID               string     `gorm:"type:varchar(36);not null;default:''" json:"allocation_id"`
 	RefNo                      string     `gorm:"type:varchar(160);not null;uniqueIndex:uq_tenant_usage_reservation_ref" json:"ref_no"`
@@ -389,6 +391,8 @@ type TenantUsageLedger struct {
 	ID                        string    `gorm:"type:varchar(36);primaryKey" json:"id"`
 	TenantID                  uint64    `gorm:"not null;uniqueIndex:uq_tenant_usage_ledger_ref" json:"tenant_id"`
 	ActorUserID               string    `gorm:"type:varchar(64);not null;default:''" json:"actor_user_id"`
+	DelegationRunID           string    `gorm:"type:varchar(36);not null;default:'';index" json:"delegation_run_id"`
+	AgentID                   string    `gorm:"type:varchar(128);not null;default:'';index" json:"agent_id"`
 	UsageScope                string    `gorm:"type:varchar(32);not null" json:"usage_scope"`
 	AllocationID              string    `gorm:"type:varchar(36);not null;default:''" json:"allocation_id"`
 	RefNo                     string    `gorm:"type:varchar(160);not null;uniqueIndex:uq_tenant_usage_ledger_ref" json:"ref_no"`
@@ -442,15 +446,17 @@ type BillingModelUsage struct {
 }
 
 type BillingUsageStartRequest struct {
-	TenantID       uint64            `json:"tenant_id"`
-	ActorUserID    string            `json:"actor_user_id"`
-	RefNo          string            `json:"ref_no"`
-	Source         string            `json:"source"`
-	SessionID      string            `json:"session_id"`
-	ServiceCode    string            `json:"service_code"`
-	ModelID        string            `json:"model_id"`
-	ModelKey       string            `json:"model_key"`
-	EstimatedUsage BillingModelUsage `json:"estimated_usage"`
+	TenantID        uint64            `json:"tenant_id"`
+	ActorUserID     string            `json:"actor_user_id"`
+	DelegationRunID string            `json:"delegation_run_id,omitempty"`
+	AgentID         string            `json:"agent_id,omitempty"`
+	RefNo           string            `json:"ref_no"`
+	Source          string            `json:"source"`
+	SessionID       string            `json:"session_id"`
+	ServiceCode     string            `json:"service_code"`
+	ModelID         string            `json:"model_id"`
+	ModelKey        string            `json:"model_key"`
+	EstimatedUsage  BillingModelUsage `json:"estimated_usage"`
 }
 
 type BillingUsageHandle struct {

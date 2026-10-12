@@ -10,6 +10,13 @@ import { get, post, put, del } from "../../utils/request";
 // 'custom'       : 完全自定义（不应用预设）
 export type AgentType = 'rag-qa' | 'wiki-qa' | 'hybrid-rag-wiki' | 'data-analysis' | 'education-sales' | 'custom';
 
+export interface CustomAgentSkillSnapshot {
+  name: string;
+  path: string;
+  content: string;
+  sha256: string;
+}
+
 export interface QuestionSuggestionConfig {
   starters: {
     enabled: boolean;
@@ -59,6 +66,7 @@ export interface CustomAgentConfig {
   orchestration_enabled?: boolean;  // 是否允许主 Agent 调度成员 Agent
   member_agent_ids?: string[];      // 可调度的成员 Agent ID
   max_parallel_members?: number;    // 单次调度的最大并发成员数
+  delegation_timeout_seconds?: number; // 单个成员 Agent 的最大执行时间
   // MCP服务选择模式：all=全部启用的MCP服务, selected=指定服务, none=不使用MCP
   mcp_selection_mode?: 'all' | 'selected' | 'none';
   mcp_services?: string[];          // 选择的MCP服务ID列表
@@ -70,6 +78,7 @@ export interface CustomAgentConfig {
   // Skills选择模式：all=全部预装, selected=指定, none=不使用
   skills_selection_mode?: 'all' | 'selected' | 'none';
   selected_skills?: string[];       // 选择的Skill名称列表
+  skill_snapshots?: CustomAgentSkillSnapshot[];
 
   // ===== 知识库设置 =====
   // 知识库选择模式：all=全部知识库, selected=指定知识库, none=不使用知识库
@@ -170,6 +179,8 @@ export interface CreateAgentRequest {
   description?: string;
   avatar?: string;
   config?: CustomAgentConfig;
+  /** Only the system-admin /admin runtime may set this. */
+  platform_managed?: boolean;
 }
 
 // 更新智能体请求

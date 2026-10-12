@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
@@ -90,4 +91,35 @@ func TestResolveTenantSandboxRuntimeConfigUsesPersistedConfigBeforeEnvironment(t
 	require.True(t, fallback)
 	require.Equal(t, 15, timeout)
 	require.Equal(t, "env-image", image)
+}
+
+func TestTenantSandboxConfigLifecycleAndCheck(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&types.TenantSandboxConfig{}))
+
+	svc := NewTenantSandboxConfigService(repository.NewTenantSandboxConfigRepository(db))
+	ctx := context.Background()
+	config, err := svc.Create(ctx, 7, &types.TenantSandboxConfig{
+		Name:            "local",
+		Mode:            types.TenantSandboxModeLocal,
+		Enabled:         true,
+		FallbackEnabled: true,
+	})
+	require.NoError(t, err)
+	check, err := svc.Check(ctx, 7, config.ID)
+	require.NoError(t, err)
+	require.Equal(t, types.TenantSandboxModeLocal, check.EffectiveMode)
+	require.True(t, check.Available)
+
+	_, err = svc.Activate(ctx, 7, config.ID)
+	require.NoError(t, err)
+	err = svc.Delete(ctx, 7, config.ID)
+	require.ErrorIs(t, err, types.ErrTenantSandboxConfigActive)
+	_, err = svc.Deactivate(ctx, 7, config.ID)
+	require.NoError(t, err)
+	require.NoError(t, svc.Delete(ctx, 7, config.ID))
+	_, err = svc.Get(ctx, 7, config.ID)
+	require.ErrorIs(t, err, ErrTenantSandboxConfigNotFound)
+	require.False(t, errors.Is(err, types.ErrTenantSandboxConfigActive))
 }

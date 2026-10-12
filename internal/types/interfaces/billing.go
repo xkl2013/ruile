@@ -112,6 +112,7 @@ type BillingRepository interface {
 	SettleUsage(ctx context.Context, handle *types.BillingUsageHandle, ledger *types.TenantUsageLedger) (*types.TenantUsageLedger, error)
 	ListUsageLedgers(ctx context.Context, tenantID uint64, limit int) ([]*types.BillingUsageLedgerSummary, error)
 	ListUsageLedgersByActor(ctx context.Context, tenantID uint64, actorUserID string, limit int) ([]*types.BillingUsageLedgerSummary, error)
+	ListUsageLedgersByDelegationRun(ctx context.Context, tenantID uint64, delegationRunID string, limit int) ([]*types.BillingUsageLedgerSummary, error)
 	GetPeriodUsedPointMicros(ctx context.Context, tenantID uint64, periodStart, periodEnd time.Time) (int64, error)
 	ListUsageSummaryByActor(ctx context.Context, actorUserIDs []string) ([]*types.BillingActorUsageSummary, error)
 	ListStorageUsageSummaryByActor(ctx context.Context, tenantID uint64) ([]*types.BillingActorStorageUsageSummary, error)

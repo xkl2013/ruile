@@ -108,3 +108,30 @@ func (r *tenantSandboxConfigRepository) SetActive(ctx context.Context, tenantID 
 		return nil
 	})
 }
+
+func (r *tenantSandboxConfigRepository) SetInactive(ctx context.Context, tenantID uint64, id string) error {
+	result := r.db.WithContext(ctx).
+		Model(&types.TenantSandboxConfig{}).
+		Where("tenant_id = ? AND id = ?", tenantID, strings.TrimSpace(id)).
+		Update("active", false)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *tenantSandboxConfigRepository) Delete(ctx context.Context, tenantID uint64, id string) error {
+	result := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND id = ?", tenantID, strings.TrimSpace(id)).
+		Delete(&types.TenantSandboxConfig{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}

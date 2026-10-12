@@ -414,6 +414,8 @@ func (s *usageBillingService) SettleModelUsage(
 		ID:                  uuid.NewString(),
 		TenantID:            handle.Request.TenantID,
 		ActorUserID:         handle.Request.ActorUserID,
+		DelegationRunID:     handle.Request.DelegationRunID,
+		AgentID:             handle.Request.AgentID,
 		UsageScope:          handle.UsageScope,
 		AllocationID:        handle.AllocationID,
 		RefNo:               handle.Request.RefNo,
@@ -526,6 +528,15 @@ func (s *usageBillingService) ListUsageLedgersByActor(
 	limit int,
 ) ([]*types.BillingUsageLedgerSummary, error) {
 	return s.billing.ListUsageLedgersByActor(ctx, tenantID, actorUserID, limit)
+}
+
+func (s *usageBillingService) ListUsageLedgersByDelegationRun(
+	ctx context.Context,
+	tenantID uint64,
+	delegationRunID string,
+	limit int,
+) ([]*types.BillingUsageLedgerSummary, error) {
+	return s.billing.ListUsageLedgersByDelegationRun(ctx, tenantID, delegationRunID, limit)
 }
 
 func (s *usageBillingService) ListUsageSummaryByActor(

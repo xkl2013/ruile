@@ -17,11 +17,12 @@ import (
 
 // Custom agent related errors
 var (
-	ErrAgentNotFound                   = errors.New("agent not found")
-	ErrCannotModifyBuiltin             = errors.New("cannot modify built-in agent basic info")
-	ErrCannotDeleteBuiltin             = errors.New("cannot delete built-in agent")
-	ErrAgentNameRequired               = errors.New("agent name is required")
-	ErrBuiltinAgentRequiresSystemAdmin = errors.New("system administrator required to modify built-in agent")
+	ErrAgentNotFound                    = errors.New("agent not found")
+	ErrCannotModifyBuiltin              = errors.New("cannot modify built-in agent basic info")
+	ErrCannotDeleteBuiltin              = errors.New("cannot delete built-in agent")
+	ErrAgentNameRequired                = errors.New("agent name is required")
+	ErrBuiltinAgentRequiresSystemAdmin  = errors.New("system administrator required to modify built-in agent")
+	ErrPlatformAgentRequiresSystemAdmin = errors.New("system administrator required to manage platform agent")
 )
 
 // customAgentService implements the CustomAgentService interface
@@ -68,8 +69,19 @@ func (s *customAgentService) CreateAgent(ctx context.Context, agent *types.Custo
 		agent.ID = uuid.New().String()
 	}
 
-	// Get tenant ID from context
+	platformManaged := agent.IsBuiltin
+	if platformManaged && !types.IsSystemAdminFromContext(ctx) {
+		return nil, ErrPlatformAgentRequiresSystemAdmin
+	}
+
+	// Platform-managed agents are stored once at tenant 0 and projected into
+	// each active workspace at read time. Ordinary agents remain workspace
+	// scoped and keep the existing tenant context.
 	tenantID, ok := types.TenantIDFromContext(ctx)
+	if platformManaged {
+		tenantID = types.SystemAgentTenantID
+		ok = true
+	}
 	if !ok {
 		return nil, ErrInvalidTenantID
 	}
@@ -93,8 +105,9 @@ func (s *customAgentService) CreateAgent(ctx context.Context, agent *types.Custo
 		agent.Config.AgentMode = types.AgentModeQuickAnswer
 	}
 
-	// Cannot create built-in agents
-	agent.IsBuiltin = false
+	// Only the platform-admin create path may persist a platform-managed
+	// agent. Normal workspace agents are always non-builtin.
+	agent.IsBuiltin = platformManaged
 
 	// Set defaults
 	agent.EnsureDefaults()
@@ -146,16 +159,30 @@ func (s *customAgentService) GetAgentByID(ctx context.Context, id string) (*type
 		}
 	}
 
-	// Query from database
+	// Query from the active workspace first.
 	agent, err := s.repo.GetAgentByID(ctx, id, tenantID)
 	if err != nil {
-		if errors.Is(err, repository.ErrCustomAgentNotFound) {
+		if !errors.Is(err, repository.ErrCustomAgentNotFound) {
+			logger.ErrorWithFields(ctx, err, map[string]interface{}{
+				"agent_id": id,
+			})
+			return nil, err
+		}
+		// Custom platform-managed agents use stable IDs but are not part of
+		// the built-in registry. Resolve them from the global tenant and
+		// project their runtime tenant back to the caller's workspace.
+		platformAgent, platformErr := s.repo.GetAgentByID(ctx, id, types.SystemAgentTenantID)
+		if platformErr != nil {
+			if errors.Is(platformErr, repository.ErrCustomAgentNotFound) {
+				return nil, ErrAgentNotFound
+			}
+			return nil, platformErr
+		}
+		if platformAgent == nil || !platformAgent.IsBuiltin {
 			return nil, ErrAgentNotFound
 		}
-		logger.ErrorWithFields(ctx, err, map[string]interface{}{
-			"agent_id": id,
-		})
-		return nil, err
+		platformAgent.EnsureDefaults()
+		return exposeBuiltinAgentToWorkspace(platformAgent, tenantID), nil
 	}
 
 	agent.EnsureDefaults()
@@ -255,17 +282,34 @@ func (s *customAgentService) UpdateAgent(ctx context.Context, agent *types.Custo
 		return s.updateBuiltinAgent(ctx, agent, tenantID)
 	}
 
-	// Get existing agent
+	// Get existing agent. Platform-managed custom agents are stored in the
+	// global tenant and can only be changed by a system administrator.
 	existingAgent, err := s.repo.GetAgentByID(ctx, agent.ID, tenantID)
 	if err != nil {
 		if errors.Is(err, repository.ErrCustomAgentNotFound) {
-			return nil, ErrAgentNotFound
+			if !types.IsSystemAdminFromContext(ctx) {
+				return nil, ErrAgentNotFound
+			}
+			existingAgent, err = s.repo.GetAgentByID(ctx, agent.ID, types.SystemAgentTenantID)
+			if err != nil {
+				if errors.Is(err, repository.ErrCustomAgentNotFound) {
+					return nil, ErrAgentNotFound
+				}
+				return nil, err
+			}
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
 
 	// Cannot modify built-in status
 	if existingAgent.IsBuiltin {
+		if existingAgent.TenantID == types.SystemAgentTenantID {
+			if !types.IsSystemAdminFromContext(ctx) {
+				return nil, ErrPlatformAgentRequiresSystemAdmin
+			}
+			return s.updatePlatformAgent(ctx, existingAgent, agent, tenantID)
+		}
 		return nil, ErrCannotModifyBuiltin
 	}
 
@@ -298,6 +342,34 @@ func (s *customAgentService) UpdateAgent(ctx context.Context, agent *types.Custo
 
 	logger.Infof(ctx, "Custom agent updated successfully, ID: %s", agent.ID)
 	return existingAgent, nil
+}
+
+func (s *customAgentService) updatePlatformAgent(
+	ctx context.Context,
+	existingAgent *types.CustomAgent,
+	agent *types.CustomAgent,
+	workspaceTenantID uint64,
+) (*types.CustomAgent, error) {
+	if !types.IsSystemAdminFromContext(ctx) {
+		return nil, ErrPlatformAgentRequiresSystemAdmin
+	}
+	if strings.TrimSpace(agent.Name) == "" {
+		return nil, ErrAgentNameRequired
+	}
+
+	existingAgent.Name = agent.Name
+	existingAgent.Description = agent.Description
+	existingAgent.Avatar = agent.Avatar
+	existingAgent.Config = agent.Config
+	existingAgent.UpdatedAt = time.Now()
+	existingAgent.EnsureDefaults()
+	if err := existingAgent.Config.QuestionSuggestions.Validate(); err != nil {
+		return nil, err
+	}
+	if err := s.repo.UpdateAgent(ctx, existingAgent); err != nil {
+		return nil, err
+	}
+	return exposeBuiltinAgentToWorkspace(existingAgent, workspaceTenantID), nil
 }
 
 // updateBuiltinAgent updates a built-in agent's configuration (but not basic info)
@@ -385,7 +457,7 @@ func (s *customAgentService) DeleteAgent(ctx context.Context, id string) error {
 		return errors.New("agent ID cannot be empty")
 	}
 
-	// Cannot delete built-in agents using registry check
+	// Cannot delete registered built-in agents using registry check
 	if types.IsBuiltinAgentID(id) {
 		return ErrCannotDeleteBuiltin
 	}
@@ -400,13 +472,29 @@ func (s *customAgentService) DeleteAgent(ctx context.Context, id string) error {
 	existingAgent, err := s.repo.GetAgentByID(ctx, id, tenantID)
 	if err != nil {
 		if errors.Is(err, repository.ErrCustomAgentNotFound) {
-			return ErrAgentNotFound
+			if !types.IsSystemAdminFromContext(ctx) {
+				return ErrAgentNotFound
+			}
+			existingAgent, err = s.repo.GetAgentByID(ctx, id, types.SystemAgentTenantID)
+			if err != nil {
+				if errors.Is(err, repository.ErrCustomAgentNotFound) {
+					return ErrAgentNotFound
+				}
+				return err
+			}
+		} else {
+			return err
 		}
-		return err
 	}
 
 	// Cannot delete built-in agents
 	if existingAgent.IsBuiltin {
+		if existingAgent.TenantID == types.SystemAgentTenantID {
+			if !types.IsSystemAdminFromContext(ctx) {
+				return ErrPlatformAgentRequiresSystemAdmin
+			}
+			return s.repo.DeleteAgent(ctx, id, types.SystemAgentTenantID)
+		}
 		return ErrCannotDeleteBuiltin
 	}
 

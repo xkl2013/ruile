@@ -146,6 +146,32 @@ func TestBillingChatUsesExplicitServiceCodeAndBypass(t *testing.T) {
 	}
 }
 
+func TestBillingChatCarriesDelegationAttribution(t *testing.T) {
+	recorder := &usageBillingRecorder{}
+	model := wrapBillingChat(billingTestChat{}, recorder)
+	ctx := types.WithAgentDelegationAttribution(
+		billingTestContext(),
+		types.AgentDelegationAttribution{
+			RunID:           "delegation-run-1",
+			AgentID:         "member-agent-1",
+			ParentSessionID: "session-7",
+		},
+	)
+
+	if _, err := model.Chat(ctx, []chat.Message{{Role: "user", Content: "hello"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.starts) != 1 {
+		t.Fatalf("starts=%d, want 1", len(recorder.starts))
+	}
+	request := recorder.starts[0]
+	if request.DelegationRunID != "delegation-run-1" ||
+		request.AgentID != "member-agent-1" ||
+		request.SessionID != "session-7" {
+		t.Fatalf("request=%+v, want delegated attribution", request)
+	}
+}
+
 func TestBillingEmbedderKeepsOwnServiceCode(t *testing.T) {
 	recorder := &usageBillingRecorder{}
 	model := wrapBillingEmbedder(billingTestEmbedder{}, recorder)

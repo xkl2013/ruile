@@ -44,10 +44,11 @@ func NewCustomAgentHandler(
 
 // CreateAgentRequest defines the request body for creating an agent
 type CreateAgentRequest struct {
-	Name        string                  `json:"name" binding:"required"`
-	Description string                  `json:"description"`
-	Avatar      string                  `json:"avatar"`
-	Config      types.CustomAgentConfig `json:"config"`
+	Name            string                  `json:"name" binding:"required"`
+	Description     string                  `json:"description"`
+	Avatar          string                  `json:"avatar"`
+	Config          types.CustomAgentConfig `json:"config"`
+	PlatformManaged bool                    `json:"platform_managed"`
 }
 
 // UpdateAgentRequest defines the request body for updating an agent
@@ -93,6 +94,7 @@ func (h *CustomAgentHandler) CreateAgent(c *gin.Context) {
 		Description: req.Description,
 		Avatar:      req.Avatar,
 		Config:      req.Config,
+		IsBuiltin:   req.PlatformManaged,
 	}
 	agent.EnsureDefaults()
 	if err := agent.Config.QuestionSuggestions.Validate(); err != nil {
@@ -109,6 +111,10 @@ func (h *CustomAgentHandler) CreateAgent(c *gin.Context) {
 		logger.ErrorWithFields(ctx, err, nil)
 		if err == service.ErrAgentNameRequired {
 			c.Error(errors.NewBadRequestError(err.Error()))
+			return
+		}
+		if err == service.ErrPlatformAgentRequiresSystemAdmin {
+			c.Error(errors.NewForbiddenError(err.Error()))
 			return
 		}
 		c.Error(errors.NewInternalServerError(err.Error()))
@@ -362,6 +368,8 @@ func (h *CustomAgentHandler) UpdateAgent(c *gin.Context) {
 			c.Error(errors.NewNotFoundError("Agent not found"))
 		case service.ErrCannotModifyBuiltin, service.ErrBuiltinAgentRequiresSystemAdmin:
 			c.Error(errors.NewForbiddenError("Cannot modify built-in agent"))
+		case service.ErrPlatformAgentRequiresSystemAdmin:
+			c.Error(errors.NewForbiddenError(err.Error()))
 		case service.ErrAgentNameRequired:
 			c.Error(errors.NewBadRequestError(err.Error()))
 		default:
@@ -429,7 +437,7 @@ func (h *CustomAgentHandler) DeleteAgent(c *gin.Context) {
 		switch err {
 		case service.ErrAgentNotFound:
 			c.Error(errors.NewNotFoundError("Agent not found"))
-		case service.ErrCannotDeleteBuiltin:
+		case service.ErrCannotDeleteBuiltin, service.ErrPlatformAgentRequiresSystemAdmin:
 			c.Error(errors.NewForbiddenError("Cannot delete built-in agent"))
 		default:
 			c.Error(errors.NewInternalServerError(err.Error()))

@@ -1,19 +1,26 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,10 +40,19 @@ const (
 type expertPackageService struct {
 	repo        interfaces.ExpertPackageRepository
 	fileService interfaces.FileService
+	agentRepo   interfaces.CustomAgentRepository
 }
 
 func NewExpertPackageService(repo interfaces.ExpertPackageRepository, fileService interfaces.FileService) interfaces.ExpertPackageService {
 	return &expertPackageService{repo: repo, fileService: fileService}
+}
+
+func NewExpertPackageServiceWithAgentRepository(
+	repo interfaces.ExpertPackageRepository,
+	fileService interfaces.FileService,
+	agentRepo interfaces.CustomAgentRepository,
+) interfaces.ExpertPackageService {
+	return &expertPackageService{repo: repo, fileService: fileService, agentRepo: agentRepo}
 }
 
 func (s *expertPackageService) ImportPackage(
@@ -181,6 +197,21 @@ func (s *expertPackageService) ListPublishedExperts(ctx context.Context, tenantI
 	return experts, nil
 }
 
+func (s *expertPackageService) SyncPublishedAgents(ctx context.Context, tenantID uint64, actorID string) error {
+	if tenantID == 0 {
+		return ErrExpertPackageInvalidInput
+	}
+	if s.agentRepo == nil {
+		return nil
+	}
+	definitions, err := s.repo.ListPublishedDefinitions(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	s.syncVersionAgents(ctx, tenantID, actorID, definitions)
+	return nil
+}
+
 func (s *expertPackageService) GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error) {
 	pkg, err := s.repo.GetPackage(ctx, tenantID, id)
 	if err != nil {
@@ -248,7 +279,235 @@ func (s *expertPackageService) PublishVersion(
 	if expertPackageHasBlockingDiagnostics(version.Diagnostics) {
 		return ErrExpertPackageInvalidInput
 	}
-	return s.repo.PublishVersion(ctx, tenantID, packageID, versionID, actorID)
+	if err := s.repo.PublishVersion(ctx, tenantID, packageID, versionID, actorID); err != nil {
+		return err
+	}
+	// Published WorkBuddy definitions are also exposed as regular custom
+	// Agents so the existing orchestration member selector and delegate_agent
+	// runtime can use the same stable IDs.
+	s.syncVersionAgents(ctx, tenantID, actorID, version.Definitions)
+	return nil
+}
+
+func (s *expertPackageService) syncVersionAgents(
+	ctx context.Context,
+	tenantID uint64,
+	actorID string,
+	definitions []*types.AgentDefinitionVersion,
+) {
+	if s.agentRepo == nil {
+		return
+	}
+	for _, definition := range definitions {
+		if definition == nil {
+			continue
+		}
+		if err := s.syncDefinitionAgent(ctx, tenantID, actorID, definition); err != nil {
+			logger.Warnf(ctx, "Failed to sync published expert %q into custom Agent: %v", definition.AgentID, err)
+		}
+	}
+}
+
+func (s *expertPackageService) syncDefinitionAgent(
+	ctx context.Context,
+	tenantID uint64,
+	actorID string,
+	definition *types.AgentDefinitionVersion,
+) error {
+	if err := s.enrichDefinitionSkillSnapshots(ctx, tenantID, definition); err != nil {
+		logger.Warnf(ctx, "Failed to hydrate embedded Skill files for expert %q: %v", definition.AgentID, err)
+	}
+
+	var config types.CustomAgentConfig
+	compiled, err := json.Marshal(definition.CompiledConfig)
+	if err != nil {
+		return err
+	}
+	if len(compiled) > 0 && string(compiled) != "null" {
+		if err := json.Unmarshal(compiled, &config); err != nil {
+			return err
+		}
+	}
+	config.AgentMode = types.AgentModeSmartReasoning
+	config.AgentType = types.AgentTypeCustom
+	config.SystemPrompt = definition.SystemPrompt
+	config.SkillsSelectionMode = "selected"
+	config.SelectedSkills = append([]string(nil), definition.Skills...)
+	config.OrchestrationEnabled = false
+	config.MemberAgentIDs = nil
+	// The delegated runtime narrows this to the main Agent's search targets.
+	config.KBSelectionMode = "all"
+
+	name := strings.TrimSpace(definition.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(definition.AgentID)
+	}
+	if name == "" {
+		return fmt.Errorf("expert definition has no display name or agent id")
+	}
+
+	platformManaged := types.IsSystemAdminFromContext(ctx)
+	agentTenantID := tenantID
+	idTenantID := tenantID
+	if platformManaged {
+		agentTenantID = types.SystemAgentTenantID
+		idTenantID = types.SystemAgentTenantID
+	}
+
+	// Keep the generated Agent ID stable across package version updates while
+	// avoiding a collision with ordinary UUID-based custom Agents.
+	agentID := uuid.NewSHA1(
+		uuid.Nil,
+		[]byte(fmt.Sprintf("ruile:published-expert:%d:%s:%s", idTenantID, definition.PackageID, definition.AgentID)),
+	).String()
+	now := time.Now().UTC()
+	agent := &types.CustomAgent{
+		ID:          agentID,
+		Name:        name,
+		Description: strings.TrimSpace(definition.Description),
+		Config:      config,
+		IsBuiltin:   platformManaged,
+		TenantID:    agentTenantID,
+		CreatedBy:   actorID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	agent.EnsureDefaults()
+
+	// Before platform-scoped sync was introduced, the same expert was
+	// materialized under the selected workspace using a tenant-derived ID.
+	// Promote that row in place when it exists so an already published expert
+	// does not leave a second, hidden workspace copy behind.
+	var legacy *types.CustomAgent
+	if platformManaged && tenantID != types.SystemAgentTenantID {
+		legacyID := uuid.NewSHA1(
+			uuid.Nil,
+			[]byte(fmt.Sprintf("ruile:published-expert:%d:%s:%s", tenantID, definition.PackageID, definition.AgentID)),
+		).String()
+		if legacyID != agentID {
+			legacy, err = s.agentRepo.GetAgentByID(ctx, legacyID, tenantID)
+			if err != nil && !errors.Is(err, repository.ErrCustomAgentNotFound) {
+				return err
+			}
+		}
+	}
+
+	existing, err := s.agentRepo.GetAgentByID(ctx, agentID, agentTenantID)
+	if err != nil && !errors.Is(err, repository.ErrCustomAgentNotFound) {
+		return err
+	}
+	if existing == nil {
+		if legacy != nil {
+			agent.ID = legacy.ID
+		}
+		if err := s.agentRepo.CreateAgent(ctx, agent); err != nil {
+			return err
+		}
+		if legacy != nil {
+			return s.agentRepo.DeleteAgent(ctx, legacy.ID, legacy.TenantID)
+		}
+		return nil
+	}
+
+	existing.Name = agent.Name
+	existing.Description = agent.Description
+	existing.Avatar = agent.Avatar
+	existing.Config = agent.Config
+	existing.IsBuiltin = platformManaged
+	existing.TenantID = agentTenantID
+	existing.UpdatedAt = now
+	if err := s.agentRepo.UpdateAgent(ctx, existing); err != nil {
+		return err
+	}
+	if legacy != nil {
+		return s.agentRepo.DeleteAgent(ctx, legacy.ID, legacy.TenantID)
+	}
+	return nil
+}
+
+func (s *expertPackageService) enrichDefinitionSkillSnapshots(
+	ctx context.Context,
+	tenantID uint64,
+	definition *types.AgentDefinitionVersion,
+) error {
+	if s.fileService == nil || definition == nil || len(definition.Skills) == 0 {
+		return nil
+	}
+	pkg, err := s.repo.GetPackage(ctx, tenantID, definition.PackageID)
+	if err != nil {
+		return err
+	}
+	if pkg == nil || strings.TrimSpace(pkg.SourceURI) == "" {
+		return nil
+	}
+	reader, err := s.fileService.GetFile(ctx, pkg.SourceURI)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	archiveRoot := ""
+	if version, versionErr := s.repo.GetVersion(ctx, tenantID, definition.PackageID, definition.PackageVersionID); versionErr != nil {
+		return versionErr
+	} else if version != nil {
+		if value, ok := version.Manifest["archive_root"].(string); ok {
+			archiveRoot = strings.Trim(strings.TrimSpace(value), "/")
+		}
+	}
+
+	data, err := io.ReadAll(io.LimitReader(reader, ExpertPackageMaxArchiveBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > ExpertPackageMaxArchiveBytes {
+		return fmt.Errorf("expert package archive exceeds %d bytes", ExpertPackageMaxArchiveBytes)
+	}
+	archiveReader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	files := make(map[string]*zip.File, len(archiveReader.File))
+	for _, entry := range archiveReader.File {
+		cleanPath, pathErr := safeExpertPackagePath(entry.Name)
+		if pathErr != nil {
+			continue
+		}
+		relativePath, ok := expertArchiveSkillRelativePath(cleanPath, archiveRoot)
+		if ok {
+			files[relativePath] = entry
+		}
+	}
+	snapshots, err := expertSkillSnapshotsFromArchive(files, []string(definition.Skills))
+	if err != nil {
+		return err
+	}
+	if len(snapshots) == 0 {
+		return nil
+	}
+	if definition.CompiledConfig == nil {
+		definition.CompiledConfig = types.JSONMap{}
+	}
+	definition.CompiledConfig["skill_snapshots"] = snapshots
+	return nil
+}
+
+func expertArchiveSkillRelativePath(filePath, archiveRoot string) (string, bool) {
+	filePath = path.Clean(strings.TrimSpace(filePath))
+	if filePath == "." || filePath == "" {
+		return "", false
+	}
+	if archiveRoot != "" {
+		if relative, ok := archiveRelativePath(archiveRoot, filePath); ok {
+			filePath = relative
+		}
+	}
+	if strings.HasPrefix(filePath, "skills/") {
+		return filePath, true
+	}
+	if index := strings.Index(filePath, "/skills/"); index >= 0 {
+		return strings.TrimPrefix(filePath[index+1:], "/"), true
+	}
+	return "", false
 }
 
 type expertAgentFrontMatter struct {
@@ -377,19 +636,37 @@ func cleanExpertMap(value map[string]any) map[string]any {
 }
 
 func expertSkillSnapshotsFromText(files map[string]string, skills []string) []map[string]any {
-	snapshots := make([]map[string]any, 0, len(skills))
+	allowed := make(map[string]struct{}, len(skills))
 	for _, skill := range skills {
-		skillPath := path.Join("skills", skill, "SKILL.md")
-		content, ok := files[skillPath]
-		if !ok {
+		allowed[strings.TrimSpace(skill)] = struct{}{}
+	}
+	paths := make([]string, 0, len(files))
+	for filePath := range files {
+		paths = append(paths, filePath)
+	}
+	sort.Strings(paths)
+
+	snapshots := make([]map[string]any, 0, len(paths))
+	for _, filePath := range paths {
+		cleanPath := path.Clean(filePath)
+		if !strings.HasPrefix(cleanPath, "skills/") {
 			continue
 		}
+		parts := strings.Split(cleanPath, "/")
+		if len(parts) < 3 {
+			continue
+		}
+		skill := parts[1]
+		if _, ok := allowed[skill]; !ok {
+			continue
+		}
+		content := files[filePath]
 		if utf8.RuneCountInString(content) > expertPackageMaxSkillSnapshotRunes {
 			content = string([]rune(content)[:expertPackageMaxSkillSnapshotRunes])
 		}
 		snapshots = append(snapshots, map[string]any{
 			"name":    skill,
-			"path":    skillPath,
+			"path":    cleanPath,
 			"content": content,
 			"sha256":  expertStringHash(content),
 		})

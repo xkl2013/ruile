@@ -98,6 +98,16 @@ type CustomAgent struct {
 	CreatorName string `yaml:"-" json:"creator_name,omitempty" gorm:"-"`
 }
 
+// CustomAgentSkillSnapshot stores an immutable Skill file embedded in an
+// imported expert package. It is materialized into the runtime Skill search
+// path when the Agent runs, so imported experts remain self-contained.
+type CustomAgentSkillSnapshot struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	SHA256  string `json:"sha256"`
+}
+
 // CustomAgentConfig represents the configuration of a custom agent
 type CustomAgentConfig struct {
 	// ===== Basic Settings =====
@@ -155,15 +165,18 @@ type CustomAgentConfig struct {
 	MCPAuthWaitTimeout int `yaml:"mcp_auth_wait_timeout,omitempty" json:"mcp_auth_wait_timeout,omitempty"`
 
 	// ===== Multi-agent Orchestration Settings =====
-	OrchestrationEnabled bool     `yaml:"orchestration_enabled,omitempty" json:"orchestration_enabled,omitempty"`
-	MemberAgentIDs       []string `yaml:"member_agent_ids,omitempty" json:"member_agent_ids,omitempty"`
-	MaxParallelMembers   int      `yaml:"max_parallel_members,omitempty" json:"max_parallel_members,omitempty"`
+	OrchestrationEnabled     bool     `yaml:"orchestration_enabled,omitempty" json:"orchestration_enabled,omitempty"`
+	MemberAgentIDs           []string `yaml:"member_agent_ids,omitempty" json:"member_agent_ids,omitempty"`
+	MaxParallelMembers       int      `yaml:"max_parallel_members,omitempty" json:"max_parallel_members,omitempty"`
+	DelegationTimeoutSeconds int      `yaml:"delegation_timeout_seconds,omitempty" json:"delegation_timeout_seconds,omitempty"`
 
 	// ===== Skills Settings (only for smart-reasoning mode) =====
 	// Skills selection mode: "all" = all preloaded skills, "selected" = specific skills, "none" = no skills
 	SkillsSelectionMode string `yaml:"skills_selection_mode" json:"skills_selection_mode"`
 	// Selected skill names (only used when SkillsSelectionMode is "selected")
 	SelectedSkills []string `yaml:"selected_skills" json:"selected_skills"`
+	// SkillSnapshots contains embedded files from an imported expert package.
+	SkillSnapshots []CustomAgentSkillSnapshot `yaml:"skill_snapshots,omitempty" json:"skill_snapshots,omitempty"`
 	// ===== Knowledge Base Settings =====
 	// Knowledge base selection mode: "all" = all KBs, "selected" = specific KBs, "none" = no KB
 	KBSelectionMode string `yaml:"kb_selection_mode" json:"kb_selection_mode"`

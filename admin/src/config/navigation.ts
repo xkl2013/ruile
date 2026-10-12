@@ -58,7 +58,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         key: 'agents',
         label: '智能体',
-        description: '统一维护平台内置智能体',
+        description: '统一维护平台级智能体',
         icon: 'control-platform',
         path: '/agents',
         requiresSystemAdmin: true,
@@ -70,6 +70,15 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: 'code',
         path: '/skills',
         requiresSystemAdmin: true,
+      },
+      {
+        key: 'agent-runtime',
+        label: 'Agent 运行时',
+        description: '管理当前工作区的 Sandbox 策略和 Skill 快照',
+        icon: 'control-platform',
+        path: '/agent-runtime',
+        minRole: 'admin',
+        requiresTenant: true,
       },
       {
         key: 'organize-templates',

@@ -107,6 +107,21 @@ func (r *expertPackageRepository) ListPublishedExperts(ctx context.Context, tena
 	return experts, nil
 }
 
+func (r *expertPackageRepository) ListPublishedDefinitions(ctx context.Context, tenantID uint64) ([]*types.AgentDefinitionVersion, error) {
+	var definitions []*types.AgentDefinitionVersion
+	err := r.db.WithContext(ctx).Table("agent_definition_versions AS d").
+		Select("d.*").
+		Joins("JOIN expert_package_versions v ON v.id = d.package_version_id AND v.deleted_at IS NULL").
+		Joins("JOIN expert_packages p ON p.id = d.package_id AND p.deleted_at IS NULL").
+		Where("p.tenant_id = ? AND d.deleted_at IS NULL AND v.state = ?", tenantID, types.ExpertPackageVersionPublished).
+		Order("d.display_name ASC, d.version DESC").
+		Find(&definitions).Error
+	if err != nil {
+		return nil, err
+	}
+	return definitions, nil
+}
+
 func (r *expertPackageRepository) GetPackage(ctx context.Context, tenantID uint64, id string) (*types.ExpertPackage, error) {
 	var pkg types.ExpertPackage
 	err := r.db.WithContext(ctx).

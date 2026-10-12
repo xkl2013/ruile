@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/agent/skills"
+	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/stretchr/testify/assert"
@@ -145,4 +147,103 @@ func TestDeriveDelegatedAgentConfigUsesMemberPolicyWithoutNestedDelegation(t *te
 	assert.True(t, child.SkillsEnabled)
 	assert.Equal(t, []string{"skill-a"}, child.AllowedSkills)
 	assert.Equal(t, "parent-kb", child.SearchTargets[0].KnowledgeBaseID)
+}
+
+func TestDeriveDelegatedAgentConfigFiltersMemberKnowledgeBases(t *testing.T) {
+	parent := &types.AgentConfig{
+		KnowledgeBases: []string{"kb-parent", "kb-member"},
+		SearchTargets: types.SearchTargets{
+			&types.SearchTarget{KnowledgeBaseID: "kb-parent"},
+			&types.SearchTarget{KnowledgeBaseID: "kb-member"},
+		},
+	}
+	member := &types.CustomAgent{
+		Config: types.CustomAgentConfig{
+			KBSelectionMode: "selected",
+			KnowledgeBases:  []string{"kb-member"},
+		},
+	}
+
+	child := deriveDelegatedAgentConfig(parent, member)
+
+	require.Equal(t, []string{"kb-member"}, child.KnowledgeBases)
+	require.Len(t, child.SearchTargets, 1)
+	require.Equal(t, "kb-member", child.SearchTargets[0].KnowledgeBaseID)
+}
+
+func TestMaterializeAgentSkillSnapshotsLoadsInstructionsAndReferences(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	dir, err := materializeAgentSkillSnapshots([]types.CustomAgentSkillSnapshot{
+		{
+			Name:    "demo-skill",
+			Path:    "skills/demo-skill/SKILL.md",
+			Content: "---\nname: demo-skill\ndescription: demo\n---\n\n# Demo\n",
+		},
+		{
+			Name:    "demo-skill",
+			Path:    "skills/demo-skill/references/ref.md",
+			Content: "# Ref\n",
+		},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, dir)
+
+	loader := skills.NewLoader([]string{dir})
+	metadata, err := loader.DiscoverSkills()
+	require.NoError(t, err)
+	require.Len(t, metadata, 1)
+	require.Equal(t, "demo-skill", metadata[0].Name)
+
+	skill, err := loader.LoadSkillInstructions("demo-skill")
+	require.NoError(t, err)
+	require.Contains(t, skill.Instructions, "# Demo")
+
+	file, err := loader.LoadSkillFile("demo-skill", "references/ref.md")
+	require.NoError(t, err)
+	require.Equal(t, "# Ref\n", file.Content)
+}
+
+func TestBridgeDelegatedAgentEventsDoesNotForwardCompletion(t *testing.T) {
+	childBus := event.NewEventBus()
+	parentBus := event.NewEventBus()
+	var received []event.Event
+	for _, eventType := range []event.EventType{
+		event.EventAgentThought,
+		event.EventAgentToolCall,
+		event.EventAgentComplete,
+		event.EventAgentFinalAnswer,
+	} {
+		eventType := eventType
+		parentBus.On(eventType, func(_ context.Context, evt event.Event) error {
+			received = append(received, evt)
+			return nil
+		})
+	}
+	bridgeDelegatedAgentEvents(childBus, parentBus, "parent-session", "parent-session::member:a", "member-a")
+
+	require.NoError(t, childBus.Emit(context.Background(), event.Event{
+		ID:        "thought-1",
+		Type:      event.EventAgentThought,
+		SessionID: "parent-session::member:a",
+		Data:      event.AgentThoughtData{Content: "working"},
+	}))
+	require.NoError(t, childBus.Emit(context.Background(), event.Event{
+		ID:        "complete-1",
+		Type:      event.EventAgentComplete,
+		SessionID: "parent-session::member:a",
+		Data:      event.AgentCompleteData{FinalAnswer: "member answer"},
+	}))
+	require.NoError(t, childBus.Emit(context.Background(), event.Event{
+		ID:        "answer-1",
+		Type:      event.EventAgentFinalAnswer,
+		SessionID: "parent-session::member:a",
+		Data:      event.AgentFinalAnswerData{Content: "member answer"},
+	}))
+
+	require.Len(t, received, 1)
+	require.Equal(t, event.EventAgentThought, received[0].Type)
+	require.Equal(t, "parent-session", received[0].SessionID)
+	require.Equal(t, true, received[0].Metadata["delegated"])
+	require.Equal(t, "member-a", received[0].Metadata["delegated_agent_id"])
 }

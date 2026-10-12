@@ -67,3 +67,21 @@ func TestDelegateAgentToolRejectsOversizedBatch(t *testing.T) {
 	require.False(t, result.Success)
 	require.Contains(t, result.Error, "at most")
 }
+
+func TestDelegateAgentToolAppliesPerMemberTimeout(t *testing.T) {
+	tool := NewDelegateAgentToolWithTimeout(
+		[]string{"member-a"},
+		1,
+		10*time.Millisecond,
+		func(ctx context.Context, _ string, _ string) (string, error) {
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	)
+	result, err := tool.Execute(context.Background(), json.RawMessage(`{
+		"items": [{"agent_id":"member-a","task":"wait"}]
+	}`))
+	require.NoError(t, err)
+	require.False(t, result.Success)
+	require.Contains(t, result.Output, "context deadline exceeded")
+}
