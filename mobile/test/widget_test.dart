@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:ruile_mobile/main.dart';
+import 'package:ruile_mobile/agent_voice_recording_overlay.dart';
 import 'package:ruile_mobile/recording_card/jieli_recording_card_page.dart';
 import 'package:ruile_mobile/recording_card/recording_card_support.dart';
 
@@ -249,53 +249,77 @@ void main() {
     expect(find.text('消息'), findsNothing);
   });
 
-  testWidgets('opens an Agent chat from the Xiao Rui quick actions', (
-    tester,
-  ) async {
+  testWidgets('does not show mock experts without API data', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
-    await tester.tap(find.text('家校反馈').first);
-    await _pumpTransition(tester);
-    await tester.pump(const Duration(milliseconds: 100));
-
-    expect(find.text('家校反馈'), findsWidgets);
-    expect(find.text('Agent 会话'), findsOneWidget);
-    expect(find.text('Agent 计划'), findsNothing);
-    expect(find.text('计划流'), findsNothing);
-    expect(find.text('查看轨迹'), findsOneWidget);
-    expect(find.text('帮我写一段今天课堂观察反馈'), findsOneWidget);
-    expect(find.byKey(const ValueKey('agent-voice-composer')), findsOneWidget);
-    expect(find.text('按住 说话'), findsOneWidget);
-    expect(find.byTooltip('切换到键盘'), findsOneWidget);
-    expect(find.byTooltip('拍照'), findsOneWidget);
-    expect(find.byTooltip('更多'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('切换到键盘'));
-    await tester.pump();
-    expect(find.byKey(const ValueKey('agent-text-input')), findsOneWidget);
-    expect(find.byTooltip('切换到语音'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('切换到语音'));
-    await tester.pump();
-    expect(find.text('按住 说话'), findsOneWidget);
-
-    await tester.tap(find.text('帮我写一段今天课堂观察反馈'));
-    await tester.pump();
-    expect(find.text('计划流'), findsOneWidget);
-    expect(find.text('提炼课堂观察'), findsOneWidget);
-
-    for (var index = 0; index < 4; index++) {
-      await tester.pump(const Duration(milliseconds: 500));
-    }
-    await tester.pump(const Duration(milliseconds: 250));
-    expect(find.text('计划流'), findsNothing);
-
-    await tester.tap(find.byTooltip('返回'));
-    await _pumpTransition(tester);
-    expect(find.text('小睿来啦'), findsOneWidget);
+    expect(find.text('家校反馈'), findsNothing);
+    expect(find.text('到访跟进'), findsNothing);
+    expect(find.text('补课通知'), findsNothing);
+    expect(find.text('招生文案'), findsNothing);
+    expect(find.text('暂无可用专家'), findsOneWidget);
   });
 
-  testWidgets('keeps Agent messages inside a compact mobile viewport', (
+  testWidgets('shows the Agent full-screen voice recording overlay', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Center(child: Text('会话内容')),
+              Positioned.fill(
+                child: AgentVoiceRecordingOverlay(
+                  state: AgentVoiceRecordingVisualState(
+                    canceling: false,
+                    levels: const [0.9, 0.7, 0.5, 0.3, 0.2],
+                  ),
+                  accentColor: AppColors.xiaoPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('agent-recording-waveform')),
+      findsOneWidget,
+    );
+    expect(find.text('松开发送，上移取消'), findsOneWidget);
+    expect(find.text('最长可录制 40 秒'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('agent-recording-wave-17')),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Stack(
+            children: [
+              const Center(child: Text('会话内容')),
+              Positioned.fill(
+                child: AgentVoiceRecordingOverlay(
+                  state: AgentVoiceRecordingVisualState(
+                    canceling: true,
+                    levels: const [0.9, 0.7, 0.5, 0.3, 0.2],
+                  ),
+                  accentColor: AppColors.xiaoPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.text('松开取消'), findsOneWidget);
+  });
+
+  testWidgets('keeps Xiao Rui expert state inside a compact mobile viewport', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(320, 700);
@@ -304,15 +328,11 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
-    await tester.tap(find.text('家校反馈').first);
-    await _pumpTransition(tester);
-    await tester.pump(const Duration(milliseconds: 100));
 
-    final responseText = find.byType(MarkdownBody).first;
-    final responseRect = tester.getRect(responseText);
-    expect(responseRect.left, greaterThanOrEqualTo(0));
-    expect(responseRect.right, lessThanOrEqualTo(320));
-    expect(responseRect.width, greaterThan(200));
+    final emptyState = find.text('暂无可用专家');
+    final emptyStateRect = tester.getRect(emptyState);
+    expect(emptyStateRect.left, greaterThanOrEqualTo(0));
+    expect(emptyStateRect.right, lessThanOrEqualTo(320));
     expect(tester.takeException(), isNull);
   });
 
@@ -321,13 +341,12 @@ void main() {
   ) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
-    expect(find.text('家校反馈'), findsOneWidget);
-    expect(find.text('到访跟进'), findsOneWidget);
-    expect(find.text('补课通知'), findsOneWidget);
-    expect(find.text('招生文案'), findsOneWidget);
+    expect(find.text('家校反馈'), findsNothing);
+    expect(find.text('到访跟进'), findsNothing);
+    expect(find.text('补课通知'), findsNothing);
+    expect(find.text('招生文案'), findsNothing);
 
-    await tester.drag(find.byType(ListView).first, const Offset(0, -420));
-    await tester.pump();
+    await tester.ensureVisible(find.text('专家广场'));
     await tester.tap(find.text('专家广场'));
     await _pumpTransition(tester);
 
@@ -338,20 +357,58 @@ void main() {
       return key is ValueKey<String> &&
           key.value.startsWith('expert-list-item-');
     });
-    expect(expertItems, findsNWidgets(4));
-    final themedTagTexts = tester.widgetList<Text>(find.text('家校沟通'));
-    expect(themedTagTexts, isNotEmpty);
-    expect(
-      themedTagTexts.every(
-        (text) => text.style?.color == AppColors.xiaoPrimary,
-      ),
-      isTrue,
+    expect(expertItems, findsNothing);
+    expect(find.text('暂无可用专家'), findsWidgets);
+  });
+
+  testWidgets('shows pending recording card audio in the Xiao Rui banner', (
+    tester,
+  ) async {
+    RecordingCardPendingAudioStatusBus.clear();
+    addTearDown(RecordingCardPendingAudioStatusBus.clear);
+
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    RecordingCardPendingAudioStatusBus.publish(2);
+    await tester.pump();
+
+    expect(find.text('记忆卡待同步'), findsOneWidget);
+    expect(find.text('今天2条记忆卡音频待同步'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('xiao-reminder-banner')));
+    await _pumpTransition(tester);
+
+    expect(find.byType(JieliRecordingCardPage), findsOneWidget);
+  });
+
+  testWidgets('pulling down refreshes the Xiao Rui reminder banner', (
+    tester,
+  ) async {
+    RecordingCardPendingAudioStatusBus.clear();
+    final refreshOwner = Object();
+    addTearDown(() {
+      RecordingCardPendingAudioStatusBus.unregisterRefreshLoader(refreshOwner);
+      RecordingCardPendingAudioStatusBus.clear();
+    });
+
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    var refreshCount = 0;
+    RecordingCardPendingAudioStatusBus.registerRefreshLoader(
+      refreshOwner,
+      () async {
+        refreshCount += 1;
+        RecordingCardPendingAudioStatusBus.publish(3);
+      },
     );
 
-    await tester.tap(expertItems.first);
-    await _pumpTransition(tester);
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Agent 会话'), findsOneWidget);
+    await tester.drag(
+      find.byKey(const Key('xiao-home-list')),
+      const Offset(0, 320),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(refreshCount, 1);
+    expect(find.text('今天3条记忆卡音频待同步'), findsOneWidget);
   });
 
   testWidgets('opens the recording card from the disconnected header prompt', (
@@ -371,6 +428,11 @@ void main() {
     );
     await tester.pump();
     expect(find.byKey(promptKey), findsNothing);
+    expect(
+      find.byKey(const Key('main-header-recording-card-status-记忆')),
+      findsOneWidget,
+    );
+    expect(find.text('已连接记忆卡'), findsOneWidget);
 
     RecordingCardConnectionStatusBus.clear();
     await tester.pump();

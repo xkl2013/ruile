@@ -23,38 +23,36 @@ enum RecordingCardFileTransferStatus {
 
 extension RecordingCardFileTransferStatusX on RecordingCardFileTransferStatus {
   String get label => switch (this) {
-        RecordingCardFileTransferStatus.listed => '已识别',
-        RecordingCardFileTransferStatus.downloadPending => '待蓝牙传输',
-        RecordingCardFileTransferStatus.downloading => '蓝牙传输中',
-        RecordingCardFileTransferStatus.paused => '已暂停传输',
-        RecordingCardFileTransferStatus.checksumFailed => '校验失败',
-        RecordingCardFileTransferStatus.stoppingForRetry => '等待停止确认',
-        RecordingCardFileTransferStatus.retryPending => '断点重传中',
-        RecordingCardFileTransferStatus.downloaded => '待自动生成',
-        RecordingCardFileTransferStatus.cloudSyncPending => '自动生成队列',
-        RecordingCardFileTransferStatus.cloudSyncing => '上传中',
-        RecordingCardFileTransferStatus.cloudSyncFailed => '生成失败',
-        RecordingCardFileTransferStatus.synced => '已上传，等待转写',
-        RecordingCardFileTransferStatus.failed => '下载失败',
-        RecordingCardFileTransferStatus.deletedOnDevice => '已删设备文件',
-      };
+    RecordingCardFileTransferStatus.listed => '已识别',
+    RecordingCardFileTransferStatus.downloadPending => '待蓝牙传输',
+    RecordingCardFileTransferStatus.downloading => '蓝牙传输中',
+    RecordingCardFileTransferStatus.paused => '已暂停传输',
+    RecordingCardFileTransferStatus.checksumFailed => '校验失败',
+    RecordingCardFileTransferStatus.stoppingForRetry => '等待停止确认',
+    RecordingCardFileTransferStatus.retryPending => '断点重传中',
+    RecordingCardFileTransferStatus.downloaded => '待自动生成',
+    RecordingCardFileTransferStatus.cloudSyncPending => '自动生成队列',
+    RecordingCardFileTransferStatus.cloudSyncing => '上传中',
+    RecordingCardFileTransferStatus.cloudSyncFailed => '生成失败',
+    RecordingCardFileTransferStatus.synced => '已上传，等待转写',
+    RecordingCardFileTransferStatus.failed => '下载失败',
+    RecordingCardFileTransferStatus.deletedOnDevice => '已删设备文件',
+  };
 
   bool get isTerminal => switch (this) {
-        RecordingCardFileTransferStatus.synced ||
-        RecordingCardFileTransferStatus.failed ||
-        RecordingCardFileTransferStatus.deletedOnDevice =>
-          true,
-        _ => false,
-      };
+    RecordingCardFileTransferStatus.synced ||
+    RecordingCardFileTransferStatus.failed ||
+    RecordingCardFileTransferStatus.deletedOnDevice => true,
+    _ => false,
+  };
 
   bool get needsCloudSync => switch (this) {
-        RecordingCardFileTransferStatus.downloaded ||
-        RecordingCardFileTransferStatus.cloudSyncPending ||
-        RecordingCardFileTransferStatus.cloudSyncing ||
-        RecordingCardFileTransferStatus.cloudSyncFailed =>
-          true,
-        _ => false,
-      };
+    RecordingCardFileTransferStatus.downloaded ||
+    RecordingCardFileTransferStatus.cloudSyncPending ||
+    RecordingCardFileTransferStatus.cloudSyncing ||
+    RecordingCardFileTransferStatus.cloudSyncFailed => true,
+    _ => false,
+  };
 }
 
 class RecordingCardFileDescriptor {
@@ -239,8 +237,9 @@ class RecordingCardFileEntry {
       localPlayablePath: _readString(json, const ['local_playable_path']),
       durationSeconds: _readNullableInt(json, const ['duration_seconds']),
       recordingMode: _readNullableInt(json, const ['recording_mode']),
-      createdAtFromDevice:
-          _readDateTime(json, const ['created_at_from_device']),
+      createdAtFromDevice: _readDateTime(json, const [
+        'created_at_from_device',
+      ]),
       syncedBytes: _readInt(json, const ['synced_bytes']),
       checksumFailureCount: _readInt(json, const ['checksum_failure_count']),
       transferStatus: transferStatus,
@@ -309,8 +308,10 @@ class RecordingCardAudioPacket {
 }
 
 class RecordingCardProtocol {
-  static List<int> encodeCommand(int command,
-      [List<int> payload = const <int>[]]) {
+  static List<int> encodeCommand(
+    int command, [
+    List<int> payload = const <int>[],
+  ]) {
     return <int>[0x55, 0xaa, 1 + payload.length, command, ...payload];
   }
 
@@ -349,9 +350,10 @@ class RecordingCardProtocol {
       return null;
     }
 
-    final address = addressByteOrder == Endian.big
-        ? readU32Be(rawBytes.sublist(2, 6))
-        : readU32Le(rawBytes.sublist(2, 6));
+    final address =
+        addressByteOrder == Endian.big
+            ? readU32Be(rawBytes.sublist(2, 6))
+            : readU32Le(rawBytes.sublist(2, 6));
     if (address == null) {
       return null;
     }
@@ -374,7 +376,8 @@ class RecordingCardProtocol {
   }
 
   static List<RecordingCardFileDescriptor> decodeFileDescriptors(
-      List<int> payload) {
+    List<int> payload,
+  ) {
     final records = <RecordingCardFileDescriptor>[];
     var offset = 0;
     while (offset < payload.length) {
@@ -602,8 +605,9 @@ class RecordingCardLocalStore {
 
   Future<List<RecordingCardFileEntry>> loadAllFiles() async {
     final root = await getApplicationDocumentsDirectory();
-    final cardsRoot =
-        Directory('${root.path}${Platform.pathSeparator}recording_cards');
+    final cardsRoot = Directory(
+      '${root.path}${Platform.pathSeparator}recording_cards',
+    );
     if (!await cardsRoot.exists()) {
       return const [];
     }
@@ -611,8 +615,9 @@ class RecordingCardLocalStore {
     final files = <RecordingCardFileEntry>[];
     await for (final entity in cardsRoot.list(followLinks: false)) {
       if (entity is! Directory) continue;
-      final metadataDir =
-          Directory('${entity.path}${Platform.pathSeparator}metadata');
+      final metadataDir = Directory(
+        '${entity.path}${Platform.pathSeparator}metadata',
+      );
       files.addAll(await _loadFilesFromMetadataDir(metadataDir));
     }
 
@@ -673,10 +678,7 @@ class RecordingCardLocalStore {
     }
   }
 
-  Future<void> deleteFile(
-    String deviceId,
-    String fileNameNoExt,
-  ) async {
+  Future<void> deleteFile(String deviceId, String fileNameNoExt) async {
     final audio = File(await audioFilePath(deviceId, fileNameNoExt));
     final playable = File(await playableFilePath(deviceId, fileNameNoExt));
     final meta = await metadataFile(deviceId, fileNameNoExt);
@@ -697,10 +699,7 @@ class RecordingCardLocalStore {
     return '${dir.path}${Platform.pathSeparator}${_safeSegment(fileNameNoExt)}.sbc';
   }
 
-  Future<String> playableFilePath(
-    String deviceId,
-    String fileNameNoExt,
-  ) async {
+  Future<String> playableFilePath(String deviceId, String fileNameNoExt) async {
     final dir = await _filesDir(deviceId);
     return '${dir.path}${Platform.pathSeparator}${_safeSegment(fileNameNoExt)}.m4a';
   }
@@ -746,20 +745,19 @@ class RecordingCardLocalStore {
     return raf;
   }
 
-  Future<File> metadataFile(
-    String deviceId,
-    String fileNameNoExt,
-  ) async {
+  Future<File> metadataFile(String deviceId, String fileNameNoExt) async {
     final dir = await _metadataDir(deviceId);
     await dir.create(recursive: true);
     return File(
-        '${dir.path}${Platform.pathSeparator}${_safeSegment(fileNameNoExt)}.json');
+      '${dir.path}${Platform.pathSeparator}${_safeSegment(fileNameNoExt)}.json',
+    );
   }
 
   Future<Directory> deviceRoot(String deviceId) async {
     final root = await getApplicationDocumentsDirectory();
     final dir = Directory(
-        '${root.path}${Platform.pathSeparator}recording_cards${Platform.pathSeparator}${_safeSegment(deviceId)}');
+      '${root.path}${Platform.pathSeparator}recording_cards${Platform.pathSeparator}${_safeSegment(deviceId)}',
+    );
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -854,8 +852,8 @@ class RecordingCardConnectionStatus {
   });
 
   const RecordingCardConnectionStatus.disconnected()
-      : connected = false,
-        deviceName = '';
+    : connected = false,
+      deviceName = '';
 
   final bool connected;
   final String deviceName;
@@ -876,8 +874,8 @@ class RecordingCardConnectionStatusBus {
 
   static final ValueNotifier<RecordingCardConnectionStatus> notifier =
       ValueNotifier<RecordingCardConnectionStatus>(
-    const RecordingCardConnectionStatus.disconnected(),
-  );
+        const RecordingCardConnectionStatus.disconnected(),
+      );
 
   static void publish(RecordingCardConnectionStatus status) {
     if (notifier.value == status) return;
@@ -889,18 +887,54 @@ class RecordingCardConnectionStatusBus {
   }
 }
 
+class RecordingCardPendingAudioStatusBus {
+  RecordingCardPendingAudioStatusBus._();
+
+  static final ValueNotifier<int> notifier = ValueNotifier<int>(0);
+  static Object? _refreshOwner;
+  static Future<void> Function()? _refreshLoader;
+
+  static void publish(int count) {
+    final normalizedCount = count < 0 ? 0 : count;
+    if (notifier.value == normalizedCount) return;
+    notifier.value = normalizedCount;
+  }
+
+  static void registerRefreshLoader(
+    Object owner,
+    Future<void> Function() loader,
+  ) {
+    _refreshOwner = owner;
+    _refreshLoader = loader;
+  }
+
+  static void unregisterRefreshLoader(Object owner) {
+    if (!identical(_refreshOwner, owner)) return;
+    _refreshOwner = null;
+    _refreshLoader = null;
+  }
+
+  static Future<void> refresh() async {
+    await _refreshLoader?.call();
+  }
+
+  static void clear() {
+    publish(0);
+  }
+}
+
 class _ParsedFileRecord {
-  const _ParsedFileRecord({
-    required this.record,
-    required this.nextOffset,
-  });
+  const _ParsedFileRecord({required this.record, required this.nextOffset});
 
   final RecordingCardFileDescriptor record;
   final int nextOffset;
 }
 
-String _readString(Map<String, dynamic> json, List<String> keys,
-    {String fallback = ''}) {
+String _readString(
+  Map<String, dynamic> json,
+  List<String> keys, {
+  String fallback = '',
+}) {
   for (final key in keys) {
     final value = json[key];
     if (value is String) return value.trim();

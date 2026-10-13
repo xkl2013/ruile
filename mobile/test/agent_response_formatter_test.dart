@@ -50,4 +50,112 @@ void main() {
       '- **选项B:**使用通用模板',
     );
   });
+
+  test('repairs inline headings, dividers, and loose bold markers', () {
+    const raw =
+        '**阴影面： **- 什么都想要，容易贪心。'
+        '---## 🌱 总结**您的优势： **专注执行。';
+
+    expect(
+      formatAgentResponseMarkdown(raw),
+      '**阴影面：**\n\n'
+      '- 什么都想要，容易贪心。\n\n'
+      '---\n\n'
+      '## 🌱 总结\n\n'
+      '**您的优势：**专注执行。',
+    );
+  });
+
+  test('repairs compact bullets and reminder dividers from live responses', () {
+    const raw =
+        '为什么会这样？-**自主意识萌芽：**开始练习掌控感'
+        '- **语言能力有限：**挫败感容易转化为情绪爆发\n'
+        '-能说2-3个词的短句，词汇量快速增长- 对同伴产生兴趣\n'
+        '---**提醒：**个体差异正常存在。';
+
+    expect(
+      formatAgentResponseMarkdown(raw),
+      '为什么会这样？\n\n'
+      '- **自主意识萌芽：**开始练习掌控感\n\n'
+      '- **语言能力有限：**挫败感容易转化为情绪爆发\n\n'
+      '- 能说2-3个词的短句，词汇量快速增长\n\n'
+      '- 对同伴产生兴趣\n\n'
+      '---\n\n'
+      '**提醒：**个体差异正常存在。',
+    );
+  });
+
+  test('moves a dangling heading dash onto the following bold list item', () {
+    const raw = '''
+## 接下来孩子大概率会出现： -
+
+**语言爆发期：**词汇量快速增加
+''';
+
+    expect(
+      formatAgentResponseMarkdown(raw),
+      '## 接下来孩子大概率会出现：\n\n'
+      '- **语言爆发期：**词汇量快速增加',
+    );
+  });
+
+  test('turns a trailing choice list into send actions', () {
+    const raw = '''
+你方便说说具体是哪一种情况吗？这样我可以判断得更准一些。
+
+### 睡眠情况
+- 入睡困难
+- 容易醒
+- 睡不踏实
+- 早醒
+- 其他
+''';
+
+    final presentation = presentAgentResponse(raw);
+
+    expect(presentation.markdown, '你方便说说具体是哪一种情况吗？这样我可以判断得更准一些。');
+    expect(presentation.actionTitle, '睡眠情况');
+    expect(presentation.actions.map((action) => action.label), [
+      '入睡困难',
+      '容易醒',
+      '睡不踏实',
+      '早醒',
+      '其他',
+    ]);
+    expect(presentation.actions.first.value, '睡眠情况：入睡困难');
+    expect(presentation.actions.first.mode, AgentResponseActionMode.send);
+  });
+
+  test('keeps an ordinary trailing recommendation list as markdown', () {
+    const raw = '''
+根据当前情况，可以先从下面两点开始调整：
+
+1. 白天保持适度活动
+2. 睡前减少屏幕刺激
+''';
+
+    final presentation = presentAgentResponse(raw);
+
+    expect(presentation.markdown, formatAgentResponseMarkdown(raw));
+    expect(presentation.actions, isEmpty);
+  });
+
+  test('turns requested information fields into composer actions', () {
+    const raw =
+        '为了写出更有针对性的反馈，请您提供以下信息： '
+        '1. **孩子姓名**（可以用小名） '
+        '2. **年龄段/班级**（如小班） '
+        '3. **课程内容或活动主题**';
+
+    final presentation = presentAgentResponse(raw);
+
+    expect(presentation.actionTitle, '请补充信息');
+    expect(presentation.actions.map((action) => action.label), [
+      '孩子姓名',
+      '年龄段/班级',
+      '课程内容或活动主题',
+    ]);
+    expect(presentation.actions.first.value, '孩子姓名：');
+    expect(presentation.actions.first.mode, AgentResponseActionMode.compose);
+  });
 }

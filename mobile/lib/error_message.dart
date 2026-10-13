@@ -1,5 +1,50 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+String extractApiErrorMessage(String responseBody, {String fallback = ''}) {
+  final raw = responseBody.trim();
+  if (raw.isEmpty) return fallback;
+
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is Map) {
+      final topLevelMessage = decoded['message'];
+      if (topLevelMessage is String && topLevelMessage.trim().isNotEmpty) {
+        return topLevelMessage.trim();
+      }
+
+      final error = decoded['error'];
+      if (error is Map) {
+        for (final key in const ['message', 'details', 'code']) {
+          final value = error[key];
+          if (value is String && value.trim().isNotEmpty) {
+            return value.trim();
+          }
+        }
+      }
+      if (error is String && error.trim().isNotEmpty) {
+        return error.trim();
+      }
+    }
+  } catch (_) {
+    // Non-JSON responses are returned as-is below.
+  }
+
+  return raw;
+}
+
+bool shouldFallbackToInlineVoiceUpload(int statusCode, String message) {
+  if (statusCode != HttpStatus.notFound &&
+      statusCode != HttpStatus.methodNotAllowed) {
+    return false;
+  }
+  final normalized = message.trim().toLowerCase();
+  return normalized == '404' ||
+      normalized == '404 page not found' ||
+      normalized.contains('route not found') ||
+      normalized.contains('no route');
+}
 
 String localizedErrorMessage(Object error, {String fallback = '操作失败，请稍后重试'}) {
   if (error is TimeoutException) return '请求超时，请稍后重试';

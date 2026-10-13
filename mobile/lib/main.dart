@@ -20,8 +20,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:record/record.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
+import 'agent_voice_recording_overlay.dart';
 import 'audio/phone_recording_mp3_encoder.dart';
 import 'agent_response_formatter.dart';
 import 'error_message.dart';
@@ -2225,18 +2227,11 @@ class _RuileApiClient {
     final responseBody = await response.transform(utf8.decoder).join();
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      String message = responseBody;
-      try {
-        final decoded = jsonDecode(responseBody);
-        if (decoded is Map<String, dynamic>) {
-          message = _readString(decoded, const [
-            'message',
-            'error',
-          ], fallback: responseBody);
-        }
-      } catch (_) {
-        // Keep raw response as the error detail.
-      }
+      final message = extractApiErrorMessage(responseBody);
+      debugPrint(
+        'API request failed: '
+        'status=${response.statusCode} path=$path message=$message',
+      );
       _throwApiException(response.statusCode, message, _resolve(path));
     }
     if (responseBody.trim().isEmpty) return null;
@@ -2355,18 +2350,11 @@ class _RuileApiClient {
     final responseBody = await response.transform(utf8.decoder).join();
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      String message = responseBody;
-      try {
-        final decoded = jsonDecode(responseBody);
-        if (decoded is Map<String, dynamic>) {
-          message = _readString(decoded, const [
-            'message',
-            'error',
-          ], fallback: responseBody);
-        }
-      } catch (_) {
-        // Keep raw response as the error detail.
-      }
+      final message = extractApiErrorMessage(responseBody);
+      debugPrint(
+        'Multipart request failed: '
+        'status=${response.statusCode} path=$path message=$message',
+      );
       _throwApiException(response.statusCode, message, _resolve(path));
     }
     if (responseBody.trim().isEmpty) return null;
@@ -3940,13 +3928,15 @@ class _MainPageHeader extends StatelessWidget {
                       valueListenable:
                           RecordingCardConnectionStatusBus.notifier,
                       builder: (context, status, child) {
-                        if (status.connected) return const SizedBox.shrink();
                         return Padding(
                           padding: const EdgeInsets.only(top: 2),
-                          child: _MainHeaderRecordingCardPrompt(
+                          child: _MainHeaderRecordingCardStatus(
                             key: Key(
-                              'main-header-recording-card-prompt-$title',
+                              status.connected
+                                  ? 'main-header-recording-card-status-$title'
+                                  : 'main-header-recording-card-prompt-$title',
                             ),
+                            status: status,
                             onTap: onRecordingCardTap,
                           ),
                         );
@@ -3966,49 +3956,54 @@ class _MainPageHeader extends StatelessWidget {
   }
 }
 
-class _MainHeaderRecordingCardPrompt extends StatelessWidget {
-  const _MainHeaderRecordingCardPrompt({super.key, required this.onTap});
+class _MainHeaderRecordingCardStatus extends StatelessWidget {
+  const _MainHeaderRecordingCardStatus({
+    required this.status,
+    required this.onTap,
+    super.key,
+  });
 
+  final RecordingCardConnectionStatus status;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final connected = status.connected;
+    final color = connected ? AppColors.success : AppColors.accent;
+    final label = connected ? '已连接记忆卡' : '记忆卡未连接';
+
     return Tooltip(
       message: '打开记忆卡详情',
       child: Semantics(
         button: true,
-        label: '记忆卡未连接，打开详情',
+        label: '$label，打开详情',
         child: Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(4),
             onTap: onTap,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(vertical: 3),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.link_off_rounded,
+                    connected ? Icons.link_rounded : Icons.link_off_rounded,
                     size: 14,
-                    color: AppColors.accent,
+                    color: color,
                   ),
-                  SizedBox(width: 4),
+                  const SizedBox(width: 4),
                   Text(
-                    '记忆卡未连接',
+                    label,
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.2,
-                      color: AppColors.accent,
+                      color: color,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  SizedBox(width: 2),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 14,
-                    color: AppColors.accent,
-                  ),
+                  const SizedBox(width: 2),
+                  Icon(Icons.chevron_right_rounded, size: 14, color: color),
                 ],
               ),
             ),
@@ -9954,6 +9949,10 @@ class _NotesPageState extends State<NotesPage> {
     _notesScrollController.addListener(_handleNotesScroll);
     RecordingCardAppSyncBus.notifier.addListener(_recordingCardSyncListener);
     RecordingCardFileQueueBus.notifier.addListener(_recordingCardQueueListener);
+    RecordingCardPendingAudioStatusBus.registerRefreshLoader(
+      this,
+      _loadRecordingCardDevicePendingCount,
+    );
     _loadRemoteKnowledgeBases();
     unawaited(_loadRemoteMemories());
     unawaited(_loadOrganizeJobs());
@@ -9968,6 +9967,7 @@ class _NotesPageState extends State<NotesPage> {
     RecordingCardFileQueueBus.notifier.removeListener(
       _recordingCardQueueListener,
     );
+    RecordingCardPendingAudioStatusBus.unregisterRefreshLoader(this);
     _notesScrollController
       ..removeListener(_handleNotesScroll)
       ..dispose();
@@ -10313,6 +10313,7 @@ class _NotesPageState extends State<NotesPage> {
           _recordingCardDevicePendingCount = 0;
         });
       }
+      RecordingCardPendingAudioStatusBus.publish(0);
       return;
     }
     try {
@@ -10322,6 +10323,7 @@ class _NotesPageState extends State<NotesPage> {
       setState(() {
         _recordingCardDevicePendingCount = count;
       });
+      RecordingCardPendingAudioStatusBus.publish(count);
     } catch (error) {
       debugPrint('Failed to load connected memory card file count: $error');
     }
@@ -22349,57 +22351,6 @@ List<_XiaoExpert> _reuseExpertAvatarBytes(
   }).toList();
 }
 
-const _fallbackXiaoExperts = [
-  _XiaoExpert(
-    id: 'builtin-smart-reasoning',
-    name: '家校反馈',
-    description: '课堂观察 · 在家配合',
-    avatar: '',
-    tags: ['expert', '家校沟通'],
-    suggestions: ['帮我写一段今天课堂观察反馈', '把孩子注意力不集中说得委婉一点', '生成一版家长群课堂反馈'],
-    isBuiltin: true,
-    subtitle: '课堂观察 · 在家配合',
-    iconOverride: Icons.forum_outlined,
-    colorOverride: Color(0xFF397CEB),
-  ),
-  _XiaoExpert(
-    id: 'builtin-sales-director',
-    name: '到访跟进',
-    description: '72 小时内不冷场',
-    avatar: '',
-    tags: ['expert', '到访跟进'],
-    suggestions: ['帮我安排一套 72 小时到访跟进节奏', '家长说回去商量，下一句怎么跟', '生成一条试听课后的微信跟进'],
-    isBuiltin: true,
-    subtitle: '72 小时内不冷场',
-    iconOverride: Icons.track_changes_outlined,
-    colorOverride: Color(0xFF7A70D8),
-  ),
-  _XiaoExpert(
-    id: 'builtin-smart-reasoning',
-    name: '补课通知',
-    description: '调课 · 请假 · 课消',
-    avatar: '',
-    tags: ['expert', '教务通知'],
-    suggestions: ['帮我写一条周六课程调课通知', '孩子请假后的补课安排怎么说', '生成一版简短的课消提醒'],
-    isBuiltin: true,
-    subtitle: '调课 · 请假 · 课消',
-    iconOverride: Icons.event_repeat_outlined,
-    colorOverride: Color(0xFF1D9E75),
-  ),
-  _XiaoExpert(
-    id: 'builtin-sales-director',
-    name: '招生文案',
-    description: '朋友圈 · 活动海报',
-    avatar: '',
-    tags: ['expert', '招生文案'],
-    suggestions: ['写一版秋季体验课朋友圈文案', '把这段课程介绍改得更有吸引力', '生成活动海报上的主标题和副标题'],
-    isBuiltin: true,
-    subtitle: '朋友圈 · 活动海报',
-    iconOverride: Icons.campaign_outlined,
-    colorOverride: Color(0xFFE28A35),
-  ),
-];
-
 class _XiaoAgentSpec {
   const _XiaoAgentSpec({
     required this.title,
@@ -22411,6 +22362,7 @@ class _XiaoAgentSpec {
     required this.suggestions,
     required this.planSteps,
     required this.promptGuide,
+    this.expert,
   });
 
   final String title;
@@ -22422,6 +22374,7 @@ class _XiaoAgentSpec {
   final List<String> suggestions;
   final List<String> planSteps;
   final String promptGuide;
+  final _XiaoExpert? expert;
 
   static _XiaoAgentSpec fromExpert(_XiaoExpert expert) {
     final knownPreset = const {
@@ -22452,6 +22405,7 @@ class _XiaoAgentSpec {
           preset?.promptGuide ??
           '请以「${expert.name}」专家身份完成用户需求。'
               '${description.isNotEmpty ? '专家说明：$description' : ''}',
+      expert: expert,
     );
   }
 
@@ -22543,7 +22497,7 @@ class _RuileAgentLlmProvider extends LlmProvider with ChangeNotifier {
   final _RuileApiClient apiClient;
   final String sessionId;
   final _XiaoAgentSpec spec;
-  final void Function(String type)? onEvent;
+  final void Function(String type, Map<String, dynamic> event)? onEvent;
   final ValueChanged<bool>? onBusyChanged;
   final List<ChatMessage> _history = [];
 
@@ -22580,7 +22534,7 @@ class _RuileAgentLlmProvider extends LlmProvider with ChangeNotifier {
     final response = StringBuffer();
     _history.addAll([userMessage, llmMessage]);
     onBusyChanged?.call(true);
-    onEvent?.call('agent_query');
+    onEvent?.call('agent_query', const <String, dynamic>{});
     notifyListeners();
 
     try {
@@ -22619,7 +22573,7 @@ class _RuileAgentLlmProvider extends LlmProvider with ChangeNotifier {
       agentId: spec.agentId,
       attachments: attachments,
       onEvent: (type, event) {
-        if (type.isNotEmpty) onEvent?.call(type);
+        if (type.isNotEmpty) onEvent?.call(type, event);
       },
     );
   }
@@ -22665,6 +22619,9 @@ class _XiaoAgentChatPage extends StatefulWidget {
 
 class _XiaoAgentChatPageState extends State<_XiaoAgentChatPage> {
   late final _RuileApiClient _apiClient;
+  final _recordingOverlay = ValueNotifier<AgentVoiceRecordingVisualState?>(
+    null,
+  );
   _RuileAgentLlmProvider? _provider;
   String? _sessionId;
   String? _loadError;
@@ -22686,6 +22643,7 @@ class _XiaoAgentChatPageState extends State<_XiaoAgentChatPage> {
 
   @override
   void dispose() {
+    _recordingOverlay.dispose();
     _apiClient.close();
     super.dispose();
   }
@@ -22712,9 +22670,10 @@ class _XiaoAgentChatPageState extends State<_XiaoAgentChatPage> {
             if (busy) _activePlanEvents.clear();
           });
         },
-        onEvent: (type) {
-          if (!mounted || type == 'complete') return;
-          final label = type == 'answer' ? '正在整理结果' : _agentEventLabel(type);
+        onEvent: (type, event) {
+          if (!mounted) return;
+          final label = _agentEventLabel(type, event);
+          if (label == null) return;
           setState(() {
             if (_events.isEmpty || _events.last != label) {
               _events.add(label);
@@ -22751,21 +22710,93 @@ class _XiaoAgentChatPageState extends State<_XiaoAgentChatPage> {
     }
   }
 
-  String _agentEventLabel(String type) {
+  String? _agentEventLabel(String type, Map<String, dynamic> event) {
+    final nested = _asMap(event['data']);
+    final toolName = _readString(event, const [
+      'tool_name',
+      'toolName',
+    ], fallback: _readString(nested, const ['tool_name', 'toolName']));
+    final toolLabel = _localizedAgentToolName(toolName);
+
     switch (type) {
       case 'agent_query':
-        return '已拆解任务';
+        return '已接收任务';
       case 'thinking':
         return '正在分析任务';
+      case 'reflection':
+        return '正在校验结果';
       case 'tool_call':
-        return '正在调用工作工具';
+        return toolLabel == null ? '正在调用工作工具' : '正在使用$toolLabel';
       case 'tool_result':
-        return '已收到工具结果';
+        return toolLabel == null ? '已收到工具结果' : '$toolLabel已完成';
+      case 'references':
+        return '已获取参考资料';
+      case 'answer':
+      case 'text':
+        return '正在生成回复';
+      case 'user_message_injected':
+        return '已接收补充信息';
+      case 'tool_approval_required':
+        return '等待确认工具调用';
+      case 'tool_approval_resolved':
+        return '工具调用已确认';
+      case 'mcp_oauth_required':
+        return '等待连接外部服务';
+      case 'mcp_oauth_resolved':
+        return '外部服务已连接';
+      case 'service_update_proposal':
+        return '已生成服务信息建议';
       case 'error':
       case 'failed':
         return '任务执行失败';
       default:
-        return '执行状态已更新';
+        return null;
+    }
+  }
+
+  String? _localizedAgentToolName(String name) {
+    switch (name) {
+      case 'search_knowledge':
+      case 'knowledge_search':
+        return '知识库检索';
+      case 'web_search':
+        return '网页搜索';
+      case 'web_fetch':
+        return '网页读取';
+      case 'grep_chunks':
+        return '内容检索';
+      case 'get_document_info':
+        return '文档信息读取';
+      case 'get_document_content':
+      case 'wiki_read_source_doc':
+        return '文档读取';
+      case 'list_knowledge_chunks':
+        return '知识内容读取';
+      case 'todo_write':
+        return '任务计划';
+      case 'attachment_parsing':
+        return '附件解析';
+      case 'image_analysis':
+        return '图片分析';
+      case 'query_understand':
+        return '需求理解';
+      case 'query_knowledge_graph':
+      case 'knowledge_graph_extract':
+        return '知识图谱';
+      case 'read_skill':
+        return '技能读取';
+      case 'execute_skill_script':
+        return '技能执行';
+      case 'data_analysis':
+        return '数据分析';
+      case 'data_schema':
+        return '数据结构读取';
+      case 'database_query':
+        return '数据查询';
+      case 'thinking':
+        return '深度分析';
+      default:
+        return name.startsWith('mcp_') ? '外部服务' : null;
     }
   }
 
@@ -22847,11 +22878,10 @@ class _XiaoAgentChatPageState extends State<_XiaoAgentChatPage> {
                   const SizedBox(height: 14),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor: widget.spec.color.withValues(
-                        alpha: 0.12,
-                      ),
-                      child: Icon(widget.spec.icon, color: widget.spec.color),
+                    leading: _XiaoAgentIdentityAvatar(
+                      spec: widget.spec,
+                      imageHeaders: _apiClient.imageRequestHeaders,
+                      size: 40,
                     ),
                     title: Text(widget.spec.title),
                     subtitle: const Text('当前会话'),
@@ -22871,65 +22901,94 @@ class _XiaoAgentChatPageState extends State<_XiaoAgentChatPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.xiaoBackground,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _XiaoAgentTopBar(
-              spec: widget.spec,
-              busy: _busy,
-              onBack: () => Navigator.maybePop(context),
-              onSessions: _showSessions,
-              onTrail: _showTrail,
-            ),
-            Expanded(
-              child:
-                  _loading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _loadError != null
-                      ? _XiaoAgentErrorState(
-                        message: _loadError!,
-                        onRetry: () {
-                          setState(() {
-                            _loading = true;
-                            _loadError = null;
-                          });
-                          unawaited(_prepareSession());
-                        },
-                      )
-                      : _provider == null || _sessionId == null
-                      ? const SizedBox.shrink()
-                      : Column(
-                        children: [
-                          Expanded(
-                            child: _XiaoAgentChatSurface(
-                              provider: _provider!,
-                              spec: widget.spec,
-                              busy: _busy,
-                              planEvents: _activePlanEvents,
-                              onError: (error) {
-                                final message = localizedErrorMessage(
-                                  error,
-                                  fallback: 'Agent 暂时无法完成请求，请稍后重试',
-                                );
-                                debugPrint(
-                                  'Xiao Rui Agent chat failed: $message',
-                                );
-                                ScaffoldMessenger.of(context)
-                                  ..hideCurrentSnackBar()
-                                  ..showSnackBar(
-                                    SnackBar(
-                                      content: Text(message),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                              },
-                            ),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                _XiaoAgentTopBar(
+                  spec: widget.spec,
+                  busy: _busy,
+                  imageHeaders: _apiClient.imageRequestHeaders,
+                  onBack: () => Navigator.maybePop(context),
+                  onSessions: _showSessions,
+                  onTrail: _showTrail,
+                ),
+                Expanded(
+                  child:
+                      _loading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _loadError != null
+                          ? _XiaoAgentErrorState(
+                            message: _loadError!,
+                            onRetry: () {
+                              setState(() {
+                                _loading = true;
+                                _loadError = null;
+                              });
+                              unawaited(_prepareSession());
+                            },
+                          )
+                          : _provider == null || _sessionId == null
+                          ? const SizedBox.shrink()
+                          : Column(
+                            children: [
+                              Expanded(
+                                child: _XiaoAgentChatSurface(
+                                  provider: _provider!,
+                                  spec: widget.spec,
+                                  busy: _busy,
+                                  planEvents: _activePlanEvents,
+                                  onRecordingVisualStateChanged: (state) {
+                                    _recordingOverlay.value = state;
+                                  },
+                                  onError: (error) {
+                                    final message = localizedErrorMessage(
+                                      error,
+                                      fallback: 'Agent 暂时无法完成请求，请稍后重试',
+                                    );
+                                    debugPrint(
+                                      'Xiao Rui Agent chat failed: $message',
+                                    );
+                                    ScaffoldMessenger.of(context)
+                                      ..hideCurrentSnackBar()
+                                      ..showSnackBar(
+                                        SnackBar(
+                                          content: Text(message),
+                                          behavior: SnackBarBehavior.floating,
+                                        ),
+                                      );
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          Positioned.fill(
+            child: ValueListenableBuilder<AgentVoiceRecordingVisualState?>(
+              valueListenable: _recordingOverlay,
+              builder: (context, recordingState, child) {
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  reverseDuration: const Duration(milliseconds: 120),
+                  child:
+                      recordingState == null
+                          ? const SizedBox.shrink(
+                            key: ValueKey('agent-recording-overlay-hidden'),
+                          )
+                          : AgentVoiceRecordingOverlay(
+                            key: const ValueKey('agent-recording-overlay'),
+                            state: recordingState,
+                            accentColor: widget.spec.color,
+                          ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -22941,6 +23000,7 @@ class _XiaoAgentChatSurface extends StatefulWidget {
     required this.spec,
     required this.busy,
     required this.planEvents,
+    required this.onRecordingVisualStateChanged,
     required this.onError,
   });
 
@@ -22948,6 +23008,8 @@ class _XiaoAgentChatSurface extends StatefulWidget {
   final _XiaoAgentSpec spec;
   final bool busy;
   final List<String> planEvents;
+  final ValueChanged<AgentVoiceRecordingVisualState?>
+  onRecordingVisualStateChanged;
   final ValueChanged<Object> onError;
 
   @override
@@ -22955,17 +23017,41 @@ class _XiaoAgentChatSurface extends StatefulWidget {
 }
 
 class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
+  static const _maximumRecordingDuration = Duration(seconds: 40);
+
   late final ChatViewModel _viewModel;
   final _textController = TextEditingController();
   final _focusNode = FocusNode();
   final _recorder = AudioRecorder();
+  StreamSubscription<Amplitude>? _amplitudeSubscription;
+  Timer? _recordingLimitTimer;
 
   var _recordingGestureActive = false;
+  var _cancelRecordingOnRelease = false;
   var _isStartingRecording = false;
   var _isRecording = false;
   var _isTranscribing = false;
   var _isSending = false;
   var _useVoiceInput = true;
+  List<double> _recordingLevels = const [
+    0.22,
+    0.14,
+    0.18,
+    0.12,
+    0.16,
+    0.1,
+    0.13,
+    0.09,
+    0.12,
+    0.08,
+    0.1,
+    0.08,
+    0.09,
+    0.07,
+    0.08,
+    0.06,
+    0.07,
+  ];
   final List<Attachment> _pendingAttachments = [];
 
   @override
@@ -22976,14 +23062,14 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
       style: LlmChatViewStyle(
         backgroundColor: AppColors.xiaoBackground,
         progressIndicatorColor: widget.spec.color,
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 16),
-        messageSpacing: 8,
+        padding: const EdgeInsets.fromLTRB(6, 8, 6, 16),
+        messageSpacing: 10,
         llmMessageStyle: LlmMessageStyle(
           minWidth: 0,
-          maxWidth: 720,
-          flex: 40,
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          margin: const EdgeInsets.symmetric(vertical: 4),
+          maxWidth: 800,
+          flex: 100,
+          padding: const EdgeInsets.fromLTRB(15, 13, 15, 14),
+          margin: const EdgeInsets.symmetric(vertical: 5),
           iconColor: widget.spec.color,
           iconDecoration: BoxDecoration(
             color: widget.spec.color.withValues(alpha: 0.12),
@@ -23004,7 +23090,7 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
       ),
       suggestions: widget.spec.suggestions,
       welcomeMessage: widget.spec.welcome,
-      responseBuilder: null,
+      responseBuilder: _buildAgentResponse,
       messageSender: null,
       speechToText: null,
       enableAttachments: false,
@@ -23014,6 +23100,8 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
 
   @override
   void dispose() {
+    _recordingLimitTimer?.cancel();
+    unawaited(_amplitudeSubscription?.cancel());
     _textController.dispose();
     _focusNode.dispose();
     unawaited(_recorder.dispose().catchError((Object _) {}));
@@ -23031,9 +23119,17 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
               color: AppColors.xiaoBackground,
               child: Column(
                 children: [
-                  _buildPlanFlow(),
                   Expanded(
-                    child: ChatHistoryView(onSelectSuggestion: _sendPrompt),
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: ChatHistoryView(
+                            onSelectSuggestion: _sendPrompt,
+                          ),
+                        ),
+                        _buildPlanFlow(),
+                      ],
+                    ),
                   ),
                   _buildInputArea(),
                 ],
@@ -23058,6 +23154,45 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
                 height: 0,
               ),
     );
+  }
+
+  Widget _buildAgentResponse(BuildContext context, String response) {
+    final presentation = presentAgentResponse(response);
+    final history = widget.provider.history;
+    final latestMessage = history.isEmpty ? null : history.last;
+    final isLatestResponse =
+        latestMessage != null &&
+        latestMessage.origin.isLlm &&
+        latestMessage.text == response;
+
+    return _XiaoAgentResponseContent(
+      presentation: presentation,
+      markdownStyle: _xiaoAgentMarkdownStyle(),
+      accentColor: widget.spec.color,
+      showActions: isLatestResponse,
+      actionsEnabled:
+          isLatestResponse && !_isSending && !_isTranscribing && !widget.busy,
+      onAction: _handleAgentResponseAction,
+    );
+  }
+
+  void _handleAgentResponseAction(AgentResponseAction action) {
+    if (_isSending || _isTranscribing || widget.busy) return;
+    if (action.mode == AgentResponseActionMode.send) {
+      unawaited(_sendPrompt(action.value));
+      return;
+    }
+
+    setState(() {
+      _useVoiceInput = false;
+      _textController.value = TextEditingValue(
+        text: action.value,
+        selection: TextSelection.collapsed(offset: action.value.length),
+      );
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
   }
 
   Widget _buildInputArea() {
@@ -23094,9 +23229,11 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
             : _isStartingRecording
             ? '正在开启录音...'
             : _isRecording
-            ? '松开 发送'
+            ? _cancelRecordingOnRelease
+                ? '松开 取消'
+                : '松开 发送'
             : '按住 说话';
-    final enabled = inputEnabled && !_isStartingRecording;
+    final enabled = inputEnabled || _isStartingRecording || _isRecording;
 
     return Container(
       key: const ValueKey('agent-voice-composer'),
@@ -23144,14 +23281,31 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
                     enabled
                         ? (_) {
                           _recordingGestureActive = true;
+                          _cancelRecordingOnRelease = false;
                           unawaited(_startRecording());
+                        }
+                        : null,
+                onLongPressMoveUpdate:
+                    enabled
+                        ? (details) {
+                          final shouldCancel =
+                              details.offsetFromOrigin.dy <= -72;
+                          if (shouldCancel == _cancelRecordingOnRelease) return;
+                          setState(
+                            () => _cancelRecordingOnRelease = shouldCancel,
+                          );
+                          _publishRecordingVisualState();
                         }
                         : null,
                 onLongPressEnd:
                     enabled
                         ? (_) {
                           _recordingGestureActive = false;
-                          unawaited(_stopAndSendRecording());
+                          if (_cancelRecordingOnRelease) {
+                            unawaited(_cancelRecording());
+                          } else {
+                            unawaited(_stopAndSendRecording());
+                          }
                         }
                         : null,
                 onLongPressCancel:
@@ -23551,8 +23705,14 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
     _sendPrompt(_textController.text);
   }
 
-  Future<void> _sendPrompt(String rawPrompt) async {
-    final attachments = List<Attachment>.of(_pendingAttachments);
+  Future<void> _sendPrompt(
+    String rawPrompt, {
+    Iterable<Attachment>? attachmentOverride,
+  }) async {
+    final attachments =
+        attachmentOverride == null
+            ? List<Attachment>.of(_pendingAttachments)
+            : List<Attachment>.of(attachmentOverride);
     final prompt =
         rawPrompt.trim().isNotEmpty
             ? rawPrompt.trim()
@@ -23581,8 +23741,19 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
   }
 
   Future<void> _startRecording() async {
-    if (!mounted || _isSending || _isTranscribing) return;
-    setState(() => _isStartingRecording = true);
+    if (!mounted ||
+        _isSending ||
+        _isTranscribing ||
+        _isStartingRecording ||
+        _isRecording) {
+      return;
+    }
+    _cancelRecordingLimitTimer();
+    setState(() {
+      _isStartingRecording = true;
+      _cancelRecordingOnRelease = false;
+    });
+    _publishRecordingVisualState();
 
     String? path;
     try {
@@ -23608,6 +23779,10 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
       if (!mounted || !_recordingGestureActive) {
         await _recorder.stop();
         await _deleteRecordingFile(path);
+        if (mounted) {
+          setState(() => _isStartingRecording = false);
+          _hideRecordingVisualState();
+        }
         return;
       }
 
@@ -23615,17 +23790,56 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
         _isStartingRecording = false;
         _isRecording = true;
       });
+      await _amplitudeSubscription?.cancel();
+      _amplitudeSubscription = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 90))
+          .listen(
+            _handleRecordingAmplitude,
+            onError: (Object error) {
+              debugPrint('Agent recording amplitude failed: $error');
+            },
+          );
+      _recordingLimitTimer = Timer(
+        _maximumRecordingDuration,
+        _handleRecordingLimitReached,
+      );
+      _publishRecordingVisualState();
     } catch (error) {
+      _cancelRecordingLimitTimer();
       if (path != null) await _deleteRecordingFile(path);
       if (!mounted) return;
-      setState(() => _isStartingRecording = false);
+      setState(() {
+        _isStartingRecording = false;
+        _cancelRecordingOnRelease = false;
+      });
+      _hideRecordingVisualState();
       widget.onError(error);
     }
   }
 
-  Future<void> _stopAndSendRecording() async {
-    if (_isStartingRecording || !_isRecording) return;
-    setState(() => _isRecording = false);
+  Future<void> _stopAndSendRecording({bool reachedLimit = false}) async {
+    if (_isStartingRecording) {
+      _hideRecordingVisualState();
+      return;
+    }
+    if (!_isRecording) return;
+    _cancelRecordingLimitTimer();
+    setState(() {
+      _isRecording = false;
+      _cancelRecordingOnRelease = false;
+    });
+    _hideRecordingVisualState();
+    await _stopRecordingAmplitude();
+    if (reachedLimit && mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('录音已达到 40 秒上限，正在发送'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
 
     String? path;
     try {
@@ -23635,11 +23849,42 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
       }
 
       setState(() => _isTranscribing = true);
-      final text =
-          (await widget.provider
-                  .transcribeVoice(XFile(path, mimeType: 'audio/mp4'))
-                  .join())
-              .trim();
+      String text;
+      try {
+        text =
+            (await widget.provider
+                    .transcribeVoice(XFile(path, mimeType: 'audio/mp4'))
+                    .join())
+                .trim();
+      } on _ApiException catch (error) {
+        if (!shouldFallbackToInlineVoiceUpload(
+          error.statusCode,
+          error.message,
+        )) {
+          rethrow;
+        }
+        debugPrint(
+          'Agent audio transcription route is unavailable; '
+          'falling back to inline chat attachment upload.',
+        );
+        final audioFile = File(path);
+        final audioBytes = await audioFile.readAsBytes();
+        if (audioBytes.isEmpty) {
+          throw const FormatException('录音文件为空，请重试');
+        }
+        if (mounted) setState(() => _isTranscribing = false);
+        await _sendPrompt(
+          '请根据这段语音内容回答我的问题。',
+          attachmentOverride: [
+            FileAttachment(
+              name: audioFile.uri.pathSegments.last,
+              mimeType: 'audio/mp4',
+              bytes: audioBytes,
+            ),
+          ],
+        );
+        return;
+      }
       if (text.isEmpty) {
         throw const FormatException('没有识别到有效语音，请重试');
       }
@@ -23655,14 +23900,65 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
   }
 
   Future<void> _cancelRecording() async {
-    if (_isStartingRecording) return;
+    _cancelRecordingLimitTimer();
+    _hideRecordingVisualState();
+    if (_isStartingRecording) {
+      if (mounted) {
+        setState(() => _cancelRecordingOnRelease = false);
+      }
+      return;
+    }
     if (!_isRecording) return;
-    setState(() => _isRecording = false);
+    setState(() {
+      _isRecording = false;
+      _cancelRecordingOnRelease = false;
+    });
+    await _stopRecordingAmplitude();
     try {
       await _recorder.cancel();
     } catch (error) {
       if (mounted) widget.onError(error);
     }
+  }
+
+  void _handleRecordingAmplitude(Amplitude amplitude) {
+    if (!mounted || !_isRecording) return;
+    final current = amplitude.current;
+    final normalized =
+        current.isFinite && current < 0
+            ? ((current + 52) / 52).clamp(0.06, 1.0)
+            : 0.18;
+    _recordingLevels = [normalized, ..._recordingLevels.take(16)];
+    _publishRecordingVisualState();
+  }
+
+  void _publishRecordingVisualState() {
+    widget.onRecordingVisualStateChanged(
+      AgentVoiceRecordingVisualState(
+        canceling: _cancelRecordingOnRelease,
+        levels: _recordingLevels,
+      ),
+    );
+  }
+
+  void _hideRecordingVisualState() {
+    widget.onRecordingVisualStateChanged(null);
+  }
+
+  Future<void> _stopRecordingAmplitude() async {
+    await _amplitudeSubscription?.cancel();
+    _amplitudeSubscription = null;
+  }
+
+  void _handleRecordingLimitReached() {
+    if (!mounted || !_isRecording) return;
+    _recordingGestureActive = false;
+    unawaited(_stopAndSendRecording(reachedLimit: true));
+  }
+
+  void _cancelRecordingLimitTimer() {
+    _recordingLimitTimer?.cancel();
+    _recordingLimitTimer = null;
   }
 
   Future<void> _deleteRecordingFile(String path) async {
@@ -23675,51 +23971,265 @@ class _XiaoAgentChatSurfaceState extends State<_XiaoAgentChatSurface> {
   }
 }
 
+class _XiaoAgentResponseContent extends StatelessWidget {
+  const _XiaoAgentResponseContent({
+    required this.presentation,
+    required this.markdownStyle,
+    required this.accentColor,
+    required this.showActions,
+    required this.actionsEnabled,
+    required this.onAction,
+  });
+
+  final AgentResponsePresentation presentation;
+  final MarkdownStyleSheet markdownStyle;
+  final Color accentColor;
+  final bool showActions;
+  final bool actionsEnabled;
+  final ValueChanged<AgentResponseAction> onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final showResponseActions = showActions && presentation.hasActions;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (presentation.markdown.isNotEmpty)
+          MarkdownBody(
+            data: presentation.markdown,
+            selectable: false,
+            softLineBreak: true,
+            styleSheet: markdownStyle,
+            bulletBuilder:
+                (parameters) => _buildMarkdownBullet(parameters, accentColor),
+            onTapLink: (_, href, _) {
+              final uri = href == null ? null : Uri.tryParse(href);
+              if (uri != null) unawaited(launchUrl(uri));
+            },
+          ),
+        if (showResponseActions) ...[
+          if (presentation.markdown.isNotEmpty) const SizedBox(height: 14),
+          Text(
+            presentation.actionTitle,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.25,
+              color: AppColors.xiaoDeep,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final hasLongLabel = presentation.actions.any(
+                (action) => action.label.length > 7,
+              );
+              final columnCount =
+                  constraints.maxWidth >= 300 && !hasLongLabel ? 3 : 2;
+              const spacing = 8.0;
+              final itemWidth =
+                  (constraints.maxWidth - spacing * (columnCount - 1)) /
+                  columnCount;
+
+              return Wrap(
+                spacing: spacing,
+                runSpacing: 8,
+                children: [
+                  for (final action in presentation.actions)
+                    SizedBox(
+                      width: itemWidth,
+                      child: OutlinedButton(
+                        key: ValueKey('agent-response-action-${action.label}'),
+                        onPressed:
+                            actionsEnabled ? () => onAction(action) : null,
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 46),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 9,
+                          ),
+                          foregroundColor: AppColors.xiaoDeep,
+                          disabledForegroundColor: AppColors.textTertiary,
+                          side: BorderSide(
+                            color: accentColor.withValues(alpha: 0.34),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          action.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            height: 1.2,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildMarkdownBullet(
+    MarkdownBulletParameters parameters,
+    Color color,
+  ) {
+    if (parameters.style == BulletStyle.unorderedList) {
+      return SizedBox(
+        width: 18,
+        height: 20,
+        child: Center(
+          child: Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: Text(
+        '${parameters.index + 1}',
+        style: const TextStyle(
+          fontSize: 11,
+          height: 1,
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
 MarkdownStyleSheet _xiaoAgentMarkdownStyle() {
   const body = TextStyle(
-    fontSize: 15,
-    height: 1.55,
+    fontSize: 14,
+    height: 1.45,
     color: AppColors.textPrimary,
     fontWeight: FontWeight.w400,
   );
   return MarkdownStyleSheet(
     p: body,
-    pPadding: const EdgeInsets.only(bottom: 8),
+    pPadding: const EdgeInsets.only(bottom: 6),
     a: body.copyWith(
       color: AppColors.xiaoPrimary,
       decoration: TextDecoration.underline,
     ),
-    strong: body.copyWith(fontWeight: FontWeight.w700),
+    strong: body.copyWith(
+      color: AppColors.xiaoDeep,
+      fontWeight: FontWeight.w800,
+    ),
     em: body.copyWith(fontStyle: FontStyle.italic),
-    h1: body.copyWith(fontSize: 18, fontWeight: FontWeight.w800),
-    h1Padding: const EdgeInsets.only(bottom: 8),
-    h2: body.copyWith(fontSize: 17, fontWeight: FontWeight.w800),
-    h2Padding: const EdgeInsets.only(bottom: 7),
-    h3: body.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
-    h3Padding: const EdgeInsets.only(bottom: 6),
-    listBullet: body.copyWith(fontWeight: FontWeight.w700),
-    listIndent: 22,
-    listBulletPadding: const EdgeInsets.only(right: 6),
-    blockSpacing: 10,
+    h1: body.copyWith(fontSize: 18, height: 1.25, fontWeight: FontWeight.w800),
+    h1Padding: const EdgeInsets.only(top: 3, bottom: 6),
+    h2: body.copyWith(fontSize: 16.5, height: 1.3, fontWeight: FontWeight.w800),
+    h2Padding: const EdgeInsets.only(top: 3, bottom: 6),
+    h3: body.copyWith(fontSize: 15, height: 1.35, fontWeight: FontWeight.w800),
+    h3Padding: const EdgeInsets.only(top: 2, bottom: 5),
+    h4: body.copyWith(fontSize: 14, height: 1.4, fontWeight: FontWeight.w800),
+    h4Padding: const EdgeInsets.only(top: 2, bottom: 4),
+    listBullet: body.copyWith(
+      color: AppColors.xiaoPrimary,
+      fontWeight: FontWeight.w800,
+    ),
+    listIndent: 20,
+    listBulletPadding: const EdgeInsets.only(right: 7, top: 2),
+    blockSpacing: 8,
     blockquote: body.copyWith(color: AppColors.textSecondary),
-    blockquotePadding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
-    blockquoteDecoration: const BoxDecoration(
+    blockquotePadding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+    blockquoteDecoration: BoxDecoration(
       color: AppColors.xiaoSoft,
-      border: Border(left: BorderSide(color: AppColors.xiaoPrimary, width: 3)),
+      borderRadius: BorderRadius.circular(6),
+      border: const Border(
+        left: BorderSide(color: AppColors.xiaoPrimary, width: 3),
+      ),
     ),
     code: body.copyWith(fontSize: 13, height: 1.45, fontFamily: 'monospace'),
-    codeblockPadding: const EdgeInsets.all(10),
+    codeblockPadding: const EdgeInsets.all(12),
     codeblockDecoration: BoxDecoration(
       color: AppColors.xiaoSoft,
       borderRadius: BorderRadius.circular(8),
     ),
+    tableHead: body.copyWith(
+      color: AppColors.xiaoDeep,
+      fontWeight: FontWeight.w800,
+    ),
+    tableBody: body.copyWith(fontSize: 13),
+    tableBorder: TableBorder.all(color: AppColors.border),
+    tableCellsPadding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+    tableHeadCellsDecoration: const BoxDecoration(color: AppColors.xiaoSoft),
+    horizontalRuleDecoration: const BoxDecoration(
+      border: Border(top: BorderSide(color: AppColors.border)),
+    ),
   );
+}
+
+class _XiaoAgentIdentityAvatar extends StatelessWidget {
+  const _XiaoAgentIdentityAvatar({
+    required this.spec,
+    required this.imageHeaders,
+    required this.size,
+    this.compact = false,
+  });
+
+  final _XiaoAgentSpec spec;
+  final Map<String, String> imageHeaders;
+  final double size;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final expert = spec.expert;
+    final avatar = expert?.avatar.trim() ?? '';
+    final hasExpertAvatar =
+        expert != null &&
+        (expert.avatarBytes != null ||
+            expert.avatarUrl.trim().isNotEmpty ||
+            (avatar.isNotEmpty && !_isProtectedResourceReference(avatar)));
+    if (hasExpertAvatar) {
+      return _XiaoExpertAvatar(
+        expert: expert,
+        size: size,
+        imageHeaders: imageHeaders,
+        compact: compact,
+      );
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: spec.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(compact ? 8 : 10),
+      ),
+      alignment: Alignment.center,
+      child: Icon(spec.icon, color: spec.color, size: compact ? 18 : 22),
+    );
+  }
 }
 
 class _XiaoAgentTopBar extends StatelessWidget {
   const _XiaoAgentTopBar({
     required this.spec,
     required this.busy,
+    required this.imageHeaders,
     required this.onBack,
     required this.onSessions,
     required this.onTrail,
@@ -23727,6 +24237,7 @@ class _XiaoAgentTopBar extends StatelessWidget {
 
   final _XiaoAgentSpec spec;
   final bool busy;
+  final Map<String, String> imageHeaders;
   final VoidCallback onBack;
   final VoidCallback onSessions;
   final VoidCallback onTrail;
@@ -23751,14 +24262,11 @@ class _XiaoAgentTopBar extends StatelessWidget {
               Expanded(
                 child: Row(
                   children: [
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: spec.color.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(spec.icon, color: spec.color, size: 18),
+                    _XiaoAgentIdentityAvatar(
+                      spec: spec,
+                      imageHeaders: imageHeaders,
+                      size: 32,
+                      compact: true,
                     ),
                     const SizedBox(width: 9),
                     Expanded(
@@ -23836,7 +24344,7 @@ class _XiaoAgentTopBar extends StatelessWidget {
   }
 }
 
-enum _XiaoAgentPlanStepState { completed, active, pending }
+enum _XiaoAgentPlanStepState { completed, active }
 
 class _XiaoAgentPlanFlow extends StatelessWidget {
   const _XiaoAgentPlanFlow({
@@ -23848,78 +24356,68 @@ class _XiaoAgentPlanFlow extends StatelessWidget {
   final _XiaoAgentSpec spec;
   final List<String> events;
 
-  int get _activeStep {
-    if (events.any(
-      (event) => event == '已收到工具结果' || event == '正在整理结果' || event == '任务执行失败',
-    )) {
-      return spec.planSteps.length - 1;
-    }
-    if (events.any((event) => event == '正在调用工作工具')) {
-      return spec.planSteps.length > 1 ? 1 : 0;
-    }
-    return 0;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final activeStep = _activeStep;
-    final currentEvent = events.isEmpty ? '正在拆解任务' : events.last;
+    final allEvents = events.isEmpty ? const ['正在接收任务'] : events;
+    final visibleEvents =
+        allEvents.length > 4
+            ? allEvents.sublist(allEvents.length - 4)
+            : allEvents;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(14, 11, 14, 12),
-        decoration: BoxDecoration(
-          color: AppColors.xiaoSoft,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      padding: const EdgeInsets.fromLTRB(34, 4, 12, 6),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            decoration: BoxDecoration(
+              color: AppColors.xiaoSurface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.route_rounded, color: spec.color, size: 17),
-                const SizedBox(width: 7),
-                const Text(
-                  '计划流',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.xiaoDeep,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const Spacer(),
-                Flexible(
-                  child: Text(
-                    currentEvent,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
+                Row(
+                  children: [
+                    Icon(Icons.route_rounded, color: spec.color, size: 16),
+                    const SizedBox(width: 6),
+                    const Text(
+                      '事件流',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.xiaoDeep,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
+                    const Spacer(),
+                    const Text(
+                      '实时更新',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 8),
+                for (var index = 0; index < visibleEvents.length; index++)
+                  _XiaoAgentPlanFlowStep(
+                    label: visibleEvents[index],
+                    state:
+                        index == visibleEvents.length - 1
+                            ? _XiaoAgentPlanStepState.active
+                            : _XiaoAgentPlanStepState.completed,
+                    isLast: index == visibleEvents.length - 1,
+                    color: spec.color,
+                  ),
               ],
             ),
-            const SizedBox(height: 10),
-            for (var index = 0; index < spec.planSteps.length; index++)
-              _XiaoAgentPlanFlowStep(
-                label: spec.planSteps[index],
-                state:
-                    index < activeStep
-                        ? _XiaoAgentPlanStepState.completed
-                        : index == activeStep
-                        ? _XiaoAgentPlanStepState.active
-                        : _XiaoAgentPlanStepState.pending,
-                isLast: index == spec.planSteps.length - 1,
-                color: spec.color,
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -23943,10 +24441,10 @@ class _XiaoAgentPlanFlowStep extends StatelessWidget {
   Widget build(BuildContext context) {
     final completed = state == _XiaoAgentPlanStepState.completed;
     final active = state == _XiaoAgentPlanStepState.active;
-    final stepColor = completed || active ? color : AppColors.textTertiary;
+    final stepColor = color;
 
     return SizedBox(
-      height: isLast ? 22 : 30,
+      height: isLast ? 20 : 27,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -23958,12 +24456,7 @@ class _XiaoAgentPlanFlowStep extends StatelessWidget {
                   width: 12,
                   height: 12,
                   decoration: BoxDecoration(
-                    color:
-                        completed
-                            ? color
-                            : active
-                            ? AppColors.xiaoSurface
-                            : Colors.transparent,
+                    color: completed ? color : AppColors.xiaoSurface,
                     shape: BoxShape.circle,
                     border: Border.all(color: stepColor, width: 1.5),
                   ),
@@ -23974,8 +24467,7 @@ class _XiaoAgentPlanFlowStep extends StatelessWidget {
                             size: 9,
                             color: Colors.white,
                           )
-                          : active
-                          ? Padding(
+                          : Padding(
                             padding: const EdgeInsets.all(2),
                             child: DecoratedBox(
                               decoration: BoxDecoration(
@@ -23983,8 +24475,7 @@ class _XiaoAgentPlanFlowStep extends StatelessWidget {
                                 shape: BoxShape.circle,
                               ),
                             ),
-                          )
-                          : null,
+                          ),
                 ),
                 if (!isLast)
                   Expanded(
@@ -24008,10 +24499,7 @@ class _XiaoAgentPlanFlowStep extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 height: 1,
-                color:
-                    active || completed
-                        ? AppColors.textPrimary
-                        : AppColors.textTertiary,
+                color: AppColors.textPrimary,
                 fontWeight: active ? FontWeight.w700 : FontWeight.w500,
               ),
             ),
@@ -24610,7 +25098,7 @@ class _XiaoRuiPage extends StatefulWidget {
 
 class _XiaoRuiPageState extends State<_XiaoRuiPage> {
   late _RuileApiClient _apiClient;
-  List<_XiaoExpert> _experts = List.of(_fallbackXiaoExperts);
+  List<_XiaoExpert> _experts = const [];
   var _expertsLoading = false;
   var _expertLoadGeneration = 0;
   String? _expertsError;
@@ -24640,6 +25128,9 @@ class _XiaoRuiPageState extends State<_XiaoRuiPage> {
         tenantId: widget.tenantId,
         onAuthFailure: widget.onAuthFailure,
       );
+      _experts = const [];
+      _expertsLoading = _apiClient.isConfigured;
+      _expertsError = null;
       unawaited(_loadExperts());
       unawaited(_loadHomeNotificationCounts());
     }
@@ -24652,7 +25143,16 @@ class _XiaoRuiPageState extends State<_XiaoRuiPage> {
   }
 
   Future<void> _loadExperts() async {
-    if (!_apiClient.isConfigured) return;
+    if (!_apiClient.isConfigured) {
+      if (mounted) {
+        setState(() {
+          _experts = const [];
+          _expertsLoading = false;
+          _expertsError = null;
+        });
+      }
+      return;
+    }
     final loadGeneration = ++_expertLoadGeneration;
     if (mounted) {
       setState(() {
@@ -24751,6 +25251,13 @@ class _XiaoRuiPageState extends State<_XiaoRuiPage> {
     });
   }
 
+  Future<void> _refreshHomeNotifications() async {
+    await Future.wait<void>([
+      _loadHomeNotificationCounts(),
+      RecordingCardPendingAudioStatusBus.refresh(),
+    ]);
+  }
+
   void _openHomeNotificationTarget() {
     if (_openReminderCount > 0 || _unreadReportCount <= 0) {
       widget.onOpenReminders();
@@ -24803,47 +25310,63 @@ class _XiaoRuiPageState extends State<_XiaoRuiPage> {
                   onRecordingCardTap: widget.onOpenRecordingCard,
                 ),
                 Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 112),
-                    children: [
-                      _XiaoReminderBanner(
-                        openCount: _openReminderCount,
-                        unreadReportCount: _unreadReportCount,
-                        onTap: _openHomeNotificationTarget,
-                      ),
-                      const SizedBox(height: 68),
-                      _XiaoGreetingCard(
-                        experts: _experts.take(4).toList(),
-                        loading: _expertsLoading,
-                        error: _expertsError,
-                        imageHeaders: _apiClient.imageRequestHeaders,
-                        onQuickAction: _openAgentChat,
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _XiaoEntryCard(
-                              icon: Icons.auto_awesome,
-                              color: const Color(0xFF7A70D8),
-                              title: '专家广场',
-                              subtitle: '按岗位选专家',
-                              onTap: _openExpertList,
+                  child: RefreshIndicator(
+                    onRefresh: _refreshHomeNotifications,
+                    child: ListView(
+                      key: const Key('xiao-home-list'),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 112),
+                      children: [
+                        ValueListenableBuilder<int>(
+                          valueListenable:
+                              RecordingCardPendingAudioStatusBus.notifier,
+                          builder: (context, pendingAudioCount, child) {
+                            return _XiaoReminderBanner(
+                              pendingAudioCount: pendingAudioCount,
+                              openCount: _openReminderCount,
+                              unreadReportCount: _unreadReportCount,
+                              onTap:
+                                  pendingAudioCount > 0
+                                      ? widget.onOpenRecordingCard
+                                      : _openHomeNotificationTarget,
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 68),
+                        _XiaoGreetingCard(
+                          experts: _experts.take(4).toList(),
+                          loading: _expertsLoading,
+                          error: _expertsError,
+                          imageHeaders: _apiClient.imageRequestHeaders,
+                          onRetry: _loadExperts,
+                          onQuickAction: _openAgentChat,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _XiaoEntryCard(
+                                icon: Icons.auto_awesome,
+                                color: const Color(0xFF7A70D8),
+                                title: '专家广场',
+                                subtitle: '按岗位选专家',
+                                onTap: _openExpertList,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _XiaoEntryCard(
-                              icon: Icons.folder_shared_outlined,
-                              color: const Color(0xFF1D9E75),
-                              title: '客户空间',
-                              subtitle: '档案 · 时间线 · 待办',
-                              onTap: widget.onOpenCustomerSpaces,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _XiaoEntryCard(
+                                icon: Icons.folder_shared_outlined,
+                                color: const Color(0xFF1D9E75),
+                                title: '客户空间',
+                                subtitle: '档案 · 时间线 · 待办',
+                                onTap: widget.onOpenCustomerSpaces,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -24857,16 +25380,25 @@ class _XiaoRuiPageState extends State<_XiaoRuiPage> {
 
 class _XiaoReminderBanner extends StatelessWidget {
   const _XiaoReminderBanner({
+    required this.pendingAudioCount,
     required this.openCount,
     required this.unreadReportCount,
     required this.onTap,
   });
 
+  final int pendingAudioCount;
   final int openCount;
   final int unreadReportCount;
   final VoidCallback onTap;
 
+  bool get _hasPendingAudio => pendingAudioCount > 0;
+
+  String get _title => _hasPendingAudio ? '记忆卡待同步' : '秋季招生冲刺';
+
   String get _summary {
+    if (_hasPendingAudio) {
+      return '今天$pendingAudioCount条记忆卡音频待同步';
+    }
     if (openCount > 0 && unreadReportCount > 0) {
       return '今天 $openCount 条服务提醒待处理 · $unreadReportCount 份报告未查看';
     }
@@ -24877,7 +25409,13 @@ class _XiaoReminderBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor =
+        _hasPendingAudio ? AppColors.success : AppColors.xiaoPrimary;
+    final iconBackground =
+        _hasPendingAudio ? AppColors.successSoft : const Color(0xFFE7E5FF);
+
     return Material(
+      key: const Key('xiao-reminder-banner'),
       color: AppColors.xiaoSurface,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
@@ -24891,12 +25429,12 @@ class _XiaoReminderBanner extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFE7E5FF),
+                  color: iconBackground,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(
-                  Icons.auto_awesome,
-                  color: AppColors.xiaoPrimary,
+                child: Icon(
+                  _hasPendingAudio ? Icons.memory_outlined : Icons.auto_awesome,
+                  color: accentColor,
                   size: 21,
                 ),
               ),
@@ -24905,9 +25443,9 @@ class _XiaoReminderBanner extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      '秋季招生冲刺',
-                      style: TextStyle(
+                    Text(
+                      _title,
+                      style: const TextStyle(
                         fontSize: 16,
                         color: AppColors.xiaoDeep,
                         fontWeight: FontWeight.w800,
@@ -24927,20 +25465,16 @@ class _XiaoReminderBanner extends StatelessWidget {
                   ],
                 ),
               ),
-              const Text(
+              Text(
                 '去处理',
                 style: TextStyle(
                   fontSize: 13,
-                  color: AppColors.xiaoPrimary,
+                  color: accentColor,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(width: 4),
-              const Icon(
-                Icons.arrow_forward_rounded,
-                color: AppColors.xiaoPrimary,
-                size: 18,
-              ),
+              Icon(Icons.arrow_forward_rounded, color: accentColor, size: 18),
             ],
           ),
         ),
@@ -24955,6 +25489,7 @@ class _XiaoGreetingCard extends StatelessWidget {
     required this.loading,
     required this.error,
     required this.imageHeaders,
+    required this.onRetry,
     required this.onQuickAction,
   });
 
@@ -24962,6 +25497,7 @@ class _XiaoGreetingCard extends StatelessWidget {
   final bool loading;
   final String? error;
   final Map<String, String> imageHeaders;
+  final VoidCallback onRetry;
   final ValueChanged<_XiaoExpert> onQuickAction;
 
   @override
@@ -25011,7 +25547,9 @@ class _XiaoGreetingCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 18),
-              if (experts.isNotEmpty)
+              if (loading && experts.isEmpty)
+                const _XiaoExpertLoadingGrid()
+              else if (experts.isNotEmpty)
                 GridView.count(
                   crossAxisCount: 2,
                   mainAxisSpacing: 10,
@@ -25045,26 +25583,20 @@ class _XiaoGreetingCard extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      if (loading)
-                        const SizedBox(
-                          width: 17,
-                          height: 17,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      else
-                        const Icon(
-                          Icons.group_outlined,
-                          size: 19,
-                          color: AppColors.textTertiary,
-                        ),
+                      Icon(
+                        error?.trim().isNotEmpty == true
+                            ? Icons.info_outline_rounded
+                            : Icons.group_outlined,
+                        size: 19,
+                        color:
+                            error?.trim().isNotEmpty == true
+                                ? AppColors.warning
+                                : AppColors.textTertiary,
+                      ),
                       const SizedBox(width: 9),
                       Expanded(
                         child: Text(
-                          error?.trim().isNotEmpty == true
-                              ? error!
-                              : loading
-                              ? '正在加载专家'
-                              : '暂无可用专家',
+                          error?.trim().isNotEmpty == true ? error! : '暂无可用专家',
                           style: const TextStyle(
                             fontSize: 12,
                             color: AppColors.textSecondary,
@@ -25072,6 +25604,8 @@ class _XiaoGreetingCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (error?.trim().isNotEmpty == true)
+                        TextButton(onPressed: onRetry, child: const Text('重试')),
                     ],
                   ),
                 ),
@@ -25086,6 +25620,119 @@ class _XiaoGreetingCard extends StatelessWidget {
         ),
         Positioned(top: 18, right: 16, child: _XiaoDateChip(date: now)),
       ],
+    );
+  }
+}
+
+class _XiaoExpertLoadingGrid extends StatefulWidget {
+  const _XiaoExpertLoadingGrid();
+
+  @override
+  State<_XiaoExpertLoadingGrid> createState() => _XiaoExpertLoadingGridState();
+}
+
+class _XiaoExpertLoadingGridState extends State<_XiaoExpertLoadingGrid>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 850),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label: '正在加载专家',
+      child: ExcludeSemantics(
+        child: AnimatedBuilder(
+          key: const ValueKey('xiao-expert-loading-grid'),
+          animation: _controller,
+          builder: (context, child) {
+            final fill =
+                Color.lerp(
+                  const Color(0xFFE7E5F6),
+                  const Color(0xFFF4F3FC),
+                  _controller.value,
+                )!;
+            return GridView.count(
+              crossAxisCount: 2,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 2.1,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              children: List.generate(
+                4,
+                (index) => Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.xiaoSurface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFDAD8EE)),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: fill,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FractionallySizedBox(
+                              widthFactor: 0.72,
+                              child: Container(
+                                height: 9,
+                                decoration: BoxDecoration(
+                                  color: fill,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            FractionallySizedBox(
+                              widthFactor: 0.48,
+                              child: Container(
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: fill.withValues(alpha: 0.8),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
     );
   }
 }
