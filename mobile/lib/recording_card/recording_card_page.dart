@@ -8,17 +8,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../error_message.dart';
 import 'recording_card_api_client.dart';
 import 'recording_card_support.dart';
 
-final Uuid kRecordingCardServiceUuid =
-    Uuid.parse('f055200a-2323-4545-6767-8989fffefdfc');
-final Uuid kRecordingCardCommandUuid =
-    Uuid.parse('f255202a-2323-4545-6767-8989fffefdfc');
-final Uuid kRecordingCardNotifyUuid =
-    Uuid.parse('f355203a-2323-4545-6767-8989fffefdfc');
-final Uuid kRecordingCardAudioUuid =
-    Uuid.parse('f455204a-2323-4545-6767-8989fffefdfc');
+final Uuid kRecordingCardServiceUuid = Uuid.parse(
+  'f055200a-2323-4545-6767-8989fffefdfc',
+);
+final Uuid kRecordingCardCommandUuid = Uuid.parse(
+  'f255202a-2323-4545-6767-8989fffefdfc',
+);
+final Uuid kRecordingCardNotifyUuid = Uuid.parse(
+  'f355203a-2323-4545-6767-8989fffefdfc',
+);
+final Uuid kRecordingCardAudioUuid = Uuid.parse(
+  'f455204a-2323-4545-6767-8989fffefdfc',
+);
 
 class _DeviceDetailColors {
   static const background = Color(0xFFF0FAF5);
@@ -138,20 +143,19 @@ class _RecordingCardConnectionSession {
     _publishConnectionStatus();
     _notifyOwner();
 
-    _connectionSubscription = ble.connectToDevice(
-      id: device.id,
-      connectionTimeout: const Duration(seconds: 15),
-      servicesWithCharacteristicsToDiscover: {
-        kRecordingCardServiceUuid: <Uuid>[
-          kRecordingCardCommandUuid,
-          kRecordingCardNotifyUuid,
-          kRecordingCardAudioUuid,
-        ],
-      },
-    ).listen(
-      _handleConnectionUpdate,
-      onError: _handleConnectionError,
-    );
+    _connectionSubscription = ble
+        .connectToDevice(
+          id: device.id,
+          connectionTimeout: const Duration(seconds: 15),
+          servicesWithCharacteristicsToDiscover: {
+            kRecordingCardServiceUuid: <Uuid>[
+              kRecordingCardCommandUuid,
+              kRecordingCardNotifyUuid,
+              kRecordingCardAudioUuid,
+            ],
+          },
+        )
+        .listen(_handleConnectionUpdate, onError: _handleConnectionError);
   }
 
   Future<void> disconnect({bool clearSnapshot = true}) async {
@@ -195,9 +199,10 @@ class _RecordingCardConnectionSession {
       deviceId: device.id,
       deviceName: device.displayName,
       rawMac: current.rawMac.isEmpty ? device.rawMac : current.rawMac,
-      normalizedMac: current.normalizedMac.isEmpty
-          ? device.normalizedMac
-          : current.normalizedMac,
+      normalizedMac:
+          current.normalizedMac.isEmpty
+              ? device.normalizedMac
+              : current.normalizedMac,
       lastUpdatedAt: DateTime.now(),
     );
   }
@@ -239,7 +244,8 @@ class _RecordingCardConnectionSession {
   void _handleConnectionError(Object error, StackTrace stackTrace) {
     connecting = false;
     connectionState = DeviceConnectionState.disconnected;
-    connectionError = '连接失败：$error';
+    connectionError =
+        '连接失败：${localizedErrorMessage(error, fallback: '请检查设备连接后重试')}';
     snapshot = _disconnectedSnapshot(snapshot);
     _publishConnectionStatus();
 
@@ -277,10 +283,7 @@ class _RecordingCardConnectionSession {
       snapshot?.deviceName ?? activeDevice?.displayName ?? '',
     );
     RecordingCardConnectionStatusBus.publish(
-      RecordingCardConnectionStatus(
-        connected: true,
-        deviceName: deviceName,
-      ),
+      RecordingCardConnectionStatus(connected: true, deviceName: deviceName),
     );
   }
 }
@@ -318,11 +321,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   DateTime? _scanRetryAllowedAt;
   _DeviceSnapshot? _snapshot;
   final ValueNotifier<_RecordingCardViewData> _recordingViewNotifier =
-      ValueNotifier<_RecordingCardViewData>(
-    const _RecordingCardViewData(),
+      ValueNotifier<_RecordingCardViewData>(const _RecordingCardViewData());
+  final ValueNotifier<bool> _recordCommandBusyNotifier = ValueNotifier<bool>(
+    false,
   );
-  final ValueNotifier<bool> _recordCommandBusyNotifier =
-      ValueNotifier<bool>(false);
   final RecordingCardLocalStore _localStore = const RecordingCardLocalStore();
   late final RecordingCardApiClient _apiClient;
   final Map<String, RecordingCardFileEntry> _fileEntries = {};
@@ -391,9 +393,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   @override
   void initState() {
     super.initState();
-    _apiClient = RecordingCardApiClient(
-      onAuthFailure: widget.onAuthFailure,
-    );
+    _apiClient = RecordingCardApiClient(onAuthFailure: widget.onAuthFailure);
     WidgetsBinding.instance.addObserver(this);
     _connectionSession.attach(this);
     _bootstrap();
@@ -477,7 +477,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _connecting = false;
         _message = '记忆卡已连接';
         _error = null;
-        _snapshot = _connectionSession.snapshot ??
+        _snapshot =
+            _connectionSession.snapshot ??
             _DeviceSnapshot(deviceId: deviceId, deviceName: 'LY02');
       });
       await _onConnected(deviceId);
@@ -512,9 +513,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     return false;
   }
 
-  void _restoreConnectionSessionState(
-    _RecordingCardConnectionSession session,
-  ) {
+  void _restoreConnectionSessionState(_RecordingCardConnectionSession session) {
     _bleStatus = session.bleStatus;
     _connectionState = session.connectionState;
     _connecting = session.connecting;
@@ -527,14 +526,13 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
     final snapshot = _snapshot;
     if (snapshot != null) {
-      _recordingViewNotifier.value =
-          _RecordingCardViewData.fromSnapshot(snapshot);
+      _recordingViewNotifier.value = _RecordingCardViewData.fromSnapshot(
+        snapshot,
+      );
     }
   }
 
-  void _syncConnectionSessionState(
-    _RecordingCardConnectionSession session,
-  ) {
+  void _syncConnectionSessionState(_RecordingCardConnectionSession session) {
     if (!mounted) return;
     setState(() {
       _bleStatus = session.bleStatus;
@@ -585,8 +583,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
           .toList(growable: false);
       if (denied.isEmpty) return true;
 
-      final permanentlyDenied =
-          denied.any((entry) => entry.value.isPermanentlyDenied);
+      final permanentlyDenied = denied.any(
+        (entry) => entry.value.isPermanentlyDenied,
+      );
       if (!mounted) return false;
       setState(() {
         _error =
@@ -602,9 +601,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   int _androidSdkInt() {
-    final match = RegExp(r'(?:API|SDK)\s*(\d+)').firstMatch(
-      Platform.operatingSystemVersion,
-    );
+    final match = RegExp(
+      r'(?:API|SDK)\s*(\d+)',
+    ).firstMatch(Platform.operatingSystemVersion);
     return int.tryParse(match?.group(1) ?? '') ?? 0;
   }
 
@@ -647,14 +646,13 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         _foundDevices.clear();
       });
 
-      _scanSubscription = _ble.scanForDevices(
-        withServices: const <Uuid>[],
-        scanMode: ScanMode.balanced,
-        requireLocationServicesEnabled: false,
-      ).listen(
-        _handleDiscoveredDevice,
-        onError: _handleScanError,
-      );
+      _scanSubscription = _ble
+          .scanForDevices(
+            withServices: const <Uuid>[],
+            scanMode: ScanMode.balanced,
+            requireLocationServicesEnabled: false,
+          )
+          .listen(_handleDiscoveredDevice, onError: _handleScanError);
     } finally {
       _startingScan = false;
     }
@@ -759,12 +757,16 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       _error = null;
       _message = '正在连接 ${device.displayName}';
       _activeDeviceId = device.id;
-      _snapshot = _snapshot == null
-          ? _DeviceSnapshot(deviceId: device.id, deviceName: device.displayName)
-          : _snapshot!.copyWith(
-              deviceId: device.id,
-              deviceName: device.displayName,
-            );
+      _snapshot =
+          _snapshot == null
+              ? _DeviceSnapshot(
+                deviceId: device.id,
+                deviceName: device.displayName,
+              )
+              : _snapshot!.copyWith(
+                deviceId: device.id,
+                deviceName: device.displayName,
+              );
     });
     _connectionSession.saveSnapshot(_snapshot);
 
@@ -829,12 +831,12 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       }
 
       if (!mounted || _activeDeviceId != deviceId) return;
-      final updatedSnapshot =
-          (_snapshot ?? _DeviceSnapshot(deviceId: deviceId)).copyWith(
-        serviceCount: services.length,
-        characteristicCount: characteristicCount,
-        lastUpdatedAt: DateTime.now(),
-      );
+      final updatedSnapshot = (_snapshot ?? _DeviceSnapshot(deviceId: deviceId))
+          .copyWith(
+            serviceCount: services.length,
+            characteristicCount: characteristicCount,
+            lastUpdatedAt: DateTime.now(),
+          );
       setState(() {
         _snapshot = updatedSnapshot;
       });
@@ -861,40 +863,42 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       await _notifySubscription?.cancel();
       _notifySubscription = _ble
           .subscribeToCharacteristic(
-        QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: kRecordingCardServiceUuid,
-          characteristicId: kRecordingCardNotifyUuid,
-        ),
-      )
+            QualifiedCharacteristic(
+              deviceId: deviceId,
+              serviceId: kRecordingCardServiceUuid,
+              characteristicId: kRecordingCardNotifyUuid,
+            ),
+          )
           .listen(
-        _handleCommandNotify,
-        onError: (Object error, StackTrace stackTrace) {
-          if (!mounted) return;
-          setState(() {
-            _error = '订阅通知失败：$error';
-          });
-        },
-      );
+            _handleCommandNotify,
+            onError: (Object error, StackTrace stackTrace) {
+              if (!mounted) return;
+              setState(() {
+                _error =
+                    '订阅通知失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
+              });
+            },
+          );
 
       await _audioSubscription?.cancel();
       _audioSubscription = _ble
           .subscribeToCharacteristic(
-        QualifiedCharacteristic(
-          deviceId: deviceId,
-          serviceId: kRecordingCardServiceUuid,
-          characteristicId: kRecordingCardAudioUuid,
-        ),
-      )
+            QualifiedCharacteristic(
+              deviceId: deviceId,
+              serviceId: kRecordingCardServiceUuid,
+              characteristicId: kRecordingCardAudioUuid,
+            ),
+          )
           .listen(
-        _handleAudioNotify,
-        onError: (Object error, StackTrace stackTrace) {
-          if (!mounted) return;
-          setState(() {
-            _fileSyncError = '音频通道订阅失败：$error';
-          });
-        },
-      );
+            _handleAudioNotify,
+            onError: (Object error, StackTrace stackTrace) {
+              if (!mounted) return;
+              setState(() {
+                _fileSyncError =
+                    '音频通道订阅失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
+              });
+            },
+          );
 
       await _loadCachedFiles(deviceId);
       if (!mounted || _activeDeviceId != deviceId) return;
@@ -909,7 +913,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = '读取设备能力失败：$error';
+        _error =
+            '读取设备能力失败：${localizedErrorMessage(error, fallback: '请检查设备连接后重试')}';
       });
     }
   }
@@ -1034,7 +1039,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       _postRecordingFileListRefreshInFlight = false;
       if (!mounted) return;
       setState(() {
-        _fileSyncError = '录音文件列表读取失败：$error';
+        _fileSyncError =
+            '录音文件列表读取失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
       final nextAttempt = attempt + 1;
       if (nextAttempt < _postRecordingFileListMaxAttempts) {
@@ -1080,9 +1086,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         const _CommandFrame(0x0f),
         const _CommandFrame(0x12),
       ];
-      final delay = safeInitial
-          ? const Duration(milliseconds: 650)
-          : const Duration(milliseconds: 450);
+      final delay =
+          safeInitial
+              ? const Duration(milliseconds: 650)
+              : const Duration(milliseconds: 450);
 
       for (final command in commands) {
         await _writeCommand(command);
@@ -1128,7 +1135,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       if (!mounted) return;
       setState(() {
         _refreshing = false;
-        _error = '刷新失败：$error';
+        _error = '刷新失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
         _message = null;
       });
     }
@@ -1231,8 +1238,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
     switch (command) {
       case 0x01:
-        _applySnapshot(_snapshot!
-            .copyWith(sn: RecordingCardProtocol.decodeAscii(payload)));
+        _applySnapshot(
+          _snapshot!.copyWith(sn: RecordingCardProtocol.decodeAscii(payload)),
+        );
         break;
       case 0x43:
         _applySnapshot(_applyMacAndSn(payload));
@@ -1240,9 +1248,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       case 0x0e:
         _applySnapshot(
           _snapshot!.copyWith(
-            batteryPercent: payload.isEmpty
-                ? _snapshot!.batteryPercent
-                : RecordingCardProtocol.clampPercent(payload.first),
+            batteryPercent:
+                payload.isEmpty
+                    ? _snapshot!.batteryPercent
+                    : RecordingCardProtocol.clampPercent(payload.first),
           ),
         );
         break;
@@ -1273,14 +1282,16 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         break;
       case 0x0c:
         _applySnapshot(
-          _snapshot!
-              .copyWith(freeMemoryMb: RecordingCardProtocol.readU32Be(payload)),
+          _snapshot!.copyWith(
+            freeMemoryMb: RecordingCardProtocol.readU32Be(payload),
+          ),
         );
         break;
       case 0x0d:
         _applySnapshot(
           _snapshot!.copyWith(
-              totalMemoryMb: RecordingCardProtocol.readU32Be(payload)),
+            totalMemoryMb: RecordingCardProtocol.readU32Be(payload),
+          ),
         );
         break;
       case 0x03:
@@ -1365,13 +1376,14 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   void _showTransferExitBlocked() {
     if (!mounted) return;
     final fileName = _activeFile?.fileNameNoExt.trim() ?? '';
-    final message = _clearingDeviceFiles
-        ? '正在清空记忆卡，请完成后再返回。'
-        : _cloudSyncInProgress
+    final message =
+        _clearingDeviceFiles
+            ? '正在清空记忆卡，请完成后再返回。'
+            : _cloudSyncInProgress
             ? '正在生成记忆并清理设备文件，请完成后再返回。'
             : fileName.isEmpty
-                ? '蓝牙传输中，请完成后再返回。'
-                : '$fileName 正在蓝牙传输，请完成后再返回。';
+            ? '蓝牙传输中，请完成后再返回。'
+            : '$fileName 正在蓝牙传输，请完成后再返回。';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -1402,9 +1414,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   _DeviceSnapshot _applyMemoryAndBattery(List<int> payload) {
     final snapshot = _snapshot!;
     final free = RecordingCardProtocol.readU32Be(payload);
-    final total = payload.length >= 8
-        ? RecordingCardProtocol.readU32Be(payload.sublist(4))
-        : null;
+    final total =
+        payload.length >= 8
+            ? RecordingCardProtocol.readU32Be(payload.sublist(4))
+            : null;
     final charge = payload.length > 8 ? payload[8] : null;
     final battery = payload.length > 9 ? payload[9] : null;
 
@@ -1412,9 +1425,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       freeMemoryMb: free ?? snapshot.freeMemoryMb,
       totalMemoryMb: total ?? snapshot.totalMemoryMb,
       chargeState: charge ?? snapshot.chargeState,
-      batteryPercent: battery == null
-          ? snapshot.batteryPercent
-          : RecordingCardProtocol.clampPercent(battery),
+      batteryPercent:
+          battery == null
+              ? snapshot.batteryPercent
+              : RecordingCardProtocol.clampPercent(battery),
     );
   }
 
@@ -1423,9 +1437,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (payload.length <= 10) return snapshot;
 
     final recordingState = payload[10] == 0 ? 0 : 1;
-    final firmware = payload.length >= 14
-        ? _formatFirmwareBytes(payload.sublist(11, 14))
-        : '';
+    final firmware =
+        payload.length >= 14
+            ? _formatFirmwareBytes(payload.sublist(11, 14))
+            : '';
     final usbSwitch = payload.length > 14 ? payload[14] : null;
     final recordingMode = payload.length > 15 ? payload[15] : null;
     final idleShutdownMinutes = payload.length > 38 ? payload[38] : null;
@@ -1434,9 +1449,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
     snapshot = snapshot.copyWith(
       recordingState: recordingState,
-      firmwareVersion: snapshot.firmwareVersion.isEmpty
-          ? firmware
-          : snapshot.firmwareVersion,
+      firmwareVersion:
+          snapshot.firmwareVersion.isEmpty
+              ? firmware
+              : snapshot.firmwareVersion,
       usbSwitch: usbSwitch ?? snapshot.usbSwitch,
       recordingMode: recordingMode ?? snapshot.recordingMode,
       idleShutdownMinutes: idleShutdownMinutes ?? snapshot.idleShutdownMinutes,
@@ -1470,7 +1486,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }) {
     if (!mounted) return;
     final previous = _snapshot;
-    final recordingJustStopped = syncAfterRecordingStopped &&
+    final recordingJustStopped =
+        syncAfterRecordingStopped &&
         snapshot.recordingState == 0 &&
         (previous?.recordingState == 1 || previous?.recordingState == 2);
     _snapshot = snapshot;
@@ -1483,8 +1500,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _publishRecordingSnapshot(_DeviceSnapshot snapshot) {
-    _recordingViewNotifier.value =
-        _RecordingCardViewData.fromSnapshot(snapshot);
+    _recordingViewNotifier.value = _RecordingCardViewData.fromSnapshot(
+      snapshot,
+    );
     _publishDrawerConnectionStatus(snapshot);
     _syncRecordingTick(snapshot);
     _maybeAutoOpenRecordingPage(snapshot);
@@ -1509,13 +1527,13 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     final fileName = _normalizeDeviceFileName(
       RecordingCardProtocol.decodeAscii(payload),
     );
-    final snapshot =
-        (_snapshot ?? _DeviceSnapshot(deviceId: _activeDeviceId ?? ''))
-            .copyWith(
-      recordingState: 1,
-      activeRecordingFileName: fileName,
-      recordingDurationSeconds: 0,
-    );
+    final snapshot = (_snapshot ??
+            _DeviceSnapshot(deviceId: _activeDeviceId ?? ''))
+        .copyWith(
+          recordingState: 1,
+          activeRecordingFileName: fileName,
+          recordingDurationSeconds: 0,
+        );
     _applySnapshot(snapshot);
     if (!mounted) return;
     setState(() {
@@ -1527,33 +1545,34 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   void _handleRecordingStatusPayload(List<int> payload) {
     final parsed = _parseRecordingStatusPayload(payload);
     if (parsed == null) return;
-    final snapshot =
-        (_snapshot ?? _DeviceSnapshot(deviceId: _activeDeviceId ?? ''))
-            .copyWith(
-      recordingState: parsed.state,
-      activeRecordingFileName: parsed.state == 0
-          ? ''
-          : (parsed.fileNameNoExt.isEmpty
-              ? _snapshot?.activeRecordingFileName
-              : parsed.fileNameNoExt),
-      recordingDurationSeconds:
-          parsed.durationSeconds ?? _snapshot?.recordingDurationSeconds,
-      recordingMode: parsed.recordingMode ?? _snapshot?.recordingMode,
-    );
+    final snapshot = (_snapshot ??
+            _DeviceSnapshot(deviceId: _activeDeviceId ?? ''))
+        .copyWith(
+          recordingState: parsed.state,
+          activeRecordingFileName:
+              parsed.state == 0
+                  ? ''
+                  : (parsed.fileNameNoExt.isEmpty
+                      ? _snapshot?.activeRecordingFileName
+                      : parsed.fileNameNoExt),
+          recordingDurationSeconds:
+              parsed.durationSeconds ?? _snapshot?.recordingDurationSeconds,
+          recordingMode: parsed.recordingMode ?? _snapshot?.recordingMode,
+        );
     _applySnapshot(snapshot);
   }
 
   void _handleRecordingStopped(List<int> payload) {
     _preparePostRecordingFileDiscovery();
     final completion = _parseRecordingCompletionPayload(payload);
-    final snapshot =
-        (_snapshot ?? _DeviceSnapshot(deviceId: _activeDeviceId ?? ''))
-            .copyWith(
-      recordingState: 0,
-      activeRecordingFileName: completion?.fileNameNoExt ?? '',
-      recordingDurationSeconds: completion?.durationSeconds ?? 0,
-      recordingMode: completion?.recordingMode ?? _snapshot?.recordingMode,
-    );
+    final snapshot = (_snapshot ??
+            _DeviceSnapshot(deviceId: _activeDeviceId ?? ''))
+        .copyWith(
+          recordingState: 0,
+          activeRecordingFileName: completion?.fileNameNoExt ?? '',
+          recordingDurationSeconds: completion?.durationSeconds ?? 0,
+          recordingMode: completion?.recordingMode ?? _snapshot?.recordingMode,
+        );
     _applySnapshot(snapshot);
 
     if (completion != null) {
@@ -1630,22 +1649,22 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
               deviceFirmware: snapshot?.firmwareVersion ?? '',
             ))
         .copyWith(
-      deviceId: deviceId,
-      fileSizeBytes: completion.fileSizeBytes,
-      durationSeconds: completion.durationSeconds,
-      recordingMode: completion.recordingMode,
-      deviceSn: snapshot?.sn ?? existing?.deviceSn ?? '',
-      deviceMac: snapshot?.rawMac ?? existing?.deviceMac ?? '',
-      deviceName: snapshot?.deviceName ?? existing?.deviceName ?? '',
-      deviceFirmware:
-          snapshot?.firmwareVersion ?? existing?.deviceFirmware ?? '',
-      transferStatus: _statusAfterDeviceFileSeen(
-        existing,
-        completion.fileSizeBytes,
-      ),
-      lastError: '',
-      createdAt: existing?.createdAt ?? DateTime.now(),
-    );
+          deviceId: deviceId,
+          fileSizeBytes: completion.fileSizeBytes,
+          durationSeconds: completion.durationSeconds,
+          recordingMode: completion.recordingMode,
+          deviceSn: snapshot?.sn ?? existing?.deviceSn ?? '',
+          deviceMac: snapshot?.rawMac ?? existing?.deviceMac ?? '',
+          deviceName: snapshot?.deviceName ?? existing?.deviceName ?? '',
+          deviceFirmware:
+              snapshot?.firmwareVersion ?? existing?.deviceFirmware ?? '',
+          transferStatus: _statusAfterDeviceFileSeen(
+            existing,
+            completion.fileSizeBytes,
+          ),
+          lastError: '',
+          createdAt: existing?.createdAt ?? DateTime.now(),
+        );
     _upsertFileEntry(entry);
   }
 
@@ -1659,9 +1678,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     for (final entry in cachedEntries) {
       normalizedEntries.add(await _normalizeCachedFileEntry(entry));
     }
-    final pausedCount = normalizedEntries.where((entry) {
-      return entry.transferStatus == RecordingCardFileTransferStatus.paused;
-    }).length;
+    final pausedCount =
+        normalizedEntries.where((entry) {
+          return entry.transferStatus == RecordingCardFileTransferStatus.paused;
+        }).length;
 
     if (!mounted || _activeDeviceId != deviceId) return;
     setState(() {
@@ -1684,16 +1704,14 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   Future<RecordingCardFileEntry> _normalizeCachedFileEntry(
     RecordingCardFileEntry entry,
   ) async {
-    final localAudioPath = await _resolveLocalAudioPath(
-      entry,
-      entry.deviceId,
-    );
-    final localPlayablePath = entry.localPlayablePath.trim().isNotEmpty
-        ? entry.localPlayablePath
-        : await _localStore.playableFilePath(
-            entry.deviceId,
-            entry.fileNameNoExt,
-          );
+    final localAudioPath = await _resolveLocalAudioPath(entry, entry.deviceId);
+    final localPlayablePath =
+        entry.localPlayablePath.trim().isNotEmpty
+            ? entry.localPlayablePath
+            : await _localStore.playableFilePath(
+              entry.deviceId,
+              entry.fileNameNoExt,
+            );
     final localLength = await _audioFileLengthAtPath(localAudioPath);
     final safeLocalBytes = _clampSyncedBytes(localLength, entry.fileSizeBytes);
     final localComplete = _hasCompleteLocalBytes(
@@ -1704,16 +1722,18 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     var status = entry.transferStatus;
     var lastError = entry.lastError;
     if (_isTransientDownloadStatus(status)) {
-      status = localComplete
-          ? RecordingCardFileTransferStatus.cloudSyncPending
-          : RecordingCardFileTransferStatus.downloadPending;
+      status =
+          localComplete
+              ? RecordingCardFileTransferStatus.cloudSyncPending
+              : RecordingCardFileTransferStatus.downloadPending;
       if (status == RecordingCardFileTransferStatus.downloadPending) {
         lastError = '';
       }
     } else if (status == RecordingCardFileTransferStatus.cloudSyncing) {
-      status = localComplete
-          ? RecordingCardFileTransferStatus.cloudSyncPending
-          : RecordingCardFileTransferStatus.downloadPending;
+      status =
+          localComplete
+              ? RecordingCardFileTransferStatus.cloudSyncPending
+              : RecordingCardFileTransferStatus.downloadPending;
       if (status == RecordingCardFileTransferStatus.downloadPending) {
         lastError = '';
       }
@@ -1722,9 +1742,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       lastError = '';
     } else if (status == RecordingCardFileTransferStatus.synced &&
         entry.cloudMemoryId.trim().isEmpty) {
-      status = localComplete
-          ? RecordingCardFileTransferStatus.cloudSyncPending
-          : RecordingCardFileTransferStatus.downloadPending;
+      status =
+          localComplete
+              ? RecordingCardFileTransferStatus.cloudSyncPending
+              : RecordingCardFileTransferStatus.downloadPending;
       lastError = '';
     } else if (status == RecordingCardFileTransferStatus.cloudSyncFailed &&
         localComplete &&
@@ -1737,9 +1758,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       lastError = '';
     } else if (status == RecordingCardFileTransferStatus.failed &&
         _isRecoverableDownloadError(lastError)) {
-      status = safeLocalBytes > 0
-          ? RecordingCardFileTransferStatus.retryPending
-          : RecordingCardFileTransferStatus.downloadPending;
+      status =
+          safeLocalBytes > 0
+              ? RecordingCardFileTransferStatus.retryPending
+              : RecordingCardFileTransferStatus.downloadPending;
       lastError = '';
     }
 
@@ -1786,8 +1808,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       return RecordingCardFileTransferStatus.downloadPending;
     }
     final status = existing.transferStatus;
-    final complete =
-        _hasCompleteLocalBytes(existing.syncedBytes, fileSizeBytes);
+    final complete = _hasCompleteLocalBytes(
+      existing.syncedBytes,
+      fileSizeBytes,
+    );
 
     if (_isTransientDownloadStatus(status)) {
       return complete
@@ -1837,7 +1861,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   bool _statusRequiresCompleteLocalFile(
-      RecordingCardFileTransferStatus status) {
+    RecordingCardFileTransferStatus status,
+  ) {
     return status == RecordingCardFileTransferStatus.downloaded ||
         status == RecordingCardFileTransferStatus.cloudSyncPending ||
         status == RecordingCardFileTransferStatus.cloudSyncFailed;
@@ -1866,7 +1891,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     final next = entry.copyWith(updatedAt: DateTime.now());
     _fileEntries[next.fileNameNoExt] = next;
     if (persist) {
-      final shouldNotifyQueue = previous == null ||
+      final shouldNotifyQueue =
+          previous == null ||
           previous.transferStatus != next.transferStatus ||
           previous.cloudMemoryId != next.cloudMemoryId ||
           previous.lastError != next.lastError;
@@ -1925,16 +1951,18 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       _currentFileListPageEntries = 0;
       _currentFileListNewEntries = 0;
       _currentFileListPageKeys.clear();
-      _fileSyncMessage = fallbackWithoutPaging
-          ? '正在回退到公版文件列表'
-          : pageSize == 0
+      _fileSyncMessage =
+          fallbackWithoutPaging
+              ? '正在回退到公版文件列表'
+              : pageSize == 0
               ? '正在回退到非分页文件列表'
               : '正在读取第 ${pageIndex + 1} 页文件列表';
     });
 
-    final payload = fallbackWithoutPaging
-        ? const <int>[]
-        : <int>[pageIndex & 0xff, pageSize & 0xff];
+    final payload =
+        fallbackWithoutPaging
+            ? const <int>[]
+            : <int>[pageIndex & 0xff, pageSize & 0xff];
     await _writeCommand(_CommandFrame(0x05, payload));
 
     _fileListTimeoutTimer = Timer(const Duration(seconds: 10), () {
@@ -1956,7 +1984,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       final wasPostRecordingRefresh = _postRecordingFileListRefreshInFlight;
       final discoveredPostRecordingFile =
           wasPostRecordingRefresh && _hasDiscoveredPostRecordingFile();
-      final treatAsEmptyDeviceList = emptyQueueFailureMeansNoFiles &&
+      final treatAsEmptyDeviceList =
+          emptyQueueFailureMeansNoFiles &&
           !wasPostRecordingRefresh &&
           _fileEntries.isEmpty;
       setState(() {
@@ -2034,30 +2063,31 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
                 deviceFirmware: snapshot?.firmwareVersion ?? '',
               ))
           .copyWith(
-        deviceId: deviceId,
-        fileSizeBytes: descriptor.fileSizeBytes,
-        recordingMode: descriptor.recordingMode ?? existing?.recordingMode,
-        deviceSn: snapshot?.sn ?? existing?.deviceSn ?? '',
-        deviceMac: snapshot?.rawMac ?? existing?.deviceMac ?? '',
-        deviceName: snapshot?.deviceName ?? existing?.deviceName ?? '',
-        deviceFirmware:
-            snapshot?.firmwareVersion ?? existing?.deviceFirmware ?? '',
-        transferStatus: _statusAfterDeviceFileSeen(
-          existing,
-          descriptor.fileSizeBytes,
-        ),
-        lastError: existing?.lastError ?? '',
-        createdAtFromDevice: existing?.createdAtFromDevice ??
-            _parseDeviceDate(descriptor.rawTail) ??
-            _parseDeviceFileDate(descriptor.fileNameNoExt),
-        syncedBytes: _clampSyncedBytes(
-          existing?.syncedBytes ?? 0,
-          descriptor.fileSizeBytes,
-        ),
-        checksumFailureCount: existing?.checksumFailureCount ?? 0,
-        cloudMemoryId: existing?.cloudMemoryId ?? '',
-        createdAt: existing?.createdAt ?? now,
-      );
+            deviceId: deviceId,
+            fileSizeBytes: descriptor.fileSizeBytes,
+            recordingMode: descriptor.recordingMode ?? existing?.recordingMode,
+            deviceSn: snapshot?.sn ?? existing?.deviceSn ?? '',
+            deviceMac: snapshot?.rawMac ?? existing?.deviceMac ?? '',
+            deviceName: snapshot?.deviceName ?? existing?.deviceName ?? '',
+            deviceFirmware:
+                snapshot?.firmwareVersion ?? existing?.deviceFirmware ?? '',
+            transferStatus: _statusAfterDeviceFileSeen(
+              existing,
+              descriptor.fileSizeBytes,
+            ),
+            lastError: existing?.lastError ?? '',
+            createdAtFromDevice:
+                existing?.createdAtFromDevice ??
+                _parseDeviceDate(descriptor.rawTail) ??
+                _parseDeviceFileDate(descriptor.fileNameNoExt),
+            syncedBytes: _clampSyncedBytes(
+              existing?.syncedBytes ?? 0,
+              descriptor.fileSizeBytes,
+            ),
+            checksumFailureCount: existing?.checksumFailureCount ?? 0,
+            cloudMemoryId: existing?.cloudMemoryId ?? '',
+            createdAt: existing?.createdAt ?? now,
+          );
       _upsertFileEntry(next);
     }
 
@@ -2077,7 +2107,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       'pageSize=$_fileListPageSize newEntries=$_currentFileListNewEntries '
       'fallback=$_fileListFallbackRequested total=${_fileEntries.length}',
     );
-    final repeatedFirstPage = _fileListPageIndex > 0 &&
+    final repeatedFirstPage =
+        _fileListPageIndex > 0 &&
         _currentFileListPageKeys.isNotEmpty &&
         setEquals(_currentFileListPageKeys, _firstFileListPageKeys);
     final pageWithoutNewFiles =
@@ -2096,7 +2127,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       return;
     }
 
-    final shouldContinuePaging = _fileListPageSize > 0 &&
+    final shouldContinuePaging =
+        _fileListPageSize > 0 &&
         _currentFileListPageEntries >= _fileListPageSize &&
         !_fileListFallbackRequested;
     if (shouldContinuePaging) {
@@ -2125,9 +2157,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     setState(() {
       _loadingFileList = false;
       _awaitingFileListPage = false;
-      _fileSyncMessage = _fileEntries.isEmpty
-          ? '设备中没有录音文件'
-          : _bluetoothTransferPaused
+      _fileSyncMessage =
+          _fileEntries.isEmpty
+              ? '设备中没有录音文件'
+              : _bluetoothTransferPaused
               ? '文件列表已读取，蓝牙传输已暂停'
               : '文件列表已读取，正在自动导入';
       _lastFileSyncAt = DateTime.now();
@@ -2168,10 +2201,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     final cloudCandidate = _nextCloudSyncCandidate();
     if (cloudCandidate != null) {
       _clearCloudSyncRetryBackoff();
-      await _startCloudSyncForEntry(
-        cloudCandidate,
-        deferForBluetooth: false,
-      );
+      await _startCloudSyncForEntry(cloudCandidate, deferForBluetooth: false);
       return;
     }
 
@@ -2182,7 +2212,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       final deleted = await _deleteDeviceFile(deviceDeleteCandidate);
       if (!mounted) return;
       if (!deleted && _connectionState == DeviceConnectionState.connected) {
-        final current = _fileEntries[deviceDeleteCandidate.fileNameNoExt] ??
+        final current =
+            _fileEntries[deviceDeleteCandidate.fileNameNoExt] ??
             deviceDeleteCandidate;
         if (current.lastError.trim().isEmpty) {
           _upsertFileEntry(current.copyWith(lastError: '设备文件待删除'));
@@ -2278,12 +2309,13 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         continue;
       }
       final restartFromZero = _shouldRestartDownloadFromZero(entry);
-      final localLength = restartFromZero
-          ? 0
-          : await _localStore.audioFileLength(
-              entry.deviceId,
-              entry.fileNameNoExt,
-            );
+      final localLength =
+          restartFromZero
+              ? 0
+              : await _localStore.audioFileLength(
+                entry.deviceId,
+                entry.fileNameNoExt,
+              );
       final safeSyncedBytes = _clampSyncedBytes(
         restartFromZero ? 0 : localLength,
         entry.fileSizeBytes,
@@ -2292,9 +2324,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         entry.copyWith(
           syncedBytes: safeSyncedBytes,
           checksumFailureCount: 0,
-          transferStatus: restartFromZero || safeSyncedBytes <= 0
-              ? RecordingCardFileTransferStatus.downloadPending
-              : RecordingCardFileTransferStatus.retryPending,
+          transferStatus:
+              restartFromZero || safeSyncedBytes <= 0
+                  ? RecordingCardFileTransferStatus.downloadPending
+                  : RecordingCardFileTransferStatus.retryPending,
           lastError: '',
         ),
       );
@@ -2376,45 +2409,53 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       await _writeCommand(const _CommandFrame(0x08));
       _armSyncAckTimer();
     } catch (error) {
-      await _markPauseTransferFailed('暂停蓝牙传输失败：$error');
+      await _markPauseTransferFailed(
+        '暂停蓝牙传输失败：${localizedErrorMessage(error, fallback: '请稍后重试')}',
+      );
     }
   }
 
   RecordingCardFileEntry? _nextDownloadCandidate() {
-    final candidates = _fileEntries.values.where((entry) {
-      if (entry.isDownloaded) return false;
-      return entry.transferStatus == RecordingCardFileTransferStatus.listed ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.downloadPending ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.retryPending ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.checksumFailed;
-    }).toList()
-      ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
+    final candidates =
+        _fileEntries.values.where((entry) {
+            if (entry.isDownloaded) return false;
+            return entry.transferStatus ==
+                    RecordingCardFileTransferStatus.listed ||
+                entry.transferStatus ==
+                    RecordingCardFileTransferStatus.downloadPending ||
+                entry.transferStatus ==
+                    RecordingCardFileTransferStatus.retryPending ||
+                entry.transferStatus ==
+                    RecordingCardFileTransferStatus.checksumFailed;
+          }).toList()
+          ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
     return candidates.isEmpty ? null : candidates.first;
   }
 
   RecordingCardFileEntry? _nextDeviceDeleteCandidate() {
-    final candidates = _fileEntries.values.where((entry) {
-      return entry.transferStatus == RecordingCardFileTransferStatus.synced &&
-          entry.cloudMemoryId.trim().isNotEmpty &&
-          entry.lastError.trim().isEmpty;
-    }).toList()
-      ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
+    final candidates =
+        _fileEntries.values.where((entry) {
+            return entry.transferStatus ==
+                    RecordingCardFileTransferStatus.synced &&
+                entry.cloudMemoryId.trim().isNotEmpty &&
+                entry.lastError.trim().isEmpty;
+          }).toList()
+          ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
     return candidates.isEmpty ? null : candidates.first;
   }
 
   RecordingCardFileEntry? _nextCloudSyncCandidate() {
     if (_cloudSyncRetryCoolingDown()) return null;
-    final candidates = _fileEntries.values.where((entry) {
-      return entry.transferStatus ==
-              RecordingCardFileTransferStatus.downloaded ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.cloudSyncPending ||
-          entry.transferStatus == RecordingCardFileTransferStatus.cloudSyncing;
-    }).toList()
-      ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
+    final candidates =
+        _fileEntries.values.where((entry) {
+            return entry.transferStatus ==
+                    RecordingCardFileTransferStatus.downloaded ||
+                entry.transferStatus ==
+                    RecordingCardFileTransferStatus.cloudSyncPending ||
+                entry.transferStatus ==
+                    RecordingCardFileTransferStatus.cloudSyncing;
+          }).toList()
+          ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
     return candidates.isEmpty ? null : candidates.first;
   }
 
@@ -2455,12 +2496,14 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (deviceId == null || deviceId.isEmpty) {
       return const <RecordingCardFileEntry>[];
     }
-    return _fileEntries.values.where((entry) {
-      return entry.deviceId == deviceId &&
-          entry.fileNameNoExt.trim().isNotEmpty &&
-          entry.transferStatus !=
-              RecordingCardFileTransferStatus.deletedOnDevice;
-    }).toList(growable: false)
+    return _fileEntries.values
+        .where((entry) {
+          return entry.deviceId == deviceId &&
+              entry.fileNameNoExt.trim().isNotEmpty &&
+              entry.transferStatus !=
+                  RecordingCardFileTransferStatus.deletedOnDevice;
+        })
+        .toList(growable: false)
       ..sort((a, b) => a.fileNameNoExt.compareTo(b.fileNameNoExt));
   }
 
@@ -2507,9 +2550,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       0,
       (sum, entry) => sum + entry.fileSizeBytes,
     );
-    final sizeText = totalBytes > 0
-        ? '，约 ${RecordingCardProtocol.formatFileSize(totalBytes)}'
-        : '';
+    final sizeText =
+        totalBytes > 0
+            ? '，约 ${RecordingCardProtocol.formatFileSize(totalBytes)}'
+            : '';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -2622,9 +2666,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     final remaining = candidates.length - deletedCount;
     setState(() {
       _fileSyncMessage = '已删除 $deletedCount 个，剩余 $remaining 个待清空';
-      _fileSyncError = failedEntry == null
-          ? '清空记忆卡未完成'
-          : '${failedEntry.fileNameNoExt} 删除失败';
+      _fileSyncError =
+          failedEntry == null
+              ? '清空记忆卡未完成'
+              : '${failedEntry.fileNameNoExt} 删除失败';
       _lastFileSyncAt = DateTime.now();
     });
   }
@@ -2722,9 +2767,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if (fileName != null) {
       final entry = _fileEntries[fileName];
       if (entry != null) {
-        _upsertFileEntry(
-          entry.copyWith(lastError: '设备删除文件失败'),
-        );
+        _upsertFileEntry(entry.copyWith(lastError: '设备删除文件失败'));
       }
     }
     if (completer != null && !completer.isCompleted) {
@@ -2812,13 +2855,16 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       active.deviceId,
       active.fileNameNoExt,
     );
-    final safeSyncedBytes =
-        _clampSyncedBytes(localLength, active.fileSizeBytes);
+    final safeSyncedBytes = _clampSyncedBytes(
+      localLength,
+      active.fileSizeBytes,
+    );
     final retryFile = active.copyWith(
       syncedBytes: safeSyncedBytes,
-      transferStatus: safeSyncedBytes > 0
-          ? RecordingCardFileTransferStatus.retryPending
-          : RecordingCardFileTransferStatus.downloadPending,
+      transferStatus:
+          safeSyncedBytes > 0
+              ? RecordingCardFileTransferStatus.retryPending
+              : RecordingCardFileTransferStatus.downloadPending,
       lastError: message,
     );
     _upsertFileEntry(retryFile);
@@ -2852,12 +2898,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     final transferToken = _activeTransferToken;
     Timer(const Duration(milliseconds: 120), () {
       if (!mounted) return;
-      _enqueueAudioQueueTask(
-        () async {
-          if (transferToken != _activeTransferToken) return;
-          await _finalizeCurrentTransfer(fromDeviceEnd: fromDeviceEnd);
-        },
-      );
+      _enqueueAudioQueueTask(() async {
+        if (transferToken != _activeTransferToken) return;
+        await _finalizeCurrentTransfer(fromDeviceEnd: fromDeviceEnd);
+      });
     });
   }
 
@@ -2951,9 +2995,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   void _enqueueAudioQueueTask(Future<void> Function() task) {
-    _audioPacketQueue = _audioPacketQueue
-        .then<void>((_) => task())
-        .catchError((Object error, StackTrace stackTrace) {
+    _audioPacketQueue = _audioPacketQueue.then<void>((_) => task()).catchError((
+      Object error,
+      StackTrace stackTrace,
+    ) {
       _logRecordingCardProtocol('AUDIO_PROCESS error=$error');
     });
   }
@@ -3047,10 +3092,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         'received=${packet.address} unit=${_audioAddressUnit.name} '
         'len=${packet.length} endian=${_endianLabel(packet.addressByteOrder)}',
       );
-      await _handleDownloadFailure(
-        '文件地址不连续',
-        preserveRetryBudget: true,
-      );
+      await _handleDownloadFailure('文件地址不连续', preserveRetryBudget: true);
       return;
     }
 
@@ -3072,41 +3114,38 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         'receivedOffset=${match.byteOffset} address=${packet.address} '
         'len=${packet.length} unit=${match.addressUnit.name}',
       );
-      await _handleDownloadFailure(
-        '文件地址不连续',
-        preserveRetryBudget: true,
-      );
+      await _handleDownloadFailure('文件地址不连续', preserveRetryBudget: true);
       return;
     }
 
     final skipBytes = active.syncedBytes - match.byteOffset;
-    final payload = skipBytes <= 0
-        ? packet.payload
-        : Uint8List.sublistView(packet.payload, skipBytes);
+    final payload =
+        skipBytes <= 0
+            ? packet.payload
+            : Uint8List.sublistView(packet.payload, skipBytes);
     if (payload.isEmpty) {
       _armAudioIdleTimer();
       return;
     }
 
-    final remainingBytes = active.fileSizeBytes > 0
-        ? active.fileSizeBytes - active.syncedBytes
-        : payload.length;
+    final remainingBytes =
+        active.fileSizeBytes > 0
+            ? active.fileSizeBytes - active.syncedBytes
+            : payload.length;
     if (remainingBytes <= 0) {
       _armAudioIdleTimer();
       return;
     }
-    final payloadToWrite = payload.length > remainingBytes
-        ? Uint8List.sublistView(payload, 0, remainingBytes)
-        : payload;
+    final payloadToWrite =
+        payload.length > remainingBytes
+            ? Uint8List.sublistView(payload, 0, remainingBytes)
+            : payload;
 
     _bufferAudioPayload(payloadToWrite);
     if (_activeAudioBufferedBytes >= _audioWriteBufferByteThreshold) {
       final flushed = await _flushActiveAudioBuffer();
       if (!flushed) {
-        await _handleDownloadFailure(
-          '本地落盘失败',
-          flushBufferedBytes: false,
-        );
+        await _handleDownloadFailure('本地落盘失败', flushBufferedBytes: false);
         return;
       }
     }
@@ -3150,9 +3189,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     List<int> rawBytes,
     int expectedBytes,
   ) {
-    final endians = _audioAddressByteOrder == Endian.big
-        ? const [Endian.big, Endian.little]
-        : const [Endian.little, Endian.big];
+    final endians =
+        _audioAddressByteOrder == Endian.big
+            ? const [Endian.big, Endian.little]
+            : const [Endian.little, Endian.big];
     _AudioPacketMatch? duplicateMatch;
 
     for (final endian in endians) {
@@ -3207,22 +3247,28 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         final byteOffsetMatch = _AudioPacketMatch(
           packet: packet,
           byteOffset: packet.address,
-          addressUnit: expectedBytes == 0
-              ? _AudioAddressUnit.unknown
-              : _AudioAddressUnit.byteOffset,
+          addressUnit:
+              expectedBytes == 0
+                  ? _AudioAddressUnit.unknown
+                  : _AudioAddressUnit.byteOffset,
         );
         final packetIndexMatch = _AudioPacketMatch(
           packet: packet,
           byteOffset: packet.address * _audioPayloadMaxBytes,
-          addressUnit: packet.address == 0 && expectedBytes == 0
-              ? _AudioAddressUnit.unknown
-              : _AudioAddressUnit.packetIndex,
+          addressUnit:
+              packet.address == 0 && expectedBytes == 0
+                  ? _AudioAddressUnit.unknown
+                  : _AudioAddressUnit.packetIndex,
         );
 
-        final byteScore =
-            _audioPacketMatchScore(byteOffsetMatch.byteOffset, expectedBytes);
-        final packetScore =
-            _audioPacketMatchScore(packetIndexMatch.byteOffset, expectedBytes);
+        final byteScore = _audioPacketMatchScore(
+          byteOffsetMatch.byteOffset,
+          expectedBytes,
+        );
+        final packetScore = _audioPacketMatchScore(
+          packetIndexMatch.byteOffset,
+          expectedBytes,
+        );
         return byteScore <= packetScore
             ? [byteOffsetMatch, packetIndexMatch]
             : [packetIndexMatch, byteOffsetMatch];
@@ -3290,19 +3336,23 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     required bool completed,
   }) {
     final now = DateTime.now();
-    final uiStale = _lastDownloadUiUpdateAt == null ||
+    final uiStale =
+        _lastDownloadUiUpdateAt == null ||
         now.difference(_lastDownloadUiUpdateAt!) >= _downloadUiUpdateInterval;
-    final persistStale = _lastDownloadPersistAt == null ||
+    final persistStale =
+        _lastDownloadPersistAt == null ||
         now.difference(_lastDownloadPersistAt!) >= _downloadPersistInterval;
     final persistedByteDelta =
         nextFile.syncedBytes - _lastDownloadPersistedBytes;
-    final shouldPersist = completed ||
+    final shouldPersist =
+        completed ||
         persistStale ||
         persistedByteDelta >= _downloadPersistByteInterval;
     final shouldRefreshUi = completed || uiStale;
-    final stored = shouldPersist || shouldRefreshUi
-        ? _upsertFileEntry(nextFile, persist: shouldPersist)
-        : nextFile.copyWith(updatedAt: now);
+    final stored =
+        shouldPersist || shouldRefreshUi
+            ? _upsertFileEntry(nextFile, persist: shouldPersist)
+            : nextFile.copyWith(updatedAt: now);
     _activeFile = stored;
     _sampleDownloadSpeed(stored, now);
 
@@ -3346,17 +3396,20 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     if ((speed == null || speed <= 0) && startedAt != null) {
       final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
       if (elapsedMs > 0 && entry.syncedBytes > _lastDownloadSpeedSampleBytes) {
-        speed = (entry.syncedBytes - _lastDownloadSpeedSampleBytes) /
+        speed =
+            (entry.syncedBytes - _lastDownloadSpeedSampleBytes) /
             (elapsedMs / 1000);
       }
     }
-    final speedText = speed == null || speed <= 0
-        ? ''
-        : ' · ${RecordingCardProtocol.formatFileSize(speed.round())}/s';
+    final speedText =
+        speed == null || speed <= 0
+            ? ''
+            : ' · ${RecordingCardProtocol.formatFileSize(speed.round())}/s';
     final remainingBytes = entry.fileSizeBytes - entry.syncedBytes;
-    final etaText = speed == null || speed <= 0 || remainingBytes <= 0
-        ? ''
-        : ' · 剩余 ${_formatShortDuration((remainingBytes / speed).ceil())}';
+    final etaText =
+        speed == null || speed <= 0 || remainingBytes <= 0
+            ? ''
+            : ' · 剩余 ${_formatShortDuration((remainingBytes / speed).ceil())}';
     return '正在下载 ${entry.fileNameNoExt} '
         '${RecordingCardProtocol.formatFileSize(entry.syncedBytes)} / '
         '${entry.displaySize}$speedText$etaText';
@@ -3387,21 +3440,26 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     _audioNotifyBuffer.clear();
     await _closeActiveFileWriter(flushBufferedBytes: flushBufferedBytes);
     final localLength = await _localStore.audioFileLength(
-        active.deviceId, active.fileNameNoExt);
-    final safeSyncedBytes = active.fileSizeBytes > 0
-        ? localLength.clamp(0, active.fileSizeBytes).toInt()
-        : localLength;
+      active.deviceId,
+      active.fileNameNoExt,
+    );
+    final safeSyncedBytes =
+        active.fileSizeBytes > 0
+            ? localLength.clamp(0, active.fileSizeBytes).toInt()
+            : localLength;
 
-    final nextFailureCount = preserveRetryBudget
-        ? active.checksumFailureCount
-        : active.checksumFailureCount + 1;
+    final nextFailureCount =
+        preserveRetryBudget
+            ? active.checksumFailureCount
+            : active.checksumFailureCount + 1;
     final shouldRetry = preserveRetryBudget || nextFailureCount < 3;
     final nextFile = active.copyWith(
       syncedBytes: safeSyncedBytes,
       checksumFailureCount: nextFailureCount,
-      transferStatus: shouldRetry
-          ? RecordingCardFileTransferStatus.stoppingForRetry
-          : RecordingCardFileTransferStatus.failed,
+      transferStatus:
+          shouldRetry
+              ? RecordingCardFileTransferStatus.stoppingForRetry
+              : RecordingCardFileTransferStatus.failed,
       lastError: preserveRetryBudget ? '' : reason,
     );
     _upsertFileEntry(nextFile);
@@ -3410,9 +3468,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     setState(() {
       _activeFile = nextFile;
       _fileSyncError = preserveRetryBudget ? null : reason;
-      _fileSyncMessage = shouldRetry
-          ? (preserveRetryBudget ? '蓝牙包丢失，正在断点重传' : '传输异常，正在请求重传')
-          : '文件传输失败';
+      _fileSyncMessage =
+          shouldRetry
+              ? (preserveRetryBudget ? '蓝牙包丢失，正在断点重传' : '传输异常，正在请求重传')
+              : '文件传输失败';
     });
 
     if (shouldRetry) {
@@ -3476,8 +3535,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         active.deviceId,
         active.fileNameNoExt,
       );
-      final safeSyncedBytes =
-          _clampSyncedBytes(localLength, active.fileSizeBytes);
+      final safeSyncedBytes = _clampSyncedBytes(
+        localLength,
+        active.fileSizeBytes,
+      );
       final paused = active.copyWith(
         syncedBytes: safeSyncedBytes,
         transferStatus: RecordingCardFileTransferStatus.paused,
@@ -3547,12 +3608,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       if (!mounted || _activeFile == null || _activeFileWriter == null) {
         return;
       }
-      unawaited(
-        _handleDownloadFailure(
-          '音频包超时',
-          preserveRetryBudget: true,
-        ),
-      );
+      unawaited(_handleDownloadFailure('音频包超时', preserveRetryBudget: true));
     });
   }
 
@@ -3605,10 +3661,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     unawaited(_closeActiveFileWriter());
   }
 
-  void _resetDownloadProgressState({
-    int syncedBytes = 0,
-    bool active = false,
-  }) {
+  void _resetDownloadProgressState({int syncedBytes = 0, bool active = false}) {
     final now = active ? DateTime.now() : null;
     _activeAudioBuffer = active ? BytesBuilder(copy: false) : null;
     _activeAudioBufferedBytes = 0;
@@ -3669,12 +3722,18 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     String deviceId,
     RecordingCardFileEntry entry,
   ) async {
-    final localAudioPath =
-        await _localStore.audioFilePath(deviceId, entry.fileNameNoExt);
-    final localPlayablePath =
-        await _localStore.playableFilePath(deviceId, entry.fileNameNoExt);
-    final localLength =
-        await _localStore.audioFileLength(deviceId, entry.fileNameNoExt);
+    final localAudioPath = await _localStore.audioFilePath(
+      deviceId,
+      entry.fileNameNoExt,
+    );
+    final localPlayablePath = await _localStore.playableFilePath(
+      deviceId,
+      entry.fileNameNoExt,
+    );
+    final localLength = await _localStore.audioFileLength(
+      deviceId,
+      entry.fileNameNoExt,
+    );
     final restartFromZero = _shouldRestartDownloadFromZero(entry);
     var resumeBytes = restartFromZero ? 0 : localLength;
     if (entry.fileSizeBytes > 0 && resumeBytes > entry.fileSizeBytes) {
@@ -3717,9 +3776,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       localSbcPath: localAudioPath,
       localPlayablePath: localPlayablePath,
       syncedBytes: resumeBytes,
-      transferStatus: resumeBytes > 0
-          ? RecordingCardFileTransferStatus.retryPending
-          : RecordingCardFileTransferStatus.downloading,
+      transferStatus:
+          resumeBytes > 0
+              ? RecordingCardFileTransferStatus.retryPending
+              : RecordingCardFileTransferStatus.downloading,
       lastError: '',
       deviceSn: _snapshot?.sn ?? entry.deviceSn,
       deviceMac: _snapshot?.rawMac ?? entry.deviceMac,
@@ -3792,9 +3852,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   List<int> _encodeTransferStartAddress(int resumeBytes) {
-    final startAddress = _audioAddressUnit == _AudioAddressUnit.packetIndex
-        ? resumeBytes ~/ _audioPayloadMaxBytes
-        : resumeBytes;
+    final startAddress =
+        _audioAddressUnit == _AudioAddressUnit.packetIndex
+            ? resumeBytes ~/ _audioPayloadMaxBytes
+            : resumeBytes;
     return _audioAddressByteOrder == Endian.little
         ? _encodeU32Le(startAddress)
         : _encodeU32Be(startAddress);
@@ -3827,9 +3888,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
 
     final localAudioPath = await _resolveLocalAudioPath(entry, deviceId);
-    final localPlayablePath = entry.localPlayablePath.trim().isNotEmpty
-        ? entry.localPlayablePath
-        : await _localStore.playableFilePath(deviceId, entry.fileNameNoExt);
+    final localPlayablePath =
+        entry.localPlayablePath.trim().isNotEmpty
+            ? entry.localPlayablePath
+            : await _localStore.playableFilePath(deviceId, entry.fileNameNoExt);
     final localLength = await _audioFileLengthAtPath(localAudioPath);
     final safeLocalBytes = _clampSyncedBytes(localLength, entry.fileSizeBytes);
     final localComplete = _hasCompleteLocalBytes(
@@ -3937,17 +3999,19 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         });
       }
     } on RecordingCardApiException catch (error) {
-      final isInterfaceMismatch = error.statusCode == HttpStatus.badRequest ||
+      final isInterfaceMismatch =
+          error.statusCode == HttpStatus.badRequest ||
           error.statusCode == HttpStatus.notFound ||
           error.statusCode == HttpStatus.unprocessableEntity ||
           error.statusCode == 1007 ||
           error.message.contains('invalid byte sequence for encoding "UTF8"') ||
           error.message.contains('SQLSTATE 22021');
-      final prompt = error.isAuthFailure
-          ? '请先登录后再生成记忆'
-          : (isInterfaceMismatch
-              ? '云端接口与当前版本不兼容，请更新服务端记忆卡记忆接口后重试。'
-              : '生成记忆失败：${error.message}');
+      final prompt =
+          error.isAuthFailure
+              ? '请先登录后再生成记忆'
+              : (isInterfaceMismatch
+                  ? '云端接口与当前版本不兼容，请更新服务端记忆卡记忆接口后重试。'
+                  : '生成记忆失败：${localizedErrorMessage(error, fallback: '请稍后重试')}');
       final failed = syncing.copyWith(
         transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
         lastError: prompt,
@@ -4021,11 +4085,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
   }
 
   String _formatCloudError(Object error) {
-    if (error is HttpException && error.message.trim().isNotEmpty) {
-      return error.message.trim();
-    }
-    final raw = error.toString();
-    return raw.replaceFirst('Exception: ', '').trim();
+    return localizedErrorMessage(error, fallback: '云端同步失败，请稍后重试');
   }
 
   String _recordingMemoryTitle(RecordingCardFileEntry entry) {
@@ -4080,9 +4140,10 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         final retry = entry.copyWith(
           syncedBytes: restartFromZero ? 0 : entry.syncedBytes,
           checksumFailureCount: 0,
-          transferStatus: !restartFromZero && entry.syncedBytes > 0
-              ? RecordingCardFileTransferStatus.retryPending
-              : RecordingCardFileTransferStatus.downloadPending,
+          transferStatus:
+              !restartFromZero && entry.syncedBytes > 0
+                  ? RecordingCardFileTransferStatus.retryPending
+                  : RecordingCardFileTransferStatus.downloadPending,
           lastError: '',
         );
         _bluetoothTransferPaused = false;
@@ -4095,16 +4156,17 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     final selected = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => _DeviceOptionSheet<int>(
-        title: '降噪等级',
-        options: const [
-          _DeviceOption(value: 0x00, label: '关', description: '保留原始环境音'),
-          _DeviceOption(value: 0x05, label: '低', description: '轻度降低底噪'),
-          _DeviceOption(value: 0x0a, label: '中', description: '适合日常录音'),
-          _DeviceOption(value: 0x0f, label: '高', description: '强降噪场景'),
-        ],
-        selectedValue: _snapshot?.noiseLevel,
-      ),
+      builder:
+          (context) => _DeviceOptionSheet<int>(
+            title: '降噪等级',
+            options: const [
+              _DeviceOption(value: 0x00, label: '关', description: '保留原始环境音'),
+              _DeviceOption(value: 0x05, label: '低', description: '轻度降低底噪'),
+              _DeviceOption(value: 0x0a, label: '中', description: '适合日常录音'),
+              _DeviceOption(value: 0x0f, label: '高', description: '强降噪场景'),
+            ],
+            selectedValue: _snapshot?.noiseLevel,
+          ),
     );
     if (selected != null) {
       await _setNoiseLevel(selected);
@@ -4115,16 +4177,17 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     final selected = await showModalBottomSheet<int>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => _DeviceOptionSheet<int>(
-        title: '分段录音时长',
-        options: const [
-          _DeviceOption(value: 30, label: '30分钟', description: '短会议或课堂片段'),
-          _DeviceOption(value: 60, label: '1小时', description: '常规录音分段'),
-          _DeviceOption(value: 120, label: '2小时', description: '长录音推荐'),
-          _DeviceOption(value: 180, label: '3小时', description: '减少分段数量'),
-        ],
-        selectedValue: _snapshot?.segmentMinutes,
-      ),
+      builder:
+          (context) => _DeviceOptionSheet<int>(
+            title: '分段录音时长',
+            options: const [
+              _DeviceOption(value: 30, label: '30分钟', description: '短会议或课堂片段'),
+              _DeviceOption(value: 60, label: '1小时', description: '常规录音分段'),
+              _DeviceOption(value: 120, label: '2小时', description: '长录音推荐'),
+              _DeviceOption(value: 180, label: '3小时', description: '减少分段数量'),
+            ],
+            selectedValue: _snapshot?.segmentMinutes,
+          ),
     );
     if (selected != null) {
       await _setSegmentMinutes(selected);
@@ -4183,7 +4246,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     } catch (error) {
       if (!mounted) return false;
       setState(() {
-        _fileSyncError = '录音控制失败：$error';
+        _fileSyncError =
+            '录音控制失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
       return false;
     } finally {
@@ -4293,9 +4357,7 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       if (!completer.isCompleted) {
         completer.complete(false);
       }
-      _upsertFileEntry(
-        entry.copyWith(lastError: '设备删除文件超时'),
-      );
+      _upsertFileEntry(entry.copyWith(lastError: '设备删除文件超时'));
       if (mounted) {
         setState(() {
           _fileSyncError = '设备删除文件超时';
@@ -4320,12 +4382,11 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       if (!completer.isCompleted) {
         completer.complete(false);
       }
-      _upsertFileEntry(
-        entry.copyWith(lastError: '设备删除文件失败'),
-      );
+      _upsertFileEntry(entry.copyWith(lastError: '设备删除文件失败'));
       if (mounted) {
         setState(() {
-          _fileSyncError = '设备删除文件失败：$error';
+          _fileSyncError =
+              '设备删除文件失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
           _fileSyncMessage = '${entry.fileNameNoExt} 设备文件待删除';
         });
       }
@@ -4359,13 +4420,14 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (context) => _RecordingCardRecordingPage(
-            recording: _recordingViewNotifier,
-            commandBusy: _recordCommandBusyNotifier,
-            onStart: _startDeviceRecording,
-            onTogglePause: _toggleDeviceRecordingPause,
-            onStop: _stopDeviceRecording,
-          ),
+          builder:
+              (context) => _RecordingCardRecordingPage(
+                recording: _recordingViewNotifier,
+                commandBusy: _recordCommandBusyNotifier,
+                onStart: _startDeviceRecording,
+                onTogglePause: _toggleDeviceRecordingPause,
+                onStop: _stopDeviceRecording,
+              ),
         ),
       );
     } finally {
@@ -4426,8 +4488,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
         setState(() {
           _snapshot = next;
           _connectionSession.saveSnapshot(next);
-          _recordingViewNotifier.value =
-              _RecordingCardViewData.fromSnapshot(next);
+          _recordingViewNotifier.value = _RecordingCardViewData.fromSnapshot(
+            next,
+          );
         });
       });
       return;
@@ -4452,11 +4515,12 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
     }
     _lastRecordingStatusPollAt = now;
     unawaited(
-      _writeCommand(const _CommandFrame(0x0f)).catchError(
-        (Object error, StackTrace stackTrace) {
-          _logRecordingCardProtocol('RECORDING_STATUS poll failed: $error');
-        },
-      ),
+      _writeCommand(const _CommandFrame(0x0f)).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        _logRecordingCardProtocol('RECORDING_STATUS poll failed: $error');
+      }),
     );
   }
 
@@ -4548,11 +4612,9 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
 
   @override
   Widget build(BuildContext context) {
-    final visibleSnapshot = _snapshot ??
-        _DeviceSnapshot(
-          deviceId: _activeDeviceId ?? '',
-          deviceName: 'LY02',
-        );
+    final visibleSnapshot =
+        _snapshot ??
+        _DeviceSnapshot(deviceId: _activeDeviceId ?? '', deviceName: 'LY02');
 
     return PopScope<void>(
       canPop: !_filePipelineBusy,
@@ -4563,15 +4625,17 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
       child: Scaffold(
         backgroundColor: _DeviceDetailColors.background,
         appBar: AppBar(
-          leading: Navigator.of(context).canPop()
-              ? IconButton(
-                  tooltip: _filePipelineBusy ? '正在处理录音' : '返回',
-                  onPressed: _filePipelineBusy
-                      ? _showTransferExitBlocked
-                      : () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.arrow_back),
-                )
-              : null,
+          leading:
+              Navigator.of(context).canPop()
+                  ? IconButton(
+                    tooltip: _filePipelineBusy ? '正在处理录音' : '返回',
+                    onPressed:
+                        _filePipelineBusy
+                            ? _showTransferExitBlocked
+                            : () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.arrow_back),
+                  )
+                  : null,
           centerTitle: true,
           backgroundColor: _DeviceDetailColors.background,
           surfaceTintColor: Colors.transparent,
@@ -4615,7 +4679,8 @@ class _RecordingCardDevicePageState extends State<RecordingCardDevicePage>
               fileError: _fileSyncError,
               fileLastSyncAt: _lastFileSyncAt,
               bluetoothTransferBusy: _filePipelineBusy,
-              bluetoothTransferActive: _activeFile != null ||
+              bluetoothTransferActive:
+                  _activeFile != null ||
                   _startingFileDownload ||
                   _awaitingStopAck,
               bluetoothTransferPaused: _bluetoothTransferPaused,
@@ -4688,91 +4753,108 @@ class _FileSyncCard extends StatelessWidget {
   final VoidCallback? onClearDeviceFiles;
   final Future<void> Function(RecordingCardFileEntry entry) onRetryEntry;
   final Future<void> Function(RecordingCardFileEntry entry)
-      onDeleteEntryOnDevice;
+  onDeleteEntryOnDevice;
 
   @override
   Widget build(BuildContext context) {
     final sortedEntries = entries
-        .where((entry) =>
+      .where(
+        (entry) =>
             entry.transferStatus !=
-            RecordingCardFileTransferStatus.deletedOnDevice)
-        .toList(growable: false)
-      ..sort((a, b) {
-        final aTime = a.createdAtFromDevice ?? a.createdAt;
-        final bTime = b.createdAtFromDevice ?? b.createdAt;
-        return bTime.compareTo(aTime);
-      });
+            RecordingCardFileTransferStatus.deletedOnDevice,
+      )
+      .toList(growable: false)..sort((a, b) {
+      final aTime = a.createdAtFromDevice ?? a.createdAt;
+      final bTime = b.createdAtFromDevice ?? b.createdAt;
+      return bTime.compareTo(aTime);
+    });
     final total = sortedEntries.length;
-    final paused = sortedEntries.where((entry) {
-      return entry.transferStatus == RecordingCardFileTransferStatus.paused;
-    }).length;
-    final downloading = sortedEntries.where((entry) {
-      return entry.transferStatus ==
-              RecordingCardFileTransferStatus.downloading ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.retryPending ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.stoppingForRetry;
-    }).length;
-    final pending = sortedEntries.where((entry) {
-      return entry.transferStatus == RecordingCardFileTransferStatus.listed ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.downloadPending;
-    }).length;
+    final paused =
+        sortedEntries.where((entry) {
+          return entry.transferStatus == RecordingCardFileTransferStatus.paused;
+        }).length;
+    final downloading =
+        sortedEntries.where((entry) {
+          return entry.transferStatus ==
+                  RecordingCardFileTransferStatus.downloading ||
+              entry.transferStatus ==
+                  RecordingCardFileTransferStatus.retryPending ||
+              entry.transferStatus ==
+                  RecordingCardFileTransferStatus.stoppingForRetry;
+        }).length;
+    final pending =
+        sortedEntries.where((entry) {
+          return entry.transferStatus ==
+                  RecordingCardFileTransferStatus.listed ||
+              entry.transferStatus ==
+                  RecordingCardFileTransferStatus.downloadPending;
+        }).length;
     final readyForMemory = sortedEntries.where(_isAwaitingMemoryImport).length;
     final memoryQueued = sortedEntries.where(_isMemoryImportQueued).length;
-    final synced = sortedEntries.where((entry) {
-      return entry.transferStatus == RecordingCardFileTransferStatus.synced;
-    }).length;
-    final failed = sortedEntries.where((entry) {
-      return entry.transferStatus == RecordingCardFileTransferStatus.failed ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.cloudSyncFailed ||
-          entry.transferStatus ==
-              RecordingCardFileTransferStatus.checksumFailed;
-    }).length;
-    final bluetoothPendingEntries = sortedEntries.where((entry) {
-      return !entry.isDownloaded &&
-          entry.transferStatus !=
-              RecordingCardFileTransferStatus.deletedOnDevice;
-    }).toList(growable: false);
+    final synced =
+        sortedEntries.where((entry) {
+          return entry.transferStatus == RecordingCardFileTransferStatus.synced;
+        }).length;
+    final failed =
+        sortedEntries.where((entry) {
+          return entry.transferStatus ==
+                  RecordingCardFileTransferStatus.failed ||
+              entry.transferStatus ==
+                  RecordingCardFileTransferStatus.cloudSyncFailed ||
+              entry.transferStatus ==
+                  RecordingCardFileTransferStatus.checksumFailed;
+        }).length;
+    final bluetoothPendingEntries = sortedEntries
+        .where((entry) {
+          return !entry.isDownloaded &&
+              entry.transferStatus !=
+                  RecordingCardFileTransferStatus.deletedOnDevice;
+        })
+        .toList(growable: false);
     final bluetoothPending = bluetoothPendingEntries.length;
     final bluetoothPendingBytes = bluetoothPendingEntries.fold<int>(
       0,
       (sum, entry) => sum + entry.fileSizeBytes,
     );
-    final bluetoothSizeText = bluetoothPendingBytes > 0
-        ? '（约 ${RecordingCardProtocol.formatFileSize(bluetoothPendingBytes)}）'
-        : '';
-    final canStartBluetoothTransfer = !loading &&
+    final bluetoothSizeText =
+        bluetoothPendingBytes > 0
+            ? '（约 ${RecordingCardProtocol.formatFileSize(bluetoothPendingBytes)}）'
+            : '';
+    final canStartBluetoothTransfer =
+        !loading &&
         !bluetoothTransferBusy &&
         !memoryImportBusy &&
         bluetoothPending > 0;
-    final canPauseBluetoothTransfer = !loading &&
+    final canPauseBluetoothTransfer =
+        !loading &&
         bluetoothTransferActive &&
         !bluetoothTransferPaused &&
         !memoryImportBusy;
-    final canImportReadyFiles = !loading &&
+    final canImportReadyFiles =
+        !loading &&
         !bluetoothTransferBusy &&
         !memoryImportBusy &&
         sortedEntries.any(_canQueueMemoryImport);
-    final transferButtonLabel = bluetoothTransferActive
-        ? '暂停传输'
-        : bluetoothTransferPaused
+    final transferButtonLabel =
+        bluetoothTransferActive
+            ? '暂停传输'
+            : bluetoothTransferPaused
             ? '继续传输'
             : '蓝牙传输';
-    final transferButtonIcon = bluetoothTransferActive
-        ? Icons.pause_circle_outline
-        : bluetoothTransferPaused
+    final transferButtonIcon =
+        bluetoothTransferActive
+            ? Icons.pause_circle_outline
+            : bluetoothTransferPaused
             ? Icons.play_arrow
             : Icons.bluetooth;
-    final transferButtonPressed = bluetoothTransferActive
-        ? (canPauseBluetoothTransfer
-            ? () => unawaited(onPauseBluetoothTransfer())
-            : null)
-        : (canStartBluetoothTransfer
-            ? () => unawaited(onAdvanceQueue())
-            : null);
+    final transferButtonPressed =
+        bluetoothTransferActive
+            ? (canPauseBluetoothTransfer
+                ? () => unawaited(onPauseBluetoothTransfer())
+                : null)
+            : (canStartBluetoothTransfer
+                ? () => unawaited(onAdvanceQueue())
+                : null);
     final summaryParts = <String>[
       '共 $total 个',
       if (downloading > 0) '传输中 $downloading',
@@ -4843,26 +4925,29 @@ class _FileSyncCard extends StatelessWidget {
               ),
               IconButton(
                 tooltip: '刷新文件列表',
-                onPressed: loading || bluetoothTransferBusy
-                    ? null
-                    : () => unawaited(onRefresh()),
+                onPressed:
+                    loading || bluetoothTransferBusy
+                        ? null
+                        : () => unawaited(onRefresh()),
                 icon: const Icon(Icons.refresh),
               ),
               IconButton(
                 tooltip: bluetoothTransferPaused ? '继续蓝牙传输' : '蓝牙传输',
-                onPressed: loading ||
-                        bluetoothTransferActive ||
-                        bluetoothTransferBusy ||
-                        memoryImportBusy
-                    ? null
-                    : () => unawaited(onAdvanceQueue()),
+                onPressed:
+                    loading ||
+                            bluetoothTransferActive ||
+                            bluetoothTransferBusy ||
+                            memoryImportBusy
+                        ? null
+                        : () => unawaited(onAdvanceQueue()),
                 icon: const Icon(Icons.play_arrow),
               ),
               IconButton(
                 tooltip: bluetoothTransferPaused ? '蓝牙传输已暂停' : '暂停蓝牙传输',
-                onPressed: canPauseBluetoothTransfer
-                    ? () => unawaited(onPauseBluetoothTransfer())
-                    : null,
+                onPressed:
+                    canPauseBluetoothTransfer
+                        ? () => unawaited(onPauseBluetoothTransfer())
+                        : null,
                 icon: const Icon(Icons.pause_circle_outline),
               ),
               IconButton(
@@ -4871,16 +4956,17 @@ class _FileSyncCard extends StatelessWidget {
                 onPressed: onClearDeviceFiles,
                 color: const Color(0xFFB42318),
                 disabledColor: _DeviceDetailColors.textMuted,
-                icon: clearingDeviceFiles
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Color(0xFFB42318),
-                        ),
-                      )
-                    : const Icon(Icons.delete_sweep_outlined),
+                icon:
+                    clearingDeviceFiles
+                        ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFFB42318),
+                          ),
+                        )
+                        : const Icon(Icons.delete_sweep_outlined),
               ),
             ],
           ),
@@ -4989,19 +5075,21 @@ class _FileSyncCard extends StatelessWidget {
                   child: SizedBox(
                     height: 48,
                     child: FilledButton.icon(
-                      onPressed: canImportReadyFiles
-                          ? () => unawaited(onImportReadyFiles())
-                          : null,
-                      icon: memoryImportBusy
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.note_add_outlined, size: 18),
+                      onPressed:
+                          canImportReadyFiles
+                              ? () => unawaited(onImportReadyFiles())
+                              : null,
+                      icon:
+                          memoryImportBusy
+                              ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                              : const Icon(Icons.note_add_outlined, size: 18),
                       label: const Text('重试生成'),
                       style: FilledButton.styleFrom(
                         backgroundColor: _DeviceDetailColors.accent,
@@ -5072,16 +5160,17 @@ class _FileSyncEntryRow extends StatelessWidget {
   final bool memoryImportBusy;
   final Future<void> Function(RecordingCardFileEntry entry) onRetryEntry;
   final Future<void> Function(RecordingCardFileEntry entry)
-      onDeleteEntryOnDevice;
+  onDeleteEntryOnDevice;
 
   @override
   Widget build(BuildContext context) {
     final statusColor = _fileTransferColor(entry.transferStatus);
     final statusIcon = _fileTransferIcon(entry.transferStatus);
     final fileTime = entry.createdAtFromDevice ?? entry.createdAt;
-    final title = entry.createdAtFromDevice == null
-        ? entry.fileNameNoExt
-        : '记忆卡记录 · ${_formatMemoryDateShort(entry.createdAtFromDevice!)}';
+    final title =
+        entry.createdAtFromDevice == null
+            ? entry.fileNameNoExt
+            : '记忆卡记录 · ${_formatMemoryDateShort(entry.createdAtFromDevice!)}';
     final metaParts = <String>[
       entry.displaySize,
       if (entry.createdAtFromDevice == null)
@@ -5091,8 +5180,8 @@ class _FileSyncEntryRow extends StatelessWidget {
       if (entry.durationSeconds != null && entry.durationSeconds! > 0)
         '${entry.durationSeconds}s',
     ];
-    final showProgress = entry.transferStatus ==
-            RecordingCardFileTransferStatus.downloading ||
+    final showProgress =
+        entry.transferStatus == RecordingCardFileTransferStatus.downloading ||
         entry.transferStatus == RecordingCardFileTransferStatus.retryPending ||
         entry.transferStatus ==
             RecordingCardFileTransferStatus.stoppingForRetry ||
@@ -5106,9 +5195,10 @@ class _FileSyncEntryRow extends StatelessWidget {
 
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onLongPress: actionsDisabled
-          ? null
-          : () => unawaited(onDeleteEntryOnDevice(entry)),
+      onLongPress:
+          actionsDisabled
+              ? null
+              : () => unawaited(onDeleteEntryOnDevice(entry)),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Column(
@@ -5165,20 +5255,21 @@ class _FileSyncEntryRow extends StatelessWidget {
                           borderRadius: BorderRadius.circular(999),
                           child: LinearProgressIndicator(
                             minHeight: 4,
-                            value: entry.transferStatus ==
-                                        RecordingCardFileTransferStatus
-                                            .downloading ||
-                                    entry.transferStatus ==
-                                        RecordingCardFileTransferStatus
-                                            .retryPending ||
-                                    entry.transferStatus ==
-                                        RecordingCardFileTransferStatus
-                                            .paused ||
-                                    entry.transferStatus ==
-                                        RecordingCardFileTransferStatus
-                                            .stoppingForRetry
-                                ? entry.progress
-                                : null,
+                            value:
+                                entry.transferStatus ==
+                                            RecordingCardFileTransferStatus
+                                                .downloading ||
+                                        entry.transferStatus ==
+                                            RecordingCardFileTransferStatus
+                                                .retryPending ||
+                                        entry.transferStatus ==
+                                            RecordingCardFileTransferStatus
+                                                .paused ||
+                                        entry.transferStatus ==
+                                            RecordingCardFileTransferStatus
+                                                .stoppingForRetry
+                                    ? entry.progress
+                                    : null,
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -5224,9 +5315,10 @@ class _FileSyncEntryRow extends StatelessWidget {
                     children: [
                       if (actionLabel != null)
                         OutlinedButton.icon(
-                          onPressed: entryActionDisabled
-                              ? null
-                              : () => unawaited(onRetryEntry(entry)),
+                          onPressed:
+                              entryActionDisabled
+                                  ? null
+                                  : () => unawaited(onRetryEntry(entry)),
                           icon: Icon(actionIcon, size: 16),
                           label: Text(actionLabel),
                           style: OutlinedButton.styleFrom(
@@ -5238,9 +5330,11 @@ class _FileSyncEntryRow extends StatelessWidget {
                       if (showDeleteDeviceAction) ...[
                         if (actionLabel != null) const SizedBox(height: 6),
                         OutlinedButton.icon(
-                          onPressed: actionsDisabled
-                              ? null
-                              : () => unawaited(onDeleteEntryOnDevice(entry)),
+                          onPressed:
+                              actionsDisabled
+                                  ? null
+                                  : () =>
+                                      unawaited(onDeleteEntryOnDevice(entry)),
                           icon: const Icon(Icons.delete_outline, size: 16),
                           label: const Text('删设备'),
                           style: OutlinedButton.styleFrom(
@@ -5306,22 +5400,20 @@ Color _fileTransferColor(RecordingCardFileTransferStatus status) {
     RecordingCardFileTransferStatus.synced => const Color(0xFF2F8F5B),
     RecordingCardFileTransferStatus.downloaded ||
     RecordingCardFileTransferStatus.cloudSyncPending ||
-    RecordingCardFileTransferStatus.cloudSyncing =>
-      const Color(0xFF1F6FE5),
+    RecordingCardFileTransferStatus.cloudSyncing => const Color(0xFF1F6FE5),
     RecordingCardFileTransferStatus.cloudSyncFailed => const Color(0xFFB42318),
     RecordingCardFileTransferStatus.downloading ||
     RecordingCardFileTransferStatus.paused ||
     RecordingCardFileTransferStatus.retryPending ||
-    RecordingCardFileTransferStatus.stoppingForRetry =>
-      _DeviceDetailColors.accent,
+    RecordingCardFileTransferStatus
+        .stoppingForRetry => _DeviceDetailColors.accent,
     RecordingCardFileTransferStatus.failed ||
-    RecordingCardFileTransferStatus.checksumFailed =>
-      const Color(0xFFB42318),
+    RecordingCardFileTransferStatus.checksumFailed => const Color(0xFFB42318),
     RecordingCardFileTransferStatus.deletedOnDevice =>
       _DeviceDetailColors.textMuted,
     RecordingCardFileTransferStatus.listed ||
-    RecordingCardFileTransferStatus.downloadPending =>
-      _DeviceDetailColors.textSecondary,
+    RecordingCardFileTransferStatus
+        .downloadPending => _DeviceDetailColors.textSecondary,
   };
 }
 
@@ -5329,20 +5421,17 @@ String? _fileEntryActionLabel(RecordingCardFileTransferStatus status) {
   return switch (status) {
     RecordingCardFileTransferStatus.synced => null,
     RecordingCardFileTransferStatus.downloading ||
-    RecordingCardFileTransferStatus.cloudSyncing =>
-      null,
+    RecordingCardFileTransferStatus.cloudSyncing => null,
     RecordingCardFileTransferStatus.downloaded => '生成',
     RecordingCardFileTransferStatus.cloudSyncPending => null,
     RecordingCardFileTransferStatus.cloudSyncFailed => '重试',
     RecordingCardFileTransferStatus.paused => '继续',
     RecordingCardFileTransferStatus.retryPending ||
-    RecordingCardFileTransferStatus.stoppingForRetry =>
-      null,
+    RecordingCardFileTransferStatus.stoppingForRetry => null,
     RecordingCardFileTransferStatus.listed ||
     RecordingCardFileTransferStatus.downloadPending ||
     RecordingCardFileTransferStatus.checksumFailed ||
-    RecordingCardFileTransferStatus.failed =>
-      '下载',
+    RecordingCardFileTransferStatus.failed => '下载',
     RecordingCardFileTransferStatus.deletedOnDevice => null,
   };
 }
@@ -5351,11 +5440,9 @@ IconData _fileEntryActionIcon(RecordingCardFileTransferStatus status) {
   return switch (status) {
     RecordingCardFileTransferStatus.paused => Icons.play_arrow,
     RecordingCardFileTransferStatus.downloaded ||
-    RecordingCardFileTransferStatus.cloudSyncFailed =>
-      Icons.note_add_outlined,
+    RecordingCardFileTransferStatus.cloudSyncFailed => Icons.note_add_outlined,
     RecordingCardFileTransferStatus.retryPending ||
-    RecordingCardFileTransferStatus.stoppingForRetry =>
-      Icons.refresh,
+    RecordingCardFileTransferStatus.stoppingForRetry => Icons.refresh,
     _ => Icons.download_outlined,
   };
 }
@@ -5433,7 +5520,7 @@ class _ConnectedDeviceCard extends StatelessWidget {
   final Future<void> Function() onClearDeviceFiles;
   final Future<void> Function(RecordingCardFileEntry entry) onRetryEntry;
   final Future<void> Function(RecordingCardFileEntry entry)
-      onDeleteEntryOnDevice;
+  onDeleteEntryOnDevice;
   final Future<void> Function() onStartRecording;
   final Future<void> Function() onToggleRecordingPause;
   final Future<void> Function() onStopRecording;
@@ -5454,14 +5541,16 @@ class _ConnectedDeviceCard extends StatelessWidget {
       message: message,
       error: error,
     );
-    final canRefresh = hasDevice &&
+    final canRefresh =
+        hasDevice &&
         connectionState == DeviceConnectionState.connected &&
         !refreshing &&
         !connecting &&
         !bluetoothTransferBusy;
     final isRecording =
         snapshot.recordingState == 1 || snapshot.recordingState == 2;
-    final canClearDeviceFiles = hasDevice &&
+    final canClearDeviceFiles =
+        hasDevice &&
         connectionState == DeviceConnectionState.connected &&
         !refreshing &&
         !connecting &&
@@ -5470,7 +5559,8 @@ class _ConnectedDeviceCard extends StatelessWidget {
         !recordCommandBusy &&
         !isRecording &&
         deviceFileCount > 0;
-    final canDisconnect = hasDevice &&
+    final canDisconnect =
+        hasDevice &&
         connectionState != DeviceConnectionState.disconnected &&
         !connecting &&
         !bluetoothTransferBusy;
@@ -5489,11 +5579,12 @@ class _ConnectedDeviceCard extends StatelessWidget {
             text: notice,
             isError: error != null || bleStatus == BleStatus.unauthorized,
             actionLabel: bleStatus == BleStatus.unauthorized ? '系统设置' : null,
-            onAction: bleStatus == BleStatus.unauthorized
-                ? () {
-                    unawaited(onOpenSettings());
-                  }
-                : null,
+            onAction:
+                bleStatus == BleStatus.unauthorized
+                    ? () {
+                      unawaited(onOpenSettings());
+                    }
+                    : null,
           ),
           const SizedBox(height: 14),
         ],
@@ -5526,7 +5617,8 @@ class _ConnectedDeviceCard extends StatelessWidget {
           fileName: snapshot.activeRecordingFileName,
           durationSeconds: snapshot.recordingDurationSeconds,
           commandBusy: recordCommandBusy,
-          connected: hasDevice &&
+          connected:
+              hasDevice &&
               connectionState == DeviceConnectionState.connected &&
               !connecting &&
               !bluetoothTransferBusy,
@@ -5552,9 +5644,10 @@ class _ConnectedDeviceCard extends StatelessWidget {
           onAdvanceQueue: onAdvanceQueue,
           onPauseBluetoothTransfer: onPauseBluetoothTransfer,
           onImportReadyFiles: onImportReadyFiles,
-          onClearDeviceFiles: canClearDeviceFiles
-              ? () => unawaited(onClearDeviceFiles())
-              : null,
+          onClearDeviceFiles:
+              canClearDeviceFiles
+                  ? () => unawaited(onClearDeviceFiles())
+                  : null,
           onRetryEntry: onRetryEntry,
           onDeleteEntryOnDevice: onDeleteEntryOnDevice,
         ),
@@ -5563,12 +5656,13 @@ class _ConnectedDeviceCard extends StatelessWidget {
           title: '降噪等级',
           value: _noiseLevelLabel(snapshot.noiseLevel),
           description: '可选四种模式：关、低、中、高，以满足您想要的录音效果。',
-          onTap: hasDevice &&
-                  connectionState == DeviceConnectionState.connected &&
-                  !connecting &&
-                  !bluetoothTransferBusy
-              ? () => unawaited(onChangeNoiseLevel())
-              : null,
+          onTap:
+              hasDevice &&
+                      connectionState == DeviceConnectionState.connected &&
+                      !connecting &&
+                      !bluetoothTransferBusy
+                  ? () => unawaited(onChangeNoiseLevel())
+                  : null,
         ),
         const SizedBox(height: 18),
         _DeviceInfoCard(
@@ -5579,12 +5673,13 @@ class _ConnectedDeviceCard extends StatelessWidget {
               showChevron: true,
             ),
           ],
-          onRowTap: hasDevice &&
-                  connectionState == DeviceConnectionState.connected &&
-                  !connecting &&
-                  !bluetoothTransferBusy
-              ? (row) => unawaited(onChangeSegmentMinutes())
-              : null,
+          onRowTap:
+              hasDevice &&
+                      connectionState == DeviceConnectionState.connected &&
+                      !connecting &&
+                      !bluetoothTransferBusy
+                  ? (row) => unawaited(onChangeSegmentMinutes())
+                  : null,
         ),
         const SizedBox(height: 18),
         _DeviceActionCard(
@@ -5595,9 +5690,10 @@ class _ConnectedDeviceCard extends StatelessWidget {
           refreshing: refreshing,
           primaryLabel: hasDevice ? '刷新' : '搜索记忆卡',
           primaryIcon: hasDevice ? Icons.refresh : Icons.bluetooth_searching,
-          onPrimary: hasDevice
-              ? (canRefresh ? onRefresh : null)
-              : (scanning || connecting ? null : onSearch),
+          onPrimary:
+              hasDevice
+                  ? (canRefresh ? onRefresh : null)
+                  : (scanning || connecting ? null : onSearch),
           onDisconnect: canDisconnect ? onDisconnect : null,
         ),
       ],
@@ -5695,9 +5791,7 @@ class _RecordingCardIllustration extends StatelessWidget {
     return SizedBox(
       width: 46,
       height: 64,
-      child: CustomPaint(
-        painter: _RecordingCardPainter(),
-      ),
+      child: CustomPaint(painter: _RecordingCardPainter()),
     );
   }
 }
@@ -5709,15 +5803,13 @@ class _RecordingCardPainter extends CustomPainter {
       Rect.fromLTWH(size.width * 0.16, 0, size.width * 0.68, size.height),
       const Radius.circular(9),
     );
-    final bodyPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Color(0xFF55536C),
-          Color(0xFF343549),
-        ],
-      ).createShader(bodyRect.outerRect);
+    final bodyPaint =
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF55536C), Color(0xFF343549)],
+          ).createShader(bodyRect.outerRect);
     canvas.drawRRect(bodyRect, bodyPaint);
 
     final topBarRect = RRect.fromRectAndRadius(
@@ -5729,10 +5821,7 @@ class _RecordingCardPainter extends CustomPainter {
       ),
       const Radius.circular(7),
     );
-    canvas.drawRRect(
-      topBarRect,
-      Paint()..color = const Color(0xFF47485D),
-    );
+    canvas.drawRRect(topBarRect, Paint()..color = const Color(0xFF47485D));
 
     final accentPaint = Paint()..color = const Color(0xFF5B5275);
     canvas.drawCircle(
@@ -5741,10 +5830,11 @@ class _RecordingCardPainter extends CustomPainter {
       accentPaint,
     );
 
-    final ringPaint = Paint()
-      ..color = const Color(0xFF727181)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4;
+    final ringPaint =
+        Paint()
+          ..color = const Color(0xFF727181)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.4;
     canvas.drawCircle(
       Offset(size.width * 0.82, size.height * 0.13),
       4.2,
@@ -5762,10 +5852,7 @@ class _RecordingCardPainter extends CustomPainter {
       ),
       textDirection: TextDirection.ltr,
     )..layout(maxWidth: size.width * 0.28);
-    labelPaint.paint(
-      canvas,
-      Offset(size.width * 0.26, size.height * 0.105),
-    );
+    labelPaint.paint(canvas, Offset(size.width * 0.26, size.height * 0.105));
   }
 
   @override
@@ -5819,9 +5906,10 @@ class _RecordingControlCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: isRecording || isPaused
-                      ? const Color(0xFFFFEFEF)
-                      : const Color(0xFFF4F8F6),
+                  color:
+                      isRecording || isPaused
+                          ? const Color(0xFFFFEFEF)
+                          : const Color(0xFFF4F8F6),
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Icon(
@@ -5829,9 +5917,10 @@ class _RecordingControlCard extends StatelessWidget {
                       ? Icons.pause_rounded
                       : (isRecording ? Icons.mic : Icons.mic_none),
                   size: 20,
-                  color: isRecording || isPaused
-                      ? const Color(0xFFF05252)
-                      : _DeviceDetailColors.accent,
+                  color:
+                      isRecording || isPaused
+                          ? const Color(0xFFF05252)
+                          : _DeviceDetailColors.accent,
                 ),
               ),
               const SizedBox(width: 12),
@@ -5876,9 +5965,10 @@ class _RecordingControlCard extends StatelessWidget {
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: canControl && !isRecording && !isPaused
-                      ? () => unawaited(onStart())
-                      : null,
+                  onPressed:
+                      canControl && !isRecording && !isPaused
+                          ? () => unawaited(onStart())
+                          : null,
                   icon: const Icon(Icons.fiber_manual_record),
                   label: const Text('开始'),
                 ),
@@ -5886,9 +5976,10 @@ class _RecordingControlCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: canControl && (isRecording || isPaused)
-                      ? () => unawaited(onTogglePause())
-                      : null,
+                  onPressed:
+                      canControl && (isRecording || isPaused)
+                          ? () => unawaited(onTogglePause())
+                          : null,
                   icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
                   label: Text(isPaused ? '恢复' : '暂停'),
                 ),
@@ -5896,9 +5987,10 @@ class _RecordingControlCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: canControl && (isRecording || isPaused)
-                      ? () => unawaited(onStop())
-                      : null,
+                  onPressed:
+                      canControl && (isRecording || isPaused)
+                          ? () => unawaited(onStop())
+                          : null,
                   icon: const Icon(Icons.stop),
                   label: const Text('结束'),
                 ),
@@ -5987,9 +6079,10 @@ class _RecordingCardRecordingPage extends StatelessWidget {
                                 width: 108,
                                 height: 108,
                                 decoration: BoxDecoration(
-                                  color: isRecording || isPaused
-                                      ? const Color(0xFFFFEFEF)
-                                      : const Color(0xFFF4F8F6),
+                                  color:
+                                      isRecording || isPaused
+                                          ? const Color(0xFFFFEFEF)
+                                          : const Color(0xFFF4F8F6),
                                   borderRadius: BorderRadius.circular(54),
                                 ),
                                 child: Icon(
@@ -5999,9 +6092,10 @@ class _RecordingCardRecordingPage extends StatelessWidget {
                                           ? Icons.mic
                                           : Icons.mic_none),
                                   size: 48,
-                                  color: isRecording || isPaused
-                                      ? const Color(0xFFF05252)
-                                      : _DeviceDetailColors.accent,
+                                  color:
+                                      isRecording || isPaused
+                                          ? const Color(0xFFF05252)
+                                          : _DeviceDetailColors.accent,
                                 ),
                               ),
                               const SizedBox(height: 26),
@@ -6051,8 +6145,9 @@ class _RecordingCardRecordingPage extends StatelessWidget {
                                 const SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                               ],
                             ],
@@ -6064,9 +6159,10 @@ class _RecordingCardRecordingPage extends StatelessWidget {
                         children: [
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: !busy && !isRecording && !isPaused
-                                  ? () => unawaited(onStart())
-                                  : null,
+                              onPressed:
+                                  !busy && !isRecording && !isPaused
+                                      ? () => unawaited(onStart())
+                                      : null,
                               icon: const Icon(Icons.fiber_manual_record),
                               label: const Text('开始'),
                             ),
@@ -6074,9 +6170,10 @@ class _RecordingCardRecordingPage extends StatelessWidget {
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: !busy && (isRecording || isPaused)
-                                  ? () => unawaited(onTogglePause())
-                                  : null,
+                              onPressed:
+                                  !busy && (isRecording || isPaused)
+                                      ? () => unawaited(onTogglePause())
+                                      : null,
                               icon: Icon(
                                 isPaused ? Icons.play_arrow : Icons.pause,
                               ),
@@ -6086,9 +6183,10 @@ class _RecordingCardRecordingPage extends StatelessWidget {
                           const SizedBox(width: 10),
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: !busy && (isRecording || isPaused)
-                                  ? () => unawaited(onStop())
-                                  : null,
+                              onPressed:
+                                  !busy && (isRecording || isPaused)
+                                      ? () => unawaited(onStop())
+                                      : null,
                               icon: const Icon(Icons.stop),
                               label: const Text('结束'),
                             ),
@@ -6120,10 +6218,7 @@ class _DeviceInfoRowData {
 }
 
 class _DeviceInfoCard extends StatelessWidget {
-  const _DeviceInfoCard({
-    required this.rows,
-    this.onRowTap,
-  });
+  const _DeviceInfoCard({required this.rows, this.onRowTap});
 
   final List<_DeviceInfoRowData> rows;
   final ValueChanged<_DeviceInfoRowData>? onRowTap;
@@ -6159,10 +6254,7 @@ class _DeviceInfoCard extends StatelessWidget {
 }
 
 class _DeviceInfoRow extends StatelessWidget {
-  const _DeviceInfoRow({
-    required this.data,
-    this.onTap,
-  });
+  const _DeviceInfoRow({required this.data, this.onTap});
 
   final _DeviceInfoRowData data;
   final VoidCallback? onTap;
@@ -6365,12 +6457,13 @@ class _DeviceOptionSheet<T> extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 subtitle: Text(option.description),
-                trailing: selectedValue == option.value
-                    ? const Icon(
-                        Icons.check_circle,
-                        color: _DeviceDetailColors.accent,
-                      )
-                    : const Icon(Icons.chevron_right),
+                trailing:
+                    selectedValue == option.value
+                        ? const Icon(
+                          Icons.check_circle,
+                          color: _DeviceDetailColors.accent,
+                        )
+                        : const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).pop(option.value),
               ),
           ],
@@ -6406,9 +6499,10 @@ class _DeviceNotice extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: isError
-            ? const Color(0xFFFFF3F0)
-            : Colors.white.withValues(alpha: 0.72),
+        color:
+            isError
+                ? const Color(0xFFFFF3F0)
+                : Colors.white.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -6468,9 +6562,10 @@ class _DeviceActionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final normalizedText = normalizedMac.isEmpty || normalizedMac == mac
-        ? ''
-        : ' · $normalizedMac';
+    final normalizedText =
+        normalizedMac.isEmpty || normalizedMac == mac
+            ? ''
+            : ' · $normalizedMac';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -6506,13 +6601,14 @@ class _DeviceActionCard extends StatelessWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: onPrimary,
-                  icon: refreshing
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(primaryIcon),
+                  icon:
+                      refreshing
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : Icon(primaryIcon),
                   label: Text(primaryLabel),
                 ),
               ),
@@ -6618,17 +6714,20 @@ class _FoundDevice {
   _FoundDevice mergeScan(_FoundDevice incoming) {
     final incomingName = incoming.name.trim();
     final existingName = name.trim();
-    final nextName = incomingName.isEmpty && existingName.isNotEmpty
-        ? existingName
-        : incoming.name;
+    final nextName =
+        incomingName.isEmpty && existingName.isNotEmpty
+            ? existingName
+            : incoming.name;
     final nextServiceUuids =
         incoming.serviceUuids.isEmpty ? serviceUuids : incoming.serviceUuids;
-    final nextManufacturerData = incoming.manufacturerData.isEmpty
-        ? manufacturerData
-        : incoming.manufacturerData;
-    final nextConnectable = incoming.connectable == Connectable.available
-        ? incoming.connectable
-        : connectable;
+    final nextManufacturerData =
+        incoming.manufacturerData.isEmpty
+            ? manufacturerData
+            : incoming.manufacturerData;
+    final nextConnectable =
+        incoming.connectable == Connectable.available
+            ? incoming.connectable
+            : connectable;
 
     return _FoundDevice(
       id: id,
@@ -6837,8 +6936,9 @@ _RecordingStatusPayload? _parseRecordingStatusPayload(List<int> payload) {
   final fileName = _normalizeDeviceFileName(
     RecordingCardProtocol.decodeAscii(payload.sublist(1, fileNameEnd)),
   );
-  final duration =
-      RecordingCardProtocol.readU32Be(payload.sublist(payload.length - 5));
+  final duration = RecordingCardProtocol.readU32Be(
+    payload.sublist(payload.length - 5),
+  );
   final mode = payload.last;
   return _RecordingStatusPayload(
     state: state,

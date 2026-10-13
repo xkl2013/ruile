@@ -57,9 +57,10 @@ class _OrganizeCourse {
       lessonCount: _readInt(json, const ['lesson_count']) ?? lessons.length,
       learnerCount: _readInt(json, const ['learner_count']) ?? 0,
       featured: _readTruthy(json['featured']),
-      recommendable: json.containsKey('recommendable')
-          ? _readTruthy(json['recommendable'])
-          : true,
+      recommendable:
+          json.containsKey('recommendable')
+              ? _readTruthy(json['recommendable'])
+              : true,
       sortOrder: _readInt(json, const ['sort_order']) ?? 0,
       createdAt: createdAt,
       updatedAt: _readDateTime(json, const ['updated_at']) ?? createdAt,
@@ -122,19 +123,18 @@ class _OrganizeCourseLesson {
       id: _readString(json, const ['id']),
       courseId: _readString(json, const ['course_id']),
       title: _readString(json, const ['title'], fallback: '未命名讲次'),
-      lessonType: _readString(
-        json,
-        const ['lesson_type', 'type'],
-        fallback: 'article',
-      ),
+      lessonType: _readString(json, const [
+        'lesson_type',
+        'type',
+      ], fallback: 'article'),
       durationSeconds: _readInt(json, const ['duration_seconds']) ?? 0,
       sortOrder: _readInt(json, const ['sort_order']) ?? 0,
       available: _readTruthy(json['available']),
       mediaUrl: _readString(json, const ['media_url']),
-      sourceFileName: _readString(
-        json,
-        const ['source_file_name', 'file_name'],
-      ),
+      sourceFileName: _readString(json, const [
+        'source_file_name',
+        'file_name',
+      ]),
       createdAt: _readDateTime(json, const ['created_at']) ?? DateTime.now(),
       updatedAt: _readDateTime(json, const ['updated_at']) ?? DateTime.now(),
     );
@@ -215,9 +215,7 @@ class _DiscoverCourseSection extends StatelessWidget {
         if (showTitle)
           Row(
             children: [
-              Expanded(
-                child: Text(title, style: AppTextStyles.cardTitle),
-              ),
+              Expanded(child: Text(title, style: AppTextStyles.cardTitle)),
               if (loading)
                 const SizedBox(
                   width: 16,
@@ -314,17 +312,22 @@ class _DiscoverCourseTile extends StatelessWidget {
                   child: SizedBox(
                     width: 72,
                     height: 72,
-                    child: coverUrl.isEmpty
-                        ? _CourseCoverFallback(course: course, compact: true)
-                        : Image.network(
-                            coverUrl,
-                            headers: _previewHeaders(authToken, tenantId),
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _CourseCoverFallback(
+                    child:
+                        coverUrl.isEmpty
+                            ? _CourseCoverFallback(
                               course: course,
                               compact: true,
+                            )
+                            : Image.network(
+                              coverUrl,
+                              headers: _previewHeaders(authToken, tenantId),
+                              fit: BoxFit.cover,
+                              errorBuilder:
+                                  (_, __, ___) => _CourseCoverFallback(
+                                    course: course,
+                                    compact: true,
+                                  ),
                             ),
-                          ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -428,10 +431,7 @@ class _CourseSourcePill extends StatelessWidget {
 }
 
 class _CourseCoverFallback extends StatelessWidget {
-  const _CourseCoverFallback({
-    required this.course,
-    this.compact = false,
-  });
+  const _CourseCoverFallback({required this.course, this.compact = false});
 
   final _OrganizeCourse course;
   final bool compact;
@@ -519,10 +519,14 @@ class _OrganizeCourseDetailPageState extends State<_OrganizeCourseDetailPage> {
         return;
       }
       if (!mounted) return;
-      setState(() => _error = error.message);
+      setState(
+        () => _error = localizedErrorMessage(error, fallback: '课程加载失败，请稍后重试'),
+      );
     } catch (error) {
       if (!mounted) return;
-      setState(() => _error = error.toString());
+      setState(
+        () => _error = localizedErrorMessage(error, fallback: '课程加载失败，请稍后重试'),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -535,13 +539,14 @@ class _OrganizeCourseDetailPageState extends State<_OrganizeCourseDetailPage> {
     unawaited(
       Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (context) => _OrganizeCourseLessonPage(
-            course: _course,
-            initialIndex: index,
-            authToken: widget.authToken,
-            tenantId: widget.tenantId,
-            onAuthFailure: widget.onAuthFailure,
-          ),
+          builder:
+              (context) => _OrganizeCourseLessonPage(
+                course: _course,
+                initialIndex: index,
+                authToken: widget.authToken,
+                tenantId: widget.tenantId,
+                onAuthFailure: widget.onAuthFailure,
+              ),
         ),
       ),
     );
@@ -549,8 +554,9 @@ class _OrganizeCourseDetailPageState extends State<_OrganizeCourseDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final firstOpenIndex =
-        _course.lessons.indexWhere((lesson) => lesson.available);
+    final firstOpenIndex = _course.lessons.indexWhere(
+      (lesson) => lesson.available,
+    );
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -634,9 +640,10 @@ class _OrganizeCourseDetailPageState extends State<_OrganizeCourseDetailPage> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: firstOpenIndex < 0
-                            ? null
-                            : () => _openLesson(firstOpenIndex),
+                        onPressed:
+                            firstOpenIndex < 0
+                                ? null
+                                : () => _openLesson(firstOpenIndex),
                         icon: const Icon(Icons.play_circle_outline),
                         label: const Text('开始学习'),
                         style: FilledButton.styleFrom(
@@ -678,9 +685,11 @@ class _OrganizeCourseDetailPageState extends State<_OrganizeCourseDetailPage> {
               if (_course.lessons.isEmpty)
                 const _DiscoverEmpty(message: '这门课还没有讲次')
               else
-                for (var index = 0;
-                    index < _course.lessons.length;
-                    index++) ...[
+                for (
+                  var index = 0;
+                  index < _course.lessons.length;
+                  index++
+                ) ...[
                   _CourseLessonRow(
                     index: index,
                     lesson: _course.lessons[index],
@@ -783,9 +792,10 @@ class _CourseLessonRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     height: 1.3,
-                    color: enabled
-                        ? AppColors.textPrimary
-                        : AppColors.textTertiary,
+                    color:
+                        enabled
+                            ? AppColors.textPrimary
+                            : AppColors.textTertiary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -888,10 +898,22 @@ class _OrganizeCourseLessonPageState extends State<_OrganizeCourseLessonPage> {
         return;
       }
       if (!mounted) return;
-      setState(() => _articleError = error.message);
+      setState(
+        () =>
+            _articleError = localizedErrorMessage(
+              error,
+              fallback: '课程内容加载失败，请稍后重试',
+            ),
+      );
     } catch (error) {
       if (!mounted) return;
-      setState(() => _articleError = error.toString());
+      setState(
+        () =>
+            _articleError = localizedErrorMessage(
+              error,
+              fallback: '课程内容加载失败，请稍后重试',
+            ),
+      );
     } finally {
       if (mounted) setState(() => _loadingArticle = false);
     }
@@ -916,9 +938,10 @@ class _OrganizeCourseLessonPageState extends State<_OrganizeCourseLessonPage> {
   @override
   Widget build(BuildContext context) {
     final lesson = _lesson;
-    final bodyBlocks = _articleBody.trim().isEmpty
-        ? const <_SproutTextBlock>[]
-        : _sproutPreviewBlocks(_articleBody);
+    final bodyBlocks =
+        _articleBody.trim().isEmpty
+            ? const <_SproutTextBlock>[]
+            : _sproutPreviewBlocks(_articleBody);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -986,9 +1009,10 @@ class _OrganizeCourseLessonPageState extends State<_OrganizeCourseLessonPage> {
                 courseId: widget.course.id,
                 lessonId: lesson.id,
                 mediaUrl: lesson.mediaUrl,
-                fileName: lesson.sourceFileName.isEmpty
-                    ? '${lesson.title}.mp4'
-                    : lesson.sourceFileName,
+                fileName:
+                    lesson.sourceFileName.isEmpty
+                        ? '${lesson.title}.mp4'
+                        : lesson.sourceFileName,
                 authToken: widget.authToken,
                 tenantId: widget.tenantId,
                 onAuthFailure: widget.onAuthFailure,
@@ -998,9 +1022,10 @@ class _OrganizeCourseLessonPageState extends State<_OrganizeCourseLessonPage> {
                 key: ValueKey(lesson.id),
                 courseId: widget.course.id,
                 lessonId: lesson.id,
-                fileName: lesson.sourceFileName.isEmpty
-                    ? '${lesson.title}.mp3'
-                    : lesson.sourceFileName,
+                fileName:
+                    lesson.sourceFileName.isEmpty
+                        ? '${lesson.title}.mp3'
+                        : lesson.sourceFileName,
                 authToken: widget.authToken,
                 tenantId: widget.tenantId,
                 onAuthFailure: widget.onAuthFailure,
@@ -1028,9 +1053,11 @@ class _OrganizeCourseLessonPageState extends State<_OrganizeCourseLessonPage> {
               ],
             ),
             const SizedBox(height: 10),
-            for (var index = 0;
-                index < widget.course.lessons.length;
-                index++) ...[
+            for (
+              var index = 0;
+              index < widget.course.lessons.length;
+              index++
+            ) ...[
               _CourseOutlineRow(
                 index: index,
                 lesson: widget.course.lessons[index],
@@ -1146,9 +1173,10 @@ class _CourseOutlineRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = selected ? AppColors.accent : AppColors.textSecondary;
     return Material(
-      color: selected
-          ? AppColors.accent.withValues(alpha: 0.08)
-          : AppColors.surface,
+      color:
+          selected
+              ? AppColors.accent.withValues(alpha: 0.08)
+              : AppColors.surface,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: lesson.available ? onTap : null,
@@ -1158,9 +1186,10 @@ class _CourseOutlineRow extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: selected
-                  ? AppColors.accent.withValues(alpha: 0.22)
-                  : AppColors.border,
+              color:
+                  selected
+                      ? AppColors.accent.withValues(alpha: 0.22)
+                      : AppColors.border,
             ),
           ),
           child: Row(
@@ -1276,7 +1305,9 @@ class _OrganizeCourseVideoPlayerState
         '${widget.courseId}/${widget.lessonId}: $error',
       );
       if (!mounted) return;
-      setState(() => _error = error);
+      setState(
+        () => _error = localizedErrorMessage(error, fallback: '视频加载失败，请稍后重试'),
+      );
     } finally {
       _initializingController = null;
     }
@@ -1293,10 +1324,11 @@ class _OrganizeCourseVideoPlayerState
     }
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
-        builder: (_) => _CourseFullscreenVideoPage(
-          controller: controller,
-          title: widget.fileName,
-        ),
+        builder:
+            (_) => _CourseFullscreenVideoPage(
+              controller: controller,
+              title: widget.fileName,
+            ),
       ),
     );
     if (mounted) setState(() {});
@@ -1322,9 +1354,10 @@ class _OrganizeCourseVideoPlayerState
     if (controller == null || !controller.value.isInitialized) {
       return const _DiscoverLoading();
     }
-    final aspectRatio = controller.value.aspectRatio <= 0
-        ? 16 / 9
-        : controller.value.aspectRatio;
+    final aspectRatio =
+        controller.value.aspectRatio <= 0
+            ? 16 / 9
+            : controller.value.aspectRatio;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1381,10 +1414,7 @@ class _OrganizeCourseVideoPlayerState
                 ),
               ),
               Expanded(
-                child: VideoProgressIndicator(
-                  controller,
-                  allowScrubbing: true,
-                ),
+                child: VideoProgressIndicator(controller, allowScrubbing: true),
               ),
               IconButton(
                 tooltip: '全屏',
@@ -1546,9 +1576,10 @@ class _CourseFullscreenVideoPageState
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
-    final aspectRatio = controller.value.aspectRatio <= 0
-        ? 16 / 9
-        : controller.value.aspectRatio;
+    final aspectRatio =
+        controller.value.aspectRatio <= 0
+            ? 16 / 9
+            : controller.value.aspectRatio;
     final isPlaying = controller.value.isPlaying;
 
     return Scaffold(
