@@ -90,7 +90,11 @@ func (r *expertPackageRepository) ListPublishedExperts(ctx context.Context, tena
 			d.agent_id,
 			d.version,
 			d.display_name,
-			COALESCE(NULLIF(d.description, ''), p.description) AS description,
+			CASE
+				WHEN p.source_format = 'workbuddy' AND NULLIF(p.description, '') IS NOT NULL
+					THEN p.description
+				ELSE COALESCE(NULLIF(d.description, ''), p.description)
+			END AS description,
 			d.domain,
 			d.output_contract,
 			d.skills,

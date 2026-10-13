@@ -65,10 +65,10 @@
                  builtin 排到最前；这里只在第一张 builtin 之前打一次标题。 -->
             <div v-if="showShareGroupHeaders
               && agent.isMine
-              && agent.is_builtin
+              && isPlatformBuiltinAgent(agent)
               && (index === 0
                 || !filteredAgents[index - 1].isMine
-                || !(filteredAgents[index - 1] as AgentWithUI).is_builtin)" class="agent-section-header" role="button"
+                || !isPlatformBuiltinAgent(filteredAgents[index - 1] as AgentWithUI))" class="agent-section-header" role="button"
               tabindex="0" @click="toggleAgentSection('builtin')"
               @keydown.enter.prevent="toggleAgentSection('builtin')"
               @keydown.space.prevent="toggleAgentSection('builtin')">
@@ -83,11 +83,11 @@
                  要么是同事创建。与 KB 列表对齐。 -->
             <div v-if="showShareGroupHeaders
               && agent.isMine
-              && !agent.is_builtin
+              && !isPlatformBuiltinAgent(agent)
               && isMyAgent(agent)
               && (index === 0
                 || !filteredAgents[index - 1].isMine
-                || (filteredAgents[index - 1] as AgentWithUI).is_builtin
+                || isPlatformBuiltinAgent(filteredAgents[index - 1] as AgentWithUI)
                 || !isMyAgent(filteredAgents[index - 1] as AgentWithUI))" class="agent-section-header" role="button"
               tabindex="0" @click="toggleAgentSection('mine')"
               @keydown.enter.prevent="toggleAgentSection('mine')"
@@ -101,11 +101,11 @@
             <!-- 本空间 · 仅查看 / 其他成员：本空间里非内置且非我创建的同事 agent。 -->
             <div v-if="showShareGroupHeaders
               && agent.isMine
-              && !agent.is_builtin
+              && !isPlatformBuiltinAgent(agent)
               && !isMyAgent(agent)
               && (index === 0
                 || !filteredAgents[index - 1].isMine
-                || (filteredAgents[index - 1] as AgentWithUI).is_builtin
+                || isPlatformBuiltinAgent(filteredAgents[index - 1] as AgentWithUI)
                 || isMyAgent(filteredAgents[index - 1] as AgentWithUI))" class="agent-section-header" role="button"
               tabindex="0" @click="toggleAgentSection('tenantOthers')"
               @keydown.enter.prevent="toggleAgentSection('tenantOthers')"
@@ -149,7 +149,7 @@
                 :name="isAgentSectionCollapsed('sharedReadonly') ? 'chevron-right' : 'chevron-down'" size="14px" />
             </div>
             <div v-show="!isAgentRowHidden(agent)" class="agent-card" :class="{
-              'is-builtin': agent.is_builtin,
+              'is-builtin': isPlatformBuiltinAgent(agent),
               'agent-mode-normal': agent.config?.agent_mode === 'quick-answer',
               'agent-mode-agent': agent.config?.agent_mode === 'smart-reasoning',
               'shared-agent-card': !agent.isMine,
@@ -181,14 +181,15 @@
               </button>
               <div class="card-header">
                 <div class="card-header-left">
-                  <div v-if="agent.is_builtin" class="builtin-avatar"
+                  <div v-if="isBuiltinAgent(agent.id)" class="builtin-avatar"
                     :class="agent.config?.agent_mode === 'smart-reasoning' ? 'agent' : 'normal'">
                     <t-icon :name="agent.config?.agent_mode === 'smart-reasoning' ? 'control-platform' : 'chat'"
                       size="18px" />
                   </div>
-                  <div v-else-if="agent.avatar" class="builtin-avatar agent-emoji">{{ agent.avatar }}</div>
-                  <AgentAvatar v-else :name="agent.name" size="small" />
+                  <AgentAvatar v-else :name="agent.name" :avatar="agent.avatar" size="small" />
                   <span class="card-title" :title="agent.name">{{ agent.name }}</span>
+                  <t-tag v-if="isExpertAgent(agent)" theme="primary" variant="light" size="small"
+                    class="expert-agent-tag">专家</t-tag>
                 </div>
                 <t-popup
                   v-if="agent.isMine && canOpenAgentMenu(agent)"
@@ -211,7 +212,7 @@
                         <t-icon class="menu-icon" name="poweroff" />
                         <span>{{ agent.disabled_by_me ? $t('agent.enable') : $t('agent.disable') }}</span>
                       </div>
-                      <div v-if="!agent.is_builtin && canManageAgent(agent)" class="popup-menu-item delete"
+                      <div v-if="canDeleteAgent(agent)" class="popup-menu-item delete"
                         @click="handleDelete(agent)"><t-icon class="menu-icon" name="delete" /><span>{{
                           $t('common.delete') }}</span></div>
                     </div>
@@ -308,8 +309,8 @@
           <template v-for="(agent, index) in sortedMineAgents" :key="agent.id">
             <!-- 内置：始终置顶。sortedMineAgents 已按 内置→我→同事 排序。 -->
             <div v-if="showShareGroupHeaders
-              && agent.is_builtin
-              && (index === 0 || !sortedMineAgents[index - 1].is_builtin)" class="agent-section-header" role="button"
+              && isPlatformBuiltinAgent(agent)
+              && (index === 0 || !isPlatformBuiltinAgent(sortedMineAgents[index - 1]))" class="agent-section-header" role="button"
               tabindex="0" @click="toggleAgentSection('builtin')"
               @keydown.enter.prevent="toggleAgentSection('builtin')"
               @keydown.space.prevent="toggleAgentSection('builtin')">
@@ -321,10 +322,10 @@
             </div>
             <!-- 我创建的：第一张非内置且我亲手创建的卡片前打标题 -->
             <div v-if="showShareGroupHeaders
-              && !agent.is_builtin
+              && !isPlatformBuiltinAgent(agent)
               && isMyAgent(agent)
               && (index === 0
-                || sortedMineAgents[index - 1].is_builtin
+                || isPlatformBuiltinAgent(sortedMineAgents[index - 1])
                 || !isMyAgent(sortedMineAgents[index - 1]))" class="agent-section-header" role="button"
               tabindex="0" @click="toggleAgentSection('mine')"
               @keydown.enter.prevent="toggleAgentSection('mine')"
@@ -337,10 +338,10 @@
             </div>
             <!-- 本空间 · 仅查看 / 其他成员：非内置且非我创建的同事 agent -->
             <div v-if="showShareGroupHeaders
-              && !agent.is_builtin
+              && !isPlatformBuiltinAgent(agent)
               && !isMyAgent(agent)
               && (index === 0
-                || sortedMineAgents[index - 1].is_builtin
+                || isPlatformBuiltinAgent(sortedMineAgents[index - 1])
                 || isMyAgent(sortedMineAgents[index - 1]))" class="agent-section-header" role="button"
               tabindex="0" @click="toggleAgentSection('tenantOthers')"
               @keydown.enter.prevent="toggleAgentSection('tenantOthers')"
@@ -352,7 +353,7 @@
                 :name="isAgentSectionCollapsed('tenantOthers') ? 'chevron-right' : 'chevron-down'" size="14px" />
             </div>
             <div v-show="!isAgentRowHidden(agent)" class="agent-card" :class="{
-              'is-builtin': agent.is_builtin,
+              'is-builtin': isPlatformBuiltinAgent(agent),
               'agent-mode-normal': agent.config?.agent_mode === 'quick-answer',
               'agent-mode-agent': agent.config?.agent_mode === 'smart-reasoning',
               'is-selected': isOwnedAgentSelected(agent)
@@ -384,14 +385,15 @@
               <div class="card-header">
                 <div class="card-header-left">
                   <!-- 内置智能体使用简洁图标 -->
-                  <div v-if="agent.is_builtin" class="builtin-avatar"
+                  <div v-if="isBuiltinAgent(agent.id)" class="builtin-avatar"
                     :class="agent.config?.agent_mode === 'smart-reasoning' ? 'agent' : 'normal'">
                     <t-icon :name="agent.config?.agent_mode === 'smart-reasoning' ? 'control-platform' : 'chat'"
                       size="18px" />
                   </div>
-                  <div v-else-if="agent.avatar" class="builtin-avatar agent-emoji">{{ agent.avatar }}</div>
-                  <AgentAvatar v-else :name="agent.name" size="small" />
+                  <AgentAvatar v-else :name="agent.name" :avatar="agent.avatar" size="small" />
                   <span class="card-title" :title="agent.name">{{ agent.name }}</span>
+                  <t-tag v-if="isExpertAgent(agent)" theme="primary" variant="light" size="small"
+                    class="expert-agent-tag">专家</t-tag>
                 </div>
                 <t-popup v-if="canOpenAgentMenu(agent)"
                   :visible="openMoreAgentId === agent.id" trigger="hover" overlayClassName="card-more-popup"
@@ -416,7 +418,7 @@
                         <t-icon class="menu-icon" name="poweroff" />
                         <span>{{ agent.disabled_by_me ? $t('agent.enable') : $t('agent.disable') }}</span>
                       </div>
-                      <div v-if="!agent.is_builtin && canManageAgent(agent)" class="popup-menu-item delete"
+                      <div v-if="canDeleteAgent(agent)" class="popup-menu-item delete"
                         @click="handleDelete(agent)">
                         <t-icon class="menu-icon" name="delete" />
                         <span>{{ $t('common.delete') }}</span>
@@ -563,9 +565,10 @@
               </div>
               <div class="card-header">
                 <div class="card-header-left">
-                  <div v-if="shared.agent?.avatar" class="builtin-avatar agent-emoji">{{ shared.agent.avatar }}</div>
-                  <AgentAvatar v-else :name="shared.agent?.name" size="small" />
+                  <AgentAvatar :name="shared.agent?.name || '?'" :avatar="shared.agent?.avatar" size="small" />
                   <span class="card-title" :title="shared.agent?.name">{{ shared.agent?.name }}</span>
+                  <t-tag v-if="shared.agent && isExpertAgent(shared.agent)" theme="primary" variant="light" size="small"
+                    class="expert-agent-tag">专家</t-tag>
                 </div>
                 <t-popup v-if="!shared.is_mine && authStore.hasRole('admin')"
                   :visible="openMoreAgentId === 'shared-tab-' + shared.share_id" trigger="hover"
@@ -758,8 +761,7 @@
               </div>
               <div class="shared-detail-row">
                 <span class="shared-detail-label">{{ $t('agent.shareScope.chatModel') }}</span>
-                <span class="shared-detail-value">{{ currentSharedAgent.agent.config.model_id ?
-                  $t('agent.shareScope.modelConfigured') : $t('agent.shareScope.modelNotSet') }}</span>
+                <span class="shared-detail-value">{{ $t('agent.shareScope.modelFromUserTier') }}</span>
               </div>
               <div v-if="sharedAgentUsesKb" class="shared-detail-row">
                 <span class="shared-detail-label">{{ $t('agent.shareScope.rerankModel') }}</span>
@@ -802,7 +804,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin, Icon as TIcon } from 'tdesign-vue-next'
-import { deleteAgent, copyAgent, type CustomAgent } from '@/api/agent'
+import { deleteAgent, copyAgent, isBuiltinAgent, type CustomAgent } from '@/api/agent'
+import { syncPublishedExpertAgents } from '@/api/expert-package'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { formatStringDate } from '@/utils/index'
 import { useI18n } from 'vue-i18n'
@@ -928,7 +931,7 @@ const filteredAgents = computed<DisplayAgent[]>(() => {
   const ownMine: AgentWithUI[] = []
   const teammateMine: AgentWithUI[] = []
   agents.value.forEach(a => {
-    if (a.is_builtin) builtin.push(a)
+    if (isPlatformBuiltinAgent(a)) builtin.push(a)
     else if (isMyAgent(a)) ownMine.push(a)
     else teammateMine.push(a)
   })
@@ -967,7 +970,7 @@ const sortedMineAgents = computed(() => {
   const own: AgentWithUI[] = []
   const teammate: AgentWithUI[] = []
   agents.value.forEach(a => {
-    if (a.is_builtin) builtin.push(a)
+    if (isPlatformBuiltinAgent(a)) builtin.push(a)
     else if (isMyAgent(a)) own.push(a)
     else teammate.push(a)
   })
@@ -1187,10 +1190,24 @@ watch(creatorFilter, () => {
   fetchList(true)
 })
 
+const loadAgentList = async () => {
+  let force = false
+  if (isAdminRuntime() && authStore.isSystemAdmin) {
+    try {
+      await syncPublishedExpertAgents()
+      chatResources.invalidate('agents')
+      force = true
+    } catch (error) {
+      console.warn('Failed to sync published WorkBuddy experts for Agent list', error)
+    }
+  }
+  await fetchList(force)
+}
+
 onMounted(() => {
   clearHiddenAgentListQuery()
-  fetchList()
   window.addEventListener('openAgentEditor', handleOpenAgentEditor as EventListener)
+  void loadAgentList()
 })
 
 onUnmounted(() => {
@@ -1299,6 +1316,24 @@ function canManageAgent(agent: AgentWithUI): boolean {
   return authStore.hasRole('admin')
 }
 
+function canDeleteAgent(agent: AgentWithUI): boolean {
+  if (isBuiltinAgent(agent.id)) return false
+  if (agent.is_builtin) return authStore.isSystemAdmin
+  return canManageAgent(agent)
+}
+
+function isPlatformBuiltinAgent(agent: Pick<CustomAgent, 'id'>): boolean {
+  return isBuiltinAgent(agent.id)
+}
+
+function isExpertAgent(agent: Pick<CustomAgent, 'id'> & {
+  is_builtin?: boolean
+  config?: CustomAgent['config']
+}): boolean {
+  return agent.config?.tags?.includes('expert') === true
+    || (agent.is_builtin === true && !isBuiltinAgent(agent.id))
+}
+
 function canOpenAgentMenu(agent: AgentWithUI): boolean {
   return canManageAgent(agent) || authStore.hasRole('admin')
 }
@@ -1328,8 +1363,8 @@ function showAgentOriginBadge(agent: { created_by?: string; creator_name?: strin
   })
 }
 
-function showAgentBuiltinBadge(agent: { is_builtin?: boolean }): boolean {
-  if (!agent.is_builtin) return false
+function showAgentBuiltinBadge(agent: CustomAgent): boolean {
+  if (!isPlatformBuiltinAgent(agent)) return false
   return shouldShowResourceOriginBadge({
     section: agentSectionOf(agent),
     variant: 'mine',
@@ -1380,11 +1415,11 @@ const toggleAgentSection = (key: AgentSectionKey) => {
 // 当前用户自己创建的 agent 在模板里**没有**独立分组标题（不像 KB 那边有
 // "我创建的"段），所以这里返回 null——折叠任何分组都不会影响到它们。
 const agentSectionOf = (item: any): AgentSectionKey | null => {
-  // 内置 agent（is_builtin=true）单独成段，置顶展示——它们是空间共有的
+  // 平台预置 agent 单独成段，置顶展示——它们是空间共有的
   // 系统资源，跟"我 / 同事 / 共享"几个所有权分类不在同一维度。判定要早于
   // shared 那一档，因为 filteredAgents 里的 shared 条目也可能携带 is_builtin
   // （理论上不会，但保守一些）。
-  if (item?.is_builtin === true) return 'builtin'
+  if (item?.id && isPlatformBuiltinAgent(item)) return 'builtin'
   // 跨空间 shared 条目（filteredAgents 拆出来的 isMine=false / 空间视图的
   // sortedSpaceAgentsList 用 is_mine=false）一律按 permission 分到
   // sharedEditable / sharedReadonly。
@@ -1435,7 +1470,7 @@ const spaceAgentSectionCounts = computed<Record<AgentSectionKey, number>>(() => 
 })
 
 const handleDelete = (agent: AgentWithUI) => {
-  if (!canManageAgent(agent)) return
+  if (!canDeleteAgent(agent)) return
   openMoreAgentId.value = null
   deletingAgent.value = agent
   deleteVisible.value = true
@@ -2151,6 +2186,10 @@ defineExpose({
   white-space: nowrap;
   flex: 1;
   min-width: 0;
+}
+
+.expert-agent-tag {
+  flex-shrink: 0;
 }
 
 .builtin-badge {

@@ -1182,16 +1182,12 @@ func materializeProfileValues(
 			if fact == nil || !profileFactMatchesField(fact, field) {
 				continue
 			}
-			if !profileFactMeetsConfidence(fact, field) {
-				continue
-			}
 			value, ok := profileFactValue(fact, field)
 			if !ok {
 				continue
 			}
 			values[field.Key] = types.JSONMap{
 				"value":          value,
-				"confidence":     fact.Value["confidence"],
 				"evidence":       fact.Value["evidence"],
 				"source_fact_id": fact.ID,
 				"source_type":    fact.SourceType,
@@ -1221,17 +1217,6 @@ func profileFactMatchesField(fact *types.ServiceFact, field types.ServiceSpacePr
 		return strings.TrimSpace(rawKey) == field.Key
 	}
 	return false
-}
-
-func profileFactMeetsConfidence(fact *types.ServiceFact, field types.ServiceSpaceProfileField) bool {
-	if field.ConfidenceThreshold <= 0 {
-		return true
-	}
-	confidence, ok := fact.Value["confidence"].(float64)
-	if !ok {
-		return true
-	}
-	return confidence >= field.ConfidenceThreshold
 }
 
 func profileFactValue(fact *types.ServiceFact, field types.ServiceSpaceProfileField) (any, bool) {
@@ -1752,9 +1737,8 @@ func (s *serviceSpaceService) ResolveFactProposal(
 			FactType:  types.ServiceFactTypeProfileField,
 			FactKey:   item.FieldKey,
 			Value: types.JSONMap{
-				"value":      item.Value,
-				"confidence": item.Confidence,
-				"evidence":   item.Evidence,
+				"value":    item.Value,
+				"evidence": item.Evidence,
 			},
 			SourceType:    proposal.SourceType,
 			SourceID:      proposal.SourceID,
@@ -1848,15 +1832,10 @@ func extractProfileProposalItems(text string, schema []types.ServiceSpaceProfile
 		if !ok {
 			continue
 		}
-		confidence := 0.9
-		if field.ConfidenceThreshold > confidence {
-			confidence = field.ConfidenceThreshold
-		}
 		items = append(items, types.ServiceFactProposalItem{
 			FieldKey:   field.Key,
 			FieldLabel: field.Label,
 			Value:      value,
-			Confidence: confidence,
 			Evidence:   evidence,
 		})
 	}
@@ -1947,12 +1926,6 @@ func normalizeProposalItems(
 		}
 		item.FieldLabel = field.Label
 		item.Evidence = strings.TrimSpace(item.Evidence)
-		if item.Confidence <= 0 {
-			item.Confidence = 0.9
-		}
-		if item.Confidence < 0 || item.Confidence > 1 {
-			return nil, ErrServiceSpaceFactProposalInvalid
-		}
 		normalized = append(normalized, item)
 	}
 	return normalized, nil

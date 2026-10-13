@@ -8,21 +8,19 @@
 
         <div class="agent-selector-content" @scroll="hideDetailPanel">
           <!-- 内置智能体 -->
-          <div class="agent-group">
+          <div v-if="builtinAgents.length > 0" class="agent-group">
             <div class="agent-group-title">{{ $t('agent.builtinAgents') }}</div>
             <div v-for="agent in builtinAgents" :key="agent.id" class="agent-option"
               :class="{ selected: isMyAgentSelected(agent) }" @mouseenter="onOptionEnter(agent, $event)"
               @mouseleave="onOptionLeave" @click="selectAgent(agent)">
-              <div v-if="agent.id === BUILTIN_QUICK_ANSWER_ID || agent.id === BUILTIN_SMART_REASONING_ID"
+              <div v-if="isBuiltinAgent(agent.id)"
                 class="builtin-icon" :class="agent.config?.agent_mode === 'smart-reasoning' ? 'agent' : 'normal'">
                 <TIcon :name="agent.config?.agent_mode === 'smart-reasoning' ? 'control-platform' : 'chat'"
                   size="13px" />
               </div>
-              <div v-else-if="agent.avatar" class="builtin-avatar">{{ agent.avatar }}</div>
-              <div v-else class="builtin-icon normal">
-                <TIcon name="app" size="13px" />
-              </div>
+              <AgentAvatar v-else :name="agent.name" :avatar="agent.avatar" size="small" />
               <span class="agent-option-name">{{ agent.name }}</span>
+              <span v-if="isExpertAgent(agent)" class="expert-agent-tag">专家</span>
               <div v-if="getAgentNotReadyLabels(agent).length" class="agent-option-actions">
                 <t-tooltip :content="$t('agent.selector.notReadyHint', { items: formatNotReadyHint(agent) })"
                   placement="top">
@@ -38,8 +36,9 @@
             <div v-for="agent in customAgents" :key="agent.id" class="agent-option"
               :class="{ selected: isMyAgentSelected(agent) }" @mouseenter="onOptionEnter(agent, $event)"
               @mouseleave="onOptionLeave" @click="selectAgent(agent)">
-              <AgentAvatar :name="agent.name" size="small" />
+              <AgentAvatar :name="agent.name" :avatar="agent.avatar" size="small" />
               <span class="agent-option-name">{{ agent.name }}</span>
+              <span v-if="isExpertAgent(agent)" class="expert-agent-tag">专家</span>
               <div v-if="getAgentNotReadyLabels(agent).length" class="agent-option-actions">
                 <t-tooltip :content="$t('agent.selector.notReadyHint', { items: formatNotReadyHint(agent) })"
                   placement="top">
@@ -56,8 +55,9 @@
               class="agent-option" :class="{ selected: isSharedAgentSelected(shared) }"
               @mouseenter="onSharedOptionEnter(shared, $event)" @mouseleave="onOptionLeave"
               @click="selectSharedAgent(shared)">
-              <AgentAvatar :name="shared.agent.name" size="small" />
+              <AgentAvatar :name="shared.agent.name" :avatar="shared.agent.avatar" size="small" />
               <span class="agent-option-name">{{ shared.agent.name }}</span>
+              <span v-if="isExpertAgent(shared.agent)" class="expert-agent-tag">专家</span>
               <span class="shared-tag">{{ $t('agent.selector.sharedLabel') }}</span>
               <div v-if="getAgentNotReadyLabels(shared.agent, String(shared.source_tenant_id)).length"
                 class="agent-option-actions">
@@ -70,33 +70,7 @@
             </div>
           </div>
 
-          <!-- 已发布专家：只展示管理员已发布版本，不要求工作画像绑定 -->
-          <div v-if="publishedExpertsList.length > 0" class="agent-group">
-            <div class="agent-group-title">已发布专家</div>
-            <div class="agent-option" :class="{ selected: isPublishedExpertSelected('__auto__') }"
-              @click="emit('select-published-expert-auto')">
-              <div class="builtin-icon normal">
-                <TIcon name="control-platform" size="13px" />
-              </div>
-              <div class="agent-option-copy">
-                <span class="agent-option-name">自动匹配专家</span>
-                <span class="agent-option-description">根据当前问题选择最合适的已发布专家</span>
-              </div>
-              <span class="published-expert-tag">路由</span>
-            </div>
-            <div v-for="expert in publishedExpertsList" :key="expert.definition_id" class="agent-option"
-              :class="{ selected: isPublishedExpertSelected(expert) }"
-              @click="emit('select-published-expert', expert)">
-              <AgentAvatar :name="expert.display_name" :avatar="expert.avatar" size="small" />
-              <div class="agent-option-copy">
-                <span class="agent-option-name">{{ expert.display_name }}</span>
-                <span class="agent-option-description">{{ expert.description || expert.package_display_name }}</span>
-              </div>
-              <span class="published-expert-tag">专家</span>
-            </div>
-          </div>
-
-          <div v-if="builtinAgents.length === 0 && customAgents.length === 0 && sharedAgentsList.length === 0 && publishedExpertsList.length === 0"
+          <div v-if="builtinAgents.length === 0 && customAgents.length === 0 && sharedAgentsList.length === 0"
             class="agent-option empty">
             {{ $t('agent.noAgents') }}
           </div>
@@ -111,19 +85,18 @@
         <div class="agent-detail-content">
           <div class="detail-header">
             <template
-              v-if="activeDetail.agent.id === BUILTIN_QUICK_ANSWER_ID || activeDetail.agent.id === BUILTIN_SMART_REASONING_ID">
+              v-if="isBuiltinAgent(activeDetail.agent.id)">
               <div class="builtin-icon detail-icon"
                 :class="activeDetail.agent.config?.agent_mode === 'smart-reasoning' ? 'agent' : 'normal'">
                 <TIcon :name="activeDetail.agent.config?.agent_mode === 'smart-reasoning' ? 'control-platform' : 'chat'"
                   size="14px" />
               </div>
             </template>
-            <div v-else-if="activeDetail.agent.avatar" class="builtin-avatar detail-icon">{{ activeDetail.agent.avatar
-              }}</div>
-            <AgentAvatar v-else :name="activeDetail.agent.name" size="small" />
+            <AgentAvatar v-else :name="activeDetail.agent.name" :avatar="activeDetail.agent.avatar" size="small" />
             <div class="detail-title-wrap">
               <div class="detail-title-row">
                 <span class="detail-name">{{ activeDetail.agent.name }}</span>
+                <span v-if="isExpertAgent(activeDetail.agent)" class="expert-agent-tag">专家</span>
               </div>
               <span v-if="isDetailCurrent" class="detail-current">{{ $t('agent.selector.current') }}</span>
               <div v-else-if="activeDetailNotReadyLabels.length" class="detail-not-ready">
@@ -198,7 +171,7 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Icon as TIcon, Tooltip as TTooltip } from 'tdesign-vue-next';
-import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
+import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID, isBuiltinAgent } from '@/api/agent';
 import AgentAvatar from '@/components/AgentAvatar.vue';
 import { useOrganizationStore } from '@/stores/organization';
 import { useSettingsStore } from '@/stores/settings';
@@ -216,7 +189,6 @@ import {
   isAgentWebSearchEnabled,
   isAgentWebSearchReady,
 } from '@/utils/agentWebSearch';
-import type { PublishedExpert } from '@/api/expert-package';
 
 const { t, locale } = useI18n();
 const orgStore = useOrganizationStore();
@@ -230,15 +202,11 @@ const props = defineProps<{
   allModels?: ModelConfig[];
   currentChatModelId?: string;
   responseTierEnabled?: boolean;
-  publishedExperts?: PublishedExpert[];
-  selectedPublishedExpertId?: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'select', agent: CustomAgent, sourceTenantId?: string): void;
-  (e: 'select-published-expert', expert: PublishedExpert): void;
-  (e: 'select-published-expert-auto'): void;
   (e: 'not-ready', agent: CustomAgent, labels: string[], keys: AgentNotReadyReasonKey[], sourceTenantId?: string): void;
 }>();
 
@@ -264,11 +232,14 @@ const DETAIL_PANEL_GAP = 8;
 const DETAIL_HIDE_DELAY_MS = 400;
 
 const agentsList = computed(() => props.agents ?? []);
-const publishedExpertsList = computed(() => props.publishedExperts ?? []);
 const webSearchProviders = computed(() => chatResources.webSearchProviders);
 
+const isExpertAgent = (agent: CustomAgent) =>
+  agent.config?.tags?.includes('expert')
+  || (agent.is_builtin && !isBuiltinAgent(agent.id));
+
 const builtinAgents = computed(() => {
-  const apiBuiltins = agentsList.value.filter(a => a.is_builtin);
+  const apiBuiltins = agentsList.value.filter(a => isBuiltinAgent(a.id));
   return apiBuiltins.map(agent => {
     if (agent.id === BUILTIN_QUICK_ANSWER_ID) {
       return { ...agent, name: t('input.normalMode'), description: t('input.normalModeDesc') };
@@ -280,7 +251,7 @@ const builtinAgents = computed(() => {
   });
 });
 
-const customAgents = computed(() => agentsList.value.filter(a => !a.is_builtin));
+const customAgents = computed(() => agentsList.value.filter(a => !isBuiltinAgent(a.id)));
 
 const toCustomAgent = (agent: SharedAgentInfo['agent']): CustomAgent => ({
   is_builtin: false,
@@ -301,9 +272,6 @@ const isSharedAgentSelected = (shared: SharedAgentSelection) =>
 
 const isMyAgentSelected = (agent: CustomAgent) =>
   props.currentAgentId === agent.id && !currentAgentSourceTenantId.value;
-
-const isPublishedExpertSelected = (expert: PublishedExpert | string) =>
-  props.selectedPublishedExpertId === (typeof expert === 'string' ? expert : expert.definition_id);
 
 const isDetailCurrent = computed(() => {
   const detail = activeDetail.value;
@@ -407,13 +375,14 @@ const getAgentNotReadyReasonKeysFor = (agent: CustomAgent, sourceTenantId?: stri
     isAgentMode,
     isSharedAgent,
     responseTierEnabled: props.responseTierEnabled,
+    requestModelID: props.currentChatModelId,
   });
 };
 
 const getAgentNotReadyLabels = (agent: CustomAgent, sourceTenantId?: string): string[] => {
   return formatAgentNotReadyReasons(
     getAgentNotReadyReasonKeysFor(agent, sourceTenantId),
-    agent.is_builtin,
+    isBuiltinAgent(agent.id),
   );
 };
 
@@ -423,7 +392,7 @@ const formatNotReadyHint = (agent: CustomAgent, sourceTenantId?: string): string
 
 const emitAgentNotReady = (agent: CustomAgent, sourceTenantId?: string) => {
   const keys = getAgentNotReadyReasonKeysFor(agent, sourceTenantId);
-  const labels = formatAgentNotReadyReasons(keys, agent.is_builtin);
+  const labels = formatAgentNotReadyReasons(keys, isBuiltinAgent(agent.id));
   emit('not-ready', agent, labels, keys, sourceTenantId);
 };
 
@@ -744,11 +713,14 @@ watch(activeDetail, (detail) => {
   white-space: nowrap;
 }
 
-.published-expert-tag {
+.expert-agent-tag {
   flex-shrink: 0;
   color: var(--td-brand-color);
+  background: var(--td-brand-color-light);
+  border-radius: 4px;
+  padding: 0 5px;
   font-size: 10px;
-  line-height: 22px;
+  line-height: 18px;
 }
 
 .shared-tag {

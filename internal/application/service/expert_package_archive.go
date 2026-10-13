@@ -497,6 +497,7 @@ func compileWorkBuddyAgents(
 			AgentMode:           types.AgentModeSmartReasoning,
 			SystemPrompt:        body,
 			MaxIterations:       clampExpertTurns(frontMatter.MaxTurns),
+			Tags:                workBuddyTagValues(plugin.Tags),
 			SkillsSelectionMode: "selected",
 			SelectedSkills:      skills,
 			AllowedTools:        []string{},
@@ -534,8 +535,8 @@ func compileWorkBuddyAgents(
 				frontMatter.Name,
 			),
 			Description: firstNonEmpty(
-				strings.TrimSpace(frontMatter.Description),
 				strings.TrimSpace(plugin.DisplayDescription.ZH),
+				strings.TrimSpace(frontMatter.Description),
 				strings.TrimSpace(plugin.DisplayDescription.EN),
 				strings.TrimSpace(plugin.Description),
 			),
@@ -552,6 +553,26 @@ func compileWorkBuddyAgents(
 		return compiled[i].AgentID < compiled[j].AgentID
 	})
 	return compiled, blocking, warnings, nil
+}
+
+func workBuddyTagValues(values []expertLocalizedText) []string {
+	result := make([]string, 0, 3)
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		tag := firstNonEmpty(strings.TrimSpace(value.ZH), strings.TrimSpace(value.EN))
+		if tag == "" {
+			continue
+		}
+		if _, exists := seen[tag]; exists {
+			continue
+		}
+		seen[tag] = struct{}{}
+		result = append(result, tag)
+		if len(result) == 3 {
+			break
+		}
+	}
+	return result
 }
 
 func expertSkillSnapshotsFromArchive(

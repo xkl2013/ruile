@@ -1,9 +1,9 @@
 <template>
   <section class="expert-admin">
-    <div class="expert-admin__header">
+    <div class="expert-admin__header" :class="{ 'expert-admin__header--embedded': embedded }">
       <div>
-        <h2>专家维护</h2>
-        <p>后台维护专家包、版本发布和运行测试。</p>
+        <h2>{{ embedded ? '专家包' : '专家维护' }}</h2>
+        <p>{{ embedded ? '导入 WorkBuddy 专家包，诊断通过后发布为平台智能体。' : '后台维护专家包、版本发布和运行测试。' }}</p>
       </div>
       <div class="expert-admin__actions">
         <t-button variant="outline" :loading="loading" @click="loadExpertPage">
@@ -45,9 +45,9 @@
         <em>{{ publishedDefinitionCount }} 个已发布</em>
       </article>
       <article>
-        <span>使用范围</span>
-        <strong>服务空间</strong>
-        <em>发布后可在服务空间使用</em>
+        <span>使用方式</span>
+        <strong>Agent 智能体</strong>
+        <em>发布后作为 Agent 智能体使用</em>
       </article>
     </div>
 
@@ -173,7 +173,7 @@
           <section class="definition-section">
             <div class="definition-section__title">
               <strong>专家定义</strong>
-              <em>只有已发布版本可以测试并在服务空间使用。</em>
+              <em>只有已发布版本可以测试并作为 Agent 智能体使用。</em>
             </div>
 
             <div v-if="selectedDefinitions.length === 0" class="expert-empty expert-empty--compact">
@@ -540,6 +540,13 @@ import type {
   ExpertIntakeQuestion,
   StructuredReportV1,
 } from '@/api/agent-run-types'
+import { useChatResourcesStore } from '@/stores/chatResources'
+
+withDefaults(defineProps<{
+  embedded?: boolean
+}>(), {
+  embedded: false,
+})
 
 interface DefinitionEntry {
   package: ExpertPackage
@@ -553,6 +560,7 @@ interface ExpertTestForm {
 }
 
 const packages = ref<ExpertPackage[]>([])
+const chatResources = useChatResourcesStore()
 const chatModels = ref<ModelConfig[]>([])
 const selectedPackageId = ref('')
 const loading = ref(false)
@@ -715,6 +723,7 @@ async function loadPackages() {
     // Reconcile already-published WorkBuddy experts created before platform
     // scope existed. The endpoint is idempotent and also handles new publishes.
     await syncPublishedExpertAgents()
+    chatResources.invalidate('agents')
   } catch (error: any) {
     console.warn('[AdminExpertPackages] Failed to load expert packages:', error)
     errorMessage.value = error?.message || '专家包读取失败'
@@ -1102,6 +1111,15 @@ onMounted(() => {
   border-radius: 8px;
   background: var(--admin-hero-bg), var(--admin-surface);
   box-shadow: var(--admin-shadow-sm);
+}
+
+.expert-admin__header--embedded {
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--admin-border);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .expert-admin__header h2 {

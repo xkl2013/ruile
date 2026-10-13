@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"testing"
@@ -166,12 +167,17 @@ func TestPublishedExpertIsMaterializedAsCustomAgent(t *testing.T) {
 		PackageKey:   "sync-test",
 		Version:      "1.0.0",
 		DisplayName:  "同步测试专家包",
+		Description:  "中文专家展示描述",
+		Avatar:       "resource://expert-avatar",
 		Files: []types.ExpertPackageFileInput{{
 			Path: "agents/researcher.md",
 			Content: `---
 id: researcher
 version: 1.0.0
 display_name: 研究专家
+description: English agent description.
+skills:
+  - researcher
 capabilities:
   required:
     - knowledge.read
@@ -193,13 +199,66 @@ capabilities:
 	require.NoError(t, err)
 	require.Len(t, agents, 1)
 	require.Equal(t, "研究专家", agents[0].Name)
+	require.Equal(t, "中文专家展示描述", agents[0].Description)
+	require.Equal(t, "resource://expert-avatar", agents[0].Avatar)
 	require.True(t, agents[0].IsBuiltin)
 	require.Equal(t, types.SystemAgentTenantID, agents[0].TenantID)
 	require.Equal(t, types.AgentModeSmartReasoning, agents[0].Config.AgentMode)
+	require.Contains(t, agents[0].Config.Tags, types.AgentTagExpert)
 	require.Equal(t, "请基于证据完成研究。", agents[0].Config.SystemPrompt)
 	require.Contains(t, agents[0].Config.AllowedTools, "knowledge_search")
 	require.Len(t, agents[0].Config.SkillSnapshots, 1)
 	require.Equal(t, "researcher", agents[0].Config.SkillSnapshots[0].Name)
+
+	require.NoError(t, db.Model(&types.CustomAgent{}).
+		Where("id = ? AND tenant_id = ?", agents[0].ID, agents[0].TenantID).
+		Updates(map[string]any{
+			"description": "stale English description",
+			"avatar":      "",
+		}).Error)
+	require.NoError(t, svc.SyncPublishedAgents(ctx, 11, "admin-1"))
+
+	resynced, err := repository.NewCustomAgentRepository(db).GetAgentByID(
+		ctx,
+		agents[0].ID,
+		types.SystemAgentTenantID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "中文专家展示描述", resynced.Description)
+	require.Equal(t, "resource://expert-avatar", resynced.Avatar)
+
+	// Older releases promoted the workspace-derived ID into tenant 0. Keep
+	// updating that active row when the newer platform-derived ID was deleted.
+	require.NoError(t, repository.NewCustomAgentRepository(db).DeleteAgent(
+		ctx,
+		resynced.ID,
+		types.SystemAgentTenantID,
+	))
+	legacyID := uuid.NewSHA1(
+		uuid.Nil,
+		[]byte(fmt.Sprintf(
+			"ruile:published-expert:%d:%s:%s",
+			uint64(11),
+			packages[0].ID,
+			version.Definitions[0].AgentID,
+		)),
+	).String()
+	promotedLegacy := *resynced
+	promotedLegacy.ID = legacyID
+	promotedLegacy.Description = "stale promoted description"
+	promotedLegacy.Avatar = ""
+	promotedLegacy.DeletedAt = gorm.DeletedAt{}
+	require.NoError(t, repository.NewCustomAgentRepository(db).CreateAgent(ctx, &promotedLegacy))
+
+	require.NoError(t, svc.SyncPublishedAgents(ctx, 11, "admin-1"))
+	resyncedLegacy, err := repository.NewCustomAgentRepository(db).GetAgentByID(
+		ctx,
+		legacyID,
+		types.SystemAgentTenantID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "中文专家展示描述", resyncedLegacy.Description)
+	require.Equal(t, "resource://expert-avatar", resyncedLegacy.Avatar)
 }
 
 func TestExpertPackageImportRejectsUnsafePath(t *testing.T) {
@@ -254,7 +313,7 @@ func TestExpertPackageImportWorkBuddyArchive(t *testing.T) {
 	require.Equal(t, "1.0.0", version.Version)
 	require.Equal(t, "kindergarten-activity-planner", version.Definitions[0].AgentID)
 	require.Equal(t, "童创", version.Definitions[0].DisplayName)
-	require.Equal(t, "Kindergarten activity planning expert.", version.Definitions[0].Description)
+	require.Equal(t, "10年幼儿园活动策划经验，输出可直接落地的执行方案。", version.Definitions[0].Description)
 	require.Equal(t, "kindergarten_activity_planner", version.Definitions[0].Domain)
 	require.Equal(t, "resource://expert-packages/kindergarten-activity-planner.zip", version.Manifest["source_uri"])
 	require.Equal(t, "resource://expert-packages/kindergarten-activity-planner-avatar", version.Manifest["avatar_ref"])
@@ -276,7 +335,8 @@ func TestExpertPackageImportWorkBuddyArchive(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, published, 1)
 	require.Equal(t, packages[0].Avatar, published[0].Avatar)
-	require.Equal(t, "Kindergarten activity planning expert.", published[0].Description)
+	require.Equal(t, "10年幼儿园活动策划经验，输出可直接落地的执行方案。", published[0].Description)
+	require.Equal(t, types.StringArray{"活动策划", "家长沟通", "安全预案"}, published[0].Tags)
 }
 
 func TestExpertArchiveSkillRelativePathStripsPackageRoot(t *testing.T) {
@@ -325,6 +385,7 @@ func TestExpertPackageImportWorkBuddyArchiveIsIdempotentForSameContent(t *testin
 	require.Equal(t, first.ID, second.ID)
 	require.Equal(t, first.PackageHash, second.PackageHash)
 	require.Len(t, second.Definitions, 1)
+	require.Contains(t, first.Definitions[0].CompiledConfig["tags"], "活动策划")
 	require.Equal(t, 1, fileService.saveCount)
 	require.Equal(t, 1, fileService.saveBytesCount)
 
@@ -332,6 +393,18 @@ func TestExpertPackageImportWorkBuddyArchiveIsIdempotentForSameContent(t *testin
 	require.NoError(t, err)
 	require.Len(t, packages, 1)
 	require.Len(t, packages[0].Versions, 1)
+}
+
+func TestWorkBuddyTagValuesUsesChineseLabelsAndLimitsThree(t *testing.T) {
+	got := workBuddyTagValues([]expertLocalizedText{
+		{EN: "English only", ZH: "中文标签"},
+		{EN: "Duplicate", ZH: "中文标签"},
+		{EN: "Second", ZH: "第二个"},
+		{EN: "Third", ZH: "第三个"},
+		{EN: "Fourth", ZH: "第四个"},
+	})
+
+	require.Equal(t, []string{"中文标签", "第二个", "第三个"}, got)
 }
 
 func TestExpertPackageImportWorkBuddyArchiveRejectsChangedDuplicateVersion(t *testing.T) {
@@ -396,6 +469,11 @@ func newWorkBuddyExpertZipWithOptions(t *testing.T, root string, agentBody strin
   "displayDescription": {"en": "Activity planner", "zh": "10年幼儿园活动策划经验，输出可直接落地的执行方案。"},
   "avatar": "avatars/expert.png",
   "categoryId": "06-ContentCreative",
+  "tags": [
+    {"en": "Activity Planning", "zh": "活动策划"},
+    {"en": "Parent Communication", "zh": "家长沟通"},
+    {"en": "Safety Planning", "zh": "安全预案"}
+  ],
   "plugin": "kindergarten-activity-planner"
 }`)
 	writeZipFile(prefix+"agents/kindergarten-activity-planner.md", `---

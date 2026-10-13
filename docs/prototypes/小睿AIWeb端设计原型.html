@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN" theme-mode="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>小睿 AI · Web 端设计原型 · 睿乐大脑</title>
+<style>
+  /* ═══ 令牌：web 真源 = frontend/src/assets/theme/theme.css（TDesign） ═══ */
+  :root{
+    --app-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    --brand:#07c05f; --brand-hover:#08dd6e; --brand-active:#06b04d;
+    --brand-1:#e9f8ec; --brand-2:#d6f2e0; --brand-6:#049b38; --brand-8:#027218;
+    --warn:#ed7b2f; --warn-1:#fef3e6; --error:#e34d59; --error-1:#fdecee;
+    --success:#00a870; --success-1:#e8f8f2; --info:#2f7de1; --info-1:#eaf1ff;
+    --violet:#7a5af8; --violet-1:#f0edff;
+    --g1:#f3f3f3; --g2:#eee; --g3:#e7e7e7; --g4:#dcdcdc; --g5:#c5c5c5;
+    --g6:#a6a6a6; --g7:#8b8b8b; --g9:#5e5e5e; --g12:#2c2c2c;
+    --t1:rgba(0,0,0,.9); --t2:rgba(0,0,0,.6); --t3:rgba(0,0,0,.4); --t4:rgba(0,0,0,.26);
+    --bg-page:#f3f5f4; --bg-card:#fff; --bg-sub:#fbfcfb; --bd:#e7e7e7; --bd2:#dcdcdc;
+    --r-s:3px; --r-m:6px; --r-l:9px; --r-xl:12px; --r-round:999px;
+    --sh1:0 1px 2px rgba(0,0,0,.03),0 1px 6px rgba(0,0,0,.05);
+    --sh2:0 4px 14px rgba(0,0,0,.07),0 1px 3px rgba(0,0,0,.04);
+    /* 间距栅格（4px 基数） */
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s7:32px; --s8:40px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--app-font-family);background:var(--bg-page);color:var(--t1);font-size:13px;line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0;text-align:left;line-height:inherit}
+  ::selection{background:var(--brand-2);color:var(--brand-8)}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-thumb{background:var(--g4);border-radius:var(--r-round);border:2px solid transparent;background-clip:content-box}
+  ::-webkit-scrollbar-thumb:hover{background:var(--g5);background-clip:content-box}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* ── 原型外壳 ─────────────────────────────────────── */
+  .app{display:flex;height:100vh;overflow:hidden}
+  .rail{width:240px;flex:0 0 240px;background:var(--bg-sub);border-right:1px solid var(--bd);display:flex;flex-direction:column}
+  .rail-head{padding:var(--s5) var(--s5) var(--s3)}
+  .rail-title{font-size:13.5px;font-weight:600;letter-spacing:.2px;color:var(--t1)}
+  .rail-sub{font-size:11.5px;color:var(--t3);margin-top:var(--s1);line-height:1.7}
+  .rail-group{padding:var(--s1) var(--s3);overflow-y:auto;flex:1}
+  .rail-btn{display:flex;align-items:center;gap:var(--s2);width:100%;padding:7px 10px;border-radius:var(--r-m);color:var(--t2);line-height:1.4;transition:background .15s,color .15s;margin-bottom:2px}
+  .rail-btn:hover{background:var(--g1);color:var(--t1)}
+  .rail-btn.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .rail-btn .idx{width:18px;height:18px;flex:0 0 18px;border-radius:var(--r-round);background:var(--g2);color:var(--g7);font-size:10.5px;font-weight:600;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .rail-btn.on .idx{background:var(--brand);color:#fff}
+  .rail-btn .lb{font-size:12.5px}
+  .rail-note{margin:var(--s3);padding:11px var(--s3);border-radius:var(--r-l);background:var(--warn-1);color:#8a4a12;font-size:11.5px;line-height:1.72}
+  .rail-note b{display:block;font-size:11.5px;font-weight:600;margin-bottom:var(--s1);color:#6f3a08}
+  .rail-foot{padding:var(--s3) var(--s5) var(--s4);border-top:1px solid var(--bd);font-size:11px;color:var(--t4);line-height:1.75}
+  .rail-foot code{font-family:ui-monospace,Menlo,monospace;font-size:10px;background:var(--g1);padding:1px 4px;border-radius:var(--r-s);color:var(--t3)}
+
+  .stage{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-page)}
+  .bar{display:flex;align-items:center;gap:var(--s3);padding:0 var(--s5);background:var(--bg-card);border-bottom:1px solid var(--bd);flex-wrap:wrap;min-height:56px;flex:0 0 auto}
+  .bar h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.2px}
+  .bar .path{font-size:11.5px;color:var(--t3);font-family:ui-monospace,Menlo,monospace;background:var(--g1);padding:3px 8px;border-radius:var(--r-m)}
+  .verstamp{font-size:11px;font-family:ui-monospace,Menlo,monospace;color:var(--brand-6);background:var(--brand-1);border:1px solid #bdeccd;padding:2px 8px;border-radius:var(--r-round);letter-spacing:.2px}
+  .scroll{flex:1;overflow-y:auto;padding:var(--s5) var(--s5) 56px}
+  .canvas{max-width:1240px;margin:0 auto}
+
+  /* ── 规格面板 ─────────────────────────────────────── */
+  .spec{max-width:1240px;margin:var(--s5) auto 0;background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-xl);padding:var(--s5) var(--s6);box-shadow:var(--sh1)}
+  .spec h3{margin:0 0 var(--s1);font-size:14px;font-weight:600;letter-spacing:.2px}
+  .spec .goal{font-size:12.5px;line-height:1.75;color:var(--t2);margin:0}
+  .spec .plabel{font-size:11px;font-weight:600;letter-spacing:.6px;color:var(--t4);margin:var(--s5) 0 var(--s3)}
+  .spec ul{list-style:none;margin:0;padding:0;font-size:12.5px;line-height:1.78;color:var(--t2)}
+  .spec ul li{position:relative;padding-left:26px;margin-bottom:var(--s3)}
+  .spec ul li:last-child{margin-bottom:0}
+  .spec ul li .n{position:absolute;left:0;top:2px;width:17px;height:17px;border-radius:var(--r-m);background:var(--brand-1);color:var(--brand-6);font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+  .spec ul li b{color:var(--t1);font-weight:600}
+  .spec ul li code{font-family:ui-monospace,Menlo,monospace;font-size:11px;background:var(--g1);padding:1px 5px;border-radius:var(--r-s);color:var(--brand-8)}
+  .spec .pnote{margin-top:var(--s4);padding:11px var(--s3);border-radius:var(--r-l);background:var(--warn-1);color:#8a4a12;font-size:12px;line-height:1.75}
+  .spec .pnote b{display:block;font-size:11.5px;font-weight:600;color:#6f3a08;margin-bottom:2px}
+
+  /* ── 产品壳 ───────────────────────────────────────── */
+  .product{display:flex;height:calc(100vh - 56px - var(--s5) - 56px);min-height:640px;background:var(--bg-card);border:1px solid var(--bd);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh2)}
+  .product.flat{height:auto;min-height:0;display:block;padding:var(--s6);overflow:visible;box-shadow:var(--sh1)}
+  .pside{width:216px;flex:0 0 216px;background:var(--bg-sub);border-right:1px solid var(--bd);display:flex;flex-direction:column}
+  .pside-brand{display:flex;align-items:center;gap:var(--s2);padding:var(--s4) var(--s4) var(--s3)}
+  .pside-brandname{font-size:13px;font-weight:600;letter-spacing:.2px}
+  .pside-nav{padding:2px var(--s2) var(--s3)}
+  .pnav{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:var(--r-m);color:var(--t2);font-size:12.5px;margin-bottom:2px;transition:background .15s,color .15s}
+  .pnav:hover{background:var(--g1);color:var(--t1)}
+  .pnav.on{background:var(--brand-1);color:var(--brand-6);font-weight:600}
+  .pnav .pi{width:16px;flex:0 0 16px;display:flex;justify-content:center;color:var(--g7)}
+  .pnav.on .pi{color:var(--brand-6)}
+  .pnav .bdg{margin-left:auto;font-size:10.5px;color:var(--t3);font-weight:500;font-variant-numeric:tabular-nums;background:var(--g2);padding:1px 6px;border-radius:var(--r-round)}
+  .pnav.on .bdg{background:#fff;color:var(--brand-6)}
+  .pnav-group{font-size:10.5px;color:var(--t4);padding:var(--s4) 10px var(--s2);letter-spacing:.6px}
+  .puser{margin-top:auto;border-top:1px solid var(--bd);padding:var(--s3) var(--s4);display:flex;align-items:center;gap:9px}
+  .puser .nm{flex:1;min-width:0}
+  .puser .nm b{display:block;font-size:12.5px;font-weight:600;line-height:1.4}
+  .puser .nm i{display:block;font-style:normal;font-size:10.5px;color:var(--t3);margin-top:1px}
+  .pmain{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg-card)}
+
+  /* ── 品牌标记（六边形 + spark，替代 emoji） ── */
+  .mark{display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+
+  /* ── 顶栏 ── */
+  .phead{display:flex;align-items:center;gap:var(--s3);padding:0 var(--s5);height:54px;border-bottom:1px solid var(--bd);flex:0 0 54px}
+  .phead .ht{font-size:14px;font-weight:600;letter-spacing:.2px}
+  .status-pill{display:inline-flex;align-items:center;gap:6px;height:25px;padding:0 10px;border-radius:var(--r-round);font-size:11.5px;font-weight:500;background:var(--warn-1);color:#b25f14;cursor:pointer;transition:background .15s;border:1px solid #f7ddc2}
+  .status-pill:hover{background:#fdecd9}
+  .status-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--warn);flex:0 0 6px}
+  .phead-r{margin-left:auto;display:flex;align-items:center;gap:var(--s1)}
+  .hbtn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:var(--r-m);border:1px solid transparent;color:var(--t2);font-size:12.5px;transition:background .15s,color .15s,border-color .15s}
+  .hbtn:hover{background:var(--g1);color:var(--t1)}
+  .hbtn.hic{width:30px;padding:0;justify-content:center;border-color:var(--bd)}
+  .hbtn.hic:hover{border-color:var(--brand);color:var(--brand-6)}
+  .hbtn svg{width:15px;height:15px}
+
+  /* ── 工作台（首页） ── */
+  .wb{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;align-items:center;padding:var(--s6) var(--s7) 0}
+  .wbcol{width:100%;max-width:768px;display:flex;flex-direction:column;flex:1;min-height:0}
+
+  .notice{display:flex;align-items:center;gap:var(--s3);padding:11px var(--s3) 11px var(--s2);border-radius:var(--r-l);background:linear-gradient(180deg,#f2fbf5,#eaf9ef);border:1px solid #cdeeda}
+  .notice .ni{width:32px;height:32px;flex:0 0 32px;border-radius:var(--r-m);background:#fff;border:1px solid #d8f0e2;color:var(--brand-6);display:flex;align-items:center;justify-content:center}
+  .notice .ni svg{width:16px;height:16px}
+  .notice .nt{flex:1;min-width:0}
+  .notice .nt b{display:block;font-size:13px;font-weight:600;color:var(--t1);letter-spacing:.1px}
+  .notice .nt i{display:block;font-style:normal;font-size:11.5px;color:var(--t2);margin-top:1px}
+  .notice .go{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;height:28px;padding:0 10px;border-radius:var(--r-m);font-size:12px;font-weight:600;color:var(--brand-6);background:#fff;border:1px solid #cdeeda;transition:all .15s}
+  .notice .go:hover{background:var(--brand-1);border-color:var(--brand)}
+  .notice .go svg{width:13px;height:13px}
+
+  .hero{display:flex;flex-direction:column;align-items:center;text-align:center;padding:var(--s8) 0 var(--s6)}
+  .herowrap{position:relative}
+  .datecard{position:absolute;right:-56px;top:2px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-l);box-shadow:var(--sh1);overflow:hidden;width:44px;text-align:center}
+  .datecard .m{display:block;font-size:9.5px;font-weight:600;color:#fff;background:var(--brand);padding:2px 0;letter-spacing:.4px}
+  .datecard .d{display:block;font-size:16px;font-weight:600;color:var(--t1);padding:2px 0 3px;font-variant-numeric:tabular-nums;line-height:1.3}
+  .hero .hi{margin-top:var(--s5);font-size:22px;font-weight:600;line-height:1.4;letter-spacing:.2px}
+  .hero .hi .em{color:var(--brand-6);margin-right:5px}
+  .hero .tagline{margin-top:var(--s2);font-size:13px;color:var(--t2);line-height:1.75;max-width:460px}
+
+  /* ── 专家卡滚动带 ── */
+  .expertwrap{margin-top:var(--s2);position:relative;overflow:hidden;width:100%;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
+    mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+  .experttrack{display:flex;gap:var(--s3);width:max-content;padding:2px}
+  @media (prefers-reduced-motion: no-preference){
+    .experttrack{animation:scrollx 46s linear infinite}
+    .expertwrap:hover .experttrack{animation-play-state:paused}
+    @keyframes scrollx{to{transform:translateX(calc(-50% - 6px))}}
+  }
+  .expcard{width:224px;flex:0 0 224px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-l);padding:var(--s3) var(--s3) 11px;text-align:left;transition:border-color .15s,box-shadow .15s}
+  .expcard:hover{border-color:var(--brand);box-shadow:var(--sh2)}
+  .expcard .eh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .expcard .ea{width:32px;height:32px;flex:0 0 32px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center}
+  .expcard .ea svg{width:16px;height:16px}
+  .expcard .et{flex:1;min-width:0}
+  .expcard .et b{display:block;font-size:13px;font-weight:600;color:var(--t1);line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .expcard .et i{display:block;font-style:normal;font-size:10.5px;color:var(--t3);margin-top:1px}
+  .expcard .ed{font-size:11.5px;color:var(--t2);line-height:1.65;height:38px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .expcard .etags{display:flex;gap:5px;margin-top:9px;padding-top:9px;border-top:1px solid var(--g1);overflow:hidden}
+  .expcard .etg{font-size:10px;font-weight:500;color:var(--brand-6);background:var(--brand-1);padding:2px 7px;border-radius:var(--r-round);white-space:nowrap}
+  .exphint{text-align:center;font-size:11px;color:var(--t4);margin-top:var(--s2);letter-spacing:.1px}
+  .exphint b{color:var(--t3);font-weight:500}
+
+  /* ── 输入框（对齐现有 Web 产品形态） ── */
+  .composer{margin:auto 0 0;padding:var(--s5) 0 var(--s5);width:100%}
+  .cbox{background:#fff;border:1px solid var(--bd2);border-radius:var(--r-xl);padding:var(--s3) var(--s3) 9px;box-shadow:var(--sh1);transition:border-color .15s,box-shadow .15s}
+  .cbox:hover{border-color:var(--g5)}
+  .cbox:focus-within{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-1)}
+  .cbox .cph{display:block;font-size:13.5px;color:var(--t4);padding:3px 6px var(--s6);line-height:1.6}
+  .cbox .crow{display:flex;align-items:center;gap:2px}
+  .csel{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 8px 0 11px;border-radius:var(--r-m);border:1px solid var(--bd);background:#fff;font-size:12px;font-weight:500;color:var(--t1);transition:all .15s;white-space:nowrap;max-width:190px}
+  .csel:hover{border-color:var(--brand);color:var(--brand-6);background:var(--brand-1)}
+  .csel .nm2{overflow:hidden;text-overflow:ellipsis}
+  .csel svg{width:12px;height:12px;color:var(--t3);flex:0 0 12px}
+  .csel .cdot{width:6px;height:6px;border-radius:50%;background:var(--brand);flex:0 0 6px}
+  .cin{width:30px;height:30px;flex:0 0 30px;border-radius:var(--r-m);display:flex;align-items:center;justify-content:center;color:var(--g7);transition:background .15s,color .15s}
+  .cin:hover{background:var(--g1);color:var(--t1)}
+  .cin svg{width:16px;height:16px}
+  .cmode{margin-left:auto;display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 8px 0 11px;border-radius:var(--r-m);border:1px solid var(--bd);background:#fff;font-size:12px;color:var(--t2);transition:all .15s;white-space:nowrap}
+  .cmode:hover{border-color:var(--brand);color:var(--brand-6);background:var(--brand-1)}
+  .cmode svg{width:12px;height:12px;color:var(--t3);flex:0 0 12px}
+  .csend{width:32px;height:32px;flex:0 0 32px;margin-left:var(--s2);border-radius:var(--r-m);background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;transition:background .15s,opacity .15s}
+  .csend:hover{background:var(--brand-active)}
+  .csend svg{width:16px;height:16px}
+  .csend.dim{background:var(--brand-2);color:#fff;cursor:default}
+  .chint{text-align:center;font-size:11px;color:var(--t4);margin-top:var(--s3);letter-spacing:.1px}
+  .chint b{color:var(--t3);font-weight:500}
+
+  /* ── 对话 · 成稿工作区 ── */
+  .chat{flex:1;min-height:0;overflow-y:auto;padding:var(--s6) var(--s7) var(--s3)}
+  .chatcol{max-width:700px;margin:0 auto;display:flex;flex-direction:column;gap:var(--s5)}
+  .msg.me{display:flex;justify-content:flex-end}
+  .msg.me .bub{background:var(--brand-1);color:var(--t1);border-radius:var(--r-l) var(--r-l) var(--r-s) var(--r-l);padding:10px 14px;max-width:74%;line-height:1.72;font-size:13px}
+  .msg.me .bub .ctx{display:block;font-size:10.5px;color:var(--brand-6);font-weight:600;margin-bottom:3px;letter-spacing:.2px}
+  .msg.ai{display:flex;gap:11px}
+  .msg.ai .body{flex:1;min-width:0}
+  .msg.ai .who{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--t2);margin-bottom:7px}
+  .draft{border:1px solid var(--bd);border-radius:var(--r-l);background:#fff;box-shadow:var(--sh1);overflow:hidden}
+  .draft .dh{display:flex;align-items:center;gap:var(--s2);padding:9px var(--s4);border-bottom:1px solid var(--bd);background:var(--bg-sub)}
+  .draft .dh .dtg{font-size:10.5px;font-weight:600;color:var(--brand-6);background:var(--brand-1);padding:2px 8px;border-radius:var(--r-round)}
+  .draft .dh .sc{font-size:10.5px;color:var(--t3);margin-left:auto;font-variant-numeric:tabular-nums}
+  .draft .db{padding:var(--s4) var(--s4) var(--s3);font-size:13px;line-height:1.85;color:var(--t1)}
+  .draft .db p{margin:0 0 9px}
+  .draft .db p:last-child{margin:0}
+  .draft .dcite{padding:9px var(--s4);border-top:1px dashed var(--bd);font-size:10.5px;color:var(--t3);line-height:1.7;background:var(--bg-sub)}
+  .draft .dcite b{color:var(--t2);font-weight:600}
+  .acts{display:flex;gap:var(--s2);margin-top:10px;flex-wrap:wrap}
+  .act{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 11px;border-radius:var(--r-m);border:1px solid var(--bd);background:#fff;font-size:12px;font-weight:500;color:var(--t2);transition:all .15s}
+  .act:hover{border-color:var(--brand);color:var(--brand-6);background:var(--brand-1)}
+  .act svg{width:13px;height:13px}
+  .chatbar{flex:0 0 auto;padding:var(--s2) var(--s7) var(--s5)}
+  .chatbar .inwrap{max-width:700px;margin:0 auto}
+
+  /* ── 映射对照表 ── */
+  .dtbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh1)}
+  .dtbl th{text-align:left;font-size:11px;font-weight:600;color:var(--t3);padding:11px var(--s4);background:var(--bg-sub);letter-spacing:.4px;border-bottom:1px solid var(--bd)}
+  .dtbl td{padding:12px var(--s4);border-top:1px solid var(--g1);vertical-align:top;line-height:1.7;color:var(--t1)}
+  .dtbl tr:first-child td{border-top:none}
+  .dtbl tbody tr:hover td,.dtbl tr:hover td{background:#fcfdfc}
+  .dtbl td.k{font-weight:600;color:var(--t1)}
+  .dtbl td.g{color:var(--t2)}
+  .note{border-radius:var(--r-l);padding:12px var(--s4);font-size:12px;line-height:1.75;margin-top:var(--s4)}
+  .note.brand{background:var(--brand-1);color:#155f36;border:1px solid #bdeccd}
+  .note.warn{background:var(--warn-1);color:#8a4a12;border:1px solid #f7ddc2}
+  .note b{font-weight:600}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="rail-title">小睿 AI · Web 端</div>
+      <div class="rail-sub">依据移动端真机截图（10-12）<br>翻成 web 工作台 · 配套 Agent 模块方案 v2.0</div>
+    </div>
+    <div class="rail-group" id="rail"></div>
+    <div class="rail-note"><b>一句话思路</b>移动端的信息架构<b>原样搬</b>（四 tab → 左栏四项、专家能力原样保留），只换三件东西：<b>说话入口</b>从凸起键换成常驻输入条；<b>状态信息</b>（记忆卡未连接）升到顶栏；<b>宽度红利</b>花在专家卡滚动带上。</div>
+    <div class="rail-foot">
+      令牌取自 <code>frontend/src/assets/theme/theme.css</code>（TDesign 绿）<br>
+      brand #07c05f · 字重 400/600 · 栅格 4px<br>
+      移动端绿 #23B99D 不入 web<br>
+      <b>v1.1 视觉改版</b> · 2026-10-12
+    </div>
+  </aside>
+
+  <main class="stage">
+    <div class="bar">
+      <h1 id="barTitle"></h1>
+      <span class="path" id="barPath"></span>
+      <span class="verstamp">v1.1</span>
+    </div>
+    <div class="scroll">
+      <div class="canvas" id="canvas"></div>
+      <aside class="spec" id="spec"></aside>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ═══ 图标（24×24 线性 · stroke 1.7） ═══ */
+function I(k){
+  var p = {
+    spark:'<path d="M12 3.2l1.9 5.4 5.4 1.9-5.4 1.9L12 17.8l-1.9-5.4L4.7 10.5l5.4-1.9z"/>',
+    book:'<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15.5H6.5A2.5 2.5 0 0 0 4 21z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/>',
+    folder:'<path d="M3.4 6.2h5.8l2 2h9.4v11.4H3.4z"/>',
+    bell:'<path d="M6.4 17.2V11a5.6 5.6 0 0 1 11.2 0v6.2"/><path d="M4.2 17.2h15.6"/><path d="M10.2 19.8h3.6"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>',
+    pen:'<path d="M4 20l4.3-1 11-11a2.1 2.1 0 0 0-3-3l-11 11z"/>',
+    right:'<path d="M9 5.8l6 6.2-6 6.2"/>',
+    send:'<path d="M4.4 12L20 4l-4.2 16-4-6.4z"/><path d="M11.8 13.6L20 4"/>',
+    chat:'<path d="M4 6.2A2.2 2.2 0 0 1 6.2 4h11.6A2.2 2.2 0 0 1 20 6.2v7.1a2.2 2.2 0 0 1-2.2 2.2H9.4L4 19.4z"/>',
+    target:'<circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4.6"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>',
+    cal:'<rect x="3.6" y="5" width="16.8" height="15.4" rx="2.4"/><path d="M3.6 9.6h16.8M8 3v4M16 3v4"/><path d="M12.6 13.4a2.4 2.4 0 1 1 2.4 2.4h-2.4v2.4"/>',
+    mega:'<path d="M4 10.5v3a1.6 1.6 0 0 0 1.6 1.6H8l8.4 4.2V4.7L8 8.9H5.6A1.6 1.6 0 0 0 4 10.5z"/><path d="M19.4 9.4a4 4 0 0 1 0 5.2"/>',
+    users:'<circle cx="9" cy="8.2" r="3.4"/><path d="M3.4 20c.5-3.4 2.8-5.4 5.6-5.4s5.1 2 5.6 5.4"/><path d="M16 5.2a3.4 3.4 0 0 1 0 6.4M17.4 14.9c2 .8 3.2 2.6 3.5 5.1"/>',
+    box:'<path d="M3.6 8.2L12 3.6l8.4 4.6v7.6L12 20.4l-8.4-4.6z"/><path d="M3.6 8.2L12 12.8l8.4-4.6M12 12.8v7.6"/>',
+    clip:'<path d="M20 11.4l-7.6 7.6a5 5 0 0 1-7-7l8.3-8.3a3.3 3.3 0 0 1 4.7 4.7l-8.3 8.3a1.7 1.7 0 0 1-2.4-2.4l7.7-7.6"/>',
+    at:'<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 5.2 1.6A9.4 9.4 0 1 0 18 19.4"/>',
+    chev:'<path d="M6.4 9.4l5.6 5.4 5.6-5.4"/>',
+    refresh:'<path d="M20 5.4v5h-5"/><path d="M4 18.6v-5h5"/><path d="M19.2 10.4A7.4 7.4 0 0 0 6.1 7.1L4 9.3M4.8 13.6a7.4 7.4 0 0 0 13.1 3.3l2.1-2.2"/>',
+    short:'<path d="M4 7h16M4 12h11M4 17h7"/>',
+    link:'<path d="M9.4 14.6l5.2-5.2"/><path d="M7.2 11L5 13.2a3.8 3.8 0 0 0 5.4 5.4l2.2-2.2M16.8 13l2.2-2.2a3.8 3.8 0 0 0-5.4-5.4L11.4 7.6"/>'
+  }[k] || '';
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
+}
+
+/* ═══ 品牌标记：六边形 + spark（替代 emoji / 渐变头像） ═══ */
+/* 六边形头像（大 · 带日期徽章） */
+function heroMark(size){
+  var inner = size * .42;
+  return '<span class="mark" style="width:' + size + 'px;height:' + Math.round(size * 1.08) + 'px;position:relative">' +
+    '<svg viewBox="0 0 100 108" width="' + size + '" height="' + Math.round(size * 1.08) + '">' +
+      '<path d="M50 4 92 28v52L50 104 8 80V28z" fill="var(--brand-1)" stroke="var(--brand)" stroke-width="2.6" stroke-linejoin="round"/>' +
+      '<path d="M50 12 86 33v44L50 98 14 77V33z" fill="#fff" opacity=".55"/>' +
+      '<g transform="translate(' + (50 - inner / 2) + ',' + (54 - inner / 2) + ') scale(' + (inner / 24) + ')" stroke="var(--brand-6)" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M12 3.2l1.9 5.4 5.4 1.9-5.4 1.9L12 17.8l-1.9-5.4L4.7 10.5l5.4-1.9z"/>' +
+      '</g>' +
+    '</svg></span>';
+}
+
+/* ═══ 侧栏 ═══ */
+function sidebar(nav){
+  var items = [
+    { ic:'spark',  n:'小睿', on:nav==='home', go:true },
+    { ic:'book',   n:'记忆', bd:'128' },
+    { ic:'folder', n:'整理', bd:'3' },
+    { ic:'bell',   n:'提醒', bd:'0' }
+  ];
+  return '<aside class="pside">' +
+    '<div class="pside-brand">' + heroSmall(22) + '<span class="pside-brandname">睿乐大脑</span></div>' +
+    '<div class="pside-nav">' +
+    items.map(function(it){
+      return '<button class="pnav' + (it.on ? ' on' : '') + '"' + (it.go ? ' data-scene="home"' : '') + '>' +
+        '<span class="pi">' + I(it.ic) + '</span><span>' + it.n + '</span>' +
+        (it.bd !== undefined ? '<span class="bdg">' + it.bd + '</span>' : '') + '</button>';
+    }).join('') +
+    '<div class="pnav-group">入口</div>' +
+    '<button class="pnav" data-pill="专家广场"><span class="pi">' + I('users') + '</span><span>专家广场</span></button>' +
+    '<button class="pnav" data-pill="客户空间"><span class="pi">' + I('box') + '</span><span>客户空间</span></button>' +
+    '</div>' +
+    '<div class="puser">' + avatar('陈', 'brand') + '<span class="nm"><b>陈老师</b><i>课程顾问 · 阳光园</i></span></div>' +
+    '</aside>';
+}
+function heroSmall(s){
+  return '<span class="mark" style="width:' + s + 'px;height:' + Math.round(s * 1.08) + 'px;color:var(--brand-6)">' +
+    '<svg viewBox="0 0 100 108" width="' + s + '" height="' + Math.round(s * 1.08) + '">' +
+      '<path d="M50 4 92 28v52L50 104 8 80V28z" fill="var(--brand-1)" stroke="var(--brand)" stroke-width="4" stroke-linejoin="round"/>' +
+      '<g transform="translate(' + (50 - s * .19) + ',' + (52 - s * .19) + ') scale(' + (s * .38 / 24) + ')" stroke="var(--brand-6)" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M12 3.2l1.9 5.4 5.4 1.9-5.4 1.9L12 17.8l-1.9-5.4L4.7 10.5l5.4-1.9z"/></g>' +
+    '</svg></span>';
+}
+/* 纯色底人像（无渐变） */
+function avatar(ch, tone){
+  var map = { brand:['var(--brand-1)','var(--brand-6)'], info:['var(--info-1)','#2258a8'], violet:['var(--violet-1)','#5b3fd6'], warn:['var(--warn-1)','#b25f14'], muted:['var(--g1)','var(--t2)'] };
+  var c = map[tone] || map.muted;
+  return '<span style="width:28px;height:28px;flex:0 0 28px;border-radius:var(--r-m);background:' + c[0] + ';color:' + c[1] +
+    ';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">' + ch + '</span>';
+}
+function phead(withCompose){
+  return '<div class="phead">' +
+    '<span class="ht">小睿</span>' +
+    '<button class="status-pill" data-pill="记忆卡连接"><span class="dot"></span>记忆卡未连接 ›</button>' +
+    '<div class="phead-r">' +
+      (withCompose ? '<button class="hbtn" data-scene="home">' + I('plus') + '新对话</button>' : '') +
+      '<button class="hbtn hic" title="编辑小睿的话术与身份" data-pill="编辑小睿">' + I('pen') + '</button>' +
+    '</div></div>';
+}
+
+/* ═══ 专家卡滚动带 ═══ */
+var EXPERTS = [
+  { ic:'target', tone:'brand',  n:'招生顾问',     t:'到访 · 谈单',    d:'72 小时内不冷场，跟进节奏我盯着',        tags:['到访跟进','招生文案'] },
+  { ic:'chat',   tone:'info',   n:'家校沟通专家', t:'反馈 · 安抚',    d:'把课堂观察写成家长看得懂、愿意回的反馈',  tags:['家校反馈','补课通知'] },
+  { ic:'mega',   tone:'warn',   n:'活动策划师',   t:'海报 · 文案',    d:'朋友圈九宫格和活动海报，成稿直接能用',    tags:['招生文案','活动海报'] },
+  { ic:'cal',    tone:'violet', n:'排课协调员',   t:'调课 · 请假',    d:'调课、请假、课调，一条通知说清楚',        tags:['补课通知','课调'] },
+  { ic:'users',  tone:'brand',  n:'新生适应顾问', t:'入园 · 分离焦虑', d:'孩子入园头两周，家长的担心我有话答',      tags:['家长安抚','入园适应'] },
+  { ic:'book',   tone:'info',   n:'保教观察员',   t:'观察 · 记录',    d:'把老师的随手记整理成能用的成长记录',      tags:['课堂观察','成长记录'] }
+];
+var TONES = {
+  brand:['var(--brand-1)','var(--brand-6)'],
+  info:['var(--info-1)','#2258a8'],
+  warn:['var(--warn-1)','#b25f14'],
+  violet:['var(--violet-1)','#5b3fd6']
+};
+function expCardHtml(e){
+  var c = TONES[e.tone] || TONES.brand;
+  return '<button class="expcard" data-exp="' + e.n + '" data-scene="chat">' +
+    '<span class="eh"><span class="ea" style="background:' + c[0] + ';color:' + c[1] + '">' + I(e.ic) + '</span>' +
+    '<span class="et"><b>' + e.n + '</b><i>' + e.t + '</i></span></span>' +
+    '<span class="ed">' + e.d + '</span>' +
+    '<span class="etags">' + e.tags.map(function(t){ return '<span class="etg">' + t + '</span>'; }).join('') + '</span>' +
+    '</button>';
+}
+/* 输入框：上排输入区 / 下排工具行（专家切换 · 附件 · @ ｜ 模式 · 发送） */
+function composerBox(opt){
+  var o = opt || {};
+  return '<div class="cbox">' +
+    '<span class="cph">' + (o.ph || '直接向模型提问') + '</span>' +
+    '<div class="crow">' +
+      '<button class="csel" data-pill="选择专家">' + (o.exp ? '<span class="cdot"></span>' : '') +
+        '<span class="nm2">' + (o.exp || '选择专家') + '</span>' + I('chev') + '</button>' +
+      '<button class="cin" title="上传附件" data-pill="上传附件">' + I('clip') + '</button>' +
+      '<button class="cin" title="引用记忆 / 待办" data-pill="引用记忆">' + I('at') + '</button>' +
+      '<button class="cmode" data-pill="回复模式">' + (o.mode || '均衡') + I('chev') + '</button>' +
+      '<button class="csend' + (o.dim ? ' dim' : '') + '" title="' + (o.act || '发送') + '"' +
+        (o.act ? ' data-act="' + o.act + '"' : ' data-scene="chat"') + '>' + I('send') + '</button>' +
+    '</div></div>';
+}
+
+/* ═══ 场景 1：首页 · 工作台 ═══ */
+function vHome(){
+  var row = EXPERTS.map(expCardHtml).join('');
+  return '<div class="product">' + sidebar('home') +
+    '<div class="pmain">' + phead(false) +
+    '<div class="wb"><div class="wbcol">' +
+      '<div class="notice">' +
+        '<span class="ni">' + I('spark') + '</span>' +
+        '<span class="nt"><b>秋季招生冲刺</b><i>今天 0 条服务提醒待处理</i></span>' +
+        '<button class="go" data-pill="去处理">去处理 ' + I('right') + '</button>' +
+      '</div>' +
+      '<div class="hero">' +
+        '<div class="herowrap">' + heroMark(92) +
+          '<span class="datecard"><span class="m">10月</span><span class="d">12</span></span>' +
+        '</div>' +
+        '<div class="hi"><span class="em">Hi</span>小睿来啦</div>' +
+        '<div class="tagline">该联系谁我来提醒，发什么我来写——每次都给你能直接发出去的成稿。</div>' +
+      '</div>' +
+      '<div class="expertwrap"><div class="experttrack">' + row + row + '</div></div>' +
+      '<div class="exphint">按岗位选专家 · <b>悬停暂停，点卡片直接开工</b></div>' +
+      '<div class="composer">' +
+        composerBox({ ph:'问小睿，或点上面的专家直接开工…', dim:true }) +
+        '<div class="chint">回车发送 · <b>小睿产出的都是成稿，发不发由你</b></div>' +
+      '</div>' +
+    '</div></div>' +
+    '</div></div>';
+}
+
+/* ═══ 场景 2：对话 · 成稿工作区 ═══ */
+function vChat(){
+  return '<div class="product">' + sidebar('home') +
+    '<div class="pmain">' + phead(true) +
+    '<div class="chat"><div class="chatcol">' +
+      '<div class="msg me"><span class="bub"><span class="ctx">专家 · 招生顾问 · 到访跟进</span>果果妈妈今天 14:20 带孩子来试听了，帮我跟进一下。</span></div>' +
+      '<div class="msg ai">' +
+        '<span class="mark" style="width:28px;height:28px;margin-top:2px">' +
+          '<svg viewBox="0 0 100 108" width="28" height="30"><path d="M50 4 92 28v52L50 104 8 80V28z" fill="var(--brand-1)" stroke="var(--brand)" stroke-width="4" stroke-linejoin="round"/><g transform="translate(39,41) scale(0.46)" stroke="var(--brand-6)" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2l1.9 5.4 5.4 1.9-5.4 1.9L12 17.8l-1.9-5.4L4.7 10.5l5.4-1.9z"/></g></svg>' +
+        '</span>' +
+        '<div class="body"><div class="who">小睿 · 依据这个家的记录写的</div>' +
+        '<div class="draft">' +
+          '<div class="dh"><span class="dtg">可直接发送的成稿</span><span class="sc">约 120 字 · 微信口吻</span></div>' +
+          '<div class="db">' +
+            '<p>果果妈妈您好～今天辛苦您跑一趟啦。果果在上试听课的时候特别投入，搭积木那会儿还主动帮旁边的小朋友递块——老师都夸他专注力不错。</p>' +
+            '<p>课程顾问陈老师整理了果果的试听观察和适合他的班型建议，您看明天上午方便的话，我发您一份？有任何想了解的随时找我。</p>' +
+          '</div>' +
+          '<div class="dcite"><b>依据：</b>试听观察（今天 14:20-15:05）· 果果家档案 · 顾虑台账「距离远」未消</div>' +
+        '</div>' +
+        '<div class="acts">' +
+          '<button class="act" data-act="换个说法">' + I('refresh') + '换个说法</button>' +
+          '<button class="act" data-act="再短一点">' + I('short') + '再短一点</button>' +
+          '<button class="act" data-act="带上观察记录">' + I('link') + '带上观察记录</button>' +
+        '</div></div>' +
+      '</div>' +
+    '</div></div>' +
+    '<div class="chatbar"><div class="inwrap">' +
+      composerBox({ ph:'让小睿改，或交代下一件事…', exp:'招生顾问', act:'复制成稿' }) +
+    '</div></div>' +
+    '</div></div>';
+}
+
+/* ═══ 场景 3：移动端 → Web 端 映射 ═══ */
+function vMap(){
+  var rows = [
+    ['dock 四 tab（小睿/记忆/整理/提醒）', '移动端底部中央 dock', '左栏导航四项，同构换位置'],
+    ['中央凸起键（点=聊 · 长按=录）', '首页悬浮在 dock 上方', '常驻输入条：上排输入区 + 下排工具行（专家/附件/@ ｜ 模式/发送）'],
+    ['标题下「记忆卡未连接 ›」', 'AppBar 副标题位', '顶栏状态徽标（状态类信息统一放头部）'],
+    ['秋季招生冲刺横幅 + 去处理', 'AppBar 下方整幅卡', '工作台顶部一行通知条，不占竖向空间'],
+    ['六边形头像 + 日期徽章 + Hi', '首屏 hero 居中', '原样保留（web 竖向空间富余，问候区是情绪锚点）'],
+    ['2×2 能力卡（家校反馈/到访跟进/补课通知/招生文案）', 'hero 下方', '动态滚动专家卡片带：能力降为卡上标签，专家广场预览合并进来'],
+    ['专家广场 / 客户空间两入口', 'dock 上方两卡', '左栏「入口」分组（移动端 dock 上方 = web 导航下方）'],
+    ['AppBar 右侧 ✏️ / ＋', '标题行', '顶栏右侧「新对话」+ 编辑小睿（改话术与身份）']
+  ];
+  return '<div class="product flat">' +
+    '<table class="dtbl"><tr><th style="width:34%">移动端（截图 10-12）</th><th style="width:22%">移动端位置</th><th>Web 端落法</th></tr>' +
+    rows.map(function(r){ return '<tr><td class="k">' + r[0] + '</td><td class="g">' + r[1] + '</td><td>' + r[2] + '</td></tr>'; }).join('') +
+    '</table>' +
+    '<div class="note brand"><b>视觉令牌换源：</b>移动端用真机 AppColors（accent #23B99D），web 端统一走 <code style="font-family:ui-monospace">frontend/src/assets/theme/theme.css</code> 的 TDesign 绿（brand #07c05f）。结构照搬、颜色换源——web 与移动端不追求同色，追求同一套 web 规范。</div>' +
+    '<div class="note warn"><b>三条不变的红线：</b>① 小睿只给成稿、<b>不直接对家长发送</b>（发送动作永远在人手里）；② 记忆卡未连接时功能不隐藏、只提示（不阻断）；③ 助手动作先确认后执行。</div>' +
+    '</div>';
+}
+
+/* ═══ 场景表 / 规格 ═══ */
+var SCENES = [
+  { key:'home', n:1, label:'小睿 · 首页', path:'登录默认页 / 左栏「小睿」', render:vHome },
+  { key:'chat', n:2, label:'对话 · 成稿工作区', path:'专家卡 / 输入条发送', render:vChat },
+  { key:'map',  n:3, label:'移动端 → Web 端映射', path:'—', render:vMap }
+];
+var SPECS = {
+  home: { goal:'web 首页只回答一件事：现在能让小睿写什么。结构从移动端截图逐元素搬过来，位置跟着 web 的壳走。',
+    pts:[
+      '<b>左栏 = 移动端 dock 的同构体</b>：小睿 / 记忆 / 整理 / 提醒四项原样上移；<b>专家广场、客户空间</b>收进左栏「入口」分组——移动端它们在 dock 上方，web 端对应导航下方，同一信息只出现这一次。',
+      '<b>说话入口从凸起键换成常驻输入条</b>，形态对齐现有 Web 产品输入框：上排输入区、下排工具行——左为<b>专家切换</b>（选中专家带绿点）/ 附件 / @引用（挂记忆与待办），右为<b>回复模式（均衡）</b>与发送；空输入时发送置灰。输入条是首页唯一的主操作区。',
+      '<b>「记忆卡未连接」从副标题升为顶栏状态徽标</b>：橙色圆点 + 文案，可点击查看原因。警示但不阻断——下方功能全部可用，只是提醒「连上后小睿会记得更准」。',
+      '<b>秋季招生冲刺收成一行通知条</b>：标题 + 今天 0 条待处理 + 去处理。移动端整幅卡在 web 端压缩为一行，把竖向空间还给问候区和专家卡带。',
+      '<b>能力卡区 = 动态滚动的专家卡片带</b>：把静态能力卡四件套与「专家广场预览」<b>合并成一条</b>无缝滚动卡带——每张专家卡自带擅长能力标签（家校反馈 / 到访跟进长在卡上），原本两处讲能力、现在只此一处。卡带两端渐隐、悬停暂停、点击进对话；卡数多于可视宽度才滚，内容持续轮播不重页。它与左栏「专家广场」不冲突：卡带是<b>可直接开工的预览</b>，左栏入口进<b>全量广场</b>（按岗位筛选 / 浏览全部），层级不同。',
+      '<b>六边形头像 + 日期徽章 + Hi 问候区原样保留</b>：这是页面的情绪锚点，也是「小睿是人不是工具」的落点；日期徽章挪到头像右侧悬浮卡。',
+      '<b>视觉改版要点（v1.1）</b>：头像弃 emoji 与渐变，改<b>六边形品牌标记</b>（品牌绿描边 + spark）；专家头像改<b>纯色底 + 同色深图标</b>四色轮转；字重收敛为 <b>400 / 600</b>；间距全量对齐 <b>4px 栅格</b>；去掉一切发光与重力阴影，只留 <code>--sh1/--sh2</code> 两级。'
+    ],
+    api:'接线：<code>GET /agent/status</code>（记忆卡连接态，驱动顶栏徽标）· <code>GET /service/reminders?due=today</code>（通知条计数）· 专家卡点击即带对应专家与场景预填进 <code>/agent/chat</code>。'},
+  chat: { goal:'成稿工作区证明那句话：「发什么我来写——每次都给你能直接发出去的成稿」。',
+    pts:[
+      '<b>产出物是一张成稿卡</b>，不是一段聊天回复：带「可直接发送的成稿」标签、字数与口吻标注（微信口吻 / 约 120 字）。',
+      '<b>依据压成卡底一行灰字</b>（试听观察 · 家庭档案 · 顾虑台账）：分身与通用助手的可见差别就是它引用的是这个家的记录。',
+      '<b>动作只给三个改稿动作 + 发送</b>：换个说法 / 再短一点 / 带上观察记录；右下发送键 = <b>复制成稿</b>，复制动作本身点了才生效（先确认后执行，小睿不直接发给家长）。',
+      '<b>顶栏出现「新对话」</b>：进入对话后首页输入条让位，新对话入口顶栏接管（同一条信息不出现两次）。',
+      '<b>输入条沿用同一构件</b>：只把专家选择器切到当前专家（绿点 + 名称）、发送键语义改为「复制成稿」——两端同一个 <code>composerBox()</code>，改一处全生效。'
+    ]},
+  map: { goal:'把「搬什么、换什么、为什么」一次讲清，评审按行确认。',
+    pts:[
+      '<b>原样搬的</b>：四 tab 结构、专家能力四件套、问候区、专家广场 / 客户空间入口——信息架构不因端而变。',
+      '<b>换位置的</b>：dock → 左栏、副标题状态 → 顶栏徽标、整幅横幅 → 一行通知条、2×2 → 专家卡滚动带。',
+      '<b>换形态的</b>：凸起键 → 常驻输入条；能力卡 → 动态滚动专家卡带（能力标签上卡，专家广场预览合并进来）。',
+      '<b>颜色换源</b>：移动端绿 #23B99D 不进 web；web 一律 TDesign 绿 #07c05f。两族并存、各守各的真源，不做颜色混用。',
+      '<b>视觉级差（v1.1）</b>：移动端保留 emoji 狮头插画（有插画真源），web 端不抬 emoji，统一用六边形品牌标记；两端共享同一套语义色与圆角阶梯，字重都收敛到两档。'
+    ]}
+};
+
+var RENDER = {};
+SCENES.forEach(function(s){ RENDER[s.key] = s.render; });
+var state = { scene:'home' };
+function $(s){ return document.querySelector(s); }
+
+function layout(){
+  var s = SCENES.filter(function(x){ return x.key === state.scene; })[0] || SCENES[0];
+  state.scene = s.key;
+  $('#barTitle').textContent = s.label;
+  $('#barPath').textContent = s.path;
+  $('#canvas').innerHTML = RENDER[s.key]();
+  var sp = SPECS[s.key];
+  $('#spec').innerHTML = '<h3>' + s.label + '</h3><p class="goal">' + sp.goal + '</p>' +
+    '<div class="plabel">设计要点</div><ul>' +
+    sp.pts.map(function(p, i){ return '<li><span class="n">' + (i + 1) + '</span>' + p + '</li>'; }).join('') +
+    '</ul>' + (sp.api ? '<div class="pnote"><b>接线</b>' + sp.api + '</div>' : '');
+  $('#rail').innerHTML = SCENES.map(function(x){
+    return '<button class="rail-btn' + (x.key === s.key ? ' on' : '') + '" data-scene="' + x.key + '">' +
+      '<span class="idx">' + x.n + '</span><span class="lb">' + x.label + '</span></button>';
+  }).join('');
+}
+
+function setHash(h){ try { history.replaceState(null, '', '#' + h); } catch (err) {} }
+document.addEventListener('click', function(e){
+  var t = e.target.closest('[data-scene],[data-act],[data-pill],[data-exp]');
+  if (!t) return;
+  if (t.hasAttribute('data-scene')){ state.scene = t.getAttribute('data-scene'); setHash(state.scene); return layout(); }
+  var n = t.getAttribute('data-act') || t.getAttribute('data-pill') || t.getAttribute('data-exp');
+  if (n){ t.title = '原型演示：' + n + '（真实产品中此处进入对应流程）'; return; }
+});
+window.addEventListener('hashchange', function(){
+  var k = (location.hash || '').replace('#','');
+  if (k && k !== state.scene && RENDER[k]){ state.scene = k; layout(); }
+});
+(function(){ var k = (location.hash || '').replace('#',''); if (k && RENDER[k]) state.scene = k; })();
+layout();
+</script>
+</body>
+</html>

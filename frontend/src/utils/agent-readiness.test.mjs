@@ -110,6 +110,14 @@ test('getAgentNotReadyReasonKeys flags missing chat model', () => {
   ), ['summary_model'])
 })
 
+test('getAgentNotReadyReasonKeys accepts the current request chat model', () => {
+  assert.deepEqual(getAgentNotReadyReasonKeys(
+    { kb_selection_mode: 'none' },
+    [{ id: 'chat-1', type: 'KnowledgeQA' }],
+    { isAgentMode: true, isSharedAgent: false, requestModelID: 'chat-1' },
+  ), [])
+})
+
 test('getAgentNotReadyReasonKeys requires rerank only in agent mode with KB search', () => {
   assert.deepEqual(getAgentNotReadyReasonKeys(
     { kb_selection_mode: 'all', allowed_tools: ['knowledge_search'] },

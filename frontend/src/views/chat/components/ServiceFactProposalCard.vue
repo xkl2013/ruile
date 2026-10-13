@@ -33,11 +33,8 @@
           <span class="proposal-item-label">{{ item.field_label || item.field_key }}</span>
           <strong>{{ formatValue(item.value) }}</strong>
         </div>
-        <div v-if="item.evidence || item.confidence !== undefined" class="proposal-item-meta">
-          <span v-if="item.evidence" class="proposal-evidence">依据：{{ item.evidence }}</span>
-          <span v-if="item.confidence !== undefined" class="proposal-confidence">
-            置信度 {{ formatConfidence(item.confidence) }}
-          </span>
+        <div v-if="item.evidence" class="proposal-item-meta">
+          <span class="proposal-evidence">依据：{{ item.evidence }}</span>
         </div>
       </div>
     </div>
@@ -130,7 +127,6 @@ const formatValue = (value: unknown) => {
   return String(value)
 }
 
-const formatConfidence = (value: number) => `${Math.round(value * 100)}%`
 
 const loadSubjects = async () => {
   if (!props.serviceId || !subjectRequired.value || subjects.value.length) return

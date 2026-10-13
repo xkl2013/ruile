@@ -33,6 +33,8 @@ const (
 // knowledge-base and permission scope remains workspace-local.
 const SystemAgentTenantID uint64 = 0
 
+const AgentTagExpert = "expert"
+
 // AgentMode constants for agent running mode
 const (
 	// AgentModeQuickAnswer is the RAG mode for quick Q&A
@@ -76,7 +78,7 @@ type CustomAgent struct {
 	// Description of the agent
 	Description string `yaml:"description" json:"description" gorm:"type:text"`
 	// Avatar/Icon of the agent (emoji or icon name)
-	Avatar string `yaml:"avatar" json:"avatar" gorm:"type:varchar(64)"`
+	Avatar string `yaml:"avatar" json:"avatar" gorm:"type:text"`
 	// Whether this is a built-in agent (normal mode / agent mode)
 	IsBuiltin bool `yaml:"is_builtin" json:"is_builtin" gorm:"default:false"`
 	// Tenant ID (composite primary key with ID)
@@ -110,6 +112,9 @@ type CustomAgentSkillSnapshot struct {
 
 // CustomAgentConfig represents the configuration of a custom agent
 type CustomAgentConfig struct {
+	// Tags classify managed agents without introducing a separate agent model.
+	Tags []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+
 	// ===== Basic Settings =====
 	// Agent mode: "quick-answer" for RAG mode, "smart-reasoning" for ReAct agent mode
 	AgentMode string `yaml:"agent_mode" json:"agent_mode"`

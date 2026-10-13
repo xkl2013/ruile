@@ -58,7 +58,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       {
         key: 'agents',
         label: '智能体',
-        description: '统一维护平台级智能体',
+        description: '维护平台智能体并导入专家包',
         icon: 'control-platform',
         path: '/agents',
         requiresSystemAdmin: true,
@@ -139,14 +139,6 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
             requiresSystemAdmin: true,
           },
         ],
-      },
-      {
-        key: 'expert-packages',
-        label: '专家',
-        description: '专家包导入、发布和运行测试',
-        icon: 'usergroup',
-        path: '/experts',
-        minRole: 'admin',
       },
       {
         key: 'service-templates',

@@ -221,6 +221,7 @@ func (s *customAgentService) ListAgents(ctx context.Context) ([]*types.CustomAge
 		})
 		return nil, err
 	}
+	allAgents = dedupeListedAgents(allAgents)
 
 	// Track which built-in agents exist in database
 	builtinInDB := make(map[string]bool)
@@ -262,6 +263,83 @@ func (s *customAgentService) ListAgents(ctx context.Context) ([]*types.CustomAge
 	}
 
 	return result, nil
+}
+
+// dedupeListedAgents collapses a platform-managed agent and an older
+// workspace copy that share the same stable ID. The platform row is the
+// canonical source for imported experts because it carries the published
+// avatar, description, and tags.
+func dedupeListedAgents(agents []*types.CustomAgent) []*types.CustomAgent {
+	indices := make(map[string]int, len(agents))
+	result := make([]*types.CustomAgent, 0, len(agents))
+	for _, agent := range agents {
+		if agent == nil {
+			continue
+		}
+		if index, ok := indices[agent.ID]; ok {
+			if preferListedAgent(agent, result[index]) {
+				result[index] = agent
+			}
+			continue
+		}
+		indices[agent.ID] = len(result)
+		result = append(result, agent)
+	}
+	return dedupeNamedPlatformAgents(result)
+}
+
+func dedupeNamedPlatformAgents(agents []*types.CustomAgent) []*types.CustomAgent {
+	indices := make(map[string]int, len(agents))
+	result := make([]*types.CustomAgent, 0, len(agents))
+	for _, agent := range agents {
+		if isPlatformManagedCustomAgent(agent) {
+			nameKey := strings.ToLower(strings.TrimSpace(agent.Name))
+			if nameKey != "" {
+				if index, ok := indices[nameKey]; ok {
+					current := result[index]
+					if shouldCollapseNamedPlatformAgents(agent, current) {
+						if preferListedAgent(agent, current) {
+							result[index] = agent
+						}
+						continue
+					}
+				} else {
+					indices[nameKey] = len(result)
+				}
+			}
+		}
+		result = append(result, agent)
+	}
+	return result
+}
+
+func isPlatformManagedCustomAgent(agent *types.CustomAgent) bool {
+	return agent.IsBuiltin &&
+		agent.TenantID == types.SystemAgentTenantID &&
+		!types.IsBuiltinAgentID(agent.ID)
+}
+
+func shouldCollapseNamedPlatformAgents(candidate, current *types.CustomAgent) bool {
+	if !isPlatformManagedCustomAgent(candidate) || !isPlatformManagedCustomAgent(current) {
+		return false
+	}
+	return listedAgentHasPresentationData(candidate) != listedAgentHasPresentationData(current)
+}
+
+func listedAgentHasPresentationData(agent *types.CustomAgent) bool {
+	return strings.TrimSpace(agent.Avatar) != "" || len(agent.Config.Tags) > 0
+}
+
+func preferListedAgent(candidate, current *types.CustomAgent) bool {
+	candidatePlatform := candidate.IsBuiltin && candidate.TenantID == types.SystemAgentTenantID
+	currentPlatform := current.IsBuiltin && current.TenantID == types.SystemAgentTenantID
+	if candidatePlatform != currentPlatform {
+		return candidatePlatform
+	}
+	if strings.TrimSpace(current.Avatar) == "" && strings.TrimSpace(candidate.Avatar) != "" {
+		return true
+	}
+	return false
 }
 
 // UpdateAgent updates an agent's information

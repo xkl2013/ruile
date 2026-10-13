@@ -17,7 +17,8 @@ import (
 
 // AgentQA performs agent-based question answering with conversation history and streaming support
 // customAgent is optional - if provided, uses custom agent configuration instead of tenant defaults
-// summaryModelID is optional - if provided, overrides the model from customAgent config
+// summaryModelID is optional and represents the current user's chat model.
+// A resolved response-tier model remains authoritative when tier routing is enabled.
 func (s *sessionService) AgentQA(
 	ctx context.Context,
 	req *types.QARequest,
@@ -95,8 +96,8 @@ func (s *sessionService) AgentQA(
 		return err
 	}
 	if effectiveModelID == "" {
-		logger.Warnf(ctx, "No summary model configured for custom agent %s", req.CustomAgent.ID)
-		return errors.New("summary model (model_id) is not configured in custom agent settings")
+		logger.Warnf(ctx, "No chat model resolved for custom agent %s", req.CustomAgent.ID)
+		return errors.New("no chat model resolved from response tier or user model selection")
 	}
 
 	summaryModel, err := s.modelService.GetChatModel(ctx, effectiveModelID)

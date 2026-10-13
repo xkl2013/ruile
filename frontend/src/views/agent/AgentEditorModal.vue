@@ -127,7 +127,7 @@
                             <t-icon :name="isAgentMode ? 'control-platform' : 'chat'" size="24px" />
                           </div>
                           <!-- 自定义智能体使用 AgentAvatar -->
-                          <AgentAvatar v-else :name="formData.name || '?'" size="medium" />
+                          <AgentAvatar v-else :name="formData.name || '?'" :avatar="formData.avatar" size="medium" />
                           <t-input v-model="formData.name" :placeholder="$t('agent.editor.namePlaceholder')"
                             class="name-input" :disabled="isBuiltinAgent" />
                         </div>
@@ -543,26 +543,6 @@
                   </div>
 
                   <div class="settings-group">
-                    <!-- 模型选择 -->
-                    <div
-                      class="setting-row"
-                      data-guide="agent-create-model"
-                      data-agent-field="summary_model"
-                      :class="{ 'setting-row--field-highlight': highlightedField === 'summary_model' }"
-                    >
-                      <div class="setting-info">
-                        <label>{{ $t('agent.editor.model') }} <span class="required">*</span></label>
-                        <p class="desc">{{ $t('agentEditor.desc.model') }}</p>
-                      </div>
-                      <div class="setting-control">
-                        <ModelSelector model-type="KnowledgeQA" :selected-model-id="formData.config.model_id"
-                          :all-models="allModels"
-                          :show-add-model="isAdminRuntime()"
-                          @update:selected-model-id="(val: string) => formData.config.model_id = val"
-                          @add-model="handleAddModel('llm')" :placeholder="$t('agent.editor.modelPlaceholder')" />
-                      </div>
-                    </div>
-
                     <!-- 温度 -->
                     <div class="setting-row">
                       <div class="setting-info">
@@ -2502,16 +2482,6 @@ const removeStarterSuggestion = (index: number) => {
   formData.value.config.question_suggestions.starters.items.splice(index, 1);
 };
 
-const applyDefaultChatModelIfEmpty = () => {
-  if (props.mode !== 'create' || !formData.value) return
-  const chat =
-    allModels.value.find((m) => m.type === 'KnowledgeQA' && m.is_default)
-    || allModels.value.find((m) => m.type === 'KnowledgeQA')
-  if (!formData.value.config.model_id && chat?.id) {
-    formData.value.config.model_id = chat.id
-  }
-}
-
 const agentMode = computed({
   get: () => formData.value.config.agent_mode,
   set: (val: 'quick-answer' | 'smart-reasoning') => { formData.value.config.agent_mode = val; }
@@ -2985,6 +2955,19 @@ watch(() => props.visible, async (val) => {
       if (!agentData.config) {
         agentData.config = JSON.parse(JSON.stringify(defaultFormData.config));
       }
+      const publishedExpert = chatResources.publishedExperts.find((expert) =>
+        expert.display_name === agentData.name
+        || expert.package_display_name === agentData.name,
+      );
+      if (!agentData.avatar?.trim() && publishedExpert?.avatar?.trim()) {
+        agentData.avatar = publishedExpert.avatar;
+      }
+      if (publishedExpert?.tags?.length) {
+        agentData.config.tags = [...new Set([
+          ...(publishedExpert.tags || []),
+          ...(agentData.config.tags || []),
+        ])];
+      }
 
       // 补全可能缺失的字段
       agentData.config = { ...defaultFormData.config, ...agentData.config };
@@ -3104,7 +3087,6 @@ watch(() => props.visible, async (val) => {
           formData.value.description = getPresetDefaultDescription(preset);
         }
       }
-      applyDefaultChatModelIfEmpty()
     }
 
     if (props.initialHighlightField) {
@@ -3423,6 +3405,7 @@ const loadDependencies = async () => {
       chatResources.ensureModels(),
       chatResources.ensureKnowledgeBases(),
       chatResources.ensureWebSearchProviders(),
+      chatResources.ensurePublishedExperts(),
       editorResources.prefetchAgentEditorDeps(),
     ]);
 
@@ -4351,12 +4334,6 @@ const handleSave = async () => {
       currentSection.value = 'prompts';
       return;
     }
-  }
-
-  if (!formData.value.config.model_id) {
-    MessagePlugin.error(t('agent.editor.modelRequired'));
-    currentSection.value = 'model';
-    return;
   }
 
   if (isAgentMode.value && formData.value.config.orchestration_enabled) {

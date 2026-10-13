@@ -167,10 +167,10 @@
 
       <t-tab-panel value="manual-operations" label="人工开通">
         <div class="billing-admin__offline-note">
-          <span>在线支付当前未配置。此处仅用于后台人工开通合同、调整积分或存储，所有操作都会生成已支付的人工订单。</span>
+          <span>在线支付当前未配置。此处可为个人或企业工作空间人工开通合同、购买积分包或存储包，所有操作都会生成已支付的人工订单。</span>
           <t-button theme="primary" @click="openManualOrderDialog">
             <template #icon><t-icon name="add" /></template>
-            新建人工操作
+            新建人工订单
           </t-button>
         </div>
       </t-tab-panel>
@@ -540,23 +540,28 @@
       @confirm="saveManualOrder"
     >
       <t-form label-align="top">
-        <t-alert theme="warning" message="操作会立即生效并生成不可修改的人工订单，请确认目标工作空间和权益数值。" class="billing-admin__dialog-alert" />
+        <t-alert theme="warning" message="订单会立即生效并生成不可修改的人工订单，请确认目标工作空间和商品。" class="billing-admin__dialog-alert" />
         <div class="billing-admin__form-grid">
           <t-form-item label="目标工作空间" required>
-            <t-select v-model="manualOrderForm.tenantID" filterable placeholder="选择工作空间">
+            <t-select
+              v-model="manualOrderForm.tenantID"
+              filterable
+              placeholder="选择个人或企业工作空间"
+              @change="resetManualOrderItem"
+            >
               <t-option
                 v-for="account in accounts"
                 :key="account.tenant_id"
                 :value="String(account.tenant_id)"
-                :label="`${account.tenant_name} (#${account.tenant_id})`"
+                :label="`${account.tenant_name} · ${planSpaceTypeLabel(account.space_type)} · ${billingSubjectTypeLabel(account.subject_type)} (#${account.tenant_id})`"
               />
             </t-select>
           </t-form-item>
           <t-form-item label="操作类型" required>
-            <t-select v-model="manualOrderForm.orderType">
+            <t-select v-model="manualOrderForm.orderType" @change="resetManualOrderItem">
               <t-option value="manual_contract" label="合同订阅" />
-              <t-option value="topup" label="积分调额" />
-              <t-option value="storage_addon" label="存储调整" />
+              <t-option value="topup" label="购买积分包" />
+              <t-option value="storage_addon" label="购买存储包" />
             </t-select>
           </t-form-item>
           <template v-if="manualOrderForm.orderType === 'manual_contract'">
@@ -577,22 +582,41 @@
               <t-input-number v-model="manualOrderForm.periodDays" :min="1" :max="3660" :decimal-places="0" />
             </t-form-item>
           </template>
-          <template v-else-if="manualOrderForm.orderType === 'topup'">
-            <t-form-item label="积分调整" required>
-              <t-input-number v-model="manualOrderForm.creditPoints" :decimal-places="0" />
-            </t-form-item>
-          </template>
           <template v-else>
-            <t-form-item label="存储调整（GB）" required>
-              <t-input-number v-model="manualOrderForm.storageGB" :decimal-places="2" />
+            <t-form-item :label="manualOrderForm.orderType === 'topup' ? '积分商品' : '存储商品'" required>
+              <t-select
+                v-model="manualOrderForm.itemID"
+                filterable
+                :disabled="manualPurchaseItems.length === 0"
+                :placeholder="manualPurchaseItems.length ? '选择商品' : '当前工作空间暂无可用商品'"
+                @change="syncManualOrderItem"
+              >
+                <t-option
+                  v-for="item in manualPurchaseItems"
+                  :key="item.id"
+                  :value="item.id"
+                  :label="`${item.name} · ${formatMoney(item.amount_cents, item.currency)}`"
+                />
+              </t-select>
+              <p v-if="selectedManualPurchaseItem" class="billing-admin__field-hint">
+                {{ selectedManualPurchaseItem.item_type === 'topup'
+                  ? formatPoints(selectedManualPurchaseItem.credit_point_micros)
+                  : formatBytes(selectedManualPurchaseItem.storage_quota_bytes) }}
+                · 商品价格 {{ formatMoney(selectedManualPurchaseItem.amount_cents, selectedManualPurchaseItem.currency) }}
+              </p>
             </t-form-item>
           </template>
-          <t-form-item label="记录金额（元）">
-            <t-input-number v-model="manualOrderForm.amountCNY" :min="0" :decimal-places="2" />
+          <t-form-item :label="manualOrderForm.orderType === 'manual_contract' ? '记录金额（元）' : '商品金额（元）'">
+            <t-input-number
+              v-model="manualOrderForm.amountCNY"
+              :min="0"
+              :decimal-places="2"
+              :disabled="manualOrderForm.orderType !== 'manual_contract'"
+            />
           </t-form-item>
         </div>
         <t-form-item label="操作说明" required>
-          <t-textarea v-model="manualOrderForm.description" :maxlength="512" placeholder="例如：2026 年度合同续费，线下已确认款项" />
+          <t-textarea v-model="manualOrderForm.description" :maxlength="512" placeholder="例如：企业年度积分包采购，线下已确认款项" />
         </t-form-item>
       </t-form>
     </t-dialog>
@@ -699,8 +723,7 @@ const manualOrderForm = reactive({
   planID: '',
   billingInterval: 'year' as 'trial' | 'month' | 'year' | 'manual',
   periodDays: 366,
-  creditPoints: 0,
-  storageGB: 0,
+  itemID: '',
   amountCNY: 0,
   description: '',
 })
@@ -721,6 +744,25 @@ const contractPlans = computed(() => {
   const expectedSpaceType = selected.space_type === 'organization' ? 'organization' : 'personal'
   return plans.value.filter((plan) => plan.space_type === expectedSpaceType)
 })
+
+const manualPurchaseItems = computed(() => {
+  const selected = accounts.value.find((account) => String(account.tenant_id) === manualOrderForm.tenantID)
+  if (!selected) return []
+  const expectedScope = selected?.space_type === 'organization'
+    ? 'enterprise'
+    : selected?.space_type === 'personal'
+      ? 'personal'
+      : ''
+  return purchaseItems.value.filter((item) => (
+    item.status === 'active' &&
+    item.item_type === manualOrderForm.orderType &&
+    (item.edition_scope === 'all' || item.edition_scope === expectedScope)
+  ))
+})
+
+const selectedManualPurchaseItem = computed(() => (
+  manualPurchaseItems.value.find((item) => item.id === manualOrderForm.itemID) || null
+))
 
 function formatBytes(value: number) {
   const original = Number(value) || 0
@@ -783,8 +825,8 @@ function editionScopeLabel(scope: string) {
 }
 
 function orderTypeLabel(orderType: string) {
-  if (orderType === 'topup') return '积分调额'
-  if (orderType === 'storage_addon') return '存储调整'
+  if (orderType === 'topup') return '积分包'
+  if (orderType === 'storage_addon') return '存储包'
   if (orderType === 'manual_contract') return '合同订阅'
   return '套餐订阅'
 }
@@ -956,12 +998,23 @@ function openManualOrderDialog() {
     planID: '',
     billingInterval: 'year',
     periodDays: 366,
-    creditPoints: 0,
-    storageGB: 0,
+    itemID: '',
     amountCNY: 0,
     description: '',
   })
   manualOrderDialogVisible.value = true
+}
+
+function resetManualOrderItem() {
+  manualOrderForm.itemID = ''
+  if (manualOrderForm.orderType !== 'manual_contract') {
+    manualOrderForm.amountCNY = 0
+  }
+}
+
+function syncManualOrderItem() {
+  const item = selectedManualPurchaseItem.value
+  manualOrderForm.amountCNY = item ? (Number(item.amount_cents) || 0) / 100 : 0
 }
 
 async function saveServicePrice() {
@@ -1065,20 +1118,16 @@ async function saveManualOrder() {
       billing_interval: manualOrderForm.billingInterval,
       period_days: Math.round(Number(manualOrderForm.periodDays)),
     })
-  } else if (manualOrderForm.orderType === 'topup') {
-    const credits = Math.round(Number(manualOrderForm.creditPoints) || 0)
-    if (credits === 0) {
-      MessagePlugin.warning('积分调整不能为 0')
-      return
-    }
-    Object.assign(payload, { credit_point_micros: credits * 1_000_000 })
   } else {
-    const storageBytes = Math.round((Number(manualOrderForm.storageGB) || 0) * 1024 ** 3)
-    if (storageBytes === 0) {
-      MessagePlugin.warning('存储调整不能为 0')
+    const item = selectedManualPurchaseItem.value
+    if (!item) {
+      MessagePlugin.warning('请选择可用商品')
       return
     }
-    Object.assign(payload, { storage_quota_bytes: storageBytes })
+    Object.assign(payload, {
+      item_id: item.id,
+      amount_cents: Number(item.amount_cents) || 0,
+    })
   }
   savingManualOrder.value = true
   try {
@@ -1225,6 +1274,13 @@ onMounted(() => {
 
 .billing-admin__dialog-alert {
   margin-bottom: 14px;
+}
+
+.billing-admin__field-hint {
+  margin: 6px 0 0;
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .billing-admin__form-grid {

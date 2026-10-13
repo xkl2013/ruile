@@ -449,6 +449,100 @@
   .anno{display:inline-flex;align-items:center;gap:5px;height:19px;padding:0 7px;border-radius:var(--r);background:#fff4d6;color:#8a6d12;font-size:10.5px;font-weight:600;border:1px solid #f0dfa8;white-space:nowrap}
   .annoline{border-left:3px solid var(--brand);background:#fafdfb;padding:8px 12px;border-radius:0 var(--r-l) var(--r-l) 0;font-size:12px;color:var(--t2);line-height:1.7;margin-bottom:14px}
   .annoline.warn{border-left-color:var(--warn);background:#fffaf4}
+
+  /* ═══════════════════════════════════════════════════════
+     v1.33 · §11 服务空间记忆设计：事实 / 提案 / 台账 / 来源
+     ═══════════════════════════════════════════════════════ */
+  .memcard{background:#fff;border:1px solid var(--bd);border-radius:var(--r-xl);box-shadow:var(--sh1);padding:15px 17px}
+  .memcard h3{margin:0 0 4px;font-size:13.5px;font-weight:600}
+  .memcard .sub{margin:0 0 12px;font-size:11.5px;color:var(--t3);line-height:1.65}
+  /* 事实类型标签：5 类 */
+  .ftype{display:inline-flex;align-items:center;gap:5px;height:19px;padding:0 7px;border-radius:var(--r);font-size:10.5px;font-weight:600;background:var(--g1);color:var(--t2);white-space:nowrap}
+  .ftype i{width:6px;height:6px;border-radius:999px;background:var(--t4);flex:none}
+  .ftype.b{background:var(--brand-1);color:var(--brand-6)} .ftype.b i{background:var(--brand)}
+  .ftype.o{background:var(--warn-1);color:#b25f14}        .ftype.o i{background:#E8890C}
+  .ftype.i{background:var(--info-1);color:#2258a8}        .ftype.i i{background:var(--info)}
+  /* 事实行：值 + 一行来源 + 展开看原文 */
+  .frow2{border-bottom:1px solid var(--bd);padding:11px 0}
+  .frow2:last-child{border-bottom:none}
+  .frow2 .fk{font-size:11.5px;color:var(--t3)}
+  .frow2 .fv{font-size:13.5px;color:var(--t1);margin:3px 0 0;line-height:1.6}
+  .frow2 .fv .old{color:var(--t4);text-decoration:line-through;margin-right:7px}
+  .frow2 details{margin-top:4px}
+  .frow2 summary,.leditem summary,.pcard summary{list-style:none;cursor:pointer;font-size:11px;color:var(--t3);display:inline-flex;align-items:center;gap:4px}
+  .frow2 summary::-webkit-details-marker,.leditem summary::-webkit-details-marker,.pcard summary::-webkit-details-marker{display:none}
+  .frow2 summary:hover,.leditem summary:hover{color:var(--brand-6)}
+  .evi{margin-top:7px;border-left:2px solid var(--bd2);padding:2px 0 2px 10px;font-size:11.5px;color:var(--t2);line-height:1.75}
+  .evi .who{color:var(--t4);font-size:10.5px;display:block;margin-top:4px}
+  /* 待确认提案卡（对话流内联） */
+  .pcard{border:1px solid var(--bd);border-left:3px solid var(--brand);border-radius:var(--r-l);background:#fafdfb;padding:11px 13px;margin-top:11px}
+  .pcard .ph{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.65;color:var(--t1);flex-wrap:wrap}
+  .pcard .ph .old{color:var(--t4);text-decoration:line-through;margin:0 4px}
+  .pcard .ph .nv{color:var(--brand-6)}
+  .pcard .acts{display:flex;gap:8px;margin-top:10px;align-items:center}
+  .pcard .acts .cnt,.leditem .acts .cnt{margin-left:auto;font-size:10.5px;color:var(--t4);text-align:right}
+  /* 右侧常驻栏：待确认行 */
+  .prow{display:flex;align-items:center;gap:9px;cursor:pointer}
+  .pdot{width:20px;height:20px;flex:0 0 20px;border-radius:var(--r-round);background:var(--brand);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  /* v1.35 待办面板分组：「要你去做」/「要你确认」 */
+  .tpglabel{font-size:11px;color:var(--t3);font-weight:600;letter-spacing:.4px;padding:6px 2px 7px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .tpgsub{font-weight:400;color:var(--t4);font-size:10.5px;letter-spacing:0}
+  .rmini{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border:1px solid var(--bd);border-radius:var(--r-m);margin-bottom:6px;background:#fff}
+  .rmini .rrow{display:flex;align-items:flex-start;gap:8px}
+  /* v1.38 简化：点圆框即完成（唯一主动作）；例外动作收进 ⋯；协作数只是信息 */
+  .rmini .rdone{width:16px;height:16px;flex:none;margin-top:1px;border:1.5px solid var(--bd2);border-radius:999px;background:#fff;cursor:pointer;padding:0;color:transparent;font-size:10px;line-height:1;transition:.12s}
+  .rmini .rdone:hover{border-color:var(--brand);color:var(--brand)}
+  .rmini .rmore{margin-left:auto;flex:none;border:none;background:none;color:var(--t4);cursor:pointer;font-size:14px;line-height:1;padding:0 2px}
+  .rmini .rmore:hover,.rmini.on .rmore{color:var(--brand-6)}
+  .rmini .rmc{flex:none;border:none;background:none;color:var(--t3);cursor:pointer;font-size:11px;padding:1px 2px}
+  .rmini .rmc:hover{color:var(--brand-6)}
+  .rmini .rmini-txt{min-width:0}
+  .rmini .rmt{font-size:12.5px;color:var(--t1);line-height:1.45}
+  .rmini .rmm{font-size:11px;color:var(--t3)}
+  .rmini.on{border-color:var(--brand-3);background:#fafdfb}
+  .rmini .racts{display:flex;gap:8px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--bd);flex-wrap:wrap}
+  /* 待确认台账（提案条目，v1.35 起嵌在待办面板的「要你确认」组里） */
+  .leditem{border:1px solid var(--bd);border-radius:var(--r-l);padding:11px 12px;margin-bottom:10px;background:#fff}
+  .leditem .lh{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .leditem .lk{font-size:12.5px;font-weight:600}
+  .leditem .lv{font-size:12.5px;color:var(--t1);margin:7px 0 0;line-height:1.6}
+  .leditem .lo{color:var(--t4);text-decoration:line-through;margin-right:6px}
+  .leditem .ln{color:var(--brand-6);font-weight:600}
+  .leditem .acts{display:flex;gap:8px;margin-top:9px;padding-top:9px;border-top:1px dashed var(--bd)}
+  /* v1.38 简化：值行本身就是「改」的入口——点值即改，不再另摆一个「改一下」按钮 */
+  .editme{cursor:text;border-radius:var(--r)}
+  .editme:hover{background:var(--brand-1)}
+  .editme .pen{font-size:10.5px;color:var(--t3);margin-left:5px}
+  .editme:hover .pen{color:var(--brand-6)}
+  .conflict{margin-top:8px;border:1px dashed #f0c9a4;background:#fffaf4;border-radius:var(--r-m);padding:8px 10px;font-size:11.5px;line-height:1.7;color:#8a4a12}
+  /* 四道闸 */
+  .gates{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+  .gate{flex:1 1 0;min-width:120px;border:1px solid var(--bd);border-radius:var(--r-l);background:#fff;padding:10px 11px}
+  .gate .gn{font-size:10.5px;color:var(--brand-6);font-weight:700;letter-spacing:.3px}
+  .gate .gt{font-size:12.5px;font-weight:600;margin:4px 0 0}
+  .gate .gd{font-size:10.5px;color:var(--t3);line-height:1.65;margin-top:4px}
+  /* 注入三档预算 */
+  .bgbar{display:flex;height:28px;border-radius:var(--r-m);overflow:hidden;border:1px solid var(--bd);margin-bottom:10px}
+  .bgbar span{display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:600;color:#fff;white-space:nowrap}
+  .bgbar .s1{background:var(--brand)}
+  .bgbar .s2{background:var(--brand-3)}
+  .bgbar .s3{background:var(--g6)}
+  /* v1.34 「改一下再确认」：卡片原地展开的编辑表单 */
+  .editform{margin-top:10px;border:1px solid var(--bd2);border-radius:var(--r-l);background:#fff;padding:11px 12px}
+  .editform .elbl{font-size:11px;color:var(--t3);display:block;margin-bottom:6px}
+  .editform .hint{margin-top:8px}
+  .editform .eacts{display:flex;gap:8px;margin-top:10px}
+  /* v1.37 chips 编辑器：并列项值（如「家长关注点」）逐项增删，不提供整段文本改写 */
+  .editform .chiprow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .editform .chipx{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--bd2);border-radius:999px;padding:3px 5px 3px 10px;font-size:12px;color:var(--t1);background:var(--g1)}
+  .editform .chipx .x{border:none;background:none;cursor:pointer;color:var(--t3);font-size:13px;line-height:1;padding:0 4px;border-radius:999px}
+  .editform .chipx .x:hover{color:#d54941;background:var(--g3)}
+  .editform .chipadd{display:inline-flex;align-items:center;gap:6px}
+  .editform .chipadd input{border:1px dashed var(--bd2);border-radius:999px;padding:4px 10px;font-size:12px;width:110px;outline:none;color:var(--t1)}
+  .editform .chipadd input:focus{border-color:var(--brand-5);border-style:solid}
+  /* 治理：一个动作 = 一次确认 */
+  .govnote{font-size:11.5px;color:var(--t3);line-height:1.7;margin-top:8px}
+
 </style>
 </head>
 <body>
@@ -456,7 +550,7 @@
   <aside class="rail">
     <div class="rail-head">
       <div class="rail-title">服务模块 · 优化后原型</div>
-      <div class="rail-sub">v1.32 · 9 个场景 · 4 个设置分区<br/>配套《服务模块开发方案》v2.0</div>
+      <div class="rail-sub">v1.40 · 14 个场景 · 4 个设置分区<br/>配套《服务模块开发方案》v3.4</div>
     </div>
     <div class="rail-group" id="rail"></div>
     <div class="rail-note">
@@ -469,7 +563,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.32</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.40</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll"><div class="canvas" id="root"></div></div>
@@ -517,7 +611,7 @@ const SERVICES = [
   { id:'a4', t:'到期未续费家长清单.xlsx', f:'XLSX', v:'v1', m:'表格 · v1 · 9 条 · 14 KB', prev:'本月到期未续费家长清单\n\n姓名　　到期日　联系情况\n阳阳　　9/18　　已联系\n糖糖　　9/20　　未联系\n豆豆　　9/25　　未联系\n\n共 9 条，其中 3 条已联系' }
 ];
 const REMINDERS = [
-  { id:'r1', t:'回访东苑分园 4 位意向家长', pr:'high', prl:'高', who:'林园长', due:'本周五前', status:'进行中', from:'秋季招生线索跟进', collab:[
+  { id:'r1', t:'回访东苑分园 4 位意向家长', pr:'high', prl:'高', who:'林园长', due:'本周五前', status:'进行中', from:'秋季招生线索跟进', fromChat:true, collab:[
       { who:'王教务', txt:'已电话联系其中 2 位，另外 2 位家长只有微信，我先发消息。', at:'今天 10:24' },
       { who:'林园长', txt:'好，微信那条我来写，你把电话那两位的反馈补到跟进表里。', at:'今天 10:31' }
     ] },
@@ -587,7 +681,9 @@ function productSidebar(active){
    ═══════════════════════════════════════════════════════ */
 function serviceHead(active, panel, moreOpen){
   const svc = SERVICES.find(s => s.id === active.service) || SERVICES[0];
-  const count = { artifacts: ARTIFACTS.length, reminders: REMINDERS.length };
+  // v1.35：待办数 = 待办 + 待确认（§11.4 修订——一个入口两组活，不再另立「待确认」入口）
+  // v1.36：已完成 / 已取消的即时离组（openTodos），数字跟着变
+  const count = { artifacts: ARTIFACTS.length, reminders: openTodos().length + MEM_PROPOSALS.length };
   const sess = svc.sessions.find(s => s.id === (state.curSession || active.session)) || svc.sessions[0];
   const inChat = !panel;
   const title = inChat ? (state.newChat ? '新的会话' : (state.emptyChat ? svc.name : (sess ? sess.title : svc.name))) : svc.name;
@@ -1168,6 +1264,8 @@ function overviewCards(){
   return progressCard() + familyCard() + activityCard();
 }
 /* v1.32：右侧常驻信息栏——用户信息（家长与学员）+ 动态信息（最近动态）一直显示 */
+/* v1.35：撤掉「待确认 N」常驻行——待办与待确认合并为服务头一个入口，
+   处理量只在服务头出现一次（§0.5 第 3 条「同一条信息只出现一次」）。 */
 function inforail(){
   return `
       <aside class="inforail">
@@ -1271,7 +1369,7 @@ function activityView(){
           </div>
 
           <div class="tlnote">
-            <b>时间线怎么来的（代码依据）：</b>① <b>主体字段变化</b> = <code>service_facts</code>（append-only，<code>types/service_fact.go:24-37</code>：<code>subject_id</code> / <code>fact_key</code> / <code>value{value,confidence,evidence}</code> / <code>source_type</code> / <code>source_id</code> / <code>created_by</code> / <code>created_at</code>）；读取接口已有 <code>GET /:service_id/facts</code>，支持 <code>subject_id</code> / <code>fact_type</code> 过滤（<code>router.go:1610</code>、<code>handler/service_space.go:586-607</code>）。每写一条事实都会有 <code>subject_id</code>，因此"谁变了什么"是原生可查的。<br>
+            <b>时间线怎么来的（代码依据）：</b>① <b>主体字段变化</b> = <code>service_facts</code>（append-only，<code>types/service_fact.go:24-37</code>：<code>subject_id</code> / <code>fact_key</code> / <code>value{value,evidence}</code> / <code>source_type</code> / <code>source_id</code> / <code>created_by</code> / <code>created_at</code>）；读取接口已有 <code>GET /:service_id/facts</code>，支持 <code>subject_id</code> / <code>fact_type</code> 过滤（<code>router.go:1610</code>、<code>handler/service_space.go:586-607</code>）。每写一条事实都会有 <code>subject_id</code>，因此"谁变了什么"是原生可查的。<br>
             ② <b>空间级动作</b> = <code>audit_logs</code>，服务侧每次实质变更都已发出：<code>service.fact_append</code>（<code>service_space.go:1250</code>）、<code>service.update</code>（主体新增 <code>:2919</code>、服务信息 <code>:2396</code>）、<code>service.state_change</code>（<code>:2439</code> 暂停/归档）、<code>service.member_change</code>（<code>:2722</code>）、<code>service.artifact_lifecycle</code>（<code>:2067</code>）、<code>service.raw_material_assign</code>（<code>:1713</code>）/ <code>service.context_access</code>（撤销带入 <code>:1795</code>）；动作常量在 <code>types/audit_log.go:191-205</code>。<br>
             <b>⚠️ 两个待补后端点：</b>① 审计查询 <code>AuditLogQuery</code>（<code>interfaces/audit_log.go:16-22</code>、<code>repository/audit_log.go:56-71</code>）<b>只支持 tenant + action（精确匹配）</b>，<b>没有按 service_id 过滤</b>——service_id 现在只躺在 <code>details</code> JSONB 里（<code>emitAudit</code>，<code>service_space.go:1952-1973</code>）。要按单个服务取动态，得给查询加一个 <code>service_id</code> 维度（PG 用 <code>details->>'service_id'</code>，SQLite 用 <code>json_extract</code>，两边都要测）。② <code>service.fact_append</code> 的审计细目只带了 <code>service_id / fact_type / source_type / source_id</code>，<b>没带 <code>subject_id</code> 与字段值</b>——所以时间线的正文必须回查 <code>service_facts</code>，光靠审计渲染不出"哪个主体、哪个字段、变成了什么"。
           </div>
@@ -1396,6 +1494,486 @@ function diffView(){
   </div>`;
 }
 
+
+/* ═══════════════════════════════════════════════════════
+   §11 服务空间记忆设计（v1.33 新增）
+   对应《服务模块开发方案》v3.1 §11；代码基线 2026-10-13 实测
+   ═══════════════════════════════════════════════════════ */
+/* fact_type 从 2 种扩到 4 种（§11.3.2）
+   v1.35：「未完成项」(open_loop) 已砍——它跟「待办」是同一件事的两份存法；
+   从对话抽出的"还没做完的事"直接落成待办，不做记忆写入。 */
+const MEM_TYPES = [
+  { t:'profile_field',   l:'画像字段',   d:'这一家的稳定信息，含服务偏好 / 关注点', c:'b' },
+  { t:'progress',        l:'进展',       d:'现在走到哪一步了',                       c:'b' },
+  { t:'decision',        l:'决策与承诺', d:'谈成了什么、答应了什么',                 c:'i' },
+  { t:'organize_output', l:'外部来源',   d:'导入的整理产物（既有链路）',             c:'n' }
+];
+const memType = t => MEM_TYPES.find(x => x.t === t) || MEM_TYPES[0];
+const ftype = t => { const m = memType(t); return `<span class="ftype ${m.c}"><i></i>${m.l}</span>`; };
+
+/* 这一家的服务档案（示意数据；每条都带 source_type / source_id / evidence，可回链） */
+const MEM_FACTS = [
+  { k:'孩子小名',   v:'果果',                 t:'profile_field',   at:'10-06 10:12', src:'会话「与果果妈妈聊周三时段」', ev:'「我们家果果是中班插班过来的」', who:'招生顾问 记' },
+  { k:'家长关注点', v:'时段冲突、价格',       t:'profile_field',   at:'10-06 09:47', src:'家长顾虑归纳（果果家）',       ev:'两次面谈都提到周三下午走不开',   who:'王园长 记' },
+  { k:'意向等级',   v:'明确意向',             t:'progress',        at:'10-05 18:20', src:'到访谈单复盘（第 3 次到访）',  ev:'妈妈主动问了下周的体验课',       who:'李老师 记' },
+  { k:'已承诺',     v:'保留 10 月体验课名额', t:'decision',        at:'10-05 18:22', src:'会话「10 月到访邀约话术」',    ev:'「行，那我们先把名额留着」',     who:'招生顾问 记' },
+  { k:'外部来源',   v:'家长顾虑归纳.md · 3 KB', t:'organize_output', at:'10-04 15:30', src:'整理产物导入',              ev:'来自 9 条家长沟通记忆的整理结果', who:'王园长 导入' }
+];
+
+/* pending 提案（准入判断的落地：零命中不出提案，出了就要能"查看和纠正"） */
+const MEM_PROPOSALS = [
+  { id:'p1', conflict:true,  k:'意向班型',   t:'profile_field', nv:'中班插班',                    ov:'小班（2027 春）',
+    src:'会话「与果果妈妈聊周三时段」', at:'今天 10:12', ev:'「果果是插班进来的，想插中班」' },
+  { id:'p2', conflict:false, k:'家长关注点', t:'profile_field', nv:'时段冲突、价格、接送距离',     ov:'',
+    src:'会话「家长顾虑归纳」',         at:'昨天 17:40', ev:'「接送也得算一算，东苑那边太远了」' },
+  { id:'p3', conflict:false, k:'到访安排',   t:'progress',      nv:'已约第 4 次到访（10-11 下午）', ov:'',
+    src:'会话「10 月到访邀约话术」',     at:'今天 09:20', ev:'「那就 11 号下午吧，我带果果一起来」' }
+];
+
+/* ── 场景 10 · 记忆设计总览（对照页） ─────────────────── */
+function memIndexView(){
+  return `
+  <div class="diff">
+    <h2>服务空间的记忆 · 设计总览</h2>
+    <p class="lead">服务空间的记忆不是"聊天记录归档"，而是<b>这一家的服务档案</b>——只回答三个问题：现在是什么状态、依据是什么、下一步做什么。现状已跑通抽取 / 准入 / 确认 / 物化 / 注入整条链路，本版补的是<b>类型、治理、注入策略</b>三件事。<br/><b>v1.35</b>：用户反馈"待确认和待办是不是一起、分类太多用不明白"——已把「待确认」并入「待办」一个入口，并砍掉同义的「未完成项」（§11.4）。<br/><b>v1.38：交互简化——一条信息只留一个动作</b>（见第 7 节）。<br/><b>v1.40：删掉「置信度」</b>——它是硬编码 0.9、门槛恒真的假信号，卡片 / 台账不再显示（见第 4 节）。</p>
+
+    <div class="kpis" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi"><div class="kn">事实类型 fact_type</div><div class="kv"><span class="before">2</span><span class="arrow">→</span><span class="after">4</span></div></div>
+      <div class="kpi"><div class="kn">治理能力（对标 WorkBuddy 九项）</div><div class="kv"><span class="before">2</span><span class="arrow">→</span><span class="after">8</span></div></div>
+      <div class="kpi"><div class="kn">会话注入预算</div><div class="kv"><span class="before">256</span><span class="arrow">→</span><span class="after">≤16</span><span class="ku">KB（分层）</span></div></div>
+      <div class="kpi"><div class="kn">"等你处理"入口</div><div class="kv"><span class="before">2 个</span><span class="arrow">→</span><span class="after">1 个</span></div></div>
+      <div class="kpi"><div class="kn">每条记录的常驻动作（v1.38）</div><div class="kv"><span class="before">4</span><span class="arrow">→</span><span class="after">1</span><span class="ku">点一下</span></div></div>
+    </div>
+
+    <h2 style="font-size:14px">1 · 作用域：记忆挂在「服务」上，不挂在「对象」上</h2>
+    <table class="dtable">
+      <thead><tr><th>层</th><th>载体</th><th>作用域</th><th>注入方式</th></tr></thead>
+      <tbody>
+        <tr><td class="a">L1 会话工作记忆</td><td class="b"><code>session</code> / <code>agent_runs</code></td><td class="b">单次会话</td><td class="b">对话内自带</td></tr>
+        <tr><td class="a">L2 服务档案（核心）</td><td class="b"><code>service_facts</code> + <code>profiles</code> + <code>summaries</code></td><td class="b">一个服务（= 一家）</td><td class="b">会话启动必带（分层，见第 4 节）</td></tr>
+        <tr><td class="a">L3 组织记忆</td><td class="b">知识库 / 平台模板 / 专家</td><td class="b">租户（跨服务共享）</td><td class="b">检索式，<b>不常驻</b></td></tr>
+      </tbody>
+    </table>
+    <div class="annoline"><code>subject_id</code> <b>保留列但不再要求</b>：一服务一客户下主体维度是冗余概念。<code>SubjectPolicy.Required</code> 置 <code>false</code>，新增事实一律 <code>subject_id=''</code>——与 <code>refreshServiceProfileFromFacts:1388</code> 的既有取值口径一致，<b>不改代码语义</b>。</div>
+
+    <h2 style="font-size:14px">2 · 存什么：fact_type 2 → 4 种</h2>
+    <table class="dtable">
+      <thead><tr><th>类型</th><th>fact_type</th><th>有 schema</th><th>抽取方式</th><th>界面落点</th></tr></thead>
+      <tbody>
+        ${MEM_TYPES.map(m => `
+        <tr>
+          <td class="a">${ftype(m.t)} <span class="b">${esc(m.d)}</span></td>
+          <td class="b"><code>${m.t}</code></td>
+          <td class="b">${m.t === 'profile_field' ? '✅' : '—'}</td>
+          <td class="b">${m.t === 'profile_field' ? '规则 + LLM 兜底' : (m.t === 'organize_output' ? '导入整理产物（已有）' : 'LLM')}</td>
+          <td class="b">${m.t === 'profile_field' ? '概览「重点记录」' : m.t === 'progress' ? '概览摘要「进展」' : m.t === 'decision' ? '概览摘要「阶段结论」' : '文件 / 资料'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="annoline warn">「偏好与关注」<b>留在 <code>profile_field</code></b>（已有 <code>service_preference</code> / <code>key_focus</code> 字段），不另立类型——避免一个概念两处存。同理：<b>工作指令与专家绝不进 facts</b>（程序性内容走后台模板 / 专家，<code>:2641</code> 已显式排除「语气 / 口吻」，本版升级为硬规则）。<br/><b>v1.35：砍掉「未完成项」（原 <code>open_loop</code>）</b>——它跟「待办」是同一件事的两份存法。从对话里抽出的"还没做完的事"<b>直接落成一条待办</b>（进 <code>service_reminders</code>），<b>不做记忆写入</b>，fact_type 由 5 收敛回 4。</div>
+
+    <h2 style="font-size:14px">3 · 写入：四道闸</h2>
+    <div class="gates">
+      <div class="gate"><div class="gn">闸 1</div><div class="gt">抽取</div><div class="gd">规则命中 ∪ LLM 兜底。兜底三条件全满足才触发：规则零命中 · 消息长度 ≥ 阈值 · 同会话连续未抽到轮次 ≤ N</div></div>
+      <div class="gate"><div class="gn">闸 2</div><div class="gt">判重</div><div class="gd">同 <code>(service_id, fact_key)</code> 已有事实 → 不新建，转「更新建议」</div></div>
+      <div class="gate"><div class="gn">闸 3</div><div class="gt">冲突</div><div class="gd">同 fact_key 多值 → 提案并列 old / new，冲突入待确认</div></div>
+      <div class="gate"><div class="gn">闸 4</div><div class="gt">作用域</div><div class="gd">固定 <code>subject_id=''</code></div></div>
+    </div>
+    <div class="govnote">过闸后是 <b>pending 提案 → 内联卡片 → 用户确认 / 拒绝 → <code>AppendFact</code></b>（只追加，永不 UPDATE）。LLM 兜底走租户本地模型；模型不可用时<b>静默跳过、不阻塞主流程</b>（与整理模块兜底口径一致）。</div>
+
+    <h2 style="font-size:14px">4 · 注入：从「全量拼 + 256KB 先到先得」改为「分层 + 按需」</h2>
+    <div class="bgbar">
+      <span class="s1" style="flex:0 0 12%">常驻 A ≤4KB</span>
+      <span class="s2" style="flex:0 0 24%">常驻 B ≤12KB</span>
+      <span class="s3" style="flex:1">按需 ≤240KB</span>
+    </div>
+    <table class="dtable">
+      <thead><tr><th>档</th><th>内容</th><th>预算</th><th>何时读</th></tr></thead>
+      <tbody>
+        <tr><td class="a">常驻 A</td><td class="b"><code>profile_values</code>（≤10 项）+ <code>summary.sections</code></td><td class="b">≤ 4 KB</td><td class="b">每次会话</td></tr>
+        <tr><td class="a">常驻 B</td><td class="b"><code>facts</code> top-K，排序 <code>created_at DESC</code></td><td class="b">≤ 12 KB</td><td class="b">每次会话</td></tr>
+        <tr><td class="a">按需</td><td class="b"><code>context_sources</code> 摘要 + 产物 markdown 全文</td><td class="b">≤ 240 KB</td><td class="b">命中关键词 / 用户 <code>@</code> 引用</td></tr>
+      </tbody>
+    </table>
+    <div class="govnote">对齐 WorkBuddy「<b>精选优于堆砌</b>（selection over stuffing）」：画像是小且稳定的高价值信息，<b>必须先占预算</b>；产物全文是长尾，只在需要时读。<b>超预算只截按需档，画像与摘要永不截断。</b></div>
+    <div class="annoline"><b>不设「置信度」（v1.40 删）</b>：现状 <code>fact_value.confidence</code> 是<b>硬编码 <code>0.9</code></b>（<code>service_space.go:1851</code>），唯一改动是"字段阈值更高时抬到阈值"；而模板字段阈值恒为 <code>0.8</code>（<code>:2549-2581</code>）⇒ 准入门槛 <code>0.9 ≥ 0.8</code> <b>恒真，从未拦下过任何一条</b>。<b>可信信号早就有了，而且是真的：进了 <code>service_facts</code> 的都是用户确认过的</b>——pending 提案不在表里，系统写入的整理产出事实（<code>:2099</code>）<b>根本</b>不带 confidence。<b>故不显示、不排序、不写入</b>：卡片与台账撤掉「置信度 X%」，注入排序改纯 <code>created_at DESC</code>（新近度），后端不再写该 key（<code>facts</code> 表本无此列，<b>无迁移</b>）。</div>
+
+    <h2 style="font-size:14px">5 · 界面三处承接（过一遍四条设计原则）</h2>
+    <div class="prod">
+      <div class="pcol old"><h3>现状</h3>
+        <div class="pbox old"><ul>
+          <li>提案只内联在对话流卡片，<b>划过去就找不到</b></li>
+          <li>概览「重点记录」只有值，<b>看不到来源</b></li>
+          <li>治理只有「确认 / 拒绝」两件事</li>
+          <li>facts 拼注入池先到先得，与相关性无关</li>
+        </ul></div>
+      </div>
+      <div class="pcol new"><h3>本版</h3>
+        <div class="pbox new"><ul>
+          <li>内联卡片改「<b>一行摘要 + 展开看证据</b>」，默认收起</li>
+          <li>「待确认」<b>并入服务头「待办」</b>——面板里两组：<b>要你去做</b> / <b>要你确认</b>（原独立台账取消，见 §11.4）</li>
+          <li>概览「重点记录」每条值下一行「来源 · 日期」，点开看原文</li>
+          <li>注入按新近度排序（<code>created_at</code>）+ 三档预算</li>
+        </ul></div>
+      </div>
+    </div>
+    <div class="annoline warn"><b>计数只出现一次</b>：处理量<b>只在服务头「待办 N」</b>出现（N = 待办 + 待确认），对话流卡片与面板标题都不带数字（一屏一件事 / 同一条信息只出现一次）。</div>
+
+    <h2 style="font-size:14px">6 · 治理：九项能力从 2 项补到 8 项</h2>
+    <table class="dtable">
+      <thead><tr><th>能力</th><th>现状</th><th>本版做法</th></tr></thead>
+      <tbody>
+        <tr><td class="a">来源查看</td><td class="b">数据有（<code>source_type/source_id/source_version</code>），界面无</td><td class="b">事实卡片一行小字「来源 · 日期」+ evidence 原文，可跳原会话</td></tr>
+        <tr><td class="a">纠正</td><td class="b">无</td><td class="b"><code>ResolveFactProposal</code> 已支持传改后的 items 入参（界面未用）→ 补「改一下再确认」</td></tr>
+        <tr><td class="a">冲突替换</td><td class="b">无</td><td class="b"><code>proposal_items.conflict_with</code>；确认后新事实写入、旧事实标 <code>superseded_by</code>（仍只追加）</td></tr>
+        <tr><td class="a">时间衰减 / 降权</td><td class="b">无</td><td class="b">新增 <code>decay_at</code>；长期未复述的进展类事实降权</td></tr>
+        <tr><td class="a">删除 / 回滚</td><td class="b">无</td><td class="b"><code>deleted_at</code> 软删 + 审计；提案 <code>rejected</code> 可翻回 <code>pending</code></td></tr>
+        <tr><td class="a">临时停用</td><td class="b"><code>frozen</code> 只在 profile / summary</td><td class="b">补 <code>service_facts.disabled_at</code>（例：孩子升班后，旧班级信息不再注入）</td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="font-size:14px">7 · 交互简化（v1.38）：一条信息只有一个动作</h2>
+    <p class="lead" style="margin-bottom:12px"><b>没人愿意用的功能等于不存在。</b>这一节把界面上的动作数压到最低——原则四条：<b>① 能点对象就不加按钮</b>（点值即改、点 ○ 即完成）；<b>② 例外动作收进 ⋯</b>（只在真需要时展开）；<b>③ 按状态自适应</b>（已删除的行只给「恢复」，不给「删除」）；<b>④ 系统自己能做的事不给用户旋钮</b>（降权由系统衰减，界面只显示状态）。</p>
+    <table class="dtable">
+      <thead><tr><th>位置</th><th>简化前</th><th>简化后</th></tr></thead>
+      <tbody>
+        <tr><td class="a">「要你去做」待办行</td><td class="b">点行<b>展开 4 个按钮</b>：标记完成 / 开始处理 / 协作 / 不做了（先点一次才看得到按钮）</td><td class="b"><b>点左边 ○ 即完成</b>（唯一主动作，一眼就会）；行尾 <b>⋯</b> 里只留「开始处理 / 不做了」；协作数改成一行小字（它是信息不是动作）</td></tr>
+        <tr><td class="a">「要你确认」卡片 / 台账项</td><td class="b"><b>3 个按钮</b>：确认 / 改一下再确认 / 忽略</td><td class="b"><b>2 个</b>：<b>确认</b>（主）+ <b>忽略</b>（文字按钮）；「改」<b>点值本身</b>即进入编辑（值会变浅绿提示可点），编辑态主按钮变「保存修改」</td></tr>
+        <tr><td class="a">服务档案行尾 ⋯</td><td class="b"><b>5 项菜单</b>：查看来源原文 / 纠正这条 / 临时停用 / 删除（还有分隔线）</td><td class="b"><b>3 项</b>：改这条 / 临时停用（停用态→恢复启用）/ 删除（删除态→恢复这条）；「查看来源」拿掉——行内「来源」列本来就能点开</td></tr>
+        <tr><td class="a">概览「重点记录」顶部</td><td class="b"><b>4 个类型筛选 chips</b>（全部 / 画像字段 / 进展 / 决策与承诺）</td><td class="b"><b>砍掉</b>——一家也就十几条，翻一下就到底，筛选是多出来的一步</td></tr>
+      </tbody>
+    </table>
+    <div class="govnote">一句话口径：<b>每条信息只回答一个问题，所以只需要一个动作</b>——待办问"做了没有"（点 ○），待确认问"对不对"（点确认）。想改就点对象本身，例外才去 ⋯。<b>能力不删，只把暴露面收窄</b>：治理数据层仍是 8 项能力，界面只暴露 3 个动作 + 2 个状态切换。</div>
+
+    <h2 style="font-size:14px">8 · 明确不做（防蔓延 / 合规红线）</h2>
+    <table class="dtable">
+      <tbody>
+        <tr><td class="a">不做跨服务记忆</td><td class="b">一服务即一家，跨服务共享记忆 = 隐私越界</td></tr>
+        <tr><td class="a">不做儿童画像类事实</td><td class="b"><code>profile_field</code> 禁止性格 / 行为 / 发育 / 能力评价类字段（不对儿童安全、行为、发育做判断）</td></tr>
+        <tr><td class="a">不做绕过确认的自动画像改写</td><td class="b">用户主动导入的 <code>organize_output</code> 既有路径除外</td></tr>
+        <tr><td class="a">不做事实编辑历史浏览界面</td><td class="b">只保 <code>superseded_by</code> + 审计可查</td></tr>
+      </tbody>
+    </table>
+
+    <div class="annoline">迁移从 <code>001029</code> 起（当前最大 <code>001028</code>）。<b>P0 不动表</b>即可交付主要价值（排序 + 分档预算 + 台账入口）；P1 才给 <code>service_facts</code> 开 3 个可空列 + 类型枚举扩展，<b>其余表仍不动</b>。</div>
+  </div>`;
+}
+
+/* ── 场景 11 · 服务概览 · 重点记录（可溯源） ───────────── */
+function memOverviewView(){
+  const list = MEM_FACTS; // v1.38 简化：砍掉 4 个类型筛选 chips——一家也就十几条，筛选是负担
+  return `
+  <div class="annoline">方案 §11.3.6 第 3 条 + §11.3.5 来源查看：概览「重点记录」的<b>每条值下面加一行「来源 · 日期」</b>，点一下展开 <code>evidence</code> 原文，可回链原会话。<b>全部来自 <code>service_facts</code> 已有字段</b>（<code>source_type</code> / <code>source_id</code> / <code>fact_value.evidence</code>），不需要新表——缺的只是界面把来源显示出来。<b>v1.38 追加（简化）</b>：砍掉顶部 4 个类型筛选 chips——一家也就十几条记录，筛选是多余的一步；要看什么直接往下翻。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, 'page', false)}
+      <div class="setbody" style="padding:22px 26px;overflow-y:auto">
+        <div style="max-width:760px">
+          <div class="sechead" style="margin:0 0 6px">
+            <div><h2 style="font-size:16px;margin:0 0 4px">服务概览</h2>
+              <p class="sub" style="margin:0">按你说的，我把这个服务的重点放在<b>进展、风险、下一步动作</b>上。</p></div>
+          </div>
+          <div class="ovstack">
+            ${progressCard()}
+            <div class="memcard">
+              <div class="sechead" style="margin:0 0 4px">
+                <span class="st">重点记录</span>
+                <div class="tools"><span style="font-size:11.5px;color:var(--t3)">每条都标了来源，点一下看原文</span></div>
+              </div>
+              <p class="sub">家长聊天时说到这些，AI 记下来后会先问你，<b>确认过才写进这里</b>。写错了随时能改。</p>
+              <div style="border-top:1px solid var(--bd)">
+                ${list.map(factRow).join('')}
+              </div>
+              <div class="hint" style="margin-top:10px">共 ${list.length} 条 · 想重点记哪些，在 <b>服务设置 › 重点记录</b> 里配。<br/><b>v1.35</b>：「还没做完的事」不在这里——它直接进<b>待办</b>，避免同一件事两处存。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function factRow(f){
+  return `
+  <div class="frow2">
+    <div class="fk">${esc(f.k)} ${ftype(f.t)}</div>
+    <div class="fv">${f.ov ? `<span class="old">${esc(f.ov)}</span>` : ''}${esc(f.v)}</div>
+    <details>
+      <summary>▸ 来源 · ${esc(f.at)}</summary>
+      <div class="evi">${esc(f.ev)}<span class="who">${esc(f.src)} · ${esc(f.who)}</span></div>
+    </details>
+  </div>`;
+}
+
+/* ── 场景 12 · 对话流 · 待确认卡片 ─────────────────────── */
+function proposalCard(){
+  const p = MEM_PROPOSALS[0];
+  return `
+  <div class="pcard">
+    <div class="ph">
+      ${ftype(p.t)}
+      <span class="editme" data-edit="${p.id}" title="点一下改这条"><b>${esc(p.k)}</b> 有点变化 <span class="old">${esc(p.ov)}</span> → <span class="nv">${esc(p.nv)}</span><span class="pen">✎</span></span>
+    </div>
+    <details>
+      <summary>▸ 看依据 · ${esc(p.src)} · ${esc(p.at)}</summary>
+      <div class="evi">${esc(p.ev)}<span class="who">来自 ${esc(p.at)} 的对话</span></div>
+    </details>
+    <div class="acts">
+      <button class="btn pri sm" data-noop>确认</button>
+      <button class="btn ghost sm" data-noop>忽略</button>
+      <span class="cnt">提取的不对？点上面的值直接改</span>
+    </div>
+    ${state.editOpen === p.id ? editForm(p) : ''}
+  </div>`;
+}
+function memChatView(){
+  return `
+  <div class="annoline">方案 §11.3.6 第 1 条：内联卡片<b>保留</b>，但从"整块卡"改「<b>一行摘要 + 展开看证据</b>」，<b>默认收起</b>（原先 evidence 直接铺在卡里，一条就把对话顶下去半屏）。三个动作都是已有后端能力：<code>确认</code> → <code>ResolveFactProposal</code>；<code>改一下再确认</code> → 传改后的 <code>items</code> 入参（接口已支持、界面首次使用）；<code>忽略</code> → <code>rejected</code>（可翻回）。<b>v1.34 追加</b>：「改一下再确认」点开<b>原地展开</b>编辑表单——只改值、不弹窗、不跳页，取消即收起。<b>v1.37 追加</b>：编辑器分两型——<b>并列项值</b>（如「家长关注点 = 时段冲突、价格、接送距离」）用 <b>chips 逐项增删</b>（点 × 删一项、虚线框加一项，确认按钮实时显示项数）；<b>单值</b>（如「意向班型」）仍是文本框。逐项操作而不是整段改写，是因为并列项边界肉眼不可靠，整段改容易把「接送距离」误改成「接送 距离」. <b>v1.38 追加（简化）</b>：卡片常驻按钮从 <b>3 个降到 2 个</b>——「确认」是主按钮、「忽略」降为文字按钮，<b>「改一下再确认」不再是按钮</b>：点<b>值本身</b>即进入编辑（鼠标移上去值会变浅绿），编辑态主按钮变「保存修改」。一条信息只留一个主动作。<b>v1.39 追加（可发现性）</b>：你问"提取的不对怎么办"——说明「点值即改」看不出来能点。<b>修补</b>：卡片按钮行右侧<b>常驻一行小字「提取的不对？点上面的值直接改」</b>（对话流与台账两处都有，此前台账漏了）；值后的 ✎ 从最浅灰提到次浅灰。改完点「保存修改」仍走 <code>ResolveFactProposal</code> items 入参；<b>确认之后才发现错</b>的走另一条路：服务档案 → 行尾 ⋯ →「改这条」（软删 + superseded_by，审计可查）。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, '', false)}
+      <div class="workbench">
+        <div class="chatcol">
+          <div class="chatbody">
+            <div class="msg me"><div class="bubble">果果这边，妈妈又说了一下时间上的顾虑。</div></div>
+            <div class="msg ai">
+              <div class="who"><b>招生顾问</b><span class="done">已完成</span></div>
+              <div class="aitext"><p>记下了。这一家的信息里有一条和原来不一样，我整理成一条<b>待确认</b>——<b>你确认过才写进服务档案</b>。</p></div>
+              ${proposalCard()}
+              <div class="msgfoot"><button data-noop>继续追问</button><button data-noop>重新生成</button></div>
+            </div>
+          </div>
+          <div class="composer">
+            <div class="composer-inner">
+              <div class="box">
+                <textarea placeholder="说点什么…"></textarea>
+                <div class="boxfoot">
+                  ${expPicker()}
+                  <span class="spacer"></span>
+                  <button class="sendbtn" data-noop>↑</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        ${inforail()}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── 场景 13 · 待办 · 一个入口两组活（v1.35：待确认并入待办） ── */
+/* 「要你去做」= service_reminders；「要你确认」= service_fact_proposals。
+   两者完成动作不同（做完了 / 认可了），但都是"等你处理"——同一个入口，两组活。 */
+function todoPanel(){
+  return `
+  <aside class="sidepanel">
+    <div class="sp-head"><strong>待办</strong><span style="font-size:11px;color:var(--t3);margin-left:6px">共 ${openTodos().length + MEM_PROPOSALS.length}</span><button class="x" data-scene="space">✕</button></div>
+    <div class="sp-body">
+      <div class="tpglabel">要你去做 · ${openTodos().length}</div>
+      ${openTodos().length ? openTodos().map(todoMini).join('') : '<div class="empty" style="padding:14px 0">这一组做完啦。</div>'}
+      <div class="tpglabel" style="margin-top:16px">要你确认 · ${MEM_PROPOSALS.length} <span class="tpgsub">AI 记下的新信息，确认后才写进档案</span></div>
+      ${MEM_PROPOSALS.map(ledItem).join('')}
+      <div class="rfoot"><b>怎么用</b>：<b>待办点左边 ○ 就完成</b>；<b>待确认点「确认」就写进档案</b>——每条只有一个动作，其余都在 ⋯ 里。<br/><b>两样都是"等你处理"</b>：一本账，不用两头找。提取的不对？点值本身直接改。</div>
+    </div>
+  </aside>`;
+}
+/* v1.36 消费；v1.38 简化：主动作 = 点圆框完成（一眼就会），例外动作收进 ⋯（开始处理 / 不做了），
+   协作数只是信息不是按钮。行内按钮从 4 个降到 1 个。 */
+function todoMini(r){
+  const more = state.todoMore === r.id;
+  return `
+  <div class="rmini ${more ? 'on' : ''}">
+    <div class="rrow">
+      <button class="rdone" data-rdone="${r.id}" title="点一下 = 完成">✓</button>
+      <div class="rmini-txt">
+        <div class="rmt">${esc(r.t)}</div>
+        <div class="rmm">${esc(r.who)} · ${esc(r.due)} · ${esc(r.status)}${r.fromChat ? ' · <b style="color:var(--brand-6)">AI 从对话提出</b>' : ''}</div>
+      </div>
+      ${r.collab.length ? `<button class="rmc" data-collab="${r.id}" title="看协作记录">协作 ${r.collab.length}</button>` : ''}
+      <button class="rmore" data-tmore="${r.id}" title="更多">⋯</button>
+    </div>
+    ${more ? `
+    <div class="racts">
+      ${r.status !== '进行中' ? `<button class="btn sm" data-rstart="${r.id}">开始处理</button>` : ''}
+      <button class="btn ghost sm" data-rcancel="${r.id}">不做了</button>
+    </div>` : ''}
+    ${state.collabOpen === r.id ? `
+      <div class="collab">
+        ${r.collab.length ? r.collab.map(c => `
+          <div class="cmt">${av(c.who)}<div><div class="cb">${esc(c.txt)}</div><div class="cd">${esc(c.who)} · ${esc(c.at)}</div></div></div>`).join('') : `<div class="empty" style="padding:12px 0">还没有评论。</div>`}
+        <input class="field" placeholder="记录处理意见或协作结果，回车提交" />
+      </div>` : ''}
+  </div>`;
+}
+/* v1.36 消费：完成 / 取消的即时离组——待办是消耗品，一本账归零 */
+function openTodos(){
+  return REMINDERS.filter(r => !state.doneRem.includes(r.id) && !state.cancelRem.includes(r.id));
+}
+/* v1.34：「改一下再确认」= 卡片原地展开编辑表单（只改值、不弹窗、不跳页）；确认走 ResolveFactProposal 的 items 入参
+   v1.37：编辑器分两型——值含并列项（、/；分隔且 >1 项）用 chips 逐项增删；单值仍是文本框。
+   chips 型不让用户改整段文本的原因：并列项的边界肉眼不可靠，逐项操作不会把「接送距离」误改成「接送 距离」 */
+function splitList(v){ return v.split(/[、；;]/).map(x => x.trim()).filter(Boolean); }
+function editItemsOf(p){
+  if (!state.editItems[p.id]) state.editItems[p.id] = splitList(p.nv);
+  return state.editItems[p.id];
+}
+function editForm(p){
+  const items = editItemsOf(p);
+  const isList = splitList(p.nv).length > 1;
+  const conflictHint = `<div class="hint">确认后：「${esc(p.k)} = 改后的值」写进档案，原记录「${esc(p.ov)}」标记为已被替换——不物理删除，改前 / 改后在审计里可查。</div>`;
+  const plainHint = `<div class="hint">确认后写进档案；改前 / 改后的值与修改人都会记进审计。</div>`;
+  if (!isList) return `
+  <div class="editform">
+    <span class="elbl">记成什么 · 只改值，标签「${esc(p.k)}」不用动</span>
+    <input class="field" value="${esc(p.nv)}" />
+    ${p.conflict ? conflictHint : plainHint}
+    <div class="eacts">
+      <button class="btn pri sm" data-noop>保存修改</button>
+      <button class="btn ghost sm" data-edit="${p.id}">取消</button>
+    </div>
+  </div>`;
+  return `
+  <div class="editform">
+    <span class="elbl">记成什么 · 逐项改：点 × 删一项，加一项填进虚线框（标签「${esc(p.k)}」不用动）</span>
+    <div class="chiprow">
+      ${items.map((it, i) => `<span class="chipx">${esc(it)}<button class="x" data-rmchip="${p.id}:${i}" title="删掉这项">×</button></span>`).join('')}
+      <span class="chipadd"><input id="add-${p.id}" placeholder="加一项…" /><button class="btn sm" data-addchip="${p.id}">＋ 添加</button></span>
+    </div>
+    ${p.conflict ? conflictHint : `<div class="hint">确认后按整组写进档案（当前 ${items.length} 项）；删掉的项在改前记录里仍可查证。</div>`}
+    <div class="eacts">
+      <button class="btn pri sm" data-noop>保存修改（${items.length} 项）</button>
+      <button class="btn ghost sm" data-edit="${p.id}">取消</button>
+    </div>
+  </div>`;
+}
+function ledItem(p){
+  return `
+  <div class="leditem">
+    <div class="lh">
+      ${ftype(p.t)}
+      <span class="lk">${esc(p.k)}</span>
+      ${p.conflict ? '<span class="tag warn">与现有记录冲突</span>' : '<span class="tag">新增</span>'}
+    </div>
+    <div class="lv editme" data-edit="${p.id}" title="点一下改这条">${p.ov ? `<span class="lo">${esc(p.ov)}</span>→ ` : ''}<span class="ln">${esc(p.nv)}</span><span class="pen">✎</span></div>
+    ${p.conflict ? `<div class="conflict"><b>✎ 这条会替换现有记录：</b>「意向班型 = 小班（2027 春）」将标记为<b>已被替换</b>——仍可查证，不物理删除。</div>` : ''}
+    <details>
+      <summary>▸ 看依据 · ${esc(p.src)} · ${esc(p.at)}</summary>
+      <div class="evi">${esc(p.ev)}</div>
+    </details>
+    <div class="acts">
+      <button class="btn pri sm" data-noop>确认</button>
+      <button class="btn ghost sm" data-noop>忽略</button>
+      <span class="cnt">提取的不对？点上面的值直接改</span>
+    </div>
+    ${state.editOpen === p.id ? editForm(p) : ''}
+  </div>`;
+}
+function memLedgerView(){
+  return `
+  <div class="annoline"><b>v1.35 修订（§11.4）</b>：原先给「待确认」单开一个入口（右侧常驻栏「待确认 N ›」），结果是<b>两个数字两个入口都在说"等你处理"</b>——用户要分两处看、还得记住哪个是哪个。<b>本版合并成一个入口</b>：服务头「待办 N」里两组活，<b>「要你去做」</b>（<code>service_reminders</code>）与<b>「要你确认」</b>（<code>service_fact_proposals</code>）。完成动作不同（做完了 / 认可了），但都是"等你处理"，<b>一本账从上往下处理</b>。计数只在服务头出现一次，卡片与面板标题都不带数字。<br/><b>顺带砍掉「未完成项」</b>：它跟「待办」同义，从对话抽出的"还没做完的事"现在<b>直接落成待办</b>，不再另存一份记忆。原 §11.2 G4（提案划过去找不到）由这个面板解决——不再需要常驻栏那一行。<br/><b>v1.36 追加（怎么消费）</b>：「要你去做」的行<b>点开原地展开动作条</b>——标记完成 / 开始处理 / 协作 / 不做了（与「改一下再确认」同模式，不弹窗不跳页）；完成与取消<b>即时离组</b>（待办是消耗品，处理完这组就空、服务头数字跟着减），终态进「动态」；AI 从对话提出的待办点「不做了」向 AI 记一次反馈。<b>v1.37 追加</b>：「改一下再确认」的编辑器分两型——并列项值 chips 逐项增删 / 单值文本框（见场景 12 批注）。<b>v1.38 追加（简化）</b>：「要你去做」的行内按钮从 <b>4 个降到 1 个</b>——<b>点左边 ○ 即完成</b>（一眼就会，零学习成本）；「开始处理 / 不做了」收进行尾 <b>⋯</b>；协作数从按钮改成一行小字（它是信息、不是动作）。<b>v1.39 追加（可发现性）</b>：「要你确认」卡片补常驻提示行「提取的不对？点上面的值直接改」——见场景 12 批注。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, '', false)}
+      <div class="workbench">
+        ${chatColumnCol()}
+        ${inforail()}
+        ${todoPanel()}
+      </div>
+    </div>
+  </div>`;
+}
+function chatColumnCol(){
+  return `
+  <div class="chatcol">
+    <div class="chatbody">
+      <div class="msg me"><div class="bubble">把这几天的沟通整理一下，看看有什么要更新的。</div></div>
+      <div class="msg ai">
+        <div class="who"><b>招生顾问</b><span class="done">已完成</span></div>
+        <div class="aitext">
+          <p>这一家我手上有 <b>3 条</b>要你确认的新信息，其中一条和原来的记录不一样（<b>意向班型</b>）。</p>
+          <p class="muted" style="font-size:12.5px">都收到右侧「待办」里——<b>要你确认</b>那组，确认过才写进服务档案。</p>
+        </div>
+        <div class="msgfoot"><button data-noop>继续追问</button></div>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="composer-inner">
+        <div class="box">
+          <textarea placeholder="说点什么…"></textarea>
+          <div class="boxfoot">
+            ${expPicker()}
+            <span class="spacer"></span>
+            <button class="sendbtn" data-noop>↑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── 场景 14 · 事实治理（来源 / 纠正 / 停用 / 删除） ─────── */
+const GOV_ROWS = [
+  { k:'孩子小名',   v:'果果',                 t:'profile_field', src:'会话「与果果妈妈聊周三时段」', at:'10-06', st:'生效中', c:'b' },
+  { k:'意向班型',   v:'中班插班',             t:'profile_field', src:'会话「与果果妈妈聊周三时段」', at:'10-06', st:'生效中', c:'b', old:'小班（2027 春）', sup:true },
+  { k:'家长关注点', v:'时段冲突、价格',       t:'profile_field', src:'家长顾虑归纳（果果家）',       at:'10-06', st:'生效中', c:'b' },
+  { k:'意向等级',   v:'明确意向',             t:'progress',      src:'到访谈单复盘（第 3 次到访）',  at:'10-05', st:'已降权 · 30 天未复述', c:'o' },
+  { k:'入园班级',   v:'小二班',               t:'profile_field', src:'会话「入园适应期沟通」',      at:'09-28', st:'已停用 · 不再注入', c:'o' },
+  { k:'家长关注点', v:'只关注价格',           t:'profile_field', src:'会话「10 月到访邀约话术」',    at:'10-03', st:'已删除 · 可恢复', c:'g' }
+];
+function memGovernView(){
+  return `
+  <div class="annoline">方案 §11.3.5：治理能力从「确认 / 拒绝」两项补到八项。逐条事实可<b>看来源 · 纠正 · 停用 · 删除 · 恢复</b>；被替换的旧值标 <code>superseded_by</code>，长期没被复述的自动降权，<b>所有动作都只追加、不物理改写</b>——都能审计可查。P1 需给 <code>service_facts</code> 开 <code>superseded_by</code> / <code>deleted_at</code> / <code>disabled_at</code> 三个可空列。<br/><b>v1.38 追加（简化）</b>：行尾 ⋯ 从 <b>5 项降到 3 项</b>——「查看来源原文」拿掉（行内「来源」列本来就能点开）、「纠正」改名「改这条」（与卡片同一个说法）；<b>停用 / 删除按状态自适应</b>（停用态只给「恢复启用」、删除态只给「恢复这条」），用户不用在菜单里找。<b>降权不给用户旋钮</b>——衰减由系统自动做，界面只显示「已降权」状态。</div>
+  <div class="product">
+    ${productSidebar({ service:'s1', session:'c1' })}
+    <div class="pmain">
+      ${serviceHead({ service:'s1' }, 'page', false)}
+      <div class="setbody" style="padding:22px 26px;overflow-y:auto">
+        <div style="max-width:820px">
+          <div class="sechead" style="margin:0 0 14px">
+            <div><h2 style="font-size:16px;margin:0 0 4px">服务档案 · 明细</h2>
+              <p class="sub" style="margin:0">这一家的全部记录，每条都能看到来源、也能改。删除是<b>软删</b>——记错了可以恢复。</p></div>
+            <div class="tools">
+              <div class="search"><span style="color:var(--t4)">⌕</span><input placeholder="搜记录" /></div>
+              <button class="btn sm" data-noop>只看生效中</button>
+            </div>
+          </div>
+          <table class="dtable">
+            <thead><tr><th>记录</th><th>类型</th><th>取值</th><th>来源</th><th>状态</th><th style="text-align:right">操作</th></tr></thead>
+            <tbody>
+              ${GOV_ROWS.map(r => `
+              <tr style="${r.c === 'g' ? 'opacity:.62' : ''}">
+                <td class="a">${esc(r.k)}</td>
+                <td>${ftype(r.t)}</td>
+                <td class="a">${r.old ? `<span style="color:var(--t4);text-decoration:line-through;margin-right:6px">${esc(r.old)}</span>` : ''}${esc(r.v)}${r.sup ? '<span class="tag" style="margin-left:6px">替换自旧记录</span>' : ''}</td>
+                <td class="b">${esc(r.src)}<br/><span style="font-size:11px;color:var(--t4)">${esc(r.at)} · 可回链</span></td>
+                <td><span class="tag ${r.c === 'b' ? 'brand' : (r.c === 'o' ? 'warn' : '')}">${esc(r.st)}</span></td>
+                <td style="text-align:right">
+                  <details style="display:inline-block;position:relative">
+                    <summary class="btn ghost sm" style="display:inline-flex;list-style:none">⋯</summary>
+                    <div class="moremenu" style="right:0;left:auto;top:26px;width:150px">
+                      <button class="mi" data-noop>改这条</button>
+                      <div class="msep"></div>
+                      <button class="mi" data-noop>${r.c === 'o' && r.st.indexOf('停用') > -1 ? '恢复启用' : '临时停用'}</button>
+                      <button class="mi danger" data-noop>${r.c === 'g' ? '恢复这条' : '删除'}</button>
+                    </div>
+                  </details>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          <div class="note gray" style="margin-top:14px">
+            <b>三条硬规则（合规）：</b>① 不做跨服务记忆——一服务即一家；② <code>profile_field</code> 禁止出现性格 / 行为 / 发育 / 能力评价类字段；③ 工作指令与专家（"怎么做"）绝不进这张表，要沉淀固定做法走后台模板 / 专家。
+          </div>
+          <div class="annoline warn" style="margin-top:12px">本页是 <b>P1 才需要</b>的界面：P0 阶段「排序 + 分档预算 + 待办面板」三项不动表即可上线，本页可后置。</div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
 /* ═══════════════════════════════════════════════════════
    场景与渲染
    ═══════════════════════════════════════════════════════ */
@@ -1404,11 +1982,16 @@ const SCENES = [
   { key:'create',   n:2, label:'创建服务 · 整页表单',       path:'/platform/service/new' },
   { key:'space',    n:3, label:'服务空间 · 优化后服务头',   path:'/platform/service/:serviceId/sessions/:sessionId' },
   { key:'artifacts',n:4, label:'服务空间 · 文件浮层',       path:'/platform/service/:serviceId  ▤ 文件 3' },
-  { key:'reminders',n:5, label:'服务空间 · 待办浮层',       path:'/platform/service/:serviceId  ☑ 待办 3' },
+  { key:'reminders',n:5, label:'服务空间 · 待办浮层',       path:'/platform/service/:serviceId  ☑ 待办 6' },
   { key:'overview', n:6, label:'⋯ → 服务概览',               path:'/platform/service/:serviceId/overview' },
   { key:'activity', n:7, label:'⋯ → 动态 · 时间线',        path:'/platform/service/:serviceId/activity' },
   { key:'settings', n:8, label:'服务设置 · 整页 4 分区',    path:'/platform/service/:serviceId/settings/fields' },
-  { key:'diff',     n:9, label:'改造对照 · 问题与概念收敛', path:'—' }
+  { key:'diff',     n:9, label:'改造对照 · 问题与概念收敛', path:'—' },
+  { key:'memindex',   n:10, label:'记忆设计 · 总览（§11）',        path:'—' },
+  { key:'memoverview',n:11, label:'服务概览 · 重点记录（可溯源）', path:'/platform/service/:serviceId/overview' },
+  { key:'memchat',    n:12, label:'对话流 · 待确认卡片',              path:'/platform/service/:serviceId/sessions/:sessionId' },
+  { key:'memledger',  n:13, label:'待办 · 一个入口两组活',   path:'/platform/service/:serviceId  ☑ 待办 6' },
+  { key:'memgov',     n:14, label:'服务档案 · 明细与治理',        path:'/platform/service/:serviceId/archive' }
 ];
 
 const state = {
@@ -1424,7 +2007,12 @@ const state = {
   collabOpen: '',
   emptyChat: false,
   newChat: false, // v1.14 新会话空态（对话区切换，不新开页面）；v1.16 起入口从服务头 ＋ 改为左侧服务行悬停 ＋
-  sec: 'fields'   // 设置场景内的分区：basic / fields / sources / members（v1.13「专家」并入基本信息、v1.30 基本信息精简为名称+说明+客户信息只读，仍 4 个分区）
+  sec: 'fields',  // 设置场景内的分区：basic / fields / sources / members（v1.13「专家」并入基本信息、v1.30 基本信息精简为名称+说明+客户信息只读，仍 4 个分区）
+  editOpen: '',  // v1.34 「改一下再确认」展开的提案 id（'' = 全部收起）
+  editItems: {}, // v1.37 chips 编辑器的工作项（提案 id → string[]，展开时从 nv 重新初始化）
+  todoMore: '',  // v1.38 「要你去做」⋯ 展开的待办 id（唯一例外动作入口）
+  doneRem: [],   // v1.36 已标记完成的待办 id（即时离组）
+  cancelRem: []  // v1.36 已取消的待办 id（即时离组）
 };
 
 const RENDER = {
@@ -1436,7 +2024,12 @@ const RENDER = {
   overview:  () => layout(overviewView(), true),
   activity:  () => layout(activityView(), true),
   settings:  () => layout(settingsView(), true),
-  diff:      () => layout(diffView())
+  diff:      () => layout(diffView()),
+  memindex:    () => layout(memIndexView()),
+  memoverview: () => layout(memOverviewView(), true),
+  memchat:     () => layout(memChatView(), true),
+  memledger:   () => layout(memLedgerView(), true),
+  memgov:      () => layout(memGovernView(), true)
 };
 function layout(inner, bleed){ return `<div class="canvas ${bleed ? 'bleed' : ''}">${inner}</div>`; }
 
@@ -1501,6 +2094,31 @@ document.addEventListener('click', e => {
   const sec = hit('[data-sec]');
   if (sec) { state.sec = sec.dataset.sec; render(); return; }
 
+  const ed = hit('[data-edit]');
+  if (ed) {
+    const opening = state.editOpen !== ed.dataset.edit;
+    state.editOpen = opening ? ed.dataset.edit : '';
+    if (opening) delete state.editItems[ed.dataset.edit]; // v1.37 每次展开从建议值重新开始
+    render(); return;
+  }
+
+  /* v1.37 chips 编辑器的删 / 加 */
+  const rm = hit('[data-rmchip]');
+  if (rm) {
+    const [pid, idx] = rm.dataset.rmchip.split(':');
+    const items = state.editItems[pid];
+    if (items) { items.splice(+idx, 1); render(); }
+    return;
+  }
+  const ad = hit('[data-addchip]');
+  if (ad) {
+    const pid = ad.dataset.addchip;
+    const input = document.getElementById('add-' + pid);
+    const v = input && input.value.trim();
+    if (v) { (state.editItems[pid] = state.editItems[pid] || []).push(v); render(); }
+    return;
+  }
+
   const lm = hit('[data-lmode]');
   if (lm) { state.lmode = lm.dataset.lmode; render(); return; }
 
@@ -1545,6 +2163,39 @@ document.addEventListener('click', e => {
 
   const cb = hit('[data-collab]');
   if (cb) { state.collabOpen = state.collabOpen === cb.dataset.collab ? '' : cb.dataset.collab; render(); return; }
+
+  /* v1.36 消费；v1.38 ⋯ 里只剩例外动作 */
+  const tmore = hit('[data-tmore]');
+  if (tmore) { state.todoMore = state.todoMore === tmore.dataset.tmore ? '' : tmore.dataset.tmore; render(); return; }
+
+  const rd = hit('[data-rdone]');
+  if (rd) {
+    const r = REMINDERS.find(x => x.id === rd.dataset.rdone);
+    if (r && !state.doneRem.includes(r.id)) state.doneRem.push(r.id);
+    state.todoMore = ''; state.collabOpen = '';
+    render();
+    toast('已完成「' + (r ? r.t : '') + '」· 终态记进动态');
+    return;
+  }
+
+  const rs = hit('[data-rstart]');
+  if (rs) {
+    const r = REMINDERS.find(x => x.id === rs.dataset.rstart);
+    if (r) r.status = '进行中';
+    render();
+    toast('已开始处理：' + (r ? r.t : ''));
+    return;
+  }
+
+  const rc = hit('[data-rcancel]');
+  if (rc) {
+    const r = REMINDERS.find(x => x.id === rc.dataset.rcancel);
+    if (r && !state.cancelRem.includes(r.id)) state.cancelRem.push(r.id);
+    state.todoMore = ''; state.collabOpen = '';
+    render();
+    toast('已取消「' + (r ? r.t : '') + '」' + (r && r.fromChat ? ' · 已向 AI 记一次反馈' : ''));
+    return;
+  }
 });
 
 render();

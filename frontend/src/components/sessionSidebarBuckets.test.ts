@@ -59,7 +59,7 @@ test('mergeBucketPage preserves a generated title when a stale API row has no ti
   }], 1, 1)
 
   assert.equal(next.items[0].title, '生成后的标题')
-  assert.equal((next.items[0] as typeof bucket.items[number]).isNoTitle, false)
+  assert.equal(next.items[0].isNoTitle, false)
   assert.equal(next.items[0].updated_at, '2026-10-12T10:01:00.000Z')
 })
 

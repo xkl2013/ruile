@@ -20,7 +20,7 @@ var (
 	ErrAgentNotFoundForShare   = errors.New("agent not found")
 	ErrNotAgentOwner           = errors.New("only agent owner can share")
 	ErrOrgRoleCannotShareAgent = errors.New("only editors and admins can share agents to this organization")
-	ErrAgentNotConfigured      = errors.New("agent is not fully configured (missing required chat model, or rerank model when the knowledge_search tool is enabled)")
+	ErrAgentNotConfigured      = errors.New("agent is not fully configured (missing rerank model while the knowledge_search tool is enabled)")
 )
 
 // agentRequiresRerankModel returns true when the agent's configured scope and
@@ -102,9 +102,6 @@ func (s *agentShareService) ShareAgent(ctx context.Context, agentID string, orgI
 		return nil, ErrNotAgentOwner
 	}
 
-	if agent.Config.ModelID == "" {
-		return nil, ErrAgentNotConfigured
-	}
 	if agentRequiresRerankModel(agent) && agent.Config.RerankModelID == "" {
 		return nil, ErrAgentNotConfigured
 	}

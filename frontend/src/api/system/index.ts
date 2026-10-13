@@ -716,6 +716,7 @@ export interface BillingPaymentOrderItem {
 export interface CreateBillingManualOrderInput {
   tenant_id: number
   order_type: 'topup' | 'storage_addon' | 'manual_contract'
+  item_id?: string
   plan_id?: string
   billing_interval?: 'trial' | 'month' | 'year' | 'manual' | 'none'
   period_days?: number

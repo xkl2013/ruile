@@ -17,12 +17,11 @@ const (
 )
 
 type ServiceFactProposalItem struct {
-	FieldKey   string  `json:"field_key"`
-	FieldLabel string  `json:"field_label"`
-	Value      any     `json:"value"`
-	Confidence float64 `json:"confidence,omitempty"`
-	Evidence   string  `json:"evidence,omitempty"`
-	SubjectID  string  `json:"subject_id,omitempty"`
+	FieldKey   string `json:"field_key"`
+	FieldLabel string `json:"field_label"`
+	Value      any    `json:"value"`
+	Evidence   string `json:"evidence,omitempty"`
+	SubjectID  string `json:"subject_id,omitempty"`
 }
 
 type ServiceFactProposal struct {

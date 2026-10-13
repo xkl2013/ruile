@@ -21,8 +21,12 @@ import { getCaretCoordinates } from '@/utils/caret';
 import { getRootZoom, rectToCssPx, cssViewportSize } from '@/utils/zoom';
 import { type ModelConfig } from '@/api/model';
 import { getResponseTierConfig } from '@/api/response-tier';
-import { type CustomAgent, BUILTIN_QUICK_ANSWER_ID, BUILTIN_SMART_REASONING_ID } from '@/api/agent';
-import type { PublishedExpert } from '@/api/expert-package';
+import {
+  type CustomAgent,
+  BUILTIN_QUICK_ANSWER_ID,
+  BUILTIN_SMART_REASONING_ID,
+  isBuiltinAgent,
+} from '@/api/agent';
 import { useChatResourcesStore } from '@/stores/chatResources';
 import { useEditorResourcesStore } from '@/stores/editorResources';
 import { useI18n } from 'vue-i18n';
@@ -63,7 +67,6 @@ const {
   allModels,
   chatModels: availableModels,
   webSearchProviders,
-  publishedExperts,
 } = storeToRefs(chatResources);
 const { t, locale } = useI18n();
 const responseTierConfig = ref<{ enabled: boolean }>({ enabled: false });
@@ -201,9 +204,6 @@ const selectedAgentId = computed({
     : (settingsStore.selectedAgentId || BUILTIN_QUICK_ANSWER_ID),
   set: (val: string) => settingsStore.selectAgent(val)
 });
-const selectedPublishedExpert = ref<PublishedExpert | null>(null);
-const selectedPublishedExpertAuto = ref(false);
-const AUTO_EXPERT_SELECTION_ID = '__auto__';
 const effectiveSelectedAgentId = computed(() =>
   selectedAgentId.value
 );
@@ -230,22 +230,10 @@ const selectedAgent = computed(() => {
   } as CustomAgent;
 });
 
-const shouldAutoRoutePublishedExpert = computed(() => (
-  !props.embeddedMode
-  && publishedExperts.value.length > 0
-  && !selectedPublishedExpert.value
-  && !selectedPublishedExpertAuto.value
-  && !isCustomAgent.value
-  && !isAgentEnabled.value
-  && uploadedImages.value.length === 0
-  && uploadedAttachments.value.length === 0
-  && allSelectedItems.value.length === 0
-));
-
 // 判断是否为自定义智能体（非内置）
 const isCustomAgent = computed(() => {
   const agent = selectedAgent.value;
-  return agent && !agent.is_builtin;
+  return agent && !isBuiltinAgent(agent.id);
 });
 
 // 判断是否有智能体配置（包括内置智能体）
@@ -253,7 +241,7 @@ const hasAgentConfig = computed(() => {
   const agent = selectedAgent.value;
   // 共享智能体的 config 来自源空间，直接使用 agent.config，避免被本空间同 ID 的 builtin 覆盖
   const sourceTenantId = settingsStore.selectedAgentSourceTenantId;
-  if (agent?.is_builtin && !sourceTenantId) {
+  if (agent && isBuiltinAgent(agent.id) && !sourceTenantId) {
     const builtinAgent = agents.value.find(a => a.id === agent.id);
     return !!builtinAgent?.config;
   }
@@ -267,7 +255,7 @@ const currentAgentConfig = computed(() => {
   // Re-looking it up by ID in the local agents.value would clobber it with the
   // current tenant's own builtin config (same constant ID for builtins).
   const sourceTenantId = settingsStore.selectedAgentSourceTenantId;
-  if (agent?.is_builtin && !sourceTenantId) {
+  if (agent && isBuiltinAgent(agent.id) && !sourceTenantId) {
     const builtinAgent = agents.value.find(a => a.id === agent.id);
     return builtinAgent?.config || {};
   }
@@ -361,12 +349,6 @@ const isMentionDisabled = computed(() => {
     return agentMCPSelectionMode.value === 'none' && agentSkillsSelectionMode.value === 'none';
   }
   return isKnowledgeBaseLockedByAgent.value && !settingsStore.isAgentStreamMode;
-});
-
-// 智能体配置的模型 ID
-const agentModelId = computed(() => {
-  if (!hasAgentConfig.value) return null;
-  return currentAgentConfig.value?.model_id || null;
 });
 
 // 智能体支持的文件类型（空数组表示支持所有类型）
@@ -750,14 +732,6 @@ const inputPlaceholder = computed(() => {
     return explicitPlaceholder;
   }
 
-  if (selectedPublishedExpertAuto.value) {
-    return '自动匹配专家';
-  }
-
-  if (selectedPublishedExpert.value) {
-    return `向 ${selectedPublishedExpert.value.display_name} 提问`;
-  }
-
   // 如果选择了自定义智能体
   if (isCustomAgent.value && selectedAgent.value) {
     // 有描述时显示描述，否则显示"向 [名称] 提问"
@@ -924,14 +898,6 @@ const loadAgents = async (force = false) => {
   }
 };
 
-const loadPublishedExperts = async (force = false) => {
-  try {
-    await chatResources.ensurePublishedExperts(force);
-  } catch (error) {
-    console.error('Failed to load published experts:', error);
-  }
-};
-
 // 默认选中的 builtin（builtin-quick-answer）也可能被当前空间管理员停用。
 // 列表加载完后做一次纠偏：若当前选中的是本空间停用的 agent（仅限「我的/builtin」，
 // 共享智能体由源空间决定，本地停用列表不适用），按 智能推理 → 快速问答 →
@@ -1055,36 +1021,6 @@ const ensureModelSelection = () => {
   }
 };
 
-// 智能体身份或其数据到位时，把对话模型同步到智能体配置的 model_id。
-// 修复场景：导航离开再返回时，initChatModelSelection 会用 localStorage 的 lastPick
-// 覆盖共享智能体绑定的源空间 model_id，UI 显示「未配置」——此时需要拉回 agent 模型。
-// 但若用户在本页手动改过模型（lastPick 与 agent 默认不同且当前选中即为 lastPick），
-// 则保留用户选择，避免 creatChat → chat 跳转后把模型 B 冲回智能体默认 A。
-watch(
-  [selectedAgentId, () => settingsStore.selectedAgentSourceTenantId, agentModelId],
-  ([, sourceTenantId, newModelId]) => {
-    if (!newModelId || newModelId.trim() === '') return;
-
-    const lastPick = readLastChatModelID();
-    const isSharedAgent = !!sourceTenantId;
-    const agentModelInList = availableModels.value.some(m => m.id === newModelId);
-
-    if (
-      lastPick &&
-      selectedModelId.value === lastPick &&
-      lastPick !== newModelId &&
-      (!isSharedAgent || agentModelInList)
-    ) {
-      return;
-    }
-
-    if (newModelId !== selectedModelId.value) {
-      selectedModelId.value = newModelId;
-    }
-  },
-  { immediate: true }
-);
-
 const handleModelChange = (value: string | number | Array<string | number> | undefined) => {
   const normalized = Array.isArray(value) ? value[0] : value;
   const val = normalized !== undefined && normalized !== null ? String(normalized) : '';
@@ -1113,13 +1049,10 @@ const selectedModel = computed(() => {
   return availableModels.value.find(model => model.id === selectedModelId.value);
 });
 
-// 模型展示名：本空间列表中有则用名称；若为共享智能体且其 model_id 不在本空间列表中则显示“共享智能体配置的模型”
+// 模型展示名：模型选择属于当前用户，不跟随智能体配置切换。
 const selectedModelDisplayName = computed(() => {
   if (selectedModel.value) return modelDisplayName(selectedModel.value);
   if (!selectedModelId.value) return t('input.notConfigured');
-  const isSharedAgent = !!settingsStore.selectedAgentSourceTenantId;
-  const modelFromAgent = agentModelId.value && agentModelId.value === selectedModelId.value;
-  if (isSharedAgent && modelFromAgent) return t('input.sharedAgentModelLabel');
   return t('input.notConfigured');
 });
 
@@ -1838,7 +1771,6 @@ onMounted(() => {
     loadWebSearchConfig(),
     loadChatModels(),
     loadAgents(),
-    loadPublishedExperts(),
     loadMCPServices(),
     loadResponseTierConfig(),
   ]);
@@ -1932,7 +1864,6 @@ watch([selectedKbIds, selectedFileIds], ([kbIds, fileIds]) => {
 
 const emit = defineEmits<{
   (e: 'send-msg', query: string, modelId: string, mentionedItems: MentionRequestItem[], imageFiles: File[], attachmentFiles: AttachmentFile[], responseTier: ResponseTier): void;
-  (e: 'send-published-expert', query: string, modelId: string, expert: PublishedExpert | null, routeMode: 'auto' | 'manual'): void;
   (e: 'stop-generation'): void;
   (e: 'steer-msg', query: string, mentionedItems: MentionRequestItem[], delivery: 'inject' | 'after'): void;
   (e: 'promote-steer', steerId: string): void;
@@ -1994,35 +1925,6 @@ const createSession = async (val: string, delivery: 'inject' | 'after' = 'after'
     return;
   }
 
-  if (selectedPublishedExpert.value || selectedPublishedExpertAuto.value) {
-    if (uploadedImages.value.length > 0 || uploadedAttachments.value.length > 0 || allSelectedItems.value.length > 0) {
-      MessagePlugin.info('已发布专家当前先支持文本问题，请先移除附件和上下文引用');
-      return;
-    }
-    const textarea = getTextareaEl();
-    if (textarea) textarea.blur();
-    emit(
-      'send-published-expert',
-      val,
-      selectedModelId.value,
-      selectedPublishedExpert.value,
-      selectedPublishedExpertAuto.value ? 'auto' : 'manual',
-    );
-    clearvalue();
-    return;
-  }
-
-  // Published experts are routed by the system by default. Manual expert
-  // selection above remains an explicit override; attachments, context
-  // references, custom agents, and agent mode continue through normal chat.
-  if (shouldAutoRoutePublishedExpert.value) {
-    const textarea = getTextareaEl();
-    if (textarea) textarea.blur();
-    emit('send-published-expert', val, selectedModelId.value, null, 'auto');
-    clearvalue();
-    return;
-  }
-
   // Images and non-embedded attachments both travel to the backend as
   // `attachment_ids`, which enforces a combined cap (MaxTemporaryAttachmentsPerMessage).
   // The per-picker limits (5 images / 5 attachments) are independent, so guard the
@@ -2043,7 +1945,7 @@ const createSession = async (val: string, delivery: 'inject' | 'after' = 'after'
   // 发送前校验当前选中的智能体（含默认快速问答）是否已配置完成
   const agentToCheck = selectedAgent.value;
   let actualAgent = agentToCheck;
-  if (agentToCheck.is_builtin && !settingsStore.selectedAgentSourceTenantId) {
+  if (isBuiltinAgent(agentToCheck.id) && !settingsStore.selectedAgentSourceTenantId) {
     let builtin = agents.value.find(a => a.id === selectedAgentId.value);
     if (!builtin) {
       await loadAgents();
@@ -2191,7 +2093,6 @@ const toggleAgentModeSelector = () => {
     // Opening the selector is an explicit refresh point so newly created or
     // newly shared agents appear immediately instead of waiting for cache TTL.
     void loadAgents(true);
-    void loadPublishedExperts(true);
     // 多次更新位置确保准确
     nextTick(() => {
       updateAgentModeDropdownPosition();
@@ -2206,8 +2107,6 @@ const toggleAgentModeSelector = () => {
 }
 
 const selectAgentMode = async (mode: 'quick-answer' | 'smart-reasoning') => {
-  selectedPublishedExpert.value = null;
-  selectedPublishedExpertAuto.value = false;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2248,8 +2147,6 @@ const handleAgentNotReady = (
 };
 
 const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) => {
-  selectedPublishedExpert.value = null;
-  selectedPublishedExpertAuto.value = false;
   if (!chatResources.isFresh('models')) {
     await loadChatModels()
   }
@@ -2258,7 +2155,7 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
   const isAgentType = agent.config?.agent_mode === 'smart-reasoning';
 
   // 统一检查智能体是否就绪（内置和自定义智能体使用相同逻辑）
-  const actualAgent = agent.is_builtin && !sourceTenantId
+  const actualAgent = isBuiltinAgent(agent.id) && !sourceTenantId
     ? (agents.value.find(a => a.id === agent.id) || agent)
     : agent;
 
@@ -2277,18 +2174,6 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
   settingsStore.selectAgent(agent.id, sourceTenantId);
   settingsStore.toggleAgent(!!isAgentType);
 
-  // 同步模型（选中的对话模型随智能体切换，含共享智能体）。
-  // 网络搜索已由 selectAgent 重置为关闭，智能体配置只控制该开关是否可用。
-  const agentModel = agent.config?.model_id;
-  if (agentModel && agentModel.trim() !== '') {
-    selectedModelId.value = agentModel;
-  } else {
-    const lastPick = readLastChatModelID();
-    if (lastPick) {
-      selectedModelId.value = lastPick;
-    }
-  }
-
   showAgentModeSelector.value = false;
 
   // Only the two "mode-entry" built-ins are re-branded as "Normal / Agent Mode"
@@ -2303,20 +2188,6 @@ const handleSelectAgent = async (agent: CustomAgent, sourceTenantId?: string) =>
     : t('input.messages.agentSelected', { name: agent.name });
   MessagePlugin.success(message);
 }
-
-const handleSelectPublishedExpert = (expert: PublishedExpert) => {
-  selectedPublishedExpertAuto.value = false;
-  selectedPublishedExpert.value = expert;
-  showAgentModeSelector.value = false;
-  MessagePlugin.success(`已选择专家：${expert.display_name}`);
-};
-
-const handleSelectPublishedExpertAuto = () => {
-  selectedPublishedExpert.value = null;
-  selectedPublishedExpertAuto.value = true;
-  showAgentModeSelector.value = false;
-  MessagePlugin.success('已切换为自动匹配专家');
-};
 
 const clearvalue = () => {
   // Guard: only clear when the textarea DOM element is still mounted,
@@ -2469,8 +2340,9 @@ const collectAgentNotReadyReasons = (
     isAgentMode,
     isSharedAgent,
     responseTierEnabled: responseTierConfig.value.enabled,
+    requestModelID: selectedModelId.value,
   });
-  return formatAgentNotReadyReasons(keys, agent.is_builtin);
+  return formatAgentNotReadyReasons(keys, isBuiltinAgent(agent.id));
 };
 
 // 显示智能体未就绪的消息（统一处理内置和自定义智能体）
@@ -2561,6 +2433,12 @@ defineExpose({
     if (!text.trim()) return;
     query.value = text;
     nextTick(() => createSession(text));
+  },
+  focusInput() {
+    nextTick(() => {
+      const textarea = getTextareaEl();
+      if (textarea) textarea.focus();
+    });
   }
 });
 
@@ -2644,13 +2522,12 @@ defineExpose({
         <div class="control-left" v-if="!embeddedMode">
           <!-- Agent 模式切换按钮 -->
           <div ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{
-            'is-normal': !selectedPublishedExpert && !selectedPublishedExpertAuto && !isCustomAgent && !isAgentEnabled,
-            'is-agent': !selectedPublishedExpert && !selectedPublishedExpertAuto && !isCustomAgent && isAgentEnabled,
-            'is-custom': !selectedPublishedExpert && !selectedPublishedExpertAuto && isCustomAgent,
-            'is-published-expert': !!selectedPublishedExpert || selectedPublishedExpertAuto
+            'is-normal': !isCustomAgent && !isAgentEnabled,
+            'is-agent': !isCustomAgent && isAgentEnabled,
+            'is-custom': isCustomAgent
           }" @click.stop="toggleAgentModeSelector">
             <span class="agent-mode-text">
-              {{ selectedPublishedExpert?.display_name || (selectedPublishedExpertAuto ? '自动匹配专家' : '') || selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
+              {{ selectedAgent.name || (isAgentEnabled ? $t('input.agentMode') : $t('input.normalMode')) }}
             </span>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" class="dropdown-arrow"
               :class="{ 'rotate': showAgentModeSelector }">
@@ -2662,11 +2539,7 @@ defineExpose({
           <AgentSelector :visible="showAgentModeSelector" :anchorEl="agentModeButtonRef"
             :currentAgentId="selectedAgentId" :agents="enabledAgents" :all-models="allModels"
             :current-chat-model-id="selectedModelId" :response-tier-enabled="responseTierConfig.enabled"
-            :published-experts="publishedExperts"
-            :selected-published-expert-id="selectedPublishedExpertAuto ? AUTO_EXPERT_SELECTION_ID : selectedPublishedExpert?.definition_id"
             @close="closeAgentModeSelector" @select="handleSelectAgent"
-            @select-published-expert="handleSelectPublishedExpert"
-            @select-published-expert-auto="handleSelectPublishedExpertAuto"
             @not-ready="handleAgentNotReady" />
 
           <!-- WebSearch 开关按钮（智能体未启用时不显示） -->
@@ -3236,16 +3109,6 @@ const getImgSrc = (url: string) => {
   font-weight: 500;
   position: relative;
   border: .5px solid var(--td-component-border, #e7e7e7);
-}
-
-.agent-mode-btn.is-published-expert {
-  color: var(--td-brand-color);
-  border-color: var(--td-brand-color);
-  background: var(--td-brand-color-light);
-
-  .agent-mode-text {
-    color: var(--td-brand-color);
-  }
 }
 
 .agent-icon {

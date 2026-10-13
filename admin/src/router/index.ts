@@ -180,11 +180,11 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: 'agents',
     name: 'adminAgents',
-    component: createModulePage(() => import('@/views/agent/AgentList.vue')),
+    component: createModulePage(() => import('@admin/views/AdminAgentManagement.vue')),
     meta: {
       navKey: 'agents',
       title: '智能体',
-      description: '统一维护平台级智能体；各工作区自动继承配置。',
+      description: '统一维护平台级智能体，并导入、诊断和发布 WorkBuddy 专家。',
       requiresSystemAdmin: true,
     },
   },
@@ -294,13 +294,11 @@ const moduleRoutes: RouteRecordRaw[] = [
   {
     path: 'experts',
     name: 'adminExpertPackages',
-    component: () => import('@admin/views/AdminExpertPackages.vue'),
-    meta: {
-      navKey: 'expert-packages',
-      title: '专家',
-      description: '维护专家包、版本发布和运行测试。',
-      minRole: 'admin',
-    },
+    redirect: (to) => ({
+      name: 'adminAgents',
+      query: { ...to.query, tab: 'import' },
+    }),
+    meta: { requiresSystemAdmin: true },
   },
   {
     path: 'service/templates',

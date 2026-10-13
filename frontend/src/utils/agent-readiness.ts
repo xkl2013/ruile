@@ -64,11 +64,23 @@ export function getAgentNotReadyReasonKeys(
     'model_id' | 'rerank_model_id' | 'kb_selection_mode' | 'allowed_tools' | 'agent_mode'
   > | undefined,
   models: Pick<ModelConfig, 'id' | 'type'>[],
-  options: { isAgentMode: boolean; isSharedAgent: boolean; responseTierEnabled?: boolean },
+  options: {
+    isAgentMode: boolean
+    isSharedAgent: boolean
+    responseTierEnabled?: boolean
+    requestModelID?: string
+  },
 ): AgentNotReadyReasonKey[] {
   const reasons: AgentNotReadyReasonKey[] = []
 
-  if (!options.responseTierEnabled && !agentHasConfiguredChatModel(config, models, options.isSharedAgent)) {
+  const requestModelID = options.requestModelID?.trim()
+  const requestModelAvailable = !!requestModelID
+    && models.some(model => model.type === 'KnowledgeQA' && model.id === requestModelID)
+  if (
+    !options.responseTierEnabled
+    && !requestModelAvailable
+    && !agentHasConfiguredChatModel(config, models, options.isSharedAgent)
+  ) {
     reasons.push('summary_model')
   }
 

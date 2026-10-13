@@ -157,6 +157,36 @@ func TestPlatformAgentIsProjectedIntoEveryWorkspaceAndCanBeUpdatedOrDeletedBySys
 	require.Equal(t, types.SystemAgentTenantID, repo.deletedTenantID)
 }
 
+func TestDedupeListedAgentsPrefersPlatformManagedExpert(t *testing.T) {
+	platform := &types.CustomAgent{
+		ID:        "published-expert",
+		Name:      "生命密码分析师",
+		Avatar:    "resource://avatar",
+		IsBuiltin: true,
+		TenantID:  types.SystemAgentTenantID,
+		Config: types.CustomAgentConfig{
+			Tags: []string{"生命数字解读", types.AgentTagExpert},
+		},
+	}
+	legacyPlatform := &types.CustomAgent{
+		ID:        "legacy-published-expert",
+		Name:      platform.Name,
+		IsBuiltin: true,
+		TenantID:  types.SystemAgentTenantID,
+	}
+	workspace := &types.CustomAgent{
+		ID:       platform.ID,
+		Name:     platform.Name,
+		TenantID: 10000,
+		Config:   types.CustomAgentConfig{},
+	}
+
+	got := dedupeListedAgents([]*types.CustomAgent{legacyPlatform, workspace, platform})
+
+	require.Len(t, got, 1)
+	require.Same(t, platform, got[0])
+}
+
 func withQuickAnswerBuiltin(t *testing.T) {
 	t.Helper()
 	oldFactory, existed := types.BuiltinAgentRegistry[types.BuiltinQuickAnswerID]

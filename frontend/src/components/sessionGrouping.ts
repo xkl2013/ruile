@@ -11,6 +11,7 @@ export const EMBED_SESSION_MARKER_PREFIX = 'embed_channel:'
 export interface SessionForGrouping {
   id: string
   title?: string
+  isNoTitle?: boolean
   is_pinned?: boolean
   created_at?: string
   updated_at?: string

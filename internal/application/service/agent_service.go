@@ -333,13 +333,6 @@ func (s *agentService) registerDelegationTool(
 			}
 			childConfig := deriveDelegatedAgentConfig(config, member)
 			childChatModel := parentChatModel
-			if member.Config.ModelID != "" {
-				childChatModel, err = s.modelService.GetChatModel(delegateCtx, member.Config.ModelID)
-				if err != nil {
-					runErr = fmt.Errorf("load member agent model: %w", err)
-					return "", runErr
-				}
-			}
 			childRerankModel := parentRerankModel
 			if member.Config.RerankModelID != "" {
 				childRerankModel, err = s.modelService.GetRerankModel(delegateCtx, member.Config.RerankModelID)

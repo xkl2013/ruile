@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolveChatModelIDRequiresConfiguredAgentModel(t *testing.T) {
+func TestResolveChatModelIDUsesRequestModelWhenAgentHasNoStoredModel(t *testing.T) {
 	svc := &sessionService{
 		modelService: &stubModelService{
 			modelsByID: map[string]*types.Model{
@@ -25,15 +25,13 @@ func TestResolveChatModelIDRequiresConfiguredAgentModel(t *testing.T) {
 		CustomAgent: &types.CustomAgent{
 			ID: "agent-1",
 		},
-		// Even a valid request-level model must not hide incomplete agent config.
 		SummaryModelID: "builtin-chat",
 	}
 
 	modelID, err := svc.resolveChatModelID(context.Background(), req, nil, nil)
 
-	require.Error(t, err)
-	assert.Empty(t, modelID)
-	assert.Contains(t, err.Error(), "model_id")
+	require.NoError(t, err)
+	assert.Equal(t, "builtin-chat", modelID)
 }
 
 func TestResolveChatModelIDAllowsRequestModelForBuiltinQuickAnswer(t *testing.T) {
@@ -95,9 +93,16 @@ func TestResolveChatModelIDIgnoresStaleBuiltinQuickAnswerModelWhenRequestModelIs
 	assert.Equal(t, "request-chat", modelID)
 }
 
-func TestResolveChatModelIDRejectsUnavailableConfiguredAgentModel(t *testing.T) {
+func TestResolveChatModelIDFallsBackFromUnavailableConfiguredAgentModel(t *testing.T) {
 	svc := &sessionService{
-		modelService: &stubModelService{modelsByID: map[string]*types.Model{}},
+		modelService: &stubModelService{
+			modelsByID: map[string]*types.Model{
+				"fallback-chat": {
+					ID:   "fallback-chat",
+					Type: types.ModelTypeKnowledgeQA,
+				},
+			},
+		},
 	}
 	req := &types.QARequest{
 		Session: &types.Session{},
@@ -111,9 +116,8 @@ func TestResolveChatModelIDRejectsUnavailableConfiguredAgentModel(t *testing.T) 
 
 	modelID, err := svc.resolveChatModelID(context.Background(), req, nil, nil)
 
-	require.Error(t, err)
-	assert.Empty(t, modelID)
-	assert.Contains(t, err.Error(), "unavailable")
+	require.NoError(t, err)
+	assert.Equal(t, "fallback-chat", modelID)
 }
 
 func TestResolveChatModelIDUsesValidConfiguredAgentModel(t *testing.T) {

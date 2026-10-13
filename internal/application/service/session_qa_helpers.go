@@ -198,11 +198,9 @@ func (s *sessionService) restrictTagScopesToAgentScope(
 
 // resolveChatModelID resolves the effective chat model ID for a QA request.
 //
-// When a custom agent is selected, its model configuration must be complete and
-// valid. A request-level override may choose another valid model for this
-// request, but it must not make an unconfigured or stale custom agent appear
-// usable. The built-in quick-answer entrypoint is the exception: it uses the
-// request summary_model_id from the chat input as the primary model selection.
+// Response-tier resolution is handled before this helper and is authoritative
+// when enabled. Otherwise use the current request model first, then retain the
+// stored agent model as a compatibility fallback for older agents.
 //
 // Without an agent, the legacy KB / session / system fallback remains
 // available for non-agent callers.
@@ -221,25 +219,10 @@ func (s *sessionService) resolveChatModelID(
 		return "", fmt.Errorf("resolved response tier chat model %s is unavailable", resolvedModelID)
 	}
 
-	summaryModelID := req.SummaryModelID
+	summaryModelID := strings.TrimSpace(req.SummaryModelID)
 	customAgent := req.CustomAgent
 	session := req.Session
-	isBuiltinQuickAnswer := customAgent != nil &&
-		customAgent.ID == types.BuiltinQuickAnswerID &&
-		!customAgent.IsAgentMode()
 
-	if customAgent != nil && !isBuiltinQuickAnswer {
-		configuredModelID := strings.TrimSpace(customAgent.Config.ModelID)
-		if configuredModelID == "" {
-			return "", fmt.Errorf("chat model is not configured: please set model_id on agent %s", customAgent.ID)
-		}
-		model, err := s.modelService.GetModelByID(ctx, configuredModelID)
-		if err != nil || model == nil || model.Type != types.ModelTypeKnowledgeQA {
-			return "", fmt.Errorf("configured chat model %s is unavailable for agent %s", configuredModelID, customAgent.ID)
-		}
-	}
-
-	summaryModelID = strings.TrimSpace(summaryModelID)
 	if summaryModelID != "" {
 		if model, err := s.modelService.GetModelByID(ctx, summaryModelID); err == nil && model != nil &&
 			model.Type == types.ModelTypeKnowledgeQA {

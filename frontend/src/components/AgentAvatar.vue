@@ -6,13 +6,13 @@
     :class="{ 'agent-avatar-small': size === 'small', 'agent-avatar-large': size === 'large' }"
   >
     <img
-      v-if="avatar && !imageFailed"
-      :key="avatar"
+      v-if="avatarImageSource && !imageFailed"
+      :key="avatarImageSource"
       class="agent-avatar-image"
       :class="{ 'is-loaded': imageLoaded }"
-      :src="avatar"
+      :src="avatarImageSource"
       :alt="name"
-      :data-img-loading="isProtectedAvatar(avatar) ? '1' : undefined"
+      :data-img-loading="isProtectedAvatar(avatarImageSource) ? '1' : undefined"
       @load="handleImageLoad"
       @error="handleImageError"
     >
@@ -23,7 +23,8 @@
       <!-- 左下角小星星 -->
       <path d="M7 22L7.4 23.6C7.45 23.85 7.65 24.05 7.9 24.1L9.5 24.5L7.9 24.9C7.65 24.95 7.45 25.15 7.4 25.4L7 27L6.6 25.4C6.55 25.15 6.35 24.95 6.1 24.9L4.5 24.5L6.1 24.1C6.35 24.05 6.55 23.85 6.6 23.6L7 22Z" fill="rgba(255,255,255,0.5)"/>
     </svg>
-    <span v-if="!imageLoaded" class="agent-avatar-letter" :style="letterStyle">{{ letter }}</span>
+    <span v-if="!imageLoaded && avatarEmoji" class="agent-avatar-emoji">{{ avatarEmoji }}</span>
+    <span v-else-if="!imageLoaded" class="agent-avatar-letter" :style="letterStyle">{{ letter }}</span>
   </div>
 </template>
 
@@ -45,17 +46,26 @@ const imageLoaded = ref(false);
 const imageFailed = ref(false);
 
 const isProtectedAvatar = (value: string) => /^(resource|storage|local|minio|cos|tos|s3|oss|ks3|obs):\/\//i.test(value.trim());
+const isImageAvatar = (value: string) => /^(https?:|blob:|data:image\/|\/|resource:\/\/|storage:\/\/|local:\/\/|minio:\/\/|cos:\/\/|tos:\/\/|s3:\/\/|oss:\/\/|ks3:\/\/|obs:\/\/)/i.test(value.trim());
+const avatarImageSource = computed(() => {
+  const value = props.avatar.trim();
+  return isImageAvatar(value) ? value : '';
+});
+const avatarEmoji = computed(() => {
+  const value = props.avatar.trim();
+  return value && !avatarImageSource.value ? value : '';
+});
 
 const hydrateAvatar = async () => {
   imageLoaded.value = false;
   imageFailed.value = false;
-  if (!props.avatar) return;
+  if (!avatarImageSource.value) return;
   await nextTick();
   await hydrateProtectedFileImages(avatarRootRef.value);
 };
 
 const handleImageError = () => {
-  if (!isProtectedAvatar(props.avatar)) {
+  if (!isProtectedAvatar(avatarImageSource.value)) {
     imageFailed.value = true;
   }
 };
@@ -219,5 +229,20 @@ const letterStyle = computed(() => {
   font-size: 14px;
   font-weight: 600;
   font-family: var(--app-font-family);
+}
+
+.agent-avatar-emoji {
+  position: relative;
+  z-index: 1;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.agent-avatar-small .agent-avatar-emoji {
+  font-size: 13px;
+}
+
+.agent-avatar-large .agent-avatar-emoji {
+  font-size: 24px;
 }
 </style>

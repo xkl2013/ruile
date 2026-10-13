@@ -141,6 +141,7 @@ type PublishedExpert struct {
 	Description        string      `json:"description"`
 	Domain             string      `json:"domain"`
 	OutputContract     string      `json:"output_contract"`
+	Tags               StringArray `json:"tags" gorm:"-"`
 	Skills             StringArray `json:"skills" gorm:"column:skills;type:jsonb"`
 	Capabilities       JSONMap     `json:"capabilities" gorm:"column:capabilities;type:jsonb"`
 }

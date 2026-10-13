@@ -65,6 +65,7 @@ export interface PublishedExpert {
   description?: string
   domain?: string
   output_contract?: string
+  tags?: string[]
   skills?: string[]
   capabilities?: Record<string, unknown>
 }

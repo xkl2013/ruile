@@ -192,6 +192,9 @@ func (s *expertPackageService) ListPublishedExperts(ctx context.Context, tenantI
 	for _, expert := range experts {
 		if expert != nil {
 			expert.Avatar = s.resolveAvatarURL(ctx, expert.Avatar)
+			if version, err := s.repo.GetVersion(ctx, tenantID, expert.PackageID, expert.PackageVersionID); err == nil && version != nil {
+				expert.Tags = types.StringArray(expertTagsFromManifest(version.Manifest["tags"]))
+			}
 		}
 	}
 	return experts, nil
@@ -298,11 +301,26 @@ func (s *expertPackageService) syncVersionAgents(
 	if s.agentRepo == nil {
 		return
 	}
+	packages := make(map[string]*types.ExpertPackage)
+	loadedPackages := make(map[string]bool)
 	for _, definition := range definitions {
 		if definition == nil {
 			continue
 		}
-		if err := s.syncDefinitionAgent(ctx, tenantID, actorID, definition); err != nil {
+		var pkg *types.ExpertPackage
+		if !loadedPackages[definition.PackageID] {
+			loadedPackages[definition.PackageID] = true
+			var err error
+			pkg, err = s.repo.GetPackage(ctx, tenantID, definition.PackageID)
+			if err != nil {
+				logger.Warnf(ctx, "Failed to load expert package %q for Agent presentation sync: %v", definition.PackageID, err)
+			} else {
+				packages[definition.PackageID] = pkg
+			}
+		} else {
+			pkg = packages[definition.PackageID]
+		}
+		if err := s.syncDefinitionAgent(ctx, tenantID, actorID, definition, pkg); err != nil {
 			logger.Warnf(ctx, "Failed to sync published expert %q into custom Agent: %v", definition.AgentID, err)
 		}
 	}
@@ -313,6 +331,7 @@ func (s *expertPackageService) syncDefinitionAgent(
 	tenantID uint64,
 	actorID string,
 	definition *types.AgentDefinitionVersion,
+	pkg *types.ExpertPackage,
 ) error {
 	if err := s.enrichDefinitionSkillSnapshots(ctx, tenantID, definition); err != nil {
 		logger.Warnf(ctx, "Failed to hydrate embedded Skill files for expert %q: %v", definition.AgentID, err)
@@ -331,6 +350,14 @@ func (s *expertPackageService) syncDefinitionAgent(
 	config.AgentMode = types.AgentModeSmartReasoning
 	config.AgentType = types.AgentTypeCustom
 	config.SystemPrompt = definition.SystemPrompt
+	for _, tag := range s.expertDefinitionTags(ctx, tenantID, definition) {
+		if !containsAgentTag(config.Tags, tag) {
+			config.Tags = append(config.Tags, tag)
+		}
+	}
+	if !containsAgentTag(config.Tags, types.AgentTagExpert) {
+		config.Tags = append(config.Tags, types.AgentTagExpert)
+	}
 	config.SkillsSelectionMode = "selected"
 	config.SelectedSkills = append([]string(nil), definition.Skills...)
 	config.OrchestrationEnabled = false
@@ -364,7 +391,8 @@ func (s *expertPackageService) syncDefinitionAgent(
 	agent := &types.CustomAgent{
 		ID:          agentID,
 		Name:        name,
-		Description: strings.TrimSpace(definition.Description),
+		Description: expertAgentDescription(definition, pkg),
+		Avatar:      expertAgentAvatar(pkg),
 		Config:      config,
 		IsBuiltin:   platformManaged,
 		TenantID:    agentTenantID,
@@ -378,14 +406,23 @@ func (s *expertPackageService) syncDefinitionAgent(
 	// materialized under the selected workspace using a tenant-derived ID.
 	// Promote that row in place when it exists so an already published expert
 	// does not leave a second, hidden workspace copy behind.
-	var legacy *types.CustomAgent
+	var legacyWorkspaceAgent *types.CustomAgent
+	var promotedLegacyAgent *types.CustomAgent
 	if platformManaged && tenantID != types.SystemAgentTenantID {
 		legacyID := uuid.NewSHA1(
 			uuid.Nil,
 			[]byte(fmt.Sprintf("ruile:published-expert:%d:%s:%s", tenantID, definition.PackageID, definition.AgentID)),
 		).String()
 		if legacyID != agentID {
-			legacy, err = s.agentRepo.GetAgentByID(ctx, legacyID, tenantID)
+			legacyWorkspaceAgent, err = s.agentRepo.GetAgentByID(ctx, legacyID, tenantID)
+			if err != nil && !errors.Is(err, repository.ErrCustomAgentNotFound) {
+				return err
+			}
+			promotedLegacyAgent, err = s.agentRepo.GetAgentByID(
+				ctx,
+				legacyID,
+				types.SystemAgentTenantID,
+			)
 			if err != nil && !errors.Is(err, repository.ErrCustomAgentNotFound) {
 				return err
 			}
@@ -396,15 +433,19 @@ func (s *expertPackageService) syncDefinitionAgent(
 	if err != nil && !errors.Is(err, repository.ErrCustomAgentNotFound) {
 		return err
 	}
+	usingPromotedLegacyAgent := existing == nil && promotedLegacyAgent != nil
+	if usingPromotedLegacyAgent {
+		existing = promotedLegacyAgent
+	}
 	if existing == nil {
-		if legacy != nil {
-			agent.ID = legacy.ID
+		if legacyWorkspaceAgent != nil {
+			agent.ID = legacyWorkspaceAgent.ID
 		}
 		if err := s.agentRepo.CreateAgent(ctx, agent); err != nil {
 			return err
 		}
-		if legacy != nil {
-			return s.agentRepo.DeleteAgent(ctx, legacy.ID, legacy.TenantID)
+		if legacyWorkspaceAgent != nil {
+			return s.agentRepo.DeleteAgent(ctx, legacyWorkspaceAgent.ID, legacyWorkspaceAgent.TenantID)
 		}
 		return nil
 	}
@@ -419,10 +460,83 @@ func (s *expertPackageService) syncDefinitionAgent(
 	if err := s.agentRepo.UpdateAgent(ctx, existing); err != nil {
 		return err
 	}
-	if legacy != nil {
-		return s.agentRepo.DeleteAgent(ctx, legacy.ID, legacy.TenantID)
+	if legacyWorkspaceAgent != nil {
+		if err := s.agentRepo.DeleteAgent(ctx, legacyWorkspaceAgent.ID, legacyWorkspaceAgent.TenantID); err != nil {
+			return err
+		}
+	}
+	if !usingPromotedLegacyAgent && promotedLegacyAgent != nil && promotedLegacyAgent.ID != existing.ID {
+		return s.agentRepo.DeleteAgent(ctx, promotedLegacyAgent.ID, promotedLegacyAgent.TenantID)
 	}
 	return nil
+}
+
+func (s *expertPackageService) expertDefinitionTags(
+	ctx context.Context,
+	tenantID uint64,
+	definition *types.AgentDefinitionVersion,
+) []string {
+	if definition == nil || definition.PackageID == "" || definition.PackageVersionID == "" {
+		return nil
+	}
+	version, err := s.repo.GetVersion(ctx, tenantID, definition.PackageID, definition.PackageVersionID)
+	if err != nil || version == nil {
+		return nil
+	}
+	return expertTagsFromManifest(version.Manifest["tags"])
+}
+
+func expertTagsFromManifest(value any) []string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var localized []expertLocalizedText
+	if err := json.Unmarshal(raw, &localized); err == nil {
+		return workBuddyTagValues(localized)
+	}
+	var plain []string
+	if err := json.Unmarshal(raw, &plain); err != nil {
+		return nil
+	}
+	result := make([]expertLocalizedText, 0, len(plain))
+	for _, value := range plain {
+		result = append(result, expertLocalizedText{ZH: value})
+	}
+	return workBuddyTagValues(result)
+}
+
+func containsAgentTag(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func expertAgentDescription(definition *types.AgentDefinitionVersion, pkg *types.ExpertPackage) string {
+	if pkg != nil && pkg.SourceFormat == types.ExpertPackageSourceWorkBuddy {
+		if description := strings.TrimSpace(pkg.Description); description != "" {
+			return description
+		}
+	}
+	if definition != nil {
+		if description := strings.TrimSpace(definition.Description); description != "" {
+			return description
+		}
+	}
+	if pkg != nil {
+		return strings.TrimSpace(pkg.Description)
+	}
+	return ""
+}
+
+func expertAgentAvatar(pkg *types.ExpertPackage) string {
+	if pkg == nil {
+		return ""
+	}
+	return strings.TrimSpace(pkg.Avatar)
 }
 
 func (s *expertPackageService) enrichDefinitionSkillSnapshots(
