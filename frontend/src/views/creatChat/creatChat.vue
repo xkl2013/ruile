@@ -17,7 +17,7 @@
 
             <section class="xiaorui-hero">
                 <div class="xiaorui-mark-wrap">
-                    <div class="xiaorui-mark" aria-label="小睿 AI">
+                    <div class="xiaorui-mark" aria-label="小睿">
                         <span class="xiaorui-avatar">
                             <img :src="xiaoruiAvatar" alt="" />
                         </span>
@@ -160,7 +160,8 @@ const selectExpert = async (agent: CustomAgent) => {
     settingsStore.toggleAgent(agent.config?.agent_mode === 'smart-reasoning');
 
     try {
-        const res = await createSessions({});
+        const sessionTitle = agent.name?.trim() || t('createChat.newSessionTitle');
+        const res = await createSessions({ title: sessionTitle });
         const sessionId = res?.data?.id;
         if (!sessionId) {
             console.error('[createChat] Failed to create empty session for agent');
@@ -170,11 +171,11 @@ const selectExpert = async (agent: CustomAgent) => {
 
         const now = new Date().toISOString();
         usemenuStore.updataMenuChildren({
-            title: t('createChat.newSessionTitle'),
+            title: sessionTitle,
             path: `chat/${sessionId}`,
             id: sessionId,
             isMore: false,
-            isNoTitle: true,
+            isNoTitle: false,
             created_at: now,
             updated_at: now,
         });

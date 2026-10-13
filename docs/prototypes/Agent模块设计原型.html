@@ -123,10 +123,27 @@
   .msg.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
   .msg.ai{align-self:flex-start;background:var(--surface);color:var(--t1);border-bottom-left-radius:5px;box-shadow:var(--sh-1)}
   .msg.ai .who{font-size:11.5px;font-weight:700;color:var(--accent-deep);margin-bottom:6px;display:flex;align-items:center;gap:5px}
+  .msg.ai .who svg{width:14px;height:14px;flex:0 0 14px}
   .msg.ai .cite{margin-top:9px;padding-top:8px;border-top:1px solid var(--line-soft);font-size:11.5px;color:var(--t3);line-height:1.65}
   .acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
   .act{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;padding:7px 11px;border-radius:var(--r-r);background:var(--accent-weak);color:var(--accent-deep)}
   .act svg{width:14px;height:14px}
+
+  /* ── 对话流内的确认卡（v2.1 · 先确认后执行 · 原地变更） ── */
+  .chatcard{width:100%;align-self:flex-start}
+  .chatcard .pending{margin-top:0}
+  .pendfoot{display:flex;gap:8px;margin-top:11px}
+  .pendfoot .pbtn{flex:1;height:38px;border-radius:11px;background:var(--bg);color:var(--t2);font-size:13.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .pendfoot .pbtn.pri{flex:1.7;background:var(--accent);color:#fff}
+  .pendfoot .pbtn svg{width:15px;height:15px;flex:0 0 15px;margin-right:5px}
+  .donecard{width:100%;align-self:flex-start;background:var(--surface);border:1px solid var(--accent-line);border-radius:var(--r-l);padding:11px 13px;box-shadow:var(--sh-1)}
+  .donecard .dh{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--accent-deep)}
+  .donecard .dh svg{width:14px;height:14px;flex:0 0 14px}
+  .donecard .drow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px}
+  .donecard .drow span{font-size:12.5px;color:var(--t2);line-height:1.55;min-width:0}
+  .donecard .dlink{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--accent-deep);white-space:nowrap}
+  .donecard.skip{border-color:var(--line-soft)}
+  .donecard.skip .dh{color:var(--t2)}
 
   /* ── 录音态 ── */
   .recwrap{padding:30px 22px;text-align:center}
@@ -167,6 +184,7 @@
   .pending .pi .cb{width:18px;height:18px;flex:0 0 18px;border-radius:6px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;margin-top:1px}
   .pending .pi .cb svg{width:11px;height:11px}
   .pending .pi i{display:block;font-style:normal;font-size:11.5px;color:var(--t3);margin-top:3px}
+  .pending .pi .tm{flex:0 0 auto;font-size:11px;font-weight:700;color:var(--warn);background:var(--warn-weak);border-radius:5px;padding:2px 6px;margin-top:1px}
   .pending .pfoot{font-size:11px;color:var(--t3);margin-top:10px;padding-top:9px;border-top:1px solid var(--line-soft);line-height:1.6}
 
   /* ── 待办清单（写回落点） ── */
@@ -232,14 +250,14 @@
   <aside class="rail">
     <div class="rail-head">
       <div class="rail-title">Agent 模块 · 移动端</div>
-      <div class="rail-sub">配套《Agent 模块设计方案》<br>对齐版 v2.0 · 形态参考 mobile 真机</div>
+      <div class="rail-sub">配套《Agent 模块设计方案》<br>对齐版 v2.1 · 形态参考 mobile 真机</div>
     </div>
     <div class="rail-group" id="rail"></div>
-    <div class="rail-note"><b>v2.0 对齐了什么</b>① 服务空间已下线 ⇒ 分身的<b>写回目标从「服务空间」迁到「待办」</b>（复盘写回 = 直接建待办 + 归档产出，不再出现"服务空间"字样）；② 顾问第四卡「看台账」→「<b>问园区</b>」；③ dock 的「服务」tab 更名「<b>待办</b>」（它落点本来就是待办清单）；④ 结果页加「<b>先确认后执行</b>」——产出先给草稿，点确认才落待办；⑤ 技能层加<b>落地标记</b>（改配置即上 / 待建）；⑥ 首页那句话定性为<b>早晨简报</b>（每日一次）。</div>
+    <div class="rail-note"><b>v2.0 对齐了什么</b>① 服务空间已下线 ⇒ 分身的<b>写回目标从「服务空间」迁到「待办」</b>（复盘写回 = 直接建待办 + 归档产出，不再出现"服务空间"字样）；② 顾问第四卡「看台账」→「<b>问园区</b>」；③ dock 的「服务」tab 更名「<b>待办</b>」（它落点本来就是待办清单）；④ 结果页加「<b>先确认后执行</b>」——产出先给草稿，点确认才落待办；⑤ 技能层加<b>落地标记</b>（改配置即上 / 待建）；⑥ 首页那句话定性为<b>早晨简报</b>（每日一次）。<br><br><b>v2.1 改了什么</b>确认卡从复盘整页<b>搬进对话流</b>：草稿 + <code>先不建</code> / <code>确认并生成</code>；点完<b>原地收成一行结果</b>、不新增卡片、不跳页，分身接着回一句下一步。顺带补上 <code>.pending .pi .tm</code> 徽标样式（原先只定义在 <code>.todo</code> 下，导致「高」在确认卡里是无样式裸文本）。</div>
     <div class="rail-foot">
       令牌取自真机 <code>AppColors</code>：accent #23B99D · 背景 #F5F6FA · 正文 #252B35<br>
       圆角 4 / 10 / 14 · 页边距 18<br>
-      <b>v2.0</b> · 2026-10-10
+      <b>v2.1</b> · 2026-10-13
     </div>
   </aside>
 
@@ -247,7 +265,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp">v2.0</span>
+      <span class="verstamp">v2.1</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll">
@@ -418,11 +436,46 @@ function vChat(){
       '<div class="msg me">那这周该做什么？</div>' +
       '<div class="msg ai"><div class="who">' + I('spark') + '分身</div>' +
         '我拟了 <b>2 条待办</b>，你看过再决定要不要建。' +
-        '<div class="acts"><button class="act" data-scene="result">' + I('check') + '看待办草稿</button></div>' +
       '</div>' +
+      chatConfirm() +
+      (state.appr === 'done'
+        ? '<div class="msg ai"><div class="who">' + I('spark') + '分身</div>' +
+            '排好了：今天先发材料费明细，周五前约周末场——先清障碍、再约访。' +
+          '</div>'
+        : '') +
     '</div>' +
     composer('接着问…') +
   '</div>';
+}
+
+/* 对话流内的确认卡（三态：待你确认 / 已生成 / 已跳过）
+   —— 原地变更：点确认只换这一块的样子，不新增第二张卡、不跳页 */
+function chatConfirm(){
+  if (state.appr === 'done'){
+    return '<div class="chatcard"><div class="donecard">' +
+      '<div class="dh">' + I('tick') + '2 条待办已生成</div>' +
+      '<div class="drow"><span>已写入「待办」· 来源：果果家复盘 今天 10:12</span>' +
+        '<button class="dlink" data-scene="todo">去「待办」看 ›</button></div>' +
+      '</div></div>';
+  }
+  if (state.appr === 'skip'){
+    return '<div class="chatcard"><div class="donecard skip">' +
+      '<div class="dh">' + I('check') + '这次没建待办</div>' +
+      '<div class="drow"><span>草稿已丢弃。要的时候说一声，我再拟。</span>' +
+        '<button class="dlink" data-appr="">再拟一次</button></div>' +
+      '</div></div>';
+  }
+  return '<div class="chatcard"><div class="pending">' +
+    '<div class="ph">' + I('check') + '2 条待办 · 待你确认</div>' +
+    '<div class="pi"><span class="cb">' + I('tick') + '</span>' +
+      '<span>约「父母同来」周末场<i>果果家 · 本周五前</i></span><span class="tm">高</span></div>' +
+    '<div class="pi"><span class="cb">' + I('tick') + '</span>' +
+      '<span>把材料费明细发给家长<i>果果家 · 今天</i></span><span class="tm">高</span></div>' +
+    '<div class="pendfoot">' +
+      '<button class="pbtn" data-appr="skip">先不建</button>' +
+      '<button class="pbtn pri" data-appr="done">' + I('tick') + '确认并生成 2 条待办</button>' +
+    '</div>' +
+  '</div></div>';
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -593,10 +646,14 @@ var SPECS = {
     mobile:'<b>dock 四 tab 不动，第四项「服务」更名「待办」</b>（`mobile/lib/main.dart` 里它落点本来就是服务提醒聚合页）；分身入口＝中央凸起键。角色切换 chip 在原型顶栏，是<b>演示控件</b>——真实产品中角色由登录账号的岗位字段决定，界面上不出现（依赖 `tenant_members.job_role`）。'},
   chat: { goal:'对话是"直接说"的通路，要证明分身答得出依据、干得成事。',
     pts:[
-      '两轮问答：一轮"问过去"（带依据），一轮"问现在该做什么"——后者指向待办草稿，<b>体现"产出先给草稿"</b>。',
+      '两轮问答：一轮"问过去"（带依据），一轮"问现在该做什么"——后者直接在对话流里给<b>待办草稿卡</b>，<b>体现"产出先给草稿"</b>。',
       '<b>依据压成一行灰字</b>（到访 9-28 · 通话 10-02 · 顾虑归纳 v1）。这是与通用助手的可见差别：通用助手给通用建议，分身给这家人的事。',
-      '<b>每条回答只给一个按钮</b>：<code>接着录谈单</code> / <code>看待办草稿</code>，不给第二个选择。',
-      '输入条在这里保留（相机 + 麦克风），这是"打字提问"的唯一入口。'
+      '<b>第一轮回答只给一个按钮</b>：<code>接着录谈单</code>，不给第二个选择。',
+      '<b>⚠️ v2.1 改确认方式：确认卡搬进对话流</b>。v2.0 这里是一句"我拟了 2 条待办" + 按钮「看待办草稿」，点了跳到复盘整页去确认。现在<b>确认卡直接落在对话流里</b>——草稿 2 条（带勾选）+ <code>先不建</code> / <code>确认并生成 2 条待办</code>。三条理由：① 用户问的是"该做什么"，答案就该在这一屏闭环，跳页等于把人从对话里踢出去；② 与引擎既有机制同构（<code>ToolApprovalCard</code> 就内联在对话流，不为一次确认开新页）；③ "点看待办草稿 → 再在整页点确认"是同一件事问两遍。',
+      '<b>⚠️ v2.1 确认后怎么显示：原地变更，不新增卡片、不跳页</b>。点确认后同一块位置收成一行结果（✔ 2 条待办已生成 · 来源可追溯 · <code>去「待办」看 ›</code>），分身紧接着回一句下一步（新气泡，含增量信息"先清障碍再约访"）。口径来自引擎实测：<code>tool_approval_resolved</code> 事件回来后，前端只改<b>同一条 event</b> 的 <code>resolved/approved</code>（<code>useChatStreamHandler.ts:636-650</code>），不追加气泡。',
+      '点「先不建」也有落点：卡片原地变灰一行"这次没建待办 · 草稿已丢弃"，给一个 <code>再拟一次</code> 回退——不留无反馈的死按钮。',
+      '输入条在这里保留（相机 + 麦克风），这是"打字提问"的唯一入口。',
+      '顶栏 chip（待确认 / 已生成 / 已跳过）是<b>演示控件</b>，真实产品里不存在——同一个会话点过确认就定了，不会再退回去。'
     ]},
   rec: { goal:'一个键，三种活。按下前讲清换来什么。',
     pts:[
@@ -611,7 +668,8 @@ var SPECS = {
       '<b>结论先行</b>：第一行就是结论，不是把转写念一遍。',
       '<b>三段固定结构</b>：关注点 / 卡在哪 / 下一步——与已上线的招生整理模板同口径。',
       '<b>⚠️ v2.0 新增「先确认后执行」</b>：v1.1 这里是"已写回"回执 + 一个跳转按钮；现在是<b>待办草稿预览（带勾选）+ 底部一个主按钮「确认并生成」</b>。三条理由——① Famly 明确写进产品原则"未获用户确认前绝不执行动作"；② 误操作与信任；③ 幼教合规要求助手不替人做承诺。',
-      '<b>同一信息只出现一次</b>：v1.1 的"已生成 2 条待办"（回执）与按钮"看这 2 条待办"是同一件事说两遍，v2.0 合并为"草稿 + 确认"，删掉回执。'
+      '<b>同一信息只出现一次</b>：v1.1 的"已生成 2 条待办"（回执）与按钮"看这 2 条待办"是同一件事说两遍，v2.0 合并为"草稿 + 确认"，删掉回执。',
+      '<b>⚠️ v2.1 两处确认入口的关系</b>：这一屏（录完谈单的成果页）与场景 2 对话流内的确认卡是<b>同一个确认、两种容器</b>——页面本身就是围绕这次产出的，底部一个主按钮合移动端习惯；对话流里则内联，不打断交谈。两边<b>动作词一致</b>（先不建 / 确认并生成）、<b>落点一致</b>（<code>service_reminders</code>）。'
     ],
     api:'写回落点（服务空间下线后）：<code>service_reminders</code>（待办，保留）+ <code>organize_outputs</code>（复盘归档）。复盘正文复用整理链路产出物，不新建表。<b>已摘掉</b>：`service_spaces` / `service_facts` / 空间会话 / 模板 / 设置。'},
   todo: { goal:'服务空间下线后留下的唯一一层：一屏待办，勾掉就走。',
@@ -644,7 +702,7 @@ var SPECS = {
 var RENDER = {};
 SCENES.forEach(function(s){ RENDER[s.key] = s.render; });
 
-var state = { scene:'home', role:'adv', rec:'live' };
+var state = { scene:'home', role:'adv', rec:'live', appr:'' };
 function $(s){ return document.querySelector(s); }
 
 function layout(){
@@ -675,9 +733,13 @@ function renderSide(){
 
 function renderBar(){
   var br = $('#barRight');
-  if (state.scene === 'home' || state.scene === 'chat'){
+  if (state.scene === 'home'){
     br.innerHTML = ROLE_ORDER.map(function(p){
       return '<button class="chip' + (state.role === p[0] ? ' on' : '') + '" data-role="' + p[0] + '">' + p[1] + '</button>';
+    }).join('');
+  } else if (state.scene === 'chat'){
+    br.innerHTML = [['','待确认'],['done','已生成'],['skip','已跳过']].map(function(p){
+      return '<button class="chip' + (state.appr === p[0] ? ' on' : '') + '" data-appr="' + p[0] + '">' + p[1] + '</button>';
     }).join('');
   } else if (state.scene === 'rec'){
     br.innerHTML = [['live','录音中'],['done','转写完成']].map(function(p){
@@ -690,12 +752,13 @@ function renderBar(){
 function setHash(h){ try { history.replaceState(null, '', '#' + h); } catch (err) {} }
 
 document.addEventListener('click', function(e){
-  var t = e.target.closest('[data-scene],[data-go],[data-role],[data-rec],[data-cap]');
+  var t = e.target.closest('[data-scene],[data-go],[data-role],[data-rec],[data-cap],[data-appr]');
   if (!t) return;
   if (t.hasAttribute('data-scene')){ state.scene = t.getAttribute('data-scene'); setHash(state.scene); return layout(); }
   if (t.hasAttribute('data-go')){ state.scene = t.getAttribute('data-go'); setHash(state.scene); return layout(); }
   if (t.hasAttribute('data-role')){ state.role = t.getAttribute('data-role'); return layout(); }
   if (t.hasAttribute('data-rec')){ state.rec = t.getAttribute('data-rec'); return layout(); }
+  if (t.hasAttribute('data-appr')){ state.appr = t.getAttribute('data-appr'); return layout(); }
   if (t.hasAttribute('data-cap')){
     var n = t.getAttribute('data-cap');
     if (n === '录谈单' || n === '记观察'){ state.scene = 'rec'; state.rec = 'live'; setHash('rec'); return layout(); }

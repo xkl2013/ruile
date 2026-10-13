@@ -550,7 +550,7 @@
   <aside class="rail">
     <div class="rail-head">
       <div class="rail-title">服务模块 · 优化后原型</div>
-      <div class="rail-sub">v1.40 · 14 个场景 · 4 个设置分区<br/>配套《服务模块开发方案》v3.4</div>
+      <div class="rail-sub">v1.41 · 14 个场景 · 4 个设置分区<br/>配套《服务模块开发方案》v3.4</div>
     </div>
     <div class="rail-group" id="rail"></div>
     <div class="rail-note">
@@ -563,7 +563,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.40</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.41</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll"><div class="canvas" id="root"></div></div>
@@ -1718,17 +1718,17 @@ function proposalCard(){
       <summary>▸ 看依据 · ${esc(p.src)} · ${esc(p.at)}</summary>
       <div class="evi">${esc(p.ev)}<span class="who">来自 ${esc(p.at)} 的对话</span></div>
     </details>
+    ${state.editOpen === p.id ? editForm(p) : `
     <div class="acts">
       <button class="btn pri sm" data-noop>确认</button>
       <button class="btn ghost sm" data-noop>忽略</button>
       <span class="cnt">提取的不对？点上面的值直接改</span>
-    </div>
-    ${state.editOpen === p.id ? editForm(p) : ''}
+    </div>`}
   </div>`;
 }
 function memChatView(){
   return `
-  <div class="annoline">方案 §11.3.6 第 1 条：内联卡片<b>保留</b>，但从"整块卡"改「<b>一行摘要 + 展开看证据</b>」，<b>默认收起</b>（原先 evidence 直接铺在卡里，一条就把对话顶下去半屏）。三个动作都是已有后端能力：<code>确认</code> → <code>ResolveFactProposal</code>；<code>改一下再确认</code> → 传改后的 <code>items</code> 入参（接口已支持、界面首次使用）；<code>忽略</code> → <code>rejected</code>（可翻回）。<b>v1.34 追加</b>：「改一下再确认」点开<b>原地展开</b>编辑表单——只改值、不弹窗、不跳页，取消即收起。<b>v1.37 追加</b>：编辑器分两型——<b>并列项值</b>（如「家长关注点 = 时段冲突、价格、接送距离」）用 <b>chips 逐项增删</b>（点 × 删一项、虚线框加一项，确认按钮实时显示项数）；<b>单值</b>（如「意向班型」）仍是文本框。逐项操作而不是整段改写，是因为并列项边界肉眼不可靠，整段改容易把「接送距离」误改成「接送 距离」. <b>v1.38 追加（简化）</b>：卡片常驻按钮从 <b>3 个降到 2 个</b>——「确认」是主按钮、「忽略」降为文字按钮，<b>「改一下再确认」不再是按钮</b>：点<b>值本身</b>即进入编辑（鼠标移上去值会变浅绿），编辑态主按钮变「保存修改」。一条信息只留一个主动作。<b>v1.39 追加（可发现性）</b>：你问"提取的不对怎么办"——说明「点值即改」看不出来能点。<b>修补</b>：卡片按钮行右侧<b>常驻一行小字「提取的不对？点上面的值直接改」</b>（对话流与台账两处都有，此前台账漏了）；值后的 ✎ 从最浅灰提到次浅灰。改完点「保存修改」仍走 <code>ResolveFactProposal</code> items 入参；<b>确认之后才发现错</b>的走另一条路：服务档案 → 行尾 ⋯ →「改这条」（软删 + superseded_by，审计可查）。</div>
+  <div class="annoline">方案 §11.3.6 第 1 条：内联卡片<b>保留</b>，但从"整块卡"改「<b>一行摘要 + 展开看证据</b>」，<b>默认收起</b>（原先 evidence 直接铺在卡里，一条就把对话顶下去半屏）。三个动作都是已有后端能力：<code>确认</code> → <code>ResolveFactProposal</code>；<code>改一下再确认</code> → 传改后的 <code>items</code> 入参（接口已支持、界面首次使用）；<code>忽略</code> → <code>rejected</code>（可翻回）。<b>v1.34 追加</b>：「改一下再确认」点开<b>原地展开</b>编辑表单——只改值、不弹窗、不跳页，取消即收起。<b>v1.37 追加</b>：编辑器分两型——<b>并列项值</b>（如「家长关注点 = 时段冲突、价格、接送距离」）用 <b>chips 逐项增删</b>（点 × 删一项、虚线框加一项，确认按钮实时显示项数）；<b>单值</b>（如「意向班型」）仍是文本框。逐项操作而不是整段改写，是因为并列项边界肉眼不可靠，整段改容易把「接送距离」误改成「接送 距离」. <b>v1.38 追加（简化）</b>：卡片常驻按钮从 <b>3 个降到 2 个</b>——「确认」是主按钮、「忽略」降为文字按钮，<b>「改一下再确认」不再是按钮</b>：点<b>值本身</b>即进入编辑（鼠标移上去值会变浅绿），编辑态主按钮变「保存修改」。一条信息只留一个主动作。<b>v1.39 追加（可发现性）</b>：你问"提取的不对怎么办"——说明「点值即改」看不出来能点。<b>修补</b>：卡片按钮行右侧<b>常驻一行小字「提取的不对？点上面的值直接改」</b>（对话流与台账两处都有，此前台账漏了）；值后的 ✎ 从最浅灰提到次浅灰。<b>v1.41 追加（编辑态接管）</b>：进入编辑后<b>「确认 / 忽略」按钮行整行隐藏</b>（含提示行）——编辑表单的「保存修改 / 取消」就是这一屏唯一的按钮组；一屏出现「确认」和「保存修改」两个主按钮，用户必然犹豫点哪个（四原则：一屏一个主按钮）。改完点「保存修改」仍走 <code>ResolveFactProposal</code> items 入参；<b>确认之后才发现错</b>的走另一条路：服务档案 → 行尾 ⋯ →「改这条」（软删 + superseded_by，审计可查）。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
@@ -1862,17 +1862,17 @@ function ledItem(p){
       <summary>▸ 看依据 · ${esc(p.src)} · ${esc(p.at)}</summary>
       <div class="evi">${esc(p.ev)}</div>
     </details>
+    ${state.editOpen === p.id ? editForm(p) : `
     <div class="acts">
       <button class="btn pri sm" data-noop>确认</button>
       <button class="btn ghost sm" data-noop>忽略</button>
       <span class="cnt">提取的不对？点上面的值直接改</span>
-    </div>
-    ${state.editOpen === p.id ? editForm(p) : ''}
+    </div>`}
   </div>`;
 }
 function memLedgerView(){
   return `
-  <div class="annoline"><b>v1.35 修订（§11.4）</b>：原先给「待确认」单开一个入口（右侧常驻栏「待确认 N ›」），结果是<b>两个数字两个入口都在说"等你处理"</b>——用户要分两处看、还得记住哪个是哪个。<b>本版合并成一个入口</b>：服务头「待办 N」里两组活，<b>「要你去做」</b>（<code>service_reminders</code>）与<b>「要你确认」</b>（<code>service_fact_proposals</code>）。完成动作不同（做完了 / 认可了），但都是"等你处理"，<b>一本账从上往下处理</b>。计数只在服务头出现一次，卡片与面板标题都不带数字。<br/><b>顺带砍掉「未完成项」</b>：它跟「待办」同义，从对话抽出的"还没做完的事"现在<b>直接落成待办</b>，不再另存一份记忆。原 §11.2 G4（提案划过去找不到）由这个面板解决——不再需要常驻栏那一行。<br/><b>v1.36 追加（怎么消费）</b>：「要你去做」的行<b>点开原地展开动作条</b>——标记完成 / 开始处理 / 协作 / 不做了（与「改一下再确认」同模式，不弹窗不跳页）；完成与取消<b>即时离组</b>（待办是消耗品，处理完这组就空、服务头数字跟着减），终态进「动态」；AI 从对话提出的待办点「不做了」向 AI 记一次反馈。<b>v1.37 追加</b>：「改一下再确认」的编辑器分两型——并列项值 chips 逐项增删 / 单值文本框（见场景 12 批注）。<b>v1.38 追加（简化）</b>：「要你去做」的行内按钮从 <b>4 个降到 1 个</b>——<b>点左边 ○ 即完成</b>（一眼就会，零学习成本）；「开始处理 / 不做了」收进行尾 <b>⋯</b>；协作数从按钮改成一行小字（它是信息、不是动作）。<b>v1.39 追加（可发现性）</b>：「要你确认」卡片补常驻提示行「提取的不对？点上面的值直接改」——见场景 12 批注。</div>
+  <div class="annoline"><b>v1.35 修订（§11.4）</b>：原先给「待确认」单开一个入口（右侧常驻栏「待确认 N ›」），结果是<b>两个数字两个入口都在说"等你处理"</b>——用户要分两处看、还得记住哪个是哪个。<b>本版合并成一个入口</b>：服务头「待办 N」里两组活，<b>「要你去做」</b>（<code>service_reminders</code>）与<b>「要你确认」</b>（<code>service_fact_proposals</code>）。完成动作不同（做完了 / 认可了），但都是"等你处理"，<b>一本账从上往下处理</b>。计数只在服务头出现一次，卡片与面板标题都不带数字。<br/><b>顺带砍掉「未完成项」</b>：它跟「待办」同义，从对话抽出的"还没做完的事"现在<b>直接落成待办</b>，不再另存一份记忆。原 §11.2 G4（提案划过去找不到）由这个面板解决——不再需要常驻栏那一行。<br/><b>v1.36 追加（怎么消费）</b>：「要你去做」的行<b>点开原地展开动作条</b>——标记完成 / 开始处理 / 协作 / 不做了（与「改一下再确认」同模式，不弹窗不跳页）；完成与取消<b>即时离组</b>（待办是消耗品，处理完这组就空、服务头数字跟着减），终态进「动态」；AI 从对话提出的待办点「不做了」向 AI 记一次反馈。<b>v1.37 追加</b>：「改一下再确认」的编辑器分两型——并列项值 chips 逐项增删 / 单值文本框（见场景 12 批注）。<b>v1.38 追加（简化）</b>：「要你去做」的行内按钮从 <b>4 个降到 1 个</b>——<b>点左边 ○ 即完成</b>（一眼就会，零学习成本）；「开始处理 / 不做了」收进行尾 <b>⋯</b>；协作数从按钮改成一行小字（它是信息、不是动作）。<b>v1.39 追加（可发现性）</b>：「要你确认」卡片补常驻提示行「提取的不对？点上面的值直接改」——见场景 12 批注。<b>v1.41 追加</b>：编辑态下「确认 / 忽略」按钮行整行隐藏，编辑表单接管（见场景 12 批注）。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">

@@ -6,7 +6,7 @@ export default {
     integrations: "发布集成",
     organizations: "团队空间",
     chat: "对话",
-    newChat: "小睿AI",
+    newChat: "小睿",
     messages: "服务",
     createChat: "创建对话",
     tenant: "账户信息",
