@@ -79,6 +79,16 @@ type CustomAgent struct {
 	Description string `yaml:"description" json:"description" gorm:"type:text"`
 	// Avatar/Icon of the agent (emoji or icon name)
 	Avatar string `yaml:"avatar" json:"avatar" gorm:"type:text"`
+	// AvatarURL is the client-renderable avatar location populated at response
+	// time. It is never persisted because protected resource URLs may be
+	// versioned, authenticated, or short-lived.
+	AvatarURL string `yaml:"-" json:"avatar_url,omitempty" gorm:"-"`
+	// AvatarVersion changes whenever the stored avatar reference or agent
+	// update timestamp changes, allowing clients to cache avatar responses.
+	AvatarVersion string `yaml:"-" json:"avatar_version,omitempty" gorm:"-"`
+	// AvatarURLRequiresAuth tells clients whether Authorization/X-Tenant-ID
+	// headers are required when loading AvatarURL.
+	AvatarURLRequiresAuth bool `yaml:"-" json:"avatar_url_requires_auth,omitempty" gorm:"-"`
 	// Whether this is a built-in agent (normal mode / agent mode)
 	IsBuiltin bool `yaml:"is_builtin" json:"is_builtin" gorm:"default:false"`
 	// Tenant ID (composite primary key with ID)

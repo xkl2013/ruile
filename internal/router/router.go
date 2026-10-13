@@ -1446,6 +1446,8 @@ func RegisterCustomAgentRoutes(r *gin.RouterGroup, agentHandler *handler.CustomA
 		agentsWrite.POST("", g.AdminOrSystemAdmin(), agentHandler.CreateAgent)
 		// List all agents (including built-in) — Viewer+
 		agentsRead.GET("", g.Viewer(), agentHandler.ListAgents)
+		// Read the current avatar through an authenticated, cacheable endpoint.
+		agentsRead.GET("/:id/avatar", g.Viewer(), agentHandler.GetAgentAvatar)
 		// Get agent by ID — Viewer+
 		agentsRead.GET("/:id", g.Viewer(), agentHandler.GetAgent)
 		// Update custom agent — Admin+; update platform built-in — SystemAdmin.

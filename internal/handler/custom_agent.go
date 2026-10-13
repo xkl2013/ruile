@@ -1,9 +1,14 @@
 package handler
 
 import (
+	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -22,6 +27,7 @@ type CustomAgentHandler struct {
 	service      interfaces.CustomAgentService
 	imService    *im.Service
 	disabledRepo interfaces.TenantDisabledSharedAgentRepository
+	fileService  interfaces.FileService
 	// userService 仅用于 list 接口批量回填 creator_name，作用见
 	// KnowledgeBaseHandler.userService。
 	userService interfaces.UserService
@@ -33,13 +39,66 @@ func NewCustomAgentHandler(
 	imService *im.Service,
 	disabledRepo interfaces.TenantDisabledSharedAgentRepository,
 	userService interfaces.UserService,
+	fileService interfaces.FileService,
 ) *CustomAgentHandler {
 	return &CustomAgentHandler{
 		service:      service,
 		imService:    imService,
 		disabledRepo: disabledRepo,
 		userService:  userService,
+		fileService:  fileService,
 	}
+}
+
+func isProtectedAgentAvatar(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	for _, prefix := range []string{
+		"resource://", "storage://", "local://", "minio://", "cos://",
+		"tos://", "s3://", "oss://", "ks3://", "obs://",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentAvatarVersion(agent *types.CustomAgent) string {
+	if agent == nil || strings.TrimSpace(agent.Avatar) == "" {
+		return ""
+	}
+	versionSource := strings.TrimSpace(agent.Avatar)
+	if !agent.UpdatedAt.IsZero() {
+		versionSource += "\x00" + agent.UpdatedAt.UTC().Format("20060102T150405.000000000Z")
+	}
+	sum := sha256.Sum256([]byte(versionSource))
+	return hex.EncodeToString(sum[:8])
+}
+
+func (h *CustomAgentHandler) enrichAgentAvatarMetadata(agent *types.CustomAgent) {
+	if agent == nil {
+		return
+	}
+	agent.AvatarURL = ""
+	agent.AvatarVersion = ""
+	agent.AvatarURLRequiresAuth = false
+
+	avatar := strings.TrimSpace(agent.Avatar)
+	if avatar == "" {
+		return
+	}
+	agent.AvatarVersion = agentAvatarVersion(agent)
+	lower := strings.ToLower(avatar)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		agent.AvatarURL = avatar
+		return
+	}
+	if !isProtectedAgentAvatar(avatar) {
+		return
+	}
+	agent.AvatarURL = "/api/v1/agents/" + url.PathEscape(agent.ID) +
+		"/avatar?v=" + url.QueryEscape(agent.AvatarVersion)
+	agent.AvatarURLRequiresAuth = true
 }
 
 // CreateAgentRequest defines the request body for creating an agent
@@ -123,6 +182,7 @@ func (h *CustomAgentHandler) CreateAgent(c *gin.Context) {
 
 	logger.Infof(ctx, "Custom agent created successfully, ID: %s, name: %s",
 		secutils.SanitizeForLog(createdAgent.ID), secutils.SanitizeForLog(createdAgent.Name))
+	h.enrichAgentAvatarMetadata(createdAgent)
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"data":    createdAgent,
@@ -170,10 +230,94 @@ func (h *CustomAgentHandler) GetAgent(c *gin.Context) {
 		return
 	}
 
+	h.enrichAgentAvatarMetadata(agent)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    agent,
 	})
+}
+
+// GetAgentAvatar serves a protected agent avatar through an authenticated,
+// versioned endpoint so clients can use normal image caching without exposing
+// the bearer token in the URL.
+func (h *CustomAgentHandler) GetAgentAvatar(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		c.Error(errors.NewBadRequestError("Agent ID cannot be empty"))
+		return
+	}
+
+	agent, err := h.service.GetAgentByID(ctx, id)
+	if err != nil {
+		if err == service.ErrAgentNotFound {
+			c.Error(errors.NewNotFoundError("Agent not found"))
+			return
+		}
+		if appErr, ok := err.(*errors.AppError); ok {
+			c.Error(appErr)
+			return
+		}
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	avatar := strings.TrimSpace(agent.Avatar)
+	if avatar == "" {
+		c.Error(errors.NewNotFoundError("Agent avatar not found"))
+		return
+	}
+	lower := strings.ToLower(avatar)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		c.Redirect(http.StatusTemporaryRedirect, avatar)
+		return
+	}
+	if !isProtectedAgentAvatar(avatar) || h.fileService == nil {
+		c.Error(errors.NewNotFoundError("Agent avatar not found"))
+		return
+	}
+
+	version := agentAvatarVersion(agent)
+	etag := `"` + version + `"`
+	if strings.TrimSpace(c.GetHeader("If-None-Match")) == etag {
+		c.Status(http.StatusNotModified)
+		return
+	}
+
+	file, err := h.fileService.GetFile(ctx, avatar)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to open agent avatar %s: %v", secutils.SanitizeForLog(id), err)
+		c.Error(errors.NewNotFoundError("Agent avatar not found"))
+		return
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	header, peekErr := reader.Peek(512)
+	if peekErr != nil && peekErr != io.EOF {
+		logger.Warnf(ctx, "Failed to inspect agent avatar %s: %v", secutils.SanitizeForLog(id), peekErr)
+		c.Error(errors.NewInternalServerError("Failed to read agent avatar"))
+		return
+	}
+	if len(header) == 0 {
+		c.Error(errors.NewNotFoundError("Agent avatar not found"))
+		return
+	}
+	contentType := http.DetectContentType(header)
+	if !strings.HasPrefix(strings.ToLower(contentType), "image/") {
+		c.Error(errors.NewBadRequestError("Agent avatar is not a supported image"))
+		return
+	}
+
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", `inline; filename="agent-avatar"`)
+	c.Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
+	c.Header("ETag", etag)
+	c.Header("Vary", "Authorization, X-Tenant-ID")
+	c.Status(http.StatusOK)
+	if _, err := io.Copy(c.Writer, reader); err != nil {
+		logger.Warnf(ctx, "Failed to stream agent avatar %s: %v", secutils.SanitizeForLog(id), err)
+	}
 }
 
 // ListAgents godoc
@@ -252,6 +396,9 @@ func (h *CustomAgentHandler) ListAgents(c *gin.Context) {
 	// 内建 agent（IsBuiltin=true, CreatedBy=""）不会有 creator_name，前端按 builtin
 	// 分支单独渲染。
 	enrichAgentCreatorNames(ctx, h.userService, agents)
+	for _, agent := range agents {
+		h.enrichAgentAvatarMetadata(agent)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":                true,
@@ -379,6 +526,7 @@ func (h *CustomAgentHandler) UpdateAgent(c *gin.Context) {
 	}
 
 	logger.Infof(ctx, "Custom agent updated successfully, ID: %s", secutils.SanitizeForLog(id))
+	h.enrichAgentAvatarMetadata(updatedAgent)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    updatedAgent,
@@ -514,6 +662,7 @@ func (h *CustomAgentHandler) CopyAgent(c *gin.Context) {
 
 	logger.Infof(ctx, "Custom agent copied successfully, source ID: %s, new ID: %s",
 		secutils.SanitizeForLog(id), secutils.SanitizeForLog(copiedAgent.ID))
+	h.enrichAgentAvatarMetadata(copiedAgent)
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
 		"data":    copiedAgent,

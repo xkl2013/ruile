@@ -150,6 +150,9 @@ export interface CustomAgent {
   name: string;
   description?: string;
   avatar?: string;
+  avatar_url?: string;
+  avatar_version?: string;
+  avatar_url_requires_auth?: boolean;
   is_builtin: boolean;
   tenant_id?: number;
   created_by?: string;

@@ -234,7 +234,7 @@ packages:
     source: hosted
     version: "7.0.1"
   file_selector:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: file_selector
       sha256: bd15e43e9268db636b53eeaca9f56324d1622af30e5c34d6e267649758c84d9a
@@ -423,7 +423,7 @@ packages:
     source: hosted
     version: "4.0.0"
   flutter_markdown_plus:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: flutter_markdown_plus
       sha256: fce641d6c2106cc495de1cd603f97a4f9d615a97a64011928ded380dbdade935
@@ -553,7 +553,7 @@ packages:
     source: hosted
     version: "4.1.2"
   image_picker:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: image_picker
       sha256: e71b1bd9e40124041128d60fc3034c7b1598e1bba4e570bba0c70301c817013a

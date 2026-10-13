@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:ruile_mobile/main.dart';
@@ -237,7 +238,7 @@ void main() {
     expect(find.byKey(const Key('main-page-header-整理')), findsOneWidget);
     expect(find.byTooltip('菜单'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('提醒'));
+    await tester.tap(find.byTooltip('服务'));
     await _pumpTransition(tester);
     expect(find.byKey(const Key('main-page-header-服务提醒')), findsOneWidget);
     expect(find.byTooltip('菜单'), findsOneWidget);
@@ -259,13 +260,98 @@ void main() {
 
     expect(find.text('家校反馈'), findsWidgets);
     expect(find.text('Agent 会话'), findsOneWidget);
-    expect(find.text('Agent 计划'), findsOneWidget);
+    expect(find.text('Agent 计划'), findsNothing);
+    expect(find.text('计划流'), findsNothing);
     expect(find.text('查看轨迹'), findsOneWidget);
     expect(find.text('帮我写一段今天课堂观察反馈'), findsOneWidget);
+    expect(find.byKey(const ValueKey('agent-voice-composer')), findsOneWidget);
+    expect(find.text('按住 说话'), findsOneWidget);
+    expect(find.byTooltip('切换到键盘'), findsOneWidget);
+    expect(find.byTooltip('拍照'), findsOneWidget);
+    expect(find.byTooltip('更多'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('切换到键盘'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('agent-text-input')), findsOneWidget);
+    expect(find.byTooltip('切换到语音'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('切换到语音'));
+    await tester.pump();
+    expect(find.text('按住 说话'), findsOneWidget);
+
+    await tester.tap(find.text('帮我写一段今天课堂观察反馈'));
+    await tester.pump();
+    expect(find.text('计划流'), findsOneWidget);
+    expect(find.text('提炼课堂观察'), findsOneWidget);
+
+    for (var index = 0; index < 4; index++) {
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.text('计划流'), findsNothing);
 
     await tester.tap(find.byTooltip('返回'));
     await _pumpTransition(tester);
     expect(find.text('小睿来啦'), findsOneWidget);
+  });
+
+  testWidgets('keeps Agent messages inside a compact mobile viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+    await tester.tap(find.text('家校反馈').first);
+    await _pumpTransition(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final responseText = find.byType(MarkdownBody).first;
+    final responseRect = tester.getRect(responseText);
+    expect(responseRect.left, greaterThanOrEqualTo(0));
+    expect(responseRect.right, lessThanOrEqualTo(320));
+    expect(responseRect.width, greaterThan(200));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opens the expert list from the Xiao Rui expert plaza', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    expect(find.text('家校反馈'), findsOneWidget);
+    expect(find.text('到访跟进'), findsOneWidget);
+    expect(find.text('补课通知'), findsOneWidget);
+    expect(find.text('招生文案'), findsOneWidget);
+
+    await tester.drag(find.byType(ListView).first, const Offset(0, -420));
+    await tester.pump();
+    await tester.tap(find.text('专家广场'));
+    await _pumpTransition(tester);
+
+    expect(find.text('专家列表'), findsOneWidget);
+    expect(find.byKey(const ValueKey('expert-list-search')), findsOneWidget);
+    final expertItems = find.byWidgetPredicate((widget) {
+      final key = widget.key;
+      return key is ValueKey<String> &&
+          key.value.startsWith('expert-list-item-');
+    });
+    expect(expertItems, findsNWidgets(4));
+    final themedTagTexts = tester.widgetList<Text>(find.text('家校沟通'));
+    expect(themedTagTexts, isNotEmpty);
+    expect(
+      themedTagTexts.every(
+        (text) => text.style?.color == AppColors.xiaoPrimary,
+      ),
+      isTrue,
+    );
+
+    await tester.tap(expertItems.first);
+    await _pumpTransition(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Agent 会话'), findsOneWidget);
   });
 
   testWidgets('opens the recording card from the disconnected header prompt', (
@@ -306,7 +392,7 @@ void main() {
       tester.getCenter(find.byTooltip('小睿')),
       tester.getCenter(find.byTooltip('记忆')),
       tester.getCenter(find.byTooltip('整理')),
-      tester.getCenter(find.byTooltip('提醒')),
+      tester.getCenter(find.byTooltip('服务')),
     ];
 
     for (var index = 0; index < centers.length; index++) {
@@ -332,7 +418,7 @@ void main() {
     await _openMemoryTab(tester);
     expect(find.byKey(const Key('main-page-header-记忆')), findsOneWidget);
 
-    await tester.tap(find.byTooltip('提醒'));
+    await tester.tap(find.byTooltip('服务'));
     await _pumpTransition(tester);
 
     expect(find.byKey(const Key('main-page-header-服务提醒')), findsOneWidget);
