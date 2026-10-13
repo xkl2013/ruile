@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../error_message.dart';
 import 'jieli_recording_card_sdk.dart';
 import 'jieli_recording_card_runtime.dart';
 import 'jieli_recording_card_sync_support.dart';
@@ -66,9 +67,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   final Map<String, _JieliDeviceFileRef> _deviceSidecarFiles =
       <String, _JieliDeviceFileRef>{};
   final ValueNotifier<_JieliRecordingViewData> _recordingViewNotifier =
-      ValueNotifier<_JieliRecordingViewData>(
-    const _JieliRecordingViewData(),
-  );
+      ValueNotifier<_JieliRecordingViewData>(const _JieliRecordingViewData());
   final ValueNotifier<bool> _recordCommandBusyNotifier = ValueNotifier(false);
   final RecordingCardLocalStore _localStore = const RecordingCardLocalStore();
   late final RecordingCardApiClient _apiClient;
@@ -180,28 +179,29 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
 
   // ignore: unused_element
   List<_JieliDevice> get _scannedDevices {
-    final devices = _devices.values.where((device) {
-      return device.isDiscoveredTarget && device.isRecordingCardCandidate;
-    }).toList();
-    return devices
-      ..sort((a, b) {
-        final recognizedOrder = _boolSortValue(b.isRecognizedJieli) -
-            _boolSortValue(a.isRecognizedJieli);
-        if (recognizedOrder != 0) return recognizedOrder;
-        return b.rssi.compareTo(a.rssi);
-      });
+    final devices =
+        _devices.values.where((device) {
+          return device.isDiscoveredTarget && device.isRecordingCardCandidate;
+        }).toList();
+    return devices..sort((a, b) {
+      final recognizedOrder =
+          _boolSortValue(b.isRecognizedJieli) -
+          _boolSortValue(a.isRecognizedJieli);
+      if (recognizedOrder != 0) return recognizedOrder;
+      return b.rssi.compareTo(a.rssi);
+    });
   }
 
   @override
   void initState() {
     super.initState();
     _runtime.setRecordingCardDetailActive(true);
-    _apiClient = RecordingCardApiClient(
-      onAuthFailure: widget.onAuthFailure,
-    );
+    _apiClient = RecordingCardApiClient(onAuthFailure: widget.onAuthFailure);
     WidgetsBinding.instance.addObserver(this);
-    _eventSubscription =
-        _runtime.events.listen(_handleEvent, onError: _handleError);
+    _eventSubscription = _runtime.events.listen(
+      _handleEvent,
+      onError: _handleError,
+    );
     unawaited(_loadLocalPendingEntries());
     unawaited(_initializeAndScan());
   }
@@ -245,10 +245,14 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return;
       setState(() {
         _availability = availability;
-        _message = availability.available
-            ? '正在搜索设备'
-            : (availability.message.isEmpty ? 'SDK 不可用' : availability.message);
-        _error = availability.available ? null : availability.message;
+        _message =
+            availability.available
+                ? '正在搜索设备'
+                : localizedErrorText(availability.message, fallback: 'SDK 不可用');
+        _error =
+            availability.available
+                ? null
+                : localizedErrorText(availability.message, fallback: 'SDK 不可用');
       });
       if (availability.available) {
         final restored = await _restoreConnectedDevice();
@@ -259,7 +263,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = '初始化失败：$error';
+        _error = '初始化失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
         _message = '初始化失败';
       });
     } finally {
@@ -282,9 +286,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     final device = _JieliDevice.fromPayload({
       ...?rememberedDevice,
       'address': connectionState.address,
-      'name': connectionState.name.isEmpty
-          ? (rememberedDevice?['name'] ?? _officialJieliCardName)
-          : connectionState.name,
+      'name':
+          connectionState.name.isEmpty
+              ? (rememberedDevice?['name'] ?? _officialJieliCardName)
+              : connectionState.name,
       'source': rememberedDevice?['source'] ?? _jieliSdkSource,
       'connectable': true,
       'connect_protocol': rememberedDevice?['connect_protocol'] ?? 'ble',
@@ -350,9 +355,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (status.isGranted) return true;
       if (!mounted) return false;
       setState(() {
-        _error = status.isPermanentlyDenied
-            ? '蓝牙权限已被永久拒绝，请到系统设置中重新开启。'
-            : '需要蓝牙权限才能搜索设备。';
+        _error =
+            status.isPermanentlyDenied
+                ? '蓝牙权限已被永久拒绝，请到系统设置中重新开启。'
+                : '需要蓝牙权限才能搜索设备。';
       });
       if (status.isPermanentlyDenied) {
         await openAppSettings();
@@ -381,9 +387,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _activeScanMode = mode;
         _scanning = true;
         _error = null;
-        _message = mode == JieliRecordingCardScanMode.classic
-            ? '正在搜索经典蓝牙 X9'
-            : '正在搜索 X9';
+        _message =
+            mode == JieliRecordingCardScanMode.classic
+                ? '正在搜索经典蓝牙 X9'
+                : '正在搜索 X9';
       });
       final ok = await _sdk.startScan(
         timeout: const Duration(seconds: 30),
@@ -399,7 +406,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _error = '搜索失败：$error';
+        _error = '搜索失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
   }
@@ -485,7 +492,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _connecting = false;
         _connectingAddress = null;
         _message = '连接失败';
-        _error = '连接失败：$error';
+        _error = '连接失败：${localizedErrorMessage(error, fallback: '请检查设备连接后重试')}';
       });
     }
   }
@@ -537,7 +544,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = '刷新设备状态失败：$error';
+        _error = '刷新设备状态失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
     await _startAutoSync();
@@ -573,7 +580,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return;
       setState(() {
         _message = '录音失败';
-        _error = '录音失败：$error';
+        _error = '录音失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     } finally {
       if (mounted) {
@@ -599,7 +606,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return false;
       setState(() {
         _message = '录音失败';
-        _error = '录音失败：$error';
+        _error = '录音失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
       return false;
     } finally {
@@ -654,9 +661,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _fileBrowseMessage = '读取文件列表失败';
         if (autoSync) {
           _autoBrowseInProgress = false;
-          _autoSyncError = '读取文件列表失败：$error';
+          _autoSyncError =
+              '读取文件列表失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
         }
-        _error = '读取文件列表失败：$error';
+        _error = '读取文件列表失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
   }
@@ -679,16 +687,18 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         }
         _fileBrowseLoading =
             result.success && result.code != -1 && result.message != '目录已读取完成';
-        _fileBrowseMessage = result.success
-            ? '已发送读取请求：${storage.displayName}'
-            : (result.message.isEmpty ? '读取失败' : result.message);
+        _fileBrowseMessage =
+            result.success
+                ? '已发送读取请求：${storage.displayName}'
+                : localizedErrorText(result.message, fallback: '读取失败');
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _fileBrowseLoading = false;
         _fileBrowseMessage = '${storage.displayName} 读取失败';
-        _error = '${storage.displayName} 读取失败：$error';
+        _error =
+            '${storage.displayName} 读取失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
   }
@@ -717,14 +727,16 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _fileBrowseLoading =
             result.success && result.code != -1 && result.message != '目录已读取完成';
         _fileBrowseMessage =
-            result.success ? '已进入 ${file.name}' : '进入目录失败：${result.message}';
+            result.success
+                ? '已进入 ${file.name}'
+                : '进入目录失败：${localizedErrorText(result.message, fallback: '请稍后重试')}';
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _fileBrowseLoading = false;
         _fileBrowseMessage = '进入目录失败';
-        _error = '进入目录失败：$error';
+        _error = '进入目录失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
   }
@@ -747,14 +759,16 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         }
         _fileBrowseLoading = false;
         _fileBrowseMessage =
-            result.success ? '已返回上级目录' : '返回失败：${result.message}';
+            result.success
+                ? '已返回上级目录'
+                : '返回失败：${localizedErrorText(result.message, fallback: '请稍后重试')}';
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _fileBrowseLoading = false;
         _fileBrowseMessage = '返回目录失败';
-        _error = '返回目录失败：$error';
+        _error = '返回目录失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
   }
@@ -785,7 +799,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return;
       setState(() {
         _fileReadMessage =
-            result.success ? '已开始下载 ${file.name}' : '下载启动失败：${result.message}';
+            result.success
+                ? '已开始下载 ${file.name}'
+                : '下载启动失败：${localizedErrorText(result.message, fallback: '请稍后重试')}';
         if (!result.success) {
           _fileReadLoading = false;
         }
@@ -795,7 +811,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       setState(() {
         _fileReadLoading = false;
         _fileReadMessage = '下载失败';
-        _error = '下载失败：$error';
+        _error = '下载失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
   }
@@ -838,7 +854,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return;
       setState(() {
         _fileDeleteMessage =
-            result.success ? '已发起删除 ${file.name}' : '删除启动失败：${result.message}';
+            result.success
+                ? '已发起删除 ${file.name}'
+                : '删除启动失败：${localizedErrorText(result.message, fallback: '请稍后重试')}';
         if (!result.success) {
           _fileDeleteLoading = false;
         }
@@ -848,7 +866,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       setState(() {
         _fileDeleteLoading = false;
         _fileDeleteMessage = '删除失败';
-        _error = '删除失败：$error';
+        _error = '删除失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       });
     }
   }
@@ -977,9 +995,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return;
       setState(() {
         _autoBrowseInProgress = false;
-        _autoSyncMessage = _deviceAudioFiles.isEmpty
-            ? '录音目录没有 MP3 文件'
-            : '已识别 ${_deviceAudioFiles.length} 个录音，开始自动导入';
+        _autoSyncMessage =
+            _deviceAudioFiles.isEmpty
+                ? '录音目录没有 MP3 文件'
+                : '已识别 ${_deviceAudioFiles.length} 个录音，开始自动导入';
         _lastAutoSyncAt = DateTime.now();
       });
       await _markUnavailableAutoSyncEntries();
@@ -1046,7 +1065,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         if (existing == null) {
           newCount += 1;
         }
-        final staleDownloadState = existing != null &&
+        final staleDownloadState =
+            existing != null &&
             !existing.hasLocalAudio &&
             (existing.transferStatus ==
                     RecordingCardFileTransferStatus.failed ||
@@ -1068,23 +1088,27 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
                       RecordingCardFileTransferStatus.downloadPending,
                 ))
             .copyWith(
-          deviceId: deviceId,
-          deviceMac: existing?.deviceMac.isNotEmpty == true
-              ? existing!.deviceMac
-              : deviceId,
-          deviceName: _targetDevice.displayName,
-          fileSizeBytes:
-              staleDownloadState ? 0 : (existing?.fileSizeBytes ?? 0),
-          syncedBytes: staleDownloadState ? 0 : (existing?.syncedBytes ?? 0),
-          checksumFailureCount:
-              staleDownloadState ? 0 : (existing?.checksumFailureCount ?? 0),
-          transferStatus: nextStatus,
-          lastError:
-              nextStatus == RecordingCardFileTransferStatus.downloadPending
-                  ? ''
-                  : existing?.lastError ?? '',
-          createdAt: existing?.createdAt ?? now,
-        );
+              deviceId: deviceId,
+              deviceMac:
+                  existing?.deviceMac.isNotEmpty == true
+                      ? existing!.deviceMac
+                      : deviceId,
+              deviceName: _targetDevice.displayName,
+              fileSizeBytes:
+                  staleDownloadState ? 0 : (existing?.fileSizeBytes ?? 0),
+              syncedBytes:
+                  staleDownloadState ? 0 : (existing?.syncedBytes ?? 0),
+              checksumFailureCount:
+                  staleDownloadState
+                      ? 0
+                      : (existing?.checksumFailureCount ?? 0),
+              transferStatus: nextStatus,
+              lastError:
+                  nextStatus == RecordingCardFileTransferStatus.downloadPending
+                      ? ''
+                      : existing?.lastError ?? '',
+              createdAt: existing?.createdAt ?? now,
+            );
         _fileEntries[fileNameNoExt] = next;
         unawaited(_persistAutoSyncEntry(next));
       }
@@ -1163,8 +1187,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
 
     final sidecarDeleteCandidate = _nextJieliSidecarDeleteCandidate();
     if (sidecarDeleteCandidate != null) {
-      final deleted =
-          await _deleteDeviceSidecarForEntry(sidecarDeleteCandidate);
+      final deleted = await _deleteDeviceSidecarForEntry(
+        sidecarDeleteCandidate,
+      );
       if (deleted) {
         await _advanceAutoSyncQueue();
       }
@@ -1209,10 +1234,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     return fileNameNoExt == null ? null : _fileEntries[fileNameNoExt];
   }
 
-  void _observeJieliAudioFile(
-    _JieliDeviceFileRef ref,
-    DateTime now,
-  ) {
+  void _observeJieliAudioFile(_JieliDeviceFileRef ref, DateTime now) {
     final name = _fileNameNoExtension(ref.file.name);
     if (name.isEmpty) return;
     final identity =
@@ -1243,13 +1265,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   void _scheduleAutoSyncWake(Duration delay) {
     if (!mounted || !_autoSyncRunning) return;
     _autoSyncWakeTimer?.cancel();
-    _autoSyncWakeTimer = Timer(
-      delay,
-      () {
-        _autoSyncWakeTimer = null;
-        unawaited(_advanceAutoSyncQueue());
-      },
-    );
+    _autoSyncWakeTimer = Timer(delay, () {
+      _autoSyncWakeTimer = null;
+      unawaited(_advanceAutoSyncQueue());
+    });
   }
 
   Future<void> _downloadJieliEntry(RecordingCardFileEntry entry) async {
@@ -1277,9 +1296,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _activeSyncEntry = downloading;
     _upsertAutoSyncEntry(downloading);
     setState(() {
-      _autoSyncMessage = attempt == 0
-          ? '正在下载 ${ref.file.name}'
-          : '正在重试 ${ref.file.name}（$attempt/$jieliAutomaticDownloadRetryLimit）';
+      _autoSyncMessage =
+          attempt == 0
+              ? '正在下载 ${ref.file.name}'
+              : '正在重试 ${ref.file.name}（$attempt/$jieliAutomaticDownloadRetryLimit）';
       _autoSyncError = null;
       _fileReadLoading = true;
       _fileReadBytes = 0;
@@ -1304,16 +1324,17 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       }
       if (!result.success) {
         _markActiveReadFailed(
-            result.message.isEmpty ? '下载启动失败' : result.message);
+          localizedErrorText(result.message, fallback: '下载启动失败'),
+        );
       }
     } catch (error) {
-      _markActiveReadFailed('下载启动失败：$error');
+      _markActiveReadFailed(
+        '下载启动失败：${localizedErrorMessage(error, fallback: '请稍后重试')}',
+      );
     }
   }
 
-  Future<void> _handleAutoFileReadComplete(
-    Map<String, Object?> payload,
-  ) async {
+  Future<void> _handleAutoFileReadComplete(Map<String, Object?> payload) async {
     debugPrint(
       '[JieliRead] complete handler entered '
       'payload=$payload activeRef=${_activeReadFileRef?.file.name} '
@@ -1413,21 +1434,22 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       );
       await _advanceAutoSyncQueue();
     } catch (error) {
-      _markActiveReadFailed('保存下载文件失败：$error');
+      _markActiveReadFailed(
+        '保存下载文件失败：${localizedErrorMessage(error, fallback: '请稍后重试')}',
+      );
     }
   }
 
-  void _updateActiveAudioProgress({
-    required int bytes,
-  }) {
+  void _updateActiveAudioProgress({required int bytes}) {
     final entry = _activeSyncEntry;
     if (entry == null || bytes <= 0) return;
     // Jieli progress is transfer progress, not a reliable file-size source.
     // Keep an already known size, but do not turn progress=100 into a fake
     // total. The actual local file length is authoritative on completion.
-    final knownTotal = entry.fileSizeBytes > 0
-        ? (entry.fileSizeBytes < bytes ? bytes : entry.fileSizeBytes)
-        : 0;
+    final knownTotal =
+        entry.fileSizeBytes > 0
+            ? (entry.fileSizeBytes < bytes ? bytes : entry.fileSizeBytes)
+            : 0;
     final next = entry.copyWith(
       syncedBytes: bytes,
       fileSizeBytes: knownTotal,
@@ -1460,15 +1482,15 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     }
     final ref = _activeReadFileRef;
     if (ref == null || !_matchesActiveReadPayload(payload, ref)) return;
-    final message = payload['message']?.toString().trim() ?? '文件下载失败';
+    final message = localizedErrorText(
+      payload['message']?.toString() ?? '',
+      fallback: '文件下载失败',
+    );
     final code = _readInt(payload, 'code', fallback: -1);
     debugPrint('[JieliRead] failed payload=$payload');
     _markActiveReadFailed(
       message,
-      retryable: shouldRetryJieliFileReadFailure(
-        code: code,
-        message: message,
-      ),
+      retryable: shouldRetryJieliFileReadFailure(code: code, message: message),
     );
   }
 
@@ -1481,13 +1503,16 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _fileReadTimeoutTimer?.cancel();
     _fileReadTimeoutTimer = null;
     final entry = _activeSyncEntry;
-    final failedName = _activeReadFileRef?.file.name.trim().isNotEmpty == true
-        ? _activeReadFileRef!.file.name
-        : entry?.fileNameNoExt ?? '';
-    final retryCount = entry == null
-        ? 0
-        : (_autoSyncDownloadAttempts[entry.fileNameNoExt] ?? 0);
-    final shouldRetry = entry != null &&
+    final failedName =
+        _activeReadFileRef?.file.name.trim().isNotEmpty == true
+            ? _activeReadFileRef!.file.name
+            : entry?.fileNameNoExt ?? '';
+    final retryCount =
+        entry == null
+            ? 0
+            : (_autoSyncDownloadAttempts[entry.fileNameNoExt] ?? 0);
+    final shouldRetry =
+        entry != null &&
         retryable &&
         retryCount < jieliAutomaticDownloadRetryLimit;
     _activeReadFileRef = null;
@@ -1499,8 +1524,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         final nextAttempt = retryCount + 1;
         _autoSyncDownloadAttempts[entry.fileNameNoExt] = nextAttempt;
         _autoSyncDeferredDownloadNames.add(entry.fileNameNoExt);
-        _autoSyncRetryNotBefore[entry.fileNameNoExt] =
-            DateTime.now().add(jieliAutomaticRetryDelay);
+        _autoSyncRetryNotBefore[entry.fileNameNoExt] = DateTime.now().add(
+          jieliAutomaticRetryDelay,
+        );
         _upsertAutoSyncEntry(
           entry.copyWith(
             fileSizeBytes: 0,
@@ -1525,9 +1551,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (!mounted) return;
     setState(() {
       _fileReadLoading = false;
-      _autoSyncMessage = shouldRetry
-          ? '${failedName.isEmpty ? '当前录音' : failedName} 传输异常，准备自动重试'
-          : continueQueue
+      _autoSyncMessage =
+          shouldRetry
+              ? '${failedName.isEmpty ? '当前录音' : failedName} 传输异常，准备自动重试'
+              : continueQueue
               ? '${failedName.isEmpty ? '当前录音' : failedName} 下载失败，继续处理其他录音'
               : '${failedName.isEmpty ? '当前录音' : failedName} 下载失败，正在结束当前传输';
       _autoSyncError = null;
@@ -1563,11 +1590,13 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       );
       if (!result.success) {
         _markActiveSidecarReadFailed(
-          result.message.isEmpty ? 'TXT 读取启动失败' : result.message,
+          localizedErrorText(result.message, fallback: 'TXT 读取启动失败'),
         );
       }
     } catch (error) {
-      _markActiveSidecarReadFailed('TXT 读取启动失败：$error');
+      _markActiveSidecarReadFailed(
+        'TXT 读取启动失败：${localizedErrorMessage(error, fallback: '请稍后重试')}',
+      );
     }
   }
 
@@ -1627,14 +1656,19 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       });
       await _advanceAutoSyncQueue();
     } catch (error) {
-      _markActiveSidecarReadFailed('保存 TXT 失败：$error');
+      _markActiveSidecarReadFailed(
+        '保存 TXT 失败：${localizedErrorMessage(error, fallback: '请稍后重试')}',
+      );
     }
   }
 
   void _handleAutoSidecarReadFailed(Map<String, Object?> payload) {
     final ref = _activeReadFileRef;
     if (ref == null || !_matchesFilePayload(payload, ref)) return;
-    final message = payload['message']?.toString().trim() ?? 'TXT 读取失败';
+    final message = localizedErrorText(
+      payload['message']?.toString() ?? '',
+      fallback: 'TXT 读取失败',
+    );
     _markActiveSidecarReadFailed(message);
   }
 
@@ -1673,13 +1707,15 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   }
 
   Future<void> _markUnavailableAutoSyncEntries() async {
-    final candidates = _fileEntries.values.where((entry) {
-      final status = entry.transferStatus;
-      return status == RecordingCardFileTransferStatus.listed ||
-          status == RecordingCardFileTransferStatus.downloadPending ||
-          status == RecordingCardFileTransferStatus.cloudSyncPending ||
-          status == RecordingCardFileTransferStatus.cloudSyncing;
-    }).toList(growable: false);
+    final candidates = _fileEntries.values
+        .where((entry) {
+          final status = entry.transferStatus;
+          return status == RecordingCardFileTransferStatus.listed ||
+              status == RecordingCardFileTransferStatus.downloadPending ||
+              status == RecordingCardFileTransferStatus.cloudSyncPending ||
+              status == RecordingCardFileTransferStatus.cloudSyncing;
+        })
+        .toList(growable: false);
     for (final entry in candidates) {
       if (_deviceAudioFiles.containsKey(entry.fileNameNoExt)) continue;
       final localPath = entry.localSbcPath.trim();
@@ -1726,19 +1762,21 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (_cloudSyncInProgress) return;
     final localPath = entry.localSbcPath.trim();
     if (localPath.isEmpty || !await File(localPath).exists()) {
-      final hasDeviceSource =
-          _deviceAudioFiles.containsKey(entry.fileNameNoExt);
-      final next = hasDeviceSource
-          ? entry.copyWith(
-              transferStatus: RecordingCardFileTransferStatus.downloadPending,
-              lastError: '',
-            )
-          : entry.copyWith(
-              transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
-              localSbcPath: '',
-              localPlayablePath: '',
-              lastError: '本地音频和设备原文件都不存在，请重新录制后再同步',
-            );
+      final hasDeviceSource = _deviceAudioFiles.containsKey(
+        entry.fileNameNoExt,
+      );
+      final next =
+          hasDeviceSource
+              ? entry.copyWith(
+                transferStatus: RecordingCardFileTransferStatus.downloadPending,
+                lastError: '',
+              )
+              : entry.copyWith(
+                transferStatus: RecordingCardFileTransferStatus.cloudSyncFailed,
+                localSbcPath: '',
+                localPlayablePath: '',
+                lastError: '本地音频和设备原文件都不存在，请重新录制后再同步',
+              );
       _upsertAutoSyncEntry(next);
       if (mounted && !hasDeviceSource) {
         setState(() {
@@ -1772,36 +1810,39 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           sidecarRecordedAt == null || syncing.createdAtFromDevice != null
               ? syncing
               : _upsertAutoSyncEntry(
-                  syncing.copyWith(createdAtFromDevice: sidecarRecordedAt),
-                );
-      final uploadResult = await _apiClient.uploadOrganizeMemoryAudio(
-        filePath: localPath,
-        fileName: localPath.split(Platform.pathSeparator).last,
-        kind: 'audio_card',
-        title: _recordingMemoryTitle(uploadEntry),
-        content: _recordingMemoryContentHtml(uploadEntry),
-        source: '记忆卡',
-        occurredAt: uploadEntry.createdAtFromDevice ?? uploadEntry.createdAt,
-        durationSeconds: uploadEntry.durationSeconds ?? 0,
-        metadata: {
-          'sync_source': 'recording_card',
-          'sdk_source': _jieliSdkSource,
-          'device_name': uploadEntry.deviceName,
-          'device_mac': uploadEntry.deviceMac,
-          'recording_file_name': uploadEntry.fileNameNoExt,
-          'audio_file_name': localPath.split(Platform.pathSeparator).last,
-          'audio_codec': _audioCodecForName(localPath),
-          'sample_rate': 16000,
-          'channels': 1,
-          'file_size_bytes': uploadEntry.fileSizeBytes,
-          'local_audio_path': uploadEntry.localSbcPath,
-          if (sidecarRecordedAt != null)
-            'recorded_at_from_txt': sidecarRecordedAt.toIso8601String(),
-          'mobile_local_id': uploadEntry.id,
-          'source_label': '来自记忆卡',
-          'transcription_status': 'pending',
-        },
-      ).timeout(const Duration(seconds: 75));
+                syncing.copyWith(createdAtFromDevice: sidecarRecordedAt),
+              );
+      final uploadResult = await _apiClient
+          .uploadOrganizeMemoryAudio(
+            filePath: localPath,
+            fileName: localPath.split(Platform.pathSeparator).last,
+            kind: 'audio_card',
+            title: _recordingMemoryTitle(uploadEntry),
+            content: _recordingMemoryContentHtml(uploadEntry),
+            source: '记忆卡',
+            occurredAt:
+                uploadEntry.createdAtFromDevice ?? uploadEntry.createdAt,
+            durationSeconds: uploadEntry.durationSeconds ?? 0,
+            metadata: {
+              'sync_source': 'recording_card',
+              'sdk_source': _jieliSdkSource,
+              'device_name': uploadEntry.deviceName,
+              'device_mac': uploadEntry.deviceMac,
+              'recording_file_name': uploadEntry.fileNameNoExt,
+              'audio_file_name': localPath.split(Platform.pathSeparator).last,
+              'audio_codec': _audioCodecForName(localPath),
+              'sample_rate': 16000,
+              'channels': 1,
+              'file_size_bytes': uploadEntry.fileSizeBytes,
+              'local_audio_path': uploadEntry.localSbcPath,
+              if (sidecarRecordedAt != null)
+                'recorded_at_from_txt': sidecarRecordedAt.toIso8601String(),
+              'mobile_local_id': uploadEntry.id,
+              'source_label': '来自记忆卡',
+              'transcription_status': 'pending',
+            },
+          )
+          .timeout(const Duration(seconds: 75));
       final cleanup = await _deleteLocalJieliSourceFiles(
         uploadEntry,
         sidecar: sidecar,
@@ -1846,7 +1887,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   Future<RecordingCardFileEntry> _cleanupUploadedLocalFiles(
     RecordingCardFileEntry entry,
   ) async {
-    final uploaded = entry.cloudMemoryId.trim().isNotEmpty &&
+    final uploaded =
+        entry.cloudMemoryId.trim().isNotEmpty &&
         (entry.transferStatus == RecordingCardFileTransferStatus.synced ||
             entry.transferStatus ==
                 RecordingCardFileTransferStatus.deletedOnDevice);
@@ -1968,9 +2010,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (mounted) {
       setState(() {
         _fileDeleteLoading = true;
-        _fileDeleteMessage = sidecar
-            ? '正在删除设备 TXT ${ref.file.name}'
-            : '正在删除设备文件 ${ref.file.name}';
+        _fileDeleteMessage =
+            sidecar
+                ? '正在删除设备 TXT ${ref.file.name}'
+                : '正在删除设备文件 ${ref.file.name}';
       });
     }
     try {
@@ -1997,13 +2040,15 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       _activeDeleteFileRef = null;
       _activeDeleteIsSidecar = false;
       _upsertAutoSyncEntry(
-          entry.copyWith(lastError: sidecar ? 'TXT 待删除' : '设备文件待删除'));
+        entry.copyWith(lastError: sidecar ? 'TXT 待删除' : '设备文件待删除'),
+      );
       if (mounted) {
         setState(() {
           _fileDeleteLoading = false;
-          _autoSyncMessage = sidecar
-              ? '${entry.fileNameNoExt} 已上传，TXT 待删除'
-              : '${entry.fileNameNoExt} 已上传，设备文件待删除';
+          _autoSyncMessage =
+              sidecar
+                  ? '${entry.fileNameNoExt} 已上传，TXT 待删除'
+                  : '${entry.fileNameNoExt} 已上传，设备文件待删除';
           _lastAutoSyncAt = DateTime.now();
         });
       }
@@ -2046,12 +2091,13 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     final keepLocalUploadQueue = !hasCloudMemory && current.hasLocalAudio;
     _upsertAutoSyncEntry(
       current.copyWith(
-        transferStatus: keepLocalUploadQueue
-            ? (current.transferStatus ==
-                    RecordingCardFileTransferStatus.cloudSyncing
-                ? RecordingCardFileTransferStatus.cloudSyncing
-                : RecordingCardFileTransferStatus.cloudSyncPending)
-            : RecordingCardFileTransferStatus.deletedOnDevice,
+        transferStatus:
+            keepLocalUploadQueue
+                ? (current.transferStatus ==
+                        RecordingCardFileTransferStatus.cloudSyncing
+                    ? RecordingCardFileTransferStatus.cloudSyncing
+                    : RecordingCardFileTransferStatus.cloudSyncPending)
+                : RecordingCardFileTransferStatus.deletedOnDevice,
         lastError: '',
       ),
     );
@@ -2173,9 +2219,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     }
   }
 
-  Future<void> _deleteRecordingFileEntry(
-    RecordingCardFileEntry entry,
-  ) async {
+  Future<void> _deleteRecordingFileEntry(RecordingCardFileEntry entry) async {
     final current = _fileEntries[entry.fileNameNoExt];
     if (current == null || current.id != entry.id) return;
     final previousWrite = _autoSyncPersistenceQueues[current.id];
@@ -2208,7 +2252,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       if (!mounted) return;
       setState(() {
         _autoSyncMessage = '删除失败';
-        _autoSyncError = error.toString();
+        _autoSyncError = localizedErrorMessage(error, fallback: '删除录音失败，请稍后重试');
       });
     }
   }
@@ -2372,11 +2416,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (sidecar) {
       _markActiveSidecarReadFailed(message, continueQueue: false);
     } else {
-      _markActiveReadFailed(
-        message,
-        continueQueue: false,
-        retryable: true,
-      );
+      _markActiveReadFailed(message, continueQueue: false, retryable: true);
     }
     try {
       await _sdk.cancelReadFile();
@@ -2396,10 +2436,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         continueQueue: false,
       );
     } else {
-      _markActiveReadFailed(
-        '${ref.file.name} 下载已中止',
-        continueQueue: false,
-      );
+      _markActiveReadFailed('${ref.file.name} 下载已中止', continueQueue: false);
     }
     try {
       await _sdk.cancelReadFile();
@@ -2423,7 +2460,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     final wasRecording = _recording;
     final normalizedSource =
         (source?.trim().isNotEmpty == true ? source : null) ??
-            (Platform.isAndroid ? 'jieli_android' : 'jieli_ios');
+        (Platform.isAndroid ? 'jieli_android' : 'jieli_ios');
     final recording = _isJieliRecordingState(state, source: normalizedSource);
     final stopped = _isJieliRecordStoppedState(state, source: normalizedSource);
     final captureStartedAt = recording && !wasRecording ? DateTime.now() : null;
@@ -2511,8 +2548,9 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     _recordingAudioWriteQueue = _recordingAudioWriteQueue
         .then((_) => _writeRecordingAudioBytes(generation, chunk))
         .catchError((Object error, StackTrace stackTrace) {
-      _recordingAudioWriteError = '保存录音数据失败：$error';
-    });
+          _recordingAudioWriteError =
+              '保存录音数据失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
+        });
   }
 
   Future<void> _writeRecordingAudioBytes(
@@ -2538,11 +2576,13 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     if (deviceId == null || deviceId.isEmpty) return null;
     _recordingAudioDeviceId = deviceId;
 
-    final startedAt = _recordingAudioStartedAt ??
+    final startedAt =
+        _recordingAudioStartedAt ??
         _recordingSessionStartedAt ??
         DateTime.now();
     _recordingAudioStartedAt = startedAt;
-    final fileNameNoExt = _recordingAudioFileNameNoExt ??
+    final fileNameNoExt =
+        _recordingAudioFileNameNoExt ??
         _newJieliRecordingFileNameNoExt(startedAt);
     _recordingAudioFileNameNoExt = fileNameNoExt;
 
@@ -2580,7 +2620,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     try {
       await _recordingAudioWriteQueue;
     } catch (error) {
-      _recordingAudioWriteError ??= '保存录音数据失败：$error';
+      _recordingAudioWriteError ??=
+          '保存录音数据失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
     }
 
     final writer = _recordingAudioWriter;
@@ -2590,7 +2631,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         await writer.flush();
         await writer.close();
       } catch (error) {
-        _recordingAudioWriteError ??= '保存录音数据失败：$error';
+        _recordingAudioWriteError ??=
+            '保存录音数据失败：${localizedErrorMessage(error, fallback: '请稍后重试')}';
       }
     }
 
@@ -2614,9 +2656,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     final now = DateTime.now();
     final recordedAt =
         _recordingAudioStartedAt ?? _recordingSessionStartedAt ?? now;
-    final durationSeconds = _recordingDurationSeconds > 0
-        ? _recordingDurationSeconds
-        : now.difference(recordedAt).inSeconds;
+    final durationSeconds =
+        _recordingDurationSeconds > 0
+            ? _recordingDurationSeconds
+            : now.difference(recordedAt).inSeconds;
     final existing = _fileEntries[fileNameNoExt];
     final entry = (existing ??
             RecordingCardFileEntry(
@@ -2630,23 +2673,24 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
               transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
             ))
         .copyWith(
-      deviceId: deviceId,
-      deviceMac: existing?.deviceMac.isNotEmpty == true
-          ? existing!.deviceMac
-          : deviceId,
-      deviceName: _targetDevice.displayName,
-      fileSizeBytes: length,
-      localSbcPath: path,
-      localPlayablePath: path,
-      durationSeconds: durationSeconds > 0 ? durationSeconds : null,
-      createdAtFromDevice: recordedAt,
-      syncedBytes: length,
-      checksumFailureCount: 0,
-      transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
-      cloudMemoryId: existing?.cloudMemoryId ?? '',
-      lastError: '',
-      createdAt: existing?.createdAt ?? recordedAt,
-    );
+          deviceId: deviceId,
+          deviceMac:
+              existing?.deviceMac.isNotEmpty == true
+                  ? existing!.deviceMac
+                  : deviceId,
+          deviceName: _targetDevice.displayName,
+          fileSizeBytes: length,
+          localSbcPath: path,
+          localPlayablePath: path,
+          durationSeconds: durationSeconds > 0 ? durationSeconds : null,
+          createdAtFromDevice: recordedAt,
+          syncedBytes: length,
+          checksumFailureCount: 0,
+          transferStatus: RecordingCardFileTransferStatus.cloudSyncPending,
+          cloudMemoryId: existing?.cloudMemoryId ?? '',
+          lastError: '',
+          createdAt: existing?.createdAt ?? recordedAt,
+        );
     return _upsertAutoSyncEntry(entry);
   }
 
@@ -2702,15 +2746,16 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
     try {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (context) => _JieliRecordingPage(
-            recording: _recordingViewNotifier,
-            commandBusy: _recordCommandBusyNotifier,
-            onStart: _startJieliRecording,
-            onStop: () async {
-              await _stopJieliRecording();
-            },
-            onComplete: _completeJieliRecording,
-          ),
+          builder:
+              (context) => _JieliRecordingPage(
+                recording: _recordingViewNotifier,
+                commandBusy: _recordCommandBusyNotifier,
+                onStart: _startJieliRecording,
+                onStop: () async {
+                  await _stopJieliRecording();
+                },
+                onComplete: _completeJieliRecording,
+              ),
         ),
       );
     } finally {
@@ -2891,7 +2936,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
       case 'connection':
         if (!mounted) return;
         final address = payload['address']?.toString().trim() ?? '';
-        final connected = payload['connected'] == true ||
+        final connected =
+            payload['connected'] == true ||
             _readInt(payload, 'rcsp_status', fallback: -1) == 8 ||
             _readInt(payload, 'status', fallback: -1) == 8;
         if (connected && address.isNotEmpty) {
@@ -2901,9 +2947,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             _connecting = false;
             _connectingAddress = null;
             _rcspReady = payload['rcsp_ready'] == true;
-            _message = _rcspReady
-                ? '已连接 $deviceName，RCSP 已就绪'
-                : '已连接 $deviceName，等待 RCSP 初始化';
+            _message =
+                _rcspReady
+                    ? '已连接 $deviceName，RCSP 已就绪'
+                    : '已连接 $deviceName，等待 RCSP 初始化';
           });
           RecordingCardConnectionStatusBus.publish(
             RecordingCardConnectionStatus(
@@ -2964,7 +3011,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             address != _connectedAddress) {
           return;
         }
-        final battery = _readOptionalInt(payload, 'battery_percent') ??
+        final battery =
+            _readOptionalInt(payload, 'battery_percent') ??
             _readOptionalInt(payload, 'battery');
         setState(() {
           _batteryPercent = battery;
@@ -2978,10 +3026,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             address != _connectedAddress) {
           return;
         }
-        final storageValue = _readOptionalInt(
-              payload,
-              'system_left_size_bytes',
-            ) ??
+        final storageValue =
+            _readOptionalInt(payload, 'system_left_size_bytes') ??
             _readOptionalInt(payload, 'system_left_size');
         setState(() {
           _watchStorageValueBytes = storageValue;
@@ -3003,8 +3049,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             _ => _message,
           };
           if (stage == 'auth_failed') {
-            final message = payload['message']?.toString().trim() ?? '';
-            _error = message.isEmpty ? '设备认证失败' : message;
+            final message = payload['message']?.toString() ?? '';
+            _error = localizedErrorText(message, fallback: '设备认证失败');
           }
         });
         break;
@@ -3051,7 +3097,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             'reading' => '正在读取目录',
             'finished' => '目录读取完成',
             'page_finished' => '本页读取完成，可继续加载',
-            'failed' => message.isEmpty ? '目录读取失败' : message,
+            'failed' => localizedErrorText(message, fallback: '目录读取失败'),
             _ => message,
           },
         );
@@ -3074,9 +3120,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           // directory state event out of order. Do not keep the page loading
           // after the SDK has marked this folder as complete.
           loading: !snapshot.loadFinished,
-          message: snapshot.loadFinished
-              ? '$storageName 当前目录 ${snapshot.files.length} 项'
-              : '正在读取目录，已发现 ${snapshot.files.length} 项',
+          message:
+              snapshot.loadFinished
+                  ? '$storageName 当前目录 ${snapshot.files.length} 项'
+                  : '正在读取目录，已发现 ${snapshot.files.length} 项',
         );
         unawaited(_advanceAutoBrowse(snapshot));
         break;
@@ -3111,14 +3158,17 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
           );
         }
         final now = DateTime.now();
-        final isAudioRead = _isJieliAudioFileName(progressName) ||
+        final isAudioRead =
+            _isJieliAudioFileName(progressName) ||
             (_activeReadFileRef != null &&
                 _isJieliAudioFileName(_activeReadFileRef!.file.name));
         if (isAudioRead) {
           final previousAt = _fileReadLastSampleAt;
           if (previousAt != null && bytes >= _fileReadLastBytes) {
-            final elapsed =
-                now.difference(previousAt).inMilliseconds.clamp(1, 60000);
+            final elapsed = now
+                .difference(previousAt)
+                .inMilliseconds
+                .clamp(1, 60000);
             _fileReadSpeedBytesPerSecond =
                 ((bytes - _fileReadLastBytes) * 1000 / elapsed).round();
           }
@@ -3140,9 +3190,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         if (!mounted) return;
         setState(() {
           _fileReadLoading = true;
-          _fileReadMessage = progressName.isEmpty
-              ? '下载中 $progress%'
-              : '$progressName 下载中 $progress%';
+          _fileReadMessage =
+              progressName.isEmpty
+                  ? '下载中 $progress%'
+                  : '$progressName 下载中 $progress%';
         });
         break;
       case 'fileReadComplete':
@@ -3157,7 +3208,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _fileReadTimeoutTimer?.cancel();
         _fileReadTimeoutTimer = null;
         final completeName = payload['name']?.toString().trim() ?? '';
-        final isAudioRead = _isJieliAudioFileName(completeName) ||
+        final isAudioRead =
+            _isJieliAudioFileName(completeName) ||
             (_activeReadFileRef != null &&
                 _isJieliAudioFileName(_activeReadFileRef!.file.name));
         setState(() {
@@ -3187,8 +3239,11 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         }
         setState(() {
           _fileReadLoading = false;
-          final message = payload['message']?.toString().trim() ?? '';
-          _fileReadMessage = message.isEmpty ? '文件下载失败' : '文件下载失败：$message';
+          final message = payload['message']?.toString() ?? '';
+          _fileReadMessage =
+              message.trim().isEmpty
+                  ? '文件下载失败'
+                  : '文件下载失败：${localizedErrorText(message, fallback: '请稍后重试')}';
           _error = _fileReadMessage;
         });
         _handleAutoFileReadFailed(payload);
@@ -3238,8 +3293,11 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         if (!mounted) return;
         setState(() {
           _fileDeleteLoading = false;
-          final message = payload['message']?.toString().trim() ?? '';
-          _fileDeleteMessage = message.isEmpty ? '文件删除失败' : '文件删除失败：$message';
+          final message = payload['message']?.toString() ?? '';
+          _fileDeleteMessage =
+              message.trim().isEmpty
+                  ? '文件删除失败'
+                  : '文件删除失败：${localizedErrorText(message, fallback: '请稍后重试')}';
           _error = _fileDeleteMessage;
         });
         _handleAutoFileDeleteFailed(payload);
@@ -3259,7 +3317,7 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
   void _handleError(Object error, [StackTrace? stackTrace]) {
     if (!mounted) return;
     setState(() {
-      _error = error.toString();
+      _error = localizedErrorMessage(error, fallback: '设备扫描失败，请稍后重试');
       _message = '发生错误';
       _scanning = false;
       _connecting = false;
@@ -3292,22 +3350,25 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         _connectedAddress != null && _connectedAddress!.isNotEmpty;
     final connectedDevice =
         connected ? (_devices[_connectedAddress!] ?? targetDevice) : null;
-    final busy = _autoBrowseInProgress ||
+    final busy =
+        _autoBrowseInProgress ||
         _fileBrowseLoading ||
         _fileReadLoading ||
         _activeReadFileRef != null;
     final readingFile = _fileReadLoading || _activeReadFileRef != null;
-    final connectMessage = _availability?.available == false
-        ? (_availability!.message.isEmpty ? 'SDK 不可用' : _availability!.message)
-        : (_error ?? _message);
-    final filesMessage = _autoSyncError ??
+    final connectMessage =
+        _availability?.available == false
+            ? localizedErrorText(_availability!.message, fallback: 'SDK 不可用')
+            : (_error ?? _message);
+    final filesMessage =
+        _autoSyncError ??
         (_fileReadLoading && _fileReadMessage.trim().isNotEmpty
             ? _fileReadMessage
             : _autoBrowseInProgress || _fileBrowseLoading
-                ? (_fileBrowseMessage.trim().isEmpty
-                    ? _autoSyncMessage
-                    : _fileBrowseMessage)
-                : _autoSyncMessage);
+            ? (_fileBrowseMessage.trim().isEmpty
+                ? _autoSyncMessage
+                : _fileBrowseMessage)
+            : _autoSyncMessage);
 
     return Scaffold(
       backgroundColor: _JieliDetailColors.background,
@@ -3331,14 +3392,16 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
         elevation: 0,
         actions: [
           IconButton(
-            tooltip: readingFile
-                ? '中止当前下载'
-                : connected
+            tooltip:
+                readingFile
+                    ? '中止当前下载'
+                    : connected
                     ? '刷新设备状态和文件'
                     : (_scanning ? '停止搜索' : '重新搜索'),
-            onPressed: readingFile
-                ? () => unawaited(_cancelActiveFileRead())
-                : connected
+            onPressed:
+                readingFile
+                    ? () => unawaited(_cancelActiveFileRead())
+                    : connected
                     ? (_rcspReady
                         ? () => unawaited(_refreshConnectedDevice())
                         : null)
@@ -3347,10 +3410,8 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
               readingFile
                   ? Icons.stop_circle_outlined
                   : connected
-                      ? Icons.refresh
-                      : (_scanning
-                          ? Icons.stop_circle_outlined
-                          : Icons.refresh),
+                  ? Icons.refresh
+                  : (_scanning ? Icons.stop_circle_outlined : Icons.refresh),
             ),
           ),
         ],
@@ -3378,9 +3439,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
               connecting: _connecting,
               message: connectMessage,
               onSearch: _scanning ? _stopScan : _startScan,
-              onConnect: targetDevice.isDiscoveredTarget
-                  ? () => unawaited(_connectDevice(targetDevice))
-                  : null,
+              onConnect:
+                  targetDevice.isDiscoveredTarget
+                      ? () => unawaited(_connectDevice(targetDevice))
+                      : null,
             ),
           const SizedBox(height: 18),
           _JieliRecordingFilesCard(
@@ -3388,9 +3450,10 @@ class _JieliRecordingCardPageState extends State<JieliRecordingCardPage>
             loading: busy,
             message: filesMessage,
             lastSyncAt: _lastAutoSyncAt,
-            onRefresh: connected && _rcspReady
-                ? () => unawaited(_startAutoSync())
-                : null,
+            onRefresh:
+                connected && _rcspReady
+                    ? () => unawaited(_startAutoSync())
+                    : null,
             canDeleteEntry: _canDeleteRecordingFileEntry,
             onDeleteEntry: _confirmDeleteRecordingFileEntry,
             canUploadEntry: (_) => false,
@@ -3541,10 +3604,7 @@ class _JieliDevice {
 }
 
 class _JieliDeviceFileRef {
-  const _JieliDeviceFileRef({
-    required this.storage,
-    required this.file,
-  });
+  const _JieliDeviceFileRef({required this.storage, required this.file});
 
   final JieliRecordingCardStorage storage;
   final JieliRecordingCardFile file;
@@ -3763,10 +3823,10 @@ class _JieliManualConnectCard extends StatelessWidget {
                     Text(
                       found
                           ? [
-                              address,
-                              if (device!.rssi != 0) 'RSSI ${device!.rssi}',
-                              device!.metadataLabel,
-                            ].join(' · ')
+                            address,
+                            if (device!.rssi != 0) 'RSSI ${device!.rssi}',
+                            device!.metadataLabel,
+                          ].join(' · ')
                           : message,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -3864,8 +3924,9 @@ class _JieliRecordingFilesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sortedEntries = entries.toList()
-      ..sort((a, b) => b.fileNameNoExt.compareTo(a.fileNameNoExt));
+    final sortedEntries =
+        entries.toList()
+          ..sort((a, b) => b.fileNameNoExt.compareTo(a.fileNameNoExt));
 
     return Container(
       width: double.infinity,
@@ -3995,13 +4056,15 @@ class _JieliRecordingFileRow extends StatelessWidget {
     final statusColor = _jieliTransferStatusColor(entry.transferStatus);
     final recordedAt = entry.createdAtFromDevice ?? entry.createdAt;
     final durationText = _formatJieliDurationText(entry.durationSeconds);
-    final transferredText =
-        RecordingCardProtocol.formatFileSize(entry.syncedBytes);
-    final totalText = entry.fileSizeBytes > 0
-        ? RecordingCardProtocol.formatFileSize(entry.fileSizeBytes)
-        : '--';
-    final showProgress = entry.transferStatus ==
-            RecordingCardFileTransferStatus.downloading ||
+    final transferredText = RecordingCardProtocol.formatFileSize(
+      entry.syncedBytes,
+    );
+    final totalText =
+        entry.fileSizeBytes > 0
+            ? RecordingCardProtocol.formatFileSize(entry.fileSizeBytes)
+            : '--';
+    final showProgress =
+        entry.transferStatus == RecordingCardFileTransferStatus.downloading ||
         entry.transferStatus == RecordingCardFileTransferStatus.retryPending ||
         entry.transferStatus == RecordingCardFileTransferStatus.cloudSyncing;
 
@@ -4110,13 +4173,17 @@ class _JieliRecordingFileRow extends StatelessWidget {
                       borderRadius: BorderRadius.circular(999),
                       child: LinearProgressIndicator(
                         minHeight: 4,
-                        value: entry.transferStatus ==
-                                    RecordingCardFileTransferStatus
-                                        .downloading ||
-                                entry.transferStatus ==
-                                    RecordingCardFileTransferStatus.retryPending
-                            ? (entry.fileSizeBytes > 0 ? entry.progress : null)
-                            : null,
+                        value:
+                            entry.transferStatus ==
+                                        RecordingCardFileTransferStatus
+                                            .downloading ||
+                                    entry.transferStatus ==
+                                        RecordingCardFileTransferStatus
+                                            .retryPending
+                                ? (entry.fileSizeBytes > 0
+                                    ? entry.progress
+                                    : null)
+                                : null,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -4207,13 +4274,8 @@ class _JieliDisconnectButton extends StatelessWidget {
         side: const BorderSide(color: Color(0x30B42318)),
         backgroundColor: Colors.white,
         minimumSize: const Size.fromHeight(48),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        textStyle: const TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -4275,10 +4337,7 @@ class _JieliMetricTile extends StatelessWidget {
 }
 
 class _JieliStatePill extends StatelessWidget {
-  const _JieliStatePill({
-    required this.label,
-    required this.active,
-  });
+  const _JieliStatePill({required this.label, required this.active});
 
   final String label;
   final bool active;
@@ -4317,9 +4376,7 @@ class _JieliRecordingCardIllustration extends StatelessWidget {
     return SizedBox(
       width: compact ? 42 : 62,
       height: compact ? 58 : 86,
-      child: CustomPaint(
-        painter: _JieliRecordingCardPainter(),
-      ),
+      child: CustomPaint(painter: _JieliRecordingCardPainter()),
     );
   }
 }
@@ -4331,15 +4388,13 @@ class _JieliRecordingCardPainter extends CustomPainter {
       Rect.fromLTWH(size.width * 0.16, 0, size.width * 0.68, size.height),
       Radius.circular(size.width * 0.18),
     );
-    final bodyPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Color(0xFF54586A),
-          Color(0xFF252B38),
-        ],
-      ).createShader(bodyRect.outerRect);
+    final bodyPaint =
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF54586A), Color(0xFF252B38)],
+          ).createShader(bodyRect.outerRect);
     canvas.drawRRect(bodyRect, bodyPaint);
 
     final topBar = RRect.fromRectAndRadius(
@@ -4359,11 +4414,12 @@ class _JieliRecordingCardPainter extends CustomPainter {
       Paint()..color = _JieliDetailColors.accent,
     );
 
-    final micPaint = Paint()
-      ..color = const Color(0xFFE9EEF0)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = size.width * 0.045
-      ..strokeCap = StrokeCap.round;
+    final micPaint =
+        Paint()
+          ..color = const Color(0xFFE9EEF0)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = size.width * 0.045
+          ..strokeCap = StrokeCap.round;
     canvas.drawLine(
       Offset(size.width * 0.50, size.height * 0.38),
       Offset(size.width * 0.50, size.height * 0.57),
@@ -4428,23 +4484,32 @@ class _JieliAutoSyncPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sortedEntries = entries.toList()
-      ..sort((a, b) => b.fileNameNoExt.compareTo(a.fileNameNoExt));
+    final sortedEntries =
+        entries.toList()
+          ..sort((a, b) => b.fileNameNoExt.compareTo(a.fileNameNoExt));
     final visibleEntries = sortedEntries.take(6).toList(growable: false);
     final busy = browsing || downloading || cloudSyncing || deleting;
     final downloadedCount = entries.where((entry) => entry.isDownloaded).length;
-    final syncedCount = entries
-        .where((entry) =>
-            entry.transferStatus == RecordingCardFileTransferStatus.synced ||
-            entry.transferStatus ==
-                RecordingCardFileTransferStatus.deletedOnDevice)
-        .length;
-    final failedCount = entries
-        .where((entry) =>
-            entry.transferStatus == RecordingCardFileTransferStatus.failed ||
-            entry.transferStatus ==
-                RecordingCardFileTransferStatus.cloudSyncFailed)
-        .length;
+    final syncedCount =
+        entries
+            .where(
+              (entry) =>
+                  entry.transferStatus ==
+                      RecordingCardFileTransferStatus.synced ||
+                  entry.transferStatus ==
+                      RecordingCardFileTransferStatus.deletedOnDevice,
+            )
+            .length;
+    final failedCount =
+        entries
+            .where(
+              (entry) =>
+                  entry.transferStatus ==
+                      RecordingCardFileTransferStatus.failed ||
+                  entry.transferStatus ==
+                      RecordingCardFileTransferStatus.cloudSyncFailed,
+            )
+            .length;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -4474,19 +4539,13 @@ class _JieliAutoSyncPanel extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             message,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF44505E),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF44505E)),
           ),
           if (error != null && error!.trim().isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
               error!,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFFD14343),
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xFFD14343)),
             ),
           ],
           const SizedBox(height: 10),
@@ -4508,13 +4567,14 @@ class _JieliAutoSyncPanel extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
               onPressed: canStart && !busy ? onStart : null,
-              icon: busy
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.sync, size: 18),
+              icon:
+                  busy
+                      ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.sync, size: 18),
               label: const Text('自动导入'),
             ),
           ),
@@ -4658,10 +4718,7 @@ class _OfficialTargetTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             '${device.displayName} · ${detailParts.join(' · ')}',
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF5E6876),
-            ),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF5E6876)),
           ),
           if (device.isDiscoveredTarget || connected || connecting) ...[
             const SizedBox(height: 8),
@@ -4751,10 +4808,7 @@ class _ScannedDeviceList extends StatelessWidget {
           if (devices.isEmpty)
             const Text(
               '暂无 SDK 扫描到的 X9',
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF6F7785),
-              ),
+              style: TextStyle(fontSize: 13, color: Color(0xFF6F7785)),
             )
           else
             for (var index = 0; index < devices.length; index++) ...[
@@ -4833,18 +4887,12 @@ class _ScannedDeviceRow extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 device.address,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF5E6876),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF5E6876)),
               ),
               const SizedBox(height: 6),
               Text(
                 meta.join(' · '),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6F7785),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6F7785)),
               ),
             ],
           ),
@@ -4902,16 +4950,19 @@ class _DeviceFileBrowsePanel extends StatelessWidget {
   final void Function(
     JieliRecordingCardStorage storage,
     JieliRecordingCardFile file,
-  ) onOpenFolder;
+  )
+  onOpenFolder;
   final ValueChanged<JieliRecordingCardStorage> onBackFolder;
   final void Function(
     JieliRecordingCardStorage storage,
     JieliRecordingCardFile file,
-  ) onDownloadFile;
+  )
+  onDownloadFile;
   final void Function(
     JieliRecordingCardStorage storage,
     JieliRecordingCardFile file,
-  ) onDeleteFile;
+  )
+  onDeleteFile;
   final VoidCallback onCancelFileRead;
 
   @override
@@ -4945,29 +4996,20 @@ class _DeviceFileBrowsePanel extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             message,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF6F7785),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF6F7785)),
           ),
           if (fileReadMessage.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
               fileReadMessage,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF44505E),
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF44505E)),
             ),
           ],
           if (fileDeleteMessage.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
               fileDeleteMessage,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF44505E),
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF44505E)),
             ),
           ],
           if (fileReadLoading) ...[
@@ -4988,13 +5030,14 @@ class _DeviceFileBrowsePanel extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
               onPressed: !canRead || loading ? null : onRefresh,
-              icon: loading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.folder_open, size: 18),
+              icon:
+                  loading
+                      ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                      : const Icon(Icons.folder_open, size: 18),
               label: const Text('读取文件列表'),
             ),
           ),
@@ -5002,10 +5045,7 @@ class _DeviceFileBrowsePanel extends StatelessWidget {
           if (storages.isEmpty)
             Text(
               canRead ? '还没有读取 SDK 在线存储。' : 'RCSP 就绪后可读取设备文件列表。',
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF6F7785),
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF6F7785)),
             )
           else
             for (var index = 0; index < storages.length; index++) ...[
@@ -5117,28 +5157,19 @@ class _StorageFileSection extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             '当前目录 ${snapshot!.displayPath} · ${files.length} 项',
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF44505E),
-            ),
+            style: const TextStyle(fontSize: 12, color: Color(0xFF44505E)),
           ),
         ],
         const SizedBox(height: 8),
         if (snapshot == null)
           const Text(
             '未读取当前目录。',
-            style: TextStyle(
-              fontSize: 12,
-              color: Color(0xFF6F7785),
-            ),
+            style: TextStyle(fontSize: 12, color: Color(0xFF6F7785)),
           )
         else if (files.isEmpty)
           const Text(
             '当前目录为空。',
-            style: TextStyle(
-              fontSize: 12,
-              color: Color(0xFF6F7785),
-            ),
+            style: TextStyle(fontSize: 12, color: Color(0xFF6F7785)),
           )
         else ...[
           for (final file in visibleFiles)
@@ -5156,10 +5187,7 @@ class _StorageFileSection extends StatelessWidget {
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 '仅显示前 ${visibleFiles.length} 项，共 ${files.length} 项。',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF6F7785),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF6F7785)),
               ),
             ),
         ],
@@ -5301,12 +5329,14 @@ class _StatusBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sdkName = availability?.sdkName.isNotEmpty == true
-        ? availability!.sdkName
-        : 'Jieli Home SDK';
-    final sdkVersion = availability?.sdkVersion.isNotEmpty == true
-        ? availability!.sdkVersion
-        : 'unknown';
+    final sdkName =
+        availability?.sdkName.isNotEmpty == true
+            ? availability!.sdkName
+            : 'Jieli Home SDK';
+    final sdkVersion =
+        availability?.sdkVersion.isNotEmpty == true
+            ? availability!.sdkVersion
+            : 'unknown';
     final connected = connectedAddress != null && connectedAddress!.isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(16),
@@ -5329,27 +5359,18 @@ class _StatusBlock extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             '版本 $sdkVersion · ${availability?.platform ?? Platform.operatingSystem}',
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF6F7785),
-            ),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF6F7785)),
           ),
           const SizedBox(height: 10),
           Text(
             message,
-            style: const TextStyle(
-              fontSize: 14,
-              color: Color(0xFF2B313B),
-            ),
+            style: const TextStyle(fontSize: 14, color: Color(0xFF2B313B)),
           ),
           if (error != null && error!.trim().isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
               error!,
-              style: const TextStyle(
-                fontSize: 13,
-                color: Color(0xFFD14343),
-              ),
+              style: const TextStyle(fontSize: 13, color: Color(0xFFD14343)),
             ),
           ],
           const SizedBox(height: 12),
@@ -5359,7 +5380,8 @@ class _StatusBlock extends StatelessWidget {
             children: [
               _StatusChip(label: scanning ? '搜索中' : '未搜索'),
               _StatusChip(
-                  label: connected ? '已连接' : (connecting ? '连接中' : '未连接')),
+                label: connected ? '已连接' : (connecting ? '连接中' : '未连接'),
+              ),
               _StatusChip(label: rcspReady ? 'RCSP 就绪' : 'RCSP 未就绪'),
               _StatusChip(label: recording ? '录音中' : '未录音'),
               if (connected) _StatusChip(label: connectedAddress!),
@@ -5413,20 +5435,13 @@ class _StatusChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: const TextStyle(
-          fontSize: 12,
-          color: Color(0xFF44505E),
-        ),
+        style: const TextStyle(fontSize: 12, color: Color(0xFF44505E)),
       ),
     );
   }
 }
 
-int _readInt(
-  Map<String, Object?> map,
-  String key, {
-  int fallback = 0,
-}) {
+int _readInt(Map<String, Object?> map, String key, {int fallback = 0}) {
   final value = map[key];
   if (value is num) return value.toInt();
   if (value is String) return int.tryParse(value) ?? fallback;
@@ -5626,15 +5641,14 @@ String _recordingMemoryTitle(RecordingCardFileEntry entry) {
   return '记忆卡记录 · ${_formatMemoryDateShort(entry.createdAtFromDevice ?? entry.createdAt)}';
 }
 
-String _recordingMemoryContentHtml(
-  RecordingCardFileEntry entry,
-) {
+String _recordingMemoryContentHtml(RecordingCardFileEntry entry) {
   final escape = const HtmlEscape().convert;
   final fileName = escape(entry.fileNameNoExt);
   final deviceName = escape(entry.deviceName.isEmpty ? 'X9' : entry.deviceName);
-  final buffer = StringBuffer()
-    ..write('<p>录音已保存，等待自动转写。</p>')
-    ..write('<p>来源：记忆卡 · 设备：$deviceName · 原文件：$fileName</p>');
+  final buffer =
+      StringBuffer()
+        ..write('<p>录音已保存，等待自动转写。</p>')
+        ..write('<p>来源：记忆卡 · 设备：$deviceName · 原文件：$fileName</p>');
   return buffer.toString();
 }
 
@@ -5662,26 +5676,20 @@ String _formatCloudError(Object error) {
   if (error is SocketException) {
     return '网络连接失败，请检查网络后点击刷新重试';
   }
-  if (error is HttpException && error.message.trim().isNotEmpty) {
-    return error.message.trim();
-  }
-  return error.toString().replaceFirst('Exception: ', '').trim();
+  return localizedErrorMessage(error, fallback: '生成记忆失败，请稍后重试');
 }
 
 IconData _jieliTransferStatusIcon(RecordingCardFileTransferStatus status) {
   return switch (status) {
     RecordingCardFileTransferStatus.downloading => Icons.download,
     RecordingCardFileTransferStatus.downloaded ||
-    RecordingCardFileTransferStatus.cloudSyncPending =>
-      Icons.task_alt,
+    RecordingCardFileTransferStatus.cloudSyncPending => Icons.task_alt,
     RecordingCardFileTransferStatus.cloudSyncing => Icons.cloud_upload,
     RecordingCardFileTransferStatus.synced ||
-    RecordingCardFileTransferStatus.deletedOnDevice =>
-      Icons.check_circle,
+    RecordingCardFileTransferStatus.deletedOnDevice => Icons.check_circle,
     RecordingCardFileTransferStatus.failed ||
     RecordingCardFileTransferStatus.cloudSyncFailed ||
-    RecordingCardFileTransferStatus.checksumFailed =>
-      Icons.error_outline,
+    RecordingCardFileTransferStatus.checksumFailed => Icons.error_outline,
     _ => Icons.schedule,
   };
 }
@@ -5689,15 +5697,12 @@ IconData _jieliTransferStatusIcon(RecordingCardFileTransferStatus status) {
 Color _jieliTransferStatusColor(RecordingCardFileTransferStatus status) {
   return switch (status) {
     RecordingCardFileTransferStatus.synced ||
-    RecordingCardFileTransferStatus.deletedOnDevice =>
-      const Color(0xFF247A3D),
+    RecordingCardFileTransferStatus.deletedOnDevice => const Color(0xFF247A3D),
     RecordingCardFileTransferStatus.failed ||
     RecordingCardFileTransferStatus.cloudSyncFailed ||
-    RecordingCardFileTransferStatus.checksumFailed =>
-      const Color(0xFFD14343),
+    RecordingCardFileTransferStatus.checksumFailed => const Color(0xFFD14343),
     RecordingCardFileTransferStatus.downloading ||
-    RecordingCardFileTransferStatus.cloudSyncing =>
-      const Color(0xFF32658A),
+    RecordingCardFileTransferStatus.cloudSyncing => const Color(0xFF32658A),
     _ => const Color(0xFF6F7785),
   };
 }
@@ -5746,26 +5751,26 @@ bool _isJieliRecordStoppedState(int state, {String? source}) {
 String _jieliRecordStateLabel(int state, {String? source}) {
   return switch (source) {
     'jieli_ios' => switch (state) {
-        0 => '开始录音',
-        2 => '正在录音',
-        1 => '已停止录音',
-        0x0f => '录音失败',
-        _ => '未知状态 $state',
-      },
+      0 => '开始录音',
+      2 => '正在录音',
+      1 => '已停止录音',
+      0x0f => '录音失败',
+      _ => '未知状态 $state',
+    },
     'jieli_android' => switch (state) {
-        1 => '开始录音',
-        2 => '正在录音',
-        0 => '已停止录音',
-        0x0f => '录音失败',
-        _ => '未知状态 $state',
-      },
+      1 => '开始录音',
+      2 => '正在录音',
+      0 => '已停止录音',
+      0x0f => '录音失败',
+      _ => '未知状态 $state',
+    },
     _ => switch (state) {
-        1 => '开始录音',
-        2 => '正在录音',
-        0 => '已停止录音',
-        0x0f => '录音失败',
-        _ => '未知状态 $state',
-      },
+      1 => '开始录音',
+      2 => '正在录音',
+      0 => '已停止录音',
+      0x0f => '录音失败',
+      _ => '未知状态 $state',
+    },
   };
 }
 
@@ -5812,12 +5817,10 @@ class _JieliRecordingViewData {
       recordingState != null &&
       _isJieliRecordingState(recordingState!, source: recordingSource);
 
-  String get stateLabel => recordingState == null
-      ? '未录音'
-      : _jieliRecordStateLabel(
-          recordingState!,
-          source: recordingSource,
-        );
+  String get stateLabel =>
+      recordingState == null
+          ? '未录音'
+          : _jieliRecordStateLabel(recordingState!, source: recordingSource);
 }
 
 class _JieliRecordingPage extends StatelessWidget {
@@ -5856,7 +5859,9 @@ class _JieliRecordingPage extends StatelessWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('上传并生成记忆卡片失败：$error'),
+          content: Text(
+            '上传并生成记忆卡片失败：${localizedErrorMessage(error, fallback: '请稍后重试')}',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -5914,17 +5919,19 @@ class _JieliRecordingPage extends StatelessWidget {
                                 width: 108,
                                 height: 108,
                                 decoration: BoxDecoration(
-                                  color: isRecording
-                                      ? const Color(0xFFFFEFEF)
-                                      : const Color(0xFFF4F8F6),
+                                  color:
+                                      isRecording
+                                          ? const Color(0xFFFFEFEF)
+                                          : const Color(0xFFF4F8F6),
                                   borderRadius: BorderRadius.circular(54),
                                 ),
                                 child: Icon(
                                   icon,
                                   size: 48,
-                                  color: isRecording
-                                      ? const Color(0xFFF05252)
-                                      : _JieliDetailColors.accent,
+                                  color:
+                                      isRecording
+                                          ? const Color(0xFFF05252)
+                                          : _JieliDetailColors.accent,
                                 ),
                               ),
                               const SizedBox(height: 26),
@@ -5994,8 +6001,9 @@ class _JieliRecordingPage extends StatelessWidget {
                                 const SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                               ],
                             ],
@@ -6007,9 +6015,10 @@ class _JieliRecordingPage extends StatelessWidget {
                         children: [
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: busy
-                                  ? null
-                                  : () => unawaited(
+                              onPressed:
+                                  busy
+                                      ? null
+                                      : () => unawaited(
                                         isRecording ? onStop() : onStart(),
                                       ),
                               icon: Icon(
@@ -6023,12 +6032,14 @@ class _JieliRecordingPage extends StatelessWidget {
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(28),
                                 ),
-                                backgroundColor: isRecording
-                                    ? const Color(0xFFF05252)
-                                    : _JieliDetailColors.accent,
+                                backgroundColor:
+                                    isRecording
+                                        ? const Color(0xFFF05252)
+                                        : _JieliDetailColors.accent,
                                 foregroundColor: Colors.white,
-                                disabledBackgroundColor:
-                                    const Color(0xFFE3E7E5),
+                                disabledBackgroundColor: const Color(
+                                  0xFFE3E7E5,
+                                ),
                                 disabledForegroundColor:
                                     _JieliDetailColors.textMuted,
                                 textStyle: const TextStyle(
@@ -6041,9 +6052,10 @@ class _JieliRecordingPage extends StatelessWidget {
                           const SizedBox(width: 12),
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: busy
-                                  ? null
-                                  : () => unawaited(
+                              onPressed:
+                                  busy
+                                      ? null
+                                      : () => unawaited(
                                         _handleComplete(
                                           context,
                                           isRecording: isRecording,

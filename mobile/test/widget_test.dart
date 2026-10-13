@@ -66,9 +66,7 @@ void main() {
   });
 
   testWidgets('shows login page and validates fields', (tester) async {
-    await tester.pumpWidget(
-      const RuileMobileApp(restoreStoredSession: false),
-    );
+    await tester.pumpWidget(const RuileMobileApp(restoreStoredSession: false));
 
     expect(find.text('登录睿乐大脑'), findsOneWidget);
     expect(find.text('手机号'), findsOneWidget);
@@ -99,9 +97,7 @@ void main() {
   });
 
   testWidgets('opens legal documents from login page', (tester) async {
-    await tester.pumpWidget(
-      const RuileMobileApp(restoreStoredSession: false),
-    );
+    await tester.pumpWidget(const RuileMobileApp(restoreStoredSession: false));
 
     await tester.tap(find.text('《服务协议》'));
     await tester.pumpAndSettle();
@@ -175,35 +171,26 @@ void main() {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
     await _openMemoryTab(tester);
 
-    expect(
-      find.byKey(const Key('memory-status-unorganized')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('memory-status-processing')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('memory-status-organized')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('memory-status-unorganized')), findsOneWidget);
+    expect(find.byKey(const Key('memory-status-processing')), findsOneWidget);
+    expect(find.byKey(const Key('memory-status-organized')), findsOneWidget);
 
     final processingCard = find.byKey(const Key('memory-status-processing'));
     final processingContainer = find.descendant(
       of: processingCard,
       matching: find.byType(Container),
     );
-    final initialDecoration = tester
-        .widget<Container>(processingContainer.first)
-        .decoration! as BoxDecoration;
+    final initialDecoration =
+        tester.widget<Container>(processingContainer.first).decoration!
+            as BoxDecoration;
     final initialBorderColor = (initialDecoration.border! as Border).top.color;
 
     await tester.tap(processingCard);
     await tester.pump();
 
-    final selectedDecoration = tester
-        .widget<Container>(processingContainer.first)
-        .decoration! as BoxDecoration;
+    final selectedDecoration =
+        tester.widget<Container>(processingContainer.first).decoration!
+            as BoxDecoration;
     final selectedBorderColor =
         (selectedDecoration.border! as Border).top.color;
     expect(selectedBorderColor, isNot(initialBorderColor));
@@ -213,9 +200,9 @@ void main() {
     await tester.tap(processingCard);
     await tester.pump();
 
-    final resetDecoration = tester
-        .widget<Container>(processingContainer.first)
-        .decoration! as BoxDecoration;
+    final resetDecoration =
+        tester.widget<Container>(processingContainer.first).decoration!
+            as BoxDecoration;
     final resetBorderColor = (resetDecoration.border! as Border).top.color;
     expect(resetBorderColor, initialBorderColor);
   });
@@ -261,6 +248,26 @@ void main() {
     expect(find.text('消息'), findsNothing);
   });
 
+  testWidgets('opens an Agent chat from the Xiao Rui quick actions', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    await tester.tap(find.text('家校反馈').first);
+    await _pumpTransition(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('家校反馈'), findsWidgets);
+    expect(find.text('Agent 会话'), findsOneWidget);
+    expect(find.text('Agent 计划'), findsOneWidget);
+    expect(find.text('查看轨迹'), findsOneWidget);
+    expect(find.text('帮我写一段今天课堂观察反馈'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回'));
+    await _pumpTransition(tester);
+    expect(find.text('小睿来啦'), findsOneWidget);
+  });
+
   testWidgets('opens the recording card from the disconnected header prompt', (
     tester,
   ) async {
@@ -274,10 +281,7 @@ void main() {
     expect(find.byKey(promptKey), findsOneWidget);
 
     RecordingCardConnectionStatusBus.publish(
-      const RecordingCardConnectionStatus(
-        connected: true,
-        deviceName: 'X9',
-      ),
+      const RecordingCardConnectionStatus(connected: true, deviceName: 'X9'),
     );
     await tester.pump();
     expect(find.byKey(promptKey), findsNothing);
@@ -347,10 +351,7 @@ void main() {
     await _pumpTransition(tester);
 
     final drawer = find.byType(Drawer);
-    final dailyEntry = find.descendant(
-      of: drawer,
-      matching: find.text('睿乐日报'),
-    );
+    final dailyEntry = find.descendant(of: drawer, matching: find.text('睿乐日报'));
     final discoverEntry = find.descendant(
       of: drawer,
       matching: find.text('发现'),
@@ -372,6 +373,32 @@ void main() {
     expect(find.byTooltip('返回'), findsOneWidget);
   });
 
+  testWidgets('opens resource usage details from the drawer', (tester) async {
+    await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
+
+    await tester.tap(find.byTooltip('菜单'));
+    await _pumpTransition(tester);
+
+    final drawer = find.byType(Drawer);
+    final usageEntry = find.descendant(of: drawer, matching: find.text('资源用量'));
+    expect(usageEntry, findsOneWidget);
+    expect(
+      find.descendant(of: drawer, matching: find.text('存储')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: drawer, matching: find.text('积分')),
+      findsOneWidget,
+    );
+
+    await tester.tap(usageEntry);
+    await _pumpTransition(tester);
+    await _pumpTransition(tester);
+
+    expect(find.text('资源用量'), findsOneWidget);
+    expect(find.text('登录后查看存储和积分用量。'), findsOneWidget);
+  });
+
   testWidgets('requires an authenticated API session for organize data', (
     tester,
   ) async {
@@ -385,47 +412,41 @@ void main() {
     expect(find.text('今日整理'), findsNothing);
   });
 
-  testWidgets(
-    'clears the organize unread marker after opening its report',
-    (tester) async {
-      const session = AuthSession(token: 'mock-token');
-      await tester.pumpWidget(
-        const RuileMobileApp(initialSession: session),
-      );
-
-      await tester.tap(find.byTooltip('整理'));
-      await _pumpTransition(tester);
-      await tester.pump();
-
-      const unreadKey = Key('organize-config-unread-mock-config-daily');
-      expect(find.byKey(unreadKey), findsOneWidget);
-
-      final reportRow = find.byKey(
-        const Key('organize-report-mock-job-daily-today'),
-      );
-      await tester.ensureVisible(reportRow);
-      await tester.pump();
-      expect(reportRow.hitTestable(), findsOneWidget);
-      await tester.tap(reportRow.hitTestable());
-      await _pumpTransition(tester);
-      await tester.pump(const Duration(seconds: 1));
-
-      expect(find.text('整理产物'), findsOneWidget);
-      expect(find.text('字段摘要'), findsNothing);
-      expect(find.text('重要信息'), findsOneWidget);
-
-      await tester.tap(find.byTooltip('返回').hitTestable());
-      await _pumpTransition(tester);
-      await tester.pump();
-
-      expect(find.byKey(unreadKey), findsNothing);
-    },
-    skip: !_organizeMockEnabled,
-  );
-
-  testWidgets('opens daily report and history from the drawer', (
+  testWidgets('clears the organize unread marker after opening its report', (
     tester,
   ) async {
+    const session = AuthSession(token: 'mock-token');
+    await tester.pumpWidget(const RuileMobileApp(initialSession: session));
+
+    await tester.tap(find.byTooltip('整理'));
+    await _pumpTransition(tester);
+    await tester.pump();
+
+    const unreadKey = Key('organize-config-unread-mock-config-daily');
+    expect(find.byKey(unreadKey), findsOneWidget);
+
+    final reportRow = find.byKey(
+      const Key('organize-report-mock-job-daily-today'),
+    );
+    await tester.ensureVisible(reportRow);
+    await tester.pump();
+    expect(reportRow.hitTestable(), findsOneWidget);
+    await tester.tap(reportRow.hitTestable());
+    await _pumpTransition(tester);
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(find.text('整理产物'), findsOneWidget);
+    expect(find.text('字段摘要'), findsNothing);
+    expect(find.text('重要信息'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('返回').hitTestable());
+    await _pumpTransition(tester);
+    await tester.pump();
+
+    expect(find.byKey(unreadKey), findsNothing);
+  }, skip: !_organizeMockEnabled);
+
+  testWidgets('opens daily report and history from the drawer', (tester) async {
     await tester.pumpWidget(const RuileMobileApp(initialSession: _testSession));
 
     await tester.tap(find.byTooltip('菜单'));
@@ -469,9 +490,7 @@ void main() {
       findsNothing,
     );
 
-    await tester.tap(
-      find.descendant(of: drawer, matching: find.text('客户空间')),
-    );
+    await tester.tap(find.descendant(of: drawer, matching: find.text('客户空间')));
     await _pumpTransition(tester);
     await tester.pump();
 
@@ -483,11 +502,7 @@ void main() {
   testWidgets('opens user settings from the drawer profile header', (
     tester,
   ) async {
-    const session = AuthSession(
-      token: '',
-      userName: '地平线',
-      tenantName: '睿乐空间',
-    );
+    const session = AuthSession(token: '', userName: '地平线', tenantName: '睿乐空间');
     await tester.pumpWidget(const RuileMobileApp(initialSession: session));
 
     await tester.tap(find.byTooltip('菜单'));
@@ -532,7 +547,9 @@ void main() {
       scrollable: find.byType(Scrollable).last,
     );
     expect(
-        find.byKey(const Key('help-center-service-agreement')), findsOneWidget);
+      find.byKey(const Key('help-center-service-agreement')),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('help-center-privacy-policy')), findsOneWidget);
   });
 
