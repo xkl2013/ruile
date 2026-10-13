@@ -31,6 +31,8 @@ import GlobalInvitationBell from '@/components/GlobalInvitationBell.vue'
 import NewUserGuide from '@/components/NewUserGuide.vue'
 import { useCommandPaletteStore } from '@/stores/commandPalette'
 import { useChatResourcesStore } from '@/stores/chatResources'
+import { useAuthStore } from '@/stores/auth'
+import { syncPublishedExpertAgents } from '@/api/expert-package'
 import { getKnowledgeBaseById } from '@/api/knowledge-base/index'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
@@ -39,6 +41,8 @@ let { requestMethod } = useKnowledgeBase()
 const route = useRoute();
 const router = useRouter();
 const commandPaletteStore = useCommandPaletteStore();
+const authStore = useAuthStore();
+const chatResources = useChatResourcesStore();
 let ismask = ref(false)
 let uploadInput = ref();
 const { t } = useI18n();
@@ -242,8 +246,21 @@ onMounted(() => {
     // 支持通过 URL 查询参数打开全局命令面板，例如旧路径
     // /platform/knowledge-search?q=foo 重定向后携带 ?cmdk=foo
     maybeOpenCmdkFromRoute()
-    // 后台预取对话输入栏资源，进入 creatChat / chat 时复用缓存
-    void useChatResourcesStore().prefetchChatInput()
+    // 发布同步是幂等的。管理员进入主站时先修复旧版已发布专家，
+    // 再刷新资源缓存，使专家包 quickPrompts 和模型绑定立即生效。
+    void (async () => {
+        let force = false
+        if (authStore.isSystemAdmin || ['owner', 'admin'].includes(authStore.currentTenantRole)) {
+            try {
+                await syncPublishedExpertAgents()
+                chatResources.invalidate('agents')
+                force = true
+            } catch (error) {
+                console.warn('Failed to sync published experts during platform bootstrap', error)
+            }
+        }
+        await chatResources.prefetchChatInput(force)
+    })()
 });
 
 // 监听路由变化，兼容 SPA 内部跳转时的 ?cmdk= 参数

@@ -83,6 +83,14 @@
   .lbl .req{color:var(--error);margin-left:3px}
   .lbl .opt{color:var(--t4);font-size:11px;margin-left:5px}
   .hint{font-size:11.5px;color:var(--t3);line-height:1.65;margin-top:6px}
+  /* v1.42 一行「数据变更」语句（确认 / 忽略后卡片原位的收束态） */
+  .dline{display:flex;align-items:flex-start;gap:7px;margin:6px 0 2px;padding:7px 10px;border-radius:var(--r-m);background:var(--g1);font-size:12.5px;color:var(--t2);line-height:1.55}
+  .dline .di{flex:0 0 auto;color:var(--brand);font-weight:600}
+  .dline .dt{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+  .dline .dz{flex:0 0 auto;color:var(--t3);font-size:11.5px}
+  .dline .od{color:var(--t3);text-decoration:line-through}
+  .dline.skip{background:transparent;border:1px dashed var(--bd)}
+  .dline.skip .di{color:var(--t3)}
   .muted{color:var(--t3)}
   .mono{font-family:ui-monospace,Menlo,monospace}
   .sec-title{font-size:13px;font-weight:600;margin:0 0 10px}
@@ -550,7 +558,7 @@
   <aside class="rail">
     <div class="rail-head">
       <div class="rail-title">服务模块 · 优化后原型</div>
-      <div class="rail-sub">v1.41 · 14 个场景 · 4 个设置分区<br/>配套《服务模块开发方案》v3.4</div>
+      <div class="rail-sub">v1.42 · 14 个场景 · 4 个设置分区<br/>配套《服务模块开发方案》v3.4</div>
     </div>
     <div class="rail-group" id="rail"></div>
     <div class="rail-note">
@@ -563,7 +571,7 @@
     <div class="bar">
       <h1 id="barTitle"></h1>
       <span class="path" id="barPath"></span>
-      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.41</span>
+      <span class="verstamp" title="如果你看到的版本号比这个旧，说明浏览器在用缓存的旧文件——按 ⌘⇧R 强制刷新">v1.42</span>
       <div class="bar-right" id="barRight"></div>
     </div>
     <div class="scroll"><div class="canvas" id="root"></div></div>
@@ -683,7 +691,7 @@ function serviceHead(active, panel, moreOpen){
   const svc = SERVICES.find(s => s.id === active.service) || SERVICES[0];
   // v1.35：待办数 = 待办 + 待确认（§11.4 修订——一个入口两组活，不再另立「待确认」入口）
   // v1.36：已完成 / 已取消的即时离组（openTodos），数字跟着变
-  const count = { artifacts: ARTIFACTS.length, reminders: openTodos().length + MEM_PROPOSALS.length };
+  const count = { artifacts: ARTIFACTS.length, reminders: openTodos().length + pendingProposals().length };
   const sess = svc.sessions.find(s => s.id === (state.curSession || active.session)) || svc.sessions[0];
   const inChat = !panel;
   const title = inChat ? (state.newChat ? '新的会话' : (state.emptyChat ? svc.name : (sess ? sess.title : svc.name))) : svc.name;
@@ -1708,6 +1716,7 @@ function factRow(f){
 /* ── 场景 12 · 对话流 · 待确认卡片 ─────────────────────── */
 function proposalCard(){
   const p = MEM_PROPOSALS[0];
+  if (state.pResolved[p.id]) return dataLine(p, state.pResolved[p.id]);
   return `
   <div class="pcard">
     <div class="ph">
@@ -1720,15 +1729,15 @@ function proposalCard(){
     </details>
     ${state.editOpen === p.id ? editForm(p) : `
     <div class="acts">
-      <button class="btn pri sm" data-noop>确认</button>
-      <button class="btn ghost sm" data-noop>忽略</button>
+      <button class="btn pri sm" data-presolve="${p.id}:confirm">确认</button>
+      <button class="btn ghost sm" data-presolve="${p.id}:ignore">忽略</button>
       <span class="cnt">提取的不对？点上面的值直接改</span>
     </div>`}
   </div>`;
 }
 function memChatView(){
   return `
-  <div class="annoline">方案 §11.3.6 第 1 条：内联卡片<b>保留</b>，但从"整块卡"改「<b>一行摘要 + 展开看证据</b>」，<b>默认收起</b>（原先 evidence 直接铺在卡里，一条就把对话顶下去半屏）。三个动作都是已有后端能力：<code>确认</code> → <code>ResolveFactProposal</code>；<code>改一下再确认</code> → 传改后的 <code>items</code> 入参（接口已支持、界面首次使用）；<code>忽略</code> → <code>rejected</code>（可翻回）。<b>v1.34 追加</b>：「改一下再确认」点开<b>原地展开</b>编辑表单——只改值、不弹窗、不跳页，取消即收起。<b>v1.37 追加</b>：编辑器分两型——<b>并列项值</b>（如「家长关注点 = 时段冲突、价格、接送距离」）用 <b>chips 逐项增删</b>（点 × 删一项、虚线框加一项，确认按钮实时显示项数）；<b>单值</b>（如「意向班型」）仍是文本框。逐项操作而不是整段改写，是因为并列项边界肉眼不可靠，整段改容易把「接送距离」误改成「接送 距离」. <b>v1.38 追加（简化）</b>：卡片常驻按钮从 <b>3 个降到 2 个</b>——「确认」是主按钮、「忽略」降为文字按钮，<b>「改一下再确认」不再是按钮</b>：点<b>值本身</b>即进入编辑（鼠标移上去值会变浅绿），编辑态主按钮变「保存修改」。一条信息只留一个主动作。<b>v1.39 追加（可发现性）</b>：你问"提取的不对怎么办"——说明「点值即改」看不出来能点。<b>修补</b>：卡片按钮行右侧<b>常驻一行小字「提取的不对？点上面的值直接改」</b>（对话流与台账两处都有，此前台账漏了）；值后的 ✎ 从最浅灰提到次浅灰。<b>v1.41 追加（编辑态接管）</b>：进入编辑后<b>「确认 / 忽略」按钮行整行隐藏</b>（含提示行）——编辑表单的「保存修改 / 取消」就是这一屏唯一的按钮组；一屏出现「确认」和「保存修改」两个主按钮，用户必然犹豫点哪个（四原则：一屏一个主按钮）。改完点「保存修改」仍走 <code>ResolveFactProposal</code> items 入参；<b>确认之后才发现错</b>的走另一条路：服务档案 → 行尾 ⋯ →「改这条」（软删 + superseded_by，审计可查）。</div>
+  <div class="annoline">方案 §11.3.6 第 1 条：内联卡片<b>保留</b>，但从"整块卡"改「<b>一行摘要 + 展开看证据</b>」，<b>默认收起</b>（原先 evidence 直接铺在卡里，一条就把对话顶下去半屏）。三个动作都是已有后端能力：<code>确认</code> → <code>ResolveFactProposal</code>；<code>改一下再确认</code> → 传改后的 <code>items</code> 入参（接口已支持、界面首次使用）；<code>忽略</code> → <code>rejected</code>（可翻回）。<b>v1.34 追加</b>：「改一下再确认」点开<b>原地展开</b>编辑表单——只改值、不弹窗、不跳页，取消即收起。<b>v1.37 追加</b>：编辑器分两型——<b>并列项值</b>（如「家长关注点 = 时段冲突、价格、接送距离」）用 <b>chips 逐项增删</b>（点 × 删一项、虚线框加一项，确认按钮实时显示项数）；<b>单值</b>（如「意向班型」）仍是文本框。逐项操作而不是整段改写，是因为并列项边界肉眼不可靠，整段改容易把「接送距离」误改成「接送 距离」. <b>v1.38 追加（简化）</b>：卡片常驻按钮从 <b>3 个降到 2 个</b>——「确认」是主按钮、「忽略」降为文字按钮，<b>「改一下再确认」不再是按钮</b>：点<b>值本身</b>即进入编辑（鼠标移上去值会变浅绿），编辑态主按钮变「保存修改」。一条信息只留一个主动作。<b>v1.39 追加（可发现性）</b>：你问"提取的不对怎么办"——说明「点值即改」看不出来能点。<b>修补</b>：卡片按钮行右侧<b>常驻一行小字「提取的不对？点上面的值直接改」</b>（对话流与台账两处都有，此前台账漏了）；值后的 ✎ 从最浅灰提到次浅灰。<b>v1.41 追加（编辑态接管）</b>：进入编辑后<b>「确认 / 忽略」按钮行整行隐藏</b>（含提示行）——编辑表单的「保存修改 / 取消」就是这一屏唯一的按钮组；一屏出现「确认」和「保存修改」两个主按钮，用户必然犹豫点哪个（四原则：一屏一个主按钮）。改完点「保存修改」仍走 <code>ResolveFactProposal</code> items 入参。<b>v1.42 追加（确认/忽略后说什么）</b>：点「确认 / 忽略 / 保存修改」后，<b>卡片原地收成一行「数据变更」语句</b>——「已写入服务档案 · 意向班型：小班（2027 春）→ 中班插班（原值标注为已被替换）· 今天 10:12 · 你」/「未写入档案 · … 的这条建议已忽略（可翻回）」。语句四型：新增（标签 = 新值）/ 覆盖（原值 <span>→</span> 新值，改前已在句中、不再附「原建议」）/ 改过值的新增类（附「你改过，原建议 X」）/ 忽略。语句数据 = <code>ResolveFactProposal</code> 返回的 <code>proposal.items + status + resolved_at</code> + 卡片已有改前值，前端无需新增接口。不加第二个气泡：同一条信息不出现两次；卡片原位折叠天然保序，刷新回放读到已处理态。<b>确认之后才发现错</b>的走另一条路：服务档案 → 行尾 ⋯ →「改这条」（软删 + superseded_by，审计可查）。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
@@ -1769,11 +1778,11 @@ function memChatView(){
 function todoPanel(){
   return `
   <aside class="sidepanel">
-    <div class="sp-head"><strong>待办</strong><span style="font-size:11px;color:var(--t3);margin-left:6px">共 ${openTodos().length + MEM_PROPOSALS.length}</span><button class="x" data-scene="space">✕</button></div>
+    <div class="sp-head"><strong>待办</strong><span style="font-size:11px;color:var(--t3);margin-left:6px">共 ${openTodos().length + pendingProposals().length}</span><button class="x" data-scene="space">✕</button></div>
     <div class="sp-body">
       <div class="tpglabel">要你去做 · ${openTodos().length}</div>
       ${openTodos().length ? openTodos().map(todoMini).join('') : '<div class="empty" style="padding:14px 0">这一组做完啦。</div>'}
-      <div class="tpglabel" style="margin-top:16px">要你确认 · ${MEM_PROPOSALS.length} <span class="tpgsub">AI 记下的新信息，确认后才写进档案</span></div>
+      <div class="tpglabel" style="margin-top:16px">要你确认 · ${pendingProposals().length} <span class="tpgsub">AI 记下的新信息，确认后才写进档案</span></div>
       ${MEM_PROPOSALS.map(ledItem).join('')}
       <div class="rfoot"><b>怎么用</b>：<b>待办点左边 ○ 就完成</b>；<b>待确认点「确认」就写进档案</b>——每条只有一个动作，其余都在 ⋯ 里。<br/><b>两样都是"等你处理"</b>：一本账，不用两头找。提取的不对？点值本身直接改。</div>
     </div>
@@ -1808,12 +1817,42 @@ function todoMini(r){
   </div>`;
 }
 /* v1.36 消费：完成 / 取消的即时离组——待办是消耗品，一本账归零 */
+/* v1.42：已处理（确认/忽略/改后确认）的提案即时退出「要你确认」组与所有计数 */
+function pendingProposals(){
+  return MEM_PROPOSALS.filter(pp => !state.pResolved[pp.id]);
+}
 function openTodos(){
   return REMINDERS.filter(r => !state.doneRem.includes(r.id) && !state.cancelRem.includes(r.id));
 }
 /* v1.34：「改一下再确认」= 卡片原地展开编辑表单（只改值、不弹窗、不跳页）；确认走 ResolveFactProposal 的 items 入参
    v1.37：编辑器分两型——值含并列项（、/；分隔且 >1 项）用 chips 逐项增删；单值仍是文本框。
    chips 型不让用户改整段文本的原因：并列项的边界肉眼不可靠，逐项操作不会把「接送距离」误改成「接送 距离」 */
+/* v1.42：确认 / 忽略之后，卡片原地收成**一行「数据变更」语句**——不新增气泡、不跳页。
+   语句数据全部来自 resolve 接口返回的 proposal（items / status / resolved_by / resolved_at）+ 卡片已有的改前值：
+     · 新增类 → 已写入服务档案 · <标签> = <新值>
+     · 覆盖类 → 已写入服务档案 · <标签>：<原值> → <新值>（原值标注为已被替换）
+     · 改过值 → 已写入服务档案 · <标签> = <改后值>（你改过，原建议 X）
+     · 忽略   → 未写入档案 · <标签> 的这条建议已忽略（可翻回）
+   为什么收成一行而不是加一条聊天气泡：一句话说两遍（卡片 + 气泡）违反「同一条信息只出现一次」，
+   而且卡片原位折叠天然保序——刷新 / 回放时读到的是「已处理」状态，与实时一致。
+   语句里不放「撤销」按钮：确认后发现错走「服务档案 → 行尾 ⋯ → 改这条」（软删 + superseded 留审计）。 */
+function dataLine(p, kind){
+  const list = state.editItems[p.id];
+  const edited = kind === 'edited';
+  const val = edited ? ((list && list.length) ? list.join('、') : (state.pEdited[p.id] || p.nv)) : p.nv;
+  let body;
+  if (kind === 'ignore') {
+    body = `未写入档案 · <b>${esc(p.k)}</b> 的这条建议已忽略（可翻回）`;
+  } else if (p.conflict) {
+    body = `已写入服务档案 · <b>${esc(p.k)}</b>：<span class="od">${esc(p.ov)}</span> → <b>${esc(val)}</b>（原值标注为已被替换）`;
+  } else if (edited) {
+    body = `已写入服务档案 · <b>${esc(p.k)}</b> = <b>${esc(val)}</b>（你改过，原建议 ${esc(p.nv)}）`;
+  } else {
+    body = `已写入服务档案 · <b>${esc(p.k)}</b> = <b>${esc(val)}</b>`;
+  }
+  const icon = kind === 'ignore' ? '—' : '✔';
+  return `<div class="dline ${kind === 'ignore' ? 'skip' : 'ok'}"><span class="di">${icon}</span><span class="dt">${body}</span><span class="dz">${esc(p.at)} · 你</span></div>`;
+}
 function splitList(v){ return v.split(/[、；;]/).map(x => x.trim()).filter(Boolean); }
 function editItemsOf(p){
   if (!state.editItems[p.id]) state.editItems[p.id] = splitList(p.nv);
@@ -1827,10 +1866,10 @@ function editForm(p){
   if (!isList) return `
   <div class="editform">
     <span class="elbl">记成什么 · 只改值，标签「${esc(p.k)}」不用动</span>
-    <input class="field" value="${esc(p.nv)}" />
+    <input class="field" id="editval-${p.id}" value="${esc(p.nv)}" />
     ${p.conflict ? conflictHint : plainHint}
     <div class="eacts">
-      <button class="btn pri sm" data-noop>保存修改</button>
+      <button class="btn pri sm" data-presolve="${p.id}:edited">保存修改</button>
       <button class="btn ghost sm" data-edit="${p.id}">取消</button>
     </div>
   </div>`;
@@ -1843,12 +1882,13 @@ function editForm(p){
     </div>
     ${p.conflict ? conflictHint : `<div class="hint">确认后按整组写进档案（当前 ${items.length} 项）；删掉的项在改前记录里仍可查证。</div>`}
     <div class="eacts">
-      <button class="btn pri sm" data-noop>保存修改（${items.length} 项）</button>
+      <button class="btn pri sm" data-presolve="${p.id}:edited">保存修改（${items.length} 项）</button>
       <button class="btn ghost sm" data-edit="${p.id}">取消</button>
     </div>
   </div>`;
 }
 function ledItem(p){
+  if (state.pResolved[p.id]) return dataLine(p, state.pResolved[p.id]);
   return `
   <div class="leditem">
     <div class="lh">
@@ -1864,15 +1904,15 @@ function ledItem(p){
     </details>
     ${state.editOpen === p.id ? editForm(p) : `
     <div class="acts">
-      <button class="btn pri sm" data-noop>确认</button>
-      <button class="btn ghost sm" data-noop>忽略</button>
+      <button class="btn pri sm" data-presolve="${p.id}:confirm">确认</button>
+      <button class="btn ghost sm" data-presolve="${p.id}:ignore">忽略</button>
       <span class="cnt">提取的不对？点上面的值直接改</span>
     </div>`}
   </div>`;
 }
 function memLedgerView(){
   return `
-  <div class="annoline"><b>v1.35 修订（§11.4）</b>：原先给「待确认」单开一个入口（右侧常驻栏「待确认 N ›」），结果是<b>两个数字两个入口都在说"等你处理"</b>——用户要分两处看、还得记住哪个是哪个。<b>本版合并成一个入口</b>：服务头「待办 N」里两组活，<b>「要你去做」</b>（<code>service_reminders</code>）与<b>「要你确认」</b>（<code>service_fact_proposals</code>）。完成动作不同（做完了 / 认可了），但都是"等你处理"，<b>一本账从上往下处理</b>。计数只在服务头出现一次，卡片与面板标题都不带数字。<br/><b>顺带砍掉「未完成项」</b>：它跟「待办」同义，从对话抽出的"还没做完的事"现在<b>直接落成待办</b>，不再另存一份记忆。原 §11.2 G4（提案划过去找不到）由这个面板解决——不再需要常驻栏那一行。<br/><b>v1.36 追加（怎么消费）</b>：「要你去做」的行<b>点开原地展开动作条</b>——标记完成 / 开始处理 / 协作 / 不做了（与「改一下再确认」同模式，不弹窗不跳页）；完成与取消<b>即时离组</b>（待办是消耗品，处理完这组就空、服务头数字跟着减），终态进「动态」；AI 从对话提出的待办点「不做了」向 AI 记一次反馈。<b>v1.37 追加</b>：「改一下再确认」的编辑器分两型——并列项值 chips 逐项增删 / 单值文本框（见场景 12 批注）。<b>v1.38 追加（简化）</b>：「要你去做」的行内按钮从 <b>4 个降到 1 个</b>——<b>点左边 ○ 即完成</b>（一眼就会，零学习成本）；「开始处理 / 不做了」收进行尾 <b>⋯</b>；协作数从按钮改成一行小字（它是信息、不是动作）。<b>v1.39 追加（可发现性）</b>：「要你确认」卡片补常驻提示行「提取的不对？点上面的值直接改」——见场景 12 批注。<b>v1.41 追加</b>：编辑态下「确认 / 忽略」按钮行整行隐藏，编辑表单接管（见场景 12 批注）。</div>
+  <div class="annoline"><b>v1.35 修订（§11.4）</b>：原先给「待确认」单开一个入口（右侧常驻栏「待确认 N ›」），结果是<b>两个数字两个入口都在说"等你处理"</b>——用户要分两处看、还得记住哪个是哪个。<b>本版合并成一个入口</b>：服务头「待办 N」里两组活，<b>「要你去做」</b>（<code>service_reminders</code>）与<b>「要你确认」</b>（<code>service_fact_proposals</code>）。完成动作不同（做完了 / 认可了），但都是"等你处理"，<b>一本账从上往下处理</b>。计数只在服务头出现一次，卡片与面板标题都不带数字。<br/><b>顺带砍掉「未完成项」</b>：它跟「待办」同义，从对话抽出的"还没做完的事"现在<b>直接落成待办</b>，不再另存一份记忆。原 §11.2 G4（提案划过去找不到）由这个面板解决——不再需要常驻栏那一行。<br/><b>v1.36 追加（怎么消费）</b>：「要你去做」的行<b>点开原地展开动作条</b>——标记完成 / 开始处理 / 协作 / 不做了（与「改一下再确认」同模式，不弹窗不跳页）；完成与取消<b>即时离组</b>（待办是消耗品，处理完这组就空、服务头数字跟着减），终态进「动态」；AI 从对话提出的待办点「不做了」向 AI 记一次反馈。<b>v1.37 追加</b>：「改一下再确认」的编辑器分两型——并列项值 chips 逐项增删 / 单值文本框（见场景 12 批注）。<b>v1.38 追加（简化）</b>：「要你去做」的行内按钮从 <b>4 个降到 1 个</b>——<b>点左边 ○ 即完成</b>（一眼就会，零学习成本）；「开始处理 / 不做了」收进行尾 <b>⋯</b>；协作数从按钮改成一行小字（它是信息、不是动作）。<b>v1.39 追加（可发现性）</b>：「要你确认」卡片补常驻提示行「提取的不对？点上面的值直接改」——见场景 12 批注。<b>v1.41 追加</b>：编辑态下「确认 / 忽略」按钮行整行隐藏，编辑表单接管。<b>v1.42 追加</b>：处理完的提案<b>原地收成一行「数据变更」语句</b>（见场景 12 批注）——台账里处理过的条目不再占一整张卡，一本账越处理越短。</div>
   <div class="product">
     ${productSidebar({ service:'s1', session:'c1' })}
     <div class="pmain">
@@ -2009,6 +2049,8 @@ const state = {
   newChat: false, // v1.14 新会话空态（对话区切换，不新开页面）；v1.16 起入口从服务头 ＋ 改为左侧服务行悬停 ＋
   sec: 'fields',  // 设置场景内的分区：basic / fields / sources / members（v1.13「专家」并入基本信息、v1.30 基本信息精简为名称+说明+客户信息只读，仍 4 个分区）
   editOpen: '',  // v1.34 「改一下再确认」展开的提案 id（'' = 全部收起）
+  pResolved: {},  // v1.42 已处理的提案：id -> 'confirm' | 'edited' | 'ignore'（收成一行数据变更语句）
+  pEdited: {},    // v1.42 用户改过的值（单值型）
   editItems: {}, // v1.37 chips 编辑器的工作项（提案 id → string[]，展开时从 nv 重新初始化）
   todoMore: '',  // v1.38 「要你去做」⋯ 展开的待办 id（唯一例外动作入口）
   doneRem: [],   // v1.36 已标记完成的待办 id（即时离组）
@@ -2093,6 +2135,20 @@ document.addEventListener('click', e => {
 
   const sec = hit('[data-sec]');
   if (sec) { state.sec = sec.dataset.sec; render(); return; }
+
+  /* v1.42：确认 / 忽略 / 保存修改 → 收成一行数据变更语句 */
+  const pr = hit('[data-presolve]');
+  if (pr) {
+    const [pid, kind] = pr.dataset.presolve.split(':');
+    if (kind === 'edited') {
+      const el = document.getElementById('editval-' + pid);
+      if (el && el.value.trim()) state.pEdited[pid] = el.value.trim();
+    }
+    state.pResolved[pid] = kind;
+    state.editOpen = '';
+    render();
+    return;
+  }
 
   const ed = hit('[data-edit]');
   if (ed) {

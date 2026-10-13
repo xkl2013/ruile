@@ -3857,6 +3857,10 @@ export default {
       knowledgeAnswer: "知识问答",
       agentDescriptionFallback: "根据你的工作场景，整理出下一步可以直接使用的内容。",
       noExperts: "暂无可用专家，先直接告诉小睿你要做什么吧",
+      previousExperts: "上一组专家",
+      nextExperts: "下一组专家",
+      expertPages: "专家分页",
+      expertPage: "第 {page} 页专家",
     },
     messages: {
       selectKnowledgeBase: "请先选择知识库",

@@ -33,22 +33,53 @@
 
             <section class="xiaorui-experts" aria-labelledby="xiaorui-experts-title">
                 <h2 id="xiaorui-experts-title" class="sr-only">{{ $t('createChat.home.expertsTitle') }}</h2>
-                <div v-if="featuredAgents.length > 0" class="xiaorui-expert-track">
-                    <button v-for="agent in featuredAgents" :key="agent.id" type="button" class="xiaorui-expert-card"
-                        :class="{ 'is-selected': agent.id === selectedAgentId }" @click="selectExpert(agent)">
-                        <div class="xiaorui-expert-head">
-                            <AgentAvatar :name="agent.name" :avatar="agent.avatar" size="small" />
-                            <span class="xiaorui-expert-name">
-                                <strong>{{ agent.name }}</strong>
-                                <small>{{ expertRole(agent) }}</small>
-                            </span>
-                            <t-icon name="arrow-right" class="xiaorui-expert-arrow" aria-hidden="true" />
-                        </div>
-                        <p>{{ agent.description || $t('createChat.home.agentDescriptionFallback') }}</p>
-                        <span class="xiaorui-expert-tags">
-                            <span v-for="tag in agentTags(agent)" :key="tag">{{ tag }}</span>
+                <div v-if="featuredAgents.length > 0" class="xiaorui-expert-carousel"
+                    @mouseenter="stopExpertAutoplay" @mouseleave="startExpertAutoplay"
+                    @focusin="stopExpertAutoplay" @focusout="startExpertAutoplay">
+                    <div ref="expertViewportRef" class="xiaorui-expert-viewport">
+                        <Transition name="expert-page" mode="out-in">
+                            <div :key="`${expertPageIndex}-${expertColumns}`" class="xiaorui-expert-grid"
+                                :style="{ '--expert-columns': expertColumns }" aria-live="polite">
+                                <button v-for="agent in visibleExpertAgents" :key="agent.id" type="button"
+                                    class="xiaorui-expert-card"
+                                    :class="{ 'is-selected': agent.id === selectedAgentId }"
+                                    @click="selectExpert(agent)">
+                                    <div class="xiaorui-expert-head">
+                                        <AgentAvatar :name="agent.name" :avatar="agent.avatar" size="small" />
+                                        <span class="xiaorui-expert-name">
+                                            <strong>{{ agent.name }}</strong>
+                                            <small>{{ expertRole(agent) }}</small>
+                                        </span>
+                                        <t-icon name="arrow-right" class="xiaorui-expert-arrow" aria-hidden="true" />
+                                    </div>
+                                    <p>{{ agent.description || $t('createChat.home.agentDescriptionFallback') }}</p>
+                                    <span class="xiaorui-expert-tags">
+                                        <span v-for="tag in agentTags(agent)" :key="tag">{{ tag }}</span>
+                                    </span>
+                                </button>
+                            </div>
+                        </Transition>
+                    </div>
+                    <div v-if="expertPageCount > 1" class="xiaorui-expert-controls">
+                        <button type="button" class="xiaorui-expert-page-button"
+                            :aria-label="$t('createChat.home.previousExperts')" :title="$t('createChat.home.previousExperts')"
+                            @click="previousExpertPage">
+                            <t-icon name="chevron-left" />
+                        </button>
+                        <span class="xiaorui-expert-dots" role="group"
+                            :aria-label="$t('createChat.home.expertPages')">
+                            <button v-for="page in expertPageCount" :key="page" type="button"
+                                :class="{ 'is-active': page - 1 === expertPageIndex }"
+                                :aria-label="$t('createChat.home.expertPage', { page })"
+                                :aria-current="page - 1 === expertPageIndex ? 'page' : undefined"
+                                @click="goToExpertPage(page - 1)" />
                         </span>
-                    </button>
+                        <button type="button" class="xiaorui-expert-page-button"
+                            :aria-label="$t('createChat.home.nextExperts')" :title="$t('createChat.home.nextExperts')"
+                            @click="nextExpertPage">
+                            <t-icon name="chevron-right" />
+                        </button>
+                    </div>
                 </div>
                 <div v-else class="xiaorui-expert-empty">
                     <t-icon name="usergroup" />
@@ -66,7 +97,7 @@
 
 </template>
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import ContextualGuide from '@/components/ContextualGuide.vue';
 import InputField from '@/components/Input-field.vue';
@@ -93,7 +124,13 @@ const today = new Date();
 const dateMonth = `${today.getMonth() + 1}${t('createChat.home.monthSuffix')}`;
 const dateDay = `${today.getDate()}`;
 const dialogueWrapRef = ref<HTMLElement | null>(null);
+const expertViewportRef = ref<HTMLElement | null>(null);
+const expertColumns = ref(3);
+const expertPageIndex = ref(0);
 const selectedAgentId = computed(() => settingsStore.selectedAgentId);
+const EXPERT_AUTOPLAY_INTERVAL = 6000;
+let expertAutoplayTimer: number | null = null;
+let expertResizeObserver: ResizeObserver | null = null;
 
 const isExpertAgent = (agent: CustomAgent) =>
     agent.config?.tags?.includes('expert') === true || (!isBuiltinAgent(agent.id) && !!agent.description);
@@ -117,7 +154,11 @@ const featuredAgents = computed(() => {
     const fallback = available.filter((agent) =>
         agent.id !== BUILTIN_QUICK_ANSWER_ID && agent.id !== BUILTIN_SMART_REASONING_ID,
     );
-    const candidates = experts.length > 0 ? experts : fallback;
+    const expertIds = new Set(experts.map((agent) => agent.id));
+    const candidates = [
+        ...experts,
+        ...fallback.filter((agent) => !expertIds.has(agent.id)),
+    ];
     const uniqueAgents = new Map<string, CustomAgent>();
 
     candidates.forEach((agent) => {
@@ -129,8 +170,43 @@ const featuredAgents = computed(() => {
         }
     });
 
-    return [...uniqueAgents.values()].slice(0, 8);
+    return [...uniqueAgents.values()];
 });
+
+const expertCardsPerPage = computed(() => expertColumns.value * 2);
+const expertPages = computed(() => {
+    const pages: CustomAgent[][] = [];
+    for (let index = 0; index < featuredAgents.value.length; index += expertCardsPerPage.value) {
+        pages.push(featuredAgents.value.slice(index, index + expertCardsPerPage.value));
+    }
+    return pages;
+});
+const expertPageCount = computed(() => expertPages.value.length);
+const visibleExpertAgents = computed(() => expertPages.value[expertPageIndex.value] || []);
+
+const stopExpertAutoplay = () => {
+    if (expertAutoplayTimer !== null) {
+        window.clearInterval(expertAutoplayTimer);
+        expertAutoplayTimer = null;
+    }
+};
+
+const startExpertAutoplay = () => {
+    stopExpertAutoplay();
+    if (expertPageCount.value <= 1) return;
+    expertAutoplayTimer = window.setInterval(() => {
+        expertPageIndex.value = (expertPageIndex.value + 1) % expertPageCount.value;
+    }, EXPERT_AUTOPLAY_INTERVAL);
+};
+
+const goToExpertPage = (page: number) => {
+    if (expertPageCount.value <= 0) return;
+    expertPageIndex.value = (page + expertPageCount.value) % expertPageCount.value;
+    startExpertAutoplay();
+};
+
+const previousExpertPage = () => goToExpertPage(expertPageIndex.value - 1);
+const nextExpertPage = () => goToExpertPage(expertPageIndex.value + 1);
 
 const expertRole = (agent: CustomAgent) => {
     const tag = agent.config?.tags?.find((item) => item !== 'expert');
@@ -198,10 +274,36 @@ const showChatContextualGuide = computed(() => {
     return route.name === 'globalCreatChat' || route.name === 'kbCreatChat';
 });
 
+watch([expertPageCount, expertCardsPerPage], () => {
+    if (expertPageIndex.value >= expertPageCount.value) {
+        expertPageIndex.value = Math.max(0, expertPageCount.value - 1);
+    }
+    startExpertAutoplay();
+});
+
 onMounted(() => {
     nextTick(() => {
         dialogueWrapRef.value?.scrollTo({ top: 0, left: 0 });
+
+        if (expertViewportRef.value) {
+            const updateExpertColumns = (width: number) => {
+                expertColumns.value = width >= 660 ? 3 : width >= 440 ? 2 : 1;
+            };
+            updateExpertColumns(expertViewportRef.value.clientWidth);
+            expertResizeObserver = new ResizeObserver(([entry]) => {
+                updateExpertColumns(entry.contentRect.width);
+            });
+            expertResizeObserver.observe(expertViewportRef.value);
+        }
+
+        startExpertAutoplay();
     });
+});
+
+onUnmounted(() => {
+    stopExpertAutoplay();
+    expertResizeObserver?.disconnect();
+    expertResizeObserver = null;
 });
 
 const inputFieldRef = ref();
@@ -503,24 +605,32 @@ const navigateToSession = async (
     margin: 0 auto;
 }
 
-.xiaorui-expert-track {
-    display: flex;
+.xiaorui-expert-carousel {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+}
+
+.xiaorui-expert-viewport {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    padding: 2px 1px;
+}
+
+.xiaorui-expert-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--expert-columns), minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(146px, auto));
     gap: 12px;
     width: 100%;
-    overflow-x: auto;
-    padding: 2px 1px 6px;
-    scrollbar-width: none;
-
-    &::-webkit-scrollbar {
-        display: none;
-    }
 }
 
 .xiaorui-expert-card {
     display: flex;
     flex-direction: column;
-    width: 224px;
-    min-width: 224px;
+    width: 100%;
+    min-width: 0;
     min-height: 146px;
     padding: 12px;
     border: 1px solid var(--td-component-stroke, #e7e7e7);
@@ -616,6 +726,73 @@ const navigateToSession = async (
     }
 }
 
+.xiaorui-expert-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 28px;
+}
+
+.xiaorui-expert-page-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--td-component-stroke, #e7e7e7);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--td-text-color-secondary, rgba(0, 0, 0, .6));
+    transition: border-color .15s, background .15s, color .15s;
+
+    &:hover,
+    &:focus-visible {
+        border-color: #9bdfb2;
+        background: #f0fbf4;
+        color: var(--td-brand-color, #07c05f);
+    }
+}
+
+.xiaorui-expert-dots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 42px;
+
+    button {
+        width: 6px;
+        height: 6px;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: var(--td-component-stroke, #dcdcdc);
+        transition: width .15s, background .15s;
+
+        &.is-active {
+            width: 18px;
+            background: var(--td-brand-color, #07c05f);
+        }
+    }
+}
+
+.expert-page-enter-active,
+.expert-page-leave-active {
+    transition: opacity .18s ease, transform .18s ease;
+}
+
+.expert-page-enter-from {
+    opacity: 0;
+    transform: translateX(12px);
+}
+
+.expert-page-leave-to {
+    opacity: 0;
+    transform: translateX(-12px);
+}
+
 .xiaorui-expert-empty {
     display: flex;
     align-items: center;
@@ -687,11 +864,6 @@ const navigateToSession = async (
         margin-top: 16px;
     }
 
-    .xiaorui-expert-track {
-        margin-right: -14px;
-        padding-right: 14px;
-    }
-
     .xiaorui-composer {
         margin-top: auto;
     }
@@ -724,6 +896,11 @@ const navigateToSession = async (
     .xiaorui-expert-card {
         min-height: 124px;
         padding: 10px;
+    }
+
+    .xiaorui-expert-grid {
+        grid-template-rows: repeat(2, minmax(124px, auto));
+        gap: 10px;
     }
 
     .xiaorui-expert-card p {

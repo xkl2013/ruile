@@ -35,12 +35,15 @@ var (
 const (
 	expertPackageMaxPromptRunes        = 24000
 	expertPackageMaxSkillSnapshotRunes = 120000
+	expertPackageMaxQuickPrompts       = 8
+	expertPackageMaxQuickPromptRunes   = 200
 )
 
 type expertPackageService struct {
-	repo        interfaces.ExpertPackageRepository
-	fileService interfaces.FileService
-	agentRepo   interfaces.CustomAgentRepository
+	repo         interfaces.ExpertPackageRepository
+	fileService  interfaces.FileService
+	agentRepo    interfaces.CustomAgentRepository
+	modelService interfaces.ModelService
 }
 
 func NewExpertPackageService(repo interfaces.ExpertPackageRepository, fileService interfaces.FileService) interfaces.ExpertPackageService {
@@ -51,8 +54,14 @@ func NewExpertPackageServiceWithAgentRepository(
 	repo interfaces.ExpertPackageRepository,
 	fileService interfaces.FileService,
 	agentRepo interfaces.CustomAgentRepository,
+	modelService interfaces.ModelService,
 ) interfaces.ExpertPackageService {
-	return &expertPackageService{repo: repo, fileService: fileService, agentRepo: agentRepo}
+	return &expertPackageService{
+		repo:         repo,
+		fileService:  fileService,
+		agentRepo:    agentRepo,
+		modelService: modelService,
+	}
 }
 
 func (s *expertPackageService) ImportPackage(
@@ -364,6 +373,22 @@ func (s *expertPackageService) syncDefinitionAgent(
 	config.MemberAgentIDs = nil
 	// The delegated runtime narrows this to the main Agent's search targets.
 	config.KBSelectionMode = "all"
+	if config.QuestionSuggestions == nil {
+		config.QuestionSuggestions = expertQuestionSuggestions(
+			s.expertDefinitionQuickPrompts(ctx, tenantID, definition),
+		)
+	}
+	if strings.TrimSpace(config.RerankModelID) == "" &&
+		agentRequiresRerankModel(&types.CustomAgent{Config: config}) {
+		rerankModelID, resolveErr := s.resolveDefaultRerankModelID(ctx)
+		if resolveErr != nil {
+			logger.Warnf(ctx, "Failed to resolve rerank model for expert %q: %v", definition.AgentID, resolveErr)
+		} else if rerankModelID != "" {
+			config.RerankModelID = rerankModelID
+		} else if s.modelService != nil {
+			logger.Warnf(ctx, "No active rerank model is available for expert %q", definition.AgentID)
+		}
+	}
 
 	name := strings.TrimSpace(definition.DisplayName)
 	if name == "" {
@@ -486,6 +511,44 @@ func (s *expertPackageService) expertDefinitionTags(
 	return expertTagsFromManifest(version.Manifest["tags"])
 }
 
+func (s *expertPackageService) expertDefinitionQuickPrompts(
+	ctx context.Context,
+	tenantID uint64,
+	definition *types.AgentDefinitionVersion,
+) []string {
+	if definition == nil || definition.PackageID == "" || definition.PackageVersionID == "" {
+		return nil
+	}
+	version, err := s.repo.GetVersion(ctx, tenantID, definition.PackageID, definition.PackageVersionID)
+	if err != nil || version == nil {
+		return nil
+	}
+	return expertQuickPromptsFromManifest(version.Manifest["quick_prompts"])
+}
+
+func (s *expertPackageService) resolveDefaultRerankModelID(ctx context.Context) (string, error) {
+	if s.modelService == nil {
+		return "", nil
+	}
+	models, err := s.modelService.ListModels(ctx)
+	if err != nil {
+		return "", err
+	}
+	fallback := ""
+	for _, model := range models {
+		if model == nil || model.Type != types.ModelTypeRerank || model.Status != types.ModelStatusActive {
+			continue
+		}
+		if model.IsDefault {
+			return model.ID, nil
+		}
+		if fallback == "" {
+			fallback = model.ID
+		}
+	}
+	return fallback, nil
+}
+
 func expertTagsFromManifest(value any) []string {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -504,6 +567,72 @@ func expertTagsFromManifest(value any) []string {
 		result = append(result, expertLocalizedText{ZH: value})
 	}
 	return workBuddyTagValues(result)
+}
+
+func expertQuickPromptsFromManifest(value any) []string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var localized []expertLocalizedText
+	if err := json.Unmarshal(raw, &localized); err == nil {
+		return workBuddyQuickPromptValues(localized)
+	}
+	var plain []string
+	if err := json.Unmarshal(raw, &plain); err != nil {
+		return nil
+	}
+	return normalizeExpertQuickPrompts(plain)
+}
+
+func expertQuestionSuggestions(prompts []string) *types.QuestionSuggestionConfig {
+	prompts = normalizeExpertQuickPrompts(prompts)
+	count := len(prompts)
+	if count == 0 {
+		count = 6
+	}
+	return &types.QuestionSuggestionConfig{
+		Starters: types.StarterSuggestionConfig{
+			Enabled: len(prompts) > 0,
+			Mode:    types.SuggestionModeCurated,
+			Items:   prompts,
+			Count:   count,
+		},
+		FollowUps: types.FollowUpSuggestionConfig{
+			Enabled:                        false,
+			Mode:                           types.SuggestionModeHybrid,
+			Count:                          3,
+			MaxContextTurns:                2,
+			SuppressOnFallback:             true,
+			SuppressWhenAnswerAsksQuestion: true,
+			KnowledgeFallback:              true,
+			Categories: []string{
+				types.SuggestionCategoryClarify,
+				types.SuggestionCategoryDeepen,
+				types.SuggestionCategoryAction,
+			},
+		},
+	}
+}
+
+func normalizeExpertQuickPrompts(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		prompt := strings.TrimSpace(value)
+		if prompt == "" || utf8.RuneCountInString(prompt) > expertPackageMaxQuickPromptRunes {
+			continue
+		}
+		if _, exists := seen[prompt]; exists {
+			continue
+		}
+		seen[prompt] = struct{}{}
+		result = append(result, prompt)
+		if len(result) == expertPackageMaxQuickPrompts {
+			break
+		}
+	}
+	return result
 }
 
 func containsAgentTag(values []string, target string) bool {
@@ -634,6 +763,7 @@ type expertAgentFrontMatter struct {
 	Domain              string                `yaml:"domain"`
 	MaxTurns            int                   `yaml:"max_turns"`
 	Skills              []string              `yaml:"skills"`
+	QuickPrompts        []string              `yaml:"quick_prompts"`
 	OutputContract      string                `yaml:"output_contract"`
 	RequiredInputs      []expertRequiredInput `yaml:"required_inputs"`
 	ExecutionPolicy     map[string]any        `yaml:"execution_policy"`
@@ -706,6 +836,7 @@ func compileExpertPackage(input types.ExpertPackageImportInput) ([]compiledExper
 			AgentMode: types.AgentModeSmartReasoning, SystemPrompt: body,
 			MaxIterations: clampExpertTurns(frontMatter.MaxTurns), SkillsSelectionMode: "selected",
 			SelectedSkills: skills, AllowedTools: expertAllowedTools(append(required, optional...)),
+			QuestionSuggestions: expertQuestionSuggestions(frontMatter.QuickPrompts),
 		})
 		if err != nil {
 			return nil, nil, err

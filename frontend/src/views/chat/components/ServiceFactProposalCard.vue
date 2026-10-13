@@ -112,12 +112,19 @@ const statusLabel = computed(() => {
 })
 
 const resolvedMessage = computed(() => {
+  const items = (status.value === 'confirmed' ? (props.proposal.items || []) : []).map((item) => {
+    const label = item.field_label || item.field_key
+    return `${label} = ${formatValue(item.value)}`
+  })
   if (status.value === 'confirmed') {
-    return selectedSubjectId.value || props.proposal.subject_id
-      ? '事实已写入主体档案，并刷新空间摘要。'
+    return items.length
+      ? `已写入服务档案：${items.join('；')}。原值与改前记录可在服务档案和审计里查证。`
       : '事实已写入服务空间档案，并刷新空间摘要。'
   }
-  return '本次识别结果未写入服务空间。'
+  const labels = (props.proposal.items || []).map((item) => item.field_label || item.field_key).join('、')
+  return labels
+    ? `未写入档案：本次识别结果（${labels}）已忽略，可翻回。`
+    : '本次识别结果未写入服务空间。'
 })
 
 const formatValue = (value: unknown) => {

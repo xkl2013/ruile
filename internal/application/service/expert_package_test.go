@@ -71,6 +71,15 @@ func (s *expertPackageFileServiceStub) CopyFile(context.Context, string, uint64,
 	return "", nil
 }
 
+type expertPackageModelServiceStub struct {
+	interfaces.ModelService
+	models []*types.Model
+}
+
+func (s *expertPackageModelServiceStub) ListModels(context.Context) ([]*types.Model, error) {
+	return s.models, nil
+}
+
 func TestExpertPackageImportAndPublish(t *testing.T) {
 	ctx := context.Background()
 	svc := newExpertPackageTestService(t)
@@ -116,6 +125,13 @@ output_contract: agent_result_v1
 	require.Equal(t, types.ExpertPackageVersionTesting, version.State)
 	require.Len(t, version.Definitions, 1)
 	require.Equal(t, 20, int(version.Definitions[0].CompiledConfig["max_iterations"].(float64)))
+	var importedConfig types.CustomAgentConfig
+	importedConfigData, err := json.Marshal(version.Definitions[0].CompiledConfig)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(importedConfigData, &importedConfig))
+	require.NotNil(t, importedConfig.QuestionSuggestions)
+	require.False(t, importedConfig.QuestionSuggestions.Starters.Enabled)
+	require.Equal(t, types.SuggestionModeCurated, importedConfig.QuestionSuggestions.Starters.Mode)
 	require.Contains(t, version.Diagnostics["warnings"], "unsupported capability: script.python")
 	snapshots, err := loadExpertSkillSnapshots(version.Definitions[0])
 	require.NoError(t, err)
@@ -160,6 +176,19 @@ func TestPublishedExpertIsMaterializedAsCustomAgent(t *testing.T) {
 		repository.NewExpertPackageRepository(db),
 		nil,
 		repository.NewCustomAgentRepository(db),
+		&expertPackageModelServiceStub{models: []*types.Model{
+			{
+				ID:     "rerank-fallback",
+				Type:   types.ModelTypeRerank,
+				Status: types.ModelStatusActive,
+			},
+			{
+				ID:        "rerank-default",
+				Type:      types.ModelTypeRerank,
+				Status:    types.ModelStatusActive,
+				IsDefault: true,
+			},
+		}},
 	)
 
 	version, err := svc.ImportPackage(ctx, 11, "admin-1", types.ExpertPackageImportInput{
@@ -178,6 +207,9 @@ display_name: 研究专家
 description: English agent description.
 skills:
   - researcher
+quick_prompts:
+  - 先帮我梳理研究目标
+  - 请列出需要核验的证据
 capabilities:
   required:
     - knowledge.read
@@ -194,6 +226,21 @@ capabilities:
 	require.NoError(t, err)
 	require.Len(t, packages, 1)
 
+	// Older imports persisted quick_prompts only in the package manifest.
+	// Publishing or re-syncing them must hydrate the materialized Agent
+	// without requiring the package to be imported again.
+	delete(version.Definitions[0].CompiledConfig, "question_suggestions")
+	require.NoError(t, db.Model(&types.AgentDefinitionVersion{}).
+		Where("id = ?", version.Definitions[0].ID).
+		Update("compiled_config", version.Definitions[0].CompiledConfig).Error)
+	version.Manifest["quick_prompts"] = []expertLocalizedText{
+		{ZH: "先帮我梳理研究目标"},
+		{ZH: "请列出需要核验的证据"},
+	}
+	require.NoError(t, db.Model(&types.ExpertPackageVersion{}).
+		Where("id = ?", version.ID).
+		Update("manifest", version.Manifest).Error)
+
 	require.NoError(t, svc.PublishVersion(ctx, 11, "admin-1", packages[0].ID, version.ID))
 	agents, err := repository.NewCustomAgentRepository(db).ListAgentsByTenantID(ctx, 11)
 	require.NoError(t, err)
@@ -209,6 +256,14 @@ capabilities:
 	require.Contains(t, agents[0].Config.AllowedTools, "knowledge_search")
 	require.Len(t, agents[0].Config.SkillSnapshots, 1)
 	require.Equal(t, "researcher", agents[0].Config.SkillSnapshots[0].Name)
+	require.Equal(t, "rerank-default", agents[0].Config.RerankModelID)
+	require.NotNil(t, agents[0].Config.QuestionSuggestions)
+	require.True(t, agents[0].Config.QuestionSuggestions.Starters.Enabled)
+	require.Equal(t, types.SuggestionModeCurated, agents[0].Config.QuestionSuggestions.Starters.Mode)
+	require.Equal(t, []string{
+		"先帮我梳理研究目标",
+		"请列出需要核验的证据",
+	}, agents[0].Config.QuestionSuggestions.Starters.Items)
 
 	require.NoError(t, db.Model(&types.CustomAgent{}).
 		Where("id = ? AND tenant_id = ?", agents[0].ID, agents[0].TenantID).
@@ -226,6 +281,8 @@ capabilities:
 	require.NoError(t, err)
 	require.Equal(t, "中文专家展示描述", resynced.Description)
 	require.Equal(t, "resource://expert-avatar", resynced.Avatar)
+	require.Equal(t, "rerank-default", resynced.Config.RerankModelID)
+	require.Equal(t, types.SuggestionModeCurated, resynced.Config.QuestionSuggestions.Starters.Mode)
 
 	// Older releases promoted the workspace-derived ID into tenant 0. Keep
 	// updating that active row when the newer platform-derived ID was deleted.
@@ -321,6 +378,17 @@ func TestExpertPackageImportWorkBuddyArchive(t *testing.T) {
 
 	config := version.Definitions[0].CompiledConfig
 	require.Equal(t, float64(20), config["max_iterations"])
+	var compiledConfig types.CustomAgentConfig
+	configData, err := json.Marshal(config)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(configData, &compiledConfig))
+	require.NotNil(t, compiledConfig.QuestionSuggestions)
+	require.Equal(t, types.SuggestionModeCurated, compiledConfig.QuestionSuggestions.Starters.Mode)
+	require.Equal(t, []string{
+		"帮我策划一场秋季亲子运动会",
+		"生成活动所需的物料清单",
+		"检查活动方案中的安全风险",
+	}, compiledConfig.QuestionSuggestions.Starters.Items)
 
 	packages, err := svc.ListPackages(ctx, 11)
 	require.NoError(t, err)
@@ -407,6 +475,32 @@ func TestWorkBuddyTagValuesUsesChineseLabelsAndLimitsThree(t *testing.T) {
 	require.Equal(t, []string{"中文标签", "第二个", "第三个"}, got)
 }
 
+func TestExpertQuickPromptsFromManifestUsesChineseLabelsAndLimitsEight(t *testing.T) {
+	got := expertQuickPromptsFromManifest([]expertLocalizedText{
+		{EN: "English only", ZH: "中文提问"},
+		{EN: "Duplicate", ZH: "中文提问"},
+		{ZH: "第二个"},
+		{ZH: "第三个"},
+		{ZH: "第四个"},
+		{ZH: "第五个"},
+		{ZH: "第六个"},
+		{ZH: "第七个"},
+		{ZH: "第八个"},
+		{ZH: "第九个"},
+	})
+
+	require.Equal(t, []string{
+		"中文提问",
+		"第二个",
+		"第三个",
+		"第四个",
+		"第五个",
+		"第六个",
+		"第七个",
+		"第八个",
+	}, got)
+}
+
 func TestExpertPackageImportWorkBuddyArchiveRejectsChangedDuplicateVersion(t *testing.T) {
 	ctx := context.Background()
 	fileService := &expertPackageFileServiceStub{}
@@ -473,6 +567,11 @@ func newWorkBuddyExpertZipWithOptions(t *testing.T, root string, agentBody strin
     {"en": "Activity Planning", "zh": "活动策划"},
     {"en": "Parent Communication", "zh": "家长沟通"},
     {"en": "Safety Planning", "zh": "安全预案"}
+  ],
+  "quickPrompts": [
+    {"en": "Plan an autumn parent-child sports day", "zh": "帮我策划一场秋季亲子运动会"},
+    {"en": "Generate a materials checklist", "zh": "生成活动所需的物料清单"},
+    {"en": "Review safety risks", "zh": "检查活动方案中的安全风险"}
   ],
   "plugin": "kindergarten-activity-planner"
 }`)
