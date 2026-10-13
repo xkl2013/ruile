@@ -10,7 +10,6 @@
     >
       <span class="service-hub-menu-title">服务</span>
       <div class="service-hub-menu-actions" @click.stop>
-        <span class="service-hub-menu-count">{{ visibleServices.length }}</span>
         <t-tooltip :content="isExpanded ? t('common.collapse') : t('common.expand')" placement="bottom">
           <button
             type="button"
@@ -37,6 +36,7 @@
           @keydown.enter.prevent="openService(service.id)"
           @keydown.space.prevent="openService(service.id)"
         >
+          <t-icon name="chat" class="service-hub-service-icon" />
           <span class="service-hub-service-name">{{ service.name }}</span>
           <span class="service-hub-service-trailing">
             <button
@@ -51,10 +51,6 @@
             <span v-if="activeServiceId === service.id" class="service-hub-active-dot" />
           </span>
         </div>
-      </div>
-
-      <div v-if="visibleServices.length === 0" class="service-hub-menu-empty">
-        {{ archivedServiceCount ? '服务都已归档' : '还没有服务' }}
       </div>
     </div>
   </section>
@@ -82,9 +78,6 @@ const visibleServices = computed(() =>
   serviceHubState.services
     .filter((service) => service.state === 'active' || service.state === 'paused')
     .sort((a, b) => b.updatedAt - a.updatedAt),
-)
-const archivedServiceCount = computed(() =>
-  serviceHubState.services.filter((service) => service.state === 'archived').length,
 )
 const isServiceWorkspace = computed(() =>
   route.meta.mobileEntry
@@ -158,7 +151,6 @@ onMounted(() => {
 <style scoped lang="less">
 .service-hub-menu {
   display: flex;
-  min-height: 0;
   flex-direction: column;
   padding: 1px 0 5px;
 }
@@ -167,6 +159,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   min-height: 28px;
   padding: 0 8px 0 var(--sidebar-inset-x);
   border-radius: 8px;
@@ -186,6 +179,7 @@ onMounted(() => {
 }
 
 .service-hub-menu-title {
+  flex: 1;
   min-width: 0;
   color: var(--td-text-color-secondary);
   font-size: 13px;
@@ -196,14 +190,10 @@ onMounted(() => {
 .service-hub-menu-actions {
   display: flex;
   align-items: center;
-  min-width: 38px;
-  justify-content: flex-end;
-}
-
-.service-hub-menu-count {
-  color: var(--td-text-color-placeholder);
-  font-size: 11px;
-  line-height: 18px;
+  flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
 }
 
 .service-hub-menu-toggle,
@@ -224,45 +214,58 @@ onMounted(() => {
   height: 24px;
   padding: 0;
   border-radius: 6px;
-  opacity: 0;
-  pointer-events: none;
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 
-.service-hub-menu-header:hover .service-hub-menu-toggle,
-.service-hub-menu-header:focus-within .service-hub-menu-toggle {
+.service-hub-menu-header:hover .service-hub-menu-actions,
+.service-hub-menu-header:focus-within .service-hub-menu-actions {
   opacity: 1;
   pointer-events: auto;
 }
 
-.service-hub-menu-header:hover .service-hub-menu-count,
-.service-hub-menu-header:focus-within .service-hub-menu-count {
-  display: none;
+.service-hub-menu-toggle:hover {
+  background: var(--td-bg-color-container-hover);
+  color: var(--td-text-color-primary);
 }
 
 .service-hub-menu-list {
   display: flex;
-  min-height: 0;
-  max-height: min(56vh, 520px);
-  padding: 1px 0 4px;
   flex-direction: column;
   gap: 2px;
-  overflow-y: auto;
+  padding: 1px 0 4px;
 }
 
 .service-hub-service-item {
   display: flex;
   align-items: center;
+  gap: 8px;
   box-sizing: border-box;
   width: 100%;
-  min-height: 28px;
-  padding: 0 8px 0 calc(var(--sidebar-inset-x) + 20px);
+  min-height: 30px;
+  padding: 0 12px 0 calc(var(--sidebar-inset-x) + 12px);
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   cursor: pointer;
+  text-align: left;
+  transition: background-color 0.18s ease, color 0.18s ease;
 }
 
-.service-hub-service-item:hover,
-.service-hub-service-item.active {
+.service-hub-service-item:hover {
   background: var(--td-bg-color-container-hover);
+}
+
+.service-hub-service-item.active {
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.service-hub-service-icon {
+  flex-shrink: 0;
+  color: var(--td-text-color-secondary);
+}
+
+.service-hub-service-item.active .service-hub-service-icon {
+  color: var(--td-brand-color);
 }
 
 .service-hub-service-name {
@@ -270,18 +273,15 @@ onMounted(() => {
   flex: 1;
   color: var(--td-text-color-primary);
   font-size: 12px;
-  line-height: 18px;
-}
-
-.service-hub-service-item.active .service-hub-service-name {
   font-weight: 500;
+  line-height: 18px;
 }
 
 .service-hub-service-trailing {
   display: inline-flex;
   align-items: center;
-  min-width: 50px;
   justify-content: flex-end;
+  flex: 0 0 42px;
 }
 
 .service-hub-session-count-action {
@@ -323,24 +323,5 @@ onMounted(() => {
   flex: none;
   border-radius: 50%;
   background: var(--td-brand-color);
-}
-
-.service-hub-menu-empty {
-  width: 100%;
-  padding: 4px 8px 5px 54px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--td-text-color-placeholder);
-  cursor: pointer;
-  font-family: var(--app-font-family);
-  font-size: 12px;
-  line-height: 18px;
-  text-align: left;
-}
-
-.service-hub-menu-empty {
-  padding-left: var(--sidebar-inset-x);
-  cursor: default;
 }
 </style>
