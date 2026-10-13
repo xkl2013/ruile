@@ -501,6 +501,7 @@ func compileWorkBuddyAgents(
 			SkillsSelectionMode: "selected",
 			SelectedSkills:      skills,
 			AllowedTools:        []string{},
+			QuestionSuggestions: expertQuestionSuggestions(workBuddyQuickPromptValues(plugin.QuickPrompts)),
 		})
 		if err != nil {
 			return nil, nil, nil, err
@@ -573,6 +574,17 @@ func workBuddyTagValues(values []expertLocalizedText) []string {
 		}
 	}
 	return result
+}
+
+func workBuddyQuickPromptValues(values []expertLocalizedText) []string {
+	prompts := make([]string, 0, len(values))
+	for _, value := range values {
+		prompts = append(prompts, firstNonEmpty(
+			strings.TrimSpace(value.ZH),
+			strings.TrimSpace(value.EN),
+		))
+	}
+	return normalizeExpertQuickPrompts(prompts)
 }
 
 func expertSkillSnapshotsFromArchive(

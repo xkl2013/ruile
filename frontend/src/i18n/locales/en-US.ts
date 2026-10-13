@@ -2506,6 +2506,10 @@ export default {
       knowledgeAnswer: 'Knowledge Q&A',
       agentDescriptionFallback: 'Turn your work context into content you can use right away.',
       noExperts: 'No experts are available yet. Tell Xiaorui what you need to do.',
+      previousExperts: 'Previous experts',
+      nextExperts: 'Next experts',
+      expertPages: 'Expert pages',
+      expertPage: 'Expert page {page}',
     },
     messages: {
       selectKnowledgeBase: 'Please select a knowledge base first',
