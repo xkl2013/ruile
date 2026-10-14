@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -1060,17 +1061,120 @@ func (r *billingRepository) memberPeriodAvailableWithDB(
 	return available, nil
 }
 
+func planBillingMultiplier(plan *types.BillingPlan) int64 {
+	if plan != nil && plan.BillingMultiplierPPM > 0 {
+		return plan.BillingMultiplierPPM
+	}
+	return 1_000_000
+}
+
+func scaleEstimatedPointMicrosForPlan(
+	estimatedPointMicros int64,
+	sourcePlan *types.BillingPlan,
+	targetPlan *types.BillingPlan,
+) int64 {
+	if estimatedPointMicros <= 0 {
+		return 0
+	}
+	sourceMultiplier := planBillingMultiplier(sourcePlan)
+	targetMultiplier := planBillingMultiplier(targetPlan)
+	if sourceMultiplier == targetMultiplier {
+		return estimatedPointMicros
+	}
+	if estimatedPointMicros > math.MaxInt64/targetMultiplier {
+		return math.MaxInt64
+	}
+	scaled := estimatedPointMicros * targetMultiplier
+	if scaled > math.MaxInt64-(sourceMultiplier-1) {
+		return math.MaxInt64
+	}
+	return (scaled + sourceMultiplier - 1) / sourceMultiplier
+}
+
+func (r *billingRepository) switchEnterpriseUsageToPersonalFirstWithDB(
+	ctx context.Context,
+	db *gorm.DB,
+	handle *types.BillingUsageHandle,
+	estimatedBilledPointMicros int64,
+	now time.Time,
+) (bool, int64, error) {
+	if handle == nil || !isEnterpriseUsageScope(handle.UsageScope) ||
+		strings.TrimSpace(handle.Request.ActorUserID) == "" || handle.Plan == nil ||
+		handle.Subscription == nil {
+		return false, estimatedBilledPointMicros, nil
+	}
+
+	var personal struct {
+		TenantID uint64
+	}
+	if err := db.WithContext(ctx).
+		Table("users AS u").
+		Select("u.tenant_id").
+		Joins("JOIN tenants AS t ON t.id = u.tenant_id AND t.deleted_at IS NULL").
+		Where(
+			"u.id = ? AND u.deleted_at IS NULL AND u.tenant_id > 0 AND t.space_type = ?",
+			strings.TrimSpace(handle.Request.ActorUserID),
+			types.SpaceTypePersonal,
+		).
+		Scan(&personal).Error; err != nil {
+		return false, estimatedBilledPointMicros, err
+	}
+	if personal.TenantID == 0 || personal.TenantID == handle.Request.TenantID {
+		return false, estimatedBilledPointMicros, nil
+	}
+
+	subscription, plan, err := currentSubscriptionWithDB(ctx, db, personal.TenantID)
+	if err != nil {
+		return false, estimatedBilledPointMicros, err
+	}
+	if subscription == nil || plan == nil || plan.SpaceType != types.SpaceTypePersonal {
+		return false, estimatedBilledPointMicros, nil
+	}
+	personalEstimate := scaleEstimatedPointMicrosForPlan(
+		estimatedBilledPointMicros,
+		handle.Plan,
+		plan,
+	)
+	availablePeriod, availableBalance, _, _, _, err := tenantUsageAvailablePointMicrosWithDB(
+		ctx,
+		db,
+		personal.TenantID,
+		handle.Request.RefNo,
+		plan,
+		subscription,
+		now,
+	)
+	if err != nil {
+		return false, estimatedBilledPointMicros, err
+	}
+	if availablePeriod+availableBalance < personalEstimate {
+		return false, estimatedBilledPointMicros, nil
+	}
+
+	handle.Request.TenantID = personal.TenantID
+	handle.UsageScope = types.BillingUsageScopePersonal
+	handle.AllocationID = ""
+	handle.MemberLimitMode = ""
+	handle.MemberMonthlyLimitPointMicros = 0
+	handle.MemberOveragePolicy = ""
+	handle.Plan = plan
+	handle.Subscription = subscription
+	handle.Allocation = nil
+	handle.EnterprisePolicy = nil
+	return true, personalEstimate, nil
+}
+
 func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 	ctx context.Context,
 	db *gorm.DB,
 	handle *types.BillingUsageHandle,
 	estimatedBilledPointMicros int64,
 	now time.Time,
-) (bool, error) {
+) (bool, int64, error) {
 	if handle == nil || handle.UsageScope != types.BillingUsageScopePersonal ||
 		strings.TrimSpace(handle.Request.ActorUserID) == "" || handle.Plan == nil ||
 		handle.Subscription == nil {
-		return false, nil
+		return false, estimatedBilledPointMicros, nil
 	}
 	availablePeriod, availableBalance, _, _, _, err := tenantUsageAvailablePointMicrosWithDB(
 		ctx,
@@ -1082,10 +1186,10 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 		now,
 	)
 	if err != nil {
-		return false, err
+		return false, estimatedBilledPointMicros, err
 	}
 	if availablePeriod+availableBalance >= estimatedBilledPointMicros {
-		return false, nil
+		return false, estimatedBilledPointMicros, nil
 	}
 
 	type enterpriseCandidate struct {
@@ -1104,7 +1208,7 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 		).
 		Order("tm.joined_at DESC, tm.tenant_id ASC").
 		Scan(&candidates).Error; err != nil {
-		return false, err
+		return false, estimatedBilledPointMicros, err
 	}
 	defaultMemberLimit := handle.DefaultMemberMonthlyLimitPointMicros
 	if defaultMemberLimit <= 0 {
@@ -1113,11 +1217,16 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 	for _, candidate := range candidates {
 		subscription, plan, err := currentSubscriptionWithDB(ctx, db, candidate.TenantID)
 		if err != nil {
-			return false, err
+			return false, estimatedBilledPointMicros, err
 		}
 		if subscription == nil || plan == nil || plan.SpaceType != types.SpaceTypeOrganization {
 			continue
 		}
+		enterpriseEstimate := scaleEstimatedPointMicrosForPlan(
+			estimatedBilledPointMicros,
+			handle.Plan,
+			plan,
+		)
 		enterprisePeriodAvailable, enterpriseBalanceAvailable, account, periodStart, periodEnd, err :=
 			tenantUsageAvailablePointMicrosWithDB(
 				ctx,
@@ -1129,7 +1238,7 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 				now,
 			)
 		if err != nil {
-			return false, err
+			return false, estimatedBilledPointMicros, err
 		}
 		policy, err := ensureTenantBillingPolicyWithDB(
 			ctx,
@@ -1139,7 +1248,7 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 			handle.Request.ActorUserID,
 		)
 		if err != nil {
-			return false, err
+			return false, estimatedBilledPointMicros, err
 		}
 		allocation, err := ensureCurrentMemberAllocationWithDB(
 			ctx,
@@ -1152,7 +1261,7 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 			handle.Request.ActorUserID,
 		)
 		if err != nil {
-			return false, err
+			return false, estimatedBilledPointMicros, err
 		}
 		limitMode, monthlyLimit, overagePolicy :=
 			repositoryEffectiveMemberUsagePolicy(policy, allocation)
@@ -1167,7 +1276,7 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 				plan,
 				account.BalancePointMicros,
 			); err != nil {
-				return false, err
+				return false, estimatedBilledPointMicros, err
 			} else if ok {
 				monthlyLimit = min(monthlyLimit, assignedCap)
 				assignedCapActive = true
@@ -1189,17 +1298,17 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 			now,
 		)
 		if err != nil {
-			return false, err
+			return false, estimatedBilledPointMicros, err
 		}
 		enterprisePeriodAvailable = min(enterprisePeriodAvailable, memberAvailable)
 		if enterprisePeriodAvailable < 0 {
 			enterprisePeriodAvailable = 0
 		}
-		balanceNeeded := estimatedBilledPointMicros - min(estimatedBilledPointMicros, enterprisePeriodAvailable)
+		balanceNeeded := enterpriseEstimate - min(enterpriseEstimate, enterprisePeriodAvailable)
 		if balanceNeeded > 0 && overagePolicy != types.MemberOveragePolicyUseEnterpriseBalance {
 			continue
 		}
-		if enterprisePeriodAvailable+enterpriseBalanceAvailable < estimatedBilledPointMicros {
+		if enterprisePeriodAvailable+enterpriseBalanceAvailable < enterpriseEstimate {
 			continue
 		}
 		handle.Request.TenantID = candidate.TenantID
@@ -1212,9 +1321,9 @@ func (r *billingRepository) switchPersonalUsageToEnterpriseFallbackWithDB(
 		handle.Subscription = subscription
 		handle.Allocation = allocation
 		handle.EnterprisePolicy = policy
-		return true, nil
+		return true, enterpriseEstimate, nil
 	}
-	return false, nil
+	return false, estimatedBilledPointMicros, nil
 }
 
 func (r *billingRepository) CreateUsageReservation(
@@ -1228,14 +1337,31 @@ func (r *billingRepository) CreateUsageReservation(
 	}
 	var result *types.TenantUsageReservation
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if _, err := r.switchPersonalUsageToEnterpriseFallbackWithDB(
+		if handle.OriginTenantID == 0 {
+			handle.OriginTenantID = handle.Request.TenantID
+		}
+		now := time.Now().UTC()
+		if switched, adjustedEstimate, err := r.switchEnterpriseUsageToPersonalFirstWithDB(
 			ctx,
 			tx,
 			handle,
 			estimatedBilledPointMicros,
-			time.Now().UTC(),
+			now,
 		); err != nil {
 			return err
+		} else if switched {
+			estimatedBilledPointMicros = adjustedEstimate
+		}
+		if switched, adjustedEstimate, err := r.switchPersonalUsageToEnterpriseFallbackWithDB(
+			ctx,
+			tx,
+			handle,
+			estimatedBilledPointMicros,
+			now,
+		); err != nil {
+			return err
+		} else if switched {
+			estimatedBilledPointMicros = adjustedEstimate
 		}
 		var existing types.TenantUsageReservation
 		err := tx.Where(
@@ -1258,7 +1384,6 @@ func (r *billingRepository) CreateUsageReservation(
 			return fmt.Errorf("billing: load credit account: %w", err)
 		}
 
-		now := time.Now().UTC()
 		periodStart, periodEnd := billingPeriod(handle.Subscription, now)
 		var usedPeriod int64
 		if err := tx.Model(&types.TenantUsageLedger{}).
@@ -1376,6 +1501,7 @@ func (r *billingRepository) CreateUsageReservation(
 		result = &types.TenantUsageReservation{
 			ID:                         uuid.NewString(),
 			TenantID:                   handle.Request.TenantID,
+			OriginTenantID:             handle.OriginTenantID,
 			ActorUserID:                handle.Request.ActorUserID,
 			DelegationRunID:            handle.Request.DelegationRunID,
 			AgentID:                    handle.Request.AgentID,
@@ -1428,6 +1554,12 @@ func (r *billingRepository) SettleUsage(
 ) (*types.TenantUsageLedger, error) {
 	if handle == nil || ledger == nil {
 		return nil, errors.New("billing: usage handle and ledger are required")
+	}
+	if ledger.OriginTenantID == 0 {
+		ledger.OriginTenantID = handle.OriginTenantID
+		if ledger.OriginTenantID == 0 {
+			ledger.OriginTenantID = ledger.TenantID
+		}
 	}
 	var result *types.TenantUsageLedger
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -1711,15 +1843,21 @@ func (r *billingRepository) ListUsageLedgersByDelegationRun(
 	}
 	var rows []*types.BillingUsageLedgerSummary
 	err := r.db.WithContext(ctx).
-		Table("tenant_usage_ledgers").
-		Select("tenant_usage_ledgers.*, tenants.name AS tenant_name").
-		Joins("JOIN tenants ON tenants.id = tenant_usage_ledgers.tenant_id AND tenants.deleted_at IS NULL").
+		Table("tenant_usage_ledgers AS ledgers").
+		Select(`
+			ledgers.*,
+			billing_tenant.name AS tenant_name,
+			COALESCE(origin_tenant.name, billing_tenant.name) AS origin_tenant_name
+		`).
+		Joins("JOIN tenants AS billing_tenant ON billing_tenant.id = ledgers.tenant_id AND billing_tenant.deleted_at IS NULL").
+		Joins("LEFT JOIN tenants AS origin_tenant ON origin_tenant.id = ledgers.origin_tenant_id AND origin_tenant.deleted_at IS NULL").
 		Where(
-			"tenant_usage_ledgers.tenant_id = ? AND tenant_usage_ledgers.delegation_run_id = ?",
+			"(ledgers.tenant_id = ? OR ledgers.origin_tenant_id = ?) AND ledgers.delegation_run_id = ?",
+			tenantID,
 			tenantID,
 			strings.TrimSpace(delegationRunID),
 		).
-		Order("tenant_usage_ledgers.created_at DESC").
+		Order("ledgers.created_at DESC").
 		Limit(limit).
 		Scan(&rows).Error
 	return rows, err
@@ -1738,18 +1876,23 @@ func (r *billingRepository) listUsageLedgers(
 		limit = 500
 	}
 	query := r.db.WithContext(ctx).
-		Table("tenant_usage_ledgers").
-		Select("tenant_usage_ledgers.*, tenants.name AS tenant_name").
-		Joins("JOIN tenants ON tenants.id = tenant_usage_ledgers.tenant_id AND tenants.deleted_at IS NULL")
+		Table("tenant_usage_ledgers AS ledgers").
+		Select(`
+			ledgers.*,
+			billing_tenant.name AS tenant_name,
+			COALESCE(origin_tenant.name, billing_tenant.name) AS origin_tenant_name
+		`).
+		Joins("JOIN tenants AS billing_tenant ON billing_tenant.id = ledgers.tenant_id AND billing_tenant.deleted_at IS NULL").
+		Joins("LEFT JOIN tenants AS origin_tenant ON origin_tenant.id = ledgers.origin_tenant_id AND origin_tenant.deleted_at IS NULL")
 	if tenantID > 0 {
-		query = query.Where("tenant_usage_ledgers.tenant_id = ?", tenantID)
+		query = query.Where("(ledgers.tenant_id = ? OR ledgers.origin_tenant_id = ?)", tenantID, tenantID)
 	}
 	if actorUserID != "" {
-		query = query.Where("tenant_usage_ledgers.actor_user_id = ?", actorUserID)
+		query = query.Where("ledgers.actor_user_id = ?", actorUserID)
 	}
 	var rows []*types.BillingUsageLedgerSummary
 	err := query.
-		Order("tenant_usage_ledgers.created_at DESC").
+		Order("ledgers.created_at DESC").
 		Limit(limit).
 		Scan(&rows).Error
 	return rows, err

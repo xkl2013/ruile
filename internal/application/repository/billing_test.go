@@ -318,10 +318,12 @@ func TestBillingColumnNamesMatchMigrations(t *testing.T) {
 		},
 		&types.TenantUsageReservation{}: {
 			"estimated_base_cost_nanousd",
+			"origin_tenant_id",
 		},
 		&types.TenantUsageLedger{}: {
 			"base_cost_nanousd",
 			"rated_cost_nanousd",
+			"origin_tenant_id",
 		},
 		&types.TenantMemberCreditAllocation{}: {
 			"allocated_period_point_micros",
@@ -1198,6 +1200,7 @@ func TestPersonalUsageFallsBackToEnterpriseMemberBalance(t *testing.T) {
 		t.Fatalf("handle was not switched to enterprise billing: %+v", handle)
 	}
 	if reservation.TenantID != enterprise.ID ||
+		reservation.OriginTenantID != personal.ID ||
 		reservation.ReservedBalancePointMicros != 20*types.PointMicrosPerPoint {
 		t.Fatalf("reservation=%+v", reservation)
 	}
@@ -1221,6 +1224,7 @@ func TestPersonalUsageFallsBackToEnterpriseMemberBalance(t *testing.T) {
 		t.Fatal(err)
 	}
 	if ledger.TenantID != enterprise.ID ||
+		ledger.OriginTenantID != personal.ID ||
 		ledger.BalanceChargedPointMicros != 12*types.PointMicrosPerPoint {
 		t.Fatalf("ledger=%+v", ledger)
 	}
@@ -1239,6 +1243,196 @@ func TestPersonalUsageFallsBackToEnterpriseMemberBalance(t *testing.T) {
 		usage[0].ActorUserID != "user-combined-95" ||
 		usage[0].EnterpriseBilledPointMicros != 12*types.PointMicrosPerPoint {
 		t.Fatalf("usage=%#v", usage)
+	}
+}
+
+func TestEnterpriseUsageConsumesPersonalCreditsBeforeSharedCredits(t *testing.T) {
+	db, repo := newBillingTestRepository(t)
+	ctx := context.Background()
+	personalType := types.SpaceTypePersonal
+	enterpriseType := types.SpaceTypeOrganization
+	personal := &types.Tenant{
+		ID:        97,
+		Name:      "个人积分空间",
+		SpaceType: &personalType,
+	}
+	enterprise := &types.Tenant{
+		ID:        98,
+		Name:      "共享积分企业",
+		SpaceType: &enterpriseType,
+	}
+	for _, tenant := range []*types.Tenant{personal, enterprise} {
+		if err := db.Exec(
+			"INSERT INTO tenants(id, name, space_type) VALUES (?, ?, ?)",
+			tenant.ID,
+			tenant.Name,
+			*tenant.SpaceType,
+		).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.EnsureTenantBilling(ctx, tenant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&types.User{
+		ID:           "personal-first-user",
+		Username:     "personal-first-user",
+		Email:        "personal-first@example.com",
+		PasswordHash: "test",
+		TenantID:     personal.ID,
+		IsActive:     true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&types.TenantMember{
+		UserID:   "personal-first-user",
+		TenantID: enterprise.ID,
+		Role:     types.TenantRoleContributor,
+		Status:   types.TenantMemberStatusActive,
+		JoinedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&types.BillingPlan{}).
+		Where("code = ?", types.BillingPlanPersonalFree).
+		Update("included_point_micros", 25*types.PointMicrosPerPoint).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&types.BillingPlan{}).
+		Where("code = ?", types.BillingPlanEnterpriseTeam).
+		Update("included_point_micros", 100*types.PointMicrosPerPoint).Error; err != nil {
+		t.Fatal(err)
+	}
+	enterpriseSubscription, enterprisePlan, err := repo.GetCurrentSubscription(ctx, enterprise.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstHandle := &types.BillingUsageHandle{
+		Request: types.BillingUsageStartRequest{
+			TenantID:    enterprise.ID,
+			ActorUserID: "personal-first-user",
+			RefNo:       "enterprise-personal-first",
+			ModelKey:    "test-model",
+		},
+		OriginTenantID:  enterprise.ID,
+		Mode:            "enforce",
+		UsageScope:      types.BillingUsageScopeEnterprise,
+		MemberLimitMode: types.MemberLimitModeUnlimited,
+		Plan:            enterprisePlan,
+		Subscription:    enterpriseSubscription,
+	}
+	firstReservation, err := repo.CreateUsageReservation(
+		ctx,
+		firstHandle,
+		0,
+		20*types.PointMicrosPerPoint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstHandle.Request.TenantID != personal.ID ||
+		firstHandle.UsageScope != types.BillingUsageScopePersonal ||
+		firstReservation.TenantID != personal.ID ||
+		firstReservation.OriginTenantID != enterprise.ID {
+		t.Fatalf("personal-first reservation=%+v handle=%+v", firstReservation, firstHandle)
+	}
+	firstHandle.Reservation = firstReservation
+	now := time.Now().UTC()
+	firstLedger, err := repo.SettleUsage(ctx, firstHandle, &types.TenantUsageLedger{
+		ID:                  "ledger-enterprise-personal-first",
+		TenantID:            firstHandle.Request.TenantID,
+		OriginTenantID:      firstHandle.OriginTenantID,
+		ActorUserID:         firstHandle.Request.ActorUserID,
+		UsageScope:          firstHandle.UsageScope,
+		RefNo:               firstHandle.Request.RefNo,
+		ModelKey:            firstHandle.Request.ModelKey,
+		BilledPointMicros:   20 * types.PointMicrosPerPoint,
+		BillingAt:           now,
+		UsageDate:           now,
+		PricingSnapshotJSON: types.JSON([]byte("{}")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstLedger.UsageScope != types.BillingUsageScopePersonal ||
+		firstLedger.OriginTenantID != enterprise.ID {
+		t.Fatalf("personal-first ledger=%+v", firstLedger)
+	}
+
+	secondHandle := &types.BillingUsageHandle{
+		Request: types.BillingUsageStartRequest{
+			TenantID:    enterprise.ID,
+			ActorUserID: "personal-first-user",
+			RefNo:       "enterprise-shared-fallback",
+			ModelKey:    "test-model",
+		},
+		OriginTenantID:  enterprise.ID,
+		Mode:            "enforce",
+		UsageScope:      types.BillingUsageScopeEnterprise,
+		MemberLimitMode: types.MemberLimitModeUnlimited,
+		Plan:            enterprisePlan,
+		Subscription:    enterpriseSubscription,
+	}
+	secondReservation, err := repo.CreateUsageReservation(
+		ctx,
+		secondHandle,
+		0,
+		10*types.PointMicrosPerPoint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondHandle.Request.TenantID != enterprise.ID ||
+		secondHandle.UsageScope != types.BillingUsageScopeEnterprise ||
+		secondReservation.TenantID != enterprise.ID ||
+		secondReservation.OriginTenantID != enterprise.ID {
+		t.Fatalf("enterprise fallback reservation=%+v handle=%+v", secondReservation, secondHandle)
+	}
+	secondHandle.Reservation = secondReservation
+	if _, err := repo.SettleUsage(ctx, secondHandle, &types.TenantUsageLedger{
+		ID:                  "ledger-enterprise-shared-fallback",
+		TenantID:            secondHandle.Request.TenantID,
+		OriginTenantID:      secondHandle.OriginTenantID,
+		ActorUserID:         secondHandle.Request.ActorUserID,
+		UsageScope:          secondHandle.UsageScope,
+		RefNo:               secondHandle.Request.RefNo,
+		ModelKey:            secondHandle.Request.ModelKey,
+		BilledPointMicros:   10 * types.PointMicrosPerPoint,
+		BillingAt:           now.Add(time.Second),
+		UsageDate:           now.Add(time.Second),
+		PricingSnapshotJSON: types.JSON([]byte("{}")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var personalPeriodUsed int64
+	if err := db.Model(&types.TenantUsageLedger{}).
+		Where("tenant_id = ? AND status = ?", personal.ID, "settled").
+		Select("COALESCE(SUM(period_covered_point_micros), 0)").
+		Scan(&personalPeriodUsed).Error; err != nil {
+		t.Fatal(err)
+	}
+	if personalPeriodUsed != 20*types.PointMicrosPerPoint {
+		t.Fatalf("personal period used=%d, want whole-call fallback to preserve remaining credits", personalPeriodUsed)
+	}
+
+	rows, err := repo.ListUsageLedgersByActor(ctx, enterprise.ID, "personal-first-user", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("enterprise-visible ledgers=%d, want 2", len(rows))
+	}
+	scopes := map[string]bool{}
+	for _, row := range rows {
+		scopes[row.UsageScope] = true
+		if row.OriginTenantID != enterprise.ID {
+			t.Fatalf("ledger origin=%d, want %d", row.OriginTenantID, enterprise.ID)
+		}
+	}
+	if !scopes[types.BillingUsageScopePersonal] ||
+		!scopes[types.BillingUsageScopeEnterprise] {
+		t.Fatalf("ledger scopes=%v", scopes)
 	}
 }
 

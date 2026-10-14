@@ -85,7 +85,7 @@
         <div v-if="profile?.schema?.length" class="service-overview-record-list">
           <div v-for="item in profile.schema" :key="item.key">
             <span>{{ item.label }}</span>
-            <strong>{{ displayValue(profile.values?.[item.key]) }}</strong>
+            <strong>{{ displayProfileValue(profile.values?.[item.key]) }}</strong>
           </div>
         </div>
         <div v-else class="service-overview-empty">还没有需要持续记录的内容。</div>
@@ -113,6 +113,7 @@ import {
 import {
   buildCustomerInfo,
   displayActivityDate,
+  displayValue as displayProfileValue,
 } from './servicePresentation'
 
 const route = useRoute()
@@ -133,13 +134,6 @@ const summaryLead = computed(() => {
   if (!labels.length) return '先在会话里推进工作，摘要会随服务内容逐步形成。'
   return `按当前工作方式，这个服务重点关注${labels.join('、')}。`
 })
-
-const displayValue = (value: unknown) => {
-  if (value === undefined || value === null || value === '') return '待补充'
-  if (Array.isArray(value)) return value.join('、')
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
-}
 
 const summarySectionText = (key: string) => {
   const value = summary.value?.sections?.[key]

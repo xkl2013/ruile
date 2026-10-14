@@ -48,7 +48,8 @@ func TestServiceSpaceLifecycleMembershipAndOwnership(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, space.ID, session.ServiceID)
-	require.Equal(t, "admission-expert", session.ExpertRef)
+	require.Equal(t, types.BuiltinSmartReasoningID, session.ExpertRef)
+	require.Equal(t, "服务主理人", session.ExpertName)
 
 	_, err = svc.GetSession(ctx, 7, "outsider", space.ID, session.ID)
 	require.ErrorIs(t, err, ErrServiceSpaceNotFound)
@@ -509,6 +510,7 @@ func TestServiceSpaceFactsAreScopedAppendOnlyAndAudited(t *testing.T) {
 		nil,
 		nil,
 		audit,
+		nil,
 	)
 
 	first, err := svc.Create(ctx, 75, "owner", types.ServiceSpaceCreateInput{Name: "事实服务一"})
@@ -802,6 +804,153 @@ func TestServiceFactProposalSupportsServiceScopedFacts(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(statusJSON, &statusValue))
 	require.Equal(t, "已完成上午巡查", statusValue["value"])
+}
+
+func TestServiceFactProposalListPersistsAssistantMessage(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
+
+	space, err := svc.Create(ctx, 79, "owner", types.ServiceSpaceCreateInput{
+		Name:        "提案历史归位",
+		Instruction: "围绕服务进展记录当前状态",
+		Experts: []types.ServiceExpertBindingInput{{
+			ExpertRef:  "progress-expert",
+			ExpertName: "进展专家",
+		}},
+		Activate: true,
+	})
+	require.NoError(t, err)
+	proposal, err := svc.PreviewFactProposal(ctx, 79, "owner", space.ID, types.ServiceFactProposalPreviewInput{
+		SessionID:          "session-079",
+		AssistantMessageID: "assistant-079",
+		Text:               "当前进展：已完成本周回访，下周继续跟进续费。",
+		SourceType:         "chat_message",
+		SourceID:           "message-079",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, proposal)
+	require.Equal(t, "assistant-079", proposal.AssistantMessageID)
+
+	items, total, err := svc.ListFactProposals(
+		ctx, 79, "owner", space.ID, "session-079", types.ServiceFactProposalStatusPending, "assistant-079", 1, 20,
+	)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, items, 1)
+	require.Equal(t, proposal.ID, items[0].ID)
+}
+
+func TestServiceFactsSupersedeConflictsAndRespectGovernance(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), repository.NewOrganizeRepository(db), nil, nil)
+
+	space, err := svc.Create(ctx, 80, "owner", types.ServiceSpaceCreateInput{Name: "事实治理"})
+	require.NoError(t, err)
+	first, err := svc.AppendFact(ctx, 80, "owner", space.ID, types.ServiceFactAppendInput{
+		FactType:   types.ServiceFactTypeDecision,
+		FactKey:    "renewal_decision",
+		Value:      types.JSONMap{"value": "暂缓"},
+		SourceType: "manual",
+		SourceID:   "decision-1",
+	})
+	require.NoError(t, err)
+	second, err := svc.AppendFact(ctx, 80, "owner", space.ID, types.ServiceFactAppendInput{
+		FactType:   types.ServiceFactTypeDecision,
+		FactKey:    "renewal_decision",
+		Value:      types.JSONMap{"value": "本周续费"},
+		SourceType: "manual",
+		SourceID:   "decision-2",
+	})
+	require.NoError(t, err)
+	require.Equal(t, first.ID, second.ConflictWith)
+
+	storedFirst, err := repository.NewServiceSpaceRepository(db).GetFact(ctx, 80, space.ID, first.ID)
+	require.NoError(t, err)
+	require.Equal(t, second.ID, storedFirst.SupersededBy)
+
+	facts, total, err := svc.ListFacts(ctx, 80, "owner", space.ID, "", "", "", "", 1, 20)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Equal(t, second.ID, facts[0].ID)
+
+	disabled := true
+	_, err = svc.UpdateFactGovernance(ctx, 80, "owner", space.ID, second.ID, types.ServiceFactGovernanceInput{
+		Disabled: &disabled,
+	})
+	require.NoError(t, err)
+	_, total, err = svc.ListFacts(ctx, 80, "owner", space.ID, "", "", "", "", 1, 20)
+	require.NoError(t, err)
+	require.Zero(t, total)
+
+	disabled = false
+	deleted := true
+	_, err = svc.UpdateFactGovernance(ctx, 80, "owner", space.ID, second.ID, types.ServiceFactGovernanceInput{
+		Disabled: &disabled,
+		Deleted:  &deleted,
+	})
+	require.NoError(t, err)
+	_, total, err = svc.ListFacts(ctx, 80, "owner", space.ID, "", "", "", "", 1, 20)
+	require.NoError(t, err)
+	require.Zero(t, total)
+
+	deleted = false
+	_, err = svc.UpdateFactGovernance(ctx, 80, "owner", space.ID, second.ID, types.ServiceFactGovernanceInput{
+		Deleted: &deleted,
+	})
+	require.NoError(t, err)
+	facts, total, err = svc.ListFacts(ctx, 80, "owner", space.ID, "", "", "", "", 1, 20)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Equal(t, second.ID, facts[0].ID)
+}
+
+func TestServiceMarkdownContextKeepsPriorityWithinResidentBudget(t *testing.T) {
+	ctx := context.Background()
+	db := newAgentRunTestDB(t)
+	organizeRepo := repository.NewOrganizeRepository(db)
+	svc := NewServiceSpaceService(repository.NewServiceSpaceRepository(db), organizeRepo, nil, nil)
+
+	space, err := svc.Create(ctx, 81, "owner", types.ServiceSpaceCreateInput{Name: "上下文预算"})
+	require.NoError(t, err)
+	_, err = svc.UpdateProfile(ctx, 81, "owner", space.ID, types.ServiceSpaceProfileUpdateInput{
+		Values: types.JSONMap{"service_goal": "优先保障续费沟通"},
+	})
+	require.NoError(t, err)
+	_, err = svc.AppendFact(ctx, 81, "owner", space.ID, types.ServiceFactAppendInput{
+		FactType:   types.ServiceFactTypeProgress,
+		FactKey:    "progress",
+		Value:      types.JSONMap{"value": strings.Repeat("进展内容", 6000)},
+		SourceType: "manual",
+		SourceID:   "long-progress",
+	})
+	require.NoError(t, err)
+	output := &types.OrganizeOutput{
+		TenantID:      81,
+		UserID:        "owner",
+		Title:         "长资料",
+		OutputType:    "summary",
+		Content:       strings.Repeat("按需资料", 8000),
+		SourceSummary: "仅在明确任务中读取",
+		Status:        types.OrganizeOutputStatusReady,
+	}
+	require.NoError(t, organizeRepo.CreateOutput(ctx, output, nil))
+	_, err = svc.ImportOrganizeOutput(ctx, 81, "owner", space.ID, output.ID)
+	require.NoError(t, err)
+
+	contextText, err := svc.ReadMarkdownContext(ctx, 81, "owner", space.ID)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(contextText), serviceSpaceResidentMaxBytes)
+	require.Contains(t, contextText, "[服务空间画像]")
+	require.Contains(t, contextText, "优先保障续费沟通")
+	require.Contains(t, contextText, "[服务空间事实]")
+
+	runContext, err := svc.ReadMarkdownContextForRun(ctx, 81, "owner", space.ID)
+	require.NoError(t, err)
+	require.Greater(t, len(runContext), len(contextText))
+	require.LessOrEqual(t, len(runContext), serviceSpaceOnDemandTotalBytes)
+	require.Contains(t, runContext, "仅在明确任务中读取")
 }
 
 func TestServiceSpaceContextSourcesRejectNonReadyOutputAndUnauthorizedUser(t *testing.T) {

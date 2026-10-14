@@ -626,6 +626,31 @@ func (h *ServiceSpaceHandler) AppendFact(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"success": true, "data": fact})
 }
 
+func (h *ServiceSpaceHandler) UpdateFactGovernance(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	var input types.ServiceFactGovernanceInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.Error(apperrors.NewBadRequestError("invalid service fact governance request").WithDetails(err.Error()))
+		return
+	}
+	fact, err := h.service.UpdateFactGovernance(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("service_id"),
+		c.Param("fact_id"),
+		input,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": fact})
+}
+
 func (h *ServiceSpaceHandler) PreviewFactProposal(c *gin.Context) {
 	tenantID, userID, ok := serviceScope(c)
 	if !ok {
@@ -648,6 +673,35 @@ func (h *ServiceSpaceHandler) PreviewFactProposal(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": proposal})
+}
+
+func (h *ServiceSpaceHandler) ListFactProposals(c *gin.Context) {
+	tenantID, userID, ok := serviceScope(c)
+	if !ok {
+		return
+	}
+	page, pageSize, valid := parseServiceSpacePagination(c)
+	if !valid {
+		return
+	}
+	proposals, total, err := h.service.ListFactProposals(
+		c.Request.Context(),
+		tenantID,
+		userID,
+		c.Param("service_id"),
+		c.Query("session_id"),
+		c.Query("status"),
+		c.Query("assistant_message_id"),
+		page,
+		pageSize,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{
+		"items": proposals, "total": total, "page": page, "page_size": pageSize,
+	}})
 }
 
 func (h *ServiceSpaceHandler) ResolveFactProposal(c *gin.Context) {

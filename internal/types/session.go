@@ -87,7 +87,9 @@ type Session struct {
 	// ServiceID is empty for global chats and identifies the owning service
 	// workspace for service-scoped conversations.
 	ServiceID string `json:"service_id,omitempty" gorm:"type:varchar(36);index"`
-	// ExpertRef/ExpertName are the current conversation-level expert selection.
+	// ExpertRef/ExpertName identify the service-space principal for service
+	// sessions. Member Agents are runtime orchestration bindings, not selectable
+	// conversation owners.
 	// Individual AgentRun rows keep their own immutable agent_ref truth.
 	ExpertRef  string `json:"expert_ref,omitempty" gorm:"type:varchar(128);not null;default:''"`
 	ExpertName string `json:"expert_name,omitempty" gorm:"type:varchar(128);not null;default:''"`

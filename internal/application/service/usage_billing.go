@@ -201,6 +201,7 @@ func (s *usageBillingService) BeginModelUsage(
 	policy := s.policy.RuntimePolicy(ctx)
 	handle := &types.BillingUsageHandle{
 		Request:                              req,
+		OriginTenantID:                       req.TenantID,
 		Mode:                                 "off",
 		DefaultMemberMonthlyLimitPointMicros: policy.DefaultMemberMonthlyLimitPointMicros,
 	}
@@ -381,6 +382,9 @@ func (s *usageBillingService) SettleModelUsage(
 	snapshot, err := json.Marshal(map[string]any{
 		"mode":                       handle.Mode,
 		"failure_code":               failureCode,
+		"origin_tenant_id":           handle.OriginTenantID,
+		"billing_tenant_id":          handle.Request.TenantID,
+		"usage_scope":                handle.UsageScope,
 		"price":                      handle.Price,
 		"service_price":              handle.ServicePrice,
 		"subscription_id":            idOfSubscription(handle.Subscription),
@@ -413,6 +417,7 @@ func (s *usageBillingService) SettleModelUsage(
 	ledger := &types.TenantUsageLedger{
 		ID:                  uuid.NewString(),
 		TenantID:            handle.Request.TenantID,
+		OriginTenantID:      handle.OriginTenantID,
 		ActorUserID:         handle.Request.ActorUserID,
 		DelegationRunID:     handle.Request.DelegationRunID,
 		AgentID:             handle.Request.AgentID,

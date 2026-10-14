@@ -53,7 +53,7 @@ func (r *serviceSpaceRepository) Create(
 			expert.ServiceID = service.ID
 		}
 		if len(experts) > 0 {
-			if err := tx.Create(&experts).Error; err != nil {
+			if err := createServiceExpertBindings(tx, experts); err != nil {
 				return err
 			}
 		}
@@ -265,8 +265,28 @@ func (r *serviceSpaceRepository) ReplaceExperts(
 		if len(experts) == 0 {
 			return nil
 		}
-		return tx.Create(&experts).Error
+		return createServiceExpertBindings(tx, experts)
 	})
+}
+
+func createServiceExpertBindings(tx *gorm.DB, experts []*types.ServiceExpertBinding) error {
+	disabledExperts := make([]*types.ServiceExpertBinding, 0)
+	for _, expert := range experts {
+		if expert != nil && !expert.Enabled {
+			disabledExperts = append(disabledExperts, expert)
+		}
+	}
+	if err := tx.Create(&experts).Error; err != nil {
+		return err
+	}
+	for _, expert := range disabledExperts {
+		if err := tx.Model(&types.ServiceExpertBinding{}).
+			Where("id = ?", expert.ID).
+			UpdateColumn("enabled", false).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *serviceSpaceRepository) ListSubjects(
@@ -556,6 +576,21 @@ func (r *serviceSpaceRepository) GetSession(
 	var session types.Session
 	err := r.db.WithContext(ctx).
 		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, serviceID, sessionID).
+		First(&session).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &session, err
+}
+
+func (r *serviceSpaceRepository) GetSessionByID(
+	ctx context.Context,
+	tenantID uint64,
+	sessionID string,
+) (*types.Session, error) {
+	var session types.Session
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND id = ?", tenantID, strings.TrimSpace(sessionID)).
 		First(&session).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil

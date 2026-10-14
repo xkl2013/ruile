@@ -60,6 +60,7 @@ import {
   loadServiceHub,
 } from './serviceHubState'
 import {
+  getServiceProfile,
   listServiceFacts,
   listServiceReminders,
   type ServiceReminder,
@@ -124,12 +125,14 @@ const loadActivity = async () => {
   error.value = ''
   try {
     await loadServiceHub()
-    const [factsResponse, remindersResponse] = await Promise.all([
+    const [profileResponse, factsResponse, remindersResponse] = await Promise.all([
+      getServiceProfile(serviceId.value),
       listServiceFacts(serviceId.value, { page: 1, page_size: 100 }),
       listServiceReminders(serviceId.value, { page: 1, page_size: 100 }),
     ])
+    const profile = profileResponse?.data || null
     activities.value = sortActivities([
-      ...(factsResponse?.data?.items || []).map(factToActivity),
+      ...(factsResponse?.data?.items || []).map((item) => factToActivity(item, profile)),
       ...(remindersResponse?.data?.items || []).map((item: ServiceReminder) => reminderToActivity(item)),
     ])
   } catch (loadError) {
@@ -340,4 +343,3 @@ onMounted(loadActivity)
   }
 }
 </style>
-

@@ -63,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
   listServiceSubjects,
@@ -76,6 +76,9 @@ const props = defineProps<{
   serviceId: string
   proposal: ServiceFactProposal
 }>()
+const emit = defineEmits<{
+  resolved: [proposal: ServiceFactProposal]
+}>()
 
 const submitting = ref(false)
 const subjectsLoading = ref(false)
@@ -83,6 +86,20 @@ const subjectsError = ref('')
 const subjects = ref<ServiceSubject[]>([])
 const selectedSubjectId = ref(props.proposal.subject_id || '')
 const status = ref<ServiceFactProposal['status']>(props.proposal.status || 'pending')
+
+watch(
+  () => props.proposal.status,
+  (nextStatus) => {
+    status.value = nextStatus || 'pending'
+  },
+)
+
+watch(
+  () => props.proposal.subject_id,
+  (nextSubjectId) => {
+    if (nextSubjectId) selectedSubjectId.value = nextSubjectId
+  },
+)
 
 const subjectRequired = computed(() => status.value === 'pending' && (
   Boolean(props.proposal.needs_subject)
@@ -180,6 +197,7 @@ const resolve = async (decision: 'confirmed' | 'rejected') => {
     }
     status.value = resolvedProposal.status || decision
     notifyServiceSpaceUpdated(resolvedProposal)
+    emit('resolved', resolvedProposal)
     MessagePlugin.success(decision === 'confirmed' ? '服务档案已更新' : '已忽略档案更新')
   } catch (error: any) {
     const message = error?.response?.data?.message || error?.message || '提案处理失败'

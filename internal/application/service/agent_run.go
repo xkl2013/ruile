@@ -53,7 +53,7 @@ func (s *agentRunService) serviceMarkdownPrompt(ctx context.Context, run *types.
 	if run == nil || strings.TrimSpace(run.ServiceID) == "" || s.serviceSpace == nil {
 		return ""
 	}
-	markdown, err := s.serviceSpace.ReadMarkdownContext(
+	markdown, err := s.serviceSpace.ReadMarkdownContextForRun(
 		ctx,
 		run.TenantID,
 		run.UserID,

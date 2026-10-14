@@ -139,6 +139,16 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 		logger.Errorf(ctx, "Failed to get session, session ID: %s, error: %v", sessionID, err)
 		return nil, nil, errors.NewNotFoundError("Session not found")
 	}
+	requestedAgentID := request.AgentID
+	if enforceServicePrincipalRequest(session, &request) {
+		if requestedAgentID != types.BuiltinSmartReasoningID {
+			logger.Infof(ctx,
+				"Service session forced to principal agent: session_id=%s requested_agent_id=%s",
+				sessionID,
+				secutils.SanitizeForLog(requestedAgentID),
+			)
+		}
+	}
 
 	// Get custom agent if agent_id is provided. Backend resolves shared agent from share relation (no client-provided tenant).
 	customAgent, effectiveTenantID, sharedAgent := h.resolveAgent(ctx, c, request.AgentID)
@@ -358,6 +368,15 @@ func (h *Handler) parseQARequest(c *gin.Context, logPrefix string) (*qaRequestCo
 	}
 
 	return reqCtx, &request, nil
+}
+
+func enforceServicePrincipalRequest(session *types.Session, request *CreateKnowledgeQARequest) bool {
+	if session == nil || request == nil || strings.TrimSpace(session.ServiceID) == "" {
+		return false
+	}
+	request.AgentID = types.BuiltinSmartReasoningID
+	request.AgentEnabled = true
+	return true
 }
 
 func buildMessageExecutionContext(
@@ -727,6 +746,11 @@ func (h *Handler) KnowledgeQA(c *gin.Context) {
 	reqCtx, request, err := h.parseQARequest(c, "KnowledgeQA")
 	if err != nil {
 		c.Error(err)
+		return
+	}
+
+	if strings.TrimSpace(reqCtx.session.ServiceID) != "" {
+		h.executeQA(reqCtx, qaModeAgent, !request.DisableTitle)
 		return
 	}
 

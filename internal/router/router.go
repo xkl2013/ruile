@@ -1685,6 +1685,8 @@ func RegisterServiceSpaceRoutes(r *gin.RouterGroup, h *handler.ServiceSpaceHandl
 		svc.POST("/:service_id/subjects/:subject_id/profile/refresh", g.Viewer(), h.RefreshSubjectProfile)
 		svc.GET("/:service_id/facts", g.Viewer(), h.ListFacts)
 		svc.POST("/:service_id/facts", g.Viewer(), h.AppendFact)
+		svc.PATCH("/:service_id/facts/:fact_id", g.Viewer(), h.UpdateFactGovernance)
+		svc.GET("/:service_id/fact-proposals", g.Viewer(), h.ListFactProposals)
 		svc.POST("/:service_id/fact-proposals/preview", g.Viewer(), h.PreviewFactProposal)
 		svc.POST("/:service_id/fact-proposals/:proposal_id/resolve", g.Viewer(), h.ResolveFactProposal)
 

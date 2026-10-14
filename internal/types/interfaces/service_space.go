@@ -30,10 +30,14 @@ type ServiceSpaceRepository interface {
 	DeleteSubject(ctx context.Context, tenantID uint64, serviceID, subjectID string) error
 	CreateFact(ctx context.Context, fact *types.ServiceFact) error
 	ListFacts(ctx context.Context, tenantID uint64, serviceID, subjectID, factType, sourceType, sourceID string, page, pageSize int) ([]*types.ServiceFact, int64, error)
+	GetFact(ctx context.Context, tenantID uint64, serviceID, factID string) (*types.ServiceFact, error)
 	GetFactBySource(ctx context.Context, tenantID uint64, serviceID, sourceType, sourceID, factKey string) (*types.ServiceFact, error)
+	GetLatestActiveFactByKey(ctx context.Context, tenantID uint64, serviceID, subjectID, factKey string) (*types.ServiceFact, error)
+	UpdateFact(ctx context.Context, fact *types.ServiceFact, fields map[string]any) error
 	CreateFactProposal(ctx context.Context, proposal *types.ServiceFactProposal) error
 	GetFactProposal(ctx context.Context, tenantID uint64, serviceID, proposalID string) (*types.ServiceFactProposal, error)
 	GetFactProposalBySource(ctx context.Context, tenantID uint64, serviceID, sourceType, sourceID string) (*types.ServiceFactProposal, error)
+	ListFactProposals(ctx context.Context, tenantID uint64, serviceID, sessionID, status, assistantMessageID string, page, pageSize int) ([]*types.ServiceFactProposal, int64, error)
 	UpdateFactProposal(ctx context.Context, proposal *types.ServiceFactProposal, fields map[string]any) error
 
 	ListReminderStatuses(ctx context.Context, tenantID uint64, serviceID string, includeDisabled bool) ([]*types.ServiceReminderStatus, error)
@@ -58,6 +62,7 @@ type ServiceSpaceRepository interface {
 
 	CreateSession(ctx context.Context, session *types.Session) error
 	GetSession(ctx context.Context, tenantID uint64, serviceID, sessionID string) (*types.Session, error)
+	GetSessionByID(ctx context.Context, tenantID uint64, sessionID string) (*types.Session, error)
 	ListSessions(ctx context.Context, tenantID uint64, serviceID, keyword string, page, pageSize int) ([]*types.Session, int64, error)
 	UpdateSession(ctx context.Context, tenantID uint64, serviceID, sessionID string, fields map[string]any) error
 	SetSessionPinned(ctx context.Context, tenantID uint64, serviceID, sessionID string, pinned bool) error
@@ -110,6 +115,7 @@ type ServiceSpaceService interface {
 	GetOverview(ctx context.Context, tenantID uint64, userID, serviceID string) (*types.ServiceSpaceOverview, error)
 
 	CreateSession(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceSessionCreateInput) (*types.Session, error)
+	GetSessionScope(ctx context.Context, tenantID uint64, sessionID string) (*types.Session, error)
 	GetSession(ctx context.Context, tenantID uint64, userID, serviceID, sessionID string) (*types.Session, error)
 	ListSessions(ctx context.Context, tenantID uint64, userID, serviceID, keyword string, page, pageSize int) ([]*types.Session, int64, error)
 	UpdateSession(ctx context.Context, tenantID uint64, userID, serviceID, sessionID string, input types.ServiceSessionUpdateInput) (*types.Session, error)
@@ -131,7 +137,9 @@ type ServiceSpaceService interface {
 	DeleteSubject(ctx context.Context, tenantID uint64, userID, serviceID, subjectID string) error
 	ListFacts(ctx context.Context, tenantID uint64, userID, serviceID, subjectID, factType, sourceType, sourceID string, page, pageSize int) ([]*types.ServiceFact, int64, error)
 	AppendFact(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceFactAppendInput) (*types.ServiceFact, error)
+	UpdateFactGovernance(ctx context.Context, tenantID uint64, userID, serviceID, factID string, input types.ServiceFactGovernanceInput) (*types.ServiceFact, error)
 	PreviewFactProposal(ctx context.Context, tenantID uint64, userID, serviceID string, input types.ServiceFactProposalPreviewInput) (*types.ServiceFactProposal, error)
+	ListFactProposals(ctx context.Context, tenantID uint64, userID, serviceID, sessionID, status, assistantMessageID string, page, pageSize int) ([]*types.ServiceFactProposal, int64, error)
 	ResolveFactProposal(ctx context.Context, tenantID uint64, userID, serviceID, proposalID string, input types.ServiceFactProposalResolveInput) (*types.ServiceFactProposal, error)
 
 	ListReminderStatuses(ctx context.Context, tenantID uint64, userID, serviceID string, includeDisabled bool) ([]*types.ServiceReminderStatus, error)
@@ -156,6 +164,7 @@ type ServiceSpaceService interface {
 	GetArtifact(ctx context.Context, tenantID uint64, userID, serviceID, artifactID string, version int) (*types.ServiceArtifact, error)
 	UpdateArtifactLifecycle(ctx context.Context, tenantID uint64, userID, serviceID, artifactID, lifecycle, idempotencyKey string) (*types.ServiceArtifact, error)
 	ReadMarkdownContext(ctx context.Context, tenantID uint64, userID, serviceID string) (string, error)
+	ReadMarkdownContextForRun(ctx context.Context, tenantID uint64, userID, serviceID string) (string, error)
 	IndexRunArtifacts(ctx context.Context, run *types.AgentRun, artifacts []types.AgentArtifactResultV1) error
 
 	ListTemplates(ctx context.Context, tenantID uint64, userID string) ([]*types.ServiceSpaceTemplate, error)

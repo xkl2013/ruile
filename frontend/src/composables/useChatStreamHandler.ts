@@ -8,6 +8,7 @@ import {
   resetSteerTurnForReplay,
   steerStepEvents,
 } from '@/utils/steerStreamFork'
+import { mergeServiceFactProposal } from './serviceProposalState'
 
 export type ChatMessage = Record<string, unknown>
 
@@ -691,17 +692,23 @@ export function useChatStreamHandler(options: UseChatStreamHandlerOptions) {
           proposal.id || data.id || `service-proposal-${Date.now()}`,
         )
         const stream = message.agentEventStream as ChatMessage[]
-        const alreadyAdded = stream.some(
+        const existing = stream.find(
           (event) => event.type === 'service_update_proposal'
             && (event.proposal as ChatMessage | undefined)?.id === proposalId,
         )
-        if (!alreadyAdded) {
-          stream.push({
-            type: 'service_update_proposal',
-            proposal: { ...proposal, id: proposalId },
-            timestamp: Date.now(),
-          })
+        const normalizedProposal = { ...proposal, id: proposalId }
+        if (existing) {
+          existing.proposal = mergeServiceFactProposal(
+            existing.proposal as ChatMessage | undefined,
+            normalizedProposal,
+          )
+          break
         }
+        stream.push({
+          type: 'service_update_proposal',
+          proposal: normalizedProposal,
+          timestamp: Date.now(),
+        })
         break
       }
       case 'tool_call': {

@@ -51,14 +51,13 @@ func serviceScope(c *gin.Context) (uint64, string, bool) {
 // shared with active members of the owning service space.
 func ServiceSessionScopeMiddleware(service interfaces.ServiceSpaceService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		serviceID := strings.TrimSpace(c.GetHeader("X-Service-ID"))
-		if service == nil || serviceID == "" {
+		if service == nil {
 			c.Next()
 			return
 		}
 
 		sessionID := strings.TrimSpace(c.Param("session_id"))
-		if sessionID == "" {
+		if sessionID == "" && strings.HasPrefix(c.Request.URL.Path, "/api/v1/sessions/") {
 			sessionID = strings.TrimSpace(c.Param("id"))
 		}
 		if sessionID == "" {
@@ -68,6 +67,29 @@ func ServiceSessionScopeMiddleware(service interfaces.ServiceSpaceService) gin.H
 
 		tenantID, userID, ok := serviceScope(c)
 		if !ok {
+			c.Abort()
+			return
+		}
+		session, err := service.GetSessionScope(c.Request.Context(), tenantID, sessionID)
+		if err != nil {
+			c.Error(apperrors.NewNotFoundError("session not found"))
+			c.Abort()
+			return
+		}
+		serviceID := strings.TrimSpace(session.ServiceID)
+		headerServiceID := strings.TrimSpace(c.GetHeader("X-Service-ID"))
+		if serviceID == "" {
+			if headerServiceID != "" {
+				c.Error(apperrors.NewForbiddenError("session does not belong to the requested service"))
+				c.Abort()
+				return
+			}
+			c.Next()
+			return
+		}
+		if headerServiceID != "" && headerServiceID != serviceID {
+			c.Error(apperrors.NewForbiddenError("session service scope mismatch"))
+			c.Abort()
 			return
 		}
 		write := c.Request.Method != http.MethodGet
@@ -85,13 +107,9 @@ func ServiceSessionScopeMiddleware(service interfaces.ServiceSpaceService) gin.H
 			default:
 				c.Error(apperrors.NewNotFoundError(err.Error()))
 			}
+			c.Abort()
 			return
 		}
-		if _, err := service.GetSession(c.Request.Context(), tenantID, userID, serviceID, sessionID); err != nil {
-			c.Error(apperrors.NewNotFoundError(err.Error()))
-			return
-		}
-
 		ctx := context.WithValue(c.Request.Context(), types.ServiceSessionIDContextKey, serviceID)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()

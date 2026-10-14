@@ -215,7 +215,7 @@ func TestBillingOverviewUsesCurrentTenant(t *testing.T) {
 	}
 }
 
-func TestBillingOverviewHidesEnterprisePoolForOrdinaryMember(t *testing.T) {
+func TestBillingOverviewShowsEnterpriseCreditsButHidesStorageForOrdinaryMember(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &stubSubscriptionService{overview: &types.BillingOverview{
 		TenantID:  43,
@@ -226,9 +226,11 @@ func TestBillingOverviewHidesEnterprisePoolForOrdinaryMember(t *testing.T) {
 			Visible:    true,
 		},
 		Credits: types.BillingOverviewCredits{
-			BalancePointMicros: 100 * types.PointMicrosPerPoint,
-			PeriodPointMicros:  200 * types.PointMicrosPerPoint,
-			Visible:            true,
+			BalancePointMicros:          100 * types.PointMicrosPerPoint,
+			BalanceAllocatedPointMicros: 150 * types.PointMicrosPerPoint,
+			PeriodPointMicros:           200 * types.PointMicrosPerPoint,
+			PeriodUsedPointMicros:       40 * types.PointMicrosPerPoint,
+			Visible:                     true,
 		},
 	}}
 	usage := &stubUsageBillingService{
@@ -273,8 +275,11 @@ func TestBillingOverviewHidesEnterprisePoolForOrdinaryMember(t *testing.T) {
 	}
 	if !response.Success ||
 		response.Data.Storage.Visible ||
-		response.Data.Credits.Visible ||
-		response.Data.Credits.BalancePointMicros != 0 ||
+		!response.Data.Credits.Visible ||
+		response.Data.Credits.BalancePointMicros != 100*types.PointMicrosPerPoint ||
+		response.Data.Credits.BalanceAllocatedPointMicros != 150*types.PointMicrosPerPoint ||
+		response.Data.Credits.PeriodPointMicros != 200*types.PointMicrosPerPoint ||
+		response.Data.Credits.PeriodUsedPointMicros != 40*types.PointMicrosPerPoint ||
 		response.Data.MemberUsage == nil ||
 		response.Data.MemberUsage.MonthlyUsedPointMicros != 12*types.PointMicrosPerPoint ||
 		response.Data.MemberUsage.MonthlyRemainingPointMicros != 18*types.PointMicrosPerPoint {

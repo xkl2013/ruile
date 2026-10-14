@@ -465,7 +465,7 @@ func (h *BillingHandler) GetOverview(c *gin.Context) {
 	}
 	if overview.SpaceType == types.SpaceTypeOrganization &&
 		!types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) {
-		if err := h.hideEnterprisePoolForMember(ctx, overview); err != nil {
+		if err := h.applyEnterpriseMemberOverview(ctx, overview); err != nil {
 			logger.ErrorWithFields(ctx, err, map[string]interface{}{"tenant_id": tenantID})
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to load member billing usage"})
 			return
@@ -620,7 +620,7 @@ func (h *BillingHandler) currentBillingOverview(
 	return h.subscriptions.GetOverview(ctx, tenantID)
 }
 
-func (h *BillingHandler) hideEnterprisePoolForMember(
+func (h *BillingHandler) applyEnterpriseMemberOverview(
 	ctx context.Context,
 	overview *types.BillingOverview,
 ) error {
@@ -666,7 +666,6 @@ func (h *BillingHandler) hideEnterprisePoolForMember(
 	}
 	overview.MemberUsage = memberUsage
 	overview.Storage = types.BillingOverviewStorage{Visible: false}
-	overview.Credits = types.BillingOverviewCredits{Visible: false}
 	return nil
 }
 

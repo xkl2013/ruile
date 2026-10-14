@@ -36,10 +36,11 @@ func (h *Handler) emitServiceFactProposal(
 		userID,
 		serviceID,
 		types.ServiceFactProposalPreviewInput{
-			SessionID:  reqCtx.sessionID,
-			Text:       reqCtx.query,
-			SourceType: "chat_message",
-			SourceID:   sourceID,
+			SessionID:          reqCtx.sessionID,
+			AssistantMessageID: streamCtx.assistantMessage.ID,
+			Text:               reqCtx.query,
+			SourceType:         "chat_message",
+			SourceID:           sourceID,
 		},
 	)
 	if err != nil {

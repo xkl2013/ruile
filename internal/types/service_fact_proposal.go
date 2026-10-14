@@ -17,6 +17,7 @@ const (
 )
 
 type ServiceFactProposalItem struct {
+	FactType   string `json:"fact_type,omitempty"`
 	FieldKey   string `json:"field_key"`
 	FieldLabel string `json:"field_label"`
 	Value      any    `json:"value"`
@@ -25,24 +26,25 @@ type ServiceFactProposalItem struct {
 }
 
 type ServiceFactProposal struct {
-	ID            string                    `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID      uint64                    `json:"tenant_id" gorm:"not null;index"`
-	ServiceID     string                    `json:"service_id" gorm:"type:varchar(36);not null;index"`
-	SessionID     string                    `json:"session_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
-	SourceType    string                    `json:"source_type" gorm:"type:varchar(64);not null"`
-	SourceID      string                    `json:"source_id" gorm:"type:varchar(128);not null"`
-	SourceVersion string                    `json:"source_version,omitempty" gorm:"type:varchar(128);not null;default:''"`
-	SubjectID     string                    `json:"subject_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
-	Status        string                    `json:"status" gorm:"type:varchar(32);not null;default:'pending';index"`
-	NeedsSubject  bool                      `json:"needs_subject"`
-	Question      string                    `json:"question,omitempty"`
-	Items         []ServiceFactProposalItem `json:"items" gorm:"-"`
-	ItemsJSON     JSON                      `json:"-" gorm:"column:proposal_items;type:jsonb;not null;default:'[]'"`
-	CreatedBy     string                    `json:"created_by" gorm:"type:varchar(36);not null;default:''"`
-	ResolvedBy    string                    `json:"resolved_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
-	ResolvedAt    *time.Time                `json:"resolved_at,omitempty"`
-	CreatedAt     time.Time                 `json:"created_at"`
-	UpdatedAt     time.Time                 `json:"updated_at"`
+	ID                 string                    `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID           uint64                    `json:"tenant_id" gorm:"not null;index"`
+	ServiceID          string                    `json:"service_id" gorm:"type:varchar(36);not null;index"`
+	SessionID          string                    `json:"session_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	AssistantMessageID string                    `json:"assistant_message_id,omitempty" gorm:"type:varchar(36);index"`
+	SourceType         string                    `json:"source_type" gorm:"type:varchar(64);not null"`
+	SourceID           string                    `json:"source_id" gorm:"type:varchar(128);not null"`
+	SourceVersion      string                    `json:"source_version,omitempty" gorm:"type:varchar(128);not null;default:''"`
+	SubjectID          string                    `json:"subject_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	Status             string                    `json:"status" gorm:"type:varchar(32);not null;default:'pending';index"`
+	NeedsSubject       bool                      `json:"needs_subject"`
+	Question           string                    `json:"question,omitempty"`
+	Items              []ServiceFactProposalItem `json:"items" gorm:"-"`
+	ItemsJSON          JSON                      `json:"-" gorm:"column:proposal_items;type:jsonb;not null;default:'[]'"`
+	CreatedBy          string                    `json:"created_by" gorm:"type:varchar(36);not null;default:''"`
+	ResolvedBy         string                    `json:"resolved_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	ResolvedAt         *time.Time                `json:"resolved_at,omitempty"`
+	CreatedAt          time.Time                 `json:"created_at"`
+	UpdatedAt          time.Time                 `json:"updated_at"`
 }
 
 func (ServiceFactProposal) TableName() string { return "service_fact_proposals" }
@@ -53,6 +55,7 @@ func (p *ServiceFactProposal) BeforeSave(_ *gorm.DB) error {
 	}
 	p.ServiceID = strings.TrimSpace(p.ServiceID)
 	p.SessionID = strings.TrimSpace(p.SessionID)
+	p.AssistantMessageID = strings.TrimSpace(p.AssistantMessageID)
 	p.SourceType = strings.TrimSpace(p.SourceType)
 	p.SourceID = strings.TrimSpace(p.SourceID)
 	p.SourceVersion = strings.TrimSpace(p.SourceVersion)
@@ -100,12 +103,13 @@ func (p *ServiceFactProposal) Validate() error {
 }
 
 type ServiceFactProposalPreviewInput struct {
-	SessionID     string `json:"session_id,omitempty"`
-	Text          string `json:"text"`
-	SubjectID     string `json:"subject_id,omitempty"`
-	SourceType    string `json:"source_type"`
-	SourceID      string `json:"source_id"`
-	SourceVersion string `json:"source_version,omitempty"`
+	SessionID          string `json:"session_id,omitempty"`
+	AssistantMessageID string `json:"assistant_message_id,omitempty"`
+	Text               string `json:"text"`
+	SubjectID          string `json:"subject_id,omitempty"`
+	SourceType         string `json:"source_type"`
+	SourceID           string `json:"source_id"`
+	SourceVersion      string `json:"source_version,omitempty"`
 }
 
 func (i ServiceFactProposalPreviewInput) Validate() error {

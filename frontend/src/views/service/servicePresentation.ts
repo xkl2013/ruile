@@ -43,6 +43,32 @@ const pickValue = (
   return ''
 }
 
+const normalizeProfileLabel = (value: string) =>
+  value.trim().toLowerCase().replace(/\s+/g, '')
+
+const pickSchemaValue = (
+  profile: ServiceSpaceProfile | null | undefined,
+  labels: string[],
+) => {
+  if (!profile?.schema?.length || !profile.values) return ''
+  const normalizedLabels = new Set(labels.map(normalizeProfileLabel).filter(Boolean))
+  for (const field of profile.schema) {
+    const fieldLabels = [field.label, ...(field.aliases || [])]
+    if (!fieldLabels.some((label) => normalizedLabels.has(normalizeProfileLabel(label)))) continue
+    const value = textValue(profile.values[field.key])
+    if (value) return value
+  }
+  return ''
+}
+
+const profileFieldLabel = (
+  profile: ServiceSpaceProfile | null | undefined,
+  key?: string,
+) => {
+  if (!key) return ''
+  return profile?.schema?.find((field) => field.key === key)?.label || ''
+}
+
 export const buildCustomerInfo = (
   subject?: ServiceSubject | null,
   profile?: ServiceSpaceProfile | null,
@@ -50,13 +76,27 @@ export const buildCustomerInfo = (
 ): ServiceCustomerInfo => {
   const metadata = subject?.metadata || {}
   const values = profile?.values || {}
-  const name = (keyList: string[]) => pickValue(values, keyList) || pickValue(metadata, keyList)
+  const name = (keyList: string[], labels: string[]) =>
+    pickValue(values, keyList)
+    || pickSchemaValue(profile, labels)
+    || pickValue(metadata, keyList)
 
   return {
-    familyName: subject?.display_name || name(['family_name', 'family', 'member_family']) || fallbackName,
-    student: name(['student_name', 'child_name', 'learner_name', 'child', 'student', 'child_stage']) || '待补充',
-    className: name(['class_name', 'class', 'course_class']) || '待补充',
-    teacher: name(['teacher_name', 'homeroom_teacher', 'teacher', 'owner']) || '待补充',
+    familyName: subject?.display_name
+      || name(['family_name', 'family', 'member_family'], ['家庭名称', '家庭', '服务对象'])
+      || fallbackName,
+    student: name(
+      ['student_name', 'child_name', 'learner_name', 'child', 'student', 'child_stage'],
+      ['孩子姓名', '学员姓名', '学员', '孩子', '姓名'],
+    ) || '待补充',
+    className: name(
+      ['class_name', 'class', 'course_class'],
+      ['班级', '所在班级'],
+    ) || '待补充',
+    teacher: name(
+      ['teacher_name', 'homeroom_teacher', 'teacher', 'owner'],
+      ['主班老师', '主班', '老师'],
+    ) || '待补充',
   }
 }
 
@@ -67,10 +107,28 @@ const formatFactValue = (fact: ServiceFact) =>
   || textValue(fact.value)
   || '已更新'
 
-export const factToActivity = (fact: ServiceFact): ServiceActivityItem => ({
+const reminderStatusLabels: Record<string, string> = {
+  candidate: '待识别',
+  pending: '待处理',
+  generated: '已生成',
+  confirmed: '已确认',
+  completed: '已完成',
+  ignored: '已忽略',
+  snoozed: '已暂缓',
+  stale: '已过期',
+  recompute_required: '需重新计算',
+}
+
+export const displayReminderStatus = (status?: string) =>
+  reminderStatusLabels[status?.trim() || ''] || '待处理'
+
+export const factToActivity = (
+  fact: ServiceFact,
+  profile?: ServiceSpaceProfile | null,
+): ServiceActivityItem => ({
   id: `fact-${fact.id}`,
   kind: 'fact',
-  title: fact.fact_key || '重点记录',
+  title: profileFieldLabel(profile, fact.fact_key) || fact.fact_key || '重点记录',
   detail: formatFactValue(fact),
   source: fact.source_type === 'organize_output' ? '整理记录' : '服务会话',
   createdAt: fact.created_at,
@@ -80,7 +138,7 @@ export const reminderToActivity = (reminder: ServiceReminder): ServiceActivityIt
   id: `reminder-${reminder.id}`,
   kind: 'reminder',
   title: `待办：${reminder.title}`,
-  detail: reminder.status || '待处理',
+  detail: displayReminderStatus(reminder.status),
   source: '服务待办',
   createdAt: reminder.updated_at || reminder.created_at,
 })
@@ -105,4 +163,3 @@ export const displayActivityDate = (value?: string) => {
 }
 
 export const displayValue = (value: unknown) => textValue(value) || '待补充'
-

@@ -358,6 +358,7 @@ type BillingServicePriceInput struct {
 type TenantUsageReservation struct {
 	ID                         string     `gorm:"type:varchar(36);primaryKey" json:"id"`
 	TenantID                   uint64     `gorm:"not null;uniqueIndex:uq_tenant_usage_reservation_ref" json:"tenant_id"`
+	OriginTenantID             uint64     `gorm:"not null;default:0;index" json:"origin_tenant_id"`
 	ActorUserID                string     `gorm:"type:varchar(64);not null;default:''" json:"actor_user_id"`
 	DelegationRunID            string     `gorm:"type:varchar(36);not null;default:'';index" json:"delegation_run_id"`
 	AgentID                    string     `gorm:"type:varchar(128);not null;default:'';index" json:"agent_id"`
@@ -390,6 +391,7 @@ func (TenantUsageReservation) TableName() string { return "tenant_usage_reservat
 type TenantUsageLedger struct {
 	ID                        string    `gorm:"type:varchar(36);primaryKey" json:"id"`
 	TenantID                  uint64    `gorm:"not null;uniqueIndex:uq_tenant_usage_ledger_ref" json:"tenant_id"`
+	OriginTenantID            uint64    `gorm:"not null;default:0;index" json:"origin_tenant_id"`
 	ActorUserID               string    `gorm:"type:varchar(64);not null;default:''" json:"actor_user_id"`
 	DelegationRunID           string    `gorm:"type:varchar(36);not null;default:'';index" json:"delegation_run_id"`
 	AgentID                   string    `gorm:"type:varchar(128);not null;default:'';index" json:"agent_id"`
@@ -432,7 +434,8 @@ func (TenantUsageLedger) TableName() string { return "tenant_usage_ledgers" }
 
 type BillingUsageLedgerSummary struct {
 	TenantUsageLedger
-	TenantName string `json:"tenant_name"`
+	TenantName       string `json:"tenant_name"`
+	OriginTenantName string `json:"origin_tenant_name"`
 }
 
 type BillingModelUsage struct {
@@ -461,6 +464,7 @@ type BillingUsageStartRequest struct {
 
 type BillingUsageHandle struct {
 	Request                              BillingUsageStartRequest
+	OriginTenantID                       uint64
 	Mode                                 string
 	UsageScope                           string
 	AllocationID                         string

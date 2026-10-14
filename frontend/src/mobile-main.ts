@@ -4,13 +4,14 @@ import { createRouter, createWebHistory, RouterView } from 'vue-router'
 import TDesign from 'tdesign-vue-next'
 import 'tdesign-vue-next/es/style/index.css'
 import '@/assets/theme/theme.css'
+import '@/views/service/serviceHub.less'
 import { installTDesignIconOfflineGuard } from '@/utils/tdesign-icon-offline'
 import { initTheme } from '@/composables/useTheme'
 import { initFont } from '@/composables/useFont'
 import i18n from './i18n'
-import ServiceHub from '@/views/service/ServiceHub.vue'
+import ServiceMobileEntryView from '@/views/service/ServiceMobileEntryView.vue'
 import ServiceOverviewView from '@/views/service/ServiceOverviewView.vue'
-import ServiceSubjectsView from '@/views/service/ServiceSubjectsView.vue'
+import ServiceActivityView from '@/views/service/ServiceActivityView.vue'
 import ServiceSettingsView from '@/views/service/ServiceSettingsView.vue'
 
 installTDesignIconOfflineGuard()
@@ -33,7 +34,7 @@ const router = createRouter({
     {
       path: '/mobile/service',
       name: 'mobileServiceHub',
-      component: ServiceHub,
+      component: ServiceMobileEntryView,
       meta: mobileRouteMeta,
     },
     {
@@ -44,8 +45,16 @@ const router = createRouter({
     },
     {
       path: '/mobile/service/:serviceId/subjects',
-      name: 'mobileServiceSubjects',
-      component: ServiceSubjectsView,
+      redirect: (to) => ({
+        path: '/mobile/service',
+        query: { service: String(to.params.serviceId || '') },
+      }),
+      meta: mobileRouteMeta,
+    },
+    {
+      path: '/mobile/service/:serviceId/activity',
+      name: 'mobileServiceActivity',
+      component: ServiceActivityView,
       meta: mobileRouteMeta,
     },
     {

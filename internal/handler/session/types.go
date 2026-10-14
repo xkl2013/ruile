@@ -12,6 +12,8 @@ type CreateSessionRequest struct {
 	Title string `json:"title"`
 	// Description for the session (optional)
 	Description string `json:"description"`
+	// ServiceID binds the new session to a shared service space.
+	ServiceID string `json:"service_id,omitempty"`
 }
 
 // GenerateTitleRequest defines the request structure for generating a session title

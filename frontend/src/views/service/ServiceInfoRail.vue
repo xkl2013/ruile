@@ -44,8 +44,9 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  getServiceProfile,
   getServiceSubjectProfile,
   listServiceFacts,
   listServiceReminders,
@@ -91,12 +92,15 @@ const loadRail = async () => {
     if (subject) {
       const profileResponse = await getServiceSubjectProfile(props.serviceId, subject.id)
       profile = profileResponse?.data || null
+    } else {
+      const profileResponse = await getServiceProfile(props.serviceId)
+      profile = profileResponse?.data || null
     }
     customer.value = buildCustomerInfo(subject, profile, props.fallbackName || '当前家庭')
     const facts = factsResponse?.data?.items || []
     const reminders = remindersResponse?.data?.items || []
     activities.value = sortActivities([
-      ...facts.map(factToActivity),
+      ...facts.map((fact) => factToActivity(fact, profile)),
       ...reminders.map((item: ServiceReminder) => reminderToActivity(item)),
     ])
   } catch (error) {
@@ -108,7 +112,18 @@ const loadRail = async () => {
   }
 }
 
-onMounted(loadRail)
+const handleServiceDataUpdated = (event: Event) => {
+  const detail = (event as CustomEvent).detail
+  if (detail?.serviceId === props.serviceId) {
+    void loadRail()
+  }
+}
+
+onMounted(() => {
+  void loadRail()
+  window.addEventListener('service-space-data-updated', handleServiceDataUpdated)
+})
+onUnmounted(() => window.removeEventListener('service-space-data-updated', handleServiceDataUpdated))
 watch(() => props.serviceId, loadRail)
 </script>
 

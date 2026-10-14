@@ -1,9 +1,12 @@
 package session
 
 import (
+	"context"
 	stderrors "errors"
 	"net/http"
+	"strings"
 
+	appsvc "github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser"
@@ -129,6 +132,46 @@ func (h *Handler) CreateSession(c *gin.Context) {
 	// otherwise they fall back to the synthetic tenant user.
 	if ownerID := types.SessionOwnerIDFromContext(ctx); ownerID != "" {
 		createdSession.UserID = ownerID
+	}
+	bodyServiceID := strings.TrimSpace(request.ServiceID)
+	headerServiceID := strings.TrimSpace(c.GetHeader("X-Service-ID"))
+	if bodyServiceID != "" && headerServiceID != "" && bodyServiceID != headerServiceID {
+		c.Error(errors.NewForbiddenError("session service scope mismatch"))
+		return
+	}
+	createdSession.ServiceID = bodyServiceID
+	if createdSession.ServiceID == "" {
+		createdSession.ServiceID = headerServiceID
+	}
+	if createdSession.ServiceID != "" {
+		if h.serviceSpace == nil {
+			c.Error(errors.NewBadRequestError("service session creation is unavailable"))
+			return
+		}
+		userID := strings.TrimSpace(c.GetString(types.UserIDContextKey.String()))
+		if userID == "" {
+			userID = createdSession.UserID
+		}
+		if _, err := h.serviceSpace.Authorize(
+			ctx,
+			createdSession.TenantID,
+			userID,
+			createdSession.ServiceID,
+			types.ServiceMemberRoleEditor,
+			true,
+		); err != nil {
+			switch {
+			case stderrors.Is(err, appsvc.ErrServiceSpaceForbidden):
+				c.Error(errors.NewForbiddenError(err.Error()))
+			case stderrors.Is(err, appsvc.ErrServiceSpaceArchived),
+				stderrors.Is(err, appsvc.ErrServiceSpaceNotActive):
+				c.Error(errors.NewBadRequestError(err.Error()))
+			default:
+				c.Error(errors.NewNotFoundError(err.Error()))
+			}
+			return
+		}
+		ctx = context.WithValue(ctx, types.ServiceSessionIDContextKey, createdSession.ServiceID)
 	}
 
 	// Call service to create session

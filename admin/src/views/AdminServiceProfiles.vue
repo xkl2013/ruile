@@ -4,7 +4,7 @@
       <div>
         <div class="service-template-eyebrow">服务交付 · 场景能力</div>
         <h2>服务模板管理</h2>
-        <p>维护服务场景、工作指令和运行能力。Web 端创建服务时只填写名称和描述，已发布模板负责提供默认配置。</p>
+        <p>维护服务场景、工作指令和运行能力。Web 端只填写服务名称，系统自动使用当前空间最近发布的低风险模板。</p>
       </div>
       <div class="service-template-page__actions">
         <t-button variant="outline" :loading="loading" @click="loadTemplates">
@@ -72,11 +72,19 @@
               <t-tag :theme="statusTheme(template.status)" variant="light" size="small">
                 {{ statusLabel(template.status) }}
               </t-tag>
+              <t-tag
+                v-if="template.key === defaultPublishedTemplateKey"
+                theme="success"
+                variant="outline"
+                size="small"
+              >
+                Web 默认
+              </t-tag>
             </div>
             <p>{{ template.description || '未填写模板说明' }}</p>
             <div class="service-template-row__meta">
               <span>{{ spaceTypeLabel(template.blueprint?.proposed_space_type) }}</span>
-              <span>{{ template.blueprint?.expert_suggestions?.length || 0 }} 个专家</span>
+              <span>{{ memberAgentCount(template) }} 个成员 Agent</span>
               <span>{{ template.blueprint?.knowledge_base_ids?.length || 0 }} 个知识库</span>
               <span>{{ template.blueprint?.profile_schema?.length || 0 }} 条重点记录</span>
               <span>版本 {{ template.version }}</span>
@@ -167,23 +175,23 @@
             </div>
           </div>
           <div class="service-template-form-subheader">
-            <strong>专家建议</strong>
+            <strong>成员 Agent</strong>
             <t-button size="small" variant="outline" @click="addExpert">
               <template #icon><t-icon name="add" /></template>
-              添加专家
+              添加成员 Agent
             </t-button>
           </div>
           <div v-if="!form.expert_suggestions.length" class="service-template-inline-empty">
-            尚未配置专家。自动启用模板前至少添加一个专家。
+            暂无成员 Agent。主理人仍可独立工作，配置后会按任务动态调度。
           </div>
           <div v-for="(expert, index) in form.expert_suggestions" :key="`expert-${index}`" class="service-template-repeater">
-            <t-input v-model="expert.expert_ref" placeholder="专家引用，例如 enrollment-advisor" />
-            <t-input v-model="expert.expert_name" placeholder="专家名称" />
-            <t-input v-model="expert.reason" placeholder="为什么适合这个场景" />
+            <t-input v-model="expert.expert_ref" placeholder="Agent 引用，例如 enrollment-advisor" />
+            <t-input v-model="expert.expert_name" placeholder="成员 Agent 名称" />
+            <t-input v-model="expert.reason" placeholder="主理人应在什么任务下调用它" />
             <t-button
               variant="text"
               shape="square"
-              aria-label="删除专家"
+              aria-label="删除成员 Agent"
               @click="removeExpert(index)"
             >
               <t-icon name="delete" />
@@ -248,10 +256,23 @@ const keyword = ref('')
 const statusFilter = ref<'all' | AdminServiceTemplate['status']>('all')
 const editorVisible = ref(false)
 const editing = ref<AdminServiceTemplate | null>(null)
+const servicePrincipalAgentId = 'builtin-smart-reasoning'
 
 const publishedCount = computed(() => templates.value.filter((template) => template.status === 'published').length)
 const draftCount = computed(() => templates.value.filter((template) => template.status === 'draft').length)
 const disabledCount = computed(() => templates.value.filter((template) => template.status === 'disabled').length)
+const defaultPublishedTemplateKey = computed(() => {
+  const published = templates.value.filter((template) =>
+    template.status === 'published' && template.risk_level === 'low')
+  published.sort((left, right) => {
+    const leftTime = Date.parse(left.published_at || left.updated_at || '')
+    const rightTime = Date.parse(right.published_at || right.updated_at || '')
+    if (leftTime !== rightTime) return rightTime - leftTime
+    if (left.version !== right.version) return right.version - left.version
+    return left.key.localeCompare(right.key)
+  })
+  return published[0]?.key || ''
+})
 const filteredTemplates = computed(() => {
   const needle = keyword.value.trim().toLowerCase()
   return templates.value.filter((template) => {
@@ -261,6 +282,12 @@ const filteredTemplates = computed(() => {
     return matchesStatus && matchesKeyword
   })
 })
+
+function memberAgentCount(template: AdminServiceTemplate) {
+  return (template.blueprint?.expert_suggestions || [])
+    .filter((expert) => expert.expert_ref !== servicePrincipalAgentId)
+    .length
+}
 
 function createEmptyForm(): ServiceTemplateForm {
   return {
@@ -297,7 +324,9 @@ function applyTemplateToForm(template?: AdminServiceTemplate) {
     next.description = template.description || ''
     next.space_type = template.blueprint?.proposed_space_type || 'customer_service'
     next.instruction = template.blueprint?.source_instruction || ''
-    next.expert_suggestions = (template.blueprint?.expert_suggestions || []).map((expert) => ({ ...expert }))
+    next.expert_suggestions = (template.blueprint?.expert_suggestions || [])
+      .filter((expert) => expert.expert_ref !== servicePrincipalAgentId)
+      .map((expert) => ({ ...expert }))
     next.knowledge_base_ids = [...(template.blueprint?.knowledge_base_ids || [])]
     next.selected_skills = [...(template.blueprint?.selected_skills || [])]
   }
@@ -331,8 +360,8 @@ function toPayload(): AdminServiceTemplateInput {
     space_type: form.space_type,
     instruction: form.instruction.trim(),
     subject_policy: {
-      required: true,
-      allowed_types: ['member_family'],
+      required: false,
+      allowed_types: [],
       allow_hierarchy: false,
     },
     expert_suggestions: form.expert_suggestions

@@ -174,6 +174,8 @@ import PublishedExpertRouteChoiceMessage from './components/PublishedExpertRoute
 import ExpertArtifactPanel from './components/ExpertArtifactPanel.vue';
 import ExpertRunDiffPanel from './components/ExpertRunDiffPanel.vue';
 import { getMessageList, getSession } from "@/api/chat/index";
+import { listServiceFactProposals } from '@/api/service';
+import { mergeServiceFactProposal } from '@/composables/serviceProposalState';
 import {
     listSteerSession,
     promoteSteerSession,
@@ -861,6 +863,7 @@ const {
     scrollContainer,
     debug: import.meta.env.DEV,
     onAfterMsgList: async () => {
+        await hydrateServiceFactProposals();
         for (const message of messagesList) {
             if (message.role === 'assistant' && message.is_completed && message.suggestionSet === undefined) {
                 void loadFollowUpSuggestions(message, false);
@@ -926,6 +929,53 @@ const showGlobalTypingIndicator = computed(() =>
     shouldShowGlobalTypingIndicator(messagesList, loading.value, isImRecovering.value),
 );
 
+let serviceProposalHydration = null;
+const hydrateServiceFactProposals = async () => {
+    if (!props.serviceId || !session_id.value) return;
+    if (serviceProposalHydration) {
+        await serviceProposalHydration;
+        return;
+    }
+    serviceProposalHydration = listServiceFactProposals(props.serviceId, {
+        session_id: session_id.value,
+        page: 1,
+        page_size: 100,
+    }).then((response) => {
+        const proposals = response?.data?.items || [];
+        for (const proposal of proposals) {
+            if (!proposal?.id || !proposal.assistant_message_id) continue;
+            const message = messagesList.find((item) => item?.id === proposal.assistant_message_id);
+            if (!message) continue;
+            const stream = Array.isArray(message.agentEventStream)
+                ? [...message.agentEventStream]
+                : [];
+            const existingIndex = stream.findIndex(
+                (event) => event?.type === 'service_update_proposal' && event?.proposal?.id === proposal.id,
+            );
+            if (existingIndex >= 0) {
+                const existing = stream[existingIndex];
+                stream[existingIndex] = {
+                    ...existing,
+                    proposal: mergeServiceFactProposal(existing.proposal, proposal),
+                };
+                message.agentEventStream = stream;
+                continue;
+            }
+            message.agentEventStream = [...stream, {
+                id: proposal.id,
+                type: 'service_update_proposal',
+                proposal,
+                timestamp: proposal.created_at,
+            }];
+        }
+    }).catch((error) => {
+        console.warn('[ServiceFactProposal] Failed to hydrate history:', error);
+    }).finally(() => {
+        serviceProposalHydration = null;
+    });
+    await serviceProposalHydration;
+};
+
 const getmsgList = (data, isScrollType = false, scrollHeight) => {
     if (isPublishedExpertSessionId(data?.session_id)) {
         historyLoading.value = false;
@@ -959,6 +1009,7 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
         }
         created_at.value = nextCursor;
         await handleMsgList(batch, isScrollType, scrollHeight);
+        await hydrateServiceFactProposals();
         emitMessageStateChange();
     }).catch((err) => {
         console.error('Failed to load messages:', err);

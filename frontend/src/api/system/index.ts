@@ -762,6 +762,9 @@ export interface BillingUsageLedgerItem {
   id: string
   tenant_id: number
   tenant_name: string
+  origin_tenant_id: number
+  origin_tenant_name: string
+  usage_scope: 'personal_usage' | 'enterprise_usage' | 'enterprise_allocated_usage'
   actor_user_id: string
   allocation_id?: string
   ref_no: string

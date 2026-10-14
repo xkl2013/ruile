@@ -1,6 +1,7 @@
 import { computed, reactive, ref } from 'vue'
 import {
   createServiceSession as createServiceSessionRequest,
+  getServiceProfile,
   getServiceSubjectProfile,
   listServiceFacts,
   listServiceReminders,
@@ -179,7 +180,7 @@ const mapSession = (session: ApiServiceSession): ServiceSession => ({
   chatSessionId: session.id,
   serviceId: session.service_id,
   title: session.title || '新的会话',
-  expert: session.expert_name || session.expert_ref || '服务助理',
+  expert: '服务主理人',
   pinned: Boolean(session.is_pinned),
   updatedLabel: formatUpdatedLabel(session.updated_at),
   updatedAt: session.updated_at ? Date.parse(session.updated_at) || Date.now() : Date.now(),
@@ -199,12 +200,15 @@ const loadServicePresentation = async (
     if (subject) {
       const profileResponse = await getServiceSubjectProfile(service.id, subject.id)
       profile = profileResponse?.data || null
+    } else {
+      const profileResponse = await getServiceProfile(service.id)
+      profile = profileResponse?.data || null
     }
     const facts = factsResponse?.data?.items || []
     const reminders = remindersResponse?.data?.items || []
     service.customer = buildCustomerInfo(subject, profile, service.name)
     service.recentActivity = sortActivities([
-      ...facts.map((item: ServiceFact) => factToActivity(item)),
+      ...facts.map((item: ServiceFact) => factToActivity(item, profile)),
       ...reminders.map((item: ServiceReminder) => reminderToActivity(item)),
     ])
   } catch (error) {

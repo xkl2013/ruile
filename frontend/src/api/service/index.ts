@@ -117,6 +117,10 @@ export interface ServiceFact {
   source_type: string
   source_id: string
   source_version?: string
+  conflict_with?: string
+  superseded_by?: string
+  disabled_at?: string
+  deleted_at?: string
   created_by?: string
   created_at?: string
 }
@@ -312,6 +316,7 @@ export interface ServiceSpaceProfile {
 export type ServiceSpaceProfileField = ServiceSpaceProfile['schema'][number]
 
 export interface ServiceFactProposalItem {
+  fact_type?: 'profile_field' | 'progress' | 'decision' | string
   field_key: string
   field_label: string
   value: unknown
@@ -327,6 +332,7 @@ export interface ServiceFactProposal {
   tenant_id: number
   service_id: string
   session_id?: string
+  assistant_message_id?: string
   source_type: string
   source_id: string
   source_version?: string
@@ -529,6 +535,17 @@ export function listServiceFacts(
   )
 }
 
+export function updateServiceFactGovernance(
+  serviceId: string,
+  factId: string,
+  input: { disabled?: boolean; deleted?: boolean },
+) {
+  return patch<ServiceResponse<ServiceFact>>(
+    `/api/v1/services/${encodeURIComponent(serviceId)}/facts/${encodeURIComponent(factId)}`,
+    input,
+  )
+}
+
 export function updateServiceProfile(
   serviceId: string,
   values: Record<string, unknown>,
@@ -565,6 +582,21 @@ export function resolveServiceFactProposal(
   return post<ServiceResponse<ServiceFactProposal>>(
     `/api/v1/services/${encodeURIComponent(serviceId)}/fact-proposals/${encodeURIComponent(proposalId)}/resolve`,
     input,
+  )
+}
+
+export function listServiceFactProposals(
+  serviceId: string,
+  params?: {
+    page?: number
+    page_size?: number
+    session_id?: string
+    status?: ServiceFactProposalStatus
+    assistant_message_id?: string
+  },
+) {
+  return get<ServiceResponse<ServicePage<ServiceFactProposal>>>(
+    withQuery(`/api/v1/services/${encodeURIComponent(serviceId)}/fact-proposals`, params),
   )
 }
 

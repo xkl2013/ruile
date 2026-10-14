@@ -21,7 +21,8 @@ const organizeOutputDetailComponent = () => import("../views/organize/OrganizeOu
 const organizeCourseDetailComponent = () => import("../views/organize/OrganizeCourseDetail.vue")
 const organizeLessonDetailComponent = () => import("../views/organize/OrganizeLessonDetail.vue")
 const organizeEditorComponent = () => import("../views/organize/OrganizeDocumentEditor.vue")
-const serviceHubComponent = () => import("../views/service/ServiceHub.vue")
+const serviceListComponent = () => import("../views/service/ServiceListView.vue")
+const serviceWorkspaceComponent = () => import("../views/service/ServiceWorkspace.vue")
 const serviceOverviewComponent = () => import("../views/service/ServiceOverviewView.vue")
 const serviceActivityComponent = () => import("../views/service/ServiceActivityView.vue")
 const serviceSettingsComponent = () => import("../views/service/ServiceSettingsView.vue")
@@ -217,13 +218,16 @@ const router = createRouter({
         {
           path: "service",
           name: "serviceHub",
-          component: serviceHubComponent,
+          component: serviceListComponent,
           meta: serviceRouteMeta,
         },
         {
           path: "service/new",
           name: "serviceCreate",
-          component: serviceHubComponent,
+          redirect: (to) => ({
+            path: "/platform/service",
+            query: { ...to.query, create: "1" },
+          }),
           meta: serviceRouteMeta,
         },
         {
@@ -249,7 +253,7 @@ const router = createRouter({
         {
           path: "service/:serviceId/sessions/:sessionId",
           name: "serviceSession",
-          component: serviceHubComponent,
+          component: serviceWorkspaceComponent,
           meta: serviceRouteMeta,
         },
         {
@@ -278,7 +282,7 @@ const router = createRouter({
         {
           path: "service/:serviceId",
           name: "serviceWorkspace",
-          component: serviceHubComponent,
+          component: serviceWorkspaceComponent,
           meta: serviceRouteMeta,
         },
         {

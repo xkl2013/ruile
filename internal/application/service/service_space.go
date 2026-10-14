@@ -7,15 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/models/chat"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
@@ -25,6 +29,7 @@ var (
 	ErrServiceSpaceInvalidScope                = errors.New("invalid service scope")
 	ErrServiceSpaceNotFound                    = errors.New("service not found")
 	ErrServiceSpaceForbidden                   = errors.New("service access forbidden")
+	ErrServiceSpacePrincipalRequired           = errors.New("service sessions must use the service principal")
 	ErrServiceSpaceNameRequired                = errors.New("service name is required")
 	ErrServiceSpaceInvalidType                 = errors.New("invalid service space type")
 	ErrServiceSpaceInvalidState                = errors.New("invalid service state")
@@ -85,6 +90,14 @@ const (
 	serviceSpaceMarkdownMaxBytes      = 512 * 1024
 	serviceSpaceMarkdownMaxFileBytes  = 128 * 1024
 	serviceSpaceContextSourceMaxBytes = 256 * 1024
+	serviceSpaceResidentPriorityBytes = 4 * 1024
+	serviceSpaceResidentProfileBytes  = 2 * 1024
+	serviceSpaceResidentSummaryBytes  = 2 * 1024
+	serviceSpaceResidentFactBytes     = 12 * 1024
+	serviceSpaceResidentMaxBytes      = serviceSpaceResidentPriorityBytes + serviceSpaceResidentFactBytes
+	serviceSpaceOnDemandMaxBytes      = 240 * 1024
+	serviceSpaceOnDemandTotalBytes    = serviceSpaceResidentMaxBytes + serviceSpaceOnDemandMaxBytes
+	serviceSpacePrincipalName         = "服务主理人"
 )
 
 type serviceSpaceService struct {
@@ -94,6 +107,8 @@ type serviceSpaceService struct {
 	fileService     interfaces.FileService
 	tenantRepo      interfaces.TenantRepository
 	audit           interfaces.AuditLogService
+	modelService    interfaces.ModelService
+	proposalMisses  sync.Map
 }
 
 func NewServiceSpaceService(
@@ -112,7 +127,7 @@ func NewServiceSpaceServiceWithTenantRepository(
 	fileService interfaces.FileService,
 	tenantRepo interfaces.TenantRepository,
 ) interfaces.ServiceSpaceService {
-	return NewServiceSpaceServiceWithDependencies(repo, organizeRepo, resourceCatalog, fileService, tenantRepo, nil)
+	return NewServiceSpaceServiceWithDependencies(repo, organizeRepo, resourceCatalog, fileService, tenantRepo, nil, nil)
 }
 
 func NewServiceSpaceServiceWithDependencies(
@@ -122,6 +137,7 @@ func NewServiceSpaceServiceWithDependencies(
 	fileService interfaces.FileService,
 	tenantRepo interfaces.TenantRepository,
 	audit interfaces.AuditLogService,
+	modelService interfaces.ModelService,
 ) interfaces.ServiceSpaceService {
 	return &serviceSpaceService{
 		repo:            repo,
@@ -130,6 +146,7 @@ func NewServiceSpaceServiceWithDependencies(
 		fileService:     fileService,
 		tenantRepo:      tenantRepo,
 		audit:           audit,
+		modelService:    modelService,
 	}
 }
 
@@ -139,7 +156,77 @@ func (s *serviceSpaceService) Create(
 	userID string,
 	input types.ServiceSpaceCreateInput,
 ) (*types.ServiceSpaceView, error) {
+	if shouldApplyDefaultServiceTemplate(input) {
+		template, err := s.defaultPublishedServiceTemplate(ctx, tenantID)
+		if err != nil {
+			return nil, err
+		}
+		if template != nil {
+			return s.ApplyTemplate(ctx, tenantID, userID, types.ServiceSpaceTemplateApplyInput{
+				TemplateKey:     template.Key,
+				TemplateVersion: template.Version,
+				Name:            input.Name,
+				Description:     input.Description,
+				IdempotencyKey:  uuid.NewString(),
+			})
+		}
+	}
 	return s.create(ctx, tenantID, userID, input, true)
+}
+
+func shouldApplyDefaultServiceTemplate(input types.ServiceSpaceCreateInput) bool {
+	return input.Activate &&
+		strings.TrimSpace(input.SpaceType) == "" &&
+		strings.TrimSpace(input.Instruction) == "" &&
+		strings.TrimSpace(input.TemplateKey) == "" &&
+		len(input.KnowledgeBaseIDs) == 0 &&
+		len(input.SelectedSkills) == 0 &&
+		len(input.Experts) == 0
+}
+
+func (s *serviceSpaceService) defaultPublishedServiceTemplate(
+	ctx context.Context,
+	tenantID uint64,
+) (*types.ServiceSpaceTemplate, error) {
+	templates, err := s.repo.ListTemplates(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]*types.ServiceSpaceTemplate, 0, len(templates))
+	for _, template := range templates {
+		if template == nil ||
+			template.TenantID != tenantID ||
+			template.Status != types.ServiceSpaceTemplateStatusPublished ||
+			template.RiskLevel != types.ServiceSpaceTemplateRiskLow {
+			continue
+		}
+		candidates = append(candidates, template)
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		left := candidates[i]
+		right := candidates[j]
+		if left.PublishedAt != nil || right.PublishedAt != nil {
+			switch {
+			case left.PublishedAt == nil:
+				return false
+			case right.PublishedAt == nil:
+				return true
+			case !left.PublishedAt.Equal(*right.PublishedAt):
+				return left.PublishedAt.After(*right.PublishedAt)
+			}
+		}
+		if !left.UpdatedAt.Equal(right.UpdatedAt) {
+			return left.UpdatedAt.After(right.UpdatedAt)
+		}
+		if left.Version != right.Version {
+			return left.Version > right.Version
+		}
+		return left.Key < right.Key
+	})
+	return candidates[0], nil
 }
 
 func (s *serviceSpaceService) create(
@@ -178,7 +265,11 @@ func (s *serviceSpaceService) create(
 	if instructionBlueprint != nil {
 		instructionBlueprint.ProposedSpaceType = spaceType
 	}
-	experts, err := buildServiceExperts(tenantID, userID, "", input.Experts)
+	expertInputs := input.Experts
+	if autoConfigure && len(expertInputs) == 0 {
+		expertInputs = defaultServiceExpertInputs()
+	}
+	experts, err := buildServiceExperts(tenantID, userID, "", expertInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -487,9 +578,7 @@ func buildAdminServiceTemplate(
 	blueprint.ProposedSpaceType = spaceType
 	blueprint.ProposedTemplateKey = key
 	blueprint.TemplateVersion = version
-	if input.SubjectPolicy.Required || len(input.SubjectPolicy.AllowedTypes) > 0 || input.SubjectPolicy.AllowHierarchy {
-		blueprint.SubjectPolicy = input.SubjectPolicy
-	}
+	blueprint.SubjectPolicy = input.SubjectPolicy
 	blueprint.ExpertSuggestions = input.ExpertSuggestions
 	blueprint.KnowledgeBaseIDs = []string(normalizeServiceStrings(input.KnowledgeBaseIDs))
 	blueprint.SelectedSkills = []string(normalizeServiceStrings(input.SelectedSkills))
@@ -651,7 +740,7 @@ func (s *serviceSpaceService) ApplyTemplate(
 		for i, suggestion := range blueprint.ExpertSuggestions {
 			ref := strings.TrimSpace(suggestion.ExpertRef)
 			if ref == "" {
-				ref = "builtin-smart-reasoning"
+				ref = types.BuiltinSmartReasoningID
 			}
 			expertInputs = append(expertInputs, types.ServiceExpertBindingInput{
 				ExpertRef: ref, ExpertName: suggestion.ExpertName, DisplayOrder: i + 1,
@@ -659,7 +748,7 @@ func (s *serviceSpaceService) ApplyTemplate(
 		}
 	}
 	if len(expertInputs) == 0 {
-		expertInputs = []types.ServiceExpertBindingInput{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}
+		expertInputs = defaultServiceExpertInputs()
 	}
 	description := strings.TrimSpace(input.Description)
 	if description == "" {
@@ -1171,7 +1260,20 @@ func materializeProfileValues(
 	current types.JSONMap,
 ) types.JSONMap {
 	values := types.JSONMap{}
+	activeFactIDs := make(map[string]struct{}, len(facts))
+	for _, fact := range facts {
+		if fact != nil {
+			activeFactIDs[fact.ID] = struct{}{}
+		}
+	}
 	for key, value := range current {
+		if record, ok := value.(map[string]any); ok {
+			if sourceFactID, _ := record["source_fact_id"].(string); sourceFactID != "" {
+				if _, active := activeFactIDs[sourceFactID]; !active {
+					continue
+				}
+			}
+		}
 		values[key] = value
 	}
 	for _, field := range schema {
@@ -1572,11 +1674,22 @@ func (s *serviceSpaceService) AppendFact(
 	} else if existing != nil {
 		return existing, nil
 	}
+	var replaced *types.ServiceFact
+	var err error
+	if input.FactKey != "" {
+		replaced, err = s.repo.GetLatestActiveFactByKey(ctx, tenantID, serviceID, input.SubjectID, input.FactKey)
+		if err != nil {
+			return nil, err
+		}
+	}
 	fact := &types.ServiceFact{
 		TenantID: tenantID, ServiceID: serviceID, SubjectID: input.SubjectID,
 		FactType: input.FactType, FactKey: input.FactKey, Value: input.Value,
 		SourceType: input.SourceType, SourceID: input.SourceID,
 		SourceVersion: input.SourceVersion, CreatedBy: userID,
+	}
+	if replaced != nil && !reflect.DeepEqual(replaced.Value, fact.Value) {
+		fact.ConflictWith = replaced.ID
 	}
 	if err := fact.ValidateForAppend(); err != nil {
 		return nil, ErrServiceSpaceFactInvalid
@@ -1587,8 +1700,12 @@ func (s *serviceSpaceService) AppendFact(
 		}
 		return nil, err
 	}
+	if fact.ConflictWith != "" {
+		replaced.SupersededBy = fact.ID
+	}
 	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceFactAppended, "service_fact", fact.ID, map[string]any{
 		"service_id": serviceID, "fact_type": fact.FactType, "source_type": fact.SourceType, "source_id": fact.SourceID,
+		"conflict_with": fact.ConflictWith, "old_value": serviceFactValue(replaced), "new_value": fact.Value,
 	})
 	if fact.SubjectID != "" {
 		if _, refreshErr := s.RefreshSubjectProfile(ctx, tenantID, userID, serviceID, fact.SubjectID); refreshErr != nil {
@@ -1597,6 +1714,72 @@ func (s *serviceSpaceService) AppendFact(
 	}
 	if _, refreshErr := s.refreshSummaryFromSources(ctx, tenantID, userID, serviceID, "fact_append"); refreshErr != nil {
 		logger.Warnf(ctx, "service summary refresh after fact append failed: service_id=%s fact_id=%s err=%v", serviceID, fact.ID, refreshErr)
+	}
+	return fact, nil
+}
+
+func serviceFactValue(fact *types.ServiceFact) types.JSONMap {
+	if fact == nil {
+		return nil
+	}
+	return fact.Value
+}
+
+func (s *serviceSpaceService) UpdateFactGovernance(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, factID string,
+	input types.ServiceFactGovernanceInput,
+) (*types.ServiceFact, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleEditor, true); err != nil {
+		return nil, err
+	}
+	fact, err := s.repo.GetFact(ctx, tenantID, serviceID, strings.TrimSpace(factID))
+	if err != nil {
+		return nil, err
+	}
+	if fact == nil {
+		return nil, ErrServiceSpaceFactInvalid
+	}
+	if input.Disabled == nil && input.Deleted == nil {
+		return fact, nil
+	}
+	now := time.Now().UTC()
+	fields := map[string]any{}
+	if input.Disabled != nil {
+		if *input.Disabled {
+			fields["disabled_at"] = now
+			fact.DisabledAt = &now
+		} else {
+			fields["disabled_at"] = nil
+			fact.DisabledAt = nil
+		}
+	}
+	if input.Deleted != nil {
+		if *input.Deleted {
+			fields["deleted_at"] = now
+			fact.DeletedAt = &now
+		} else {
+			fields["deleted_at"] = nil
+			fact.DeletedAt = nil
+		}
+	}
+	if err := s.repo.UpdateFact(ctx, fact, fields); err != nil {
+		return nil, err
+	}
+	s.emitAudit(ctx, tenantID, userID, types.AuditActionServiceUpdate, "service_fact", fact.ID, map[string]any{
+		"service_id": serviceID,
+		"operation":  "fact_governance",
+		"disabled":   fact.DisabledAt != nil,
+		"deleted":    fact.DeletedAt != nil,
+	})
+	if fact.SubjectID != "" {
+		if _, refreshErr := s.RefreshSubjectProfile(ctx, tenantID, userID, serviceID, fact.SubjectID); refreshErr != nil {
+			logger.Warnf(ctx, "service subject profile refresh after fact governance failed: service_id=%s fact_id=%s err=%v", serviceID, fact.ID, refreshErr)
+		}
+	}
+	if _, refreshErr := s.refreshSummaryFromSources(ctx, tenantID, userID, serviceID, "fact_governance"); refreshErr != nil {
+		logger.Warnf(ctx, "service summary refresh after fact governance failed: service_id=%s fact_id=%s err=%v", serviceID, fact.ID, refreshErr)
 	}
 	return fact, nil
 }
@@ -1632,6 +1815,18 @@ func (s *serviceSpaceService) PreviewFactProposal(
 	}
 	items := extractProfileProposalItems(text, blueprint.ProfileSchema)
 	if len(items) == 0 {
+		items = s.extractProposalItemsWithFallback(
+			ctx,
+			tenantID,
+			serviceID,
+			strings.TrimSpace(input.SessionID),
+			text,
+			blueprint.ProfileSchema,
+		)
+	} else {
+		s.proposalMisses.Delete(serviceID + ":" + strings.TrimSpace(input.SessionID))
+	}
+	if len(items) == 0 {
 		return nil, nil
 	}
 	subjectID := ""
@@ -1643,18 +1838,19 @@ func (s *serviceSpaceService) PreviewFactProposal(
 	}
 	needsSubject := blueprint.SubjectPolicy.Required && subjectID == ""
 	proposal := &types.ServiceFactProposal{
-		TenantID:      tenantID,
-		ServiceID:     serviceID,
-		SessionID:     strings.TrimSpace(input.SessionID),
-		SourceType:    sourceType,
-		SourceID:      sourceID,
-		SourceVersion: strings.TrimSpace(input.SourceVersion),
-		SubjectID:     subjectID,
-		Status:        types.ServiceFactProposalStatusPending,
-		NeedsSubject:  needsSubject,
-		Question:      proposalSubjectQuestion(needsSubject),
-		Items:         items,
-		CreatedBy:     userID,
+		TenantID:           tenantID,
+		ServiceID:          serviceID,
+		SessionID:          strings.TrimSpace(input.SessionID),
+		AssistantMessageID: strings.TrimSpace(input.AssistantMessageID),
+		SourceType:         sourceType,
+		SourceID:           sourceID,
+		SourceVersion:      strings.TrimSpace(input.SourceVersion),
+		SubjectID:          subjectID,
+		Status:             types.ServiceFactProposalStatusPending,
+		NeedsSubject:       needsSubject,
+		Question:           proposalSubjectQuestion(needsSubject),
+		Items:              items,
+		CreatedBy:          userID,
 	}
 	if err := s.repo.CreateFactProposal(ctx, proposal); err != nil {
 		if existing, getErr := s.repo.GetFactProposalBySource(ctx, tenantID, serviceID, sourceType, sourceID); getErr == nil && existing != nil {
@@ -1663,6 +1859,25 @@ func (s *serviceSpaceService) PreviewFactProposal(
 		return nil, err
 	}
 	return proposal, nil
+}
+
+func (s *serviceSpaceService) ListFactProposals(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID, sessionID, status, assistantMessageID string,
+	page, pageSize int,
+) ([]*types.ServiceFactProposal, int64, error) {
+	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
+		return nil, 0, err
+	}
+	status = strings.TrimSpace(status)
+	switch status {
+	case "", types.ServiceFactProposalStatusPending, types.ServiceFactProposalStatusConfirmed, types.ServiceFactProposalStatusRejected:
+	default:
+		return nil, 0, ErrServiceSpaceFactProposalInvalid
+	}
+	page, pageSize = normalizeServiceSpacePagination(page, pageSize)
+	return s.repo.ListFactProposals(ctx, tenantID, serviceID, sessionID, status, assistantMessageID, page, pageSize)
 }
 
 func (s *serviceSpaceService) ResolveFactProposal(
@@ -1732,9 +1947,13 @@ func (s *serviceSpaceService) ResolveFactProposal(
 		return nil, ErrServiceSpaceFactProposalInvalid
 	}
 	for _, item := range items {
+		factType := strings.TrimSpace(item.FactType)
+		if factType == "" {
+			factType = types.ServiceFactTypeProfileField
+		}
 		if _, err := s.AppendFact(ctx, tenantID, userID, serviceID, types.ServiceFactAppendInput{
 			SubjectID: subjectID,
-			FactType:  types.ServiceFactTypeProfileField,
+			FactType:  factType,
 			FactKey:   item.FieldKey,
 			Value: types.JSONMap{
 				"value":    item.Value,
@@ -1823,6 +2042,9 @@ func subjectAppearsInText(subject *types.ServiceSubject, text string) bool {
 }
 
 func extractProfileProposalItems(text string, schema []types.ServiceSpaceProfileField) []types.ServiceFactProposalItem {
+	if containsForbiddenServiceFactContent(text) {
+		return nil
+	}
 	items := make([]types.ServiceFactProposalItem, 0)
 	for _, field := range schema {
 		if strings.TrimSpace(field.Source) != "" && field.Source != "facts" {
@@ -1833,13 +2055,167 @@ func extractProfileProposalItems(text string, schema []types.ServiceSpaceProfile
 			continue
 		}
 		items = append(items, types.ServiceFactProposalItem{
+			FactType:   types.ServiceFactTypeProfileField,
 			FieldKey:   field.Key,
 			FieldLabel: field.Label,
 			Value:      value,
 			Evidence:   evidence,
 		})
 	}
+	for _, clause := range splitProposalClauses(text) {
+		switch {
+		case containsAnyServiceText(clause, []string{"决定", "确定", "结论", "下一步"}):
+			items = appendProposalItemOnce(items, types.ServiceFactProposalItem{
+				FactType:   types.ServiceFactTypeDecision,
+				FieldKey:   "decision",
+				FieldLabel: "服务决定",
+				Value:      clause,
+				Evidence:   clause,
+			})
+		case containsAnyServiceText(clause, []string{"进展", "已完成", "完成了", "正在", "已处理"}):
+			items = appendProposalItemOnce(items, types.ServiceFactProposalItem{
+				FactType:   types.ServiceFactTypeProgress,
+				FieldKey:   "progress",
+				FieldLabel: "服务进展",
+				Value:      clause,
+				Evidence:   clause,
+			})
+		}
+	}
 	return items
+}
+
+func appendProposalItemOnce(
+	items []types.ServiceFactProposalItem,
+	item types.ServiceFactProposalItem,
+) []types.ServiceFactProposalItem {
+	for _, existing := range items {
+		if existing.FactType == item.FactType && existing.FieldKey == item.FieldKey {
+			return items
+		}
+	}
+	return append(items, item)
+}
+
+func containsForbiddenServiceFactContent(text string) bool {
+	return containsAnyServiceText(text, []string{
+		"性格", "行为问题", "发育迟缓", "发育问题", "能力差", "能力不足", "智力", "多动症", "自闭症",
+	})
+}
+
+func containsAnyServiceText(text string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(text, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *serviceSpaceService) extractProposalItemsWithFallback(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, sessionID, text string,
+	schema []types.ServiceSpaceProfileField,
+) []types.ServiceFactProposalItem {
+	if s == nil || s.modelService == nil || containsForbiddenServiceFactContent(text) ||
+		utf8.RuneCountInString(strings.TrimSpace(text)) < 20 ||
+		!serviceFactLLMFallbackEnabled(tenantID) {
+		return nil
+	}
+	missKey := serviceID + ":" + sessionID
+	current, _ := s.proposalMisses.LoadOrStore(missKey, 0)
+	misses, _ := current.(int)
+	misses++
+	s.proposalMisses.Store(missKey, misses)
+	if misses > 2 {
+		return nil
+	}
+	models, err := s.modelService.ListModels(ctx)
+	if err != nil {
+		logger.Warnf(ctx, "service fact LLM fallback skipped: list models failed: %v", err)
+		return nil
+	}
+	modelID := ""
+	for _, model := range models {
+		if model == nil || model.Status != types.ModelStatusActive || model.Type != types.ModelTypeKnowledgeQA {
+			continue
+		}
+		if model.IsDefault {
+			modelID = model.ID
+			break
+		}
+		if modelID == "" {
+			modelID = model.ID
+		}
+	}
+	if modelID == "" {
+		return nil
+	}
+	chatModel, err := s.modelService.GetChatModel(ctx, modelID)
+	if err != nil {
+		logger.Warnf(ctx, "service fact LLM fallback skipped: get model failed: %v", err)
+		return nil
+	}
+	schemaJSON, _ := json.Marshal(schema)
+	thinking := false
+	fallbackCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	response, err := chatModel.Chat(fallbackCtx, []chat.Message{
+		{
+			Role: "system",
+			Content: "Extract only explicit, durable service facts from the user message. " +
+				"Never infer personality, behavior, development, intelligence, ability assessment, or diagnoses about children. " +
+				"Return JSON only: {\"items\":[{\"fact_type\":\"profile_field|progress|decision\",\"field_key\":\"...\",\"field_label\":\"...\",\"value\":\"...\",\"evidence\":\"verbatim clause\"}]}. " +
+				"Use profile_field only for keys present in the supplied schema. Return an empty items array when uncertain.",
+		},
+		{
+			Role:    "user",
+			Content: "Profile schema:\n" + string(schemaJSON) + "\n\nUser message:\n" + text,
+		},
+	}, &chat.ChatOptions{
+		Temperature:         0,
+		MaxCompletionTokens: 600,
+		Thinking:            &thinking,
+	})
+	if err != nil {
+		logger.Warnf(ctx, "service fact LLM fallback skipped: inference failed: %v", err)
+		return nil
+	}
+	var payload struct {
+		Items []types.ServiceFactProposalItem `json:"items"`
+	}
+	cleaned := strings.TrimSpace(response.Content)
+	cleaned = strings.TrimPrefix(cleaned, "```json")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSpace(strings.TrimSuffix(cleaned, "```"))
+	if err := json.Unmarshal([]byte(cleaned), &payload); err != nil {
+		logger.Warnf(ctx, "service fact LLM fallback skipped: invalid response: %v", err)
+		return nil
+	}
+	items, err := normalizeProposalItems(payload.Items, schema)
+	if err != nil || len(items) == 0 {
+		return nil
+	}
+	return items
+}
+
+func serviceFactLLMFallbackEnabled(tenantID uint64) bool {
+	raw := strings.TrimSpace(os.Getenv("SERVICE_FACT_LLM_FALLBACK_TENANTS"))
+	if raw == "" {
+		return false
+	}
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value == "*" {
+			return true
+		}
+		parsed, err := strconv.ParseUint(value, 10, 64)
+		if err == nil && parsed == tenantID {
+			return true
+		}
+	}
+	return false
 }
 
 func extractProfileFieldValue(text string, field types.ServiceSpaceProfileField) (string, string, bool) {
@@ -1919,11 +2295,21 @@ func normalizeProposalItems(
 	}
 	normalized := make([]types.ServiceFactProposalItem, 0, len(items))
 	for _, item := range items {
+		item.FactType = strings.TrimSpace(item.FactType)
 		item.FieldKey = strings.TrimSpace(item.FieldKey)
+		if item.FactType == types.ServiceFactTypeProgress || item.FactType == types.ServiceFactTypeDecision {
+			if item.FieldKey == "" || item.Value == nil {
+				return nil, ErrServiceSpaceFactProposalInvalid
+			}
+			item.Evidence = strings.TrimSpace(item.Evidence)
+			normalized = append(normalized, item)
+			continue
+		}
 		field, ok := fields[item.FieldKey]
 		if !ok || item.FieldKey == "" || item.Value == nil {
 			return nil, ErrServiceSpaceFactProposalInvalid
 		}
+		item.FactType = types.ServiceFactTypeProfileField
 		item.FieldLabel = field.Label
 		item.Evidence = strings.TrimSpace(item.Evidence)
 		normalized = append(normalized, item)
@@ -2708,14 +3094,14 @@ func builtinServiceTemplates() []*types.ServiceSpaceTemplate {
 		{Key: "follow_up", Label: "待跟进", SourceScopes: []string{"facts", "tasks"}, RefreshPolicy: "on_fact_change", DisplayOrder: 4},
 	}
 	return []*types.ServiceSpaceTemplate{
-		makeTemplate("t1", "招生咨询全流程", "围绕招生线索记录家长顾虑、到访意向和下一步跟进。", types.ServiceSpaceTypeCustomerService, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
-		makeTemplate("t2", "家长续费跟进", "围绕续费窗口跟进服务对象，记录顾虑、政策依据和下一步动作。", types.ServiceSpaceTypeCustomerService, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
-		makeTemplate("t3", "一日流程巡查", "按一日流程巡查运营现场，记录异常并当日汇总上报。", types.ServiceSpaceTypeOperations, "", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
-		makeTemplate("t4", "新教师带教", "为新教师制定带教计划，按阶段评估并沉淀反馈。", types.ServiceSpaceTypeOperations, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
-		makeTemplate("t5", "活动筹备", "筹备活动，管理排期、通知、物资准备与活动后复盘。", types.ServiceSpaceTypeOperations, "project_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
-		makeTemplate("t6", "教学教研沉淀", "整理课堂观察和教研资料，沉淀可复用的经验条目。", types.ServiceSpaceTypeResearch, "research_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
-		makeTemplate("t7", "市场调研与竞品分析协同助手", "围绕调研课题、竞品和用户需求收集证据，区分事实、分析和建议。", types.ServiceSpaceTypeResearch, "research_subject", researchFields, researchSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
-		makeTemplate("t8", "早教机构会员服务", "围绕会员家庭提供课程、权益、问题跟进和续费服务，记录关联服务对象和下一步动作。", types.ServiceSpaceTypeCustomerService, "member_family", membershipFields, membershipSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务助理"}}),
+		makeTemplate("t1", "招生咨询全流程", "围绕招生线索记录家长顾虑、到访意向和下一步跟进。", types.ServiceSpaceTypeCustomerService, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
+		makeTemplate("t2", "家长续费跟进", "围绕续费窗口跟进服务对象，记录顾虑、政策依据和下一步动作。", types.ServiceSpaceTypeCustomerService, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
+		makeTemplate("t3", "一日流程巡查", "按一日流程巡查运营现场，记录异常并当日汇总上报。", types.ServiceSpaceTypeOperations, "", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
+		makeTemplate("t4", "新教师带教", "为新教师制定带教计划，按阶段评估并沉淀反馈。", types.ServiceSpaceTypeOperations, "service_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
+		makeTemplate("t5", "活动筹备", "筹备活动，管理排期、通知、物资准备与活动后复盘。", types.ServiceSpaceTypeOperations, "project_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
+		makeTemplate("t6", "教学教研沉淀", "整理课堂观察和教研资料，沉淀可复用的经验条目。", types.ServiceSpaceTypeResearch, "research_subject", commonFields, commonSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
+		makeTemplate("t7", "市场调研与竞品分析协同助手", "围绕调研课题、竞品和用户需求收集证据，区分事实、分析和建议。", types.ServiceSpaceTypeResearch, "research_subject", researchFields, researchSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
+		makeTemplate("t8", "早教机构会员服务", "围绕会员家庭提供课程、权益、问题跟进和续费服务，记录关联服务对象和下一步动作。", types.ServiceSpaceTypeCustomerService, "member_family", membershipFields, membershipSections, []types.ServiceSpaceBlueprintExpertSuggestion{{ExpertRef: "builtin-smart-reasoning", ExpertName: "服务主理人"}}),
 	}
 }
 
@@ -2933,6 +3319,7 @@ func (s *serviceSpaceService) GetOverview(
 	if err != nil {
 		return nil, err
 	}
+	normalizeServicePrincipalSessions(sessions)
 	artifacts, _, err := s.repo.ListArtifacts(ctx, tenantID, serviceID, "", 1, 5)
 	if err != nil {
 		return nil, err
@@ -2966,35 +3353,8 @@ func (s *serviceSpaceService) CreateSession(
 		ServiceID:   serviceID,
 		Title:       strings.TrimSpace(input.Title),
 		Description: strings.TrimSpace(input.Description),
-		ExpertRef:   strings.TrimSpace(input.ExpertRef),
-		ExpertName:  strings.TrimSpace(input.ExpertName),
-	}
-	experts, err := s.repo.ListExperts(ctx, tenantID, serviceID)
-	if err != nil {
-		return nil, err
-	}
-	if session.ExpertRef == "" {
-		for _, expert := range experts {
-			if expert != nil && expert.Enabled {
-				session.ExpertRef = expert.ExpertRef
-				session.ExpertName = expert.ExpertName
-				break
-			}
-		}
-	} else {
-		matched := false
-		for _, expert := range experts {
-			if expert != nil && expert.Enabled && expert.ExpertRef == session.ExpertRef {
-				matched = true
-				if session.ExpertName == "" {
-					session.ExpertName = expert.ExpertName
-				}
-				break
-			}
-		}
-		if !matched {
-			return nil, ErrServiceSpaceExpertRequired
-		}
+		ExpertRef:   types.BuiltinSmartReasoningID,
+		ExpertName:  serviceSpacePrincipalName,
 	}
 	if session.Title == "" {
 		session.Title = "开始一段新的工作"
@@ -3003,6 +3363,21 @@ func (s *serviceSpaceService) CreateSession(
 		return nil, err
 	}
 	return session, nil
+}
+
+func (s *serviceSpaceService) GetSessionScope(
+	ctx context.Context,
+	tenantID uint64,
+	sessionID string,
+) (*types.Session, error) {
+	session, err := s.repo.GetSessionByID(ctx, tenantID, strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, ErrServiceSpaceSessionNotFound
+	}
+	return normalizeServicePrincipalSession(session), nil
 }
 
 func (s *serviceSpaceService) GetSession(
@@ -3020,7 +3395,7 @@ func (s *serviceSpaceService) GetSession(
 	if session == nil {
 		return nil, ErrServiceSpaceSessionNotFound
 	}
-	return session, nil
+	return normalizeServicePrincipalSession(session), nil
 }
 
 func (s *serviceSpaceService) ListSessions(
@@ -3033,7 +3408,12 @@ func (s *serviceSpaceService) ListSessions(
 		return nil, 0, err
 	}
 	page, pageSize = normalizeServicePagination(page, pageSize)
-	return s.repo.ListSessions(ctx, tenantID, serviceID, keyword, page, pageSize)
+	sessions, total, err := s.repo.ListSessions(ctx, tenantID, serviceID, keyword, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	normalizeServicePrincipalSessions(sessions)
+	return sessions, total, nil
 }
 
 func (s *serviceSpaceService) UpdateSession(
@@ -3059,16 +3439,27 @@ func (s *serviceSpaceService) UpdateSession(
 	if input.Description != nil {
 		fields["description"] = strings.TrimSpace(*input.Description)
 	}
-	if input.ExpertRef != nil {
-		fields["expert_ref"] = strings.TrimSpace(*input.ExpertRef)
-	}
-	if input.ExpertName != nil {
-		fields["expert_name"] = strings.TrimSpace(*input.ExpertName)
-	}
+	fields["expert_ref"] = types.BuiltinSmartReasoningID
+	fields["expert_name"] = serviceSpacePrincipalName
 	if err := s.repo.UpdateSession(ctx, tenantID, serviceID, sessionID, fields); err != nil {
 		return nil, err
 	}
 	return s.GetSession(ctx, tenantID, userID, serviceID, sessionID)
+}
+
+func normalizeServicePrincipalSession(session *types.Session) *types.Session {
+	if session == nil || strings.TrimSpace(session.ServiceID) == "" {
+		return session
+	}
+	session.ExpertRef = types.BuiltinSmartReasoningID
+	session.ExpertName = serviceSpacePrincipalName
+	return session
+}
+
+func normalizeServicePrincipalSessions(sessions []*types.Session) {
+	for _, session := range sessions {
+		normalizeServicePrincipalSession(session)
+	}
 }
 
 func (s *serviceSpaceService) SetSessionPinned(
@@ -3768,11 +4159,46 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 	tenantID uint64,
 	userID, serviceID string,
 ) (string, error) {
+	return s.readMarkdownContext(
+		ctx,
+		tenantID,
+		userID,
+		serviceID,
+		serviceSpaceResidentMaxBytes,
+		serviceSpaceResidentMaxBytes,
+	)
+}
+
+func (s *serviceSpaceService) ReadMarkdownContextForRun(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+) (string, error) {
+	return s.readMarkdownContext(
+		ctx,
+		tenantID,
+		userID,
+		serviceID,
+		serviceSpaceOnDemandTotalBytes,
+		serviceSpaceOnDemandMaxBytes,
+	)
+}
+
+func (s *serviceSpaceService) readMarkdownContext(
+	ctx context.Context,
+	tenantID uint64,
+	userID, serviceID string,
+	maxBytes, longContentMaxBytes int,
+) (string, error) {
 	if _, err := s.Authorize(ctx, tenantID, userID, serviceID, types.ServiceMemberRoleViewer, false); err != nil {
 		return "", err
 	}
 
-	contextSources, err := s.repo.ListContextSources(ctx, tenantID, serviceID)
+	profile, err := s.repo.GetProfile(ctx, tenantID, serviceID)
+	if err != nil {
+		return "", err
+	}
+	summary, err := s.repo.GetSummary(ctx, tenantID, serviceID)
 	if err != nil {
 		return "", err
 	}
@@ -3780,53 +4206,62 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 	if err != nil {
 		return "", err
 	}
-	var builder strings.Builder
-	var total int64
-	var page = serviceSpaceDefaultPage
-	var loaded int
-	var truncated bool
-	artifactHeaderWritten := false
+	contextSources, err := s.repo.ListContextSources(ctx, tenantID, serviceID)
+	if err != nil {
+		return "", err
+	}
 
+	var profileSection strings.Builder
+	if profile != nil && len(profile.Values) > 0 {
+		encoded, marshalErr := json.Marshal(profile.Values)
+		if marshalErr == nil {
+			appendServiceContextText(&profileSection, "[服务空间画像]\n"+string(encoded)+"\n", serviceSpaceResidentProfileBytes)
+		}
+	}
+	var summarySection strings.Builder
+	if summary != nil && len(summary.Sections) > 0 {
+		encoded, marshalErr := json.Marshal(summary.Sections)
+		if marshalErr == nil {
+			appendServiceContextText(&summarySection, "[服务空间摘要]\n"+string(encoded)+"\n", serviceSpaceResidentSummaryBytes)
+		}
+	}
+	var priority strings.Builder
+	appendServiceContextText(&priority, profileSection.String(), serviceSpaceResidentPriorityBytes)
+	appendServiceContextText(&priority, summarySection.String(), serviceSpaceResidentPriorityBytes)
+
+	var factSection strings.Builder
 	for _, fact := range facts {
 		if fact == nil {
 			continue
-		}
-		remaining := int64(serviceSpaceContextSourceMaxBytes) - total
-		if remaining <= 0 {
-			truncated = true
-			break
 		}
 		value, marshalErr := json.Marshal(fact.Value)
 		if marshalErr != nil {
 			continue
 		}
-		factText := fmt.Sprintf(
+		text := fmt.Sprintf(
 			"事实类型：%s\n事实键：%s\n来源：%s/%s\n值：%s\n",
 			fact.FactType, fact.FactKey, fact.SourceType, fact.SourceID, string(value),
 		)
-		if int64(len(factText)) > remaining {
-			factText = factText[:remaining]
-			truncated = true
+		if factSection.Len() == 0 {
+			appendServiceContextText(&factSection, "[服务空间事实]\n", serviceSpaceResidentFactBytes)
 		}
-		if builder.Len() == 0 {
-			builder.WriteString("[服务空间事实]\n")
-		}
-		builder.WriteString("\n")
-		builder.WriteString(factText)
-		total += int64(len(factText))
-		if truncated {
+		if !appendServiceContextText(&factSection, "\n"+text, serviceSpaceResidentFactBytes) {
 			break
 		}
 	}
 
+	longBudget := maxBytes - priority.Len() - factSection.Len()
+	if longBudget < 0 {
+		longBudget = 0
+	}
+	if longBudget > longContentMaxBytes {
+		longBudget = longContentMaxBytes
+	}
+	var longSection strings.Builder
+	truncated := false
 	for _, source := range contextSources {
 		if source == nil {
 			continue
-		}
-		remaining := int64(serviceSpaceContextSourceMaxBytes) - total
-		if remaining <= 0 {
-			truncated = true
-			break
 		}
 		sourceText := strings.TrimSpace(source.SourceContent)
 		if summary := strings.TrimSpace(source.SourceSummary); summary != "" {
@@ -3835,35 +4270,20 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 		if sourceText == "" {
 			continue
 		}
-		if int64(len(sourceText)) > remaining {
-			sourceText = sourceText[:remaining]
+		if longSection.Len() == 0 {
+			appendServiceContextText(&longSection, "[服务空间整理来源]\n", longBudget)
+		}
+		text := "\n## " + firstNonEmptyServiceText(source.SourceTitle, source.SourceID) + "\n" + sourceText + "\n"
+		if !appendServiceContextText(&longSection, text, longBudget) {
 			truncated = true
-		}
-		if builder.Len() == 0 {
-			builder.WriteString("[服务空间整理来源]\n")
-		}
-		builder.WriteString("\n## ")
-		builder.WriteString(firstNonEmptyServiceText(source.SourceTitle, source.SourceID))
-		builder.WriteString("\n")
-		builder.WriteString(sourceText)
-		builder.WriteString("\n")
-		total += int64(len(sourceText))
-		if truncated {
 			break
 		}
 	}
 
-	if s.fileService == nil {
-		if builder.Len() == 0 {
-			return "", nil
-		}
-		if truncated {
-			builder.WriteString("\n[服务空间参考资料已达到读取上限，以上为已读取内容。]\n")
-		}
-		return builder.String(), nil
-	}
-
-	for {
+	page := serviceSpaceDefaultPage
+	loaded := 0
+	artifactHeaderWritten := false
+	for s.fileService != nil && longSection.Len() < longBudget {
 		artifacts, totalArtifacts, err := s.repo.ListArtifacts(
 			ctx,
 			tenantID,
@@ -3902,7 +4322,7 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 				}
 			}
 
-			remaining := int64(serviceSpaceMarkdownMaxBytes) - total
+			remaining := int64(longBudget - longSection.Len())
 			if remaining <= 0 {
 				truncated = true
 				break
@@ -3939,15 +4359,13 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 				name = artifact.ArtifactID
 			}
 			if !artifactHeaderWritten {
-				builder.WriteString("[服务空间 Markdown 资料]\n")
+				appendServiceContextText(&longSection, "[服务空间 Markdown 资料]\n", longBudget)
 				artifactHeaderWritten = true
 			}
-			builder.WriteString("\n## ")
-			builder.WriteString(name)
-			builder.WriteString("\n")
-			builder.WriteString(contentText)
-			builder.WriteString("\n")
-			total += int64(len(content))
+			if !appendServiceContextText(&longSection, "\n## "+name+"\n"+contentText+"\n", longBudget) {
+				truncated = true
+				break
+			}
 			loaded++
 		}
 		if truncated || int64(page*serviceSpaceMarkdownPageSize) >= totalArtifacts {
@@ -3956,13 +4374,37 @@ func (s *serviceSpaceService) ReadMarkdownContext(
 		page++
 	}
 
+	var builder strings.Builder
+	appendServiceContextText(&builder, priority.String(), maxBytes)
+	appendServiceContextText(&builder, factSection.String(), maxBytes)
+	appendServiceContextText(&builder, longSection.String(), maxBytes)
 	if builder.Len() == 0 {
 		return "", nil
 	}
 	if truncated {
-		builder.WriteString("\n[服务空间 Markdown 资料已达到读取上限，以上为已读取内容。]\n")
+		appendServiceContextText(&builder, "\n[服务空间参考资料已达到当前读取上限。]\n", maxBytes)
 	}
 	return builder.String(), nil
+}
+
+func appendServiceContextText(builder *strings.Builder, text string, limit int) bool {
+	if builder == nil || text == "" {
+		return true
+	}
+	remaining := limit - builder.Len()
+	if remaining <= 0 {
+		return false
+	}
+	if len(text) <= remaining {
+		builder.WriteString(text)
+		return true
+	}
+	text = text[:remaining]
+	for text != "" && !utf8.ValidString(text) {
+		text = text[:len(text)-1]
+	}
+	builder.WriteString(text)
+	return false
 }
 
 func firstNonEmptyServiceText(values ...string) string {
@@ -4139,12 +4581,25 @@ func buildServiceExperts(
 	userID, serviceID string,
 	inputs []types.ServiceExpertBindingInput,
 ) ([]*types.ServiceExpertBinding, error) {
-	seen := make(map[string]struct{}, len(inputs))
-	experts := make([]*types.ServiceExpertBinding, 0, len(inputs))
+	seen := map[string]struct{}{types.BuiltinSmartReasoningID: {}}
+	experts := []*types.ServiceExpertBinding{{
+		TenantID:     tenantID,
+		ServiceID:    serviceID,
+		ExpertRef:    types.BuiltinSmartReasoningID,
+		ExpertName:   serviceSpacePrincipalName,
+		Source:       "builtin",
+		Enabled:      true,
+		DisplayOrder: 0,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	}}
 	for index, input := range inputs {
 		ref := strings.TrimSpace(input.ExpertRef)
 		if ref == "" {
 			return nil, fmt.Errorf("expert_ref is required")
+		}
+		if ref == types.BuiltinSmartReasoningID {
+			continue
 		}
 		if _, exists := seen[ref]; exists {
 			return nil, ErrServiceSpaceDuplicateExpertRef
@@ -4176,6 +4631,14 @@ func buildServiceExperts(
 		})
 	}
 	return experts, nil
+}
+
+func defaultServiceExpertInputs() []types.ServiceExpertBindingInput {
+	return []types.ServiceExpertBindingInput{{
+		ExpertRef:  types.BuiltinSmartReasoningID,
+		ExpertName: serviceSpacePrincipalName,
+		Source:     "builtin",
+	}}
 }
 
 func hasEnabledServiceExpert(experts []*types.ServiceExpertBinding) bool {

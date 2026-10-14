@@ -281,6 +281,9 @@ func (s *sessionService) buildAgentConfig(
 	} else {
 		agentConfig.AllowedTools = tools.DefaultAllowedTools()
 	}
+	if err := s.applyServiceOrchestration(ctx, req, agentConfig); err != nil {
+		return nil, err
+	}
 	// Apply per-turn @Skill / @MCP scope. Skill mentions only pin skills for
 	// this turn; they do not revoke skills already allowed by the agent.
 	// MCP mentions retain their existing narrowing semantics.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Tencent/WeKnora/internal/agent/tools"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -23,6 +24,9 @@ func (s *sessionService) applyServiceRuntimeContext(
 	serviceID := strings.TrimSpace(req.Session.ServiceID)
 	if serviceID == "" {
 		return nil
+	}
+	if req.CustomAgent != nil && strings.TrimSpace(req.CustomAgent.ID) != types.BuiltinSmartReasoningID {
+		return ErrServiceSpacePrincipalRequired
 	}
 
 	userID := strings.TrimSpace(req.Session.UserID)
@@ -81,6 +85,75 @@ func (s *sessionService) applyServiceRuntimeContext(
 	}
 	req.ServiceRuntimeContextHash = strings.TrimSpace(runtimeContext.ContextHash)
 	return nil
+}
+
+func (s *sessionService) applyServiceOrchestration(
+	ctx context.Context,
+	req *types.QARequest,
+	config *types.AgentConfig,
+) error {
+	if req == nil || req.Session == nil || config == nil || s.serviceSpace == nil {
+		return nil
+	}
+	serviceID := strings.TrimSpace(req.Session.ServiceID)
+	if serviceID == "" {
+		return nil
+	}
+
+	userID := strings.TrimSpace(req.Session.UserID)
+	if userID == "" {
+		userID = sessionUserIDFromContext(ctx)
+	}
+	bindings, err := s.serviceSpace.ListExperts(
+		ctx,
+		req.Session.TenantID,
+		userID,
+		serviceID,
+	)
+	if err != nil {
+		return err
+	}
+
+	memberIDs := make([]string, 0, len(bindings))
+	seen := make(map[string]struct{}, len(bindings))
+	for _, binding := range bindings {
+		if binding == nil || !binding.Enabled {
+			continue
+		}
+		id := strings.TrimSpace(binding.ExpertRef)
+		if id == "" || id == types.BuiltinSmartReasoningID {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		memberIDs = append(memberIDs, id)
+	}
+
+	config.OrchestrationEnabled = len(memberIDs) > 0
+	config.MemberAgentIDs = memberIDs
+	config.AllowedTools = withoutString(config.AllowedTools, tools.ToolDelegateAgent)
+	if len(memberIDs) > 0 {
+		config.AllowedTools = append(config.AllowedTools, tools.ToolDelegateAgent)
+	}
+	config.BusinessInstructions = append(config.BusinessInstructions, types.PromptInstruction{
+		Label: "service_orchestrator",
+		Content: "你是该服务空间唯一主理人。你负责理解用户目标、拆解任务、决定是否调度成员 Agent，" +
+			"并对成员结果进行校验、取舍和统一回复。成员 Agent 只执行被分派的子任务，不直接接管用户会话。",
+	})
+	logger.Infof(ctx, "Applied service orchestrator runtime: service_id=%s member_agents=%d", serviceID, len(memberIDs))
+	return nil
+}
+
+func withoutString(values []string, target string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if value != target {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 // resolveKnowledgeBases resolves the effective knowledge base IDs and knowledge IDs

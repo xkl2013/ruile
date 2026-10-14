@@ -12,6 +12,8 @@ import (
 const (
 	ServiceFactTypeOrganizeOutput = "organize_output"
 	ServiceFactTypeProfileField   = "profile_field"
+	ServiceFactTypeProgress       = "progress"
+	ServiceFactTypeDecision       = "decision"
 	ServiceFactTypeMaxLen         = 64
 	ServiceFactKeyMaxLen          = 128
 	ServiceFactSourceTypeMaxLen   = 64
@@ -22,18 +24,22 @@ const (
 // space. The source fields are mandatory so every fact can be traced back to
 // an imported output, memory, or another first-party source.
 type ServiceFact struct {
-	ID            string    `json:"id" gorm:"type:varchar(36);primaryKey"`
-	TenantID      uint64    `json:"tenant_id" gorm:"not null;index"`
-	ServiceID     string    `json:"service_id" gorm:"type:varchar(36);not null;index"`
-	SubjectID     string    `json:"subject_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
-	FactType      string    `json:"fact_type" gorm:"type:varchar(64);not null;index"`
-	FactKey       string    `json:"fact_key,omitempty" gorm:"type:varchar(128);not null;default:''"`
-	Value         JSONMap   `json:"value" gorm:"column:fact_value;type:jsonb;not null;default:'{}'"`
-	SourceType    string    `json:"source_type" gorm:"type:varchar(64);not null"`
-	SourceID      string    `json:"source_id" gorm:"type:varchar(128);not null"`
-	SourceVersion string    `json:"source_version,omitempty" gorm:"type:varchar(128);not null;default:''"`
-	CreatedBy     string    `json:"created_by" gorm:"type:varchar(36);not null;default:''"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            string     `json:"id" gorm:"type:varchar(36);primaryKey"`
+	TenantID      uint64     `json:"tenant_id" gorm:"not null;index"`
+	ServiceID     string     `json:"service_id" gorm:"type:varchar(36);not null;index"`
+	SubjectID     string     `json:"subject_id,omitempty" gorm:"type:varchar(36);not null;default:'';index"`
+	FactType      string     `json:"fact_type" gorm:"type:varchar(64);not null;index"`
+	FactKey       string     `json:"fact_key,omitempty" gorm:"type:varchar(128);not null;default:''"`
+	Value         JSONMap    `json:"value" gorm:"column:fact_value;type:jsonb;not null;default:'{}'"`
+	SourceType    string     `json:"source_type" gorm:"type:varchar(64);not null"`
+	SourceID      string     `json:"source_id" gorm:"type:varchar(128);not null"`
+	SourceVersion string     `json:"source_version,omitempty" gorm:"type:varchar(128);not null;default:''"`
+	ConflictWith  string     `json:"conflict_with,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	SupersededBy  string     `json:"superseded_by,omitempty" gorm:"type:varchar(36);not null;default:''"`
+	DisabledAt    *time.Time `json:"disabled_at,omitempty"`
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+	CreatedBy     string     `json:"created_by" gorm:"type:varchar(36);not null;default:''"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 func (ServiceFact) TableName() string { return "service_facts" }
@@ -52,6 +58,8 @@ func (f *ServiceFact) BeforeCreate(_ *gorm.DB) error {
 	f.SourceType = strings.TrimSpace(f.SourceType)
 	f.SourceID = strings.TrimSpace(f.SourceID)
 	f.SourceVersion = strings.TrimSpace(f.SourceVersion)
+	f.ConflictWith = strings.TrimSpace(f.ConflictWith)
+	f.SupersededBy = strings.TrimSpace(f.SupersededBy)
 	f.CreatedBy = strings.TrimSpace(f.CreatedBy)
 	return f.ValidateForAppend()
 }
@@ -92,6 +100,11 @@ type ServiceFactAppendInput struct {
 	SourceType    string  `json:"source_type"`
 	SourceID      string  `json:"source_id"`
 	SourceVersion string  `json:"source_version,omitempty"`
+}
+
+type ServiceFactGovernanceInput struct {
+	Disabled *bool `json:"disabled,omitempty"`
+	Deleted  *bool `json:"deleted,omitempty"`
 }
 
 // The service layer maps these validation errors to its public domain errors.

@@ -19,6 +19,33 @@
     </div>
 
     <div v-else class="usage-content">
+      <section v-if="creditDetails.length" class="credit-details">
+        <h3>{{ t('tenant.subscriptionUsage.creditDetails') }}</h3>
+        <div class="credit-details__list">
+          <article v-for="detail in creditDetails" :key="detail.key" class="credit-detail">
+            <div class="credit-detail__heading">
+              <strong>{{ detail.title }}</strong>
+              <div class="credit-detail__usage">
+                <span>{{ t('tenant.subscriptionUsage.used') }}</span>
+                <b>{{ detail.usedText }}/{{ detail.totalText }}</b>
+                <span>
+                  {{ t('tenant.subscriptionUsage.remainingPercent', {
+                    percent: detail.remainingText,
+                  }) }}
+                </span>
+              </div>
+            </div>
+            <div class="credit-detail__meta">
+              <span>{{ detail.timingLabel }}</span>
+              <span>{{ detail.timingText }}</span>
+            </div>
+            <div class="credit-detail__track" aria-hidden="true">
+              <span :style="{ width: `${detail.progress}%` }" />
+            </div>
+          </article>
+        </div>
+      </section>
+
       <div class="usage-card-list">
         <article v-for="card in usageCards" :key="card.key" class="usage-card">
           <div class="resource-usage">
@@ -26,7 +53,7 @@
               <span>{{ t('tenant.subscriptionUsage.resourceUsage') }}</span>
             </div>
 
-            <div v-if="card.showPoolDetails" class="resource-row">
+            <div class="resource-row">
               <div class="resource-label-row">
                 <div class="resource-label">
                   <t-icon name="layers" />
@@ -67,80 +94,6 @@
                 :show-info="false"
                 size="small"
                 :status="card.storage.progressStatus"
-              />
-              <div v-else class="unlimited-track">
-                <span />
-              </div>
-            </div>
-
-            <div v-if="card.showPoolDetails" class="resource-row resource-row--credits">
-              <div class="resource-label-row">
-                <div class="resource-label">
-                  <t-icon name="wealth-1" />
-                  <span>{{ t('tenant.subscriptionUsage.periodCredits') }}</span>
-                </div>
-                <span class="resource-primary resource-primary--credits">
-                  {{ t('tenant.subscriptionUsage.usedOfTotal', {
-                    used: card.periodUsedCreditText,
-                    total: card.periodCreditText,
-                  }) }}
-                </span>
-              </div>
-              <div class="resource-meta">
-                <span>{{ t('tenant.subscriptionUsage.periodCreditsDescription') }}</span>
-                <span>{{ card.periodText }}</span>
-              </div>
-              <div class="resource-meta resource-meta--credits-detail">
-                <span>{{ t('tenant.subscriptionUsage.periodCreditsUsed', { count: card.periodUsedCreditText }) }}</span>
-                <span>{{ t('tenant.subscriptionUsage.periodCreditsRemaining', { count: card.periodRemainingCreditText }) }}</span>
-              </div>
-              <t-progress
-                :percentage="card.periodCreditProgress"
-                :show-info="false"
-                size="small"
-                :status="card.periodCreditProgress >= 100 ? 'success' : 'active'"
-              />
-            </div>
-
-            <div v-if="card.showPoolDetails" class="resource-row resource-row--credits">
-              <div class="resource-label-row">
-                <div class="resource-label">
-                  <t-icon name="wallet" />
-                  <span>{{ t('tenant.subscriptionUsage.creditBalance') }}</span>
-                </div>
-                <span class="resource-primary resource-primary--credits">
-                  {{ t('tenant.subscriptionUsage.usedOfTotal', {
-                    used: card.balanceUsedCreditText,
-                    total: card.balanceCreditText,
-                  }) }}
-                </span>
-              </div>
-              <div class="resource-meta">
-                <span>{{ t('tenant.subscriptionUsage.creditAvailable') }}</span>
-                <span>{{ card.creditSource }}</span>
-              </div>
-            </div>
-
-            <div v-else-if="card.memberUsage" class="resource-row resource-row--credits">
-              <div class="resource-label-row">
-                <div class="resource-label">
-                  <t-icon name="user" />
-                  <span>{{ t('tenant.subscriptionUsage.myMonthlyUsage') }}</span>
-                </div>
-                <span class="resource-primary resource-primary--credits">
-                  {{ t('tenant.subscriptionUsage.points', { count: card.memberUsage.usedText }) }}
-                </span>
-              </div>
-              <div class="resource-meta">
-                <span>{{ card.memberUsage.limitText }}</span>
-                <span>{{ card.memberUsage.overageText }}</span>
-              </div>
-              <t-progress
-                v-if="!card.memberUsage.unlimited"
-                :percentage="card.memberUsage.progress"
-                :show-info="false"
-                size="small"
-                :status="card.memberUsage.progress >= 100 ? 'success' : 'active'"
               />
               <div v-else class="unlimited-track">
                 <span />
@@ -267,6 +220,7 @@
                 <th>{{ t('tenant.subscriptionUsage.model') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.tokens') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.billedCredits') }}</th>
+                <th>{{ t('tenant.subscriptionUsage.creditSource') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.usageStatus') }}</th>
                 <th>{{ t('tenant.subscriptionUsage.billingTime') }}</th>
               </tr>
@@ -280,6 +234,11 @@
                 </td>
                 <td>{{ formatCredits(item.billed_point_micros) }}</td>
                 <td>
+                  <t-tag variant="light" size="small">
+                    {{ usageCreditSourceLabel(item.usage_scope) }}
+                  </t-tag>
+                </td>
+                <td>
                   <t-tag :theme="usageStatusTheme(item.status)" variant="light" size="small">
                     {{ item.status }}
                   </t-tag>
@@ -288,7 +247,7 @@
                 <td>{{ formatUsageTime(item.billing_at) }}</td>
               </tr>
               <tr v-if="usageItems.length === 0">
-                <td colspan="5" class="recent-usage__empty">
+                <td colspan="6" class="recent-usage__empty">
                   {{ t('tenant.subscriptionUsage.noRecentUsage') }}
                 </td>
               </tr>
@@ -309,6 +268,7 @@ import {
   getBillingCatalog,
   getBillingOrders,
   type BillingOverview,
+  type BillingOverviewResponse,
   type BillingCatalog,
   type BillingCatalogResponse,
   type BillingOrderItem,
@@ -336,21 +296,18 @@ interface UsageCard {
   planCode: string
   periodText: string
   storage: StorageDisplay
-  periodCreditText: string
-  periodUsedCreditText: string
-  periodRemainingCreditText: string
-  periodCreditProgress: number
-  balanceCreditText: string
-  balanceUsedCreditText: string
-  creditSource: string
   showPoolDetails: boolean
-  memberUsage?: {
-    usedText: string
-    limitText: string
-    overageText: string
-    progress: number
-    unlimited: boolean
-  }
+}
+
+interface CreditDetail {
+  key: string
+  title: string
+  timingLabel: string
+  timingText: string
+  usedText: string
+  totalText: string
+  remainingText: string
+  progress: number
 }
 
 const { t, locale } = useI18n()
@@ -359,6 +316,7 @@ const authStore = useAuthStore()
 const loading = ref(true)
 const error = ref('')
 const overview = ref<BillingOverview | null>(null)
+const personalOverview = ref<BillingOverview | null>(null)
 const usageItems = ref<BillingUsageItem[]>([])
 const catalog = ref<BillingCatalog | null>(null)
 const orders = ref<BillingOrderItem[]>([])
@@ -373,6 +331,7 @@ const activeTenantId = computed(() =>
       || 0,
   ),
 )
+const personalTenantId = computed(() => Number(authStore.user?.tenant_id || 0))
 const toFiniteNumber = (value: unknown, fallback = 0) => {
   const normalized = Number(value)
   return Number.isFinite(normalized) ? normalized : fallback
@@ -472,6 +431,11 @@ const usageStatusTheme = (status: string): 'success' | 'warning' | 'danger' | 'd
   return 'default'
 }
 
+const usageCreditSourceLabel = (scope: BillingUsageItem['usage_scope']) =>
+  scope === 'personal_usage'
+    ? t('tenant.subscriptionUsage.personalCredits')
+    : t('tenant.subscriptionUsage.enterpriseSharedCredits')
+
 const buildStorageDisplay = (raw: BillingOverview['storage']): StorageDisplay => {
   const quotaBytes = Math.max(0, toFiniteNumber(raw.quota_bytes, 0))
   const usedBytes = Math.max(0, toFiniteNumber(raw.used_bytes, 0))
@@ -516,71 +480,118 @@ const formatPeriod = (billing: BillingOverview) => {
   return `${formatter.format(new Date(start))} - ${formatter.format(new Date(end))}`
 }
 
+const formatCreditTime = (value?: string) => {
+  if (!value) return t('tenant.subscriptionUsage.noFixedPeriod')
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return t('tenant.subscriptionUsage.noFixedPeriod')
+  return new Intl.DateTimeFormat(locale.value || 'zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date)
+}
+
+const buildCreditDetail = (
+  key: string,
+  title: string,
+  timingLabel: string,
+  timingText: string,
+  usedMicros: number,
+  totalMicros: number,
+): CreditDetail => {
+  const total = Math.max(0, toFiniteNumber(totalMicros, 0))
+  const used = Math.max(0, toFiniteNumber(usedMicros, 0))
+  const progress = total > 0
+    ? Math.min(100, Math.round((used / total) * 10000) / 100)
+    : 0
+  return {
+    key,
+    title,
+    timingLabel,
+    timingText,
+    usedText: formatCredits(used),
+    totalText: formatCredits(total),
+    remainingText: formatPercent(total > 0 ? 100 - progress : 0),
+    progress,
+  }
+}
+
+const creditDetails = computed<CreditDetail[]>(() => {
+  const details: CreditDetail[] = []
+  const personal = personalOverview.value
+  if (personal) {
+    details.push(buildCreditDetail(
+      'personal-period',
+      t('tenant.subscriptionUsage.personalPlanCredits'),
+      t('tenant.subscriptionUsage.nextRefreshTime'),
+      formatCreditTime(personal.subscription.current_period_end),
+      personal.credits.period_used_point_micros,
+      personal.credits.period_point_micros,
+    ))
+
+    const personalBalance = Math.max(
+      0,
+      toFiniteNumber(personal.credits.balance_point_micros, 0),
+    )
+    const personalBalanceTotal = Math.max(
+      personalBalance,
+      toFiniteNumber(personal.credits.balance_allocated_point_micros, personalBalance),
+    )
+    details.push(buildCreditDetail(
+      'personal-balance',
+      t('tenant.subscriptionUsage.personalBalanceCredits'),
+      t('tenant.subscriptionUsage.validUntil'),
+      t('tenant.subscriptionUsage.noFixedPeriod'),
+      personalBalanceTotal - personalBalance,
+      personalBalanceTotal,
+    ))
+  }
+
+  const enterprise = overview.value?.space_type === 'organization' ? overview.value : null
+  if (enterprise) {
+    const periodTotal = Math.max(
+      0,
+      toFiniteNumber(enterprise.credits.period_point_micros, 0),
+    )
+    const periodUsed = Math.max(
+      0,
+      toFiniteNumber(enterprise.credits.period_used_point_micros, 0),
+    )
+    const balance = Math.max(
+      0,
+      toFiniteNumber(enterprise.credits.balance_point_micros, 0),
+    )
+    const balanceTotal = Math.max(
+      balance,
+      toFiniteNumber(enterprise.credits.balance_allocated_point_micros, balance),
+    )
+    details.push(buildCreditDetail(
+      'enterprise-shared',
+      t('tenant.subscriptionUsage.enterpriseSharedCredits'),
+      t('tenant.subscriptionUsage.nextRefreshTime'),
+      formatCreditTime(enterprise.subscription.current_period_end),
+      periodUsed + Math.max(0, balanceTotal - balance),
+      periodTotal + balanceTotal,
+    ))
+  }
+  return details
+})
+
 const usageCards = computed<UsageCard[]>(() => {
   if (!overview.value) return []
   const billing = overview.value
-  const isEnterprise = billing.space_type === 'organization'
   const showPoolDetails = billing.storage.visible !== false && billing.credits.visible !== false
-  const periodTotalMicros = Math.max(0, toFiniteNumber(billing.credits.period_point_micros, 0))
-  const periodUsedMicros = Math.max(0, toFiniteNumber(billing.credits.period_used_point_micros, 0))
-  const periodRemainingMicros = Math.max(
-	    0,
-	    toFiniteNumber(
-	      billing.credits.period_remaining_point_micros,
-	      periodTotalMicros - periodUsedMicros,
-	    ),
-	  )
-  const memberUsage = billing.member_usage
-  const memberLimitMicros = Math.max(
-    0,
-    toFiniteNumber(memberUsage?.monthly_limit_point_micros, 0),
-  )
-  const memberUsedMicros = Math.max(
-    0,
-    toFiniteNumber(memberUsage?.monthly_used_point_micros, 0),
-  )
-  const balanceMicros = Math.max(0, toFiniteNumber(billing.credits.balance_point_micros, 0))
-  const balanceTotalMicros = Math.max(
-    balanceMicros,
-    toFiniteNumber(billing.credits.balance_allocated_point_micros, balanceMicros),
-  )
-  const balanceUsedMicros = Math.max(0, balanceTotalMicros - balanceMicros)
-  const memberUnlimited = memberUsage?.limit_mode === 'unlimited'
   return [{
     key: billing.space_type,
     planName: billing.plan.name,
     planCode: billing.plan.code,
     periodText: formatPeriod(billing),
     storage: buildStorageDisplay(billing.storage),
-    periodCreditText: formatCredits(billing.credits.period_point_micros),
-    periodUsedCreditText: formatCredits(periodUsedMicros),
-    periodRemainingCreditText: formatCredits(periodRemainingMicros),
-    periodCreditProgress: periodTotalMicros > 0
-      ? Math.min(100, Math.round((periodUsedMicros / periodTotalMicros) * 10000) / 100)
-      : 0,
-    balanceCreditText: formatCredits(balanceTotalMicros),
-    balanceUsedCreditText: formatCredits(balanceUsedMicros),
-    creditSource: isEnterprise
-      ? t('tenant.subscriptionUsage.enterpriseCreditSource')
-      : t('tenant.subscriptionUsage.personalCreditSource'),
     showPoolDetails,
-    memberUsage: !showPoolDetails && memberUsage
-      ? {
-        usedText: formatCredits(memberUsedMicros),
-        limitText: memberUnlimited
-          ? t('tenant.subscriptionUsage.unlimited')
-          : t('tenant.subscriptionUsage.memberLimit', {
-            limit: formatCredits(memberLimitMicros),
-          }),
-        overageText: memberUsage.overage_policy === 'use_enterprise_balance'
-          ? t('tenant.subscriptionUsage.overageUseBalance')
-          : t('tenant.subscriptionUsage.overageBlock'),
-        progress: memberUnlimited || memberLimitMicros <= 0
-          ? 0
-          : Math.min(100, Math.round((memberUsedMicros / memberLimitMicros) * 10000) / 100),
-        unlimited: memberUnlimited,
-      }
-      : undefined,
   }]
 })
 
@@ -590,6 +601,7 @@ const loadUsage = async () => {
   loading.value = true
   error.value = ''
   overview.value = null
+  personalOverview.value = null
   usageItems.value = []
   catalog.value = null
   orders.value = []
@@ -600,7 +612,14 @@ const loadUsage = async () => {
     return
   }
 
-  const [response, usageResponse, catalogResponse, ordersResponse] = await Promise.all([
+  const personalResponseRequest: Promise<BillingOverviewResponse | null> =
+    personalTenantId.value > 0 && personalTenantId.value !== activeTenantId.value
+      ? getBillingOverview(personalTenantId.value).catch(
+        (): BillingOverviewResponse => ({ success: false }),
+      )
+      : Promise.resolve(null)
+
+  const [response, usageResponse, catalogResponse, ordersResponse, personalResponse] = await Promise.all([
     getBillingOverview(activeTenantId.value),
     getBillingUsage(20, activeTenantId.value).catch(
       (): BillingUsageResponse => ({ success: false }),
@@ -611,6 +630,7 @@ const loadUsage = async () => {
     getBillingOrders(20, activeTenantId.value).catch(
       (): BillingOrdersResponse => ({ success: false }),
     ),
+    personalResponseRequest,
   ])
 
   if (sequence !== loadSequence) return
@@ -622,6 +642,11 @@ const loadUsage = async () => {
   }
 
   overview.value = response.data
+  personalOverview.value = response.data.space_type === 'personal'
+    ? response.data
+    : personalResponse?.success && personalResponse.data
+      ? personalResponse.data
+      : null
   usageItems.value = usageResponse.success && usageResponse.data ? usageResponse.data : []
   catalog.value = catalogResponse.success && catalogResponse.data ? catalogResponse.data : null
   orders.value = ordersResponse.success && ordersResponse.data ? ordersResponse.data : []
@@ -629,7 +654,7 @@ const loadUsage = async () => {
 }
 
 watch(
-  activeTenantId,
+  [activeTenantId, personalTenantId],
   () => {
     void loadUsage()
   },
@@ -680,6 +705,98 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.credit-details {
+  padding: 24px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 8px;
+  background: var(--td-bg-color-container);
+
+  h3 {
+    margin: 0 0 18px;
+    color: var(--td-text-color-primary);
+    font-size: 18px;
+    font-weight: 600;
+  }
+}
+
+.credit-details__list {
+  display: grid;
+}
+
+.credit-detail {
+  padding: 0 0 22px;
+
+  & + & {
+    padding-top: 22px;
+    border-top: 1px solid var(--td-component-stroke);
+  }
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+}
+
+.credit-detail__heading,
+.credit-detail__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.credit-detail__heading {
+  strong {
+    min-width: 0;
+    color: var(--td-text-color-primary);
+    font-size: 16px;
+    font-weight: 600;
+  }
+}
+
+.credit-detail__usage {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 7px;
+  color: var(--td-text-color-secondary);
+  font-size: 14px;
+  white-space: nowrap;
+
+  b {
+    color: var(--td-text-color-primary);
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  span:last-child {
+    color: var(--td-text-color-primary);
+  }
+}
+
+.credit-detail__meta {
+  justify-content: flex-start;
+  margin-top: 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+}
+
+.credit-detail__track {
+  width: 100%;
+  height: 8px;
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--td-bg-color-secondarycontainer);
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--td-brand-color);
+    transition: width 180ms ease;
+  }
 }
 
 .recent-usage {
@@ -1020,6 +1137,21 @@ watch(
 @media (max-width: 720px) {
   .usage-card {
     padding: 20px;
+  }
+
+  .credit-details {
+    padding: 20px;
+  }
+
+  .credit-detail__heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .credit-detail__usage {
+    justify-content: flex-start;
+    white-space: normal;
   }
 
   .billing-catalog__heading,

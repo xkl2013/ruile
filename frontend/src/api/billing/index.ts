@@ -159,6 +159,11 @@ export async function getBillingOverview(tenantId?: number): Promise<BillingOver
 
 export interface BillingUsageItem {
   id: string
+  tenant_id: number
+  tenant_name: string
+  origin_tenant_id: number
+  origin_tenant_name: string
+  usage_scope: 'personal_usage' | 'enterprise_usage' | 'enterprise_allocated_usage'
   model_key: string
   provider: string
   input_tokens: number

@@ -417,7 +417,22 @@ func (r *serviceSpaceRepository) CreateFact(
 	ctx context.Context,
 	fact *types.ServiceFact,
 ) error {
-	return r.db.WithContext(ctx).Create(fact).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(fact).Error; err != nil {
+			return err
+		}
+		if strings.TrimSpace(fact.ConflictWith) == "" {
+			return nil
+		}
+		return tx.Model(&types.ServiceFact{}).
+			Where(
+				"tenant_id = ? AND service_id = ? AND id = ? AND superseded_by = ''",
+				fact.TenantID,
+				fact.ServiceID,
+				fact.ConflictWith,
+			).
+			Update("superseded_by", fact.ID).Error
+	})
 }
 
 func (r *serviceSpaceRepository) ListFacts(
@@ -427,7 +442,11 @@ func (r *serviceSpaceRepository) ListFacts(
 	page, pageSize int,
 ) ([]*types.ServiceFact, int64, error) {
 	query := r.db.WithContext(ctx).Model(&types.ServiceFact{}).
-		Where("tenant_id = ? AND service_id = ?", tenantID, strings.TrimSpace(serviceID))
+		Where(
+			"tenant_id = ? AND service_id = ? AND disabled_at IS NULL AND deleted_at IS NULL AND superseded_by = ''",
+			tenantID,
+			strings.TrimSpace(serviceID),
+		)
 	if subjectID = strings.TrimSpace(subjectID); subjectID != "" {
 		query = query.Where("subject_id = ?", subjectID)
 	}
@@ -453,6 +472,21 @@ func (r *serviceSpaceRepository) ListFacts(
 	return facts, total, err
 }
 
+func (r *serviceSpaceRepository) GetFact(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, factID string,
+) (*types.ServiceFact, error) {
+	var fact types.ServiceFact
+	err := r.db.WithContext(ctx).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", tenantID, strings.TrimSpace(serviceID), strings.TrimSpace(factID)).
+		First(&fact).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &fact, err
+}
+
 func (r *serviceSpaceRepository) GetFactBySource(
 	ctx context.Context,
 	tenantID uint64,
@@ -461,7 +495,7 @@ func (r *serviceSpaceRepository) GetFactBySource(
 	var fact types.ServiceFact
 	err := r.db.WithContext(ctx).
 		Where(
-			"tenant_id = ? AND service_id = ? AND source_type = ? AND source_id = ? AND fact_key = ?",
+			"tenant_id = ? AND service_id = ? AND source_type = ? AND source_id = ? AND fact_key = ? AND deleted_at IS NULL",
 			tenantID,
 			strings.TrimSpace(serviceID),
 			strings.TrimSpace(sourceType),
@@ -473,6 +507,43 @@ func (r *serviceSpaceRepository) GetFactBySource(
 		return nil, nil
 	}
 	return &fact, err
+}
+
+func (r *serviceSpaceRepository) GetLatestActiveFactByKey(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, subjectID, factKey string,
+) (*types.ServiceFact, error) {
+	var fact types.ServiceFact
+	err := r.db.WithContext(ctx).
+		Where(
+			"tenant_id = ? AND service_id = ? AND subject_id = ? AND fact_key = ? AND disabled_at IS NULL AND deleted_at IS NULL AND superseded_by = ''",
+			tenantID,
+			strings.TrimSpace(serviceID),
+			strings.TrimSpace(subjectID),
+			strings.TrimSpace(factKey),
+		).
+		Order("created_at DESC").
+		Order("id DESC").
+		First(&fact).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &fact, err
+}
+
+func (r *serviceSpaceRepository) UpdateFact(
+	ctx context.Context,
+	fact *types.ServiceFact,
+	fields map[string]any,
+) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).
+		Model(&types.ServiceFact{}).
+		Where("tenant_id = ? AND service_id = ? AND id = ?", fact.TenantID, fact.ServiceID, fact.ID).
+		Updates(fields).Error
 }
 
 func (r *serviceSpaceRepository) CreateFactProposal(
@@ -516,6 +587,36 @@ func (r *serviceSpaceRepository) GetFactProposalBySource(
 		return nil, nil
 	}
 	return &proposal, err
+}
+
+func (r *serviceSpaceRepository) ListFactProposals(
+	ctx context.Context,
+	tenantID uint64,
+	serviceID, sessionID, status, assistantMessageID string,
+	page, pageSize int,
+) ([]*types.ServiceFactProposal, int64, error) {
+	query := r.db.WithContext(ctx).Model(&types.ServiceFactProposal{}).
+		Where("tenant_id = ? AND service_id = ?", tenantID, strings.TrimSpace(serviceID))
+	if sessionID = strings.TrimSpace(sessionID); sessionID != "" {
+		query = query.Where("session_id = ?", sessionID)
+	}
+	if status = strings.TrimSpace(status); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if assistantMessageID = strings.TrimSpace(assistantMessageID); assistantMessageID != "" {
+		query = query.Where("assistant_message_id = ?", assistantMessageID)
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var proposals []*types.ServiceFactProposal
+	err := query.Order("created_at DESC").
+		Order("id DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&proposals).Error
+	return proposals, total, err
 }
 
 func (r *serviceSpaceRepository) UpdateFactProposal(
